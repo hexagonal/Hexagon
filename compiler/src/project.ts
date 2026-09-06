@@ -13,6 +13,7 @@ import { lex } from "./passes/lexer/lexer.js";
 import { applyLayout } from "./passes/layout/layout.js";
 import { lawfulModuleName, parseFile } from "./passes/parser/parser.js";
 import {
+  bringersOf,
   displayModuleName,
   firstSegmentPackage,
   fullModuleName,
@@ -20,6 +21,9 @@ import {
   moduleLayoutPath,
   resolveModuleName,
   STANDARD_LIBRARY,
+  visiblePackages,
+  wholeProgramFirstSegmentMessage,
+  type FirstSegmentContext,
   type ImportRepair,
   type ModuleIndex,
   type ModuleResolution,
@@ -161,13 +165,38 @@ export interface ProjectOptions {
    */
   readonly packageName?: string;
   /**
-   * The Hexagon packages the project's manifest lists (Packages §2.1). In this
-   * slice the compiler reads no `node_modules`, so a listed name contributes to
-   * the **package set** — which Modules §2.2's first-segment rule reads — and
-   * supplies no modules; resolving an installed package to its source is the
-   * host layer's, and additive.
+   * The Hexagon packages the project's manifest lists (Packages §2.1). A listed
+   * name contributes to the **package set** — which Modules §2.2's first-segment
+   * rule reads — whether or not `packages` below carries its source: a name the
+   * host could not resolve is refused by the host's own report, and the module
+   * rules read the set the manifests name.
    */
   readonly dependencies?: readonly string[];
+  /**
+   * The package names the **project's** own lookup answers with (Packages
+   * §4.1's sense of *installed*): a superset of `dependencies`, and what
+   * Modules §2.3's not-a-dependency report reads. Empty where a host runs no
+   * lookup, which withholds that report and nothing else.
+   */
+  readonly installed?: ReadonlySet<string>;
+  /**
+   * The dependency closure, each package with its own `.hex` sources (Packages
+   * §4.1, §5.1). The host assembles it — `validatePackageSet` over the edges its
+   * lookup answered — and the compiler compiles the graph whole, across
+   * packages, exactly as it compiles a project's own modules.
+   *
+   * Each package's files are seated under **that package's** name, so a
+   * dependency's `module Geometry` is `Acme.Geometry` (§2.3) and emits under
+   * `Acme/` (§6); its imports resolve against **its** visible set (§3.1), which
+   * is why the record travels beside the files rather than a name alone.
+   */
+  readonly packages?: readonly ProjectPackage[];
+}
+
+/** One package of the closure, as a host hands it in. */
+export interface ProjectPackage {
+  readonly record: ProgramPackage;
+  readonly files: readonly Source.File[];
 }
 
 /** One module of the program, as `compileProject` addresses it. */
@@ -193,17 +222,42 @@ export function compileProject(
   const projectPackage: ProgramPackage = {
     name: options.packageName,
     dependencies: options.dependencies ?? [],
+    installed: options.installed ?? new Set(),
   };
-  const sourceFiles = files.map((file) =>
+  const normalize = (file: Source.File): Source.File =>
     file.path === normalizePath(file.path)
       ? file
-      : new Source.File(file.id, normalizePath(file.path), file.text)
-  );
+      : new Source.File(file.id, normalizePath(file.path), file.text);
+  const sourceFiles = files.map(normalize);
+  const dependencyPackages = (options.packages ?? []).map(({ record, files: given }) => ({
+    record,
+    files: given.map(normalize),
+  }));
+  /**
+   * Every package a module can resolve in, by name (Packages §3.1). `Hex` sees
+   * itself and nothing else — its intra-set visibility is Modules §5.5's
+   * ordered prefix, applied where the module is compiled — and a package the
+   * host named but did not describe answers with the empty set rather than with
+   * the project's, which would let a dependency import what the project lists.
+   */
+  const packagesByName = new Map<string | undefined, ProgramPackage>([
+    [projectPackage.name, projectPackage],
+    [STANDARD_LIBRARY, { name: STANDARD_LIBRARY, dependencies: [], installed: new Set() }],
+  ]);
+  for (const { record } of dependencyPackages) {
+    if (record.name === undefined || record.name === projectPackage.name) continue;
+    packagesByName.set(record.name, record);
+  }
   // One injected list, prelude and runtime members woven together, in the order
   // that makes each see the members before it and only those (Modules §5.5, and
   // `RuntimeModule.precedes` for what the runtime seats decide).
   const injectedModules = weaveInjected(PRELUDE_MODULES, RUNTIME_MODULES, LIBRARY_MODULES);
-  const units = gatherModules(sourceFiles, projectPackage, injectedModules);
+  const units = gatherModules(
+    sourceFiles,
+    projectPackage,
+    dependencyPackages,
+    injectedModules,
+  );
   const injectedUnits = units.filter(({ injected }) => injected !== undefined)
     .sort((left, right) => left.seat! - right.seat!);
   const preludeUnits = injectedUnits.filter(({ injected }) => injected === "prelude");
@@ -244,10 +298,13 @@ export function compileProject(
   // because every importer has to spell the same one (FFI Part 1 §8.3).
   const runtimeBasename = runtimeDeclarationsBasename(units);
 
-  const sourcePaths = new Set(sourceFiles.map(({ path }) => path));
+  const sourcePaths = new Set(
+    [...sourceFiles, ...dependencyPackages.flatMap(({ files: given }) => given)]
+      .map(({ path }) => path),
+  );
   // The index reads every unit — its two rules are about the *set*, and a unit
   // that loses its address still has to draw the duplicate report that says so.
-  const index = moduleIndexOf(units, diagnostics, projectPackage);
+  const index = moduleIndexOf(units, diagnostics, projectPackage, packagesByName);
   const seated = seatOneUnitPerAddress(units);
   const byPath = new Map(seated.map((unit) => [unit.path, unit]));
   const parsed = new Map(seated.map((unit) => [unit.path, unit.parsed]));
@@ -278,7 +335,7 @@ export function compileProject(
       }
       if (item.kind !== "Import") continue;
       if (edges.has(item.module.text)) continue;
-      const resolution = resolveModuleName(item.module.text, packageOf(unit, projectPackage), index);
+      const resolution = resolveModuleName(item.module.text, packageOf(unit, packagesByName), index);
       if (resolution.kind === "Resolved") {
         edges.set(item.module.text, resolution.module.path);
         continue;
@@ -513,7 +570,7 @@ export function compileProject(
       imports,
       // Modules §5.1 rule 1's repair clause; see `importRepairFor`.
       importRepair: (written: string) =>
-        importRepairFor(written, unit, projectPackage, index),
+        importRepairFor(written, unit, packagesByName, index),
       repairs,
       symbolBase: isInjected ? preludeSymbolBase : symbolBase,
       unionBase: isInjected ? preludeUnionBase : unionBase,
@@ -575,7 +632,7 @@ export function compileProject(
     }
     const typed = check(resolved, {
       importRepair: (written: string) =>
-        importRepairFor(written, unit, projectPackage, index),
+        importRepairFor(written, unit, packagesByName, index),
       repairs,
       ownDefaultAlias: unit.declaredName.split(".").at(-1)!,
       importedSchemes,
@@ -963,10 +1020,10 @@ function seatOneUnitPerAddress(units: readonly Unit[]): readonly Unit[] {
 function importRepairFor(
   written: string,
   unit: Unit,
-  project: ProgramPackage,
+  packages: ReadonlyMap<string | undefined, ProgramPackage>,
   index: ModuleIndex,
 ): ImportRepair | undefined {
-  const resolution = resolveModuleName(written, packageOf(unit, project), index);
+  const resolution = resolveModuleName(written, packageOf(unit, packages), index);
   if (resolution.kind === "Resolved") {
     return { kind: "Resolved", fullName: resolution.module.fullName };
   }
@@ -976,12 +1033,22 @@ function importRepairFor(
   return undefined;
 }
 
-function packageOf(unit: Unit, project: ProgramPackage): ProgramPackage {
-  return unit.packageName === project.name
-    ? project
-    // `Hex` sees itself and nothing else: the prelude's intra-set visibility is
-    // Modules §5.5's ordered prefix, applied where the module is compiled.
-    : { name: unit.packageName, dependencies: [] };
+/**
+ * The package a unit's imports resolve against (Packages §3.1) — **its own**,
+ * with its own `dependencies` and its own `installed` set.
+ *
+ * Per package, not per program: `Acme`'s `import Util` means `Acme`'s
+ * dependency's `Util` (or `Acme`'s own), never the project's, whatever the
+ * project names `Util`. A unit whose package the host did not describe falls
+ * back to a package that sees itself and `Hex` and nothing else, which is what
+ * `Hex`'s own modules get and the only safe answer for a name with no record.
+ */
+function packageOf(
+  unit: Unit,
+  packages: ReadonlyMap<string | undefined, ProgramPackage>,
+): ProgramPackage {
+  return packages.get(unit.packageName)
+    ?? { name: unit.packageName, dependencies: [], installed: new Set() };
 }
 
 /**
@@ -1022,6 +1089,7 @@ function packageOf(unit: Unit, project: ProgramPackage): ProgramPackage {
 function gatherModules(
   sourceFiles: readonly Source.File[],
   project: ProgramPackage,
+  packages: readonly ProjectPackage[],
   injectedModules: readonly InjectedModule[],
 ): readonly Unit[] {
   const seat = (
@@ -1047,14 +1115,33 @@ function gatherModules(
     };
   };
   const moduleFiles = sourceFiles.filter(({ path }) => path.endsWith(".hex"));
+  /**
+   * Each dependency's own `.hex` files, seated under **that package's** name.
+   *
+   * A dependency's module `Geometry` is `Acme.Geometry` (§2.3) and lies at
+   * `/Acme/Geometry.hex` (§6): one address, computed at the seat, from the name
+   * the header declared and the package the file came in with. The file's own
+   * path is read for nothing — a source path appears nowhere in the output.
+   */
+  const dependencyModules = packages.flatMap(({ record, files }) =>
+    files.filter(({ path }) => path.endsWith(".hex")).map((source) => ({
+      source,
+      packageName: record.name,
+    }))
+  );
   // A project with no modules injects nothing: its (empty) module list needs no
-  // prelude, and the compile stays what a compilation of nothing was.
+  // prelude, and the compile stays what a compilation of nothing was. A
+  // dependency's sources do not answer for it — a program whose *project* has no
+  // module compiles nothing whatever its `node_modules` holds.
   if (moduleFiles.length === 0) return [];
   const supplied = moduleFiles.flatMap((source) =>
     parseFile(applyLayout(lex(source)), source.path).map((parsed) => ({ source, parsed }))
   );
   const adopted = new Set<Parsed.Module>();
   const units: Unit[] = [];
+  // Every file the compile holds, so an injected module's minted identity
+  // collides with neither the project's files nor a dependency's.
+  const allFiles = [...sourceFiles, ...packages.flatMap(({ files }) => files)];
   for (const [index, member] of injectedModules.entries()) {
     // The file the module would be filed under, were it filed: its declared
     // name's last segment. `Runtime.VectorTrie` is `VectorTrie.hex`, which is
@@ -1088,7 +1175,7 @@ function gatherModules(
       continue;
     }
     const source = new Source.File(
-      Source.fileId(nextFileId(sourceFiles, units)),
+      Source.fileId(nextFileId(allFiles, units)),
       `/${STANDARD_LIBRARY}/${member.name.replaceAll(".", "/")}.hex`,
       member.source,
     );
@@ -1098,6 +1185,16 @@ function gatherModules(
   for (const { source, parsed } of supplied) {
     if (adopted.has(parsed)) continue;
     units.push(seat(source, parsed, project.name, undefined, undefined));
+  }
+  // Adoption above is the **project's** alone: a dependency supplying a file
+  // called `Option.hex` that declares `module Option` declares `Acme.Option`,
+  // an ordinary module of an ordinary package, and never takes a prelude seat.
+  // The stdlib-developing-itself route is the root package's, because that is
+  // the only package a host compiles as the standard library.
+  for (const { source, packageName } of dependencyModules) {
+    for (const parsed of parseFile(applyLayout(lex(source)), source.path)) {
+      units.push(seat(source, parsed, packageName, undefined, undefined));
+    }
   }
   return units;
 }
@@ -1113,24 +1210,45 @@ function nextFileId(sourceFiles: readonly Source.File[], units: readonly Unit[])
 /**
  * The program's module index, with the two rules that read the *set* rather
  * than one import: duplicate names within a package (Modules §2.2) and the
- * first-segment rule at the header seat (§2.2, Packages §6).
+ * first-segment rule at **both** its seats (§2.2, Packages §6, §7).
+ *
+ * The two seats are one rule read against two sets. Where the declaring package
+ * *sees* the offending package — a listed dependency, `Hex`, or itself
+ * (Packages §3.1) — the report is at the header and its one repair is a rename.
+ * Where it does not — a dependency `Bolt` that lists no `Acme` declaring
+ * `module Acme.Tools`, in a program that holds both — the report is the
+ * whole-program check's, worded over the *project's* own entries, since those
+ * are the only ones its reader can act on.
  */
 function moduleIndexOf(
   units: readonly Unit[],
   diagnostics: Diagnostics.Bag,
   project: ProgramPackage,
+  packages: ReadonlyMap<string | undefined, ProgramPackage>,
 ): ModuleIndex {
-  // Packages §3.1: the project, `Hex`, and the `dependencies` closure. In this
-  // slice the closure is the project's own list — a fact of the package set,
-  // fixed before any import is resolved.
+  // Packages §3.1: the project, `Hex`, and the `dependencies` closure — a fact
+  // of the package set, fixed before any import is resolved. A listed name the
+  // host resolved to no package is in it too: the manifest names it, the host
+  // refuses the entry with its own report, and the module rules read the set
+  // the manifests name rather than a set discovery happened to fill.
   const packageNames = new Set<string>([STANDARD_LIBRARY, ...project.dependencies]);
   if (project.name !== undefined) packageNames.add(project.name);
+  for (const name of packages.keys()) {
+    if (name !== undefined) packageNames.add(name);
+  }
+  const wholeProgram: FirstSegmentContext = {
+    directEntries: project.dependencies,
+    bringers: bringersOf(project, [...packages.values()]),
+  };
   const byFullName = new Map<string, ProgramModule>();
   /** First declaration of each name, per package, folded for the case rule. */
   const declared = new Map<string, Unit>();
   for (const unit of units) {
     const offending = firstSegmentPackage(unit.declaredName, packageNames);
     if (offending !== undefined) {
+      const declaring = packages.get(unit.packageName)
+        ?? { name: unit.packageName, dependencies: [], installed: new Set<string>() };
+      const seen = visiblePackages(declaring).includes(offending);
       diagnostics.add({
         severity: "error",
         // The repair clause is the message's own (Modules §2.2, §10; Packages
@@ -1138,10 +1256,30 @@ function moduleIndexOf(
         // casing refusal recovered under — `module hex.util` recovering as
         // `Hex.Util` — it is the repair that reaches legal code, the casing
         // rewrite being one repair of two.
-        message: `\`${unit.declaredName}\` begins with the name of the package ` +
-          `\`${offending}\`; a dotted module's first segment cannot name a package ` +
-          "in the program; rename the module",
+        message: seen
+          ? `\`${unit.declaredName}\` begins with the name of the package ` +
+            `\`${offending}\`; a dotted module's first segment cannot name a package ` +
+            "in the program; rename the module"
+          : wholeProgramFirstSegmentMessage(
+            unit.declaredName,
+            // "of the project", never "of package `MyApp`": a named project is
+            // still the project, and its repairs are the project's (§2.2).
+            unit.packageName === project.name ? undefined : unit.packageName,
+            offending,
+            offending === project.name,
+            wholeProgram,
+          ),
         primary: unit.parsed.name.span,
+        // The other package's only text is its manifest, so that is where the
+        // related location points — and only where the host handed one in.
+        ...(seen || packages.get(offending)?.manifest === undefined
+          ? {}
+          : {
+            labels: [{
+              span: packages.get(offending)!.manifest!,
+              message: `\`${offending}\` is declared here`,
+            }],
+          }),
       });
       continue;
     }
@@ -1190,13 +1328,9 @@ function moduleIndexOf(
 /**
  * Modules §10's rows for a written name that resolved to nothing.
  *
- * Exported for its tests alone. Two of its arms — `Contested` and
- * `NotADependency` — cannot be reached from `compileProject` while the package
- * set is `{project, Hex}`: a contest needs two packages providing one declared
- * name, and §3.2's occlusion answers before any two the project can assemble,
- * while a not-a-dependency report needs an installed set to check a name
- * against. They ship with byte-exact §10 wording, so the wording is executed
- * here until a real dependency package makes both reachable end to end.
+ * Exported for its tests alone; every arm is reached from `compileProject` now
+ * that a host hands in a dependency closure (Packages §9 (a), (c), (d)), and
+ * the unit tests below it pin the wording a golden test would only sample.
  */
 export function unresolvedModuleMessage(
   written: string,

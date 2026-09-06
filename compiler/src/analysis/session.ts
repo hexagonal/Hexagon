@@ -49,6 +49,7 @@ import {
   type CompiledModule,
   type ProjectOptions,
 } from "../project.js";
+import type { ProgramPackage } from "../packages.js";
 import { moduleInterface } from "../passes/resolver/resolver.js";
 import { displayModuleName, moduleImportLine } from "../packages.js";
 
@@ -214,7 +215,26 @@ export function refused(result: RenameResult | RenameSubject): result is RenameR
   return "refused" in result;
 }
 
-export interface SessionOptions extends ProjectOptions {}
+/**
+ * One package of the dependency closure, as a *session* holds it.
+ *
+ * `ProjectOptions` takes each package's files; a session takes their **paths**,
+ * because the session owns file identity: a path it holds has one
+ * `Source.FileId` for the life of the session (see `#fileIds`), and a host
+ * minting a second `Source.File` for the same text would make two spans in one
+ * file look like spans in two. So a dependency's sources are pushed in with
+ * `setFile` like every other file, and this says which of them belong to which
+ * package.
+ */
+export interface SessionPackage {
+  readonly record: ProgramPackage;
+  /** The session paths of this package's own source files. */
+  readonly paths: readonly string[];
+}
+
+export interface SessionOptions extends Omit<ProjectOptions, "packages"> {
+  readonly packages?: readonly SessionPackage[];
+}
 
 export class AnalysisSession {
   #options: SessionOptions;
@@ -1452,10 +1472,32 @@ export class AnalysisSession {
 
   #analyze(): Analysis {
     if (this.#analysis === undefined) {
-      const files = [...this.#texts].map(([path, text]) =>
-        new Source.File(this.#fileIds.get(path)!, path, text)
+      const files = new Map(
+        [...this.#texts].map(([path, text]) =>
+          [path, new Source.File(this.#fileIds.get(path)!, path, text)] as const
+        ),
       );
-      this.#analysis = new Analysis(compileProject(files, this.#options));
+      // A dependency's sources are held like every other file and claimed here,
+      // so the project's own file list is what is left over. A path a package
+      // claims that the session does not hold is simply absent — the walk that
+      // named it and the reader that lost it disagree, and the compile answers
+      // over what it has rather than over what it was promised.
+      const claimed = new Set<string>();
+      const { packages: named, ...rest } = this.#options;
+      const packages = (named ?? []).map(({ record, paths }) => {
+        const own = paths.flatMap((path) => {
+          const normalized = normalizePath(path);
+          const file = files.get(normalized);
+          if (file === undefined) return [];
+          claimed.add(normalized);
+          return [file];
+        });
+        return { record, files: own };
+      });
+      const project = [...files].flatMap(([path, file]) => claimed.has(path) ? [] : [file]);
+      this.#analysis = new Analysis(
+        compileProject(project, packages.length === 0 ? rest : { ...rest, packages }),
+      );
     }
     return this.#analysis;
   }
@@ -2058,13 +2100,30 @@ function diagnosticTally(
  */
 function sameOptions(left: SessionOptions, right: SessionOptions): boolean {
   const compared = (
-    { packageName, dependencies, ...rest }: SessionOptions,
+    { packageName, dependencies, installed, packages, ...rest }: SessionOptions,
   ): readonly string[] => {
     const exhaustive: Record<string, never> = rest;
     void exhaustive;
     return [
       `name:${packageName ?? ""}`,
       ...[...(dependencies ?? [])].sort().map((name) => `dependency:${name}`),
+      // A set, like `dependencies`: what a lookup answers with has no order.
+      ...[...(installed ?? [])].sort().map((name) => `installed:${name}`),
+      // The closure's order *is* meaningful — `validatePackageSet` fixes it —
+      // so it is compared as written, and every field of every record with it:
+      // a package whose `dependencies` changed compiles differently under the
+      // same name, and one whose file list changed holds different modules.
+      ...(packages ?? []).flatMap(({ record, paths }) => [
+        `package:${record.name ?? ""}`,
+        ...record.dependencies.map((name) => `package-dependency:${name}`),
+        ...[...record.installed].sort().map((name) => `package-installed:${name}`),
+        `package-manifest:${
+          record.manifest === undefined
+            ? ""
+            : `${record.manifest.fileId}:${record.manifest.start.offset}:${record.manifest.end.offset}`
+        }`,
+        ...paths.map((path) => `package-file:${path}`),
+      ]),
     ];
   };
   const [before, after] = [compared(left), compared(right)];

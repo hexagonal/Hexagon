@@ -8,9 +8,11 @@
  * nothing here reads a manifest, a `node_modules` directory, or a file. The
  * package set arrives assembled (Packages §4.1) and this module answers over it.
  *
- * That split is what keeps `project.ts` filesystem-free while leaving the host
- * layer additive: widening the set from `{project, Hex}` to a real dependency
- * closure changes the *input* to these functions and none of their rules.
+ * That split is what keeps `project.ts` filesystem-free, and it is what let the
+ * host layer arrive additively: a real dependency closure changed the *input* to
+ * these functions and none of their rules. `validatePackageSet` below is the
+ * other half of the same split — §4.1's and §4.3's rules read over records the
+ * host's discovery answered with, with no path resolved and no directory read.
  */
 
 import type * as Source from "./support/source.js";
@@ -29,6 +31,91 @@ export interface ProgramPackage {
   readonly name: string | undefined;
   /** The packages this one's imports may name, by name (Packages §3.1). */
   readonly dependencies: readonly string[];
+  /**
+   * The package names **this package's own lookup answers with** (Packages
+   * §4.1's sense of *installed*) — a superset of `dependencies`, and the set
+   * Modules §2.3's not-a-dependency report reads.
+   *
+   * It travels on the package rather than arriving beside the resolution
+   * because the question is per-package: `Acme` resolving `Bolt.Util` asks what
+   * *`Acme`'s* directory can reach, which is not what the project's can. The
+   * set enters no closure and draws no refusal of its own — a lookup run to
+   * decide this report "adds nothing to the package set and draws no refusal"
+   * (§4.1).
+   */
+  readonly installed: ReadonlySet<string>;
+  /**
+   * Where this package's `hexagon.json` is, for the reports that must send a
+   * reader to it — the whole-program first-segment seat names the other
+   * package, and the other package's only text is its manifest.
+   *
+   * Absent for a package whose manifest the host did not hand in as a source
+   * file, and for `Hex`, which has none. A report then carries no label; it
+   * never invents a location.
+   */
+  readonly manifest?: Source.Span;
+}
+
+/**
+ * A package as a **record** (Packages §4.1): what a host's discovery answers
+ * with, and the only thing the compiler validates a package set over.
+ *
+ * `directory` is the package's **canonical** directory, host-supplied and
+ * opaque to the compiler: nothing here reads it as a path, and the only
+ * arithmetic done on it is the relative printing §4.3's reports prescribe. Two
+ * records with one `directory` are one package, which is how "two links reaching
+ * one package are one copy" holds without this file knowing what a link is.
+ */
+export interface PackageRecord {
+  readonly name: string | undefined;
+  readonly dependencies: readonly string[];
+  /** The canonical directory — the package's identity (Packages §4.3). */
+  readonly directory: string;
+  /** The npm manifest's version, where it declares one (§4.3's reports). */
+  readonly version?: string;
+  /** See `ProgramPackage.installed`; empty where the host computed none. */
+  readonly installed?: ReadonlySet<string>;
+  /** See `ProgramPackage.manifest`. */
+  readonly manifest?: Source.Span;
+}
+
+/** A manifest a lookup scanned and could not read or found unlawful (§4.1). */
+export interface UnreadableManifest {
+  /** The manifest's path, as the host spells it for the reader. */
+  readonly path: string;
+  readonly reason: string;
+}
+
+/**
+ * One `dependencies` entry, as the host's lookup answered it (Packages §4.1).
+ *
+ * `candidates` is what the **nearest answering level** held — none, one, or the
+ * two that draw §4.3's installed-twice report. A farther level's copy is
+ * shadowed for this walk and is not here; it enters the program only where some
+ * other package's lookup answers with it, as its own edge.
+ */
+export interface ResolvedEdge {
+  /** The canonical directory of the package whose manifest carries the entry. */
+  readonly from: string;
+  /** The entry, as written. */
+  readonly name: string;
+  readonly candidates: readonly PackageRecord[];
+  readonly unreadable: readonly UnreadableManifest[];
+}
+
+/**
+ * A problem with the package set, seated at the manifest that carries the entry
+ * that drew it (D3): a dependency's own unresolvable entry reports against the
+ * dependency's `hexagon.json`, not against the project's.
+ */
+export interface PackageProblem {
+  readonly message: string;
+  /** The canonical directory of the manifest carrying the entry. */
+  readonly directory: string;
+  /** Which key of that manifest the report is about. */
+  readonly key: "name" | "dependencies";
+  /** The `dependencies` entry, where one entry drew it. */
+  readonly entry?: string;
 }
 
 /** A module of some package in the program, addressed by its declared name. */
@@ -172,9 +259,9 @@ export type ModuleResolution =
   }
   | {
     /**
-     * The first segment names a package the resolving one does not list
-     * (Packages §7) — deferred in the first host slice, where no installed
-     * package set exists to check the name against.
+     * The first segment names an **installed** package the resolving one does
+     * not list (Packages §7) — installed in §4.1's sense, one this package's
+     * own lookup answers with (`ProgramPackage.installed`).
      */
     readonly kind: "NotADependency";
     readonly packageName: string;
@@ -216,11 +303,30 @@ export function resolveModuleName(
   written: string,
   resolving: ProgramPackage,
   index: ModuleIndex,
-  installedPackages: ReadonlySet<string> = new Set(),
 ): ModuleResolution {
   const visible = visiblePackages(resolving);
+  /**
+   * The module `package` declares under the *declared* name `name`.
+   *
+   * The declaring package is checked as well as the key, because a full name is
+   * not a unique reading of a (package, declared name) pair while a project may
+   * have none (§2.5): an unnamed project's `module Bolt.Util` and the package
+   * `Bolt`'s `module Util` are both `Bolt.Util`. Reading the key alone made the
+   * project *provide* a dependency's module — `import Bolt.Util` resolved
+   * silently to `Bolt`'s, in a project that lists no `Bolt`, instead of drawing
+   * §7's not-a-dependency report. Modules §2.2's first-segment rule forbids the
+   * declaration whenever `Bolt` is in the program, so the two never coexist —
+   * but the resolution must not depend on another rule having fired first.
+   */
+  const declaredIn = (
+    packageName: string | undefined,
+    name: string,
+  ): ProgramModule | undefined => {
+    const module = index.byFullName.get(fullModuleName(packageName, name));
+    return module?.packageName === packageName ? module : undefined;
+  };
   // §3.2: the resolving package's own module wins, silently.
-  const own = index.byFullName.get(fullModuleName(resolving.name, written));
+  const own = declaredIn(resolving.name, written);
   if (own !== undefined) return { kind: "Resolved", module: own };
 
   const segments = written.split(".");
@@ -231,13 +337,13 @@ export function resolveModuleName(
       return { kind: "SelfQualified", declaredName: segments.slice(1).join(".") };
     }
     if (visible.includes(head)) {
-      const qualified = index.byFullName.get(written);
+      const qualified = declaredIn(head, segments.slice(1).join("."));
       if (qualified !== undefined) return { kind: "Resolved", module: qualified };
     }
   }
   // Otherwise the spelling is a *declared* name, sought in every visible package.
   const providers = visible.flatMap((packageName) => {
-    const module = index.byFullName.get(fullModuleName(packageName, written));
+    const module = declaredIn(packageName, written);
     return module === undefined ? [] : [module];
   });
   if (providers.length === 1) return { kind: "Resolved", module: providers[0]! };
@@ -250,7 +356,7 @@ export function resolveModuleName(
     const shadowed = [...index.byFullName.values()].some(
       ({ declaredName }) => declaredName.split(".")[0] === head,
     );
-    if (installedPackages.has(head) && !visible.includes(head) && !shadowed) {
+    if (resolving.installed.has(head) && !visible.includes(head) && !shadowed) {
       return { kind: "NotADependency", packageName: head };
     }
   }
@@ -327,24 +433,424 @@ export function packageNameRefusal(name: string): string | undefined {
 
 /**
  * Packages §2.4: `Hex` is every package's dependency and is never listed; §4.4:
- * an npm package with no manifest is a JavaScript package, bound with `extern`.
+ * an entry's **spelling** establishes whether it is a package name, and nothing
+ * about what any package holds.
  *
- * The two refusals are told apart by the *shape* of the entry, not by one test
- * standing in for both: an uppercase-start spelling is a package name written
- * wrong (§2.1) — `"Acme.Tools"` is the module-name form in a package-name seat
- * — and sending its author to `extern from "Acme.Tools"` would name a
- * JavaScript module that cannot exist. Only a spelling no package name could
- * ever take is read as npm's.
+ * Three refusals, told apart by the shape of the entry alone. `"Hex"` is read
+ * first, ahead of the rest. An uppercase-start spelling that is not one
+ * identifier is a package name written wrong (§2.1) — `"Acme.Tools"` is the
+ * module-name form in a package-name seat. Anything else is no package name at
+ * all, and the message says what the field expects and where a JavaScript
+ * dependency goes instead — **without a verdict on the package**, because
+ * `"@acme/geometry"` may well be a distribution whose `hexagon.json` declares
+ * `"name": "Acme"`. Where upper-casing the first letter yields a lawful name
+ * other than `Hex`, that spelling is named too, a miscased name being the
+ * likelier mistake there; an entry `"hex"` gets no such hint, since the
+ * spelling it would offer is the one §2.4 refuses.
  */
 export function dependencyRefusal(name: string): string | undefined {
   if (name === STANDARD_LIBRARY) return "`Hex` is every package's dependency; remove the entry";
   if (PACKAGE_NAME.test(name)) return undefined;
   if (/^[A-Z]/u.test(name)) return packageNameShapeRefusal(name);
-  return `\`${name}\` is not a Hexagon package: bind it with \`extern from "${name}"\``;
+  const capitalised = name.charAt(0).toUpperCase() + name.slice(1);
+  const perhaps = PACKAGE_NAME.test(capitalised) && capitalised !== STANDARD_LIBRARY
+    ? `, perhaps \`"${capitalised}"\``
+    : "";
+  return `\`"${name}"\` is not a package name; \`dependencies\` expects a Hexagon ` +
+    `package name, as the dependency's \`hexagon.json\` declares it${perhaps} — for a ` +
+    `JavaScript dependency, declare it in \`package.json\` and bind it with ` +
+    `\`extern from "${name}"\``;
 }
 
 /** Where a module's text is, for the reports that must send a reader to it. */
 export interface ModuleSite {
   readonly path: string;
   readonly span: Source.Span;
+}
+
+// ---------------------------------------------------------------------------
+// The package set: validation over records (Packages §4.1, §4.3)
+// ---------------------------------------------------------------------------
+
+/**
+ * One package of the validated set, with the directory it came from.
+ *
+ * The directory travels back out because a host has to pair the answer with the
+ * files it read: it discovers the closure to run each package's lookup from its
+ * own place (§4.1), and this is validation's reading of the same closure. The
+ * compiler itself reads the directory for nothing but §4.3's relative printing.
+ */
+export interface PackageSetMember {
+  /** The canonical directory — the package's identity (§4.3). */
+  readonly directory: string;
+  readonly package: ProgramPackage;
+}
+
+/** What `validatePackageSet` answers: the closure, and what is wrong with it. */
+export interface PackageSet {
+  /**
+   * The closure, in a deterministic order: the project first, then its
+   * dependencies depth-first in manifest order. `Hex` is not among them — it is
+   * the compiler's own, injected wherever a program is compiled (§2.4).
+   */
+  readonly packages: readonly PackageSetMember[];
+  readonly problems: readonly PackageProblem[];
+}
+
+/**
+ * Validates a resolved dependency graph — **pure**, over records, with no
+ * filesystem anywhere near it (Packages §4.1's split: what a package *is* is
+ * the language's, how its directory is *found* is a host's).
+ *
+ * The host runs each package's lookup from that package's own canonical
+ * directory and hands the answers in as edges; this assembles the closure
+ * outward from the project and reads §4.3's rules over it and nothing wider. A
+ * copy nothing in the closure reaches is therefore refused by nothing, which is
+ * §8's rejected index in one sentence.
+ */
+export function validatePackageSet(
+  project: PackageRecord,
+  edges: readonly ResolvedEdge[],
+): PackageSet {
+  const problems: PackageProblem[] = [];
+  const edgesFrom = new Map<string, ResolvedEdge[]>();
+  for (const edge of edges) {
+    const seated = edgesFrom.get(edge.from);
+    if (seated === undefined) edgesFrom.set(edge.from, [edge]);
+    else seated.push(edge);
+  }
+  /** The closure by canonical directory, in the order it was assembled. */
+  const closure = new Map<string, PackageRecord>([[project.directory, project]]);
+  /** Which entry first reached each directory, for seating a duplicate's report. */
+  const reachedBy = new Map<string, { from: string; name: string }>();
+  /** Resolved edges of the closure, by directory — the graph the cycle rule reads. */
+  const graph = new Map<string, string[]>();
+
+  const walk = (record: PackageRecord): void => {
+    const own: string[] = [];
+    graph.set(record.directory, own);
+    for (const name of record.dependencies) {
+      const edge = (edgesFrom.get(record.directory) ?? []).find((candidate) =>
+        candidate.name === name
+      );
+      // An entry the host ran no lookup for — a spelling §4.4 refused before
+      // the walk — contributes no edge and no report of this file's.
+      if (edge === undefined) continue;
+      if (edge.candidates.length === 0) {
+        problems.push({
+          message: unresolvableNameMessage(name, edge.unreadable, project.directory),
+          directory: record.directory,
+          key: "dependencies",
+          entry: name,
+        });
+        continue;
+      }
+      if (edge.candidates.length > 1) {
+        // Two package roots at one level, both declaring the requested name, at
+        // two canonical directories: no nearest-first rule orders them (§4.1).
+        problems.push({
+          message: installedTwiceMessage(name, edge.candidates, project.directory),
+          directory: record.directory,
+          key: "dependencies",
+          entry: name,
+        });
+        continue;
+      }
+      const answered = edge.candidates[0]!;
+      own.push(answered.directory);
+      // An entry resolving to a directory already in the set adds an edge and
+      // no package — the diamond, and the workspace link to the project itself
+      // (§4.3's choice 7: no special case anywhere in the code).
+      if (closure.has(answered.directory)) continue;
+      closure.set(answered.directory, answered);
+      reachedBy.set(answered.directory, { from: record.directory, name });
+      walk(answered);
+    }
+  };
+  walk(project);
+
+  // §4.3's project-name refusal, read ahead of the general one-copy rule: the
+  // project is the package with no directory to move, so its report is the one
+  // that names the manifest a reader can act on.
+  const named = [...closure.values()];
+  const projectNameClash = project.name === undefined ? undefined : named.find((record) =>
+    record.directory !== project.directory && record.name === project.name
+  );
+  if (projectNameClash !== undefined) {
+    problems.push({
+      message: `this project declares \`"name": "${project.name}"\`, and \`${project.name}\` ` +
+        `is also installed at \`${relativeDirectory(project.directory, projectNameClash.directory)}\`; ` +
+        "a program holds one package of each name",
+      directory: project.directory,
+      key: "name",
+    });
+  }
+
+  // §4.3's one-copy rule, over the package set and nothing wider.
+  const byName = new Map<string, PackageRecord[]>();
+  for (const record of named) {
+    if (record.name === undefined || record.name === project.name) continue;
+    const seated = byName.get(record.name);
+    if (seated === undefined) byName.set(record.name, [record]);
+    else seated.push(record);
+  }
+  for (const [name, copies] of byName) {
+    if (copies.length < 2) continue;
+    // Seated at the entry that brought the *second* copy: the manifest carrying
+    // the entry is the one whose reader can drop or move it.
+    const seat = reachedBy.get(copies[1]!.directory);
+    problems.push({
+      message: installedTwiceMessage(name, copies, project.directory),
+      directory: seat?.from ?? project.directory,
+      key: "dependencies",
+      ...(seat === undefined ? {} : { entry: seat.name }),
+    });
+  }
+
+  for (const cycle of cyclesOf(project.directory, graph, closure)) {
+    // The entry that closes the cycle is the one a reader removes.
+    const closing = cycle.at(-2)!;
+    const closes = closure.get(cycle.at(-1)!)!;
+    problems.push({
+      message: `dependency cycle: ${
+        cycle.map((directory) => `\`${closure.get(directory)!.name}\``).join(" → ")
+      }`,
+      directory: closing,
+      key: "dependencies",
+      ...(closes.name === undefined ? {} : { entry: closes.name }),
+    });
+  }
+
+  return {
+    packages: named.map((record) => ({
+      directory: record.directory,
+      package: {
+        name: record.name,
+        dependencies: record.dependencies,
+        installed: record.installed ?? new Set<string>(),
+        ...(record.manifest === undefined ? {} : { manifest: record.manifest }),
+      },
+    })),
+    problems,
+  };
+}
+
+/**
+ * §7's unresolvable-name row, with the tail naming every manifest this lookup
+ * scanned and could not read (§4.1) — "named only inside the unresolvable-name
+ * report of a lookup that scanned it", which is why the tail is built here and
+ * nowhere else.
+ */
+function unresolvableNameMessage(
+  name: string,
+  unreadable: readonly UnreadableManifest[],
+  projectDirectory: string,
+): string {
+  const base = `no installed package declares \`"name": "${name}"\`; install it, or ` +
+    "check the name in its `hexagon.json`";
+  if (unreadable.length === 0) return base;
+  const tail = unreadable
+    .map(({ path, reason }) =>
+      `\`${relativeDirectory(projectDirectory, path)}\` could not be read: ${reason}`
+    )
+    .join("; ");
+  return `${base} (${tail})`;
+}
+
+/** §4.3's installed-twice row: canonical directories, printed relative to the project. */
+function installedTwiceMessage(
+  name: string,
+  copies: readonly PackageRecord[],
+  projectDirectory: string,
+): string {
+  const printed = copies.map((record) => {
+    const directory = `\`${relativeDirectory(projectDirectory, record.directory)}\``;
+    return record.version === undefined ? directory : `${directory} (${record.version})`;
+  });
+  return `package \`${name}\` is installed twice: ${joinWithAnd(printed)}; ` +
+    "a program holds one copy of each Hexagon package";
+}
+
+/**
+ * Every cycle the closure's edges close, each reported once, found from the
+ * project outward — so a cycle among packages the project reaches is rendered
+ * from the package the walk entered it at (`Acme → Bolt → Acme`), and one the
+ * project itself is part of from the project (`MyApp → Bolt → MyApp`).
+ */
+function cyclesOf(
+  root: string,
+  graph: ReadonlyMap<string, readonly string[]>,
+  closure: ReadonlyMap<string, PackageRecord>,
+): readonly (readonly string[])[] {
+  const cycles: string[][] = [];
+  const reported = new Set<string>();
+  const stack: string[] = [];
+  const onStack = new Set<string>();
+  const done = new Set<string>();
+  const visit = (directory: string): void => {
+    if (onStack.has(directory)) {
+      const cycle = [...stack.slice(stack.indexOf(directory)), directory];
+      // Keyed by the cycle's members rather than by its rendering, so one cycle
+      // met from two entries is reported once.
+      const key = [...new Set(cycle)].sort().join(" ");
+      if (!reported.has(key)) {
+        reported.add(key);
+        cycles.push(cycle);
+      }
+      return;
+    }
+    if (done.has(directory)) return;
+    stack.push(directory);
+    onStack.add(directory);
+    for (const target of graph.get(directory) ?? []) {
+      if (closure.has(target)) visit(target);
+    }
+    onStack.delete(directory);
+    stack.pop();
+    done.add(directory);
+  };
+  visit(root);
+  return cycles;
+}
+
+/**
+ * One canonical directory as a reader of the project sees it — relative to the
+ * project, climbing where the walk climbed (`../node_modules/@acme/geometry`).
+ *
+ * String arithmetic over `/`-separated canonical paths, which is all a
+ * filesystem-free compiler can do and all §4.3 asks for: "the report prints each
+ * directory relative to the project". A path on another root — no shared prefix
+ * at all — is printed as it stands, there being no relative spelling of it.
+ */
+export function relativeDirectory(from: string, to: string): string {
+  const source = from.replaceAll("\\", "/").split("/").filter((part) => part !== "");
+  const target = to.replaceAll("\\", "/").split("/").filter((part) => part !== "");
+  let shared = 0;
+  while (shared < source.length && shared < target.length && source[shared] === target[shared]) {
+    shared += 1;
+  }
+  if (shared === 0) return to;
+  const parts = [...source.slice(shared).map(() => ".."), ...target.slice(shared)];
+  return parts.length === 0 ? "." : parts.join("/");
+}
+
+// ---------------------------------------------------------------------------
+// Modules §2.2's first-segment rule, at the whole-program seat
+// ---------------------------------------------------------------------------
+
+/**
+ * How the project reaches a package: which of its **own** `dependencies`
+ * entries bring it, "however long the chain" (Modules §2.2).
+ *
+ * A report never names an intermediate package the project cannot act on, so
+ * every repair is worded over these entries and this is what computes them.
+ */
+export function bringersOf(
+  project: ProgramPackage,
+  packages: readonly ProgramPackage[],
+): ReadonlyMap<string, readonly string[]> {
+  const byName = new Map<string, ProgramPackage>();
+  for (const member of packages) {
+    if (member.name !== undefined) byName.set(member.name, member);
+  }
+  const bringers = new Map<string, string[]>();
+  for (const entry of project.dependencies) {
+    const pending = [entry];
+    const seen = new Set<string>();
+    while (pending.length > 0) {
+      const name = pending.pop()!;
+      if (seen.has(name)) continue;
+      seen.add(name);
+      const reached = bringers.get(name);
+      if (reached === undefined) bringers.set(name, [entry]);
+      else if (!reached.includes(entry)) reached.push(entry);
+      for (const next of byName.get(name)?.dependencies ?? []) pending.push(next);
+    }
+  }
+  return bringers;
+}
+
+/** What a whole-program first-segment report needs to know about the program. */
+export interface FirstSegmentContext {
+  /** The project's own `dependencies` entries, in manifest order. */
+  readonly directEntries: readonly string[];
+  /** `bringersOf`'s answer. */
+  readonly bringers: ReadonlyMap<string, readonly string[]>;
+}
+
+/**
+ * Modules §2.2's **whole-program** first-segment report: a module whose dotted
+ * name begins with a package the declaring package cannot see.
+ *
+ * Three variants, one device. Every package the report names that is not itself
+ * an entry of the project's `dependencies` carries its bringers in a
+ * parenthetical after the phrase that names it; every repair is worded over the
+ * project's own entries; and where one entry brings both packages named, the two
+ * repairs collapse and the "combine them" clause goes, since the project never
+ * combined them and cannot separate them.
+ */
+export function wholeProgramFirstSegmentMessage(
+  declaredName: string,
+  declaringPackage: string | undefined,
+  offending: string,
+  offendingIsProject: boolean,
+  context: FirstSegmentContext,
+): string {
+  const of = declaringPackage === undefined
+    ? "of the project"
+    : `of package \`${declaringPackage}\`${parenthetical(declaringPackage, context)}`;
+  const head = `module \`${declaredName}\` ${of} begins with the name of `;
+  if (offendingIsProject) {
+    // The mirror case: the project being compiled cannot be dropped.
+    return `${head}this project, \`${offending}\`; rename the project or drop its ` +
+      `manifest \`name\`, ${dropClause(declaringPackage!, context)}, or combine them ` +
+      `once \`${declaringPackage}\` renames its module`;
+  }
+  const names = `the package \`${offending}\`, also in this program${
+    parenthetical(offending, context)
+  }`;
+  if (declaringPackage === undefined) {
+    // The project's own module: renaming a package is not among its repairs.
+    return `${head}${names}; rename the module, or ${dropClause(offending, context)}`;
+  }
+  const shared = (context.bringers.get(offending) ?? []).filter((entry) =>
+    (context.bringers.get(declaringPackage) ?? []).includes(entry)
+  );
+  if (shared.length > 0) {
+    return `${head}${names}; ${shared.length === 1 ? "drop the dependency that brings" : "drop the dependencies that bring"} both \`${offending}\` and \`${declaringPackage}\``;
+  }
+  const second = (context.bringers.get(declaringPackage) ?? []).length === 1
+    ? `the one that brings \`${declaringPackage}\``
+    : `the ones that bring \`${declaringPackage}\``;
+  return `${head}${names}; ${dropClause(offending, context)} or ${second}, or combine them ` +
+    `once \`${offending}\` is renamed or \`${declaringPackage}\` renames its module`;
+}
+
+/** "(brought in by `Carbide`)", "(a direct dependency, and brought in by `Carbide`)". */
+function parenthetical(name: string, context: FirstSegmentContext): string {
+  const bringers = context.bringers.get(name) ?? [];
+  const direct = context.directEntries.includes(name);
+  const others = bringers.filter((entry) => entry !== name);
+  if (direct && others.length === 0) return "";
+  if (direct) return ` (a direct dependency, and brought in by ${joinWithAnd(quoted(others))})`;
+  if (bringers.length === 0) return "";
+  return ` (brought in by ${joinWithAnd(quoted(bringers))})`;
+}
+
+/** "drop the dependency that brings `Acme`", plural where several bring it. */
+function dropClause(name: string, context: FirstSegmentContext): string {
+  const bringers = context.bringers.get(name) ?? [];
+  return bringers.length > 1
+    ? `drop the dependencies that bring \`${name}\``
+    : `drop the dependency that brings \`${name}\``;
+}
+
+function quoted(names: readonly string[]): readonly string[] {
+  return names.map((name) => `\`${name}\``);
+}
+
+function joinWithAnd(items: readonly string[]): string {
+  return items.length <= 1
+    ? items.join("")
+    : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
 }
