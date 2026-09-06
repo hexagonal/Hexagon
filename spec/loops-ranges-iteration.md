@@ -58,7 +58,7 @@ var cur = toSeq(e)              -- cur : Seq(ε), a compiler-fresh name
 ```
 
 - `toSeq` is the ordinary `Iterable` constraint member (Collections Part 5 §2.3) converting the iterable to its `Seq` (§7); for `e : Seq(ε)` it is the identity.
-- *(#355.)* **The head is pure and never marked.** `toSeq` is a constraint member, and members are pure (Constraints §2; Effects §5) — a `for` head has no seat for a call mark and needs none. Effects live in the body, whose statements mark their own calls as any block's do. The effectful traversal type, `Stream`, has no `Iterable` instance and does not stand in a `for` head (`stream.md` §4.5).
+- *(#355.)* **The head is pure and never marked.** `toSeq` is a constraint member whose contract is `->`, as every prelude member's is (Constraints §2, §7; Effects §5, §13.5) — a `for` head has no seat for a call mark and needs none. Effects live in the body, whose statements mark their own calls as any block's do. The effectful traversal type, `Stream`, has no `Iterable` instance and does not stand in a `for` head (`stream.md` §4.5).
 - The cursor `var` lives in the loop's own scope; `body` is a block, not a lambda, so `body` touching *user* `var`s is legal and the `cur :=` reassignment is legal — the design closes with Statements §6.2 rather than fighting it.
 - `e` is evaluated **once**, before iteration begins.
 
