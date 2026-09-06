@@ -146,7 +146,7 @@ The canonical example:
 
 ```hexagon
 extern from "stream-tools"
-    fun visit(callback: Seq(Int) -> Unit): Unit
+    fun visit(callback: Seq(Int) -> Unit) ->! Unit
 ```
 
 An arbitrary JS `Iterable<number>` would require a fresh persistent-`Seq` adaptation **at each callback invocation**, which drags in wrapper identity, retention, failure memoization, and lifetime questions that v1 deliberately refuses (Part 3 §10). V1 does not generate that wrapper. This is a hard error at the extern declaration, and it discharges the rejection Part 3 §9.3 and §11 assigned to this part. Per the Rewrite Rule, the diagnostic identifies the nested adapter-requiring type and names the three rewrites:
@@ -211,17 +211,17 @@ removeListener(target, onEvent)          -- same JS identity; actually deregiste
 -- (b) Extra JS callback arguments are harmless
 -- foreign: array.forEach(cb) invokes cb(value, index, array)
 extern from "helpers"
-    fun each(values: Array(Int), callback: Int -> Unit): Unit
+    fun each(values: Array(Int), callback: Int -> Unit) ->! Unit
 each(xs, n => total.push(n))             -- index/array ignored by representation
 
 -- (c) Meaningful callback result preserved
 extern from "helpers"
-    fun filter(values: Array(Int), keep: Int -> Bool): Array(Int)
+    fun filter(values: Array(Int), keep: Int -> Bool) ->! Array(Int)
 
 -- (d) Unit result is discarding
 extern from "collections"
     type JsArray
-    method push(arr: JsArray, value: Int): Unit
+    method push(arr: JsArray, value: Int) ->! Unit
 JsArray.push(arr, 3)                     -- JS push returns the new length; discarded
 
 -- (e) Hexagon exception through a callback, caught back in Hexagon
@@ -233,7 +233,7 @@ catch
 
 -- (f) Rejected: adapter in callback position
 extern from "stream-tools"
-    fun visit(callback: Seq(Int) -> Unit): Unit
+    fun visit(callback: Seq(Int) -> Unit) ->! Unit
                                          -- ERROR (§5.4): names Seq(Int), offers the
                                          --   three rewrites; top-level Seq unaffected
 ```

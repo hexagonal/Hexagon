@@ -312,8 +312,8 @@ An enum value crosses unchanged in both directions:
 ```hexagon
 extern from "direction"
     enum Direction = Up | Down
-    fun current(): Direction
-    fun move(direction: Direction): Unit
+    fun current() ->! Direction
+    fun move(direction: Direction) ->! Unit
 ```
 
 `move(Up)` passes the captured `$Direction.Up` value. `current()` returns its JavaScript

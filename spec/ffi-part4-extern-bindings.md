@@ -1,7 +1,7 @@
 # Hexagon FFI Part 4: `extern` Modules and Bindings
 
-**Status:** Decided (July 2026), revised in place after external review (Sol) before landing. Normative promotion of `spec/notes/ffi-proto-spec-questions.md` §5 — the core syntax, default-export binding, and effect-import packages — excluding the receiver-member and class material, which is Part 5's. The draft's four promotion questions were resolved in §12: unused binding imports may be elided; `extern let` asserts stability; exported extern types receive a generated opaque brand; generic extern declarations are deferred from v1.
-**Scope:** The `extern from` block; named and aliased bindings and the foreign-name-first `as` order; the `fun`/`let` callable/value distinction and its targeted diagnostics; type-only `type` declarations; `default` bindings for JavaScript default exports; visibility and re-export of extern bindings; `extern import` and foreign module effects; fixed visible arity and honest nullish parameter slots; declaration-site validation.
+**Status:** Decided (July 2026; every callable row writes its effect arrow, and the impure default with the `pure`/`conduit` claims retire — #869, §4.5), revised in place after external review (Sol) before landing. Normative promotion of `spec/notes/ffi-proto-spec-questions.md` §5 — the core syntax, default-export binding, and effect-import packages — excluding the receiver-member and class material, which is Part 5's. The draft's four promotion questions were resolved in §12: unused binding imports may be elided; `extern let` asserts stability; exported extern types receive a generated opaque brand; generic extern declarations are deferred from v1.
+**Scope:** The `extern from` block; named and aliased bindings and the foreign-name-first `as` order; the `fun`/`let` callable/value distinction and its targeted diagnostics; the effect arrow every callable row writes (§4.5); type-only `type` declarations; `default` bindings for JavaScript default exports; visibility and re-export of extern bindings; `extern import` and foreign module effects; fixed visible arity and honest nullish parameter slots; declaration-site validation.
 **Not in scope:** `method`, `get`, `set`, `extern class`, and companion construction (Part 5); `extern enum` (already normative in `ffi-foreign-enums.md`); calling convention, callbacks, and arity at the call boundary (Part 6); the Hexagon-to-JavaScript export surface and exact `.d.ts` declaration mechanics (Part 7); globals, CommonJS binding forms, overloads, rest/variadic externs, and generic extern declarations (**deferred**, §11).
 **Companions:** Part 1 §1/§4/§5.3 (trusted boundary, master type table, nested-adapter restriction); Part 2 (`Nullable` surface used by §9); Modules §2–§3, §8.1 (the module import, which carries no specifier; acyclicity); Lexer Layout (block layout); Exceptions §6 (`JsError`).
 
@@ -14,8 +14,8 @@ Foreign bindings use JavaScript's `from "specifier"` vocabulary, TypeScript-like
 ```hexagon
 extern from "tiny-json"
     export type JsonValue
-    export fun parse(text: String): JsonValue
-    export fun stringify(value: JsonValue): String
+    export fun parse(text: String) -> JsonValue
+    export fun stringify(value: JsonValue) -> String
     let VERSION as version: String
 ```
 
@@ -71,7 +71,7 @@ Emission shape is representative, not normative; what is normative is that the e
 Named members use JavaScript's foreign-name-first alias order:
 
 ```hexagon
-fun parse as parseJson(text: String): JsonValue
+fun parse as parseJson(text: String) -> JsonValue
 let VERSION as version: String
 type ForeignNode as Node
 ```
@@ -126,10 +126,10 @@ Ordinary Hexagon permits the `let`-function habit (`let double(x: Int): Int = ..
 
 ```hexagon
 extern from "tiny-json"
-    let parse(text: String): JsonValue
+    let parse(text: String) -> JsonValue
 ```
 
-> extern callable declarations use `fun`; write `fun parse(text: String): JsonValue`
+> extern callable declarations use `fun`; write `fun parse(text: String) -> JsonValue`
 
 ```hexagon
 extern from "tiny-json"
@@ -154,38 +154,27 @@ An extern `let` asserts a foreign **value** binding. ESM bindings are live: Java
 
 This is the reviewed reading of the trusted-boundary doctrine (§12.2), not an ESM live-read guarantee.
 
-### 4.5 Effect faces and the boundary's two claims *(#355, #409)*
+### 4.5 Effect faces: every callable row writes its arrow *(#355, #409; rewritten #869)*
 
-**A user-written extern is effectful by default.** Foreign code is trust territory (Part 1 §3.1), and the honest default for the unknown is the impure constant: an unannotated `extern fun`'s outer arrow is `->!`, so every call to it wears `!` (Effects §6.1). Function-typed slots inside its declared signature carry whatever arrows the author writes, believed like the rest of the declaration.
-
-**The trusted purity claim is the contextual modifier `pure`**, written between the export/default modifiers and the declaration keyword:
+**A callable extern row is a contract with no body to infer from, and it writes its outer arrow** — `->`, `->!`, or `->?` (Effects §2) — between its parameter list and its result, where an implementation header writes `:` (Functions §4.1). A constraint member header has the same shape for the same reason (Constraints §2; Effects §13.1). The declaration keyword says **how JavaScript is invoked**; the arrow says **what effects a Hexagon caller must accommodate**; the two are independent. The arrow is mandatory: there is no omitted-effect form and no `:` on a callable row (§13).
 
 ```hexagon
-extern from "./text.js"
-    export pure fun trim(document: String): String
+extern from "./operations.js"
+    export fun trim(text: String) -> String
+    export fun read(path: String) ->! String
+    export fun run(action: () ->? Unit) ->? Unit
+    export fun defer(action: () ->? Unit) -> (() ->? Unit)
+    export fun transaction(action: () ->? Unit) ->! Unit
 ```
 
-- `pure` makes the declaration's own face pure (`->` arrows). It is a **trusted-row obligation of exactly the Intrinsics §4.2 species**: believed, never checked, and the module author answers for it — the same currency as every extern type in this part.
-- A sound claim is one of Effects §6.2's two species — an unobservable world-write (the debug probe) or an owned, at-most-once world-read — or, the common case, a function that genuinely computes: `trim` touches nothing. A claim outside those shapes is a lie with the same standing as a wrong extern type (Part 1 §3.1).
-- `pure` is legal on `fun` declarations only — the callable is the thing with a face. On an extern `let` or `type` it is an error (a value reference is colourless — Effects §2.6 — so the claim would assert nothing). It is **refused on intrinsic rows** — "intrinsic rows are verified rather than trusted; `pure` is for user-written externs" — because the intrinsic door's purity comes from verification (Intrinsics §4.2), not trust. It is contextual vocabulary (Lexer §4.2's family): `pure` remains an ordinary name everywhere else.
-- The claim does not propagate: it faces this declaration only, and callbacks or fields inside the signature keep their written arrows.
-- *(#405.)* **The claim quantifies over the signature's linked slots.** `pure` on a row whose parameters carry `->?` (Effects §2.2.1) asserts purity at *every* instantiation — impure arguments included — so it is the claim that the foreign code never observably invokes those arguments. A foreign function that *runs* its callback is not that claim; it is the second one, below.
-
-**The declared-conduit claim is the contextual modifier `conduit`** *(#409)*, in `pure`'s own slot — between the export/default modifiers and the declaration keyword:
-
-```hexagon
-extern from "./world.js"
-    export conduit fun runner(step: () ->? String): Int
-```
-
-- `conduit` seats **one colour variable** at the row's outer arrow *and* at every `->?` its signature writes. The row is **exactly as effectful as its callbacks, jointly**: `runner`'s face is `(() ->? String) ->? Int`, and a caller gets Effects §3.3's ordinary machinery with nothing FFI-specific added — a bare call with a pure callback, `!` with an impure one, `?` when the callback forwarded is the enclosing signature's own (§3.4). Foreign higher-order functions of the `Array.prototype.map` shape are the case it exists for: under the impure default every call to one wears `!`, pure callbacks included.
-- The keyword is **declaration surface only.** What it produces is an ordinary linked face — the one an in-language header spells by writing `->?` on its outer arrow — and no new face vocabulary comes with it. It exists because an extern row has no outer arrow to write on: the header *is* the declaration's whole face, and every other position in the language spells this colour with an arrow instead.
-- Its **trust posture is `pure`'s, unchanged**: a claim the foreign side cannot be checked against, on the axis `pure` already occupies, believed and never verified, with the module author answering for it (Part 1 §3.1). Its content is `pure`'s claim made pointwise — *at a pure instantiation this row performs no observable effect.* A row that touches the world on its own account is `->!` however its callbacks are coloured, which is Effects §2.4's join and is why the join has no conduit spelling.
-- **`conduit` on a row with no `->?` slot anywhere in its signature is an error**, not a silent re-read as the default. The claim is that the row's colour *is* its callbacks', and a row declaring no linked slot has none to take it from — §4.1's and §4.4's own sentence, applied at the claim: one spelling, one meaning, and where the meaning is unavailable, a diagnostic. The report names both repairs in words rather than offering a fixit, because which one is meant is the design conversation it exists to start: write `->?` on the callback parameter the row runs, or drop the claim.
-- **`pure conduit` is an error** — one row, one claim, in whichever order the two words stand. They say incompatible things about the same arrow, so neither is believed and the row takes the impure default behind the report.
-- Like `pure` it is **contextual vocabulary** (Lexer §4.2's family): `conduit` remains an ordinary name everywhere else, and the foreign side of a row is never the claim slot. It is legal on `fun` rows only and takes `pure`'s own sentence on an extern `let` or `type`; it is **refused on intrinsic rows** — "intrinsic rows are verified rather than trusted; `conduit` is for user-written externs" — for `pure`'s own reason, that the intrinsic door's colours come from verification (Intrinsics §4.2), not trust.
-
-**What neither claim expresses**, and the fallback that covers it: a row wanting two *independently* coloured `->?` slots, or independent slots beside a linked outer arrow. The in-language header form cannot write that either — one signature, one variable (Effects §2.2) — so this is the language's limit rather than the boundary's, and **the impure default remains the honest, sound answer** for such a row. The over-approximation costs a caller supplying pure callbacks one `!` and nothing else.
+- **`->!` is the arrow for the unknown.** When what the foreign code does is not known, write `->!`: it promises no purity and no linked dependency, and it is what the retired impure default supplied silently. It is author guidance, not a language default — omission is a parse error whose fixit is `->!` (§13), never a silent claim in either direction. A row that touches the world on its own account is `->!` however its callbacks are coloured: Effects §2.4's join, `transaction` above.
+- **`->` is the trusted purity claim.** It is a **trusted-row obligation of exactly the Intrinsics §4.2 species**: believed, never checked, the module author answering for it — the same currency as every extern type in this part (Part 1 §3.1). A sound claim is one of Effects §6.2's two species — an unobservable world-write, an owned at-most-once world-read — or, the common case, a function that genuinely computes: `trim` touches nothing. A claim outside those shapes is a lie with the standing of a wrong extern type. *(#405.)* **The claim quantifies over the signature's linked slots:** `->` on a row whose parameters carry `->?` asserts purity at *every* instantiation, impure arguments included — the foreign code never observably invokes them. A row that *runs* its callback is not that claim; it is the next arrow.
+- **`->?` is the declared conduit.** It seats **one colour variable** at the row's outer arrow and at every `->?` its signature writes: `run`'s face is `(() ->? Unit) ->? Unit`, an ordinary linked face with nothing FFI-specific at the call — bare with a pure callback, `!` with an impure one, `?` when the callback forwarded is the enclosing signature's own (Effects §3.3, §3.4). Foreign higher-order functions of the `Array.prototype.forEach` shape are what it is for. Its trust posture is `->`'s, made pointwise: *at a pure instantiation this row performs no observable effect.* The inlet rule applies to the row as to any signature (Effects §2.2.1): `->?` on a row whose parameters carry no `->?` is Effects §4.4's inlet-less refusal, with the advice in words — write `->?` on the callback parameter this row runs, or write `->!`.
+- **Nested arrows are believed like the rest of the declaration.** Function-typed slots inside the signature — `defer`'s result, `run`'s parameter — carry whatever arrows the author writes; the outer arrow governs the row's own invocation and nothing inside it.
+- **What no arrow expresses**, and the fallback: a row wanting two *independently* coloured `->?` slots, or independent slots beside a linked outer arrow. The in-language signature cannot write that either — one signature, one variable (Effects §2.2) — so this is the language's limit, not the boundary's, and **`->!` is the honest, sound answer** for such a row; a caller supplying pure callbacks pays one `!`.
+- **Intrinsic rows write their arrow too** (`extern from "hex:intrinsic"` — Intrinsics §4.2). Ownership decides who answers for it: the compiler, *verified*, on an intrinsic row; the author, *trusted*, on a user row (Effects §6.1). The split never needed a second notation, and the refusals that kept `pure`/`conduit` off intrinsic rows retire with the words.
+- **Non-callable rows are unchanged.** `let version: String` keeps `:` — a value reference is colourless (Effects §2.6), so there is no colour to write; `type` declares no invocation. Foreign module initialization and `extern import` (§8) are unchanged.
+- **The retired forms.** The impure default, the contextual `pure` and `conduit` modifiers, and `pure conduit`'s refusal are gone, with Effects §9's five rows and Lexer §4.2's two contextual words. A row written with `:` before its result, or with `pure`/`conduit` before its keyword, takes §13's redirects, each naming the arrow that says what the old form said.
 
 ---
 
@@ -215,7 +204,7 @@ JavaScript default exports ship in v1. Inside an extern block, `default` can onl
 
 ```hexagon
 extern from "client-library"
-    default fun createClient(config: Config): Client
+    default fun createClient(config: Config) ->! Client
 ```
 
 ```js
@@ -230,7 +219,7 @@ The binding is private by default. The ordinary leading `export` modifier makes 
 
 ```hexagon
 extern from "client-library"
-    export default fun createClient(config: Config): Client
+    export default fun createClient(config: Config) ->! Client
 ```
 
 This does **not** create a Hexagon or emitted-JS default export. Directionally:
@@ -309,7 +298,7 @@ extern from "library"
     fun lookupRaw(
         key: String,
         fallback: Nullable(String),
-    ): String
+    ) ->! String
 ```
 
 Callers use `Nullable.undefined` for the ordinary omitted/default JS case and `Nullable.null` when the API specifically distinguishes explicit null (Part 2). Rest parameters, overload declarations, and general optional-argument syntax remain outside this part (§11). Arity at the call boundary — exact-arity calls, extra-argument behavior for JS callers — is Part 6's.
@@ -368,13 +357,17 @@ Hard errors introduced or relied on by this part, each with its named rewrite pe
 
 | Situation | Diagnostic (rewrite named) | Owner |
 |---|---|---|
-| extern callable declared with `let` (parameter list present) | "extern callable declarations use `fun`; write `fun parse(text: String): JsonValue`" | §4.2 |
-| extern `let` annotated with a function type | "extern callable declarations use `fun`; a binding of type `Int -> Int` is callable — write `fun f(x: Int): Int`" | §4.1; Part 6 §2.4 |
+| extern callable declared with `let` (parameter list present) | "extern callable declarations use `fun`; write `fun parse(text: String) -> JsonValue`" | §4.2 |
+| extern `let` annotated with a function type | "extern callable declarations use `fun`; a binding of type `Int -> Int` is callable — write `fun f(x: Int) -> Int`" | §4.1; Part 6 §2.4 |
 | extern `fun` without a parameter list | "extern `fun` declares a callable and requires a parameter list; for a foreign value, write `let version: String`" | §4.2 |
 | unaliased foreign name violating Hexagon start-class rules or the reserved `__` prefix | "bind it with an alias: `let VERSION as version: String`" (resp. `let __state as state: Int`) | §3.2 |
 | `as` alias on a `default` declaration | "a `default` binding has no foreign export name; name the binding directly" | §6 |
 | extern declaration with a body | syntax error — extern declarations are bodyless typed assertions | §1 |
 | missing type annotation on an extern declaration | hard error — nothing to infer from; annotate fully | §1 |
+| callable row with `:` before its result (the retired form) | "an extern callable declares its effect — write `->` for a function that touches nothing, `->!` for one that may, `->?` for one exactly as effectful as a callback it is handed; when in doubt, `->!`" + fixit `->!`, the conservative arrow | §4.5 |
+| `pure` before an extern declaration keyword | "`pure` is retired — write the pure arrow on the row itself: `fun trim(document: String) -> String`" + fixit: drop the word, `->` before the result | §4.5 |
+| `conduit` before an extern declaration keyword | "`conduit` is retired — write `->?` on the row's outer arrow: `fun runner(step: () ->? String) ->? Int`" + fixit: drop the word, `->?` before the result | §4.5 |
+| `->?` on a callable row whose parameters carry no `->?` | Effects §4.4's inlet-less-signature row, unchanged: "nothing a caller of this signature supplies carries `->?`, so nothing instantiates it" + fixit `->!` | §4.5; Effects §9 |
 | relative extern specifier naming a `.hex` source, extension written or not (read once from the importing file's own directory, §2.1) | "use `import` for Hexagon modules; `extern from` is for foreign JavaScript" | §2.1 |
 | extern binding colliding with a local binding or import | ordinary Modules §5 collision errors, unchanged | §3.2 |
 | nested adapter-requiring type in an extern signature | Part 1 §5.3's hard error, applied at declaration site | §1 |
@@ -394,7 +387,8 @@ Hard errors introduced or relied on by this part, each with its named rewrite pe
 | Strict `fun` = callable / `let` = value distinction; contextual vocabulary; both misuses are hard errors with named rewrites | §4.1, §4.2 |
 | First-class extern `fun`: raw imported function identity for representation-direct signatures; one stable module-level wrapper when supported boundary plumbing is required; fresh per-value adapters remain per crossing | §4.3 |
 | `extern let` asserts a stable value; foreign reassignment = contract violation with unspecified affected observations | §4.4, §12.2 |
-| Effect faces: user externs impure by default; two contextual claims in one slot — `pure` (trusted purity, quantifying over linked slots) and `conduit` (one colour variable at the outer arrow and every `->?`); both trusted, `fun`-only, refused on intrinsic rows; `conduit` with no `->?` slot and `pure conduit` are errors; the impure default is the fallback for independently coloured slots | §4.5 |
+| Effect faces: user externs impure by default; two contextual claims in one slot — `pure` (trusted purity, quantifying over linked slots) and `conduit` (one colour variable at the outer arrow and every `->?`); both trusted, `fun`-only, refused on intrinsic rows; `conduit` with no `->?` slot and `pure conduit` are errors; the impure default is the fallback for independently coloured slots *(superseded by #869, next row)* | §4.5 |
+| **Every callable row writes its effect arrow** (#869): `->` the trusted purity claim, `->!` the honest unknown and the join, `->?` the declared conduit under the inlet rule; no `:` on a callable row, omission a parse error with `->!` as fixit; intrinsic rows write theirs too, verified rather than trusted; `pure`/`conduit` retired; independently coloured slots still take `->!` | §4.5 |
 | `type` declares a nominal opaque foreign type: no structure, constructor, or instances; representation-direct by identity; distinct declarations are distinct types; exported `.d.ts` face is a generated opaque brand | §5, §12.3 |
 | `default fun`/`default let` binds the JS default export; private by default; `export default fun` exports a **named** Hexagon binding — never a Hexagon/emitted default export; no `as` on `default` | §6 |
 | Per-declaration `export` inside the block; exported extern bindings re-exported from the facade and present in its `.d.ts` | §7 |

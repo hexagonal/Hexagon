@@ -247,8 +247,6 @@ listed positions:
 | `new` | foreign class constructor description; syntax completed by the FFI spec |
 | `static` | foreign static-member modifier; syntax completed by the FFI spec |
 | `default` | foreign default-import position; syntax completed by the FFI spec |
-| `pure` | the trusted purity claim on an extern `fun` declaration (FFI Part 4 §4.5, #355) |
-| `conduit` | the declared-conduit claim on an extern `fun` declaration, in `pure`'s own slot (FFI Part 4 §4.5, #409) |
 | `union` | the union-declaration introducer at declaration head — module top level, optionally after `export` or `opaque` (one visibility head, Modules §4, #590), always followed by the declared type's name (#373: Collections Part 4 §6.2 mandates `Set.union`, and a reserved word is unspellable in every binder position; the `with`/`when` precedent) |
 | `widens` | the widens-declaration introducer at declaration head — module top level, never after `export`, always followed by a qualified member path (Constraints §4.7; #546). Same disambiguation as `union`: no juxtaposition exists, so `widens` followed by a name is no term |
 | `module` | the module header at the head of a top-level item, always followed by the module's uppercase-start name, dotted or not (`module Geometry`, `module Render.Geometry` — Modules §2.1, #829); the `union`/`widens` disambiguation: no juxtaposition exists, so `module` followed by a name is no term, and elsewhere `module` is an ordinary name (`let module = 3` binds). Recognition includes the refused seats: the same head followed by a name with a segment that is not uppercase-start (`module geometry`), Modules §2.1's casing refusal, and the header inside a block, Modules §2.2's redirect — the `opaque` row's pattern, seats no expression could occupy |
@@ -582,3 +580,4 @@ a && b              -- write `a and b`
 | `->` corrected into the inventory (shipped with function-type annotations; Effects §2 names its role); the call marks `!`/`?` added for #355; the marked type arrows `->?`/`->!` replace `=>`/`=>!` for #405, leaving `=>` a term-level token only; a mark never begins a token, so `!->` is impossible by munch; prefix-`!` keeps the `not` redirect, parser-selected | §8.1–§8.3, §10 (#355, #405) |
 | Exact physical token families; virtual layout tokens excluded | §9 |
 | No warning tier; malformed tokens advance and recover | §10 |
+| `pure` and `conduit` leave the contextual table — ordinary names again; the arrow a callable extern row writes says what they claimed (FFI Part 4 §4.5, #869) | §4.2 |
