@@ -40,7 +40,6 @@ import {
 import { fileSystemPath, UriPaths } from "./positions.js";
 import {
   comparablePath,
-  crossesSkippedDirectory,
   discoverPrograms,
   excludes,
   exclusionsOf,
@@ -51,6 +50,7 @@ import {
   normalizePath,
   NOTHING_EXCLUDED,
   settledPathSync,
+  skippedDirectoryBetween,
   type Exclusions,
   type SeatedProblem,
 } from "../../host/src/index.js";
@@ -78,6 +78,30 @@ export interface PublishedDiagnostic {
   readonly diagnostic: Diagnostics.Diagnostic;
   readonly pathOfFile: (fileId: number) => string | undefined;
 }
+
+/**
+ * Why a file is nobody's source — one of Packages §2.2's three bounds, each of
+ * which is a different sentence with a different way out.
+ */
+export type OutsideEveryPackage =
+  /** Under a `node_modules` whose package no open project lists (§2.2, §4.1). */
+  | { readonly kind: "unlisted-dependency" }
+  /** Under `dist`, `.git`, or another name this host never reads. */
+  | { readonly kind: "skipped-directory"; readonly directory: string }
+  /** Beneath a `hexagon.json` of its own that no open project reaches (§2.2). */
+  | { readonly kind: "other-package"; readonly manifest: string };
+
+/**
+ * A directory whose files §2.2 bounds, and the package boundaries beneath it —
+ * a project's own directory or a package of a closure, asked the same way.
+ */
+interface Bounded {
+  readonly directory: string;
+  readonly nested: readonly string[];
+}
+
+/** A project's own directory, which needs no boundary list — see `outsideEveryPackage`. */
+const NO_BOUNDARIES: readonly string[] = [];
 
 /** One package of a program, as this module holds it. */
 interface HeldPackage {
@@ -431,11 +455,7 @@ export class Workspace {
           // the lists this walk just built. Both are pure path tests and touch
           // no disk, which is what keeps the deleted-but-open file — the case
           // this clause exists for — working.
-          const ownedBy = deepestContaining(projectDirectories, path);
-          if (
-            ownedBy !== undefined && ownedBy === found.directory
-            && !crossesSkippedDirectory(ownedBy, path)
-          ) {
+          if (this.#projectOwning(projectDirectories, path) === found.directory) {
             own.add(path);
             held.add(path);
             continue;
@@ -537,6 +557,80 @@ export class Workspace {
   /** Whether this URI is excluded, for a host deciding what to tell the user. */
   isExcludedUri(uri: string): boolean {
     return this.#isExcluded(this.pathFor(uri));
+  }
+
+  /**
+   * Which of §2.2's bounds puts this file outside every package, where one
+   * does — and nothing where the file is held, is excluded, or lies outside
+   * every project the editor has open.
+   *
+   * Asked so that a host can *say* it. A file no program holds gets no
+   * diagnostics, no hover and no navigation, and none of that looks any
+   * different from a server that is broken: the grammar still colours the
+   * buffer, the status bar still says the server is running, and the user's
+   * next move is to file a bug rather than to open `hexagon.json`. §2.1's
+   * `exclude` already had that sentence; the three bounds §2.2 states did not,
+   * and they are the ones a user cannot see, because each is a fact about a
+   * directory somewhere above the file rather than a line anyone wrote.
+   *
+   * The two bounds asked below cannot both answer, and the order is a reading
+   * order rather than a precedence: the walk never descends a skipped
+   * directory, so a boundary it reported is never behind one, and a file behind
+   * one is under no boundary the walk could have seen. Swapping them changes no
+   * answer, which is worth saying because a comment claiming a precedence here
+   * would be claiming something nothing could check.
+   */
+  outsideEveryPackage(uri: string): OutsideEveryPackage | undefined {
+    const path = this.pathFor(uri);
+    if (this.#programs.some((program) => program.held.has(path))) return undefined;
+    // `exclude` has a sentence of its own, and it is the better one: it names a
+    // line the user wrote.
+    if (this.#isExcluded(path)) return undefined;
+    const containing: readonly Bounded[] = [
+      // A project's own directory carries no boundary list because it needs
+      // none: every `hexagon.json` beneath a project that the walk can reach is
+      // a program of its own (D1), so a file under one is held rather than
+      // outside. The boundaries that strand a file are the ones inside a
+      // dependency, which is nobody's project.
+      ...this.#programs.map(({ directory }) => ({ directory, nested: NO_BOUNDARIES })),
+      ...this.#programs.flatMap(({ packages }) => packages),
+    ];
+    let deepest: Bounded | undefined;
+    for (const candidate of containing) {
+      if (!within(candidate.directory, path)) continue;
+      if (deepest === undefined || candidate.directory.length > deepest.directory.length) {
+        deepest = candidate;
+      }
+    }
+    if (deepest === undefined) return undefined;
+    const boundary = deepestContaining(deepest.nested, path);
+    if (boundary !== undefined) {
+      return { kind: "other-package", manifest: this.#displayPath(manifestPathOf(boundary)) };
+    }
+    const skipped = skippedDirectoryBetween(deepest.directory, path);
+    if (skipped === undefined) return undefined;
+    return skipped === "node_modules"
+      ? { kind: "unlisted-dependency" }
+      : { kind: "skipped-directory", directory: skipped };
+  }
+
+  /**
+   * A path as a sentence should spell it: relative to the project it lies in,
+   * and absolute where no open project contains it.
+   *
+   * A message carrying a whole temporary-directory prefix is a message a reader
+   * skips, and the part that identifies the file is the part below their own
+   * project directory.
+   */
+  #displayPath(path: string): string {
+    const project = deepestContaining(
+      this.#programs.map(({ directory }) => directory),
+      path,
+    );
+    if (project === undefined) return path;
+    // A root directory already ends in its separator; taking one more character
+    // off would eat the first component of the name being shown.
+    return path.slice(project.endsWith("/") ? project.length : project.length + 1);
   }
 
   /**
@@ -783,8 +877,11 @@ export class Workspace {
     // asked of the deepest one and never falls back to a shallower project: a
     // file inside a package is that package's alone, so a project that cannot
     // reach it does not get it by being further away.
-    const ownedBy = deepestContaining(this.#programs.map(({ directory }) => directory), path);
-    const owner = ownedBy === undefined || crossesSkippedDirectory(ownedBy, path)
+    const ownedBy = this.#projectOwning(
+      this.#programs.map(({ directory }) => directory),
+      path,
+    );
+    const owner = ownedBy === undefined
       ? undefined
       : this.#programs.find((program) => program.directory === ownedBy);
     const adopted: Program[] = [];
@@ -807,6 +904,31 @@ export class Workspace {
   }
 
   /**
+   * The project directory holding `path` as its **own** source, out of these,
+   * or nothing where §2.2's bounds put it outside every one of them.
+   *
+   * `#packageHolding`'s sibling, and here for the same reason: the rule has two
+   * halves, one about a package of a closure and one about a project's own
+   * files, and each half is asked from two places — the rediscovery sweep and
+   * the door an editor event arrives through. Written out at each site instead,
+   * the two spellings agree only for as long as both are remembered, which is
+   * the family of defect this file spent four review rounds closing.
+   *
+   * Two bounds, and no more: the **deepest** of the directories containing the
+   * path, never widened to a shallower one when that answer refuses it, and
+   * nothing skipped lying between the two — a `.hex` under a project's
+   * `node_modules` is some dependency's source, and joining it to the project
+   * would compile it under the project's package name. The list is a parameter
+   * rather than `#programs` because the sweep asks about the directories a walk
+   * has just produced, before any program exists to be asked.
+   */
+  #projectOwning(directories: readonly string[], path: string): string | undefined {
+    const ownedBy = deepestContaining(directories, path);
+    if (ownedBy === undefined) return undefined;
+    return skippedDirectoryBetween(ownedBy, path) === undefined ? ownedBy : undefined;
+  }
+
+  /**
    * The package of a closure whose source `path` would be, or nothing where
    * §2.2's bounds put it outside every one of them.
    *
@@ -824,7 +946,7 @@ export class Workspace {
       }
     }
     if (holder === undefined) return undefined;
-    if (crossesSkippedDirectory(holder.directory, path)) return undefined;
+    if (skippedDirectoryBetween(holder.directory, path) !== undefined) return undefined;
     // A `hexagon.json` beneath the package ends the package there. The walk
     // reports the boundaries it stopped at, so this asks what the walk saw
     // rather than looking for manifests of its own and disagreeing with it.

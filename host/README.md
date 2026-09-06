@@ -115,19 +115,32 @@ Beside `node_modules`, the walk skips a short list of **tooling directories** �
 of the language (Packages §2.2); the rest are this host's convenience, and a
 `.hex` file under one of them is not in the project and says so nowhere.
 
-The bound leaves this package as a **question** — `crossesSkippedDirectory` —
+The bound leaves this package as a **question** — `skippedDirectoryBetween` —
 rather than as the list. A host seats files the walk never handed it (a watcher
 event on a new `.hex`, an editor opening one), and every such door has to apply
 the same bound or the walk's answer is only advisory: a `.hex` under a project's
 `node_modules` would otherwise join the project as its *own* source, compiling a
-dependency's module under the project's package name.
+dependency's module under the project's package name. The question answers with
+the *name* it found rather than with a yes, because a host that has decided a
+buffer is nobody's source then has to tell its user which directory decided —
+and "under `dist`" and "under a `node_modules` nothing lists" are different
+sentences with different repairs.
 
 §2.2's third exclusion travels the same way. A directory holding a
 `hexagon.json` of its own ends the package there, and only the walk knows where
 those boundaries are — so it says so, as `Walked.nested` and then as
 `Program.nested` and `DiscoveredPackage.nested`, and a door refuses a file
 beneath one rather than hunting for manifests of its own and disagreeing about
-where a package stops. With all three exclusions asked at every door, what is
+where a package stops. The walk reports a boundary **beneath an excluded
+directory** too, collecting no files from it: the package below the boundary was
+never this package's to begin with, so an `exclude` entry naming one — or
+containing one — cannot delete the program under it, and the answer no longer
+depends on whether the user happened to open that folder as a root as well. An
+entry that names one draws a warning at the manifest that wrote it, and is
+applied to nothing. The descent costs one `readdir` per directory of the
+excluded subtree and nothing else — no file collected, no identity resolved, the
+skipped names still pruning it — which is a real price on a big generated tree,
+paid to keep a manifest from deleting a program it does not name. With all three exclusions asked at every door, what is
 left of "no file ever has two full names" is the second way a file can get two:
 two packages of one closure containing it, which is npm's ordinary nested
 install, and which the **deepest** containing package answers.
@@ -144,7 +157,7 @@ package, and *not* matching it adds a module the package excluded the moment
 someone opens one file inside it — changing a report in the consumer's own
 source. This bound is a question about a **name a manifest wrote** rather than
 about the shape of the tree, which is why it is `exclusionsOf` and `excludes`
-asked by the caller rather than another `crossesSkippedDirectory`.
+asked by the caller rather than another `skippedDirectoryBetween`.
 
 ## Tests
 

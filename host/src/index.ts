@@ -25,9 +25,9 @@ export {
   type Manifest,
 } from "./manifest.js";
 export {
-  crossesSkippedDirectory,
   excludes,
   NOTHING_EXCLUDED,
+  skippedDirectoryBetween,
   type Exclusions,
   // Named by `Program.files` and `DiscoveredPackage.files`.
   type FoundFile,

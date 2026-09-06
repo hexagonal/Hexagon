@@ -26,9 +26,8 @@
  * and roots never split an owned package.
  */
 
-import { readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { MANIFEST_NAME } from "./manifest.js";
+import { holdsManifest, MANIFEST_NAME } from "./manifest.js";
 import { normalizePath, parentDirectoryOf, realPathOf } from "./paths.js";
 
 /** One program's root directory. */
@@ -107,15 +106,6 @@ export async function enclosingManifestDirectory(
     at = parentDirectoryOf(at);
   }
   return undefined;
-}
-
-async function holdsManifest(directory: string): Promise<boolean> {
-  try {
-    const entries = await readdir(directory, { withFileTypes: true });
-    return entries.some((entry) => entry.name === MANIFEST_NAME && !entry.isDirectory());
-  } catch {
-    return false;
-  }
 }
 
 /** The path of a directory's own manifest, spelled once. */

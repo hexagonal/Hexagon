@@ -352,6 +352,32 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
         });
         continue;
       }
+      // A directory holding a `hexagon.json` of its own is a package of its
+      // own, and §2.2 already keeps every file of it out of this package — so
+      // an entry naming one names nothing of this package's, and there is
+      // nothing for it to do. Said out loud rather than dropped in silence,
+      // because the user wrote the entry to make something stop happening and
+      // nothing about it will: the nested package keeps its own program, its
+      // own diagnostics and its own place in the editor, and the only file that
+      // can bound it is its own manifest.
+      //
+      // The entry goes no further than this report. Left in the list it would
+      // decide nothing — the walk reports the boundary whether the directory is
+      // excluded or not — but it would still be a rule sitting in the manifest
+      // that two readers could disagree about, and this way the warning's own
+      // sentence is exactly true.
+      if (key === "exclude" && await holdsManifest(resolved)) {
+        problems.push({
+          message:
+            `${MANIFEST_NAME} \`exclude\` entry ${JSON.stringify(entry)} names a package of ` +
+            `its own (it holds a \`${MANIFEST_NAME}\`), which is never part of this project; ` +
+            "the entry has no effect",
+          line: manifestKeyLine(text, key, entry),
+          scope: "host",
+          severity: "warning",
+        });
+        continue;
+      }
       // An entry that names nothing is the silent failure this file was written
       // to prevent, and the likeliest cause is a spelling the filesystem itself
       // forgives: macOS and Windows open `Trie.hex` when the file is `trie.hex`,
@@ -497,6 +523,27 @@ async function matchesExactly(rootPath: string, resolved: string): Promise<boole
     at = join(at, part);
   }
   return true;
+}
+
+/**
+ * Whether a `hexagon.json` sits at this directory — the one test that makes a
+ * directory a package of its own (Packages §2.2) and a program of its own
+ * (`environment.md` §4, D1).
+ *
+ * Spelled once, and here rather than beside either caller, because "is there a
+ * manifest at this directory" is asked by three of them — the climb to a
+ * project directory, an `exclude` entry naming a package, and the walk, which
+ * asks it of entries it has already read. A directory of that name is not a
+ * manifest, and answering `true` for one would make an ordinary folder a
+ * project with no file behind it.
+ */
+export async function holdsManifest(directory: string): Promise<boolean> {
+  try {
+    const entries = await readdir(directory, { withFileTypes: true });
+    return entries.some((entry) => entry.name === MANIFEST_NAME && !entry.isDirectory());
+  } catch {
+    return false;
+  }
 }
 
 /** Whether anything at all is at this path, without caring what. */

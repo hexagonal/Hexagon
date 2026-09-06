@@ -992,6 +992,120 @@ describe("the Hexagon language server", () => {
     }
   });
 
+  /**
+   * The same courtesy for the bounds §2.2 states, which are the ones a user
+   * cannot see.
+   *
+   * An `exclude` entry is a line someone wrote and can go and read. These three
+   * are facts about a directory somewhere above the file — a `node_modules`
+   * nothing lists, a name this host never reads, a `hexagon.json` of some other
+   * package's — and this PR sharpens the difference: a file inside a *listed*
+   * dependency now gets full language support, and one inside its unlisted
+   * neighbour gets silence, with nothing on screen to tell the two apart.
+   *
+   * One sentence per reason, because the way out differs: list the package,
+   * open the folder, or rename the directory.
+   */
+  const open = async (
+    solo: Harness,
+    name: string,
+    text: string,
+  ): Promise<readonly Diagnostic[]> => {
+    const uri = solo.uriOf(name);
+    await solo.client.sendNotification(DidOpenTextDocumentNotification.type, {
+      textDocument: { uri, languageId: "hexagon", version: 1, text },
+    });
+    return await solo.diagnosticsFor(uri);
+  };
+
+  test("a buffer under an unlisted package's `node_modules` says which entry is missing", async () => {
+    const solo = await harness({
+      "hexagon.json": JSON.stringify({ name: "App" }),
+      "main.hex": "module Main\n\nlet value: Int = 1\n",
+      "node_modules/loose/hexagon.json": JSON.stringify({ name: "Loose" }),
+      "node_modules/loose/stray.hex": "module Stray\n\nlet n: Int = 1\n",
+    });
+    try {
+      const reported = await open(solo, "node_modules/loose/stray.hex", "module Stray\n");
+      expect(reported).toHaveLength(1);
+      expect(reported[0]!.severity).toBe(3);
+      expect(reported[0]!.message).toBe(
+        "this file is under `node_modules` of a package this project does not list, " +
+        "so it has no diagnostics, hover, or navigation; " +
+        "add it to `dependencies` in `hexagon.json` to compile it",
+      );
+
+      // And it goes when the reason goes. The notice is only worth publishing
+      // if it disappears the moment the user does what it asked.
+      await writeFile(
+        join(solo.root, "hexagon.json"),
+        JSON.stringify({ name: "App", dependencies: ["Loose"] }),
+      );
+      await solo.client.sendNotification(DidChangeWatchedFilesNotification.type, {
+        changes: [{ uri: solo.uriOf("hexagon.json"), type: 2 }],
+      });
+      const after = await solo.diagnosticsUntil(
+        solo.uriOf("node_modules/loose/stray.hex"),
+        (diagnostics) => !diagnostics.some(({ severity }) => severity === 3),
+        "free of the not-a-dependency notice",
+      );
+      expect(after).toEqual([]);
+    } finally {
+      await solo.dispose();
+    }
+  });
+
+  test("a buffer under a directory this host never reads names the directory", async () => {
+    const solo = await harness({
+      "hexagon.json": JSON.stringify({ name: "App" }),
+      "main.hex": "module Main\n\nlet value: Int = 1\n",
+      "dist/built.hex": "module Built\n\nlet n: Int = 1\n",
+    });
+    try {
+      const reported = await open(solo, "dist/built.hex", "module Built\n");
+      expect(reported).toHaveLength(1);
+      expect(reported[0]!.severity).toBe(3);
+      // Named, not merely alluded to: the reader has to be able to see that it
+      // was their own `dist/`, and no `exclude` entry can argue with this one,
+      // so the sentence offers no repair it cannot keep.
+      expect(reported[0]!.message).toBe(
+        "this file is under `dist`, which this language server never reads as project source, " +
+        "so it has no diagnostics, hover, or navigation",
+      );
+    } finally {
+      await solo.dispose();
+    }
+  });
+
+  test("a buffer beneath a package vendored inside a dependency names that package", async () => {
+    const solo = await harness({
+      "hexagon.json": JSON.stringify({ name: "App", dependencies: ["Acme"] }),
+      "main.hex": "module Main\n\nlet value: Int = 1\n",
+      "node_modules/acme/hexagon.json": JSON.stringify({ name: "Acme" }),
+      "node_modules/acme/lib.hex": "module Lib\n\nlet n: Int = 1\n",
+      "node_modules/acme/vendor/hexagon.json": JSON.stringify({ name: "Vendored" }),
+      "node_modules/acme/vendor/inside.hex": "module Inside\n\nlet n: Int = 1\n",
+    });
+    try {
+      const reported = await open(
+        solo,
+        "node_modules/acme/vendor/inside.hex",
+        "module Inside\n",
+      );
+      expect(reported).toHaveLength(1);
+      expect(reported[0]!.severity).toBe(3);
+      // Relative to the project the reader has open: a message carrying the
+      // whole absolute prefix is a message they skip.
+      expect(reported[0]!.message).toBe(
+        "this file belongs to the package at `node_modules/acme/vendor/hexagon.json`, " +
+        "which no open project reaches, so it has no diagnostics, hover, or navigation; " +
+        "open its folder to work on it",
+      );
+    } finally {
+      await solo.dispose();
+    }
+  });
+
   test("un-excluding restores an open buffer without waiting for a keystroke", async () => {
     const solo = await harness({
       "main.hex": "module Main\n\nlet value: Int = 1\n",

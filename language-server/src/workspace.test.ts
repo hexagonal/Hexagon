@@ -480,6 +480,164 @@ describe("the workspace walk", () => {
   });
 
   /**
+   * The same rule where the entry names the nested project's **own root**,
+   * which is where the two readings used to part company.
+   *
+   * A directory holding a `hexagon.json` of its own is already outside the
+   * enclosing package's files (Packages §2.2) and is a program of its own (D1),
+   * so the parent's entry names nothing of the parent's and cannot delete it.
+   * The failure this pins is that the answer used to depend on whether the user
+   * had also opened that folder as an editor root: opened, the nested program
+   * existed and the entry applied to nothing; not opened, the walk never saw
+   * the boundary — an excluded directory was never read — and a whole program
+   * disappeared. Two manifests, two worlds, and nothing in either of them
+   * saying so.
+   */
+  test("a parent's `exclude` naming a nested project's root leaves it standing, root or not", async () => {
+    const path = await makeRoot();
+    const nested = join(path, "packages", "geometry");
+    await mkdir(nested, { recursive: true });
+    await writeFile(
+      join(path, MANIFEST_NAME),
+      JSON.stringify({ name: "App", exclude: ["packages/geometry"] }),
+    );
+    await writeFile(join(path, "main.hex"), "module Main\n\n" + "let value: Int = 1\n");
+    await writeFile(join(nested, MANIFEST_NAME), JSON.stringify({ name: "Geometry" }));
+    await writeFile(join(nested, "shape.hex"), "module Shape\n\n" + "let sides: Int = 4\n");
+    const uri = pathToFileURL(join(nested, "shape.hex")).toString();
+    const base = normalizePath(settledPathSync(path));
+
+    // Both configurations, and the assertions are one list: the point is not
+    // that either answer is defensible on its own but that they are the same.
+    for (const roots of [[path], [path, nested]]) {
+      const workspace = new Workspace();
+      await workspace.setRoots(roots, () => {});
+      const shape = workspace.pathFor(uri);
+      expect(workspace.programs.map(({ directory }) => directory.slice(base.length)))
+        .toEqual(["", "/packages/geometry"]);
+      expect(workspace.programFor(shape)!.directory).toBe(`${base}/packages/geometry`);
+      expect(workspace.isExcludedUri(uri)).toBe(false);
+      expect(workspace.programFor(shape)!.session.paths).toContain(shape);
+      // And the user is told, at the manifest carrying the entry, that the
+      // thing they wrote does nothing — the alternative being an entry that
+      // sits in the file forever, plainly ignored, with no way to learn why.
+      expect(workspace.manifestProblems()).toEqual([{
+        path: `${base}/${MANIFEST_NAME}`,
+        line: 0,
+        message:
+          "hexagon.json `exclude` entry \"packages/geometry\" names a package of its own " +
+          "(it holds a `hexagon.json`), which is never part of this project; " +
+          "the entry has no effect",
+        severity: "warning",
+      }]);
+    }
+  });
+
+  /**
+   * The same, where the entry *contains* the nested project rather than naming
+   * it — and here the entry is not inert, so nothing is dropped and nothing is
+   * reported: `packages/loose.hex` really is this project's and really does
+   * leave. Only the boundary escapes, which is the walk's business rather than
+   * the manifest reader's.
+   */
+  test("a parent's `exclude` containing a nested project leaves it standing, root or not", async () => {
+    const path = await makeRoot();
+    const nested = join(path, "packages", "geometry");
+    await mkdir(nested, { recursive: true });
+    await writeFile(
+      join(path, MANIFEST_NAME),
+      JSON.stringify({ name: "App", exclude: ["packages"] }),
+    );
+    await writeFile(join(path, "main.hex"), HEADER + "let value: Int = 1\n");
+    await writeFile(join(path, "packages", "loose.hex"), "module Loose\n");
+    await writeFile(join(nested, MANIFEST_NAME), JSON.stringify({ name: "Geometry" }));
+    await writeFile(join(nested, "shape.hex"), "module Shape\n\n" + "let sides: Int = 4\n");
+    const base = normalizePath(settledPathSync(path));
+
+    for (const roots of [[path], [path, nested]]) {
+      const workspace = new Workspace();
+      await workspace.setRoots(roots, () => {});
+      const shape = workspace.pathFor(pathToFileURL(join(nested, "shape.hex")).toString());
+      expect(workspace.programs.map(({ directory }) => directory.slice(base.length)))
+        .toEqual(["", "/packages/geometry"]);
+      expect(workspace.programFor(shape)!.directory).toBe(`${base}/packages/geometry`);
+      // The entry did its work on the project's own file, which is gone; the
+      // nested project's is not.
+      expect(
+        workspace.programs
+          .flatMap(({ session }) => session.paths)
+          .map((each) => each.split("/").at(-1))
+          .sort(),
+      ).toEqual(["main.hex", "shape.hex"]);
+      expect(workspace.manifestProblems()).toEqual([]);
+    }
+  });
+
+  /**
+   * Which bound stranded a buffer, and that it stops saying so when the bound
+   * goes.
+   *
+   * `server.ts` turns each of these into a sentence; what is settled here is
+   * that the question is answered by the bound that actually decided, that a
+   * file some program holds and a file an `exclude` entry keeps out are both
+   * *not* this notice's business — the first has real diagnostics and the
+   * second has a better sentence naming a line the user wrote — and that
+   * opening the folder is enough to end it.
+   */
+  test("a stranded buffer is told which bound stranded it, until the bound goes", async () => {
+    const path = await makeRoot();
+    const acme = join(path, "node_modules", "acme");
+    await mkdir(join(acme, "vendor"), { recursive: true });
+    await mkdir(join(path, "dist"), { recursive: true });
+    await mkdir(join(path, "node_modules", "loose"), { recursive: true });
+    await mkdir(join(path, "generated"), { recursive: true });
+    await writeFile(
+      join(path, MANIFEST_NAME),
+      JSON.stringify({ name: "App", dependencies: ["Acme"], exclude: ["generated"] }),
+    );
+    await writeFile(join(path, "main.hex"), HEADER + "let value: Int = 1\n");
+    await writeFile(join(path, "generated", "made.hex"), "module Made\n");
+    await writeFile(join(path, "dist", "built.hex"), "module Built\n");
+    await writeFile(join(path, "node_modules", "loose", MANIFEST_NAME), '{"name":"Loose"}');
+    await writeFile(join(path, "node_modules", "loose", "stray.hex"), "module Stray\n");
+    await writeFile(join(acme, MANIFEST_NAME), '{"name":"Acme"}');
+    await writeFile(join(acme, "lib.hex"), "module Lib\n");
+    await writeFile(join(acme, "vendor", MANIFEST_NAME), '{"name":"Vendored"}');
+    await writeFile(join(acme, "vendor", "inside.hex"), "module Inside\n");
+    const uriOf = (...names: readonly string[]): string =>
+      pathToFileURL(join(path, ...names)).toString();
+
+    const workspace = new Workspace();
+    await workspace.setRoots([path], () => {});
+    // Held: it has diagnostics of its own, and a notice saying it has none
+    // would be the false one.
+    expect(workspace.outsideEveryPackage(uriOf("main.hex"))).toBeUndefined();
+    expect(workspace.outsideEveryPackage(uriOf("node_modules", "acme", "lib.hex")))
+      .toBeUndefined();
+    // Excluded: `exclude` has its own sentence, and it is the better one.
+    expect(workspace.outsideEveryPackage(uriOf("generated", "made.hex"))).toBeUndefined();
+    expect(workspace.outsideEveryPackage(uriOf("node_modules", "loose", "stray.hex")))
+      .toEqual({ kind: "unlisted-dependency" });
+    expect(workspace.outsideEveryPackage(uriOf("dist", "built.hex")))
+      .toEqual({ kind: "skipped-directory", directory: "dist" });
+    // The bound is asked of the package the file would have joined, not of the
+    // project: `node_modules` lies between the project and this file, but
+    // nothing lies between `acme` and it except the vendored manifest — which
+    // is the one thing here a reader can act on.
+    expect(workspace.outsideEveryPackage(uriOf("node_modules", "acme", "vendor", "inside.hex")))
+      .toEqual({
+        kind: "other-package",
+        manifest: `node_modules/acme/vendor/${MANIFEST_NAME}`,
+      });
+
+    // And the notice ends when the reason does, which is the whole reason to
+    // publish it: opening the vendored package's folder makes it a program.
+    await workspace.setRoots([path, join(acme, "vendor")], () => {});
+    expect(workspace.outsideEveryPackage(uriOf("node_modules", "acme", "vendor", "inside.hex")))
+      .toBeUndefined();
+  });
+
+  /**
    * The third case of the same rule, and the only one that can change a report
    * in the user's **own** source: a dependency's `exclude` is about the
    * dependency's files, and every door has to read it.
@@ -750,18 +908,34 @@ describe("the workspace walk", () => {
   // running it. `process.getuid` is itself undefined on Windows, so testing
   // only for root would have left exactly that case running.
   const cannotDetectDescent = process.platform === "win32" || process.getuid?.() === 0;
-  test.skipIf(cannotDetectDescent)("an excluded directory reached by a link is not descended at all", async () => {
+  /**
+   * An excluded directory **is** descended, and only for boundaries.
+   *
+   * It used not to be, and the reason was cost: a generated tree is excluded
+   * because it is big, and listing every directory under it is most of what
+   * `exclude` is asked to save. What changed is that a `hexagon.json` beneath
+   * such a directory is a package of its own and a program of its own, which
+   * §2.2 puts outside this project before any `exclude` is read — so an entry
+   * that stopped the walk there deleted a program the entry never named, and
+   * only when the user had not also opened that folder as a root. Finding the
+   * boundary costs one `readdir` per directory in the excluded subtree, and
+   * nothing else: no file is collected, no identity is resolved, and the
+   * tooling directories still prune the descent.
+   *
+   * The unreadable subdirectory is what makes the *silence* observable. It is
+   * reached now, and reporting it would put an error in the user's face about
+   * a directory they told this host not to read.
+   */
+  test.skipIf(cannotDetectDescent)("an excluded directory is descended for boundaries alone, in silence", async () => {
     const path = await makeRoot();
     await mkdir(join(path, "generated", "deep"), { recursive: true });
+    await mkdir(join(path, "generated", "inner"), { recursive: true });
     await writeFile(join(path, "main.hex"), "module Main\n\n" + "let value: Int = 1\n");
+    await writeFile(join(path, "generated", "broken.hex"), "module Broken\n\n" + "let x: Int = \n");
+    await writeFile(join(path, "generated", "inner", MANIFEST_NAME), '{"name":"Inner"}');
+    await writeFile(join(path, "generated", "inner", "kept.hex"), "module Kept\n");
     await symlink(join(path, "generated"), join(path, "gen-link"), "dir");
     await writeFile(join(path, MANIFEST_NAME), JSON.stringify({ exclude: ["generated"] }));
-    // Rejecting the *files* inside an excluded directory would give the same
-    // file set while still listing every directory under it, which is most of
-    // the cost `exclude` is asked for — a generated tree is excluded because it
-    // is big. An unreadable subdirectory makes that descent observable: reaching
-    // it at all reports an error, so the guard is the difference between one
-    // error and none, which no assertion about the file set can see.
     const unreadable = join(path, "generated", "deep");
     await chmod(unreadable, 0o000);
 
@@ -775,6 +949,14 @@ describe("the workspace walk", () => {
       await chmod(unreadable, 0o755);
     }
     expect(errors).toEqual([]);
+    // The files stay out — the descent collects nothing — and the package
+    // beneath the exclusion is a program with its own source.
+    const base = normalizePath(settledPathSync(path));
+    expect(workspace.programs.map(({ directory }) => directory.slice(base.length)))
+      .toEqual(["", "/generated/inner"]);
+    expect(
+      workspace.programs.flatMap(({ session }) => session.paths).map((p) => p.split("/").at(-1)),
+    ).toEqual(["main.hex", "kept.hex"]);
   });
 
   test("a symlink to a single excluded file is excluded too", async () => {
@@ -1537,7 +1719,18 @@ describe("one answer per file, whatever route reached it", () => {
    * lists, a vendored package inside the dependency, and both `exclude`s.
    */
   const TREE: Readonly<Record<string, string>> = {
-    [MANIFEST_NAME]: manifest({ name: "App", dependencies: ["Acme"], exclude: ["excluded"] }),
+    // `node_modules` sits in the project's `exclude` on purpose, and it is the
+    // shape of every `.gitignore`: a project's entry must bound the project's
+    // own files and reach into no dependency of it. The other direction — a
+    // dependency's entry reaching its own files — is `"generated"` below. Both
+    // halves of "one manifest's `exclude` is about that package's own files"
+    // are then driven through all six routes, rather than one of them being
+    // pinned at the walk alone.
+    [MANIFEST_NAME]: manifest({
+      name: "App",
+      dependencies: ["Acme"],
+      exclude: ["excluded", "node_modules"],
+    }),
     "main.hex": "module Main\n",
     "target.hex": "module Target\n\nexport let n: Int = 1\n",
     "fresh.hex": "module Fresh\n",
@@ -1606,11 +1799,26 @@ describe("one answer per file, whatever route reached it", () => {
       holders: ["sub"],
       excluded: false,
     },
+    // No package of any closure contains it, so the deepest package directory
+    // that does is the project — and the project's entry does cover it. §2.2
+    // keeps it out of the project's own files either way; the honest answer to
+    // "is a manifest what keeps it out" is yes once the project excludes the
+    // directory, and it is stated rather than left to be discovered.
     "a file of an installed package nobody lists": {
       file: "node_modules/loose/stray.hex",
       roots: ["."],
       owner: undefined,
       holders: [],
+      excluded: true,
+    },
+    // The direction the project's own entry must *not* reach: `node_modules`
+    // is excluded by the project, and the file is a listed dependency's own
+    // source, so the entry deciding about it is the dependency's.
+    "a listed dependency's file under a `node_modules` the project excludes": {
+      file: "node_modules/acme/lib.hex",
+      roots: ["."],
+      owner: undefined,
+      holders: ["."],
       excluded: false,
     },
     "a listed dependency's own file": {

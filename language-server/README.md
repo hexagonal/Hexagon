@@ -474,7 +474,12 @@ file would be. Three cases follow from the one rule, and all three are ordinary:
 
 - a manifest naming a path inside a **nested project**, or inside a sibling
   root, is naming files that project's own manifest answers for. Keeping a file
-  out of a nested project is an entry in *its* `hexagon.json`;
+  out of a nested project is an entry in *its* `hexagon.json`. An entry naming
+  the nested project's own directory is the same rule at its edge: §2.2 puts
+  that whole directory outside the parent's files before any `exclude` is read,
+  so the entry names nothing of the parent's, the nested program stands whether
+  or not its folder is also an editor root, and the manifest that wrote the
+  entry is told it has no effect;
 - a project's entry does not reach its **dependencies**. `node_modules` lies
   inside the project directory, so `exclude: ["node_modules"]` — what a user
   writes out of `.gitignore` habit — would otherwise empty every dependency of
@@ -534,6 +539,18 @@ An excluded file that the user opens says so, as one informational diagnostic.
 Going quiet instead would read as a broken server — the grammar still colours the
 buffer and the server is visibly running — and the user's next move would be to
 report a bug rather than to open `hexagon.json`.
+
+So does a file that §2.2's own bounds put outside every package, and there the
+sentence names **which** bound, because each has a different way out: under a
+`node_modules` of a package no open project lists (add the `dependencies`
+entry), beneath a `hexagon.json` of some other package (open that folder), or
+under `dist`, `.git` and the rest of the tooling list (a fact about this host
+that no manifest argues with, so that sentence offers no repair). These are the
+bounds a user cannot see — each is a fact about a directory above the file
+rather than a line anyone wrote — and this PR sharpens the need: a file inside a
+*listed* dependency now gets full language support, and one inside its unlisted
+neighbour gets none, with nothing on screen to tell them apart. Each notice
+clears the moment its reason does.
 
 Every manifest is watched like source, wherever it sits, since a change to one
 can change what the programs are: a `hexagon.json` written beneath a project is a

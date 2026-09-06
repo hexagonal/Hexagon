@@ -198,6 +198,52 @@ describe("readManifest", () => {
       .toEqual([join(path, "Examples"), join(path, "Generated")]);
   });
 
+  test("an entry naming a package of its own is reported and applied to nothing", async () => {
+    const path = await rootWith(
+      ['{', '  "name": "App",', '  "exclude": ["packages/geometry"]', '}'].join("\n"),
+    );
+    await make(path, "packages/geometry/shape.hex");
+    await writeFile(
+      join(path, "packages", "geometry", MANIFEST_NAME),
+      JSON.stringify({ name: "Geometry" }),
+      "utf8",
+    );
+    const result = await readManifest(path);
+    // §2.2 already keeps a directory holding a `hexagon.json` of its own out of
+    // the enclosing package's files, so the entry names nothing of this
+    // package's — and the nested package keeps its program, its diagnostics and
+    // its place in the editor whatever this manifest says about it.
+    expect(result.problems).toEqual([{
+      message:
+        "hexagon.json `exclude` entry \"packages/geometry\" names a package of its own " +
+        "(it holds a `hexagon.json`), which is never part of this project; " +
+        "the entry has no effect",
+      line: 2,
+      scope: "host",
+      severity: "warning",
+    }]);
+    // Not merely inert: dropped, so that the sentence above is exactly true and
+    // no second reader can find a rule here to apply.
+    expect(result.manifest.exclude).toEqual([]);
+  });
+
+  test("an entry naming an ordinary directory beside a package is still applied", async () => {
+    const path = await rootWith(JSON.stringify({ exclude: ["packages"] }));
+    await make(path, "packages/loose.hex", "packages/geometry/shape.hex");
+    await writeFile(
+      join(path, "packages", "geometry", MANIFEST_NAME),
+      JSON.stringify({ name: "Geometry" }),
+      "utf8",
+    );
+    // The entry contains a package of its own, and it also names files that are
+    // this project's — `packages/loose.hex` — so it is not inert, and saying it
+    // had no effect would be false. What the boundary escapes is the walk, not
+    // this report: `files.ts` finds `packages/geometry` beneath the exclusion.
+    const result = await readManifest(path);
+    expect(result.problems).toEqual([]);
+    expect(result.manifest.exclude).toEqual([join(path, "packages")]);
+  });
+
   test("a separator the exclusion honours is not called a mismatch", async () => {
     const path = await rootWith(JSON.stringify({ exclude: ["gen\\a.hex"] }));
     await make(path, "gen/a.hex");

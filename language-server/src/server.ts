@@ -67,7 +67,7 @@ import {
   type CodeActionSupport,
 } from "./code-actions.js";
 import { offsetOfPosition, rangeOfSpan } from "./positions.js";
-import { Workspace } from "./workspace.js";
+import { Workspace, type OutsideEveryPackage } from "./workspace.js";
 import { MANIFEST_NAME, type SeatedProblem } from "../../host/src/index.js";
 import { LEGEND, encodeSemanticTokens } from "./semantic-tokens.js";
 
@@ -459,13 +459,23 @@ function publishDiagnostics(
       })),
     });
   }
-  // An excluded file the user has open would otherwise be simply dead: coloured
-  // by the grammar, with a server visibly running, and answering nothing. That
-  // reads as a broken server rather than as a deliberate exclusion, and the
-  // user's next move is to report a bug instead of opening `hexagon.json`.
-  // Saying so costs one publication and cannot be mistaken for a compiler error.
+  // A file the user has open that no program holds would otherwise be simply
+  // dead: coloured by the grammar, with a server visibly running, and answering
+  // nothing. That reads as a broken server rather than as a deliberate bound,
+  // and the user's next move is to report a bug instead of opening
+  // `hexagon.json`. Saying so costs one publication and cannot be mistaken for
+  // a compiler error.
+  //
+  // One sentence per **reason**, because the ways out are different: an
+  // `exclude` entry is a line the user wrote and can delete, an unlisted
+  // dependency is a `dependencies` entry they can add, a package with a
+  // manifest of its own is a folder they can open, and a tooling directory is
+  // a fact about this host that no manifest can argue with. A single "this
+  // file is not in the project" would tell them nothing they could act on.
   for (const document of open) {
-    if (!workspace.isExcludedUri(document.uri)) continue;
+    const excluded = workspace.isExcludedUri(document.uri);
+    const outside = excluded ? undefined : workspace.outsideEveryPackage(document.uri);
+    if (!excluded && outside === undefined) continue;
     // Through the remembered pairing like every other publication here, rather
     // than the document's own URI. They agree for an open document, since its
     // spelling is the first one seen — but reaching past `toUri` is how the two
@@ -477,9 +487,10 @@ function publishDiagnostics(
       diagnostics: [{
         severity: DiagnosticSeverity.Information,
         range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
-        message:
-          `this file is excluded from the project by \`${MANIFEST_NAME}\`, ` +
-          "so it has no diagnostics, hover, or navigation",
+        message: outside === undefined
+          ? `this file is excluded from the project by \`${MANIFEST_NAME}\`, ` +
+            "so it has no diagnostics, hover, or navigation"
+          : reasonSentence(outside),
         source: "hexagon",
       }],
     });
@@ -490,6 +501,31 @@ function publishDiagnostics(
   }
   published.clear();
   for (const uri of stillReporting) published.add(uri);
+}
+
+/**
+ * What to tell a user whose open buffer is nobody's source, per §2.2 bound.
+ *
+ * Each sentence names the bound, then the way out, and the way out is a thing
+ * the user can do rather than a rule they can read: list the package, open the
+ * folder. The tooling directories are the one case with no way out by design —
+ * `files.ts` says so in as many words — so that sentence promises none, and
+ * naming the directory is what lets the reader see it was their `dist/` and not
+ * something the server invented.
+ */
+function reasonSentence(outside: OutsideEveryPackage): string {
+  const dead = "so it has no diagnostics, hover, or navigation";
+  switch (outside.kind) {
+    case "unlisted-dependency":
+      return `this file is under \`node_modules\` of a package this project does not list, ` +
+        `${dead}; add it to \`dependencies\` in \`${MANIFEST_NAME}\` to compile it`;
+    case "skipped-directory":
+      return `this file is under \`${outside.directory}\`, which this language server never ` +
+        `reads as project source, ${dead}`;
+    case "other-package":
+      return `this file belongs to the package at \`${outside.manifest}\`, which no open ` +
+        `project reaches, ${dead}; open its folder to work on it`;
+  }
 }
 
 /**

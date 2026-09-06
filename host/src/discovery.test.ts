@@ -15,10 +15,10 @@ import { Lookup } from "./lookup.js";
 import { discoverProgram, discoverPrograms } from "./packages.js";
 import { enclosingManifestDirectory, projectDirectories } from "./projects.js";
 import {
-  crossesSkippedDirectory,
   hexagonFilesUnder,
   nothingSeen,
   NOTHING_EXCLUDED,
+  skippedDirectoryBetween,
 } from "./files.js";
 import { normalizePath } from "./paths.js";
 import { removeTemporaryRoots, temporaryRoot } from "./test-roots.js";
@@ -596,6 +596,31 @@ describe("§2.2 / §2.5 — what a project holds, and where one begins", () => {
     expect(walked.files.map(({ path }) => path)).toEqual([`${root}/main.hex`]);
   });
 
+  test("a package beneath an excluded directory is still a boundary the walk reports", async () => {
+    const root = await tree({
+      "hexagon.json": manifest({ name: "App", exclude: ["packages"] }),
+      "main.hex": "module Main\n",
+      "packages/loose.hex": "module Loose\n",
+      "packages/geometry/hexagon.json": manifest({ name: "Geometry" }),
+      "packages/geometry/shape.hex": "module Shape\n",
+    });
+    const excluded = [`${root}/packages`];
+    const walked = await hexagonFilesUnder(
+      root,
+      { literal: excluded, real: excluded },
+      nothingSeen(),
+      () => {},
+    );
+    // The entry does bound this package's own files, `packages/loose.hex`
+    // among them. What it cannot do is delete the package below it: §2.2 puts
+    // `packages/geometry` outside this project's files before any `exclude` is
+    // read, so the boundary is the walk's to report either way — and reporting
+    // it is what makes the nested project exist whether or not the user happens
+    // to have opened that folder as a root of its own.
+    expect(walked.files.map(({ path }) => path)).toEqual([`${root}/main.hex`]);
+    expect(walked.nested).toEqual([`${root}/packages/geometry`]);
+  });
+
   test("a folder opened inside a package belongs to that package's project", async () => {
     const root = await tree({
       "hexagon.json": manifest({ name: "Acme" }),
@@ -684,22 +709,29 @@ describe("§4.1 — the walk's shape", () => {
    * walk never sees. Only the components *between* the two count: a dependency
    * lives under a `node_modules` and its own files are still its own.
    */
-  test("`crossesSkippedDirectory` reads what lies between a root and a file", () => {
-    expect(crossesSkippedDirectory("/proj", "/proj/node_modules/acme/geometry.hex")).toBe(true);
-    expect(crossesSkippedDirectory("/proj", "/proj/dist/generated.hex")).toBe(true);
-    expect(crossesSkippedDirectory("/proj", "/proj/src/main.hex")).toBe(false);
+  test("`skippedDirectoryBetween` names what lies between a root and a file", () => {
+    // The name, not a yes: a host telling a user why their buffer is dead has
+    // to say which directory decided it, and `node_modules` and `dist` are
+    // different sentences with different repairs.
+    expect(skippedDirectoryBetween("/proj", "/proj/node_modules/acme/geometry.hex"))
+      .toBe("node_modules");
+    expect(skippedDirectoryBetween("/proj", "/proj/dist/generated.hex")).toBe("dist");
+    expect(skippedDirectoryBetween("/proj", "/proj/src/main.hex")).toBeUndefined();
     // The root's own name is not between anything.
-    expect(crossesSkippedDirectory("/proj/node_modules/acme", "/proj/node_modules/acme/g.hex"))
-      .toBe(false);
+    expect(skippedDirectoryBetween("/proj/node_modules/acme", "/proj/node_modules/acme/g.hex"))
+      .toBeUndefined();
     // Nor is the file's, which is a file and not a directory.
-    expect(crossesSkippedDirectory("/proj", "/proj/dist")).toBe(false);
+    expect(skippedDirectoryBetween("/proj", "/proj/dist")).toBeUndefined();
     // A path that is not beneath the root at all crosses nothing; whether it is
     // beneath it is the caller's separate question.
-    expect(crossesSkippedDirectory("/proj", "/other/dist/x.hex")).toBe(false);
+    expect(skippedDirectoryBetween("/proj", "/other/dist/x.hex")).toBeUndefined();
     // A whole component, never a prefix of one.
-    expect(crossesSkippedDirectory("/proj", "/proj/distribution/x.hex")).toBe(false);
+    expect(skippedDirectoryBetween("/proj", "/proj/distribution/x.hex")).toBeUndefined();
+    // The nearest one wins, since that is the one that decided.
+    expect(skippedDirectoryBetween("/proj", "/proj/dist/node_modules/a/g.hex")).toBe("dist");
     // Separators are normalized first, so a Windows spelling reads the same.
-    expect(crossesSkippedDirectory("C:\\proj", "C:\\proj\\node_modules\\a\\g.hex")).toBe(true);
+    expect(skippedDirectoryBetween("C:\\proj", "C:\\proj\\node_modules\\a\\g.hex"))
+      .toBe("node_modules");
   });
 
   /**
