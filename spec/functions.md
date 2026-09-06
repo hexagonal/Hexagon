@@ -464,7 +464,7 @@ fun
 
 ### 7.4 Recursion is monomorphic
 
-`fun` accepts type parameters freely and generalizes like `let` (§8). But **recursive calls — direct or mutual, within the SCC (computed within the block, §7.3) — are at the definition's own monomorphic type**; no polymorphic recursion. This requires no special enforcement: within the SCC the function's type is a not-yet-generalized monotype, so a recursive use at a different instantiation fails ordinary unification. Generic recursive functions (`map`, `fold`) work fine — the *outside world* instantiates them freshly; only the recursive knot is monomorphic.
+`fun` accepts type parameters freely and generalizes like `let` (§8). But **recursive calls — direct or mutual, within the SCC (computed within the block, §7.3) — are at the definition's own monomorphic type**; no polymorphic recursion. This requires no special enforcement: within the SCC the function's type is a not-yet-generalized monotype, so a recursive use at a different instantiation fails ordinary unification. Generic recursive functions (`map`, `fold`) work fine — the *outside world* instantiates them freshly; only the recursive knot is monomorphic. The knot's effect colours are the same monotypes: a sibling's colour is never pinned by a caller's *defaulting* (ordinary unification — handing the sibling to a `->` demand — still pins it, and a pinned sibling the source arm then claims is Effects §4.3's refusal at that demand), the source arm and then the conduit arm are run to a fixpoint over the component at the knot's close, and only then do the unconstrained colours default and the sibling calls' mark obligations settle (Effects §3.4, #868).
 
 Two corollaries are normative, because each surfaces in ordinary programs *(#368)*:
 
