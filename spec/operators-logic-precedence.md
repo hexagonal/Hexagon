@@ -157,7 +157,7 @@ Consequently `Bool` is the **sole exception** to Unions §1's "`match` is the on
 
 ### 5.1 Elaboration
 
-`==` and `!=` elaborate through `Eq`: `equals(a, b)` and `notEquals(a, b)`. `notEquals` has the default `not equals(a, b)` but an instance may override it while preserving that law. The relational four elaborate through `Ord`'s single member `compare(x, y): Ordering`:
+`==` and `!=` elaborate through `Eq`: `equals(a, b)` and `notEquals(a, b)`. `notEquals` has the default `not equals(a, b)` but an instance may override it while preserving that law. The relational four elaborate through `Ord`'s single member `compare(x: a, y: a) -> Ordering`:
 
 | Source | Elaboration |
 |---|---|
@@ -260,7 +260,7 @@ Elaboration target — a small prelude constraint (edit note to Constraints §7)
 
 ```
 constraint Pow<a: Num> =
-    pow(value: a, exponent: Int): a
+    pow(value: a, exponent: Int) -> a
 ```
 
 `pow` is not folded into `Num` (it would obligate every `Num` instance forever) nor into `Frac`. The exponent seat is a **concrete `Int` parameter** — the established constraint-member shape of `Num.fromNat` and `Signed.fromInt`, here behind an operator: at `value ** exponent`, the left operand elaborates at the instance subject exactly as the §6.1 family's operands do (operand-driven where no expectation lands, the written face where one does — Numeric Literals §5.1's lift, which at `**` reaches the **base seat only**), and the right operand is checked at `Int`, excluded from common-type unification. The exponent seat is an ordinary written-`Int` seat, so §5.1 applies *into* it independently: in `a ** b ** c` the right spine is expected at `Int` and runs there — a tower of exponents is `Int` arithmetic over one typed base, which is what right-associativity (§6.2) always meant.
@@ -296,7 +296,7 @@ Binary, level 5 (additive), left-associative. Elaborates to a new prelude constr
 
 ```
 constraint Concat<a> =
-    concat(x: a, y: a): a
+    concat(x: a, y: a) -> a
 ```
 
 - **v1 instance: `String`.** Emission for the monomorphic case is JS `+` — readable and exactly right, and safe *because* Hexagon's types prevent the mixed-operand accidents that make JS `+` on strings a hazard.
@@ -478,8 +478,8 @@ Semantics live in Statements/Blocks/Mutability (`var`-only target, `Unit`-typed,
 - Add **`NegativeExponentError`** to the exception registry (thrown by the `Nat`/`Int`/`BigInt` instances on `exponent < 0` — and by the `BigInt.pow` door; the `**` operator reaches it through those instances). Same branding scheme (`$hex` carrying the declaring module per #488, `name` discriminant) as `IndexError`/`DivideByZeroError`. *(#344: its declared home is `stdlib/Pow.hex`.)*
 
 ### 14.3 Constraints spec §7 (prelude listing)
-- Add `Pow<a: Num>` with member `pow(value: a, exponent: Int): a`; instances `Nat`, `Int`, `Float`, `BigInt`, `Rat` (§6.3); the `Float.pow`/`BigInt.pow` doors generalise their members (§6.3.1, Modules §5.3).
-- Add `Concat<a>` with member `concat(x: a, y: a): a`; instance `String` in v1, `List` owed to collections (§7).
+- Add `Pow<a: Num>` with member `pow(value: a, exponent: Int) -> a`; instances `Nat`, `Int`, `Float`, `BigInt`, `Rat` (§6.3); the `Float.pow`/`BigInt.pow` doors generalise their members (§6.3.1, Modules §5.3).
+- Add `Concat<a>` with member `concat(x: a, y: a) -> a`; instance `String` in v1, `List` owed to collections (§7).
 
 ### 14.3a Primitive Types — `Int.div`/`Int.mod` convention REOPENED (deep-dive owed before v1)
 

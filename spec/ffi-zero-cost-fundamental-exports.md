@@ -433,7 +433,7 @@ export let plus<a: Num>(x: a, y: a): a = x + y
 --        rename one of the exports
 
 -- (h) Zero-entry-point case: legal, visible, and still a working Hexagon export
-constraint Weighty<a> = weight(x: a): Float        -- no fundamental instances
+constraint Weighty<a> = weight(x: a) -> Float       -- no fundamental instances
 export let heaviest<a: Weighty>(xs: Vector(a)): Option(a) = ...
 -- with no public non-fundamental Weighty instance: no foreign typed entry
 -- points. Not an error: another Hexagon module may import this one, honor
@@ -452,7 +452,7 @@ export let heaviest<a: Weighty>(xs: Vector(a)): Option(a) = ...
 -- .d.ts bytes attributable to specializations (§10).
 
 -- (k) Trigger completeness: one uncallable variable blocks the edition (§17.1)
-constraint Weighty<a> = weight(x: a): Float        -- no fundamental instances
+constraint Weighty<a> = weight(x: a) -> Float       -- no fundamental instances
 export let describe<a: Show, b: Weighty>(x: a, y: b): String = ...
 -- Public non-fundamental Show evidence exists (e.g. Vector.show); but with no
 -- publicly obtainable Weighty evidence for ANY public type, no complete
