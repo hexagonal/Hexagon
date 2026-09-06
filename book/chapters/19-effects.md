@@ -181,60 +181,68 @@ interpolation each dispatch to a constraint member; `xs[i]` is the companion ope
 `at`, definitionally.
 
 The consequence is a rule worth remembering: **everything those forms reach must be
-pure.** Every member of every constraint — `show`, `compare`, `hash`, `add`, `toSeq` —
-has pure arrows, and an `honor` instance's bodies must check pure; `at` wears a pure
-face the same way. A type whose traversal performs effects therefore cannot honor
-`Iterable`, and cannot stand in a `for` head at all.
+pure.** The members they reach are the prelude's — `show`, `compare`, `add`, `toSeq`, and
+their kin — and every one of them writes the pure arrow on its header, so an `honor`
+instance's bodies for them must check pure; `at` wears a pure face the same way. A type
+whose traversal performs effects therefore cannot honor `Iterable`, and cannot stand in a
+`for` head at all.
+
+A constraint you declare yourself is under no such rule. Its member headers write their
+own arrow — `read(source: a) ->! String` says any instance *may* read the world — and
+that header is a contract, not a description of any one instance: a pure instance honors
+an effectful member, an effectful instance cannot honor a pure one, and every call
+through the member wears the contract's mark whichever instance answers. The Constraints
+chapter has the details.
 
 Loop *bodies* are a different matter. A `for` head is protocol and is pure; the body is
 an ordinary block, and its statements mark their own calls as usual.
 
 ## Where effects come from
 
-If the prelude is pure and constraint members are pure, effects have to enter somewhere.
-They enter at the JavaScript boundary, and the default there is honest about what it does
-not know:
+If the prelude is pure and its constraint members are pure, effects have to enter
+somewhere. They enter at the JavaScript boundary, where every callable declaration writes
+its own arrow before its result:
 
 ```hexagon
 extern from "./world.js"
-    export fun readLine(): String
-    export fun save(document: String): Unit
-    export pure fun trim(document: String): String
+    export fun readLine() ->! String
+    export fun save(document: String) ->! Unit
+    export fun trim(document: String) -> String
 ```
 
-A user-written `extern fun` is **effectful by default** — its arrows are `->!` and every
-call wears `!`. Foreign code is trust territory, and the honest default for the unknown
-is that the world notices.
+An extern declaration has no body to infer from, so it *declares* what an ordinary function
+would have inferred. Foreign code is trust territory, and when you do not know what it
+does, write `->!`: it promises nothing, and every call wears `!`. There is no default —
+leaving the arrow out is an error, never a silent claim in either direction.
 
-`pure` is the trusted claim that says otherwise. It is believed, not checked, and the
-module author answers for it. Claiming `pure` on something that touches the world is
-simply a lie, with two narrow exceptions the specification names: a write-only channel
-the program cannot read back (a debug probe), and a read the runtime performs at most
-once and then owns.
+`->` on a foreign declaration is the trusted claim that says otherwise. It is believed, not
+checked, and the module author answers for it. Writing `->` over something that touches
+the world is simply a lie, with the narrow exceptions the specification names: a
+write-only channel the program cannot read back (a debug probe), a read the runtime
+performs at most once and then owns, and a read of data a contract holds still.
 
-There is a second claim in the same slot, for the shape `pure` cannot describe. A foreign
-function that *runs* the callback you hand it is exactly as effectful as that callback —
-`Array.prototype.forEach` is the everyday example. `pure` would be a lie about it, and the
-default charges a `!` even when the callback you supply is pure. `conduit` says the honest
-thing instead:
+The third arrow covers the shape neither of the other two describes. A foreign function that
+*runs* the callback you hand it is exactly as effectful as that callback —
+`Array.prototype.forEach` is the everyday example. `->` would be a lie about it, and `->!`
+would charge a `!` even when the callback you supply is pure. `->?` says the honest thing:
 
 ```hexagon
 extern from "./world.js"
-    export conduit fun each(step: (String) ->? Unit): Unit
+    export fun each(step: (String) ->? Unit) ->? Unit
 ```
 
 `each`'s face is `(String ->? Unit) ->? Unit` — one colour, worn by the callback and by
 `each` itself. Hand it a pure step and the call is bare; hand it one that saves, and the
 call wears `!`. Nothing new happens at the call site: that is the linked arrow you already
-know, declared rather than inferred, because a declaration header has no outer arrow to
-write it on. Like `pure`, it is believed rather than checked.
+know, written on the declaration rather than inferred from a body. Like `->`, it is believed
+rather than checked.
 
 That is the whole story of how a pure corpus stays pure. Nothing in the standard library
 manufactures an effect; effects arrive through declared doors.
 
 ### The debug probe
 
-The first of those two exceptions is a function you have been calling since Chapter 1.
+The first of those exceptions is a function you have been calling since Chapter 1.
 `Debug.log` is ordinary Hexagon, declared in the standard library's `Debug` module; like the rest
 of the prelude it needs no import, and the qualifier is the spelling — `log` alone is a
 word the language leaves to you. It writes to the debugging console, which is a channel
@@ -296,10 +304,12 @@ loophole.
 - `->?` denotes one effect variable per signature and is legal only where a parameter
   offers the caller a slot; elsewhere it is refused rather than re-read;
 - operators, indexing, `for` heads, and interpolation have no seat for a mark, so
-  everything they dispatch to is pure — constraint members included; and
-- effects enter through user-written externs, which are impure by default and may claim
-  either `pure` — it never touches the world — or `conduit` — it is exactly as effectful
-  as the callbacks it is handed — as trusted, unchecked promises; and
+  everything they dispatch to is pure — the prelude's members, which all write `->`;
+  a constraint of your own declares each member's arrow as a contract its instances
+  are compared against; and
+- effects enter through user-written externs, each declaration writing its own arrow — `->!`
+  when in doubt, `->` as a trusted claim that it never touches the world, `->?` when it
+  is exactly as effectful as the callbacks it is handed — believed, never checked; and
 - the standard library's own exception is the debug probe — `Debug.log` and `Debug.trace`, from
   the `Debug` module — pure-faced because the console cannot be read back, and therefore
   indifferent to how many times it runs; counted, ordered output belongs behind a `!`.
