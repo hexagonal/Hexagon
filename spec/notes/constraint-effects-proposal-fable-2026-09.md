@@ -2,7 +2,11 @@
 
 **Status:** Proposed, non-normative; 2026-09-06. No compiler changes or soundness
 proof are claimed. This records the design direction agreed in discussion and
-the checks needed before adoption.
+the checks needed before adoption. **Promotion record:** §1–§4 and §6 (effectful
+member contracts, directed satisfaction, contract-faced calls and doors) are
+normative as Effects §13 and Constraints §2 (#867); §5 (the `?` inference
+correction) is Effects §3.3–§3.4 (#868); §7 (extern rows write their arrow) is
+FFI Part 4 §4.5 (#869), with one amendment — setters write `->!` only.
 
 ## 1. Two levels: implementation and interface
 

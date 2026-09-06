@@ -1,9 +1,9 @@
 # Hexagon Spec: Effects
 
-**Status:** Decided (#355; arrows respelled and the else-constant rule withdrawn, #405; the inlet rule widened to the application spine and local type positions ruled, #408; an unconstrained own colour defaults pure before generalization whatever the signature's inlets, knot mark obligations settle at the knot's close, and `?` has one meaning, #868). The two-point effect discipline ships in v1, unconditionally — colours are part of the language, not an option. Nothing here has a warning tier.
-**Scope:** What an effect is; the three arrows (`->`, `->?`, `->!`) and their readings; where `->?` is legal; the call-mark trichotomy (bare, `!`, `?`); effect variables in inference; symmetric enforcement at calls and faces; the extern ownership split and trusted purity claims; the `Seq`/`Stream` posture.
+**Status:** Decided (#355; arrows respelled and the else-constant rule withdrawn, #405; the inlet rule widened to the application spine and local type positions ruled, #408; an unconstrained own colour defaults pure before generalization whatever the signature's inlets, knot mark obligations settle at the knot's close, and `?` has one meaning, #868; constraint member headers are effect contracts, compared rather than unified at the seat that honors them, #867 — §13). The two-point effect discipline ships in v1, unconditionally — colours are part of the language, not an option. Nothing here has a warning tier.
+**Scope:** What an effect is; the three arrows (`->`, `->?`, `->!`) and their readings; where `->?` is legal; the call-mark trichotomy (bare, `!`, `?`); effect variables in inference; symmetric enforcement at calls and faces; the extern ownership split and trusted purity claims; the `Seq`/`Stream` posture; effect contracts at the constraint seat (§13).
 **Not in scope:** Exceptions — deliberately outside the effect (§1); `Stream`'s module surface (`stream.md`); token shapes (Lexer §8); the pipe rewrite (Operators §8); the dot-call form (Method Syntax §2); display grammar for arrows (Functions §5.1).
-**Companions:** Functions (§4.1 annotations, §5.1 displayed types, §7.4 the monomorphic knot, §8 generalization), Statements, Blocks & Mutability (§6.2 — the coupling §7's last bullet names), Constraints (§2 — members are pure), Intrinsics (§4.2 verification), FFI Part 4 (extern bindings; the `pure` and `conduit` claims), FFI Part 3 (the `Seq` launder; the `Stream` crossing), Loops (§6 `Seq`, §7 `Iterable`), `stream.md`.
+**Companions:** Functions (§4.1 annotations, §5.1 displayed types, §7.4 the monomorphic knot, §8 generalization), Statements, Blocks & Mutability (§6.2 — the coupling §7's last bullet names), Constraints (§2 — member headers are contracts; §4.1 the seat; §7 the prelude's members write `->`), Intrinsics (§4.2 verification), FFI Part 4 (extern bindings; the `pure` and `conduit` claims), FFI Part 3 (the `Seq` launder; the `Stream` crossing), Loops (§6 `Seq`, §7 `Iterable`), `stream.md`.
 
 ---
 
@@ -12,7 +12,7 @@
 - **The tracked effect is observable interaction with the world.** Reading input, writing output, consulting a clock or an entropy source, mutating foreign state. Nothing else is an effect: allocation is not, `var` inside a function body is not (it cannot escape — Statements §6.2), and **throwing is not**. Exceptions are the partiality/defect channel (Exceptions spec), the Rust cut: `Int.div` throwing `DivideByZeroError` does not make division effectful, and `Result` is untouched. Without this cut the doctrine of throwing companions would make the whole prelude impure.
 - **The lattice has two points: pure and impure.** There are no effect rows, no effect families, no user-declared effect kinds. A design that wants "which effect" is a different language; Hexagon asks only "does the world notice".
 - **Purity is the silent one.** A bare call, an unmarked body, a `->` arrow — silence is the strongest claim. Effects are what get spelled, and **one alphabet spells them in both places**: the marks `!` and `?` ride the call they describe and the arrow they colour alike. A reader who sees nothing may assume the world is untouched.
-- **The system is Hindley–Milner all the way down.** The effect is one more unifiable component of every function type, ranging over the two-point lattice; effect variables are ordinary type variables (§3.4). This is the effects system reached by *refusing to leave* HM — the same commitment that fixed the rest of the type system. There is no subeffecting, no row polymorphism, no effect subsumption: colours unify or they do not.
+- **The system is Hindley–Milner all the way down.** The effect is one more unifiable component of every function type, ranging over the two-point lattice; effect variables are ordinary type variables (§3.4). This is the effects system reached by *refusing to leave* HM — the same commitment that fixed the rest of the type system. There is no subeffecting, no row polymorphism, no effect subsumption: colours unify or they do not. One seat compares them instead *(#867)*: an instance meeting a constraint member's contract, where a pure body may stand under an effectful header (§13). That is the whole exception — at calls, at demands, at data fields, and on every implementation's own written face, colours still unify or they do not.
 - **Asynchrony is out of scope, permanently for this ruling.** `async` is a separate axis, not a point on this lattice; v1 is synchronous, and the async question files its own issue when it arises. Nothing here pre-decides it.
 
 ## 2. The three arrows
@@ -87,6 +87,8 @@ The ascription's rigid purity demand (§2.6, the Ascription spec) is unchanged: 
 `->!` is one token (Lexer §8.1); the bang trails the arrow it condemns, matching the call mark's postfix position. `!->` is not a token and cannot become one — the mark trails, on arrows as at calls (Lexer §8.2).
 
 `->!` names the impure constant, and it is the **only** spelling of it. Every position whose colour is constantly impure writes it: a function that performs its own unconditional effects (§2.4's join), a data field that pulls the world (§2.5), an inlet-less face (§2.2.1's refusals), an unannotated user extern's arrows (§6.1). There is no position where the constant may be left implicit and no second spelling that coincides with it — the abolition of the else-constant rule (§2.2.1) is exactly the removal of that coincidence.
+
+One position reads the same spelling as a ceiling rather than a claim *(#867)*: a constraint member's outer arrow is a **contract**, and `->!` there licenses an instance to perform effects without asserting that any instance does (§13.1). The constant is unchanged — it is still the top of the lattice, still the mark every call through the member wears — and what differs is only that the seat honoring the contract compares against it rather than unifying with it (§13.2).
 
 ### 2.4 The conservative join — one variable, ever
 
@@ -213,6 +215,8 @@ The required mark at a call is computed from the callee's outermost arrow colour
 
 ### 4.2 At faces: both directions
 
+This section governs an implementation's **own written face** — a return annotation, a parameter's arrow, an ascription (Functions §4.1; the Ascription spec). A constraint member header is a **contract**, not the face of the body that honors it: a pure body under a `->!` member is not the fourth bullet's error, and §13.2 owns that seat *(#867)*.
+
 A written arrow that contradicts the body's solved colour is an error **in both directions**:
 
 - `->` over a body that performs effects: reported at the offending call — *"this call performs effects, and the enclosing function's face is the pure arrow `->` — a pure face cannot run effects"* — the span that names which call broke the promise.
@@ -238,6 +242,8 @@ The failure has a reverse direction, and it needs its own sentence: a *pure* fun
 
 > this position's arrow is the impure constant — its colour is fixed where the type is declared, and this function's face is the pure `->`; the demand cannot weaken — change the position's declared arrow, or supply the effectful function the position promises
 
+The constraint seat is neither direction of this section *(#867)*: an instance under a member's contract is **compared**, not demanded (§13.2), so a pure body under a `->!` member passes exactly where a pure function at a `->!` field is refused. A field, a parameter arrow, a written `->!` in an annotation — these are *types*, and a type unifies; a member header is a *contract*, and a contract is a bound.
+
 ### 4.4 At `->?`: the inlet rule, enforced
 
 A `->?` written where §2.2.1 does not admit one is an error at the arrow, never a re-reading of it. The report names the position's reason and offers the constant, because the constant is what the writer of a data field or an inlet-less face almost always meant:
@@ -259,8 +265,8 @@ Four call forms have no position for a mark, by grammar:
 
 The consequence is a demand, not an accident: **everything these forms dispatch to must be pure.**
 
-- **Constraint members are `->`-demanded.** Every member of every constraint — `show`, `compare`, `hash`, `add`, `toSeq`, all of them — has pure arrows throughout its declared header, and an `honor` instance's member bodies must check pure. Constraints §2 owns the rule. Derived instances are pure by construction (their generated bodies call members).
-- **`Iterable` can never have an effectful instance.** `toSeq` is a member, so it is pure; a type whose traversal performs effects cannot honor `Iterable` and cannot stand in a `for` head. This lands exactly where it will matter next: `Map`/`Set` iteration is pure by this sentence.
+- **The members these forms reach are the prelude's, and every prelude member's contract is `->`** *(narrowed by #867 from a rule about every constraint; §13.5)*. Operators elaborate to `Num`, `Signed`, `Frac`, `Pow`, `Eq`, `Ord`, `Concat`, and `Integral` members, brackets to `at`, `for` heads to `Iterable.toSeq`, interpolation to `Show.show` — by identity, never by spelling — and every member of every prelude constraint writes `->` on its outer arrow and on every arrow beneath it (Constraints §7 lists them). That is a **compile-breaking standard-library constraint**, of the kind the prelude seat order already is: a prelude header written `->!` would put an unmarkable call on an effectful member, and the conformance suite pins each header. An `honor` body under a `->` contract must solve pure — §13.2's seat check, the mechanism behind Constraints §2's sentence — and derived instances are pure by construction (their generated bodies call members). A *user* constraint may declare an effectful member (§13); no unmarkable form reaches one, because no unmarkable form reaches a user constraint.
+- **`Iterable` can never have an effectful instance.** `toSeq`'s contract is `->`, so every instance's body must solve pure; a type whose traversal performs effects cannot honor `Iterable` and cannot stand in a `for` head. This lands exactly where it will matter next: `Map`/`Set` iteration is pure by this sentence.
 - **`for` headers are never marked, and loop bodies may be impure.** The head is protocol (pure by the above); the body is a block, not a lambda, and its statements mark their own calls as usual (ruling: iteration protocol is pure; effects live in the body).
 
 ## 6. The world's doors
@@ -316,6 +322,10 @@ Messages are normative in shape; the mark table's six rows share one sentence fr
 | `->?` face, body pins the variable pure | "…solves it to the pure constant — the honest face is `->`" + fixit `->` (§4.2) |
 | `->!` face, body effect-polymorphic (a conduit) | "this face is the impure constant `->!`, but the body performs no unconditional effect — it is effect-polymorphic, and its face is `->?`" + fixit `->?` (§4.2) |
 | `->!` face, body pure | same frame, "…but the body performs no effect — its face is `->`" + fixit `->` (§4.2, #868) |
+| An instance body (an `honor` member, a default body, a `widens` door) performs effects under a `->` contract | "this call performs effects, and `read`'s contract is the pure arrow `->` — an instance performs no more than its contract permits" — §4.2's pure-face frame with the contract named as such, at the offending call (§13.2; Constraints §8) |
+| An instance body performs its own unconditional effect under a linked (`->?`) contract | "this call performs effects unconditionally, and `run`'s contract is linked `->?` — an instance must be pure whenever what it is handed is pure, so its effects may come only from what it is handed" — at the offending call (§13.4) |
+| An instance body accepts less than its contract promises at a supplied arrow (a `->?` callback handed to a `->` demand, say) | "`run`'s contract accepts an `action` of either colour, and this instance accepts only a pure one — an instance accepts everything its contract promises to accept" — at the demand that narrowed it (§13.2) |
+| `->?` on a member's outer arrow with no inlet in the header | the inlet-less-signature row below, unchanged — a member header is a signature (§13.4) |
 | Impure argument at a `->` demand | "a `->` arrow promises purity, and this function performs effects — the demand is written `->`, the function's face `->?` or `->!`" (§4.3) |
 | Pure function at an impure-constant demand (a `->!` data field, an inlet-less face, any written `->!`) | "this position's arrow is the impure constant — its colour is fixed where the type is declared, and this function's face is the pure `->`; the demand cannot weaken — change the position's declared arrow, or supply the effectful function the position promises" (§4.3) |
 | `->?` in a `record` field | "`->?` is the caller's colour, and this position has no caller to choose it — a `record` field is data, not a signature; write `->!` for a function that pulls the world, or `->` for one that does not" + fixit `->!` (§4.4) |
@@ -378,7 +388,7 @@ Display is part of the contract: a signature a reader cannot see is not a face. 
 | Effect variables are tyvars: monomorphic in the SCC knot, settled at body close (a knot's members at the knot's close); source/conduit/unconstrained arms | §3.4 |
 | **An unconstrained own colour defaults to pure before generalization, whatever the signature's inlets** — after the body's dependencies are resolved, at body close for a lone binding and at the knot's close for a `fun` member; a parameter's variable and a colour joined by a `?` call, a written `->?`, or a sibling call are dependencies and are never defaulted; an undetermined call is bare in every body, a knot sibling's colour never pinned by the defaulting; the knot's close runs the source arm then the conduit arm to a fixpoint over the component, then defaults, then reads the recorded obligations; `?` has one meaning (#868) | §3.3, §3.4, §4.1, §4.2, §11 |
 | Symmetric enforcement, error-grade, at calls (six directions) and faces (both directions) | §4 |
-| Four unmarkable call forms ⇒ constraint members `->`-demanded; `Iterable` instances pure; `for` heads never marked | §5 |
+| Four unmarkable call forms ⇒ constraint members `->`-demanded; `Iterable` instances pure; `for` heads never marked *(narrowed by #867: the demand is on the prelude's members, which is what the four forms reach — §13.5)* | §5 |
 | Extern ownership split: intrinsics verified, user externs impure by default with contextual `pure` claim, and the contextual `conduit` claim beside it — one variable at the outer arrow and every `->?`, an ordinary linked face, no FFI-specific rule at the call | §6.1, FFI Part 4 §4.5 |
 | Two trusted-purity species: unobservable world-writes; owned at-most-once world-reads; captured-sink caveat | §6.2 |
 | `Seq` pure by construction; effectful sequences are nominal siblings (`Stream`); FFI position choice | §7 |
@@ -387,3 +397,76 @@ Display is part of the contract: a signature a reader cannot see is not a face. 
 | Display distinguishes only what the grammar cannot spell: one variable displays undecorated `->?`, multi-variable faces are numbered `->?¹`/`->?²`, display-only | §10, Functions §5.1 |
 | A constrained face displays its constraints source-shaped, as a binder-bracket prefix, under the same display-only licence; no `=>` survives anywhere in a displayed type | §2, §10, Functions §5.1 |
 | Variance and every occurrence walk count the effect slot, at the arrow's own sign | §3.4 |
+| **A constraint member header is an effect contract** (#867): it writes its outer arrow; an instance body infers its colour; the seat *compares* — pure below impure, at the arrow's own sign, at each instantiation of the member's variable — instead of unifying, the one exception to §1; `->!` on a contract's outer arrow is an allowance, everywhere else the exact constant | §13.1–§13.2, §1, §2.3, §4.2, §4.3 |
+| Every spelling of a member call — bare, qualified, dot, at a known instance, through evidence, a `widens` door — marks by the contract, never by the body; a door shows the member's contract colour over its wider seats; `!` promises no purity and asserts no effect (#867) | §13.3 |
+| One effect variable per member, quantified at the member and instantiated per call; a member header is a signature under the inlet rule; an instance must satisfy both instantiations (#867) | §13.4 |
+| The four unmarkable forms stay pure because every prelude member writes `->` — a compile-breaking standard-library constraint; a user constraint may declare an effectful member (#867) | §5, §13.5 |
+
+## 13. Effect contracts at the constraint seat *(#867)*
+
+A constraint member header is the one function header in the language with no body beneath it to infer from, and it is therefore the one that **writes its own outer arrow**: `show(value: a) -> String`, `read(source: a) ->! String`, `run(runner: r, action: () ->? Unit) ->? Unit` (Constraints §2 owns the form; Functions §4.1's implementation headers keep `:` and keep inferring). What the header writes is a **contract** — what a caller may assume, and what an instance must satisfy — and this section fixes how the two sides meet. Every rule elsewhere in this document stands; §13 adds one seat and says exactly what happens there.
+
+### 13.1 Two levels
+
+- **An instance is an implementation, and its colour is inferred.** An `honor` member body, a default body, and a `widens` door body solve their own colour by §3.4's three arms, exactly as any body does. The header such a body hangs under writes `:` where it writes anything and never an outer arrow (Functions §4.1; Constraints §4.1, §4.7). Of one constraint's instances some are pure and some are not, and nothing written at the constraint says which.
+- **The contract never learns the instance's colour.** It knows only what it refuses: a pure contract cannot be met by an impure instance. Reading a contract tells a caller the most an instance may do, never what a given instance does.
+- **So a contract's outer arrow is an allowance, and the seat is a comparison, not a unification.** `->!` on a member's outer arrow means *an instance may perform effects*; a pure body beneath it is not §4.2's fourth-bullet lie, because the header is not that body's face. This is the one seat where §1's "colours unify or they do not" gives way to an ordering, and it is the whole of the exception: at calls (§4.1), at demands and fields (§4.3), and on every implementation's own written face (§4.2), `->!` stays the exact impure constant.
+
+### 13.2 The seat check
+
+In one sentence: **an instance accepts everything its contract promises to accept, and performs no more effects than its contract permits.** The mechanism is Constraints §4.1's checking posture with the effect slot compared instead of unified — no search, no second reading, one committed answer per seat:
+
+- **The contract is instantiated at each colour its variable can take** — once, if the header writes no `->?`; twice, pure and impure, if it does (§13.4). The body's generalized scheme is instantiated fresh against each.
+- **The two are walked together.** Non-effect structure checks as Constraints §4.1 already checks it. At each pair of arrows the colours are **ordered, pure below impure, at the arrow's own sign** (§3.4's occurrence walk, whose sign this seat reads): at an arrow the caller *invokes* — the outer arrow, and every arrow reached from it through results — the body's colour must be at most the contract's; at an arrow the caller *supplies* — any arrow inside a parameter type, the sign flipping with each nesting — the contract's colour must be at most the body's.
+- **A body colour still a variable collects the bounds the walk imposes**, and the seat passes when every variable's bounds are consistent — on a two-point lattice, one test per variable. A failed seat names the arrow that failed (§9's three contract rows).
+
+For a constant outer arrow the rule is a table:
+
+| Body solves to | `->` contract | `->!` contract |
+|---|---|---|
+| pure | accepted | accepted |
+| impure | refused | accepted |
+
+The refused cell is Constraints §2's standing sentence — member bodies under a pure contract solve pure — given its mechanism, reported in §4.2's pure-face frame with the contract named as such, at the offending call. The lower-right cell is what the ordering buys: a `->!` member honored at an in-memory type by a body that reads nothing.
+
+The supplied direction is what keeps callbacks honest. A contract accepting either colour of callback — `action: () ->? Unit` — cannot be honored by a body that accepts only a pure one (a body handing the callback to a `->` demand, say): at the contract's impure instantiation `->!` is not at most the body's `->`. The reverse widening is free — a body may accept more than its contract promises, and §13.4's worked example is one. Compatibility is never "pure-for-effectful at every nested arrow"; it is the sign, read once.
+
+### 13.3 Every spelling wears the contract's mark
+
+**A call resolved through a member marks by the contract's outer arrow at this instantiation, never by the instance's body** — the bare member call, the qualified call, the dot call (Method Syntax §7), a call at a known concrete instance, a call through evidence under a bound, and a call to a `widens` door (Constraints §4.7; Modules §5.3; Method Syntax §6.1) alike; references to any of them carry the contract's callable type (§2.6 — references are colourless). Knowing which instance answers grants no purer face: `Path.read!(p)` wears `!` at an instance whose body is pure, exactly as `source.read!()` does under `a: Readable`.
+
+- **The door is no exception.** A `widens` binding shows the operation's widest *argument* face and the member's *contract* colour — one operation wearing two widths, never two colours. Its declaration's header writes `:` and its body is inferred and compared at the seat like any instance's (§13.2). The alternative — a door showing its body's inferred colour — was weighed and refused: it would let a body change flip every direct caller's marks and inferred colours under an unchanged interface, and it would hang two colours on one operation. What this costs is stated once, below.
+- **What `!` means, restated.** A bare call is statically pure. A `!` call *may* perform effects — the contract grants no purity — and it does not promise that an effect occurs on this execution: a conditional body, or a pure body under an effectful contract, may perform none. A `?` call carries the enclosing signature's variable. Mark checking stays exact (§4.1): the required mark is the contract's arrow, and any other mark is the error it always was.
+- **The price.** A pure body behind an effectful contract cannot be used as pure *through the member or its door*. An author who wants a pure operation available names one — an ordinary function beside the instance — and the compiler never exposes one on the author's behalf.
+
+The churn this buys, under a `->!` contract:
+
+| Body change | Calls through the member and its door | Refused alternative (door shows the body's colour) |
+|---|---|---|
+| pure → effectful | stay `!` | direct calls change from bare to `!`, and their callers' colours may follow |
+| effectful → pure | stay `!` | direct calls change from `!` to bare, likewise |
+
+Changing an instance within its contract's allowance changes no caller.
+
+### 13.4 One effect variable per member
+
+A member header is a **signature** in §2.2.1's sense: every `->?` it writes denotes one implicitly quantified effect variable, the member's own, and the inlet rule applies unchanged — an outer-only member face, `read(source: a) ->? String`, is §4.4's inlet-less refusal. The variable is quantified **at the member and instantiated fresh at every call**; it is not fixed per instance. This is the one member-level quantifier the language admits — Constraints §2's ban on member type parameters stands (§9.6 there), and this variable is not a door to them.
+
+An instance must satisfy the contract at *both* instantiations (§13.2). For `run(runner: r, action: () ->? Unit) ->? Unit`:
+
+| Callback supplied | What the instance may do |
+|---|---|
+| pure | nothing the world observes |
+| impure | anything, or nothing |
+
+Calling the callback, calling it conditionally, and ignoring it all satisfy the contract (ignoring it may break a behavioural law, which is the constraint author's business, not the checker's). A body that performs its own unconditional effect fails the pure instantiation: its outer colour is the join (§2.4), and `->!` is not at most `->`. A body that accepts only pure callbacks fails the supplied direction (§13.2). A contract that wants both — a linked callback *and* a licence for its own effects — writes the join on its outer arrow, `run(transaction: t, action: () ->? Unit) ->! Unit`: §2.4's `withTransaction` shape as a contract, whose calls always wear `!`.
+
+### 13.5 The unmarkable forms
+
+§5's four forms stay pure, and the ground moves from a rule about every constraint to a fact about the prelude's: operators, brackets, `for` heads, and interpolation elaborate to prelude members by identity, and **every member of every prelude constraint writes `->`** (Constraints §7 lists them; the focused owners list the rest). That is a compile-breaking standard-library constraint, pinned by the conformance suite alongside the prelude seat order. A user constraint's effectful member reaches no unmarkable form, because no unmarkable form reaches a user constraint. `Iterable` therefore still admits no effectful instance and `Stream` still has no instance (`stream.md` §4.5); a pattern's `view` is §4.3's demand, unchanged (Pattern Declarations §2.1).
+
+### 13.6 Evidence, emission, display
+
+- **A dictionary is a value.** Instance construction is evaluation-free (Constraints §6.3), and an effectful member's effect happens at the call — where its mark is — never at the dictionary. Nothing about evidence, sharing, or CSE reads a member's colour.
+- **§8 stands.** The seat holds the body whatever its colour, and colours erase.
+- **A member's face displays its contract arrows** (§10), and the `.d.ts` dictionary interface carries a coloured member's Hexagon face on the documentation line §10 already emits (FFI Part 9 §2.2).

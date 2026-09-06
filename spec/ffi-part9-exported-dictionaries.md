@@ -76,7 +76,7 @@ export interface Dictionary<a> {
 ```
 
 - **The brand is Part 7 §5's non-exported `unique symbol` mechanism**, with one deliberate difference: the brand slot carries the type parameter (`readonly [brand]: a`), making `Eq.Dictionary<Rat>` and `Eq.Dictionary<number>` nominally distinct *and* inference-bearing — TypeScript can identify the value type from the evidence argument (diagnostic quality, §12).
-- **Branding is nominal TypeScript evidence, not runtime validation** (§10). Base constraint slots appear as nested dictionary fields (§7.1); members use the boundary faces of their Hexagon signatures with lowercase binders (Part 7 §2.2).
+- **Branding is nominal TypeScript evidence, not runtime validation** (§10). Base constraint slots appear as nested dictionary fields (§7.1); members use the boundary faces of their Hexagon signatures with lowercase binders (Part 7 §2.2). A member whose contract carries a colour (`->!` or `->?` — Constraints §2, Effects §13) has one TypeScript arrow like any face, and its Hexagon face rides the documentation line Effects §10 already emits for coloured faces; the prelude's dictionaries carry none, every prelude member being `->` (Effects §13.5) *(#867)*.
 
 ---
 
