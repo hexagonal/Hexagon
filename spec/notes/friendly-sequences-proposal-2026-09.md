@@ -69,8 +69,9 @@ At an expression seat, under the existing deterministic checking schedule:
 3. For source `Seq(b)`, use ordinary unification of `b` with the destination
    item type. No conversion is needed.
 4. Otherwise, require the source's outer constructor to be known. Resolve its
-   unique applicable `Iterable` instance using existing instance rules, and
-   substitute source type arguments into the instance's `Item` binding.
+   unique global `Iterable` instance for that constructor, discharge its
+   declared prerequisites, and substitute source type arguments into the
+   instance's `Item` binding. Prerequisites do not select between candidates.
 5. Unify that item type with the destination item type, using ordinary
    unification only. If successful, insert the resolved member call. Otherwise
    report a type mismatch; do not try a second route.
