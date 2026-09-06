@@ -35,6 +35,7 @@ import {
   messageOf,
   normalizePath,
   parentDirectoryOf,
+  pathRoot,
   realPathOf,
 } from "./paths.js";
 
@@ -100,8 +101,21 @@ export class Lookup {
    * The levels a walk from `from` visits, nearest first: `from`'s own
    * `node_modules`, then each ancestor's, outward to the filesystem root, an
    * ancestor named `node_modules` skipped as Node skips it.
+   *
+   * `from` is **absolute and canonical** — a package's own directory, which is
+   * its identity (Packages §4.3) — and a relative path is refused rather than
+   * climbed. `parentDirectoryOf` walks a relative path down to `""`, whose
+   * child is `/node_modules`: a level at the filesystem root, belonging to
+   * nobody, scanned on behalf of a caller whose own `node_modules` was never
+   * looked at. The invariant holds at every call today, and the refusal is what
+   * keeps a caller that breaks it from being answered with someone else's
+   * packages.
    */
   levelDirectories(from: string): readonly string[] {
+    const start = normalizePath(from);
+    if (pathRoot(start) === "") {
+      throw new TypeError(`a lookup climbs from an absolute directory, not \`${from}\``);
+    }
     const directories: string[] = [];
     // Climbed rather than rebuilt from components, because a path's **root** is
     // not a component: re-prefixing a drive letter with a slash asks for
@@ -110,7 +124,7 @@ export class Lookup {
     // resolve to nothing, silently. `//server/share` is one root for the same
     // reason, and climbing stops at it rather than inventing a level above the
     // share.
-    let at: string | undefined = normalizePath(from);
+    let at: string | undefined = start;
     while (at !== undefined) {
       // Node's own rule: a path segment that *is* `node_modules` contributes no
       // level of its own — its parent's is the one that answers.

@@ -17,7 +17,7 @@
 import { readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { MANIFEST_NAME, isExcluded } from "./manifest.js";
-import { messageOf, realPathOf } from "./paths.js";
+import { messageOf, normalizePath, realPathOf } from "./paths.js";
 
 const HEXAGON_EXTENSION = ".hex";
 
@@ -45,6 +45,33 @@ const SKIPPED_DIRECTORIES: ReadonlySet<string> = new Set([
   "dist",
   "coverage",
 ]);
+
+/**
+ * Whether reaching `path` from `directory` passes **through** one of those
+ * names.
+ *
+ * The walk's bound, asked as a question rather than published as a list. A host
+ * seats files the walk never handed it — a watcher event on a newly created
+ * `.hex`, an editor opening one — and every such door has to apply the same
+ * bound or the walk's answer is only advisory: a `.hex` under a project's
+ * `node_modules` would join the project as its **own** source, which is
+ * Packages §2.2 broken and the dependency's module compiled under the
+ * project's package name rather than its own.
+ *
+ * Only the components strictly between the two count. `directory` may itself
+ * carry a skipped name — a dependency's directory lies under a `node_modules`,
+ * and its files are that package's — and the last component is the file, not a
+ * directory. A `path` that is not beneath `directory` at all crosses nothing;
+ * whether it is beneath it is the caller's question, asked separately.
+ */
+export function crossesSkippedDirectory(directory: string, path: string): boolean {
+  const root = normalizePath(directory);
+  const prefix = root.endsWith("/") ? root : `${root}/`;
+  const target = normalizePath(path);
+  if (!target.startsWith(prefix)) return false;
+  const components = target.slice(prefix.length).split("/");
+  return components.slice(0, -1).some((name) => SKIPPED_DIRECTORIES.has(name));
+}
 
 /** A discovered file, with the identity that makes two names for it one file. */
 export interface FoundFile {

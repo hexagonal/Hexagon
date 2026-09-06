@@ -25,6 +25,7 @@ export {
   type ManifestResult,
 } from "./manifest.js";
 export {
+  crossesSkippedDirectory,
   excludes,
   hexagonFilesUnder,
   nothingSeen,

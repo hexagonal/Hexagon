@@ -613,11 +613,17 @@ function manifestEdit(current: string | undefined, entry: string): TextEdit | un
   const entries = Array.isArray(listed) ? [...listed] : [];
   if (entries.includes(entry)) return undefined;
   entries.push(entry);
+  // `JSON.stringify` always breaks lines with `\n`, and a manifest saved on
+  // Windows is `\r\n` throughout. Writing the one into the other leaves a file
+  // with mixed endings — valid JSON, and a diff that touches every line the
+  // next time the user's editor normalizes it.
+  const newline = newlineOf(text);
   const span = listed === undefined ? undefined : dependenciesValueSpan(text);
   if (span === undefined) {
+    const rewritten = JSON.stringify({ ...record, dependencies: entries }, undefined, 2);
     return {
       range: wholeDocument(text),
-      newText: `${mark}${JSON.stringify({ ...record, dependencies: entries }, undefined, 2)}\n`,
+      newText: `${mark}${rewritten}\n`.replaceAll("\n", newline),
     };
   }
   return {
@@ -627,8 +633,21 @@ function manifestEdit(current: string | undefined, entry: string): TextEdit | un
     newText: JSON.stringify(entries, undefined, 2)
       .split("\n")
       .map((line, at) => (at === 0 ? line : `${span.indent}${line}`))
-      .join("\n"),
+      .join(newline),
   };
+}
+
+/**
+ * The line ending this text already uses: `\r\n` where the first break is one,
+ * and `\n` where there is no break to read.
+ *
+ * The *first* break rather than a count, because a file with mixed endings is
+ * already being asked an unanswerable question and its opening line is the one
+ * a reader would call the file's own.
+ */
+function newlineOf(text: string): string {
+  const at = text.indexOf("\n");
+  return at > 0 && text[at - 1] === "\r" ? "\r\n" : "\n";
 }
 
 /**
@@ -648,6 +667,12 @@ function dependenciesValueSpan(
 ): { start: number; end: number; indent: string } | undefined {
   let depth = 0;
   let at = 0;
+  // **The last** top-level `dependencies`, not the first. JSON permits a key
+  // twice and `JSON.parse` keeps the later one, so the entries this edit was
+  // built from are the later array's — writing them over the earlier one
+  // produces valid JSON whose effective `dependencies` is unchanged, and the
+  // user clicks the fix, watches the report stay, and is told nothing.
+  let found: { start: number; end: number; indent: string } | undefined;
   while (at < text.length) {
     const character = text[at]!;
     if (character === '"') {
@@ -658,10 +683,17 @@ function dependenciesValueSpan(
       const after = skipSpace(text, end);
       if (depth === 1 && text[after] === ":" && text.slice(at, end) === '"dependencies"') {
         const start = skipSpace(text, after + 1);
-        if (text[start] !== "[") return undefined;
-        const close = endOfArray(text, start);
-        if (close === undefined) return undefined;
-        return { start, end: close, indent: indentOfLine(text, at) };
+        const close = text[start] === "[" ? endOfArray(text, start) : undefined;
+        // A value that is not an array, or an array that never closes, leaves
+        // nothing to scope to — and the scan carries on rather than answering,
+        // because a *later* `dependencies` may be the one that parsed. Where
+        // the last one is the unscopable one the whole-document rewrite is the
+        // answer, and it is the branch that collapses the duplicate anyway.
+        found = close === undefined
+          ? undefined
+          : { start, end: close, indent: indentOfLine(text, at) };
+        at = close ?? start;
+        continue;
       }
       at = end;
       continue;
@@ -670,7 +702,7 @@ function dependenciesValueSpan(
     if (character === "}" || character === "]") depth -= 1;
     at += 1;
   }
-  return undefined;
+  return found;
 }
 
 /** The offset one past a string literal starting at `at`, escapes honoured. */

@@ -14,7 +14,12 @@ import { afterEach, describe, expect, test } from "vitest";
 import { Lookup } from "./lookup.js";
 import { discoverProgram, discoverPrograms } from "./packages.js";
 import { enclosingManifestDirectory, projectDirectories } from "./projects.js";
-import { hexagonFilesUnder, nothingSeen, NOTHING_EXCLUDED } from "./files.js";
+import {
+  crossesSkippedDirectory,
+  hexagonFilesUnder,
+  nothingSeen,
+  NOTHING_EXCLUDED,
+} from "./files.js";
 import { normalizePath } from "./paths.js";
 import { removeTemporaryRoots, temporaryRoot } from "./test-roots.js";
 
@@ -651,6 +656,48 @@ describe("§4.1 — the walk's shape", () => {
       "/proj/node_modules",
       "/node_modules",
     ]);
+  });
+
+  /**
+   * The walk's bound, asked as a question, for the doors a host opens that the
+   * walk never sees. Only the components *between* the two count: a dependency
+   * lives under a `node_modules` and its own files are still its own.
+   */
+  test("`crossesSkippedDirectory` reads what lies between a root and a file", () => {
+    expect(crossesSkippedDirectory("/proj", "/proj/node_modules/acme/geometry.hex")).toBe(true);
+    expect(crossesSkippedDirectory("/proj", "/proj/dist/generated.hex")).toBe(true);
+    expect(crossesSkippedDirectory("/proj", "/proj/src/main.hex")).toBe(false);
+    // The root's own name is not between anything.
+    expect(crossesSkippedDirectory("/proj/node_modules/acme", "/proj/node_modules/acme/g.hex"))
+      .toBe(false);
+    // Nor is the file's, which is a file and not a directory.
+    expect(crossesSkippedDirectory("/proj", "/proj/dist")).toBe(false);
+    // A path that is not beneath the root at all crosses nothing; whether it is
+    // beneath it is the caller's separate question.
+    expect(crossesSkippedDirectory("/proj", "/other/dist/x.hex")).toBe(false);
+    // A whole component, never a prefix of one.
+    expect(crossesSkippedDirectory("/proj", "/proj/distribution/x.hex")).toBe(false);
+    // Separators are normalized first, so a Windows spelling reads the same.
+    expect(crossesSkippedDirectory("C:\\proj", "C:\\proj\\node_modules\\a\\g.hex")).toBe(true);
+  });
+
+  /**
+   * A package's directory is its identity (Packages §4.3), so it is absolute
+   * and canonical at every call. A relative one is refused rather than climbed:
+   * the climb walks it down to `""`, whose `node_modules` child is
+   * `/node_modules` — a level at the filesystem root that belongs to nobody,
+   * scanned on behalf of a caller whose own `node_modules` was never looked at,
+   * and a wrong answer that reads exactly like a right one.
+   */
+  test("a relative directory is refused rather than climbed to the filesystem root", () => {
+    const lookup = new Lookup();
+    expect(() => lookup.levelDirectories("relative/dir")).toThrow(
+      /absolute directory/u,
+    );
+    expect(() => lookup.levelDirectories("")).toThrow(/absolute directory/u);
+    // A drive-relative path is relative too: `C:proj` names a place only the
+    // process's own per-drive working directory can settle.
+    expect(() => lookup.levelDirectories("proj")).toThrow(/absolute directory/u);
   });
 
   /**

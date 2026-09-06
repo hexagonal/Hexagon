@@ -113,6 +113,13 @@ Beside `node_modules`, the walk skips a short list of **tooling directories** �
 of the language (Packages §2.2); the rest are this host's convenience, and a
 `.hex` file under one of them is not in the project and says so nowhere.
 
+The bound leaves this package as a **question** — `crossesSkippedDirectory` —
+rather than as the list. A host seats files the walk never handed it (a watcher
+event on a new `.hex`, an editor opening one), and every such door has to apply
+the same bound or the walk's answer is only advisory: a `.hex` under a project's
+`node_modules` would otherwise join the project as its *own* source, compiling a
+dependency's module under the project's package name.
+
 ## Tests
 
 `vitest`, against **real directories**: real `node_modules` trees, real
@@ -128,3 +135,8 @@ has two names — and whether a plain temporary directory is canonical is a
 property of the machine (`/var/folders/…` on macOS, `/tmp` on a Linux runner).
 A single run silently covers one of the two, and which one is nobody's choice.
 The language server imports the same helper, and its suite doubles the same way.
+
+`src/sources.test.ts` is not about the host at all: it is a repository rule —
+no source file in the toolchain carries a literal NUL byte, which makes a file
+binary to `grep` and `rg` and silently hides every symbol in it. It lives here
+because this suite is the quick one.

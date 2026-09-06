@@ -754,7 +754,9 @@ function cyclesOf(
       const cycle = [...stack.slice(stack.indexOf(directory)), directory];
       // Keyed by the cycle's members rather than by its rendering, so one cycle
       // met from two entries is reported once.
-      const key = [...new Set(cycle)].sort().join(" ");
+      // The separator is written as an escape, never as a literal NUL byte:
+      // a source file carrying one is binary to every text tool a reader has.
+      const key = [...new Set(cycle)].sort().join("\u0000");
       if (!reported.has(key)) {
         reported.add(key);
         cycles.push(cycle);

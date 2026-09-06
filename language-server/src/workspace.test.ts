@@ -330,6 +330,34 @@ describe("the workspace walk", () => {
     expect(workspace.session.paths).toHaveLength(1);
   });
 
+  test("a file deleted on disk while open keeps its buffer through a rediscovery", async () => {
+    const path = await makeRoot();
+    await writeFile(join(path, "main.hex"), "module Main\n\n" + "let value: Int = 1\n");
+    const helper = join(path, "helper.hex");
+    await writeFile(helper, "module Helper\n\n" + "let helped: Int = 1\n");
+    const { workspace } = await scan(path);
+    const uri = workspace.uris.toUri(helper);
+    // Dirty: the buffer says something disk never did.
+    await workspace.openDocument({
+      uri,
+      getText: () => "module Helper\n\nlet helped: Int = 2\n",
+    } as never);
+    expect(workspace.session.paths).toHaveLength(2);
+
+    // A branch switch deletes files the editor keeps open, and the sweep is the
+    // only thing that reads the deletion — the walk cannot find the file, so
+    // only the buffer says it is still there. Removing it would take a module a
+    // reader is looking at out of the program, and the save that would restore
+    // it is the one thing they cannot then do.
+    await rm(helper);
+    await workspace.setRoots([path], () => {});
+    const key = workspace.pathFor(uri);
+    expect(workspace.session.paths).toHaveLength(2);
+    expect(workspace.programs[0]!.holds(key)).toBe(true);
+    // The buffer's text, not disk's: the file has no disk text left at all.
+    expect(workspace.session.hover(key, "module Helper\n\nlet ".length)?.name).toBe("helped");
+  });
+
   test("un-excluding restores an open file without waiting for a keystroke", async () => {
     const path = await makeRoot();
     await writeFile(join(path, "main.hex"), "module Main\n\n" + "let value: Int = 1\n");
@@ -816,6 +844,90 @@ describe("programs, and a file two of them hold", () => {
       expect(program.owns(key)).toBe(false);
       expect(program.session.diagnostics(key)).toEqual([]);
     }
+  });
+
+  /**
+   * The other half of that rule: a `node_modules` no closure reaches is nobody's
+   * source, least of all the enclosing project's.
+   *
+   * `npm install`ing a Hexagon package and forgetting the `dependencies` entry
+   * is the ordinary way to arrive here, and the server's watcher glob covers
+   * every `.hex` in the workspace, so the install itself delivers the event to
+   * this door and nothing else has to happen. Adopting the file
+   * would compile the dependency's module under the *project's* package name
+   * (Packages §2.2, §3.1) and answer the very import Packages §7's
+   * not-a-dependency report exists to refuse — a correct refusal turning into a
+   * silent resolution, with one watcher event and nothing said.
+   */
+  test("a file under an unlisted `node_modules` package is nobody's project source", async () => {
+    const path = await makeRoot();
+    await writeFile(join(path, MANIFEST_NAME), manifest({}));
+    await writeFile(join(path, "main.hex"), "module Main\n\nimport Geometry\n");
+    await mkdir(join(path, "node_modules", "acme"), { recursive: true });
+    await writeFile(join(path, "node_modules", "acme", MANIFEST_NAME), manifest({ name: "Acme" }));
+    const geometry = join(path, "node_modules", "acme", "geometry.hex");
+    await writeFile(geometry, "module Geometry\n\nexport let width: Int = 3\n");
+
+    const workspace = new Workspace();
+    await workspace.setRoots([path], () => {});
+    const main = workspace.pathFor(pathToFileURL(join(path, "main.hex")).toString());
+    const refused = workspace.session.diagnostics(main).map(({ message }) => message);
+    expect(refused).toContain("no module `Geometry`");
+
+    const uri = pathToFileURL(geometry).toString();
+    await workspace.refreshFromDisk(uri);
+    const key = workspace.pathFor(uri);
+    expect(workspace.programs[0]!.owns(key)).toBe(false);
+    expect(workspace.programs[0]!.holds(key)).toBe(false);
+    expect(workspace.session.paths).toHaveLength(1);
+    // And the refusal still stands, which is the thing a reader would notice.
+    expect(workspace.session.diagnostics(main).map(({ message }) => message)).toEqual(refused);
+  });
+
+  /**
+   * The same bound for the rest of `files.ts`'s skipped names. They are one
+   * host's convenience rather than a rule of the language, but a walk that
+   * skips a build output and a door that adopts what it left behind disagree
+   * about what the project is, and which answer a reader gets then depends on
+   * whether a watcher happened to fire.
+   */
+  test("a file created under a skipped tooling directory is not adopted", async () => {
+    const path = await makeRoot();
+    await writeFile(join(path, MANIFEST_NAME), manifest({}));
+    await writeFile(join(path, "main.hex"), "module Main\n\nlet n: Int = 1\n");
+    const workspace = new Workspace();
+    await workspace.setRoots([path], () => {});
+
+    await mkdir(join(path, "dist"), { recursive: true });
+    const generated = join(path, "dist", "generated.hex");
+    await writeFile(generated, "module Generated\n\nlet n: Int = 1\n");
+    const uri = pathToFileURL(generated).toString();
+    await workspace.refreshFromDisk(uri);
+    const key = workspace.pathFor(uri);
+    expect(workspace.programs[0]!.owns(key)).toBe(false);
+    expect(workspace.programs[0]!.holds(key)).toBe(false);
+    expect(workspace.session.paths).toHaveLength(1);
+  });
+
+  /**
+   * The bound is on what lies *between* a project and a file, never on the
+   * project's own name: a user who opens `node_modules/acme` is working on
+   * `Acme` (D1), and a file they create there is that project's own source.
+   */
+  test("a root inside `node_modules` still adopts its own new files", async () => {
+    const path = await makeRoot();
+    await mkdir(join(path, "node_modules", "acme"), { recursive: true });
+    const acme = join(path, "node_modules", "acme");
+    await writeFile(join(acme, MANIFEST_NAME), manifest({ name: "Acme" }));
+    await writeFile(join(acme, "geometry.hex"), "module Geometry\n\nlet n: Int = 1\n");
+    const workspace = new Workspace();
+    await workspace.setRoots([acme], () => {});
+
+    const added = join(acme, "extra.hex");
+    await writeFile(added, "module Extra\n\nlet n: Int = 2\n");
+    const uri = pathToFileURL(added).toString();
+    await workspace.refreshFromDisk(uri);
+    expect(workspace.programs[0]!.owns(workspace.pathFor(uri))).toBe(true);
   });
 });
 

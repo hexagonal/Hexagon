@@ -40,6 +40,7 @@ import {
 import { fileSystemPath, UriPaths } from "./positions.js";
 import {
   comparablePath,
+  crossesSkippedDirectory,
   discoverPrograms,
   excludes,
   exclusionsOf,
@@ -228,7 +229,9 @@ export class Workspace {
     const problems: SeatedProblem[] = [];
     for (const program of this.#programs) {
       for (const problem of program.problems) {
-        const key = `${problem.path} ${problem.line} ${problem.message}`;
+        // Separators written as escapes, never as literal control bytes: a
+        // source file carrying one is binary to every text tool a reader has.
+        const key = `${problem.path}\u0000${problem.line}\u0000${problem.message}`;
         if (seen.has(key)) continue;
         seen.add(key);
         problems.push(problem);
@@ -339,11 +342,34 @@ export class Workspace {
       // taken out here or it outlives the decision that removed it. Three ways
       // to leave: an exclusion widened, a root was dropped, or the file was
       // deleted on disk between walks — the last of which no watcher event
-      // covers after a branch switch. A file the editor holds open is not gone;
-      // its buffer is the truth and no walk was ever going to find it.
+      // covers after a branch switch.
       for (const path of session.paths) {
+        // Still walked, and nothing excludes it: it stays.
         if (held.has(path) && !this.#isExcluded(path)) continue;
-        if (this.#openPaths.has(path) && held.has(path)) continue;
+        // A file the editor holds open is not gone, whatever the walk found —
+        // a branch switch deletes files that stay open, dirty, and restorable
+        // with a save, and the buffer is the truth until the client says it
+        // closed. The exclusion still wins over it, because a user who excludes
+        // a file they have open has to see it leave; that asymmetry is the
+        // whole reason this is a second test rather than an `||` on the first.
+        if (this.#openPaths.has(path) && !this.#isExcluded(path)) {
+          // Put back into the lists the walk rebuilds, and not merely left in
+          // the session. `own`, `held` and each package's files are made fresh
+          // from what this walk saw, so a file only the buffer knows about
+          // would sit in a session no program admits to holding: `programFor`
+          // finds neither owner nor holder, and hover, definition, references
+          // and rename all answer `null` in a buffer the user is looking at,
+          // until a keystroke happens to re-adopt it.
+          if (existing?.own.has(path)) own.add(path);
+          held.add(path);
+          for (const dependency of packages) {
+            const before = existing?.packages.find(
+              (had) => had.directory === dependency.directory,
+            );
+            if (before?.paths.has(path)) dependency.paths.add(path);
+          }
+          continue;
+        }
         session.removeFile(path);
         own.delete(path);
         held.delete(path);
@@ -585,10 +611,23 @@ export class Workspace {
   /**
    * The programs a file no program holds yet belongs to.
    *
-   * A file beneath a package of some program's closure joins that package —
-   * `node_modules` is nobody's project source, so the enclosing project would be
-   * the wrong answer. Otherwise the enclosing project directory owns it, the
-   * deepest one winning, since a nested project lies inside its parent.
+   * A file beneath a package of some program's closure joins that package: it
+   * is that dependency's source, in every program whose closure holds it.
+   *
+   * Otherwise the enclosing project directory owns it — the **deepest** one,
+   * since a nested manifest is a project of its own (D1) and lies inside its
+   * parent — and only where the file is somewhere that project's own walk would
+   * have gone. `node_modules`, the host's output directory and the rest of
+   * `files.ts`'s skipped names bound a package's files (Packages §2.2), and
+   * this door has to apply that bound too: an installed package nobody listed
+   * in `dependencies` sits under the project's `node_modules` unreachable by
+   * the closure, and adopting one of its files here would compile a
+   * dependency's module under the *project's* package name and silently answer
+   * the very import Packages §7's not-a-dependency report exists to refuse.
+   *
+   * So a file under a skipped directory of the project that encloses it belongs
+   * to no program at all, and stays out of every session until a `dependencies`
+   * entry brings its package in and a rediscovery seats it as that package's.
    */
   #adopters(path: string): readonly Program[] {
     const withinPackage = this.#programs.filter((program) =>
@@ -612,6 +651,7 @@ export class Workspace {
       }
     }
     if (owner === undefined) return [];
+    if (crossesSkippedDirectory(owner.directory, path)) return [];
     owner.own.add(path);
     return [owner];
   }
@@ -708,20 +748,24 @@ function within(directory: string, path: string): boolean {
  * number, so two programs reporting the identical fault in one file carry two
  * different numbers for it. Severity, sentence, range, and the related
  * locations' ranges and sentences are what a reader would call the same report.
+ *
+ * The separators are written as escapes, never as literal control bytes: a
+ * source file carrying one is binary to every text tool a reader has, and every
+ * symbol in the file stops answering `grep`.
  */
 function identityOf(diagnostic: Diagnostics.Diagnostic): string {
   const range = (span: Source.Span): string =>
     `${span.start.line}:${span.start.column}-${span.end.line}:${span.end.column}`;
   const labels = (diagnostic.labels ?? [])
     .map((label) => `${range(label.span)}|${label.message}`)
-    .join(" ");
+    .join("\u0000");
   return [
     diagnostic.severity,
     diagnostic.message,
     range(diagnostic.primary),
     labels,
-    (diagnostic.notes ?? []).join(" "),
-  ].join("");
+    (diagnostic.notes ?? []).join("\u0000"),
+  ].join("\u0001");
 }
 
 /**

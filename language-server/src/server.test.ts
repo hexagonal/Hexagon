@@ -1628,6 +1628,76 @@ describe("packages and programs", () => {
     }
   });
 
+  /**
+   * JSON permits a key twice and `JSON.parse` keeps the **later** one, so the
+   * entries this edit was built from are the later array's. Scoping the edit to
+   * the earlier one writes valid JSON whose effective `dependencies` is
+   * unchanged: the user clicks the fix, the report stays, and nothing says why.
+   */
+  test("the repair edits the `dependencies` the manifest actually parses to", async () => {
+    const duplicated = '{\n  "dependencies": [\n    "A"\n  ],\n  "dependencies": [\n    "B"\n  ]\n}\n';
+    const workspace = await harness({
+      ...NOT_A_DEPENDENCY,
+      "hexagon.json": duplicated,
+    }, REPAIR_CAPABILITIES);
+    try {
+      await open(workspace, "main.hex", NOT_A_DEPENDENCY["main.hex"]);
+      const repair = await repairFor(workspace, "main.hex");
+      const written = applyEdits(
+        duplicated,
+        manifestEditsOf(repair!, workspace.uriOf("hexagon.json")),
+      );
+      expect(JSON.parse(written)["dependencies"]).toEqual(["B", "Bolt"]);
+      expect(written).toBe(
+        '{\n  "dependencies": [\n    "A"\n  ],\n  "dependencies": [\n    "B",\n    "Bolt"\n  ]\n}\n',
+      );
+    } finally {
+      await workspace.dispose();
+    }
+  });
+
+  /**
+   * `JSON.stringify` always breaks lines with `\n`. A manifest saved on Windows
+   * is `\r\n` throughout, and writing the one into the other leaves a file with
+   * mixed endings — valid JSON, and a whole-file diff the next time the user's
+   * editor normalizes it, out of a one-entry fix.
+   */
+  test("the repair keeps a manifest's line ending", async () => {
+    const crlf = '{\r\n  "dependencies": []\r\n}\r\n';
+    const workspace = await harness({
+      ...NOT_A_DEPENDENCY,
+      "hexagon.json": crlf,
+    }, REPAIR_CAPABILITIES);
+    try {
+      await open(workspace, "main.hex", NOT_A_DEPENDENCY["main.hex"]);
+      const repair = await repairFor(workspace, "main.hex");
+      const written = applyEdits(crlf, manifestEditsOf(repair!, workspace.uriOf("hexagon.json")));
+      expect(written).toBe('{\r\n  "dependencies": [\r\n    "Bolt"\r\n  ]\r\n}\r\n');
+      expect(written.includes("\n") && !written.includes("\r\n")).toBe(false);
+    } finally {
+      await workspace.dispose();
+    }
+  });
+
+  /** The same, for the branch that rewrites the whole document. */
+  test("the whole-document rewrite keeps a manifest's line ending", async () => {
+    const crlf = '{\r\n  "name": "App"\r\n}\r\n';
+    const workspace = await harness({
+      ...NOT_A_DEPENDENCY,
+      "hexagon.json": crlf,
+    }, REPAIR_CAPABILITIES);
+    try {
+      await open(workspace, "main.hex", NOT_A_DEPENDENCY["main.hex"]);
+      const repair = await repairFor(workspace, "main.hex");
+      const written = applyEdits(crlf, manifestEditsOf(repair!, workspace.uriOf("hexagon.json")));
+      expect(written).toBe(
+        '{\r\n  "name": "App",\r\n  "dependencies": [\r\n    "Bolt"\r\n  ]\r\n}\r\n',
+      );
+    } finally {
+      await workspace.dispose();
+    }
+  });
+
   test("the repair is never offered inside a dependency's own source", async () => {
     const workspace = await harness({
       "hexagon.json": manifest({ dependencies: ["Acme"] }),

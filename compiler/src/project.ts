@@ -148,8 +148,10 @@ export interface CompiledProject {
 /**
  * What a host may tell the compiler about a project.
  *
- * Both fields are the *language's* — a manifest's `name` and `dependencies`
- * (Packages §2.1, §2.5). Nothing here grants a privilege. A **runtime** module —
+ * Four of the five are the *language's* — what a manifest says (Packages §2.1,
+ * §2.5) and the closure a host resolved from it (§4.1); the fifth,
+ * `firstFileId`, is bookkeeping for a host that mints file identities of its
+ * own. Nothing here grants a privilege. A **runtime** module —
  * the one that may spell `Node(a)` and open `spec/intrinsics.md` §5.2's
  * intrinsic door — is a member of the list `runtime-modules.ts` holds, keyed by
  * declared name; a project takes that role by supplying a file at the member's
