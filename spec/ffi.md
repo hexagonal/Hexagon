@@ -104,7 +104,7 @@ Final names and faces only; the authoritative full table is **Part 1 §4.1**, de
 
 Assembled by phase and ownership; wordings and Rewrite-Rule remedies live with the owners — nothing new is introduced here.
 
-**Extern declaration syntax and aliasing (compile):** callable-with-`let` / `fun`-without-params → Part 4 §4.2; function-typed extern `let` → Part 6 §2.4; case-illegal foreign name needs alias → Part 4 §3.2; `as` on `default` → Part 4 §6; bodies / missing annotations → Part 4 §1; specifier names a Hexagon module → Part 4 §2.1; generic extern declaration → Part 4 §12.4; extern-enum member list problems → Foreign Enums §2/§8.
+**Extern declaration syntax and aliasing (compile):** callable-with-`let` / `fun`-without-params → Part 4 §4.2; function-typed extern `let` → Part 6 §2.4; case-illegal foreign name needs alias → Part 4 §3.2; `as` on `default` → Part 4 §6; bodies / missing annotations → Part 4 §1; callable row with `:` or no arrow, retired `pure`/`conduit`, inlet-less `->?` on a row → Part 4 §4.5/§13; setter arrow other than `->!` → Part 5 §4.1; `new` result not the class's type → Part 5 §6.2; specifier names a Hexagon module → Part 4 §2.1; generic extern declaration → Part 4 §12.4; extern-enum member list problems → Foreign Enums §2/§8.
 
 **Receiver/class shape (compile):** missing subject; non-crossable receiver; wrong-class subject; `get`/`set` arity; non-`Unit` `set`; getter/setter name clash (alias rewrite); `new` without `as`; per-member `export`; `extends` → all Part 5 §11.
 

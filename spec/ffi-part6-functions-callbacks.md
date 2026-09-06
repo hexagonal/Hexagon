@@ -108,12 +108,12 @@ extern from "event-source"
     export fun addListener(
         target: Target,
         callback: Event -> Unit,
-    ): Unit
+    ) ->! Unit
 
     export fun removeListener(
         target: Target,
         callback: Event -> Unit,
-    ): Unit
+    ) ->! Unit
 ```
 
 `Event` is an opaque representation-direct foreign value and `Unit` is JavaScript `undefined`; no wrapper is required. Passing the same Hexagon function to `addListener` and then `removeListener` passes the same JS function identity naturally — the listener actually deregisters. **No weak wrapper cache exists in v1 because no supported callback signature needs a wrapper**; identity preservation is a consequence of the representation, not a caching feature.
@@ -131,7 +131,7 @@ extern from "legacy-io"
     export fun readText(
         path: String,
         callback: (Nullable(IoError), Nullable(String)) -> Unit,
-    ): Unit
+    ) ->! Unit
 ```
 
 ### 5.3 Inbound function values
@@ -153,7 +153,7 @@ An arbitrary JS `Iterable<number>` would require a fresh persistent-`Seq` adapta
 
 > callback parameter `Seq(Int)` requires a boundary adapter, which v1 callbacks do not support; use a representation-direct type (e.g. `Array(Int)`), perform an explicit eager conversion at a controlled boundary, or bind through a small JavaScript shim
 
-The same rejection applies to any adapter-requiring type anywhere in a callback signature, in either direction, under Part 1 §5.3's recursive rule. It does **not** affect already-decided top-level `Seq` crossing (`extern fun values(): Seq(Int)`), whose one stable boundary adapter remains supported (Part 3).
+The same rejection applies to any adapter-requiring type anywhere in a callback signature, in either direction, under Part 1 §5.3's recursive rule. It does **not** affect already-decided top-level `Seq` crossing (`extern fun values() ->! Seq(Int)`), whose one stable boundary adapter remains supported (Part 3).
 
 ---
 
@@ -205,14 +205,14 @@ Excluded from v1 and reserved for a later FFI/async deep dive; nothing here pre-
 ```hexagon
 -- (a) Identity round trip: same function object out, registered and removed
 let onEvent(e: Event): Unit = log(Event.describe(e))
-addListener(target, onEvent)
-removeListener(target, onEvent)          -- same JS identity; actually deregisters
+addListener!(target, onEvent)
+removeListener!(target, onEvent)         -- same JS identity; actually deregisters
 
 -- (b) Extra JS callback arguments are harmless
 -- foreign: array.forEach(cb) invokes cb(value, index, array)
 extern from "helpers"
     fun each(values: Array(Int), callback: Int -> Unit) ->! Unit
-each(xs, n => total.push(n))             -- index/array ignored by representation
+each!(xs, n => total.push(n))            -- index/array ignored by representation
 
 -- (c) Meaningful callback result preserved
 extern from "helpers"
@@ -222,11 +222,11 @@ extern from "helpers"
 extern from "collections"
     type JsArray
     method push(arr: JsArray, value: Int) ->! Unit
-JsArray.push(arr, 3)                     -- JS push returns the new length; discarded
+JsArray.push!(arr, 3)                    -- JS push returns the new length; discarded
 
 -- (e) Hexagon exception through a callback, caught back in Hexagon
 try
-    each(xs, n => if n < 0 then throw(Negative) else ())
+    each!(xs, n => if n < 0 then throw(Negative) else ())
 catch
     Negative => ...                        -- still branded through the foreign frames
     JsError(e) => ...                      -- a throw from `each` itself lands here

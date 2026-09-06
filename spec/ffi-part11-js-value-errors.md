@@ -192,7 +192,7 @@ Both accessors perform **fresh guarded reads per call** (Part 5 §3.1's discipli
 
 The triangle, settled:
 
-- **`JsValue` vs. a trusted declaration:** the extern author's choice per API honesty (§1). Mixed signatures are normal and encouraged — `extern fun parse(text: String): JsValue` trusts the argument convention while refusing to trust the result.
+- **`JsValue` vs. a trusted declaration:** the extern author's choice per API honesty (§1). Mixed signatures are normal and encouraged — `extern fun parse(text: String) ->! JsValue` trusts the argument convention while refusing to trust the result.
 - **`JsValue` vs. `Nullable(a)`:** `Nullable(a)` is the *typed* nullish door — "a known `a`, or nothing" (Part 2). `JsValue` is the *untyped* door and **absorbs nullishness** rather than wrapping it (§2): "or nothing" is already inside. Decoding a `JsValue` that may be nullish-or-`T` is `kind`-then-decode, or the future library's `nullable(decoder)` combinator.
 - **Nullability normalization (resolved, §13.3)** — one idempotency principle, three instances:
 

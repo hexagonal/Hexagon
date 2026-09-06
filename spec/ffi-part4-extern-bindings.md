@@ -19,6 +19,8 @@ extern from "tiny-json"
     let VERSION as version: String
 ```
 
+(The arrow on each callable row is its effect contract — `->` here because these two compute and touch nothing; §4.5 owns the three arrows and what a `->` claims.)
+
 The block introduces **ordinary module-level Hexagon bindings**. After the declaration, an extern binding is used exactly like any other binding of the enclosing module: same typing, same visibility rules, same collision rules. Only its linkage (a foreign ESM import) and its trust status (Part 1 §1: a trusted programmer assertion, validated as a declaration and then believed) differ.
 
 Fixed here, inherited from Part 1:
@@ -126,10 +128,10 @@ Ordinary Hexagon permits the `let`-function habit (`let double(x: Int): Int = ..
 
 ```hexagon
 extern from "tiny-json"
-    let parse(text: String) -> JsonValue
+    let parse(text: String): JsonValue
 ```
 
-> extern callable declarations use `fun`; write `fun parse(text: String) -> JsonValue`
+> extern callable declarations use `fun` and write their effect arrow; write `fun parse(text: String) ->! JsonValue`
 
 ```hexagon
 extern from "tiny-json"
@@ -167,12 +169,12 @@ extern from "./operations.js"
     export fun transaction(action: () ->? Unit) ->! Unit
 ```
 
-- **`->!` is the arrow for the unknown.** When what the foreign code does is not known, write `->!`: it promises no purity and no linked dependency, and it is what the retired impure default supplied silently. It is author guidance, not a language default — omission is a parse error whose fixit is `->!` (§13), never a silent claim in either direction. A row that touches the world on its own account is `->!` however its callbacks are coloured: Effects §2.4's join, `transaction` above.
+- **`->!` is the arrow for the unknown.** When what the foreign code does is not known, write `->!`: it promises no purity and no linked dependency, and it is what the retired impure default supplied silently. It is author guidance, not a language default — a callable row that writes `:` before its result, or no result at all, is a parse error whose fixit is `->!` and the result (§13), never a silent claim in either direction. A row that touches the world on its own account is `->!` however its callbacks are coloured: Effects §2.4's join, `transaction` above.
 - **`->` is the trusted purity claim.** It is a **trusted-row obligation of exactly the Intrinsics §4.2 species**: believed, never checked, the module author answering for it — the same currency as every extern type in this part (Part 1 §3.1). A sound claim is one of Effects §6.2's two species — an unobservable world-write, an owned at-most-once world-read — or, the common case, a function that genuinely computes: `trim` touches nothing. A claim outside those shapes is a lie with the standing of a wrong extern type. *(#405.)* **The claim quantifies over the signature's linked slots:** `->` on a row whose parameters carry `->?` asserts purity at *every* instantiation, impure arguments included — the foreign code never observably invokes them. A row that *runs* its callback is not that claim; it is the next arrow.
 - **`->?` is the declared conduit.** It seats **one colour variable** at the row's outer arrow and at every `->?` its signature writes: `run`'s face is `(() ->? Unit) ->? Unit`, an ordinary linked face with nothing FFI-specific at the call — bare with a pure callback, `!` with an impure one, `?` when the callback forwarded is the enclosing signature's own (Effects §3.3, §3.4). Foreign higher-order functions of the `Array.prototype.forEach` shape are what it is for. Its trust posture is `->`'s, made pointwise: *at a pure instantiation this row performs no observable effect.* The inlet rule applies to the row as to any signature (Effects §2.2.1): `->?` on a row whose parameters carry no `->?` is Effects §4.4's inlet-less refusal, with the advice in words — write `->?` on the callback parameter this row runs, or write `->!`.
 - **Nested arrows are believed like the rest of the declaration.** Function-typed slots inside the signature — `defer`'s result, `run`'s parameter — carry whatever arrows the author writes; the outer arrow governs the row's own invocation and nothing inside it.
 - **What no arrow expresses**, and the fallback: a row wanting two *independently* coloured `->?` slots, or independent slots beside a linked outer arrow. The in-language signature cannot write that either — one signature, one variable (Effects §2.2) — so this is the language's limit, not the boundary's, and **`->!` is the honest, sound answer** for such a row; a caller supplying pure callbacks pays one `!`.
-- **Intrinsic rows write their arrow too** (`extern from "hex:intrinsic"` — Intrinsics §4.2). Ownership decides who answers for it: the compiler, *verified*, on an intrinsic row; the author, *trusted*, on a user row (Effects §6.1). The split never needed a second notation, and the refusals that kept `pure`/`conduit` off intrinsic rows retire with the words.
+- **Intrinsic rows write their arrow too** (`extern from "hex:intrinsic"` — Intrinsics §4.2), any of the three. Ownership decides who answers for it: the compiler, *verified*, on an intrinsic row — vacuously at `->!`, pointwise at `->?` — the author, *trusted*, on a user row (Effects §6.1). The split never needed a second notation, and the refusals that kept `pure`/`conduit` off intrinsic rows retire with the words.
 - **Non-callable rows are unchanged.** `let version: String` keeps `:` — a value reference is colourless (Effects §2.6), so there is no colour to write; `type` declares no invocation. Foreign module initialization and `extern import` (§8) are unchanged.
 - **The retired forms.** The impure default, the contextual `pure` and `conduit` modifiers, and `pure conduit`'s refusal are gone, with Effects §9's five rows and Lexer §4.2's two contextual words. A row written with `:` before its result, or with `pure`/`conduit` before its keyword, takes §13's redirects, each naming the arrow that says what the old form said.
 
@@ -357,13 +359,13 @@ Hard errors introduced or relied on by this part, each with its named rewrite pe
 
 | Situation | Diagnostic (rewrite named) | Owner |
 |---|---|---|
-| extern callable declared with `let` (parameter list present) | "extern callable declarations use `fun`; write `fun parse(text: String) -> JsonValue`" | §4.2 |
+| extern callable declared with `let` (parameter list present) | "extern callable declarations use `fun` and write their effect arrow; write `fun parse(text: String) ->! JsonValue`" — this redirect fires first, and its rewrite already spells the arrow, so the colon row below is not also reported | §4.2, §4.5 |
 | extern `let` annotated with a function type | "extern callable declarations use `fun`; a binding of type `Int -> Int` is callable — write `fun f(x: Int) -> Int`" | §4.1; Part 6 §2.4 |
 | extern `fun` without a parameter list | "extern `fun` declares a callable and requires a parameter list; for a foreign value, write `let version: String`" | §4.2 |
 | unaliased foreign name violating Hexagon start-class rules or the reserved `__` prefix | "bind it with an alias: `let VERSION as version: String`" (resp. `let __state as state: Int`) | §3.2 |
 | `as` alias on a `default` declaration | "a `default` binding has no foreign export name; name the binding directly" | §6 |
 | extern declaration with a body | syntax error — extern declarations are bodyless typed assertions | §1 |
-| missing type annotation on an extern declaration | hard error — nothing to infer from; annotate fully | §1 |
+| missing type annotation on an extern declaration | hard error — nothing to infer from; annotate fully, a callable row with its arrow and result (`->! T` when in doubt) | §1, §4.5 |
 | callable row with `:` before its result (the retired form) | "an extern callable declares its effect — write `->` for a function that touches nothing, `->!` for one that may, `->?` for one exactly as effectful as a callback it is handed; when in doubt, `->!`" + fixit `->!`, the conservative arrow | §4.5 |
 | `pure` before an extern declaration keyword | "`pure` is retired — write the pure arrow on the row itself: `fun trim(document: String) -> String`" + fixit: drop the word, `->` before the result | §4.5 |
 | `conduit` before an extern declaration keyword | "`conduit` is retired — write `->?` on the row's outer arrow: `fun runner(step: () ->? String) ->? Int`" + fixit: drop the word, `->?` before the result | §4.5 |

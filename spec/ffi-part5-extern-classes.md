@@ -52,7 +52,7 @@ extern from "url-tools"
 (SearchParams, String) ->! Nullable(String)
 ```
 
-**The arrow before the result is Part 4 §4.5's effect contract, mandatory on every member form** *(#869)*: `->!` here says that a lookup on foreign state may observe the world; `->` would be the trusted purity claim, and `->?` the declared conduit for a member that runs a callback it is handed. This part's examples write `->!` wherever the honest answer is "unknown", which for foreign state is nearly everywhere; the keyword says how JavaScript is invoked, and the arrow says what a caller accommodates.
+**The arrow before the result is Part 4 §4.5's effect contract, mandatory on every member form** *(#869)*: `->!` here says that a lookup on foreign state may observe the world; `->` would be the trusted purity claim, and `->?` the declared conduit for a member that runs a callback it is handed. A `set` row is the one form whose arrow is fixed — `->!`, §4.1. This part's examples write `->!` wherever the honest answer is "unknown", which for foreign state is nearly everywhere, and `->` only where the row reads no foreign state at all (a static predicate over its argument, a constructor that only builds); the keyword says how JavaScript is invoked, and the arrow says what a caller accommodates.
 
 There is nothing method-typed about the binding; subject-first ordering means pipes (`params |> SearchParams.get("name")`) and dot calls (§9) work exactly as they do for any companion operation.
 
@@ -63,7 +63,7 @@ A direct call:
 ```hexagon
 import SearchParams
 
-SearchParams.get(params, "name")
+SearchParams.get!(params, "name")
 ```
 
 emits the receiver-sensitive JavaScript call:
@@ -247,7 +247,7 @@ Url.create(text)      -- emits: new URL(text)
 Rules:
 
 - **`new` always carries `as localName`.** There is no foreign name to inherit (`new` is the operation, not a name), and `new` itself is not a legal Hexagon binding name; the diagnostic names the rewrite (§11).
-- **The result is the class's own declared type, written after the arrow and checked** *(#869)*: `new as create(text: String) -> Url` — a complete contract in ordinary arrow grammar, the known result repeated so the row reads as every callable row does; a result naming any other type, or a row with no arrow, is refused (§11). Allocation alone is not an effect (Effects §1): a constructor that only builds may write `->`, one that opens a connection or registers itself writes `->!`, and one handed a callback it runs writes `->?` under the inlet rule (Part 4 §4.5). `->!` is the arrow for the unknown here as everywhere.
+- **The result is the class's own declared type, written after the arrow and checked** *(#869)*: `new as create(text: String) -> Url` — a complete contract in ordinary arrow grammar, the known result repeated so the row reads as every callable row does; a result naming any other type, or a row with no arrow, is refused (§11) — the result is compared as a type, so a transparent alias of the class type is that type (Declarations Preamble §4). Allocation alone is not an effect (Effects §1): a constructor that only builds may write `->`, one that opens a connection or registers itself writes `->!`, and one handed a callback it runs writes `->?` under the inlet rule (Part 4 §4.5). `->!` is the arrow for the unknown here as everywhere.
 - **Multiple `new` declarations are legal** with distinct local names, each declaring one way of calling the same foreign constructor at its own fixed arity: `new as create(text: String) -> Url` beside `new as createWithBase(text: String, base: String) -> Url`. Each is an independent binding under ordinary collision rules; this is not overload machinery (nothing shares a name).
 - A first-class reference to a `new` binding materializes the stable convention-preserving wrapper (`text => new URL(text)`), per §2.3.
 
@@ -350,7 +350,7 @@ Hard errors with named rewrites per the Rewrite Rule:
 | `set` return type other than `Unit` | "an extern `set` returns `Unit`" (honest-`Unit` doctrine) | §4.1 |
 | getter and setter introducing the same term name | ordinary collision error + "alias the setter: `set timeout as setTimeout(...)`" | §4.2 |
 | `new` without `as` | "name the companion constructor: `new as create(text: String) -> Url`" | §6.2 |
-| `new` row whose result is not the class's own type, or with no arrow | "`new` constructs `Url`; write `new as create(text: String) -> Url` (`->!` for a constructor that opens or registers something)" | §6.2 |
+| `new` row whose result is not the class's own type, or with no arrow | "`new` constructs `Url`; write `new as create(text: String) ->! Url` (`->` only where construction touches nothing)" | §6.2 |
 | member row with `:` before its result; `pure`/`conduit` before a member keyword | Part 4 §13's redirects, unchanged for `method`/`get`/`set`/`new`/`static` (#869) | Part 4 §4.5 |
 | `set` (instance or static) with an arrow other than `->!` | "an extern `set` grants write capability, and a write to foreign state is an effect — its arrow is `->!`; write `set timeout as setTimeout(request: Request, value: Int) ->! Unit`" + fixit `->!` (#869) | §4.1, §6.3 |
 | `fun`/`let`/`type` inside a class block | "extern class members are `new`, `method`, `get`, `set`, and their `static` forms; declare this at block level" | §6.1 |
