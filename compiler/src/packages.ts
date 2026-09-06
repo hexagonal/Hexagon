@@ -15,6 +15,7 @@
  * host's discovery answered with, with no path resolved and no directory read.
  */
 
+import { beginsUpperName, firstCodePoint, isUpperName } from "./support/identifiers.js";
 import type * as Source from "./support/source.js";
 
 /** The standard library's package name (Packages §2.4). */
@@ -444,8 +445,21 @@ export function firstSegmentPackage(
   return packageNames.has(segments[0]!) ? segments[0]! : undefined;
 }
 
-/** Packages §2.1: one uppercase-start identifier, and no dots. */
-const PACKAGE_NAME = /^[A-Z][A-Za-z0-9_]*$/u;
+/**
+ * Packages §2.1: one uppercase-start identifier, and no dots.
+ *
+ * *Uppercase-start* is Lexer §3.1's `UpperName` and nothing narrower, so the
+ * judgement is `isUpperName`'s, over the tables the lexer itself scans names
+ * with. An ASCII test here would refuse a manifest declaring `"name": "Ärger"`
+ * while the lexer accepts the very module header `module Ärger` the name is the
+ * segment of — the host refusing a program the language admits. §4.4's spelling
+ * branches read the same class, which is what keeps the two seats one rule:
+ * `"Ärger"` under `dependencies` is a package name, not an npm specifier to be
+ * sent down the JavaScript route.
+ */
+function isPackageName(name: string): boolean {
+  return isUpperName(name);
+}
 
 /**
  * Packages §2.1's shape refusal, with §7's dotted clause where the spelling is
@@ -464,7 +478,7 @@ function packageNameShapeRefusal(name: string): string {
  */
 export function packageNameRefusal(name: string): string | undefined {
   if (name === STANDARD_LIBRARY) return "`Hex` is the standard library's package name";
-  if (!PACKAGE_NAME.test(name)) return packageNameShapeRefusal(name);
+  if (!isPackageName(name)) return packageNameShapeRefusal(name);
   return undefined;
 }
 
@@ -482,15 +496,18 @@ export function packageNameRefusal(name: string): string | undefined {
  * `"@acme/geometry"` may well be a distribution whose `hexagon.json` declares
  * `"name": "Acme"`. Where upper-casing the first letter yields a lawful name
  * other than `Hex`, that spelling is named too, a miscased name being the
- * likelier mistake there; an entry `"hex"` gets no such hint, since the
- * spelling it would offer is the one §2.4 refuses.
+ * likelier mistake there — the first *codepoint*, so `"résultat"` is offered
+ * `"Résultat"` and a caseless or already-uppercase first letter simply maps to
+ * itself and offers nothing; an entry `"hex"` gets no such hint either, since
+ * the spelling it would offer is the one §2.4 refuses.
  */
 export function dependencyRefusal(name: string): string | undefined {
   if (name === STANDARD_LIBRARY) return "`Hex` is every package's dependency; remove the entry";
-  if (PACKAGE_NAME.test(name)) return undefined;
-  if (/^[A-Z]/u.test(name)) return packageNameShapeRefusal(name);
-  const capitalised = name.charAt(0).toUpperCase() + name.slice(1);
-  const perhaps = PACKAGE_NAME.test(capitalised) && capitalised !== STANDARD_LIBRARY
+  if (isPackageName(name)) return undefined;
+  if (beginsUpperName(name)) return packageNameShapeRefusal(name);
+  const first = firstCodePoint(name) ?? "";
+  const capitalised = first.toUpperCase() + name.slice(first.length);
+  const perhaps = isPackageName(capitalised) && capitalised !== STANDARD_LIBRARY
     ? `, perhaps \`"${capitalised}"\``
     : "";
   return `\`"${name}"\` is not a package name; \`dependencies\` expects a Hexagon ` +

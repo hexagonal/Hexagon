@@ -247,6 +247,46 @@ describe("§2.1 / §4.4 — the manifest's two name seats", () => {
     expect(packageNameRefusal("Acme_2")).toBeUndefined();
   });
 
+  /**
+   * §2.1 names Lexer §3.1's `UpperName`, which is Unicode-uppercase: `Ä`, `R`
+   * and `Δ` all have `Uppercase = Yes`, and an ASCII test admits only the
+   * middle one. The refusal would land on a manifest whose module headers the
+   * lexer accepts — `module Ärger` is lawful, so `"name": "Ärger"` is.
+   */
+  test("a non-ASCII uppercase name is a package name (Lexer §3.1)", () => {
+    expect(packageNameRefusal("Ärger")).toBeUndefined();
+    expect(packageNameRefusal("Résultat")).toBeUndefined();
+    expect(packageNameRefusal("Δelta")).toBeUndefined();
+  });
+
+  /**
+   * §3.1's rule is `Uppercase = Yes` **or** `General_Category = Lt`, so the
+   * titlecase digraph `ǅ` — which has `Uppercase = No` — starts an `UpperName`
+   * too, and a `Uppercase`-only test would refuse a name the lexer accepts.
+   */
+  test("a titlecase start is a package name, as §3.1's `Lt` clause says", () => {
+    expect(packageNameRefusal("ǅurđević")).toBeUndefined();
+  });
+
+  /**
+   * U+1D400 is uppercase and astral. Judged by `name[0]` the first *code unit*
+   * is a lone high surrogate, which has no Unicode property worth testing and
+   * refuses the name; judged by the first codepoint, it is a name.
+   */
+  test("an astral uppercase start is a package name, not half a surrogate pair", () => {
+    expect(packageNameRefusal("\u{1D400}bc")).toBeUndefined();
+  });
+
+  /** A caseless script has no uppercase start, and §3.1 makes `用户` a term name. */
+  test("a caseless or lowercase non-ASCII name draws the shape rule", () => {
+    expect(packageNameRefusal("用户")).toBe(
+      "a package name is one uppercase-start identifier: write `\"Acme\"`",
+    );
+    expect(packageNameRefusal("résultat")).toBe(
+      "a package name is one uppercase-start identifier: write `\"Acme\"`",
+    );
+  });
+
   test("`Hex` is the standard library's, and never a project's", () => {
     expect(packageNameRefusal("Hex")).toBe("`Hex` is the standard library's package name");
   });
@@ -277,6 +317,57 @@ describe("§2.1 / §4.4 — the manifest's two name seats", () => {
 
   test("a lawful dependency entry draws nothing", () => {
     expect(dependencyRefusal("Acme")).toBeUndefined();
+  });
+
+  /**
+   * §4.4's branches read §2.1's class, so the two seats are one rule: an entry
+   * an ASCII test refuses is not merely refused, it is sent down the JavaScript
+   * route — told to write `extern from "Ärger"` for a Hexagon package.
+   */
+  test("a non-ASCII uppercase entry is a package name, not npm's", () => {
+    expect(dependencyRefusal("Ärger")).toBeUndefined();
+    expect(dependencyRefusal("Résultat")).toBeUndefined();
+    expect(dependencyRefusal("Δelta")).toBeUndefined();
+    expect(dependencyRefusal("ǅurđević")).toBeUndefined();
+    expect(dependencyRefusal("\u{1D400}bc")).toBeUndefined();
+  });
+
+  /**
+   * §4.4's perhaps-clause upper-cases the first *codepoint*: `r` → `R` yields
+   * `Résultat`, a lawful name. `charAt(0)` would be right here and wrong for an
+   * astral entry, where it upper-cases half a surrogate pair.
+   */
+  test("a miscased non-ASCII entry names the spelling it could take", () => {
+    expect(dependencyRefusal("résultat")).toBe(
+      "`\"résultat\"` is not a package name; `dependencies` expects a Hexagon package " +
+        "name, as the dependency's `hexagon.json` declares it, perhaps `\"Résultat\"` — " +
+        "for a JavaScript dependency, declare it in `package.json` and bind it " +
+        "with `extern from \"résultat\"`",
+    );
+  });
+
+  /**
+   * U+10428 DESERET SMALL LETTER LONG I upper-cases to U+10400, so the entry
+   * has a spelling to be offered. `charAt(0).toUpperCase()` upper-cases a lone
+   * high surrogate to itself and rebuilds the same string, and the hint that
+   * §4.4 prescribes silently never appears.
+   */
+  test("a miscased astral entry names the spelling it could take", () => {
+    expect(dependencyRefusal("\u{10428}bc")).toContain(
+      "perhaps `\"\u{10400}bc\"`",
+    );
+  });
+
+  /** No case mapping raises `用`, so the field's expectation is named and nothing more. */
+  test("a caseless entry is refused with no spelling to offer", () => {
+    const refusal = dependencyRefusal("用户");
+    expect(refusal).not.toContain("perhaps");
+    expect(refusal).toBe(
+      "`\"用户\"` is not a package name; `dependencies` expects a Hexagon package " +
+        "name, as the dependency's `hexagon.json` declares it — for a JavaScript " +
+        "dependency, declare it in `package.json` and bind it with " +
+        "`extern from \"用户\"`",
+    );
   });
 
   /**
