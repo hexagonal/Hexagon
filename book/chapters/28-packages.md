@@ -124,12 +124,16 @@ root holds `hexagon.json` and the `.hex` source. Versions, version ranges, and t
 lockfile are npm's; Hexagon designs none of them. The npm name of the package —
 `@acme/geometry`, say — is not read by the language and need not resemble the Hexagon
 name. What npm names is a distribution; what Hexagon names is a namespace. The
-compiler learns which installed packages are Hexagon packages by reading their
-manifests, and resolves each package's `dependencies` in turn, outward from the
-project, into an acyclic set: the packages *in the program*. A `dependencies` cycle is
-refused and named, as an import cycle is. A program holds one copy
-of each package name, the project counted, and refuses to build if npm's layout has
-installed two.
+compiler learns which packages are Hexagon packages from the manifests it meets, and
+it looks each package's `dependencies` up from that package's own directory the way
+Node finds a package — its `node_modules`, then the `node_modules` of each directory
+above, the nearest copy answering — resolving each package reached in turn, outward
+from the project, into an acyclic set: the packages *in the program*. A copy farther up
+than the one that answered does not answer that package's lookup, and a package nobody
+lists enters no program. A `dependencies` cycle is refused and named, as an import
+cycle is. A program holds one copy of each package name, the project counted, and
+refuses to build when two of its packages reach two copies — the nested duplicate npm
+installs when two packages want two versions.
 
 Because a package ships its source, the compiler sees a program's dependencies exactly
 as it sees the program's own modules, and compiles the whole graph at once. Every rule
@@ -148,8 +152,13 @@ decides today, which is why it is not the first stage.
 
 A JavaScript package is never a Hexagon package. An npm package without `hexagon.json`
 is reached through `extern from "pkg"`, the boundary declaration of the JavaScript
-Input chapter, and it declares no Hexagon module, type, constraint, or instance.
-Listing one under `dependencies` is refused with that spelling as the repair.
+Input chapter, and it declares no Hexagon module, type, constraint, or instance. A
+`dependencies` entry is a Hexagon package name, as the dependency's own manifest
+declares it, and its spelling decides only whether it is one: an npm-shaped entry such
+as `"@acme/geometry"` is refused as no package name, told what the field expects, and
+offered the `package.json` and `extern` route in case a JavaScript dependency was meant
+— a verdict on the spelling, never on what the distribution holds, which may well be a
+Hexagon package named `Acme`. A lawful name nobody declares is simply not found.
 
 ## Where the output goes
 
