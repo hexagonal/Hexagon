@@ -232,7 +232,14 @@ export interface SessionPackage {
   readonly paths: readonly string[];
 }
 
-export interface SessionOptions extends Omit<ProjectOptions, "packages"> {
+/**
+ * `firstFileId` is deliberately **not** among these. A session owns file
+ * identity — every path it holds and every `referenceFile` it registers is
+ * numbered here — so the floor the compile mints injected modules above is this
+ * session's own counter, and never a host's to set. Two callers naming the
+ * floor is exactly the disagreement the field exists to end.
+ */
+export interface SessionOptions extends Omit<ProjectOptions, "packages" | "firstFileId"> {
   readonly packages?: readonly SessionPackage[];
 }
 
@@ -349,6 +356,7 @@ export class AnalysisSession {
   referenceFile(path: string, text: string): Source.File {
     const normalized = normalizePath(path);
     let id = this.#fileIds.get(normalized);
+    const fresh = id === undefined;
     if (id === undefined) {
       id = Source.fileId(this.#nextFileId);
       this.#fileIds.set(normalized, id);
@@ -356,8 +364,12 @@ export class AnalysisSession {
     }
     const file = new Source.File(id, normalized, text);
     this.#references.set(Number(id), file);
-    // No `#invalidate`: nothing here is compiled, and a span into it reaches
-    // the compiler as an *option*, whose own change is what invalidates.
+    // Re-registering an existing path invalidates nothing: nothing here is
+    // compiled, and a span into it reaches the compiler as an *option*, whose
+    // own change is what invalidates. A **new** identity is different — it
+    // raises the floor the compile mints injected modules above (`firstFileId`),
+    // and an analysis already standing minted one of them on this very number.
+    if (fresh) this.#invalidate();
     return file;
   }
 
@@ -1557,8 +1569,17 @@ export class AnalysisSession {
         return { record, files: own };
       });
       const project = [...files].flatMap(([path, file]) => claimed.has(path) ? [] : [file]);
+      // Every identity this session has handed out — its files' and its
+      // reference files' alike — is below `#nextFileId`, so that is the floor
+      // an injected module may be minted above. Without it `compileProject`
+      // would see only the files it was passed, and a manifest registered by
+      // `referenceFile` (which is never passed) would share a number with the
+      // first woven member of `Hex`.
       this.#analysis = new Analysis(
-        compileProject(project, packages.length === 0 ? rest : { ...rest, packages }),
+        compileProject(project, {
+          ...(packages.length === 0 ? rest : { ...rest, packages }),
+          firstFileId: this.#nextFileId,
+        }),
       );
     }
     return this.#analysis;
@@ -1756,16 +1777,6 @@ class Analysis {
   /** The file a module of this full name was compiled from (Packages §2.3). */
   fileIdOfModule(moduleName: string): Source.FileId | undefined {
     return this.#fileIdsByModuleName.get(moduleName);
-  }
-
-  /**
-   * The module a file declares, **as a reader knows it** (Modules §7.6) — for
-   * the reports that have to name where a declaration lives, which name a
-   * module and never a path (§1).
-   */
-  moduleNameOf(fileId: Source.FileId): string | undefined {
-    const full = this.#moduleNamesByFileId.get(Number(fileId));
-    return full === undefined ? undefined : displayModuleName(full);
   }
 
   /**

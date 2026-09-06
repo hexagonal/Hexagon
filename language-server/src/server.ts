@@ -88,8 +88,26 @@ export function startServer(connection: Connection): void {
   /** Read once at initialization: what shape of code action this client takes. */
   let codeActions: CodeActionSupport = { literals: false, disabled: false };
   let roots: readonly string[] = [];
-  /** Whether this client applies a `WorkspaceEdit` that creates a file. */
-  let createsFiles = false;
+  /**
+   * Whether this client takes a `WorkspaceEdit`'s `documentChanges` — which is
+   * what carries a file creation *and* the document version an edit was
+   * measured against. A client without it gets the versionless `changes` form.
+   */
+  let documentChanges = false;
+
+  /**
+   * The open **Hexagon** documents — every synchronised `hexagon.json` left out.
+   *
+   * The extension synchronises manifests so that the `dependencies` repair is
+   * measured against the buffer it lands in (`manifestActions`), so the open set
+   * now holds documents that are not source. That a manifest is never *seated*
+   * is `Workspace`'s rule and is written once, there; this answers a different
+   * question — which open documents the two loops below are about, since
+   * neither re-opening a manifest as source nor telling its reader it is
+   * excluded from the project says anything true.
+   */
+  const sourceDocuments = (): readonly TextDocument[] =>
+    documents.all().filter(({ uri }) => basename(workspace.pathFor(uri)) !== MANIFEST_NAME);
 
   const log = (message: string): void => connection.console.info(`[hexagon] ${message}`);
   const reportError = (message: string): void => connection.console.error(`[hexagon] ${message}`);
@@ -101,7 +119,7 @@ export function startServer(connection: Connection): void {
       `initialized over ${roots.length} root(s); ${workspace.programs.length} program(s), ` +
         `${added} Hexagon file(s) found`,
     );
-    createsFiles =
+    documentChanges =
       params.capabilities.workspace?.workspaceEdit?.documentChanges === true;
     watchedFilesRegistered = params.capabilities.workspace?.didChangeWatchedFiles?.dynamicRegistration === true;
     codeActions = codeActionSupportOf(params.capabilities.textDocument?.codeAction);
@@ -207,7 +225,7 @@ export function startServer(connection: Connection): void {
       // that has just *stopped* being excluded would be left out of every
       // program until the user happened to type in it. Re-applying the buffers
       // is what makes the workspace independent of that.
-      for (const document of documents.all()) await workspace.openDocument(document);
+      for (const document of sourceDocuments()) await workspace.openDocument(document);
       log(`reloaded ${MANIFEST_NAME}; ${workspace.programs.length} program(s)`);
     }
     schedulePublish();
@@ -299,7 +317,7 @@ export function startServer(connection: Connection): void {
       const converted = toLspCodeAction(action, codeActions, workspace.uris, pathOfFile);
       return converted === undefined ? [] : [converted];
     });
-    actions.push(...manifestActions(workspace, path, asked, createsFiles));
+    actions.push(...manifestActions(workspace, path, asked, documentChanges, documents.all()));
     return actions.length === 0 ? null : actions;
   });
 
@@ -365,7 +383,7 @@ export function startServer(connection: Connection): void {
     if (publishTimer !== undefined) clearTimeout(publishTimer);
     publishTimer = setTimeout(() => {
       publishTimer = undefined;
-      publishDiagnostics(connection, workspace, published, documents.all());
+      publishDiagnostics(connection, workspace, published, sourceDocuments());
     }, DIAGNOSTIC_DELAY_MS);
   }
 }
@@ -476,16 +494,36 @@ function publishDiagnostics(
  * dependency is that dependency, whose manifest sits under `node_modules` and
  * is not a file a user wrote or should be asked to edit.
  *
- * The whole manifest is rewritten from its parsed value rather than spliced,
- * because `hexagon.json` is JSON — no comments to lose — and a splice into an
- * array a user may have written on one line, several lines, or with a trailing
- * entry is three ways to produce invalid JSON for one repair.
+ * ## The text the edit is measured against
+ *
+ * **The buffer, whenever the editor holds one.** `Workspace` reads a manifest
+ * from disk and refreshes it when the watcher fires, which is on *save* — so
+ * with `hexagon.json` open and edited, a range measured against the server's
+ * copy lands in a document that is no longer that text. Replacing more than the
+ * range covers throws away what the user typed; replacing less leaves the tail
+ * of the buffer after the replacement, which for a buffer longer than the last
+ * save is a `hexagon.json` that is no longer JSON. So the extension
+ * synchronises every `hexagon.json` (`editors/vscode`'s `documentSelector`),
+ * this takes the text from the open document where there is one, and the edit
+ * carries that document's **version** wherever the client accepts one — which
+ * is what makes the client refuse it rather than misapply it if a keystroke
+ * beats it.
+ *
+ * ## What it replaces
+ *
+ * The `dependencies` **value** where the file already has one, and the whole
+ * document only where it does not. A whole-file rewrite is the smallest correct
+ * edit for a key that has to be *added* — `hexagon.json` is JSON, so there are
+ * no comments to lose — but it is not smallest for a key that is already there,
+ * and it discards any unrelated edit elsewhere in the file that the same round
+ * trip did not know about.
  */
 function manifestActions(
   workspace: Workspace,
   path: string,
   asked: { start: number; end: number },
-  createsFiles: boolean,
+  documentChanges: boolean,
+  open: readonly TextDocument[],
 ): readonly CodeAction[] {
   // One guard, in one place: `projectManifestOf` answers only for a file some
   // program holds as its **own** source, which is the whole of the rule above.
@@ -495,10 +533,15 @@ function manifestActions(
   if (manifest === undefined) return [];
   const program = workspace.programFor(path);
   if (program === undefined) return [];
+  // The buffer wins over the server's copy, because it is the text the edit
+  // lands in. Found by settled path rather than by URI string, like every other
+  // pairing here: the client spells a URI its own way.
+  const buffer = open.find((document) => workspace.pathFor(document.uri) === manifest.path);
+  const current = buffer?.getText() ?? manifest.text;
   // A manifest that is not there has to be created, which needs a client that
   // applies file operations; one that cannot is offered nothing rather than an
   // edit it would silently drop.
-  if (manifest.text === undefined && !createsFiles) return [];
+  if (current === undefined && !documentChanges) return [];
   const offered = new Map<string, CodeAction>();
   for (const diagnostic of program.session.diagnostics(path)) {
     const entry = diagnostic.manifestDependency?.packageName;
@@ -506,37 +549,57 @@ function manifestActions(
     if (diagnostic.primary.end.offset < asked.start) continue;
     if (diagnostic.primary.start.offset > asked.end) continue;
     if (offered.has(entry)) continue;
-    const text = manifestText(manifest.text, entry);
-    if (text === undefined) continue;
-    const uri = workspace.uris.toUri(manifest.path);
-    const range = wholeDocument(manifest.text ?? "");
+    const edit = manifestEdit(current, entry);
+    if (edit === undefined) continue;
+    const uri = buffer?.uri ?? workspace.uris.toUri(manifest.path);
     offered.set(entry, {
       title: `add \`"${entry}"\` to \`dependencies\` in ${MANIFEST_NAME}`,
       kind: CodeActionKind.QuickFix,
-      ...(manifest.text === undefined
+      ...(current === undefined
         ? {
           edit: {
             documentChanges: [
               { kind: "create", uri, options: { ignoreIfExists: true } },
-              {
-                textDocument: { uri, version: null },
-                edits: [{ range, newText: text }],
-              },
+              { textDocument: { uri, version: null }, edits: [edit] },
             ],
           },
         }
-        : { edit: { changes: { [uri]: [{ range, newText: text }] } } }),
+        : documentChanges
+        // Versioned where the client takes one: an edit measured against a
+        // buffer is only correct against that buffer, and a client that has
+        // moved on refuses it rather than applying it to different text.
+        ? {
+          edit: {
+            documentChanges: [
+              { textDocument: { uri, version: buffer?.version ?? null }, edits: [edit] },
+            ],
+          },
+        }
+        : { edit: { changes: { [uri]: [edit] } } }),
     });
   }
   return [...offered.values()];
 }
 
-/** The manifest as it reads with one more `dependencies` entry, or nothing. */
-function manifestText(current: string | undefined, entry: string): string | undefined {
+/**
+ * The edit that adds one `dependencies` entry, or nothing where the manifest
+ * cannot take one.
+ *
+ * Scoped to the `dependencies` value where the file already has an array there,
+ * and to the whole document only where the key has to be added. `current` is
+ * `undefined` for a manifest that does not exist yet, whose whole text is
+ * written from scratch.
+ */
+function manifestEdit(current: string | undefined, entry: string): TextEdit | undefined {
+  const text = current ?? "";
+  // A byte-order mark is stripped to parse and never to write: VS Code writes
+  // one under `files.encoding: utf8bom`, and a rewrite that dropped it would
+  // silently re-encode a file the user did not ask to re-encode.
+  const mark = text.startsWith("\uFEFF") ? "\uFEFF" : "";
   let value: unknown = {};
   if (current !== undefined) {
     try {
-      value = JSON.parse(current.replace(/^\uFEFF/u, ""));
+      value = JSON.parse(text.slice(mark.length));
     } catch {
       // A manifest that does not parse already has a report of its own against
       // it, and rewriting it would throw away whatever the user was typing.
@@ -546,11 +609,117 @@ function manifestText(current: string | undefined, entry: string): string | unde
   if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
   const record = value as Record<string, unknown>;
   const listed = record["dependencies"];
-  const entries = Array.isArray(listed) ? [...listed] : [];
   if (listed !== undefined && !Array.isArray(listed)) return undefined;
+  const entries = Array.isArray(listed) ? [...listed] : [];
   if (entries.includes(entry)) return undefined;
   entries.push(entry);
-  return `${JSON.stringify({ ...record, dependencies: entries }, undefined, 2)}\n`;
+  const span = listed === undefined ? undefined : dependenciesValueSpan(text);
+  if (span === undefined) {
+    return {
+      range: wholeDocument(text),
+      newText: `${mark}${JSON.stringify({ ...record, dependencies: entries }, undefined, 2)}\n`,
+    };
+  }
+  return {
+    range: { start: positionAt(text, span.start), end: positionAt(text, span.end) },
+    // Re-indented under the key's own indentation, so the array a reader sees
+    // is the array `JSON.stringify` would have written in a whole-file rewrite.
+    newText: JSON.stringify(entries, undefined, 2)
+      .split("\n")
+      .map((line, at) => (at === 0 ? line : `${span.indent}${line}`))
+      .join("\n"),
+  };
+}
+
+/**
+ * Where the top-level `dependencies` **value** sits in a manifest's text, and
+ * how far its key is indented.
+ *
+ * A hand-written scan rather than a JSON parser with spans, because the only
+ * question is where one top-level key's value starts and ends, and the answer
+ * has to be over the *bytes* \u2014 `JSON.parse` gives a value with no positions,
+ * and a regular expression over a file that may contain the word
+ * `"dependencies"` inside a string somewhere else would find the wrong one.
+ * Nothing here validates: the text has already parsed by the time this is
+ * asked.
+ */
+function dependenciesValueSpan(
+  text: string,
+): { start: number; end: number; indent: string } | undefined {
+  let depth = 0;
+  let at = 0;
+  while (at < text.length) {
+    const character = text[at]!;
+    if (character === '"') {
+      const end = endOfString(text, at);
+      // A key is a string at the object's own depth followed by a colon; a
+      // value that happens to spell `dependencies` is at a greater depth or has
+      // no colon after it.
+      const after = skipSpace(text, end);
+      if (depth === 1 && text[after] === ":" && text.slice(at, end) === '"dependencies"') {
+        const start = skipSpace(text, after + 1);
+        if (text[start] !== "[") return undefined;
+        const close = endOfArray(text, start);
+        if (close === undefined) return undefined;
+        return { start, end: close, indent: indentOfLine(text, at) };
+      }
+      at = end;
+      continue;
+    }
+    if (character === "{" || character === "[") depth += 1;
+    if (character === "}" || character === "]") depth -= 1;
+    at += 1;
+  }
+  return undefined;
+}
+
+/** The offset one past a string literal starting at `at`, escapes honoured. */
+function endOfString(text: string, at: number): number {
+  let index = at + 1;
+  while (index < text.length) {
+    if (text[index] === "\\") index += 2;
+    else if (text[index] === '"') return index + 1;
+    else index += 1;
+  }
+  return text.length;
+}
+
+/** The offset one past the array starting at `at`. */
+function endOfArray(text: string, at: number): number | undefined {
+  let depth = 0;
+  let index = at;
+  while (index < text.length) {
+    const character = text[index]!;
+    if (character === '"') {
+      index = endOfString(text, index);
+      continue;
+    }
+    if (character === "[") depth += 1;
+    if (character === "]") {
+      depth -= 1;
+      if (depth === 0) return index + 1;
+    }
+    index += 1;
+  }
+  return undefined;
+}
+
+function skipSpace(text: string, at: number): number {
+  let index = at;
+  while (index < text.length && /\s/u.test(text[index]!)) index += 1;
+  return index;
+}
+
+/** The whitespace opening the line `at` lies on. */
+function indentOfLine(text: string, at: number): string {
+  const start = text.lastIndexOf("\n", at - 1) + 1;
+  return /^[\t ]*/u.exec(text.slice(start, at))![0];
+}
+
+/** A byte offset as the protocol's line and character. */
+function positionAt(text: string, offset: number): { line: number; character: number } {
+  const before = text.slice(0, offset).split("\n");
+  return { line: before.length - 1, character: before.at(-1)!.length };
 }
 
 /** The range covering a whole document, so an edit replaces all of it. */

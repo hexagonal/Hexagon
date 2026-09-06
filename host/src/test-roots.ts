@@ -1,21 +1,28 @@
 /**
- * The temporary directory a test runs its workspace in — under **both** of the
+ * The temporary directory a test runs its roots in — under **both** of the
  * spellings a real editor root can have.
  *
- * A project directory settles by its canonical path (`host/projects.ts`), while
- * a client keeps sending the workspace folder it was given. Where the two
- * differ, every file in the workspace has two names, and a server that let both
- * of them exist answers `null` to hover, definition, references and rename in a
- * workspace that looks perfectly ordinary. That is not exotic: on macOS `/var`
- * is a link to `/private/var`, so it is every project under a temporary
- * directory, and anywhere it is a symlinked checkout or a linked `$HOME`.
+ * A project directory settles by its canonical path (`projects.ts`), while a
+ * client keeps sending the folder it was given. Where the two differ, every
+ * file under the root has two names, and a host that let both of them exist
+ * answers `null` to hover, definition, references and rename in a workspace
+ * that looks perfectly ordinary. That is not exotic: on macOS `/var` is a link
+ * to `/private/var`, so it is every project under a temporary directory, and
+ * anywhere it is a symlinked checkout or a linked `$HOME`.
  *
  * A suite whose roots are canonical cannot see any of it, and *whether* they
  * are is a property of the machine — this Mac's `TMPDIR` is under `/var` and a
- * Linux runner's is `/tmp`. So the suite runs twice, and the second run reaches
- * every root through a link it makes itself, which is non-canonical on every
- * platform rather than on the author's. `package.json`'s `test` script runs both
- * (`vitest.linked.config.ts` sets the variable); nothing else changes.
+ * Linux runner's is `/tmp`. So each suite that walks a real directory runs
+ * twice, and the second run reaches every root through a link it makes itself,
+ * which is non-canonical on every platform rather than on the author's. Each
+ * package's `test` script runs both (its `vitest.linked.config.ts` sets the
+ * variable); nothing else changes.
+ *
+ * It lives here rather than in the language server because canonicalisation is
+ * the **host's** — `paths.ts`, `projects.ts` and the walk are what the doubling
+ * exercises, and `host/`'s own suite needs it as much as the server's. It is
+ * deliberately not on `index.ts`: this is a test fixture, not part of what the
+ * host answers.
  */
 
 import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises";

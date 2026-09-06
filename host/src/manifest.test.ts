@@ -1,20 +1,28 @@
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, realpath, writeFile } from "node:fs/promises";
 import { dirname, extname, join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import { MANIFEST_NAME, isExcluded, readManifest } from "./manifest.js";
+import { removeTemporaryRoots, temporaryRoot } from "./test-roots.js";
 
+/**
+ * Every root here comes through `temporaryRoot`, so the linked run reads a
+ * manifest at a root the client spells one way and the filesystem another. That
+ * is the shape `coversRoot` and `matchesExactly` are written for — an entry
+ * pasted from a shell is the *resolved* spelling — and whether a plain
+ * temporary directory would have exercised it at all is a property of the
+ * machine (`test-roots.ts`), not something a suite should leave to one.
+ */
 let root = "";
 
 async function rootWith(contents?: string): Promise<string> {
-  root = await mkdtemp(join(tmpdir(), "hexagon-manifest-"));
+  root = await temporaryRoot("hexagon-manifest-");
   if (contents !== undefined) await writeFile(join(root, MANIFEST_NAME), contents, "utf8");
   return root;
 }
 
 /** A temporary directory to build a root *inside*, for entries that escape it. */
 async function makeBase(): Promise<string> {
-  root = await mkdtemp(join(tmpdir(), "hexagon-manifest-"));
+  root = await temporaryRoot("hexagon-manifest-");
   return root;
 }
 
@@ -33,7 +41,7 @@ async function make(path: string, ...entries: readonly string[]): Promise<void> 
 }
 
 afterEach(async () => {
-  if (root !== "") await rm(root, { recursive: true, force: true });
+  await removeTemporaryRoots();
   root = "";
 });
 
@@ -166,9 +174,7 @@ describe("readManifest", () => {
       expect(result.manifest.exclude, entry).toEqual([]);
       expect(result.problems.map(({ message }) => message).join(" "), entry)
         .toContain("workspace root");
-      await rm(path, { recursive: true, force: true });
     }
-    root = "";
   });
 
   test("an entry that matches no file is reported rather than ignored", async () => {
@@ -341,9 +347,7 @@ describe("readManifest: the package's name and its dependencies (Packages §2.1)
       const result = await readManifest(path);
       expect(result.manifest.name).toBeUndefined();
       expect(result.problems.map(({ message: text }) => text)).toEqual([message]);
-      await rm(path, { recursive: true, force: true });
     }
-    root = "";
   });
 
   test("a name that is not a string is refused by shape, before §2.1 is asked", async () => {

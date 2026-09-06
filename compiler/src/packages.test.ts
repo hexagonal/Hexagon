@@ -604,6 +604,31 @@ describe("§4.3 — one copy of a package per program", () => {
     );
   });
 
+  /**
+   * §4.3 reads over an **entry**: "where an entry of the closure resolves the
+   * project's own `name` to an installed package at a directory other than the
+   * project's own". Two directories declaring it are two entries, so both are
+   * named — the one-copy rule skips the project's name precisely because this
+   * row has already spoken for it, and naming only the first left the second
+   * copy reported nowhere at all.
+   */
+  test("two installed copies of the project's own name are both refused", () => {
+    const bolt = record_("Bolt", `${PROJECT_DIRECTORY}/node_modules/bolt`, ["Acme"]);
+    const near = record_("Acme", `${PROJECT_DIRECTORY}/node_modules/@acme/geometry`);
+    const far = record_("Acme", `${bolt.directory}/node_modules/acme`);
+    const set = validatePackageSet(record_("Acme", PROJECT_DIRECTORY, ["Acme", "Bolt"]), [
+      edge_(PROJECT_DIRECTORY, "Acme", [near]),
+      edge_(PROJECT_DIRECTORY, "Bolt", [bolt]),
+      edge_(bolt.directory, "Acme", [far]),
+    ]);
+    expect(messages(set)).toEqual([
+      "this project declares `\"name\": \"Acme\"`, and `Acme` is also installed at " +
+        "`node_modules/@acme/geometry`; a program holds one package of each name",
+      "this project declares `\"name\": \"Acme\"`, and `Acme` is also installed at " +
+        "`node_modules/bolt/node_modules/acme`; a program holds one package of each name",
+    ]);
+  });
+
   test("a project listing its own name that nothing declares draws the unresolvable report", () => {
     const set = validatePackageSet(record_("MyApp", PROJECT_DIRECTORY, ["MyApp"]), [
       edge_(PROJECT_DIRECTORY, "MyApp", []),

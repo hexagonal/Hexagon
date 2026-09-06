@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "check": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run",
+    "test": "vitest run && vitest run --config vitest.linked.config.ts",
     "test:watch": "vitest"
   },
   "devDependencies": {

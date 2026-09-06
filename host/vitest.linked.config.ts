@@ -6,7 +6,7 @@
  * names. Whether a run's temporary directory is canonical is a property of the
  * machine — `/var/folders/…` on macOS, `/tmp` on a Linux runner — so a single
  * run silently covers only one of the two, and which one is nobody's choice.
- * This config picks the other on purpose (`host/src/test-roots.ts` reads the
+ * This config picks the other on purpose (`src/test-roots.ts` reads the
  * variable), and `npm test` runs both.
  */
 

@@ -27,9 +27,9 @@
  */
 
 import { readdir } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { MANIFEST_NAME } from "./manifest.js";
-import { normalizePath, realPathOf } from "./paths.js";
+import { normalizePath, parentDirectoryOf, realPathOf } from "./paths.js";
 
 /** One program's root directory. */
 export interface ProjectDirectory {
@@ -101,13 +101,12 @@ export async function projectDirectories(
 export async function enclosingManifestDirectory(
   from: string,
 ): Promise<string | undefined> {
-  let at = normalizePath(from);
-  for (;;) {
+  let at: string | undefined = normalizePath(from);
+  while (at !== undefined) {
     if (await holdsManifest(at)) return at;
-    const parent = normalizePath(dirname(at));
-    if (parent === at) return undefined;
-    at = parent;
+    at = parentDirectoryOf(at);
   }
+  return undefined;
 }
 
 async function holdsManifest(directory: string): Promise<boolean> {

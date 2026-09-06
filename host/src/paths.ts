@@ -11,10 +11,22 @@
 
 import { realpathSync } from "node:fs";
 import { realpath } from "node:fs/promises";
+import { dirname } from "node:path";
 
-/** The compiler's spelling: `/`-separated, `.` and `..` resolved. */
+/**
+ * The compiler's spelling: `/`-separated, `.` and `..` resolved.
+ *
+ * The leading `//` of a UNC path is kept, because it is part of the **root**
+ * rather than a repeated separator: `//server/share` names a share, and
+ * `/server/share` names a directory called `server` at the filesystem root — a
+ * different place, on a machine that may not have one. Collapsing it made every
+ * path under a Windows share compare equal to a path that does not exist.
+ */
 export function normalizePath(path: string): string {
   const forward = path.replaceAll("\\", "/");
+  // Exactly two: three or more is POSIX's ordinary "one separator", and only
+  // the two-slash form is the one Windows reads as a share.
+  const unc = forward.startsWith("//") && !forward.startsWith("///");
   const absolute = forward.startsWith("/");
   const parts: string[] = [];
   for (const part of forward.split("/")) {
@@ -22,7 +34,49 @@ export function normalizePath(path: string): string {
     if (part === "..") parts.pop();
     else parts.push(part);
   }
-  return `${absolute ? "/" : ""}${parts.join("/")}`;
+  return `${unc ? "//" : absolute ? "/" : ""}${parts.join("/")}`;
+}
+
+/**
+ * The **root** a normalized path stands on, as a prefix: `/` for POSIX, `C:`
+ * for a drive, `//server/share` for a UNC share, and the empty string for a
+ * relative path.
+ *
+ * A climb needs it because a root is where climbing stops, and rebuilding one
+ * is how a walk comes to look for `/C:/proj/node_modules` on a machine whose
+ * paths start `C:/`: every level then misses, and a lookup that finds no level
+ * answers with no candidates rather than with an error.
+ */
+export function pathRoot(path: string): string {
+  const normalized = normalizePath(path);
+  if (normalized.startsWith("//")) {
+    const [server, share] = normalized.slice(2).split("/");
+    return share === undefined ? normalized : `//${server}/${share}`;
+  }
+  if (normalized.startsWith("/")) return "/";
+  const first = normalized.split("/")[0] ?? "";
+  return /^[A-Za-z]:$/u.test(first) ? first : "";
+}
+
+/**
+ * The directory above this one, or nothing where it **is** a root.
+ *
+ * `dirname` alone does not answer this: on a POSIX runtime it takes `C:/proj`
+ * to `C:` and then to `.`, so a loop that stops only at `dirname`'s fixed point
+ * climbs past a Windows root into the current working directory. Stopping at
+ * `pathRoot` is what makes one climb correct on every path shape.
+ */
+export function parentDirectoryOf(directory: string): string | undefined {
+  const at = normalizePath(directory);
+  if (at === pathRoot(at)) return undefined;
+  const parent = normalizePath(dirname(at));
+  return parent === at ? undefined : parent;
+}
+
+/** `directory` with one more component, without rebuilding its root. */
+export function childDirectory(directory: string, name: string): string {
+  const at = normalizePath(directory);
+  return at.endsWith("/") ? `${at}${name}` : `${at}/${name}`;
 }
 
 /**
@@ -54,29 +108,43 @@ export async function realPathOf(path: string): Promise<string> {
  * — so it is this call or a `null` answer in a workspace that looks perfectly
  * ordinary. It is made once per URI and remembered.
  *
- * The second is the **nearest existing ancestor**. `realPathOf` answers with
- * the path itself when nothing is there, which is the right answer for identity
- * and the wrong one for agreement: a file just created, or just deleted, would
- * wear a spelling no other path in the session uses, so the new file would join
- * no program and the deleted one would be erased from none. Resolving the
- * directory and rejoining the name gives it the spelling it will have. A path
- * whose every ancestor is gone answers with itself.
+ * The second is the **nearest existing ancestor**, however far up it is.
+ * `realPathOf` answers with the path itself when nothing is there, which is the
+ * right answer for identity and the wrong one for agreement: a file just
+ * created, or just deleted, would wear a spelling no other path in the session
+ * uses, so the new file would join no program and the deleted one would be
+ * erased from none. Resolving the nearest ancestor that is still there and
+ * re-appending the missing tail gives it the spelling it will have.
+ *
+ * One level up is not enough, and the case is ordinary: a branch switch or a
+ * `git rm -r` takes a file **and its directory**, so the watcher's delete
+ * arrives for a path with two missing components, and stopping at one would
+ * leave it under the client's own spelling — which under a root reached through
+ * a link is a name no program holds, so the deleted module is erased from none
+ * and keeps publishing diagnostics until the next rediscovery. The climb costs
+ * one `realpath` per missing level, is made once per URI and remembered, and
+ * ends at the root at the latest. A path with no existing ancestor at all —
+ * only a root that is not there — answers with itself.
  */
 export function settledPathSync(path: string): string {
   try {
     return realpathSync(path);
   } catch {
-    // Not the whole chain: one step up is where a create and a delete both sit,
-    // and a loop climbing to the filesystem root would spend a syscall per
-    // level on a path that is simply misspelled.
-    const forward = path.replaceAll("\\", "/");
-    const at = forward.lastIndexOf("/");
-    if (at <= 0) return path;
-    try {
-      return `${realpathSync(forward.slice(0, at))}/${forward.slice(at + 1)}`;
-    } catch {
-      return path;
+    const normalized = normalizePath(path);
+    const tail: string[] = [];
+    let at: string | undefined = normalized;
+    while (at !== undefined) {
+      const parent: string | undefined = parentDirectoryOf(at);
+      if (parent === undefined) return path;
+      tail.unshift(at.slice(parent.endsWith("/") ? parent.length : parent.length + 1));
+      try {
+        const resolved = normalizePath(realpathSync(parent));
+        return tail.reduce((built, component) => childDirectory(built, component), resolved);
+      } catch {
+        at = parent;
+      }
     }
+    return path;
   }
 }
 

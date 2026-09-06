@@ -625,20 +625,30 @@ export function validatePackageSet(
   // project is the package with no directory to move, so its report is the one
   // that names the manifest a reader can act on.
   const named = [...closure.values()];
-  const projectNameClash = project.name === undefined ? undefined : named.find((record) =>
+  // **One per copy**, in closure order. §4.3's sentence is read over an *entry*
+  // — "where an entry of the closure resolves the project's own `name` to an
+  // installed package at a directory other than the project's own" — so two
+  // installed directories both declaring the project's name are two entries and
+  // two refusals, each naming the directory its reader has to move or drop.
+  // Naming the first alone would leave the second reported nowhere: the
+  // one-copy rule below skips the project's name, exactly because this row has
+  // already spoken for it.
+  const projectNameClashes = project.name === undefined ? [] : named.filter((record) =>
     record.directory !== project.directory && record.name === project.name
   );
-  if (projectNameClash !== undefined) {
+  for (const clash of projectNameClashes) {
     problems.push({
       message: `this project declares \`"name": "${project.name}"\`, and \`${project.name}\` ` +
-        `is also installed at \`${relativeDirectory(project.directory, projectNameClash.directory)}\`; ` +
+        `is also installed at \`${relativeDirectory(project.directory, clash.directory)}\`; ` +
         "a program holds one package of each name",
       directory: project.directory,
       key: "name",
     });
   }
 
-  // §4.3's one-copy rule, over the package set and nothing wider.
+  // §4.3's one-copy rule, over the package set and nothing wider. The project's
+  // own name is left out because the row above has already drawn one refusal
+  // per copy of it, at the manifest a reader can act on.
   const byName = new Map<string, PackageRecord[]>();
   for (const record of named) {
     if (record.name === undefined || record.name === project.name) continue;

@@ -74,7 +74,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 const { MANIFEST_NAME } = await import("../../host/src/index.js");
 // Imported after the mock like the modules under test, so its own `mkdtemp`
 // and `rm` go through the same wrapper the workspace's reads do.
-const { removeTemporaryRoots, temporaryRoot } = await import("./test-roots.js");
+const { removeTemporaryRoots, temporaryRoot } = await import("../../host/src/test-roots.js");
 const { Workspace } = await import("./workspace.js");
 
 let root = "";

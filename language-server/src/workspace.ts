@@ -44,6 +44,7 @@ import {
   excludes,
   exclusionsOf,
   manifestKeyLine,
+  MANIFEST_NAME,
   manifestPathOf,
   mergedExclusions,
   messageOf,
@@ -542,6 +543,16 @@ export class Workspace {
    * rediscovery.
    */
   #write(path: string, text: string): void {
+    // **A session holds Hexagon source.** A `hexagon.json` reaches the compiler
+    // as a record (Packages §4.1) and never as a file, and the editor does send
+    // one: the manifest is synchronised so that the `dependencies` repair is
+    // measured against the buffer it lands in. Its text is read there, at the
+    // moment the edit is built, and seated nowhere — which is also what keeps a
+    // keystroke in the manifest from invalidating the whole program's analysis
+    // and re-compiling it. One place, because this is the one door a file's
+    // text arrives by: the open, the edit, the close and the disk reload all
+    // come through here.
+    if (path.slice(path.lastIndexOf("/") + 1) === MANIFEST_NAME) return;
     let seated = false;
     for (const program of this.#programs) {
       if (!program.held.has(path)) continue;

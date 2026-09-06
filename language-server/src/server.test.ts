@@ -46,7 +46,7 @@ import {
 } from "vscode-languageserver-protocol/node.js";
 import { createConnection } from "vscode-languageserver/node.js";
 import { startServer } from "./server.js";
-import { removeTemporaryRoots, temporaryRoot } from "./test-roots.js";
+import { removeTemporaryRoots, temporaryRoot } from "../../host/src/test-roots.js";
 
 const HELPER = [
   "module Helper",
@@ -1385,10 +1385,51 @@ describe("packages and programs", () => {
     `${JSON.stringify(fields, undefined, 2)}\n`;
 
   /** Opens a file in the editor, which is what a code-action request needs. */
-  async function open(workspace: Harness, name: string, text: string): Promise<void> {
+  async function open(
+    workspace: Harness,
+    name: string,
+    text: string,
+    languageId = "hexagon",
+    version = 1,
+  ): Promise<void> {
     await workspace.client.sendNotification(DidOpenTextDocumentNotification.type, {
-      textDocument: { uri: workspace.uriOf(name), languageId: "hexagon", version: 1, text },
+      textDocument: { uri: workspace.uriOf(name), languageId, version, text },
     });
+  }
+
+  /**
+   * The edits one repair carries for a manifest, under either shape a client
+   * can take: `documentChanges` where it announced support (which is what
+   * carries the version an edit was measured against), `changes` where it did
+   * not.
+   */
+  function manifestEditsOf(action: CodeAction, uri: string): readonly TextEdit[] {
+    const changes = action.edit?.documentChanges;
+    if (changes === undefined) return action.edit!.changes![uri]!;
+    const seated = changes.find((change) =>
+      "textDocument" in change && change.textDocument.uri === uri
+    );
+    return (seated as { edits: TextEdit[] }).edits;
+  }
+
+  /** The version a repair's edit was measured against, where it carries one. */
+  function manifestVersionOf(action: CodeAction, uri: string): number | null | undefined {
+    const seated = action.edit?.documentChanges?.find((change) =>
+      "textDocument" in change && change.textDocument.uri === uri
+    );
+    if (seated === undefined) return undefined;
+    return (seated as { textDocument: { version: number | null } }).textDocument.version;
+  }
+
+  /** The quick fix that writes the manifest, for a report on `main.hex`. */
+  async function repairFor(workspace: Harness, name: string): Promise<CodeAction | undefined> {
+    const reported = await workspace.diagnosticsFor(workspace.uriOf(name));
+    const actions = await workspace.client.sendRequest("textDocument/codeAction", {
+      textDocument: { uri: workspace.uriOf(name) },
+      range: reported[0]!.range,
+      context: { diagnostics: reported },
+    }) as CodeAction[] | null;
+    return actions?.find(({ title }) => title.includes("dependencies"));
   }
 
   const MAIN_WITH_DEPENDENCY = [
@@ -1462,12 +1503,126 @@ describe("packages and programs", () => {
       }) as CodeAction[] | null;
       const repair = actions?.find(({ title }) => title.includes("dependencies"));
       expect(repair?.title).toBe("add `\"Bolt\"` to `dependencies` in hexagon.json");
-      const edits = repair!.edit!.changes![workspace.uriOf("hexagon.json")]!;
-      // The whole manifest is rewritten from its parsed value: `hexagon.json` is
-      // JSON, so nothing is lost, and no splice can produce a broken array.
+      const edits = manifestEditsOf(repair!, workspace.uriOf("hexagon.json"));
       expect(applyEdits(manifest({ dependencies: ["Acme"] }), edits)).toBe(
         manifest({ dependencies: ["Acme", "Bolt"] }),
       );
+      // The `dependencies` **value** and nothing else: an edit over the whole
+      // file would take an unrelated change with it, and the smallest edit that
+      // says what the repair says is the array it is adding to.
+      expect(edits).toHaveLength(1);
+      expect(edits[0]!.range.start.line).toBe(1);
+    } finally {
+      await workspace.dispose();
+    }
+  });
+
+  /**
+   * The repair's edit is measured against the **buffer**, not against the last
+   * text saved to disk.
+   *
+   * A manifest is re-read on the watcher's event, which fires on save — so with
+   * `hexagon.json` open and edited, the server's copy is stale by exactly the
+   * user's unsaved work. An edit ranged over the stale text lands in the live
+   * document: where the buffer is **longer**, the range stops short and the
+   * tail survives the replacement, which for a JSON file means a repair that
+   * produces something that is not JSON.
+   */
+  const NOT_A_DEPENDENCY = {
+    "main.hex": "module Main\n\nimport Bolt.Util\n",
+    "node_modules/bolt/hexagon.json": '{\n  "name": "Bolt"\n}\n',
+    "node_modules/bolt/util.hex": "module Util\n\nexport let n: Int = 1\n",
+  } as const;
+
+  const REPAIR_CAPABILITIES = {
+    textDocument: {
+      codeAction: { codeActionLiteralSupport: { codeActionKind: { valueSet: ["quickfix"] } } },
+    },
+    workspace: { workspaceEdit: { documentChanges: true } },
+  };
+
+  test("the repair edits the buffer the user is looking at, not the saved text", async () => {
+    const workspace = await harness({
+      ...NOT_A_DEPENDENCY,
+      "hexagon.json": "{}\n",
+    }, REPAIR_CAPABILITIES);
+    try {
+      // Longer than what was saved — the direction that used to leave a tail
+      // behind and produce invalid JSON.
+      const buffer = '{\n  "name": "App",\n  "dependencies": []\n}\n';
+      await open(workspace, "main.hex", NOT_A_DEPENDENCY["main.hex"]);
+      await open(workspace, "hexagon.json", buffer, "json", 7);
+      const repair = await repairFor(workspace, "main.hex");
+      const uri = workspace.uriOf("hexagon.json");
+      expect(applyEdits(buffer, manifestEditsOf(repair!, uri)))
+        .toBe('{\n  "name": "App",\n  "dependencies": [\n    "Bolt"\n  ]\n}\n');
+      // Versioned, so a client whose document has moved on refuses the edit
+      // rather than applying it to text it was never measured against.
+      expect(manifestVersionOf(repair!, uri)).toBe(7);
+    } finally {
+      await workspace.dispose();
+    }
+  });
+
+  test("the repair edits a buffer shorter than the saved text", async () => {
+    const workspace = await harness({
+      ...NOT_A_DEPENDENCY,
+      "hexagon.json": '{\n  "name": "App",\n  "exclude": [\n    "generated"\n  ]\n}\n',
+    }, REPAIR_CAPABILITIES);
+    try {
+      const buffer = '{\n  "name": "App"\n}\n';
+      await open(workspace, "main.hex", NOT_A_DEPENDENCY["main.hex"]);
+      await open(workspace, "hexagon.json", buffer, "json", 3);
+      const repair = await repairFor(workspace, "main.hex");
+      // No key to scope to, so the whole document is rewritten — and from the
+      // buffer's value, which is what makes `exclude` (saved, then deleted)
+      // absent rather than resurrected.
+      expect(applyEdits(buffer, manifestEditsOf(repair!, workspace.uriOf("hexagon.json"))))
+        .toBe('{\n  "name": "App",\n  "dependencies": [\n    "Bolt"\n  ]\n}\n');
+    } finally {
+      await workspace.dispose();
+    }
+  });
+
+  test("with no buffer open the repair reads the manifest from disk", async () => {
+    const workspace = await harness({
+      ...NOT_A_DEPENDENCY,
+      "hexagon.json": '{\n  "name": "App",\n  "dependencies": [\n    "Acme"\n  ]\n}\n',
+    }, REPAIR_CAPABILITIES);
+    try {
+      await open(workspace, "main.hex", NOT_A_DEPENDENCY["main.hex"]);
+      const repair = await repairFor(workspace, "main.hex");
+      const uri = workspace.uriOf("hexagon.json");
+      expect(applyEdits(
+        '{\n  "name": "App",\n  "dependencies": [\n    "Acme"\n  ]\n}\n',
+        manifestEditsOf(repair!, uri),
+      )).toBe('{\n  "name": "App",\n  "dependencies": [\n    "Acme",\n    "Bolt"\n  ]\n}\n');
+      // No document to version against; the client applies it to the file.
+      expect(manifestVersionOf(repair!, uri)).toBeNull();
+    } finally {
+      await workspace.dispose();
+    }
+  });
+
+  /**
+   * A byte-order mark is stripped to parse and never to write. VS Code writes
+   * one under `files.encoding: utf8bom`, and a repair that dropped it would
+   * silently re-encode a file the user did not ask to re-encode — a whole-file
+   * diff, from a one-entry fix.
+   */
+  test("the repair keeps a manifest's byte-order mark", async () => {
+    const workspace = await harness({
+      ...NOT_A_DEPENDENCY,
+      "hexagon.json": `\uFEFF{}\n`,
+    }, REPAIR_CAPABILITIES);
+    try {
+      await open(workspace, "main.hex", NOT_A_DEPENDENCY["main.hex"]);
+      const repair = await repairFor(workspace, "main.hex");
+      const written = applyEdits(
+        `\uFEFF{}\n`,
+        manifestEditsOf(repair!, workspace.uriOf("hexagon.json")),
+      );
+      expect(written).toBe(`\uFEFF{\n  "dependencies": [\n    "Bolt"\n  ]\n}\n`);
     } finally {
       await workspace.dispose();
     }
@@ -1592,6 +1747,40 @@ describe("packages and programs", () => {
         },
         message: "`Acme` is declared here",
       }]);
+    } finally {
+      await workspace.dispose();
+    }
+  });
+
+  /**
+   * The same label, in a program that compiles an **injected** module.
+   *
+   * A manifest's identity is minted by `AnalysisSession.referenceFile`, and the
+   * members of `Hex` a program reaches are minted by `compileProject` — two
+   * allocators, which must not hand out one number twice. They did: the first
+   * woven member landed on exactly the last manifest's id, `pathOfFile`
+   * preferred the analysis, and the editor was handed a related-information
+   * link to a `/Hex/Show.hex` that is nowhere on disk. Any generic over a
+   * prelude constraint fires it, which is why the fixture above — whose
+   * `main.hex` compiles no injected module — cannot see it.
+   */
+  test("the manifest keeps its identity in a program that compiles `Hex` members", async () => {
+    const workspace = await harness({
+      "hexagon.json": manifest({ dependencies: ["Bolt", "Acme"] }),
+      "main.hex": "module Main\n\nexport fun f<a: Show>(x: a): String = show(x)\n",
+      "node_modules/bolt/hexagon.json": manifest({ name: "Bolt" }),
+      "node_modules/bolt/tools.hex": "module Acme.Tools\n\nexport let n: Int = 1\n",
+      "node_modules/acme/hexagon.json": manifest({ name: "Acme" }),
+      "node_modules/acme/geometry.hex": "module Geometry\n\nexport let width: Int = 3\n",
+    });
+    try {
+      const reported = await workspace.diagnosticsUntil(
+        workspace.uriOf("node_modules/bolt/tools.hex"),
+        (diagnostics) => diagnostics.length > 0,
+        "the whole-program first-segment report",
+      );
+      expect(reported[0]!.relatedInformation?.[0]!.location.uri)
+        .toBe(workspace.uriOf("node_modules/acme/hexagon.json"));
     } finally {
       await workspace.dispose();
     }

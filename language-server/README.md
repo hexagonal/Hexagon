@@ -54,7 +54,6 @@ language-server/
     diagnostics.ts     conversion of compiler diagnostics to the protocol's shape
     semantic-tokens.ts the legend, and the protocol's relative token encoding
     code-actions.ts    quick fixes, and what shape of one a client understands
-    test-roots.ts      the temporary directory a test's workspace lives in
 ```
 
 Tests sit beside their subject, with one exception: `workspace.concurrency.test.ts`
@@ -63,12 +62,14 @@ rescans interleave on demand rather than by luck. It is a separate file because
 that replacement would otherwise apply to every test in the workspace suite.
 
 `npm test` runs the suite **twice**, the second time with every workspace root
-reached through a symlink (`vitest.linked.config.ts`, read by `test-roots.ts`).
-A project settles by its canonical path while a client keeps sending the folder
-it was given, and where the two differ every file has two names — which on macOS
-is every project under a temporary directory, and anywhere is a symlinked
-checkout or `$HOME`. Whether a single run covers that is a property of the
-machine's `TMPDIR`, so the second run makes the link itself.
+reached through a symlink (`vitest.linked.config.ts`, read by
+`host/src/test-roots.ts` — canonicalisation is the host's, so the helper and the
+discipline live there, and `host/`'s own suite doubles the same way). A project
+settles by its canonical path while a client keeps sending the folder it was
+given, and where the two differ every file has two names — which on macOS is
+every project under a temporary directory, and anywhere is a symlinked checkout
+or `$HOME`. Whether a single run covers that is a property of the machine's
+`TMPDIR`, so the second run makes the link itself.
 
 There is no `connection.ts`: `vscode-languageserver` owns JSON-RPC framing and lifecycle, and no separate `requests/` directory, because each handler is small enough that separating them would cost more indirection than it removes. `documents.ts` is likewise absent — `TextDocuments` from the same package applies incremental changes.
 
@@ -442,6 +443,20 @@ and definition like any other, under their full names (`Acme.Geometry`). An
 import naming an installed package the manifest does not list draws Packages §7's
 report, whose repair is an applied edit adding the entry — offered only where the
 manifest is a project the editor holds, never one under `node_modules`.
+
+That edit is measured against the manifest **as the editor holds it**. A
+manifest is re-read on the watcher's event, which fires on save, so with
+`hexagon.json` open and edited the server's copy is stale by exactly the user's
+unsaved work — and an edit ranged over stale text lands in the live document,
+where a buffer longer than the last save keeps its tail past the replacement and
+the repair produces something that is not JSON. So the extension synchronises
+every `hexagon.json` as well as every `.hex` file, and this is the only thing it
+synchronises them for: a manifest is JSON, and one seated in a session would be
+compiled as Hexagon. The edit replaces the `dependencies` **value** where the
+file already has one — so an unrelated change elsewhere survives — the whole
+document only where the key has to be added, and carries the buffer's version
+wherever the client accepts one, so a client whose document has moved on refuses
+the edit rather than misapplying it.
 
 **`exclude`** — path prefixes that are not part of the project: generated output,
 deliberately-broken examples, a vendored copy. Matching is by exact path or

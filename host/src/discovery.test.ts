@@ -8,8 +8,7 @@
  * file agree with its author's idea of npm rather than with npm.
  */
 
-import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, realpath, symlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import { Lookup } from "./lookup.js";
@@ -17,23 +16,46 @@ import { discoverProgram, discoverPrograms } from "./packages.js";
 import { enclosingManifestDirectory, projectDirectories } from "./projects.js";
 import { hexagonFilesUnder, nothingSeen, NOTHING_EXCLUDED } from "./files.js";
 import { normalizePath } from "./paths.js";
+import { removeTemporaryRoots, temporaryRoot } from "./test-roots.js";
 
-const roots: string[] = [];
+/**
+ * How each root was **reached**, by its canonical spelling.
+ *
+ * Discovery answers in canonical paths and every assertion below is written in
+ * them, so `tree` goes on returning one. But what a host is *handed* is the
+ * spelling a client sent, and on the linked run that is a path through a
+ * symlink — so every call that takes a directory takes `reached(…)`, and this
+ * suite fails when something stops canonicalising what it was given. Whether a
+ * plain temporary directory is already canonical is a property of the machine
+ * (`test-roots.ts`), which is why it cannot be left to one.
+ */
+const reachedByReal = new Map<string, string>();
 
 afterEach(async () => {
-  while (roots.length > 0) await rm(roots.pop()!, { recursive: true, force: true });
+  reachedByReal.clear();
+  await removeTemporaryRoots();
 });
 
 /** Writes a tree of files and answers with its canonical root. */
 async function tree(files: Readonly<Record<string, string>>): Promise<string> {
-  const root = await mkdtemp(join(tmpdir(), "hexagon-host-"));
-  roots.push(root);
+  const held = normalizePath(await temporaryRoot("hexagon-host-"));
   for (const [path, text] of Object.entries(files)) {
-    const at = join(root, path);
+    const at = join(held, path);
     await mkdir(dirname(at), { recursive: true });
     await writeFile(at, text, "utf8");
   }
-  return normalizePath(await realpath(root));
+  const root = normalizePath(await realpath(held));
+  reachedByReal.set(root, held);
+  return root;
+}
+
+/** A canonical path as a client would spell it — through the link, if any. */
+function reached(path: string): string {
+  for (const [real, spelling] of reachedByReal) {
+    if (path === real) return spelling;
+    if (path.startsWith(`${real}/`)) return `${spelling}${path.slice(real.length)}`;
+  }
+  return path;
 }
 
 async function link(root: string, from: string, to: string): Promise<void> {
@@ -45,7 +67,7 @@ const manifest = (fields: Readonly<Record<string, unknown>>): string =>
   `${JSON.stringify(fields, undefined, 2)}\n`;
 
 async function discover(directory: string) {
-  return await discoverProgram(directory, new Lookup());
+  return await discoverProgram(reached(directory), new Lookup());
 }
 
 function messages(program: { problems: readonly { message: string }[] }): readonly string[] {
@@ -563,10 +585,13 @@ describe("§2.2 / §2.5 — what a project holds, and where one begins", () => {
       "vendor/hexagon.json": manifest({ name: "Vendor" }),
     });
     await link(root, "alias", ".");
-    const found = await projectDirectories([root, join(root, "alias")], async (at) => {
-      const walked = await hexagonFilesUnder(at, NOTHING_EXCLUDED, nothingSeen(), () => {});
-      return walked.nested;
-    });
+    const found = await projectDirectories(
+      [reached(root), reached(join(root, "alias"))],
+      async (at) => {
+        const walked = await hexagonFilesUnder(at, NOTHING_EXCLUDED, nothingSeen(), () => {});
+        return walked.nested;
+      },
+    );
     expect(found.map(({ directory }) => directory)).toEqual([root, `${root}/vendor`]);
     expect(found[0]!.roots).toHaveLength(2);
   });
@@ -576,7 +601,7 @@ describe("§2.2 / §2.5 — what a project holds, and where one begins", () => {
       "hexagon.json": manifest({ name: "Acme" }),
       "src/main.hex": "module Main\n",
     });
-    const found = await projectDirectories([join(root, "src")], async () => []);
+    const found = await projectDirectories([reached(join(root, "src"))], async () => []);
     expect(found.map(({ directory, hasManifest }) => [directory, hasManifest])).toEqual([
       [root, true],
     ]);
@@ -592,6 +617,54 @@ describe("§4.1 — the walk's shape", () => {
       "/node_modules",
     ]);
   });
+
+  /**
+   * The climb keeps the path's **root**, whatever shape it has.
+   *
+   * A level list built by re-prefixing components with `/` asks for
+   * `/C:/proj/node_modules`, which is nowhere — and a level that is not there
+   * is not an error, so every `dependencies` entry on Windows would resolve to
+   * nothing while reporting only "no installed package declares…". Under UNC it
+   * lost the share and invented a level above it. Neither needs a Windows
+   * runner to pin: the level list is a pure function of the path.
+   */
+  test("a drive letter, a UNC share and a POSIX root each keep their root", () => {
+    const lookup = new Lookup();
+    expect(lookup.levelDirectories("C:/proj")).toEqual([
+      "C:/proj/node_modules",
+      "C:/node_modules",
+    ]);
+    expect(lookup.levelDirectories("C:\\proj\\node_modules\\acme")).toEqual([
+      "C:/proj/node_modules/acme/node_modules",
+      "C:/proj/node_modules",
+      "C:/node_modules",
+    ]);
+    // `//server/share` is one root: there is no `//server/node_modules` above a
+    // share, and a level list that named one would scan a path that cannot
+    // exist.
+    expect(lookup.levelDirectories("//server/share/proj")).toEqual([
+      "//server/share/proj/node_modules",
+      "//server/share/node_modules",
+    ]);
+    expect(lookup.levelDirectories("/proj/node_modules/acme")).toEqual([
+      "/proj/node_modules/acme/node_modules",
+      "/proj/node_modules",
+      "/node_modules",
+    ]);
+  });
+
+  /**
+   * The leading `//` of a UNC path is part of its root, not a repeated
+   * separator: `/server/share` is a directory at the filesystem root, on a
+   * machine that may well not have one.
+   */
+  test("`normalizePath` keeps a UNC prefix and collapses everything else", () => {
+    expect(normalizePath("//server/share/proj/./sub")).toBe("//server/share/proj/sub");
+    expect(normalizePath("\\\\server\\share\\proj")).toBe("//server/share/proj");
+    expect(normalizePath("///a//b")).toBe("/a/b");
+    expect(normalizePath("/a/b/../c")).toBe("/a/c");
+    expect(normalizePath("C:\\proj\\sub")).toBe("C:/proj/sub");
+  });
 });
 
 describe("D1 — one program per project directory", () => {
@@ -604,7 +677,7 @@ describe("D1 — one program per project directory", () => {
       "vendor/deeper/hexagon.json": manifest({ name: "Deeper" }),
       "vendor/deeper/deep.hex": "module Deep\n",
     });
-    const programs = await discoverPrograms([root]);
+    const programs = await discoverPrograms([reached(root)]);
     expect(programs.map(({ directory }) => directory)).toEqual([
       root,
       `${root}/vendor`,
@@ -625,7 +698,7 @@ describe("D1 — one program per project directory", () => {
       "b/hexagon.json": manifest({ name: "Bee" }),
       "b/bee.hex": "module Bee\n",
     });
-    const programs = await discoverPrograms([join(root, "a"), join(root, "b")]);
+    const programs = await discoverPrograms([reached(join(root, "a")), reached(join(root, "b"))]);
     expect(programs.map(({ directory }) => directory)).toEqual([`${root}/a`, `${root}/b`]);
     expect(programs[0]!.packages).toEqual([]);
   });

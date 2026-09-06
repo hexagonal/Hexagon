@@ -102,9 +102,29 @@ enforced by never reading its problems rather than by filtering them afterwards.
 | `packages.ts` | the closure loop, and the problems to publish |
 | `paths.ts` | one spelling of a path, and one notion of identity |
 
+A path's **root** is not a component. `/`, a drive letter, and a UNC share are
+each one, and `paths.ts` is where a climb stops at one: a level list that
+rebuilt every root as `/` asked for `/C:/proj/node_modules`, which is nowhere,
+and "a level that is not there is not an error" turned that into every
+dependency on Windows resolving to nothing, silently.
+
+Beside `node_modules`, the walk skips a short list of **tooling directories** —
+`.git`, `.claude`, `.vscode`, `dist`, `coverage`. Only `node_modules` is a rule
+of the language (Packages §2.2); the rest are this host's convenience, and a
+`.hex` file under one of them is not in the project and says so nowhere.
+
 ## Tests
 
 `vitest`, against **real directories**: real `node_modules` trees, real
 symlinks, real unparseable manifests. The rules here are about what npm actually
 lays down, and a stubbed filesystem would only let these tests agree with their
 author's idea of npm.
+
+`npm test` runs the suite **twice**, and the second run reaches every root
+through a symlink it makes itself (`vitest.linked.config.ts`,
+`src/test-roots.ts`). A project directory settles by its canonical path while a
+client keeps sending the folder it was given, so where the two differ every file
+has two names — and whether a plain temporary directory is canonical is a
+property of the machine (`/var/folders/…` on macOS, `/tmp` on a Linux runner).
+A single run silently covers one of the two, and which one is nobody's choice.
+The language server imports the same helper, and its suite doubles the same way.

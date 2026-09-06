@@ -22,20 +22,28 @@ import { messageOf, realPathOf } from "./paths.js";
 const HEXAGON_EXTENSION = ".hex";
 
 /**
- * Directories never worth walking, whatever a project contains.
+ * `node_modules`, and the **tooling directories** this host skips beside it.
  *
- * `node_modules` is Packages §2.2's own exclusion; the rest are the host's
- * output and the tool directories every project has. `.claude` joins them
- * because an agent's scratch notes are not a project's source, and a `.hex`
- * example pasted into one would otherwise compile with it.
+ * Only the first is a rule of the language: Packages §2.2 bounds a package's
+ * files at its `node_modules`, and `exclude` is the field a project uses for
+ * everything else. The rest — `.git`, a build output, a coverage report, an
+ * editor's own directory, an agent's — are one host's convenience. None of them
+ * is a language rule, and none is a claim about what those names mean; they are
+ * here because a walk that descended into them would compile a stale worktree
+ * or a vendored checkout in every project on the machine, before anyone thought
+ * to write an `exclude`.
+ *
+ * The cost is paid deliberately: a `.hex` file under one of these names is not
+ * in the project and says so nowhere, and no `exclude` entry can un-skip one, so
+ * a project that really keeps source under such a name renames the directory.
  */
 const SKIPPED_DIRECTORIES: ReadonlySet<string> = new Set([
-  ".git",
   "node_modules",
+  ".git",
+  ".claude",
+  ".vscode",
   "dist",
   "coverage",
-  ".vscode",
-  ".claude",
 ]);
 
 /** A discovered file, with the identity that makes two names for it one file. */

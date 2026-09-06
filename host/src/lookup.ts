@@ -21,15 +21,28 @@
  * - **Nothing is indexed.** A package nobody lists is never sought, and no
  *   directory without a `hexagon.json` is read at all (§8's rejected
  *   alternative 9). The one scan wider than a single name is `installedAt`,
- *   which decides one *diagnostic* (§3.3's not-a-dependency report) and enters
- *   no closure and draws no refusal.
+ *   which decides one *diagnostic* — Packages §7's not-a-dependency row,
+ *   reading Modules §2.3 — and enters no closure and draws no refusal. (§3.3 is
+ *   where that row's *proviso* lives, not the row.)
  */
 
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { UnreadableManifest } from "../../compiler/src/index.js";
 import { MANIFEST_NAME, packageName } from "./manifest.js";
-import { messageOf, normalizePath, realPathOf } from "./paths.js";
+import {
+  childDirectory,
+  messageOf,
+  normalizePath,
+  parentDirectoryOf,
+  realPathOf,
+} from "./paths.js";
+
+/** The last component of a normalized path, empty at a root. */
+function basenameOf(directory: string): string {
+  const at = directory.lastIndexOf("/");
+  return at < 0 ? directory : directory.slice(at + 1);
+}
 
 /**
  * One package root a level holds, read **only for its name** (Packages §4.1).
@@ -89,15 +102,20 @@ export class Lookup {
    * ancestor named `node_modules` skipped as Node skips it.
    */
   levelDirectories(from: string): readonly string[] {
-    const normalized = normalizePath(from);
-    const parts = normalized.split("/").filter((part) => part !== "");
     const directories: string[] = [];
-    for (let depth = parts.length; depth >= 0; depth -= 1) {
+    // Climbed rather than rebuilt from components, because a path's **root** is
+    // not a component: re-prefixing a drive letter with a slash asks for
+    // `/C:/proj/node_modules`, which is nowhere, and a level that is not there
+    // is not an error — so every entry of every manifest on Windows would
+    // resolve to nothing, silently. `//server/share` is one root for the same
+    // reason, and climbing stops at it rather than inventing a level above the
+    // share.
+    let at: string | undefined = normalizePath(from);
+    while (at !== undefined) {
       // Node's own rule: a path segment that *is* `node_modules` contributes no
       // level of its own — its parent's is the one that answers.
-      if (depth > 0 && parts[depth - 1] === "node_modules") continue;
-      const directory = `/${parts.slice(0, depth).join("/")}`;
-      directories.push(join(directory === "/" ? "/" : directory, "node_modules"));
+      if (basenameOf(at) !== "node_modules") directories.push(childDirectory(at, "node_modules"));
+      at = parentDirectoryOf(at);
     }
     return directories;
   }
@@ -131,8 +149,9 @@ export class Lookup {
    * every name its own lookup would answer with, one candidate at the nearest
    * level declaring it.
    *
-   * This is the diagnostic set alone — Modules §2.3's not-a-dependency report
-   * reads it and nothing else does. It enters no closure, refuses nothing, and
+   * This is the diagnostic set alone — Packages §7's not-a-dependency row,
+   * which reads Modules §2.3, is the one report that reads it and nothing else
+   * does. It enters no closure, refuses nothing, and
    * a name two roots declare at one level is **not** in it: §4.1 makes a
    * package installed "exactly when that package's lookup answers with it — one
    * candidate, at the nearest level declaring the name", and that lookup

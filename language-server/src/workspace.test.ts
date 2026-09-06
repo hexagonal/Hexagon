@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, test } from "vitest";
 import { MANIFEST_NAME } from "../../host/src/index.js";
-import { removeTemporaryRoots, temporaryRoot } from "./test-roots.js";
+import { removeTemporaryRoots, temporaryRoot } from "../../host/src/test-roots.js";
 import { Workspace } from "./workspace.js";
 
 let root = "";
@@ -421,6 +421,71 @@ describe("the workspace walk", () => {
     await workspace.deleteFile(uri);
     workspace.updateDocument({ uri, getText: () => "module Main\n\nlet renamed: Int = 2\n" } as never);
     expect(workspace.session.hover(workspace.session.paths[0]!, HEADER.length + 4)?.name).toBe("renamed");
+  });
+
+  /**
+   * A watcher's delete arrives for a URI the walk may never have named, so the
+   * path it settles to has to be the one the walk *would* have given the file —
+   * which means resolving a path that is no longer there. Under a root reached
+   * through a link (every project under `/var` or `/tmp` on macOS, and any
+   * symlinked checkout anywhere) an unresolved spelling is a name no program
+   * holds, so the erase erases nothing and the deleted module goes on
+   * publishing diagnostics and taking part in resolution.
+   */
+  test("a deleted file is erased even though its own path no longer resolves", async () => {
+    const path = await makeRoot();
+    await writeFile(join(path, "main.hex"), "module Main\n\n" + "let value: Int = 1\n");
+    await mkdir(join(path, "old"));
+    await writeFile(join(path, "old", "a.hex"), "module Old.A\n");
+    const { workspace } = await scan(path);
+    expect(workspace.session.paths).toHaveLength(2);
+
+    await rm(join(path, "old", "a.hex"));
+    await workspace.deleteFile(pathToFileURL(join(path, "old", "a.hex")).toString());
+    expect(workspace.session.paths.map((p) => p.split("/").at(-1))).toEqual(["main.hex"]);
+  });
+
+  /**
+   * The same delete with the file's **directory** gone too — a branch switch or
+   * a `git rm -r`, which is how a directory of modules usually leaves. Only a
+   * climb to the nearest ancestor that still exists answers here; stopping one
+   * level up leaves the path spelled as the client spelled it.
+   */
+  test("a deleted file whose directory went with it is erased too", async () => {
+    const path = await makeRoot();
+    await writeFile(join(path, "main.hex"), "module Main\n\n" + "let value: Int = 1\n");
+    await mkdir(join(path, "old", "deep"), { recursive: true });
+    await writeFile(join(path, "old", "deep", "a.hex"), "module Old.A\n");
+    await writeFile(join(path, "old", "deep", "b.hex"), "module Old.B\n");
+    const { workspace } = await scan(path);
+    expect(workspace.session.paths).toHaveLength(3);
+
+    await rm(join(path, "old"), { recursive: true });
+    for (const name of ["a.hex", "b.hex"]) {
+      await workspace.deleteFile(pathToFileURL(join(path, "old", "deep", name)).toString());
+    }
+    expect(workspace.session.paths.map((p) => p.split("/").at(-1))).toEqual(["main.hex"]);
+  });
+
+  /**
+   * A `hexagon.json` reaches the compiler as a **record** (Packages §4.1),
+   * never as a file — and the editor really does send one, because the manifest
+   * is synchronised so the `dependencies` repair is measured against the buffer
+   * it lands in. Seating it would put a JSON file into a program, and would
+   * invalidate the whole analysis on every keystroke in it.
+   */
+  test("an open `hexagon.json` buffer is never seated in a program", async () => {
+    const path = await makeRoot();
+    await writeFile(join(path, MANIFEST_NAME), "{}\n");
+    await writeFile(join(path, "main.hex"), "module Main\n\n" + "let value: Int = 1\n");
+    const { workspace } = await scan(path);
+    const before = { paths: [...workspace.session.paths], version: workspace.session.version };
+
+    const uri = pathToFileURL(join(path, MANIFEST_NAME)).toString();
+    await workspace.openDocument({ uri, getText: () => '{ "name": "App" }\n' } as never);
+    workspace.updateDocument({ uri, getText: () => '{ "name": "Ap" }\n' } as never);
+    expect(workspace.session.paths).toEqual(before.paths);
+    expect(workspace.session.version).toBe(before.version);
   });
 
   test("dropping a root drops its files", async () => {

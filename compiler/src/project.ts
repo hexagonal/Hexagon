@@ -191,6 +191,25 @@ export interface ProjectOptions {
    * is why the record travels beside the files rather than a name alone.
    */
   readonly packages?: readonly ProjectPackage[];
+  /**
+   * The lowest file identity this compile may mint for an **injected** module,
+   * where the caller hands out identities of its own.
+   *
+   * A `Source.File` is identified by a number and a span carries that number
+   * rather than a path, so two files wearing one number are one file to
+   * everything downstream and the later silently shadows the earlier. This
+   * compile mints identities for the members of `Hex` it weaves in, above every
+   * id it was handed — but a host that also mints them, for files it never
+   * passes here, has to say so or the two allocators collide. Not hypothetical:
+   * `AnalysisSession.referenceFile` gives a `hexagon.json` an identity without
+   * compiling it, and the first woven member landed on exactly the last
+   * manifest's number, so a report's related information sent the editor to a
+   * `/Hex/Show.hex` that is nowhere on disk.
+   *
+   * Absent — the ordinary case, and the Playground's — means nothing outside
+   * this call holds an identity, and the floor is the supplied files' own.
+   */
+  readonly firstFileId?: number;
 }
 
 /** One package of the closure, as a host hands it in. */
@@ -257,6 +276,7 @@ export function compileProject(
     projectPackage,
     dependencyPackages,
     injectedModules,
+    options.firstFileId ?? 0,
   );
   const injectedUnits = units.filter(({ injected }) => injected !== undefined)
     .sort((left, right) => left.seat! - right.seat!);
@@ -1102,6 +1122,7 @@ function gatherModules(
   project: ProgramPackage,
   packages: readonly ProjectPackage[],
   injectedModules: readonly InjectedModule[],
+  firstFileId: number,
 ): readonly Unit[] {
   const seat = (
     source: Source.File,
@@ -1150,9 +1171,15 @@ function gatherModules(
   );
   const adopted = new Set<Parsed.Module>();
   const units: Unit[] = [];
-  // Every file the compile holds, so an injected module's minted identity
-  // collides with neither the project's files nor a dependency's.
+  // **One allocator**, above every identity anyone holds: the files this compile
+  // was handed, and — through `firstFileId` — the ones the caller minted and did
+  // not hand over. Recomputing a maximum per member would be the same answer
+  // for the first two and blind to the third, and the collision it left was
+  // silent: two files, one number, the later shadowing the earlier wherever a
+  // span is resolved back to a path.
   const allFiles = [...sourceFiles, ...packages.flatMap(({ files }) => files)];
+  let nextFileId = Math.max(firstFileId, ...allFiles.map((file) => Number(file.id) + 1));
+  const mintFileId = (): Source.FileId => Source.fileId(nextFileId++);
   for (const [index, member] of injectedModules.entries()) {
     // The file the module would be filed under, were it filed: its declared
     // name's last segment. `Runtime.VectorTrie` is `VectorTrie.hex`, which is
@@ -1186,7 +1213,7 @@ function gatherModules(
       continue;
     }
     const source = new Source.File(
-      Source.fileId(nextFileId(allFiles, units)),
+      mintFileId(),
       `/${STANDARD_LIBRARY}/${member.name.replaceAll(".", "/")}.hex`,
       member.source,
     );
@@ -1208,14 +1235,6 @@ function gatherModules(
     }
   }
   return units;
-}
-
-function nextFileId(sourceFiles: readonly Source.File[], units: readonly Unit[]): number {
-  return Math.max(
-    -1,
-    ...sourceFiles.map((file) => Number(file.id)),
-    ...units.map((unit) => Number(unit.source.id)),
-  ) + 1;
 }
 
 /**
