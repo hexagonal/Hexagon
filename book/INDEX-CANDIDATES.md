@@ -89,7 +89,7 @@ Related forms and likely lookup terms should point to one another.
 | arrow trio | Chapter 19, “Silence means pure” | `->` pure, `->?` the caller's choice, `->!` unconditionally impure |
 | call mark (`!`, `?`) | Chapter 19, “The mark at the call” | Glued to the argument list; symmetric enforcement; see **effect** |
 | inlet | Chapter 19, “`->?` needs something to link to” | Why `->?` is refused in a `record` field, a `union` field, and an alias body |
-| trusted purity claim | Chapter 19, “Where effects come from” | `pure` on a user extern: believed, not checked |
+| trusted purity claim | Chapter 19, “Where effects come from” | `->` on a user extern row: believed, not checked |
 | frozen sample | Chapter 20, “Consuming a stream” | `Stream.collect!` as the bridge back to pure data |
 | base constraint | Chapter 12, “A constraint may require another constraint” | — |
 | subject-first | Chapter 3, “Put the subject first” | Chapter 15 throughout; see also **dot call** |

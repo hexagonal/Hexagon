@@ -64,14 +64,25 @@ Programs may define capabilities of their own:
 
 ```hexagon
 constraint Area<a> =
-    area(value: a): Float
-    describeArea(value: a): String = "Area: ${area(value)}"
+    area(value: a) -> Float
+    describeArea(value: a) -> String = "Area: ${area(value)}"
 ```
 
 The subject `a` is the type being described. A member without a body is required, so
 every `Area` instance must provide `area`. A member with a body is a **default
 operation**. Every `Area` instance receives `describeArea` automatically unless it
 overrides that operation.
+
+The arrow before each result is the member's **effect contract**. A member header has no
+body to infer an effect from, so it writes one: `-> Float` promises callers a pure
+operation, and every `Area` instance's `area` must check pure. A member may promise less —
+`read(source: a) ->! String` says an instance *may* read the world — and the contract is
+then a ceiling, not a description: an instance whose body never touches the world honors
+it, an instance that does honors it too, and neither changes what a caller sees. Every
+call through the member — bare, qualified, or with a dot — wears the contract's mark, so
+`source.read!()` is spelled the same whichever instance answers. Chapter 19 has the
+effect discipline itself; what matters here is that the constraint, not the instance,
+decides the mark.
 
 Use either operation like an ordinary function:
 
@@ -130,8 +141,8 @@ The prelude uses the same mechanism for `Eq`:
 
 ```hexagon
 constraint Eq<a> =
-    equals(left: a, right: a): Bool
-    notEquals(left: a, right: a): Bool = not equals(left, right)
+    equals(left: a, right: a) -> Bool
+    notEquals(left: a, right: a) -> Bool = not equals(left, right)
 ```
 
 An `Eq` instance must supply `equals`. It normally inherits `notEquals`, and the `!=`
@@ -204,7 +215,7 @@ Ordering must agree with equality, so the prelude declares `Ord` with `Eq` as a
 
 ```hexagon
 constraint Ord<a: Eq> =
-    compare(left: a, right: a): Ordering
+    compare(left: a, right: a) -> Ordering
 ```
 
 Read the header from left to right: `Ord` extends `Eq`. A function requiring `Ord` may
@@ -215,17 +226,17 @@ The numeric hierarchy uses the same mechanism:
 
 ```hexagon
 constraint Num<a> =
-    add(left: a, right: a): a
-    multiply(left: a, right: a): a
-    fromNat(value: Nat): a
+    add(left: a, right: a) -> a
+    multiply(left: a, right: a) -> a
+    fromNat(value: Nat) -> a
 
 constraint Signed<a: Num> =
-    subtract(left: a, right: a): a
-    negate(value: a): a
-    fromInt(value: Int): a
+    subtract(left: a, right: a) -> a
+    negate(value: a) -> a
+    fromInt(value: Int) -> a
 
 constraint Frac<a: Signed> =
-    divide(left: a, right: a): a
+    divide(left: a, right: a) -> a
 ```
 
 Nat honors Num but not Signed. Int, Float, BigInt, and Rat honor both. A function that

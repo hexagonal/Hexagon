@@ -7,13 +7,16 @@ module provides:
 ```hexagon
 extern from "tiny-json"
     type JsonValue
-    fun parse(text: String): JsonValue
-    fun stringify(value: JsonValue): String
+    fun parse(text: String) -> JsonValue
+    fun stringify(value: JsonValue) -> String
     let VERSION as version: String
 ```
 
 The block introduces ordinary module-level Hexagon names. `parse` and `stringify` are
-functions, `version` is a value, and `JsonValue` is a nominal opaque foreign type. Once
+functions, `version` is a value, and `JsonValue` is a nominal opaque foreign type. Each
+callable row writes its effect arrow before its result (Chapter 19): `->` here, because
+parsing and printing JSON touch nothing; `->!` wherever the foreign code may touch the
+world, or whenever you do not know. Once
 introduced, they participate in type checking like other bindings.
 
 The declaration is checked; the JavaScript implementation is trusted. Hexagon verifies
@@ -38,9 +41,9 @@ An extern annotation does not request a hidden numeric guard:
 
 ```hexagon
 extern from "measurements"
-    fun sampleCount(): Int
-    fun temperature(): Float
-    fun population(): BigInt
+    fun sampleCount() ->! Int
+    fun temperature() ->! Float
+    fun population() ->! BigInt
 ```
 
 The binding author is asserting that `sampleCount` returns a safe integer. If the
@@ -48,7 +51,7 @@ foreign function returns `3.5`, the declaration is wrong. By contrast, an explic
 conversion whose purpose is to establish `Int` performs the required check:
 
 ```hexagon
-let possiblePopulation = BigInt.toInt(population())
+let possiblePopulation = BigInt.toInt(population!())
 ```
 
 `possiblePopulation` has type `Option(Int)`: the conversion checks whether the
@@ -68,7 +71,7 @@ Named foreign exports use JavaScript's foreign-name-first alias order:
 
 ```hexagon
 extern from "tiny-json"
-    fun parse as parseJson(text: String): JsonValue
+    fun parse as parseJson(text: String) -> JsonValue
     let VERSION as version: String
     type ForeignNode as Node
 ```
@@ -95,7 +98,7 @@ Bindings are private unless individually exported:
 
 ```hexagon
 extern from "tiny-json"
-    export fun parse(text: String): JsonValue
+    export fun parse(text: String) -> JsonValue
 ```
 
 This creates a named export from the compiled Hexagon module. It does not modify the
@@ -105,7 +108,7 @@ JavaScript default exports use `default` only inside an extern declaration:
 
 ```hexagon
 extern from "client-library"
-    default fun createClient(config: Config): Client
+    default fun createClient(config: Config) ->! Client
 ```
 
 `createClient` is still an ordinary local name. Writing `export default fun ...` in the
@@ -129,7 +132,7 @@ Hexagon does not make every type nullable. A JavaScript API that may return `nul
 
 ```hexagon
 extern from "browser-profile"
-    fun displayName(): Nullable(String)
+    fun displayName() ->! Nullable(String)
 ```
 
 `Nullable(a)` crosses with no wrapper and has the TypeScript face
@@ -139,13 +142,13 @@ union `Some(a) | None`, while `Nullable` describes foreign representation.
 When both JavaScript absence values mean the same thing, convert once:
 
 ```hexagon
-let name = Nullable.toOption(displayName())
+let name = Nullable.toOption(displayName!())
 ```
 
 When the API distinguishes them, preserve all three cases:
 
 ```hexagon
-match Nullable.toCase(displayName())
+match Nullable.toCase(displayName!())
     NullableCase.Undefined => "not supplied"
     NullableCase.Null => "explicitly blank"
     NullableCase.Value(name) => name
@@ -168,7 +171,7 @@ calling convention to Hexagon.
 
 ```hexagon
 extern from "score-service"
-    fun recentScores(): Array(Int)
+    fun recentScores() ->! Array(Int)
 ```
 
 JavaScript owns the underlying storage. While Hexagon—or a deferred traversal created
@@ -178,7 +181,7 @@ elements stable. Hexagon deliberately exposes no mutation operation for `Array`.
 Choose an explicit conversion when stable ownership matters:
 
 ```hexagon
-let borrowed = recentScores()
+let borrowed = recentScores!()
 let stable = Array.toVector(borrowed)
 ```
 
@@ -198,7 +201,7 @@ positions. A top-level extern declaration may nevertheless request `Seq(a)`:
 
 ```hexagon
 extern from "number-stream"
-    fun values(): Seq(Int)
+    fun values() ->! Seq(Int)
 ```
 
 Hexagon accepts a JavaScript `Iterable<number>` and installs one lazy memoizing adapter.
@@ -216,7 +219,7 @@ It is not silently pushed inside a direct aggregate:
 
 ```hexagon
 extern from "stream-groups"
-    fun groups(): Array(Seq(Int)) // error: nested Seq adaptation would be hidden
+    fun groups() ->! Array(Seq(Int)) // error: nested Seq adaptation would be hidden
 ```
 
 The outer `Array` promises zero-copy indexing, while each arbitrary iterable inside
@@ -235,14 +238,15 @@ extern from "url-tools"
     export method get(
         params: SearchParams,
         key: String,
-    ): Nullable(String)
+    ) ->! Nullable(String)
 ```
 
-Hexagon sees an ordinary subject-first function:
+Hexagon sees an ordinary subject-first function, `->!` because a lookup on foreign
+state may observe the world:
 
 ```hexagon
-SearchParams.get(params, "name")
-params.get("name")
+SearchParams.get!(params, "name")
+params.get!("name")
 ```
 
 The emitted call restores JavaScript's receiver convention:
@@ -260,12 +264,14 @@ Properties use equally direct declarations:
 ```hexagon
 extern from "web-response"
     export type Response
-    export get status(response: Response): Int
-    export set timeout as setTimeout(response: Response, value: Int): Unit
+    export get status(response: Response) ->! Int
+    export set timeout as setTimeout(response: Response, value: Int) ->! Unit
 ```
 
-Every `get` call performs a fresh property read; foreign properties may vary, compute,
-or throw. A `set` declaration grants an explicit write capability and returns `Unit`.
+A `->!` getter performs a fresh property read on every call and the call wears `!`;
+foreign properties may vary, compute, or throw. A `->` getter is a purity claim over
+data a contract holds still. A `set` declaration grants an explicit write capability,
+returns `Unit`, and always writes `->!`: a write to foreign state is an effect.
 Merely declaring a getter does not make the property writable from Hexagon.
 
 ## Foreign classes remain foreign
@@ -276,14 +282,15 @@ operations:
 ```hexagon
 extern from "node:url"
     export class URL as Url
-        new as create(text: String)
-        static method canParse(text: String): Bool
-        method toString(url: Url): String
-        get hostname(url: Url): String
+        new as create(text: String) -> Url
+        static method canParse(text: String) -> Bool
+        method toString(url: Url) ->! String
+        get hostname(url: Url) ->! String
 ```
 
-Hexagon calls `Url.create(text)`, `Url.canParse(text)`, `Url.toString(url)`, and
-`Url.hostname(url)`. JavaScript receives `new URL(text)`, a static receiver call, an
+Hexagon calls `Url.create(text)`, `Url.canParse(text)`, `Url.toString!(url)`, and
+`Url.hostname!(url)`. A constructor writes and checks the class's own type after its
+arrow; building a value is not an effect, so `create` is `->`. JavaScript receives `new URL(text)`, a static receiver call, an
 instance receiver call, and a property read respectively.
 
 `class`, `new`, `method`, `get`, and `set` describe the foreign calling convention.
@@ -306,8 +313,8 @@ extern from "direction"
         | Up
         | Down
 
-    fun current(): Direction
-    fun move(direction: Direction): Unit
+    fun current() ->! Direction
+    fun move(direction: Direction) ->! Unit
 ```
 
 The foreign module might contain a TypeScript string enum:
@@ -331,7 +338,7 @@ let describe(direction: Direction): String =
 
 Unlike an ordinary all-nullary union, whose values are shared tagged objects, this
 foreign-backed union retains the actual member values. `Up` is `Direction.Up`—`"UP"`
-in this example—and `move(Up)` passes that value straight back to JavaScript. Numeric,
+in this example—and `move!(Up)` passes that value straight back to JavaScript. Numeric,
 string, symbol, and singleton-object members all use the same rule. The compiler reads
 each declared property once and matches with JavaScript identity through `Object.is`.
 
@@ -417,8 +424,8 @@ extern from "event-source"
     type Event
     type Target
 
-    fun addListener(target: Target, callback: Event -> Unit): Unit
-    fun removeListener(target: Target, callback: Event -> Unit): Unit
+    fun addListener(target: Target, callback: Event -> Unit) ->! Unit
+    fun removeListener(target: Target, callback: Event -> Unit) ->! Unit
 ```
 
 Passing the same Hexagon function to both operations passes the same JavaScript

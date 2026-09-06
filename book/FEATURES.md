@@ -129,8 +129,10 @@ open specification work does not make the book outline provisional.
     errors. `->?` denotes one effect variable per signature and is legal only where a
     parameter offers the caller a slot to choose it. Operators, indexing, `for` heads,
     and interpolation have no seat for a mark, so everything they dispatch to is pure —
-    constraint members included. Effects enter through user-written externs, impure by
-    default, with `pure` as a trusted unchecked claim. Allocation, a local `var`, and
+    the prelude's members all write `->`, while a user constraint's member header is an
+    effect contract its instances are compared against. Effects enter through user-written
+    externs, each row writing its arrow: `->!` for the unknown, `->` as a trusted unchecked
+    claim, `->?` for a row as effectful as its callbacks. Allocation, a local `var`, and
     throwing are deliberately not effects.
 
 20. **Streams** — `Stream(a)` is `Seq`'s impure nominal sibling: a tailless pull

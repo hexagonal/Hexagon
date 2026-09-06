@@ -916,9 +916,11 @@ late pedagogy pass, not a commitment to the current order.
   an error at the offending call. (The specification checks faces in both
   directions; the chapter stages the pure-face direction.)
 - Operators, indexing, `for` heads, and interpolation have no mark seat, so
-  everything they reach is pure; constraint members and `honor` bodies check pure.
-- A user-written `extern fun` is effectful by default; `pure` is the trusted,
-  believed-not-checked claim, with the specification's two narrow species. `extern
+  everything they reach is pure: the prelude's members write `->`, and their `honor`
+  bodies check pure. A user constraint's member header is an effect contract.
+- Every callable extern row writes its arrow; `->!` is the guidance for the unknown,
+  `->` the trusted believed-not-checked claim (the specification's species), `->?`
+  the declared conduit. `extern
   from` appears here ahead of the JavaScript chapters, deliberately and lightly.
 - Colours and marks erase; emitted JavaScript is identical with and without them.
   The purity guarantee leans on Mutable Variables' no-capture rule.
@@ -931,7 +933,7 @@ late pedagogy pass, not a commitment to the current order.
   specification's and the stdlib's.)
 - Consumers (`next`, `collect`, `fold`, `forEach`, `find`) wear `->!` and their
   calls wear `!`; wiring (`map`, `filter`, `fromSeq`) builds without pulling and
-  stays bare in ordinary bodies.
+  stays bare in every body.
 - `collect!` freezes a bounded sample into a `Vector(a)` — the one bridge back to
   pure data; `fromSeq` drives pure data in.
 - There is no `Stream.memoize` and no `Stream.toSeq`, on purpose: replay is a purity
