@@ -126,6 +126,19 @@ buffer is nobody's source then has to tell its user which directory decided —
 and "under `dist`" and "under a `node_modules` nothing lists" are different
 sentences with different repairs.
 
+`packageUnderNodeModules` is the second half of that sentence, and the only
+question here that is asked about a *message* rather than about a program: which
+package under a `node_modules` a stranded buffer would belong to — the level
+root npm's layout puts it in, and any package vendored inside that root which
+holds it. A host asks it before telling anyone to write a `dependencies` entry,
+because the entry is a repair only where it would really seat the file: a `.hex`
+under `node_modules/.cache/` is in no package, one under
+`node_modules/acme/vendor/` is in a package no entry names, and one under a
+dependency's *own* `node_modules` is behind a manifest the reader does not own.
+It reads the disk synchronously, for one buffer at a time, and shares
+`directoriesBetween` with the bound above so the two cannot come to answer about
+different trees.
+
 §2.2's third exclusion travels the same way. A directory holding a
 `hexagon.json` of its own ends the package there, and only the walk knows where
 those boundaries are — so it says so, as `Walked.nested` and then as
@@ -137,10 +150,14 @@ never this package's to begin with, so an `exclude` entry naming one — or
 containing one — cannot delete the program under it, and the answer no longer
 depends on whether the user happened to open that folder as a root as well. An
 entry that names one draws a warning at the manifest that wrote it, and is
-applied to nothing. The descent costs one `readdir` per directory of the
-excluded subtree and nothing else — no file collected, no identity resolved, the
-skipped names still pruning it — which is a real price on a big generated tree,
-paid to keep a manifest from deleting a program it does not name. With all three exclusions asked at every door, what is
+applied to nothing. The descent costs two syscalls per directory of the excluded
+subtree — a `readdir` for its entries and a `realpath` for its identity, which
+is resolved before the exclusion is known — and nothing else: no file collected,
+no *file's* identity resolved, the skipped names still pruning it, and the
+descent stopping at the walk root, so an excluded link out of the root cannot
+report a package that is nobody's program here. That is a real price on a big
+generated tree, paid to keep a manifest from deleting a program it does not
+name. With all three exclusions asked at every door, what is
 left of "no file ever has two full names" is the second way a file can get two:
 two packages of one closure containing it, which is npm's ordinary nested
 install, and which the **deepest** containing package answers.

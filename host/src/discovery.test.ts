@@ -18,6 +18,7 @@ import {
   hexagonFilesUnder,
   nothingSeen,
   NOTHING_EXCLUDED,
+  packageUnderNodeModules,
   skippedDirectoryBetween,
 } from "./files.js";
 import { normalizePath } from "./paths.js";
@@ -621,6 +622,91 @@ describe("§2.2 / §2.5 — what a project holds, and where one begins", () => {
     expect(walked.nested).toEqual([`${root}/packages/geometry`]);
   });
 
+  /**
+   * And the descent stops at the root, which is what keeps the boundary hunt
+   * from finding programs that are nobody's.
+   *
+   * The walk follows links deliberately, so an excluded entry naming a link out
+   * of the root would otherwise take the descent to a directory elsewhere on
+   * the machine and report its `hexagon.json` — and a boundary becomes a
+   * program, with its own files, its own diagnostics, and a root the user never
+   * opened.
+   */
+  test("an excluded link out of the root reports no boundary from outside it", async () => {
+    const outside = await tree({
+      "pkg/hexagon.json": manifest({ name: "Elsewhere" }),
+      "pkg/far.hex": "module Far\n",
+    });
+    const root = await tree({
+      "hexagon.json": manifest({ name: "App", exclude: ["gen"] }),
+      "main.hex": "module Main\n",
+    });
+    await symlink(outside, join(root, "gen"), "dir");
+    const excluded = [`${root}/gen`];
+    const walked = await hexagonFilesUnder(
+      root,
+      { literal: excluded, real: excluded },
+      nothingSeen(),
+      () => {},
+    );
+    expect(walked.files.map(({ path }) => path)).toEqual([`${root}/main.hex`]);
+    expect(walked.nested).toEqual([]);
+  });
+
+  /**
+   * Which package under a `node_modules` would hold a file — the question a
+   * host asks before it tells anyone to write a `dependencies` entry.
+   *
+   * Everything here is measured against a real tree, because the answer is a
+   * fact about npm's layout and about which directories hold a `hexagon.json`,
+   * and a stub would only agree with this file's author.
+   */
+  test("`packageUnderNodeModules` finds the package a `dependencies` entry would reach", async () => {
+    const root = await tree({
+      "hexagon.json": manifest({ name: "App" }),
+      "node_modules/loose/hexagon.json": manifest({ name: "Loose" }),
+      "node_modules/loose/stray.hex": "module Stray\n",
+      "node_modules/loose/dist/built.hex": "module Built\n",
+      "node_modules/loose/vendor/hexagon.json": manifest({ name: "Vendored" }),
+      "node_modules/loose/vendor/inside.hex": "module Inside\n",
+      "node_modules/@scope/tool/hexagon.json": manifest({ name: "Tool" }),
+      "node_modules/@scope/tool/tool.hex": "module Tool\n",
+      "node_modules/.cache/junk.hex": "module Junk\n",
+      "node_modules/deep/inner/pkg/hexagon.json": manifest({ name: "Deep" }),
+      "node_modules/deep/inner/pkg/deep.hex": "module Deep\n",
+    });
+    const under = (path: string) => packageUnderNodeModules(root, join(root, path));
+
+    // Directly inside a level root: the one shape an entry reaches.
+    expect(under("node_modules/loose/stray.hex"))
+      .toEqual({ root: `${root}/node_modules/loose`, nested: undefined });
+    // A scoped name is two components and still one root (§4.1).
+    expect(under("node_modules/@scope/tool/tool.hex"))
+      .toEqual({ root: `${root}/node_modules/@scope/tool`, nested: undefined });
+    // Inside the root, but inside a package of its own within it: listing the
+    // root would not reach this file, and the caller has to be able to see so.
+    expect(under("node_modules/loose/vendor/inside.hex"))
+      .toEqual({ root: `${root}/node_modules/loose`, nested: `${root}/node_modules/loose/vendor` });
+    // A skipped name below the root bounds the search: what is under `dist` is
+    // `dist`'s business, and a manifest beneath one is not a package to open.
+    expect(under("node_modules/loose/dist/built.hex"))
+      .toEqual({ root: `${root}/node_modules/loose`, nested: undefined });
+    // No package at all — a tool's cache is not a package, and there is nothing
+    // to list.
+    expect(under("node_modules/.cache/junk.hex")).toBeUndefined();
+    // Nor is a manifest deeper than the layout puts one: no name resolves to
+    // it, so calling it the package to list would be a repair that does
+    // nothing. This has to agree with `lookup.ts`'s own scan.
+    expect(under("node_modules/deep/inner/pkg/deep.hex")).toBeUndefined();
+    // Not under a `node_modules` at all, and not under `root` at all.
+    expect(packageUnderNodeModules(root, join(root, "main.hex"))).toBeUndefined();
+    expect(packageUnderNodeModules(root, "/elsewhere/node_modules/a/x.hex")).toBeUndefined();
+    // The first bound has to be the `node_modules`: a `node_modules` inside a
+    // `dist` is inside a directory nothing reads.
+    expect(packageUnderNodeModules(root, join(root, "dist/node_modules/a/x.hex")))
+      .toBeUndefined();
+  });
+
   test("a folder opened inside a package belongs to that package's project", async () => {
     const root = await tree({
       "hexagon.json": manifest({ name: "Acme" }),
@@ -727,7 +813,9 @@ describe("§4.1 — the walk's shape", () => {
     expect(skippedDirectoryBetween("/proj", "/other/dist/x.hex")).toBeUndefined();
     // A whole component, never a prefix of one.
     expect(skippedDirectoryBetween("/proj", "/proj/distribution/x.hex")).toBeUndefined();
-    // The nearest one wins, since that is the one that decided.
+    // The **outermost** one wins — the one nearest the root, which is the one
+    // that stopped the walk first and so the one that decided. The
+    // `node_modules` below it is inside a directory nothing ever read.
     expect(skippedDirectoryBetween("/proj", "/proj/dist/node_modules/a/g.hex")).toBe("dist");
     // Separators are normalized first, so a Windows spelling reads the same.
     expect(skippedDirectoryBetween("C:\\proj", "C:\\proj\\node_modules\\a\\g.hex"))

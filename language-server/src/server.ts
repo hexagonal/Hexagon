@@ -506,12 +506,15 @@ function publishDiagnostics(
 /**
  * What to tell a user whose open buffer is nobody's source, per §2.2 bound.
  *
- * Each sentence names the bound, then the way out, and the way out is a thing
- * the user can do rather than a rule they can read: list the package, open the
- * folder. The tooling directories are the one case with no way out by design —
- * `files.ts` says so in as many words — so that sentence promises none, and
- * naming the directory is what lets the reader see it was their `dist/` and not
- * something the server invented.
+ * Each sentence names the bound, and where there is a way out it is a thing the
+ * user can do rather than a rule they can read: list the package, open the
+ * folder. Two of the four promise nothing, and both are deliberate. A tooling
+ * directory has no way out by design — `files.ts` says so in as many words — so
+ * naming it is the whole message, and that is what lets the reader see it was
+ * their `dist/` and not something the server invented. A `node_modules` no
+ * entry of theirs reaches has no way out *for them*: `Workspace` offers the
+ * `dependencies` repair only where writing it would really seat the file, and
+ * this is the sentence left where it would not.
  */
 function reasonSentence(outside: OutsideEveryPackage): string {
   const dead = "so it has no diagnostics, hover, or navigation";
@@ -519,6 +522,12 @@ function reasonSentence(outside: OutsideEveryPackage): string {
     case "unlisted-dependency":
       return `this file is under \`node_modules\` of a package this project does not list, ` +
         `${dead}; add it to \`dependencies\` in \`${MANIFEST_NAME}\` to compile it`;
+    case "unreached-node-modules":
+      return outside.inside === undefined
+        ? `this file is under a \`node_modules\` directory and no package a project lists ` +
+          `holds it, ${dead}`
+        : `this file is under the \`node_modules\` of \`${outside.inside}\`, which this ` +
+          `project's \`${MANIFEST_NAME}\` cannot reach, ${dead}`;
     case "skipped-directory":
       return `this file is under \`${outside.directory}\`, which this language server never ` +
         `reads as project source, ${dead}`;

@@ -49,6 +49,7 @@ import {
   messageOf,
   normalizePath,
   NOTHING_EXCLUDED,
+  packageUnderNodeModules,
   settledPathSync,
   skippedDirectoryBetween,
   type Exclusions,
@@ -80,12 +81,35 @@ export interface PublishedDiagnostic {
 }
 
 /**
- * Why a file is nobody's source — one of Packages §2.2's three bounds, each of
- * which is a different sentence with a different way out.
+ * Why a file is nobody's source — which of Packages §2.2's three bounds
+ * decided, taken as the one that would still be standing after every repair the
+ * others offer. That bound is four sentences and not three, because a reader
+ * who can write the `dependencies` entry and one who cannot are told different
+ * things about the same `node_modules`.
+ *
+ * Two of the four carry a way out, and each carries it only where taking it
+ * *works*: a sentence telling a user to add a `dependencies` entry that another
+ * bound below defeats is worse than one that names the bound and offers
+ * nothing, because they write the entry, get the same silence, and are left
+ * with a manifest that now draws a report of its own.
  */
 export type OutsideEveryPackage =
-  /** Under a `node_modules` whose package no open project lists (§2.2, §4.1). */
+  /**
+   * Directly inside a package under this project's own `node_modules` that the
+   * project does not list — the one shape a `dependencies` entry reaches
+   * (§2.2, §4.1).
+   */
   | { readonly kind: "unlisted-dependency" }
+  /**
+   * Under a `node_modules` whose packages no manifest the reader can edit
+   * reaches: a dependency's own `node_modules`, or one with no package holding
+   * the file at all. Named as a bound, with no repair, because there is none.
+   */
+  | {
+    readonly kind: "unreached-node-modules";
+    /** The package whose `node_modules` it is, where this server holds one. */
+    readonly inside: string | undefined;
+  }
   /** Under `dist`, `.git`, or another name this host never reads. */
   | { readonly kind: "skipped-directory"; readonly directory: string }
   /** Beneath a `hexagon.json` of its own that no open project reaches (§2.2). */
@@ -98,6 +122,18 @@ export type OutsideEveryPackage =
 interface Bounded {
   readonly directory: string;
   readonly nested: readonly string[];
+  /**
+   * Whose directory it is, which decides what a sentence about it may promise.
+   *
+   * A project's `hexagon.json` is a file the reader has open and can edit, so a
+   * `dependencies` entry is a repair they can make. A package of a closure's is
+   * a file under a `node_modules`, which no entry of theirs reaches — so a
+   * bound of *its* is named and left at that, with the package's own declared
+   * name, which is the only part of it the reader would recognise.
+   */
+  readonly owner:
+    | { readonly kind: "project" }
+    | { readonly kind: "package"; readonly name: string | undefined };
 }
 
 /** A project's own directory, which needs no boundary list — see `outsideEveryPackage`. */
@@ -573,12 +609,15 @@ export class Workspace {
    * and they are the ones a user cannot see, because each is a fact about a
    * directory somewhere above the file rather than a line anyone wrote.
    *
-   * The two bounds asked below cannot both answer, and the order is a reading
-   * order rather than a precedence: the walk never descends a skipped
-   * directory, so a boundary it reported is never behind one, and a file behind
-   * one is under no boundary the walk could have seen. Swapping them changes no
-   * answer, which is worth saying because a comment claiming a precedence here
-   * would be claiming something nothing could check.
+   * **Both bounds can answer, and which one to say is a precedence.** The
+   * boundary is always the outer of the two: the walk prunes the skipped names,
+   * so a boundary it reported is never behind one, and therefore any skipped
+   * name lies between that boundary and the file. The bound to *name* is the
+   * one that would be there last — the innermost — because each sentence's way
+   * out only moves the file to the next bound down, and a sentence whose repair
+   * the next bound defeats sends the reader to do work that changes nothing:
+   * opening the folder of `node_modules/acme/vendor` leaves a file in
+   * `vendor/dist` exactly as stranded, under a different sentence.
    */
   outsideEveryPackage(uri: string): OutsideEveryPackage | undefined {
     const path = this.pathFor(uri);
@@ -592,8 +631,18 @@ export class Workspace {
       // a program of its own (D1), so a file under one is held rather than
       // outside. The boundaries that strand a file are the ones inside a
       // dependency, which is nobody's project.
-      ...this.#programs.map(({ directory }) => ({ directory, nested: NO_BOUNDARIES })),
-      ...this.#programs.flatMap(({ packages }) => packages),
+      ...this.#programs.map(({ directory }) => ({
+        directory,
+        nested: NO_BOUNDARIES,
+        owner: { kind: "project" } as const,
+      })),
+      ...this.#programs.flatMap(({ packages }) =>
+        packages.map(({ directory, nested, record }) => ({
+          directory,
+          nested,
+          owner: { kind: "package", name: record.name } as const,
+        }))
+      ),
     ];
     let deepest: Bounded | undefined;
     for (const candidate of containing) {
@@ -604,14 +653,71 @@ export class Workspace {
     }
     if (deepest === undefined) return undefined;
     const boundary = deepestContaining(deepest.nested, path);
-    if (boundary !== undefined) {
+    // A boundary with nothing below it: opening that folder makes it a program
+    // and the file its source, so the sentence may say so.
+    if (boundary !== undefined && skippedDirectoryBetween(boundary, path) === undefined) {
       return { kind: "other-package", manifest: this.#displayPath(manifestPathOf(boundary)) };
     }
-    const skipped = skippedDirectoryBetween(deepest.directory, path);
+    // Otherwise the bound below it answers — asked of the boundary where there
+    // was one, which is the same answer as asking the owner (no skipped name
+    // lies above a boundary) and the clearer spelling of why.
+    const under = boundary ?? deepest.directory;
+    const skipped = skippedDirectoryBetween(under, path);
     if (skipped === undefined) return undefined;
-    return skipped === "node_modules"
-      ? { kind: "unlisted-dependency" }
-      : { kind: "skipped-directory", directory: skipped };
+    if (skipped !== "node_modules") return { kind: "skipped-directory", directory: skipped };
+    return this.#underNodeModules(deepest, under, path);
+  }
+
+  /**
+   * Which bound stands last under a `node_modules`, and so what the sentence
+   * about it may offer.
+   *
+   * Only one shape can be repaired by the reader: a file directly inside a
+   * package of **this project's own** `node_modules`, which a `dependencies`
+   * entry in a manifest they have open reaches. Every other shape under one is
+   * named and left there, and each was measured rather than reasoned about:
+   *
+   * - `node_modules/.cache/junk.hex` — no package holds it, so there is nothing
+   *   to list;
+   * - `node_modules/acme/node_modules/extra/extra.hex` — the bound is *Acme's*
+   *   `node_modules`, and the manifest that could list `Extra` is Acme's, which
+   *   sits under a `node_modules` and is not the reader's to edit. Writing
+   *   `Extra` into the project's own `dependencies` leaves the file exactly as
+   *   stranded and adds an entry that draws a Packages §7 report;
+   * - `node_modules/loose/dist/built.hex` — listing `Loose` would leave the
+   *   file under `Loose`'s own `dist`, which no manifest can argue with;
+   * - `node_modules/acme/vendor/inside.hex` with `acme` unlisted — the file is
+   *   inside the vendored package, so listing `Acme` would not reach it; that
+   *   package's folder can be opened, which is the sentence it gets.
+   */
+  #underNodeModules(deepest: Bounded, under: string, path: string): OutsideEveryPackage {
+    const unreached = (inside: string | undefined): OutsideEveryPackage => ({
+      kind: "unreached-node-modules",
+      inside,
+    });
+    // A vendored package's own `node_modules`: the bound belongs to the
+    // boundary, whose name this server never read — it stopped the walk, it
+    // never entered a closure — so the sentence names no package.
+    if (under !== deepest.directory) return unreached(undefined);
+    // A dependency's own `node_modules`. Named, with the package's name where
+    // the closure knows one, and nothing offered.
+    if (deepest.owner.kind === "package") return unreached(deepest.owner.name);
+    const holding = packageUnderNodeModules(under, path);
+    if (holding === undefined) return unreached(undefined);
+    // Inside the package, but behind a bound of the package's own.
+    const beneath = skippedDirectoryBetween(holding.root, path);
+    if (beneath !== undefined) {
+      return beneath === "node_modules"
+        ? unreached(undefined)
+        : { kind: "skipped-directory", directory: beneath };
+    }
+    if (holding.nested !== undefined) {
+      return {
+        kind: "other-package",
+        manifest: this.#displayPath(manifestPathOf(holding.nested)),
+      };
+    }
+    return { kind: "unlisted-dependency" };
   }
 
   /**

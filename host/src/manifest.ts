@@ -49,6 +49,7 @@
  * a host comes to accept a name the compiler refuses.
  */
 
+import { readdirSync } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { dependencyRefusal, packageNameRefusal } from "../../compiler/src/index.js";
@@ -530,20 +531,60 @@ async function matchesExactly(rootPath: string, resolved: string): Promise<boole
  * directory a package of its own (Packages §2.2) and a program of its own
  * (`environment.md` §4, D1).
  *
- * Spelled once, and here rather than beside either caller, because "is there a
- * manifest at this directory" is asked by three of them — the climb to a
- * project directory, an `exclude` entry naming a package, and the walk, which
- * asks it of entries it has already read. A directory of that name is not a
- * manifest, and answering `true` for one would make an ordinary folder a
- * project with no file behind it.
+ * Spelled once, and here rather than beside any caller, because "is there a
+ * manifest at this directory" is asked by four of them — the climb to a project
+ * directory, an `exclude` entry naming a package, the walk, which asks it of
+ * entries it has already read, and `packageUnderNodeModules`, which asks the
+ * sync twin below.
+ *
+ * The directory is **read**, rather than the file `stat`ed, for
+ * `matchesExactly`'s reason: macOS and Windows open `hexagon.json` when the file
+ * on disk is `Hexagon.json`, so `stat` answers `true` for a directory this
+ * host's own exact comparisons then treat as holding nothing — a project with a
+ * manifest every later reader fails to find. Reading the directory and looking
+ * for the literal name is what makes the answer and the filesystem agree. A
+ * *directory* of that name is not a manifest either, and answering `true` for
+ * one would make an ordinary folder a project with no file behind it.
  */
 export async function holdsManifest(directory: string): Promise<boolean> {
   try {
-    const entries = await readdir(directory, { withFileTypes: true });
-    return entries.some((entry) => entry.name === MANIFEST_NAME && !entry.isDirectory());
+    return (await readdir(directory, { withFileTypes: true })).some(isManifestEntry);
   } catch {
     return false;
   }
+}
+
+/**
+ * `holdsManifest`, asked without waiting.
+ *
+ * One caller needs it: the language server's stranded-buffer notice, which is
+ * decided inside a synchronous publication and has to know whether a package
+ * sits under a `node_modules` before it can promise a `dependencies` entry
+ * would reach the file. It is asked of a handful of directories, once per
+ * stranded buffer per publication, and never of a `node_modules` itself.
+ *
+ * The two spellings share `isManifestEntry` rather than each testing the entry,
+ * because the whole point of one predicate is that a second reader cannot come
+ * to a different answer about the same directory.
+ */
+export function holdsManifestSync(directory: string): boolean {
+  try {
+    return readdirSync(directory, { withFileTypes: true }).some(isManifestEntry);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The one test of a directory entry that makes its directory a package.
+ *
+ * Exported for the walk, which asks it of entries it has already read: the two
+ * questions "is there a manifest here" and "was that entry the manifest" have
+ * to have one answer, and they did not when the walk carried a predicate of its
+ * own beside this one.
+ */
+export function isManifestEntry(entry: { name: string; isDirectory(): boolean }): boolean {
+  return entry.name === MANIFEST_NAME && !entry.isDirectory();
 }
 
 /** Whether anything at all is at this path, without caring what. */

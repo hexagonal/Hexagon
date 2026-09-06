@@ -541,11 +541,17 @@ buffer and the server is visibly running — and the user's next move would be t
 report a bug rather than to open `hexagon.json`.
 
 So does a file that §2.2's own bounds put outside every package, and there the
-sentence names **which** bound, because each has a different way out: under a
-`node_modules` of a package no open project lists (add the `dependencies`
-entry), beneath a `hexagon.json` of some other package (open that folder), or
-under `dist`, `.git` and the rest of the tooling list (a fact about this host
-that no manifest argues with, so that sentence offers no repair). These are the
+sentence names **which** bound, because each has a different way out: directly
+inside a package of this project's own `node_modules` that it does not list (add
+the `dependencies` entry), beneath a `hexagon.json` of some other package (open
+that folder), or under `dist`, `.git` and the rest of the tooling list (a fact
+about this host that no manifest argues with, so that sentence offers no
+repair). The bound named is the one that would still be there **last**, since
+each way out only moves the file to the next bound down: a file under
+`node_modules/acme/vendor/dist` is told about `dist` and not about `vendor`,
+whose folder it could open to no effect, and one under a *dependency's* own
+`node_modules` is told whose it is and offered nothing, because the manifest
+that could list it is that dependency's and not the reader's. These are the
 bounds a user cannot see — each is a fact about a directory above the file
 rather than a line anyone wrote — and this PR sharpens the need: a file inside a
 *listed* dependency now gets full language support, and one inside its unlisted

@@ -27,10 +27,16 @@ export {
 export {
   excludes,
   NOTHING_EXCLUDED,
+  // The layout question a host asks *about a sentence it is publishing*, not
+  // about a program: which package under a `node_modules` a stranded buffer
+  // would belong to, and so whether a `dependencies` entry could reach it.
+  packageUnderNodeModules,
   skippedDirectoryBetween,
   type Exclusions,
   // Named by `Program.files` and `DiscoveredPackage.files`.
   type FoundFile,
+  // `packageUnderNodeModules`'s answer.
+  type PackageUnder,
 } from "./files.js";
 // `lookup.ts` publishes nothing at all. `Lookup` is `discoverProgram`'s
 // parameter, and `discoverProgram` is not on this list — so no host outside this

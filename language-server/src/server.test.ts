@@ -1106,6 +1106,53 @@ describe("the Hexagon language server", () => {
     }
   });
 
+  /**
+   * And where no entry the reader could write would reach the file, the
+   * sentence names the bound and promises nothing.
+   *
+   * Both of these used to draw the `dependencies` sentence, and following it
+   * un-stranded neither: the manifest that could list `Extra` is `Acme`'s,
+   * which sits under a `node_modules` and is not a file the reader edits, and a
+   * tool's cache holds no package to name at all — the entry they were told to
+   * write would draw a Packages §7 report of its own. One message with two
+   * shapes, because "no package here" and "not this project's `node_modules`"
+   * are the same fact about the reader's manifest.
+   */
+  test("a buffer under a `node_modules` no entry reaches is told so, and offered nothing", async () => {
+    const solo = await harness({
+      "hexagon.json": JSON.stringify({ name: "App", dependencies: ["Acme"] }),
+      "main.hex": "module Main\n\nlet value: Int = 1\n",
+      "node_modules/acme/hexagon.json": JSON.stringify({ name: "Acme" }),
+      "node_modules/acme/lib.hex": "module Lib\n\nlet n: Int = 1\n",
+      "node_modules/acme/node_modules/extra/hexagon.json": JSON.stringify({ name: "Extra" }),
+      "node_modules/acme/node_modules/extra/extra.hex": "module Extra\n\nlet n: Int = 1\n",
+      "node_modules/.cache/junk.hex": "module Junk\n\nlet n: Int = 1\n",
+    });
+    try {
+      const nested = await open(
+        solo,
+        "node_modules/acme/node_modules/extra/extra.hex",
+        "module Extra\n",
+      );
+      expect(nested).toHaveLength(1);
+      expect(nested[0]!.severity).toBe(3);
+      expect(nested[0]!.message).toBe(
+        "this file is under the `node_modules` of `Acme`, which this project's " +
+        "`hexagon.json` cannot reach, so it has no diagnostics, hover, or navigation",
+      );
+
+      const cached = await open(solo, "node_modules/.cache/junk.hex", "module Junk\n");
+      expect(cached).toHaveLength(1);
+      expect(cached[0]!.severity).toBe(3);
+      expect(cached[0]!.message).toBe(
+        "this file is under a `node_modules` directory and no package a project lists " +
+        "holds it, so it has no diagnostics, hover, or navigation",
+      );
+    } finally {
+      await solo.dispose();
+    }
+  });
+
   test("un-excluding restores an open buffer without waiting for a keystroke", async () => {
     const solo = await harness({
       "main.hex": "module Main\n\nlet value: Int = 1\n",

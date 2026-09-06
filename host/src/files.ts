@@ -16,8 +16,8 @@
 
 import { readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { MANIFEST_NAME, isExcluded } from "./manifest.js";
-import { messageOf, normalizePath, realPathOf } from "./paths.js";
+import { holdsManifestSync, isExcluded, isManifestEntry } from "./manifest.js";
+import { childDirectory, messageOf, normalizePath, realPathOf } from "./paths.js";
 
 const HEXAGON_EXTENSION = ".hex";
 
@@ -74,12 +74,85 @@ export function skippedDirectoryBetween(
   directory: string,
   path: string,
 ): string | undefined {
+  return directoriesBetween(directory, path)?.find((name) => SKIPPED_DIRECTORIES.has(name));
+}
+
+/**
+ * The directory names strictly between `directory` and `path`, or nothing where
+ * `path` is not beneath `directory` at all.
+ *
+ * The last component is the file, not a directory, and is dropped — every
+ * question asked of this list is about what a file is *under*.
+ */
+function directoriesBetween(directory: string, path: string): readonly string[] | undefined {
   const root = normalizePath(directory);
   const prefix = root.endsWith("/") ? root : `${root}/`;
   const target = normalizePath(path);
   if (!target.startsWith(prefix)) return undefined;
-  const components = target.slice(prefix.length).split("/");
-  return components.slice(0, -1).find((name) => SKIPPED_DIRECTORIES.has(name));
+  return target.slice(prefix.length).split("/").slice(0, -1);
+}
+
+/** Which package under a `node_modules` a file below it would belong to. */
+export interface PackageUnder {
+  /**
+   * The level root — `<node_modules>/<name>`, or `<node_modules>/@scope/<name>`
+   * — which is the package a `dependencies` entry naming it would reach.
+   */
+  readonly root: string;
+  /**
+   * The deepest package **inside** that root which still holds the file, where
+   * one is there: a vendored `hexagon.json` bounds the file (§2.2) whether or
+   * not anything lists the root, so listing the root would not reach it.
+   */
+  readonly nested: string | undefined;
+}
+
+/**
+ * The package holding a file that lies under a `node_modules` below
+ * `directory`, or nothing where this layout puts no package there at all.
+ *
+ * Asked by a host that has to decide whether "add it to `dependencies`" is a
+ * repair or a lie: a `.hex` under `node_modules/.cache/` is in no package, one
+ * under `node_modules/acme/vendor/` is in a package no entry names, and only a
+ * file directly inside a level root can be reached by listing it.
+ *
+ * **The layout is npm's, and this has to agree with `lookup.ts`.** A level
+ * holds package roots at `<level>/<name>` and `<level>/@scope/<name>`, and
+ * nowhere deeper — `#packageRoots` is the scan that says so — so a
+ * `hexagon.json` any deeper is a package no name reaches. The skipped names
+ * bound the search here exactly as they bound the walk, which is why the two
+ * questions share `directoriesBetween`: a caller that decided "under
+ * `node_modules`" one way and "which package" another would answer about two
+ * different trees.
+ *
+ * Reads the disk, synchronously, once per directory it looks at — at most two
+ * before the root and one per directory below it. It is asked about a single
+ * buffer a host is about to publish a sentence for, never about a walk.
+ */
+export function packageUnderNodeModules(
+  directory: string,
+  path: string,
+): PackageUnder | undefined {
+  const components = directoriesBetween(directory, path);
+  if (components === undefined) return undefined;
+  const bound = components.findIndex((name) => SKIPPED_DIRECTORIES.has(name));
+  if (bound < 0 || components[bound] !== "node_modules") return undefined;
+  const level = components.slice(0, bound + 1).reduce(childDirectory, normalizePath(directory));
+  const below = components.slice(bound + 1);
+  const depth = below[0]?.startsWith("@") === true ? 2 : 1;
+  if (below.length < depth) return undefined;
+  const root = below.slice(0, depth).reduce(childDirectory, level);
+  if (!holdsManifestSync(root)) return undefined;
+  let nested: string | undefined;
+  let at = root;
+  for (const component of below.slice(depth)) {
+    // A bound of its own: what lies under it is that name's business, and a
+    // manifest beneath one is not the package this file would join.
+    if (SKIPPED_DIRECTORIES.has(component)) break;
+    at = childDirectory(at, component);
+    if (holdsManifestSync(at)) nested = at;
+  }
+  return { root, nested };
 }
 
 /** A discovered file, with the identity that makes two names for it one file. */
@@ -173,12 +246,24 @@ export interface Walked {
  * nothing; not opened, the entry deletes a whole program the user never asked
  * it about.
  *
- * That descent has a price, and it is paid knowingly: one `readdir` per
- * directory of the excluded subtree, where an excluded tree is usually excluded
- * for being big. Nothing else is paid — no file is collected, no identity is
- * resolved, the skipped names still prune it, and it stops at every boundary it
- * finds — and the alternative is a manifest that deletes a program it does not
- * name.
+ * That descent has a price, and it is paid knowingly: **two** syscalls per
+ * directory of the excluded subtree — one `readdir` for its entries and one
+ * `realpath` for its identity, resolved before the exclusion is known — where
+ * an excluded tree is usually excluded for being big. Nothing else is paid: no
+ * file is collected and no *file's* identity is resolved, which is where the
+ * saving is, the skipped names still prune the descent, and it stops at every
+ * boundary it finds. The alternative is a manifest that deletes a program it
+ * does not name.
+ *
+ * **The descent stops at the walk root.** A boundary becomes a program of this
+ * workspace, and a `hexagon.json` outside every root is nobody's program here,
+ * so an excluded link pointing out of the root is not followed:
+ * `exclude: ["gen"]`, with `gen` a link to a directory elsewhere on the
+ * machine, would otherwise seat that directory's package as a program of this
+ * project. A link out of the root that nothing excludes is followed as it
+ * always was — the walk collects its files, which is the monorepo layout this
+ * walk follows links for at all — so this bounds the descent `exclude` adds and
+ * nothing else.
  */
 export async function hexagonFilesUnder(
   root: string,
@@ -215,6 +300,10 @@ export async function hexagonFilesUnder(
     // Asked once per subtree: below the first excluded directory everything is
     // excluded, whatever the entries happen to spell.
     const excluded = at.excluded || excludes(exclude, directory, directoryIdentity);
+    // The boundary-hunting descent is bounded by the root it was started for
+    // (see above): a package outside every root is no program of this
+    // workspace, so an excluded link out of the root reports nothing.
+    if (excluded && !within(rootIdentity, directoryIdentity)) continue;
     // Two memories, and the excluded descent never writes to the walk's — an
     // excluded link would otherwise mark its target as already walked, and the
     // target, a real directory under its own name, would be skipped as though
@@ -235,7 +324,7 @@ export async function hexagonFilesUnder(
     // A manifest of its own makes this directory a package of its own, and its
     // files belong to it alone (Packages §2.2). The root is exempt: its manifest
     // is the one this walk is *for*.
-    if (directoryIdentity !== rootIdentity && entries.some(isManifest)) {
+    if (directoryIdentity !== rootIdentity && entries.some(isManifestEntry)) {
       nested.add(directoryIdentity);
       continue;
     }
@@ -269,15 +358,21 @@ export async function hexagonFilesUnder(
   return { files: found, nested: [...nested] };
 }
 
-function isManifest(entry: { name: string; isDirectory(): boolean }): boolean {
-  return entry.name === MANIFEST_NAME && !entry.isDirectory();
-}
-
 type EntryKind = "file" | "directory" | "other";
 
 function entryKind(entry: { isFile(): boolean; isDirectory(): boolean }): EntryKind {
   if (entry.isDirectory()) return "directory";
   return entry.isFile() ? "file" : "other";
+}
+
+/**
+ * Whether `path` is `root` or lies inside it.
+ *
+ * `isExcluded` is that prefix test, under the name its own callers ask it by;
+ * spelling a second one here is how two answers about one path come to differ.
+ */
+function within(root: string, path: string): boolean {
+  return isExcluded(path, [root]);
 }
 
 /** What a symlink points at, or `other` when it dangles or cannot be read. */

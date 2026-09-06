@@ -638,6 +638,101 @@ describe("the workspace walk", () => {
   });
 
   /**
+   * The bound a sentence names is the one that would be there **last**, because
+   * each way out only moves the file to the next bound down.
+   *
+   * Both bounds can answer at once, and the boundary is always the outer of the
+   * two — the walk prunes the skipped names, so a boundary it reported is never
+   * behind one, and any skipped name therefore lies below it. Naming the outer
+   * one and promising *its* repair is what this pins against: every shape here
+   * was measured doing exactly what the outer bound's sentence asked, and in
+   * each the file was still nobody's source afterwards. In the first, the entry
+   * the reader was told to write also draws a Packages §7 report of its own,
+   * which is a sentence that damages the manifest it names.
+   */
+  test("a bound below defeats the repair above it, so the lower bound is the one named", async () => {
+    const path = await makeRoot();
+    const acme = join(path, "node_modules", "acme");
+    const loose = join(path, "node_modules", "loose");
+    const extra = join(acme, "node_modules", "extra");
+    await mkdir(join(acme, "vendor", "dist"), { recursive: true });
+    await mkdir(join(acme, "vendor", "node_modules", "inner"), { recursive: true });
+    await mkdir(extra, { recursive: true });
+    await mkdir(join(loose, "dist"), { recursive: true });
+    await mkdir(join(loose, "vendor"), { recursive: true });
+    await mkdir(join(path, "node_modules", ".cache"), { recursive: true });
+    await writeFile(
+      join(path, MANIFEST_NAME),
+      JSON.stringify({ name: "App", dependencies: ["Acme"] }),
+    );
+    await writeFile(join(path, "main.hex"), HEADER + "let value: Int = 1\n");
+    await writeFile(join(acme, MANIFEST_NAME), '{"name":"Acme"}');
+    await writeFile(join(acme, "lib.hex"), "module Lib\n");
+    await writeFile(join(acme, "vendor", MANIFEST_NAME), '{"name":"Vendored"}');
+    await writeFile(join(acme, "vendor", "dist", "built.hex"), "module Built\n");
+    await writeFile(join(acme, "vendor", "node_modules", "inner", MANIFEST_NAME), '{"name":"Inner"}');
+    await writeFile(join(acme, "vendor", "node_modules", "inner", "deep.hex"), "module Deep\n");
+    await writeFile(join(extra, MANIFEST_NAME), '{"name":"Extra"}');
+    await writeFile(join(extra, "extra.hex"), "module Extra\n");
+    await writeFile(join(loose, MANIFEST_NAME), '{"name":"Loose"}');
+    await writeFile(join(loose, "stray.hex"), "module Stray\n");
+    await writeFile(join(loose, "dist", "built.hex"), "module Built\n");
+    await writeFile(join(loose, "vendor", MANIFEST_NAME), '{"name":"LooseVendored"}');
+    await writeFile(join(loose, "vendor", "inside.hex"), "module Inside\n");
+    await writeFile(join(path, "node_modules", ".cache", "junk.hex"), "module Junk\n");
+    const uriOf = (...names: readonly string[]): string =>
+      pathToFileURL(join(path, ...names)).toString();
+
+    const workspace = new Workspace();
+    await workspace.setRoots([path], () => {});
+
+    // Under **Acme's** `node_modules`. The manifest that could list `Extra` is
+    // Acme's, which sits under a `node_modules` and is not the reader's to
+    // edit; writing `Extra` into this project's own `dependencies` leaves the
+    // file exactly as stranded and adds an entry drawing a §7 report.
+    expect(workspace.outsideEveryPackage(uriOf("node_modules", "acme", "node_modules", "extra", "extra.hex")))
+      .toEqual({ kind: "unreached-node-modules", inside: "Acme" });
+    // Under the vendored package's own `dist`, so opening the vendored folder
+    // — which the boundary's sentence would have offered — changes nothing.
+    // The answer is the same before and after, which is the point.
+    const built = uriOf("node_modules", "acme", "vendor", "dist", "built.hex");
+    expect(workspace.outsideEveryPackage(built))
+      .toEqual({ kind: "skipped-directory", directory: "dist" });
+    await workspace.setRoots([path, join(acme, "vendor")], () => {});
+    expect(workspace.outsideEveryPackage(built))
+      .toEqual({ kind: "skipped-directory", directory: "dist" });
+    await workspace.setRoots([path], () => {});
+
+    // The `node_modules` of the **vendored** package, not of `Acme`: the bound
+    // belongs to the boundary the walk stopped at, whose name this server never
+    // read, so the sentence names no package. Naming `Acme` here would send the
+    // reader to a manifest that has nothing to do with this file — which is
+    // what asking the bounds in the other order does.
+    expect(workspace.outsideEveryPackage(uriOf("node_modules", "acme", "vendor", "node_modules", "inner", "deep.hex")))
+      .toEqual({ kind: "unreached-node-modules", inside: undefined });
+
+    // Under an unlisted package's own `dist`: listing `Loose` would leave the
+    // file under a name no manifest can argue with.
+    expect(workspace.outsideEveryPackage(uriOf("node_modules", "loose", "dist", "built.hex")))
+      .toEqual({ kind: "skipped-directory", directory: "dist" });
+    // Inside a package vendored in an unlisted package: listing `Loose` would
+    // not reach it either, but this folder can be opened.
+    expect(workspace.outsideEveryPackage(uriOf("node_modules", "loose", "vendor", "inside.hex")))
+      .toEqual({
+        kind: "other-package",
+        manifest: `node_modules/loose/vendor/${MANIFEST_NAME}`,
+      });
+    // And a `node_modules` holding no package at all: there is nothing to list,
+    // so nothing is offered.
+    expect(workspace.outsideEveryPackage(uriOf("node_modules", ".cache", "junk.hex")))
+      .toEqual({ kind: "unreached-node-modules", inside: undefined });
+    // The shape that is still repairable, beside them, so that the guard above
+    // is a rule and not a refusal to answer: `Loose` itself is one entry away.
+    expect(workspace.outsideEveryPackage(uriOf("node_modules", "loose", "stray.hex")))
+      .toEqual({ kind: "unlisted-dependency" });
+  });
+
+  /**
    * The third case of the same rule, and the only one that can change a report
    * in the user's **own** source: a dependency's `exclude` is about the
    * dependency's files, and every door has to read it.
