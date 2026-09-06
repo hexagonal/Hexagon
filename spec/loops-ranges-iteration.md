@@ -225,7 +225,7 @@ is normatively **lookup in the global `Iterable` instance table**: find the uniq
 ```
 constraint Iterable<c> =
     type Item
-    toSeq(xs: c): Seq(Item)
+    toSeq(xs: c) -> Seq(Item)
 ```
 
 - `toSeq` is an **ordinary constraint member** — reached at concrete types by the dot (`range.toSeq()`) or qualified (`Iterable.toSeq(range)`), not seeded bare (Collections Part 5 §2.3; Modules §5.5); the §2.3 desugaring names it.

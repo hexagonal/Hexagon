@@ -236,7 +236,7 @@ constraint Keyed<c> =
     (** The type of one key, chosen by each instance. *)
     type Key
     (** The key of `x`. *)
-    keyOf(x: c): Key                     -- constraint-member docs: type members and function members alike (§4.2)
+    keyOf(x: c) -> Key                   -- constraint-member docs: type members and function members alike (§4.2)
 
 honor Keyed<Int> =
     (** An `Int` keys itself. *)
