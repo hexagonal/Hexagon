@@ -11,7 +11,7 @@
 
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { PassThrough } from "node:stream";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
@@ -169,6 +169,10 @@ async function harness(
 ): Promise<Harness> {
   const root = await mkdtemp(join(tmpdir(), "hexagon-lsp-"));
   for (const [name, text] of Object.entries(files)) {
+    // Nested names are allowed so a fixture can lay down a `node_modules` tree:
+    // a program's dependencies are directories, and a test that could only
+    // write flat files could only test a project with none.
+    await mkdir(dirname(join(root, name)), { recursive: true });
     await writeFile(join(root, name), text, "utf8");
   }
 
@@ -1368,5 +1372,214 @@ describe("the companion fallback reaches the editor", () => {
       start: { line: 2, character: 18 },
       end: { line: 2, character: 24 },
     });
+  });
+});
+
+/**
+ * Packages, across the protocol: a project that has a dependency, a manifest
+ * that is a program of its own, and the one repair whose edit is a file the
+ * compiler does not hold.
+ */
+describe("packages and programs", () => {
+  const manifest = (fields: Readonly<Record<string, unknown>>): string =>
+    `${JSON.stringify(fields, undefined, 2)}\n`;
+
+  /** Opens a file in the editor, which is what a code-action request needs. */
+  async function open(workspace: Harness, name: string, text: string): Promise<void> {
+    await workspace.client.sendNotification(DidOpenTextDocumentNotification.type, {
+      textDocument: { uri: workspace.uriOf(name), languageId: "hexagon", version: 1, text },
+    });
+  }
+
+  const MAIN_WITH_DEPENDENCY = [
+    "module Main",
+    "",
+    "import Acme.Geometry",
+    "",
+    "let width: Int = Geometry.width",
+    "",
+  ].join("\n");
+
+  test("a dependency's modules are in the program, under its package name", async () => {
+    const workspace = await harness({
+      "hexagon.json": manifest({ dependencies: ["Acme"] }),
+      "main.hex": MAIN_WITH_DEPENDENCY,
+      "node_modules/acme/hexagon.json": manifest({ name: "Acme" }),
+      "node_modules/acme/geometry.hex": "module Geometry\n\nexport let width: Int = 3\n",
+    });
+    try {
+      await open(workspace, "main.hex", MAIN_WITH_DEPENDENCY);
+      await open(
+        workspace,
+        "node_modules/acme/geometry.hex",
+        "module Geometry\n\nexport let width: Int = 3\n",
+      );
+      // The dependency's module resolved: `Geometry.width` is an `Int`, which
+      // only a program holding `Acme`'s source can say.
+      const hover = await workspace.client.sendRequest("textDocument/hover", {
+        textDocument: { uri: workspace.uriOf("main.hex") },
+        position: positionOf(MAIN_WITH_DEPENDENCY, "width", 2),
+      }) as Hover | null;
+      expect((hover?.contents as { value: string }).value).toContain("Int");
+      // And the dependency's own file is in the program, answering about itself.
+      const inside = await workspace.client.sendRequest("textDocument/hover", {
+        textDocument: { uri: workspace.uriOf("node_modules/acme/geometry.hex") },
+        position: { line: 2, character: 11 },
+      }) as Hover | null;
+      expect(inside).not.toBeNull();
+      // Nothing was published, because nothing is wrong.
+      expect(workspace.publishedFor(workspace.uriOf("main.hex")) ?? []).toEqual([]);
+    } finally {
+      await workspace.dispose();
+    }
+  });
+
+  test("an installed package the project does not list draws the manifest repair", async () => {
+    const workspace = await harness({
+      "hexagon.json": manifest({ dependencies: ["Acme"] }),
+      "main.hex": "module Main\n\nimport Bolt.Util\n",
+      "node_modules/acme/hexagon.json": manifest({ name: "Acme" }),
+      "node_modules/acme/geometry.hex": "module Geometry\n\nexport let width: Int = 3\n",
+      "node_modules/bolt/hexagon.json": manifest({ name: "Bolt" }),
+      "node_modules/bolt/util.hex": "module Util\n\nexport let n: Int = 1\n",
+    }, {
+      textDocument: {
+        codeAction: { codeActionLiteralSupport: { codeActionKind: { valueSet: ["quickfix"] } } },
+      },
+      workspace: { workspaceEdit: { documentChanges: true } },
+    });
+    try {
+      await open(workspace, "main.hex", "module Main\n\nimport Bolt.Util\n");
+      const reported = await workspace.diagnosticsFor(workspace.uriOf("main.hex"));
+      expect(reported.map(({ message }) => message)).toEqual([
+        "`Bolt` is not a dependency of this package; add `\"Bolt\"` to `dependencies` " +
+          "in `hexagon.json`",
+      ]);
+      const actions = await workspace.client.sendRequest("textDocument/codeAction", {
+        textDocument: { uri: workspace.uriOf("main.hex") },
+        range: reported[0]!.range,
+        context: { diagnostics: reported },
+      }) as CodeAction[] | null;
+      const repair = actions?.find(({ title }) => title.includes("dependencies"));
+      expect(repair?.title).toBe("add `\"Bolt\"` to `dependencies` in hexagon.json");
+      const edits = repair!.edit!.changes![workspace.uriOf("hexagon.json")]!;
+      // The whole manifest is rewritten from its parsed value: `hexagon.json` is
+      // JSON, so nothing is lost, and no splice can produce a broken array.
+      expect(applyEdits(manifest({ dependencies: ["Acme"] }), edits)).toBe(
+        manifest({ dependencies: ["Acme", "Bolt"] }),
+      );
+    } finally {
+      await workspace.dispose();
+    }
+  });
+
+  test("the repair is never offered inside a dependency's own source", async () => {
+    const workspace = await harness({
+      "hexagon.json": manifest({ dependencies: ["Acme"] }),
+      "main.hex": "module Main\n",
+      "node_modules/acme/hexagon.json": manifest({ name: "Acme" }),
+      "node_modules/acme/geometry.hex": "module Geometry\n\nimport Bolt.Util\n",
+      "node_modules/bolt/hexagon.json": manifest({ name: "Bolt" }),
+      "node_modules/bolt/util.hex": "module Util\n\nexport let n: Int = 1\n",
+    }, {
+      textDocument: {
+        codeAction: { codeActionLiteralSupport: { codeActionKind: { valueSet: ["quickfix"] } } },
+      },
+      workspace: { workspaceEdit: { documentChanges: true } },
+    });
+    try {
+      const uri = workspace.uriOf("node_modules/acme/geometry.hex");
+      await open(workspace, "node_modules/acme/geometry.hex", "module Geometry\n\nimport Bolt.Util\n");
+      const reported = await workspace.diagnosticsFor(uri);
+      // The report is published against the dependency's own file (D3).
+      expect(reported.map(({ message }) => message)).toEqual([
+        "`Bolt` is not a dependency of this package; add `\"Bolt\"` to `dependencies` " +
+          "in `hexagon.json`",
+      ]);
+      const actions = await workspace.client.sendRequest("textDocument/codeAction", {
+        textDocument: { uri },
+        range: reported[0]!.range,
+        context: { diagnostics: reported },
+      }) as CodeAction[] | null;
+      // `Acme`'s manifest sits under `node_modules`: not a file the user wrote,
+      // and not one an editor should offer to write.
+      expect(actions?.some(({ title }) => title.includes("dependencies")) ?? false).toBe(false);
+    } finally {
+      await workspace.dispose();
+    }
+  });
+
+  test("a manifest's own problems are published against the manifest that carries them", async () => {
+    const workspace = await harness({
+      "hexagon.json": manifest({ dependencies: ["Bolt"] }),
+      "main.hex": "module Main\n",
+      "node_modules/bolt/hexagon.json": manifest({ name: "Bolt", dependencies: ["Missing"] }),
+      "node_modules/bolt/util.hex": "module Util\n\nexport let n: Int = 1\n",
+    });
+    try {
+      const reported = await workspace.diagnosticsFor(
+        workspace.uriOf("node_modules/bolt/hexagon.json"),
+      );
+      expect(reported.map(({ message }) => message)).toEqual([
+        "no installed package declares `\"name\": \"Missing\"`; install it, or check " +
+          "the name in its `hexagon.json`",
+      ]);
+    } finally {
+      await workspace.dispose();
+    }
+  });
+
+  test("a nested manifest is a program of its own, invisible to the enclosing one", async () => {
+    const workspace = await harness({
+      "hexagon.json": manifest({}),
+      "main.hex": "module Main\n\nimport Thing\n",
+      "vendor/hexagon.json": manifest({ name: "Vendor" }),
+      "vendor/thing.hex": "module Thing\n\nexport let n: Int = 1\n",
+    });
+    try {
+      // `Thing` belongs to the nested package, which the project does not list
+      // and cannot see: two open folders meet only through a dependency (D1).
+      const reported = await workspace.diagnosticsFor(workspace.uriOf("main.hex"));
+      expect(reported.map(({ message }) => message)).toEqual(["no module `Thing`"]);
+      // And the nested program compiles its own file, cleanly — nothing was
+      // published against it, and it answers about itself.
+      expect(workspace.publishedFor(workspace.uriOf("vendor/thing.hex")) ?? []).toEqual([]);
+      await open(workspace, "vendor/thing.hex", "module Thing\n\nexport let n: Int = 1\n");
+      const hover = await workspace.client.sendRequest("textDocument/hover", {
+        textDocument: { uri: workspace.uriOf("vendor/thing.hex") },
+        position: { line: 2, character: 11 },
+      }) as Hover | null;
+      expect(hover).not.toBeNull();
+    } finally {
+      await workspace.dispose();
+    }
+  });
+
+  test("a `hexagon.json` written under `node_modules` re-runs discovery", async () => {
+    const workspace = await harness({
+      "hexagon.json": manifest({ dependencies: ["Acme"] }),
+      "main.hex": "module Main\n\nimport Acme.Geometry\n",
+      "node_modules/acme/geometry.hex": "module Geometry\n\nexport let width: Int = 3\n",
+    });
+    try {
+      const uri = workspace.uriOf("main.hex");
+      // No manifest at the package yet: it is a JavaScript package, read for
+      // nothing, and the name resolves to nothing.
+      expect((await workspace.diagnosticsFor(uri)).length).toBeGreaterThan(0);
+      const installed = join(workspace.root, "node_modules/acme/hexagon.json");
+      await writeFile(installed, manifest({ name: "Acme" }), "utf8");
+      await workspace.client.sendNotification(DidChangeWatchedFilesNotification.type, {
+        changes: [{ uri: pathToFileURL(installed).toString(), type: 1 }],
+      });
+      expect(
+        await workspace.diagnosticsUntil(
+          uri,
+          (diagnostics) => diagnostics.length === 0,
+          "the installed package to be found",
+        ),
+      ).toEqual([]);
+    } finally {
+      await workspace.dispose();
+    }
   });
 });

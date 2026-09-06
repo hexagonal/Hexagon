@@ -33,6 +33,7 @@ export {
 export { Lookup, type Candidate, type Level, type LookupResult } from "./lookup.js";
 export {
   discoverProgram,
+  discoverPrograms,
   excludedBy,
   exclusionsOf,
   mergedExclusions,

@@ -37,10 +37,11 @@ import {
   readManifest,
   type Manifest,
   type ManifestProblem,
+  type ManifestResult,
 } from "./manifest.js";
 import { Lookup } from "./lookup.js";
 import { normalizePath, realPathOf } from "./paths.js";
-import { manifestPathOf } from "./projects.js";
+import { manifestPathOf, projectDirectories } from "./projects.js";
 
 /** A problem to publish, against the manifest that carries the entry (D3). */
 export interface SeatedProblem {
@@ -126,18 +127,30 @@ export async function discoverProgram(
     problems: projectResult.problems,
   });
 
+  /** Every manifest read in full, by canonical directory — never read twice. */
+  const read = new Map<string, ManifestResult>();
+  const readOnce = async (directory: string): Promise<ManifestResult> => {
+    const known = read.get(directory);
+    if (known !== undefined) return known;
+    const result = await readManifest(directory);
+    read.set(directory, result);
+    return result;
+  };
+
   const resolveEntries = async (record: PackageRecord): Promise<void> => {
     for (const name of record.dependencies) {
       const answer = await lookup.lookup(name, record.directory);
       const candidates: PackageRecord[] = [];
       for (const candidate of answer.candidates) {
+        // A package the lookup **answers with** is validated in full (§4.1);
+        // the level scan that found it read one field. This is where the rest
+        // of its manifest is read, and it is read for no other root.
+        const full = await readOnce(candidate.directory);
         candidates.push({
           name: candidate.name,
-          dependencies: candidate.manifest.dependencies,
+          dependencies: full.manifest.dependencies,
           directory: candidate.directory,
-          ...(candidate.manifest.version === undefined
-            ? {}
-            : { version: candidate.manifest.version }),
+          ...(full.manifest.version === undefined ? {} : { version: full.manifest.version }),
         });
       }
       edges.push({ from: record.directory, name, candidates, unreadable: answer.unreadable });
@@ -150,7 +163,7 @@ export async function discoverProgram(
       const answered = answer.candidates[0]!;
       if (answered.directory === projectDirectory) continue;
       if (reached.has(answered.directory)) continue;
-      const own = await readManifest(answered.directory);
+      const own = await readOnce(answered.directory);
       const installed = await lookup.installedAt(answered.directory);
       const files = await hexagonFilesUnder(
         answered.directory,
@@ -299,4 +312,31 @@ function rebase(entry: string, rootPath: string, realRoot: string): string {
   if (entry === rootPath) return realRoot;
   const prefix = rootPath.endsWith("/") ? rootPath : `${rootPath}/`;
   return entry.startsWith(prefix) ? realRoot + entry.slice(rootPath.length) : entry;
+}
+
+/**
+ * Every program a set of editor roots describes: each root's own project, and
+ * every project nested beneath one (`environment.md` §4, D1).
+ *
+ * One `discoverProgram` per project directory, however many roots reach it —
+ * `projectDirectories` claims a directory before asking what is nested beneath
+ * it, so the walk that answers that question is the same one that reads the
+ * project's files. One `Lookup` serves the run, so a `node_modules` two projects
+ * share is scanned once.
+ */
+export async function discoverPrograms(
+  roots: readonly string[],
+  onError: (message: string) => void = () => {},
+): Promise<readonly Program[]> {
+  const lookup = new Lookup(onError);
+  const discovered = new Map<string, Program>();
+  const directories = await projectDirectories(roots, async (directory) => {
+    const program = await discoverProgram(directory, lookup, onError);
+    discovered.set(program.directory, program);
+    return program.nested;
+  });
+  return directories.flatMap(({ directory }) => {
+    const program = discovered.get(directory);
+    return program === undefined ? [] : [program];
+  });
 }

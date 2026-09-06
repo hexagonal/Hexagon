@@ -68,9 +68,13 @@ export async function projectDirectories(
     // project rather than once per root: a second root reaching one project
     // finds the same boundaries, and finding them again would only cost.
     if (!fresh) continue;
+    // Breadth-first, so a project's own nested packages keep the order the walk
+    // met them in: the list is read in order by a host deciding which program
+    // answers for a file, and an order that depends on a stack's direction
+    // would decide that by accident.
     const pending = [directory];
-    for (let at = pending.pop(); at !== undefined; at = pending.pop()) {
-      for (const nested of await nestedOf(at)) {
+    for (let at = 0; at < pending.length; at += 1) {
+      for (const nested of await nestedOf(pending[at]!)) {
         if (claim(nested, true, root)) pending.push(nested);
       }
     }

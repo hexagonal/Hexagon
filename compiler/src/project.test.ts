@@ -590,10 +590,13 @@ describe("§9 (a) — the visible set and what a project may name", () => {
 
   test("a transitive dependency is invisible to the project's imports", () => {
     const project = compile("module Main\n\nimport Bolt.Util\nexport let n: Int = Util.n");
-    expect(messagesOf(project)).toContain(
+    const report = project.diagnostics.find(({ message }) => message.startsWith("`Bolt`"))!;
+    expect(report.message).toBe(
       "`Bolt` is not a dependency of this package; add `\"Bolt\"` to `dependencies` " +
         "in `hexagon.json`",
     );
+    // The repair is a manifest edit, which the compiler names and a host writes.
+    expect(report.manifestDependency).toEqual({ packageName: "Bolt" });
   });
 
   /**
@@ -605,6 +608,9 @@ describe("§9 (a) — the visible set and what a project may name", () => {
   test("the manifest edit is withheld where a module is declared under the segment", () => {
     const project = compile("module Main\n\nimport Zed.Tools\nexport let n: Int = 1");
     expect(messagesOf(project)).toContain("no module `Zed.Tools`");
+    expect(project.diagnostics.every(({ manifestDependency }) =>
+      manifestDependency === undefined
+    )).toBe(true);
   });
 });
 

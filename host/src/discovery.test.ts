@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import { Lookup } from "./lookup.js";
-import { discoverProgram } from "./packages.js";
+import { discoverProgram, discoverPrograms } from "./packages.js";
 import { enclosingManifestDirectory, projectDirectories } from "./projects.js";
 import { hexagonFilesUnder, nothingSeen, NOTHING_EXCLUDED } from "./files.js";
 import { normalizePath } from "./paths.js";
@@ -463,6 +463,72 @@ describe("§4.1 — the walk's shape", () => {
       "/a/node_modules/b/node_modules",
       "/a/node_modules",
       "/node_modules",
+    ]);
+  });
+});
+
+describe("D1 — one program per project directory", () => {
+  test("a root's own project comes before the projects nested beneath it", async () => {
+    const root = await tree({
+      "hexagon.json": manifest({}),
+      "main.hex": "module Main\n",
+      "vendor/hexagon.json": manifest({ name: "Vendor" }),
+      "vendor/thing.hex": "module Thing\n",
+      "vendor/deeper/hexagon.json": manifest({ name: "Deeper" }),
+      "vendor/deeper/deep.hex": "module Deep\n",
+    });
+    const programs = await discoverPrograms([root]);
+    expect(programs.map(({ directory }) => directory)).toEqual([
+      root,
+      `${root}/vendor`,
+      `${root}/vendor/deeper`,
+    ]);
+    // Each holds its own files and no other's.
+    expect(programs.map(({ files }) => files.map(({ path }) => path))).toEqual([
+      [`${root}/main.hex`],
+      [`${root}/vendor/thing.hex`],
+      [`${root}/vendor/deeper/deep.hex`],
+    ]);
+  });
+
+  test("two roots see each other only through an installed dependency", async () => {
+    const root = await tree({
+      "a/hexagon.json": manifest({}),
+      "a/main.hex": "module Main\n",
+      "b/hexagon.json": manifest({ name: "Bee" }),
+      "b/bee.hex": "module Bee\n",
+    });
+    const programs = await discoverPrograms([join(root, "a"), join(root, "b")]);
+    expect(programs.map(({ directory }) => directory)).toEqual([`${root}/a`, `${root}/b`]);
+    expect(programs[0]!.packages).toEqual([]);
+  });
+});
+
+describe("§4.1 — the level scan reads one field", () => {
+  test("a scanned root's `exclude` is not validated, and its `package.json` not read", async () => {
+    // A root nobody resolves to, whose manifest would draw a warning if it were
+    // validated: the level scan reads its `name` and stops, so a level holding
+    // hundreds of packages costs one small read each rather than a full check.
+    const root = await tree({
+      "hexagon.json": manifest({ dependencies: ["Acme"] }),
+      "main.hex": "module Main\n",
+      "node_modules/acme/hexagon.json": manifest({ name: "Acme" }),
+      "node_modules/junk/hexagon.json": manifest({ name: "Junk", exclude: ["nowhere"] }),
+    });
+    const program = await discover(root);
+    expect(messages(program)).toEqual([]);
+  });
+
+  test("a package the lookup answers with is validated in full", async () => {
+    const root = await tree({
+      "hexagon.json": manifest({ dependencies: ["Junk"] }),
+      "main.hex": "module Main\n",
+      "node_modules/junk/hexagon.json": manifest({ name: "Junk", exclude: ["nowhere"] }),
+    });
+    const program = await discover(root);
+    expect(messages(program)).toEqual([
+      "hexagon.json `exclude` entry \"nowhere\" matches no file or directory, so it " +
+        "has no effect (check the spelling, including its case)",
     ]);
   });
 });

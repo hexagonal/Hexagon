@@ -50,8 +50,8 @@ import {
   uinteger,
 } from "vscode-languageserver";
 import { TextDocument } from "vscode-languageserver-textdocument";
-import { basename, join } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { basename } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   hoverMarkdown,
   refused,
@@ -68,7 +68,7 @@ import {
 } from "./code-actions.js";
 import { offsetOfPosition, rangeOfSpan } from "./positions.js";
 import { Workspace } from "./workspace.js";
-import { MANIFEST_NAME, type ManifestResult } from "../../host/src/index.js";
+import { MANIFEST_NAME, type SeatedProblem } from "../../host/src/index.js";
 import { LEGEND, encodeSemanticTokens } from "./semantic-tokens.js";
 
 /**
@@ -88,26 +88,21 @@ export function startServer(connection: Connection): void {
   /** Read once at initialization: what shape of code action this client takes. */
   let codeActions: CodeActionSupport = { literals: false, disabled: false };
   let roots: readonly string[] = [];
-  /** Each root's manifest problems, republished whenever diagnostics are. */
-  const manifests = new Map<string, ManifestResult>();
-  /**
-   * The *path* of each root's own manifest — the only ones that are read.
-   * Compared by path rather than by URI string on purpose: a client spells a URI
-   * its own way, and VS Code percent-encodes a Windows drive colon
-   * (`file:///c%3A/…`) where `pathToFileURL` does not. Matching the string would
-   * mean a manifest edit on Windows silently never reloaded anything.
-   */
-  const manifestPaths = new Set<string>();
+  /** Whether this client applies a `WorkspaceEdit` that creates a file. */
+  let createsFiles = false;
 
   const log = (message: string): void => connection.console.info(`[hexagon] ${message}`);
   const reportError = (message: string): void => connection.console.error(`[hexagon] ${message}`);
 
   connection.onInitialize(async (params: InitializeParams): Promise<InitializeResult> => {
     roots = rootPathsOf(params);
-    const { added, manifests: read } = await workspace.setRoots(roots, reportError);
-    for (const [root, result] of read) manifests.set(root, result);
-    for (const root of roots) manifestPaths.add(workspace.uris.toPath(manifestUriOf(root)));
-    log(`initialized over ${roots.length} root(s); ${added} Hexagon file(s) found`);
+    const { added } = await workspace.setRoots(roots, reportError);
+    log(
+      `initialized over ${roots.length} root(s); ${workspace.programs.length} program(s), ` +
+        `${added} Hexagon file(s) found`,
+    );
+    createsFiles =
+      params.capabilities.workspace?.workspaceEdit?.documentChanges === true;
     watchedFilesRegistered = params.capabilities.workspace?.didChangeWatchedFiles?.dynamicRegistration === true;
     codeActions = codeActionSupportOf(params.capabilities.textDocument?.codeAction);
     return {
@@ -157,9 +152,11 @@ export function startServer(connection: Connection): void {
     // Files can change without ever being opened — a branch switch, a formatter,
     // a generated module. Without this the graph silently keeps stale text.
     await connection.client.register(DidChangeWatchedFilesNotification.type, {
-      // The manifest decides what the project *is*, so a change to it can change
-      // every answer — not only which files exist, but whether a module may name
-      // `Node(a)` at all. It has to be watched like source.
+      // A manifest decides what a program *is*, so a change to one can change
+      // every answer, and it is watched like source. **Every** manifest, not
+      // only a root's: a nested one is a package of its own and so a program of
+      // its own (D1), and one under `node_modules` is a dependency arriving or
+      // leaving.
       watchers: [{ globPattern: "**/*.hex" }, { globPattern: `**/${MANIFEST_NAME}` }],
     });
   });
@@ -180,37 +177,38 @@ export function startServer(connection: Connection): void {
   });
 
   connection.onDidChangeWatchedFiles(async ({ changes }) => {
-    let manifestChanged = false;
+    let rediscover = false;
     for (const change of changes) {
-      // Only a *root's* manifest is ever read, so a nested one — a vendored
-      // sub-project, a package that carries its own — must not trigger a full
-      // reread of every root on every save. It still has to be skipped rather
-      // than fall through, or its JSON would be read into the session as
-      // Hexagon source.
-      if (manifestPaths.has(workspace.uris.toPath(change.uri))) {
-        manifestChanged = true;
+      // **Every** manifest re-runs discovery, wherever it sits. A nested one is
+      // a package of its own and so a program of its own (D1); one under
+      // `node_modules` is a dependency arriving, leaving, or changing what it
+      // depends on. Which manifest changed narrows nothing worth narrowing: one
+      // project's `exclude` can hide a file another reaches, and a package's
+      // `dependencies` changes what every program holding it compiles.
+      //
+      // By basename of the resolved path, not by URI suffix: a client spells a
+      // URI its own way — VS Code percent-encodes a Windows drive colon where
+      // `pathToFileURL` does not — and matching the string would mean a manifest
+      // edit on Windows silently never reloaded anything, while falling through
+      // would read a JSON file into a session as Hexagon source.
+      if (basename(workspace.uris.toPath(change.uri)) === MANIFEST_NAME) {
+        rediscover = true;
         continue;
       }
-      // By basename of the resolved path, not by URI suffix: the same class of
-      // respelling that made the root-manifest match silent applies here too,
-      // and falling through would read a JSON file into the session as Hexagon.
-      if (basename(workspace.uris.toPath(change.uri)) === MANIFEST_NAME) continue;
+      // A `.hex` file, wherever it sits — a dependency's source under
+      // `node_modules` included, which is refreshed in every program holding it
+      // rather than in one.
       if (change.type === FileChangeType.Deleted) await workspace.deleteFile(change.uri);
       else await workspace.refreshFromDisk(change.uri);
     }
-    if (manifestChanged) {
-      // Which root's manifest changed does not narrow the work: one root's
-      // `exclude` can hide a file another root's manifest privileges, so the
-      // cheap thing and the correct thing are the same size here.
-      const { manifests: read } = await workspace.setRoots(roots, reportError);
-      manifests.clear();
-      for (const [root, result] of read) manifests.set(root, result);
+    if (rediscover) {
+      await workspace.setRoots(roots, reportError);
       // A rescan reads disk, and it skips files the editor has open — so a file
-      // that has just *stopped* being excluded would be left out of the session
-      // entirely until the user happened to type in it. Re-applying the buffers
+      // that has just *stopped* being excluded would be left out of every
+      // program until the user happened to type in it. Re-applying the buffers
       // is what makes the workspace independent of that.
       for (const document of documents.all()) await workspace.openDocument(document);
-      log(`reloaded ${MANIFEST_NAME}`);
+      log(`reloaded ${MANIFEST_NAME}; ${workspace.programs.length} program(s)`);
     }
     schedulePublish();
   });
@@ -219,7 +217,9 @@ export function startServer(connection: Connection): void {
     const document = documents.get(textDocument.uri);
     if (document === undefined) return null;
     const path = workspace.uris.toPath(textDocument.uri);
-    const hover = workspace.session.hover(path, offsetOfPosition(document, position));
+    const session = workspace.sessionFor(path);
+    if (session === undefined) return null;
+    const hover = session.hover(path, offsetOfPosition(document, position));
     if (hover === undefined) return null;
     return { contents: hoverContents(hover), range: rangeOfSpan(hover.span) };
   });
@@ -228,7 +228,9 @@ export function startServer(connection: Connection): void {
     const document = documents.get(textDocument.uri);
     if (document === undefined) return null;
     const path = workspace.uris.toPath(textDocument.uri);
-    const found = workspace.session.definitions(path, offsetOfPosition(document, position));
+    const session = workspace.sessionFor(path);
+    if (session === undefined) return null;
+    const found = session.definitions(path, offsetOfPosition(document, position));
     if (found.length === 0) return null;
     return found.map((definition): Location => ({
       uri: workspace.uris.toUri(definition.path),
@@ -240,7 +242,9 @@ export function startServer(connection: Connection): void {
     const document = documents.get(textDocument.uri);
     if (document === undefined) return null;
     const path = workspace.uris.toPath(textDocument.uri);
-    const found = workspace.session.references(path, offsetOfPosition(document, position), {
+    const session = workspace.sessionFor(path);
+    if (session === undefined) return null;
+    const found = session.references(path, offsetOfPosition(document, position), {
       includeDeclaration: context.includeDeclaration,
     });
     if (found.length === 0) return null;
@@ -254,7 +258,9 @@ export function startServer(connection: Connection): void {
     const document = documents.get(textDocument.uri);
     if (document === undefined) return null;
     const path = workspace.uris.toPath(textDocument.uri);
-    const offered = workspace.session.completions(path, offsetOfPosition(document, position));
+    const session = workspace.sessionFor(path);
+    if (session === undefined) return null;
+    const offered = session.completions(path, offsetOfPosition(document, position));
     if (offered.length === 0) return null;
     // `documentation` rather than `detail` for the doc content, though
     // `spec/doc-comments.md` §8 calls the surface "completion detail": the
@@ -276,20 +282,24 @@ export function startServer(connection: Connection): void {
     if (document === undefined) return null;
     if (!wantsActions(context.only)) return null;
     const path = workspace.uris.toPath(textDocument.uri);
+    const session = workspace.sessionFor(path);
+    if (session === undefined) return null;
     const pathOfFile = (fileId: number): string | undefined =>
-      workspace.session.pathOfFile(fileId as Source.FileId);
+      session.pathOfFile(fileId as Source.FileId);
+    const asked = {
+      start: offsetOfPosition(document, range.start),
+      end: offsetOfPosition(document, range.end),
+    };
     // The client's own `context.diagnostics` are not consulted: they are the
     // ones it happens to be showing, which after an edit is the previous
     // analysis. The session's are the current ones, and an action built from
     // stale spans would edit the wrong characters.
-    const offered = workspace.session.codeActions(path, {
-      start: offsetOfPosition(document, range.start),
-      end: offsetOfPosition(document, range.end),
-    });
+    const offered = session.codeActions(path, asked);
     const actions = offered.flatMap((action) => {
       const converted = toLspCodeAction(action, codeActions, workspace.uris, pathOfFile);
       return converted === undefined ? [] : [converted];
     });
+    actions.push(...manifestActions(workspace, path, asked, createsFiles));
     return actions.length === 0 ? null : actions;
   });
 
@@ -299,7 +309,9 @@ export function startServer(connection: Connection): void {
     // a position at all. A file the session knows from the workspace scan can be
     // coloured whether or not this client has opened it.
     const path = workspace.uris.toPath(textDocument.uri);
-    return encodeSemanticTokens(workspace.session.semanticTokens(path));
+    const session = workspace.sessionFor(path);
+    if (session === undefined) return encodeSemanticTokens([]);
+    return encodeSemanticTokens(session.semanticTokens(path));
   });
 
   // A refusal is shown to the user by failing the request: an editor renders the
@@ -310,7 +322,9 @@ export function startServer(connection: Connection): void {
     const document = documents.get(textDocument.uri);
     if (document === undefined) return null;
     const path = workspace.uris.toPath(textDocument.uri);
-    const subject = workspace.session.prepareRename(path, offsetOfPosition(document, position));
+    const session = workspace.sessionFor(path);
+    if (session === undefined) return null;
+    const subject = session.prepareRename(path, offsetOfPosition(document, position));
     if (subject === undefined) return null;
     if (refused(subject)) return new ResponseError(ErrorCodes.InvalidRequest, subject.refused);
     return rangeOfSpan(subject.span);
@@ -320,7 +334,9 @@ export function startServer(connection: Connection): void {
     const document = documents.get(textDocument.uri);
     if (document === undefined) return null;
     const path = workspace.uris.toPath(textDocument.uri);
-    const plan = workspace.session.rename(path, offsetOfPosition(document, position), newName);
+    const session = workspace.sessionFor(path);
+    if (session === undefined) return null;
+    const plan = session.rename(path, offsetOfPosition(document, position), newName);
     if (plan === undefined) return null;
     if (refused(plan)) return new ResponseError(ErrorCodes.InvalidRequest, plan.refused);
     const changes: Record<string, TextEdit[]> = {};
@@ -349,7 +365,7 @@ export function startServer(connection: Connection): void {
     if (publishTimer !== undefined) clearTimeout(publishTimer);
     publishTimer = setTimeout(() => {
       publishTimer = undefined;
-      publishDiagnostics(connection, workspace, published, manifests, documents.all());
+      publishDiagnostics(connection, workspace, published, documents.all());
     }, DIAGNOSTIC_DELAY_MS);
   }
 }
@@ -367,38 +383,40 @@ function publishDiagnostics(
   connection: Connection,
   workspace: Workspace,
   published: Set<string>,
-  manifests: ReadonlyMap<string, ManifestResult>,
   open: readonly TextDocument[],
 ): void {
-  const analysed = workspace.session.allDiagnostics();
-  const pathOfFile = (fileId: number): string | undefined =>
-    workspace.session.pathOfFile(fileId as Source.FileId);
   const stillReporting = new Set<string>();
-  for (const [path, diagnostics] of analysed) {
+  // Merged across every program that holds the file (D3): identical reports
+  // once, different ones each, and a file cleared only when no program still
+  // reports on it — which is what the empty entries this map carries do.
+  for (const [path, diagnostics] of workspace.allDiagnostics()) {
     const uri = workspace.uris.toUri(path);
     if (diagnostics.length === 0) continue;
     stillReporting.add(uri);
     connection.sendDiagnostics({
       uri,
-      diagnostics: diagnostics.map((diagnostic) =>
+      diagnostics: diagnostics.map(({ diagnostic, pathOfFile }) =>
         toLspDiagnostic(diagnostic, workspace.uris, pathOfFile)
       ),
     });
   }
-  // A malformed manifest is reported against the manifest, not against anyone's
-  // Hexagon. Silently ignoring a misspelled key would leave a user staring at
+  // A manifest's own problems are reported against the manifest, not against
+  // anyone's Hexagon — a dependency's `hexagon.json` under `node_modules`
+  // included, since that is the file whose reader can act on the report (D3).
+  // Silently ignoring a misspelled key would leave a user staring at
   // diagnostics they believe they configured away, with nothing to explain why.
-  for (const [root, result] of manifests) {
-    if (!result.present) continue;
-    const uri = manifestUriOf(root);
-    // A manifest that has stopped reporting is cleared by the trailing sweep
-    // below, which is where every other file's clearing happens; publishing an
-    // empty list here as well would send it twice.
-    if (result.problems.length === 0) continue;
+  const byManifest = new Map<string, SeatedProblem[]>();
+  for (const problem of workspace.manifestProblems()) {
+    const seated = byManifest.get(problem.path);
+    if (seated === undefined) byManifest.set(problem.path, [problem]);
+    else seated.push(problem);
+  }
+  for (const [path, seated] of byManifest) {
+    const uri = workspace.uris.toUri(path);
     stillReporting.add(uri);
     connection.sendDiagnostics({
       uri,
-      diagnostics: result.problems.map((problem) => ({
+      diagnostics: seated.map((problem) => ({
         severity: problem.severity === "error"
           ? DiagnosticSeverity.Error
           : DiagnosticSeverity.Warning,
@@ -445,6 +463,99 @@ function publishDiagnostics(
   }
   published.clear();
   for (const uri of stillReporting) published.add(uri);
+}
+
+/**
+ * Packages §7's not-a-dependency repair, as an applied edit.
+ *
+ * The report names a line in `hexagon.json` and the compiler marks it rather
+ * than writing it: a manifest is not a file the compiler holds — it arrives as
+ * a record (§4.1) — so the entry is the compiler's to name and the file is the
+ * host's to write. Offered **only** where the file drawing the report is a
+ * project the editor holds: the resolving package of a report inside a
+ * dependency is that dependency, whose manifest sits under `node_modules` and
+ * is not a file a user wrote or should be asked to edit.
+ *
+ * The whole manifest is rewritten from its parsed value rather than spliced,
+ * because `hexagon.json` is JSON — no comments to lose — and a splice into an
+ * array a user may have written on one line, several lines, or with a trailing
+ * entry is three ways to produce invalid JSON for one repair.
+ */
+function manifestActions(
+  workspace: Workspace,
+  path: string,
+  asked: { start: number; end: number },
+  createsFiles: boolean,
+): readonly CodeAction[] {
+  const program = workspace.programs.find((held) => held.owns(path));
+  if (program === undefined) return [];
+  const manifest = workspace.projectManifestOf(path);
+  if (manifest === undefined) return [];
+  // A manifest that is not there has to be created, which needs a client that
+  // applies file operations; one that cannot is offered nothing rather than an
+  // edit it would silently drop.
+  if (manifest.text === undefined && !createsFiles) return [];
+  const offered = new Map<string, CodeAction>();
+  for (const diagnostic of program.session.diagnostics(path)) {
+    const entry = diagnostic.manifestDependency?.packageName;
+    if (entry === undefined) continue;
+    if (diagnostic.primary.end.offset < asked.start) continue;
+    if (diagnostic.primary.start.offset > asked.end) continue;
+    if (offered.has(entry)) continue;
+    const text = manifestText(manifest.text, entry);
+    if (text === undefined) continue;
+    const uri = workspace.uris.toUri(manifest.path);
+    const range = wholeDocument(manifest.text ?? "");
+    offered.set(entry, {
+      title: `add \`"${entry}"\` to \`dependencies\` in ${MANIFEST_NAME}`,
+      kind: CodeActionKind.QuickFix,
+      ...(manifest.text === undefined
+        ? {
+          edit: {
+            documentChanges: [
+              { kind: "create", uri, options: { ignoreIfExists: true } },
+              {
+                textDocument: { uri, version: null },
+                edits: [{ range, newText: text }],
+              },
+            ],
+          },
+        }
+        : { edit: { changes: { [uri]: [{ range, newText: text }] } } }),
+    });
+  }
+  return [...offered.values()];
+}
+
+/** The manifest as it reads with one more `dependencies` entry, or nothing. */
+function manifestText(current: string | undefined, entry: string): string | undefined {
+  let value: unknown = {};
+  if (current !== undefined) {
+    try {
+      value = JSON.parse(current.replace(/^\uFEFF/u, ""));
+    } catch {
+      // A manifest that does not parse already has a report of its own against
+      // it, and rewriting it would throw away whatever the user was typing.
+      return undefined;
+    }
+  }
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  const listed = record["dependencies"];
+  const entries = Array.isArray(listed) ? [...listed] : [];
+  if (listed !== undefined && !Array.isArray(listed)) return undefined;
+  if (entries.includes(entry)) return undefined;
+  entries.push(entry);
+  return `${JSON.stringify({ ...record, dependencies: entries }, undefined, 2)}\n`;
+}
+
+/** The range covering a whole document, so an edit replaces all of it. */
+function wholeDocument(text: string): Range {
+  const lines = text.split("\n");
+  return {
+    start: { line: 0, character: 0 },
+    end: { line: lines.length - 1, character: lines.at(-1)!.length },
+  };
 }
 
 /**
@@ -495,9 +606,4 @@ function rootPathsOf(params: InitializeParams): readonly string[] {
     });
   }
   return typeof params.rootPath === "string" ? [params.rootPath] : [];
-}
-
-/** The URI of a root's own manifest, built the same way every time it is needed. */
-function manifestUriOf(rootPath: string): string {
-  return pathToFileURL(join(rootPath, MANIFEST_NAME)).toString();
 }

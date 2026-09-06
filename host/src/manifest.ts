@@ -53,6 +53,18 @@ import { normalizePath, realPathOf } from "./paths.js";
 
 export const MANIFEST_NAME = "hexagon.json";
 
+/**
+ * The package name a manifest's `name` value declares, where this spec accepts
+ * it (Packages §2.1), and nothing otherwise.
+ *
+ * Shared with the level scan, which reads a manifest for this field alone: the
+ * judgement is the compiler's (`packageNameRefusal`) and it must be one
+ * judgement, or a lookup would answer with a name the compiler refuses.
+ */
+export function packageName(value: string): string | undefined {
+  return packageNameRefusal(value) === undefined ? value : undefined;
+}
+
 /** The keys this reader knows, in the order §2.1 introduces them. */
 const KNOWN_KEYS = ["name", "dependencies", "exclude"] as const;
 

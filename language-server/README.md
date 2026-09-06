@@ -348,6 +348,7 @@ the wrong characters.
 - Results from superseded analysis are not published against newer text. Diagnostics are debounced, and only the latest analysis is sent.
 - Request ordering must not make compiler results nondeterministic.
 - Editor-specific behaviour is kept out of the shared compiler services.
+- **A diagnostic is anchored where it was drawn, and merged where several programs draw it.** A report is published against the file and span that caused it — a dependency's file under `node_modules` included — with its other locations carried as related information. A file several programs hold gets one merged list: identical reports appear once, genuinely different ones each appear, and the file is cleared only when no active program still reports on it. Publishing per program instead would double every error in a shared dependency; publishing only the first program's would hide what the second alone can see.
 
 Two principles from this document's first draft turned out to describe a problem this design does not have, and are recorded here rather than silently dropped. **Per-response version stamping** and **cancellation propagation** both assume a request can observe an edit midway through being answered. Analysis is synchronous, so nothing yields between reading a document and returning an answer; a request either runs entirely before an edit or entirely after it. Both become real the moment analysis stops being synchronous, and that is the change that should bring them back.
 
@@ -361,7 +362,7 @@ The first vertical slice provides:
 4. hover using resolved and typed compiler information;
 5. go-to-definition using stable compiler identities;
 6. find-references over values, type names, and constraints; and
-7. a `hexagon.json` manifest saying which modules are privileged and which files are not the project.
+7. a `hexagon.json` manifest saying what the project is, whose `dependencies` are resolved and compiled with it.
 
 Find-references arrived with the slice rather than after it because it shares one index with go-to-definition: both ask the same question of the same table, and building one without the other would have meant writing the traversal twice.
 
@@ -396,9 +397,12 @@ Editor extensions launch this server. They do not contain separate compiler impl
 
 ## `hexagon.json`
 
-A workspace root may carry a manifest saying what the project is. Without one,
-the root is "every `.hex` file underneath, compiled together", which is a guess
-that goes wrong in a way a server cannot recover from alone.
+A directory holding a manifest is a **project**, and one program is compiled per
+project directory (`compiler/architecture/environment.md` §4). Without a
+manifest at it or above it, a directory is still a project — under an *implicit
+empty manifest* (Packages §2.5) — and is "every `.hex` file underneath, compiled
+together", which is a guess that goes wrong in a way a server cannot recover
+from alone.
 
 ```json
 {
@@ -410,8 +414,24 @@ that goes wrong in a way a server cannot recover from alone.
 
 **`name`** and **`dependencies`** are the *language's* fields (Packages §2.1):
 the package's own name, which is the first segment of every module's full name,
-and the packages its modules may import. This reader validates their shape and
-resolves nothing.
+and the packages its modules may import.
+
+`dependencies` are **resolved**, by the `host/` package, the way Node resolves a
+requested name: from the asking package's own directory — its `node_modules`,
+then each ancestor's, outward — reading the `hexagon.json` of every package root
+at each level, with the *nearest* level declaring the name answering. A copy at a
+farther level is shadowed for that walk and never read; a package nobody lists is
+never sought; and a directory holding no `hexagon.json` is a JavaScript package
+(Packages §4.4), read for nothing. What the resolved set then *is* — one copy per
+name, acyclic, the project's own name unclaimed — the compiler decides, and its
+reports are published against the manifest that carries the entry, a dependency's
+own `hexagon.json` under `node_modules` included.
+
+A dependency's source is compiled with the program, so its modules answer hover
+and definition like any other, under their full names (`Acme.Geometry`). An
+import naming an installed package the manifest does not list draws Packages §7's
+report, whose repair is an applied edit adding the entry — offered only where the
+manifest is a project the editor holds, never one under `node_modules`.
 
 **`exclude`** — path prefixes that are not part of the project: generated output,
 deliberately-broken examples, a vendored copy. Matching is by exact path or
@@ -462,17 +482,16 @@ Going quiet instead would read as a broken server — the grammar still colours 
 buffer and the server is visibly running — and the user's next move would be to
 report a bug rather than to open `hexagon.json`.
 
-The manifest is watched like source, since a change to it can change every
-answer.
+Every manifest is watched like source, wherever it sits, since a change to one
+can change what the programs are: a `hexagon.json` written beneath a project is a
+package of its own and so a program of its own, and one written under
+`node_modules` is a dependency arriving. Any of them re-runs discovery.
 
 ## Known limits
 
 Listed rather than hidden, because each is a place where the server is knowingly
 less than it looks.
 
-- **One manifest per workspace root, at the root.** Nested projects inside one
-  root are not modelled: a `hexagon.json` deeper in the tree is watched but never
-  read, and a root's `exclude` cannot be overridden below it.
 - **The set of workspace roots is fixed at initialization.** A folder added to
   or removed from the workspace afterwards is not noticed: the server neither
   declares `workspace.workspaceFolders` nor handles the change notification, so

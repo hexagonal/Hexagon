@@ -349,6 +349,12 @@ export function compileProject(
         severity: "error",
         message: unresolvedModuleMessage(item.module.text, resolution),
         primary: item.span,
+        // The repair Packages §7 names is a line in `hexagon.json`, which the
+        // compiler does not hold; the marker says which entry, and a host that
+        // can write that manifest offers the edit.
+        ...(resolution.kind === "NotADependency"
+          ? { manifestDependency: { packageName: resolution.packageName } }
+          : {}),
       });
     }
   }

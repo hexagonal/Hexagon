@@ -276,10 +276,10 @@ describe("the workspace walk", () => {
     await writeFile(join(path, "main.hex"), "module Main\n\n" + "let value: Int = 1\n");
     await writeFile(join(path, MANIFEST_NAME), "{ oops");
     const workspace = new Workspace();
-    const { added, manifests } = await workspace.setRoots([path], () => {});
+    const { added } = await workspace.setRoots([path], () => {});
     // The manifest's own failure must not take language support down with it.
     expect(added).toBe(1);
-    expect(manifests.get(path)!.problems).toHaveLength(1);
+    expect(workspace.manifestProblems()).toHaveLength(1);
     expect(workspace.session.hover(workspace.session.paths[0]!, HEADER.length + 4)?.name).toBe("value");
   });
 
@@ -375,8 +375,12 @@ describe("the workspace walk", () => {
     await forwards.setRoots([a, b], () => {});
     const backwards = new Workspace();
     await backwards.setRoots([b, a], () => {});
+    // Two roots are two programs (D1), so the file set is read across them:
+    // what is being pinned is which files survive, not which program holds one.
     const names = (w: Workspace) =>
-      w.session.paths.map((p) => p.split("/").at(-1)).sort();
+      w.programs.flatMap(({ session }) => session.paths)
+        .map((p) => p.split("/").at(-1))
+        .sort();
     expect(names(forwards)).toEqual(["main.hex", "other.hex"]);
     expect(names(backwards)).toEqual(["main.hex", "other.hex"]);
 
@@ -429,12 +433,15 @@ describe("the workspace walk", () => {
     await writeFile(join(b, "two.hex"), "module Two\n\n" + "let two: Int = 2\n");
     const workspace = new Workspace();
     await workspace.setRoots([a, b], () => {});
-    expect(workspace.session.paths).toHaveLength(2);
+    // Two roots, two programs, one file each — and neither sees the other's
+    // (D1): two open folders meet only through an installed dependency.
+    expect(workspace.programs.map(({ session }) => session.paths.length)).toEqual([1, 1]);
 
     // `setRoots` names a replacement, not an addition. Leaving the old root's
-    // files behind would make the method's name a lie the next caller trusts.
+    // program behind would make the method's name a lie the next caller trusts.
     await workspace.setRoots([a], () => {});
-    expect(workspace.session.paths.map((p) => p.split("/").at(-1))).toEqual(["one.hex"]);
+    expect(workspace.programs.flatMap(({ session }) => session.paths)
+      .map((p) => p.split("/").at(-1))).toEqual(["one.hex"]);
   });
 
   test("an open buffer survives a rescan that does not find it", async () => {
@@ -637,5 +644,143 @@ describe("the workspace walk", () => {
     // And it must still hold on the next keystroke, which takes the sync path.
     workspace.updateDocument(document as never);
     expect(workspace.session.paths.map((p) => p.split("/").at(-1))).toEqual(["main.hex"]);
+  });
+});
+
+/**
+ * D1 and D3: several programs over one file set.
+ *
+ * A dependency's source can sit in two programs' closures at once, and every
+ * rule below is about what that costs a reader — one file, one identity, its
+ * reports merged rather than doubled, and its buffer's text reaching both.
+ */
+describe("programs, and a file two of them hold", () => {
+  const manifest = (fields: Readonly<Record<string, unknown>>): string =>
+    `${JSON.stringify(fields, undefined, 2)}\n`;
+
+  /** Two projects that both depend on one hoisted `Acme`. */
+  async function sharedDependency(broken: boolean): Promise<{ path: string; acme: string }> {
+    const path = await makeRoot();
+    for (const project of ["a", "b"]) {
+      await mkdir(join(path, project), { recursive: true });
+      await writeFile(join(path, project, MANIFEST_NAME), manifest({ dependencies: ["Acme"] }));
+      await writeFile(join(path, project, "main.hex"), "module Main\n\nimport Acme.Geometry\n");
+    }
+    await mkdir(join(path, "node_modules", "acme"), { recursive: true });
+    await writeFile(join(path, "node_modules", "acme", MANIFEST_NAME), manifest({ name: "Acme" }));
+    const acme = join(path, "node_modules", "acme", "geometry.hex");
+    await writeFile(
+      acme,
+      broken
+        ? "module Geometry\n\nexport let width: Int = \"oops\"\n"
+        : "module Geometry\n\nexport let width: Int = 3\n",
+    );
+    return { path, acme };
+  }
+
+  test("two projects each hold the dependency, and each keeps its own analysis", async () => {
+    const { path, acme } = await sharedDependency(false);
+    const workspace = new Workspace();
+    await workspace.setRoots([join(path, "a"), join(path, "b")], () => {});
+    expect(workspace.programs).toHaveLength(2);
+    const held = workspace.programs.filter((program) =>
+      program.holds(workspace.uris.toPath(pathToFileURL(acme).toString()))
+    );
+    expect(held).toHaveLength(2);
+    // And neither *owns* it: it is nobody's project source, so no editor root
+    // is asked to answer for a file under `node_modules`.
+    expect(held.every((program) => !program.owns(
+      workspace.uris.toPath(pathToFileURL(acme).toString()),
+    ))).toBe(true);
+  });
+
+  test("one fault in a shared dependency is published once, not once per program", async () => {
+    const { path, acme } = await sharedDependency(true);
+    const workspace = new Workspace();
+    await workspace.setRoots([join(path, "a"), join(path, "b")], () => {});
+    const key = workspace.uris.toPath(pathToFileURL(acme).toString());
+    const reported = workspace.allDiagnostics().get(key) ?? [];
+    // Both programs compile the file and both fail on it; a reader sees the
+    // fault once (D3's "identical reports once").
+    expect(reported).toHaveLength(1);
+  });
+
+  test("a buffer over a dependency's file reaches every program holding it", async () => {
+    const { path, acme } = await sharedDependency(true);
+    const workspace = new Workspace();
+    await workspace.setRoots([join(path, "a"), join(path, "b")], () => {});
+    const uri = pathToFileURL(acme).toString();
+    await workspace.openDocument({
+      uri,
+      getText: () => "module Geometry\n\nexport let width: Int = 3\n",
+    } as never);
+    const key = workspace.uris.toPath(uri);
+    expect(workspace.allDiagnostics().get(key) ?? []).toEqual([]);
+    for (const program of workspace.programs) {
+      expect(program.session.diagnostics(key)).toEqual([]);
+    }
+  });
+
+  test("a file is answered by the program that owns it as project source", async () => {
+    const path = await makeRoot();
+    await mkdir(join(path, "vendor"), { recursive: true });
+    await writeFile(join(path, MANIFEST_NAME), manifest({}));
+    await writeFile(join(path, "main.hex"), "module Main\n\nlet n: Int = 1\n");
+    await writeFile(join(path, "vendor", MANIFEST_NAME), manifest({ name: "Vendor" }));
+    await writeFile(join(path, "vendor", "thing.hex"), "module Thing\n\nlet n: Int = 1\n");
+    const workspace = new Workspace();
+    await workspace.setRoots([path], () => {});
+    const main = workspace.uris.toPath(pathToFileURL(join(path, "main.hex")).toString());
+    const thing = workspace.uris.toPath(pathToFileURL(join(path, "vendor", "thing.hex")).toString());
+    expect(workspace.programFor(main)!.directory.endsWith("vendor")).toBe(false);
+    expect(workspace.programFor(thing)!.directory.endsWith("vendor")).toBe(true);
+  });
+
+  test("a `.hex` file created under a dependency joins every program holding it", async () => {
+    const { path } = await sharedDependency(false);
+    const workspace = new Workspace();
+    await workspace.setRoots([join(path, "a"), join(path, "b")], () => {});
+    const added = join(path, "node_modules", "acme", "extra.hex");
+    await writeFile(added, "module Extra\n\nexport let n: Int = 1\n");
+    await workspace.refreshFromDisk(pathToFileURL(added).toString());
+    const key = workspace.uris.toPath(pathToFileURL(added).toString());
+    expect(workspace.programs.filter((program) => program.holds(key))).toHaveLength(2);
+    // And it compiles as `Acme`'s, so its own name is `Acme.Extra`: seated in
+    // the package it belongs to, never as either project's own source.
+    for (const program of workspace.programs) {
+      expect(program.owns(key)).toBe(false);
+      expect(program.session.diagnostics(key)).toEqual([]);
+    }
+  });
+});
+
+/**
+ * The case the owns-first rule exists for: a workspace package that is both an
+ * editor root of its own and a linked dependency of its neighbour.
+ */
+describe("a file one program owns and another holds", () => {
+  const manifest = (fields: Readonly<Record<string, unknown>>): string =>
+    `${JSON.stringify(fields, undefined, 2)}\n`;
+
+  test("the program that owns it as project source answers, whatever the root order", async () => {
+    const path = await makeRoot();
+    await mkdir(join(path, "app", "node_modules"), { recursive: true });
+    await mkdir(join(path, "acme"), { recursive: true });
+    await writeFile(join(path, "app", MANIFEST_NAME), manifest({ dependencies: ["Acme"] }));
+    await writeFile(join(path, "app", "main.hex"), "module Main\n\nimport Acme.Geometry\n");
+    await writeFile(join(path, "acme", MANIFEST_NAME), manifest({ name: "Acme" }));
+    const geometry = join(path, "acme", "geometry.hex");
+    await writeFile(geometry, "module Geometry\n\nexport let width: Int = 3\n");
+    await symlink(join(path, "acme"), join(path, "app", "node_modules", "acme"), "dir");
+
+    const workspace = new Workspace();
+    // `app` first, so the program that merely *holds* the file comes first in
+    // root order and would answer under a first-holder rule.
+    await workspace.setRoots([join(path, "app"), join(path, "acme")], () => {});
+    const key = workspace.uris.toPath(pathToFileURL(geometry).toString());
+    expect(workspace.programs.filter((program) => program.holds(key))).toHaveLength(2);
+    // The author of `acme/geometry.hex` edits `acme`, so `acme`'s program is
+    // the one whose repairs and renames they can act on.
+    expect(workspace.programFor(key)!.directory.endsWith("/acme")).toBe(true);
   });
 });

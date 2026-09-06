@@ -38,8 +38,9 @@ requested name — from the **asking package's own directory**, not the project'
 Its `node_modules`, then each ancestor's, outward, an ancestor named
 `node_modules` skipped as Node skips it. At each level the package roots are its
 entries, and the entries of any `@scope` entry, that hold a `hexagon.json`;
-their manifests are read, because npm names a directory and Hexagon names a
-manifest. The **nearest** level declaring the requested name answers.
+their manifests are read for the `name` they declare, because npm names a
+directory and Hexagon names a manifest. The **nearest** level declaring the
+requested name answers.
 
 Three consequences worth stating, because each is a rule and not an accident:
 
@@ -53,6 +54,15 @@ Three consequences worth stating, because each is a rule and not an accident:
   that does not parse is named only inside the unresolvable-name report of a
   lookup that scanned it; one that parses and declares no name this spec accepts
   is named nowhere, because nothing about it is broken.
+
+A level scan reads one field. Which root declares the name being sought is the
+only question a level answers, so each root's `hexagon.json` is read for its
+`name` and nothing else; the rest of a manifest — its `dependencies`, its
+`exclude`, its sibling `package.json`'s version — is read for "a package the
+lookup answers with", which is validated in full (Packages §4.1), and for no
+other root. A real `node_modules` level holds hundreds of packages a walk will
+never resolve to, and validating each of them would make every lookup pay for
+the whole directory.
 
 The one scan wider than a single name is *installed*, which decides one
 diagnostic — the not-a-dependency report's "is there such a package at all"

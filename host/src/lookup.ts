@@ -25,13 +25,22 @@
  *   no closure and draws no refusal.
  */
 
-import { readdir } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { UnreadableManifest } from "../../compiler/src/index.js";
-import { MANIFEST_NAME, readManifest, type Manifest } from "./manifest.js";
+import { MANIFEST_NAME, packageName } from "./manifest.js";
 import { messageOf, normalizePath, realPathOf } from "./paths.js";
 
-/** One package root a level holds, read (Packages §4.1). */
+/**
+ * One package root a level holds, read **only for its name** (Packages §4.1).
+ *
+ * A level scan answers one question — which of these roots declares the name
+ * being sought — so it reads one field. The rest of a manifest is read for "a
+ * package the lookup answers with", which is validated in full (§4.1), and for
+ * nothing else: a level of a real `node_modules` holds hundreds of packages the
+ * walk will never resolve to, and validating each of them would make every
+ * lookup pay for the whole directory.
+ */
 export interface Candidate {
   /** The canonical directory — the package's identity (§4.3). */
   readonly directory: string;
@@ -39,9 +48,7 @@ export interface Candidate {
   readonly path: string;
   /** The name its manifest declares, where this spec accepts one. */
   readonly name: string | undefined;
-  readonly manifest: Manifest;
   readonly manifestPath: string;
-  readonly manifestText: string;
 }
 
 /** One `node_modules` directory, scanned once (Packages §4.1). */
@@ -174,17 +181,15 @@ export class Lookup {
     const candidates: Candidate[] = [];
     const unreadable: UnreadableManifest[] = [];
     for (const path of roots) {
-      const result = await readManifest(path);
-      if (!result.present) continue;
-      const manifestPath = join(path, MANIFEST_NAME);
-      if (!result.readable) {
+      const manifestPath = normalizePath(join(path, MANIFEST_NAME));
+      const declared = await declaredName(join(path, MANIFEST_NAME));
+      // No `hexagon.json` at all: a JavaScript package (§4.4), read for nothing.
+      if (declared === undefined) continue;
+      if (declared.reason !== undefined) {
         // Named only inside the unresolvable-name report of a lookup that
         // scanned it (§4.1): a broken manifest that answered nothing broke
         // nothing in the program.
-        unreadable.push({
-          path: normalizePath(manifestPath),
-          reason: result.problems[0]?.message ?? "could not be read",
-        });
+        unreadable.push({ path: manifestPath, reason: declared.reason });
         continue;
       }
       candidates.push({
@@ -193,10 +198,8 @@ export class Lookup {
         // A manifest that parses and declares no name this spec accepts — a
         // linked project's, `"Hex"`, `"acme"` — is a candidate for no name, and
         // is named nowhere: nothing about it is broken (§4.1).
-        name: result.manifest.name,
-        manifest: result.manifest,
-        manifestPath: normalizePath(manifestPath),
-        manifestText: result.text,
+        name: declared.name,
+        manifestPath,
       });
     }
     return { directory, candidates, unreadable };
@@ -227,4 +230,38 @@ export class Lookup {
     }
     return roots;
   }
+}
+
+/**
+ * The name a package root's manifest declares, or why it is no candidate.
+ *
+ * `undefined` where there is no manifest at all — a JavaScript package, which
+ * the walk does not read. `reason` where one is there and could not be read as
+ * a JSON object, which is the only fault a lookup ever names. `name` is the
+ * declared name where this spec accepts it (§2.1) and absent otherwise, which
+ * makes the root a candidate for no name and mentioned nowhere.
+ */
+async function declaredName(
+  path: string,
+): Promise<{ name?: string; reason?: string } | undefined> {
+  let text: string;
+  try {
+    text = await readFile(path, "utf8");
+  } catch {
+    return undefined;
+  }
+  let parsed: unknown;
+  try {
+    // VS Code writes a byte-order mark when `files.encoding` is `utf8bom`, and
+    // `JSON.parse` rejects it with a message about an invisible character.
+    parsed = JSON.parse(text.replace(/^\uFEFF/u, ""));
+  } catch (error) {
+    return { reason: `${MANIFEST_NAME} is not valid JSON: ${messageOf(error)}` };
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return { reason: `${MANIFEST_NAME} must contain a JSON object` };
+  }
+  const declared = (parsed as Record<string, unknown>)["name"];
+  if (typeof declared !== "string") return {};
+  return packageName(declared) === undefined ? {} : { name: declared };
 }
