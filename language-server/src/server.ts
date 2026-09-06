@@ -50,8 +50,8 @@ import {
   uinteger,
 } from "vscode-languageserver";
 import { TextDocument } from "vscode-languageserver-textdocument";
-import { basename, join } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { basename } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   hoverMarkdown,
   refused,
@@ -67,8 +67,8 @@ import {
   type CodeActionSupport,
 } from "./code-actions.js";
 import { offsetOfPosition, rangeOfSpan } from "./positions.js";
-import { Workspace } from "./workspace.js";
-import { MANIFEST_NAME, type ManifestResult } from "./manifest.js";
+import { Workspace, type OutsideEveryPackage } from "./workspace.js";
+import { MANIFEST_NAME, type SeatedProblem } from "../../host/src/index.js";
 import { LEGEND, encodeSemanticTokens } from "./semantic-tokens.js";
 
 /**
@@ -88,26 +88,39 @@ export function startServer(connection: Connection): void {
   /** Read once at initialization: what shape of code action this client takes. */
   let codeActions: CodeActionSupport = { literals: false, disabled: false };
   let roots: readonly string[] = [];
-  /** Each root's manifest problems, republished whenever diagnostics are. */
-  const manifests = new Map<string, ManifestResult>();
   /**
-   * The *path* of each root's own manifest — the only ones that are read.
-   * Compared by path rather than by URI string on purpose: a client spells a URI
-   * its own way, and VS Code percent-encodes a Windows drive colon
-   * (`file:///c%3A/…`) where `pathToFileURL` does not. Matching the string would
-   * mean a manifest edit on Windows silently never reloaded anything.
+   * Whether this client takes a `WorkspaceEdit`'s `documentChanges` — which is
+   * what carries a file creation *and* the document version an edit was
+   * measured against. A client without it gets the versionless `changes` form.
    */
-  const manifestPaths = new Set<string>();
+  let documentChanges = false;
+
+  /**
+   * The open **Hexagon** documents — every synchronised `hexagon.json` left out.
+   *
+   * The extension synchronises manifests so that the `dependencies` repair is
+   * measured against the buffer it lands in (`manifestActions`), so the open set
+   * now holds documents that are not source. That a manifest is never *seated*
+   * is `Workspace`'s rule and is written once, there; this answers a different
+   * question — which open documents the two loops below are about, since
+   * neither re-opening a manifest as source nor telling its reader it is
+   * excluded from the project says anything true.
+   */
+  const sourceDocuments = (): readonly TextDocument[] =>
+    documents.all().filter(({ uri }) => basename(workspace.pathFor(uri)) !== MANIFEST_NAME);
 
   const log = (message: string): void => connection.console.info(`[hexagon] ${message}`);
   const reportError = (message: string): void => connection.console.error(`[hexagon] ${message}`);
 
   connection.onInitialize(async (params: InitializeParams): Promise<InitializeResult> => {
     roots = rootPathsOf(params);
-    const { added, manifests: read } = await workspace.setRoots(roots, reportError);
-    for (const [root, result] of read) manifests.set(root, result);
-    for (const root of roots) manifestPaths.add(workspace.uris.toPath(manifestUriOf(root)));
-    log(`initialized over ${roots.length} root(s); ${added} Hexagon file(s) found`);
+    const { added } = await workspace.setRoots(roots, reportError);
+    log(
+      `initialized over ${roots.length} root(s); ${workspace.programs.length} program(s), ` +
+        `${added} Hexagon file(s) found`,
+    );
+    documentChanges =
+      params.capabilities.workspace?.workspaceEdit?.documentChanges === true;
     watchedFilesRegistered = params.capabilities.workspace?.didChangeWatchedFiles?.dynamicRegistration === true;
     codeActions = codeActionSupportOf(params.capabilities.textDocument?.codeAction);
     return {
@@ -157,9 +170,20 @@ export function startServer(connection: Connection): void {
     // Files can change without ever being opened — a branch switch, a formatter,
     // a generated module. Without this the graph silently keeps stale text.
     await connection.client.register(DidChangeWatchedFilesNotification.type, {
-      // The manifest decides what the project *is*, so a change to it can change
-      // every answer — not only which files exist, but whether a module may name
-      // `Node(a)` at all. It has to be watched like source.
+      // A manifest decides what a program *is*, so a change to one can change
+      // every answer, and it is watched like source. **Every** manifest, not
+      // only a root's: a nested one is a package of its own and so a program of
+      // its own (D1), and one under `node_modules` is a dependency arriving or
+      // leaving.
+      //
+      // A glob is a **request**, and the client decides what it really watches:
+      // VS Code's `files.watcherExclude` defaults to `**/node_modules/*/**`, so
+      // the events this asks for under `node_modules` are the ones least likely
+      // to be delivered. Nothing here depends on getting them. Every answer such
+      // an event would refresh is also reached by opening or closing a file, by
+      // any other manifest changing, and by the next rediscovery — so where a
+      // client does send them the only thing they buy is that the workspace
+      // catches up without the user doing anything.
       watchers: [{ globPattern: "**/*.hex" }, { globPattern: `**/${MANIFEST_NAME}` }],
     });
   });
@@ -180,37 +204,38 @@ export function startServer(connection: Connection): void {
   });
 
   connection.onDidChangeWatchedFiles(async ({ changes }) => {
-    let manifestChanged = false;
+    let rediscover = false;
     for (const change of changes) {
-      // Only a *root's* manifest is ever read, so a nested one — a vendored
-      // sub-project, a package that carries its own — must not trigger a full
-      // reread of every root on every save. It still has to be skipped rather
-      // than fall through, or its JSON would be read into the session as
-      // Hexagon source.
-      if (manifestPaths.has(workspace.uris.toPath(change.uri))) {
-        manifestChanged = true;
+      // **Every** manifest re-runs discovery, wherever it sits. A nested one is
+      // a package of its own and so a program of its own (D1); one under
+      // `node_modules` is a dependency arriving, leaving, or changing what it
+      // depends on. Which manifest changed narrows nothing worth narrowing: one
+      // project's `exclude` can hide a file another reaches, and a package's
+      // `dependencies` changes what every program holding it compiles.
+      //
+      // By basename of the resolved path, not by URI suffix: a client spells a
+      // URI its own way — VS Code percent-encodes a Windows drive colon where
+      // `pathToFileURL` does not — and matching the string would mean a manifest
+      // edit on Windows silently never reloaded anything, while falling through
+      // would read a JSON file into a session as Hexagon source.
+      if (basename(workspace.pathFor(change.uri)) === MANIFEST_NAME) {
+        rediscover = true;
         continue;
       }
-      // By basename of the resolved path, not by URI suffix: the same class of
-      // respelling that made the root-manifest match silent applies here too,
-      // and falling through would read a JSON file into the session as Hexagon.
-      if (basename(workspace.uris.toPath(change.uri)) === MANIFEST_NAME) continue;
+      // A `.hex` file, wherever it sits — a dependency's source under
+      // `node_modules` included, which is refreshed in every program holding it
+      // rather than in one.
       if (change.type === FileChangeType.Deleted) await workspace.deleteFile(change.uri);
       else await workspace.refreshFromDisk(change.uri);
     }
-    if (manifestChanged) {
-      // Which root's manifest changed does not narrow the work: one root's
-      // `exclude` can hide a file another root's manifest privileges, so the
-      // cheap thing and the correct thing are the same size here.
-      const { manifests: read } = await workspace.setRoots(roots, reportError);
-      manifests.clear();
-      for (const [root, result] of read) manifests.set(root, result);
+    if (rediscover) {
+      await workspace.setRoots(roots, reportError);
       // A rescan reads disk, and it skips files the editor has open — so a file
-      // that has just *stopped* being excluded would be left out of the session
-      // entirely until the user happened to type in it. Re-applying the buffers
+      // that has just *stopped* being excluded would be left out of every
+      // program until the user happened to type in it. Re-applying the buffers
       // is what makes the workspace independent of that.
-      for (const document of documents.all()) await workspace.openDocument(document);
-      log(`reloaded ${MANIFEST_NAME}`);
+      for (const document of sourceDocuments()) await workspace.openDocument(document);
+      log(`reloaded ${MANIFEST_NAME}; ${workspace.programs.length} program(s)`);
     }
     schedulePublish();
   });
@@ -218,8 +243,10 @@ export function startServer(connection: Connection): void {
   connection.onHover(({ textDocument, position }): Hover | null => {
     const document = documents.get(textDocument.uri);
     if (document === undefined) return null;
-    const path = workspace.uris.toPath(textDocument.uri);
-    const hover = workspace.session.hover(path, offsetOfPosition(document, position));
+    const path = workspace.pathFor(textDocument.uri);
+    const session = workspace.sessionFor(path);
+    if (session === undefined) return null;
+    const hover = session.hover(path, offsetOfPosition(document, position));
     if (hover === undefined) return null;
     return { contents: hoverContents(hover), range: rangeOfSpan(hover.span) };
   });
@@ -227,8 +254,10 @@ export function startServer(connection: Connection): void {
   connection.onDefinition(({ textDocument, position }): Definition | null => {
     const document = documents.get(textDocument.uri);
     if (document === undefined) return null;
-    const path = workspace.uris.toPath(textDocument.uri);
-    const found = workspace.session.definitions(path, offsetOfPosition(document, position));
+    const path = workspace.pathFor(textDocument.uri);
+    const session = workspace.sessionFor(path);
+    if (session === undefined) return null;
+    const found = session.definitions(path, offsetOfPosition(document, position));
     if (found.length === 0) return null;
     return found.map((definition): Location => ({
       uri: workspace.uris.toUri(definition.path),
@@ -239,8 +268,10 @@ export function startServer(connection: Connection): void {
   connection.onReferences(({ textDocument, position, context }): Location[] | null => {
     const document = documents.get(textDocument.uri);
     if (document === undefined) return null;
-    const path = workspace.uris.toPath(textDocument.uri);
-    const found = workspace.session.references(path, offsetOfPosition(document, position), {
+    const path = workspace.pathFor(textDocument.uri);
+    const session = workspace.sessionFor(path);
+    if (session === undefined) return null;
+    const found = session.references(path, offsetOfPosition(document, position), {
       includeDeclaration: context.includeDeclaration,
     });
     if (found.length === 0) return null;
@@ -253,8 +284,10 @@ export function startServer(connection: Connection): void {
   connection.onCompletion(({ textDocument, position }): CompletionItem[] | null => {
     const document = documents.get(textDocument.uri);
     if (document === undefined) return null;
-    const path = workspace.uris.toPath(textDocument.uri);
-    const offered = workspace.session.completions(path, offsetOfPosition(document, position));
+    const path = workspace.pathFor(textDocument.uri);
+    const session = workspace.sessionFor(path);
+    if (session === undefined) return null;
+    const offered = session.completions(path, offsetOfPosition(document, position));
     if (offered.length === 0) return null;
     // `documentation` rather than `detail` for the doc content, though
     // `spec/doc-comments.md` §8 calls the surface "completion detail": the
@@ -275,21 +308,25 @@ export function startServer(connection: Connection): void {
     const document = documents.get(textDocument.uri);
     if (document === undefined) return null;
     if (!wantsActions(context.only)) return null;
-    const path = workspace.uris.toPath(textDocument.uri);
+    const path = workspace.pathFor(textDocument.uri);
+    const session = workspace.sessionFor(path);
+    if (session === undefined) return null;
     const pathOfFile = (fileId: number): string | undefined =>
-      workspace.session.pathOfFile(fileId as Source.FileId);
+      session.pathOfFile(fileId as Source.FileId);
+    const asked = {
+      start: offsetOfPosition(document, range.start),
+      end: offsetOfPosition(document, range.end),
+    };
     // The client's own `context.diagnostics` are not consulted: they are the
     // ones it happens to be showing, which after an edit is the previous
     // analysis. The session's are the current ones, and an action built from
     // stale spans would edit the wrong characters.
-    const offered = workspace.session.codeActions(path, {
-      start: offsetOfPosition(document, range.start),
-      end: offsetOfPosition(document, range.end),
-    });
+    const offered = session.codeActions(path, asked);
     const actions = offered.flatMap((action) => {
       const converted = toLspCodeAction(action, codeActions, workspace.uris, pathOfFile);
       return converted === undefined ? [] : [converted];
     });
+    actions.push(...manifestActions(workspace, path, asked, documentChanges, documents.all()));
     return actions.length === 0 ? null : actions;
   });
 
@@ -298,8 +335,10 @@ export function startServer(connection: Connection): void {
     // document to convert a line/character pair, and this one does not ask about
     // a position at all. A file the session knows from the workspace scan can be
     // coloured whether or not this client has opened it.
-    const path = workspace.uris.toPath(textDocument.uri);
-    return encodeSemanticTokens(workspace.session.semanticTokens(path));
+    const path = workspace.pathFor(textDocument.uri);
+    const session = workspace.sessionFor(path);
+    if (session === undefined) return encodeSemanticTokens([]);
+    return encodeSemanticTokens(session.semanticTokens(path));
   });
 
   // A refusal is shown to the user by failing the request: an editor renders the
@@ -309,8 +348,10 @@ export function startServer(connection: Connection): void {
   connection.onPrepareRename(({ textDocument, position }): Range | ResponseError<void> | null => {
     const document = documents.get(textDocument.uri);
     if (document === undefined) return null;
-    const path = workspace.uris.toPath(textDocument.uri);
-    const subject = workspace.session.prepareRename(path, offsetOfPosition(document, position));
+    const path = workspace.pathFor(textDocument.uri);
+    const session = workspace.sessionFor(path);
+    if (session === undefined) return null;
+    const subject = session.prepareRename(path, offsetOfPosition(document, position));
     if (subject === undefined) return null;
     if (refused(subject)) return new ResponseError(ErrorCodes.InvalidRequest, subject.refused);
     return rangeOfSpan(subject.span);
@@ -319,8 +360,10 @@ export function startServer(connection: Connection): void {
   connection.onRenameRequest(({ textDocument, position, newName }): WorkspaceEdit | ResponseError<void> | null => {
     const document = documents.get(textDocument.uri);
     if (document === undefined) return null;
-    const path = workspace.uris.toPath(textDocument.uri);
-    const plan = workspace.session.rename(path, offsetOfPosition(document, position), newName);
+    const path = workspace.pathFor(textDocument.uri);
+    const session = workspace.sessionFor(path);
+    if (session === undefined) return null;
+    const plan = session.rename(path, offsetOfPosition(document, position), newName);
     if (plan === undefined) return null;
     if (refused(plan)) return new ResponseError(ErrorCodes.InvalidRequest, plan.refused);
     const changes: Record<string, TextEdit[]> = {};
@@ -349,7 +392,7 @@ export function startServer(connection: Connection): void {
     if (publishTimer !== undefined) clearTimeout(publishTimer);
     publishTimer = setTimeout(() => {
       publishTimer = undefined;
-      publishDiagnostics(connection, workspace, published, manifests, documents.all());
+      publishDiagnostics(connection, workspace, published, sourceDocuments());
     }, DIAGNOSTIC_DELAY_MS);
   }
 }
@@ -367,38 +410,40 @@ function publishDiagnostics(
   connection: Connection,
   workspace: Workspace,
   published: Set<string>,
-  manifests: ReadonlyMap<string, ManifestResult>,
   open: readonly TextDocument[],
 ): void {
-  const analysed = workspace.session.allDiagnostics();
-  const pathOfFile = (fileId: number): string | undefined =>
-    workspace.session.pathOfFile(fileId as Source.FileId);
   const stillReporting = new Set<string>();
-  for (const [path, diagnostics] of analysed) {
+  // Merged across every program that holds the file (D3): identical reports
+  // once, different ones each, and a file cleared only when no program still
+  // reports on it — which is what the empty entries this map carries do.
+  for (const [path, diagnostics] of workspace.allDiagnostics()) {
     const uri = workspace.uris.toUri(path);
     if (diagnostics.length === 0) continue;
     stillReporting.add(uri);
     connection.sendDiagnostics({
       uri,
-      diagnostics: diagnostics.map((diagnostic) =>
+      diagnostics: diagnostics.map(({ diagnostic, pathOfFile }) =>
         toLspDiagnostic(diagnostic, workspace.uris, pathOfFile)
       ),
     });
   }
-  // A malformed manifest is reported against the manifest, not against anyone's
-  // Hexagon. Silently ignoring a misspelled key would leave a user staring at
+  // A manifest's own problems are reported against the manifest, not against
+  // anyone's Hexagon — a dependency's `hexagon.json` under `node_modules`
+  // included, since that is the file whose reader can act on the report (D3).
+  // Silently ignoring a misspelled key would leave a user staring at
   // diagnostics they believe they configured away, with nothing to explain why.
-  for (const [root, result] of manifests) {
-    if (!result.present) continue;
-    const uri = manifestUriOf(root);
-    // A manifest that has stopped reporting is cleared by the trailing sweep
-    // below, which is where every other file's clearing happens; publishing an
-    // empty list here as well would send it twice.
-    if (result.problems.length === 0) continue;
+  const byManifest = new Map<string, SeatedProblem[]>();
+  for (const problem of workspace.manifestProblems()) {
+    const seated = byManifest.get(problem.path);
+    if (seated === undefined) byManifest.set(problem.path, [problem]);
+    else seated.push(problem);
+  }
+  for (const [path, seated] of byManifest) {
+    const uri = workspace.uris.toUri(path);
     stillReporting.add(uri);
     connection.sendDiagnostics({
       uri,
-      diagnostics: result.problems.map((problem) => ({
+      diagnostics: seated.map((problem) => ({
         severity: problem.severity === "error"
           ? DiagnosticSeverity.Error
           : DiagnosticSeverity.Warning,
@@ -414,27 +459,38 @@ function publishDiagnostics(
       })),
     });
   }
-  // An excluded file the user has open would otherwise be simply dead: coloured
-  // by the grammar, with a server visibly running, and answering nothing. That
-  // reads as a broken server rather than as a deliberate exclusion, and the
-  // user's next move is to report a bug instead of opening `hexagon.json`.
-  // Saying so costs one publication and cannot be mistaken for a compiler error.
+  // A file the user has open that no program holds would otherwise be simply
+  // dead: coloured by the grammar, with a server visibly running, and answering
+  // nothing. That reads as a broken server rather than as a deliberate bound,
+  // and the user's next move is to report a bug instead of opening
+  // `hexagon.json`. Saying so costs one publication and cannot be mistaken for
+  // a compiler error.
+  //
+  // One sentence per **reason**, because the ways out are different: an
+  // `exclude` entry is a line the user wrote and can delete, an unlisted
+  // dependency is a `dependencies` entry they can add, a package with a
+  // manifest of its own is a folder they can open, and a tooling directory is
+  // a fact about this host that no manifest can argue with. A single "this
+  // file is not in the project" would tell them nothing they could act on.
   for (const document of open) {
-    if (!workspace.isExcludedUri(document.uri)) continue;
+    const excluded = workspace.isExcludedUri(document.uri);
+    const outside = excluded ? undefined : workspace.outsideEveryPackage(document.uri);
+    if (!excluded && outside === undefined) continue;
     // Through the remembered pairing like every other publication here, rather
     // than the document's own URI. They agree for an open document, since its
     // spelling is the first one seen — but reaching past `toUri` is how the two
     // drift apart, and `published` is keyed by whatever this sends.
-    const uri = workspace.uris.toUri(workspace.uris.toPath(document.uri));
+    const uri = workspace.uris.toUri(workspace.pathFor(document.uri));
     stillReporting.add(uri);
     connection.sendDiagnostics({
       uri,
       diagnostics: [{
         severity: DiagnosticSeverity.Information,
         range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
-        message:
-          `this file is excluded from the project by \`${MANIFEST_NAME}\`, ` +
-          "so it has no diagnostics, hover, or navigation",
+        message: outside === undefined
+          ? `this file is excluded from the project by \`${MANIFEST_NAME}\`, ` +
+            "so it has no diagnostics, hover, or navigation"
+          : reasonSentence(outside),
         source: "hexagon",
       }],
     });
@@ -445,6 +501,334 @@ function publishDiagnostics(
   }
   published.clear();
   for (const uri of stillReporting) published.add(uri);
+}
+
+/**
+ * What to tell a user whose open buffer is nobody's source, per §2.2 bound.
+ *
+ * Each sentence names the bound, and where there is a way out it is a thing the
+ * user can do rather than a rule they can read: list the package, open the
+ * folder. Three of the five promise nothing, and all three are deliberate. A
+ * tooling directory has no way out by design — `files.ts` says so in as many
+ * words — so naming it is the whole message, and that is what lets the reader
+ * see it was their `dist/` and not something the server invented. A
+ * `node_modules` no entry of theirs reaches has no way out *for them*:
+ * `Workspace` offers the `dependencies` repair only where writing it would
+ * really seat the file, and these are the sentences left where it would not.
+ *
+ * The `dependencies` sentence names both halves of the edit — the name to write
+ * and the manifest to write it in — because neither is guessable from the file:
+ * `node_modules/acme-utils` may declare `Utils`, and a reader with the
+ * dependency open as a root of its own has two manifests in front of them.
+ * Where the package declares no name at all, the sentence names its manifest
+ * instead, which is the file that would have to change first.
+ */
+function reasonSentence(outside: OutsideEveryPackage): string {
+  const dead = "so it has no diagnostics, hover, or navigation";
+  switch (outside.kind) {
+    case "unlisted-dependency":
+      return `this file is in \`${outside.name}\`, a package under \`node_modules\` this ` +
+        `project does not list, ${dead}; add \`${outside.name}\` to \`dependencies\` in ` +
+        `\`${outside.manifest}\` to compile it`;
+    case "nameless-dependency":
+      return outside.unreadable
+        ? `this file is under \`node_modules\` in a package whose \`${outside.manifest}\` ` +
+          `could not be read, ${dead}, and there is no name to add to \`dependencies\``
+        : `this file is under \`node_modules\` in a package whose \`${outside.manifest}\` ` +
+          `declares no package name, ${dead}, and there is no name to add to \`dependencies\``;
+    case "unreached-node-modules":
+      return outside.inside === undefined
+        ? `this file is under a \`node_modules\` directory and no package a project lists ` +
+          `holds it, ${dead}`
+        : `this file is under the \`node_modules\` of \`${outside.inside}\`, which this ` +
+          `project's \`${MANIFEST_NAME}\` cannot reach, ${dead}`;
+    case "skipped-directory":
+      return `this file is under \`${outside.directory}\`, which this language server never ` +
+        `reads as project source, ${dead}`;
+    case "other-package":
+      return `this file belongs to the package at \`${outside.manifest}\`, which no open ` +
+        `project reaches, ${dead}; open its folder to work on it`;
+  }
+}
+
+/**
+ * Packages §7's not-a-dependency repair, as an applied edit.
+ *
+ * The report names a line in `hexagon.json` and the compiler marks it rather
+ * than writing it: a manifest is not a file the compiler holds — it arrives as
+ * a record (§4.1) — so the entry is the compiler's to name and the file is the
+ * host's to write. Offered **only** where the file drawing the report is a
+ * project the editor holds: the resolving package of a report inside a
+ * dependency is that dependency, whose manifest sits under `node_modules` and
+ * is not a file a user wrote or should be asked to edit.
+ *
+ * ## The text the edit is measured against
+ *
+ * **The buffer, whenever the editor holds one.** `Workspace` reads a manifest
+ * from disk and refreshes it when the watcher fires, which is on *save* — so
+ * with `hexagon.json` open and edited, a range measured against the server's
+ * copy lands in a document that is no longer that text. Replacing more than the
+ * range covers throws away what the user typed; replacing less leaves the tail
+ * of the buffer after the replacement, which for a buffer longer than the last
+ * save is a `hexagon.json` that is no longer JSON. So the extension
+ * synchronises every `hexagon.json` (`editors/vscode`'s `documentSelector`),
+ * this takes the text from the open document where there is one, and the edit
+ * carries that document's **version** wherever the client accepts one — which
+ * is what makes the client refuse it rather than misapply it if a keystroke
+ * beats it.
+ *
+ * ## What it replaces
+ *
+ * The `dependencies` **value** where the file already has one, and the whole
+ * document only where it does not. A whole-file rewrite is the smallest correct
+ * edit for a key that has to be *added* — `hexagon.json` is JSON, so there are
+ * no comments to lose — but it is not smallest for a key that is already there,
+ * and it discards any unrelated edit elsewhere in the file that the same round
+ * trip did not know about.
+ */
+function manifestActions(
+  workspace: Workspace,
+  path: string,
+  asked: { start: number; end: number },
+  documentChanges: boolean,
+  open: readonly TextDocument[],
+): readonly CodeAction[] {
+  // One guard, in one place: `projectManifestOf` answers only for a file some
+  // program holds as its **own** source, which is the whole of the rule above.
+  // Asking it again here would be a second copy of it, and a second copy is one
+  // that can be relaxed on its own.
+  const manifest = workspace.projectManifestOf(path);
+  if (manifest === undefined) return [];
+  const program = workspace.programFor(path);
+  if (program === undefined) return [];
+  // The buffer wins over the server's copy, because it is the text the edit
+  // lands in. Found by settled path rather than by URI string, like every other
+  // pairing here: the client spells a URI its own way.
+  const buffer = open.find((document) => workspace.pathFor(document.uri) === manifest.path);
+  const current = buffer?.getText() ?? manifest.text;
+  // A manifest that is not there has to be created, which needs a client that
+  // applies file operations; one that cannot is offered nothing rather than an
+  // edit it would silently drop.
+  if (current === undefined && !documentChanges) return [];
+  const offered = new Map<string, CodeAction>();
+  for (const diagnostic of program.session.diagnostics(path)) {
+    const entry = diagnostic.manifestDependency?.packageName;
+    if (entry === undefined) continue;
+    if (diagnostic.primary.end.offset < asked.start) continue;
+    if (diagnostic.primary.start.offset > asked.end) continue;
+    if (offered.has(entry)) continue;
+    const edit = manifestEdit(current, entry);
+    if (edit === undefined) continue;
+    const uri = buffer?.uri ?? workspace.uris.toUri(manifest.path);
+    offered.set(entry, {
+      title: `add \`"${entry}"\` to \`dependencies\` in ${MANIFEST_NAME}`,
+      kind: CodeActionKind.QuickFix,
+      ...(current === undefined
+        ? {
+          edit: {
+            documentChanges: [
+              { kind: "create", uri, options: { ignoreIfExists: true } },
+              { textDocument: { uri, version: null }, edits: [edit] },
+            ],
+          },
+        }
+        : documentChanges
+        // Versioned where the client takes one: an edit measured against a
+        // buffer is only correct against that buffer, and a client that has
+        // moved on refuses it rather than applying it to different text.
+        ? {
+          edit: {
+            documentChanges: [
+              { textDocument: { uri, version: buffer?.version ?? null }, edits: [edit] },
+            ],
+          },
+        }
+        : { edit: { changes: { [uri]: [edit] } } }),
+    });
+  }
+  return [...offered.values()];
+}
+
+/**
+ * The edit that adds one `dependencies` entry, or nothing where the manifest
+ * cannot take one.
+ *
+ * Scoped to the `dependencies` value where the file already has an array there,
+ * and to the whole document only where the key has to be added. `current` is
+ * `undefined` for a manifest that does not exist yet, whose whole text is
+ * written from scratch.
+ */
+function manifestEdit(current: string | undefined, entry: string): TextEdit | undefined {
+  const text = current ?? "";
+  // A byte-order mark is stripped to parse and never to write: VS Code writes
+  // one under `files.encoding: utf8bom`, and a rewrite that dropped it would
+  // silently re-encode a file the user did not ask to re-encode.
+  const mark = text.startsWith("\uFEFF") ? "\uFEFF" : "";
+  let value: unknown = {};
+  if (current !== undefined) {
+    try {
+      value = JSON.parse(text.slice(mark.length));
+    } catch {
+      // A manifest that does not parse already has a report of its own against
+      // it, and rewriting it would throw away whatever the user was typing.
+      return undefined;
+    }
+  }
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  const listed = record["dependencies"];
+  if (listed !== undefined && !Array.isArray(listed)) return undefined;
+  const entries = Array.isArray(listed) ? [...listed] : [];
+  if (entries.includes(entry)) return undefined;
+  entries.push(entry);
+  // `JSON.stringify` always breaks lines with `\n`, and a manifest saved on
+  // Windows is `\r\n` throughout. Writing the one into the other leaves a file
+  // with mixed endings — valid JSON, and a diff that touches every line the
+  // next time the user's editor normalizes it.
+  const newline = newlineOf(text);
+  const span = listed === undefined ? undefined : dependenciesValueSpan(text);
+  if (span === undefined) {
+    const rewritten = JSON.stringify({ ...record, dependencies: entries }, undefined, 2);
+    return {
+      range: wholeDocument(text),
+      newText: `${mark}${rewritten}\n`.replaceAll("\n", newline),
+    };
+  }
+  return {
+    range: { start: positionAt(text, span.start), end: positionAt(text, span.end) },
+    // Re-indented under the key's own indentation, so the array a reader sees
+    // is the array `JSON.stringify` would have written in a whole-file rewrite.
+    newText: JSON.stringify(entries, undefined, 2)
+      .split("\n")
+      .map((line, at) => (at === 0 ? line : `${span.indent}${line}`))
+      .join(newline),
+  };
+}
+
+/**
+ * The line ending this text already uses: `\r\n` where the first break is one,
+ * and `\n` where there is no break to read.
+ *
+ * The *first* break rather than a count, because a file with mixed endings is
+ * already being asked an unanswerable question and its opening line is the one
+ * a reader would call the file's own.
+ */
+function newlineOf(text: string): string {
+  const at = text.indexOf("\n");
+  return at > 0 && text[at - 1] === "\r" ? "\r\n" : "\n";
+}
+
+/**
+ * Where the top-level `dependencies` **value** sits in a manifest's text, and
+ * how far its key is indented.
+ *
+ * A hand-written scan rather than a JSON parser with spans, because the only
+ * question is where one top-level key's value starts and ends, and the answer
+ * has to be over the *bytes* \u2014 `JSON.parse` gives a value with no positions,
+ * and a regular expression over a file that may contain the word
+ * `"dependencies"` inside a string somewhere else would find the wrong one.
+ * Nothing here validates: the text has already parsed by the time this is
+ * asked.
+ */
+function dependenciesValueSpan(
+  text: string,
+): { start: number; end: number; indent: string } | undefined {
+  let depth = 0;
+  let at = 0;
+  // **The last** top-level `dependencies`, not the first. JSON permits a key
+  // twice and `JSON.parse` keeps the later one, so the entries this edit was
+  // built from are the later array's — writing them over the earlier one
+  // produces valid JSON whose effective `dependencies` is unchanged, and the
+  // user clicks the fix, watches the report stay, and is told nothing.
+  let found: { start: number; end: number; indent: string } | undefined;
+  while (at < text.length) {
+    const character = text[at]!;
+    if (character === '"') {
+      const end = endOfString(text, at);
+      // A key is a string at the object's own depth followed by a colon; a
+      // value that happens to spell `dependencies` is at a greater depth or has
+      // no colon after it.
+      const after = skipSpace(text, end);
+      if (depth === 1 && text[after] === ":" && text.slice(at, end) === '"dependencies"') {
+        const start = skipSpace(text, after + 1);
+        const close = text[start] === "[" ? endOfArray(text, start) : undefined;
+        // A value that is not an array, or an array that never closes, leaves
+        // nothing to scope to — and the scan carries on rather than answering,
+        // because a *later* `dependencies` may be the one that parsed. Where
+        // the last one is the unscopable one the whole-document rewrite is the
+        // answer, and it is the branch that collapses the duplicate anyway.
+        found = close === undefined
+          ? undefined
+          : { start, end: close, indent: indentOfLine(text, at) };
+        at = close ?? start;
+        continue;
+      }
+      at = end;
+      continue;
+    }
+    if (character === "{" || character === "[") depth += 1;
+    if (character === "}" || character === "]") depth -= 1;
+    at += 1;
+  }
+  return found;
+}
+
+/** The offset one past a string literal starting at `at`, escapes honoured. */
+function endOfString(text: string, at: number): number {
+  let index = at + 1;
+  while (index < text.length) {
+    if (text[index] === "\\") index += 2;
+    else if (text[index] === '"') return index + 1;
+    else index += 1;
+  }
+  return text.length;
+}
+
+/** The offset one past the array starting at `at`. */
+function endOfArray(text: string, at: number): number | undefined {
+  let depth = 0;
+  let index = at;
+  while (index < text.length) {
+    const character = text[index]!;
+    if (character === '"') {
+      index = endOfString(text, index);
+      continue;
+    }
+    if (character === "[") depth += 1;
+    if (character === "]") {
+      depth -= 1;
+      if (depth === 0) return index + 1;
+    }
+    index += 1;
+  }
+  return undefined;
+}
+
+function skipSpace(text: string, at: number): number {
+  let index = at;
+  while (index < text.length && /\s/u.test(text[index]!)) index += 1;
+  return index;
+}
+
+/** The whitespace opening the line `at` lies on. */
+function indentOfLine(text: string, at: number): string {
+  const start = text.lastIndexOf("\n", at - 1) + 1;
+  return /^[\t ]*/u.exec(text.slice(start, at))![0];
+}
+
+/** A byte offset as the protocol's line and character. */
+function positionAt(text: string, offset: number): { line: number; character: number } {
+  const before = text.slice(0, offset).split("\n");
+  return { line: before.length - 1, character: before.at(-1)!.length };
+}
+
+/** The range covering a whole document, so an edit replaces all of it. */
+function wholeDocument(text: string): Range {
+  const lines = text.split("\n");
+  return {
+    start: { line: 0, character: 0 },
+    end: { line: lines.length - 1, character: lines.at(-1)!.length },
+  };
 }
 
 /**
@@ -495,9 +879,4 @@ function rootPathsOf(params: InitializeParams): readonly string[] {
     });
   }
   return typeof params.rootPath === "string" ? [params.rootPath] : [];
-}
-
-/** The URI of a root's own manifest, built the same way every time it is needed. */
-function manifestUriOf(rootPath: string): string {
-  return pathToFileURL(join(rootPath, MANIFEST_NAME)).toString();
 }

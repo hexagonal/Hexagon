@@ -1,7 +1,7 @@
-import { expect, test } from "vitest";
+import { describe, expect, test } from "vitest";
 
 import * as Source from "./support/source.js";
-import { compileProject, unresolvedModuleMessage } from "./project.js";
+import { compileProject, unresolvedModuleMessage, type ProjectPackage } from "./project.js";
 import {
   fullModuleName,
   moduleLayoutPath,
@@ -465,10 +465,10 @@ function programModule(
 }
 
 /**
- * Modules §10's two unreachable rows (#836 review B2). The package set this
- * slice assembles is `{project, Hex}`, which no contest and no
- * not-a-dependency report can arise in; both messages carry spec wording, so
- * the wording is executed here rather than shipped unrun.
+ * Modules §10's rows, read one message at a time. The specimens below reach
+ * every one of them through a real package set; these pin the wording at the
+ * shapes a compile is awkward to steer into — an unnamed project in a contest,
+ * several near misses joined.
  */
 test("a contested name quotes each package and offers each full spelling", () => {
   expect(unresolvedModuleMessage("Geometry", {
@@ -521,4 +521,506 @@ test("an unknown name joins several near misses with `or`", () => {
   })).toBe(
     "no module `Geometry`; did you mean `Render.Geometry` or `Physics.Geometry`?",
   );
+});
+
+// ---------------------------------------------------------------------------
+// Packages §9 — the acceptance specimens, end to end through `compileProject`
+// ---------------------------------------------------------------------------
+
+/** A source-file factory with identities unique within one compile. */
+function sourceFiles(): (path: string, text: string) => Source.File {
+  let id = 0;
+  return (path, text) => new Source.File(Source.fileId(id++), path, text);
+}
+
+/** One package of the closure, as a host hands it in (Packages §4.1). */
+function dependency(
+  name: string,
+  dependencies: readonly string[],
+  installed: readonly string[],
+  files: readonly Source.File[],
+): ProjectPackage {
+  return { record: { name, dependencies, installed: new Set(installed) }, files };
+}
+
+function messagesOf(project: { diagnostics: readonly { message: string }[] }): readonly string[] {
+  return project.diagnostics.map(({ message }) => message);
+}
+
+/**
+ * §9 (a): the visible set, the not-a-dependency report, and §3.3's proviso —
+ * one program, so that every arm is read off the same package set.
+ */
+describe("§9 (a) — the visible set and what a project may name", () => {
+  const file = sourceFiles();
+  const acmeFiles = [
+    file(
+      "/work/app/node_modules/acme/geometry.hex",
+      "module Geometry\n\nimport Util\nexport let scale: Int = Util.scale",
+    ),
+    file("/work/app/node_modules/acme/util.hex", "module Util\n\nexport let scale: Int = 2"),
+    file("/work/app/node_modules/acme/zed.hex", "module Zed.Helper\n\nexport let n: Int = 1"),
+  ];
+  const boltFiles = [
+    file("/work/app/node_modules/bolt/util.hex", "module Util\n\nexport let n: Int = 7"),
+  ];
+  const compile = (text: string) =>
+    compileProject([file("/work/app/main.hex", text)], {
+      dependencies: ["Acme"],
+      // What the project's own lookup answers with: `Bolt` and `Zed` are
+      // installed and unlisted, which is exactly what §3.3's two arms read.
+      installed: new Set(["Acme", "Bolt", "Zed"]),
+      packages: [
+        dependency("Acme", ["Bolt"], ["Bolt"], acmeFiles),
+        dependency("Bolt", [], [], boltFiles),
+      ],
+    });
+
+  test("the one visible provider answers a bare name", () => {
+    const project = compile("module Main\n\nimport Geometry\nexport let n: Int = Geometry.scale");
+    expect(messagesOf(project)).toEqual([]);
+  });
+
+  test("a dependency's own module wins over its dependency's, silently", () => {
+    // `Acme.Geometry` writes `import Util`, and `Acme.Util` answers it — never
+    // `Bolt.Util`, which `Acme` also sees (§3.2). `scale` exists in one of them.
+    const project = compile("module Main\n\nimport Geometry\nexport let n: Int = Geometry.scale");
+    expect(messagesOf(project)).toEqual([]);
+  });
+
+  test("a transitive dependency is invisible to the project's imports", () => {
+    const project = compile("module Main\n\nimport Bolt.Util\nexport let n: Int = Util.n");
+    const report = project.diagnostics.find(({ message }) => message.startsWith("`Bolt`"))!;
+    expect(report.message).toBe(
+      "`Bolt` is not a dependency of this package; add `\"Bolt\"` to `dependencies` " +
+        "in `hexagon.json`",
+    );
+    // The repair is a manifest edit, which the compiler names and a host writes.
+    expect(report.manifestDependency).toEqual({ packageName: "Bolt" });
+  });
+
+  /**
+   * §3.3's proviso: `Zed` is installed and in no closure, and a module of a
+   * package *in* the program is declared under that segment — so applying the
+   * manifest edit would refuse that module, and the unknown-module report fires
+   * with no edit offered.
+   */
+  test("the manifest edit is withheld where a module is declared under the segment", () => {
+    const project = compile("module Main\n\nimport Zed.Tools\nexport let n: Int = 1");
+    expect(messagesOf(project)).toContain("no module `Zed.Tools`");
+    expect(project.diagnostics.every(({ manifestDependency }) =>
+      manifestDependency === undefined
+    )).toBe(true);
+  });
+});
+
+/** §9 (c): two visible packages provide one declared name. */
+test("§9 (c) — a contest between two packages is refused, both spellings offered", () => {
+  const file = sourceFiles();
+  const project = compileProject(
+    [file("/work/app/main.hex", "module Main\n\nimport Color\nexport let n: Int = Color.n")],
+    {
+      dependencies: ["Acme", "Chroma"],
+      installed: new Set(["Acme", "Chroma"]),
+      packages: [
+        dependency("Acme", [], [], [
+          file("/work/app/node_modules/acme/color.hex", "module Color\n\nexport let n: Int = 1"),
+        ]),
+        dependency("Chroma", [], [], [
+          file("/work/app/node_modules/chroma/color.hex", "module Color\n\nexport let n: Int = 2"),
+        ]),
+      ],
+    },
+  );
+  expect(messagesOf(project)).toContain(
+    "`Color` is provided by `Acme` and `Chroma`; write `import Acme.Color` or " +
+      "`import Chroma.Color`",
+  );
+});
+
+test("§9 (c) — the qualified spelling the contest offered resolves", () => {
+  const file = sourceFiles();
+  const project = compileProject(
+    [file("/work/app/main.hex", "module Main\n\nimport Chroma.Color\nexport let n: Int = Color.n")],
+    {
+      dependencies: ["Acme", "Chroma"],
+      installed: new Set(["Acme", "Chroma"]),
+      packages: [
+        dependency("Acme", [], [], [
+          file("/work/app/node_modules/acme/color.hex", "module Color\n\nexport let n: Int = 1"),
+        ]),
+        dependency("Chroma", [], [], [
+          file("/work/app/node_modules/chroma/color.hex", "module Color\n\nexport let n: Int = 2"),
+        ]),
+      ],
+    },
+  );
+  expect(messagesOf(project)).toEqual([]);
+});
+
+/** §9 (d): a package never qualifies its own modules. */
+test("§9 (d) — a named project qualifying its own module is refused", () => {
+  const file = sourceFiles();
+  const project = compileProject([
+    file("/work/app/geometry.hex", "module Geometry\n\nexport let n: Int = 1"),
+    file("/work/app/main.hex", "module Main\n\nimport MyApp.Geometry\nexport let n: Int = 1"),
+  ], { packageName: "MyApp" });
+  expect(messagesOf(project)).toContain(
+    "no module `MyApp.Geometry`; a package's own modules are imported by their " +
+      "declared names: `import Geometry`",
+  );
+});
+
+/** §9 (f): coherence reads the whole graph, in two packages as in one. */
+test("§9 (f) — a duplicate instance across packages is reported at the program check", () => {
+  const file = sourceFiles();
+  const project = compileProject([
+    file(
+      "/work/app/main.hex",
+      "module Main\n\nimport Shape\nhonor Show<Shape.Shape> =\n    show(value) = \"main\"",
+    ),
+  ], {
+    dependencies: ["Acme"],
+    installed: new Set(["Acme"]),
+    packages: [
+      dependency("Acme", [], [], [
+        file(
+          "/work/app/node_modules/acme/shape.hex",
+          "module Shape\n\nexport union Shape = Dot\nhonor Show<Shape> =\n    show(value) = \"dot\"",
+        ),
+      ]),
+    ],
+  });
+  expect(messagesOf(project).some((message) => message.includes("duplicate"))).toBe(true);
+});
+
+/** §9 (g): the emitted layout, and what a dependency's module addresses. */
+describe("§9 (g) — emission under packages", () => {
+  const file = sourceFiles();
+  const project = compileProject([
+    file("/work/app/main.hex", "module Main\n\nimport Acme.Geometry\nexport let n: Int = Geometry.n"),
+  ], {
+    dependencies: ["Acme"],
+    installed: new Set(["Acme"]),
+    packages: [
+      dependency("Acme", [], [], [
+        file(
+          "/work/app/node_modules/acme/geometry.hex",
+          "module Geometry\n\nexception Boom\nexport let n: Int = 1",
+        ),
+        file(
+          "/work/app/node_modules/acme/render/geometry.hex",
+          "module Render.Geometry\n\nexport fun first(xs: Vector(Int)): Option(Int) =\n" +
+            "    if Vector.length(xs) == 0 then None else Some(xs[0])",
+        ),
+      ]),
+    ],
+  });
+
+  test("the project's module imports the dependency's by a relative path within the root", () => {
+    expect(messagesOf(project)).toEqual([]);
+    const main = project.modules.find(({ name }) => name === "Main")!;
+    expect(main.javascript.text).toContain('import * as Geometry from "./Acme/Geometry.js";');
+  });
+
+  test("a dependency's module lies under its package, never at its source directory", () => {
+    const geometry = project.modules.find(({ name }) => name === "Acme.Geometry")!;
+    expect(geometry.path).toBe("/Acme/Geometry.hex");
+    expect(geometry.source.path).toBe("/work/app/node_modules/acme/geometry.hex");
+    expect(project.modules.map(({ path }) => path)).not.toContain(
+      "/work/app/node_modules/acme/geometry.hex",
+    );
+  });
+
+  test("a dependency's dotted module climbs out of two directories to reach the prelude", () => {
+    const render = project.modules.find(({ name }) => name === "Acme.Render.Geometry")!;
+    expect(render.path).toBe("/Acme/Render/Geometry.hex");
+    expect(render.javascript.text).toContain('from "../../Hex/Option.js"');
+  });
+
+  test("an exception of a dependency's module brands its full name", () => {
+    const geometry = project.modules.find(({ name }) => name === "Acme.Geometry")!;
+    expect(geometry.javascript.text).toContain('{ $hex: "Acme.Geometry", name: __name }');
+  });
+});
+
+/** §9 (h): the program-wide first-segment rule, at its whole-program seat. */
+describe("§9 (h) — one reading of a dotted spelling", () => {
+  const boltSource = (path: string, file: (path: string, text: string) => Source.File) =>
+    file(path, "module Acme.Tools\n\nexport let n: Int = 1");
+
+  test("no package `Acme` in the program leaves the declared name lawful", () => {
+    const file = sourceFiles();
+    const project = compileProject([
+      file("/work/app/main.hex", "module Main\n\nimport Acme.Tools\nexport let n: Int = Tools.n"),
+    ], {
+      dependencies: ["Bolt"],
+      installed: new Set(["Bolt"]),
+      packages: [
+        dependency("Bolt", [], [], [
+          boltSource("/work/app/node_modules/bolt/tools.hex", file),
+        ]),
+      ],
+    });
+    expect(messagesOf(project)).toEqual([]);
+  });
+
+  test("adding the package refuses the module at the whole-program check", () => {
+    const file = sourceFiles();
+    const project = compileProject([
+      file("/work/app/main.hex", "module Main\n\nexport let n: Int = 1"),
+    ], {
+      dependencies: ["Bolt", "Acme"],
+      installed: new Set(["Bolt", "Acme"]),
+      packages: [
+        dependency("Bolt", [], [], [
+          boltSource("/work/app/node_modules/bolt/tools.hex", file),
+        ]),
+        dependency("Acme", [], [], [
+          file("/work/app/node_modules/acme/tools.hex", "module Tools\n\nexport let n: Int = 1"),
+        ]),
+      ],
+    });
+    expect(messagesOf(project)).toContain(
+      "module `Acme.Tools` of package `Bolt` begins with the name of the package " +
+        "`Acme`, also in this program; drop the dependency that brings `Acme` or " +
+        "the one that brings `Bolt`, or combine them once `Acme` is renamed or " +
+        "`Bolt` renames its module",
+    );
+  });
+
+  test("the project's own module against a package it reaches only through a dependency", () => {
+    const file = sourceFiles();
+    const project = compileProject([
+      file("/work/app/parser.hex", "module Acme.Parser\n\nexport let n: Int = 1"),
+    ], {
+      dependencies: ["Bolt"],
+      installed: new Set(["Bolt"]),
+      packages: [
+        dependency("Bolt", ["Acme"], ["Acme"], [
+          file("/work/app/node_modules/bolt/bolt.hex", "module Bolt\n\nexport let n: Int = 1"),
+        ]),
+        dependency("Acme", [], [], [
+          file("/work/app/node_modules/acme/tools.hex", "module Tools\n\nexport let n: Int = 1"),
+        ]),
+      ],
+    });
+    expect(messagesOf(project)).toContain(
+      "module `Acme.Parser` of the project begins with the name of the package " +
+        "`Acme`, also in this program (brought in by `Bolt`); rename the module, " +
+        "or drop the dependency that brings `Acme`",
+    );
+  });
+
+  test("a dependency's module beginning with the project's own name", () => {
+    const file = sourceFiles();
+    const project = compileProject([
+      file("/work/app/main.hex", "module Main\n\nexport let n: Int = 1"),
+    ], {
+      packageName: "MyApp",
+      dependencies: ["Bolt"],
+      installed: new Set(["Bolt"]),
+      packages: [
+        dependency("Bolt", [], [], [
+          file(
+            "/work/app/node_modules/bolt/tools.hex",
+            "module MyApp.Tools\n\nexport let n: Int = 1",
+          ),
+        ]),
+      ],
+    });
+    expect(messagesOf(project)).toContain(
+      "module `MyApp.Tools` of package `Bolt` begins with the name of this " +
+        "project, `MyApp`; rename the project or drop its manifest `name`, drop " +
+        "the dependency that brings `Bolt`, or combine them once `Bolt` renames " +
+        "its module",
+    );
+  });
+
+  test("the other package's manifest is carried as a related location where the host holds one", () => {
+    const file = sourceFiles();
+    const manifest = file("/work/app/node_modules/acme/hexagon.json", "{\"name\": \"Acme\"}");
+    const project = compileProject([
+      file("/work/app/main.hex", "module Main\n\nexport let n: Int = 1"),
+    ], {
+      dependencies: ["Bolt", "Acme"],
+      installed: new Set(["Bolt", "Acme"]),
+      packages: [
+        {
+          record: { name: "Bolt", dependencies: [], installed: new Set() },
+          files: [
+            file("/work/app/node_modules/bolt/tools.hex", "module Acme.Tools\n\nexport let n: Int = 1"),
+          ],
+        },
+        {
+          record: {
+            name: "Acme",
+            dependencies: [],
+            installed: new Set(),
+            manifest: {
+              fileId: manifest.id,
+              start: { offset: 0, line: 0, column: 0 },
+              end: { offset: 1, line: 0, column: 1 },
+            },
+          },
+          files: [
+            file("/work/app/node_modules/acme/tools.hex", "module Tools\n\nexport let n: Int = 1"),
+          ],
+        },
+      ],
+    });
+    const report = project.diagnostics.find(({ message }) =>
+      message.startsWith("module `Acme.Tools`")
+    )!;
+    expect(report.labels).toEqual([
+      expect.objectContaining({ message: "`Acme` is declared here" }),
+    ]);
+  });
+});
+
+/** §9 (i): the runtime modules are members of `Hex` like any other. */
+test("§9 (i) — a runtime module binds an alias and exports nothing", () => {
+  const file = sourceFiles();
+  const project = compileProject([
+    file(
+      "/work/app/main.hex",
+      "module Main\n\nimport Hex.Runtime.VectorTrie\nexport let n: Int = VectorTrie.size",
+    ),
+  ]);
+  expect(messagesOf(project)).toContain("module `VectorTrie` does not export `size`");
+});
+
+/**
+ * §3.3's contest order, and the two arms of §7's not-a-dependency row, read
+ * end to end — the order and the two gates are `resolveModuleName`'s and no
+ * hand-built provider list can show them.
+ */
+describe("§3.3 — the order a contest is printed in, and who draws the manifest edit", () => {
+  test("`dependencies` order, then `Hex`", () => {
+    const file = sourceFiles();
+    const project = compileProject([
+      file("/work/app/main.hex", "module Main\n\nimport Option\nexport let n: Int = Option.n"),
+    ], {
+      dependencies: ["Acme"],
+      installed: new Set(["Acme"]),
+      packages: [
+        dependency("Acme", [], [], [
+          file("/work/app/node_modules/acme/option.hex", "module Option\n\nexport let n: Int = 1"),
+        ]),
+      ],
+    });
+    // `Hex` last, however the visible set happens to be assembled: §7's first
+    // row fixes the order of the names in the sentence.
+    expect(messagesOf(project)).toContain(
+      "`Option` is provided by `Acme` and `Hex`; write `import Acme.Option` or " +
+        "`import Hex.Option`",
+    );
+  });
+
+  test("an uninstalled first segment draws the unknown-module row and no edit", () => {
+    const file = sourceFiles();
+    const project = compileProject([
+      file("/work/app/main.hex", "module Main\n\nimport Typo.Tools\nexport let n: Int = Tools.n"),
+    ], {
+      dependencies: ["Acme"],
+      // Nothing named `Typo` is installed, so §3.4's row is the true one: the
+      // manifest edit would write a package name that does not exist.
+      installed: new Set(["Acme"]),
+      packages: [
+        dependency("Acme", [], [], [
+          file("/work/app/node_modules/acme/geometry.hex", "module Geometry\n\nexport let n: Int = 1"),
+        ]),
+      ],
+    });
+    expect(messagesOf(project)).toContain("no module `Typo.Tools`");
+    expect(project.diagnostics.every(({ manifestDependency }) =>
+      manifestDependency === undefined
+    )).toBe(true);
+  });
+
+  /**
+   * §3.3's proviso reads **dotted** declared names only: Modules §2.2 leaves an
+   * undotted module untouched — "`module Json` beside a dependency `Json` is
+   * the companion idiom's plainest spelling" — so adding the entry refuses
+   * nothing and the edit is owed.
+   */
+  test("an undotted module of the segment's name does not withhold the edit", () => {
+    const file = sourceFiles();
+    const project = compileProject([
+      file("/work/app/zed.hex", "module Zed\n\nexport let n: Int = 1"),
+      file("/work/app/main.hex", "module Main\n\nimport Zed.Tools\nexport let n: Int = Tools.n"),
+    ], {
+      installed: new Set(["Zed"]),
+    });
+    const report = project.diagnostics.find(({ message }) => message.startsWith("`Zed`"))!;
+    expect(report.message).toBe(
+      "`Zed` is not a dependency of this package; add `\"Zed\"` to `dependencies` " +
+        "in `hexagon.json`",
+    );
+    expect(report.manifestDependency).toEqual({ packageName: "Zed" });
+  });
+});
+
+/**
+ * Packages §3.3 read backwards, inside a dependency: every module name a report
+ * prints, and every import line it offers, is spelled as *that package's* own
+ * reader must write it — never `Acme.Lib` inside `Acme`, which the next compile
+ * refuses with "a package's own modules are imported by their declared names".
+ */
+describe("a repair offered inside a dependency is a line that dependency can write", () => {
+  const HEFT_LIB = [
+    "export constraint Heft<a: Num> =",
+    "    heft(value: a): a",
+    "export let useHeft<a: Heft>(n: a): a = heft(n)",
+    "",
+  ].join("\n");
+
+  test("an import cycle inside a dependency names its modules as that package spells them", () => {
+    const file = sourceFiles();
+    const project = compileProject([
+      file("/work/app/main.hex", "module Main\n\nexport let n: Int = 1"),
+    ], {
+      dependencies: ["Acme"],
+      installed: new Set(["Acme"]),
+      packages: [
+        dependency("Acme", [], [], [
+          file("/work/app/node_modules/acme/a.hex", "module A\n\nimport B\nexport let n: Int = B.n"),
+          file("/work/app/node_modules/acme/b.hex", "module B\n\nimport A\nexport let n: Int = A.n"),
+        ]),
+      ],
+    });
+    // Modules §8.1's cycle is named by its modules, and `Acme`'s author writes
+    // them `A` and `B` — `Acme.A` is a spelling §3.3 refuses them.
+    expect(messagesOf(project)).toContain("import cycle: A -> B -> A");
+  });
+
+  test("the constraint-route clause names the module without the package segment", () => {
+    const file = sourceFiles();
+    const project = compileProject([
+      file("/work/app/main.hex", "module Main\n\nexport let n: Int = 1"),
+    ], {
+      dependencies: ["Acme"],
+      installed: new Set(["Acme"]),
+      packages: [
+        dependency("Acme", [], [], [
+          file("/work/app/node_modules/acme/lib.hex", `module Lib\n\n${HEFT_LIB}`),
+          file(
+            "/work/app/node_modules/acme/mid.hex",
+            "module Mid\n\nimport Lib\n" +
+              "export let forward<a: Lib.Heft>(n: a): a = Lib.useHeft(n)\n",
+          ),
+          file(
+            "/work/app/node_modules/acme/caller.hex",
+            "module Caller\n\nimport Mid\n" +
+              "export let caller(n, stop: Bool) = if stop then n + n else Mid.forward(n)\n",
+          ),
+        ]),
+      ],
+    });
+    expect(messagesOf(project)).toContain(
+      "exported function `caller` must declare every constraint in its signature; " +
+        "write `<a: Lib.Heft>` — `Heft` is declared in module `Lib`; " +
+        "`import Lib` and spell it `Lib.Heft`",
+    );
+  });
 });

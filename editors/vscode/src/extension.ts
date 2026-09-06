@@ -21,6 +21,8 @@ import {
 } from "vscode-languageclient/node";
 
 const LANGUAGE_ID = "hexagon";
+/** The manifest's name, spelled here as the server spells it. */
+const MANIFEST_NAME = "hexagon.json";
 const CONFIGURATION_SECTION = "hexagon";
 const CLIENT_ID = "hexagonLanguageServer";
 const CLIENT_NAME = "Hexagon Language Server";
@@ -81,7 +83,19 @@ async function startClient(context: vscode.ExtensionContext): Promise<void> {
   };
 
   const clientOptions: LanguageClientOptions = {
-    documentSelector: [{ scheme: "file", language: LANGUAGE_ID }],
+    documentSelector: [
+      { scheme: "file", language: LANGUAGE_ID },
+      // `hexagon.json` too, for one reason: the server's not-a-dependency quick
+      // fix edits it, and an edit measured against the last *saved* text lands
+      // in the buffer the user is looking at. Where that buffer is longer than
+      // what was saved, the range stops short and the tail survives the
+      // replacement — a manifest that is no longer JSON, produced by a repair.
+      // So the manifest is synchronised, the server reads the buffer, and the
+      // edit carries the version it was measured against. By pattern rather
+      // than by language id, because a user may have `hexagon.json` associated
+      // with JSON, with JSONC, or with nothing at all.
+      { scheme: "file", pattern: `**/${MANIFEST_NAME}` },
+    ],
     synchronize: {
       // A `.hex` file can change without ever being opened — a branch switch, a
       // generated module — and the server needs to hear about it, because a

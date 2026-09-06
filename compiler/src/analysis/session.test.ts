@@ -71,6 +71,32 @@ describe("AnalysisSession", () => {
     expect(session.diagnostics("/main.hex")).toEqual(all.get("/main.hex"));
   });
 
+  /**
+   * A report against a file that compiled **no module**.
+   *
+   * `compileProject` seats one unit per address (Packages §6), so the second
+   * `module Dup` is dropped — and Modules §2.2's duplicate report is drawn
+   * against that second header, in the second file. The analysis indexed paths
+   * by compiled module alone, so this report named a file the index could not
+   * place and was dropped on the floor: the batch compiler refused the program
+   * while an editor showed nothing at all, in a file the session was holding
+   * and publishing an empty list for.
+   */
+  test("a file that compiled no module still publishes its report", () => {
+    const { session } = sessionOf({
+      "/a.hex": "module Dup\n\nexport let n: Int = 1\n",
+      "/b.hex": "module Dup\n\nexport let m: Int = 2\n",
+    });
+    expect(session.diagnostics("/a.hex")).toEqual([]);
+    expect(session.diagnostics("/b.hex").map(({ message }) => message)).toEqual([
+      "module `Dup` is declared twice: `/a.hex` (line 1) and `/b.hex` (line 1)",
+    ]);
+    // And the file its span names can be named, which is what a host needs to
+    // publish the report at all — and what resolves a label pointing into it.
+    const report = session.diagnostics("/b.hex")[0]!;
+    expect(session.pathOfFile(report.primary.fileId)).toBe("/b.hex");
+  });
+
   test("a diagnostic lands in the file its span names", () => {
     const { session } = sessionOf({
       "/main.hex": "module Main\n\n" + 'import Helper\nlet n: Int = Helper.missing\n',

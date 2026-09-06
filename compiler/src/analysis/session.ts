@@ -49,6 +49,7 @@ import {
   type CompiledModule,
   type ProjectOptions,
 } from "../project.js";
+import type { ProgramPackage } from "../packages.js";
 import { moduleInterface } from "../passes/resolver/resolver.js";
 import { displayModuleName, moduleImportLine } from "../packages.js";
 
@@ -214,7 +215,33 @@ export function refused(result: RenameResult | RenameSubject): result is RenameR
   return "refused" in result;
 }
 
-export interface SessionOptions extends ProjectOptions {}
+/**
+ * One package of the dependency closure, as a *session* holds it.
+ *
+ * `ProjectOptions` takes each package's files; a session takes their **paths**,
+ * because the session owns file identity: a path it holds has one
+ * `Source.FileId` for the life of the session (see `#fileIds`), and a host
+ * minting a second `Source.File` for the same text would make two spans in one
+ * file look like spans in two. So a dependency's sources are pushed in with
+ * `setFile` like every other file, and this says which of them belong to which
+ * package.
+ */
+export interface SessionPackage {
+  readonly record: ProgramPackage;
+  /** The session paths of this package's own source files. */
+  readonly paths: readonly string[];
+}
+
+/**
+ * `firstFileId` is deliberately **not** among these. A session owns file
+ * identity — every path it holds and every `referenceFile` it registers is
+ * numbered here — so the floor the compile mints injected modules above is this
+ * session's own counter, and never a host's to set. Two callers naming the
+ * floor is exactly the disagreement the field exists to end.
+ */
+export interface SessionOptions extends Omit<ProjectOptions, "packages" | "firstFileId"> {
+  readonly packages?: readonly SessionPackage[];
+}
 
 export class AnalysisSession {
   #options: SessionOptions;
@@ -226,9 +253,13 @@ export class AnalysisSession {
    * spans in different ones. Staleness is `version`'s job, not the id's.
    */
   readonly #fileIds = new Map<string, Source.FileId>();
+  /** Files with an identity here that are not compiled — see `referenceFile`. */
+  readonly #references = new Map<number, Source.File>();
   #nextFileId = 0;
   #version = 0;
   #analysis: Analysis | undefined;
+  /** See `#packageNameOf`; rebuilt when the option set changes and never else. */
+  #packageNameByPath: Map<string, string | undefined> | undefined;
 
   constructor(options: SessionOptions = {}) {
     this.#options = options;
@@ -254,7 +285,34 @@ export class AnalysisSession {
   configure(options: SessionOptions): void {
     if (sameOptions(this.#options, options)) return;
     this.#options = options;
+    this.#packageNameByPath = undefined;
     this.#invalidate();
+  }
+
+  /**
+   * The package whose **own source** a file is, by name (Packages §2.2), or the
+   * project's `packageName` for a file no package claims.
+   *
+   * A session holds a dependency's sources beside the project's, and a sentence
+   * or a repair drawn about one of them is read inside *that* package: §3.3
+   * refuses a package qualifying its own module, so `import Acme.Lib` offered
+   * inside `Acme` is a line the next compile rejects. Anything this session
+   * says about a *file* therefore asks this, rather than reaching for the
+   * project's own name — which is the right answer only for the project's own
+   * files.
+   */
+  #packageNameOf(path: string): string | undefined {
+    if (this.#packageNameByPath === undefined) {
+      const byPath = new Map<string, string | undefined>();
+      for (const { record, paths } of this.#options.packages ?? []) {
+        for (const held of paths) byPath.set(normalizePath(held), record.name);
+      }
+      this.#packageNameByPath = byPath;
+    }
+    const normalized = normalizePath(path);
+    return this.#packageNameByPath.has(normalized)
+      ? this.#packageNameByPath.get(normalized)
+      : this.#options.packageName;
   }
 
   get paths(): readonly string[] {
@@ -280,12 +338,48 @@ export class AnalysisSession {
   }
 
   /**
+   * Gives a file an identity here **without compiling it** — a `hexagon.json`
+   * a report has to point at (Packages §7's whole-program seat, D3).
+   *
+   * A report about a package other than the one being read has one place to
+   * send its reader, and it is that package's manifest: the offending package
+   * has no source the reader can act on, and its `name` is the thing to change.
+   * A label is a span, a span names its file by number, and `pathOfFile` has to
+   * answer for that number or the editor silently drops the related
+   * information — so the manifest needs an identity in this session, and it
+   * must not become a compilation unit, being JSON.
+   *
+   * Registering the same path again re-reads it under the identity it already
+   * has, so a manifest edited while the workspace is open keeps one identity
+   * for the life of the session, exactly as a source file does.
+   */
+  referenceFile(path: string, text: string): Source.File {
+    const normalized = normalizePath(path);
+    let id = this.#fileIds.get(normalized);
+    const fresh = id === undefined;
+    if (id === undefined) {
+      id = Source.fileId(this.#nextFileId);
+      this.#fileIds.set(normalized, id);
+      this.#nextFileId += 1;
+    }
+    const file = new Source.File(id, normalized, text);
+    this.#references.set(Number(id), file);
+    // Re-registering an existing path invalidates nothing: nothing here is
+    // compiled, and a span into it reaches the compiler as an *option*, whose
+    // own change is what invalidates. A **new** identity is different — it
+    // raises the floor the compile mints injected modules above (`firstFileId`),
+    // and an analysis already standing minted one of them on this very number.
+    if (fresh) this.#invalidate();
+    return file;
+  }
+
+  /**
    * The path a compiler file identity belongs to. Spans name files by number,
    * so a host rendering a span that points somewhere else — a diagnostic's
    * secondary label, most often — needs this to say where.
    */
   pathOfFile(fileId: Source.FileId): string | undefined {
-    return this.#analyze().pathOf(fileId);
+    return this.#analyze().pathOf(fileId) ?? this.#references.get(Number(fileId))?.path;
   }
 
   /** Diagnostics for one file, empty for a file the session does not hold. */
@@ -796,6 +890,9 @@ export class AnalysisSession {
       .exportersOf(repair.name, repair.namespace)
       .filter((exporter) => exporter.path !== path && this.#texts.has(exporter.path));
     if (exporters.length === 0) return undefined;
+    // The package this action's reader is in — every module name below is
+    // spelled as they must write it.
+    const requesting = this.#packageNameOf(path);
     const title = `import \`${repair.name}\``;
     if (exporters.length > 1) {
       return {
@@ -806,7 +903,7 @@ export class AnalysisSession {
         disabled: `${exporters.length} modules export a ${repair.namespace} ` +
           `\`${repair.name}\`: ` +
           exporters
-            .map((exporter) => `\`${displayModuleName(exporter.name, this.#options.packageName)}\``)
+            .map((exporter) => `\`${displayModuleName(exporter.name, requesting)}\``)
             .join(", ") +
           " — write the import for the one you mean",
       };
@@ -821,15 +918,12 @@ export class AnalysisSession {
     // through §5.1 rule 2's companion fallback, whose door is the alias.
     // `moduleImportLine` drops the clause where the module's declared name is
     // already the spelling, so the companion idiom's line stays `import Scale`.
-    // The **project's** package name, where the manifest declared one: this
-    // file is one of the project's own modules, and Packages §3.3 refuses a
-    // package qualifying its own module — `import Acme.Lib` inside `Acme` is a
-    // line the compiler rejects, so the segment §3.2 elides is elided here.
-    const importLine = moduleImportLine(
-      exporters[0]!.name,
-      repair.name,
-      this.#options.packageName,
-    );
+    // The package whose source **this file** is (`#packageNameOf`), not the
+    // project's: a session holds a dependency's sources too, and Packages §3.3
+    // refuses a package qualifying its own module — `import Acme.Lib` inside
+    // `Acme` is a line the compiler rejects, so the segment §3.2 elides is
+    // elided here.
+    const importLine = moduleImportLine(exporters[0]!.name, repair.name, requesting);
     // Placed inside the **refused use's own** module (Modules §2.2): a file's
     // modules are strangers, so the line belongs under the header of the one
     // that cannot resolve the name, never under the file's first. And no
@@ -1452,10 +1546,42 @@ export class AnalysisSession {
 
   #analyze(): Analysis {
     if (this.#analysis === undefined) {
-      const files = [...this.#texts].map(([path, text]) =>
-        new Source.File(this.#fileIds.get(path)!, path, text)
+      const files = new Map(
+        [...this.#texts].map(([path, text]) =>
+          [path, new Source.File(this.#fileIds.get(path)!, path, text)] as const
+        ),
       );
-      this.#analysis = new Analysis(compileProject(files, this.#options));
+      // A dependency's sources are held like every other file and claimed here,
+      // so the project's own file list is what is left over. A path a package
+      // claims that the session does not hold is simply absent — the walk that
+      // named it and the reader that lost it disagree, and the compile answers
+      // over what it has rather than over what it was promised.
+      const claimed = new Set<string>();
+      const { packages: named, ...rest } = this.#options;
+      const packages = (named ?? []).map(({ record, paths }) => {
+        const own = paths.flatMap((path) => {
+          const normalized = normalizePath(path);
+          const file = files.get(normalized);
+          if (file === undefined) return [];
+          claimed.add(normalized);
+          return [file];
+        });
+        return { record, files: own };
+      });
+      const project = [...files].flatMap(([path, file]) => claimed.has(path) ? [] : [file]);
+      // Every identity this session has handed out — its files' and its
+      // reference files' alike — is below `#nextFileId`, so that is the floor
+      // an injected module may be minted above. Without it `compileProject`
+      // would see only the files it was passed, and a manifest registered by
+      // `referenceFile` (which is never passed) would share a number with the
+      // first woven member of `Hex`.
+      this.#analysis = new Analysis(
+        compileProject(project, {
+          ...(packages.length === 0 ? rest : { ...rest, packages }),
+          firstFileId: this.#nextFileId,
+        }),
+        files,
+      );
     }
     return this.#analysis;
   }
@@ -1505,7 +1631,30 @@ class Analysis {
   /** Attached documentation, indexed for lookup by name and by position. */
   readonly documentation: DocumentationIndex;
 
-  constructor(project: { readonly modules: readonly CompiledModule[]; readonly diagnostics: readonly Diagnostics.Diagnostic[] }) {
+  constructor(
+    project: { readonly modules: readonly CompiledModule[]; readonly diagnostics: readonly Diagnostics.Diagnostic[] },
+    /** Every file the compile was handed, by path — see the loop below. */
+    supplied: ReadonlyMap<string, Source.File>,
+  ) {
+    // **Every file the session handed over**, before the compiled ones, because
+    // a file the host holds can draw a report and appear in `modules` nowhere.
+    // The loop below drops a diagnostic whose file it cannot name, so such a
+    // report was published against nothing at all. Two ways in, both ordinary:
+    //
+    // - `compileProject` seats one unit per address (Packages §6), so the
+    //   *second* `module Geo` is dropped — and Modules §2.2's duplicate report
+    //   is drawn against that second header, in that second file. Two files
+    //   declaring one module drew nothing in an editor while the batch compiler
+    //   refused the program;
+    // - `modules` is the **emitted** closure, so a prelude or runtime module is
+    //   in it only where something reaches it — and a project developing the
+    //   standard library supplies those files itself (`gatherModules`'
+    //   adoption). Its own `Runtime/VectorTrie.hex` reported nothing at all,
+    //   type errors included, until some module in the project used a `Vector`.
+    //
+    // A file that compiled nothing overwrites nothing here: the module loop
+    // sets the same path for the same identity.
+    for (const [path, file] of supplied) this.#pathsByFileId.set(Number(file.id), path);
     // Before the facts, which carry each symbol's documentation with them: a
     // completion asks about a symbol, not about a place.
     this.documentation = DocumentationIndex.of(project.modules.map(({ typed }) => typed));
@@ -1652,16 +1801,6 @@ class Analysis {
   /** The file a module of this full name was compiled from (Packages §2.3). */
   fileIdOfModule(moduleName: string): Source.FileId | undefined {
     return this.#fileIdsByModuleName.get(moduleName);
-  }
-
-  /**
-   * The module a file declares, **as a reader knows it** (Modules §7.6) — for
-   * the reports that have to name where a declaration lives, which name a
-   * module and never a path (§1).
-   */
-  moduleNameOf(fileId: Source.FileId): string | undefined {
-    const full = this.#moduleNamesByFileId.get(Number(fileId));
-    return full === undefined ? undefined : displayModuleName(full);
   }
 
   /**
@@ -2058,13 +2197,30 @@ function diagnosticTally(
  */
 function sameOptions(left: SessionOptions, right: SessionOptions): boolean {
   const compared = (
-    { packageName, dependencies, ...rest }: SessionOptions,
+    { packageName, dependencies, installed, packages, ...rest }: SessionOptions,
   ): readonly string[] => {
     const exhaustive: Record<string, never> = rest;
     void exhaustive;
     return [
       `name:${packageName ?? ""}`,
       ...[...(dependencies ?? [])].sort().map((name) => `dependency:${name}`),
+      // A set, like `dependencies`: what a lookup answers with has no order.
+      ...[...(installed ?? [])].sort().map((name) => `installed:${name}`),
+      // The closure's order *is* meaningful — `validatePackageSet` fixes it —
+      // so it is compared as written, and every field of every record with it:
+      // a package whose `dependencies` changed compiles differently under the
+      // same name, and one whose file list changed holds different modules.
+      ...(packages ?? []).flatMap(({ record, paths }) => [
+        `package:${record.name ?? ""}`,
+        ...record.dependencies.map((name) => `package-dependency:${name}`),
+        ...[...record.installed].sort().map((name) => `package-installed:${name}`),
+        `package-manifest:${
+          record.manifest === undefined
+            ? ""
+            : `${record.manifest.fileId}:${record.manifest.start.offset}:${record.manifest.end.offset}`
+        }`,
+        ...paths.map((path) => `package-file:${path}`),
+      ]),
     ];
   };
   const [before, after] = [compared(left), compared(right)];

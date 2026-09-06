@@ -1,8 +1,8 @@
 /**
  * `hexagon.json` — how a project says what it is.
  *
- * Without one, a workspace root is just "every `.hex` file underneath, compiled
- * together", and that guess is wrong in a way a language server cannot recover
+ * Without one, a root is just "every `.hex` file underneath, compiled
+ * together", and that guess is wrong in a way no host can recover
  * from on its own: **some files are not the project** — generated output,
  * deliberately-broken examples, a vendored copy. Compiling them alongside real
  * source produces diagnostics about files nobody is working on, and guessing
@@ -26,14 +26,17 @@
  * Two of its three fields are the *language's* rather than the host's — `name`
  * and `dependencies` (Packages §2.1) — and this reader validates them exactly
  * as far as one manifest can be read alone: `name` against §2.1's rule, each
- * `dependencies` entry against §2.4 and §4.4. It **resolves** nothing. Deciding
- * that a listed name is installed, or is installed twice, or closes a cycle
- * needs every installed package's manifest, which nothing here reads yet; a
- * reader that guessed would report "no installed package declares `Bolt`"
- * about a package sitting in `node_modules`. So a listed name contributes to
- * the package set — which Modules §2.2's first-segment rule reads — and
- * supplies no modules, and §7's installed-package rows wait for the host slice
- * that reads them.
+ * `dependencies` entry against §2.4 and §4.4. It **resolves** nothing, and that
+ * is a boundary rather than a stage: deciding that a listed name is installed,
+ * or is installed twice, or closes a cycle needs every installed package's
+ * manifest, and `lookup.ts` and `packages.ts` beside it are what read them.
+ * A reader that guessed here would report "no installed package declares
+ * `Bolt`" about a package sitting in `node_modules`, so it reads one file and
+ * answers about one file.
+ *
+ * `scope` on each report is the same line drawn a second time, for the reader
+ * of a manifest that is **not** the project's: a dependency publishes its
+ * language reports and keeps the host's to itself (§4.1).
  *
  * Reading it lives here rather than in the compiler because it is filesystem
  * work, and the compiler is deliberately free of a filesystem. The *shape*
@@ -46,12 +49,25 @@
  * a host comes to accept a name the compiler refuses.
  */
 
-import { readdir, readFile, realpath, stat } from "node:fs/promises";
+import { readdirSync, readFileSync } from "node:fs";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { dependencyRefusal, packageNameRefusal } from "../../compiler/src/index.js";
-import { normalizePath } from "./positions.js";
+import { messageOf, normalizePath, realPathOf } from "./paths.js";
 
 export const MANIFEST_NAME = "hexagon.json";
+
+/**
+ * The package name a manifest's `name` value declares, where this spec accepts
+ * it (Packages §2.1), and nothing otherwise.
+ *
+ * Shared with the level scan, which reads a manifest for this field alone: the
+ * judgement is the compiler's (`packageNameRefusal`) and it must be one
+ * judgement, or a lookup would answer with a name the compiler refuses.
+ */
+export function packageName(value: string): string | undefined {
+  return packageNameRefusal(value) === undefined ? value : undefined;
+}
 
 /** The keys this reader knows, in the order §2.1 introduces them. */
 const KNOWN_KEYS = ["name", "dependencies", "exclude"] as const;
@@ -85,6 +101,16 @@ export interface Manifest {
    * motivated this without inventing one.
    */
   readonly exclude: readonly string[];
+  /**
+   * The npm version of the package sitting at this directory, where its
+   * `package.json` declares one (Packages §4.2, §4.3).
+   *
+   * Read from `package.json` and never from `hexagon.json`: versions are npm's,
+   * this spec designs none, and §4.3's installed-twice report is the one place
+   * a version is printed — "the version where the npm manifest declares one".
+   * Absent leaves the report naming the directory alone.
+   */
+  readonly version: string | undefined;
 }
 
 /** A problem with the manifest itself, reported against the manifest file. */
@@ -92,6 +118,19 @@ export interface ManifestProblem {
   readonly message: string;
   /** Zero-based line within `hexagon.json`, or 0 when the file did not parse. */
   readonly line: number;
+  /**
+   * Whose rule this report is: the **language's** or the **host's**.
+   *
+   * Packages §2.1 draws the line — "Two of its three fields are the *language's*
+   * rather than the host's — `name` and `dependencies`. Other fields are the
+   * host's" — and §4.1 says what a manifest that is not the project's is checked
+   * for: "What a package that enters the set is checked for is its own
+   * `dependencies`". So a dependency's manifest publishes its language reports
+   * and keeps the host's to itself: an `exclude` entry naming a build directory
+   * npm did not publish, or a field some other host reads, is not a fault its
+   * consumer can act on, and `node_modules` is not a place anyone edits.
+   */
+  readonly scope: "language" | "host";
   /**
    * Whether this is a mistake or merely an entry that currently matches nothing.
    *
@@ -109,9 +148,26 @@ export interface ManifestResult {
   readonly problems: readonly ManifestProblem[];
   /** False when the root has no manifest at all, which is not a problem. */
   readonly present: boolean;
+  /**
+   * False where a manifest **exists** and could not be read as a JSON object.
+   *
+   * The lookup needs the two apart (Packages §4.1). A manifest it cannot read is
+   * "a candidate for no name" that is *named* in the unresolvable-name report of
+   * the lookup that scanned it; one that reads and declares no name this spec
+   * accepts is a candidate for no name that is **named nowhere**, "nothing about
+   * it is broken". Telling them apart by looking for a parse message in
+   * `problems` would make a sentence a reader sees into an interface a pass
+   * depends on.
+   */
+  readonly readable: boolean;
+  /**
+   * The manifest's own text, so a report seated at one of its keys can be
+   * placed on the right line. Empty where the file is absent.
+   */
+  readonly text: string;
 }
 
-const EMPTY: Manifest = { name: undefined, dependencies: [], exclude: [] };
+const EMPTY: Manifest = { name: undefined, dependencies: [], exclude: [], version: undefined };
 
 /**
  * Reads the manifest at a workspace root.
@@ -127,7 +183,7 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
   try {
     text = await readFile(path, "utf8");
   } catch {
-    return { manifest: EMPTY, problems: [], present: false };
+    return { manifest: EMPTY, problems: [], present: false, readable: false, text: "" };
   }
 
   let parsed: unknown;
@@ -139,37 +195,33 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
     return {
       manifest: EMPTY,
       present: true,
+      readable: false,
+      text,
       problems: [{
         message: `${MANIFEST_NAME} is not valid JSON: ${
           error instanceof Error ? error.message : String(error)
         }`,
         line: 0,
+        // The file that cannot be read at all: no `name` and no `dependencies`
+        // can be read out of it, so the language's own reading has failed.
+        scope: "language",
         severity: "error",
       }],
     };
   }
 
   const problems: ManifestProblem[] = [];
-  // Anchored to a key *position* — `"key"` followed by a colon — so a value that
-  // happens to spell another key's name does not steal the report.
-  const lineOf = (key: string): number => {
-    // Escaped, because unknown keys are user-typed and land in a regex: a
-    // bracket in a misspelling — `"exclude["` — is otherwise a syntax error
-    // thrown from the very report meant to explain it, and the throw takes
-    // language support down with the manifest, the one thing a broken manifest
-    // must never do.
-    const literal = key.replace(/[$()*+.?[\\\]^{|}]/gu, "\\$&");
-    const pattern = new RegExp(`^\\s*"${literal}"\\s*:`, "u");
-    const at = text.split("\n").findIndex((line) => pattern.test(line));
-    return at < 0 ? 0 : at;
-  };
+  const lineOf = (key: string): number => manifestKeyLine(text, key);
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
     return {
       manifest: EMPTY,
       present: true,
+      readable: false,
+      text,
       problems: [{
         message: `${MANIFEST_NAME} must contain a JSON object`,
         line: 0,
+        scope: "language",
         severity: "error",
       }],
     };
@@ -185,6 +237,7 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
         KNOWN_KEYS.map((known) => `\`${known}\``).join(", ")
       }`,
       line: lineOf(key),
+      scope: "host",
       severity: "error",
     });
   }
@@ -205,13 +258,14 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
       problems.push({
         message: `${MANIFEST_NAME} \`name\` must be a string`,
         line: lineOf("name"),
+        scope: "language",
         severity: "error",
       });
       return undefined;
     }
     const refusal = packageNameRefusal(value);
     if (refusal === undefined) return value;
-    problems.push({ message: refusal, line: lineOf("name"), severity: "error" });
+    problems.push({ message: refusal, line: lineOf("name"), scope: "language", severity: "error" });
     return undefined;
   };
 
@@ -223,6 +277,7 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
       problems.push({
         message: `${MANIFEST_NAME} \`dependencies\` must be an array of package names`,
         line: lineOf("dependencies"),
+        scope: "language",
         severity: "error",
       });
       return [];
@@ -233,6 +288,7 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
         problems.push({
           message: `${MANIFEST_NAME} \`dependencies\` entries must be strings`,
           line: lineOf("dependencies"),
+          scope: "language",
           severity: "error",
         });
         continue;
@@ -241,7 +297,8 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
       if (refusal !== undefined) {
         problems.push({
           message: refusal,
-          line: lineOf("dependencies"),
+          line: manifestKeyLine(text, "dependencies", entry),
+          scope: "language",
           severity: "error",
         });
         continue;
@@ -261,6 +318,7 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
       problems.push({
         message: `${MANIFEST_NAME} \`${key}\` must be an array of paths`,
         line: lineOf(key),
+        scope: "host",
         severity: "error",
       });
       return [];
@@ -271,6 +329,7 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
         problems.push({
           message: `${MANIFEST_NAME} \`${key}\` entries must be strings`,
           line: lineOf(key),
+          scope: "host",
           severity: "error",
         });
         continue;
@@ -288,8 +347,35 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
           message:
             `${MANIFEST_NAME} \`exclude\` entry ${JSON.stringify(entry)} covers the workspace ` +
             "root, which would exclude the whole project",
-          line: lineOf(key),
+          line: manifestKeyLine(text, key, entry),
+          scope: "host",
           severity: "error",
+        });
+        continue;
+      }
+      // A directory holding a `hexagon.json` of its own is a package of its
+      // own, and §2.2 already keeps every file of it out of this package — so
+      // an entry naming one names nothing of this package's, and there is
+      // nothing for it to do. Said out loud rather than dropped in silence,
+      // because the user wrote the entry to make something stop happening and
+      // nothing about it will: the nested package keeps its own program, its
+      // own diagnostics and its own place in the editor, and the only file that
+      // can bound it is its own manifest.
+      //
+      // The entry goes no further than this report. Left in the list it would
+      // decide nothing — the walk reports the boundary whether the directory is
+      // excluded or not — but it would still be a rule sitting in the manifest
+      // that two readers could disagree about, and this way the warning's own
+      // sentence is exactly true.
+      if (key === "exclude" && await holdsManifest(resolved)) {
+        problems.push({
+          message:
+            `${MANIFEST_NAME} \`exclude\` entry ${JSON.stringify(entry)} names a package of ` +
+            `its own (it holds a \`${MANIFEST_NAME}\`), which is never part of this project; ` +
+            "the entry has no effect",
+          line: manifestKeyLine(text, key, entry),
+          scope: "host",
+          severity: "warning",
         });
         continue;
       }
@@ -305,7 +391,8 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
           message:
             `${MANIFEST_NAME} \`${key}\` entry ${JSON.stringify(entry)} matches no file or ` +
             "directory, so it has no effect (check the spelling, including its case)",
-          line: lineOf(key),
+          line: manifestKeyLine(text, key, entry),
+          scope: "host",
           severity: "warning",
         });
       }
@@ -321,10 +408,73 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
       name: readName(),
       dependencies: readDependencies(),
       exclude: await readPaths("exclude"),
+      version: await readVersion(rootPath),
     },
     problems,
     present: true,
+    readable: true,
+    text,
   };
+}
+
+/**
+ * The npm version of the package at this directory, from its `package.json`.
+ *
+ * Silent about every failure, and deliberately: a missing, unreadable, or
+ * malformed `package.json` beside a lawful `hexagon.json` is a package with no
+ * version to print, which §4.3's report already has a shape for. This reader
+ * answers what a package *is*; npm's file is not its to validate, and a report
+ * about it would be a report about a field this spec designs none of (§4.2).
+ */
+async function readVersion(rootPath: string): Promise<string | undefined> {
+  let text: string;
+  try {
+    text = await readFile(join(rootPath, "package.json"), "utf8");
+  } catch {
+    return undefined;
+  }
+  try {
+    const parsed: unknown = JSON.parse(text.replace(/^\uFEFF/u, ""));
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+    const version = (parsed as Record<string, unknown>)["version"];
+    return typeof version === "string" ? version : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The zero-based line a manifest key sits on, and the line its `entry` sits on
+ * where one is named.
+ *
+ * Anchored to a key *position* — `"key"` followed by a colon — so a value that
+ * happens to spell another key's name does not steal the report. An `entry` is
+ * then sought at or below that line, which is what puts a `dependencies` report
+ * on the entry a reader has to edit rather than on the field's own line.
+ *
+ * Exported because a report the *package set* draws (Packages §7) is seated at
+ * a manifest and a key, and the manifest it names is often not the one being
+ * read — a dependency's own `hexagon.json` under `node_modules` (D3).
+ */
+export function manifestKeyLine(text: string, key: string, entry?: string): number {
+  const lines = text.split("\n");
+  const at = lines.findIndex((line) => keyPattern(key).test(line));
+  if (at < 0) return 0;
+  if (entry === undefined) return at;
+  const quoted = JSON.stringify(entry);
+  const within = lines.findIndex((line, index) => index >= at && line.includes(quoted));
+  return within < 0 ? at : within;
+}
+
+/**
+ * Escaped, because unknown keys are user-typed and land in a regex: a bracket in
+ * a misspelling — `"exclude["` — is otherwise a syntax error thrown from the
+ * very report meant to explain it, and the throw takes language support down
+ * with the manifest, the one thing a broken manifest must never do.
+ */
+function keyPattern(key: string): RegExp {
+  const literal = key.replace(/[$()*+.?[\\\]^{|}]/gu, "\\$&");
+  return new RegExp(`^\\s*"${literal}"\\s*:`, "u");
 }
 
 /**
@@ -376,6 +526,137 @@ async function matchesExactly(rootPath: string, resolved: string): Promise<boole
   return true;
 }
 
+/**
+ * Whether a `hexagon.json` sits at this directory — the one test that makes a
+ * directory a package of its own (Packages §2.2) and a program of its own
+ * (`environment.md` §4, D1).
+ *
+ * Spelled once, and here rather than beside any caller, because "is there a
+ * manifest at this directory" is asked by four of them — the climb to a project
+ * directory, an `exclude` entry naming a package, the walk, which asks it of
+ * entries it has already read, and `packageUnderNodeModules`, which asks the
+ * sync twin below.
+ *
+ * The directory is **read**, rather than the file `stat`ed, for
+ * `matchesExactly`'s reason: macOS and Windows open `hexagon.json` when the file
+ * on disk is `Hexagon.json`, so `stat` answers `true` for a directory this
+ * host's own exact comparisons then treat as holding nothing — a project with a
+ * manifest every later reader fails to find. Reading the directory and looking
+ * for the literal name is what makes the answer and the filesystem agree. A
+ * *directory* of that name is not a manifest either, and answering `true` for
+ * one would make an ordinary folder a project with no file behind it.
+ */
+export async function holdsManifest(directory: string): Promise<boolean> {
+  try {
+    return (await readdir(directory, { withFileTypes: true })).some(isManifestEntry);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * `holdsManifest`, asked without waiting.
+ *
+ * One caller needs it: the language server's stranded-buffer notice, which is
+ * decided inside a synchronous publication and has to know whether a package
+ * sits under a `node_modules` before it can promise a `dependencies` entry
+ * would reach the file. It is asked of a handful of directories, once per
+ * stranded buffer per publication, and never of a `node_modules` itself.
+ *
+ * The two spellings share `isManifestEntry` rather than each testing the entry,
+ * because the whole point of one predicate is that a second reader cannot come
+ * to a different answer about the same directory.
+ */
+export function holdsManifestSync(directory: string): boolean {
+  try {
+    return readdirSync(directory, { withFileTypes: true }).some(isManifestEntry);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * What a manifest says its package's name is — the field a `dependencies` entry
+ * has to match (Packages §4.1).
+ *
+ * Three answers and not two, because the two ways there is no name to write are
+ * not the same fact: a manifest that parses and declares none is a lawful
+ * package a lookup answers for nothing (§4.1), while one that could not be read
+ * is a fault §7 names, with the parser's own message. Both readers of this field
+ * need both, and neither needs the rest of the manifest — a real `node_modules`
+ * level holds hundreds of packages nothing will ever resolve to.
+ */
+export type DeclaredPackageName =
+  /** It parses and declares a name §2.1 accepts: the entry that reaches it. */
+  | { readonly kind: "name"; readonly name: string }
+  /** It parses, and declares no name this spec accepts — §4.1's no candidate. */
+  | { readonly kind: "unnamed" }
+  /** Not readable as a JSON object at all, with the reason §7 would print. */
+  | { readonly kind: "unreadable"; readonly reason: string };
+
+/**
+ * That field, read out of a manifest's **text**.
+ *
+ * The text and not the path, so that the level scan — which waits — and the
+ * language server's stranded-buffer sentence — which cannot — are one reader
+ * and not two. They differ only in how the bytes arrive, and the field they
+ * disagreed about would be the one deciding whether a `dependencies` entry
+ * reaches a package.
+ */
+export function nameInManifest(text: string): DeclaredPackageName {
+  let parsed: unknown;
+  try {
+    // VS Code writes a byte-order mark when `files.encoding` is `utf8bom`, and
+    // `JSON.parse` rejects it with a message about an invisible character.
+    parsed = JSON.parse(text.replace(/^\uFEFF/u, ""));
+  } catch (error) {
+    return { kind: "unreadable", reason: `${MANIFEST_NAME} is not valid JSON: ${messageOf(error)}` };
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return { kind: "unreadable", reason: `${MANIFEST_NAME} must contain a JSON object` };
+  }
+  const declared = (parsed as Record<string, unknown>)["name"];
+  if (typeof declared !== "string") return { kind: "unnamed" };
+  const accepted = packageName(declared);
+  return accepted === undefined ? { kind: "unnamed" } : { kind: "name", name: accepted };
+}
+
+/**
+ * A package root's declared name, read without waiting and throwing nothing.
+ *
+ * The same caller `holdsManifestSync` has, one step further on: the language
+ * server decides a stranded buffer's sentence inside a synchronous publication,
+ * and "add it to `dependencies`" is only a repair where there is a name to add.
+ * It is asked of **one** directory — the package root `packageUnderNodeModules`
+ * already named — and only where the sentence would otherwise carry that
+ * repair, so no publication reads a manifest it does not need and the walk's own
+ * read-free path is untouched.
+ *
+ * Every failure is an answer rather than a throw: a manifest that is a
+ * directory, one too large or malformed to parse, one holding a JSON array, one
+ * that vanished between the `readdir` and this read. A publication is not a
+ * place an exception can be handled.
+ */
+export function declaredPackageNameSync(directory: string): DeclaredPackageName {
+  try {
+    return nameInManifest(readFileSync(join(directory, MANIFEST_NAME), "utf8"));
+  } catch (error) {
+    return { kind: "unreadable", reason: messageOf(error) };
+  }
+}
+
+/**
+ * The one test of a directory entry that makes its directory a package.
+ *
+ * Exported for the walk, which asks it of entries it has already read: the two
+ * questions "is there a manifest here" and "was that entry the manifest" have
+ * to have one answer, and they did not when the walk carried a predicate of its
+ * own beside this one.
+ */
+export function isManifestEntry(entry: { name: string; isDirectory(): boolean }): boolean {
+  return entry.name === MANIFEST_NAME && !entry.isDirectory();
+}
+
 /** Whether anything at all is at this path, without caring what. */
 async function exists(path: string): Promise<boolean> {
   try {
@@ -425,11 +706,3 @@ async function coversRoot(resolved: string, rootPath: string): Promise<boolean> 
   return isExcluded(await realPathOf(rootPath), [resolved]);
 }
 
-/** A path with every link followed, or the path itself if it cannot resolve. */
-async function realPathOf(path: string): Promise<string> {
-  try {
-    return await realpath(path);
-  } catch {
-    return path;
-  }
-}

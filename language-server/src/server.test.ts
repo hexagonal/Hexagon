@@ -9,9 +9,8 @@
  * test that calls a handler directly.
  */
 
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { PassThrough } from "node:stream";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
@@ -47,6 +46,7 @@ import {
 } from "vscode-languageserver-protocol/node.js";
 import { createConnection } from "vscode-languageserver/node.js";
 import { startServer } from "./server.js";
+import { removeTemporaryRoots, temporaryRoot } from "../../host/src/test-roots.js";
 
 const HELPER = [
   "module Helper",
@@ -167,8 +167,12 @@ async function harness(
   files: Record<string, string>,
   capabilities: InitializeParams["capabilities"] = {},
 ): Promise<Harness> {
-  const root = await mkdtemp(join(tmpdir(), "hexagon-lsp-"));
+  const root = await temporaryRoot("hexagon-lsp-");
   for (const [name, text] of Object.entries(files)) {
+    // Nested names are allowed so a fixture can lay down a `node_modules` tree:
+    // a program's dependencies are directories, and a test that could only
+    // write flat files could only test a project with none.
+    await mkdir(dirname(join(root, name)), { recursive: true });
     await writeFile(join(root, name), text, "utf8");
   }
 
@@ -988,6 +992,238 @@ describe("the Hexagon language server", () => {
     }
   });
 
+  /**
+   * The same courtesy for the bounds §2.2 states, which are the ones a user
+   * cannot see.
+   *
+   * An `exclude` entry is a line someone wrote and can go and read. These three
+   * are facts about a directory somewhere above the file — a `node_modules`
+   * nothing lists, a name this host never reads, a `hexagon.json` of some other
+   * package's — and this PR sharpens the difference: a file inside a *listed*
+   * dependency now gets full language support, and one inside its unlisted
+   * neighbour gets silence, with nothing on screen to tell the two apart.
+   *
+   * One sentence per reason, because the way out differs: list the package,
+   * open the folder, or rename the directory.
+   */
+  const open = async (
+    solo: Harness,
+    name: string,
+    text: string,
+  ): Promise<readonly Diagnostic[]> => {
+    const uri = solo.uriOf(name);
+    await solo.client.sendNotification(DidOpenTextDocumentNotification.type, {
+      textDocument: { uri, languageId: "hexagon", version: 1, text },
+    });
+    return await solo.diagnosticsFor(uri);
+  };
+
+  test("a buffer under an unlisted package's `node_modules` says which entry is missing", async () => {
+    const solo = await harness({
+      "hexagon.json": JSON.stringify({ name: "App" }),
+      "main.hex": "module Main\n\nlet value: Int = 1\n",
+      "node_modules/loose/hexagon.json": JSON.stringify({ name: "Loose" }),
+      "node_modules/loose/stray.hex": "module Stray\n\nlet n: Int = 1\n",
+    });
+    try {
+      const reported = await open(solo, "node_modules/loose/stray.hex", "module Stray\n");
+      expect(reported).toHaveLength(1);
+      expect(reported[0]!.severity).toBe(3);
+      // The package is named, and so is the manifest to write the entry in:
+      // neither is guessable from the file, since a directory called
+      // `acme-utils` may declare `Utils` and a reader with the dependency open
+      // as a root of its own has two `hexagon.json` in front of them.
+      expect(reported[0]!.message).toBe(
+        "this file is in `Loose`, a package under `node_modules` this project does not list, " +
+        "so it has no diagnostics, hover, or navigation; " +
+        "add `Loose` to `dependencies` in `hexagon.json` to compile it",
+      );
+
+      // And it goes when the reason goes. The notice is only worth publishing
+      // if it disappears the moment the user does what it asked.
+      await writeFile(
+        join(solo.root, "hexagon.json"),
+        JSON.stringify({ name: "App", dependencies: ["Loose"] }),
+      );
+      await solo.client.sendNotification(DidChangeWatchedFilesNotification.type, {
+        changes: [{ uri: solo.uriOf("hexagon.json"), type: 2 }],
+      });
+      const after = await solo.diagnosticsUntil(
+        solo.uriOf("node_modules/loose/stray.hex"),
+        (diagnostics) => !diagnostics.some(({ severity }) => severity === 3),
+        "free of the not-a-dependency notice",
+      );
+      expect(after).toEqual([]);
+    } finally {
+      await solo.dispose();
+    }
+  });
+
+  test("a buffer under a directory this host never reads names the directory", async () => {
+    const solo = await harness({
+      "hexagon.json": JSON.stringify({ name: "App" }),
+      "main.hex": "module Main\n\nlet value: Int = 1\n",
+      "dist/built.hex": "module Built\n\nlet n: Int = 1\n",
+    });
+    try {
+      const reported = await open(solo, "dist/built.hex", "module Built\n");
+      expect(reported).toHaveLength(1);
+      expect(reported[0]!.severity).toBe(3);
+      // Named, not merely alluded to: the reader has to be able to see that it
+      // was their own `dist/`, and no `exclude` entry can argue with this one,
+      // so the sentence offers no repair it cannot keep.
+      expect(reported[0]!.message).toBe(
+        "this file is under `dist`, which this language server never reads as project source, " +
+        "so it has no diagnostics, hover, or navigation",
+      );
+    } finally {
+      await solo.dispose();
+    }
+  });
+
+  test("a buffer beneath a package vendored inside a dependency names that package", async () => {
+    const solo = await harness({
+      "hexagon.json": JSON.stringify({ name: "App", dependencies: ["Acme"] }),
+      "main.hex": "module Main\n\nlet value: Int = 1\n",
+      "node_modules/acme/hexagon.json": JSON.stringify({ name: "Acme" }),
+      "node_modules/acme/lib.hex": "module Lib\n\nlet n: Int = 1\n",
+      "node_modules/acme/vendor/hexagon.json": JSON.stringify({ name: "Vendored" }),
+      "node_modules/acme/vendor/inside.hex": "module Inside\n\nlet n: Int = 1\n",
+    });
+    try {
+      const reported = await open(
+        solo,
+        "node_modules/acme/vendor/inside.hex",
+        "module Inside\n",
+      );
+      expect(reported).toHaveLength(1);
+      expect(reported[0]!.severity).toBe(3);
+      // Relative to the project the reader has open: a message carrying the
+      // whole absolute prefix is a message they skip.
+      expect(reported[0]!.message).toBe(
+        "this file belongs to the package at `node_modules/acme/vendor/hexagon.json`, " +
+        "which no open project reaches, so it has no diagnostics, hover, or navigation; " +
+        "open its folder to work on it",
+      );
+    } finally {
+      await solo.dispose();
+    }
+  });
+
+  /**
+   * And where no entry the reader could write would reach the file, the
+   * sentence names the bound and promises nothing.
+   *
+   * Both of these used to draw the `dependencies` sentence, and following it
+   * un-stranded neither: the manifest that could list `Extra` is `Acme`'s,
+   * which sits under a `node_modules` and is not a file the reader edits, and a
+   * tool's cache holds no package to name at all — the entry they were told to
+   * write would draw a Packages §7 report of its own. One message with two
+   * shapes, because "no package here" and "not this project's `node_modules`"
+   * are the same fact about the reader's manifest.
+   */
+  test("a buffer under a `node_modules` no entry reaches is told so, and offered nothing", async () => {
+    const solo = await harness({
+      "hexagon.json": JSON.stringify({ name: "App", dependencies: ["Acme"] }),
+      "main.hex": "module Main\n\nlet value: Int = 1\n",
+      "node_modules/acme/hexagon.json": JSON.stringify({ name: "Acme" }),
+      "node_modules/acme/lib.hex": "module Lib\n\nlet n: Int = 1\n",
+      "node_modules/acme/node_modules/extra/hexagon.json": JSON.stringify({ name: "Extra" }),
+      "node_modules/acme/node_modules/extra/extra.hex": "module Extra\n\nlet n: Int = 1\n",
+      "node_modules/.cache/junk.hex": "module Junk\n\nlet n: Int = 1\n",
+    });
+    try {
+      const nested = await open(
+        solo,
+        "node_modules/acme/node_modules/extra/extra.hex",
+        "module Extra\n",
+      );
+      expect(nested).toHaveLength(1);
+      expect(nested[0]!.severity).toBe(3);
+      expect(nested[0]!.message).toBe(
+        "this file is under the `node_modules` of `Acme`, which this project's " +
+        "`hexagon.json` cannot reach, so it has no diagnostics, hover, or navigation",
+      );
+
+      const cached = await open(solo, "node_modules/.cache/junk.hex", "module Junk\n");
+      expect(cached).toHaveLength(1);
+      expect(cached[0]!.severity).toBe(3);
+      expect(cached[0]!.message).toBe(
+        "this file is under a `node_modules` directory and no package a project lists " +
+        "holds it, so it has no diagnostics, hover, or navigation",
+      );
+    } finally {
+      await solo.dispose();
+    }
+  });
+
+  /**
+   * And where the package is in the one place an entry reaches but declares no
+   * name, the sentence says which manifest has none.
+   *
+   * The `dependencies` entry writes the name the package's own `hexagon.json`
+   * declares (§4.1), and `name` is optional for a project nobody publishes
+   * (§2.1) — so an `npm link`ed workspace package is a real, lawful shape with
+   * nothing to list. Offering the entry here would have the reader write the
+   * directory's name, get the same silence, and pick up a Packages §7 report on
+   * a manifest that was fine before. Two shapes, because the reader's next step
+   * differs: a manifest with no `name` needs one written, and a manifest that
+   * would not parse may have a name in it already.
+   */
+  test("a buffer in a package with no name to list is told which manifest has none", async () => {
+    const solo = await harness({
+      "hexagon.json": JSON.stringify({ name: "App" }),
+      "main.hex": "module Main\n\nlet value: Int = 1\n",
+      "node_modules/nameless/hexagon.json": JSON.stringify({ dependencies: [] }),
+      "node_modules/nameless/n.hex": "module N\n\nlet n: Int = 1\n",
+      "node_modules/broken/hexagon.json": "{ not json",
+      "node_modules/broken/b.hex": "module B\n\nlet n: Int = 1\n",
+    });
+    try {
+      const nameless = await open(solo, "node_modules/nameless/n.hex", "module N\n");
+      expect(nameless).toHaveLength(1);
+      expect(nameless[0]!.severity).toBe(3);
+      expect(nameless[0]!.message).toBe(
+        "this file is under `node_modules` in a package whose " +
+        "`node_modules/nameless/hexagon.json` declares no package name, " +
+        "so it has no diagnostics, hover, or navigation, " +
+        "and there is no name to add to `dependencies`",
+      );
+
+      const broken = await open(solo, "node_modules/broken/b.hex", "module B\n");
+      expect(broken).toHaveLength(1);
+      expect(broken[0]!.severity).toBe(3);
+      expect(broken[0]!.message).toBe(
+        "this file is under `node_modules` in a package whose " +
+        "`node_modules/broken/hexagon.json` could not be read, " +
+        "so it has no diagnostics, hover, or navigation, " +
+        "and there is no name to add to `dependencies`",
+      );
+
+      // And the notice moves on when the manifest gains a name: the file is
+      // then one `dependencies` entry away, and told so.
+      await writeFile(
+        join(solo.root, "node_modules", "nameless", "hexagon.json"),
+        JSON.stringify({ name: "Nameless" }),
+      );
+      await solo.client.sendNotification(DidChangeWatchedFilesNotification.type, {
+        changes: [{ uri: solo.uriOf("node_modules/nameless/hexagon.json"), type: 2 }],
+      });
+      const listed = await solo.diagnosticsUntil(
+        solo.uriOf("node_modules/nameless/n.hex"),
+        (diagnostics) => diagnostics.some(({ message }) => message.includes("`Nameless`")),
+        "the sentence that names the entry to write",
+      );
+      expect(listed[0]!.message).toBe(
+        "this file is in `Nameless`, a package under `node_modules` this project does not " +
+        "list, so it has no diagnostics, hover, or navigation; " +
+        "add `Nameless` to `dependencies` in `hexagon.json` to compile it",
+      );
+    } finally {
+      await solo.dispose();
+    }
+  });
+
   test("un-excluding restores an open buffer without waiting for a keystroke", async () => {
     const solo = await harness({
       "main.hex": "module Main\n\nlet value: Int = 1\n",
@@ -1368,5 +1604,580 @@ describe("the companion fallback reaches the editor", () => {
       start: { line: 2, character: 18 },
       end: { line: 2, character: 24 },
     });
+  });
+});
+
+/**
+ * Packages, across the protocol: a project that has a dependency, a manifest
+ * that is a program of its own, and the one repair whose edit is a file the
+ * compiler does not hold.
+ */
+describe("packages and programs", () => {
+  const manifest = (fields: Readonly<Record<string, unknown>>): string =>
+    `${JSON.stringify(fields, undefined, 2)}\n`;
+
+  /** Opens a file in the editor, which is what a code-action request needs. */
+  async function open(
+    workspace: Harness,
+    name: string,
+    text: string,
+    languageId = "hexagon",
+    version = 1,
+  ): Promise<void> {
+    await workspace.client.sendNotification(DidOpenTextDocumentNotification.type, {
+      textDocument: { uri: workspace.uriOf(name), languageId, version, text },
+    });
+  }
+
+  /**
+   * The edits one repair carries for a manifest, under either shape a client
+   * can take: `documentChanges` where it announced support (which is what
+   * carries the version an edit was measured against), `changes` where it did
+   * not.
+   */
+  function manifestEditsOf(action: CodeAction, uri: string): readonly TextEdit[] {
+    const changes = action.edit?.documentChanges;
+    if (changes === undefined) return action.edit!.changes![uri]!;
+    const seated = changes.find((change) =>
+      "textDocument" in change && change.textDocument.uri === uri
+    );
+    return (seated as { edits: TextEdit[] }).edits;
+  }
+
+  /** The version a repair's edit was measured against, where it carries one. */
+  function manifestVersionOf(action: CodeAction, uri: string): number | null | undefined {
+    const seated = action.edit?.documentChanges?.find((change) =>
+      "textDocument" in change && change.textDocument.uri === uri
+    );
+    if (seated === undefined) return undefined;
+    return (seated as { textDocument: { version: number | null } }).textDocument.version;
+  }
+
+  /** The quick fix that writes the manifest, for a report on `main.hex`. */
+  async function repairFor(workspace: Harness, name: string): Promise<CodeAction | undefined> {
+    const reported = await workspace.diagnosticsFor(workspace.uriOf(name));
+    const actions = await workspace.client.sendRequest("textDocument/codeAction", {
+      textDocument: { uri: workspace.uriOf(name) },
+      range: reported[0]!.range,
+      context: { diagnostics: reported },
+    }) as CodeAction[] | null;
+    return actions?.find(({ title }) => title.includes("dependencies"));
+  }
+
+  const MAIN_WITH_DEPENDENCY = [
+    "module Main",
+    "",
+    "import Acme.Geometry",
+    "",
+    "let width: Int = Geometry.width",
+    "",
+  ].join("\n");
+
+  test("a dependency's modules are in the program, under its package name", async () => {
+    const workspace = await harness({
+      "hexagon.json": manifest({ dependencies: ["Acme"] }),
+      "main.hex": MAIN_WITH_DEPENDENCY,
+      "node_modules/acme/hexagon.json": manifest({ name: "Acme" }),
+      "node_modules/acme/geometry.hex": "module Geometry\n\nexport let width: Int = 3\n",
+    });
+    try {
+      await open(workspace, "main.hex", MAIN_WITH_DEPENDENCY);
+      await open(
+        workspace,
+        "node_modules/acme/geometry.hex",
+        "module Geometry\n\nexport let width: Int = 3\n",
+      );
+      // The dependency's module resolved: `Geometry.width` is an `Int`, which
+      // only a program holding `Acme`'s source can say.
+      const hover = await workspace.client.sendRequest("textDocument/hover", {
+        textDocument: { uri: workspace.uriOf("main.hex") },
+        position: positionOf(MAIN_WITH_DEPENDENCY, "width", 2),
+      }) as Hover | null;
+      expect((hover?.contents as { value: string }).value).toContain("Int");
+      // And the dependency's own file is in the program, answering about itself.
+      const inside = await workspace.client.sendRequest("textDocument/hover", {
+        textDocument: { uri: workspace.uriOf("node_modules/acme/geometry.hex") },
+        position: { line: 2, character: 11 },
+      }) as Hover | null;
+      expect(inside).not.toBeNull();
+      // Nothing was published, because nothing is wrong.
+      expect(workspace.publishedFor(workspace.uriOf("main.hex")) ?? []).toEqual([]);
+    } finally {
+      await workspace.dispose();
+    }
+  });
+
+  test("an installed package the project does not list draws the manifest repair", async () => {
+    const workspace = await harness({
+      "hexagon.json": manifest({ dependencies: ["Acme"] }),
+      "main.hex": "module Main\n\nimport Bolt.Util\n",
+      "node_modules/acme/hexagon.json": manifest({ name: "Acme" }),
+      "node_modules/acme/geometry.hex": "module Geometry\n\nexport let width: Int = 3\n",
+      "node_modules/bolt/hexagon.json": manifest({ name: "Bolt" }),
+      "node_modules/bolt/util.hex": "module Util\n\nexport let n: Int = 1\n",
+    }, {
+      textDocument: {
+        codeAction: { codeActionLiteralSupport: { codeActionKind: { valueSet: ["quickfix"] } } },
+      },
+      workspace: { workspaceEdit: { documentChanges: true } },
+    });
+    try {
+      await open(workspace, "main.hex", "module Main\n\nimport Bolt.Util\n");
+      const reported = await workspace.diagnosticsFor(workspace.uriOf("main.hex"));
+      expect(reported.map(({ message }) => message)).toEqual([
+        "`Bolt` is not a dependency of this package; add `\"Bolt\"` to `dependencies` " +
+          "in `hexagon.json`",
+      ]);
+      const actions = await workspace.client.sendRequest("textDocument/codeAction", {
+        textDocument: { uri: workspace.uriOf("main.hex") },
+        range: reported[0]!.range,
+        context: { diagnostics: reported },
+      }) as CodeAction[] | null;
+      const repair = actions?.find(({ title }) => title.includes("dependencies"));
+      expect(repair?.title).toBe("add `\"Bolt\"` to `dependencies` in hexagon.json");
+      const edits = manifestEditsOf(repair!, workspace.uriOf("hexagon.json"));
+      expect(applyEdits(manifest({ dependencies: ["Acme"] }), edits)).toBe(
+        manifest({ dependencies: ["Acme", "Bolt"] }),
+      );
+      // The `dependencies` **value** and nothing else: an edit over the whole
+      // file would take an unrelated change with it, and the smallest edit that
+      // says what the repair says is the array it is adding to.
+      expect(edits).toHaveLength(1);
+      expect(edits[0]!.range.start.line).toBe(1);
+    } finally {
+      await workspace.dispose();
+    }
+  });
+
+  /**
+   * The repair's edit is measured against the **buffer**, not against the last
+   * text saved to disk.
+   *
+   * A manifest is re-read on the watcher's event, which fires on save — so with
+   * `hexagon.json` open and edited, the server's copy is stale by exactly the
+   * user's unsaved work. An edit ranged over the stale text lands in the live
+   * document: where the buffer is **longer**, the range stops short and the
+   * tail survives the replacement, which for a JSON file means a repair that
+   * produces something that is not JSON.
+   */
+  const NOT_A_DEPENDENCY = {
+    "main.hex": "module Main\n\nimport Bolt.Util\n",
+    "node_modules/bolt/hexagon.json": '{\n  "name": "Bolt"\n}\n',
+    "node_modules/bolt/util.hex": "module Util\n\nexport let n: Int = 1\n",
+  } as const;
+
+  const REPAIR_CAPABILITIES = {
+    textDocument: {
+      codeAction: { codeActionLiteralSupport: { codeActionKind: { valueSet: ["quickfix"] } } },
+    },
+    workspace: { workspaceEdit: { documentChanges: true } },
+  };
+
+  test("the repair edits the buffer the user is looking at, not the saved text", async () => {
+    const workspace = await harness({
+      ...NOT_A_DEPENDENCY,
+      "hexagon.json": "{}\n",
+    }, REPAIR_CAPABILITIES);
+    try {
+      // Longer than what was saved — the direction that used to leave a tail
+      // behind and produce invalid JSON.
+      const buffer = '{\n  "name": "App",\n  "dependencies": []\n}\n';
+      await open(workspace, "main.hex", NOT_A_DEPENDENCY["main.hex"]);
+      await open(workspace, "hexagon.json", buffer, "json", 7);
+      const repair = await repairFor(workspace, "main.hex");
+      const uri = workspace.uriOf("hexagon.json");
+      expect(applyEdits(buffer, manifestEditsOf(repair!, uri)))
+        .toBe('{\n  "name": "App",\n  "dependencies": [\n    "Bolt"\n  ]\n}\n');
+      // Versioned, so a client whose document has moved on refuses the edit
+      // rather than applying it to text it was never measured against.
+      expect(manifestVersionOf(repair!, uri)).toBe(7);
+    } finally {
+      await workspace.dispose();
+    }
+  });
+
+  test("the repair edits a buffer shorter than the saved text", async () => {
+    const workspace = await harness({
+      ...NOT_A_DEPENDENCY,
+      "hexagon.json": '{\n  "name": "App",\n  "exclude": [\n    "generated"\n  ]\n}\n',
+    }, REPAIR_CAPABILITIES);
+    try {
+      const buffer = '{\n  "name": "App"\n}\n';
+      await open(workspace, "main.hex", NOT_A_DEPENDENCY["main.hex"]);
+      await open(workspace, "hexagon.json", buffer, "json", 3);
+      const repair = await repairFor(workspace, "main.hex");
+      // No key to scope to, so the whole document is rewritten — and from the
+      // buffer's value, which is what makes `exclude` (saved, then deleted)
+      // absent rather than resurrected.
+      expect(applyEdits(buffer, manifestEditsOf(repair!, workspace.uriOf("hexagon.json"))))
+        .toBe('{\n  "name": "App",\n  "dependencies": [\n    "Bolt"\n  ]\n}\n');
+    } finally {
+      await workspace.dispose();
+    }
+  });
+
+  test("with no buffer open the repair reads the manifest from disk", async () => {
+    const workspace = await harness({
+      ...NOT_A_DEPENDENCY,
+      "hexagon.json": '{\n  "name": "App",\n  "dependencies": [\n    "Acme"\n  ]\n}\n',
+    }, REPAIR_CAPABILITIES);
+    try {
+      await open(workspace, "main.hex", NOT_A_DEPENDENCY["main.hex"]);
+      const repair = await repairFor(workspace, "main.hex");
+      const uri = workspace.uriOf("hexagon.json");
+      expect(applyEdits(
+        '{\n  "name": "App",\n  "dependencies": [\n    "Acme"\n  ]\n}\n',
+        manifestEditsOf(repair!, uri),
+      )).toBe('{\n  "name": "App",\n  "dependencies": [\n    "Acme",\n    "Bolt"\n  ]\n}\n');
+      // No document to version against; the client applies it to the file.
+      expect(manifestVersionOf(repair!, uri)).toBeNull();
+    } finally {
+      await workspace.dispose();
+    }
+  });
+
+  /**
+   * A byte-order mark is stripped to parse and never to write. VS Code writes
+   * one under `files.encoding: utf8bom`, and a repair that dropped it would
+   * silently re-encode a file the user did not ask to re-encode — a whole-file
+   * diff, from a one-entry fix.
+   */
+  test("the repair keeps a manifest's byte-order mark", async () => {
+    const workspace = await harness({
+      ...NOT_A_DEPENDENCY,
+      "hexagon.json": `\uFEFF{}\n`,
+    }, REPAIR_CAPABILITIES);
+    try {
+      await open(workspace, "main.hex", NOT_A_DEPENDENCY["main.hex"]);
+      const repair = await repairFor(workspace, "main.hex");
+      const written = applyEdits(
+        `\uFEFF{}\n`,
+        manifestEditsOf(repair!, workspace.uriOf("hexagon.json")),
+      );
+      expect(written).toBe(`\uFEFF{\n  "dependencies": [\n    "Bolt"\n  ]\n}\n`);
+    } finally {
+      await workspace.dispose();
+    }
+  });
+
+  /**
+   * JSON permits a key twice and `JSON.parse` keeps the **later** one, so the
+   * entries this edit was built from are the later array's. Scoping the edit to
+   * the earlier one writes valid JSON whose effective `dependencies` is
+   * unchanged: the user clicks the fix, the report stays, and nothing says why.
+   */
+  test("the repair edits the `dependencies` the manifest actually parses to", async () => {
+    const duplicated = '{\n  "dependencies": [\n    "A"\n  ],\n  "dependencies": [\n    "B"\n  ]\n}\n';
+    const workspace = await harness({
+      ...NOT_A_DEPENDENCY,
+      "hexagon.json": duplicated,
+    }, REPAIR_CAPABILITIES);
+    try {
+      await open(workspace, "main.hex", NOT_A_DEPENDENCY["main.hex"]);
+      const repair = await repairFor(workspace, "main.hex");
+      const written = applyEdits(
+        duplicated,
+        manifestEditsOf(repair!, workspace.uriOf("hexagon.json")),
+      );
+      expect(JSON.parse(written)["dependencies"]).toEqual(["B", "Bolt"]);
+      expect(written).toBe(
+        '{\n  "dependencies": [\n    "A"\n  ],\n  "dependencies": [\n    "B",\n    "Bolt"\n  ]\n}\n',
+      );
+    } finally {
+      await workspace.dispose();
+    }
+  });
+
+  /**
+   * `JSON.stringify` always breaks lines with `\n`. A manifest saved on Windows
+   * is `\r\n` throughout, and writing the one into the other leaves a file with
+   * mixed endings — valid JSON, and a whole-file diff the next time the user's
+   * editor normalizes it, out of a one-entry fix.
+   */
+  test("the repair keeps a manifest's line ending", async () => {
+    const crlf = '{\r\n  "dependencies": []\r\n}\r\n';
+    const workspace = await harness({
+      ...NOT_A_DEPENDENCY,
+      "hexagon.json": crlf,
+    }, REPAIR_CAPABILITIES);
+    try {
+      await open(workspace, "main.hex", NOT_A_DEPENDENCY["main.hex"]);
+      const repair = await repairFor(workspace, "main.hex");
+      const written = applyEdits(crlf, manifestEditsOf(repair!, workspace.uriOf("hexagon.json")));
+      expect(written).toBe('{\r\n  "dependencies": [\r\n    "Bolt"\r\n  ]\r\n}\r\n');
+      expect(written.includes("\n") && !written.includes("\r\n")).toBe(false);
+    } finally {
+      await workspace.dispose();
+    }
+  });
+
+  /** The same, for the branch that rewrites the whole document. */
+  test("the whole-document rewrite keeps a manifest's line ending", async () => {
+    const crlf = '{\r\n  "name": "App"\r\n}\r\n';
+    const workspace = await harness({
+      ...NOT_A_DEPENDENCY,
+      "hexagon.json": crlf,
+    }, REPAIR_CAPABILITIES);
+    try {
+      await open(workspace, "main.hex", NOT_A_DEPENDENCY["main.hex"]);
+      const repair = await repairFor(workspace, "main.hex");
+      const written = applyEdits(crlf, manifestEditsOf(repair!, workspace.uriOf("hexagon.json")));
+      expect(written).toBe(
+        '{\r\n  "name": "App",\r\n  "dependencies": [\r\n    "Bolt"\r\n  ]\r\n}\r\n',
+      );
+    } finally {
+      await workspace.dispose();
+    }
+  });
+
+  test("the repair is never offered inside a dependency's own source", async () => {
+    const workspace = await harness({
+      "hexagon.json": manifest({ dependencies: ["Acme"] }),
+      "main.hex": "module Main\n",
+      "node_modules/acme/hexagon.json": manifest({ name: "Acme" }),
+      "node_modules/acme/geometry.hex": "module Geometry\n\nimport Bolt.Util\n",
+      "node_modules/bolt/hexagon.json": manifest({ name: "Bolt" }),
+      "node_modules/bolt/util.hex": "module Util\n\nexport let n: Int = 1\n",
+    }, {
+      textDocument: {
+        codeAction: { codeActionLiteralSupport: { codeActionKind: { valueSet: ["quickfix"] } } },
+      },
+      workspace: { workspaceEdit: { documentChanges: true } },
+    });
+    try {
+      const uri = workspace.uriOf("node_modules/acme/geometry.hex");
+      await open(workspace, "node_modules/acme/geometry.hex", "module Geometry\n\nimport Bolt.Util\n");
+      const reported = await workspace.diagnosticsFor(uri);
+      // The report is published against the dependency's own file (D3).
+      expect(reported.map(({ message }) => message)).toEqual([
+        "`Bolt` is not a dependency of this package; add `\"Bolt\"` to `dependencies` " +
+          "in `hexagon.json`",
+      ]);
+      const actions = await workspace.client.sendRequest("textDocument/codeAction", {
+        textDocument: { uri },
+        range: reported[0]!.range,
+        context: { diagnostics: reported },
+      }) as CodeAction[] | null;
+      // `Acme`'s manifest sits under `node_modules`: not a file the user wrote,
+      // and not one an editor should offer to write.
+      expect(actions?.some(({ title }) => title.includes("dependencies")) ?? false).toBe(false);
+    } finally {
+      await workspace.dispose();
+    }
+  });
+
+  test("a manifest's own problems are published against the manifest that carries them", async () => {
+    const workspace = await harness({
+      "hexagon.json": manifest({ dependencies: ["Bolt"] }),
+      "main.hex": "module Main\n",
+      "node_modules/bolt/hexagon.json": manifest({ name: "Bolt", dependencies: ["Missing"] }),
+      "node_modules/bolt/util.hex": "module Util\n\nexport let n: Int = 1\n",
+    });
+    try {
+      const reported = await workspace.diagnosticsFor(
+        workspace.uriOf("node_modules/bolt/hexagon.json"),
+      );
+      expect(reported.map(({ message }) => message)).toEqual([
+        "no installed package declares `\"name\": \"Missing\"`; install it, or check " +
+          "the name in its `hexagon.json`",
+      ]);
+    } finally {
+      await workspace.dispose();
+    }
+  });
+
+  test("a nested manifest is a program of its own, invisible to the enclosing one", async () => {
+    const workspace = await harness({
+      "hexagon.json": manifest({}),
+      "main.hex": "module Main\n\nimport Thing\n",
+      "vendor/hexagon.json": manifest({ name: "Vendor" }),
+      "vendor/thing.hex": "module Thing\n\nexport let n: Int = 1\n",
+    });
+    try {
+      // `Thing` belongs to the nested package, which the project does not list
+      // and cannot see: two open folders meet only through a dependency (D1).
+      const reported = await workspace.diagnosticsFor(workspace.uriOf("main.hex"));
+      expect(reported.map(({ message }) => message)).toEqual(["no module `Thing`"]);
+      // And the nested program compiles its own file, cleanly — nothing was
+      // published against it, and it answers about itself.
+      expect(workspace.publishedFor(workspace.uriOf("vendor/thing.hex")) ?? []).toEqual([]);
+      await open(workspace, "vendor/thing.hex", "module Thing\n\nexport let n: Int = 1\n");
+      const hover = await workspace.client.sendRequest("textDocument/hover", {
+        textDocument: { uri: workspace.uriOf("vendor/thing.hex") },
+        position: { line: 2, character: 11 },
+      }) as Hover | null;
+      expect(hover).not.toBeNull();
+    } finally {
+      await workspace.dispose();
+    }
+  });
+
+  /**
+   * D3's related information for the report that names a package the reader
+   * cannot see: the offending package has no source they can act on, and its
+   * `hexagon.json` is the one text of it they can. The compiler marks the seat;
+   * the label only reaches the editor if a host seats the manifest as a file.
+   */
+  test("the whole-program first-segment report points at the other package's manifest", async () => {
+    const workspace = await harness({
+      "hexagon.json": manifest({ dependencies: ["Bolt", "Acme"] }),
+      "main.hex": "module Main\n\nexport let n: Int = 1\n",
+      "node_modules/bolt/hexagon.json": manifest({ name: "Bolt" }),
+      "node_modules/bolt/tools.hex": "module Acme.Tools\n\nexport let n: Int = 1\n",
+      "node_modules/acme/hexagon.json": manifest({ name: "Acme" }),
+      "node_modules/acme/geometry.hex": "module Geometry\n\nexport let width: Int = 3\n",
+    });
+    try {
+      const uri = workspace.uriOf("node_modules/bolt/tools.hex");
+      const reported = await workspace.diagnosticsUntil(
+        uri,
+        (diagnostics) => diagnostics.length > 0,
+        "the whole-program first-segment report",
+      );
+      expect(reported[0]!.message).toBe(
+        "module `Acme.Tools` of package `Bolt` begins with the name of the package " +
+          "`Acme`, also in this program; drop the dependency that brings `Acme` or " +
+          "the one that brings `Bolt`, or combine them once `Acme` is renamed or " +
+          "`Bolt` renames its module",
+      );
+      expect(reported[0]!.relatedInformation).toEqual([{
+        location: {
+          uri: workspace.uriOf("node_modules/acme/hexagon.json"),
+          // The `"name"` line of `Acme`'s own manifest — the value a reader
+          // would change, found by the key that names it.
+          range: { start: { line: 1, character: 0 }, end: { line: 1, character: 16 } },
+        },
+        message: "`Acme` is declared here",
+      }]);
+    } finally {
+      await workspace.dispose();
+    }
+  });
+
+  /**
+   * The same label, in a program that compiles an **injected** module.
+   *
+   * A manifest's identity is minted by `AnalysisSession.referenceFile`, and the
+   * members of `Hex` a program reaches are minted by `compileProject` — two
+   * allocators, which must not hand out one number twice. They did: the first
+   * woven member landed on exactly the last manifest's id, `pathOfFile`
+   * preferred the analysis, and the editor was handed a related-information
+   * link to a `/Hex/Show.hex` that is nowhere on disk. Any generic over a
+   * prelude constraint fires it, which is why the fixture above — whose
+   * `main.hex` compiles no injected module — cannot see it.
+   */
+  test("the manifest keeps its identity in a program that compiles `Hex` members", async () => {
+    const workspace = await harness({
+      "hexagon.json": manifest({ dependencies: ["Bolt", "Acme"] }),
+      "main.hex": "module Main\n\nexport fun f<a: Show>(x: a): String = show(x)\n",
+      "node_modules/bolt/hexagon.json": manifest({ name: "Bolt" }),
+      "node_modules/bolt/tools.hex": "module Acme.Tools\n\nexport let n: Int = 1\n",
+      "node_modules/acme/hexagon.json": manifest({ name: "Acme" }),
+      "node_modules/acme/geometry.hex": "module Geometry\n\nexport let width: Int = 3\n",
+    });
+    try {
+      const reported = await workspace.diagnosticsUntil(
+        workspace.uriOf("node_modules/bolt/tools.hex"),
+        (diagnostics) => diagnostics.length > 0,
+        "the whole-program first-segment report",
+      );
+      expect(reported[0]!.relatedInformation?.[0]!.location.uri)
+        .toBe(workspace.uriOf("node_modules/acme/hexagon.json"));
+    } finally {
+      await workspace.dispose();
+    }
+  });
+
+  /**
+   * The window a vendored `.hex` file has before the manifest beside it
+   * arrives, and that it closes — **with the file open in a buffer**, which is
+   * the rediscovery sweep's decision rather than the walk's.
+   *
+   * A package vendored inside a dependency is unpacked file by file, so between
+   * one watcher event and the next its sources really are the dependency's and
+   * its modules really do resolve. The manifest watcher is what ends that: the
+   * boundary arrives, discovery re-runs, and `Acme` stops at `vendor`. The
+   * sweep used to put an open buffer back where the *previous* program had it,
+   * so the file kept its seat inside `Acme` and the window never closed at all
+   * for anyone who had the file open.
+   */
+  test("a manifest arriving beside an open buffer ends the package there", async () => {
+    const workspace = await harness({
+      "hexagon.json": manifest({ dependencies: ["Acme"] }),
+      "main.hex": "module Main\n\nimport Acme.Sneak\n\nlet value: Int = Sneak.made\n",
+      "node_modules/acme/hexagon.json": manifest({ name: "Acme" }),
+      "node_modules/acme/lib.hex": "module Lib\n\nexport let one: Int = 1\n",
+    });
+    try {
+      const uri = workspace.uriOf("main.hex");
+      expect(
+        (await workspace.diagnosticsUntil(
+          uri,
+          (diagnostics) => diagnostics.length > 0,
+          "the import of a module nothing supplies to be refused",
+        )).map(({ message }) => message),
+      ).toContain("no module `Acme.Sneak`");
+
+      const sneak = join(workspace.root, "node_modules/acme/vendor/sneak.hex");
+      const text = "module Sneak\n\nexport let made: Int = 9\n";
+      await mkdir(dirname(sneak), { recursive: true });
+      await writeFile(sneak, text, "utf8");
+      await workspace.client.sendNotification(DidChangeWatchedFilesNotification.type, {
+        changes: [{ uri: pathToFileURL(sneak).toString(), type: 1 }],
+      });
+      // Correct while it lasts: no boundary exists yet, so `vendor` is `Acme`'s
+      // own directory and the module in it is `Acme.Sneak`.
+      expect(
+        await workspace.diagnosticsUntil(
+          uri,
+          (diagnostics) => diagnostics.length === 0,
+          "the vendored file to join the package around it",
+        ),
+      ).toEqual([]);
+
+      await open(workspace, "node_modules/acme/vendor/sneak.hex", text);
+      const boundary = join(workspace.root, "node_modules/acme/vendor/hexagon.json");
+      await writeFile(boundary, manifest({ name: "Vendored" }), "utf8");
+      await workspace.client.sendNotification(DidChangeWatchedFilesNotification.type, {
+        changes: [{ uri: pathToFileURL(boundary).toString(), type: 1 }],
+      });
+      expect(
+        (await workspace.diagnosticsUntil(
+          uri,
+          (diagnostics) => diagnostics.length > 0,
+          "the boundary to take the vendored module back out of `Acme`",
+        )).map(({ message }) => message),
+      ).toContain("no module `Acme.Sneak`");
+    } finally {
+      await workspace.dispose();
+    }
+  });
+
+  test("a `hexagon.json` written under `node_modules` re-runs discovery", async () => {
+    const workspace = await harness({
+      "hexagon.json": manifest({ dependencies: ["Acme"] }),
+      "main.hex": "module Main\n\nimport Acme.Geometry\n",
+      "node_modules/acme/geometry.hex": "module Geometry\n\nexport let width: Int = 3\n",
+    });
+    try {
+      const uri = workspace.uriOf("main.hex");
+      // No manifest at the package yet: it is a JavaScript package, read for
+      // nothing, and the name resolves to nothing.
+      expect((await workspace.diagnosticsFor(uri)).length).toBeGreaterThan(0);
+      const installed = join(workspace.root, "node_modules/acme/hexagon.json");
+      await writeFile(installed, manifest({ name: "Acme" }), "utf8");
+      await workspace.client.sendNotification(DidChangeWatchedFilesNotification.type, {
+        changes: [{ uri: pathToFileURL(installed).toString(), type: 1 }],
+      });
+      expect(
+        await workspace.diagnosticsUntil(
+          uri,
+          (diagnostics) => diagnostics.length === 0,
+          "the installed package to be found",
+        ),
+      ).toEqual([]);
+    } finally {
+      await workspace.dispose();
+    }
   });
 });

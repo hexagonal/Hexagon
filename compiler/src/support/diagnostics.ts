@@ -77,6 +77,21 @@ export interface Diagnostic {
     readonly applied?: true;
   };
   /**
+   * Set on Packages §7's **not-a-dependency** report: the package name whose
+   * entry the repair adds to `dependencies` in `hexagon.json`.
+   *
+   * The repair is a *manifest* edit, and a manifest is not a file the compiler
+   * holds — it arrives as a record (§4.1) and its text belongs to the host. So
+   * the compiler says which entry would fix the report and the host writes it,
+   * which is the same split the whole package layer is drawn on. Marked rather
+   * than recognised, for `importModuleRepair`'s reason exactly.
+   *
+   * A host offers it only where it can write that manifest: the resolving
+   * package must be a project the editor holds, never a directory under
+   * `node_modules`.
+   */
+  readonly manifestDependency?: { readonly packageName: string };
+  /**
    * The region this report speaks for: every other diagnostic whose primary
    * span falls inside it is a consequence of this one and is dropped.
    *

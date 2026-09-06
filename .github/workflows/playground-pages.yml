@@ -47,6 +47,7 @@ jobs:
           cache: npm
           cache-dependency-path: |
             compiler/package-lock.json
+            host/package-lock.json
             language-server/package-lock.json
             editors/vscode/package-lock.json
             playground/package-lock.json
@@ -62,6 +63,21 @@ jobs:
       - name: Check compiler
         run: npm run check
         working-directory: compiler
+
+      # The host adapter is the language server's and a future CLI's shared
+      # answer to what a program is on disk, so it is gated with the compiler
+      # rather than with either tool.
+      - name: Install host dependencies
+        run: npm ci
+        working-directory: host
+
+      - name: Test host
+        run: npm test
+        working-directory: host
+
+      - name: Check host
+        run: npm run check
+        working-directory: host
 
       # The language server and the extension are gated here rather than in a
       # workflow of their own because this is the only job that runs on every

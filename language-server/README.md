@@ -50,7 +50,6 @@ language-server/
     main.ts            process entry point and transport selection
     server.ts          lifecycle, capabilities, document sync, request dispatch
     workspace.ts       the file set: open buffers, disk, and precedence between them
-    manifest.ts        `hexagon.json`: what the project says it is
     positions.ts       the single LSP-to-compiler coordinate boundary
     diagnostics.ts     conversion of compiler diagnostics to the protocol's shape
     semantic-tokens.ts the legend, and the protocol's relative token encoding
@@ -62,11 +61,21 @@ replaces `readdir` with one that can be parked mid-walk, so that two overlapping
 rescans interleave on demand rather than by luck. It is a separate file because
 that replacement would otherwise apply to every test in the workspace suite.
 
+`npm test` runs the suite **twice**, the second time with every workspace root
+reached through a symlink (`vitest.linked.config.ts`, read by
+`host/src/test-roots.ts` — canonicalisation is the host's, so the helper and the
+discipline live there, and `host/`'s own suite doubles the same way). A project
+settles by its canonical path while a client keeps sending the folder it was
+given, and where the two differ every file has two names — which on macOS is
+every project under a temporary directory, and anywhere is a symlinked checkout
+or `$HOME`. Whether a single run covers that is a property of the machine's
+`TMPDIR`, so the second run makes the link itself.
+
 There is no `connection.ts`: `vscode-languageserver` owns JSON-RPC framing and lifecycle, and no separate `requests/` directory, because each handler is small enough that separating them would cost more indirection than it removes. `documents.ts` is likewise absent — `TextDocuments` from the same package applies incremental changes.
 
 Protocol adapters stay thin. A handler asks the compiler service a semantic question and converts the answer to LSP structures; when one looks like it is about to decide something about Hexagon, the decision belongs in `compiler/src/analysis` instead.
 
-Two rules keep the process honest. Nothing may write to stdout except protocol messages — a stray `console.log` corrupts the stream and the client disconnects with no useful error — so the server logs through `connection.console`. And the workspace module is the only part that touches a filesystem, because the compiler is deliberately free of one.
+Two rules keep the process honest. Nothing may write to stdout except protocol messages — a stray `console.log` corrupts the stream and the client disconnects with no useful error — so the server logs through `connection.console`. And the host package and the workspace module are the only parts that touch a filesystem, because the compiler is deliberately free of one — `host/` answers what a program *is* on disk (the project directory, its files, where its dependencies are found), which the language server shares with every other Node-hosted tool rather than answering for itself.
 
 ## Compiler service
 
@@ -84,6 +93,7 @@ references(path, offset)  every occurrence of what it denotes
 hover(path, offset)       what it is, its type if it has one, its documentation
 codeActions(path, range)  the repairs offered here, refusals included
 pathOfFile(fileId)        the file a span's numeric identity names
+referenceFile(path, text) gives a non-Hexagon file an identity, uncompiled
 ```
 
 Positions crossing this API are UTF-16 offsets into the named file, never line and character pairs — see below.
@@ -349,6 +359,7 @@ the wrong characters.
 - Results from superseded analysis are not published against newer text. Diagnostics are debounced, and only the latest analysis is sent.
 - Request ordering must not make compiler results nondeterministic.
 - Editor-specific behaviour is kept out of the shared compiler services.
+- **A diagnostic is anchored where it was drawn, and merged where several programs draw it.** A report is published against the file and span that caused it — a dependency's file under `node_modules` included — with its other locations carried as related information. A file several programs hold gets one merged list: identical reports appear once, genuinely different ones each appear, and the file is cleared only when no active program still reports on it. Publishing per program instead would double every error in a shared dependency; publishing only the first program's would hide what the second alone can see.
 
 Two principles from this document's first draft turned out to describe a problem this design does not have, and are recorded here rather than silently dropped. **Per-response version stamping** and **cancellation propagation** both assume a request can observe an edit midway through being answered. Analysis is synchronous, so nothing yields between reading a document and returning an answer; a request either runs entirely before an edit or entirely after it. Both become real the moment analysis stops being synchronous, and that is the change that should bring them back.
 
@@ -362,7 +373,7 @@ The first vertical slice provides:
 4. hover using resolved and typed compiler information;
 5. go-to-definition using stable compiler identities;
 6. find-references over values, type names, and constraints; and
-7. a `hexagon.json` manifest saying which modules are privileged and which files are not the project.
+7. a `hexagon.json` manifest saying what the project is, whose `dependencies` are resolved and compiled with it.
 
 Find-references arrived with the slice rather than after it because it shares one index with go-to-definition: both ask the same question of the same table, and building one without the other would have meant writing the traversal twice.
 
@@ -397,9 +408,12 @@ Editor extensions launch this server. They do not contain separate compiler impl
 
 ## `hexagon.json`
 
-A workspace root may carry a manifest saying what the project is. Without one,
-the root is "every `.hex` file underneath, compiled together", which is a guess
-that goes wrong in a way a server cannot recover from alone.
+A directory holding a manifest is a **project**, and one program is compiled per
+project directory (`compiler/architecture/environment.md` §4). Without a
+manifest at it or above it, a directory is still a project — under an *implicit
+empty manifest* (Packages §2.5) — and is "every `.hex` file underneath, compiled
+together", which is a guess that goes wrong in a way a server cannot recover
+from alone.
 
 ```json
 {
@@ -411,8 +425,38 @@ that goes wrong in a way a server cannot recover from alone.
 
 **`name`** and **`dependencies`** are the *language's* fields (Packages §2.1):
 the package's own name, which is the first segment of every module's full name,
-and the packages its modules may import. This reader validates their shape and
-resolves nothing.
+and the packages its modules may import.
+
+`dependencies` are **resolved**, by the `host/` package, the way Node resolves a
+requested name: from the asking package's own directory — its `node_modules`,
+then each ancestor's, outward — reading the `hexagon.json` of every package root
+at each level, with the *nearest* level declaring the name answering. A copy at a
+farther level is shadowed for that walk and never read; a package nobody lists is
+never sought; and a directory holding no `hexagon.json` is a JavaScript package
+(Packages §4.4), read for nothing. What the resolved set then *is* — one copy per
+name, acyclic, the project's own name unclaimed — the compiler decides, and its
+reports are published against the manifest that carries the entry, a dependency's
+own `hexagon.json` under `node_modules` included.
+
+A dependency's source is compiled with the program, so its modules answer hover
+and definition like any other, under their full names (`Acme.Geometry`). An
+import naming an installed package the manifest does not list draws Packages §7's
+report, whose repair is an applied edit adding the entry — offered only where the
+manifest is a project the editor holds, never one under `node_modules`.
+
+That edit is measured against the manifest **as the editor holds it**. A
+manifest is re-read on the watcher's event, which fires on save, so with
+`hexagon.json` open and edited the server's copy is stale by exactly the user's
+unsaved work — and an edit ranged over stale text lands in the live document,
+where a buffer longer than the last save keeps its tail past the replacement and
+the repair produces something that is not JSON. So the extension synchronises
+every `hexagon.json` as well as every `.hex` file, and this is the only thing it
+synchronises them for: a manifest is JSON, and one seated in a session would be
+compiled as Hexagon. The edit replaces the `dependencies` **value** where the
+file already has one — so an unrelated change elsewhere survives — the whole
+document only where the key has to be added, and carries the buffer's version
+wherever the client accepts one, so a client whose document has moved on refuses
+the edit rather than misapplying it.
 
 **`exclude`** — path prefixes that are not part of the project: generated output,
 deliberately-broken examples, a vendored copy. Matching is by exact path or
@@ -420,6 +464,32 @@ directory prefix rather than by glob; a glob language is a design decision with
 its own edge cases, and prefixes answer every case that motivated this. Entries
 are resolved against the manifest's own directory, which is the only reading
 that survives the project being checked out somewhere else.
+
+The field reaches **that package's own files and no other's**. A manifest
+belongs to a package, and the walk reads it that way: each project and each
+installed dependency is walked with its own entries and nobody else's. The
+server asks the same manifest at every door — the one belonging to the deepest
+package directory containing the file, which is the package whose source that
+file would be. Three cases follow from the one rule, and all three are ordinary:
+
+- a manifest naming a path inside a **nested project**, or inside a sibling
+  root, is naming files that project's own manifest answers for. Keeping a file
+  out of a nested project is an entry in *its* `hexagon.json`. An entry naming
+  the nested project's own directory is the same rule at its edge: §2.2 puts
+  that whole directory outside the parent's files before any `exclude` is read,
+  so the entry names nothing of the parent's, the nested program stands whether
+  or not its folder is also an editor root, and the manifest that wrote the
+  entry is told it has no effect;
+- a project's entry does not reach its **dependencies**. `node_modules` lies
+  inside the project directory, so `exclude: ["node_modules"]` — what a user
+  writes out of `.gitignore` habit — would otherwise empty every dependency of
+  source, with no report and every import of them refused for a reason nothing
+  names;
+- a **dependency's** entry does reach its own files, at the doors as well as in
+  the walk. A package that excludes a `generated/` it does not ship as source is
+  taken at its word however the file is touched; otherwise opening one file
+  inside a dependency would add a module the package excluded, and change a
+  report in the reader's own code.
 
 None of this could be inferred. Treating `examples/` as excluded because of its
 name would be the same mistake as inferring meaning from a name anywhere else in
@@ -444,6 +514,13 @@ that quietly did nothing would leave a user staring at diagnostics they believed
 they had configured away. A broken manifest never takes language support down
 with it: defaults apply and the workspace still works.
 
+That is the **project's** manifest. A dependency's, under `node_modules`, draws
+only the language's own refusals — its `dependencies` entries (Packages §2.1,
+§4.4) — because §2.1 makes every other field the host's, and because nothing a
+user could type in that file survives the next install. Its `exclude` is
+honoured in silence — honoured at every door, as the section above says, and
+reported on nowhere — and an unknown key is read past.
+
 An entry that names nothing is reported too, as a warning rather than an error,
 and checked inside the root by exact spelling rather than by asking whether the
 path opens. macOS and Windows will happily open `Trie.hex` when the file is
@@ -463,17 +540,39 @@ Going quiet instead would read as a broken server — the grammar still colours 
 buffer and the server is visibly running — and the user's next move would be to
 report a bug rather than to open `hexagon.json`.
 
-The manifest is watched like source, since a change to it can change every
-answer.
+So does a file that §2.2's own bounds put outside every package, and there the
+sentence names **which** bound, because each has a different way out: directly
+inside a package of this project's own `node_modules` that it does not list (add
+the `dependencies` entry, naming both the package and the manifest to write it
+in), beneath a `hexagon.json` of some other package (open that folder), or under
+`dist`, `.git` and the rest of the tooling list (a fact about this host that no
+manifest argues with, so that sentence offers no repair). The entry is offered
+only where there is a name to write: a package whose own `hexagon.json` declares
+none — an `npm link`ed workspace project, since `name` is optional for a package
+nobody publishes — is named as a bound instead, because writing the directory's
+name would leave the same silence and draw a Packages §7 report besides. The
+bound named is the one that would still be there **last**, since
+each way out only moves the file to the next bound down: a file under
+`node_modules/acme/vendor/dist` is told about `dist` and not about `vendor`,
+whose folder it could open to no effect, and one under a *dependency's* own
+`node_modules` is told whose it is and offered nothing, because the manifest
+that could list it is that dependency's and not the reader's. These are the
+bounds a user cannot see — each is a fact about a directory above the file
+rather than a line anyone wrote — and this PR sharpens the need: a file inside a
+*listed* dependency now gets full language support, and one inside its unlisted
+neighbour gets none, with nothing on screen to tell them apart. Each notice
+clears the moment its reason does.
+
+Every manifest is watched like source, wherever it sits, since a change to one
+can change what the programs are: a `hexagon.json` written beneath a project is a
+package of its own and so a program of its own, and one written under
+`node_modules` is a dependency arriving. Any of them re-runs discovery.
 
 ## Known limits
 
 Listed rather than hidden, because each is a place where the server is knowingly
 less than it looks.
 
-- **One manifest per workspace root, at the root.** Nested projects inside one
-  root are not modelled: a `hexagon.json` deeper in the tree is watched but never
-  read, and a root's `exclude` cannot be overridden below it.
 - **The set of workspace roots is fixed at initialization.** A folder added to
   or removed from the workspace afterwards is not noticed: the server neither
   declares `workspace.workspaceFolders` nor handles the change notification, so
@@ -482,20 +581,25 @@ less than it looks.
   a test that adding a folder brings its modules into the graph.
 - **`exclude` matches paths, and a path is one of the names a file has.** A
   file is checked under both the name the walk reached it by and the name it
-  resolves to, so a symlink cannot smuggle an excluded directory back in. The
-  *entry* is not resolved, only re-rooted, so excluding a link excludes that
-  link and not the file it points at — the reverse would silently delete source.
-  The consequence is that an entry whose own intermediate components pass
-  through a link will not match a file reached by the resolved route. Matching
-  also remains case-sensitive on filesystems that are not, which is why a
-  mis-cased entry is reported rather than silently doing nothing.
+  resolves to, so a symlink cannot smuggle an excluded directory back in. An
+  entry's **containing directory** is resolved and its own last component is
+  not, so excluding a link excludes that link and not the file it points at —
+  the reverse would silently delete source — while an absolute entry pasted in
+  the shell's spelling still matches the walk's. Matching remains
+  case-sensitive on filesystems that are not, which is why a mis-cased entry is
+  reported rather than silently doing nothing.
 - **Initialization waits for the workspace scan.** `initialize` walks the root
   and reads every `.hex` file before replying, so that the first request is
   answered against a whole module graph rather than a partial one. On a very
   large tree that delay is visible at startup. Scanning in the background instead
   would trade a slow start for a window where go-to-definition silently misses.
-- **Two URI spellings of one file would be two files.** See `positions.ts`; no
-  client observed so far sends more than one spelling.
+- **A file the walk never saw is keyed by its resolved name.** `Workspace.pathFor`
+  settles every URI to one spelling — the one the walk chose where it found the
+  file, and the resolved one otherwise — so a symlink, a linked root and a
+  file created since the last walk all reach one session entry. What is not
+  settled is a client that spells one *path* two ways without a link between
+  them, `file:///c:/A` beside `file:///C:/a`: those are two paths, hence two
+  entries, and no client observed so far sends both.
 - **Constraints declared in a module cannot be used from another.** The compiler
   has no channel for exporting one, so a cross-module `honor` does not resolve.
   Go-to-definition on a constraint therefore only ever answers within a module,

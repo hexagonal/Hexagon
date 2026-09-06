@@ -12,7 +12,7 @@
   "scripts": {
     "build": "esbuild src/main.ts --bundle --platform=node --format=cjs --target=node20 --outfile=dist/server.cjs --banner:js=\"#!/usr/bin/env node\"",
     "check": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run",
+    "test": "vitest run && vitest run --config vitest.linked.config.ts",
     "test:watch": "vitest"
   },
   "dependencies": {

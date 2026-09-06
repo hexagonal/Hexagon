@@ -18,7 +18,10 @@
  * reliably reproduce the one the client sent — percent-encoding and drive-letter
  * case both vary. The server therefore remembers the URI it was given for every
  * path it hands the compiler and converts back by lookup, so a location it
- * returns is spelled the way the client spells that file.
+ * returns is spelled the way the client spells that file. For the files the
+ * client has never named — most of a project, since a walk finds every module
+ * nobody opened — the URI is built from the client's spelling of the workspace
+ * folder the file lies in, which is the same rule reaching one level further out.
  */
 
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -42,40 +45,70 @@ export function offsetOfPosition(document: TextDocument, position: Position): nu
 /**
  * Remembers which URI produced which compiler path, in both directions.
  *
- * Converting a path back to a URI is a lookup, falling back to construction only
- * for a file the server never saw — which cannot normally happen, since every
- * path the compiler knows arrived through here.
+ * Only URIs the **client** sent are remembered. A path the server found itself
+ * — the great majority, since a walk finds every module the user has not opened
+ * — has no client URI, and one is built for it on demand, under the client's
+ * own spelling of the root it lies in (`rootSpelling`). Storing a
+ * server-built URI as though the client had sent it is the mistake this
+ * separation exists to prevent: the walk runs before any document is opened, so
+ * it would own every spelling, and every location the server reported would
+ * come back under a path the user's editor does not recognise as theirs.
  *
- * Two different URI *spellings* of one file — `file:///c:/A` and `file:///C:/a`
- * — would still produce two paths and therefore two session entries, with the
- * open buffer no longer shadowing the file scanned from disk. Nothing here
- * prevents that, because doing it properly means asking the filesystem whether
- * two paths are the same file, and no client observed so far sends more than one
- * spelling: a URI comes back either as the client's own workspace folder or as
- * one this server built from a directory walk. If a client is ever found that
- * does, this is where the canonicalization goes.
+ * Deciding *which file* a URI names is not this class's job and is deliberately
+ * elsewhere: `Workspace.pathFor` settles that, once, for every way into the
+ * server, and hands the answer back here through `remember`.
  */
 export class UriPaths {
-  readonly #pathsByUri = new Map<string, string>();
   readonly #urisByPath = new Map<string, string>();
+  /** The client's spelling of each resolved root — see `rootSpelling`. */
+  readonly #roots = new Map<string, string>();
 
-  /** The compiler path for a document URI, remembering the pairing. */
-  toPath(uri: string): string {
-    const known = this.#pathsByUri.get(uri);
-    if (known !== undefined) return known;
-    const path = normalizePath(fileSystemPath(uri));
-    this.#pathsByUri.set(uri, path);
-    // First URI seen for a path wins, so a location the server reports keeps the
-    // spelling the client used rather than flipping between two of them.
+  /**
+   * Pairs a client's URI with the session path the workspace settled on for it.
+   *
+   * One direction only, and deliberately: URI-to-path is `Workspace.pathFor`'s,
+   * because deciding which file a URI names needs the filesystem and the walk's
+   * own answers, neither of which belongs here. This is told the answer.
+   *
+   * First URI seen for a path wins, so a location the server reports keeps the
+   * spelling the client used rather than flipping between two of them.
+   */
+  remember(uri: string, path: string): void {
     if (!this.#urisByPath.has(path)) this.#urisByPath.set(path, uri);
-    return path;
+  }
+
+  /**
+   * How the client spells a directory this server resolved — its workspace
+   * folder, against the canonical path discovery settled it to.
+   *
+   * Registered per root, and read by `toUri` for a file the client has never
+   * named. Without it, "go to definition" on a module the user has not opened
+   * would answer with a location outside the folder they opened — `/private/var`
+   * beside a workspace at `/var`, a resolved checkout beside a symlinked one —
+   * which an editor shows as a second, unrelated file.
+   */
+  rootSpelling(canonical: string, literal: string): void {
+    if (canonical === literal) return;
+    this.#roots.set(canonical, literal);
   }
 
   /** The URI a compiler path came from, or the one it would have. */
   toUri(path: string): string {
     const known = this.#urisByPath.get(path);
     if (known !== undefined) return known;
-    return pathToFileURL(path).toString();
+    return pathToFileURL(this.#asClientSpells(path)).toString();
+  }
+
+  /** `path` under the client's spelling of the deepest root containing it. */
+  #asClientSpells(path: string): string {
+    let best: { canonical: string; literal: string } | undefined;
+    for (const [canonical, literal] of this.#roots) {
+      if (path !== canonical && !path.startsWith(`${canonical}/`)) continue;
+      if (best === undefined || canonical.length > best.canonical.length) {
+        best = { canonical, literal };
+      }
+    }
+    return best === undefined ? path : best.literal + path.slice(best.canonical.length);
   }
 }
 
@@ -92,25 +125,4 @@ export function fileSystemPath(uri: string): string {
   } catch {
     return uri;
   }
-}
-
-/**
- * The session's own spelling: `/`-separated, `.` and `..` resolved.
- *
- * Exported because everything that compares a path has to agree with it. A
- * second, nearly-identical normalizer is the shape of bug this file exists to
- * prevent: two spellings of one file become two files, and the disagreement
- * shows up only on the path shape the author did not have — a UNC share, a
- * drive letter — where it then fails silently.
- */
-export function normalizePath(path: string): string {
-  const forward = path.replaceAll("\\", "/");
-  const absolute = forward.startsWith("/");
-  const parts: string[] = [];
-  for (const part of forward.split("/")) {
-    if (part === "" || part === ".") continue;
-    if (part === "..") parts.pop();
-    else parts.push(part);
-  }
-  return `${absolute ? "/" : ""}${parts.join("/")}`;
 }
