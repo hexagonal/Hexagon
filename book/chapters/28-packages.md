@@ -152,8 +152,13 @@ decides today, which is why it is not the first stage.
 
 A JavaScript package is never a Hexagon package. An npm package without `hexagon.json`
 is reached through `extern from "pkg"`, the boundary declaration of the JavaScript
-Input chapter, and it declares no Hexagon module, type, constraint, or instance.
-Listing one under `dependencies` is refused with that spelling as the repair.
+Input chapter, and it declares no Hexagon module, type, constraint, or instance. A
+`dependencies` entry is a Hexagon package name, as the dependency's own manifest
+declares it, and its spelling decides only whether it is one: an npm-shaped entry such
+as `"@acme/geometry"` is refused as no package name, told what the field expects, and
+offered the `package.json` and `extern` route in case a JavaScript dependency was meant
+— a verdict on the spelling, never on what the distribution holds, which may well be a
+Hexagon package named `Acme`. A lawful name nobody declares is simply not found.
 
 ## Where the output goes
 
