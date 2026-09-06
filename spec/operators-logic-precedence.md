@@ -478,8 +478,8 @@ Semantics live in Statements/Blocks/Mutability (`var`-only target, `Unit`-typed,
 - Add **`NegativeExponentError`** to the exception registry (thrown by the `Nat`/`Int`/`BigInt` instances on `exponent < 0` — and by the `BigInt.pow` door; the `**` operator reaches it through those instances). Same branding scheme (`$hex` carrying the declaring module per #488, `name` discriminant) as `IndexError`/`DivideByZeroError`. *(#344: its declared home is `stdlib/Pow.hex`.)*
 
 ### 14.3 Constraints spec §7 (prelude listing)
-- Add `Pow<a: Num>` with member `pow(value: a, exponent: Int): a`; instances `Nat`, `Int`, `Float`, `BigInt`, `Rat` (§6.3); the `Float.pow`/`BigInt.pow` doors generalise their members (§6.3.1, Modules §5.3).
-- Add `Concat<a>` with member `concat(x: a, y: a): a`; instance `String` in v1, `List` owed to collections (§7).
+- Add `Pow<a: Num>` with member `pow(value: a, exponent: Int) -> a`; instances `Nat`, `Int`, `Float`, `BigInt`, `Rat` (§6.3); the `Float.pow`/`BigInt.pow` doors generalise their members (§6.3.1, Modules §5.3).
+- Add `Concat<a>` with member `concat(x: a, y: a) -> a`; instance `String` in v1, `List` owed to collections (§7).
 
 ### 14.3a Primitive Types — `Int.div`/`Int.mod` convention REOPENED (deep-dive owed before v1)
 
