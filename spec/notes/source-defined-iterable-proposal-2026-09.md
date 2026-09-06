@@ -84,7 +84,7 @@ ordinary `toSeq` beside its `honor` member. Replace comments claiming that the
 instance must permanently remain compiler-provided.
 
 This requires a bounded extension to declaration ownership. A compiler-known
-collection's fixed canonical prelude companion must count as its legal subject
+iterable subject's fixed canonical prelude companion must count as its legal subject
 home for source `honor` declarations. Existing companion dispatch alone does not
 grant that right: Constraints §5.3's current fixed-home carve-out covers the
 five primitives, not these seven compiler-known subjects (`Vector`, `Map`,
