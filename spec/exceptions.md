@@ -311,7 +311,7 @@ The arrows are linked (Effects §2.2): the thunk's `->?` is the signature's inle
 | Catch arms = flat constructor patterns (shared grammar with `match`); implicit rethrow; reachability still hard-errors; no exhaustiveness demand | §5.2–5.3 |
 | `match`/dot-access on `Exn`: never | §3 |
 | Foreign throwables catchable via prelude `JsError(error: JsValue)`; no decoding; classification is userland | §6 |
-| `JsError.message`/`stack` are total conservative Part 11 accessors; objects/functions receive one guarded fresh property read, secondary throws fall back to `""`/`None` | §6.1; FFI Part 11 §7 |
+| `JsError.message`/`stack` are total conservative Part 11 accessors; objects/functions receive one guarded fresh property read, secondary throws fall back to `""`/`None`; both are `->!`, so a catch arm writes `JsError.message!(e)` (#869) | §6.1; FFI Part 11 §7 |
 | `JsError` wrapping is virtual: catch-arm binds raw value; `throw(JsError(e))` unwraps syntactically | §6.2 |
 | Representation: plain `Error` + `$hex: true` brand + `name` discriminant + flat payload; no classes, no `instanceof`, no prototypes | §7.1 |
 | Class-based designs and bare-POJO design rejected, reasons recorded | §7.1 |

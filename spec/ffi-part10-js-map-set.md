@@ -53,7 +53,7 @@ The complete v1 surfaces. Lookup operations carry **no `Hash` constraint** — e
 | `JsSet.toSeq` | `JsSet(a) -> Seq(a)` | lazy, zero-copy; §6.3 |
 | `JsSet.fromSeq` | `Seq(a) -> JsSet(a)` | eager, fresh native collection; §6.5 |
 
-`entries` exists on `JsMap` because persistent `Map` has it (Collections Part 4 §7.3) and the mirror costs one alias; it is defined as equal to `toSeq`, not separately specified. `keys`/`values` projections and set-algebra reads are deliberately absent from the core (§9). `size` reads follow Part 5 §3.1's fresh-read discipline: never cached or hoisted — the foreign collection may change between (contract-permitted) observations.
+`entries` exists on `JsMap` because persistent `Map` has it (Collections Part 4 §7.3) and the mirror costs one alias; it is defined as equal to `toSeq`, not separately specified. `keys`/`values` projections and set-algebra reads are deliberately absent from the core (§9). `size` reads are performed per call and never cached or hoisted, under §2's borrow contract, which keeps size stable while Hexagon observes it. That contract's replacement — snapshot semantics at acquisition, under which the acquired value's `size` is a value of a stable collection — is #875's; until it lands this requirement stands unchanged, and no "pure but live" reading is admitted in the meantime.
 
 ---
 
