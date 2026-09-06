@@ -12,7 +12,7 @@ import { chmod, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, test } from "vitest";
-import { MANIFEST_NAME } from "../../host/src/index.js";
+import { MANIFEST_NAME, normalizePath, settledPathSync } from "../../host/src/index.js";
 import { removeTemporaryRoots, temporaryRoot } from "../../host/src/test-roots.js";
 import { Workspace } from "./workspace.js";
 
@@ -183,9 +183,22 @@ describe("the workspace walk", () => {
       "module Runtime.VectorTrie\n\n" + "let size(node: Node(Int)): Int = 0\n",
     );
     const privileged = await scan(path);
-    expect(privileged.workspace.session.allDiagnostics().get(
-      privileged.workspace.session.paths[0]!,
-    )).toEqual([]);
+    // The `Node` report is gone and the emitter's two-sided contract is what is
+    // left — the stub declares none of the trie's operations. That report is
+    // this assertion's whole value: it says the file's reports **reach** the
+    // session, so the absence of the `Node` one is a fact about privilege
+    // rather than about a file nobody is publishing. It asserted `[]` until
+    // #829's review round 5, and passed because a project file adopted into a
+    // runtime seat is not in the emitted closure the analysis indexed by, so
+    // every report in it — type errors included — was dropped on the floor.
+    expect(
+      privileged.workspace.session.allDiagnostics().get(
+        privileged.workspace.session.paths[0]!,
+      )?.map(({ message }) => message),
+    ).toEqual([
+      "this module is `Runtime.VectorTrie` but declares no `empty`, `get`, " +
+      "`set`, `append`, `prepend`, `slice`, `window`, `concat`, `nodeRun`",
+    ]);
     // Analysed, not merely quiet: a file dropped from the session reports
     // nothing either, and that would pass the line above for the wrong reason.
     expect(privileged.workspace.session.paths.map((each) => each.split("/").at(-1)))
@@ -466,6 +479,119 @@ describe("the workspace walk", () => {
       .toBe(false);
   });
 
+  /**
+   * The third case of the same rule, and the only one that can change a report
+   * in the user's **own** source: a dependency's `exclude` is about the
+   * dependency's files, and every door has to read it.
+   *
+   * The walk does — `filesOf` walks each package of the closure with that
+   * package's own manifest — so a door that asked the *project's* entries
+   * instead put a module the package excluded into the package, by the accident
+   * of the user opening one file inside a dependency. `import Acme.Secret` then
+   * resolved, and the report on `main.hex` changed to a sentence about
+   * something else.
+   */
+  test("a dependency's own `exclude` keeps its files out at every door", async () => {
+    const build = async (): Promise<{ path: string; secret: string; workspace: Workspace }> => {
+      const path = await makeRoot();
+      await writeFile(
+        join(path, MANIFEST_NAME),
+        JSON.stringify({ name: "App", dependencies: ["Acme"] }),
+      );
+      await writeFile(
+        join(path, "main.hex"),
+        "module Main\n\nimport Acme.Secret\n\nlet used: Int = Secret.hidden\n",
+      );
+      const acme = join(path, "node_modules", "acme");
+      await mkdir(join(acme, "generated"), { recursive: true });
+      await writeFile(
+        join(acme, MANIFEST_NAME),
+        JSON.stringify({ name: "Acme", exclude: ["generated"] }),
+      );
+      await writeFile(join(acme, "lib.hex"), "module Lib\n\nexport let one: Int = 1\n");
+      await writeFile(
+        join(acme, "generated", "secret.hex"),
+        "module Secret\n\nexport let hidden: Int = 7\n",
+      );
+      const workspace = new Workspace();
+      await workspace.setRoots([path], () => {});
+      return { path, secret: join(acme, "generated", "secret.hex"), workspace };
+    };
+    const refused = (workspace: Workspace, path: string): readonly string[] =>
+      workspace.session
+        .diagnostics(workspace.pathFor(pathToFileURL(join(path, "main.hex")).toString()))
+        .map(({ message }) => message);
+    const text = "module Secret\n\nexport let hidden: Int = 7\n";
+
+    for (const door of ["open", "watcher", "rediscovery while open"] as const) {
+      const { path, secret, workspace } = await build();
+      // The walk already leaves it out, which is what the doors have to agree
+      // with: `Acme` ships `generated/` and does not call it source.
+      expect(refused(workspace, path)).toEqual([
+        "no module `Acme.Secret`",
+        "no module alias `Secret`",
+      ]);
+      const uri = pathToFileURL(secret).toString();
+      if (door === "watcher") {
+        await workspace.refreshFromDisk(uri);
+      } else {
+        await workspace.openDocument({ uri, getText: () => text } as never);
+        if (door === "rediscovery while open") await workspace.setRoots([path], () => {});
+      }
+      const key = workspace.pathFor(uri);
+      expect(workspace.isExcludedUri(uri)).toBe(true);
+      expect(workspace.programs[0]!.holds(key)).toBe(false);
+      expect(workspace.session.paths.map((p) => p.split("/").at(-1)).sort())
+        .toEqual(["lib.hex", "main.hex"]);
+      expect(refused(workspace, path)).toEqual([
+        "no module `Acme.Secret`",
+        "no module alias `Secret`",
+      ]);
+    }
+  });
+
+  /**
+   * The mirror, and the one a user writes without thinking: `node_modules` is
+   * inside the project directory, so a project entry matched against a
+   * dependency's files empties every dependency of source — with no manifest
+   * report, since the entry names a directory that is really there — and every
+   * import of them refused for a reason nothing on screen names.
+   */
+  test("a project's `exclude` does not reach its dependencies", async () => {
+    const build = async (exclude: readonly string[]): Promise<Workspace> => {
+      const path = await makeRoot();
+      await writeFile(
+        join(path, MANIFEST_NAME),
+        JSON.stringify({ name: "App", dependencies: ["Acme"], exclude }),
+      );
+      await writeFile(
+        join(path, "main.hex"),
+        "module Main\n\nimport Acme.Lib\n\nlet n: Int = Lib.one\n",
+      );
+      await mkdir(join(path, "examples"), { recursive: true });
+      await writeFile(join(path, "examples", "broken.hex"), "module Broken\n\nlet oops: Int = \n");
+      const acme = join(path, "node_modules", "acme");
+      await mkdir(acme, { recursive: true });
+      await writeFile(join(acme, MANIFEST_NAME), JSON.stringify({ name: "Acme" }));
+      await writeFile(join(acme, "lib.hex"), "module Lib\n\nexport let one: Int = 1\n");
+      const workspace = new Workspace();
+      await workspace.setRoots([path], () => {});
+      return workspace;
+    };
+    const names = (workspace: Workspace): readonly string[] =>
+      workspace.session.paths.map((p) => p.split("/").at(-1)!).sort();
+
+    // The entry is read — `examples/` is out — and it stops at the project's own
+    // files: the dependency keeps its source and the import still resolves.
+    const guarded = await build(["examples", "node_modules"]);
+    expect(names(guarded)).toEqual(["lib.hex", "main.hex"]);
+    expect([...guarded.allDiagnostics().values()].flat()).toEqual([]);
+    // Identical but for the entry, so the comparison is about `exclude` alone.
+    const open = await build(["examples"]);
+    expect(names(open)).toEqual(names(guarded));
+    expect([...open.allDiagnostics().values()].flat()).toEqual([]);
+  });
+
   test("a file deleted from disk is gone after a rescan, with no watcher event", async () => {
     const path = await makeRoot();
     await writeFile(join(path, "main.hex"), "module Main\n\n" + "let value: Int = 1\n");
@@ -667,6 +793,95 @@ describe("the workspace walk", () => {
     expect(added).toBe(1);
   });
 
+  /**
+   * A file's **identity** outlives one visit to it, and has to.
+   *
+   * `#erase` takes a removed file out of the path-identity maps, so the second
+   * of two watcher events on one file finds no resolved name for it — and the
+   * resolved name is the whole of the answer here, since the exclusion names a
+   * directory this file reaches only through a link. Asking with one spelling
+   * where the file has two says "not excluded", and the file the user excluded
+   * comes back on a second save with nothing said.
+   *
+   * The identity is carried on the URI cache instead, which is what makes the
+   * removal safe: it is re-established at the first door the file reaches, with
+   * no syscall a keystroke has to pay for.
+   */
+  test("a file excluded through the name it resolves to stays out when the watcher fires twice", async () => {
+    const base = await makeRoot();
+    const path = join(base, "project");
+    await mkdir(join(base, "outside"), { recursive: true });
+    await mkdir(path);
+    await writeFile(join(path, MANIFEST_NAME), JSON.stringify({}));
+    await writeFile(join(path, "main.hex"), "module Main\n\n" + "let value: Int = 1\n");
+    await writeFile(
+      join(base, "outside", "thing.hex"),
+      "module Thing\n\n" + "export let n: Int = 1\n",
+    );
+    // The only way into the project, so the walk keys the file under the link's
+    // spelling and its resolved name shares no prefix with it.
+    await symlink(join(base, "outside"), join(path, "linked"), "dir");
+
+    const workspace = new Workspace();
+    await workspace.setRoots([path], () => {});
+    expect(workspace.session.paths.map((p) => p.split("/").at(-1)).sort())
+      .toEqual(["main.hex", "thing.hex"]);
+
+    await writeFile(
+      join(path, MANIFEST_NAME),
+      JSON.stringify({ exclude: [join(base, "outside")] }),
+    );
+    await workspace.setRoots([path], () => {});
+    const uri = pathToFileURL(join(path, "linked", "thing.hex")).toString();
+    expect(workspace.session.paths.map((p) => p.split("/").at(-1))).toEqual(["main.hex"]);
+
+    // Two events, because one save is not the case that fails: the first erases
+    // the file and its identity with it, and the second is the one that has to
+    // find the identity again.
+    for (const _ of [1, 2]) {
+      await workspace.refreshFromDisk(uri);
+      expect(workspace.isExcludedUri(uri)).toBe(true);
+      expect(workspace.session.paths.map((p) => p.split("/").at(-1))).toEqual(["main.hex"]);
+    }
+  });
+
+  /**
+   * And the map that is **not** cleared, for the reason measured here: which
+   * spelling the walk chose for a resolved file is a fact about the workspace,
+   * not about whether the file exists this second. Dropping it makes a file
+   * recreated under its *other* name arrive as a path the project does not
+   * contain — so a delete-then-restore, which `git checkout` does to whole
+   * directories, leaves the file out of the program until a rediscovery.
+   */
+  test("a file the walk reached through a link rejoins under the name the walk chose", async () => {
+    const base = await makeRoot();
+    const path = join(base, "project");
+    await mkdir(join(base, "outside"), { recursive: true });
+    await mkdir(path);
+    await writeFile(join(path, "main.hex"), "module Main\n\n" + "let value: Int = 1\n");
+    const outside = join(base, "outside", "thing.hex");
+    await writeFile(outside, "module Thing\n\n" + "export let n: Int = 1\n");
+    await symlink(join(base, "outside"), join(path, "linked"), "dir");
+
+    const workspace = new Workspace();
+    await workspace.setRoots([path], () => {});
+    const walked = workspace.pathFor(pathToFileURL(join(path, "linked", "thing.hex")).toString());
+    expect(walked.endsWith("/project/linked/thing.hex")).toBe(true);
+
+    await rm(outside);
+    await workspace.deleteFile(pathToFileURL(join(path, "linked", "thing.hex")).toString());
+    expect(workspace.session.paths.map((p) => p.split("/").at(-1))).toEqual(["main.hex"]);
+
+    // Restored, and the event names it the other way — which is what the
+    // filesystem reports for a directory that is really over there.
+    await writeFile(outside, "module Thing\n\n" + "export let n: Int = 2\n");
+    await workspace.refreshFromDisk(pathToFileURL(outside).toString());
+    expect(workspace.pathFor(pathToFileURL(outside).toString())).toBe(walked);
+    expect(workspace.programs[0]!.holds(walked)).toBe(true);
+    expect(workspace.session.paths.map((p) => p.split("/").at(-1)).sort())
+      .toEqual(["main.hex", "thing.hex"]);
+  });
+
   test("overlapping rescans settle on one manifest's answer", async () => {
     const path = await makeRoot();
     await mkdir(join(path, "gen"));
@@ -763,7 +978,14 @@ describe("the workspace walk", () => {
     const { workspace } = await scan(path);
     expect(workspace.session.paths.map((each) => each.split("/").at(-1)))
       .toEqual(["VectorTrie.hex"]);
-    expect([...workspace.session.allDiagnostics().values()].flat()).toEqual([]);
+    // No `Node` report: the privilege followed the declared name under the only
+    // spelling this file has. The stub's incomplete wiring is the one report
+    // left, and it is what says the file is being analysed at all.
+    expect([...workspace.session.allDiagnostics().values()].flat().map(({ message }) => message))
+      .toEqual([
+        "this module is `Runtime.VectorTrie` but declares no `empty`, `get`, " +
+        "`set`, `append`, `prepend`, `slice`, `window`, `concat`, `nodeRun`",
+      ]);
   });
 
   test("opening an excluded file by its symlinked name does not add it", async () => {
@@ -1124,6 +1346,93 @@ describe("programs, and a file two of them hold", () => {
       .toBe(false);
     expect(workspace.session.diagnostics(main).map(({ message }) => message)).toEqual(before);
   });
+
+  /**
+   * The same bounds through the **rediscovery sweep**, which is the one route
+   * that is not a door: a file the editor holds open is kept across a walk that
+   * did not find it, and where it is kept has to be decided by asking this
+   * walk's lists rather than by copying the last one's.
+   *
+   * `npm uninstall` with one of the package's files open is the ordinary way
+   * here, and the file's own header is a decisive probe of which package it
+   * ends up compiled under: `module Acme.Sub` is unlawful as `Acme`'s own
+   * module (Modules §2.2's first segment) and perfectly lawful once `Acme` is
+   * no longer in the program. Copied from the previous program, the file
+   * survived in `held` with no package behind it — which is exactly how a
+   * session compiles the project's **own** source.
+   */
+  test("dropping a dependency takes its open file out of the program", async () => {
+    const path = await makeRoot();
+    await writeFile(join(path, MANIFEST_NAME), manifest({ name: "App", dependencies: ["Acme"] }));
+    await writeFile(join(path, "main.hex"), "module Main\n");
+    const acme = join(path, "node_modules", "acme");
+    await mkdir(acme, { recursive: true });
+    await writeFile(join(acme, MANIFEST_NAME), manifest({ name: "Acme" }));
+    const thing = join(acme, "thing.hex");
+    const text = "module Acme.Sub\n\nexport let n: Int = 1\n";
+    await writeFile(thing, text);
+
+    const workspace = new Workspace();
+    await workspace.setRoots([path], () => {});
+    const refusal = "`Acme.Sub` begins with the name of the package `Acme`; a dotted " +
+      "module's first segment cannot name a package in the program; rename the module";
+    const everything = (): readonly string[] =>
+      [...workspace.allDiagnostics().values()].flat().map(({ diagnostic }) => diagnostic.message);
+    expect(everything()).toEqual([refusal]);
+
+    const uri = pathToFileURL(thing).toString();
+    await workspace.openDocument({ uri, getText: () => text } as never);
+    expect(everything()).toEqual([refusal]);
+
+    await writeFile(join(path, MANIFEST_NAME), manifest({ name: "App", dependencies: [] }));
+    await workspace.setRoots([path], () => {});
+    const key = workspace.pathFor(uri);
+    // Out of the program entirely: `node_modules` lies between the project and
+    // this file, so the project cannot own it, and no package of the closure
+    // holds it any more.
+    expect(workspace.programs[0]!.owns(key)).toBe(false);
+    expect(workspace.programs[0]!.holds(key)).toBe(false);
+    expect(workspace.session.paths.map((p) => p.split("/").at(-1))).toEqual(["main.hex"]);
+    // And the refusal is gone because the module left, not because it was
+    // quietly re-seated as `App`'s own — which would have said the same thing.
+    expect(everything()).toEqual([]);
+  });
+
+  /**
+   * The other half: a file the editor holds open **inside** a dependency, when
+   * a `hexagon.json` appears beside it and ends the package there. The buffer
+   * does not outrank the boundary.
+   */
+  test("a manifest appearing beside an open file takes it out of the package", async () => {
+    const path = await makeRoot();
+    await writeFile(join(path, MANIFEST_NAME), manifest({ dependencies: ["Acme"] }));
+    await writeFile(
+      join(path, "main.hex"),
+      "module Main\n\nimport Acme.Sneak\n\nlet value: Int = Sneak.made\n",
+    );
+    const acme = join(path, "node_modules", "acme");
+    await mkdir(join(acme, "vendor"), { recursive: true });
+    await writeFile(join(acme, MANIFEST_NAME), manifest({ name: "Acme" }));
+    await writeFile(join(acme, "lib.hex"), "module Lib\n\nexport let one: Int = 1\n");
+    const sneak = join(acme, "vendor", "sneak.hex");
+    const text = "module Sneak\n\nexport let made: Int = 9\n";
+    await writeFile(sneak, text);
+
+    const workspace = new Workspace();
+    await workspace.setRoots([path], () => {});
+    const main = workspace.pathFor(pathToFileURL(join(path, "main.hex")).toString());
+    // No boundary yet, so `vendor` really is `Acme`'s and the import resolves.
+    expect(workspace.session.diagnostics(main)).toEqual([]);
+    const uri = pathToFileURL(sneak).toString();
+    await workspace.openDocument({ uri, getText: () => text } as never);
+
+    await writeFile(join(acme, "vendor", MANIFEST_NAME), manifest({ name: "Vendored" }));
+    await workspace.setRoots([path], () => {});
+    const key = workspace.pathFor(uri);
+    expect(workspace.programs[0]!.holds(key)).toBe(false);
+    expect(workspace.session.diagnostics(main).map(({ message }) => message))
+      .toContain("no module `Acme.Sneak`");
+  });
 });
 
 /**
@@ -1197,4 +1506,262 @@ describe("a file one program owns and another holds", () => {
       expect(program.session.diagnostics(key)).toEqual([]);
     }
   });
+});
+
+/**
+ * **One answer per file, whatever route reached it.**
+ *
+ * Four rounds of review found the same family of defect four times: a bound the
+ * walk applies and a door does not, or a bound one door applies and another
+ * does not. Each was found by driving one shape through one route, and each fix
+ * was pinned by a test of that shape and that route — which is why the next
+ * shape, or the next route, could break the same way.
+ *
+ * So this is the table itself. Every shape Packages §2.2 and §2.1 distinguish
+ * is driven through every way a file reaches a program — the walk, an editor
+ * opening it, an edit arriving for it, a watcher event on it, a watcher event
+ * on a file created *after* discovery, and a rediscovery with the buffer still
+ * open — and every route must give the same three answers: which program owns
+ * it as project source, which programs hold it at all, and whether it is
+ * excluded. A route that disagrees with the walk makes the walk's answer
+ * advisory, and which answer a user gets then depends on what they happened to
+ * click.
+ */
+describe("one answer per file, whatever route reached it", () => {
+  const manifest = (fields: Readonly<Record<string, unknown>>): string =>
+    `${JSON.stringify(fields, undefined, 2)}\n`;
+
+  /**
+   * The workspace every case is built in: a project with a nested project, a
+   * listed dependency that nests one of its own, two installed packages nobody
+   * lists, a vendored package inside the dependency, and both `exclude`s.
+   */
+  const TREE: Readonly<Record<string, string>> = {
+    [MANIFEST_NAME]: manifest({ name: "App", dependencies: ["Acme"], exclude: ["excluded"] }),
+    "main.hex": "module Main\n",
+    "target.hex": "module Target\n\nexport let n: Int = 1\n",
+    "fresh.hex": "module Fresh\n",
+    "excluded/kept-out.hex": "module KeptOut\n",
+    "dist/built.hex": "module Built\n",
+    ".claude/agent.hex": "module Agent\n",
+    ["sub/" + MANIFEST_NAME]: manifest({ name: "Sub" }),
+    "sub/inner.hex": "module Inner\n",
+    ["node_modules/loose/" + MANIFEST_NAME]: manifest({ name: "Loose" }),
+    "node_modules/loose/stray.hex": "module Stray\n",
+    ["node_modules/acme/" + MANIFEST_NAME]:
+      manifest({ name: "Acme", dependencies: ["Bolt"], exclude: ["generated"] }),
+    "node_modules/acme/lib.hex": "module Lib\n",
+    "node_modules/acme/extra.hex": "module Extra\n",
+    "node_modules/acme/generated/made.hex": "module Made\n",
+    ["node_modules/acme/vendor/" + MANIFEST_NAME]: manifest({ name: "Vendored" }),
+    "node_modules/acme/vendor/inside.hex": "module Inside\n",
+    ["node_modules/acme/node_modules/bolt/" + MANIFEST_NAME]: manifest({ name: "Bolt" }),
+    "node_modules/acme/node_modules/bolt/tool.hex": "module Tool\n",
+    ["node_modules/acme/node_modules/spare/" + MANIFEST_NAME]: manifest({ name: "Spare" }),
+    "node_modules/acme/node_modules/spare/idle.hex": "module Idle\n",
+  };
+
+  /** One shape of that tree, and the answer every route must give about it. */
+  interface Shape {
+    /** The file under test, relative to the workspace root. */
+    readonly file: string;
+    /** The editor roots to open, relative to the workspace root; `.` is it. */
+    readonly roots: readonly string[];
+    /** The program holding it as **project** source, or nothing. */
+    readonly owner: string | undefined;
+    /** Every program holding it at all, project source or a package's. */
+    readonly holders: readonly string[];
+    /** Whether a manifest's `exclude` is what keeps it out, rather than §2.2. */
+    readonly excluded: boolean;
+    /** A link to make instead of a file to write, where the shape is one. */
+    readonly linkTo?: string;
+  }
+
+  const SHAPES: Readonly<Record<string, Shape>> = {
+    "the project's own source": {
+      file: "fresh.hex",
+      roots: ["."],
+      owner: ".",
+      holders: ["."],
+      excluded: false,
+    },
+    "a file the project excludes": {
+      file: "excluded/kept-out.hex",
+      roots: ["."],
+      owner: undefined,
+      holders: [],
+      excluded: true,
+    },
+    "a file the dependency excludes": {
+      file: "node_modules/acme/generated/made.hex",
+      roots: ["."],
+      owner: undefined,
+      holders: [],
+      excluded: true,
+    },
+    "a nested project's file": {
+      file: "sub/inner.hex",
+      roots: ["."],
+      owner: "sub",
+      holders: ["sub"],
+      excluded: false,
+    },
+    "a file of an installed package nobody lists": {
+      file: "node_modules/loose/stray.hex",
+      roots: ["."],
+      owner: undefined,
+      holders: [],
+      excluded: false,
+    },
+    "a listed dependency's own file": {
+      file: "node_modules/acme/extra.hex",
+      roots: ["."],
+      owner: undefined,
+      holders: ["."],
+      excluded: false,
+    },
+    "a file of a package nested inside the dependency": {
+      file: "node_modules/acme/node_modules/bolt/tool.hex",
+      roots: ["."],
+      owner: undefined,
+      holders: ["."],
+      excluded: false,
+    },
+    "a file under the dependency's own unlisted `node_modules`": {
+      file: "node_modules/acme/node_modules/spare/idle.hex",
+      roots: ["."],
+      owner: undefined,
+      holders: [],
+      excluded: false,
+    },
+    "a file beneath a manifest inside the dependency": {
+      file: "node_modules/acme/vendor/inside.hex",
+      roots: ["."],
+      owner: undefined,
+      holders: [],
+      excluded: false,
+    },
+    "a file under the project's output directory": {
+      file: "dist/built.hex",
+      roots: ["."],
+      owner: undefined,
+      holders: [],
+      excluded: false,
+    },
+    "a file under a tooling directory": {
+      file: ".claude/agent.hex",
+      roots: ["."],
+      owner: undefined,
+      holders: [],
+      excluded: false,
+    },
+    "a second name for a file the project holds": {
+      file: "alias.hex",
+      linkTo: "target.hex",
+      roots: ["."],
+      owner: ".",
+      holders: ["."],
+      excluded: false,
+    },
+    "a dependency opened as a root of its own": {
+      file: "node_modules/acme/extra.hex",
+      roots: [".", "node_modules/acme"],
+      owner: "node_modules/acme",
+      holders: [".", "node_modules/acme"],
+      excluded: false,
+    },
+  };
+
+  const ROUTES = ["walk", "open", "edit", "watcher", "created", "reopened"] as const;
+  type Route = typeof ROUTES[number];
+
+  /** What the file under test says, so a shape's module has one name. */
+  const textOf = (shape: Shape): string =>
+    TREE[shape.linkTo ?? shape.file] ?? "module Unwritten\n";
+
+  /** Lays the tree down, leaving out the file under test where a route needs it. */
+  async function layout(root: string, omit: string | undefined): Promise<void> {
+    for (const [name, text] of Object.entries(TREE)) {
+      await mkdir(join(root, name, ".."), { recursive: true });
+      if (name === omit) continue;
+      await writeFile(join(root, name), text);
+    }
+  }
+
+  /** Which program a label names, and the label a program's directory wears. */
+  const labelOf = (directory: string, base: string): string =>
+    directory === base ? "." : directory.slice(base.length + 1);
+
+  async function drive(shape: Shape, route: Route): Promise<void> {
+    const root = await makeRoot();
+    const base = normalizePath(settledPathSync(root));
+    const created = route === "created";
+    await layout(root, created && shape.linkTo === undefined ? shape.file : undefined);
+    const make = async (): Promise<void> => {
+      if (shape.linkTo === undefined) await writeFile(join(root, shape.file), textOf(shape));
+      else await symlink(join(root, shape.linkTo), join(root, shape.file), "file");
+    };
+    if (!created) await make();
+
+    const workspace = new Workspace();
+    const roots = shape.roots.map((each) => each === "." ? root : join(root, each));
+    await workspace.setRoots(roots, () => {});
+    const uri = pathToFileURL(join(root, shape.file)).toString();
+    const text = textOf(shape);
+    switch (route) {
+      case "walk":
+        break;
+      case "open":
+        await workspace.openDocument({ uri, getText: () => text } as never);
+        break;
+      case "edit":
+        workspace.updateDocument({ uri, getText: () => text } as never);
+        break;
+      case "watcher":
+        await workspace.refreshFromDisk(uri);
+        break;
+      case "created":
+        await make();
+        await workspace.refreshFromDisk(uri);
+        break;
+      case "reopened":
+        await workspace.openDocument({ uri, getText: () => text } as never);
+        await workspace.setRoots(roots, () => {});
+        break;
+    }
+
+    const key = workspace.pathFor(uri);
+    const labels = (holds: (program: (typeof workspace.programs)[number]) => boolean) =>
+      workspace.programs.filter(holds).map(({ directory }) => labelOf(directory, base)).sort();
+    expect(labels((program) => program.owns(key)))
+      .toEqual(shape.owner === undefined ? [] : [shape.owner]);
+    expect(labels((program) => program.holds(key))).toEqual([...shape.holders].sort());
+    // Held and seated are one fact: a path in a session no program admits to
+    // holding is compiled and answered about by nobody.
+    expect(labels((program) => program.session.paths.includes(key)))
+      .toEqual([...shape.holders].sort());
+    expect(workspace.isExcludedUri(uri)).toBe(shape.excluded);
+    // And the program that answers questions about it is the one that owns it,
+    // falling back to the first that holds it — never nothing where one does.
+    const answering = workspace.programs
+      .map(({ directory }) => labelOf(directory, base))
+      .find((label) => shape.holders.includes(label));
+    const asked = workspace.programFor(key);
+    expect(asked === undefined ? undefined : labelOf(asked.directory, base))
+      .toBe(shape.owner ?? answering);
+  }
+
+  for (const [name, shape] of Object.entries(SHAPES)) {
+    test(name, async () => {
+      for (const route of ROUTES) {
+        // The route is named in the failure, because a table's whole value is
+        // knowing which cell disagreed with the others.
+        try {
+          await drive(shape, route);
+        } catch (failure) {
+          throw new Error(`${name}, reached by the ${route}`, { cause: failure });
+        }
+      }
+    });
+  }
 });

@@ -1580,6 +1580,7 @@ export class AnalysisSession {
           ...(packages.length === 0 ? rest : { ...rest, packages }),
           firstFileId: this.#nextFileId,
         }),
+        files,
       );
     }
     return this.#analysis;
@@ -1630,7 +1631,30 @@ class Analysis {
   /** Attached documentation, indexed for lookup by name and by position. */
   readonly documentation: DocumentationIndex;
 
-  constructor(project: { readonly modules: readonly CompiledModule[]; readonly diagnostics: readonly Diagnostics.Diagnostic[] }) {
+  constructor(
+    project: { readonly modules: readonly CompiledModule[]; readonly diagnostics: readonly Diagnostics.Diagnostic[] },
+    /** Every file the compile was handed, by path — see the loop below. */
+    supplied: ReadonlyMap<string, Source.File>,
+  ) {
+    // **Every file the session handed over**, before the compiled ones, because
+    // a file the host holds can draw a report and appear in `modules` nowhere.
+    // The loop below drops a diagnostic whose file it cannot name, so such a
+    // report was published against nothing at all. Two ways in, both ordinary:
+    //
+    // - `compileProject` seats one unit per address (Packages §6), so the
+    //   *second* `module Geo` is dropped — and Modules §2.2's duplicate report
+    //   is drawn against that second header, in that second file. Two files
+    //   declaring one module drew nothing in an editor while the batch compiler
+    //   refused the program;
+    // - `modules` is the **emitted** closure, so a prelude or runtime module is
+    //   in it only where something reaches it — and a project developing the
+    //   standard library supplies those files itself (`gatherModules`'
+    //   adoption). Its own `Runtime/VectorTrie.hex` reported nothing at all,
+    //   type errors included, until some module in the project used a `Vector`.
+    //
+    // A file that compiled nothing overwrites nothing here: the module loop
+    // sets the same path for the same identity.
+    for (const [path, file] of supplied) this.#pathsByFileId.set(Number(file.id), path);
     // Before the facts, which carry each symbol's documentation with them: a
     // completion asks about a symbol, not about a place.
     this.documentation = DocumentationIndex.of(project.modules.map(({ typed }) => typed));

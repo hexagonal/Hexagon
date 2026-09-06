@@ -1856,6 +1856,71 @@ describe("packages and programs", () => {
     }
   });
 
+  /**
+   * The window a vendored `.hex` file has before the manifest beside it
+   * arrives, and that it closes — **with the file open in a buffer**, which is
+   * the rediscovery sweep's decision rather than the walk's.
+   *
+   * A package vendored inside a dependency is unpacked file by file, so between
+   * one watcher event and the next its sources really are the dependency's and
+   * its modules really do resolve. The manifest watcher is what ends that: the
+   * boundary arrives, discovery re-runs, and `Acme` stops at `vendor`. The
+   * sweep used to put an open buffer back where the *previous* program had it,
+   * so the file kept its seat inside `Acme` and the window never closed at all
+   * for anyone who had the file open.
+   */
+  test("a manifest arriving beside an open buffer ends the package there", async () => {
+    const workspace = await harness({
+      "hexagon.json": manifest({ dependencies: ["Acme"] }),
+      "main.hex": "module Main\n\nimport Acme.Sneak\n\nlet value: Int = Sneak.made\n",
+      "node_modules/acme/hexagon.json": manifest({ name: "Acme" }),
+      "node_modules/acme/lib.hex": "module Lib\n\nexport let one: Int = 1\n",
+    });
+    try {
+      const uri = workspace.uriOf("main.hex");
+      expect(
+        (await workspace.diagnosticsUntil(
+          uri,
+          (diagnostics) => diagnostics.length > 0,
+          "the import of a module nothing supplies to be refused",
+        )).map(({ message }) => message),
+      ).toContain("no module `Acme.Sneak`");
+
+      const sneak = join(workspace.root, "node_modules/acme/vendor/sneak.hex");
+      const text = "module Sneak\n\nexport let made: Int = 9\n";
+      await mkdir(dirname(sneak), { recursive: true });
+      await writeFile(sneak, text, "utf8");
+      await workspace.client.sendNotification(DidChangeWatchedFilesNotification.type, {
+        changes: [{ uri: pathToFileURL(sneak).toString(), type: 1 }],
+      });
+      // Correct while it lasts: no boundary exists yet, so `vendor` is `Acme`'s
+      // own directory and the module in it is `Acme.Sneak`.
+      expect(
+        await workspace.diagnosticsUntil(
+          uri,
+          (diagnostics) => diagnostics.length === 0,
+          "the vendored file to join the package around it",
+        ),
+      ).toEqual([]);
+
+      await open(workspace, "node_modules/acme/vendor/sneak.hex", text);
+      const boundary = join(workspace.root, "node_modules/acme/vendor/hexagon.json");
+      await writeFile(boundary, manifest({ name: "Vendored" }), "utf8");
+      await workspace.client.sendNotification(DidChangeWatchedFilesNotification.type, {
+        changes: [{ uri: pathToFileURL(boundary).toString(), type: 1 }],
+      });
+      expect(
+        (await workspace.diagnosticsUntil(
+          uri,
+          (diagnostics) => diagnostics.length > 0,
+          "the boundary to take the vendored module back out of `Acme`",
+        )).map(({ message }) => message),
+      ).toContain("no module `Acme.Sneak`");
+    } finally {
+      await workspace.dispose();
+    }
+  });
+
   test("a `hexagon.json` written under `node_modules` re-runs discovery", async () => {
     const workspace = await harness({
       "hexagon.json": manifest({ dependencies: ["Acme"] }),

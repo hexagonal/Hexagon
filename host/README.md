@@ -84,8 +84,10 @@ against the dependency's `hexagon.json` and not against the project's.
 **Only the project's manifest is read in full.** A package that enters the set
 is checked for its own `dependencies` (Packages §4.1) and for nothing else:
 §2.1 makes every other field the host's, and a package's author is not that
-file's reader. So a dependency's `exclude` is honoured and never reported on,
-and a key this reader does not know is read past in silence — `node_modules` is
+file's reader. So a dependency's `exclude` is honoured — by the walk and by
+every door that seats a file the walk did not, which is the fourth bound below —
+and never reported on;
+a key this reader does not know is read past in silence — `node_modules` is
 not a place anyone edits, and `exclude: ["dist"]` naming a directory the
 published tarball does not carry is the ordinary shape of a published package.
 A manifest the scan merely read is checked for nothing at all, which is
@@ -129,6 +131,20 @@ where a package stops. With all three exclusions asked at every door, what is
 left of "no file ever has two full names" is the second way a file can get two:
 two packages of one closure containing it, which is npm's ordinary nested
 install, and which the **deepest** containing package answers.
+
+**`exclude` is the fourth bound, and it is per package.** §2.1's field belongs
+to a *manifest*, so the walk reads each package of the closure with that
+package's own entries and nobody else's (`filesOf`), and a door has to ask the
+manifest of the package the file would join. Both directions of getting that
+wrong are ordinary and a merged set gets both: a project's
+`exclude: ["node_modules"]` is the shape of every `.gitignore`, and matching it
+against a dependency's files empties every dependency of source with no report
+anywhere; a dependency's `exclude: ["generated"]` is the shape of a published
+package, and *not* matching it adds a module the package excluded the moment
+someone opens one file inside it — changing a report in the consumer's own
+source. This bound is a question about a **name a manifest wrote** rather than
+about the shape of the tree, which is why it is `exclusionsOf` and `excludes`
+asked by the caller rather than another `crossesSkippedDirectory`.
 
 ## Tests
 

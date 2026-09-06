@@ -175,6 +175,15 @@ export function startServer(connection: Connection): void {
       // only a root's: a nested one is a package of its own and so a program of
       // its own (D1), and one under `node_modules` is a dependency arriving or
       // leaving.
+      //
+      // A glob is a **request**, and the client decides what it really watches:
+      // VS Code's `files.watcherExclude` defaults to `**/node_modules/*/**`, so
+      // the events this asks for under `node_modules` are the ones least likely
+      // to be delivered. Nothing here depends on getting them. Every answer such
+      // an event would refresh is also reached by opening or closing a file, by
+      // any other manifest changing, and by the next rediscovery — so where a
+      // client does send them the only thing they buy is that the workspace
+      // catches up without the user doing anything.
       watchers: [{ globPattern: "**/*.hex" }, { globPattern: `**/${MANIFEST_NAME}` }],
     });
   });

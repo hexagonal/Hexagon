@@ -137,28 +137,47 @@ export class Workspace {
    */
   readonly #realPathOfPath = new Map<string, string>();
   /**
-   * The session path each URI resolves to, remembered from the first time the
-   * URI was seen. Two names for one file — a symlink and its target — must reach
-   * one entry, or the file compiles twice and every declaration in it is
-   * reported as a duplicate of itself. The walk already dedupes by real path;
-   * this is the same rule for the names an editor opens, which the walk never
-   * chose. Cached because resolving is a syscall and an edit must not pay one.
+   * The session path each URI resolves to, and the identity that path stands
+   * for, remembered from the first time the URI was seen. Two names for one
+   * file — a symlink and its target — must reach one entry, or the file compiles
+   * twice and every declaration in it is reported as a duplicate of itself. The
+   * walk already dedupes by real path; this is the same rule for the names an
+   * editor opens, which the walk never chose. Cached because resolving is a
+   * syscall and an edit must not pay one.
+   *
+   * The identity is kept **beside** the path rather than only written into
+   * `#realPathOfPath`, because that map is emptied of a file that leaves the
+   * workspace (`#erase`). A URI answered from this cache would otherwise come
+   * back with no identity behind it, and `#isExcluded` — which needs the
+   * resolved name to catch an exclusion reached through a link — would be
+   * asking about one spelling where the file has two.
    */
-  readonly #pathByUri = new Map<string, string>();
+  readonly #pathByUri = new Map<string, { readonly path: string; readonly realPath: string }>();
   /** Session path for each real path the walk resolved — see `pathFor`. */
   readonly #pathsByRealPath = new Map<string, string>();
   /**
-   * Each project's own exclusions, against the directory whose manifest wrote
-   * them, under both the names an entry can wear.
+   * Each **package's** own exclusions, against the directory whose manifest
+   * wrote them, under both the names an entry can wear — a project and an
+   * installed dependency alike.
    *
-   * **One project's `exclude` is about that project's files.** A workspace
-   * holds several programs now (D1), so a single merged set would let a
-   * parent's `exclude: ["lib/generated"]` empty the *nested* project that owns
-   * `lib/generated` and whose own manifest excludes nothing — and let one
-   * editor root's manifest reach into its sibling's. It would also disagree
-   * with the walk, which reads each project's exclusions for that project's own
-   * traversal alone, so which answer a file got would depend on whether the
-   * walk or a watcher event reached it.
+   * **One manifest's `exclude` is about that package's own files**, which is
+   * what the walk does: `filesOf` walks each package of the closure with that
+   * package's exclusions and nobody else's. Both halves of that matter, and a
+   * single merged set gets both wrong:
+   *
+   * - a *project's* entry must not reach a dependency's files. `node_modules`
+   *   lies inside the project directory, so `exclude: ["node_modules"]` — the
+   *   shape of every `.gitignore` — would empty every dependency of source,
+   *   with no manifest report and every import of them refused for a reason
+   *   nothing names;
+   * - a *dependency's* entry must reach its own. A package excludes a
+   *   `generated/` it does not ship as source, the walk honours it, and a door
+   *   that did not would add the module by the accident of a user opening one
+   *   file inside a dependency — flipping a report in the user's own source.
+   *
+   * The same reading keeps a parent project's `exclude: ["lib/generated"]` from
+   * emptying the *nested* project that owns `lib/generated`, and one editor
+   * root's manifest out of its sibling's files.
    */
   #exclusions: readonly { readonly directory: string; readonly exclude: Exclusions }[] = [];
   /** Tail of the `setRoots` queue — see the comment there. */
@@ -308,15 +327,29 @@ export class Workspace {
     }
     const discovered = await discoverPrograms(roots, onError);
     // Exclusions before any text is read, so a file a manifest excludes is
-    // never put into a session and then swept out of it.
-    const exclusions: { directory: string; exclude: Exclusions }[] = [];
+    // never put into a session and then swept out of it — and one entry per
+    // **package**, project and installed dependency alike, because that is the
+    // unit the walk reads them for. Deduped by directory: two programs sharing
+    // a hoisted dependency read its manifest twice and it excludes one thing.
+    const exclusions = new Map<string, Exclusions>();
     for (const program of discovered) {
-      exclusions.push({
-        directory: program.directory,
-        exclude: await exclusionsOf(program.directory, program.manifest),
-      });
+      if (!exclusions.has(program.directory)) {
+        exclusions.set(
+          program.directory,
+          await exclusionsOf(program.directory, program.manifest),
+        );
+      }
+      for (const dependency of program.packages) {
+        if (exclusions.has(dependency.directory)) continue;
+        exclusions.set(
+          dependency.directory,
+          await exclusionsOf(dependency.directory, dependency.manifest),
+        );
+      }
     }
-    this.#exclusions = exclusions;
+    this.#exclusions = [...exclusions].map(([directory, exclude]) => ({ directory, exclude }));
+    /** Every project directory of this discovery, for the sweep's own seat test. */
+    const projectDirectories = discovered.map(({ directory }) => directory);
 
     // Sessions are kept across a rediscovery, keyed by project directory. A
     // session owns file identity — one path, one `Source.FileId`, held even
@@ -384,15 +417,38 @@ export class Workspace {
           // finds neither owner nor holder, and hover, definition, references
           // and rename all answer `null` in a buffer the user is looking at,
           // until a keystroke happens to re-adopt it.
-          if (existing?.own.has(path)) own.add(path);
-          held.add(path);
-          for (const dependency of packages) {
-            const before = existing?.packages.find(
-              (had) => had.directory === dependency.directory,
-            );
-            if (before?.paths.has(path)) dependency.paths.add(path);
+          //
+          // **Put back where this walk says it goes**, never where the last one
+          // did. Copying the previous program's lists reads a buffer as proof
+          // of membership, and the two are different facts: a dependency
+          // dropped from `dependencies`, a `hexagon.json` appearing beside the
+          // file, a widened exclusion all change where the file belongs while
+          // the buffer sits open and unchanged. Copied, the file survived as
+          // `held` with no package behind it — which is how a session compiles
+          // the project's *own* source, so a dependency's module was compiled
+          // under the project's name and answered the very import Packages §7
+          // exists to refuse. So the same two questions the doors ask, against
+          // the lists this walk just built. Both are pure path tests and touch
+          // no disk, which is what keeps the deleted-but-open file — the case
+          // this clause exists for — working.
+          const ownedBy = deepestContaining(projectDirectories, path);
+          if (
+            ownedBy !== undefined && ownedBy === found.directory
+            && !crossesSkippedDirectory(ownedBy, path)
+          ) {
+            own.add(path);
+            held.add(path);
+            continue;
           }
-          continue;
+          const holder = this.#packageHolding(packages, path);
+          if (holder !== undefined) {
+            holder.paths.add(path);
+            held.add(path);
+            continue;
+          }
+          // And where this walk gives it to neither, the buffer does not save
+          // it: a file no package of this program holds is not this program's
+          // to compile, and it leaves through the sweep below like any other.
         }
         session.removeFile(path);
         own.delete(path);
@@ -495,14 +551,17 @@ export class Workspace {
   }
 
   /**
-   * The exclusions that decide about a path: the **deepest** project containing
-   * it, and no other.
+   * The exclusions that decide about a path: the **deepest package directory**
+   * containing it, and no other — the package whose source the file would be.
    *
-   * The deepest, because a nested manifest is a project of its own and the file
-   * beneath it is that project's: its `exclude` is the one about this file, and
-   * its parent's is about the parent's own sources. A path no project contains
-   * — a hoisted dependency beside two editor roots — is excluded by nobody,
-   * which is also what its own package's walk decided.
+   * The deepest, because a manifest of its own makes a directory a package of
+   * its own and the file beneath it is that package's: its `exclude` is the one
+   * about this file, its parent's is about the parent's own sources. That is
+   * one rule for three cases the walk already reads the same way — a nested
+   * project inside a project, an installed dependency inside a project's
+   * `node_modules`, and a dependency nested inside another dependency. A path
+   * no package directory contains at all — a `node_modules` no closure reached
+   * — is excluded by nobody, and nobody holds it either.
    */
   #exclusionsFor(path: string): Exclusions {
     const realPath = this.#realPathOfPath.get(path);
@@ -643,7 +702,7 @@ export class Workspace {
     }
   }
 
-  /** Removes a file from every program holding it. */
+  /** Removes a file from every program holding it, and its path's identity with it. */
   #erase(path: string): void {
     for (const program of this.#programs) {
       if (!program.held.has(path)) continue;
@@ -657,6 +716,19 @@ export class Workspace {
         this.#reconfigure(program);
       }
     }
+    // The session path's identity goes with it: the entry is keyed by a path
+    // the session no longer holds, and no removal used to reach it, so a
+    // long-running server kept one per file it had ever seen.
+    // Nothing observable turns on the removal, and that is by construction —
+    // `pathFor` re-establishes the entry from the URI cache, which is what makes
+    // dropping it safe (see the field's comment). Where it is *not* safe is one
+    // map further on: `#pathsByRealPath` is the spelling the **walk** chose for
+    // a resolved file, which is a fact about the workspace rather than about
+    // whether the file exists this second. Measured, dropping it means a file
+    // deleted and restored — which `git checkout` does to whole directories —
+    // arrives under its other name as a path the project does not contain, and
+    // stays out of the program until the next rediscovery. So it stays.
+    this.#realPathOfPath.delete(path);
   }
 
   /**
@@ -697,20 +769,24 @@ export class Workspace {
    * So a file the bounds put outside every package belongs to no program at
    * all, and stays out of every session until the package that owns it enters
    * some closure and a rediscovery seats it as that package's source.
+   *
+   * §2.1's `exclude` is the fourth bound and is not asked here, because it is
+   * already asked earlier on every route into this: `openDocument`,
+   * `updateDocument` and `#reloadFromDisk` each test `#isExcluded` immediately
+   * before `#write`, and `#isExcluded` asks the manifest of the package the
+   * file would join. That keeps the two questions where they answer best — one
+   * about a *name* a manifest wrote, one about the shape of the tree — and
+   * neither of them optional.
    */
   #adopters(path: string): readonly Program[] {
     // The project whose own walk would have reached the file. The bound is
     // asked of the deepest one and never falls back to a shallower project: a
     // file inside a package is that package's alone, so a project that cannot
     // reach it does not get it by being further away.
-    let owner: Program | undefined;
-    for (const program of this.#programs) {
-      if (!within(program.directory, path)) continue;
-      if (owner === undefined || program.directory.length > owner.directory.length) {
-        owner = program;
-      }
-    }
-    if (owner !== undefined && crossesSkippedDirectory(owner.directory, path)) owner = undefined;
+    const ownedBy = deepestContaining(this.#programs.map(({ directory }) => directory), path);
+    const owner = ownedBy === undefined || crossesSkippedDirectory(ownedBy, path)
+      ? undefined
+      : this.#programs.find((program) => program.directory === ownedBy);
     const adopted: Program[] = [];
     for (const program of this.#programs) {
       if (program === owner) {
@@ -718,7 +794,7 @@ export class Workspace {
         adopted.push(program);
         continue;
       }
-      const holder = this.#packageHolding(program, path);
+      const holder = this.#packageHolding(program.packages, path);
       if (holder === undefined) continue;
       holder.paths.add(path);
       // Once for the program, not once per package of it: a package's file list
@@ -731,12 +807,17 @@ export class Workspace {
   }
 
   /**
-   * The package of this program's closure whose source `path` would be, or
-   * nothing where §2.2's bounds put it outside every one of them.
+   * The package of a closure whose source `path` would be, or nothing where
+   * §2.2's bounds put it outside every one of them.
+   *
+   * Takes the package list rather than the program, because the rediscovery
+   * sweep asks it of the list a walk has just built, before any program exists
+   * to hold it — which is the point: one question, one answer, whether a file
+   * arrives through a door or survives a rediscovery in a buffer.
    */
-  #packageHolding(program: Program, path: string): HeldPackage | undefined {
+  #packageHolding(packages: readonly HeldPackage[], path: string): HeldPackage | undefined {
     let holder: HeldPackage | undefined;
-    for (const dependency of program.packages) {
+    for (const dependency of packages) {
       if (!within(dependency.directory, path)) continue;
       if (holder === undefined || dependency.directory.length > holder.directory.length) {
         holder = dependency;
@@ -799,7 +880,15 @@ export class Workspace {
    */
   pathFor(uri: string): string {
     const known = this.#pathByUri.get(uri);
-    if (known !== undefined) return known;
+    if (known !== undefined) {
+      // Re-asserted rather than assumed. `#erase` takes a removed file's
+      // identity out of `#realPathOfPath`, and a URI answered from this cache
+      // would then reach `#isExcluded` with only one of the file's two names —
+      // so an exclusion written against the name a link resolves to would stop
+      // matching for exactly the files that have just come back.
+      this.#realPathOfPath.set(known.path, known.realPath);
+      return known.path;
+    }
     const realPath = normalizePath(settledPathSync(fileSystemPath(uri)));
     // The resolved spelling, where the walk has not already chosen one — never
     // the URI's own. One spelling inside the session is the whole rule: a file
@@ -807,7 +896,7 @@ export class Workspace {
     // give it, so a newly created file joins the program it lies in and a
     // deleted one is erased from every program that held it.
     const path = this.#pathsByRealPath.get(realPath) ?? realPath;
-    this.#pathByUri.set(uri, path);
+    this.#pathByUri.set(uri, { path, realPath });
     // The client's own spelling of this file, so a location the server reports
     // goes back the way the editor asked for it even where the walk reached the
     // file first under a resolved name.
@@ -827,6 +916,30 @@ function viewOf(program: Program): ProgramView {
     owns: (path) => program.own.has(path),
     holds: (path) => program.held.has(path),
   };
+}
+
+/**
+ * The **deepest** of these directories that contains `path`, or nothing where
+ * none does.
+ *
+ * Deepest, everywhere it is asked: a package nested inside another contains the
+ * same file as the one around it, and Packages §2.2 gives it to the inner one —
+ * "its files belong to it alone, so no file ever has two full names". The
+ * answer is never widened to a shallower directory when the deepest turns out
+ * to refuse the file, for the same reason: a file inside a package is that
+ * package's, and a project that cannot reach it does not get it by being
+ * further away.
+ */
+function deepestContaining(
+  directories: readonly string[],
+  path: string,
+): string | undefined {
+  let deepest: string | undefined;
+  for (const directory of directories) {
+    if (!within(directory, path)) continue;
+    if (deepest === undefined || directory.length > deepest.length) deepest = directory;
+  }
+  return deepest;
 }
 
 /** Whether `path` lies beneath `directory`, by whole path component. */

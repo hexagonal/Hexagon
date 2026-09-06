@@ -465,13 +465,26 @@ its own edge cases, and prefixes answer every case that motivated this. Entries
 are resolved against the manifest's own directory, which is the only reading
 that survives the project being checked out somewhere else.
 
-The field reaches **that project's own files and no other program's**. A
-workspace holds one program per project directory, so a manifest that names a
-path inside a nested project, or inside a sibling root, is naming files that
-project's own manifest answers for; the walk already reads it that way, each
-project walked with its own exclusions, and every door the server seats a file
-by asks the same question the walk asked. Keeping a file out of a nested
-project is therefore an entry in *its* `hexagon.json`.
+The field reaches **that package's own files and no other's**. A manifest
+belongs to a package, and the walk reads it that way: each project and each
+installed dependency is walked with its own entries and nobody else's. The
+server asks the same manifest at every door — the one belonging to the deepest
+package directory containing the file, which is the package whose source that
+file would be. Three cases follow from the one rule, and all three are ordinary:
+
+- a manifest naming a path inside a **nested project**, or inside a sibling
+  root, is naming files that project's own manifest answers for. Keeping a file
+  out of a nested project is an entry in *its* `hexagon.json`;
+- a project's entry does not reach its **dependencies**. `node_modules` lies
+  inside the project directory, so `exclude: ["node_modules"]` — what a user
+  writes out of `.gitignore` habit — would otherwise empty every dependency of
+  source, with no report and every import of them refused for a reason nothing
+  names;
+- a **dependency's** entry does reach its own files, at the doors as well as in
+  the walk. A package that excludes a `generated/` it does not ship as source is
+  taken at its word however the file is touched; otherwise opening one file
+  inside a dependency would add a module the package excluded, and change a
+  report in the reader's own code.
 
 None of this could be inferred. Treating `examples/` as excluded because of its
 name would be the same mistake as inferring meaning from a name anywhere else in
@@ -500,7 +513,8 @@ That is the **project's** manifest. A dependency's, under `node_modules`, draws
 only the language's own refusals — its `dependencies` entries (Packages §2.1,
 §4.4) — because §2.1 makes every other field the host's, and because nothing a
 user could type in that file survives the next install. Its `exclude` is
-honoured in silence and an unknown key is read past.
+honoured in silence — honoured at every door, as the section above says, and
+reported on nowhere — and an unknown key is read past.
 
 An entry that names nothing is reported too, as a warning rather than an error,
 and checked inside the root by exact spelling rather than by asking whether the

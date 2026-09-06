@@ -32,9 +32,11 @@ export {
   // Named by `Program.files` and `DiscoveredPackage.files`.
   type FoundFile,
 } from "./files.js";
-// `Candidate` and `LookupResult` travel with `Lookup` because they are what its
-// one public answer *is*; `Level` is the scan's own bookkeeping and stays in.
-export { Lookup, type Candidate, type LookupResult } from "./lookup.js";
+// `lookup.ts` publishes nothing at all. `Lookup` is `discoverProgram`'s
+// parameter, and `discoverProgram` is not on this list — so no host outside this
+// package can reach the class, and its answer types are names promised to
+// nobody. A host that one day wants the lookup on its own publishes it then,
+// with `Candidate` and `LookupResult` beside it.
 export {
   discoverPrograms,
   exclusionsOf,
