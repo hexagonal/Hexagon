@@ -29,7 +29,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { UnreadableManifest } from "../../compiler/src/index.js";
-import { MANIFEST_NAME, packageName } from "./manifest.js";
+import { MANIFEST_NAME, nameInManifest, type DeclaredPackageName } from "./manifest.js";
 import {
   childDirectory,
   messageOf,
@@ -220,7 +220,7 @@ export class Lookup {
       const declared = await declaredName(join(path, MANIFEST_NAME));
       // No `hexagon.json` at all: a JavaScript package (§4.4), read for nothing.
       if (declared === undefined) continue;
-      if (declared.reason !== undefined) {
+      if (declared.kind === "unreadable") {
         // Named only inside the unresolvable-name report of a lookup that
         // scanned it (§4.1): a broken manifest that answered nothing broke
         // nothing in the program.
@@ -233,7 +233,7 @@ export class Lookup {
         // A manifest that parses and declares no name this spec accepts — a
         // linked project's, `"Hex"`, `"acme"` — is a candidate for no name, and
         // is named nowhere: nothing about it is broken (§4.1).
-        name: declared.name,
+        name: declared.kind === "name" ? declared.name : undefined,
         manifestPath,
       });
     }
@@ -271,32 +271,17 @@ export class Lookup {
  * The name a package root's manifest declares, or why it is no candidate.
  *
  * `undefined` where there is no manifest at all — a JavaScript package, which
- * the walk does not read. `reason` where one is there and could not be read as
- * a JSON object, which is the only fault a lookup ever names. `name` is the
- * declared name where this spec accepts it (§2.1) and absent otherwise, which
- * makes the root a candidate for no name and mentioned nowhere.
+ * the walk does not read. Everything after that is `nameInManifest`'s, and
+ * deliberately so: the language server asks the same field of the same file
+ * synchronously, and two readers of one field are two answers waiting to
+ * differ about whether a `dependencies` entry reaches a package.
  */
 async function declaredName(
   path: string,
-): Promise<{ name?: string; reason?: string } | undefined> {
-  let text: string;
+): Promise<DeclaredPackageName | undefined> {
   try {
-    text = await readFile(path, "utf8");
+    return nameInManifest(await readFile(path, "utf8"));
   } catch {
     return undefined;
   }
-  let parsed: unknown;
-  try {
-    // VS Code writes a byte-order mark when `files.encoding` is `utf8bom`, and
-    // `JSON.parse` rejects it with a message about an invisible character.
-    parsed = JSON.parse(text.replace(/^\uFEFF/u, ""));
-  } catch (error) {
-    return { reason: `${MANIFEST_NAME} is not valid JSON: ${messageOf(error)}` };
-  }
-  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return { reason: `${MANIFEST_NAME} must contain a JSON object` };
-  }
-  const declared = (parsed as Record<string, unknown>)["name"];
-  if (typeof declared !== "string") return {};
-  return packageName(declared) === undefined ? {} : { name: declared };
 }

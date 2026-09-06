@@ -1,7 +1,15 @@
 import { mkdir, realpath, writeFile } from "node:fs/promises";
 import { dirname, extname, join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
-import { MANIFEST_NAME, isExcluded, readManifest } from "./manifest.js";
+import {
+  declaredPackageNameSync,
+  holdsManifest,
+  holdsManifestSync,
+  isExcluded,
+  MANIFEST_NAME,
+  nameInManifest,
+  readManifest,
+} from "./manifest.js";
 import { removeTemporaryRoots, temporaryRoot } from "./test-roots.js";
 
 /**
@@ -467,5 +475,92 @@ describe("isExcluded", () => {
     // would exclude it — silently, since an excluded file reports nothing.
     expect(isExcluded("/p/examples-of-things/main.hex", ["/p/examples"])).toBe(false);
     expect(isExcluded("/p/other.hex", ["/p/one.hex"])).toBe(false);
+  });
+});
+
+/**
+ * The one manifest a publication reads, and every way reading it can fail.
+ *
+ * A language server decides a stranded buffer's sentence synchronously, so this
+ * is the one place where a throw would leave the buffer with no diagnostics at
+ * all — the failure the notice exists to prevent. Each shape below is a real
+ * file on disk rather than a mocked `readFileSync`, because what is being
+ * settled is that the *filesystem* cannot surprise it.
+ */
+describe("declaredPackageNameSync", () => {
+  test("a lawful name is the entry a `dependencies` repair would write", async () => {
+    const path = await rootWith(JSON.stringify({ name: "Acme", dependencies: ["Bolt"] }));
+    expect(declaredPackageNameSync(path)).toEqual({ kind: "name", name: "Acme" });
+  });
+
+  test("a manifest declaring no name has none to add, and says which", async () => {
+    // An npm-linked workspace project is exactly this: §2.1 makes `name`
+    // optional for a package nobody publishes, and linking one into
+    // `node_modules` puts its files where a `dependencies` entry would reach
+    // them if there were an entry to write.
+    const path = await rootWith(JSON.stringify({ dependencies: ["Bolt"] }));
+    expect(declaredPackageNameSync(path)).toEqual({ kind: "unnamed" });
+  });
+
+  test("a name this spec refuses is no name, and the judgement is the compiler's", async () => {
+    const path = await rootWith(JSON.stringify({ name: "acme" }));
+    expect(declaredPackageNameSync(path)).toEqual({ kind: "unnamed" });
+  });
+
+  test("a name that is not a string is refused by shape", async () => {
+    const path = await rootWith(JSON.stringify({ name: 7 }));
+    expect(declaredPackageNameSync(path)).toEqual({ kind: "unnamed" });
+  });
+
+  test("a byte-order mark does not make a manifest unreadable", async () => {
+    // What VS Code writes with `files.encoding: utf8bom`. A manifest the editor
+    // saved is not a manifest that failed to parse.
+    const path = await rootWith(`\uFEFF${JSON.stringify({ name: "Acme" })}`);
+    expect(declaredPackageNameSync(path)).toEqual({ kind: "name", name: "Acme" });
+  });
+
+  test("every unreadable shape is an answer and not a throw", async () => {
+    /** The kind, with the reason left to the two tests below that pin it. */
+    const kindAt = (directory: string): string => declaredPackageNameSync(directory).kind;
+
+    const absent = await makeBase();
+    expect(kindAt(absent)).toBe("unreadable");
+    const broken = await rootWith("{ not json");
+    expect(kindAt(broken)).toBe("unreadable");
+    // JSON, and not an object: `name` is not a question that can be asked of it.
+    const array = await rootWith("[]");
+    expect(kindAt(array)).toBe("unreadable");
+    const nothing = await rootWith("null");
+    expect(kindAt(nothing)).toBe("unreadable");
+
+    // Four megabytes of unparseable text — the size a generated or truncated
+    // file reaches. It is read and refused; what it must not do is throw out of
+    // a synchronous publication.
+    const huge = await rootWith("x".repeat(4 * 1024 * 1024));
+    expect(kindAt(huge)).toBe("unreadable");
+
+    // And a *directory* named `hexagon.json`, where the read fails with
+    // `EISDIR` rather than with `ENOENT`. `holdsManifest` refuses it first —
+    // the two have to agree, or a package would exist for one door and not the
+    // other — but this is the door that would throw.
+    const folder = await makeBase();
+    await mkdir(join(folder, MANIFEST_NAME));
+    expect(kindAt(folder)).toBe("unreadable");
+    expect(holdsManifestSync(folder)).toBe(false);
+    expect(await holdsManifest(folder)).toBe(false);
+  });
+
+  /**
+   * And the reason travels, because it is the one Packages §7 prints about a
+   * manifest a lookup scanned. `nameInManifest` is where both readers of the
+   * field get it, so pinning it here pins it for the level scan too.
+   */
+  test("the reason an unreadable manifest carries is §7's own", () => {
+    const notJson = nameInManifest("{ not json");
+    expect(notJson.kind).toBe("unreadable");
+    expect(notJson.kind === "unreadable" && notJson.reason)
+      .toContain(`${MANIFEST_NAME} is not valid JSON: `);
+    expect(nameInManifest("[]"))
+      .toEqual({ kind: "unreadable", reason: `${MANIFEST_NAME} must contain a JSON object` });
   });
 });

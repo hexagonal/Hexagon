@@ -543,10 +543,15 @@ report a bug rather than to open `hexagon.json`.
 So does a file that §2.2's own bounds put outside every package, and there the
 sentence names **which** bound, because each has a different way out: directly
 inside a package of this project's own `node_modules` that it does not list (add
-the `dependencies` entry), beneath a `hexagon.json` of some other package (open
-that folder), or under `dist`, `.git` and the rest of the tooling list (a fact
-about this host that no manifest argues with, so that sentence offers no
-repair). The bound named is the one that would still be there **last**, since
+the `dependencies` entry, naming both the package and the manifest to write it
+in), beneath a `hexagon.json` of some other package (open that folder), or under
+`dist`, `.git` and the rest of the tooling list (a fact about this host that no
+manifest argues with, so that sentence offers no repair). The entry is offered
+only where there is a name to write: a package whose own `hexagon.json` declares
+none — an `npm link`ed workspace project, since `name` is optional for a package
+nobody publishes — is named as a bound instead, because writing the directory's
+name would leave the same silence and draw a Packages §7 report besides. The
+bound named is the one that would still be there **last**, since
 each way out only moves the file to the next bound down: a file under
 `node_modules/acme/vendor/dist` is told about `dist` and not about `vendor`,
 whose folder it could open to no effect, and one under a *dependency's* own

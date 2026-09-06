@@ -667,6 +667,8 @@ describe("§2.2 / §2.5 — what a project holds, and where one begins", () => {
       "node_modules/loose/hexagon.json": manifest({ name: "Loose" }),
       "node_modules/loose/stray.hex": "module Stray\n",
       "node_modules/loose/dist/built.hex": "module Built\n",
+      "node_modules/loose/dist/inner/hexagon.json": manifest({ name: "Buried" }),
+      "node_modules/loose/dist/inner/buried.hex": "module Buried\n",
       "node_modules/loose/vendor/hexagon.json": manifest({ name: "Vendored" }),
       "node_modules/loose/vendor/inside.hex": "module Inside\n",
       "node_modules/@scope/tool/hexagon.json": manifest({ name: "Tool" }),
@@ -674,6 +676,7 @@ describe("§2.2 / §2.5 — what a project holds, and where one begins", () => {
       "node_modules/.cache/junk.hex": "module Junk\n",
       "node_modules/deep/inner/pkg/hexagon.json": manifest({ name: "Deep" }),
       "node_modules/deep/inner/pkg/deep.hex": "module Deep\n",
+      "node_modules/folder/hexagon.json/kept.txt": "not a manifest\n",
     });
     const under = (path: string) => packageUnderNodeModules(root, join(root, path));
 
@@ -689,8 +692,18 @@ describe("§2.2 / §2.5 — what a project holds, and where one begins", () => {
       .toEqual({ root: `${root}/node_modules/loose`, nested: `${root}/node_modules/loose/vendor` });
     // A skipped name below the root bounds the search: what is under `dist` is
     // `dist`'s business, and a manifest beneath one is not a package to open.
+    // There *is* one at `dist/inner`, and a file beneath it, so this is an
+    // assertion about the bound rather than about an empty directory: without
+    // the bound the buried manifest is offered as a package to open, and
+    // opening it changes nothing, because `dist` is still above it.
     expect(under("node_modules/loose/dist/built.hex"))
       .toEqual({ root: `${root}/node_modules/loose`, nested: undefined });
+    expect(under("node_modules/loose/dist/inner/buried.hex"))
+      .toEqual({ root: `${root}/node_modules/loose`, nested: undefined });
+    // And a *directory* named `hexagon.json` is not a manifest: answering
+    // otherwise would make an ordinary folder a package with no file behind it,
+    // and send a reader to a `dependencies` entry that reaches nothing.
+    expect(under("node_modules/folder/thing.hex")).toBeUndefined();
     // No package at all — a tool's cache is not a package, and there is nothing
     // to list.
     expect(under("node_modules/.cache/junk.hex")).toBeUndefined();

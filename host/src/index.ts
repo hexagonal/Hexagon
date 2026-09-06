@@ -19,8 +19,12 @@
 
 export {
   comparablePath,
+  // The other half of the same question: a `dependencies` entry writes the name
+  // the package **declares**, so a host offering that repair has to read one.
+  declaredPackageNameSync,
   manifestKeyLine,
   MANIFEST_NAME,
+  type DeclaredPackageName,
   // Named by `Program.manifest` and taken by `exclusionsOf`.
   type Manifest,
 } from "./manifest.js";

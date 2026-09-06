@@ -508,20 +508,34 @@ function publishDiagnostics(
  *
  * Each sentence names the bound, and where there is a way out it is a thing the
  * user can do rather than a rule they can read: list the package, open the
- * folder. Two of the four promise nothing, and both are deliberate. A tooling
- * directory has no way out by design — `files.ts` says so in as many words — so
- * naming it is the whole message, and that is what lets the reader see it was
- * their `dist/` and not something the server invented. A `node_modules` no
- * entry of theirs reaches has no way out *for them*: `Workspace` offers the
- * `dependencies` repair only where writing it would really seat the file, and
- * this is the sentence left where it would not.
+ * folder. Three of the five promise nothing, and all three are deliberate. A
+ * tooling directory has no way out by design — `files.ts` says so in as many
+ * words — so naming it is the whole message, and that is what lets the reader
+ * see it was their `dist/` and not something the server invented. A
+ * `node_modules` no entry of theirs reaches has no way out *for them*:
+ * `Workspace` offers the `dependencies` repair only where writing it would
+ * really seat the file, and these are the sentences left where it would not.
+ *
+ * The `dependencies` sentence names both halves of the edit — the name to write
+ * and the manifest to write it in — because neither is guessable from the file:
+ * `node_modules/acme-utils` may declare `Utils`, and a reader with the
+ * dependency open as a root of its own has two manifests in front of them.
+ * Where the package declares no name at all, the sentence names its manifest
+ * instead, which is the file that would have to change first.
  */
 function reasonSentence(outside: OutsideEveryPackage): string {
   const dead = "so it has no diagnostics, hover, or navigation";
   switch (outside.kind) {
     case "unlisted-dependency":
-      return `this file is under \`node_modules\` of a package this project does not list, ` +
-        `${dead}; add it to \`dependencies\` in \`${MANIFEST_NAME}\` to compile it`;
+      return `this file is in \`${outside.name}\`, a package under \`node_modules\` this ` +
+        `project does not list, ${dead}; add \`${outside.name}\` to \`dependencies\` in ` +
+        `\`${outside.manifest}\` to compile it`;
+    case "nameless-dependency":
+      return outside.unreadable
+        ? `this file is under \`node_modules\` in a package whose \`${outside.manifest}\` ` +
+          `could not be read, ${dead}, and there is no name to add to \`dependencies\``
+        : `this file is under \`node_modules\` in a package whose \`${outside.manifest}\` ` +
+          `declares no package name, ${dead}, and there is no name to add to \`dependencies\``;
     case "unreached-node-modules":
       return outside.inside === undefined
         ? `this file is under a \`node_modules\` directory and no package a project lists ` +

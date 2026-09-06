@@ -49,11 +49,11 @@
  * a host comes to accept a name the compiler refuses.
  */
 
-import { readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { dependencyRefusal, packageNameRefusal } from "../../compiler/src/index.js";
-import { normalizePath, realPathOf } from "./paths.js";
+import { messageOf, normalizePath, realPathOf } from "./paths.js";
 
 export const MANIFEST_NAME = "hexagon.json";
 
@@ -572,6 +572,76 @@ export function holdsManifestSync(directory: string): boolean {
     return readdirSync(directory, { withFileTypes: true }).some(isManifestEntry);
   } catch {
     return false;
+  }
+}
+
+/**
+ * What a manifest says its package's name is — the field a `dependencies` entry
+ * has to match (Packages §4.1).
+ *
+ * Three answers and not two, because the two ways there is no name to write are
+ * not the same fact: a manifest that parses and declares none is a lawful
+ * package a lookup answers for nothing (§4.1), while one that could not be read
+ * is a fault §7 names, with the parser's own message. Both readers of this field
+ * need both, and neither needs the rest of the manifest — a real `node_modules`
+ * level holds hundreds of packages nothing will ever resolve to.
+ */
+export type DeclaredPackageName =
+  /** It parses and declares a name §2.1 accepts: the entry that reaches it. */
+  | { readonly kind: "name"; readonly name: string }
+  /** It parses, and declares no name this spec accepts — §4.1's no candidate. */
+  | { readonly kind: "unnamed" }
+  /** Not readable as a JSON object at all, with the reason §7 would print. */
+  | { readonly kind: "unreadable"; readonly reason: string };
+
+/**
+ * That field, read out of a manifest's **text**.
+ *
+ * The text and not the path, so that the level scan — which waits — and the
+ * language server's stranded-buffer sentence — which cannot — are one reader
+ * and not two. They differ only in how the bytes arrive, and the field they
+ * disagreed about would be the one deciding whether a `dependencies` entry
+ * reaches a package.
+ */
+export function nameInManifest(text: string): DeclaredPackageName {
+  let parsed: unknown;
+  try {
+    // VS Code writes a byte-order mark when `files.encoding` is `utf8bom`, and
+    // `JSON.parse` rejects it with a message about an invisible character.
+    parsed = JSON.parse(text.replace(/^\uFEFF/u, ""));
+  } catch (error) {
+    return { kind: "unreadable", reason: `${MANIFEST_NAME} is not valid JSON: ${messageOf(error)}` };
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return { kind: "unreadable", reason: `${MANIFEST_NAME} must contain a JSON object` };
+  }
+  const declared = (parsed as Record<string, unknown>)["name"];
+  if (typeof declared !== "string") return { kind: "unnamed" };
+  const accepted = packageName(declared);
+  return accepted === undefined ? { kind: "unnamed" } : { kind: "name", name: accepted };
+}
+
+/**
+ * A package root's declared name, read without waiting and throwing nothing.
+ *
+ * The same caller `holdsManifestSync` has, one step further on: the language
+ * server decides a stranded buffer's sentence inside a synchronous publication,
+ * and "add it to `dependencies`" is only a repair where there is a name to add.
+ * It is asked of **one** directory — the package root `packageUnderNodeModules`
+ * already named — and only where the sentence would otherwise carry that
+ * repair, so no publication reads a manifest it does not need and the walk's own
+ * read-free path is untouched.
+ *
+ * Every failure is an answer rather than a throw: a manifest that is a
+ * directory, one too large or malformed to parse, one holding a JSON array, one
+ * that vanished between the `readdir` and this read. A publication is not a
+ * place an exception can be handled.
+ */
+export function declaredPackageNameSync(directory: string): DeclaredPackageName {
+  try {
+    return nameInManifest(readFileSync(join(directory, MANIFEST_NAME), "utf8"));
+  } catch (error) {
+    return { kind: "unreadable", reason: messageOf(error) };
   }
 }
 

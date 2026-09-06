@@ -40,6 +40,7 @@ import {
 import { fileSystemPath, UriPaths } from "./positions.js";
 import {
   comparablePath,
+  declaredPackageNameSync,
   discoverPrograms,
   excludes,
   exclusionsOf,
@@ -83,23 +84,46 @@ export interface PublishedDiagnostic {
 /**
  * Why a file is nobody's source — which of Packages §2.2's three bounds
  * decided, taken as the one that would still be standing after every repair the
- * others offer. That bound is four sentences and not three, because a reader
+ * others offer. That bound is five sentences and not three, because a reader
  * who can write the `dependencies` entry and one who cannot are told different
  * things about the same `node_modules`.
  *
- * Two of the four carry a way out, and each carries it only where taking it
+ * Two of the five carry a way out, and each carries it only where taking it
  * *works*: a sentence telling a user to add a `dependencies` entry that another
  * bound below defeats is worse than one that names the bound and offers
  * nothing, because they write the entry, get the same silence, and are left
- * with a manifest that now draws a report of its own.
+ * with a manifest that now draws a report of its own. **Having a name to write
+ * is part of that test**: §4.1 seats a package by the name its own manifest
+ * declares, so a package whose `hexagon.json` declares none — a linked
+ * workspace project's, which needs no `name` (§2.1) — reaches the reader's
+ * `dependencies` under no spelling at all.
  */
 export type OutsideEveryPackage =
   /**
    * Directly inside a package under this project's own `node_modules` that the
-   * project does not list — the one shape a `dependencies` entry reaches
-   * (§2.2, §4.1).
+   * project does not list, and whose manifest declares the name to list it by
+   * — the one shape a `dependencies` entry reaches (§2.2, §4.1).
    */
-  | { readonly kind: "unlisted-dependency" }
+  | {
+    readonly kind: "unlisted-dependency";
+    /** The name to write, as that package's own manifest declares it. */
+    readonly name: string;
+    /** The manifest to write it in, as a sentence should spell it. */
+    readonly manifest: string;
+  }
+  /**
+   * The same place, with no name to write: the package's own `hexagon.json`
+   * declares none this spec accepts, or could not be read at all. Named as a
+   * bound, because the only entry the reader could invent — the directory's
+   * name — leaves the file exactly as stranded and draws a §7 report besides.
+   */
+  | {
+    readonly kind: "nameless-dependency";
+    /** That package's `hexagon.json`, as a sentence should spell it. */
+    readonly manifest: string;
+    /** True where nothing could be read from it, rather than no name found. */
+    readonly unreadable: boolean;
+  }
   /**
    * Under a `node_modules` whose packages no manifest the reader can edit
    * reaches: a dependency's own `node_modules`, or one with no package holding
@@ -647,6 +671,13 @@ export class Workspace {
     let deepest: Bounded | undefined;
     for (const candidate of containing) {
       if (!within(candidate.directory, path)) continue;
+      // `>` and not `>=`, and every project is listed before every package, so
+      // where one directory is both — a dependency the user also opened as a
+      // root — the **project** entry wins. That is the whole difference between
+      // a sentence its reader can act on and a dead end: as a project it owns
+      // its own `node_modules`, and a file inside a package there is one entry
+      // in *that* manifest away from compiling; as a package of somebody's
+      // closure it is a bound with nothing to offer.
       if (deepest === undefined || candidate.directory.length > deepest.directory.length) {
         deepest = candidate;
       }
@@ -688,7 +719,13 @@ export class Workspace {
    *   file under `Loose`'s own `dist`, which no manifest can argue with;
    * - `node_modules/acme/vendor/inside.hex` with `acme` unlisted — the file is
    *   inside the vendored package, so listing `Acme` would not reach it; that
-   *   package's folder can be opened, which is the sentence it gets.
+   *   package's folder can be opened, which is the sentence it gets;
+   * - `node_modules/linked/n.hex`, where `linked` is an npm-linked workspace
+   *   project whose `hexagon.json` declares no `name` — the file is in the one
+   *   place a `dependencies` entry reaches, and there is no entry to write.
+   *   The directory's name is not it: §4.1 seats a package by what its manifest
+   *   declares, so writing `Linked` leaves the same silence and adds an entry
+   *   drawing a §7 report. Measured, both ways.
    */
   #underNodeModules(deepest: Bounded, under: string, path: string): OutsideEveryPackage {
     const unreached = (inside: string | undefined): OutsideEveryPackage => ({
@@ -717,7 +754,26 @@ export class Workspace {
         manifest: this.#displayPath(manifestPathOf(holding.nested)),
       };
     }
-    return { kind: "unlisted-dependency" };
+    // The one shape a `dependencies` entry reaches — if there is an entry to
+    // write. This is the only manifest read on a publication, and it is read
+    // here rather than beside `packageUnderNodeModules` so that every shape
+    // above answers from the directory layout alone, as it did before.
+    const declared = declaredPackageNameSync(holding.root);
+    if (declared.kind !== "name") {
+      return {
+        kind: "nameless-dependency",
+        // That package's manifest, which is the file that has to change first.
+        manifest: this.#displayPath(manifestPathOf(holding.root)),
+        unreadable: declared.kind === "unreadable",
+      };
+    }
+    return {
+      kind: "unlisted-dependency",
+      name: declared.name,
+      // The reader's own manifest, not the package's: `deepest.owner` is a
+      // project here, which is what this arm has already established.
+      manifest: this.#displayPath(manifestPathOf(deepest.directory)),
+    };
   }
 
   /**

@@ -125,9 +125,11 @@ export interface PackageUnder {
  * `node_modules`" one way and "which package" another would answer about two
  * different trees.
  *
- * Reads the disk, synchronously, once per directory it looks at — at most two
- * before the root and one per directory below it. It is asked about a single
- * buffer a host is about to publish a sentence for, never about a walk.
+ * Reads the disk, synchronously, once per directory it looks at: one at the
+ * level root and one per directory below it, none on the way down to the root —
+ * the components are joined, and a scoped name is joined rather than probed. It
+ * is asked about a single buffer a host is about to publish a sentence for,
+ * never about a walk.
  */
 export function packageUnderNodeModules(
   directory: string,

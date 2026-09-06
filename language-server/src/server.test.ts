@@ -1029,10 +1029,14 @@ describe("the Hexagon language server", () => {
       const reported = await open(solo, "node_modules/loose/stray.hex", "module Stray\n");
       expect(reported).toHaveLength(1);
       expect(reported[0]!.severity).toBe(3);
+      // The package is named, and so is the manifest to write the entry in:
+      // neither is guessable from the file, since a directory called
+      // `acme-utils` may declare `Utils` and a reader with the dependency open
+      // as a root of its own has two `hexagon.json` in front of them.
       expect(reported[0]!.message).toBe(
-        "this file is under `node_modules` of a package this project does not list, " +
+        "this file is in `Loose`, a package under `node_modules` this project does not list, " +
         "so it has no diagnostics, hover, or navigation; " +
-        "add it to `dependencies` in `hexagon.json` to compile it",
+        "add `Loose` to `dependencies` in `hexagon.json` to compile it",
       );
 
       // And it goes when the reason goes. The notice is only worth publishing
@@ -1147,6 +1151,73 @@ describe("the Hexagon language server", () => {
       expect(cached[0]!.message).toBe(
         "this file is under a `node_modules` directory and no package a project lists " +
         "holds it, so it has no diagnostics, hover, or navigation",
+      );
+    } finally {
+      await solo.dispose();
+    }
+  });
+
+  /**
+   * And where the package is in the one place an entry reaches but declares no
+   * name, the sentence says which manifest has none.
+   *
+   * The `dependencies` entry writes the name the package's own `hexagon.json`
+   * declares (§4.1), and `name` is optional for a project nobody publishes
+   * (§2.1) — so an `npm link`ed workspace package is a real, lawful shape with
+   * nothing to list. Offering the entry here would have the reader write the
+   * directory's name, get the same silence, and pick up a Packages §7 report on
+   * a manifest that was fine before. Two shapes, because the reader's next step
+   * differs: a manifest with no `name` needs one written, and a manifest that
+   * would not parse may have a name in it already.
+   */
+  test("a buffer in a package with no name to list is told which manifest has none", async () => {
+    const solo = await harness({
+      "hexagon.json": JSON.stringify({ name: "App" }),
+      "main.hex": "module Main\n\nlet value: Int = 1\n",
+      "node_modules/nameless/hexagon.json": JSON.stringify({ dependencies: [] }),
+      "node_modules/nameless/n.hex": "module N\n\nlet n: Int = 1\n",
+      "node_modules/broken/hexagon.json": "{ not json",
+      "node_modules/broken/b.hex": "module B\n\nlet n: Int = 1\n",
+    });
+    try {
+      const nameless = await open(solo, "node_modules/nameless/n.hex", "module N\n");
+      expect(nameless).toHaveLength(1);
+      expect(nameless[0]!.severity).toBe(3);
+      expect(nameless[0]!.message).toBe(
+        "this file is under `node_modules` in a package whose " +
+        "`node_modules/nameless/hexagon.json` declares no package name, " +
+        "so it has no diagnostics, hover, or navigation, " +
+        "and there is no name to add to `dependencies`",
+      );
+
+      const broken = await open(solo, "node_modules/broken/b.hex", "module B\n");
+      expect(broken).toHaveLength(1);
+      expect(broken[0]!.severity).toBe(3);
+      expect(broken[0]!.message).toBe(
+        "this file is under `node_modules` in a package whose " +
+        "`node_modules/broken/hexagon.json` could not be read, " +
+        "so it has no diagnostics, hover, or navigation, " +
+        "and there is no name to add to `dependencies`",
+      );
+
+      // And the notice moves on when the manifest gains a name: the file is
+      // then one `dependencies` entry away, and told so.
+      await writeFile(
+        join(solo.root, "node_modules", "nameless", "hexagon.json"),
+        JSON.stringify({ name: "Nameless" }),
+      );
+      await solo.client.sendNotification(DidChangeWatchedFilesNotification.type, {
+        changes: [{ uri: solo.uriOf("node_modules/nameless/hexagon.json"), type: 2 }],
+      });
+      const listed = await solo.diagnosticsUntil(
+        solo.uriOf("node_modules/nameless/n.hex"),
+        (diagnostics) => diagnostics.some(({ message }) => message.includes("`Nameless`")),
+        "the sentence that names the entry to write",
+      );
+      expect(listed[0]!.message).toBe(
+        "this file is in `Nameless`, a package under `node_modules` this project does not " +
+        "list, so it has no diagnostics, hover, or navigation; " +
+        "add `Nameless` to `dependencies` in `hexagon.json` to compile it",
       );
     } finally {
       await solo.dispose();

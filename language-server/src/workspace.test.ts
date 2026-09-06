@@ -617,7 +617,7 @@ describe("the workspace walk", () => {
     // Excluded: `exclude` has its own sentence, and it is the better one.
     expect(workspace.outsideEveryPackage(uriOf("generated", "made.hex"))).toBeUndefined();
     expect(workspace.outsideEveryPackage(uriOf("node_modules", "loose", "stray.hex")))
-      .toEqual({ kind: "unlisted-dependency" });
+      .toEqual({ kind: "unlisted-dependency", name: "Loose", manifest: MANIFEST_NAME });
     expect(workspace.outsideEveryPackage(uriOf("dist", "built.hex")))
       .toEqual({ kind: "skipped-directory", directory: "dist" });
     // The bound is asked of the package the file would have joined, not of the
@@ -729,8 +729,125 @@ describe("the workspace walk", () => {
     // The shape that is still repairable, beside them, so that the guard above
     // is a rule and not a refusal to answer: `Loose` itself is one entry away.
     expect(workspace.outsideEveryPackage(uriOf("node_modules", "loose", "stray.hex")))
-      .toEqual({ kind: "unlisted-dependency" });
+      .toEqual({ kind: "unlisted-dependency", name: "Loose", manifest: MANIFEST_NAME });
   });
+
+  /**
+   * And the `dependencies` sentence is offered only where there is an entry to
+   * write, which is a fact about the package's **manifest** and not about its
+   * directory.
+   *
+   * §4.1 seats a package by the name its own `hexagon.json` declares, so a
+   * package that declares none is reached by no entry at all. Telling a reader
+   * to list it sends them to write the directory's name, which leaves the same
+   * silence and adds an entry drawing a §7 report — the exact harm the rule
+   * above is about, one step further in. This is not a contrived shape: `name`
+   * is optional for a project nobody publishes (§2.1), and `npm link` puts
+   * exactly such a project under `node_modules`.
+   */
+  test("a package with no name to list is named as a bound rather than offered", async () => {
+    const path = await makeRoot();
+    await mkdir(join(path, "node_modules", "nameless"), { recursive: true });
+    await mkdir(join(path, "node_modules", "broken"), { recursive: true });
+    await mkdir(join(path, "node_modules", "shouty"), { recursive: true });
+    await mkdir(join(path, "node_modules", "loose"), { recursive: true });
+    await writeFile(join(path, MANIFEST_NAME), JSON.stringify({ name: "App" }));
+    await writeFile(join(path, "main.hex"), HEADER + "let value: Int = 1\n");
+    // A linked workspace project: lawful, and nameless.
+    await writeFile(join(path, "node_modules", "nameless", MANIFEST_NAME), "{}");
+    await writeFile(join(path, "node_modules", "nameless", "n.hex"), "module N\n");
+    await writeFile(join(path, "node_modules", "broken", MANIFEST_NAME), "{ not json");
+    await writeFile(join(path, "node_modules", "broken", "b.hex"), "module B\n");
+    // A `name` §2.1 refuses is no name either, and the judgement is the
+    // compiler's: a host that accepted it would offer an entry no lookup seats.
+    await writeFile(join(path, "node_modules", "shouty", MANIFEST_NAME), '{"name":"acme"}');
+    await writeFile(join(path, "node_modules", "shouty", "s.hex"), "module S\n");
+    await writeFile(join(path, "node_modules", "loose", MANIFEST_NAME), '{"name":"Loose"}');
+    await writeFile(join(path, "node_modules", "loose", "stray.hex"), "module Stray\n");
+    const uriOf = (...names: readonly string[]): string =>
+      pathToFileURL(join(path, ...names)).toString();
+
+    const workspace = new Workspace();
+    await workspace.setRoots([path], () => {});
+    expect(workspace.outsideEveryPackage(uriOf("node_modules", "nameless", "n.hex")))
+      .toEqual({
+        kind: "nameless-dependency",
+        manifest: `node_modules/nameless/${MANIFEST_NAME}`,
+        unreadable: false,
+      });
+    expect(workspace.outsideEveryPackage(uriOf("node_modules", "shouty", "s.hex")))
+      .toEqual({
+        kind: "nameless-dependency",
+        manifest: `node_modules/shouty/${MANIFEST_NAME}`,
+        unreadable: false,
+      });
+    // Unreadable is its own answer, because the reader's next step differs:
+    // there may be a name in there, behind a comma.
+    expect(workspace.outsideEveryPackage(uriOf("node_modules", "broken", "b.hex")))
+      .toEqual({
+        kind: "nameless-dependency",
+        manifest: `node_modules/broken/${MANIFEST_NAME}`,
+        unreadable: true,
+      });
+    // Beside them, the shape that is still one entry away, so that the guard is
+    // a rule and not a refusal to answer.
+    expect(workspace.outsideEveryPackage(uriOf("node_modules", "loose", "stray.hex")))
+      .toEqual({ kind: "unlisted-dependency", name: "Loose", manifest: MANIFEST_NAME });
+
+    // And writing a name into the nameless manifest is what ends it — the
+    // repair the sentence points at, taken.
+    await writeFile(
+      join(path, "node_modules", "nameless", MANIFEST_NAME),
+      JSON.stringify({ name: "Nameless" }),
+    );
+    await workspace.setRoots([path], () => {});
+    expect(workspace.outsideEveryPackage(uriOf("node_modules", "nameless", "n.hex")))
+      .toEqual({ kind: "unlisted-dependency", name: "Nameless", manifest: MANIFEST_NAME });
+  });
+
+  /**
+   * A dependency the user also opened as a root of its own owns its **own**
+   * `node_modules`, and that is what makes the sentence a repairable one.
+   *
+   * One directory is then two candidates — a project of the editor's and a
+   * package of the outer project's closure — and which of them answers decides
+   * what the reader is told. As a project it has a manifest they have open, so
+   * a file inside a package of its `node_modules` is one entry away; as a
+   * package it is a bound with nothing to offer. Every project is listed before
+   * every package and the deepest search keeps the *first* at the maximum
+   * length, which is what settles it, in either order the roots arrive.
+   */
+  test("a dependency opened as a root answers for its own `node_modules`", async () => {
+    const path = await makeRoot();
+    const acme = join(path, "node_modules", "acme");
+    const extra = join(acme, "node_modules", "extra");
+    await mkdir(extra, { recursive: true });
+    await writeFile(
+      join(path, MANIFEST_NAME),
+      JSON.stringify({ name: "App", dependencies: ["Acme"] }),
+    );
+    await writeFile(join(path, "main.hex"), HEADER + "let value: Int = 1\n");
+    await writeFile(join(acme, MANIFEST_NAME), '{"name":"Acme"}');
+    await writeFile(join(acme, "lib.hex"), "module Lib\n");
+    await writeFile(join(extra, MANIFEST_NAME), '{"name":"Extra"}');
+    await writeFile(join(extra, "extra.hex"), "module Extra\n");
+    const uri = pathToFileURL(join(extra, "extra.hex")).toString();
+
+    const workspace = new Workspace();
+    // With only the outer project open, `Acme` is a package of its closure and
+    // the manifest that could list `Extra` is not the reader's to edit.
+    await workspace.setRoots([path], () => {});
+    expect(workspace.outsideEveryPackage(uri))
+      .toEqual({ kind: "unreached-node-modules", inside: "Acme" });
+    // Open `Acme` as well and the same directory is a project: its own
+    // `hexagon.json` is on screen, and one entry in it seats the file.
+    for (const roots of [[path, acme], [acme, path]]) {
+      await workspace.setRoots(roots, () => {});
+      expect(workspace.outsideEveryPackage(uri))
+        .toEqual({ kind: "unlisted-dependency", name: "Extra", manifest: MANIFEST_NAME });
+    }
+  });
+
 
   /**
    * The third case of the same rule, and the only one that can change a report

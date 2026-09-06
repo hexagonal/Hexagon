@@ -135,9 +135,24 @@ because the entry is a repair only where it would really seat the file: a `.hex`
 under `node_modules/.cache/` is in no package, one under
 `node_modules/acme/vendor/` is in a package no entry names, and one under a
 dependency's *own* `node_modules` is behind a manifest the reader does not own.
-It reads the disk synchronously, for one buffer at a time, and shares
-`directoriesBetween` with the bound above so the two cannot come to answer about
-different trees.
+It reads no manifest — `readdir` alone, one at the level root and one per
+directory below it — and shares `directoriesBetween` with the bound above so the
+two cannot come to answer about different trees.
+
+`declaredPackageNameSync` finishes that sentence, and it is the one manifest a
+publication reads. An entry writes the name a package **declares** (§4.1), and
+`name` is optional for a project nobody publishes (§2.1), so an `npm link`ed
+workspace package is a lawful package with nothing to list. The repair is
+offered only where a name can be read; where none can, the sentence names that
+manifest instead of promising an entry that would leave the same silence and
+draw a §7 report besides. Every way the read can fail — a *directory* of that
+name, a file too large or malformed to parse, one holding a JSON array, one
+that vanished since the `readdir` — is an answer rather than a throw, because
+the caller is a synchronous publication and there is nowhere to catch one. It
+reads the field through `nameInManifest`, which the level scan reads it through
+as well: they differ only in how the bytes arrive, and two readers of the field
+that decides whether an entry reaches a package are two answers waiting to
+differ.
 
 §2.2's third exclusion travels the same way. A directory holding a
 `hexagon.json` of its own ends the package there, and only the walk knows where
@@ -150,16 +165,16 @@ never this package's to begin with, so an `exclude` entry naming one — or
 containing one — cannot delete the program under it, and the answer no longer
 depends on whether the user happened to open that folder as a root as well. An
 entry that names one draws a warning at the manifest that wrote it, and is
-applied to nothing. The descent costs two syscalls per directory of the excluded
-subtree — a `readdir` for its entries and a `realpath` for its identity, which
-is resolved before the exclusion is known — and nothing else: no file collected,
-no *file's* identity resolved, the skipped names still pruning it, and the
-descent stopping at the walk root, so an excluded link out of the root cannot
-report a package that is nobody's program here. That is a real price on a big
-generated tree, paid to keep a manifest from deleting a program it does not
-name. With all three exclusions asked at every door, what is
-left of "no file ever has two full names" is the second way a file can get two:
-two packages of one closure containing it, which is npm's ordinary nested
+applied to nothing. The descent costs two syscalls per directory of the
+excluded subtree — a `readdir` for its entries and a `realpath` for its
+identity, which is resolved before the exclusion is known — and nothing else:
+no file collected, no *file's* identity resolved, the skipped names still
+pruning it, and the descent stopping at the walk root, so an excluded link out
+of the root cannot report a package that is nobody's program here. That is a
+real price on a big generated tree, paid to keep a manifest from deleting a
+program it does not name. With all three exclusions asked at every door, what
+is left of "no file ever has two full names" is the second way a file can get
+two: two packages of one closure containing it, which is npm's ordinary nested
 install, and which the **deepest** containing package answers.
 
 **`exclude` is the fourth bound, and it is per package.** §2.1's field belongs
