@@ -50,7 +50,7 @@ The same two facts apply per invocation: JavaScript APIs that supply extra callb
 
 Part 4 §4.1's strict distinction — `fun` declares callable, `let` declares non-callable value — is sharpened here for the annotation-only corner: an extern `let` whose declared type is a function type is a hard error, since it declares a callable while dodging the callable keyword.
 
-> extern callable declarations use `fun`; a binding of type `Int -> Int` is callable — write `fun f(x: Int): Int`
+> extern callable declarations use `fun`; a binding of type `Int -> Int` is callable — write `fun f(x: Int) -> Int`
 
 Nothing is lost: an extern `fun` is already usable first-class (Part 4 §4.3). This is the confirmed Part 4 callable/value distinction, including the annotation-only spelling (§12.2).
 
@@ -108,12 +108,12 @@ extern from "event-source"
     export fun addListener(
         target: Target,
         callback: Event -> Unit,
-    ): Unit
+    ) ->! Unit
 
     export fun removeListener(
         target: Target,
         callback: Event -> Unit,
-    ): Unit
+    ) ->! Unit
 ```
 
 `Event` is an opaque representation-direct foreign value and `Unit` is JavaScript `undefined`; no wrapper is required. Passing the same Hexagon function to `addListener` and then `removeListener` passes the same JS function identity naturally — the listener actually deregisters. **No weak wrapper cache exists in v1 because no supported callback signature needs a wrapper**; identity preservation is a consequence of the representation, not a caching feature.
@@ -131,7 +131,7 @@ extern from "legacy-io"
     export fun readText(
         path: String,
         callback: (Nullable(IoError), Nullable(String)) -> Unit,
-    ): Unit
+    ) ->! Unit
 ```
 
 ### 5.3 Inbound function values
@@ -146,14 +146,14 @@ The canonical example:
 
 ```hexagon
 extern from "stream-tools"
-    fun visit(callback: Seq(Int) -> Unit): Unit
+    fun visit(callback: Seq(Int) -> Unit) ->! Unit
 ```
 
 An arbitrary JS `Iterable<number>` would require a fresh persistent-`Seq` adaptation **at each callback invocation**, which drags in wrapper identity, retention, failure memoization, and lifetime questions that v1 deliberately refuses (Part 3 §10). V1 does not generate that wrapper. This is a hard error at the extern declaration, and it discharges the rejection Part 3 §9.3 and §11 assigned to this part. Per the Rewrite Rule, the diagnostic identifies the nested adapter-requiring type and names the three rewrites:
 
 > callback parameter `Seq(Int)` requires a boundary adapter, which v1 callbacks do not support; use a representation-direct type (e.g. `Array(Int)`), perform an explicit eager conversion at a controlled boundary, or bind through a small JavaScript shim
 
-The same rejection applies to any adapter-requiring type anywhere in a callback signature, in either direction, under Part 1 §5.3's recursive rule. It does **not** affect already-decided top-level `Seq` crossing (`extern fun values(): Seq(Int)`), whose one stable boundary adapter remains supported (Part 3).
+The same rejection applies to any adapter-requiring type anywhere in a callback signature, in either direction, under Part 1 §5.3's recursive rule. It does **not** affect already-decided top-level `Seq` crossing (`extern fun values() ->! Seq(Int)`), whose one stable boundary adapter remains supported (Part 3).
 
 ---
 
@@ -191,7 +191,7 @@ Excluded from v1 and reserved for a later FFI/async deep dive; nothing here pre-
 | Situation | Diagnostic (rewrite named) | Owner |
 |---|---|---|
 | adapter-requiring type in a callback parameter or result (either direction) | the §5.4 error: names the nested type; rewrites = representation-direct type / explicit eager conversion / JS shim | §5.4 (discharges Part 3 §9.3/§11's assignment) |
-| function-typed extern `let` | "extern callable declarations use `fun`; a binding of type `Int -> Int` is callable — write `fun f(x: Int): Int`" | §2.4 |
+| function-typed extern `let` | "extern callable declarations use `fun`; a binding of type `Int -> Int` is callable — write `fun f(x: Int) -> Int`" | §2.4 |
 | arity mismatch at a Hexagon call of a boundary function | ordinary Functions §5 compile-time arity error, unchanged | §2.1 |
 | JS caller passing too few/ill-typed arguments to an exported function or Hexagon callback | not a diagnostic — contract violation, unspecified observations (Part 1 §3.1) | §2.2–2.3 |
 | throw entering through a boundary call or inbound-function invocation | not a diagnostic — branded Hexagon exception remains domestic; every other value takes the runtime `JsError` path | §4.1 |
@@ -205,35 +205,35 @@ Excluded from v1 and reserved for a later FFI/async deep dive; nothing here pre-
 ```hexagon
 -- (a) Identity round trip: same function object out, registered and removed
 let onEvent(e: Event): Unit = log(Event.describe(e))
-addListener(target, onEvent)
-removeListener(target, onEvent)          -- same JS identity; actually deregisters
+addListener!(target, onEvent)
+removeListener!(target, onEvent)         -- same JS identity; actually deregisters
 
 -- (b) Extra JS callback arguments are harmless
 -- foreign: array.forEach(cb) invokes cb(value, index, array)
 extern from "helpers"
-    fun each(values: Array(Int), callback: Int -> Unit): Unit
-each(xs, n => total.push(n))             -- index/array ignored by representation
+    fun each(values: Array(Int), callback: Int ->? Unit) ->? Unit
+each!(xs, n => JsArray.push!(total, n))  -- index/array ignored by representation
 
 -- (c) Meaningful callback result preserved
 extern from "helpers"
-    fun filter(values: Array(Int), keep: Int -> Bool): Array(Int)
+    fun filter(values: Array(Int), keep: Int -> Bool) ->! Array(Int)
 
 -- (d) Unit result is discarding
 extern from "collections"
     type JsArray
-    method push(arr: JsArray, value: Int): Unit
-JsArray.push(arr, 3)                     -- JS push returns the new length; discarded
+    method push(arr: JsArray, value: Int) ->! Unit
+JsArray.push!(arr, 3)                    -- JS push returns the new length; discarded
 
 -- (e) Hexagon exception through a callback, caught back in Hexagon
 try
-    each(xs, n => if n < 0 then throw(Negative) else ())
+    each(xs, n => if n < 0 then throw(Negative) else ())   -- a pure callback: the conduit's call is bare
 catch
     Negative => ...                        -- still branded through the foreign frames
     JsError(e) => ...                      -- a throw from `each` itself lands here
 
 -- (f) Rejected: adapter in callback position
 extern from "stream-tools"
-    fun visit(callback: Seq(Int) -> Unit): Unit
+    fun visit(callback: Seq(Int) -> Unit) ->! Unit
                                          -- ERROR (§5.4): names Seq(Int), offers the
                                          --   three rewrites; top-level Seq unaffected
 ```

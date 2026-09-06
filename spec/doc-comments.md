@@ -257,7 +257,7 @@ let x = (** inline? *) 2                 -- ERROR: next code token does not begi
 import Vector                            -- ERROR: imports not documentable; message names the module-docs deferral
 (** The filesystem module. *)
 extern from "node:fs"                    -- ERROR: docs attach to the block's items, not the block (§5's dedicated row)
-  fun readFileSync(path: String): String
+  fun readFileSync(path: String) ->! String
 export (** misplaced *) fun m(): Unit = ()  -- ERROR: mid-declaration; `fun` does not begin the declaration
 (*! not special *)                       -- ordinary comment; no inner-doc spelling exists or is reserved (§9.1)
 ```
