@@ -79,10 +79,10 @@ operation, and every `Area` instance's `area` must check pure. A member may prom
 `read(source: a) ->! String` says an instance *may* read the world — and the contract is
 then a ceiling, not a description: an instance whose body never touches the world honors
 it, an instance that does honors it too, and neither changes what a caller sees. Every
-call through the member — bare, qualified, or with a dot — wears the contract's mark, so
-`source.read!()` is spelled the same whichever instance answers. Chapter 19 has the
-effect discipline itself; what matters here is that the constraint, not the instance,
-decides the mark.
+call through the member — bare, qualified, or with a dot — wears the contract's mark,
+the `!` the Effects chapter introduces, so `source.read!()` is spelled the same
+whichever instance answers. That chapter has the effect discipline itself; what matters
+here is that the constraint, not the instance, decides the mark.
 
 Use either operation like an ordinary function:
 
@@ -330,6 +330,8 @@ exporting constrained polymorphic functions.
 - `<a: Show>` introduces a type variable with a `Show` obligation;
 - constraints are inferred from interpolation, operators, and constrained calls;
 - constraint operations with bodies provide overridable defaults;
+- a member's arrow is its **effect contract**: a ceiling every instance is compared
+  against, and the mark every call through the member wears;
 - `Eq.equals` is required and `Eq.notEquals` defaults to its Boolean negation;
 - an `honor` declaration supplies the unique instance of a constraint for a type;
 - a base constraint is an obligation that another constraint builds on;

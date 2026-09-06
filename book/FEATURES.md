@@ -91,8 +91,9 @@ open specification work does not make the book outline provisional.
 
 13. **Constraints** — Constraints such as `Eq`, `Ord`, `Show`, `Num`, `Signed`,
     `Frac`, `Integral`, `Concat`, `Pow`, `Hash`, and `Iterable` express capabilities.
-    Operations may provide overridable defaults; `honor` declarations provide coherent
-    instances under an orphan rule. Constrained polymorphism compiles through dictionary
+    Operations may provide overridable defaults, and each member header writes its effect
+    arrow as a contract instances are compared against; `honor` declarations provide
+    coherent instances under an orphan rule. Constrained polymorphism compiles through dictionary
     passing while concrete code remains direct.
 
 14. **Derivation** — Nominal records and unions can opt into lawful,

@@ -14,10 +14,10 @@ extern from "tiny-json"
 
 The block introduces ordinary module-level Hexagon names. `parse` and `stringify` are
 functions, `version` is a value, and `JsonValue` is a nominal opaque foreign type. Each
-callable row writes its effect arrow before its result (Chapter 19): `->` here, because
-parsing and printing JSON touch nothing; `->!` wherever the foreign code may touch the
-world, or whenever you do not know. Once
-introduced, they participate in type checking like other bindings.
+callable declaration writes its effect arrow before its result, as the Effects chapter
+taught: `->` here, because parsing and printing JSON touch nothing; `->!` wherever the
+foreign code may touch the world, or whenever you do not know. Once introduced, they
+participate in type checking like other bindings.
 
 The declaration is checked; the JavaScript implementation is trusted. Hexagon verifies
 that the declared types and syntax make sense, but it does not inspect every foreign
@@ -257,7 +257,8 @@ params.get("name");
 
 The first visible parameter is always the Hexagon subject. A first-class reference
 such as `let lookup = SearchParams.get` receives a stable wrapper that continues to
-call `params.get(key)` rather than detaching the JavaScript property function.
+perform the JavaScript call `params.get(key)` rather than detaching the property
+function.
 
 Properties use equally direct declarations:
 
@@ -289,9 +290,11 @@ extern from "node:url"
 ```
 
 Hexagon calls `Url.create(text)`, `Url.canParse(text)`, `Url.toString!(url)`, and
-`Url.hostname!(url)`. A constructor writes and checks the class's own type after its
-arrow; building a value is not an effect, so `create` is `->`. JavaScript receives `new URL(text)`, a static receiver call, an
-instance receiver call, and a property read respectively.
+`Url.hostname!(url)`. JavaScript receives `new URL(text)`, a static receiver call, an
+instance receiver call, and a property read respectively. A constructor writes and
+checks the class's own type after its arrow; `create` writes `->` because constructing a
+`URL` touches nothing, where a constructor that opened a connection would write `->!`,
+as `createClient` did above.
 
 `class`, `new`, `method`, `get`, and `set` describe the foreign calling convention.
 They do not introduce inheritance, subclassing, overriding, implicit receivers, or a
@@ -489,6 +492,9 @@ exception failure instead of hiding validation inside every extern call.
 - `Nullable(a)` is the nullish foreign door and remains distinct from `Option(a)`;
 - `Array(a)` is a zero-copy readonly borrow, while `Vector(a)` is persistent storage;
 - a top-level foreign iterable may be adapted into a persistent memoized `Seq(a)`;
+- every callable extern declaration writes its effect arrow before its result — `->!`
+  when in doubt, `->` as a trusted claim, `->?` for one as effectful as its callbacks —
+  with setters `->!` only and constructors naming the class's own type;
 - `method`, `get`, `set`, and `class` produce ordinary subject-first Hexagon companion
   operations while preserving JavaScript calling conventions;
 - `extern enum` gives stable foreign object members, or written literal values, a closed nullary-union view while

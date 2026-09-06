@@ -181,8 +181,8 @@ interpolation each dispatch to a constraint member; `xs[i]` is the companion ope
 `at`, definitionally.
 
 The consequence is a rule worth remembering: **everything those forms reach must be
-pure.** The members they reach are the prelude's — `show`, `compare`, `hash`, `add`,
-`toSeq` — and every one of them writes the pure arrow on its header, so an `honor`
+pure.** The members they reach are the prelude's — `show`, `compare`, `add`, `toSeq`, and
+their kin — and every one of them writes the pure arrow on its header, so an `honor`
 instance's bodies for them must check pure; `at` wears a pure face the same way. A type
 whose traversal performs effects therefore cannot honor `Iterable`, and cannot stand in a
 `for` head at all.
@@ -191,8 +191,8 @@ A constraint you declare yourself is under no such rule. Its member headers writ
 own arrow — `read(source: a) ->! String` says any instance *may* read the world — and
 that header is a contract, not a description of any one instance: a pure instance honors
 an effectful member, an effectful instance cannot honor a pure one, and every call
-through the member wears the contract's mark whichever instance answers. Chapter 12 has
-the details.
+through the member wears the contract's mark whichever instance answers. The Constraints
+chapter has the details.
 
 Loop *bodies* are a different matter. A `for` head is protocol and is pure; the body is
 an ordinary block, and its statements mark their own calls as usual.
@@ -210,18 +210,18 @@ extern from "./world.js"
     export fun trim(document: String) -> String
 ```
 
-An extern row has no body to infer from, so it *declares* what an ordinary function
+An extern declaration has no body to infer from, so it *declares* what an ordinary function
 would have inferred. Foreign code is trust territory, and when you do not know what it
 does, write `->!`: it promises nothing, and every call wears `!`. There is no default —
 leaving the arrow out is an error, never a silent claim in either direction.
 
-`->` on a foreign row is the trusted claim that says otherwise. It is believed, not
+`->` on a foreign declaration is the trusted claim that says otherwise. It is believed, not
 checked, and the module author answers for it. Writing `->` over something that touches
 the world is simply a lie, with the narrow exceptions the specification names: a
 write-only channel the program cannot read back (a debug probe), a read the runtime
 performs at most once and then owns, and a read of data a contract holds still.
 
-The third arrow covers the shape neither constant describes. A foreign function that
+The third arrow covers the shape neither of the other two describes. A foreign function that
 *runs* the callback you hand it is exactly as effectful as that callback —
 `Array.prototype.forEach` is the everyday example. `->` would be a lie about it, and `->!`
 would charge a `!` even when the callback you supply is pure. `->?` says the honest thing:
@@ -234,7 +234,7 @@ extern from "./world.js"
 `each`'s face is `(String ->? Unit) ->? Unit` — one colour, worn by the callback and by
 `each` itself. Hand it a pure step and the call is bare; hand it one that saves, and the
 call wears `!`. Nothing new happens at the call site: that is the linked arrow you already
-know, declared on the row rather than inferred from a body. Like `->`, it is believed
+know, written on the declaration rather than inferred from a body. Like `->`, it is believed
 rather than checked.
 
 That is the whole story of how a pure corpus stays pure. Nothing in the standard library
@@ -242,7 +242,7 @@ manufactures an effect; effects arrive through declared doors.
 
 ### The debug probe
 
-The first of those two exceptions is a function you have been calling since Chapter 1.
+The first of those exceptions is a function you have been calling since Chapter 1.
 `Debug.log` is ordinary Hexagon, declared in the standard library's `Debug` module; like the rest
 of the prelude it needs no import, and the qualifier is the spelling — `log` alone is a
 word the language leaves to you. It writes to the debugging console, which is a channel
