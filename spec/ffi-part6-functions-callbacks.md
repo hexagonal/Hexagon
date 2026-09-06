@@ -50,7 +50,7 @@ The same two facts apply per invocation: JavaScript APIs that supply extra callb
 
 Part 4 §4.1's strict distinction — `fun` declares callable, `let` declares non-callable value — is sharpened here for the annotation-only corner: an extern `let` whose declared type is a function type is a hard error, since it declares a callable while dodging the callable keyword.
 
-> extern callable declarations use `fun`; a binding of type `Int -> Int` is callable — write `fun f(x: Int): Int`
+> extern callable declarations use `fun`; a binding of type `Int -> Int` is callable — write `fun f(x: Int) -> Int`
 
 Nothing is lost: an extern `fun` is already usable first-class (Part 4 §4.3). This is the confirmed Part 4 callable/value distinction, including the annotation-only spelling (§12.2).
 
@@ -191,7 +191,7 @@ Excluded from v1 and reserved for a later FFI/async deep dive; nothing here pre-
 | Situation | Diagnostic (rewrite named) | Owner |
 |---|---|---|
 | adapter-requiring type in a callback parameter or result (either direction) | the §5.4 error: names the nested type; rewrites = representation-direct type / explicit eager conversion / JS shim | §5.4 (discharges Part 3 §9.3/§11's assignment) |
-| function-typed extern `let` | "extern callable declarations use `fun`; a binding of type `Int -> Int` is callable — write `fun f(x: Int): Int`" | §2.4 |
+| function-typed extern `let` | "extern callable declarations use `fun`; a binding of type `Int -> Int` is callable — write `fun f(x: Int) -> Int`" | §2.4 |
 | arity mismatch at a Hexagon call of a boundary function | ordinary Functions §5 compile-time arity error, unchanged | §2.1 |
 | JS caller passing too few/ill-typed arguments to an exported function or Hexagon callback | not a diagnostic — contract violation, unspecified observations (Part 1 §3.1) | §2.2–2.3 |
 | throw entering through a boundary call or inbound-function invocation | not a diagnostic — branded Hexagon exception remains domestic; every other value takes the runtime `JsError` path | §4.1 |
@@ -211,8 +211,8 @@ removeListener!(target, onEvent)         -- same JS identity; actually deregiste
 -- (b) Extra JS callback arguments are harmless
 -- foreign: array.forEach(cb) invokes cb(value, index, array)
 extern from "helpers"
-    fun each(values: Array(Int), callback: Int -> Unit) ->! Unit
-each!(xs, n => total.push(n))            -- index/array ignored by representation
+    fun each(values: Array(Int), callback: Int ->? Unit) ->? Unit
+each!(xs, n => JsArray.push!(total, n))  -- index/array ignored by representation
 
 -- (c) Meaningful callback result preserved
 extern from "helpers"
@@ -226,7 +226,7 @@ JsArray.push!(arr, 3)                    -- JS push returns the new length; disc
 
 -- (e) Hexagon exception through a callback, caught back in Hexagon
 try
-    each!(xs, n => if n < 0 then throw(Negative) else ())
+    each(xs, n => if n < 0 then throw(Negative) else ())   -- a pure callback: the conduit's call is bare
 catch
     Negative => ...                        -- still branded through the foreign frames
     JsError(e) => ...                      -- a throw from `each` itself lands here

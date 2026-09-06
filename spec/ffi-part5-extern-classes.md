@@ -182,7 +182,7 @@ Getter and setter cannot introduce the same term name — they are two ordinary 
 These rules govern `method`, `get`, and `set` wherever they appear — standalone in an `extern from` block or grouped in an `extern class` block (§6):
 
 - **The subject is explicit and first.** A missing first parameter is a targeted declaration error naming the rewrite (§11). Hexagon has no implicit receiver to supply one.
-- **The receiver type must be able to cross the boundary** under Part 1's table — representation-direct or borrowed at the receiver position. A receiver type that cannot cross receives a targeted declaration error. The receiver is typically an extern `type` (or extern class type), but any boundary-legal type is admitted: `method trim(text: String): String` binding JavaScript's `"…".trim()` is a legitimate declaration.
+- **The receiver type must be able to cross the boundary** under Part 1's table — representation-direct or borrowed at the receiver position. A receiver type that cannot cross receives a targeted declaration error. The receiver is typically an extern `type` (or extern class type), but any boundary-legal type is admitted: `method trim(text: String) -> String` binding JavaScript's `"…".trim()` is a legitimate declaration.
 - **Inside an `extern class` block, the instance-member subject must be the class's own declared Hexagon type.** A class groups the members of one foreign class; a member whose subject is some other type belongs at block level, and the diagnostic says so.
 - Receiver members are **fixed visible arity** like every v1 extern callable (Part 4 §9), and monomorphic (Part 4 §12.4).
 
@@ -330,7 +330,7 @@ Fixed exclusions, restating none of JavaScript's model into Hexagon:
 - **No `extends` in an extern class declaration**, and no way to state that one extern class subclasses another. Each foreign class is declared as its own flat opaque type plus members.
 - **No Hexagon-side subclassing** of a foreign class, no overriding, no `super`, no `protected`, no abstract members. Hexagon cannot define a class, so it cannot extend one; APIs that require the consumer to subclass (template-method frameworks) are unsupported in v1 and need a JavaScript shim.
 - **No prototype-driven dispatch and no `instanceof` surface.** Runtime classification of an uncertain foreign value is Part 11's checked-decoding territory, not an extern-class feature.
-- **Foreign inheritance is flattened by the binding author's declarations.** A member available on `Dog` via its `Animal` prototype may simply be declared as a `Dog` member (`method speak(dog: Dog): Unit`) — the trusted boundary asserts the call works, and JavaScript dispatch makes it work. What v1 does *not* provide is any typed relationship between two declared extern types (see §13.1).
+- **Foreign inheritance is flattened by the binding author's declarations.** A member available on `Dog` via its `Animal` prototype may simply be declared as a `Dog` member (`method speak(dog: Dog) ->! Unit`) — the trusted boundary asserts the call works, and JavaScript dispatch makes it work. What v1 does *not* provide is any typed relationship between two declared extern types (see §13.1).
 
 ---
 
