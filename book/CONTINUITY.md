@@ -915,6 +915,13 @@ late pedagogy pass, not a commitment to the current order.
   at that call. Marks are written glued.
 - Every `->?` in one signature is one linked effect variable; a `->?` needs an inlet
   and is an error where nothing can link to it — never a silent re-reading.
+- Colour scope is lexical: a helper nested in a body (a `fun`, a local `let`, a lambda,
+  a nested `fun` block) conducts a captured callback's colour with `?` and never
+  generalizes it; pinning the helper pins the enclosing callback, reported at the pin.
+  Hover numbers a captured variable, even alone, where an undecorated `->?` at that
+  spot would name a nearer signature's own variable instead; where that nearer
+  signature conducts the captured colour too, the two are one variable and the
+  display is plain.
 - Enforcement is symmetric and error-grade: wrong or missing marks at calls are
   errors in every direction, and a pure face over a body that performs effects is
   an error at the offending call. (The specification checks faces in both
