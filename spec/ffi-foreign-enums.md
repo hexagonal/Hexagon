@@ -316,9 +316,9 @@ extern from "direction"
     fun move(direction: Direction) ->! Unit
 ```
 
-`move!(Up)` passes the captured `$Direction.Up` value. `current!()` returns its JavaScript
+`move!(Up)` passes the enum object's own `$Direction.Up` member value. `current!()` returns its JavaScript
 value directly. Consequently, an extern enum is representation-direct inside records,
-arrays, callbacks, and other representation-direct aggregates. It does not trigger the
+callbacks, and other representation-direct aggregates, and inside a captured `Array`, which FFI Part 1 §5.4's walk copies while carrying the members by identity (#876). It does not trigger the
 nested-adapter restrictions that apply to `Seq(a)`.
 
 This rule handles all common object-backed forms without representation-specific
@@ -347,7 +347,7 @@ toJsDirection   : Direction -> JsValue
 
 For any local enum name `T`, the names are exactly `fromJsT` and `toJsT`.
 `fromJsDirection` evaluates its input once, compares it with the declared members
-(captured or literal) in declaration order using `Object.is`, and returns the corresponding constructor in
+(the enum object's own member values, or the literals) in declaration order using `Object.is`, and returns the corresponding constructor in
 `Some`; otherwise it returns `None`. It is the checked path for data whose foreign
 producer cannot state the enum contract. `toJsDirection` is an identity widening to
 opaque `JsValue`; it does not allocate or encode.
@@ -401,7 +401,7 @@ tests, including the `switch` §4 licenses for the literal form. No enum reverse
 table, string remapping, wrapper class, or brand is created at runtime.
 
 When public, constructors are ordinary named ESM exports whose runtime values remain
-the foreign values — captured, or the literals. `fromJsT` is emitted as a small identity-membership chain;
+the foreign values — the enum object's own member values, or the literals. `fromJsT` is emitted as a small identity-membership chain;
 `toJsT` is an identity function. The compiler may inline either operation internally
 when doing so preserves ordinary value evaluation and public function identity.
 
@@ -530,7 +530,7 @@ An implementation is not conforming until tests cover at least:
 2. String members whose values differ from local constructor names.
 3. Symbol members and singleton object members matched by identity.
 4. Foreign and local aliases in the same declaration.
-5. Direct parameters, returns, callbacks, and nested `Array(Enum)` values without
+5. Direct parameters, returns, callbacks, and nested `Array(Enum)` values — the array captured by FFI Part 1 §5.4's walk with each member carried by identity (#876), the members themselves without
    wrappers or traversal.
 6. Exhaustive and non-exhaustive matches using the declared local constructor set.
 7. `fromJsT` success for every member and `None` for an unrelated value.

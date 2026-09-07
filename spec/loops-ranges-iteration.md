@@ -146,10 +146,10 @@ fun collatzSteps(n0) =
 
 ## 5. What comes after `in`
 
-Anything with an `Iterable` instance (§7). The definitive v1 instance table — element types, `toSeq` strategies, and the borrowed-view notes — is owned by **Collections Part 5 §4**. By ownership, the provided families are:
+Anything with an `Iterable` instance (§7). The definitive v1 instance table — element types, `toSeq` strategies, and the capture/borrow notes — is owned by **Collections Part 5 §4**. By ownership, the provided families are:
 
 - **Collections/prelude-owned:** `Range` (element `Int`, §3), `Vector(a)`, `Seq(a)` (`toSeq` is the identity, §6), `Map(k, v)` (element `(k, v)` — the canonical `for (k, v) in m` head, §2.1), `Set(a)`, and `String` (element: one-codepoint `String`, Collections Part 5 §5).
-- **FFI-owned borrowed views:** `Array(a)`, `JsMap(k, v)`, `JsSet(a)` (rows recorded in Collections Part 5 §4; semantics in their owning FFI parts).
+- **FFI-owned foreign collections:** the captured `Array(a)` (FFI Part 1 §2.2, #876) and the borrowed `JsMap(k, v)`, `JsSet(a)` (borrowed until #875) — rows recorded in Collections Part 5 §4; semantics in their owning FFI parts.
 
 User nominal types may join the table with lawful `honor Iterable<T>` instances in v1 (Collections Part 5 §7). No other **provided instance row** ships in v1.
 
@@ -378,7 +378,7 @@ for (k, v) in m                -- m : Map(String, Int); k : String, v : Int
 4. **`AsyncSeq(a)`.** Not a v1 feature. Direction recorded for a future async spec: `next : AsyncSeq(a) -> Promise(Option((a, AsyncSeq(a))))`, mapping onto JS's `AsyncIterator` as `Seq` maps onto `Iterator`; the eventual `for await`-style consumption form belongs to that spec. Core async (`Promise(a)`, `async fun`, `await`) needs no machinery from this spec and no implied types.
 5. **Range step.** `range(lo, hi, step)` vs `(1..10).by(2)` vs nothing. No v1 client; decide when field evidence arrives (likely alongside the break/continue deepdive, since both are "loop ergonomics under load").
 6. *(resolved)* **`String` iteration.** Decided: `String` is iterable with **one-codepoint `String`** items, in codepoint order; the conversion pair is `String.toSeq`/`String.fromSeq`. Owner: Collections Part 5 §5 (Primitive Types §5.1 conforms).
-7. *(resolved)* **Slicing and indexing.** `Vector` and `String` are decided by Collections Part 3 §§5–6/§9; borrowed `Array` is decided by FFI Part 2 §6.3; Map key access is Collections Part 4 §4. This spec's surviving contribution stands: `Range` is a first-class value fit to appear inside `[]`.
+7. *(resolved)* **Slicing and indexing.** `Vector` and `String` are decided by Collections Part 3 §§5–6/§9; captured `Array` is decided by FFI Part 2 §6.3; Map key access is Collections Part 4 §4. This spec's surviving contribution stands: `Range` is a first-class value fit to appear inside `[]`.
 8. **Break/continue deepdive** — §9.4, revisit-bar shared with compound assignment (Statements §6.4).
 
 ---

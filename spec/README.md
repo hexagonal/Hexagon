@@ -60,7 +60,7 @@ Every normative owner appears exactly once. The explicitly marked router and gui
 | Closure docs | `decisions-ml-dialect-fun-blocks-2026-08.md` | the `fun` block, header-only `fun`, the `var` function-type ban (#700) until hosted |
 | FFI | `ffi.md` | **FFI entry point**: index, terminology, invariants, conformance (Part 12) |
 | FFI | `ffi-part1-boundary.md` | boundary doctrine, categories, master type table |
-| FFI | `ffi-part2-nullable-array.md` | `Nullable`, `NullableCase`, borrowed `Array` |
+| FFI | `ffi-part2-nullable-array.md` | `Nullable`, `NullableCase`, captured `Array` |
 | FFI | `ffi-part3-seq.md` | `Seq` boundary adaptation and export |
 | FFI | `ffi-part4-extern-bindings.md` | `extern from`/`import`, bindings, `type`, `default` |
 | FFI | `ffi-part5-extern-classes.md` | `method`/`get`/`set`, `extern class`, receiver wrappers |

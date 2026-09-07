@@ -3,7 +3,7 @@
 **Status:** Decided and promoted after Sol review (July 2026). Normative promotion of `spec/notes/ffi-proto-spec-questions.md` §9 plus the semantic obligations Collections Part 4 §10 pinned for the FFI. Review confirmed the bracket package, native equality divergence, two-step `has`/`get` lowering, the absence of set brackets, and direct `fromSeq` construction with fresh-adapter semantics at each foreign crossing. Part 11 is authoritative for `JsValue` (faces `unknown`), ordinary-data `JsConversionError`, structured failure paths (fields, 1-based indices, map keys/values, set elements; cycles report current and first-seen paths), and the shape/cycle-`Err` versus hostile-throw-`JsError` split. **Implementation:** the types and §6's two `Iterable` rows (#396) and §3's companions `stdlib/JsMap.hex`/`stdlib/JsSet.hex` through the intrinsic door (#792; `spec/intrinsics.md` §3.2) are in the compiler — conformance `compiler/src/conformance/js-map-set.test.ts`; the bracket (§4), the set-bracket refusal (§5), and the four conversions (§7) are absent until built, under Part 2 §9.1's doctrine (#793–#796).
 **Scope:** The foreign borrowed collection types `JsMap(k, v)` and `JsSet(a)`: names, `.d.ts` faces, borrow contract; the read-only accessor surfaces; the `jsMap[key]` bracket and its lowering; the deliberate absence of `JsSet` brackets; iteration and the two `Iterable` rows; direct eager construction from `Seq`; the four snapshot conversions with the inward cycle-checked `Result`; boundary legality of parameters; diagnostics.
 **Not in scope:** `JsConversionError`'s declaration, accessor surface, and general decoding machinery (Part 11 — this part states its collection-specific path obligations and links forward); persistent `Map`/`Set` semantics (Collections Part 4 — consumed); `Array(a)` (Part 2); any mutable foreign collection surface (**deferred**, §9); `WeakMap`/`WeakSet` (§9).
-**Companions:** Part 1 §2.2/§3/§4.1/§5.3 (borrowed category; failure doctrine; the master-table row this part finalizes; nested-adapter restriction); Part 2 (the `Array` borrowed-view precedent: stability contract, native iteration license, lazy `toSeq`); Part 3 (Seq persistence; deferred-traversal retention); Collections Part 1 §3.3 (the accessor pair); Collections Part 4 §4/§10/§12.2 (bracket/`KeyError`; pinned conversion semantics; the set-bracket rejection); Collections Part 5 §4/§8 (instance table; iteration); Operators §10 (bracket grammar); Exceptions §6 (`JsError`).
+**Companions:** Part 1 §2.2/§3/§4.1/§5.3 (borrowed category; failure doctrine; the master-table row this part finalizes; nested-adapter restriction); Part 2 (the `Array` precedent — *since #876 a captured foreign collection, Part 1 §2.2, no longer a borrowed view; this part's own migration to that category is #875, and until it lands every "as for `Array`" below cites the Part 2 contract as it stood before #876*); Part 3 (Seq persistence; deferred-traversal retention); Collections Part 1 §3.3 (the accessor pair); Collections Part 4 §4/§10/§12.2 (bracket/`KeyError`; pinned conversion semantics; the set-bracket rejection); Collections Part 5 §4/§8 (instance table; iteration); Operators §10 (bracket grammar); Exceptions §6 (`JsError`).
 
 ---
 
@@ -24,10 +24,10 @@ The `.d.ts` faces are TypeScript's native readonly interfaces, not `Hex.` types 
 
 ## 2. The borrow contract
 
-Foreign code owns the underlying `Map`/`Set` and must keep its **entries, elements, and size stable** while Hexagon — including any deferred traversal derived from the view (§6.3) — may observe it. This is Part 2's `Array` stability contract, applied to keyed storage:
+Foreign code owns the underlying `Map`/`Set` and must keep its **entries, elements, and size stable** while Hexagon — including any deferred traversal derived from the view (§6.3) — may observe it. This is the stability contract Part 2 §6.2 wrote for `Array` before #876 retired it there, applied to keyed storage and standing here until #875:
 
 - Violation does not create memory unsafety; affected contents, order, size, lookup, and traversal observations are **unspecified** (Part 1 §3.1).
-- An escaped `Seq` extends the borrow obligation through its possible consumption lifetime (§6.3).
+- An escaped `Seq` extends the borrow obligation through its possible consumption lifetime (§6.3). *(#876.)* So does a captured collection **reachable through** a borrowed `JsMap`/`JsSet`, in both crossing directions and whichever side built the map. Inbound, an `Array(a)` extracted from a borrowed `JsMap(k, Array(a))` or `JsSet(Array(a))` may remain borrowed rather than captured, and this contract covers every piece of storage observable through it for its full observation lifetime. Outbound, a map Hexagon builds (§6.5's `fromSeq`, §7.2's `toJsMap`) and hands to a foreign consumer transfers the outer collection only: the retained Hexagon arrays inside it are not the consumer's to mutate, and the consumer must keep them stable wherever Hexagon retains the ability to observe them — through references retained independently of the map, escaped closures, and deferred traversals alike. This is the one temporary development-stage exception Part 1 §2.2 names: supported use under this borrow contract, an exception to enforced snapshot isolation and not to purity (contents may not change between observations, and no no-hoist rule substitutes), replaced at #875 by snapshot protection in both directions.
 - A freshly constructed native collection (e.g. `Map.toJsMap`'s result, §7.2) is stable while exclusively held by Hexagon; the obligation becomes relevant once foreign code can alias it.
 - Under valid use, **live observation and snapshot observation are observationally identical** — which is what licenses native iteration (§6.4) and the two-step bracket lowering (§4.2) without copies or atomicity machinery.
 
@@ -139,7 +139,7 @@ Both iterate in **native insertion order** — the order JavaScript defines for 
 
 ### 6.3 `toSeq`, `entries`, and deferred traversal
 
-`JsMap.toSeq`/`JsSet.toSeq` are **lazy and zero-copy over the borrowed collection** — the `Array.toSeq` shape (Part 2). `JsMap.entries` is a definitional synonym of `JsMap.toSeq`, mirroring the persistent `Map.toSeq ≡ entries` correspondence (Part 4 §7.3); the collections conversion doctrine is satisfied because the suite name `toSeq` is the primary spelling and `entries` introduces no second behavior.
+`JsMap.toSeq`/`JsSet.toSeq` are **lazy and zero-copy over the borrowed collection** — the shape `Array.toSeq` had under Part 2's borrow, before #876. `JsMap.entries` is a definitional synonym of `JsMap.toSeq`, mirroring the persistent `Map.toSeq ≡ entries` correspondence (Part 4 §7.3); the collections conversion doctrine is satisfied because the suite name `toSeq` is the primary spelling and `entries` introduces no second behavior.
 
 - The resulting `Seq` obeys full `Seq` persistence (Part 3 §4–§5): positions are persistent, forcing memoizes, and the implementation may hold one native iterator behind a memoizing spine — under a valid borrow, live and snapshot observations coincide (§2), so the choice is unobservable.
 - **A deferred traversal extends the stability obligation**: the borrow lasts while any derived `Seq` position may still be consumed (§2). Escaping sequences are the canonical long-borrow hazard and the documentation must say so.
@@ -147,7 +147,7 @@ Both iterate in **native insertion order** — the order JavaScript defines for 
 
 ### 6.4 Emission license
 
-Native `for...of` emission over the view (or its native iterator) is **permitted and preferred** for loops and combinators, exactly as for `Array` (Part 2): iteration does not copy merely to enforce a condition the borrow contract already requires. Iterator-protocol throws from exotic sources follow `JsError` (Part 3 §7).
+Native `for...of` emission over the view (or its native iterator) is **permitted and preferred** for loops and combinators, as `Array`'s was licensed before #876: iteration does not copy merely to enforce a condition the borrow contract already requires. Iterator-protocol throws from exotic sources follow `JsError` (Part 3 §7).
 
 ### 6.5 Direct construction from `Seq`
 
@@ -158,7 +158,7 @@ JsSet.fromSeq : Seq(a) -> JsSet(a)
 
 Both functions are **unconstrained, eager, shallow constructors of a fresh native collection**. They consume the source once in traversal order, perform no structural hashing or decoding, and therefore return the collection directly rather than `Result`. An infinite source diverges. A throw while advancing a foreign-backed source follows `JsError`; there is no cycle check because native insertion never traverses the inserted key, value, or element.
 
-Duplicate handling is exactly native construction semantics:
+The fresh collection is the consumer's once handed over — the outer collection: until #875, a captured collection among its keys, values, or elements stays Hexagon's under §2's temporary contract (#876). Duplicate handling is exactly native construction semantics:
 
 - `JsMap.fromSeq` uses SameValueZero/reference identity. A later equal key replaces the value while retaining the native map's original key position and stored key representative.
 - `JsSet.fromSeq` uses SameValueZero/reference identity and retains the native set's first stored representative and position.
@@ -180,7 +180,7 @@ Set.toJsSet   : Set(a) -> JsSet(a)
 Set.fromJsSet : <a: Hash> JsSet(a) -> Result(Set(a), JsConversionError)
 ```
 
-All four are **eager shallow snapshots** (Part 1 §5.1): the named outer collection changes representation; keys, values, and elements retain their runtime values and identities. They never share mutable native storage with a persistent collection. Nested conversion is the caller's explicit map, as everywhere.
+All four are **eager shallow snapshots** (Part 1 §5.1): the named outer collection changes representation; keys, values, and elements retain their runtime values and identities. They never share mutable native storage *as the outer collection* with a persistent collection; a captured collection among the keys, values, or elements is carried by identity and stays Hexagon's under §2's temporary contract until #875 (§7.2). Nested conversion is the caller's explicit map, as everywhere.
 
 ### 7.2 Outward: total
 
@@ -188,7 +188,7 @@ All four are **eager shallow snapshots** (Part 1 §5.1): the named outer collect
 
 - primitive and `Bool` keys/elements are faithful (SameValueZero alignment; nothing collapsed, split, or lost — Part 4 §10.1);
 - structural keys become **reference-identity** keys: the converted map is a snapshot for JS consumption, not a shared structural index, and JS cannot look up by reconstruction;
-- the fresh native collection is stable while exclusively Hexagon-held (§2) and is the foreign consumer's to own once handed over.
+- the fresh native collection is stable while exclusively Hexagon-held (§2) and is the foreign consumer's to own once handed over — the outer collection, that is: until #875, a captured collection among its keys or values stays Hexagon's under §2's temporary contract.
 
 ### 7.3 Inward: checked, collapsing, cycle-aware
 
@@ -205,7 +205,7 @@ All four are **eager shallow snapshots** (Part 1 §5.1): the named outer collect
 
 ## 8. Boundary legality of parameters
 
-`k`, `v`, and `a` follow the general rules, applied at declaration site (Part 1 §5.3): representation-direct and borrowed types nest freely (`JsMap(String, Array(Int))`, `JsSet(Hex.Vector<Float>)` are legal faces); **adapter-requiring types are rejected** inside the borrowed container (`JsMap(String, Seq(Int))` is the Part 1 §5.3 hard error, with its named rewrite: convert at a controlled boundary or restructure the declaration). Nothing new — the rule is cited, not extended.
+`k`, `v`, and `a` follow the general rules, applied at declaration site (Part 1 §5.3): representation-direct, captured, and borrowed types nest freely (`JsMap(String, Array(Int))`, `JsSet(Hex.Vector<Float>)` are legal faces — and until #875 the borrowed outer map is a container Part 1 §5.4's walk does not enter, so the arrays inside it cross, in either direction, under §2's temporary borrow contract rather than captured — the one exception Part 1 §2.2 names, and one reason #875 follows #876 without delay); **adapter-requiring types are rejected** inside the borrowed container (`JsMap(String, Seq(Int))` is the Part 1 §5.3 hard error, with its named rewrite: convert at a controlled boundary or restructure the declaration). Nothing new — the rule is cited, not extended.
 
 ---
 

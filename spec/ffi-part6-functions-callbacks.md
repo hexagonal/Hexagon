@@ -1,7 +1,7 @@
 # Hexagon FFI Part 6: Functions and Callbacks
 
-**Status:** Decided (July 2026), revised in place after external review (Sol) before landing. Normative promotion of `spec/notes/ffi-proto-spec-questions.md` §6. The draft's two clarifications were confirmed in §12: a foreign callable declared with a `Unit` result discards its return value, and a function-typed extern `let` is a hard error with the `fun` rewrite. Review also tightened branded-exception re-entry (§4) and the receiver-independence contract for raw inbound function values (§5.3/§6).
-**Scope:** The boundary calling convention for function values in both directions; fixed visible arity and the no-validation arity doctrine; lowering (the identity, and the exhaustive list of places a wrapper exists instead); `Unit` at the boundary; foreign throws and Hexagon exceptions crossing through calls and callbacks; the v1 representation-direct callback subset, its identity guarantees, and the rejection of adapter-requiring callback signatures; callback `this`; retention and capture.
+**Status:** Decided (July 2026), revised in place after external review (Sol) before landing. Normative promotion of `spec/notes/ffi-proto-spec-questions.md` §6. The draft's two clarifications were confirmed in §12: a foreign callable declared with a `Unit` result discards its return value, and a function-typed extern `let` is a hard error with the `fun` rewrite. Review also tightened branded-exception re-entry (§4) and the receiver-independence contract for raw inbound function values (§5.3/§6). **Amended (#876):** a callback signature naming a captured foreign collection (Part 1 §2.2 — `Array(a)` now; `JsMap`/`JsSet` under #875) crosses through a **conversion wrapper** that copies those arguments and results at each invocation, with no identity promise — §5.5; the representation-direct subset and its identity guarantee (§5.1–§5.2) are unchanged for every other signature.
+**Scope:** The boundary calling convention for function values in both directions; fixed visible arity and the no-validation arity doctrine; lowering (the identity, and the exhaustive list of places a wrapper exists instead); `Unit` at the boundary; foreign throws and Hexagon exceptions crossing through calls and callbacks; the v1 representation-direct callback subset, its identity guarantees, and the rejection of adapter-requiring callback signatures; conversion wrappers for captured-collection signatures (§5.5); callback `this`; retention and capture.
 **Not in scope:** extern declaration syntax and receiver members (Parts 4–5 — consumed, not restated); the `Seq` adapter itself (Part 3); the export surface, `.d.ts` generation, and stable export wrappers' emission details (Part 7); constrained functions and trailing dictionary evidence (Parts 8–9); Promise semantics, async callbacks, and rejection channels (deferred with the async specification; Part 1 §4.4).
 **Companions:** Functions §5/§5.1/§5.3/§9 (n-ary application, displayed types, nullary functions, emission); Exceptions §6–§7 (`JsError`, virtual wrapping, branded representation, two-stage discrimination); Part 1 §1–§5 (trusted boundary, categories, master table, nested-adapter restriction); Part 3 §9.3 (callback-position `Seq` rejection assigned here); Part 4 §4 (`fun`/`let`, first-class extern references); Part 5 §2.3 (stable convention-preserving wrappers).
 
@@ -21,10 +21,13 @@ Wrappers exist only where a named rule puts one, and this list is exhaustive for
 | Wrapper | Owner |
 |---|---|
 | stable export wrapper for a supported top-level adapted position (e.g. incoming `Iterable<a>` declared `Seq(a)`) | Parts 3/7; Part 4 §4.3 for the extern-binding face |
-| stable convention-preserving wrapper for first-class receiver members (`method`/`get`/`set`/`new`, incl. static) | Part 5 §2.3 |
+| stable convention-preserving wrapper for first-class receiver members (`method`/`get`/`set`/`new`, incl. static) — the same wrapper also performs Part 1 §5.4's walk when the member's signature names a captured foreign collection (#876); not an additional occasion | Part 5 §2.3 |
 | stable export wrapper for a generic constrained export when its internal calling convention needs public-ABI plumbing; otherwise the trailing-evidence function exports directly | Parts 7–9 |
+| stable export wrapper for an exported Hexagon function whose signature names a captured foreign collection (`Array(a)`; `JsMap`/`JsSet` under #875) — occasion 4 | Part 7 §7; Part 1 §5.4 |
+| stable copying wrapper for an extern binding whose signature names a captured foreign collection | Part 4 §4.3; Part 1 §5.4 |
+| stable copying wrappers on a public dictionary handle's captured-collection members — and, allocated with the result, on a public factory result's | Part 9 §3.4, §4 |
 
-**Every boundary function wrapper in this table is module-level, allocated once with its ESM binding, with stable JS identity.** This statement is about the named callable wrapper, not fresh per-value adapters created by a call (Part 3 §2.1). No supported v1 *callback* signature requires any wrapper at all (§5), which is what makes callback identity trivial rather than cached.
+**Every boundary function wrapper in this table is allocated once with the thing it rides and has stable JS identity for that thing's life** — module-level, with its ESM binding, for every occasion but a factory result's member wrappers, which are allocated with the result (whose identity Part 9 §4 promises nothing about either way). This statement is about the named callable wrapper, not fresh per-value adapters created by a call (Part 3 §2.1), and not the per-crossing **conversion wrapper** a *callback* value receives (§5.5), which is a value-level artifact like an adapter — the two names are kept apart on purpose. No representation-direct v1 callback signature requires any wrapper at all (§5), which is what makes that subset's identity trivial rather than cached.
 
 ---
 
@@ -98,7 +101,7 @@ A Hexagon callback that throws propagates a JS throw through the foreign caller 
 
 ### 5.1 The rule and the mechanism
 
-Callbacks are required for a usable JavaScript FFI, but v1 supports only **representation-direct callback signatures**: every callback parameter and result type must cross without per-call adaptation, recursively under the nested-adapter rule (Part 1 §5.3). Such callbacks are passed as **the same JavaScript function object in both directions** — no wrapper, no copy, no identity translation:
+Callbacks are required for a usable JavaScript FFI, and v1 supports two shapes. The first and common one is the **representation-direct callback signature**: every callback parameter and result type crosses without per-call work, recursively under the nested-adapter rule (Part 1 §5.3). Such callbacks are passed as **the same JavaScript function object in both directions** — no wrapper, no copy, no identity translation:
 
 ```hexagon
 extern from "event-source"
@@ -120,9 +123,9 @@ extern from "event-source"
 
 ### 5.2 What qualifies
 
-Representation-direct callback eligibility is applied recursively: primitives and native values, `Nullable`, borrowed `Array` whose nested types are themselves representation-direct, records and unions in their specified emitted representations, declared exceptions and `Exn`, genuine Hexagon runtime values (`Hex.Vector`/`Hex.Map`/`Hex.Set`, crossing by identity), opaque extern types, and function types built from the same set. Here `Array` retains Part 1 §2.2's **borrowed** category and stability contract; it qualifies because the same array object crosses with no per-invocation adapter, copy, or callback wrapper. Ordinary Hexagon functions are n-ary JavaScript functions with the same visible argument order (§1), so a function-typed callback parameter or result nests without ceremony.
+Representation-direct callback eligibility is applied recursively: primitives and native values, `Nullable`, records and unions in their specified emitted representations, declared exceptions and `Exn`, genuine Hexagon runtime values (`Hex.Vector`/`Hex.Map`/`Hex.Set`, crossing by identity), opaque extern types, `JsValue` *(#876; identity-crossing, and the type §5.5's workaround relies on)*, and function types built from the same set. **`Array(a)` is no longer in this set** *(#876)*: it is a captured foreign collection (Part 1 §2.2), copied at every crossing, and a callback invocation is a crossing — a signature naming it takes §5.5's conversion wrapper instead. Ordinary Hexagon functions are n-ary JavaScript functions with the same visible argument order (§1), so a function-typed callback parameter or result nests without ceremony.
 
-A practical shape this admits today, without waiting for Part 11: Node-style error-first callbacks, declared honestly against an opaque error type —
+A practical shape this admits: Node-style error-first callbacks, declared honestly against an opaque error type —
 
 ```hexagon
 extern from "legacy-io"
@@ -136,7 +139,7 @@ extern from "legacy-io"
 
 ### 5.3 Inbound function values
 
-A foreign function entering Hexagon at a function-typed boundary position — an extern `fun`'s function-typed result, a function-typed record field, a callback handed back — is, symmetrically, the raw foreign function object as the Hexagon function value. Hexagon calls it at its exact declared arity (§2.1); its throws follow §4.1's discrimination; its declared signature is trusted (Part 1 §1). Crossing back out, it is still the same object.
+A foreign function entering Hexagon at a function-typed boundary position — an extern `fun`'s function-typed result, a function-typed record field, a callback handed back — is, symmetrically, the raw foreign function object as the Hexagon function value when its signature is representation-direct. Hexagon calls it at its exact declared arity (§2.1); its throws follow §4.1's discrimination; its declared signature is trusted (Part 1 §1). Crossing back out, it is still the same object. A signature naming a captured collection takes §5.5's wrapper in this direction too: the Hexagon function value is a wrapper that copies the captured arguments on the way out and the captured result on the way in, at each call.
 
 Because no wrapper binds a receiver, the declaration also asserts that this raw function is **receiver-independent**: calling it with no meaningful JavaScript `this` must satisfy the signature. A function-valued property that relies on its owning object as `this` is not honestly representable as a detached function value; bind it as an extern `method` with an explicit subject when possible, or use a JavaScript shim that binds the receiver.
 
@@ -151,9 +154,15 @@ extern from "stream-tools"
 
 An arbitrary JS `Iterable<number>` would require a fresh persistent-`Seq` adaptation **at each callback invocation**, which drags in wrapper identity, retention, failure memoization, and lifetime questions that v1 deliberately refuses (Part 3 §10). V1 does not generate that wrapper. This is a hard error at the extern declaration, and it discharges the rejection Part 3 §9.3 and §11 assigned to this part. Per the Rewrite Rule, the diagnostic identifies the nested adapter-requiring type and names the three rewrites:
 
-> callback parameter `Seq(Int)` requires a boundary adapter, which v1 callbacks do not support; use a representation-direct type (e.g. `Array(Int)`), perform an explicit eager conversion at a controlled boundary, or bind through a small JavaScript shim
+> callback parameter `Seq(Int)` requires a boundary adapter, which v1 callbacks do not support; use a type that crosses without an adapter (`Array(Int)` crosses through §5.5's conversion wrapper), perform an explicit eager conversion at a controlled boundary, or bind through a small JavaScript shim
 
-The same rejection applies to any adapter-requiring type anywhere in a callback signature, in either direction, under Part 1 §5.3's recursive rule. It does **not** affect already-decided top-level `Seq` crossing (`extern fun values() ->! Seq(Int)`), whose one stable boundary adapter remains supported (Part 3).
+The same rejection applies to any adapter-requiring type anywhere in a callback signature, in either direction, under Part 1 §5.3's recursive rule. It does **not** affect already-decided top-level `Seq` crossing (`extern fun values() ->! Seq(Int)`), whose one stable boundary adapter remains supported (Part 3), and it does not reach captured collections, which are not adapters and have their own wrapper (§5.5).
+
+### 5.5 Captured-collection signatures: the conversion wrapper, with no identity promise *(#876)*
+
+The second supported shape. A callback signature that names a captured foreign collection anywhere — `Array(Int) -> Unit`, `(Nullable(IoError), Array(Row)) -> Unit`, `Int -> Array(String)` — cannot cross as the same function object, because a captured collection is copied at every crossing (Part 1 §2.2, §5.4) and each invocation of the callback *is* a crossing. Such a callback crosses as a **conversion wrapper**: a fresh function, created where the callback value crosses, that at each invocation runs Part 1 §5.4's walk over every argument and the result at their declared types — copying the captured collections, carrying everything else by identity — and calls the original. A Hexagon callback handed to JavaScript is wrapped so that the arrays JavaScript passes in become Hexagon's own copies and the arrays Hexagon returns leave as copies; a foreign function value entering Hexagon (§5.3) is wrapped the other way round. Nothing else about the callback changes: arity is the declared arity (§2), `Unit` discards (§3.2), throws follow §4, foreign `this` is ignored (§6).
+
+**No identity promise.** The wrapper is created per crossing and is never cached: passing the same Hexagon function to a foreign API twice produces two wrapper objects, and a foreign API that registers and deregisters callbacks *by identity* — `addListener`/`removeListener` — will not match them. This is the recorded departure from §5.1's identity guarantee, of the same kind Part 3 §14.2 records for `Stream`, and it is confined to signatures that name a captured collection: a callback over events, primitives, records, and runtime collections keeps the same-object guarantee exactly as before. The recommended shape for a registration API whose payload is an array is a small **foreign shim that retains the wrapper and returns a disposal handle** — `subscribe(target, cb)` returning an unsubscribe function — so that removal never needs the identity the wrapper cannot supply; the alternatives are declaring the payload `JsValue` and decoding it with `JsValue.toArray` inside the callback, which makes the copy an explicit named step and leaves the callback representation-direct, or binding through an opaque foreign handle (Part 1 §2.2). An identity cache keyed by function and signature is the deferred upgrade (§8 item 2), now with a concrete customer; it is not part of v1.
 
 ---
 
@@ -176,7 +185,7 @@ Callback retention by JavaScript is permitted and unbounded: foreign code may st
 Excluded from v1 and reserved for a later FFI/async deep dive; nothing here pre-commits their design:
 
 1. **Callback arguments or results requiring `Seq`** or any other runtime boundary adapter (§5.4; Part 3 §10.3).
-2. **Wrapper caching** keyed by original function plus boundary signature — unnecessary until adapting callbacks exist, and to be designed with them.
+2. **Wrapper caching** keyed by original function plus boundary signature — §5.5's conversion wrappers are the first customer (a captured-collection callback registered and removed by identity); designing the cache means answering the retention question Part 3 §2.1 records against identity caches, and v1 answers it with the foreign-shim workaround instead.
 3. **Callback-visible JavaScript `this`** or receiver-aware callback types (§6).
 4. **Promise-returning callbacks, async callbacks, and rejection-channel integration** — await the async specification (Part 1 §4.4).
 5. **Optional, overloaded, or rest/variadic callback signatures** — deferred with their extern-declaration counterparts (Part 4 §11).
@@ -191,6 +200,8 @@ Excluded from v1 and reserved for a later FFI/async deep dive; nothing here pre-
 | Situation | Diagnostic (rewrite named) | Owner |
 |---|---|---|
 | adapter-requiring type in a callback parameter or result (either direction) | the §5.4 error: names the nested type; rewrites = representation-direct type / explicit eager conversion / JS shim | §5.4 (discharges Part 3 §9.3/§11's assignment) |
+| captured collection (`Array(a)`) in a callback signature | not a diagnostic — the callback crosses through a conversion wrapper; identity is not promised, documented with the shim workaround | §5.5 |
+| captured collection beneath one of the five Hexagon runtime containers the walk cannot enter, or in a Hexagon opaque type's representation, inside a callback signature | Part 1 §5.4's refusals, at the declaration | Part 1 §5.4 |
 | function-typed extern `let` | "extern callable declarations use `fun`; a binding of type `Int -> Int` is callable — write `fun f(x: Int) -> Int`" | §2.4 |
 | arity mismatch at a Hexagon call of a boundary function | ordinary Functions §5 compile-time arity error, unchanged | §2.1 |
 | JS caller passing too few/ill-typed arguments to an exported function or Hexagon callback | not a diagnostic — contract violation, unspecified observations (Part 1 §3.1) | §2.2–2.3 |
@@ -269,10 +280,11 @@ The decision record for this part was complete, and §12 records the review reso
 | Function-typed extern `let` is a hard error → `fun` (confirmed at review) | §2.4, §12.2 |
 | `Unit`: `void`/`undefined` faces; **declared `Unit` result is discarding, not trusting** (confirmed at review); exported Hexagon `Unit` genuinely returns `undefined`; nullary functions pass no unit | §3, §12.1 |
 | Exceptions need no boundary mechanism: branded Hexagon exceptions remain domestic on re-entry; other inbound throws → `JsError` (virtual wrapping, two-stage discrimination); outbound Hexagon throws are branded `Error`s; no delivery promise through foreign control flow | §4 |
-| V1 callbacks = representation-direct signatures only, recursive under Part 1 §5.3; same JS function object both directions; identity by representation, not caching; no weak wrapper cache | §5.1–5.2 |
-| Inbound foreign function values are the raw function object as the Hexagon value, symmetric on re-crossing | §5.3 |
+| V1 callbacks = representation-direct signatures, recursive under Part 1 §5.3, as the same JS function object both directions, identity by representation, not caching, no weak wrapper cache; **plus** *(#876)* signatures naming a captured collection, through a per-crossing conversion wrapper that copies captured arguments and results at each invocation, **no identity promise** (foreign shim with a disposal handle as the workaround; identity cache deferred) | §5.1–5.2, §5.5 |
+| Inbound foreign function values are the raw function object as the Hexagon value, symmetric on re-crossing; wrapped instead when the signature names a captured collection (§5.5) | §5.3 |
 | Raw inbound function values assert receiver independence; a function requiring foreign `this` uses extern `method` or a JS shim | §5.3, §6 |
 | Adapter-requiring callback signatures: hard error at declaration with three named rewrites; discharges Part 3 §9.3/§11; top-level `Seq` crossing unaffected | §5.4 |
 | Callback `this` ignored; unobservable from Hexagon; receiver-requiring APIs → explicit argument or shim; distinct from extern `method` | §6 |
 | Unbounded foreign retention permitted; `var`-capture ban unchanged; no escape annotations ever inserted at the boundary | §7 |
 | Deferred: adapting callbacks, wrapper caches, callback `this`, async callbacks, optional/overload/rest callback signatures, cross-signature identity — one revisit bar (concrete foundational API) | §8 |
+| *(#876)* The receiver-member wrapper of Part 5 §2.3 performs the walk when the member's signature names a captured collection — the third walk-carrying binding beside Part 7 §7 occasion 4 and Part 4 §4.3; not a new wrapper occasion | §1 |
