@@ -27,7 +27,7 @@ The `.d.ts` faces are TypeScript's native readonly interfaces, not `Hex.` types 
 Foreign code owns the underlying `Map`/`Set` and must keep its **entries, elements, and size stable** while Hexagon — including any deferred traversal derived from the view (§6.3) — may observe it. This is the stability contract Part 2 §6.2 wrote for `Array` before #876 retired it there, applied to keyed storage and standing here until #875:
 
 - Violation does not create memory unsafety; affected contents, order, size, lookup, and traversal observations are **unspecified** (Part 1 §3.1).
-- An escaped `Seq` extends the borrow obligation through its possible consumption lifetime (§6.3).
+- An escaped `Seq` extends the borrow obligation through its possible consumption lifetime (§6.3). *(#876.)* So does an `Array(a)` **extracted** from a borrowed `JsMap(k, Array(a))` or `JsSet(Array(a))`: until #875 makes the extraction a capture, the value is the live foreign array, Part 2 §6.2's capture contract does not reach it, and the foreign owner's obligation covers that value for as long as Hexagon retains it — the one dated exception Part 1 §2.2 names.
 - A freshly constructed native collection (e.g. `Map.toJsMap`'s result, §7.2) is stable while exclusively held by Hexagon; the obligation becomes relevant once foreign code can alias it.
 - Under valid use, **live observation and snapshot observation are observationally identical** — which is what licenses native iteration (§6.4) and the two-step bracket lowering (§4.2) without copies or atomicity machinery.
 

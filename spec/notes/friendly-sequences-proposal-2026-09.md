@@ -1,6 +1,6 @@
 # Friendly Sequences — proposal
 
-**Status:** Proposed, non-normative; 2026-09-06. Records James's requested
+**Status:** Proposed, non-normative; 2026-09-06. *(`Array` is a captured foreign collection since #876 and `JsMap`/`JsSet` follow under #875; this note's "borrowed foreign collections" passages predate that and describe the retired contract.)* Records James's requested
 sequence-seat convenience and the simple, bounded design discussed with him.
 Merging this note records a proposal; it does not adopt a language rule or
 claim compiler support. Normative specification and implementation follow

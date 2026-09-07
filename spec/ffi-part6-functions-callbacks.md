@@ -25,8 +25,9 @@ Wrappers exist only where a named rule puts one, and this list is exhaustive for
 | stable export wrapper for a generic constrained export when its internal calling convention needs public-ABI plumbing; otherwise the trailing-evidence function exports directly | Parts 7–9 |
 | stable export wrapper for an exported Hexagon function whose signature names a captured foreign collection (`Array(a)`; `JsMap`/`JsSet` under #875) — occasion 4 | Part 7 §7; Part 1 §5.4 |
 | stable copying wrapper for an extern binding whose signature names a captured foreign collection | Part 4 §4.3; Part 1 §5.4 |
+| stable copying wrappers on a public dictionary handle's captured-collection members — and, allocated with the result, on a public factory result's | Part 9 §3.4, §4 |
 
-**Every boundary function wrapper in this table is module-level, allocated once with its ESM binding, with stable JS identity.** This statement is about the named callable wrapper, not fresh per-value adapters created by a call (Part 3 §2.1), and not the per-crossing **conversion wrapper** a *callback* value receives (§5.5), which is a value-level artifact like an adapter — the two names are kept apart on purpose. No representation-direct v1 callback signature requires any wrapper at all (§5), which is what makes that subset's identity trivial rather than cached.
+**Every boundary function wrapper in this table is allocated once with the thing it rides and has stable JS identity for that thing's life** — module-level, with its ESM binding, for every row but the last, and with the factory result for a factory result's member wrappers (whose identity Part 9 §4 promises nothing about either way). This statement is about the named callable wrapper, not fresh per-value adapters created by a call (Part 3 §2.1), and not the per-crossing **conversion wrapper** a *callback* value receives (§5.5), which is a value-level artifact like an adapter — the two names are kept apart on purpose. No representation-direct v1 callback signature requires any wrapper at all (§5), which is what makes that subset's identity trivial rather than cached.
 
 ---
 
