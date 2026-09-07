@@ -316,7 +316,7 @@ extern from "direction"
     fun move(direction: Direction) ->! Unit
 ```
 
-`move!(Up)` passes the captured `$Direction.Up` value. `current!()` returns its JavaScript
+`move!(Up)` passes the enum object's own `$Direction.Up` member value. `current!()` returns its JavaScript
 value directly. Consequently, an extern enum is representation-direct inside records,
 callbacks, and other representation-direct aggregates, and inside a captured `Array`, which FFI Part 1 §5.4's walk copies while carrying the members by identity (#876). It does not trigger the
 nested-adapter restrictions that apply to `Seq(a)`.
