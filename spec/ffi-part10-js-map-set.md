@@ -24,7 +24,7 @@ The `.d.ts` faces are TypeScript's native readonly interfaces, not `Hex.` types 
 
 ## 2. The borrow contract
 
-Foreign code owns the underlying `Map`/`Set` and must keep its **entries, elements, and size stable** while Hexagon — including any deferred traversal derived from the view (§6.3) — may observe it. This is Part 2's `Array` stability contract, applied to keyed storage:
+Foreign code owns the underlying `Map`/`Set` and must keep its **entries, elements, and size stable** while Hexagon — including any deferred traversal derived from the view (§6.3) — may observe it. This is the stability contract Part 2 §6.2 wrote for `Array` before #876 retired it there, applied to keyed storage and standing here until #875:
 
 - Violation does not create memory unsafety; affected contents, order, size, lookup, and traversal observations are **unspecified** (Part 1 §3.1).
 - An escaped `Seq` extends the borrow obligation through its possible consumption lifetime (§6.3).
@@ -139,7 +139,7 @@ Both iterate in **native insertion order** — the order JavaScript defines for 
 
 ### 6.3 `toSeq`, `entries`, and deferred traversal
 
-`JsMap.toSeq`/`JsSet.toSeq` are **lazy and zero-copy over the borrowed collection** — the `Array.toSeq` shape (Part 2). `JsMap.entries` is a definitional synonym of `JsMap.toSeq`, mirroring the persistent `Map.toSeq ≡ entries` correspondence (Part 4 §7.3); the collections conversion doctrine is satisfied because the suite name `toSeq` is the primary spelling and `entries` introduces no second behavior.
+`JsMap.toSeq`/`JsSet.toSeq` are **lazy and zero-copy over the borrowed collection** — the shape `Array.toSeq` had under Part 2's borrow, before #876. `JsMap.entries` is a definitional synonym of `JsMap.toSeq`, mirroring the persistent `Map.toSeq ≡ entries` correspondence (Part 4 §7.3); the collections conversion doctrine is satisfied because the suite name `toSeq` is the primary spelling and `entries` introduces no second behavior.
 
 - The resulting `Seq` obeys full `Seq` persistence (Part 3 §4–§5): positions are persistent, forcing memoizes, and the implementation may hold one native iterator behind a memoizing spine — under a valid borrow, live and snapshot observations coincide (§2), so the choice is unobservable.
 - **A deferred traversal extends the stability obligation**: the borrow lasts while any derived `Seq` position may still be consumed (§2). Escaping sequences are the canonical long-borrow hazard and the documentation must say so.
@@ -205,7 +205,7 @@ All four are **eager shallow snapshots** (Part 1 §5.1): the named outer collect
 
 ## 8. Boundary legality of parameters
 
-`k`, `v`, and `a` follow the general rules, applied at declaration site (Part 1 §5.3): representation-direct and borrowed types nest freely (`JsMap(String, Array(Int))`, `JsSet(Hex.Vector<Float>)` are legal faces); **adapter-requiring types are rejected** inside the borrowed container (`JsMap(String, Seq(Int))` is the Part 1 §5.3 hard error, with its named rewrite: convert at a controlled boundary or restructure the declaration). Nothing new — the rule is cited, not extended.
+`k`, `v`, and `a` follow the general rules, applied at declaration site (Part 1 §5.3): representation-direct, captured, and borrowed types nest freely (`JsMap(String, Array(Int))`, `JsSet(Hex.Vector<Float>)` are legal faces — and until #875 the borrowed outer map is a container Part 1 §5.4's walk does not enter, so the arrays inside it cross under §2's borrow contract rather than captured, which is one reason #875 follows #876 without delay); **adapter-requiring types are rejected** inside the borrowed container (`JsMap(String, Seq(Int))` is the Part 1 §5.3 hard error, with its named rewrite: convert at a controlled boundary or restructure the declaration). Nothing new — the rule is cited, not extended.
 
 ---
 

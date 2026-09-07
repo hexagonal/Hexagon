@@ -138,7 +138,7 @@ plus(half, third, Rat.num);
 
 ### 3.4 Materialization, freezing, identity
 
-A public handle forces its instance dictionary to be **materialized as a module-level constant with stable ESM identity** — the same export-forces-materialization principle as Part 7 §12.2's constructors — even when no internal Hexagon code ever reifies that dictionary (internal known-concrete calls keep erasing evidence; Constraints §6.1). Dictionary objects **should be frozen** (`Object.freeze`) where practical; freezing is strongly recommended, not load-bearing (§10). Instance construction is evaluation-free (Constraints §6.3), so materialization has no initialization-order story.
+A public handle forces its instance dictionary to be **materialized as a module-level constant with stable ESM identity** *(#876: unless the dictionary type names a captured foreign collection — FFI Part 1 §5.4 item 4 — in which case no handle or factory is emitted and JavaScript reaches the constrained function through its fundamental specializations)* — the same export-forces-materialization principle as Part 7 §12.2's constructors — even when no internal Hexagon code ever reifies that dictionary (internal known-concrete calls keep erasing evidence; Constraints §6.1). Dictionary objects **should be frozen** (`Object.freeze`) where practical; freezing is strongly recommended, not load-bearing (§10). Instance construction is evaluation-free (Constraints §6.3), so materialization has no initialization-order story.
 
 ---
 

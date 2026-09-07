@@ -530,7 +530,7 @@ An implementation is not conforming until tests cover at least:
 2. String members whose values differ from local constructor names.
 3. Symbol members and singleton object members matched by identity.
 4. Foreign and local aliases in the same declaration.
-5. Direct parameters, returns, callbacks, and nested `Array(Enum)` values without
+5. Direct parameters, returns, callbacks, and nested `Array(Enum)` values — the array captured by FFI Part 1 §5.4's walk with each member carried by identity (#876), the members themselves without
    wrappers or traversal.
 6. Exhaustive and non-exhaustive matches using the declared local constructor set.
 7. `fromJsT` success for every member and `None` for an unrelated value.

@@ -23,7 +23,6 @@ Wrappers exist only where a named rule puts one, and this list is exhaustive for
 | stable export wrapper for a supported top-level adapted position (e.g. incoming `Iterable<a>` declared `Seq(a)`) | Parts 3/7; Part 4 §4.3 for the extern-binding face |
 | stable convention-preserving wrapper for first-class receiver members (`method`/`get`/`set`/`new`, incl. static) | Part 5 §2.3 |
 | stable export wrapper for a generic constrained export when its internal calling convention needs public-ABI plumbing; otherwise the trailing-evidence function exports directly | Parts 7–9 |
-
 | conversion wrapper for an exported function whose signature names a captured foreign collection (`Array(a)`; `JsMap`/`JsSet` under #875) | Part 7 §7 occasion 4; Part 1 §5.4 |
 
 **Every boundary function wrapper in this table is module-level, allocated once with its ESM binding, with stable JS identity.** This statement is about the named callable wrapper, not fresh per-value adapters created by a call (Part 3 §2.1), and not the per-crossing conversion wrapper a *callback* value receives (§5.5), which is a value-level artifact like an adapter. No representation-direct v1 callback signature requires any wrapper at all (§5), which is what makes that subset's identity trivial rather than cached.
@@ -122,9 +121,9 @@ extern from "event-source"
 
 ### 5.2 What qualifies
 
-Representation-direct callback eligibility is applied recursively: primitives and native values, `Nullable`, records and unions in their specified emitted representations, declared exceptions and `Exn`, genuine Hexagon runtime values (`Hex.Vector`/`Hex.Map`/`Hex.Set`, crossing by identity), opaque extern types, `JsValue`, and function types built from the same set. **`Array(a)` is no longer in this set** *(#876)*: it is a captured foreign collection (Part 1 §2.2), copied at every crossing, and a callback invocation is a crossing — a signature naming it takes §5.5's conversion wrapper instead. Ordinary Hexagon functions are n-ary JavaScript functions with the same visible argument order (§1), so a function-typed callback parameter or result nests without ceremony.
+Representation-direct callback eligibility is applied recursively: primitives and native values, `Nullable`, records and unions in their specified emitted representations, declared exceptions and `Exn`, genuine Hexagon runtime values (`Hex.Vector`/`Hex.Map`/`Hex.Set`, crossing by identity), opaque extern types, `JsValue` *(#876: named here for the first time — identity-crossing since Part 11 landed, and the type §5.5's workaround relies on)*, and function types built from the same set. **`Array(a)` is no longer in this set** *(#876)*: it is a captured foreign collection (Part 1 §2.2), copied at every crossing, and a callback invocation is a crossing — a signature naming it takes §5.5's conversion wrapper instead. Ordinary Hexagon functions are n-ary JavaScript functions with the same visible argument order (§1), so a function-typed callback parameter or result nests without ceremony.
 
-A practical shape this admits today, without waiting for Part 11: Node-style error-first callbacks, declared honestly against an opaque error type —
+A practical shape this admits: Node-style error-first callbacks, declared honestly against an opaque error type —
 
 ```hexagon
 extern from "legacy-io"

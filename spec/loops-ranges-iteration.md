@@ -146,7 +146,7 @@ fun collatzSteps(n0) =
 
 ## 5. What comes after `in`
 
-Anything with an `Iterable` instance (§7). The definitive v1 instance table — element types, `toSeq` strategies, and the borrowed-view notes — is owned by **Collections Part 5 §4**. By ownership, the provided families are:
+Anything with an `Iterable` instance (§7). The definitive v1 instance table — element types, `toSeq` strategies, and the capture/borrow notes — is owned by **Collections Part 5 §4**. By ownership, the provided families are:
 
 - **Collections/prelude-owned:** `Range` (element `Int`, §3), `Vector(a)`, `Seq(a)` (`toSeq` is the identity, §6), `Map(k, v)` (element `(k, v)` — the canonical `for (k, v) in m` head, §2.1), `Set(a)`, and `String` (element: one-codepoint `String`, Collections Part 5 §5).
 - **FFI-owned foreign collections:** the captured `Array(a)` (FFI Part 1 §2.2, #876) and the borrowed `JsMap(k, v)`, `JsSet(a)` (borrowed until #875) — rows recorded in Collections Part 5 §4; semantics in their owning FFI parts.
