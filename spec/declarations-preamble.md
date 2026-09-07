@@ -144,7 +144,7 @@ A parameterized alias must be applied to exactly its declared arity at every use
 
 ### 5.1.1 No linked arrow in an alias body
 
-`->?` is the *enclosing signature's* effect variable (Effects §2.2), and an alias body has no enclosing signature — it is a type fragment, expanded into whatever signature later mentions it. A `->?` written in an alias body is therefore a hard error, with Effects §4.4's frame and this position's middle clause:
+`->?` is the effect variable of the *nearest enclosing signature that can own one* (Effects §2.2.2), and an alias body has no enclosing signature — it is a type fragment, expanded into whatever signature later mentions it. A `->?` written in an alias body is therefore a hard error, with Effects §4.4's frame and this position's middle clause:
 
 > `->?` is the caller's colour, and this position has no caller to choose it — an alias is a type fragment, not a signature; write `->!` for a function that pulls the world, or `->` for one that does not
 
