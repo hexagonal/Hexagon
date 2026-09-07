@@ -1,7 +1,7 @@
 # Hexagon FFI Part 1: Boundary Doctrine and Type Mapping
 
-**Status:** Decided (July 2026), revised in place after external review (Sol) before landing. Normative promotion of `spec/notes/ffi-proto-spec-questions.md` §1 and §4, drafted per `spec/notes/ffi-roadmap.md` Part 1. The two questions the draft recorded as promotion blockers (`Range`'s foreign face, §8.1; opaque Promise handles, §4.4) were resolved by James and Sol before promotion. Amended 2026-08-02 (#128 ruling): §8's type-import target is re-grounded from a package that does not exist to the compiler-emitted runtime declaration module — §8.3; brand mechanism fixed and alternatives recorded — §8.3–§8.4.
-**Scope:** The trusted, fast boundary and its failure doctrine; the four boundary categories (representation-direct / borrowed foreign view / adapted foreign capability / converted value); the master Hexagon-to-JavaScript/TypeScript type mapping table; opaque extern Promise handles (§4.4); shallow conversion and the nested-adaptation restriction; the numeric trust rule; foreign throws at the boundary; and the `Hex` runtime type namespace for generated declarations, including `Hex.Range` (§8.1).
+**Status:** Decided (July 2026), revised in place after external review (Sol) before landing. Normative promotion of `spec/notes/ffi-proto-spec-questions.md` §1 and §4, drafted per `spec/notes/ffi-roadmap.md` Part 1. The two questions the draft recorded as promotion blockers (`Range`'s foreign face, §8.1; opaque Promise handles, §4.4) were resolved by James and Sol before promotion. Amended 2026-08-02 (#128 ruling): §8's type-import target is re-grounded from a package that does not exist to the compiler-emitted runtime declaration module — §8.3; brand mechanism fixed and alternatives recorded — §8.3–§8.4. Amended (#876): the **borrowed foreign view** category is replaced by the **captured foreign collection** — §2.2 — with the type-directed capture walk, its supported and refused positions, and the release seats in §5.4; `Array(a)` migrates in this amendment, and `JsMap(k, v)`/`JsSet(a)` retain Part 10 §2's borrow contract until #875 migrates them (§2.2, §4.1).
+**Scope:** The trusted, fast boundary and its failure doctrine; the four boundary categories (representation-direct / captured foreign collection / adapted foreign capability / converted value); the master Hexagon-to-JavaScript/TypeScript type mapping table; opaque extern Promise handles (§4.4); shallow conversion and the nested-adaptation restriction; the numeric trust rule; foreign throws at the boundary; and the `Hex` runtime type namespace for generated declarations, including `Hex.Range` (§8.1).
 **Not in scope:** `Nullable(a)` and `Array(a)` companion surfaces (Part 2, `ffi-part2-nullable-array.md`); `Seq(a)` adaptation mechanics (Part 3, `ffi-part3-seq.md`); `extern` syntax and module binding (Part 4); receiver members and classes (Part 5); calling convention and callbacks (Part 6); the export surface and `.d.ts` generation rules (Part 7); constrained exports and dictionaries (Part 8, `ffi-zero-cost-fundamental-exports.md`, and Part 9); JavaScript `Map`/`Set` (Part 10); `JsValue` and checked decoding (Part 11). Where this document's table names those types, it fixes only their **category** and links forward.
 **Companions:** Primitive Types §1–§2, §9; Products §2.6/§3.5/§5.4; Unions §6; Exceptions §6–§7; Modules §11–§12; Loops/Ranges/Iteration §6; Collections Part 4 §10; Collections Part 5 §6; `ffi-foreign-enums.md`.
 
@@ -27,15 +27,21 @@ Consequences fixed here:
 
 ## 2. The four boundary categories
 
-Every **boundary occurrence** falls under exactly one of four categories. The first three classify how a value of a declared type crosses at a boundary position; the fourth classifies explicit named operations, not types — the same type can cross directly or under borrow at its declared positions *and* be the subject of a converted operation (`Vector` is representation-direct; `Vector.toArray` is a conversion). These names are the standard vocabulary of the whole FFI corpus; later parts use them without redefining them.
+Every **boundary occurrence** falls under exactly one of four categories. The first three classify how a value of a declared type crosses at a boundary position; the fourth classifies explicit named operations, not types — the same type can cross directly or by capture at its declared positions *and* be the subject of a converted operation (`Vector` is representation-direct; `Vector.toArray` is a conversion). These names are the standard vocabulary of the whole FFI corpus; later parts use them without redefining them.
 
 ### 2.1 Representation-direct
 
-The runtime value already has the declared JavaScript representation and crosses **unchanged** — no wrapper, no copy, no check. Primitives, `Unit`, tuples, records, unions, `Option(a)`, `Nullable(a)`, opaque values, exceptions, genuine runtime collection values (`Vector`, persistent `Map`/`Set`), opaque extern types, representation-direct boundary functions, and every callback signature admitted in v1 are representation-direct (§4). Ordinary boundary functions with a supported top-level adapted position instead receive the stable wrapper described by Parts 3, 4, and 7.
+The runtime value already has the declared JavaScript representation and crosses **unchanged** — no wrapper, no copy, no check. Primitives, `Unit`, tuples, records, unions, `Option(a)`, `Nullable(a)`, opaque values, exceptions, genuine runtime collection values (`Vector`, persistent `Map`/`Set`), opaque extern types, representation-direct boundary functions, and representation-direct callback signatures are representation-direct (§4). An aggregate is representation-direct only while its declared type names no captured collection (§2.2): a record with an `Array(Int)` field is copied field by field at the crossing under §5.4's walk, and is otherwise the same POJO it always was. Ordinary boundary functions with a supported top-level adapted position instead receive the stable wrapper described by Parts 3, 4, and 7; a boundary function whose signature names a captured collection receives the conversion wrapper of §5.4.
 
-### 2.2 Borrowed foreign view
+### 2.2 Captured foreign collection *(#876)*
 
-Zero-copy, foreign-owned storage that Hexagon can only **observe**, under a stability/lifetime contract stated by the owning part. Foreign code owns the storage; Hexagon gains no mutation capability. `Array(a)` is specified by Part 2; `JsMap(k, v)` and `JsSet(a)` are specified by Part 10.
+A foreign collection whose contents Hexagon **captures at the crossing** and owns thereafter. The declared type names a native JavaScript collection shape — a JS array for `Array(a)` — and the value Hexagon holds is a **snapshot** of the foreign collection taken as it crossed: a fresh native collection of the same shape, holding the same elements, sharing no storage with the foreign original. Foreign code may mutate its original afterwards; the Hexagon value does not change. When the value crosses back, foreign code receives a fresh copy in turn, so no storage a Hexagon value denotes is ever reachable from foreign code. Hexagon exposes **no mutation** on a captured collection: it is readonly from Hexagon, and stable because nothing else can reach it either.
+
+> **The governing guarantee: a pure collection denotes stable contents. Foreign mutation cannot change a collection value Hexagon retains.** Purity here is a fact about the value, established by the capture — never a rule that forbids the compiler to share a read of storage someone else can vary.
+
+The capture is **type-directed, recursive, and performed only at actual foreign crossings** — §5.4 states the walk, the positions it reaches, the positions it refuses, and its cost. A Hexagon-to-Hexagon call never copies: two Hexagon functions passing an `Array(Int)` between them share one value, exactly as they share a `Vector(Int)`. The category's members: `Array(a)`, specified by Part 2 §6. `JsMap(k, v)` and `JsSet(a)` join under #875 (Part 10); **until that amendment lands they remain borrowed foreign views** — zero-copy, foreign-owned storage that Hexagon only observes under Part 10 §2's stability contract, the category this one replaces — and this document describes them as nothing else. Once both have migrated, no borrowed view remains in the corpus.
+
+**The live alternative is a foreign capability, not a collection.** A binding that needs the foreign storage itself — its identity, its current contents, its zero-copy cost — declares an opaque extern `type` and reads it through `->!` accessors (Part 5 §3.1's `get`, Part 5 §2's `method`): `extern type Rows` with `method at(rows: Rows, index: Int) ->! Int` is the live view, spelled as what it is, with its reads coloured as the reads of mutable foreign state they are. That door is always open, costs nothing at the crossing, and is what the standard collection values deliberately are not.
 
 ### 2.3 Adapted foreign capability
 
@@ -51,7 +57,7 @@ An explicit, eager, named operation traverses or constructs a new representation
 
 ### 3.1 Contract violation: unspecified observations
 
-When foreign code violates a trusted declaration or a borrow contract — a non-integral `number` behind an `Int` declaration, a mutated array behind a live `Array(a)` borrow — the affected Hexagon observations are **unspecified**. This does not create memory unsafety; it means Hexagon promises nothing about the affected contents, order, length, or derived results. Informally this is a cultural responsibility — binding authors check that the JavaScript API really satisfies the declaration — but normatively it is a programmer-supplied boundary contract.
+When foreign code violates a trusted declaration or a borrow contract — a non-integral `number` behind an `Int` declaration, a hole in an array declared with a non-nullable element type (Part 2 §6.4), a native `Map` mutated behind a live `JsMap` borrow (Part 10 §2, until #875) — the affected Hexagon observations are **unspecified**. This does not create memory unsafety; it means Hexagon promises nothing about the affected contents, order, length, or derived results. Informally this is a cultural responsibility — binding authors check that the JavaScript API really satisfies the declaration — but normatively it is a programmer-supplied boundary contract.
 
 ### 3.2 Where checks lawfully live
 
@@ -100,14 +106,14 @@ For each Hexagon type: its JavaScript runtime representation, its generated `.d.
 | `Range` | materialized range object implementing the JS iterable protocol (Loops §8) | `Hex.Range` — branded interface extending `Iterable<number>` (§8.1); the brand is §8.3's structural phantom marker, **not** Part 7 §5's `unique symbol` | direct | trusted |
 | opaque extern Promise handles | the foreign `Promise` object, unchanged and by identity | the declared opaque type, per the general extern-type facing rule (Parts 4/7) | direct | trusted; §4.4 (rejection is a foreign async event) |
 | Functions (boundary signatures) | n-ary JS function, same visible argument order | function type | direct in the common case; a supported top-level adapted position (e.g. `Seq(a)`) adds one stable boundary function wrapper plus fresh per-value adapters (Parts 3, 4, 7) | trusted; foreign throws → §7 |
-| Callbacks (function-typed arguments/results) | the same JS function object in both directions | function type | direct — v1 admits **only** representation-direct callback signatures (Part 6) | trusted; adapter-requiring callback signatures are a v1 hard error (Part 6) |
+| Callbacks (function-typed arguments/results) | the same JS function object in both directions for a representation-direct signature; a **conversion wrapper**, copying its captured arguments and results at each invocation, for a signature that names a captured collection (Part 6 §5.5) | function type | direct — v1 admits representation-direct callback signatures, and captured-collection signatures through the wrapper (Part 6) | trusted; adapter-requiring callback signatures are a v1 hard error (Part 6); wrapped callbacks carry no identity promise |
 | `Nullable(a)` | `a \| null \| undefined` (zero wrapper) | `a \| null \| undefined` | direct | trusted; companion surface in Part 2 |
-| `Array(a)` | foreign-owned JS array, readonly to Hexagon | `ReadonlyArray<a>` | **borrowed** | stability contract in Part 2; violation → §3.1 |
+| `Array(a)` | a fresh JS array holding the captured elements — Hexagon's own snapshot of the foreign array, readonly to Hexagon and unreachable from foreign code | `ReadonlyArray<a>` | **captured** (§2.2; the walk, §5.4) | trusted contents (§5.2); capture cost in Part 2 §6.2; unsupported positions are compile-time refusals, §5.4 |
 | `Seq(a)` outbound (Hexagon sequence to JS) | the runtime sequence value, natively implementing the JS iterable protocol; each `[Symbol.iterator]()` yields an independent replayable cursor | `Iterable<a>` | direct | Part 3; trusted |
 | `Seq(a)` inbound (foreign `Iterable<a>` to Hexagon) | persistent memoizing adapter over one foreign iterator, requested on first demand | `Iterable<a>` | **adapted** (top-level only; §5.3) | Part 3; protocol throws → §7 |
 | `Vector(a)` | the runtime collection object **is** the value (identity crossing) | `Hex.Vector<a>` | direct | trusted |
 | persistent `Map(k, v)` / `Set(a)` | runtime HAMT objects (identity crossing) | `Hex.Map<k, v>` / `Hex.Set<a>` | direct | trusted; snapshot conversions are **converted** (Part 10 inherits Collections Part 4 §10) |
-| `JsMap(k, v)` / `JsSet(a)` | native JS `Map` / `Set` | `ReadonlyMap<k, v>` / `ReadonlySet<a>` | borrowed | Part 10 stability contract; inward persistent conversions are converted & checked |
+| `JsMap(k, v)` / `JsSet(a)` | native JS `Map` / `Set` | `ReadonlyMap<k, v>` / `ReadonlySet<a>` | borrowed — **pending #875**, which moves both to captured (§2.2) | Part 10 stability contract until #875; inward persistent conversions are converted & checked |
 | `JsValue` | arbitrary JS value, opaque and identity-crossing | `unknown` | direct (opaque); decoding is converted & checked | Part 11 |
 | extern `type` (opaque foreign type) | whatever the foreign API supplies; Hexagon sees no structure | generated opaque branded named type (exact form Part 7) | direct | trusted |
 | `opaque record` / `opaque union` | the erased underlying runtime value (no wrapper added) | TS `unique symbol` brand hiding the representation (Part 7) | direct | trusted |
@@ -126,7 +132,8 @@ For each Hexagon type: its JavaScript runtime representation, its generated `.d.
 - **Adapter-requiring types in nested positions** are rejected (§5.3) — the only v1 shape-legality rule beyond the type system itself.
 - **Bare `Iterator<a>`** does not satisfy a `Seq(a)` position; the v1 boundary accepts `Iterable<a>` only (Part 3).
 - **Async surfaces are deferred, not designed here.** The decided exclusions are: no async sequence boundary until the async specification defines its types and rejection semantics; and no Promise-returning or async callbacks in v1 (Part 6). Opaque extern **Promise handles** are nonetheless permitted — §4.4 is the governing decision.
-- **No mutable Hexagon array type exists**; `Array(a)` is the readonly foreign door.
+- **No mutable Hexagon array type exists**; `Array(a)` is the readonly foreign door, and a captured one (§2.2): what crosses at an `Array(a)` position is copied, both ways (§5.4).
+- **Captured collections are refused where the capture cannot reach them** (§5.4): beneath an identity-crossing runtime container (`Vector`, `Map`, `Set`, `Seq`, `Stream`), inside a Hexagon opaque type's representation, in an exception payload, and as an exported non-function binding.
 - Rest/variadic, overloaded, and optional-parameter extern signatures are deferred (Part 4/Part 6 record the fixed-arity rule).
 
 ### 4.4 Opaque extern Promise handles
@@ -166,23 +173,61 @@ The declaration asserts the representation of the whole nested value; it never r
 extern fun rows() ->! Array(Vector(Int))
 ```
 
-asserts that the returned value is a JavaScript array containing genuine runtime `Vector` values *(2026-08-02: "runtime" per §8.3 — the compiler-provided runtime, not a package)*. `ReadonlyArray<Hex.Vector<number>>` is its legitimate `.d.ts` face; the outer `Array` remains a zero-copy borrowed foreign array.
+asserts that the returned value is a JavaScript array containing genuine runtime `Vector` values *(2026-08-02: "runtime" per §8.3 — the compiler-provided runtime, not a package)*. `ReadonlyArray<Hex.Vector<number>>` is its legitimate `.d.ts` face; the outer `Array` is captured at the crossing (§2.2, §5.4) — the elements it holds are the very `Vector` values the foreign array held, by identity, and the array Hexagon holds is its own.
 
-**Nested representation-direct values are permitted**: primitives and native values, `Nullable`, further `Array` layers, records and unions in their specified emitted representations, and genuine runtime values (`Vector`, persistent `Map`/`Set`), each under its ordinary declared contract.
+**Nested representation-direct values are permitted**: primitives and native values, `Nullable`, records and unions in their specified emitted representations, and genuine runtime values (`Vector`, persistent `Map`/`Set`), each under its ordinary declared contract. Further `Array` layers are permitted and are captured layer by layer (§5.4): the declaration is still a representation contract about what the foreign value *is*, and it is additionally the instruction for what the crossing copies.
 
 ### 5.3 The nested-adapter restriction (v1, hard error)
 
-V1 **rejects** an adapter-requiring type when it appears inside a representation-direct aggregate or borrowed container and cannot be made valid without traversing, copying, proxying, or wrapping that enclosing value. The canonical case:
+V1 **rejects** an adapter-requiring type when it appears inside a representation-direct aggregate or a foreign collection (captured or, until #875, borrowed) and cannot be made valid without traversing, copying, proxying, or wrapping that enclosing value. The canonical case:
 
 ```hexagon
 extern fun streams() ->! Array(Seq(Int))
 ```
 
-An arbitrary `ReadonlyArray<Iterable<number>>` cannot satisfy this declaration honestly: each iterable may require the persistent memoizing `Seq` adapter, while `Array(a)` promises zero-copy direct indexing and iteration. The same rule applies to an adapter-requiring value nested in a direct record, tuple, union payload, or other unwrapped aggregate.
+An arbitrary `ReadonlyArray<Iterable<number>>` cannot satisfy this declaration honestly: each iterable may require the persistent memoizing `Seq` adapter, while the capture walk (§5.4) copies an array's elements and adapts none of them — an adapter is not a copy, and the walk is not an adaptation. The same rule applies to an adapter-requiring value nested in a direct record, tuple, union payload, or other unwrapped aggregate.
 
 Per the Rewrite Rule, the diagnostic must identify the nested adapter-requiring type and name the local rewrite: an explicit eager conversion/adaptation step at a controlled boundary (or a small foreign shim). Top-level adaptation remains supported, and explicit converters may deliberately traverse a foreign structure — stating their failure and complexity contracts, since they are not zero-copy.
 
 V1 does not attempt proxies, lazy per-field adaptation, automatic deep conversion, or replayability inference to lift this restriction. Whether a later version can safely generalize nested adapters is **deferred without a design commitment**; it is not required for the v1 FFI.
+
+### 5.4 The capture walk: supported positions, refused positions, release seats *(#876)*
+
+The captured category (§2.2) has one mechanism, stated here once and consumed by Parts 2, 4, 5, 6, 7, 10, and 11. **At every supported boundary position whose declared type names a captured collection, the value is copied as it crosses, in both directions, and the copy is directed by the declared type, recursively.** This is §5.2's recursive representation contract read a second way: the declaration still says what the foreign value *is*, and it now also says what the crossing *copies*. No runtime classification is performed and nothing is probed — an `Array(Int)` position copies an array because the declaration says `Array`, exactly as a `Seq(a)` position adapts because the declaration says `Seq` (§2.3). Positions the walk cannot reach are **refused at compile time**; nothing crosses a boundary unprotected because the compiler could not protect it.
+
+**The positions.** Every declared boundary position is one of these, and each performs the walk at its declared type:
+
+| Position | Direction | Owner |
+|---|---|---|
+| an extern `fun`'s parameters / result | out / in | Part 4 §4 |
+| an `extern let`'s value | in, once, at module initialization — the binding is Hexagon's snapshot from then on, and Part 4 §4.4's stability assertion is about the *binding* (foreign reassignment), not the captured contents | Part 4 §4.4 |
+| a `get`'s result; a `method`'s parameters / result; a `set`'s argument; a `new`'s arguments | in / out per slot | Part 5 |
+| an exported Hexagon function's parameters / result | in / out — through the conversion wrapper of Part 7 §7 occasion 4; Hexagon importers bind the internal function and never copy | Part 7 §7 |
+| a callback's parameters / result, at each invocation | in / out per slot — through the conversion wrapper of Part 6 §5.5, in both directions of function crossing | Part 6 §5.5 |
+| `JsValue.from`'s argument — a **release seat**: a Hexagon value entering the uncertain world | out | Part 11 §2 |
+
+**The walk at a declared type τ**, applied to the value at the position:
+
+- **τ is a captured collection.** A fresh native collection of the same shape is built, holding the walk of each element at the element type, in the source's own order. For `Array(e)`: the copy has the source's `length`, reads each index exactly once in index order through native array access — an exotic array object observes exactly that access pattern and nothing else — and stores the walk-at-`e` of what it read. A hole reads as `undefined`, which is what Part 2 §6.4 says a hole observes as; whether the copy stores a hole or an `undefined` is unobservable from Hexagon and is emitter latitude. (`JsMap`/`JsSet`: Part 10, under #875.)
+- **τ is a record, tuple, union, `Option`, or `Nullable` whose declared type names a captured collection somewhere inside it.** A fresh aggregate of the same representation is built — the POJO, the tuple array, the tagged POJO, the `Some` cell — with each component the walk at its declared type; a component whose type names no captured collection is carried by identity. Nullary constructors and `None` are the shared constants they always were; a nullish `Nullable` is itself. An aggregate whose declared type names **no** captured collection is not walked at all: it crosses by identity, as §2.1 always had it, and the walk costs nothing where nothing needs copying.
+- **τ is a function type that names a captured collection anywhere in its signature.** The value becomes a **conversion wrapper** — Part 6 §5.5 — which walks each captured argument and result at each invocation. A function type naming none is the same object in both directions, unchanged (Part 6 §5.1).
+- **τ is a type variable.** Identity, and sound by parametricity: at a boundary position the value at `a` is supplied by the foreign side, and Hexagon never holds it as a collection — a `first(xs: Array(a)): a` returns to JavaScript an element it could not have looked inside. The one seat where a *Hexagon* caller supplies the value at a type variable is `JsValue.from`, and that seat is refused there (Part 11 §2).
+- **Anything else** — primitives, `Vector`/`Map`/`Set`/`Range`/`Seq`/`Stream`, opaque extern types, `JsValue`, exceptions, functions naming no captured collection — keeps its own category and is not entered. The walk copies only what the declared type says is a captured collection, and traverses only the aggregates that lead to one.
+
+**The refused positions.** Each is a hard error at the declaration or export site, per the Rewrite Rule, and each exists because the crossing there would expose captured storage in a way the walk cannot prevent:
+
+1. **A captured collection beneath an identity-crossing runtime container** — `Vector(Array(Int))`, `Map(String, JsSet(Int))` *(once #875 lands)*, `Set(Array(Int))`, `Seq(Array(Int))`, `Stream(Array(Int))` — at any depth, including through records inside the container. These containers cross by identity (§4.2, Part 3 §2.2), JavaScript can traverse every one of them (§8.2), and copying their contents would mean rebuilding the container, breaking the identity crossing and, for `Map`/`Set`, re-hashing. The diagnostic names the container and the captured type inside it and offers the three rewrites: convert the elements (`Vector.map(rows, Array.toVector)` — a `Vector(Vector(Int))` crosses by identity with nothing to protect), perform the conversion at a controlled boundary, or bind through a foreign shim or an opaque foreign handle.
+2. **A Hexagon opaque type whose representation names a captured collection**, at any boundary position. An `opaque record` or `opaque union` crosses as its erased runtime value **by identity** (Part 7 §5) — that identity is its boundary contract, so its representation cannot be copied at the crossing, and an `Array` field inside it would be reachable from JavaScript as a plain property. The compiler knows the representation and refuses the position, naming the field. Rewrites: keep a `Vector` (or another identity-safe type) in the representation, or expose the collection through an exported accessor whose result is walked.
+3. **An `exception` whose payload names a captured collection**, refused **at the declaration** (Exceptions §2). An exception crosses wherever a throw travels — out of an exported function into a JavaScript `catch`, through foreign frames and back — and none of those crossings is a declared position the walk could sit on; the only place safety can be established is the declaration. Rewrite: carry a `Vector`. The consequence is what makes the abstract type safe: no `Exn` value carries captured storage, so `Exn` at a boundary position (§4.1's row) crosses exactly as before, and a branded error fabricated in JavaScript with a mutable array payload is §3.1's territory, as every fabricated value is.
+4. **An exported non-function binding whose type names a captured collection**, including inside an aggregate (Part 7 §7). An ESM value binding is one live binding shared by JavaScript and by every Hexagon importer; a copy cannot protect it, because the copy is what everyone would share. Rewrite: export a function whose result is walked, or a `Vector` whose element types satisfy this section. The internal/foreign binding split that would lift this refusal is deferred (Part 7 §7).
+5. **`JsValue.from` at an argument type containing an unresolved type variable** (Part 11 §2): the seat cannot determine a release operation, and it never falls back to identity.
+6. **An adapter-requiring type nested inside a captured collection** — `Array(Seq(Int))` — remains §5.3's refusal, unchanged.
+
+**Effects and cost.** The copy performs no effect of its own: it reads storage the crossing has already committed to reading, and it makes a value. The row's arrow colours the acquisition — an unannotated extern row is `->!` and says so (Part 4 §4.5); a `->` row returning an `Array(Int)` is the author's trusted claim that the foreign function is pure, whose result is then a value by capture (Effects §6.2, species (c)). Every operation on the captured value is pure and the compiler may share, hoist, or eliminate its reads freely — there is no fresh-read rule on a value. **The crossing is linear in the outer collection**, plus whatever the element type's walk costs, and that cost is stated at every captured position by Parts 2 and 10; it is the price of §2.2's guarantee, accepted knowingly, and the hot path that cannot pay it binds an opaque foreign handle instead (§2.2).
+
+**Stability during capture, identity, and failure.** The walk reads through the native protocol inside the frame that performs the crossing — the extern call, the wrapper invocation — so a hostile getter, proxy trap, or accessor that throws follows the ordinary `JsError` path (§7), and a foreign mutation that happens *during* the copy — a trap mutating the array being read — leaves the captured contents unspecified under §3.1 for that acquisition alone; the value, once made, is stable regardless. A captured value has **no identity relation** to the foreign original: two acquisitions of one foreign collection are two values, a value that crosses out and back is two copies, and no cache of any kind ties them together. Elements keep their identities except where the walk names them captured in turn.
+
+**What this section is not.** It is not a validation layer (§1 stands: nothing is checked, classified, or scanned for legality — the walk copies what the declaration says and trusts the rest), not a deep-conversion license for named conversions (§5.1 stands: `Vector.toArray` is still shallow — its result is a value Hexagon holds, and it is *that value's* later crossing that copies), and not a change to any face: `Array(a)` still faces as `ReadonlyArray<a>`, which is now simply true in both directions.
 
 ---
 
@@ -207,7 +252,7 @@ extern fun population() ->! BigInt
 extern fun counts() ->! Array(Int)
 ```
 
-assert respectively a safe integral number, an arbitrary JS number, a JS bigint, and a borrowed array whose observed elements are safe integral numbers. **The compiler inserts no per-call numeric guards and does not scan `Array(Int)` merely to validate its elements** (the zero-scan rule).
+assert respectively a safe integral number, an arbitrary JS number, a JS bigint, and a captured array whose elements are safe integral numbers. **The compiler inserts no per-call numeric guards and does not scan `Array(Int)` merely to validate its elements** (the zero-scan rule).
 
 Dynamic checks belong to operations whose purpose is to establish a narrower invariant from an uncertain value:
 
@@ -359,8 +404,13 @@ All hard errors, per the Rewrite Rule (each names its local rewrite):
 
 | Situation | Diagnostic |
 |---|---|
-| Adapter-requiring type nested in a representation-direct aggregate or borrowed container (§5.3) | hard error naming the nested type; rewrite: explicit eager conversion/adaptation at a controlled boundary, or a foreign shim |
+| Adapter-requiring type nested in a representation-direct aggregate or foreign collection (§5.3) | hard error naming the nested type; rewrite: explicit eager conversion/adaptation at a controlled boundary, or a foreign shim |
 | Bare-`Iterator` shape offered where `Seq(a)` is declared | not statically detectable (trusted boundary); Part 3 documents the foreign obligation to supply an `Iterable` |
+| Captured collection beneath an identity-crossing runtime container at a boundary position (`Vector(Array(Int))`, `Seq(Array(Int))`, …) (§5.4 item 1) | hard error naming the container and the captured type; rewrites: convert the elements, convert at a controlled boundary, foreign shim or opaque handle |
+| Hexagon opaque type whose representation names a captured collection, at a boundary position (§5.4 item 2) | hard error naming the field; rewrites: an identity-safe representation, or an exported accessor |
+| `exception` payload naming a captured collection (§5.4 item 3) | hard error at the declaration (Exceptions §2); rewrite: carry a `Vector` |
+| Exported non-function binding whose type names a captured collection (§5.4 item 4) | hard error at the export (Part 7 §7); rewrite: export a function, or a `Vector` |
+| `JsValue.from` at a type containing an unresolved type variable (§5.4 item 5) | hard error (Part 11 §2); rewrites: inject where the concrete type is known, or pass an explicit conversion function into the generic helper |
 
 Async-callback rejection diagnostics belong to Part 6 with the rest of the callback rules (§4.3 records only that the exclusion is decided). No Promise-handle diagnostic exists, on principle (§4.4): the compiler cannot see a foreign representation behind opacity.
 
@@ -379,13 +429,15 @@ Part 12 §11.1 fixes the deterministic `Hex`-alias collision scheme promised by 
 | Decision | Where |
 |---|---|
 | Checked `extern` = trusted programmer assertion; no general runtime shape validation | §1 |
-| Four-category vocabulary: representation-direct / borrowed / adapted / converted | §2 |
+| Four-category vocabulary: representation-direct / captured / adapted / converted *(#876: "borrowed foreign view" replaced by "captured foreign collection"; `JsMap`/`JsSet` borrowed until #875)* | §2 |
 | Contract violation → unspecified observations (not unsafety); distinct from defined conversion failure | §3 |
 | Checks live only in named invariant-establishing operations and inherent protocol participation | §3.2 |
 | Master mapping table incl. `Option` never erased to nullability; runtime collections cross by identity | §4 |
-| `Nullable`/`Array` borrowed-vs-direct categories fixed; surfaces owed to Part 2; `Seq` direct outbound and adapted inbound, mechanics owed to Part 3 | §4.1 |
+| `Nullable` direct and `Array` **captured** *(#876; formerly borrowed)*; surfaces owed to Part 2; `Seq` direct outbound and adapted inbound, mechanics owed to Part 3 | §4.1 |
 | Named conversions are shallow; extern signatures are recursive representation contracts | §5.1–§5.2 |
 | Nested adapter-requiring positions are a v1 hard error with a named rewrite | §5.3 |
+| *(#876)* **The capture walk**: at every supported boundary position whose declared type names a captured collection, the value is copied as it crosses, both directions, type-directed and recursive; Hexagon-to-Hexagon calls never copy; positions enumerated (extern params/results, `extern let` once, receiver members, exported functions through Part 7's wrapper, callbacks at invocation through Part 6's wrapper, `JsValue.from` as a release seat); the walk enters captured collections and the aggregates leading to them, wraps functions, leaves type variables to parametricity, and enters nothing else; **six refusals** — beneath identity-crossing containers, in opaque Hexagon representations, in exception payloads (at the declaration), as exported value bindings, `JsValue.from` at an unresolved variable, adapters inside captured collections; the copy adds no effect and the row's arrow colours the acquisition; cost linear in the outer collection, accepted; hostile reads → `JsError`, mutation during the copy → §3.1 for that acquisition only; no identity relation, no cache; the opaque extern handle with `->!` accessors is the live alternative and is a foreign capability, not a collection | §2.2, §5.4 |
+| *(#876)* Rejected, with prices, recorded in Part 2 §13.2: keeping the borrow contract behind a no-hoist rule; inbound-only copying; runtime classification at the crossing; freezing captured arrays; copying through identity-crossing containers; an identity cache for conversion wrappers | Part 2 §13.2 |
 | Numeric trust table; zero per-call guards; zero-scan rule; the dividing rule (trusted declaration vs checked conversion) | §6 |
 | One foreign-throw door: `JsError`; no decoding of arbitrary thrown values | §7 |
 | One type-only `Hex` namespace import; `Hex.Vector`/`Hex.Map`/`Hex.Set` faces. *(2026-08-02, #128 ruling: this row formerly quoted `from "@hexagon/runtime"`. No such package exists — the specifier is the path-adjusted relative import to the emitted `hex.d.ts`, §8.3. The alias, the one-import discipline, and the faces are unchanged.)* | §8, §8.3 |

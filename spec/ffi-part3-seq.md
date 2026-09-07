@@ -218,7 +218,7 @@ Generator objects normally qualify because they implement `IterableIterator<a>`.
 
 ### 9.3 Top-level positions only
 
-The automatic adapter exists at supported top-level boundary positions. `Seq` nested inside a representation-direct aggregate or borrowed container (`Array(Seq(Int))`, a `Seq`-valued record field crossing directly) is rejected by Part 1 §5.3's hard error, with its named rewrite. `Seq` in callback parameter or result positions is rejected by Part 6's v1 callback rule. Neither restriction is weakened or restated here.
+The automatic adapter exists at supported top-level boundary positions. `Seq` nested inside a representation-direct aggregate or foreign collection (`Array(Seq(Int))`, a `Seq`-valued record field crossing directly) is rejected by Part 1 §5.3's hard error, with its named rewrite. `Seq` in callback parameter or result positions is rejected by Part 6's v1 callback rule. Neither restriction is weakened or restated here.
 
 *(Note, 2026-07-28.)* §9.4's representation rule incidentally makes *outbound* nested `Seq` values honest (every `Seq` value satisfies the iterable protocol wherever it sits), but Part 1 §5.3's rejection is inbound-motivated and **stands unmodified**; whether it can ever be relaxed for outbound-only positions is a separate question this ruling does not open.
 
@@ -311,7 +311,7 @@ This part introduces **no new hard errors** (its one runtime exception is declar
 
 | Situation | Owner |
 |---|---|
-| `Seq` nested in a direct aggregate or borrowed container | Part 1 §5.3 (hard error with named rewrite) |
+| `Seq` nested in a direct aggregate or foreign collection | Part 1 §5.3 (hard error with named rewrite) |
 | `Seq` in a callback parameter/result position | Part 6 (v1 callback rule) |
 | Malformed foreign iterator result | not a diagnostic — runtime JS `TypeError` via `JsError` (§7.2) |
 | Reentrant forcing of a spine | not a diagnostic — runtime `ReentrancyError` (§7.3; declared §7.4); detected, unlike the row below |
