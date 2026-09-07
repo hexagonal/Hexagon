@@ -188,7 +188,7 @@ All four are **eager shallow snapshots** (Part 1 §5.1): the named outer collect
 
 - primitive and `Bool` keys/elements are faithful (SameValueZero alignment; nothing collapsed, split, or lost — Part 4 §10.1);
 - structural keys become **reference-identity** keys: the converted map is a snapshot for JS consumption, not a shared structural index, and JS cannot look up by reconstruction;
-- the fresh native collection is stable while exclusively Hexagon-held (§2) and is the foreign consumer's to own once handed over.
+- the fresh native collection is stable while exclusively Hexagon-held (§2) and is the foreign consumer's to own once handed over — the outer collection, that is: until #875, a captured collection among its keys or values stays Hexagon's under §2's temporary contract.
 
 ### 7.3 Inward: checked, collapsing, cycle-aware
 
