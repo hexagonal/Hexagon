@@ -3,7 +3,7 @@
 ## Purpose
 
 Teach how Hexagon binds existing JavaScript modules and crosses values honestly:
-trusted `extern` declarations, explicit nullability, borrowed arrays, adapted
+trusted `extern` declarations, explicit nullability, captured arrays, adapted
 sequences, receiver members, classes, foreign enums, callbacks, and shallow collection
 conversions.
 
@@ -11,7 +11,7 @@ conversions.
 
 The reader can write an ordinary extern binding, choose a boundary type that states the
 real JavaScript representation, call receiver-based APIs without introducing objects
-into Hexagon's type system, and know when crossing is direct, borrowed, adapted, or an
+into Hexagon's type system, and know when crossing is direct, captured, adapted, or an
 explicit conversion.
 
 ## Teaching order
@@ -20,7 +20,7 @@ explicit conversion.
 2. Named, aliased, default, value, type, and effect bindings.
 3. Representation-direct values and the numeric trust rule.
 4. `Nullable(a)` keeps foreign absence explicit and separate from `Option(a)`.
-5. `Array(a)` is a zero-copy readonly borrow; `Vector(a)` is a stable persistent value.
+5. `Array(a)` is a captured snapshot copied at every crossing; `Vector(a)` is a stable persistent value.
 6. A top-level `Seq(a)` boundary receives a persistent memoizing adapter.
 7. `method`, `get`, `set`, and `class` describe JavaScript calling conventions while
    producing ordinary subject-first Hexagon functions.
