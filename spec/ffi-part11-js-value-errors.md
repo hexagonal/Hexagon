@@ -261,7 +261,7 @@ The package fixed semantics; the draft supplied concrete spellings; review resol
 
 ### 13.1 `JsMap`/`JsSet` classification decoders — deferred from the v1 core
 
-`toJsMap : JsValue -> Result(JsMap(JsValue, JsValue), ...)` needs a way to recognize a native `Map`, and no portable `Array.isArray`-equivalent exists: `instanceof Map` is **realm-bound** — a `Map` from an iframe/worker/vm context fails it while being a perfectly good map — and the workable intrinsic brand checks are awkward throw-based probes, sitting badly under this part's probe discipline. **Resolved: deferred**, recorded at §9.2 with that absence as the revisit bar; the decoders ride with the stdlib decoder family (§10's ledger note).
+`toJsMap : JsValue -> Result(JsMap(JsValue, JsValue), ...)` needs a way to recognize a native `Map`, and no portable `Array.isArray`-equivalent exists: `instanceof Map` is **realm-bound** — a `Map` from an iframe/worker/vm context fails it while being a perfectly good map — and the workable intrinsic brand checks are awkward throw-based probes, sitting badly under this part's probe discipline. **Resolved: deferred**, recorded at §9.2 with that absence as the revisit bar; the decoders ride with the stdlib decoder family (§10's ledger note). Should they land, their success values are **captured** `JsMap`/`JsSet` values (Part 10 §2, #875), copies made by the decoder exactly as `toArray`'s success value is (§4.2).
 
 ### 13.2 The decoder library's home — the stdlib listing, confirmed
 
