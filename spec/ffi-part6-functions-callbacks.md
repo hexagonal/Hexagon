@@ -201,7 +201,7 @@ Excluded from v1 and reserved for a later FFI/async deep dive; nothing here pre-
 |---|---|---|
 | adapter-requiring type in a callback parameter or result (either direction) | the §5.4 error: names the nested type; rewrites = representation-direct type / explicit eager conversion / JS shim | §5.4 (discharges Part 3 §9.3/§11's assignment) |
 | captured collection (`Array(a)`) in a callback signature | not a diagnostic — the callback crosses through a conversion wrapper; identity is not promised, documented with the shim workaround | §5.5 |
-| captured collection beneath an identity-crossing container, or in a Hexagon opaque type's representation, inside a callback signature | Part 1 §5.4's refusals, at the declaration | Part 1 §5.4 |
+| captured collection beneath one of the five Hexagon runtime containers the walk cannot enter, or in a Hexagon opaque type's representation, inside a callback signature | Part 1 §5.4's refusals, at the declaration | Part 1 §5.4 |
 | function-typed extern `let` | "extern callable declarations use `fun`; a binding of type `Int -> Int` is callable — write `fun f(x: Int) -> Int`" | §2.4 |
 | arity mismatch at a Hexagon call of a boundary function | ordinary Functions §5 compile-time arity error, unchanged | §2.1 |
 | JS caller passing too few/ill-typed arguments to an exported function or Hexagon callback | not a diagnostic — contract violation, unspecified observations (Part 1 §3.1) | §2.2–2.3 |

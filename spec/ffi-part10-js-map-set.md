@@ -158,7 +158,7 @@ JsSet.fromSeq : Seq(a) -> JsSet(a)
 
 Both functions are **unconstrained, eager, shallow constructors of a fresh native collection**. They consume the source once in traversal order, perform no structural hashing or decoding, and therefore return the collection directly rather than `Result`. An infinite source diverges. A throw while advancing a foreign-backed source follows `JsError`; there is no cycle check because native insertion never traverses the inserted key, value, or element.
 
-Duplicate handling is exactly native construction semantics:
+The fresh collection is the consumer's once handed over — the outer collection: until #875, a captured collection among its keys, values, or elements stays Hexagon's under §2's temporary contract (#876). Duplicate handling is exactly native construction semantics:
 
 - `JsMap.fromSeq` uses SameValueZero/reference identity. A later equal key replaces the value while retaining the native map's original key position and stored key representative.
 - `JsSet.fromSeq` uses SameValueZero/reference identity and retains the native set's first stored representative and position.
@@ -180,7 +180,7 @@ Set.toJsSet   : Set(a) -> JsSet(a)
 Set.fromJsSet : <a: Hash> JsSet(a) -> Result(Set(a), JsConversionError)
 ```
 
-All four are **eager shallow snapshots** (Part 1 §5.1): the named outer collection changes representation; keys, values, and elements retain their runtime values and identities. They never share mutable native storage with a persistent collection. Nested conversion is the caller's explicit map, as everywhere.
+All four are **eager shallow snapshots** (Part 1 §5.1): the named outer collection changes representation; keys, values, and elements retain their runtime values and identities. They never share mutable native storage *as the outer collection* with a persistent collection; a captured collection among the keys, values, or elements is carried by identity and stays Hexagon's under §2's temporary contract until #875 (§7.2). Nested conversion is the caller's explicit map, as everywhere.
 
 ### 7.2 Outward: total
 

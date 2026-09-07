@@ -463,7 +463,7 @@ This part introduces **two hard errors of its own** — #478's `isHexError` coll
 | adapter-requiring type nested in an exported signature | Part 1 §5.3 |
 | adapter-requiring callback signature in an exported function | Part 6 §5.4 |
 | exported non-function binding whose type names a captured collection (`Array(a)`) | **this part, §7** *(#876)*: hard error naming the type; rewrites = export a function / export a `Vector` |
-| captured collection beneath an identity-crossing container or inside an opaque representation, in an exported signature | Part 1 §5.4 |
+| captured collection beneath one of the five Hexagon runtime containers the walk cannot enter or inside an opaque representation, in an exported signature | Part 1 §5.4 |
 | `Hex` alias collision in a generated `.d.ts` | deterministic emitter resolution, Part 1 §8 — not a user error |
 | brand-identifier collision in a generated `.d.ts` | emitter renaming, §5 — not a user error |
 
