@@ -283,7 +283,7 @@ Illustration using this proposed String API, not a landed module:
 module Hex.Experimental.Node.File
 
 extern from "node:fs"
-    fun readFileSync(path: String, encoding: String): String
+    fun readFileSync(path: String, encoding: String) ->! String
 
 export let readText(path: String): String =
     let text = readFileSync!(path, "utf8")

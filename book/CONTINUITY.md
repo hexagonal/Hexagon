@@ -264,7 +264,8 @@ late pedagogy pass, not a commitment to the current order.
 - Assumes polymorphism, operators, interpolation, nominal declarations, and only the
   light earlier preview that declarations live in modules.
 - Establishes constraints, instances, default operations, `honor`, base constraints,
-  coherence, the orphan rule, and the core prelude capability vocabulary.
+  coherence, the orphan rule, and the core prelude capability vocabulary; a member
+  header writes its effect arrow as a contract every instance is compared against.
 - Introduces dictionaries as small operation objects only after ordinary concrete
   constraint use is understood; concrete calls remain direct.
 - Prepares derivation, collection capabilities, implied types, and the final
@@ -374,8 +375,8 @@ late pedagogy pass, not a commitment to the current order.
   excluded), the arrow trio `->` / `->?` / `->!` and the call trichotomy bare / `!` /
   `?` as one alphabet, glued marks, the linked signature and its inlet, face
   enforcement in both directions, the four unmarkable call forms and the purity they
-  demand, the extern door with `pure` as the trusted claim, and erasure — colours
-  never reach the emitted JavaScript.
+  demand, the extern door with `->` on the declaration as the trusted claim, and
+  erasure — colours never reach the emitted JavaScript.
 - Introduces `extern from` blocks ahead of the JavaScript chapters, deliberately and
   lightly: effects need the world's door on stage, and the full boundary treatment
   stays deferred.
@@ -792,6 +793,9 @@ late pedagogy pass, not a commitment to the current order.
   functions infer constraints. A body may not silently strengthen a written
   constraint list, and entailed base constraints are never restated.
 - Constraint members are direct functions, never dot-call companion operations.
+- A member header writes its effect arrow (`-> Float`, `->! String`) as a contract:
+  a ceiling an instance's body is compared against, and the mark every call through
+  the member wears whichever instance answers.
 - Uses the final `honor` spelling throughout; older `implement` text in superseded spec
   passages must never leak into the book.
 - Prepares deriving, collections, loops, and constrained exports.
@@ -916,10 +920,12 @@ late pedagogy pass, not a commitment to the current order.
   an error at the offending call. (The specification checks faces in both
   directions; the chapter stages the pure-face direction.)
 - Operators, indexing, `for` heads, and interpolation have no mark seat, so
-  everything they reach is pure; constraint members and `honor` bodies check pure.
-- A user-written `extern fun` is effectful by default; `pure` is the trusted,
-  believed-not-checked claim, with the specification's two narrow species. `extern
-  from` appears here ahead of the JavaScript chapters, deliberately and lightly.
+  everything they reach is pure: the prelude's members write `->`, and their `honor`
+  bodies check pure. A user constraint's member header is an effect contract.
+- Every callable extern declaration writes its arrow; `->!` is the guidance for the
+  unknown, `->` the trusted believed-not-checked claim (the specification's species),
+  `->?` the declared conduit. `extern from` appears here ahead of the JavaScript
+  chapters, deliberately and lightly.
 - Colours and marks erase; emitted JavaScript is identical with and without them.
   The purity guarantee leans on Mutable Variables' no-capture rule.
 
@@ -931,7 +937,7 @@ late pedagogy pass, not a commitment to the current order.
   specification's and the stdlib's.)
 - Consumers (`next`, `collect`, `fold`, `forEach`, `find`) wear `->!` and their
   calls wear `!`; wiring (`map`, `filter`, `fromSeq`) builds without pulling and
-  stays bare in ordinary bodies.
+  stays bare in every body.
 - `collect!` freezes a bounded sample into a `Vector(a)` — the one bridge back to
   pure data; `fromSeq` drives pure data in.
 - There is no `Stream.memoize` and no `Stream.toSeq`, on purpose: replay is a purity
@@ -1066,6 +1072,9 @@ late pedagogy pass, not a commitment to the current order.
   and adapter-requiring callbacks are rejected.
 - Foreign receiver calls, properties, and classes lower to subject-first companion
   functions; representation-direct callbacks retain function identity.
+- Every callable extern declaration writes its effect arrow before its result: `->!`
+  when in doubt, `->` as a trusted claim, `->?` for a declaration as effectful as its
+  callbacks; setters write `->!` only; a constructor writes the class's own type.
 - Collection conversions are shallow; foreign throws use `JsError`; `JsValue` requires
   explicit checked decoding when a stronger invariant is wanted.
 

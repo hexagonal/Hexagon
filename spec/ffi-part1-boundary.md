@@ -163,7 +163,7 @@ Set.toJsSet    : Set(a) -> JsSet(a)
 The declaration asserts the representation of the whole nested value; it never requests an implicit graph traversal:
 
 ```hexagon
-extern fun rows(): Array(Vector(Int))
+extern fun rows() ->! Array(Vector(Int))
 ```
 
 asserts that the returned value is a JavaScript array containing genuine runtime `Vector` values *(2026-08-02: "runtime" per §8.3 — the compiler-provided runtime, not a package)*. `ReadonlyArray<Hex.Vector<number>>` is its legitimate `.d.ts` face; the outer `Array` remains a zero-copy borrowed foreign array.
@@ -175,7 +175,7 @@ asserts that the returned value is a JavaScript array containing genuine runtime
 V1 **rejects** an adapter-requiring type when it appears inside a representation-direct aggregate or borrowed container and cannot be made valid without traversing, copying, proxying, or wrapping that enclosing value. The canonical case:
 
 ```hexagon
-extern fun streams(): Array(Seq(Int))
+extern fun streams() ->! Array(Seq(Int))
 ```
 
 An arbitrary `ReadonlyArray<Iterable<number>>` cannot satisfy this declaration honestly: each iterable may require the persistent memoizing `Seq` adapter, while `Array(a)` promises zero-copy direct indexing and iteration. The same rule applies to an adapter-requiring value nested in a direct record, tuple, union payload, or other unwrapped aggregate.
@@ -201,10 +201,10 @@ The primitive representation requirements (the trusted assertions behind the §4
 Thus:
 
 ```hexagon
-extern fun count(): Int
-extern fun measurement(): Float
-extern fun population(): BigInt
-extern fun counts(): Array(Int)
+extern fun count() ->! Int
+extern fun measurement() ->! Float
+extern fun population() ->! BigInt
+extern fun counts() ->! Array(Int)
 ```
 
 assert respectively a safe integral number, an arbitrary JS number, a JS bigint, and a borrowed array whose observed elements are safe integral numbers. **The compiler inserts no per-call numeric guards and does not scan `Array(Int)` merely to validate its elements** (the zero-scan rule).

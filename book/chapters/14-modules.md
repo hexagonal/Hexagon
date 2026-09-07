@@ -396,7 +396,7 @@ private alias — though if the expansion itself is a private type, that is the 
 leak by another name, and the compiler refuses it the same way.
 
 An exported constraint's member signatures answer to the same rule, for the same
-reason. A member like `peek(x: a): Token` with `Token` private asks an importer to
+reason. A member like `peek(x: a) -> Token` with `Token` private asks an importer to
 produce and handle a value whose type they can neither name nor build; the compiler
 refuses it at the member, with the same marker on `Token`'s declaration and the same
 remedy — export `Token`, perhaps opaquely, or keep the constraint private.

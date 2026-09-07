@@ -16,7 +16,7 @@ The `Iterable` constraint asks that question by declaring a type of its own:
 ```hexagon
 constraint Iterable<c> =
     type Item
-    toSeq(xs: c): Seq(Item)
+    toSeq(xs: c) -> Seq(Item)
 ```
 
 `Item` is an **implied type**: a type uniquely determined by a constraint instance's
@@ -65,7 +65,7 @@ uppercase-start name:
 ```hexagon
 constraint Iterable<c> =
     type Item
-    toSeq(xs: c): Seq(Item)
+    toSeq(xs: c) -> Seq(Item)
 ```
 
 There is no `=` on the declaration line because the constraint does not choose the
@@ -80,7 +80,7 @@ than tailored to iteration:
 constraint Conversion<c> =
     type Input
     type Output
-    convert(conversion: c, value: Input): Output
+    convert(conversion: c, value: Input) -> Output
 ```
 
 This constraint describes a conversion object whose source and result types are fixed
@@ -141,11 +141,11 @@ Consequently, two constraints in one module may both declare `Item`:
 ```hexagon
 constraint Source<s> =
     type Item
-    read(source: s): Option((Item, s))
+    read(source: s) -> Option((Item, s))
 
 constraint Sink<s> =
     type Item
-    write(sink: s, value: Item): s
+    write(sink: s, value: Item) -> s
 ```
 
 There is no collision. Bare `Item` means `Source`'s member inside the `Source` body and

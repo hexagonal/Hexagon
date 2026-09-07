@@ -29,6 +29,7 @@ Related forms and likely lookup terms should point to one another.
 | constructor | Chapter 10, opening and “Constructors make union values” | Record constructors, union constructors, and exception constructors |
 | currying | Chapter 3, “Arity is part of a function” | Not implicit in Hexagon; see **partial application** and **n-ary** |
 | default operation | Chapter 12, “A constraint declares the required operations” | Chapter 12, `Eq.notEquals` |
+| effect contract | Chapter 12, “A constraint declares the required operations” | Chapter 19, “Where marks cannot go”; see **constraint** |
 | constraint dictionary | Chapter 27, opening definition | JavaScript object representation, parameters, handles, and factories; see **dictionary** |
 | dictionary | Chapter 12, “Concrete code remains concrete” | Chapter 27, **constraint dictionary** |
 | derivation | Chapter 13, opening and “Two spellings have one meaning” | See also **instance** |
@@ -89,7 +90,7 @@ Related forms and likely lookup terms should point to one another.
 | arrow trio | Chapter 19, “Silence means pure” | `->` pure, `->?` the caller's choice, `->!` unconditionally impure |
 | call mark (`!`, `?`) | Chapter 19, “The mark at the call” | Glued to the argument list; symmetric enforcement; see **effect** |
 | inlet | Chapter 19, “`->?` needs something to link to” | Why `->?` is refused in a `record` field, a `union` field, and an alias body |
-| trusted purity claim | Chapter 19, “Where effects come from” | `pure` on a user extern: believed, not checked |
+| trusted purity claim | Chapter 19, “Where effects come from” | `->` on a user extern declaration: believed, not checked |
 | frozen sample | Chapter 20, “Consuming a stream” | `Stream.collect!` as the bridge back to pure data |
 | base constraint | Chapter 12, “A constraint may require another constraint” | — |
 | subject-first | Chapter 3, “Put the subject first” | Chapter 15 throughout; see also **dot call** |

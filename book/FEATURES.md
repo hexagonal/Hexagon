@@ -91,8 +91,9 @@ open specification work does not make the book outline provisional.
 
 13. **Constraints** — Constraints such as `Eq`, `Ord`, `Show`, `Num`, `Signed`,
     `Frac`, `Integral`, `Concat`, `Pow`, `Hash`, and `Iterable` express capabilities.
-    Operations may provide overridable defaults; `honor` declarations provide coherent
-    instances under an orphan rule. Constrained polymorphism compiles through dictionary
+    Operations may provide overridable defaults, and each member header writes its effect
+    arrow as a contract instances are compared against; `honor` declarations provide
+    coherent instances under an orphan rule. Constrained polymorphism compiles through dictionary
     passing while concrete code remains direct.
 
 14. **Derivation** — Nominal records and unions can opt into lawful,
@@ -129,8 +130,10 @@ open specification work does not make the book outline provisional.
     errors. `->?` denotes one effect variable per signature and is legal only where a
     parameter offers the caller a slot to choose it. Operators, indexing, `for` heads,
     and interpolation have no seat for a mark, so everything they dispatch to is pure —
-    constraint members included. Effects enter through user-written externs, impure by
-    default, with `pure` as a trusted unchecked claim. Allocation, a local `var`, and
+    the prelude's members all write `->`, while a user constraint's member header is an
+    effect contract its instances are compared against. Effects enter through user-written
+    externs, each declaration writing its arrow: `->!` for the unknown, `->` as a trusted
+    unchecked claim, `->?` for one as effectful as its callbacks. Allocation, a local `var`, and
     throwing are deliberately not effects.
 
 20. **Streams** — `Stream(a)` is `Seq`'s impure nominal sibling: a tailless pull

@@ -242,7 +242,7 @@ Later mutation of `$Direction.Up` does not change the meaning of the Hexagon
 constructor. A getter runs once. APIs whose members are intentionally dynamic are not
 enums under this contract and must use `get`, `fun`, or an opaque foreign type.
 
-As with `extern fun sampleCount(): Int`, ordinary typed use performs no defensive
+As with `extern fun sampleCount() ->! Int`, ordinary typed use performs no defensive
 validation. A missing, duplicate, unstable, or out-of-set member is a false foreign
 declaration, not a condition silently converted to `Option`. Implementations may offer
 development assertions, but they are not part of release semantics.
@@ -312,11 +312,11 @@ An enum value crosses unchanged in both directions:
 ```hexagon
 extern from "direction"
     enum Direction = Up | Down
-    fun current(): Direction
-    fun move(direction: Direction): Unit
+    fun current() ->! Direction
+    fun move(direction: Direction) ->! Unit
 ```
 
-`move(Up)` passes the captured `$Direction.Up` value. `current()` returns its JavaScript
+`move!(Up)` passes the captured `$Direction.Up` value. `current!()` returns its JavaScript
 value directly. Consequently, an extern enum is representation-direct inside records,
 arrays, callbacks, and other representation-direct aggregates. It does not trigger the
 nested-adapter restrictions that apply to `Seq(a)`.
