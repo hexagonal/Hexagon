@@ -173,6 +173,42 @@ export let drive(source: { step: () ->? String }): String = (source.step)?()
 Here the arrow links, and it is its own inlet. Position decides whether `->?` is legal —
 never what it means.
 
+### A helper conducts what it captures
+
+A body often wants a small helper around the callback it was handed, and the helper
+does not need to take that callback as a parameter to conduct it:
+
+```hexagon
+export let twice(action: () ->? Unit): Unit =
+    fun step(): Unit = action?()
+    step?()
+    step?()
+```
+
+`step` has no parameter and writes no `->?`, yet its `?` on `action` is exactly as honest
+as it would be in `twice`'s own body: `action`'s colour is `twice`'s caller's to choose,
+and `step` conducts it. Hover shows `step : () ->? Unit`, and that `->?` is `twice`'s
+variable, captured — not a variable of `step`'s own — so the calls on `step` wear `?` for
+the same reason the call on `action` does. Colour scope is lexical: a `?` reports the
+colour of whatever it calls, whether that colour arrived through this signature's
+parameter or an enclosing one's. The same holds for a lambda, `let step = () =>
+action?()`, and for a `fun` block nested in the body — a member that conducts `action`
+makes every sibling that calls it a conduit too.
+
+What a helper cannot do is make the borrowed colour its own. `step` is not polymorphic in
+`twice`'s callback: pin `step` pure — `let quiet: () -> Unit = step` — and you have pinned
+`action`, which the checker reports at that line, pointing back at the `->?` in `twice`'s
+header. A helper with a callback parameter of its own keeps that one polymorphic while
+conducting the captured one; hover numbers the two, `(() ->?¹ Int) ->?² Int`, and says
+which is captured.
+
+One display detail follows from the same rule. A written `->?` with no parameter of its
+own to link to names the *nearest* enclosing signature that has one — the slot of the
+last section — which is usually the signature whose colour was captured, but not when
+another callback-taking helper stands in between. There the hover numbers the captured
+variable even when it is alone, `() ->?¹ Unit`, and names whose it is, so that pasting
+the face as an annotation cannot quietly attach it to the wrong signature.
+
 ## Where marks cannot go
 
 Four call forms have no room for a mark, by grammar: operators (`x + y`), indexing
@@ -303,6 +339,9 @@ loophole.
   are both errors, which is what keeps silence meaningful;
 - `->?` denotes one effect variable per signature and is legal only where a parameter
   offers the caller a slot; elsewhere it is refused rather than re-read;
+- a helper nested in a body conducts the colour it captures, with `?`, without taking
+  the callback as a parameter — colour scope is lexical, and a captured colour is never
+  the helper's to generalize;
 - operators, indexing, `for` heads, and interpolation have no seat for a mark, so
   everything they dispatch to is pure — the prelude's members, which all write `->`;
   a constraint of your own declares each member's arrow as a contract its instances
