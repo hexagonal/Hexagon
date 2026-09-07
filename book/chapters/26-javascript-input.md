@@ -164,34 +164,64 @@ as `undefined`, declare that position as `Nullable(a)` and pass
 `Nullable.undefined` explicitly. The boundary does not add a second optional-argument
 calling convention to Hexagon.
 
-## `Array` is borrowed; `Vector` is persistent
+## `Array` is captured; `Vector` is persistent
 
-`Array(a)` is the readonly foreign view of a JavaScript array. Its TypeScript face is
-`ReadonlyArray<a>`, and crossing it does not copy:
+`Array(a)` is a JavaScript array in Hexagon's hands. Its TypeScript face is
+`ReadonlyArray<a>`, and crossing it copies:
 
 ```hexagon
 extern from "score-service"
     fun recentScores() ->! Array(Int)
 ```
 
-JavaScript owns the underlying storage. While Hexagon—or a deferred traversal created
-from it—may still observe the array, foreign code must keep its length, order, and
-elements stable. Hexagon deliberately exposes no mutation operation for `Array`.
+When `recentScores!()` returns, Hexagon takes a snapshot of the array the JavaScript
+side produced and keeps the snapshot. The JavaScript side keeps its original and may
+push to it, sort it, or empty it; the `Array(Int)` Hexagon holds does not change,
+and neither does any sequence derived from it. The copy runs the other way too: an
+`Array` handed to an extern, or returned from an exported function, arrives as a fresh
+array, so nothing JavaScript does to what it received reaches the value Hexagon
+retains. Hexagon exposes no mutation operation for `Array`, and the copy is what makes
+that a fact rather than a request — a pure collection denotes stable contents, and
+`Array.length(xs)` is a read of a value, which the compiler may share like any other.
 
-Choose an explicit conversion when stable ownership matters:
+The price is one linear copy per crossing, in the array and in anything inside it that
+is itself a foreign collection: an `Array(Array(Int))` is copied layer by layer, while
+an `Array(Vector(Int))` copies the outer array and carries the vectors, which are
+already Hexagon values, by identity. A binding that cannot pay that copy, or that needs
+the JavaScript array itself — its identity, its live contents — declares an opaque
+extern type and reads it through the `->!` accessors the receiver-member section
+below introduces. That is a foreign capability, spelled as one; `Array(a)` is a value.
+
+Choose a persistent collection when you want its operations:
 
 ```hexagon
-let borrowed = recentScores!()
-let stable = Array.toVector(borrowed)
+let scores = Array.toVector(recentScores!())
+let withBonus = Vector.append(scores, 100)
 ```
 
-`Array.toVector` eagerly creates a persistent snapshot. `Vector.toArray` creates a
-fresh JavaScript array. `Array.toSeq` is lazy and zero-copy under the same stability
-contract; `Array.fromSeq` eagerly creates a fresh array.
+`Array.toVector` eagerly builds a `Vector`. `Vector.toArray` and `Array.fromSeq`
+eagerly create a fresh array, which is Hexagon's until it crosses — and is copied again
+when it does. `Array.toSeq` is lazy over the captured array, and the sequence may be
+forced whenever you like.
+
+Some shapes are refused rather than left unprotected, because the copy cannot reach
+them: a foreign collection nested inside a `Vector`, `Map`, `Set`, `Seq`, or `Stream`
+at the boundary (`Vector(Array(Int))` — convert the elements with `Array.toVector`
+first); an `exception` whose payload holds one (carry a `Vector`, or a persistent
+`Map` or `Set`); and an exported *value* of such a type, since one live binding is what
+JavaScript and every Hexagon importer would share, and a copy would be the very thing
+they shared. Export a function instead, whose result is copied on the way out.
+
+A callback whose signature names an `Array` is accepted, but not unchanged: each
+crossing makes a fresh wrapper that copies the arrays going each way, so the same
+function object no longer crosses by identity. An API that registers and removes
+listeners by identity wants a small JavaScript shim that keeps the wrapper and returns
+a disposal handle. The callbacks section below draws the line between this case and
+the one that is refused.
 
 This distinction prevents `ReadonlyArray<a>` from becoming an optimistic foreign name
-for `Vector(a)`. One is borrowed JavaScript storage; the other is a Hexagon persistent
-value.
+for `Vector(a)`. One is a JavaScript array Hexagon owns a copy of; the other is a
+Hexagon persistent value with a persistent collection's operations.
 
 ## `Seq` strengthens an iterable at the boundary
 
@@ -222,8 +252,8 @@ extern from "stream-groups"
     fun groups() ->! Array(Seq(Int)) // error: nested Seq adaptation would be hidden
 ```
 
-The outer `Array` promises zero-copy indexing, while each arbitrary iterable inside
-could need a new persistent adapter. Use an explicit conversion or a small JavaScript
+The outer `Array` is captured as it crosses, while each arbitrary iterable inside
+would need its own persistent adapter — installed inside the copy, out of sight. Use an explicit conversion or a small JavaScript
 facade instead of asking the compiler to traverse and wrap a hidden graph.
 
 ## Foreign members become subject-first functions
@@ -435,10 +465,14 @@ function object. Arguments retain their declared order, `Unit` returns as `undef
 and any JavaScript-supplied callback `this` is ignored because Hexagon has no binding
 for it.
 
-A callback whose nested signature would require adaptation is rejected. For example,
-`Seq(Int) -> Unit` would need a fresh persistent wrapper on every invocation, raising
-lifetime and identity questions. Bind a representation-direct callback and convert at
-an explicit point, or place a small JavaScript adapter beside the foreign library.
+A callback whose signature names an `Array` is accepted, but not unchanged: each
+crossing makes a fresh wrapper that copies the arrays going each way, so the two calls
+above would not match, and the disposal-handle shim from the `Array` section is the
+remedy. A callback whose signature would need *adaptation* — `Seq(Int) -> Unit` — is
+refused outright, because its elements arrive after the crossing has returned and
+there is no frame left in which to adapt them. Bind a representation-direct callback
+and convert at an explicit point, or place a small JavaScript adapter beside the
+foreign library.
 
 ## Collection conversions are shallow
 
@@ -452,10 +486,13 @@ let jsGuests = Set.toJsSet(guests)
 let copiedGuests = Set.fromJsSet(jsGuests)
 ```
 
-These are snapshots between persistent Hexagon collections and foreign mutable
-JavaScript collections. They do not share table storage. Conversion is shallow: keys,
-elements, and values retain their declared runtime identities rather than undergoing
-an automatic recursive graph conversion.
+These convert between two Hexagon values: a persistent `Map` and a `JsMap`, which is a
+native JavaScript `Map` that Hexagon owns. A `JsMap` or `JsSet` declared at a boundary
+is captured exactly as an `Array` is, and one Hexagon makes for itself is its own from
+birth; either way no foreign code holds it, so `JsMap.size` is a read of a value. They
+do not share table storage. Conversion is shallow: keys, elements,
+and values retain their declared runtime identities rather than undergoing an
+automatic recursive graph conversion.
 
 Primitive map keys cross faithfully because Hexagon and JavaScript agree on their
 relevant equality. Object-shaped keys require care. A JavaScript `Map` finds such a key
@@ -489,7 +526,8 @@ exception failure instead of hiding validation inside every extern call.
 - representation-direct values cross unchanged, while explicit narrowing operations
   perform checks;
 - `Nullable(a)` is the nullish foreign door and remains distinct from `Option(a)`;
-- `Array(a)` is a zero-copy readonly borrow, while `Vector(a)` is persistent storage;
+- `Array(a)`, `JsMap(k, v)`, and `JsSet(a)` are captured at every crossing — copied in,
+  copied out — while `Vector(a)` is persistent storage;
 - a top-level foreign iterable may be adapted into a persistent memoized `Seq(a)`;
 - every callable extern declaration writes its effect arrow before its result — `->!`
   when in doubt, `->` as a trusted claim, `->?` for one as effectful as its callbacks —

@@ -15,7 +15,7 @@ Related forms and likely lookup terms should point to one another.
 | arity | Chapter 3, “Arity is part of a function” | Chapter 7, tuple arity and tuples versus argument lists; Chapter 8, type-alias arguments |
 | as-pattern | Chapter 11, “As-patterns keep the whole value” | See also **pattern** |
 | assignment | Chapter 16, “Assignment produces `Unit`” | `:=`; see **mutable variable** and **var** |
-| Array, foreign | Chapter 26, “`Array` is borrowed; `Vector` is persistent” | Readonly borrow, stability contract, and explicit conversions |
+| Array, foreign | Chapter 26, “`Array` is captured; `Vector` is persistent” | Captured at every crossing, the linear copy, refused shapes, and explicit conversions |
 | binding | Chapter 1, “Bindings introduce names” | `let`, `var`, patterns, and function parameters |
 | block, expression | Chapter 1, “A block takes the value of its final expression” | Named as such in Chapter 3; see also **member block** |
 | block, member | Chapter 3, “Mutual recursion” (the “A word about ‘block’” aside) | Chapter 5, the scoped law; see also **expression block**, **fun block** |
