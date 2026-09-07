@@ -147,7 +147,7 @@ Both iterate in **native insertion order** — the order JavaScript defines for 
 
 ### 6.4 Emission license
 
-Native `for...of` emission over the view (or its native iterator) is **permitted and preferred** for loops and combinators, exactly as for `Array` (Part 2): iteration does not copy merely to enforce a condition the borrow contract already requires. Iterator-protocol throws from exotic sources follow `JsError` (Part 3 §7).
+Native `for...of` emission over the view (or its native iterator) is **permitted and preferred** for loops and combinators, as `Array`'s was licensed before #876: iteration does not copy merely to enforce a condition the borrow contract already requires. Iterator-protocol throws from exotic sources follow `JsError` (Part 3 §7).
 
 ### 6.5 Direct construction from `Seq`
 

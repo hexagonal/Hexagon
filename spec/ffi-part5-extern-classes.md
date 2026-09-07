@@ -88,7 +88,7 @@ const lookup = (params, key) => params.get(key);
 
 **The raw detachable property function is never exposed as the Hexagon value** — detached, it would lose its receiver and silently misbehave, which is exactly the JS hazard this form exists to fence off.
 
-The wrapper is **stable**: at most one module-level wrapper exists per receiver-member declaration, allocated once with the ESM binding (the same identity discipline as Part 7's stable export wrappers). Every first-class reference denotes that same wrapper object, so passing the reference twice — an `addListener`/`removeListener` pair, a Set of callbacks — observes one stable function identity. Direct calls need not route through the wrapper; the emitter keeps the inline receiver-call form of §2.2. Contrast Part 4 §4.3: a representation-direct plain extern `fun` retains raw imported-function identity because no convention needs preserving; receiver members always wrap.
+The wrapper is **stable**: at most one module-level wrapper exists per receiver-member declaration, allocated once with the ESM binding (the same identity discipline as Part 7's stable export wrappers). Every first-class reference denotes that same wrapper object, so passing the reference twice — an `addListener`/`removeListener` pair, a Set of callbacks — observes one stable function identity. Direct calls need not route through the wrapper; the emitter keeps the inline receiver-call form of §2.2. Contrast Part 4 §4.3: a representation-direct plain extern `fun` retains raw imported-function identity because no convention needs preserving (one whose signature names a captured collection takes §4.3's copying wrapper instead, #876); receiver members always wrap.
 
 ### 2.4 Aliasing
 

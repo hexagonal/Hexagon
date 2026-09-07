@@ -23,9 +23,10 @@ Wrappers exist only where a named rule puts one, and this list is exhaustive for
 | stable export wrapper for a supported top-level adapted position (e.g. incoming `Iterable<a>` declared `Seq(a)`) | Parts 3/7; Part 4 §4.3 for the extern-binding face |
 | stable convention-preserving wrapper for first-class receiver members (`method`/`get`/`set`/`new`, incl. static) | Part 5 §2.3 |
 | stable export wrapper for a generic constrained export when its internal calling convention needs public-ABI plumbing; otherwise the trailing-evidence function exports directly | Parts 7–9 |
-| conversion wrapper for an exported function whose signature names a captured foreign collection (`Array(a)`; `JsMap`/`JsSet` under #875) | Part 7 §7 occasion 4; Part 1 §5.4 |
+| stable export wrapper for an exported Hexagon function whose signature names a captured foreign collection (`Array(a)`; `JsMap`/`JsSet` under #875) — occasion 4 | Part 7 §7; Part 1 §5.4 |
+| stable copying wrapper for an extern binding whose signature names a captured foreign collection | Part 4 §4.3; Part 1 §5.4 |
 
-**Every boundary function wrapper in this table is module-level, allocated once with its ESM binding, with stable JS identity.** This statement is about the named callable wrapper, not fresh per-value adapters created by a call (Part 3 §2.1), and not the per-crossing conversion wrapper a *callback* value receives (§5.5), which is a value-level artifact like an adapter. No representation-direct v1 callback signature requires any wrapper at all (§5), which is what makes that subset's identity trivial rather than cached.
+**Every boundary function wrapper in this table is module-level, allocated once with its ESM binding, with stable JS identity.** This statement is about the named callable wrapper, not fresh per-value adapters created by a call (Part 3 §2.1), and not the per-crossing **conversion wrapper** a *callback* value receives (§5.5), which is a value-level artifact like an adapter — the two names are kept apart on purpose. No representation-direct v1 callback signature requires any wrapper at all (§5), which is what makes that subset's identity trivial rather than cached.
 
 ---
 
@@ -152,7 +153,7 @@ extern from "stream-tools"
 
 An arbitrary JS `Iterable<number>` would require a fresh persistent-`Seq` adaptation **at each callback invocation**, which drags in wrapper identity, retention, failure memoization, and lifetime questions that v1 deliberately refuses (Part 3 §10). V1 does not generate that wrapper. This is a hard error at the extern declaration, and it discharges the rejection Part 3 §9.3 and §11 assigned to this part. Per the Rewrite Rule, the diagnostic identifies the nested adapter-requiring type and names the three rewrites:
 
-> callback parameter `Seq(Int)` requires a boundary adapter, which v1 callbacks do not support; use a representation-direct type (e.g. `Array(Int)`), perform an explicit eager conversion at a controlled boundary, or bind through a small JavaScript shim
+> callback parameter `Seq(Int)` requires a boundary adapter, which v1 callbacks do not support; use a type that crosses without an adapter (`Array(Int)` crosses through §5.5's conversion wrapper), perform an explicit eager conversion at a controlled boundary, or bind through a small JavaScript shim
 
 The same rejection applies to any adapter-requiring type anywhere in a callback signature, in either direction, under Part 1 §5.3's recursive rule. It does **not** affect already-decided top-level `Seq` crossing (`extern fun values() ->! Seq(Int)`), whose one stable boundary adapter remains supported (Part 3), and it does not reach captured collections, which are not adapters and have their own wrapper (§5.5).
 

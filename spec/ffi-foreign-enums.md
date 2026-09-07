@@ -318,7 +318,7 @@ extern from "direction"
 
 `move!(Up)` passes the captured `$Direction.Up` value. `current!()` returns its JavaScript
 value directly. Consequently, an extern enum is representation-direct inside records,
-arrays, callbacks, and other representation-direct aggregates. It does not trigger the
+callbacks, and other representation-direct aggregates, and inside a captured `Array`, which FFI Part 1 §5.4's walk copies while carrying the members by identity (#876). It does not trigger the
 nested-adapter restrictions that apply to `Seq(a)`.
 
 This rule handles all common object-backed forms without representation-specific
