@@ -467,8 +467,8 @@ late pedagogy pass, not a commitment to the current order.
   declarations have no bodies), and extern `let` as a stability assertion over the
   foreign value.
 - Establishes representation-direct values, `Nullable(a)` as the explicit nullish
-  door, `Array(a)` (with `JsMap`/`JsSet`) as a captured foreign collection copied at every crossing, and top-level `Seq(a)` as an adapted
-  persistent sequence.
+  door, `Array(a)` (with `JsMap`/`JsSet`) as a captured foreign collection copied at
+  every crossing, and top-level `Seq(a)` as an adapted persistent sequence.
 - Establishes `method`, `get`, `set`, and extern `class` as descriptions of JavaScript
   calling conventions that produce ordinary subject-first Hexagon functions.
 - Establishes representation-direct callbacks, shallow conversions, the nested-adapter
@@ -1070,9 +1070,12 @@ late pedagogy pass, not a commitment to the current order.
   both directions, so foreign mutation never reaches a value Hexagon holds; `JsMap`/`JsSet`
   likewise; conversions to `Vector(a)` and from `Seq(a)` are explicit and eager.
 - Top-level `Seq(a)` receives one persistent memoizing adapter; hidden nested adapters
-  and adapter-requiring callbacks are rejected.
+  and adapter-requiring callbacks are rejected; a callback naming a captured collection
+  is accepted through a per-crossing copying wrapper, without identity.
 - Foreign receiver calls, properties, and classes lower to subject-first companion
-  functions; representation-direct callbacks retain function identity.
+  functions; representation-direct callbacks retain function identity, while a
+  callback naming a captured collection crosses as a per-crossing copying wrapper with
+  no identity promise.
 - Every callable extern declaration writes its effect arrow before its result: `->!`
   when in doubt, `->` as a trusted claim, `->?` for a declaration as effectful as its
   callbacks; setters write `->!` only; a constructor writes the class's own type.
