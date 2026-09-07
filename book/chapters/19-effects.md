@@ -40,7 +40,8 @@ Two marks spell the two ways a function can fail to be pure. Both ride the arrow
 ```
 
 Read them as one arrow with a mark on it, not as three unrelated symbols. Which mark is
-the only question, and the marks are the same two characters you are about to meet at
+the only question — the mark is the function's *colour*, the word this chapter uses for
+that one fact — and the marks are the same two characters you are about to meet at
 call sites.
 
 ## What counts, and what does not
@@ -144,7 +145,8 @@ polymorphism works through variables, and `->!` is not one.
 ### `->?` needs something to link to
 
 `->?` means *my caller chooses*, so it is only legal where there is a caller who can:
-inside a function signature, where at least one `->?` sits in something a caller
+inside a function signature — its own, or, for a helper written inside one, the
+enclosing signature's — where at least one `->?` sits in something a caller
 supplies — a parameter, at any depth, including a parameter of a function the
 signature returns. That occurrence is the slot the choice arrives through.
 
@@ -175,19 +177,20 @@ never what it means.
 
 ### A helper conducts what it captures
 
-A body often wants a small helper around the callback it was handed, and the helper
-does not need to take that callback as a parameter to conduct it:
+A body often wants a small helper around the callback it was handed. The helper is
+declared in the body the way any function is declared, header and all, and it does not
+need to take that callback as a parameter to conduct it:
 
 ```hexagon
 export let twice(action: () ->? Unit): Unit =
-    fun step(): Unit = action?()
+    let step(): Unit = action?()
     step?()
     step?()
 ```
 
 `step` has no parameter and writes no `->?`, yet its `?` on `action` is exactly as honest
-as it would be in `twice`'s own body: `action`'s colour is `twice`'s caller's to choose,
-and `step` conducts it. Hover shows `step : () ->? Unit`, and that `->?` is `twice`'s
+as it would be in `twice`'s own body: `action`'s colour is `twice`'s caller's to
+choose, and `step` conducts it. Hover shows `step : () ->? Unit`, and that `->?` is `twice`'s
 variable, captured — not a variable of `step`'s own — so the calls on `step` wear `?` for
 the same reason the call on `action` does. Colour scope is lexical: a `?` reports the
 colour of whatever it calls, whether that colour arrived through this signature's
@@ -195,19 +198,26 @@ parameter or an enclosing one's. The same holds for a lambda, `let step = () =>
 action?()`, and for a `fun` block nested in the body — a member that conducts `action`
 makes every sibling that calls it a conduit too.
 
-What a helper cannot do is make the borrowed colour its own. `step` is not polymorphic in
-`twice`'s callback: pin `step` pure — `let quiet: () -> Unit = step` — and you have pinned
-`action`, which the checker reports at that line, pointing back at the `->?` in `twice`'s
-header. A helper with a callback parameter of its own keeps that one polymorphic while
-conducting the captured one; hover numbers the two, `(() ->?¹ Int) ->?² Int`, and says
-which is captured.
+What a helper cannot do is make the borrowed colour its own. `step` is not polymorphic
+in `twice`'s callback: pin `step` pure — `let quiet: () -> Unit = step` — and you have
+pinned `action`, which the checker reports at that line, pointing back at the `->?` in
+`twice`'s header. A helper may still take a callback of its own, and that one stays the helper's —
+polymorphic, chosen afresh at each call — for exactly as long as the helper does not
+call it: hover then shows two colours, `(() ->?¹ Int) ->?² Int`, and names which of them
+is captured. Call both and they become one variable, because two colours a single body
+conducts always join — and from then on the helper's own callback is `twice`'s callback
+too, pinned by whatever pins either.
 
 One display detail follows from the same rule. A written `->?` with no parameter of its
 own to link to names the *nearest* enclosing signature that has one — the slot of the
-last section — which is usually the signature whose colour was captured, but not when
-another callback-taking helper stands in between. There the hover numbers the captured
-variable even when it is alone, `() ->?¹ Unit`, and names whose it is, so that pasting
-the face as an annotation cannot quietly attach it to the wrong signature.
+last section — which is usually the signature whose colour was captured. It is not when
+a callback-taking helper stands in between and conducts nothing of the outer colour:
+a `->?` written there would name that helper's own variable instead. Hover therefore
+numbers the captured variable even when it is alone, `() ->?¹ Unit`, and names whose it
+is. The numbers are display only, refused by the lexer if you type them back — so a face
+that would attach itself to the wrong signature cannot be pasted at all, which is the
+point of decorating it. Where the helper in between does conduct the outer colour, the
+two are one variable and the display is plain again.
 
 ## Where marks cannot go
 
