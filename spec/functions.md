@@ -299,7 +299,7 @@ apply   : (String -> String) -> String
   Stream.next     : Stream(a) ->! Option(a)
   ```
 
-  All three arrows associate and group identically; a display never omits a colour, since silence is the pure claim (Effects §1). The same arrows are legal in source annotation positions under the same grammar, subject to Effects §2.2.1 — `->?` needs a variable it can own, its own signature's inlet or, in a local position, one the nearest enclosing signature that can own one lends it (Effects §2.2.2). One caveat rides `->?`: an inferred face can carry more effect variables than the written grammar can spell apart, and the display numbers those — Effects §10 owns the rule.
+  All three arrows associate and group identically; a display never omits a colour, since silence is the pure claim (Effects §1). The same arrows are legal in source annotation positions under the same grammar, subject to Effects §2.2.1 — `->?` needs a variable it can own, its own signature's inlet or, in a local position, one the nearest enclosing signature that can own one lends it (Effects §2.2.2). One caveat rides `->?`: a displayed face can carry more effect variables than the written grammar can spell apart, and a captured variable can be one the grammar cannot spell at that location at all; the display numbers both — Effects §10 owns the rule.
 - *(#410.)* **A constrained scheme displays its constraints source-shaped**: §4.2's binder bracket, prefixing the type, set off by one space.
 
   ```text
