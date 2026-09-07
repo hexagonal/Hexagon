@@ -85,7 +85,7 @@ The prelude home is not user-editable, but naming it makes the two-home rule acc
 
 ## 4. Provided instances: the finalized v1 table
 
-All compiler/runtime-provided (Part 2 §4.4 wording — specified normatively, no source form). This is the complete v1 table: the first six rows are collections-owned; the final three are FFI-owned foreign collections — the captured `Array(a)` (#876) and, until #875, the borrowed `JsMap`/`JsSet`.
+All compiler/runtime-provided (Part 2 §4.4 wording — specified normatively, no source form). This is the complete v1 table: the first six rows are collections-owned; the final three are FFI-owned captured foreign collections (#876, #875).
 
 | Type | `type Item` | `toSeq` (the member) | Fixed by |
 |---|---|---|---|
