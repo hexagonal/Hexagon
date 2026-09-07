@@ -4,7 +4,7 @@
 adoption and subsequent implementation. It claims neither has landed.
 **Sequence:** Follow the effects arc. Foreign collection instances depend on
 separate adoption and implementation of the snapshot direction agreed in
-discussion; today's normative FFI specifications still describe borrowed views.
+discussion; the normative FFI specifications described borrowed views when this was written; #876 and #875 have since made `Array`, `JsMap`, and `JsSet` captured foreign collections.
 
 ## 1. Principle
 

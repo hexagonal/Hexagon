@@ -85,7 +85,7 @@ The prelude home is not user-editable, but naming it makes the two-home rule acc
 
 ## 4. Provided instances: the finalized v1 table
 
-All compiler/runtime-provided (Part 2 §4.4 wording — specified normatively, no source form). This is the complete v1 table: the first six rows are collections-owned; the final three are FFI-owned foreign collections — the captured `Array(a)` (#876) and, until #875, the borrowed `JsMap`/`JsSet`.
+All compiler/runtime-provided (Part 2 §4.4 wording — specified normatively, no source form). This is the complete v1 table: the first six rows are collections-owned; the final three are FFI-owned captured foreign collections (#876, #875).
 
 | Type | `type Item` | `toSeq` (the member) | Fixed by |
 |---|---|---|---|
@@ -96,12 +96,12 @@ All compiler/runtime-provided (Part 2 §4.4 wording — specified normatively, n
 | `Set(a)` | `a` | element traversal | Part 4 §7.2 |
 | `String` | `String` (one codepoint) | the codepoint sequence, §5.2 | **§5 here** |
 | `Array(a)` | `a` | ≡ `Array.toSeq` (FFI Part 2 §9's named conversion) — over the captured array, a stable value (#876) | FFI Part 2 §8 |
-| `JsMap(k, v)` | `(k, v)` | ≡ `entries` | FFI Part 10 §6 |
-| `JsSet(a)` | `a` | ≡ `JsSet.toSeq` | FFI Part 10 §6 |
+| `JsMap(k, v)` | `(k, v)` | ≡ `entries` — over the captured map, a stable value (#875) | FFI Part 10 §6 |
+| `JsSet(a)` | `a` | ≡ `JsSet.toSeq` — over the captured set, a stable value (#875) | FFI Part 10 §6 |
 
 Notes:
 
-- The final three rows inherit their observation and emission semantics from their owning FFI parts; this table records their coherent `Iterable` instances rather than restating those capture and borrow contracts.
+- The final three rows inherit their observation and emission semantics from their owning FFI parts; this table records their coherent `Iterable` instances rather than restating those capture contracts.
 - `Range` participates in iteration but not in the conversion suite (§1): its instance's `toSeq` exists like any member's, but there is no `Range.fromSeq`. `Seq`'s row is the identity — the currency needs no conversion into itself — and the identity is *lawful* because `Seq` traversal is pure: `toSeq`'s contract is `->` (Effects §5, §13.5), and a persistent pure sequence is re-traversable and shareable, so the sequence view of itself **is** itself. Identity handed to an effectful producer would alias consumption state, which is exactly why `Stream` has no instance and `Stream.toSeq` is inexpressible rather than omitted (`stream.md` §4–§5). `toSeq`'s pure contract is checked at every instance (Effects §13.2), so the unsound identity is not forbidden by convention — it is unspellable.
 - No other v1 type is iterable. In particular the prelude unions `Option`/`Result`/`Bool` are not (`match` is their consumption form — for `Bool`, joined by its condition/operator eliminators, Unions §1/§8; it keeps `Option`/`Result` company here since #147 reclassified it out of this note's primitive clause *(2026-07-29; record §18.3)*), and `Int`/`Float`/`Unit`/functions are the §3.2 concrete-non-iterable case.
 - This table closes Loops §11.6 and is the finalized Loops §5 inventory (Loops now defers here by reference).
@@ -258,7 +258,7 @@ Loops §8 is restated **by reference and unchanged** — in particular the count
 | `Range` value through a variable | general path over the materialised range object (Loops §8, unchanged) |
 | **User instance** | statically resolved `toSeq` call: `const s = Bag_toSeq(bag); for (const x of s)`-shaped — a fresh name for the once-evaluated source (Loops §2.3), then the general path over the emitted `Seq` |
 
-(`Array(a)`, `JsMap`, and `JsSet` emission is owned by FFI Parts 2 and 10, which license native iteration — over the captured array for `Array` (#876), under the borrow contract for `JsMap`/`JsSet` until #875 — §6.)
+(`Array(a)`, `JsMap`, and `JsSet` emission is owned by FFI Parts 2 and 10, which license native iteration over the captured collections (#876, #875) — §6.)
 
 The user-instance call is the ordinary emitted module function (here `Bag_toSeq`, the instance's `toSeq` body), never dictionary access. Where the instance's `toSeq` is a trivial delegation, the emitter may inline through it; observable behaviour per Loops §2.3 either way.
 
@@ -360,7 +360,7 @@ Rejected per §7.2: for a home-module instance the pattern is structurally unnec
 | 3 | Normative 8-step algorithm for `for p in e`; pattern heads per Pattern Matching's five positions, irrefutability-gated; body `Unit`; source evaluated once | §3.1 |
 | 4 | **Inference-vs-declared diagnostic split**: unsolved inference variable → annotate; declared type variable → `Seq(a)` parameter hint | §3.2 |
 | 5 | User-nominal not-iterable error names **both legal homes** (the Modules §7.6 discoverability obligation's loop-side face), leading with the actionable one | §3.3 |
-| 6 | The v1 core provided table is exactly six rows: `Range`, `Vector`, `Seq`, `Map`, `Set`, `String`; plus the FFI-owned foreign collections `Array(a)` (obligated §6.1, discharged FFI Part 2 §8; captured since #876), `JsMap(k, v)`, `JsSet(a)` (FFI Part 10 §6); nothing else iterable in v1 | §4, §6 |
+| 6 | The v1 core provided table is exactly six rows: `Range`, `Vector`, `Seq`, `Map`, `Set`, `String`; plus the FFI-owned captured foreign collections `Array(a)` (obligated §6.1, discharged FFI Part 2 §8; #876), `JsMap(k, v)`, `JsSet(a)` (FFI Part 10 §6; #875); nothing else iterable in v1 | §4, §6 |
 | 7 | **`Iterable<String>`: `Item = String`, one codepoint per item** — Loops §11.6 closed; graphemes stay named-function territory | §5.1 |
 | 8 | `String.toSeq` lazy codepoint view; **no `codepoints` synonym** | §5.2, §13.1 |
 | 9 | **`String.fromSeq` ships: concatenation**, full contract — `""` on empty, traversal order, any-length elements, no normalization, eager, linear with join-not-fold implementation note, one-sided round-trip law | §5.3 |

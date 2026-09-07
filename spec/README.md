@@ -68,7 +68,7 @@ Every normative owner appears exactly once. The explicitly marked router and gui
 | FFI | `ffi-part7-exports.md` | export correspondence, `.d.ts`, opaque brands, constructors |
 | FFI | `ffi-zero-cost-fundamental-exports.md` | fundamental specializations (Algorithms S/G/N), ABI events |
 | FFI | `ffi-part9-exported-dictionaries.md` | dictionary types, evidence handles/factories, dictionary ABI |
-| FFI | `ffi-part10-js-map-set.md` | borrowed `JsMap`/`JsSet`, brackets, conversions |
+| FFI | `ffi-part10-js-map-set.md` | captured `JsMap`/`JsSet`, brackets, conversions |
 | FFI | `ffi-part11-js-value-errors.md` | `JsValue`, `kind`, strict decoding, `JsConversionError`, paths |
 | FFI | `ffi-foreign-enums.md` | `extern enum` |
 | Routers | `spec-roadmap.md` | remaining work, deferrals, pending cross-spec edits (Part 5 target) |
