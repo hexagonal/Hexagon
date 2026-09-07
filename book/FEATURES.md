@@ -131,12 +131,11 @@ open specification work does not make the book outline provisional.
     parameter offers the caller a slot to choose it; a helper nested in a body conducts
     a captured callback's colour with `?` and never generalizes it. Operators, indexing,
     `for` heads, and interpolation have no seat for a mark, so everything they dispatch
-    to is pure —
-    the prelude's members all write `->`, while a user constraint's member header is an
-    effect contract its instances are compared against. Effects enter through user-written
-    externs, each declaration writing its arrow: `->!` for the unknown, `->` as a trusted
-    unchecked claim, `->?` for one as effectful as its callbacks. Allocation, a local `var`, and
-    throwing are deliberately not effects.
+    to is pure — the prelude's members all write `->`, while a user constraint's member
+    header is an effect contract its instances are compared against. Effects enter through
+    user-written externs, each declaration writing its arrow: `->!` for the unknown, `->`
+    as a trusted unchecked claim, `->?` for one as effectful as its callbacks. Allocation,
+    a local `var`, and throwing are deliberately not effects.
 
 20. **Streams** — `Stream(a)` is `Seq`'s impure nominal sibling: a tailless pull
     whose elements are drawn from the world rather than computed. It is where the

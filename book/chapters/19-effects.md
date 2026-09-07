@@ -40,9 +40,9 @@ Two marks spell the two ways a function can fail to be pure. Both ride the arrow
 ```
 
 Read them as one arrow with a mark on it, not as three unrelated symbols. Which mark is
-the only question — the mark is the function's *colour*, the word this chapter uses for
-that one fact — and the marks are the same two characters you are about to meet at
-call sites.
+the only question — what a mark reports is the function's *colour*, the word this
+chapter uses for that one fact — and the marks are the same two characters you are
+about to meet at call sites.
 
 ## What counts, and what does not
 
@@ -201,12 +201,12 @@ makes every sibling that calls it a conduit too.
 What a helper cannot do is make the borrowed colour its own. `step` is not polymorphic
 in `twice`'s callback: pin `step` pure — `let quiet: () -> Unit = step` — and you have
 pinned `action`, which the checker reports at that line, pointing back at the `->?` in
-`twice`'s header. A helper may still take a callback of its own, and that one stays the helper's —
-polymorphic, chosen afresh at each call — for exactly as long as the helper does not
-call it: hover then shows two colours, `(() ->?¹ Int) ->?² Int`, and names which of them
-is captured. Call both and they become one variable, because two colours a single body
-conducts always join — and from then on the helper's own callback is `twice`'s callback
-too, pinned by whatever pins either.
+`twice`'s header. A helper may still take a callback of its own, and that one stays the
+helper's — polymorphic, chosen afresh at each call — for exactly as long as the helper
+does not call it: hover then shows two colours, `(() ->?¹ Int) ->?² Int`, and names
+which of them is captured. Call both and they become one variable, because two colours
+a single body conducts always join — and from then on the helper's own callback is
+`twice`'s callback too, pinned by whatever pins either.
 
 One display detail follows from the same rule. A written `->?` with no parameter of its
 own to link to names the *nearest* enclosing signature that has one — the slot of the
