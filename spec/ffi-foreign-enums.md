@@ -347,7 +347,7 @@ toJsDirection   : Direction -> JsValue
 
 For any local enum name `T`, the names are exactly `fromJsT` and `toJsT`.
 `fromJsDirection` evaluates its input once, compares it with the declared members
-(captured or literal) in declaration order using `Object.is`, and returns the corresponding constructor in
+(the enum object's own member values, or the literals) in declaration order using `Object.is`, and returns the corresponding constructor in
 `Some`; otherwise it returns `None`. It is the checked path for data whose foreign
 producer cannot state the enum contract. `toJsDirection` is an identity widening to
 opaque `JsValue`; it does not allocate or encode.
@@ -401,7 +401,7 @@ tests, including the `switch` §4 licenses for the literal form. No enum reverse
 table, string remapping, wrapper class, or brand is created at runtime.
 
 When public, constructors are ordinary named ESM exports whose runtime values remain
-the foreign values — captured, or the literals. `fromJsT` is emitted as a small identity-membership chain;
+the foreign values — the enum object's own member values, or the literals. `fromJsT` is emitted as a small identity-membership chain;
 `toJsT` is an identity function. The compiler may inline either operation internally
 when doing so preserves ordinary value evaluation and public function identity.
 

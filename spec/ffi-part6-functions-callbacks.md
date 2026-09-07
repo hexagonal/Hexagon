@@ -21,12 +21,11 @@ Wrappers exist only where a named rule puts one, and this list is exhaustive for
 | Wrapper | Owner |
 |---|---|
 | stable export wrapper for a supported top-level adapted position (e.g. incoming `Iterable<a>` declared `Seq(a)`) | Parts 3/7; Part 4 §4.3 for the extern-binding face |
-| stable convention-preserving wrapper for first-class receiver members (`method`/`get`/`set`/`new`, incl. static) | Part 5 §2.3 |
+| stable convention-preserving wrapper for first-class receiver members (`method`/`get`/`set`/`new`, incl. static) — the same wrapper also performs Part 1 §5.4's walk when the member's signature names a captured foreign collection (#876); not an additional occasion | Part 5 §2.3 |
 | stable export wrapper for a generic constrained export when its internal calling convention needs public-ABI plumbing; otherwise the trailing-evidence function exports directly | Parts 7–9 |
 | stable export wrapper for an exported Hexagon function whose signature names a captured foreign collection (`Array(a)`; `JsMap`/`JsSet` under #875) — occasion 4 | Part 7 §7; Part 1 §5.4 |
 | stable copying wrapper for an extern binding whose signature names a captured foreign collection | Part 4 §4.3; Part 1 §5.4 |
 | stable copying wrappers on a public dictionary handle's captured-collection members — and, allocated with the result, on a public factory result's | Part 9 §3.4, §4 |
-| stable convention-preserving wrapper for a receiver member whose signature names a captured foreign collection — the same Part 5 §2.3 wrapper, now also performing the walk | Part 5 §2.3 |
 
 **Every boundary function wrapper in this table is allocated once with the thing it rides and has stable JS identity for that thing's life** — module-level, with its ESM binding, for every occasion but a factory result's member wrappers, which are allocated with the result (whose identity Part 9 §4 promises nothing about either way). This statement is about the named callable wrapper, not fresh per-value adapters created by a call (Part 3 §2.1), and not the per-crossing **conversion wrapper** a *callback* value receives (§5.5), which is a value-level artifact like an adapter — the two names are kept apart on purpose. No representation-direct v1 callback signature requires any wrapper at all (§5), which is what makes that subset's identity trivial rather than cached.
 
@@ -288,3 +287,4 @@ The decision record for this part was complete, and §12 records the review reso
 | Callback `this` ignored; unobservable from Hexagon; receiver-requiring APIs → explicit argument or shim; distinct from extern `method` | §6 |
 | Unbounded foreign retention permitted; `var`-capture ban unchanged; no escape annotations ever inserted at the boundary | §7 |
 | Deferred: adapting callbacks, wrapper caches, callback `this`, async callbacks, optional/overload/rest callback signatures, cross-signature identity — one revisit bar (concrete foundational API) | §8 |
+| *(#876)* The receiver-member wrapper of Part 5 §2.3 performs the walk when the member's signature names a captured collection — the third walk-carrying binding beside Part 7 §7 occasion 4 and Part 4 §4.3; not a new wrapper occasion | §1 |
