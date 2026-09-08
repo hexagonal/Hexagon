@@ -286,6 +286,30 @@ describe("Effects §13.4: one effect variable per member", () => {
   });
 });
 
+describe("Effects §13.2: a body colour still a variable collects its bounds", () => {
+  const RUNNER = (arrow: string) =>
+    "constraint Runner<r> =\n" +
+    `    run(runner: r, action: () ->! Unit) ${arrow} Unit\n` +
+    "export record Job = { id: Int }\n";
+
+  test("ignoring the callback leaves the colour unconstrained, and the seat passes", () => {
+    expect(messages(RUNNER("->") + "honor Runner<Job> =\n    run(job, action) = ()\n"))
+      .toEqual([]);
+  });
+
+  test("conducting it bounds the colour above pure and below impure at once", () => {
+    // The invoked arrow is the one that failed, so the covariant bound reports —
+    // and the mark that reads the condemned colour owes no second report.
+    expect(messages(RUNNER("->") + "honor Runner<Job> =\n    run(job, action) = action!()\n"))
+      .toEqual([pureContract("run")]);
+  });
+
+  test("and under a `->!` contract the same body is accepted", () => {
+    expect(messages(RUNNER("->!") + "honor Runner<Job> =\n    run(job, action) = action!()\n"))
+      .toEqual([]);
+  });
+});
+
 describe("Effects §13.2: the sign is the variance product", () => {
   test("a returned `->` function that performs effects takes the adapted frame", () => {
     // The result position keeps the sign, so the arrow is invoked and the frame
@@ -337,6 +361,22 @@ describe("Effects §13.3: every spelling wears the contract's mark", () => {
       ["/main.hex", "module Main\n\nimport Lib\n\n" +
         "export let qualified(n: Lib.Note): String = Lib.read(n)\n"],
     ])).toEqual(["this call runs effects, so `Lib.read` wants `!`, not no mark"]);
+  });
+
+  test("a call at a known concrete instance wears it, through the companion", () => {
+    // Method Syntax §4: the companion is the module addressable under the type's
+    // name, and knowing which instance answers grants no purer face.
+    const files = (mark: string) => [
+      ["/lib.hex", "module Lib\n\nexport constraint R<a> =\n    read(s: a) ->! String\n"],
+      ["/note.hex", "module Note\n\nimport Lib\n\n" +
+        "export record Note = { name: String }\n" +
+        "honor Lib.R<Note> =\n    read(s) = s.name\n"],
+      ["/main.hex", "module Main\n\nimport Note\n\n" +
+        `export let at(n: Note.Note): String = Note.read${mark}(n)\n`],
+    ] as const;
+    expect(projectMessages(files("!"))).toEqual([]);
+    expect(projectMessages(files("")))
+      .toEqual(["this call runs effects, so `Note.read` wants `!`, not no mark"]);
   });
 
   test("a bare call in the honoring module wears it too", () => {
