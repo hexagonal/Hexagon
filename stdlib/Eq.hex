@@ -11,7 +11,7 @@ module Eq
 export constraint Eq<a> =
     (** Whether `left` and `right` are equal. An instance's `equals` is an
         equivalence: reflexive, symmetric, and transitive. *)
-    equals(left: a, right: a): Bool
+    equals(left: a, right: a) -> Bool
     (** Whether `left` and `right` differ. An instance may override this for
         efficiency, but the override must equal the negation of `equals`. *)
-    notEquals(left: a, right: a): Bool = not equals(left, right)
+    notEquals(left: a, right: a) -> Bool = not equals(left, right)

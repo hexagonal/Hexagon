@@ -157,7 +157,7 @@ describe("only subject-first members are in the operation set (§4.2)", () => {
       "module Main",
       "",
       "constraint Wrap<a> =",
-      "    wrap(count: Int): a",
+      "    wrap(count: Int) -> a",
       "",
       "honor Wrap<Int> =",
       "    wrap(count) = count * 2",
@@ -177,7 +177,7 @@ describe("only subject-first members are in the operation set (§4.2)", () => {
       "module Main",
       "",
       "constraint Wrap<a> =",
-      "    wrap(count: Int): a",
+      "    wrap(count: Int) -> a",
       "",
       "honor Wrap<Int> =",
       "    wrap(count) = count * 3",
@@ -241,7 +241,7 @@ describe("declared type variables dispatch their bounds' members (§3.4)", () =>
       "module Main",
       "",
       "export constraint Sketch<a> =",
-      "    sketch(value: a): String",
+      "    sketch(value: a) -> String",
       "",
       "honor Sketch<Int> =",
       '    sketch(n) = "#${n}"',
@@ -276,7 +276,7 @@ describe("declared type variables dispatch their bounds' members (§3.4)", () =>
       "module Main",
       "",
       "constraint Tag<a> =",
-      "    tag(label: String, value: a): String",
+      "    tag(label: String, value: a) -> String",
       "",
       'export let describe<a: Tag>(value: a): String = value.tag("x")',
       "",
@@ -485,12 +485,12 @@ describe("duplicate claimants refuse, and never rank (§6, §9 row 6)", () => {
     expect(diagnostics([
       ["/loud.hex", "module Loud\n\n" + [
         "export constraint Loud<a> =",
-        "    volume(value: a): Int",
+        "    volume(value: a) -> Int",
         "",
       ].join("\n")],
       ["/soft.hex", "module Soft\n\n" + [
         "export constraint Soft<a> =",
-        "    volume(value: a): Int",
+        "    volume(value: a) -> Int",
         "",
       ].join("\n")],
       ["/main.hex", "module Main\n\n" + [
@@ -518,12 +518,12 @@ describe("duplicate claimants refuse, and never rank (§6, §9 row 6)", () => {
     expect(diagnostics([
       ["/near.hex", "module Near\n\n" + [
         "export constraint Near<a> =",
-        "    reach(value: a): Int",
+        "    reach(value: a) -> Int",
         "",
       ].join("\n")],
       ["/far.hex", "module Far\n\n" + [
         "export constraint Far<a> =",
-        "    reach(value: a): Int",
+        "    reach(value: a) -> Int",
         "",
       ].join("\n")],
       ["/main.hex", "module Main\n\n" + [
@@ -550,14 +550,14 @@ describe("duplicate claimants refuse, and never rank (§6, §9 row 6)", () => {
     expect(diagnostics([
       ["/quiet.hex", "module Quiet\n\n" + [
         "export constraint Quiet<a> =",
-        "    level(value: a): Int",
+        "    level(value: a) -> Int",
         "",
       ].join("\n")],
       ["/main.hex", "module Main\n\n" + [
         'import Quiet',
         "",
         "constraint Brash<a> =",
-        "    level(value: a): Int",
+        "    level(value: a) -> Int",
         "",
         "export record Meter = {ticks: Int}",
         "",
@@ -593,7 +593,7 @@ describe("duplicate claimants refuse, and never rank (§6, §9 row 6)", () => {
     expect(diagnostics([
       ["/warm.hex", "module Warm\n\n" + [
         "export constraint Warm<a> =",
-        "    show(value: a): String",
+        "    show(value: a) -> String",
         "",
       ].join("\n")],
       ["/main.hex", "module Main\n\n" + [
@@ -627,7 +627,7 @@ describe("duplicate claimants refuse, and never rank (§6, §9 row 6)", () => {
       "module Main",
       "",
       "constraint Brash<a> =",
-      "    show(value: a): String",
+      "    show(value: a) -> String",
       "",
       "export record Meter = {ticks: Int}",
       "",

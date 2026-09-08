@@ -551,8 +551,8 @@ describe("attachment: line-initial match heads only (§5.4, §9)", () => {
       expect(survives(
         "exception Boom(line: Int)\n" +
           "constraint Sizey<a> =\n" +
-          "    size(x: a): Int\n" +
-          "    doubled(x: a): Int =\n" +
+          "    size(x: a) -> Int\n" +
+          "    doubled(x: a) -> Int =\n" +
           "        match size(x)\n" +
           "            n => n\n" +
           "    catch\n" +

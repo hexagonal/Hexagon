@@ -65,7 +65,7 @@ function graphDiagnostics(
 }
 
 /** A user constraint whose subject is `Signed`, so `Loud` absorbs both. */
-const LOUD = "constraint Loud<a: Signed> =\n    loud(value: a): a\n";
+const LOUD = "constraint Loud<a: Signed> =\n    loud(value: a) -> a\n";
 
 /**
  * A constraint over `Num` in another module, and a function under it, so a
@@ -74,7 +74,7 @@ const LOUD = "constraint Loud<a: Signed> =\n    loud(value: a): a\n";
  */
 const HEFT_LIB = [
   "export constraint Heft<a: Num> =",
-  "    heft(value: a): a",
+  "    heft(value: a) -> a",
   "export let useHeft<a: Heft>(n: a): a = heft(n)",
   "",
 ].join("\n");
@@ -245,8 +245,8 @@ describe("two binders that both provide the demand", () => {
     // answers. It still has to be made the same way on every compile, so it is
     // made positionally, and pinned here rather than left to fall out.
     const javascript = emitted(
-      "constraint Alpha<a: Num> =\n    alpha(value: a): a\n" +
-        "constraint Beta<a: Num> =\n    beta(value: a): a\n" +
+      "constraint Alpha<a: Num> =\n    alpha(value: a) -> a\n" +
+        "constraint Beta<a: Num> =\n    beta(value: a) -> a\n" +
         "let w(n, s1: Bool, s2: Bool) = if s1 then n + n else if s2 then alpha(n) else beta(n)\n" +
         KEEP,
     );
@@ -338,7 +338,7 @@ describe("the binder set an export is told to write", () => {
       ["/lib.hex", "module Lib\n\n" + HEFT_LIB],
       ["/mid.hex", "module Mid\n\n" + HEFT_MID],
       ["/main.hex", "module Main\n\n" + 'import Mid\n' +
-        "constraint Heft<a> =\n    other(value: a): a\n" + caller],
+        "constraint Heft<a> =\n    other(value: a) -> a\n" + caller],
     ])).toEqual([
       "exported function `caller` requires a complete signature; add type for parameter `n` and a return type",
       "exported function `caller` must declare every constraint in its signature; " +

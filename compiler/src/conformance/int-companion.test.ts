@@ -604,7 +604,7 @@ describe("Numeric Literals §4's defaulting follows the instances home", () => {
     expect(diagnostics([
       ["/main.hex",
         "module Main\n\n" + "constraint Conjure<a> =\n" +
-        "    summon(value: a): a\n" +
+        "    summon(value: a) -> a\n" +
         "honor Conjure<Int> =\n" +
         "    summon(value) = value\n" +
         "let blocked = summon(1)\n"],

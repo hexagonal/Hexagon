@@ -501,7 +501,7 @@ describe("a declaration that emits nothing shapes none of the page", () => {
     const javascript = emitted([[
       "/main.hex",
       "module Main\n\n" + "constraint Small<a> =\n" +
-      "    small(value: a): Bool\n\n" +
+      "    small(value: a) -> Bool\n\n" +
       "export let before: Int = 1\n\n\n\n" +
       "honor Small<Int> =\n" +
       "    small(value) = value < 10\n\n\n\n" +

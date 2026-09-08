@@ -437,7 +437,7 @@ describe("the minted-local negative — the trigger reads source bindings only",
   const CONSTRAINT = (member: string): readonly (readonly [string, string])[] => [
     ["/lib.hex", "module Lib\n\n" + [
       "export constraint Boxy<a> =",
-      `    ${member}(x: a): Int`,
+      `    ${member}(x: a) -> Int`,
       "",
       "export record Box = {n: Int}",
       "honor Boxy<Box> =",
@@ -514,7 +514,7 @@ describe("the minted-local negative — the trigger reads source bindings only",
     // contested by rule 2's trigger and spells its own Unit `void 0`.
     expect(javascript([["/main.hex", "module Main\n\n" + [
       "export constraint Boxy<a> =",
-      "    undefined(x: a): Int",
+      "    undefined(x: a) -> Int",
       "",
       "export let unit(): Unit = ()",
       "",
@@ -538,7 +538,7 @@ describe("the minted-local negative — the trigger reads source bindings only",
     const FILES = [
       ["/lib.hex", "module Lib\n\n" + [
         "export constraint Boxy<a> =",
-        "    console(x: a): Int",
+        "    console(x: a) -> Int",
         "",
         "export record Box = {n: Int}",
         "honor Boxy<Box> =",
@@ -586,7 +586,7 @@ describe("the minted-local negative — the trigger reads source bindings only",
     const namespaced = (member: string): readonly (readonly [string, string])[] => [
       ["/lib.hex", "module Lib\n\n" + [
         "export constraint Boxy<a> =",
-        `    ${member}(x: a): Int`,
+        `    ${member}(x: a) -> Int`,
         "",
         "export record Box = {n: Int}",
         "honor Boxy<Box> =",

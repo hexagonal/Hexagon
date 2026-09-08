@@ -104,7 +104,7 @@ describe("§11: attachment", () => {
       "    (** The type of one key, chosen by each instance. *)\n" +
       "    type Key\n" +
       "    (** The key of `x`. *)\n" +
-      "    keyOf(x: c): Key\n" +
+      "    keyOf(x: c) -> Key\n" +
       "\n" +
       "honor Keyed<Int> =\n" +
       "    (** An `Int` keys itself. *)\n" +
@@ -113,7 +113,7 @@ describe("§11: attachment", () => {
 
     expect(attachments(source)).toEqual([
       'type Key :: "The type of one key, chosen by each instance."',
-      'keyOf(x: c): Key :: "The key of `x`."',
+      'keyOf(x: c) -> Key :: "The key of `x`."',
       'type Key = Int :: "An `Int` keys itself."',
     ]);
     expect(diagnostics(source)).toEqual([]);
@@ -125,7 +125,7 @@ describe("§11: attachment", () => {
     // member branch beside it already did.
     const source = "constraint Keyed<c> =\n" +
       "    type Key\n" +
-      "    keyOf(x: c): Key\n" +
+      "    keyOf(x: c) -> Key\n" +
       "\n" +
       "honor Keyed<Int> =\n" +
       "    (** An `Int` keys itself. *)\n" +
@@ -156,9 +156,9 @@ describe("§11: attachment", () => {
   // a same-line comment is the ordinary offside error, not an attachment case.
   test("a doc comment closing mid-line before code is leading", () => {
     const source = "constraint Keyed<c> =\n" +
-      "    (** doc *) keyOf(x: c): Int\n";
+      "    (** doc *) keyOf(x: c) -> Int\n";
 
-    expect(attachments(source)).toEqual(['keyOf(x: c): Int :: "doc"']);
+    expect(attachments(source)).toEqual(['keyOf(x: c) -> Int :: "doc"']);
     expect(diagnostics(source)).toEqual([]);
   });
 
@@ -309,7 +309,7 @@ describe("§5: the hard errors", () => {
     const source = "constraint Keyed<c> =\n" +
       "    (** The type of one key. *)\n" +
       "    type key\n" +
-      "    keyOf(x: c): Int\n";
+      "    keyOf(x: c) -> Int\n";
 
     expect(diagnostics(source)).toContain("implied types require an uppercase-start name");
     expect(diagnostics(source)).not.toContain(DANGLING);
@@ -319,7 +319,7 @@ describe("§5: the hard errors", () => {
   test("a malformed implied-type binding does not either", () => {
     const source = "constraint Keyed<c> =\n" +
       "    type Key\n" +
-      "    keyOf(x: c): Key\n" +
+      "    keyOf(x: c) -> Key\n" +
       "\n" +
       "honor Keyed<Int> =\n" +
       "    (** An `Int` keys itself. *)\n" +
@@ -524,7 +524,7 @@ describe("§7.1: seats that are not one-to-one", () => {
     const main = compiled(
       "constraint Sized<a> =\n" +
         "  (** How big it is. *)\n" +
-        "  size(value: a): Int\n" +
+        "  size(value: a) -> Int\n" +
         "honor Sized<Int> =\n" +
         "  size(value) = value\n",
     );
@@ -548,7 +548,7 @@ describe("§7.1: seats that are not one-to-one", () => {
       "    (** The type of one key, chosen by each instance. *)\n" +
       "    type Key\n" +
       "    (** The key of `x`. *)\n" +
-      "    keyOf(x: c): Key\n" +
+      "    keyOf(x: c) -> Key\n" +
       "\n" +
       "honor Keyed<Int> =\n" +
       "    (** An `Int` keys itself. *)\n" +
@@ -571,7 +571,7 @@ describe("§7.1: seats that are not one-to-one", () => {
 
   test("an `honor` member attaches without erroring and emits nowhere (§7.1)", () => {
     const source = "constraint Sized<a> =\n" +
-      "  size(value: a): Int\n" +
+      "  size(value: a) -> Int\n" +
       "honor Sized<Int> =\n" +
       "  (** The obvious size. *)\n" +
       "  size(value) = value\n";
@@ -603,7 +603,7 @@ describe("no seat is not deletion (Comments §6)", () => {
     const main = compiled(
       "(** Things with a size. *)\n" +
         "constraint Sized<a> =\n" +
-        "  size(value: a): Int\n" +
+        "  size(value: a) -> Int\n" +
         "(** Ints have one. *)\n" +
         "honor Sized<Int> =\n" +
         "  size(value) = value\n",

@@ -315,6 +315,38 @@ interface EffectFrame {
   sourced: boolean;
 }
 
+/**
+ * A constraint member's contract at one seat *(#867; Effects §13.2)*: the
+ * header's types at this instance's subject with the arrows the header wrote,
+ * the member's own effect variable where it writes `->?`, and the parameter
+ * names the supplied direction's report names.
+ */
+interface SeatContract {
+  readonly type: FunctionMono;
+  /** The member's own colour, present exactly when the header writes `->?`. */
+  readonly colour: Variable | undefined;
+  readonly member: string;
+  readonly parameters: readonly string[];
+}
+
+/** Where in the contract an arrow stands, for the report's frame (§13.2). */
+interface SeatPlace {
+  readonly depth: number;
+  /** Whether every step from the root reached this arrow through a result. */
+  readonly throughResults: boolean;
+  /** The contract parameter this arrow hangs under, where one does. */
+  readonly parameter: number | undefined;
+}
+
+/** One failed arrow, and which of Effects §9's three contract rows reports it. */
+interface SeatFailure {
+  readonly row: "pure-contract" | "linked-contract" | "narrower-acceptance";
+  readonly place: SeatPlace;
+  readonly span: Source.Span;
+  /** Supplied direction only: whether the contract's arrow there is `->?`. */
+  readonly linked?: boolean;
+}
+
 /** One written call, and the mark it wore, awaiting its solved colour. */
 interface MarkObligation {
   readonly effect: Mono;
@@ -1802,6 +1834,36 @@ class Checker {
   readonly #callFrames = new WeakMap<Resolved.CallExpr, EffectFrame | undefined>();
   readonly #markObligations: MarkObligation[] = [];
   readonly #signatureFaces: SignatureFace[] = [];
+  /**
+   * Where a colour variable was pinned to a constant *(#867)*. Recorded at the
+   * binding, read by the constraint seat: §13.2 reports a failed seat "at the
+   * offending call" and "at the demand that narrowed it", and both are the act
+   * of unification that solved the body's own colour — the call `#settleFrame`
+   * absorbed, or the `->` demand a callback was handed to. A variable pinned by
+   * a later binding in its own chain is reached by walking `instance`.
+   */
+  readonly #colourPins = new WeakMap<Variable, Source.Span>();
+  /**
+   * A member header's arrow is refused once, at the declaration (§4.4). The
+   * honor and default seats re-elaborate the same annotations to build the
+   * contract at their own subject, and a second report there would name a file
+   * the writer may not even own, so those elaborations suppress it.
+   */
+  #suppressLinkedArrowReports = false;
+  /**
+   * A **synthesized** body owes no mark obligation *(#867)*. The one such body
+   * is a `widens` door's derived member (Constraints §4.7), whose call to the
+   * door the resolver wrote and no author can mark; the door's colour is ruled
+   * on at the seat, against the door's own inferred body.
+   */
+  #suppressMarkObligations = 0;
+  /**
+   * A `widens` door's inferred body type, keyed by `identity member` — the
+   * scheme the derived member's seat is compared against (Effects §13.2's
+   * derived restriction), captured before the binding's published face takes
+   * the member's contract arrows (§13.3).
+   */
+  readonly #doorBodies = new Map<string, { readonly type: Mono; readonly span: Source.Span }>();
   /** Written `->!` faces awaiting ruling 9's symmetric half. */
   readonly #constantFaces: {
     readonly lambda: Resolved.LambdaExpr;
@@ -2915,30 +2977,75 @@ class Checker {
       }
       this.#constraintImpliedTypes.set(item, impliedTypes);
       for (const member of item.members) {
-        const parameters = member.parameters.map((parameter) => {
-          const type = parameter.annotation === undefined
-            ? ERROR
-            : this.#annotationType(
-                parameter.annotation,
-                0,
-                new Map(),
-                typeParameters,
-                impliedTypes,
-              );
-          this.#schemes.set(parameter.symbol, { variables: [], type });
-          return type;
-        });
-        const result = this.#annotationType(
+        // *(#867.)* **A member header is a signature** in §2.2.1's sense
+        // (Effects §13.4): every `->?` it writes denotes one implicitly
+        // quantified effect variable, the member's own, and the inlet rule
+        // applies unchanged — an outer-only `->?` header is §4.4's inlet-less
+        // refusal, whose clause is `"signature"`. The scope has to be open
+        // before the annotations are elaborated, so a nested `->?` in a
+        // parameter reaches the same variable the outer arrow does.
+        const memberLinked = signatureInlet(
+          member.parameters.map((parameter) => parameter.annotation),
           member.returnAnnotation,
-          0,
-          new Map(),
-          typeParameters,
-          impliedTypes,
         );
+        const enclosingMemberSignature = this.#openSignature(
+          memberLinked ? "open" : "clear",
+          0,
+          member.span,
+        );
+        if (memberLinked && member.effect === "linked" && this.#signatureFace !== undefined) {
+          this.#signatureFace.outer = member.arrowSpan;
+        }
+        const { parameters, result, contractEffect } = this.#inPosition(
+          "signature",
+          () => {
+            const parameters = member.parameters.map((parameter) => {
+              const type = parameter.annotation === undefined
+                ? ERROR
+                : this.#annotationType(
+                    parameter.annotation,
+                    0,
+                    new Map(),
+                    typeParameters,
+                    impliedTypes,
+                  );
+              this.#schemes.set(parameter.symbol, { variables: [], type });
+              return type;
+            });
+            const result = this.#annotationType(
+              member.returnAnnotation,
+              0,
+              new Map(),
+              typeParameters,
+              impliedTypes,
+            );
+            // The outer arrow, read from the header rather than inferred — the
+            // one function header in the language with no body beneath it
+            // (Effects §13.1). `->` is the pure ceiling, `->!` the licence,
+            // `->?` the member's own variable; an inlet-less `->?` is refused
+            // at the arrow and recovers as the constant (§4.4).
+            const contractEffect = this.#writtenEffect(member.effect, member.arrowSpan) ?? PURE;
+            return { parameters, result, contractEffect };
+          },
+        );
+        this.#closeSignature(enclosingMemberSignature);
         this.#require(item.name, subject, member.span);
+        // The member's colour is **quantified at the member and instantiated
+        // fresh at every call** (Effects §13.4), which is exactly what a scheme
+        // variable is. It carries no requirements, so no dictionary ordinal
+        // moves; and it is quantified besides, so no defaulting pass may settle
+        // a contract on one instantiation's behalf.
+        const contractVariable = contractEffect.kind === "Variable"
+          ? contractEffect
+          : undefined;
+        if (contractVariable !== undefined) this.#quantified.add(contractVariable.id);
         this.#schemes.set(member.binding.symbol, {
-          variables: [subject, ...impliedTypes.values()],
-          type: { kind: "Function", parameters, result },
+          variables: [
+            subject,
+            ...impliedTypes.values(),
+            ...(contractVariable === undefined ? [] : [contractVariable]),
+          ],
+          type: { kind: "Function", parameters, result, effect: contractEffect },
           constraint: item.name,
           constraintIdentity: item.identity,
           constraintSubject: subject,
@@ -4817,6 +4924,17 @@ class Checker {
             : this.#applyWrittenQualifiers(annotationType, valueType);
         }
         this.#closeSignature(enclosingSignature);
+        // *(#867.)* **One operation, one colour — the member's contract**
+        // (Constraints §4.7). A `widens` door's header writes `:` and its body
+        // infers, but the binding it produces shows the declaration's wider
+        // seats under the *member's* contract arrows, never the body's inferred
+        // colour: a pure door under a `->!` member is `Float.read!(x)`, and a
+        // body's change within the contract's allowance changes no caller
+        // (Effects §13.3). The inferred colour is kept for the seat, which
+        // compares it against the contract.
+        if (item.widens !== undefined) {
+          valueType = this.#doorFace(item.widens, valueType, level + 1, item.span);
+        }
         const scheme = this.#generalize(
           valueType,
           level,
@@ -4840,27 +4958,74 @@ class Checker {
         for (const member of item.members) {
           const defaultValue = member.defaultValue;
           if (defaultValue === undefined) continue;
-          const expected = this.#prune(this.#scheme(member.binding.symbol).type);
-          if (expected.kind !== "Function") continue;
+          const contractType = this.#prune(this.#scheme(member.binding.symbol).type);
+          if (contractType.kind !== "Function") continue;
+          // *(#867.)* A default body is an instance body checked once in the
+          // constraint's generic context (Constraints §2): it is compared
+          // against its own contract like any body, and it calls its sibling
+          // members at *their* contracts' marks (Effects §13.4). The contract's
+          // colours stay on the contract; the body is checked against the same
+          // types recoloured with fresh variables of its own (§13.2).
+          const contractColour = this.#prune(contractType.effect ?? PURE);
+          const contract: SeatContract = {
+            type: contractType,
+            colour: contractColour.kind === "Variable" ? contractColour : undefined,
+            member: member.binding.name,
+            parameters: member.parameters.map((parameter) => parameter.name),
+          };
+          const expected = this.#recolour(contractType, level + 1) as FunctionMono;
           defaultValue.parameters.forEach((parameter, index) => {
             this.#schemes.set(parameter.symbol, {
               variables: [],
               type: expected.parameters[index] ?? ERROR,
             });
           });
-          // No `#openSignature` frame: a member declares its face in slots, not
-          // as a written arrow, so there is no inlet to mint and a `->?` in the
-          // body has nothing to link to — Effects §4.4's inlet-less signature,
-          // which is the clause `"signature"` names. The module level around
-          // this seat is `"no-signature"`, and that is the enclosing item's
-          // answer, not this body's: a default body stands under a declared
-          // signature exactly as a `fun` body does.
+          // The body's own signature is the recoloured shape, so its inlets are
+          // the contract's function-typed parameters (§13.4's `Runner`): with
+          // one, a `->?` written inside the body links here; without one, a
+          // `->?` is Effects §4.4's inlet-less signature, the clause
+          // `"signature"` names. The module level around this seat is
+          // `"no-signature"`, and that is the enclosing item's answer, not this
+          // body's.
+          const inlet = signatureInlet(
+            member.parameters.map((parameter) => parameter.annotation),
+            member.returnAnnotation,
+          );
+          const enclosingSignature = this.#openSignature(
+            inlet ? "open" : "clear",
+            level + 1,
+            member.span,
+          );
+          const frame: EffectFrame = {
+            own: this.#fresh(level + 1, false),
+            inlet,
+            enclosing: this.#effectFrames.at(-1),
+            absorbed: [],
+            sourced: false,
+          };
+          this.#effectFrames.push(frame);
+          this.#frameByLambda.set(defaultValue, frame);
           const body = this.#inPosition(
             "signature",
-            () => this.#inferExpr(defaultValue.body, level + 1),
+            () => this.#inferExpr(defaultValue.body, level + 1, expected.result),
           );
           this.#unify(expected.result, body, defaultValue.span);
-          this.#expressionTypes.set(defaultValue, expected);
+          this.#effectFrames.pop();
+          this.#settleFrame(frame, true);
+          this.#closeSignature(enclosingSignature);
+          this.#expressionTypes.set(defaultValue, contractType);
+          this.#checkSeat(
+            contract,
+            {
+              kind: "Function",
+              parameters: expected.parameters,
+              result: expected.result,
+              effect: frame.own,
+            },
+            frame,
+            defaultValue.span,
+          );
+          this.#defaultFrameColour(frame);
         }
         continue;
       }
@@ -5064,27 +5229,21 @@ class Checker {
             return;
           }
           const subjectTypes = new Map([[declaration.subject, instanceSubject]]);
-          const expectedFunction: FunctionMono = {
-            kind: "Function",
-            parameters: required.parameters.map((parameter) =>
-              parameter.annotation === undefined
-                ? ERROR
-                : this.#annotationType(
-                    parameter.annotation,
-                    level + 1,
-                    new Map(),
-                    subjectTypes,
-                    impliedTypes,
-                  )
-            ),
-            result: this.#annotationType(
-              required.returnAnnotation,
-              level + 1,
-              new Map(),
-              subjectTypes,
-              impliedTypes,
-            ),
-          };
+          // *(#867.)* The contract at this seat — the header's types and the
+          // arrows it wrote — and, separately, what the *body* is checked
+          // against: the same types with **every effect slot replaced by a
+          // fresh variable of the body's own** (Effects §13.2). The contract's
+          // colours never reach the body; the seat compares them afterwards.
+          const contract = this.#seatContract(
+            required,
+            level + 1,
+            subjectTypes,
+            impliedTypes,
+          );
+          const expectedFunction = this.#recolour(
+            contract.type,
+            level + 1,
+          ) as FunctionMono;
           if (expectedFunction.parameters.length !== member.value.parameters.length) {
             this.#diagnostics.add({
               severity: "error",
@@ -5121,13 +5280,79 @@ class Checker {
           // subject substituted. The parameters have taken their expected types
           // above since members existed; the result component now supplies the
           // body the same way, so one mechanism serves both sentences.
+          //
+          // **The missing frame** *(#865)*. A member body is a body: it opens
+          // an effect seat of its own, absorbs what it calls, and settles its
+          // colour when it closes, exactly as a lambda does. Without one the
+          // calls inside it pushed their colours at the module level's absent
+          // frame and nothing was ever compared — the whole of #865.
+          // The body's inlet is the **contract's**: §13.4's `Runner` names the
+          // `->?` callback parameter as the body's inlet, and a header that
+          // writes none leaves the body's own colour unconstrained, which
+          // defaults pure as any body's does (§3.4).
+          const enclosingSignature = this.#openSignature(
+            contract.inlet ? "open" : "clear",
+            level + 1,
+            member.span,
+          );
+          const enclosingFrame = this.#effectFrames.at(-1);
+          const frame: EffectFrame = {
+            own: this.#fresh(level + 1, false),
+            inlet: contract.inlet,
+            enclosing: enclosingFrame,
+            absorbed: [],
+            sourced: false,
+          };
+          this.#effectFrames.push(frame);
+          this.#frameByLambda.set(member.value, frame);
+          // A **derived** member's body is the resolver's own call to the
+          // `widens` door (Constraints §4.7), which carries no mark a writer
+          // could have written; the door's colour is ruled on below, against
+          // the door's own inferred body.
+          if (member.derived === true) this.#suppressMarkObligations += 1;
           const body = this.#inferExpr(
             member.value.body,
             level + 1,
             expectedFunction.result,
           );
+          if (member.derived === true) this.#suppressMarkObligations -= 1;
           this.#unify(expectedFunction.result, body, member.span);
-          this.#expressionTypes.set(member.value, expectedFunction);
+          this.#effectFrames.pop();
+          // Absorb, then compare, then default: the seat reads a colour nothing
+          // constrained as the variable it is (§13.2), and the pure default is
+          // what the body's own face takes afterwards.
+          this.#settleFrame(frame, true);
+          this.#closeSignature(enclosingSignature);
+          // The published face is the **contract's** (Effects §13.3, §10): a
+          // member wears its contract's arrows wherever it is shown, and the
+          // body's own colour is the seat's business alone. Everything but the
+          // colours is the same nodes the body unified against.
+          this.#expressionTypes.set(member.value, contract.type);
+          // The seat (Effects §13.2). For a `widens` door the scheme compared
+          // is the member's **derived restriction** — the door at the member's
+          // own seats — so the colours walked are the door body's, not the
+          // synthesized call's (§13.3).
+          const door = member.derived === true
+            ? this.#doorBodies.get(`${item.constraintIdentity} ${member.name}`)
+            : undefined;
+          if (member.derived === true) {
+            if (door !== undefined) {
+              this.#checkSeat(contract, door.type, undefined, door.span);
+            }
+          } else {
+            this.#checkSeat(
+              contract,
+              {
+                kind: "Function",
+                parameters: expectedFunction.parameters,
+                result: expectedFunction.result,
+                effect: frame.own,
+              },
+              frame,
+              member.span,
+            );
+          }
+          this.#defaultFrameColour(frame);
         };
         for (const member of item.members) {
           // A **derived** member (Constraints §4.7) is the module's `widens`
@@ -10850,6 +11075,11 @@ class Checker {
   /** Effects §4.4: a `->?` in a position with no caller to choose its colour. */
   #reportOrphanedLinkedArrow(arrowSpan: Source.Span | undefined): void {
     if (arrowSpan === undefined) return;
+    // A member header is refused at the declaration and nowhere else (#867):
+    // the honor and default seats re-elaborate the same annotations to build
+    // the contract at their own subject, and the arrow they would name may sit
+    // in another module altogether.
+    if (this.#suppressLinkedArrowReports) return;
     // The alias arm is the resolver's, reported at the declaration before the
     // body is inlined into any use site (Declarations Preamble §5.1.1). By the
     // time an alias body reaches here it has already been condemned once, and
@@ -10995,6 +11225,10 @@ class Checker {
       ? this.#callFrames.get(expression)
       : this.#effectFrames.at(-1);
     frame?.absorbed.push({ effect, span: expression.span });
+    // A synthesized call has no written mark and no seat to write one in
+    // (#867): a `widens` door's derived member is the resolver's own call, and
+    // the colour it carries is ruled on at the seat, not here.
+    if (this.#suppressMarkObligations > 0) return;
     this.#markObligations.push({
       effect,
       mark: expression.mark,
@@ -11018,7 +11252,7 @@ class Checker {
    * One body's colour, decided the moment the body closes: absorb what it
    * calls, then default what nothing constrained.
    */
-  #settleFrame(frame: EffectFrame): void {
+  #settleFrame(frame: EffectFrame, deferDefaulting = false): void {
     // Constants first: they are the only thing that can *force* a colour, and a
     // forced `own` then satisfies every remaining `⊒` outright — which is what
     // keeps a `->!` face from constantifying the callback it forwards.
@@ -11055,12 +11289,573 @@ class Checker {
       if (isImpure(this.#prune(frame.own))) continue;
       this.#unify(frame.own, colour, span);
     }
-    // The defaulting clause. A colour this body owns, with no inlet to make it
-    // a conduit and nothing to make it a source, is unconstrained — and pure
-    // instantiates anywhere, so pure is the harmless answer.
+    if (!deferDefaulting) this.#defaultFrameColour(frame);
+  }
+
+  /**
+   * The defaulting clause. A colour this body owns, with no inlet to make it a
+   * conduit and nothing to make it a source, is unconstrained — and pure
+   * instantiates anywhere, so pure is the harmless answer.
+   *
+   * Held back at a **constraint seat** *(#867)*: the seat orders the body's
+   * colour against the contract's, and a colour nothing constrained is a
+   * variable there, not the pure constant — §13.2's "a body colour still a
+   * variable collects the bounds the walk imposes". Defaulting first would make
+   * every unconstrained callback slot read as a body that accepts only pure
+   * callbacks, which is the supplied direction's refusal fired at a body that
+   * did nothing.
+   */
+  #defaultFrameColour(frame: EffectFrame): void {
     const own = this.#prune(frame.own);
     if (own.kind === "Variable" && !frame.inlet && !this.#ownedByEnclosing(frame, own)) {
       own.instance = PURE;
+    }
+  }
+
+  /**
+   * **The constraint seat** *(#867; Effects §13.2)* — the one place in the
+   * language where colours are *compared* rather than unified.
+   *
+   * `contract` is the member's header at this instance's subject, colours and
+   * all; `body` is what the instance actually solved to — the contract's types
+   * recoloured with the body's own fresh variables (`#recolour`), with the
+   * frame's settled outer colour on the root arrow. The two are walked
+   * together at the variance product (`decisions-ml-dialect-generalization-2026-08.md`
+   * §5), and at each arrow the colours are ordered pure-below-impure at that
+   * arrow's sign: where the caller *invokes* the arrow the body must be at most
+   * the contract, where the caller *supplies* it the contract must be at most
+   * the body, and where the sign is invariant they must be equal.
+   *
+   * The contract is instantiated at each colour its variable can take — once
+   * where the header writes no `->?`, twice where it does (§13.4) — and the
+   * seat passes when every instantiation does. One report per seat: a failed
+   * seat names one arrow.
+   */
+  #checkSeat(
+    contract: SeatContract,
+    body: Mono,
+    frame: EffectFrame | undefined,
+    fallback: Source.Span,
+  ): void {
+    const instantiations: readonly EffectConstant[] = contract.colour === undefined
+      ? [PURE]
+      : [PURE, IMPURE];
+    for (const instantiation of instantiations) {
+      if (this.#walkSeat(contract, body, frame, fallback, instantiation)) return;
+    }
+  }
+
+  /** One instantiation of the contract, walked against the body. */
+  #walkSeat(
+    contract: SeatContract,
+    body: Mono,
+    frame: EffectFrame | undefined,
+    fallback: Source.Span,
+    instantiation: EffectConstant,
+  ): boolean {
+    /**
+     * A body colour still a variable collects the bounds the walk imposes, over
+     * the whole walk at one instantiation, and the seat passes when every
+     * variable's bounds are consistent — on a two-point lattice, one test per
+     * variable (§13.2).
+     */
+    const bounds = new Map<Variable, {
+      upper?: SeatFailure;
+      lower?: SeatFailure;
+    }>();
+    let failure: SeatFailure | undefined;
+    const record = (candidate: SeatFailure): void => {
+      failure ??= candidate;
+    };
+    const walk = (
+      contractSide: Mono,
+      bodySide: Mono,
+      sign: Variance,
+      place: SeatPlace,
+    ): void => {
+      const left = this.#prune(contractSide);
+      const right = this.#prune(bodySide);
+      if (left.kind !== right.kind) return;
+      switch (left.kind) {
+        case "Function": {
+          if (right.kind !== "Function") return;
+          this.#compareArrow(
+            contract,
+            left,
+            right,
+            sign,
+            place,
+            instantiation,
+            frame,
+            fallback,
+            bounds,
+            record,
+          );
+          left.parameters.forEach((parameter, index) => {
+            const counterpart = right.parameters[index];
+            if (counterpart === undefined) return;
+            walk(parameter, counterpart, flipVariance(sign), {
+              depth: place.depth + 1,
+              throughResults: false,
+              parameter: place.parameter ?? (place.depth === 0 ? index : undefined),
+            });
+          });
+          walk(left.result, right.result, sign, {
+            depth: place.depth + 1,
+            throughResults: place.throughResults,
+            parameter: place.parameter,
+          });
+          return;
+        }
+        case "Tuple": {
+          if (right.kind !== "Tuple") return;
+          left.elements.forEach((element, index) => {
+            const counterpart = right.elements[index];
+            if (counterpart !== undefined) walk(element, counterpart, sign, place);
+          });
+          return;
+        }
+        case "Record": {
+          if (right.kind !== "Record") return;
+          for (const [name, field] of left.fields) {
+            const counterpart = right.fields.get(name);
+            if (counterpart !== undefined) walk(field, counterpart, sign, place);
+          }
+          return;
+        }
+        case "Union": {
+          if (right.kind !== "Union" || left.union !== right.union) return;
+          left.arguments.forEach((argument, index) => {
+            const counterpart = right.arguments[index];
+            if (counterpart === undefined) return;
+            walk(
+              argument,
+              counterpart,
+              multiplyVariance(sign, this.#variance.effectiveUnion(left.union, index)),
+              place,
+            );
+          });
+          return;
+        }
+        case "NominalRecord": {
+          if (right.kind !== "NominalRecord" || left.record !== right.record) return;
+          left.arguments.forEach((argument, index) => {
+            const counterpart = right.arguments[index];
+            if (counterpart === undefined) return;
+            walk(
+              argument,
+              counterpart,
+              multiplyVariance(sign, this.#variance.effectiveRecord(left.record, index)),
+              place,
+            );
+          });
+          return;
+        }
+        case "Vector":
+        case "Set":
+        case "Array":
+        case "JsSet":
+        case "Node": {
+          if (!("element" in right)) return;
+          walk(
+            left.element,
+            right.element,
+            multiplyVariance(sign, compilerClaim(left.kind, 0)),
+            place,
+          );
+          return;
+        }
+        case "Nullable": {
+          if (right.kind !== "Nullable") return;
+          walk(
+            left.value,
+            right.value,
+            multiplyVariance(sign, compilerClaim("Nullable", 0)),
+            place,
+          );
+          return;
+        }
+        case "Map":
+        case "JsMap": {
+          if (right.kind !== left.kind) return;
+          walk(left.key, right.key, multiplyVariance(sign, compilerClaim(left.kind, 0)), place);
+          walk(
+            left.value,
+            right.value,
+            multiplyVariance(sign, compilerClaim(left.kind, 1)),
+            place,
+          );
+          return;
+        }
+        default:
+          return;
+      }
+    };
+    walk(contract.type, body, "co", { depth: 0, throughResults: true, parameter: undefined });
+    // The consistency test, one per variable. A colour bounded above by pure
+    // and below by impure is a body that conducts what the contract hands it
+    // while its contract forbids the result: the invoked arrow is the one that
+    // failed, so the covariant bound reports.
+    for (const { upper, lower } of bounds.values()) {
+      if (upper !== undefined && lower !== undefined) record(upper);
+    }
+    if (failure === undefined) return false;
+    this.#reportSeat(contract, failure);
+    return true;
+  }
+
+  /** One arrow pair, ordered at its sign (§13.2's third bullet). */
+  #compareArrow(
+    contract: SeatContract,
+    left: FunctionMono,
+    right: FunctionMono,
+    sign: Variance,
+    place: SeatPlace,
+    instantiation: EffectConstant,
+    frame: EffectFrame | undefined,
+    fallback: Source.Span,
+    bounds: Map<Variable, { upper?: SeatFailure; lower?: SeatFailure }>,
+    record: (failure: SeatFailure) => void,
+  ): void {
+    if (sign === "unused") return;
+    const written = this.#prune(left.effect ?? PURE);
+    const linked = contract.colour !== undefined && written === contract.colour;
+    if (!linked && written.kind !== "Effect") return;
+    const demanded = linked ? instantiation : (written as EffectConstant);
+    const bodyRaw = right.effect ?? PURE;
+    const solved = this.#prune(bodyRaw);
+    if (isRecovered(demanded) || isRecovered(solved)) return;
+    const boundsOf = (
+      variable: Variable,
+    ): { upper?: SeatFailure; lower?: SeatFailure } => {
+      const existing = bounds.get(variable);
+      if (existing !== undefined) return existing;
+      const fresh: { upper?: SeatFailure; lower?: SeatFailure } = {};
+      bounds.set(variable, fresh);
+      return fresh;
+    };
+    const span = (): Source.Span => this.#seatSpan(frame, bodyRaw, fallback);
+    // **Invoked** — the caller runs this arrow, so the body must be at most the
+    // contract. `->!` is the top of the lattice and refuses nothing.
+    if ((sign === "co" || sign === "inv") && !demanded.impure) {
+      if (solved.kind === "Effect") {
+        if (solved.impure) {
+          record({
+            row: linked ? "linked-contract" : "pure-contract",
+            place,
+            span: span(),
+          });
+        }
+      } else if (solved.kind === "Variable") {
+        boundsOf(solved).upper ??= {
+          row: linked ? "linked-contract" : "pure-contract",
+          place,
+          span: span(),
+        };
+      }
+    }
+    // **Supplied** — the caller hands this arrow in, so the contract must be at
+    // most the body: an instance accepts everything its contract promises.
+    if ((sign === "contra" || sign === "inv") && demanded.impure) {
+      if (solved.kind === "Effect") {
+        if (!solved.impure) {
+          record({ row: "narrower-acceptance", place, span: span(), linked });
+        }
+      } else if (solved.kind === "Variable") {
+        boundsOf(solved).lower ??= {
+          row: "narrower-acceptance",
+          place,
+          span: span(),
+          linked,
+        };
+      }
+    }
+  }
+
+  /**
+   * Where a seat's refusal stands. §13.2 places it at the act that decided the
+   * body's colour — "the offending call", "the demand that narrowed it" — which
+   * is the unification that pinned the variable where there was one, and the
+   * call the body absorbed at that colour where the colour is still a variable.
+   */
+  #seatSpan(
+    frame: EffectFrame | undefined,
+    colour: Mono,
+    fallback: Source.Span,
+  ): Source.Span {
+    const pin = this.#colourPin(colour);
+    if (pin !== undefined) return pin;
+    const solved = this.#prune(colour);
+    for (const absorbed of frame?.absorbed ?? []) {
+      if (this.#prune(absorbed.effect) === solved) return absorbed.span;
+    }
+    return fallback;
+  }
+
+  /**
+   * A `widens` binding's published face *(#867; Effects §13.3)*.
+   *
+   * The inferred type is stashed for the seat — it is the scheme the derived
+   * member is compared against, the door at the member's own seats (Constraints
+   * §4.7's derived restriction) — and the face handed back wears the member's
+   * contract arrow instead. A door widens argument seats; it never widens or
+   * narrows the colour.
+   */
+  #doorFace(
+    targets: readonly Resolved.WidensTarget[],
+    inferred: Mono,
+    level: number,
+    span: Source.Span,
+  ): Mono {
+    const face = this.#prune(inferred);
+    const arrows: Mono[] = [];
+    for (const target of targets) {
+      this.#doorBodies.set(
+        `${target.constraintIdentity} ${target.member}`,
+        { type: face, span },
+      );
+      const declaration = this.#constraintsByIdentity.get(target.constraintIdentity);
+      const member = declaration?.members.find(
+        ({ binding }) => binding.name === target.member,
+      );
+      if (member === undefined) continue;
+      arrows.push(
+        member.effect === "constant"
+          ? IMPURE
+          : member.effect === "linked"
+            ? this.#fresh(level, false)
+            : PURE,
+      );
+    }
+    // Every listed member necessarily agrees on the spelling (§4.7's
+    // all-or-none clause); where two disagree on the *colour*, the impure
+    // constant is the published face — the door may be called through either
+    // member, and the wider licence is the one that answers for both.
+    const contract = arrows.find(isImpure) ?? arrows[0];
+    if (contract === undefined || face.kind !== "Function") return face;
+    return { ...face, effect: contract };
+  }
+
+  /** Effects §9's three contract rows (Constraints §8). */
+  #reportSeat(contract: SeatContract, failure: SeatFailure): void {
+    const member = `\`${contract.member}\``;
+    const nested = failure.place.depth > 0;
+    const subject = !nested
+      ? "this call performs effects"
+      : failure.place.throughResults
+        ? "the function this instance returns performs effects"
+        : "a function this instance supplies performs effects";
+    if (failure.row === "pure-contract") {
+      const clause = !nested
+        ? `${member}'s contract is the pure arrow \`->\``
+        : failure.place.throughResults
+          ? `${member}'s contract returns a \`->\` function`
+          : `${member}'s contract writes \`->\` at that arrow`;
+      this.#diagnostics.add({
+        severity: "error",
+        message: `${subject}, and ${clause} — an instance performs no more than ` +
+          "its contract permits — keep this body pure, or, if the constraint is " +
+          "yours, write `->!` on the member",
+        primary: failure.span,
+      });
+      return;
+    }
+    if (failure.row === "linked-contract") {
+      const clause = !nested
+        ? `${member}'s contract is linked \`->?\``
+        : `${member}'s contract writes \`->?\` at that arrow`;
+      this.#diagnostics.add({
+        severity: "error",
+        message: `${subject === "this call performs effects"
+          ? "this call performs effects unconditionally"
+          : subject}, and ${clause} — an instance must be pure whenever what it ` +
+          "is handed is pure, so its effects may come only from what it is handed " +
+          "— move this effect behind the callback, or write `->!` on the member",
+        primary: failure.span,
+      });
+      return;
+    }
+    const parameter = failure.place.parameter === undefined
+      ? undefined
+      : contract.parameters[failure.place.parameter];
+    const named = parameter === undefined ? "a callback" : `an \`${parameter}\``;
+    this.#diagnostics.add({
+      severity: "error",
+      message: failure.linked === true
+        ? `${member}'s contract accepts ${named} of either colour, and this ` +
+          "instance accepts only a pure one — an instance accepts everything its " +
+          "contract promises to accept — call the callback with `?` instead of " +
+          "handing it to a `->` demand, or, if the constraint is yours, write the " +
+          "member pure-only — the callback `->` and the outer arrow `->`"
+        : `${member}'s contract accepts ${named} that performs effects, and this ` +
+          "instance accepts only a pure one — an instance accepts everything its " +
+          "contract promises to accept — call the callback with `!` instead of " +
+          "handing it to a `->` demand, or, if the constraint is yours, write the " +
+          "member's callback parameter `->`",
+      primary: failure.span,
+    });
+  }
+
+  /**
+   * The contract's *types* as they reach the body — **every effect slot
+   * replaced by a fresh variable of the body's own**, one per slot (§13.2's
+   * second bullet, the one place §3.4's expected-types bullet is qualified).
+   * The contract's colours do not arrive at the body, because the seat is about
+   * to compare them.
+   *
+   * Everything but the colours is shared by reference: the body's inferences
+   * still unify against the contract's own type nodes, which is Constraints
+   * §4.1's checking posture unchanged.
+   */
+  #recolour(type: Mono, level: number): Mono {
+    const actual = this.#prune(type);
+    switch (actual.kind) {
+      case "Function":
+        return {
+          kind: "Function",
+          parameters: actual.parameters.map((parameter) => this.#recolour(parameter, level)),
+          result: this.#recolour(actual.result, level),
+          effect: this.#fresh(level, false),
+        };
+      case "Tuple": {
+        if (!this.#carriesArrow(actual)) return actual;
+        return {
+          kind: "Tuple",
+          elements: actual.elements.map((element) => this.#recolour(element, level)),
+        };
+      }
+      case "Record": {
+        if (!this.#carriesArrow(actual)) return actual;
+        return {
+          ...actual,
+          fields: new Map(
+            [...actual.fields].map(([name, field]) => [name, this.#recolour(field, level)]),
+          ),
+        };
+      }
+      case "Union":
+      case "NominalRecord": {
+        if (!this.#carriesArrow(actual)) return actual;
+        return {
+          ...actual,
+          arguments: actual.arguments.map((argument) => this.#recolour(argument, level)),
+        };
+      }
+      case "Vector":
+      case "Set":
+      case "Array":
+      case "JsSet":
+      case "Node": {
+        if (!this.#carriesArrow(actual)) return actual;
+        return { kind: actual.kind, element: this.#recolour(actual.element, level) };
+      }
+      case "Nullable": {
+        if (!this.#carriesArrow(actual)) return actual;
+        return { kind: "Nullable", value: this.#recolour(actual.value, level) };
+      }
+      case "Map":
+      case "JsMap": {
+        if (!this.#carriesArrow(actual)) return actual;
+        return {
+          kind: actual.kind,
+          key: this.#recolour(actual.key, level),
+          value: this.#recolour(actual.value, level),
+        };
+      }
+      default:
+        return actual;
+    }
+  }
+
+  /** Whether a type holds a function anywhere — what `#recolour` has to rebuild. */
+  #carriesArrow(type: Mono, seen = new Set<Mono>()): boolean {
+    const actual = this.#prune(type);
+    if (seen.has(actual)) return false;
+    seen.add(actual);
+    switch (actual.kind) {
+      case "Function":
+        return true;
+      case "Tuple":
+        return actual.elements.some((element) => this.#carriesArrow(element, seen));
+      case "Record":
+        return [...actual.fields.values()].some((field) => this.#carriesArrow(field, seen));
+      case "Union":
+      case "NominalRecord":
+        return actual.arguments.some((argument) => this.#carriesArrow(argument, seen));
+      case "Vector":
+      case "Set":
+      case "Array":
+      case "JsSet":
+      case "Node":
+        return this.#carriesArrow(actual.element, seen);
+      case "Nullable":
+        return this.#carriesArrow(actual.value, seen);
+      case "Map":
+      case "JsMap":
+        return this.#carriesArrow(actual.key, seen) || this.#carriesArrow(actual.value, seen);
+      default:
+        return false;
+    }
+  }
+
+  /**
+   * The contract at one seat: the member's header re-elaborated at this
+   * subject, its own effect variable minted afresh so the arrows the header
+   * links stay one colour here (§13.4), and the header's parameter names for
+   * the supplied direction's report.
+   *
+   * The arrow itself is never re-refused: §4.4 ruled on a member header at the
+   * declaration, and the honor block that meets it may be in another module.
+   */
+  #seatContract(
+    member: Resolved.ConstraintMember,
+    level: number,
+    subjectTypes: ReadonlyMap<string, Mono>,
+    impliedTypes: ReadonlyMap<string, Mono>,
+  ): SeatContract & { readonly inlet: boolean } {
+    const linked = signatureInlet(
+      member.parameters.map((parameter) => parameter.annotation),
+      member.returnAnnotation,
+    );
+    const previousFace = this.#signatureFace;
+    const face: SignatureFace | undefined = linked
+      ? { effect: this.#fresh(level, false), arrows: [], declaration: member.span }
+      : undefined;
+    this.#signatureFace = face;
+    const previousSuppression = this.#suppressLinkedArrowReports;
+    this.#suppressLinkedArrowReports = true;
+    try {
+      return this.#inPosition("signature", () => {
+        const parameters = member.parameters.map((parameter) =>
+          parameter.annotation === undefined
+            ? ERROR
+            : this.#annotationType(
+                parameter.annotation,
+                level,
+                new Map(),
+                subjectTypes,
+                impliedTypes,
+              )
+        );
+        const result = this.#annotationType(
+          member.returnAnnotation,
+          level,
+          new Map(),
+          subjectTypes,
+          impliedTypes,
+        );
+        const effect = this.#writtenEffect(member.effect, member.arrowSpan) ?? PURE;
+        return {
+          type: { kind: "Function", parameters, result, effect } as FunctionMono,
+          colour: member.effect === "linked" && face !== undefined ? face.effect : undefined,
+          member: member.binding.name,
+          parameters: member.parameters.map((parameter) => parameter.name),
+          inlet: linked,
+        };
+      });
+    } finally {
+      this.#suppressLinkedArrowReports = previousSuppression;
+      this.#signatureFace = previousFace;
     }
   }
 
@@ -12335,8 +13130,30 @@ class Checker {
         primary: span,
       });
     }
+    // *(#867.)* Where the composite bound is a **colour**, this act of
+    // unification is the pin §13.2's reports stand on: the call a body absorbed,
+    // or the `->` demand a callback was handed to. Recorded once, at the
+    // variable the constant actually reached.
+    if (type.kind === "Effect" && !this.#colourPins.has(variable)) {
+      this.#colourPins.set(variable, span);
+    }
     variable.instance = type;
     for (const requirement of variable.requirements) this.#validate(requirement);
+  }
+
+  /**
+   * Where a colour was pinned to a constant, following the binding chain
+   * *(#867)*: a body-side colour may be bound to another variable first, and it
+   * is the constant's arrival that §13.2 reports at.
+   */
+  #colourPin(colour: Mono): Source.Span | undefined {
+    for (let node: Mono | undefined = colour; node !== undefined;) {
+      if (node.kind !== "Variable") return undefined;
+      const pin = this.#colourPins.get(node);
+      if (pin !== undefined) return pin;
+      node = node.instance;
+    }
+    return undefined;
   }
 
   /** Sinks every variable in `type` to `level` if it sits above it. */

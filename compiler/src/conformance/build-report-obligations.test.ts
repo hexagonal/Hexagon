@@ -97,7 +97,7 @@ function declaredFunctions(declarations: Emitted.Declarations): readonly string[
  */
 const WEIGHTY = [
   "constraint Weighty<a> =",
-  "    weight(subject: a): Float",
+  "    weight(subject: a) -> Float",
   "",
 ].join("\n");
 
@@ -255,7 +255,7 @@ describe("the zero-entry-point list (§3.4)", () => {
     const project = compile([
       ["/lib.hex", "module Lib\n\n" + [
         "export constraint Weighty<a> =",
-        "    weight(subject: a): Float",
+        "    weight(subject: a) -> Float",
         "",
         "export fun heaviest<a: Weighty>(x: a): Float = x.weight()",
         "",

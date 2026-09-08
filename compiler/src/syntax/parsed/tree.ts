@@ -377,6 +377,16 @@ export interface ConstraintMember {
   readonly name: Name;
   readonly parameters: readonly Parameter[];
   readonly returnAnnotation: TypeAnnotation;
+  /**
+   * The header's **outer arrow** — the contract (Effects §13.1, #867). Absent
+   * is `->`, exactly as on a `FunctionType`; `constant` is `->!`, the licence
+   * for an instance to perform effects; `linked` is `->?`, the member's own
+   * effect variable, quantified at the member and instantiated per call
+   * (Effects §13.4).
+   */
+  readonly effect?: ArrowEffect;
+  /** The arrow token itself, so §4.4's refusal and a fixit can stand on it. */
+  readonly arrowSpan?: Source.Span;
   readonly defaultValue?: LambdaExpr;
   readonly span: Source.Span;
 }

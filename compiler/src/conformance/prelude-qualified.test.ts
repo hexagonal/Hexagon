@@ -298,7 +298,7 @@ describe("the synthesized import dodges every module-level binding (PR #91 findi
     const module = await run([
       ["/main.hex",
         "module Main\n\n" + "constraint Mappable<c> =\n" +
-        "    map(value: c, transform: Int -> Int): c\n" +
+        "    map(value: c, transform: Int -> Int) -> c\n" +
         "record Holder = { map: Int -> Int }\n" +
         "let holder = Holder({ map = value => value * 2 })\n" +
         "export let out: Int = holder.map(3)\n"],

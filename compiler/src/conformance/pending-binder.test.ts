@@ -147,7 +147,7 @@ describe("the pending clause under a full compile", () => {
     // hit (the declaration's member symbol, owned by the module layer).
     expect(diagnostics(
       "constraint Describe<a> =\n" +
-        "    describe(subject: a): String\n" +
+        "    describe(subject: a) -> String\n" +
         "\n" +
         "honor Describe<Int> =\n" +
         "    describe(n) =\n" +
@@ -166,8 +166,8 @@ describe("the pending clause under a full compile", () => {
     // the declaration line.
     expect(diagnostics(
       "constraint Pair<a> =\n" +
-        "    first(subject: a): String\n" +
-        "    second(subject: a): String\n" +
+        "    first(subject: a) -> String\n" +
+        "    second(subject: a) -> String\n" +
         "\n" +
         "honor Pair<Int> =\n" +
         "    first(n) = \"x\"\n" +

@@ -559,7 +559,7 @@ describe("the two fundamentals that name no primitive", () => {
 describe("a declared constraint's `Bool` edition", () => {
   const DESCRIBE = [
     "export constraint Describe<a> =",
-    "    describe(subject: a): String",
+    "    describe(subject: a) -> String",
     "",
     "honor Describe<Int> =",
     "    describe(n) = \"int ${n}\"",

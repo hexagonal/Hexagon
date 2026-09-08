@@ -1193,7 +1193,7 @@ describe("check", () => {
     // quantified, not pinned to a specimen.
     const module = checkSource(
       "constraint Divisor<a: (Num, Ord)> =\n" +
-        "    greatest(left: a, right: a): a",
+        "    greatest(left: a, right: a) -> a",
     );
     const greatest = module.symbols.find(({ name }) => name === "greatest");
 
@@ -1212,7 +1212,7 @@ describe("check", () => {
   test("keeps an instance parameter rigid across pattern-bound occurrences", () => {
     const module = checkSource(
       "constraint Describe<a> =\n" +
-        "    describe(value: a): String\n" +
+        "    describe(value: a) -> String\n" +
         "union Wrap(a) = Empty | Full(value: a)\n" +
         "honor<a: Describe> Describe<Wrap(a)> =\n" +
         "    describe(wrap) = match wrap\n" +
@@ -1235,7 +1235,7 @@ describe("check", () => {
   test("rejects an instance body demanding a constraint the header does not declare", () => {
     const module = checkSource(
       "constraint Describe<a> =\n" +
-        "    describe(value: a): String\n" +
+        "    describe(value: a) -> String\n" +
         "record Box(a) = {value: a}\n" +
         "honor<a: Describe> Describe<Box(a)> =\n" +
         '    describe(box) = "${box.value + 1}"',
@@ -1262,10 +1262,10 @@ describe("check", () => {
   test("rejects a default body demanding a constraint the subject does not reach", () => {
     const module = checkSource(
       "constraint MyEq<a> =\n" +
-        "    eq(left: a, right: a): Bool\n" +
+        "    eq(left: a, right: a) -> Bool\n" +
         "constraint Labelled<a: MyEq> =\n" +
-        "    label(value: a): String\n" +
-        '    shown(value: a): String = "${value}"',
+        "    label(value: a) -> String\n" +
+        '    shown(value: a) -> String = "${value}"',
     );
 
     // The rewrite must be legal at the declaration site: a constraint cannot
@@ -1285,8 +1285,8 @@ describe("check", () => {
     const module = checkSource(
       "union Held(a) = Missing | Held2(value: a)\n" +
         "constraint Pick<a> =\n" +
-        "    pick(value: a): a\n" +
-        "    pickHeld(fallback: a, held: Held(a)): a = match held\n" +
+        "    pick(value: a) -> a\n" +
+        "    pickHeld(fallback: a, held: Held(a)) -> a = match held\n" +
         "        Missing => fallback\n" +
         "        Held2(value) => pick(value)\n" +
         "honor Pick<Int> =\n" +
@@ -1307,7 +1307,7 @@ describe("check", () => {
     const module = checkSource(
       "constraint Source<a> =\n" +
         "    type Item\n" +
-        "    get(value: a): Item\n" +
+        "    get(value: a) -> Item\n" +
         "record Box = {value: Int}\n" +
         "honor Source<Box> =\n" +
         "    type Item = Int\n" +
@@ -1326,7 +1326,7 @@ describe("check", () => {
     const module = checkSource(
       "constraint Source<a> =\n" +
         "    type Item\n" +
-        "    get(value: a): Item\n" +
+        "    get(value: a) -> Item\n" +
         "honor Source<Int> =\n" +
         "    get(value) = value\n" +
         "let generic<a: Source>(value: a) = get(value)",
@@ -1463,7 +1463,7 @@ describe("check", () => {
     // no longer spellable: the honor itself is the error, and settling's
     // `Unit`-side answer is the structural tuple one, with no user door.
     const honored = "constraint Conjure<a> =\n" +
-      "    make(): a\n" +
+      "    make() -> a\n" +
       "honor Conjure<Int> =\n" +
       "    make() = 1\n" +
       "honor Conjure<Unit> =\n" +
@@ -1484,7 +1484,7 @@ describe("check", () => {
     // the structural tuple set, so a user constraint is never satisfiable
     // there and the demand site's own report fires, naming `Int`.
     const intOnly = "constraint Conjure<a> =\n" +
-      "    make(): a\n" +
+      "    make() -> a\n" +
       "honor Conjure<Int> =\n" +
       "    make() = 1\n";
     expect(
@@ -1502,7 +1502,7 @@ describe("check", () => {
     // rejects extensible defaulting as a design. Nothing pins `v`, so this is
     // §4's ambiguity error rather than a silent `v : Int`.
     const conjure = "constraint Conjure<a> =\n" +
-      "    make(): a\n" +
+      "    make() -> a\n" +
       "honor Conjure<Int> =\n" +
       "    make() = 1\n";
     const ambiguous = checkSource(conjure + "let v = make()");
@@ -1528,7 +1528,7 @@ describe("check", () => {
     // the report to name the blocking constraint at the literal's location.
     const literal = checkSource(
       "constraint Tag<a> =\n" +
-        "    label(value: a): String\n" +
+        "    label(value: a) -> String\n" +
         "honor Tag<Int> =\n" +
         "    label(value) = \"int\"\n" +
         "let text = label(1)",
@@ -1547,7 +1547,7 @@ describe("check", () => {
     // the literal its own caret points at rather than one of them each.
     const shared = checkSource(
       "constraint Pairable<a> =\n" +
-        "    pair(left: a, right: a): String\n" +
+        "    pair(left: a, right: a) -> String\n" +
         "honor Pairable<Int> =\n" +
         "    pair(left, right) = \"pair\"\n" +
         "let text = pair(4, 6)",
@@ -1601,7 +1601,7 @@ describe("check", () => {
     // name, which is how the absent quantification became visible.
     const module = checkSource(
       "constraint Render<a> =\n" +
-        "    render(value: a): String\n" +
+        "    render(value: a) -> String\n" +
         "honor Render<Int> =\n" +
         "    render(value) = \"int\"\n" +
         "record Box(a) = {value: a}\n" +
@@ -1642,7 +1642,7 @@ describe("check", () => {
     // one survives into the fixit — and §6 requires survivors there to be
     // named, not numbered: `(a, Int)`, never `(?2, Int)`.
     const conjure = "constraint Conjure<a> =\n" +
-      "    make(): a\n" +
+      "    make() -> a\n" +
       "honor Conjure<Int> =\n" +
       "    make() = 1\n";
     expect(

@@ -1308,10 +1308,10 @@ describe("runtime modules hold the intrinsic door (§5.2)", () => {
    */
   test("an adopted runtime member also inherits the pre-registered-constraint carve-out", () => {
     const declaration = "constraint Integral<a: (Num, Ord)> =\n" +
-      "    div(left: a, right: a): a\n" +
-      "    mod(left: a, right: a): a\n" +
-      "    quot(left: a, right: a): a\n" +
-      "    rem(left: a, right: a): a\n";
+      "    div(left: a, right: a) -> a\n" +
+      "    mod(left: a, right: a) -> a\n" +
+      "    quot(left: a, right: a) -> a\n" +
+      "    rem(left: a, right: a) -> a\n";
     expect(
       compileFiles([["/Ordinary.hex", "module Ordinary\n\n" + declaration]]).diagnostics.map(({ message }) => message),
     ).toEqual(["constraint `Integral` is pre-registered and cannot be redeclared"]);

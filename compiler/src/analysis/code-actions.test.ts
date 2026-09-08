@@ -543,7 +543,7 @@ describe("code actions: infer return type", () => {
     const source = "module Main\n\n" + [
       "constraint Source<a> =",
       "    type Item",
-      "    get(value: a): Item",
+      "    get(value: a) -> Item",
       "",
       "export record Box = {value: Int}",
       "",
@@ -1125,13 +1125,13 @@ describe("code actions: the variance an opaque type could declare (#205)", () =>
  */
 describe("code actions: the module-import repair family (#577)", () => {
   /** A user constraint in its own module, unimported by anything below. */
-  const SCALE = "module Scale\n\n" + "export constraint Scale<a> =\n    scale(value: a, factor: Int): a\n";
+  const SCALE = "module Scale\n\n" + "export constraint Scale<a> =\n    scale(value: a, factor: Int) -> a\n";
   /** A union and a function over it: the type seat's exporter. */
   const SHAPE = "module Shape\n\n" + "export union Shape = Circle(Float) | Square(Float)\n" +
     "export fun area(s: Shape): Float = 1.0\n";
   /** The same constraint in a module whose **name is not the spelling**. */
   const METRIC = "module Metric\n\n" +
-    "export constraint Scale<a> =\n    scale(value: a, factor: Int): a\n";
+    "export constraint Scale<a> =\n    scale(value: a, factor: Int) -> a\n";
 
   test("the type seat's insert lands beside the imports already there", () => {
     // The filing's own shape, respelt for #762: the type is named bare by a
@@ -1306,7 +1306,7 @@ describe("code actions: the module-import repair family (#577)", () => {
     // candidates are two distinctly named modules that each export a
     // constraint spelled `Scale`.
     const main = "module Main\n\n" + "export fun go<a: Scale>(x: a): a = x\n";
-    const constraintScale = "export constraint Scale<a> =\n    scale(value: a, factor: Int): a\n";
+    const constraintScale = "export constraint Scale<a> =\n    scale(value: a, factor: Int) -> a\n";
     const { session } = sessionOf({
       "/lib/metric.hex": "module Metric\n\n" + constraintScale,
       "/lib/imperial.hex": "module Imperial\n\n" + constraintScale,
@@ -1340,7 +1340,7 @@ describe("code actions: the module-import repair family (#577)", () => {
       "export let n: Float = Shape.area(1.0)\n";
     session.setFile(
       "/scale.hex",
-      "module Scale\n\n" + "export constraint Shape<a> =\n    area(value: a): Float\n",
+      "module Scale\n\n" + "export constraint Shape<a> =\n    area(value: a) -> Float\n",
     );
     session.setFile("/main.hex", qualified);
     expect(actionsOn(session, "/main.hex", qualified, "Shape.area")).toEqual([]);
@@ -1499,7 +1499,7 @@ describe("code actions: the module-import repair family (#577)", () => {
   test("a private declaration is no export, and offers nothing", () => {
     const main = "module Main\n\n" + "export fun go<a: Scale>(x: a): a = x\n";
     const { session } = sessionOf({
-      "/scale.hex": "module Scale\n\n" + "constraint Scale<a> =\n    scale(value: a, factor: Int): a\n",
+      "/scale.hex": "module Scale\n\n" + "constraint Scale<a> =\n    scale(value: a, factor: Int) -> a\n",
       "/main.hex": main,
     });
     expect(actionsOn(session, "/main.hex", main, "Scale>")).toEqual([]);

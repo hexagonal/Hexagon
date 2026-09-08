@@ -72,7 +72,7 @@ function distinct(label: string): (path: string, javascript: string) => string {
 function fancyLib(member: string, use: string, tag: string): string {
   return [
     "export constraint Fancy<t> =",
-    `    ${member}(value: t): String`,
+    `    ${member}(value: t) -> String`,
     "",
     "honor Fancy<Int> =",
     `    ${member}(value) = "${tag}\${value}"`,

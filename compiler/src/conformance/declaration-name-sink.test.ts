@@ -1247,7 +1247,7 @@ describe("the face walk counts every arm `emit` renders, and no other", () => {
       ...MINT,
       [
         "/main.hex",
-        "module Main\n\n" + "constraint Render<a> =\n    render(value: a): String\n" +
+        "module Main\n\n" + "constraint Render<a> =\n    render(value: a) -> String\n" +
           HEAD +
           "export let describe<a: Render>(p: S.Point, value: a): String = render(value)\n" +
           "export let w: W = W.one()\n",

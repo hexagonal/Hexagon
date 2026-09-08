@@ -202,13 +202,13 @@ function resolver(module: Core.Module): {
 /** A module declaring two constraints and honoring them at `Int` and at `Bool`. */
 const declaredConstraints = [
   "constraint Describe<a> =",
-  "    describe(subject: a): String",
+  "    describe(subject: a) -> String",
   "",
   "honor Describe<Int> =",
   "    describe(n) = \"int ${n}\"",
   "",
   "constraint Mark<a> =",
-  "    mark(subject: a): String",
+  "    mark(subject: a) -> String",
   "",
   "honor Mark<Bool> =",
   "    mark(b) = if b then \"yes\" else \"no\"",
@@ -372,7 +372,7 @@ describe("a pre-registered constraint's edition is unmoved", () => {
 /** A module whose exported constraint is honored at `Int` and at `String`. */
 const describeModule = [
   "export constraint Describe<a> =",
-  "    describe(subject: a): String",
+  "    describe(subject: a) -> String",
   "",
   "honor Describe<Int> =",
   "    describe(n) = \"int ${n}\"",
@@ -461,7 +461,7 @@ describe("the lookup walks all three channels, keyed on identity", () => {
       ["/describe.hex", "module Describe\n\n" + describeModule],
       ["/portray.hex", "module Portray\n\n" + [
         "export constraint Describe<a> =",
-        "    portray(value: a): String",
+        "    portray(value: a) -> String",
         "",
         "honor Describe<Int> =",
         "    portray(count) = \"counted ${count}\"",
@@ -498,7 +498,7 @@ describe("the lookup walks all three channels, keyed on identity", () => {
     const module = core([
       ["/mark.hex", "module Mark\n\n" + [
         "export constraint Mark<a> =",
-        "    mark(subject: a): String",
+        "    mark(subject: a) -> String",
         "",
         "honor Mark<Bool> =",
         "    mark(b) = if b then \"yes\" else \"no\"",
@@ -529,7 +529,7 @@ describe("the lookup walks all three channels, keyed on identity", () => {
     // module where nothing could have matched anyway.
     const project = compileFiles([["/main.hex", "module Main\n\n" + [
       "constraint Describe<a> =",
-      "    describe(subject: a): String",
+      "    describe(subject: a) -> String",
       "",
       "honor Describe<Unit> =",
       "    describe(u) = \"unit\"",
@@ -590,7 +590,7 @@ describe("a declared constraint's binder mints the editions its instances back",
   test("the emitted editions call the instance, end to end", async () => {
     const source = [
       "constraint Describe<a> =",
-      "    describe(subject: a): String",
+      "    describe(subject: a) -> String",
       "",
       "honor Describe<Int> =",
       "    describe(n) = \"int ${n}\"",
@@ -599,7 +599,7 @@ describe("a declared constraint's binder mints the editions its instances back",
       "    describe(s) = \"string ${s}\"",
       "",
       "constraint Mark<a> =",
-      "    mark(subject: a): String",
+      "    mark(subject: a) -> String",
       "",
       "honor Mark<Bool> =",
       "    mark(b) = if b then \"marked\" else \"plain\"",

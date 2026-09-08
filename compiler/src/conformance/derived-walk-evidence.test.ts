@@ -64,7 +64,7 @@ function javascript(source: string): string {
 function wide(member: string): string {
   return [
     "constraint Wide<a: Hash> =",
-    `    ${member}(value: a): Int`,
+    `    ${member}(value: a) -> Int`,
     "",
     "honor Wide<Int> =",
     `    ${member}(value) = value`,
@@ -201,7 +201,7 @@ describe("the walk dispatchers read a variable component's recorded evidence", (
   test("a tuple's variable element at the compare walk", async () => {
     const source = [
       "constraint Sorted<a: Ord> =",
-      "    tagCompare(value: a): Int",
+      "    tagCompare(value: a) -> Int",
       "",
       "honor Sorted<Int> =",
       "    tagCompare(value) = value",
@@ -227,7 +227,7 @@ describe("the walk dispatchers read a variable component's recorded evidence", (
   test("a tuple's variable element at the show walk", async () => {
     const source = [
       "constraint Pretty<a: Show> =",
-      "    tagShow(value: a): Int",
+      "    tagShow(value: a) -> Int",
       "",
       "honor Pretty<Int> =",
       "    tagShow(value) = value",

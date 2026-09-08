@@ -616,7 +616,7 @@ describe("AnalysisSession", () => {
   test("a constraint's declaration, honour and bound are one identity", () => {
     const source = "module Main\n\n" + [
       "constraint Show2<a> =",
-      "    show2(value: a): String",
+      "    show2(value: a) -> String",
       "",
       "record Wrapper = {",
       "    inner: Int,",
@@ -809,7 +809,7 @@ describe("AnalysisSession.hover documentation", () => {
     const source = "module Main\n\n" + [
       "constraint Sized<a> =",
       "    (** How big it is. *)",
-      "    size(value: a): Int",
+      "    size(value: a) -> Int",
       "",
       "export record Box = {",
       "    (** How wide. *)",
@@ -910,7 +910,7 @@ describe("AnalysisSession.hover documentation", () => {
     const source = "module Main\n\n" + [
       "(** Things with a size. *)",
       "constraint Sized<a> =",
-      "    size(value: a): Int",
+      "    size(value: a) -> Int",
       "",
       "export record Box = { width: Int }",
       "",
@@ -939,7 +939,7 @@ describe("AnalysisSession.hover documentation", () => {
       "    (** The type of one key, chosen by each instance. *)",
       "    type Key",
       "    (** The key of `x`. *)",
-      "    keyOf(x: c): Key",
+      "    keyOf(x: c) -> Key",
       "",
       "honor Keyed<Int> =",
       "    (** An `Int` keys itself. *)",
@@ -969,12 +969,12 @@ describe("AnalysisSession.hover documentation", () => {
     const documented = "module Alpha\n\n" + [
       "(** ALPHA doc. *)",
       "constraint Shown<a> =",
-      "    render(value: a): Int",
+      "    render(value: a) -> Int",
       "",
     ].join("\n");
     const bare = "module Beta\n\n" + [
       "constraint Shown<a> =",
-      "    render(value: a): Int",
+      "    render(value: a) -> Int",
       "",
       "export record Box = { width: Int }",
       "",
@@ -1414,7 +1414,7 @@ describe("AnalysisSession.rename", () => {
   test("renames a constraint the project declared, everywhere it is named", () => {
     const source = "module Main\n\n" + [
       "constraint Same<a> =",
-      "    same(left: a, right: a): Bool",
+      "    same(left: a, right: a) -> Bool",
       "",
       "record Token = {value: Int}",
       "",
@@ -1588,7 +1588,7 @@ describe("hoverSpans (#254)", () => {
    */
   const SOURCE = "module Main\n\n" + [
     "constraint Shown<a> =",
-    "    show(value: a): String",
+    "    show(value: a) -> String",
     "",
     "record P = {",
     "    (** The one it answers to. *)",

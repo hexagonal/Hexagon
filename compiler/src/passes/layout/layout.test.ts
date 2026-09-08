@@ -44,7 +44,7 @@ describe("applyLayout", () => {
   });
 
   test("recognizes exported block declarations", () => {
-    const result = layout("export constraint Visible<a> =\n    show(x: a): String");
+    const result = layout("export constraint Visible<a> =\n    show(x: a) -> String");
 
     expect(virtualKinds(result.tokens)).toEqual(["VOpen", "VSep", "VOpen", "VClose", "VClose"]);
     expect(result.diagnostics).toEqual([]);

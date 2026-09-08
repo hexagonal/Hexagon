@@ -69,7 +69,7 @@ function offsetOf(text: string, needle: string): number {
  */
 const RENDER_PRELUDE =
   "constraint Render<a> =\n" +
-  "    render(value: a): String\n" +
+  "    render(value: a) -> String\n" +
   "honor Render<Int> =\n" +
   '    render(value) = "${value}"\n' +
   "record Box(a) = {value: a}\n" +
@@ -191,7 +191,7 @@ describe("§3.1 — ground applications hoist to module level", () => {
 describe("§3.2 — self-evidence is the instance record under construction", () => {
   const TREE =
     "constraint Describe<a> =\n" +
-    "    describe(value: a): String\n" +
+    "    describe(value: a) -> String\n" +
     "honor Describe<Int> =\n" +
     '    describe(value) = "${value}"\n' +
     "union Tree(a) = Leaf | Node(left: Tree(a), item: a, right: Tree(a))\n" +
@@ -273,7 +273,7 @@ describe("§3.2 — self-evidence is the instance record under construction", ()
     // grow a local record it did not have.
     const text = emitted(
       "constraint Render<a> =\n" +
-        "    render(value: a): String\n" +
+        "    render(value: a) -> String\n" +
         "record Point = {x: Int}\n" +
         "honor Render<Point> =\n" +
         '    render(value) = "${value.x}"\n' +
@@ -297,7 +297,7 @@ describe("§3.3 — non-identity evidence inside a factory body stays call-time"
   test("mutual recursion: a different instance over the parameters", async () => {
     const source =
       "constraint Rend<a> =\n" +
-      "    rend(value: a): String\n" +
+      "    rend(value: a) -> String\n" +
       "honor Rend<Int> =\n" +
       '    rend(value) = "${value}"\n' +
       "union Tree2(a) = Tip(item: a) | Branch(kids: Forest(a))\n" +
@@ -330,7 +330,7 @@ describe("§3.3 — non-identity evidence inside a factory body stays call-time"
     const source =
       "record Box2(a) = {value: a}\n" +
       "constraint Dsc<a> =\n" +
-      "    dsc(value: a): String\n" +
+      "    dsc(value: a) -> String\n" +
       "honor Dsc<Int> =\n" +
       '    dsc(value) = "${value}"\n' +
       "honor<a: Dsc> Dsc<Box2(a)> =\n" +
@@ -356,7 +356,7 @@ describe("§3.3 — non-identity evidence inside a factory body stays call-time"
   test("permuted: this instance over its own parameters, reversed", async () => {
     const source =
       "constraint Dsp<a> =\n" +
-      "    dsp(value: a): String\n" +
+      "    dsp(value: a) -> String\n" +
       "honor Dsp<Int> =\n" +
       '    dsp(value) = "${value}"\n' +
       "honor Dsp<String> =\n" +
@@ -436,7 +436,7 @@ describe("§4, §5, §8 — the key, determinism, and the exported surface", () 
       [
         "/lib.hex",
         "module Lib\n\n" + "export constraint Render<a> =\n" +
-          "    render(value: a): String\n" +
+          "    render(value: a) -> String\n" +
           "honor Render<Int> =\n" +
           '    render(value) = "${value}"\n' +
           "export record Box(a) = {value: a}\n" +
@@ -477,7 +477,7 @@ describe("§4, §5, §8 — the key, determinism, and the exported surface", () 
 describe("§5 — a contested hoisted spelling", () => {
   const CONTEST =
     "constraint Render<a> =\n" +
-    "    render(value: a): String\n" +
+    "    render(value: a) -> String\n" +
     "honor Render<Int> =\n" +
     '    render(value) = "${value}"\n' +
     "record Box(a) = {value: a}\n" +
@@ -513,7 +513,7 @@ describe("§5 — a contested hoisted spelling", () => {
   test("two hoisted bindings that flatten alike separate, and both run", async () => {
     const source =
       "constraint Render<a> =\n" +
-      "    render(value: a): String\n" +
+      "    render(value: a) -> String\n" +
       "record B_C = {p: Int}\n" +
       "record C = {q: Int}\n" +
       "record A(a) = {value: a}\n" +

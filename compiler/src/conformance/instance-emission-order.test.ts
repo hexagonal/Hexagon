@@ -35,7 +35,7 @@ describe("evidence is emitted before the module's term bindings", () => {
   test("a use above the `honor` runs", async () => {
     const main = await runProject([["/main.hex",
       "module Main\n\n" + "export constraint Render<a> =\n" +
-      "    render(value: a): Int\n" +
+      "    render(value: a) -> Int\n" +
       "export record Box = {v: Int}\n" +
       "export let label: Int = render(Box({v = 1}))\n" +
       "honor Render<Box> =\n" +
@@ -48,7 +48,7 @@ describe("evidence is emitted before the module's term bindings", () => {
   test("a factory demanded above its `honor` runs", async () => {
     const main = await runProject([["/main.hex",
       "module Main\n\n" + "export constraint Render<a> =\n" +
-      "    render(value: a): Int\n" +
+      "    render(value: a) -> Int\n" +
       "export record Box(a) = {v: a}\n" +
       "honor Render<Int> =\n" +
       "    render(value) = value\n" +
@@ -66,9 +66,9 @@ describe("evidence is emitted before the module's term bindings", () => {
   test("one instance reading another's evidence runs, with a term use between", async () => {
     const main = await runProject([["/main.hex",
       "module Main\n\n" + "export constraint Small<a> =\n" +
-      "    size(value: a): Int\n" +
+      "    size(value: a) -> Int\n" +
       "export constraint Big<a: Small> =\n" +
-      "    total(value: a): Int\n" +
+      "    total(value: a) -> Int\n" +
       "export record Box = {v: Int}\n" +
       "honor Big<Box> =\n" +
       "    total(b) = size(b) * 10\n" +
@@ -85,9 +85,9 @@ describe("evidence is emitted before the module's term bindings", () => {
     // own initialization, so it is the one edge that orders the block.
     const javascript = emitted([["/main.hex",
       "module Main\n\n" + "export constraint Small<a> =\n" +
-      "    size(value: a): Int\n" +
+      "    size(value: a) -> Int\n" +
       "export constraint Big<a: Small> =\n" +
-      "    total(value: a): Int\n" +
+      "    total(value: a) -> Int\n" +
       "export record Box = {v: Int}\n" +
       "honor Big<Box> =\n" +
       "    total(b) = size(b) * 10\n" +

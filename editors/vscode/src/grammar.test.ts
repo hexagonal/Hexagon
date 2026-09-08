@@ -385,7 +385,7 @@ describe("declarations name what they declare", () => {
   });
 
   it("names a constraint-introducing declaration as a constraint", async () => {
-    expect(await scope("constraint Ord<a: Eq> =\n    compare(l: a): a", "Ord")).toBe(
+    expect(await scope("constraint Ord<a: Eq> =\n    compare(l: a) -> a", "Ord")).toBe(
       "entity.name.type.constraint.hexagon",
     );
     expect(await scope("honor Show<Rat> =\n    show(r: Rat): String = \"\"", "Show")).toBe(
@@ -405,7 +405,7 @@ describe("declarations name what they declare", () => {
 
   it("scopes a call head and a constraint member header as a function", async () => {
     expect(await scope("let x = map(xs, f)", "map")).toBe("entity.name.function.hexagon");
-    expect(await scope("constraint C<a> =\n    div(left: a): a", "div")).toBe(
+    expect(await scope("constraint C<a> =\n    div(left: a) -> a", "div")).toBe(
       "entity.name.function.hexagon",
     );
   });
@@ -510,7 +510,7 @@ describe("declarations name what they declare", () => {
 
 describe("type variables are nominal-coloured in type positions", () => {
   it("recognizes a constraint subject inside angle brackets", async () => {
-    expect(await scope("constraint Show<a> =\n    show(value: Int): String", "a")).toBe(
+    expect(await scope("constraint Show<a> =\n    show(value: Int) -> String", "a")).toBe(
       "entity.name.type.parameter.hexagon",
     );
   });
@@ -591,7 +591,7 @@ describe("type variables are nominal-coloured in type positions", () => {
     expect(await scope("let plus<a: Num>(x: a): a = x", "Num")).toBe(
       "entity.name.type.constraint.hexagon",
     );
-    const pairs = await scopePairs("constraint Integral<a: (Num, Ord)> =\n    div(l: a): a");
+    const pairs = await scopePairs("constraint Integral<a: (Num, Ord)> =\n    div(l: a) -> a");
     expect(pairs.filter(([, s]) => s === "entity.name.type.constraint.hexagon")).toEqual([
       ["Integral", "entity.name.type.constraint.hexagon"],
       ["Num", "entity.name.type.constraint.hexagon"],
@@ -955,7 +955,7 @@ describe("an unterminated bracket group stays on its line (#162)", () => {
 
     // Five hanging groups, seven bounded ones, the two contexts that enclose them, and
     // the JavaScript-comment region, which is a half-typed `/*` away from the same leak.
-    expect(guards).toHaveLength(15);
+    expect(guards).toHaveLength(16);
     expect(new Set(guards).size).toBe(1);
   });
 
@@ -977,7 +977,7 @@ describe("an unterminated bracket group stays on its line (#162)", () => {
   it("admits `union` to the guard only ahead of a type name", async () => {
     const guards = endPatterns(JSON.parse(await readFile(grammarPath, "utf8")))
       .filter((end) => end.includes("(?=^\\S"));
-    expect(guards).toHaveLength(15);
+    expect(guards).toHaveLength(16);
     for (const guard of guards) {
       expect(guard, guard).toContain(
         "|union(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|module",
@@ -1002,7 +1002,7 @@ describe("an unterminated bracket group stays on its line (#162)", () => {
   it("admits `widens` to the guard only ahead of a module alias", async () => {
     const guards = endPatterns(JSON.parse(await readFile(grammarPath, "utf8")))
       .filter((end) => end.includes("(?=^\\S"));
-    expect(guards).toHaveLength(15);
+    expect(guards).toHaveLength(16);
     for (const guard of guards) {
       expect(guard, guard).toContain(
         "|widens(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|union",
@@ -1031,7 +1031,7 @@ describe("an unterminated bracket group stays on its line (#162)", () => {
   it("admits `opaque` to the guard only ahead of `record`/`union`", async () => {
     const guards = endPatterns(JSON.parse(await readFile(grammarPath, "utf8")))
       .filter((end) => end.includes("(?=^\\S"));
-    expect(guards).toHaveLength(15);
+    expect(guards).toHaveLength(16);
     for (const guard of guards) {
       expect(guard, guard).toContain(
         "|opaque(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?:record|union)" +
@@ -1081,7 +1081,7 @@ describe("an unterminated bracket group stays on its line (#162)", () => {
   it("admits `module` and `end module` to the guard, keyed on the follower", async () => {
     const guards = endPatterns(JSON.parse(await readFile(grammarPath, "utf8")))
       .filter((end) => end.includes("(?=^\\S"));
-    expect(guards).toHaveLength(15);
+    expect(guards).toHaveLength(16);
     for (const guard of guards) {
       expect(guard, guard).toContain("|import|");
       expect(guard, guard).toContain(

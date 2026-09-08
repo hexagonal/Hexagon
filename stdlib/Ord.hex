@@ -13,4 +13,4 @@ export constraint Ord<a: Eq> =
     (** How `left` orders against `right`. An instance's `compare` is a total
         order agreeing with `equals`: `Equal` exactly when the two are equal,
         and antisymmetric and transitive otherwise. *)
-    compare(left: a, right: a): Ordering
+    compare(left: a, right: a) -> Ordering

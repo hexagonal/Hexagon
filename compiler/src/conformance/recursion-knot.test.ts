@@ -279,7 +279,7 @@ describe("the asymmetric knot", () => {
    */
   test("a non-defaultable callee-only variable is refused on the ambiguity path", () => {
     const messages = projectDiagnostics("module Main\n\n" + "constraint Blip<a> =\n" +
-        "    blip(x: a): Int\n" +
+        "    blip(x: a) -> Int\n" +
         "record Crate(a) = {items: Vector(a)}\n" +
         "honor<a: Blip> Blip<Crate(a)> =\n" +
         "    blip(x) = 1\n" +
