@@ -24,7 +24,7 @@ record Tउपयोगकर्ता = {नाम: String, 城市: String}
 
 // C = constraint. The constraint and member names are Mandarin Chinese.
 constraint C可显示<a> =
-    显示(value: a): String
+    显示(value: a) -> String
 
 honor C可显示<Tउपयोगकर्ता> =
     显示(उपयोगकर्ता) = उपयोगकर्ता.नाम ++ " · " ++ उपयोगकर्ता.城市

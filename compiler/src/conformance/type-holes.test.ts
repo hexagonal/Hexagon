@@ -180,7 +180,7 @@ describe("§8.6 the total-contract fence (§5.4)", () => {
         "an `extern` declaration",
       ],
       [
-        "constraint C<a> =\n    m(x: a): _\nexport let out: Int = 1\n",
+        "constraint C<a> =\n    m(x: a) -> _\nexport let out: Int = 1\n",
         "a `constraint` declaration",
       ],
     ];
@@ -200,7 +200,7 @@ describe("§8.6 the total-contract fence (§5.4)", () => {
   });
 
   test("an instance head is fenced, and the fence speaks before coherence does", () => {
-    const messages = projectDiagnostics("module Main\n\n" + "constraint C<a> =\n    m(x: a): Int\n" +
+    const messages = projectDiagnostics("module Main\n\n" + "constraint C<a> =\n    m(x: a) -> Int\n" +
         "honor C<_> =\n    m(x) = 1\n" +
         "export let out: Int = 1\n",
     );
@@ -208,7 +208,7 @@ describe("§8.6 the total-contract fence (§5.4)", () => {
   });
 
   test("a hole among the subject's *arguments* is fenced too", () => {
-    const messages = projectDiagnostics("module Main\n\n" + "constraint C<a> =\n    m(x: a): Int\n" +
+    const messages = projectDiagnostics("module Main\n\n" + "constraint C<a> =\n    m(x: a) -> Int\n" +
         "honor C<Vector(_)> =\n    m(x) = 1\n" +
         "export let out: Int = 1\n",
     );
@@ -269,9 +269,9 @@ describe("§8.6 the total-contract fence (§5.4)", () => {
           "an `extern` declaration",
         ],
         [`extern from "./foreign.js"\n    let v: Pair(_)\n${TAIL}`, "an `extern` declaration"],
-        [`constraint C<a> =\n    m(x: Pair(_)): Int\n${TAIL}`, "a `constraint` declaration"],
+        [`constraint C<a> =\n    m(x: Pair(_)) -> Int\n${TAIL}`, "a `constraint` declaration"],
         [
-          `constraint C<a> =\n    m(x: a): Int\nhonor C<Pair(_)> =\n    m(x) = 1\n${TAIL}`,
+          `constraint C<a> =\n    m(x: a) -> Int\nhonor C<Pair(_)> =\n    m(x) = 1\n${TAIL}`,
           "an `honor` declaration names its subject in full;",
         ],
       ];

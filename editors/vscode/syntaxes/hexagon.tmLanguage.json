@@ -33,6 +33,7 @@
     { "include": "#parameter" },
     { "include": "#type-parameters" },
     { "include": "#annotation-type" },
+    { "include": "#member-return-type" },
     { "include": "#names" },
     { "//": "Before #operators: spec/lexer.md §8.2 requires `||` to be one forbidden run pointing at `or`, never two pattern bars.", "include": "#invalid" },
     { "include": "#operators" },
@@ -728,6 +729,28 @@
           "name": "entity.name.type.parameter.hexagon",
           "match": "_(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(?=[ \\t]*:(?!=))"
         }
+      ]
+    },
+
+    "member-return-type": {
+      "//": [
+        "spec/constraints.md §2 (#867): a constraint member header writes its **outer",
+        "arrow** rather than the `:` separator, and what follows the arrow is a type.",
+        "Every other type arrow in the language stands *inside* an annotation, which",
+        "#annotation-type already owns, so the only arrow this grammar meets at the top",
+        "level is a member header's — and its tail is the same type context a `:` opens.",
+        "The three arrows keep the scopes #operators gives them, so a member's colour is",
+        "the same token wherever it is written."
+      ],
+      "begin": "(->\\?)|(->!)|(->)",
+      "beginCaptures": {
+        "1": { "name": "keyword.operator.arrow.linked.hexagon" },
+        "2": { "name": "keyword.operator.arrow.impure.hexagon" },
+        "3": { "name": "keyword.operator.type.arrow.hexagon" }
+      },
+      "end": "(?=[,)=}\\]]|=>|=(?!=)|$)|(?=^\\S|^[ \\t]*(?:(?:(?:let|var|fun|record|type|constraint|honor|derive|exception|import|export|extern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|opaque(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?:record|union)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|widens(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|union(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|end[ \\t]+module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))|\\|(?!>)))",
+      "patterns": [
+        { "include": "#type-expression" }
       ]
     },
 

@@ -53,7 +53,7 @@ const bag = "record Bag(a) = {items: Vector(a)}\n" +
 const pair = "record Pair(a, b) = {left: a, right: b}\n";
 
 const sh = "constraint Sh<a> =\n" +
-  "    sh(x: a): String\n";
+  "    sh(x: a) -> String\n";
 
 describe("the head introduces its own binders", () => {
   test("a binder-less parameterized instance checks", () => {

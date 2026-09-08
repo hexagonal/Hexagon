@@ -141,7 +141,7 @@ describe("semantic tokens", () => {
   test("a constraint and its members are told apart from ordinary values", () => {
     const source = "module Main\n\n" + [
       "constraint Same<a> =",
-      "    same(left: a, right: a): Bool",
+      "    same(left: a, right: a) -> Bool",
       "",
       "record Token = {value: Int}",
       "",

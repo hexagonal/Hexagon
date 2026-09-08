@@ -45,10 +45,10 @@ describe("resolve", () => {
     const module = resolveSource(
       "constraint Source<a> =\n" +
         "    type Item\n" +
-        "    get(value: a): Item\n" +
+        "    get(value: a) -> Item\n" +
         "constraint Sink<a> =\n" +
         "    type Item\n" +
-        "    put(value: a, item: Item): Unit\n" +
+        "    put(value: a, item: Item) -> Unit\n" +
         "let invalid(value: Item) = value",
     );
 

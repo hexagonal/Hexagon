@@ -260,7 +260,7 @@ describe("signature positions have no body to destructure into", () => {
 
   test("a constraint member rejects a pattern parameter", () => {
     expect(
-      diagnostics("constraint Sized<a> =\n    size((x, y): (a, a)): Int\n"),
+      diagnostics("constraint Sized<a> =\n    size((x, y): (a, a)) -> Int\n"),
     ).toContain("constraint members take plain parameter names, not patterns");
   });
 

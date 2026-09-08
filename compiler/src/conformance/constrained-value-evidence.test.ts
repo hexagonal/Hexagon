@@ -214,9 +214,9 @@ describe("one argument per scheme constraint (defect 16)", () => {
     // requirement.
     const exports = await main(
       "constraint Same<a> =\n" +
-      "    same(left: a, right: a): Bool\n" +
+      "    same(left: a, right: a) -> Bool\n" +
       "constraint Labeled<a: Same> =\n" +
-      "    label(value: a): String\n" +
+      "    label(value: a) -> String\n" +
       "record Token = {value: Int}\n" +
       "honor Same<Token> =\n" +
       "    same(left, right) = left.value == right.value\n" +

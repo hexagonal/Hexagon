@@ -118,7 +118,7 @@ describe("the supplying seats (§4.3)", () => {
     // the body: its expected type is the declaration's result with the subject
     // substituted, so a match function standing there lands.
     expect(projectDiagnostics("module Main\n\n" + "export constraint Pick<a> =\n" +
-        "    pick(value: a): (Int) -> String\n" +
+        "    pick(value: a) -> (Int) -> String\n" +
         "honor Pick<Int> =\n" +
         "    pick(value) = match\n" +
         guardOnly("        ") +
@@ -132,7 +132,7 @@ describe("the supplying seats (§4.3)", () => {
     // inference; #513 is the one mechanism that makes the sentence reach a
     // member's lambda parameters before its body is inferred.
     expect(projectDiagnostics("module Main\n\n" + "export constraint Sign<a> =\n" +
-        "    sign(value: a): String\n" +
+        "    sign(value: a) -> String\n" +
         "honor Sign<Int> =\n" +
         "    sign(value) = match value\n" +
         guardOnly("        ") +

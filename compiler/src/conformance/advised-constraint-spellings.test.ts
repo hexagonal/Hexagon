@@ -57,7 +57,7 @@ function graphDiagnostics(
 /** An exported constraint in another module, and a function under it. */
 const HEFT_LIB = [
   "export constraint Heft<a> =",
-  "    heft(value: a): a",
+  "    heft(value: a) -> a",
   "export let useHeft<a: Heft>(n: a): a = heft(n)",
   "",
 ].join("\n");
@@ -72,13 +72,13 @@ const HEFT_MID = [
 /** Two modules exporting one word for two declarations (#716's specimen). */
 const DESCRIBE_ONE = [
   "export constraint Describe<a: Num> =",
-  "    one(value: a): a",
+  "    one(value: a) -> a",
   "export let useOne<a: Describe>(v: a): a = one(v)",
   "",
 ].join("\n");
 const DESCRIBE_TWO = [
   "export constraint Describe<a: Num> =",
-  "    two(value: a): a",
+  "    two(value: a) -> a",
   "export let useTwo<a: Describe>(v: a): a = two(v)",
   "",
 ].join("\n");
@@ -97,7 +97,7 @@ const DESCRIBE_TWO_MID = [
 /** A private constraint gating an export — Modules §4.3's sealing idiom. */
 const GATE_LIB = [
   "constraint Gate<a> =",
-  "    gate(value: a): a",
+  "    gate(value: a) -> a",
   "",
   "honor Gate<Int> =",
   "    gate(n) = n + 1",
@@ -125,7 +125,7 @@ describe("the completeness advice spells each constraint by its own declaration"
       ["/mid.hex", "module Mid\n\n" + HEFT_MID],
       ["/main.hex",
         "module Main\n\n" + 'import Mid\n' +
-        "constraint Heft<a: Ord> =\n    other(value: a): a\n" +
+        "constraint Heft<a: Ord> =\n    other(value: a) -> a\n" +
         "export let caller(n, m, stop: Bool) = " +
         "if stop then n <= m else Mid.useHeft(n) <= Mid.useHeft(m)\n"],
     ])).toEqual([
@@ -143,7 +143,7 @@ describe("the completeness advice spells each constraint by its own declaration"
       ["/main.hex",
         "module Main\n\n" + 'import Mid\n' +
         'import Lib\n' +
-        "constraint Heft<a: Ord> =\n    other(value: a): a\n" +
+        "constraint Heft<a: Ord> =\n    other(value: a) -> a\n" +
         "export let caller<a: (Ord, Lib.Heft)>(n: a, m: a, stop: Bool): Bool =\n" +
         "    if stop then n <= m else Mid.useHeft(n) <= Mid.useHeft(m)\n"],
     ])).toEqual([]);
@@ -197,7 +197,7 @@ describe("the completeness advice spells each constraint by its own declaration"
       ["/lib.hex", "module Lib\n\n" + HEFT_LIB],
       ["/main.hex",
         "module Main\n\n" + 'import Lib as L\n' +
-        "constraint Heft<a: Ord> =\n    other(value: a): a\n" +
+        "constraint Heft<a: Ord> =\n    other(value: a) -> a\n" +
         "export let caller(n, m, stop: Bool) = " +
         "if stop then n <= m else L.useHeft(n) <= L.useHeft(m)\n"],
     ])).toEqual([
@@ -398,7 +398,7 @@ describe("the refusal family qualifies by home, and only on a collision", () => 
       ["/mid.hex", "module Mid\n\n" + HEFT_MID],
       ["/main.hex",
         "module Main\n\n" + 'import Mid\n' +
-        "constraint Heft<a> =\n    other(value: a): a\n" +
+        "constraint Heft<a> =\n    other(value: a) -> a\n" +
         "let g<a: Heft>(x: a): a = Mid.useHeft(x)\n" + KEEP],
     ])).toEqual([
       "`a` is declared to honor this module's `Heft`, but the body requires " +
@@ -418,7 +418,7 @@ describe("the refusal family qualifies by home, and only on a collision", () => 
       ["/main.hex",
         "module Main\n\n" + 'import Mid\n' +
         'import Lib\n' +
-        "constraint Heft<a> =\n    other(value: a): a\n" +
+        "constraint Heft<a> =\n    other(value: a) -> a\n" +
         "let g<a: (Heft, Lib.Heft)>(x: a): a = Mid.useHeft(x)\n" + KEEP],
     ])).toEqual([]);
   });
@@ -458,7 +458,7 @@ describe("the refusal family qualifies by home, and only on a collision", () => 
       ["/mid.hex", "module Mid\n\n" + HEFT_MID],
       ["/main.hex",
         "module Main\n\n" + 'import Mid\n' +
-        "constraint Heft<a> =\n    other(value: a): a\n" +
+        "constraint Heft<a> =\n    other(value: a) -> a\n" +
         "fun<a: Heft>\n" +
         "    left(x: a, n: Int): a =\n" +
         "        if n <= 0 then other(x) else right(x, n - 1)\n" +
@@ -478,7 +478,7 @@ describe("the refusal family qualifies by home, and only on a collision", () => 
       ["/main.hex",
         "module Main\n\n" + 'import Mid\n' +
         'import Lib\n' +
-        "constraint Heft<a> =\n    other(value: a): a\n" +
+        "constraint Heft<a> =\n    other(value: a) -> a\n" +
         "fun<a: (Heft, Lib.Heft)>\n" +
         "    left(x: a, n: Int): a =\n" +
         "        if n <= 0 then other(x) else right(x, n - 1)\n" +
@@ -495,9 +495,9 @@ describe("the refusal family qualifies by home, and only on a collision", () => 
       ["/mid.hex", "module Mid\n\n" + HEFT_MID],
       ["/main.hex",
         "module Main\n\n" + 'import Mid\n' +
-        "constraint Heft<a> =\n    other(value: a): a\n" +
+        "constraint Heft<a> =\n    other(value: a) -> a\n" +
         "record Box(a) = { value: a }\n" +
-        "constraint Wrapped<b> =\n    wrapped(value: b): b\n" +
+        "constraint Wrapped<b> =\n    wrapped(value: b) -> b\n" +
         "honor<a: Heft> Wrapped<Box(a)> =\n" +
         "    wrapped(box) = Box({ value = Mid.useHeft(box.value) })\n" + KEEP],
     ])).toEqual([
@@ -519,8 +519,8 @@ describe("the refusal family qualifies by home, and only on a collision", () => 
       ["/main.hex",
         "module Main\n\n" + 'import Mid\n' +
         "constraint Labelled<a: Ord> =\n" +
-        "    label(value: a): a\n" +
-        "    shown(value: a): a = Mid.useHeft(value)\n" + KEEP],
+        "    label(value: a) -> a\n" +
+        "    shown(value: a) -> a = Mid.useHeft(value)\n" + KEEP],
     ])).toEqual([
       "`a` is `Labelled`'s subject, so the body reaches only `Labelled` and its base " +
       "constraints, but it requires `Heft`; add `Heft` as a base constraint — write " +
@@ -537,8 +537,8 @@ describe("the refusal family qualifies by home, and only on a collision", () => 
         "module Main\n\n" + 'import Mid\n' +
         'import Lib\n' +
         "constraint Labelled<a: (Ord, Lib.Heft)> =\n" +
-        "    label(value: a): a\n" +
-        "    shown(value: a): a = Mid.useHeft(value)\n" + KEEP],
+        "    label(value: a) -> a\n" +
+        "    shown(value: a) -> a = Mid.useHeft(value)\n" + KEEP],
     ])).toEqual([]);
   });
 
@@ -553,8 +553,8 @@ describe("the refusal family qualifies by home, and only on a collision", () => 
       ["/main.hex",
         "module Main\n\n" + 'import Mid\n' +
         "constraint Heft<a: Ord> =\n" +
-        "    other(value: a): a\n" +
-        "    shown(value: a): a = Mid.useHeft(value)\n" + KEEP],
+        "    other(value: a) -> a\n" +
+        "    shown(value: a) -> a = Mid.useHeft(value)\n" + KEEP],
     ])).toEqual([
       "`a` is `Heft`'s subject, so the body reaches only `Heft` and its base " +
       "constraints, but it requires the `Heft` declared in module `Lib`; add the " +
@@ -572,8 +572,8 @@ describe("the refusal family qualifies by home, and only on a collision", () => 
         "module Main\n\n" + 'import Mid\n' +
         'import Lib\n' +
         "constraint Heft<a: (Ord, Lib.Heft)> =\n" +
-        "    other(value: a): a\n" +
-        "    shown(value: a): a = Mid.useHeft(value)\n" + KEEP],
+        "    other(value: a) -> a\n" +
+        "    shown(value: a) -> a = Mid.useHeft(value)\n" + KEEP],
     ])).toEqual([]);
   });
 
@@ -695,8 +695,8 @@ describe("the fourth tier: no spelling, no route, no rewrite", () => {
       ["/main.hex",
         "module Main\n\n" + 'import Lib\n' +
         "constraint Labelled<a: Ord> =\n" +
-        "    label(value: a): a\n" +
-        "    shown(value: a): a = Lib.use(value)\n" + KEEP],
+        "    label(value: a) -> a\n" +
+        "    shown(value: a) -> a = Lib.use(value)\n" + KEEP],
     ])).toEqual([
       "`a` is `Labelled`'s subject, so the body reaches only `Labelled` and its base " +
       "constraints, but it requires the constraint `Gate`, declared in module `Lib` and " +
@@ -716,7 +716,7 @@ describe("the fourth tier: no spelling, no route, no rewrite", () => {
   test("the home module still spells its own private constraint", () => {
     // The gate is unnameable *elsewhere*; where it is declared it is an
     // ordinary word, and the advice is the ordinary one.
-    expect(projectDiagnostics("module Main\n\n" + "constraint Gate<a> =\n    gate(value: a): a\n" +
+    expect(projectDiagnostics("module Main\n\n" + "constraint Gate<a> =\n    gate(value: a) -> a\n" +
         "export let g(x) = gate(x)\n",
     )).toEqual([
       "exported function `g` requires a complete signature; add type for parameter `x` and a return type",

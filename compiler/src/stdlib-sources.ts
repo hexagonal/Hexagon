@@ -263,7 +263,7 @@ export const STDLIB_SOURCES: Readonly<Record<string, string>> = {
     + "    `++` operator. *)\n"
     + "export constraint Concat<a> =\n"
     + "    (** `left` followed by `right`. *)\n"
-    + "    concat(left: a, right: a): a\n",
+    + "    concat(left: a, right: a) -> a\n",
   "Debug":
     "module Debug\n"
     + "\n"
@@ -321,10 +321,10 @@ export const STDLIB_SOURCES: Readonly<Record<string, string>> = {
     + "export constraint Eq<a> =\n"
     + "    (** Whether `left` and `right` are equal. An instance's `equals` is an\n"
     + "        equivalence: reflexive, symmetric, and transitive. *)\n"
-    + "    equals(left: a, right: a): Bool\n"
+    + "    equals(left: a, right: a) -> Bool\n"
     + "    (** Whether `left` and `right` differ. An instance may override this for\n"
     + "        efficiency, but the override must equal the negation of `equals`. *)\n"
-    + "    notEquals(left: a, right: a): Bool = not equals(left, right)\n",
+    + "    notEquals(left: a, right: a) -> Bool = not equals(left, right)\n",
   "Float":
     "module Float\n"
     + "\n"
@@ -496,7 +496,7 @@ export const STDLIB_SOURCES: Readonly<Record<string, string>> = {
     + "        right inverse of multiplying by `right`: `multiply(divide(left, right),\n"
     + "        right)` is `left`. An instance whose `multiply` is not commutative\n"
     + "        documents that its `divide` is not also a left inverse. *)\n"
-    + "    divide(left: a, right: a): a\n",
+    + "    divide(left: a, right: a) -> a\n",
   "Hash":
     "module Hash\n"
     + "\n"
@@ -506,7 +506,7 @@ export const STDLIB_SOURCES: Readonly<Record<string, string>> = {
     + "export constraint Hash<a: Eq> =\n"
     + "    (** A hash of `value`. Equal values hash equally; unequal values may collide,\n"
     + "        and the hash is not resistant to an adversary choosing them. *)\n"
-    + "    hash(value: a): Int\n",
+    + "    hash(value: a) -> Int\n",
   "Int":
     "module Int\n"
     + "\n"
@@ -688,18 +688,18 @@ export const STDLIB_SOURCES: Readonly<Record<string, string>> = {
     + "    `quot`/`rem` — along with greatest common divisors. *)\n"
     + "export constraint Integral<a: (Num, Ord)> =\n"
     + "    (** The Euclidean quotient of `left` divided by `right`. *)\n"
-    + "    div(left: a, right: a): a\n"
+    + "    div(left: a, right: a) -> a\n"
     + "    (** The Euclidean remainder of `left` divided by `right`, always in\n"
     + "        `[0, abs(right))` whatever the signs. *)\n"
-    + "    mod(left: a, right: a): a\n"
+    + "    mod(left: a, right: a) -> a\n"
     + "    (** The truncated quotient of `left` divided by `right`, rounding toward\n"
     + "        zero. *)\n"
-    + "    quot(left: a, right: a): a\n"
+    + "    quot(left: a, right: a) -> a\n"
     + "    (** The truncated remainder of `left` divided by `right`, taking the sign of\n"
     + "        `left`. *)\n"
-    + "    rem(left: a, right: a): a\n"
+    + "    rem(left: a, right: a) -> a\n"
     + "    (** The greatest common divisor of `left` and `right`, never negative. *)\n"
-    + "    gcd(left: a, right: a): a\n",
+    + "    gcd(left: a, right: a) -> a\n",
   "Iterable":
     "module Iterable\n"
     + "\n"
@@ -711,7 +711,7 @@ export const STDLIB_SOURCES: Readonly<Record<string, string>> = {
     + "        so `Iterable<Vector(a)>` implies `Item = a`. *)\n"
     + "    type Item\n"
     + "    (** The elements of `xs` as a sequence, in the type's traversal order. *)\n"
-    + "    toSeq(xs: c): Seq(Item)\n",
+    + "    toSeq(xs: c) -> Seq(Item)\n",
   "JsConversionReason":
     "module JsConversionReason\n"
     + "\n"
@@ -1459,16 +1459,16 @@ export const STDLIB_SOURCES: Readonly<Record<string, string>> = {
     + "export constraint Num<a> =\n"
     + "    (** The sum of `left` and `right`. An instance's `add` is associative and\n"
     + "        commutative. *)\n"
-    + "    add(left: a, right: a): a\n"
+    + "    add(left: a, right: a) -> a\n"
     + "    (** The product of `left` and `right`. An instance's `multiply` is\n"
     + "        associative and distributes over `add` on both sides; it need not be\n"
     + "        commutative, so a matrix type may honor `Num` truthfully. *)\n"
-    + "    multiply(left: a, right: a): a\n"
+    + "    multiply(left: a, right: a) -> a\n"
     + "    (** The natural number `value` at this type. A bare non-negative literal\n"
     + "        reaches an instance through it. `fromNat(0)` and `fromNat(1)` are the\n"
     + "        identities of `add` and `multiply`, and `fromNat` respects addition and\n"
     + "        multiplication. *)\n"
-    + "    fromNat(value: Nat): a\n",
+    + "    fromNat(value: Nat) -> a\n",
   "Option":
     "module Option\n"
     + "\n"
@@ -1492,7 +1492,7 @@ export const STDLIB_SOURCES: Readonly<Record<string, string>> = {
     + "    (** How `left` orders against `right`. An instance's `compare` is a total\n"
     + "        order agreeing with `equals`: `Equal` exactly when the two are equal,\n"
     + "        and antisymmetric and transitive otherwise. *)\n"
-    + "    compare(left: a, right: a): Ordering\n",
+    + "    compare(left: a, right: a) -> Ordering\n",
   "Ordering":
     "module Ordering\n"
     + "\n"
@@ -1512,7 +1512,7 @@ export const STDLIB_SOURCES: Readonly<Record<string, string>> = {
     + "    operator. *)\n"
     + "export constraint Pow<a: Num> =\n"
     + "    (** `value` raised to the power `exponent`. *)\n"
-    + "    pow(value: a, exponent: Int): a\n",
+    + "    pow(value: a, exponent: Int) -> a\n",
   "Prelude":
     "module Prelude\n"
     + "\n"
@@ -3345,7 +3345,7 @@ export const STDLIB_SOURCES: Readonly<Record<string, string>> = {
     + "    carries no algebraic law; it is a display contract. *)\n"
     + "export constraint Show<a> =\n"
     + "    (** The canonical textual form of `value`. *)\n"
-    + "    show(value: a): String\n",
+    + "    show(value: a) -> String\n",
   "Signed":
     "module Signed\n"
     + "\n"
@@ -3361,14 +3361,14 @@ export const STDLIB_SOURCES: Readonly<Record<string, string>> = {
     + "    algebraic law. *)\n"
     + "export constraint Signed<a: Num> =\n"
     + "    (** The difference of `left` and `right`, which is `add(left, negate(right))`. *)\n"
-    + "    subtract(left: a, right: a): a\n"
+    + "    subtract(left: a, right: a) -> a\n"
     + "    (** The additive inverse of `value`: `add(value, negate(value))` is\n"
     + "        `fromNat(0)`, and negating twice gives `value` back. *)\n"
-    + "    negate(value: a): a\n"
+    + "    negate(value: a) -> a\n"
     + "    (** The integer `value` at this type. A bare negative literal reaches an\n"
     + "        instance through it. `fromInt` agrees with `fromNat` on every `Nat` and\n"
     + "        respects addition and multiplication. *)\n"
-    + "    fromInt(value: Int): a\n",
+    + "    fromInt(value: Int) -> a\n",
   "Stream":
     "module Stream\n"
     + "\n"

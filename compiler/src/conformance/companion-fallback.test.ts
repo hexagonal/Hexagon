@@ -48,7 +48,7 @@ const POINT = [
 /** A user constraint reached the way a companion is. */
 const RENDER = [
   "/render.hex",
-  "module Render\n\n" + "export constraint Render<a> =\n    render(value: a): String\n",
+  "module Render\n\n" + "export constraint Render<a> =\n    render(value: a) -> String\n",
 ] as const;
 
 describe("type position: §5.3's consumer, compiling", () => {
@@ -257,7 +257,7 @@ describe("constraint position: the same reading, one namespace over", () => {
     // Modules §12.4 records as retired by this fallback.
     expect(messages([
       ["/scale.hex",
-        "module Scale\n\n" + "export constraint Scale<a> =\n    scale(value: a, factor: Int): a\n"],
+        "module Scale\n\n" + "export constraint Scale<a> =\n    scale(value: a, factor: Int) -> a\n"],
       ["/main.hex",
         "module Main\n\n" + 'import Scale\n' +
         "export record Matrix = {n: Float}\n" +
@@ -273,7 +273,7 @@ describe("constraint position: the same reading, one namespace over", () => {
       RENDER,
       ["/main.hex",
         "module Main\n\n" + 'import Render\n' +
-        "export constraint Render<a> =\n    draw(value: a): Int\n" +
+        "export constraint Render<a> =\n    draw(value: a) -> Int\n" +
         "export fun size<a: Render>(x: a): Int = draw(x)\n"],
     ])).toEqual([]);
   });
@@ -288,7 +288,7 @@ describe("constraint position: the same reading, one namespace over", () => {
     expect(messages([
       RENDER,
       ["/main.hex",
-        "module Main\n\n" + "export constraint Render<a> =\n    draw(value: a): Int\n" +
+        "module Main\n\n" + "export constraint Render<a> =\n    draw(value: a) -> Int\n" +
         'import Render\n' +
         "export fun size<a: Render>(x: a): Int = draw(x)\n"],
     ])).toEqual([]);
@@ -303,13 +303,13 @@ describe("constraint position: the same reading, one namespace over", () => {
       RENDER,
       ["/main.hex",
         "module Main\n\n" + 'import Render\n' +
-        "constraint Render<a> =\n    draw(value: a): Int\n" +
+        "constraint Render<a> =\n    draw(value: a) -> Int\n" +
         "export fun size<a: Render>(x: a): Int = draw(x)\n"],
     ])).toEqual([]);
     expect(messages([
       RENDER,
       ["/main.hex",
-        "module Main\n\n" + "constraint Render<a> =\n    draw(value: a): Int\n" +
+        "module Main\n\n" + "constraint Render<a> =\n    draw(value: a) -> Int\n" +
         'import Render\n' +
         "export fun size<a: Render>(x: a): Int = draw(x)\n"],
     ])).toEqual([]);
@@ -320,7 +320,7 @@ describe("constraint position: the same reading, one namespace over", () => {
     // at one — and a module exporting a rival `Show` is refused at its own
     // declaration, long before any importer could name it.
     expect(messages([
-      ["/show.hex", "module Show\n\n" + "export constraint Show<a> =\n    show(value: a): Int\n"],
+      ["/show.hex", "module Show\n\n" + "export constraint Show<a> =\n    show(value: a) -> Int\n"],
       ["/main.hex",
         "module Main\n\n" + 'import Show\n' +
         "export fun size<a: Show>(x: a): String = show(x)\n"],
@@ -374,8 +374,8 @@ describe("constraint position: the same reading, one namespace over", () => {
   test("an alias over several constraints keeps the general form", () => {
     expect(messages([
       ["/lib.hex",
-        "module Lib\n\n" + "export constraint One<a> =\n    one(value: a): Int\n" +
-        "export constraint Two<a> =\n    two(value: a): Int\n"],
+        "module Lib\n\n" + "export constraint One<a> =\n    one(value: a) -> Int\n" +
+        "export constraint Two<a> =\n    two(value: a) -> Int\n"],
       ["/main.hex",
         "module Main\n\n" + 'import Lib\n' +
         "export fun size<a: Lib>(x: a): Int = 1\n"],

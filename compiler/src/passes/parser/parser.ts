@@ -267,6 +267,17 @@ const FUN_BLOCK_HEAD_EXPORT =
 const EXPORT_BELOW_MODULE_LEVEL =
   "`export` marks module-level declarations; a local binding cannot be exported";
 
+/**
+ * Constraints §8's row for a member header written with the `:` separator
+ * *(#867)*. A member is a contract with no body to infer from, so its header
+ * writes the arrow the contract is about; `:` is the implementation header's
+ * separator — a `let`, a `fun` member, an `honor` member, a `widens` door.
+ */
+const MEMBER_COLON_SEPARATOR =
+  "a constraint member declares its effect — write `show(x: a) -> String` " +
+  "(`->!` for a member whose instances may perform effects, `->?` for one as " +
+  "effectful as a callback it is handed)";
+
 /** Doc Comments §5: the head binds no name, so it documents nothing (#700). */
 const FUN_BLOCK_HEAD_DOC =
   "documentation attaches to a `fun` block's members, not to the block — move " +
@@ -2412,7 +2423,35 @@ class Parser {
           this.#errorAt(parameter.span, "constraint member parameters require type annotations");
         }
       }
-      this.#expect("Colon", "constraint members require a result type");
+      // *(#867.)* A member header writes its **outer arrow** — it is a
+      // *contract*, with no body beneath it to infer from (Constraints §2;
+      // Effects §13.1). The `:` result separator belongs to implementation
+      // headers, which write `:` and infer; written on a member it is a parse
+      // error whose fixit is the arrow (Constraints §8).
+      const memberArrow = this.#arrowAt();
+      let memberEffect: Parsed.ArrowEffect | undefined;
+      let memberArrowSpan: Source.Span | undefined;
+      if (memberArrow === undefined) {
+        const separator = this.#current();
+        if (separator.kind === "Colon") {
+          this.#diagnostics.add({
+            severity: "error",
+            message: MEMBER_COLON_SEPARATOR,
+            primary: separator.span,
+            fixes: [{
+              message: "write `->`",
+              edits: [{ span: separator.span, replacement: "->" }],
+            }],
+          });
+          this.#advance();
+        } else {
+          this.#errorAt(separator.span, "constraint members require a result type");
+        }
+      } else {
+        memberArrowSpan = this.#current().span;
+        if (memberArrow !== "pure") memberEffect = memberArrow;
+        this.#advance();
+      }
       const result = this.#parseTypeAnnotation() ?? {
         kind: "NamedType" as const,
         name: fallbackName,
@@ -2433,6 +2472,8 @@ class Parser {
         name: parsedName(memberToken),
         parameters,
         returnAnnotation: result,
+        ...(memberEffect === undefined ? {} : { effect: memberEffect }),
+        ...(memberArrowSpan === undefined ? {} : { arrowSpan: memberArrowSpan }),
         ...(defaultValue === undefined ? {} : { defaultValue }),
         span: spanFrom(memberToken.span, result.span),
       };

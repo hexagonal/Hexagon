@@ -356,7 +356,7 @@ describe("the term names a type declaration binds read top-down (§7.2)", () => 
       "module Main\n\n" + "export record Box = {value: Int}\n" +
       "export let label: Int = render(Box({value = 1}))\n" +
       "export constraint Render<a> =\n" +
-      "    render(value: a): Int\n" +
+      "    render(value: a) -> Int\n" +
       "honor Render<Box> =\n" +
       "    render(value) = value.value\n",
     ]])).toEqual([DECLARED_LATER("render")]);
@@ -428,7 +428,7 @@ describe("an import straddles the reading laws it imports (Modules §3, #465, #7
     "export type Span = Int\n" +
     "export let area(p: Point): Int = p.x * p.y\n" +
     "export constraint Walk<a> =\n" +
-    "    step(subject: a): Int\n",
+    "    step(subject: a) -> Int\n",
   ] as const;
 
   describe("the term half reads top-down", () => {

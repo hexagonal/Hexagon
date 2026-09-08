@@ -154,7 +154,7 @@ describe("collectOccurrences", () => {
   test("constraints are indexed by name, declaration and every mention", () => {
     const source = [
       "constraint Show2<a> =",
-      "    show2(value: a): String",
+      "    show2(value: a) -> String",
       "",
       "honor Show2<Int> =",
       "    show2(value) = \"int\"",

@@ -86,7 +86,7 @@ describe("§4.1 the relaxed rule, per variable", () => {
     // in choosing a demonstration): under `Num` alone, Numeric Literals §4
     // resolves the variable to `Int` before any of this is observable.
     const declarations = "constraint Conjure<a> =\n" +
-      "    make(): a\n" +
+      "    make() -> a\n" +
       "honor Conjure<Int> =\n" +
       "    make() = 1\n" +
       "honor Conjure<String> =\n" +

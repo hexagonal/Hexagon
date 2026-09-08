@@ -35,7 +35,7 @@ const HEAD_LAW =
 
 const SH = "module Main\n\n" + "export record Box(a) = { value: a }\n" +
   "constraint Sh<a> =\n" +
-  "    sh(x: a): String\n" +
+  "    sh(x: a) -> String\n" +
   "honor Sh<Box(Int)> =\n" +
   '    sh(x) = "b"\n';
 
@@ -69,7 +69,7 @@ describe("a ground instance head imposes its arguments", () => {
     expect(
       projectDiagnostics("module Main\n\n" + "export record Box(a) = { value: a }\n" +
           "constraint Sh<a> =\n" +
-          "    sh(x: a): String\n" +
+          "    sh(x: a) -> String\n" +
           "honor Sh<Box(a)> =\n" +
           '    sh(x) = "b"\n' +
           'export let g: String = sh(Box({value = "x"}))\n' +

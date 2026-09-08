@@ -8,4 +8,4 @@ export exception NegativeExponentError(message: String)
     operator. *)
 export constraint Pow<a: Num> =
     (** `value` raised to the power `exponent`. *)
-    pow(value: a, exponent: Int): a
+    pow(value: a, exponent: Int) -> a

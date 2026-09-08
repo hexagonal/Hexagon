@@ -47,7 +47,7 @@ function messages(files: readonly (readonly [string, string])[]): readonly strin
 /** A user constraint, exported, reached only through a module alias. */
 const DESCRIBE = [
   "/describe.hex",
-  "module Describe\n\n" + "export constraint Describe<a> =\n    describe(value: a): String\n",
+  "module Describe\n\n" + "export constraint Describe<a> =\n    describe(value: a) -> String\n",
 ] as const;
 
 describe("the ground head, end to end", () => {
@@ -308,7 +308,7 @@ describe("the stranded door-builder the blessing preserves", () => {
   // spelling at all.
   const SCALE = [
     "/scale.hex",
-    "module Scale\n\n" + "export constraint Scale<a> =\n    scale(value: a, factor: Int): a\n",
+    "module Scale\n\n" + "export constraint Scale<a> =\n    scale(value: a, factor: Int) -> a\n",
   ] as const;
 
   test("widens, `= widened`, and a qualified head, end to end", async () => {
@@ -428,7 +428,7 @@ describe("error paths, as the compiler reports them today", () => {
     // `D.Marker` exists on the other side.
     expect(messages([
       ["/describe.hex",
-        "module Describe\n\n" + "export constraint Describe<a> =\n    describe(value: a): String\n" +
+        "module Describe\n\n" + "export constraint Describe<a> =\n    describe(value: a) -> String\n" +
         "export record Marker = {n: Int}\n"],
       ["/main.hex",
         "module Main\n\n" + 'import Describe as D\n' +
@@ -472,7 +472,7 @@ describe("error paths, as the compiler reports them today", () => {
     // at each use where the bare spelling … would resolve to the module's own
     // binding*". It does here: the module declares `Describe`.
     const text = "module Describe\n\n" +
-      "export constraint Describe<a> =\n    describe(value: a): String\n" +
+      "export constraint Describe<a> =\n    describe(value: a) -> String\n" +
       "export record Box = {n: Int}\n" +
       "honor Describe.Describe<Box> =\n    describe(value) = \"x\"\n";
     const [report, ...rest] = compileFiles([["/main.hex", text]]).diagnostics;

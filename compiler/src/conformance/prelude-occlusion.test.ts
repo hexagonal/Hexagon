@@ -642,15 +642,15 @@ describe("every module-level binder form may occlude, not just `let`/`fun`", () 
   test("a constraint member may occlude a prelude value", () => {
     expect(diagnostics(
       "constraint Walkable<c> =\n" +
-      "    combine(value: c, other: c): c\n",
+      "    combine(value: c, other: c) -> c\n",
     )).toEqual([]);
   });
 
   test("it still rejects two constraint members of one name", () => {
     expect(diagnostics(
       "constraint Walkable<c> =\n" +
-      "    combine(value: c, other: c): c\n" +
-      "    combine(value: c): c\n",
+      "    combine(value: c, other: c) -> c\n" +
+      "    combine(value: c) -> c\n",
     )).not.toEqual([]);
   });
 
@@ -658,7 +658,7 @@ describe("every module-level binder form may occlude, not just `let`/`fun`", () 
     expect(diagnostics(
       "let mine: Int = 1\n" +
       "constraint Walkable<c> =\n" +
-      "    mine(value: c): c\n",
+      "    mine(value: c) -> c\n",
     )).not.toEqual([]);
   });
 });

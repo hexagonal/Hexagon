@@ -237,7 +237,7 @@ describe("constraints and callables", () => {
   });
 
   test("a constraint head, its bounds, and its members", async () => {
-    const source = "constraint Integral<a: (Num, Ord)> =\n    div(left: a, right: a): a";
+    const source = "constraint Integral<a: (Num, Ord)> =\n    div(left: a, right: a) -> a";
     expect(await tokenOf(source, "Integral")).toBe(constraint);
     expect(await tokenOf(source, "Num")).toBe(constraint);
     expect(await tokenOf(source, "Ord")).toBe(constraint);

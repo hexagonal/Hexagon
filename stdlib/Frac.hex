@@ -14,4 +14,4 @@ export constraint Frac<a: Signed> =
         right inverse of multiplying by `right`: `multiply(divide(left, right),
         right)` is `left`. An instance whose `multiply` is not commutative
         documents that its `divide` is not also a left inverse. *)
-    divide(left: a, right: a): a
+    divide(left: a, right: a) -> a

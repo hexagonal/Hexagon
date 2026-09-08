@@ -934,7 +934,7 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
       `    negate(value) = ${name}({n = -value.n${extra}})\n` +
       `    fromInt(value) = ${name}({n = value${extra}})\n`;
     const bar = "export constraint Gcdish<a: Num> =\n" +
-      "    gcd(left: a, right: a): BigInt\n" +
+      "    gcd(left: a, right: a) -> BigInt\n" +
       "export record Bar = {n: Int}\n" +
       numAndSigned("Bar", "") +
       "honor Gcdish<Bar> =\n" +
@@ -1052,7 +1052,7 @@ describe("the dot's seats are the bare call's, with the receiver in seat 1", () 
   const bag = "export record Bag = {items: Vector(Int)}\n" +
     "\n" +
     "export constraint OnSelf<a> =\n" +
-    "    onSelf(subject: a, cb: (a) -> String): String\n" +
+    "    onSelf(subject: a, cb: (a) -> String) -> String\n" +
     "\n" +
     "honor OnSelf<Bag> =\n" +
     "    onSelf(subject, cb) = cb(subject)\n" +
@@ -1069,7 +1069,7 @@ describe("the dot's seats are the bare call's, with the receiver in seat 1", () 
     "let big: BigInt = 9n\n" +
     "\n" +
     "export constraint Scale<a: Num> =\n" +
-    "    scale(subject: a, by: a, f: (a) -> a): a\n" +
+    "    scale(subject: a, by: a, f: (a) -> a) -> a\n" +
     "\n" +
     "honor Scale<BigInt> =\n" +
     "    scale(subject, by, f) = f(Num.multiply(subject, by))\n" +

@@ -8,4 +8,4 @@ export constraint Iterable<c> =
         so `Iterable<Vector(a)>` implies `Item = a`. *)
     type Item
     (** The elements of `xs` as a sequence, in the type's traversal order. *)
-    toSeq(xs: c): Seq(Item)
+    toSeq(xs: c) -> Seq(Item)

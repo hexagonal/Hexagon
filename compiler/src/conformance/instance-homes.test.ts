@@ -33,7 +33,7 @@ describe("the ordinary branch: both homes named, offerable ones offered", () => 
     expect(messagesOf([
       ["/badge.hex", "module Badge\n\n" + [
         "export constraint Badge<a> =",
-        "    mark(subject: a): String",
+        "    mark(subject: a) -> String",
         "",
       ].join("\n")],
       ["/token.hex", "module Token\n\n" + [
@@ -59,7 +59,7 @@ describe("the ordinary branch: both homes named, offerable ones offered", () => 
     expect(messagesOf([
       ["/kit.hex", "module Kit\n\n" + [
         "export constraint Badge<a> =",
-        "    mark(subject: a): String",
+        "    mark(subject: a) -> String",
         "",
         "export record Token = {serial: Int}",
         "",
@@ -112,7 +112,7 @@ describe("the ordinary branch: both homes named, offerable ones offered", () => 
     expect(messagesOf([
       ["/badge.hex", "module Badge\n\n" + [
         "export constraint Badge<a> =",
-        "    mark(subject: a): String",
+        "    mark(subject: a) -> String",
         "",
       ].join("\n")],
       ["/main.hex", "module Main\n\n" + [
@@ -175,7 +175,7 @@ describe("unexported is what licenses the sealed branch, not un-imported", () =>
     expect(messagesOf([
       ["/units.hex", "module Units\n\n" + [
         "export constraint Loud<a> =",
-        "    shout(subject: a): String",
+        "    shout(subject: a) -> String",
         "",
       ].join("\n")],
       ["/middle.hex", "module Middle\n\n" + [
@@ -210,7 +210,7 @@ describe("unexported is what licenses the sealed branch, not un-imported", () =>
         "import Token",
         "",
         "constraint Gate<a> =",
-        "    pass(subject: a): String",
+        "    pass(subject: a) -> String",
         "",
         "export fun admit(t: Token.Token): String = pass(t)",
         "",
@@ -232,13 +232,13 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
     expect(messagesOf([
       ["/scales.hex", "module Scales\n\n" + [
         "constraint Tiny<a> =",
-        "    tiny(subject: a): String",
+        "    tiny(subject: a) -> String",
         "",
         "constraint Small<a: Tiny> =",
-        "    small(subject: a): String",
+        "    small(subject: a) -> String",
         "",
         "export constraint Big<a: Small> =",
-        "    big(subject: a): String",
+        "    big(subject: a) -> String",
         "",
       ].join("\n")],
       ["/main.hex", "module Main\n\n" + [
@@ -266,7 +266,7 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
     expect(messagesOf([
       ["/gatekeeper.hex", "module Gatekeeper\n\n" + [
         "constraint Gate<a> =",
-        "    pass(subject: a): String",
+        "    pass(subject: a) -> String",
         "",
         "export record Ticket = {serial: Int}",
         "",
@@ -295,10 +295,10 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
     expect(messagesOf([
       ["/seal.hex", "module Seal\n\n" + [
         "constraint Sealed<a> =",
-        "    seal(subject: a): String",
+        "    seal(subject: a) -> String",
         "",
         "export constraint Face<a: Sealed> =",
-        "    face(subject: a): String",
+        "    face(subject: a) -> String",
         "",
       ].join("\n")],
       ["/main.hex", "module Main\n\n" + [
@@ -323,10 +323,10 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
     const [message] = messagesOf([
       ["/seal.hex", "module Seal\n\n" + [
         "constraint Sealed<a> =",
-        "    seal(subject: a): String",
+        "    seal(subject: a) -> String",
         "",
         "export constraint Face<a: Sealed> =",
-        "    face(subject: a): String",
+        "    face(subject: a) -> String",
         "",
       ].join("\n")],
       ["/main.hex", "module Main\n\n" + [
@@ -358,7 +358,7 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
     expect(messagesOf([
       ["/gate.hex", "module Gate\n\n" + [
         "constraint Gate<a> =",
-        "    pass(subject: a): String",
+        "    pass(subject: a) -> String",
         "",
         "export record Ticket = {serial: Int}",
         "",
@@ -387,7 +387,7 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
   test("a sealed constraint names its module at a prelude union and at a user union alike", () => {
     const gate = [
       "constraint Gate<a> =",
-      "    pass(subject: a): String",
+      "    pass(subject: a) -> String",
       "",
       "export fun admit<a: Gate>(subject: a): String = pass(subject)",
       "",
@@ -431,7 +431,7 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
     const messages = messagesOf([
       ["/alpha.hex", "module Alpha\n\n" + [
         "constraint Describe<a> =",
-        "    describe(subject: a): String",
+        "    describe(subject: a) -> String",
         "",
         "export fun render<a: Describe>(subject: a): String = describe(subject)",
         "",
@@ -440,7 +440,7 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
         "import Alpha",
         "",
         "export constraint Describe<a> =",
-        "    describe(subject: a): String",
+        "    describe(subject: a) -> String",
         "",
         "export record Panel = {width: Int}",
         "",
@@ -473,7 +473,7 @@ describe("a structural subject has no home under either branch (§5.4, §9.3)", 
     expect(messagesOf([
       ["/gate.hex", "module Gate\n\n" + [
         "constraint Gate<a> =",
-        "    pass(subject: a): String",
+        "    pass(subject: a) -> String",
         "",
         "export fun admit<a: Gate>(subject: a): String = pass(subject)",
         "",
@@ -494,7 +494,7 @@ describe("a structural subject has no home under either branch (§5.4, §9.3)", 
     expect(messagesOf([
       ["/gate.hex", "module Gate\n\n" + [
         "constraint Gate<a> =",
-        "    pass(subject: a): String",
+        "    pass(subject: a) -> String",
         "",
         "export fun admit<a: Gate>(subject: a): String = pass(subject)",
         "",
@@ -519,7 +519,7 @@ describe("what the clause does not reach", () => {
     expect(messagesOf([
       ["/badge.hex", "module Badge\n\n" + [
         "export constraint Badge<a> =",
-        "    mark(subject: a): String",
+        "    mark(subject: a) -> String",
         "",
       ].join("\n")],
       ["/main.hex", "module Main\n\n" + [
@@ -535,7 +535,7 @@ describe("what the clause does not reach", () => {
     expect(messagesOf([
       ["/badge.hex", "module Badge\n\n" + [
         "export constraint Badge<a> =",
-        "    mark(subject: a): String",
+        "    mark(subject: a) -> String",
         "",
       ].join("\n")],
       ["/main.hex", "module Main\n\n" + [

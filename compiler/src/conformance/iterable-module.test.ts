@@ -44,7 +44,7 @@ describe("the declaration lands, and the twin is refused", () => {
   test("a source `constraint Iterable` is refused like every other pre-registered name", () => {
     expect(projectDiagnostics("module Main\n\n" + "constraint Iterable<c> =\n" +
         "    type Item\n" +
-        "    toSeq(xs: c): Seq(Item)\n",
+        "    toSeq(xs: c) -> Seq(Item)\n",
     )).toContain("constraint `Iterable` is pre-registered and cannot be redeclared");
   });
 

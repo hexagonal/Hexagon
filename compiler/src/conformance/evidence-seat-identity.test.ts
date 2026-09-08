@@ -60,7 +60,7 @@ function distinct(label: string): (path: string, javascript: string) => string {
 function describeLib(member: string, use: string, offset: number): string {
   return [
     "export constraint Describe<a: Num> =",
-    `    ${member}(value: a): a`,
+    `    ${member}(value: a) -> a`,
     "",
     "honor Describe<Int> =",
     `    ${member}(value) = value + ${offset}`,
@@ -74,7 +74,7 @@ function describeLib(member: string, use: string, offset: number): string {
 function tagLib(member: string, use: string, answer: string): string {
   return [
     "export constraint Tag<a> =",
-    `    ${member}(value: a): String`,
+    `    ${member}(value: a) -> String`,
     "",
     "honor Tag<Int> =",
     `    ${member}(value) = "${answer}"`,

@@ -215,7 +215,7 @@ function requirements(root: unknown): readonly Requirement[] {
  */
 const DECLARED_MODULE = [
   "export constraint Describe<a> =",
-  "    describe(subject: a): String",
+  "    describe(subject: a) -> String",
   "honor Describe<Int> =",
   '    describe(n) = "int ${n}"',
   "honor Describe<Bool> =",
@@ -365,7 +365,7 @@ describe("what keeps a pre-registered name canonical", () => {
    * module cannot mint a second constraint that answers to one of the six.
    */
   test("a pre-registered name cannot be redeclared", () => {
-    expect(projectDiagnostics("module Main\n\n" + "constraint Eq<a> =\n    equals(left: a, right: a): Bool\n",
+    expect(projectDiagnostics("module Main\n\n" + "constraint Eq<a> =\n    equals(left: a, right: a) -> Bool\n",
     )).toEqual(["constraint `Eq` is pre-registered and cannot be redeclared"]);
   });
 
@@ -393,7 +393,7 @@ describe("what keeps a pre-registered name canonical", () => {
    * four derivable spellings.
    */
   test("a declared constraint cannot be honored at a structural head", () => {
-    const declaration = "constraint Describe<a> =\n    describe(subject: a): String\n";
+    const declaration = "constraint Describe<a> =\n    describe(subject: a) -> String\n";
 
     for (const head of ["(Int, Int)", "Vector(Int)", "{x: Int}"]) {
       expect(projectDiagnostics("module Main\n\n" + `${declaration}honor Describe<${head}> =\n    describe(v) = "shape"\n`,
@@ -409,7 +409,7 @@ describe("what keeps a pre-registered name canonical", () => {
    */
   test("a declared constraint demanded at a tuple is refused, not satisfied", () => {
     expect(projectDiagnostics("module Main\n\n" + "constraint Describe<a> =\n" +
-        "    describe(subject: a): String\n" +
+        "    describe(subject: a) -> String\n" +
         "honor Describe<Int> =\n" +
         '    describe(n) = "int"\n' +
         "let pair: (Int, Int) = (1, 2)\n" +

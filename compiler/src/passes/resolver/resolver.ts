@@ -3143,6 +3143,11 @@ class Resolver {
             binding,
             parameters,
             returnAnnotation: this.#resolveTypeAnnotation(member.returnAnnotation, typeParameters, impliedContext),
+            // The contract's outer arrow travels verbatim (#867): what the
+            // header wrote is the bound the seat compares against, and the
+            // arrow's own span is where §4.4 stands its refusal.
+            ...(member.effect === undefined ? {} : { effect: member.effect }),
+            ...(member.arrowSpan === undefined ? {} : { arrowSpan: member.arrowSpan }),
             ...(member.defaultValue === undefined
               ? {}
               : { defaultValue: this.#resolveDefaultBody(member.defaultValue, scope, impliedContext) }),
