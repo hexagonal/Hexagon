@@ -315,6 +315,12 @@ interface EffectFrame {
   sourced: boolean;
 }
 
+/** Whether `left` stands before `right` in source order. */
+function precedes(left: Source.Span, right: Source.Span): boolean {
+  if (left.fileId !== right.fileId) return Number(left.fileId) < Number(right.fileId);
+  return left.start.offset < right.start.offset;
+}
+
 /**
  * A constraint member's contract at one seat *(#867; Effects §13.2)*: the
  * header's types at this instance's subject with the arrows the header wrote,
@@ -323,26 +329,54 @@ interface EffectFrame {
  */
 interface SeatContract {
   readonly type: FunctionMono;
-  /** The member's own colour, present exactly when the header writes `->?`. */
+  /** The member's own colour, present exactly where the header writes `->?`. */
   readonly colour: Variable | undefined;
   readonly member: string;
   readonly parameters: readonly string[];
 }
 
-/** Where in the contract an arrow stands, for the report's frame (§13.2). */
+/** One call a body absorbed, and where it was written. */
+interface AbsorbedCall {
+  readonly effect: Mono;
+  readonly span: Source.Span;
+}
+
+/**
+ * The instance side of one seat *(#867)*: the monotype the body solved, the
+ * frame it closed, the calls written inside it — nested lambdas' included, so
+ * "the offending call" is reachable for an arrow that fails inside one — and
+ * the span a report falls back to when nothing else places it.
+ */
+interface SeatBody {
+  readonly type: Mono;
+  readonly frame: EffectFrame | undefined;
+  readonly calls: readonly AbsorbedCall[];
+  readonly fallback: Source.Span;
+}
+
+/**
+ * Where in the contract an arrow stands, for the report's frame (§13.2).
+ *
+ * The three forms the frames take are read off these three fields: `depth === 0`
+ * is the outer arrow (the flat form); `throughResults` marks an arrow every one
+ * of whose steps from the root was a **function's result** — the only path the
+ * "the function this instance returns" frame is true of; and `parameter` names
+ * the top-level contract parameter the arrow stands under, absent where the
+ * path turned off the result instead.
+ */
 interface SeatPlace {
   readonly depth: number;
   /** Whether every step from the root reached this arrow through a result. */
   readonly throughResults: boolean;
-  /** The contract parameter this arrow hangs under, where one does. */
+  /** The top-level contract parameter this arrow stands under, where one does. */
   readonly parameter: number | undefined;
 }
 
-/** One failed arrow, and which of Effects §9's three contract rows reports it. */
+/** One failed arrow, and which of Effects §9's contract rows reports it. */
 interface SeatFailure {
   readonly row: "pure-contract" | "linked-contract" | "narrower-acceptance";
   readonly place: SeatPlace;
-  readonly span: Source.Span;
+  readonly span: Source.Span | undefined;
   /**
    * The body colour the seat condemned, so the marks that read it are not asked
    * to report the same defect a second time (`#checkMarks`).
@@ -350,6 +384,33 @@ interface SeatFailure {
   readonly colour: Mono;
   /** Supplied direction only: whether the contract's arrow there is `->?`. */
   readonly linked?: boolean;
+  /** The contract's own arrow node, for its span. */
+  readonly arrow: FunctionMono;
+  /**
+   * Set on a **bounds conflict** (§13.2's conflict bullet): the body's colour
+   * was caught between a supplied arrow impure at this instantiation and this
+   * invoked one. The contract's invoked arrow becomes a related location, and a
+   * linked row drops "unconditionally" — the effect is one the contract handed
+   * the body, not one the body raised.
+   */
+  readonly handed?: boolean;
+}
+
+/** One body colour's bounds over one instantiation's walk (§13.2). */
+interface SeatBounds {
+  /** The invoked arrow that demanded pure of it. */
+  upper?: SeatFailure;
+  /** The supplied arrow that demanded impure of it. */
+  lower?: SeatFailure;
+  /**
+   * Whether *some* lower bound came from a supplied arrow whose contract colour
+   * is the impure **constant** — the unconditional bound §13.2 settles on. Read
+   * over every lower bound, not only the first: a variable under both a linked
+   * and a `->!` callback carries both, and the constant one is what settles.
+   */
+  unconditional: boolean;
+  /** Where in the walk this variable's first bound was taken. */
+  readonly order: number;
 }
 
 /** One written call, and the mark it wore, awaiting its solved colour. */
@@ -1849,6 +1910,28 @@ class Checker {
    */
   readonly #colourPins = new WeakMap<Variable, Source.Span>();
   /**
+   * The token a written arrow was elaborated from *(#867)*. Only the constraint
+   * seat reads it: Effects §13.2 makes the contract's failing arrow a related
+   * location on every conflict report, and the primary span where no call in
+   * the body carries the condemned colour.
+   */
+  readonly #writtenArrowSpans = new WeakMap<FunctionMono, Source.Span>();
+  /**
+   * Every call colour a body absorbed, flat and in no particular order
+   * *(#867)*. `#seatSpan` needs "the first call in source order whose colour is
+   * the condemned variable", and the offending call may sit in a lambda nested
+   * inside the member's body — a frame of its own, which the seat never holds.
+   */
+  readonly #absorbedCalls: { readonly effect: Mono; readonly span: Source.Span }[] = [];
+  /**
+   * A lambda's own signature colour, where its written header opened a
+   * signature scope *(#867)*. A `widens` door's face wears the member's
+   * contract colour (Constraints §4.7), and where that contract is linked the
+   * door's face must carry **one** variable across its outer arrow and its
+   * `->?` parameters — the variable its own written header already minted.
+   */
+  readonly #lambdaSignatureColours = new WeakMap<Resolved.LambdaExpr, Variable>();
+  /**
    * A member header's arrow is refused once, at the declaration (§4.4). The
    * honor and default seats re-elaborate the same annotations to build the
    * contract at their own subject, and a second report there would name a file
@@ -2998,8 +3081,16 @@ class Checker {
           0,
           member.span,
         );
-        if (memberLinked && member.effect === "linked" && this.#signatureFace !== undefined) {
-          this.#signatureFace.outer = member.arrowSpan;
+        // The member's own variable, minted by the scope above. It is the
+        // member's **whatever position it stands in** (§13.4): a header writing
+        // `->?` only inside a parameter — `within(t: t, action: () ->? Unit) ->!
+        // Unit`, §2.4's join as a contract — owns exactly the same one variable
+        // as one writing it on the outer arrow, and reading the variable off
+        // the outer arrow alone leaves it unquantified and monomorphic
+        // program-wide.
+        const memberFace = this.#signatureFace;
+        if (memberLinked && member.effect === "linked" && memberFace !== undefined) {
+          memberFace.outer = member.arrowSpan;
         }
         const { parameters, result, contractEffect } = this.#inPosition(
           "signature",
@@ -3040,9 +3131,14 @@ class Checker {
         // variable is. It carries no requirements, so no dictionary ordinal
         // moves; and it is quantified besides, so no defaulting pass may settle
         // a contract on one instantiation's behalf.
-        const contractVariable = contractEffect.kind === "Variable"
-          ? contractEffect
-          : undefined;
+        //
+        // Taken from the **signature scope**, never from the outer arrow: the
+        // scope is opened exactly where the header has an inlet, and every
+        // `->?` the header writes — outer or nested — is that scope's one
+        // variable. Off the outer arrow, `within(t: t, action: () ->? Unit) ->!
+        // Unit` would quantify nothing, and its one variable would be shared by
+        // every call in the program.
+        const contractVariable = memberFace?.effect;
         if (contractVariable !== undefined) this.#quantified.add(contractVariable.id);
         this.#schemes.set(member.binding.symbol, {
           variables: [
@@ -6590,6 +6686,13 @@ class Checker {
           level + 1,
           expression.span,
         );
+        // The colour this lambda's own written header minted, kept for the one
+        // reader that needs it: a `widens` door under a linked member wears one
+        // variable across its outer arrow and its `->?` parameters, and that is
+        // the variable (`#doorFace`; Constraints §4.7, #867).
+        if (writtenOwn === undefined && ownLinked && this.#signatureFace !== undefined) {
+          this.#lambdaSignatureColours.set(expression, this.#signatureFace.effect);
+        }
         const inheritedInlet = this.#pendingInlet;
         this.#pendingInlet = false;
         const enclosingFrame = this.#effectFrames.at(-1);
@@ -11230,6 +11333,11 @@ class Checker {
       ? this.#callFrames.get(expression)
       : this.#effectFrames.at(-1);
     frame?.absorbed.push({ effect, span: expression.span });
+    // The same record, flat *(#867)*. A constraint seat reports at "the first
+    // call in source order whose colour is the condemned variable", and that
+    // call may stand inside a lambda nested in the member's body — a frame the
+    // seat never holds a reference to.
+    this.#absorbedCalls.push({ effect, span: expression.span });
     // A synthesized call has no written mark and no seat to write one in
     // (#867): a `widens` door's derived member is the resolver's own call, and
     // the colour it carries is ruled on at the seat, not here.
@@ -11332,30 +11440,41 @@ class Checker {
    * the body, and where the sign is invariant they must be equal.
    *
    * The contract is instantiated at each colour its variable can take — once
-   * where the header writes no `->?`, twice where it does (§13.4) — and the
-   * seat passes when every instantiation does. One report per seat: a failed
-   * seat names one arrow.
+   * where the header writes no `->?`, twice where it does (§13.4). **The pure
+   * instantiation is compared first and a failure there stops the impure one**,
+   * so an instance is told what its pure obligation costs before what its
+   * impure one does (§13.2). One report per seat: a failed seat names one
+   * arrow.
    */
-  #checkSeat(
-    contract: SeatContract,
-    body: Mono,
-    frame: EffectFrame | undefined,
-    fallback: Source.Span,
-  ): void {
+  #checkSeat(contract: SeatContract, body: SeatBody): void {
     const instantiations: readonly EffectConstant[] = contract.colour === undefined
       ? [PURE]
       : [PURE, IMPURE];
-    const settle: Variable[] = [];
+    const settle = new Set<Variable>();
     for (const instantiation of instantiations) {
-      if (this.#walkSeat(contract, body, frame, fallback, instantiation, settle)) return;
+      if (this.#walkSeat(contract, body, instantiation, settle)) return;
     }
-    // A body slot the contract's **impure constant** reaches is bounded below by
-    // it and by nothing above, so the only colour consistent with the walk is
-    // the constant — and settling it is what makes such a member honorable at
-    // all: a body that runs a `->!` callback writes `!` on that call, and a
-    // colour left unconstrained would default pure and refuse the mark. A
-    // *linked* arrow's bound is never settled this way: its lower bound holds
-    // only at the impure instantiation, and the pure one must still pass.
+    this.#settleSeat(settle);
+  }
+
+  /**
+   * §13.2's settling bullet, kept in one place so the ruling is local.
+   *
+   * A body slot the contract's **impure constant** reaches is bounded below by
+   * it unconditionally — the bound holds at every instantiation — so the only
+   * colour consistent with the walk is the constant. Settling it is what makes
+   * such a member honorable at all: a body that runs a `->!` callback writes
+   * `!` on that call, and a colour left unconstrained would default pure and
+   * refuse the mark.
+   *
+   * **Once per seat**, after the last comparison and never between two, so
+   * neither instantiation meets a colour the other's bounds fixed; before the
+   * body's defaulting and before its marks are validated. A *linked* arrow's
+   * bound never settles this way: it holds only at the impure instantiation,
+   * and the pure one must still pass. A **failed** seat settles nothing —
+   * `#checkSeat` returns before reaching here.
+   */
+  #settleSeat(settle: ReadonlySet<Variable>): void {
     for (const variable of settle) {
       const colour = this.#prune(variable);
       if (colour.kind === "Variable") colour.instance = IMPURE;
@@ -11365,11 +11484,9 @@ class Checker {
   /** One instantiation of the contract, walked against the body. */
   #walkSeat(
     contract: SeatContract,
-    body: Mono,
-    frame: EffectFrame | undefined,
-    fallback: Source.Span,
+    body: SeatBody,
     instantiation: EffectConstant,
-    settle: Variable[],
+    settle: Set<Variable>,
   ): boolean {
     /**
      * A body colour still a variable collects the bounds the walk imposes, over
@@ -11377,14 +11494,31 @@ class Checker {
      * variable's bounds are consistent — on a two-point lattice, one test per
      * variable (§13.2).
      */
-    const bounds = new Map<Variable, {
-      upper?: SeatFailure;
-      lower?: SeatFailure;
-    }>();
+    const bounds = new Map<Variable, SeatBounds>();
     let failure: SeatFailure | undefined;
+    /**
+     * Walk order, so the selection §13.2 fixes is deterministic: the outer
+     * arrow before any nested one, parameters left to right before the result,
+     * a tuple's, record's or union payload's components in declaration order,
+     * and a constructor's arguments in order. The recursion below visits in
+     * exactly that order, so a counter is the whole of it.
+     */
+    let step = 0;
     const record = (candidate: SeatFailure): void => {
       failure ??= candidate;
     };
+    /**
+     * A step through **data** — a tuple component, a record field, a union
+     * payload, a collection element. It is not a result step: an arrow reached
+     * through one is never "the function this instance returns", however the
+     * path began, and `fns(x: a) -> Vector((Int) -> String)` claimed it was
+     * before this stopped carrying the flag down unchanged.
+     */
+    const inData = (place: SeatPlace): SeatPlace => ({
+      depth: place.depth + 1,
+      throughResults: false,
+      parameter: place.parameter,
+    });
     const walk = (
       contractSide: Mono,
       bodySide: Mono,
@@ -11404,18 +11538,22 @@ class Checker {
             sign,
             place,
             instantiation,
-            frame,
-            fallback,
+            body,
             bounds,
             record,
+            step++,
           );
           left.parameters.forEach((parameter, index) => {
             const counterpart = right.parameters[index];
             if (counterpart === undefined) return;
+            // The **top-level** contract parameter an arrow stands under is
+            // fixed by the first step off the root and carried down every step
+            // after it — including the data steps below, which is what makes
+            // "inside the parameter `k`" true of an arrow buried in a tuple.
             walk(parameter, counterpart, flipVariance(sign), {
               depth: place.depth + 1,
               throughResults: false,
-              parameter: place.parameter ?? (place.depth === 0 ? index : undefined),
+              parameter: place.depth === 0 ? index : place.parameter,
             });
           });
           walk(left.result, right.result, sign, {
@@ -11429,7 +11567,7 @@ class Checker {
           if (right.kind !== "Tuple") return;
           left.elements.forEach((element, index) => {
             const counterpart = right.elements[index];
-            if (counterpart !== undefined) walk(element, counterpart, sign, place);
+            if (counterpart !== undefined) walk(element, counterpart, sign, inData(place));
           });
           return;
         }
@@ -11437,7 +11575,7 @@ class Checker {
           if (right.kind !== "Record") return;
           for (const [name, field] of left.fields) {
             const counterpart = right.fields.get(name);
-            if (counterpart !== undefined) walk(field, counterpart, sign, place);
+            if (counterpart !== undefined) walk(field, counterpart, sign, inData(place));
           }
           return;
         }
@@ -11450,7 +11588,7 @@ class Checker {
               argument,
               counterpart,
               multiplyVariance(sign, this.#variance.effectiveUnion(left.union, index)),
-              place,
+              inData(place),
             );
           });
           return;
@@ -11464,7 +11602,7 @@ class Checker {
               argument,
               counterpart,
               multiplyVariance(sign, this.#variance.effectiveRecord(left.record, index)),
-              place,
+              inData(place),
             );
           });
           return;
@@ -11479,7 +11617,7 @@ class Checker {
             left.element,
             right.element,
             multiplyVariance(sign, compilerClaim(left.kind, 0)),
-            place,
+            inData(place),
           );
           return;
         }
@@ -11489,19 +11627,24 @@ class Checker {
             left.value,
             right.value,
             multiplyVariance(sign, compilerClaim("Nullable", 0)),
-            place,
+            inData(place),
           );
           return;
         }
         case "Map":
         case "JsMap": {
           if (right.kind !== left.kind) return;
-          walk(left.key, right.key, multiplyVariance(sign, compilerClaim(left.kind, 0)), place);
+          walk(
+            left.key,
+            right.key,
+            multiplyVariance(sign, compilerClaim(left.kind, 0)),
+            inData(place),
+          );
           walk(
             left.value,
             right.value,
             multiplyVariance(sign, compilerClaim(left.kind, 1)),
-            place,
+            inData(place),
           );
           return;
         }
@@ -11509,15 +11652,37 @@ class Checker {
           return;
       }
     };
-    walk(contract.type, body, "co", { depth: 0, throughResults: true, parameter: undefined });
-    // The consistency test, one per variable. A colour bounded above by pure
-    // and below by impure is a body that conducts what the contract hands it
-    // while its contract forbids the result: the invoked arrow is the one that
-    // failed, so the covariant bound reports.
-    for (const [variable, { upper, lower }] of bounds) {
-      if (upper !== undefined && lower !== undefined) record(upper);
-      else if (lower !== undefined && lower.linked !== true) settle.push(variable);
+    walk(contract.type, body.type, "co", {
+      depth: 0,
+      throughResults: true,
+      parameter: undefined,
+    });
+    // The consistency test, one per variable (§13.2's fourth bullet).
+    //
+    // A colour bounded above by pure and below by impure is a body that calls
+    // the effectful callback its contract handed it under an arrow the contract
+    // forbids the effect at. **The guarantee broken is the invoked arrow's**, so
+    // the invoked bound reports — marked `handed`, because the effect came from
+    // the contract rather than from the body.
+    //
+    // **One report per seat**: a direct comparison failure recorded during the
+    // walk itself wins outright, and only where the walk recorded none does a
+    // conflict report — then the variable whose *first* bound the walk took
+    // earliest.
+    let conflict: { readonly failure: SeatFailure; readonly order: number } | undefined;
+    for (const [variable, bound] of bounds) {
+      if (bound.upper !== undefined && bound.lower !== undefined) {
+        if (conflict === undefined || bound.order < conflict.order) {
+          conflict = { failure: { ...bound.upper, handed: true }, order: bound.order };
+        }
+        continue;
+      }
+      // A settle needs no upper bound beside it, and reads *every* lower bound
+      // rather than the first: a variable under both a linked and a `->!`
+      // callback carries both, and the constant one is what settles.
+      if (bound.unconditional) settle.add(variable);
     }
+    if (failure === undefined && conflict !== undefined) failure = conflict.failure;
     if (failure === undefined) return false;
     this.#reportSeat(contract, failure);
     return true;
@@ -11531,93 +11696,106 @@ class Checker {
     sign: Variance,
     place: SeatPlace,
     instantiation: EffectConstant,
-    frame: EffectFrame | undefined,
-    fallback: Source.Span,
-    bounds: Map<Variable, { upper?: SeatFailure; lower?: SeatFailure }>,
+    body: SeatBody,
+    bounds: Map<Variable, SeatBounds>,
     record: (failure: SeatFailure) => void,
+    step: number,
   ): void {
     if (sign === "unused") return;
     const written = this.#prune(left.effect ?? PURE);
+    // The member's own variable, at whatever position the header wrote it
+    // (§13.4). `contract.colour` is set wherever the header opened a signature
+    // scope, so a `->?` in a parameter under a constant outer arrow is linked
+    // here exactly as one on the outer arrow is (§2.2.1).
     const linked = contract.colour !== undefined && written === contract.colour;
     if (!linked && written.kind !== "Effect") return;
     const demanded = linked ? instantiation : (written as EffectConstant);
     const bodyRaw = right.effect ?? PURE;
     const solved = this.#prune(bodyRaw);
     if (isRecovered(demanded) || isRecovered(solved)) return;
-    const boundsOf = (
-      variable: Variable,
-    ): { upper?: SeatFailure; lower?: SeatFailure } => {
+    const boundsOf = (variable: Variable): SeatBounds => {
       const existing = bounds.get(variable);
       if (existing !== undefined) return existing;
-      const fresh: { upper?: SeatFailure; lower?: SeatFailure } = {};
+      const fresh: SeatBounds = { unconditional: false, order: step };
       bounds.set(variable, fresh);
       return fresh;
     };
-    const span = (): Source.Span => this.#seatSpan(frame, bodyRaw, fallback);
     // **Invoked** — the caller runs this arrow, so the body must be at most the
     // contract. `->!` is the top of the lattice and refuses nothing.
     if ((sign === "co" || sign === "inv") && !demanded.impure) {
+      const failure: SeatFailure = {
+        row: linked ? "linked-contract" : "pure-contract",
+        place,
+        span: this.#seatSpan(body, bodyRaw, true),
+        colour: bodyRaw,
+        arrow: left,
+      };
       if (solved.kind === "Effect") {
-        if (solved.impure) {
-          record({
-            row: linked ? "linked-contract" : "pure-contract",
-            place,
-            span: span(),
-            colour: bodyRaw,
-          });
-        }
+        if (solved.impure) record(failure);
       } else if (solved.kind === "Variable") {
-        boundsOf(solved).upper ??= {
-          row: linked ? "linked-contract" : "pure-contract",
-          place,
-          span: span(),
-          colour: bodyRaw,
-        };
+        boundsOf(solved).upper ??= failure;
       }
     }
     // **Supplied** — the caller hands this arrow in, so the contract must be at
     // most the body: an instance accepts everything its contract promises.
     if ((sign === "contra" || sign === "inv") && demanded.impure) {
+      const failure: SeatFailure = {
+        row: "narrower-acceptance",
+        place,
+        span: this.#seatSpan(body, bodyRaw, false),
+        colour: bodyRaw,
+        linked,
+        arrow: left,
+      };
       if (solved.kind === "Effect") {
-        if (!solved.impure) {
-          record({
-            row: "narrower-acceptance",
-            place,
-            span: span(),
-            colour: bodyRaw,
-            linked,
-          });
-        }
+        if (!solved.impure) record(failure);
       } else if (solved.kind === "Variable") {
-        boundsOf(solved).lower ??= {
-          row: "narrower-acceptance",
-          place,
-          span: span(),
-          colour: bodyRaw,
-          linked,
-        };
+        const bound = boundsOf(solved);
+        bound.lower ??= failure;
+        // The settle test reads *every* lower bound, not the first recorded
+        // (§13.2): a linked arrow imposes no bound at the pure instantiation
+        // and never settles, but a `->!` arrow beside it does, whichever the
+        // walk reached first.
+        if (!linked) bound.unconditional = true;
       }
     }
   }
 
   /**
    * Where a seat's refusal stands. §13.2 places it at the act that decided the
-   * body's colour — "the offending call", "the demand that narrowed it" — which
-   * is the unification that pinned the variable where there was one, and the
-   * call the body absorbed at that colour where the colour is still a variable.
+   * body's colour, and the two directions name different acts:
+   *
+   * - an **invoked** arrow reports "at the offending call — the first in source
+   *   order where several offend", which is a call the body wrote at that
+   *   colour. It may stand inside a lambda nested in the member's body, which
+   *   is why the calls are searched rather than the frame walked.
+   * - a **supplied** arrow reports "at the demand that narrowed it, the first
+   *   in source order where several do", which is the unification that pinned
+   *   the colour.
+   *
+   * Each falls back to the other, and both to `undefined` — where no call and
+   * no demand carries the colour the caller places the report at the contract's
+   * own failing arrow instead.
    */
-  #seatSpan(
-    frame: EffectFrame | undefined,
-    colour: Mono,
-    fallback: Source.Span,
-  ): Source.Span {
+  #seatSpan(body: SeatBody, colour: Mono, invoked: boolean): Source.Span | undefined {
     const pin = this.#colourPin(colour);
-    if (pin !== undefined) return pin;
+    const call = this.#offendingCall(body, colour);
+    return invoked ? (call ?? pin) : (pin ?? call);
+  }
+
+  /**
+   * The first call **in source order** among those written inside this body
+   * whose colour is the one the seat condemned (§13.2). Absorption order is
+   * elaboration order, which a `?` call inside a nested lambda does not follow.
+   */
+  #offendingCall(body: SeatBody, colour: Mono): Source.Span | undefined {
     const solved = this.#prune(colour);
-    for (const absorbed of frame?.absorbed ?? []) {
-      if (this.#prune(absorbed.effect) === solved) return absorbed.span;
+    let earliest: Source.Span | undefined;
+    for (const call of body.calls) {
+      if (this.#prune(call.effect) !== solved) continue;
+      if (earliest === undefined || precedes(call.span, earliest)) earliest = call.span;
     }
-    return fallback;
+    return earliest;
   }
 
   /**
@@ -11886,9 +12064,21 @@ class Checker {
           impliedTypes,
         );
         const effect = this.#writtenEffect(member.effect, member.arrowSpan) ?? PURE;
+        const contractType: FunctionMono = { kind: "Function", parameters, result, effect };
+        // The outer arrow's own token, so a seat report can label the arrow it
+        // names (§13.2's "with the contract's invoked arrow as a related
+        // location"). The nested arrows register themselves as
+        // `#annotationType` elaborates them.
+        if (member.arrowSpan !== undefined) {
+          this.#writtenArrowSpans.set(contractType, member.arrowSpan);
+        }
         return {
-          type: { kind: "Function", parameters, result, effect } as FunctionMono,
-          colour: member.effect === "linked" && face !== undefined ? face.effect : undefined,
+          type: contractType,
+          // The member's variable, wherever the header wrote it (§13.4). Not
+          // `member.effect === "linked"`: a header whose outer arrow is a
+          // constant and whose callback parameter is `->?` has the same one
+          // variable, and the seat owes it the same two instantiations.
+          colour: face?.effect,
           member: member.binding.name,
           parameters: member.parameters.map((parameter) => parameter.name),
           inlet: linked,
@@ -13175,8 +13365,14 @@ class Checker {
     // unification is the pin §13.2's reports stand on: the call a body absorbed,
     // or the `->` demand a callback was handed to. Recorded once, at the
     // variable the constant actually reached.
-    if (type.kind === "Effect" && !this.#colourPins.has(variable)) {
-      this.#colourPins.set(variable, span);
+    // The **earliest in source order**, not the first recorded: §13.2 names
+    // "the first in source order where several do", and elaboration order is
+    // not source order (an expected type's unifications run ahead of the body).
+    if (type.kind === "Effect") {
+      const recorded = this.#colourPins.get(variable);
+      if (recorded === undefined || precedes(span, recorded)) {
+        this.#colourPins.set(variable, span);
+      }
     }
     variable.instance = type;
     for (const requirement of variable.requirements) this.#validate(requirement);
@@ -15962,7 +16158,7 @@ class Checker {
     }
     if (annotation.kind === "Function") {
       const effect = this.#writtenEffect(annotation.effect, annotation.arrowSpan);
-      return {
+      const elaborated: FunctionMono = {
         kind: "Function",
         parameters: annotation.parameters.map((parameter) =>
           this.#annotationType(parameter, level, namedTails, typeParameters, impliedTypes, holes)
@@ -15977,6 +16173,14 @@ class Checker {
         ),
         ...(effect === undefined ? {} : { effect }),
       };
+      // The arrow's own token, kept beside the node it produced *(#867)*. A
+      // constraint seat's report names an arrow the contract wrote, and where
+      // no call in the body carries the condemned colour that arrow is the
+      // primary span (Effects §13.2); everywhere else this map is never read.
+      if (annotation.arrowSpan !== undefined) {
+        this.#writtenArrowSpans.set(elaborated, annotation.arrowSpan);
+      }
+      return elaborated;
     }
     // The written qualifier rides the elaborated node from here (FFI Part 7
     // §2.4 rung 3): it is a property of the *occurrence*, and this is the one
