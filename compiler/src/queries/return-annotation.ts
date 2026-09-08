@@ -190,7 +190,7 @@ export function planReturnAnnotation(
  *
  *     constraint Source<a> =
  *         type Item
- *         get(value: a): Item
+ *         get(value: a) -> Item
  *
  *     export fun peek(x) = get(x)
  *
