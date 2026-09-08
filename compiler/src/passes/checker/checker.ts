@@ -343,6 +343,11 @@ interface SeatFailure {
   readonly row: "pure-contract" | "linked-contract" | "narrower-acceptance";
   readonly place: SeatPlace;
   readonly span: Source.Span;
+  /**
+   * The body colour the seat condemned, so the marks that read it are not asked
+   * to report the same defect a second time (`#checkMarks`).
+   */
+  readonly colour: Mono;
   /** Supplied direction only: whether the contract's arrow there is `->?`. */
   readonly linked?: boolean;
 }
@@ -11340,8 +11345,20 @@ class Checker {
     const instantiations: readonly EffectConstant[] = contract.colour === undefined
       ? [PURE]
       : [PURE, IMPURE];
+    const settle: Variable[] = [];
     for (const instantiation of instantiations) {
-      if (this.#walkSeat(contract, body, frame, fallback, instantiation)) return;
+      if (this.#walkSeat(contract, body, frame, fallback, instantiation, settle)) return;
+    }
+    // A body slot the contract's **impure constant** reaches is bounded below by
+    // it and by nothing above, so the only colour consistent with the walk is
+    // the constant — and settling it is what makes such a member honorable at
+    // all: a body that runs a `->!` callback writes `!` on that call, and a
+    // colour left unconstrained would default pure and refuse the mark. A
+    // *linked* arrow's bound is never settled this way: its lower bound holds
+    // only at the impure instantiation, and the pure one must still pass.
+    for (const variable of settle) {
+      const colour = this.#prune(variable);
+      if (colour.kind === "Variable") colour.instance = IMPURE;
     }
   }
 
@@ -11352,6 +11369,7 @@ class Checker {
     frame: EffectFrame | undefined,
     fallback: Source.Span,
     instantiation: EffectConstant,
+    settle: Variable[],
   ): boolean {
     /**
      * A body colour still a variable collects the bounds the walk imposes, over
@@ -11496,8 +11514,9 @@ class Checker {
     // and below by impure is a body that conducts what the contract hands it
     // while its contract forbids the result: the invoked arrow is the one that
     // failed, so the covariant bound reports.
-    for (const { upper, lower } of bounds.values()) {
+    for (const [variable, { upper, lower }] of bounds) {
       if (upper !== undefined && lower !== undefined) record(upper);
+      else if (lower !== undefined && lower.linked !== true) settle.push(variable);
     }
     if (failure === undefined) return false;
     this.#reportSeat(contract, failure);
@@ -11544,6 +11563,7 @@ class Checker {
             row: linked ? "linked-contract" : "pure-contract",
             place,
             span: span(),
+            colour: bodyRaw,
           });
         }
       } else if (solved.kind === "Variable") {
@@ -11551,6 +11571,7 @@ class Checker {
           row: linked ? "linked-contract" : "pure-contract",
           place,
           span: span(),
+          colour: bodyRaw,
         };
       }
     }
@@ -11559,13 +11580,20 @@ class Checker {
     if ((sign === "contra" || sign === "inv") && demanded.impure) {
       if (solved.kind === "Effect") {
         if (!solved.impure) {
-          record({ row: "narrower-acceptance", place, span: span(), linked });
+          record({
+            row: "narrower-acceptance",
+            place,
+            span: span(),
+            colour: bodyRaw,
+            linked,
+          });
         }
       } else if (solved.kind === "Variable") {
         boundsOf(solved).lower ??= {
           row: "narrower-acceptance",
           place,
           span: span(),
+          colour: bodyRaw,
           linked,
         };
       }
@@ -11638,6 +11666,19 @@ class Checker {
 
   /** Effects §9's three contract rows (Constraints §8). */
   #reportSeat(contract: SeatContract, failure: SeatFailure): void {
+    // The seat's verdict is the ruling on this colour, so the marks that read it
+    // owe no second report — the family `#namesReportedFace` already serves for
+    // a condemned signature face. Without this a body conducting a `->!`
+    // callback under a pure contract draws the seat's refusal *and* a mark
+    // report saying the very call it condemned is pure, which is the pre-#868
+    // defaulting talking about a colour the seat has already decided.
+    for (
+      let node: Mono | undefined = failure.colour;
+      node !== undefined && node.kind === "Variable";
+      node = node.instance
+    ) {
+      this.#reportedFaces.add(node);
+    }
     const member = `\`${contract.member}\``;
     const nested = failure.place.depth > 0;
     const subject = !nested
