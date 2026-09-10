@@ -1808,9 +1808,13 @@ describe("Effects §3.4: a bounded body colour is a dependency, not a quantifier
     expect(labels(first)).toEqual([["the contract's failing arrow: \"->\""]]);
     const second = KNOT(PURE_HEAD, "runner, b", "", "pong(n - 1)", "b!()");
     expect(messages(second)).toEqual([pureConflict("go", "b")]);
-    // The offending call is the first in source order carrying the condemned
-    // colour, and in this order that is the sibling the knot conducts through.
-    expect(primaries(second)).toEqual(["pong(n - 1)"]);
+    // **The selector's first tier** *(#889; §13.2)*: the sibling `pong(n - 1)`
+    // stands earlier and carries the bound, but only *through the ordering* —
+    // `b!()` is the call directly on the freshened slot, so it is the primary in
+    // this order as in the other, and the advice "do not call `b` here" now
+    // stands on the call to `b`. Before the tier, swapping these two calls moved
+    // the report onto a sibling with nothing to do with the contract.
+    expect(primaries(second)).toEqual(["b!()"]);
     expect(labels(second)).toEqual([["the contract's failing arrow: \"->\""]]);
   });
 
@@ -1821,7 +1825,8 @@ describe("Effects §3.4: a bounded body colour is a dependency, not a quantifier
     expect(labels(first)).toEqual([["the contract's failing arrow: \"->?\""]]);
     const second = KNOT(LINKED_HEAD, "runner, a, b", "?", "pong?(n - 1)", "b!()");
     expect(messages(second)).toEqual([linkedConflict("go", "b")]);
-    expect(primaries(second)).toEqual(["pong?(n - 1)"]);
+    // The first tier again, at the linked row (#889).
+    expect(primaries(second)).toEqual(["b!()"]);
   });
 
   test("and under a `->!` header the knot is accepted, in both orders", () => {
@@ -1966,4 +1971,149 @@ describe("Constraints §8: a member header's arrow seat, and what recovery leaks
     const source = "constraint C<a> =\n    m(x: a)\n";
     expect(messages(source)).toEqual(["constraint members require a result type"]);
   });
+});
+
+/**
+ * **A failed seat's mark suppression reaches the freshened slots' forward
+ * reach**, and **a conflict's primary prefers a call directly on a contract
+ * slot** — Effects §13.2's failed-seat sentence and its conflict selector, both
+ * as rider #889 amends them (§4.1's two suppressions, §9's two conflict rows,
+ * §12's rows). Beside them, §13.2's own reading of when a nested frame defaults
+ * at a seat: **a named local function defaults at its own generalization**, as
+ * §3.4 says and as it does outside a seat; only a lambda, which has no
+ * generalization point of its own, keeps the variable the seat has not
+ * defaulted.
+ *
+ * *(Review round 3, MEDIUM 3 and MINOR 5, and fix round 3's third pending
+ * item.)* All three were the seat's deferred defaulting meeting §3.4's ordinary
+ * conduit arm: inside an instance body every nested frame's colour was still a
+ * variable when the enclosing body absorbed its call, so the ordinary arm joined
+ * the two, and what the seat then decided about the body it decided about the
+ * helper.
+ */
+describe("Effects §13.2: a failed seat's suppression, and the conflict's two tiers", () => {
+  const PURE_HEAD = "constraint C<r> =\n    go(runner: r, b: () ->! Unit) -> Unit\n";
+  const IMPURE_HEAD = "constraint C<r> =\n    go(runner: r, b: () ->! Unit) ->! Unit\n";
+  const LINKED_HEAD = "constraint C<r> =\n" +
+    "    go(runner: r, a: () ->? Unit, b: () ->! Unit) ->? Unit\n";
+  const BODY = (head: string, args: string, lines: readonly string[]): string =>
+    head +
+    "record R = { id: Int }\n" +
+    "honor C<R> =\n" +
+    `    go(${args}) =\n` +
+    lines.map((line) => `        ${line}\n`).join("");
+
+  test("a failed seat says nothing about the helpers its slots reach", () => {
+    // MEDIUM 3, verbatim. `one` calls the handed callback and `two` calls
+    // `one`, so the ordering carries the seat's unsettled slot to both — and a
+    // mark read off either is no trustworthy ground for a correction. The
+    // deletion the second report used to offer damaged a body the seat's one
+    // refusal already names.
+    const source = BODY(PURE_HEAD, "runner, b", [
+      "let one(): Unit = b!()",
+      "let two(): Unit = one!()",
+      "two()",
+    ]);
+    expect(messages(source)).toEqual([pureConflict("go", "b")]);
+    expect(primaries(source)).toEqual(["b!()"]);
+    expect(labels(source)).toEqual([["the contract's failing arrow: \"->\""]]);
+    // No deletion fixit: the suppression is what removes the whole report, not
+    // its sentence alone.
+    expect(fixes(source)).toEqual([]);
+  });
+
+  test("and the same where the seat fails at a linked contract's pure instantiation", () => {
+    // The `->?` outer arrow's variant: three diagnostics before the
+    // suppression reached the forward reach, one after.
+    const source = BODY(LINKED_HEAD, "runner, a, b", [
+      "let one(): Unit = b!()",
+      "let two(): Unit = one!()",
+      "two()",
+    ]);
+    expect(messages(source)).toEqual([linkedConflict("go", "b")]);
+    expect(primaries(source)).toEqual(["b!()"]);
+  });
+
+  test("and a wrong mark on a reached helper surfaces once the seat is repaired", () => {
+    // "diagnostic recovery only": the seat settles nothing and defaulting still
+    // runs, so the suppression buys one compile, never silence. Repaired by
+    // respelling the member `->!`, `two()` is a bare call on an impure helper.
+    const respelled = BODY(IMPURE_HEAD, "runner, b", [
+      "let one(): Unit = b!()",
+      "let two(): Unit = one!()",
+      "two()",
+    ]);
+    expect(messages(respelled)).toEqual([
+      "this call runs effects, so `two` wants `!`, not no mark",
+    ]);
+    // Repaired the other way — the offending call removed — a `two!()` on a
+    // helper that calls nothing is reported as it would be anywhere.
+    const removed = BODY(PURE_HEAD, "runner, b", [
+      "let one(): Unit = ()",
+      "let two(): Unit = one()",
+      "two!()",
+    ]);
+    expect(messages(removed)).toEqual([
+      "this call is pure, so `two` wants no mark, not `!`",
+    ]);
+  });
+
+  test("a conflict's primary is the call on the slot, not a pure local standing earlier", () => {
+    // MINOR 5, verbatim, and its mirror. `spare`'s colour is one the ordering
+    // carries the slot to, and it is first in source order — but `b!()` is the
+    // call *directly* on the freshened slot, and the report's advice says "do
+    // not call `b` here". Both call orders, because before the first tier the
+    // verdict's placement moved with them.
+    const before = BODY(PURE_HEAD, "runner, b", [
+      "let spare(): Unit = ()",
+      "let inner(): Unit =",
+      "    spare()",
+      "    b!()",
+      "inner()",
+    ]);
+    expect(messages(before)).toEqual([pureConflict("go", "b")]);
+    expect(primaries(before)).toEqual(["b!()"]);
+    const after = BODY(PURE_HEAD, "runner, b", [
+      "let spare(): Unit = ()",
+      "let inner(): Unit =",
+      "    b!()",
+      "    spare()",
+      "inner()",
+    ]);
+    expect(messages(after)).toEqual([pureConflict("go", "b")]);
+    expect(primaries(after)).toEqual(["b!()"]);
+  });
+
+  test("an aliased slot is a direct call: slot identity, never the callee's spelling", () => {
+    // "a local the body bound to the callback, `let k = b`, is the slot as
+    // surely as `b` is, ordinary unification having identified the two, the
+    // identity read through pruning".
+    const source = BODY(PURE_HEAD, "runner, b", [
+      "let k = b",
+      "let spare(): Unit = ()",
+      "let inner(): Unit =",
+      "    spare()",
+      "    k!()",
+      "inner()",
+    ]);
+    expect(messages(source)).toEqual([pureConflict("go", "b")]);
+    expect(primaries(source)).toEqual(["k!()"]);
+  });
+
+  test("a contract-slot call carrying nothing into this conflict wins nothing", () => {
+    // The first tier is drawn from *this* conflict's own lower bounds, not from
+    // every slot the seat freshened: `c!()` stands earlier and stands on a
+    // `->!` slot, but its colour is bounded into a helper the body never calls,
+    // so it carries nothing into the conflict the outer arrow raises.
+    const source =
+      "constraint C<r> =\n    go(runner: r, c: () ->! Unit, b: () ->! Unit) -> Unit\n" +
+      "record R = { id: Int }\n" +
+      "honor C<R> =\n" +
+      "    go(runner, c, b) =\n" +
+      "        let unused(): Unit = c!()\n" +
+      "        b!()\n";
+    expect(messages(source)).toEqual([pureConflict("go", "b")]);
+    expect(primaries(source)).toEqual(["b!()"]);
+  });
+
 });

@@ -523,6 +523,15 @@ interface SeatFailure {
    * bounds the body's own colour.
    */
   readonly carried?: readonly Mono[];
+  /**
+   * The first tier of §13.2's conflict selector (#889): those of `carried` that
+   * are **freshened contract slots the impure constant bounds below** — the
+   * slots the walk itself bounded, as against the colours the ordering carries
+   * them to. A call whose callee's outermost colour is one of these is a call
+   * *directly* on a contract slot, and it is preferred outright
+   * (`#conflictOffendingCall`).
+   */
+  readonly direct?: readonly Mono[];
   /** Where in the walk this failure was found — the deterministic tie-break. */
   readonly order: number;
 }
@@ -12414,11 +12423,18 @@ class Checker {
    * names.
    */
   #conflictAt(body: SeatBody, bound: SeatBounds, upper: SeatFailure): SeatFailure {
+    // The **direct** tier: the slots the walk bounded below with the impure
+    // constant, as against everything the ordering carries them to. Membership
+    // is slot identity read through pruning — `let k = b` prunes to the same
+    // colour `b`'s slot does, so a `k!()` is a direct call (§13.2, #889).
+    const direct = bound.lowers
+      .map((lower) => this.#prune(lower.colour))
+      .filter((colour) => this.#holdsColour(body.freshened, colour));
     const carried = [...this.#orderingReach(
       body.ordering,
       bound.lowers.map((lower) => lower.colour),
     )];
-    const call = this.#offendingCallAmong(body, carried);
+    const call = this.#conflictOffendingCall(body, direct, carried);
     const chosen = (call === undefined
       ? undefined
       : bound.lowers.find((lower) => this.#prune(lower.colour) === call.colour)) ??
@@ -12427,6 +12443,7 @@ class Checker {
       ...upper,
       order: bound.order,
       carried,
+      direct,
       handed: {
         place: chosen.place,
         linked: chosen.linked === true,
@@ -12622,7 +12639,7 @@ class Checker {
     const merge = this.#offendingMerge(body, carried);
     const call = failure.carried === undefined
       ? this.#offendingCall(body, failure.colour)
-      : this.#offendingCallAmong(body, carried)?.span;
+      : this.#conflictOffendingCall(body, failure.direct ?? [], carried)?.span;
     const pin = this.#colourPin(failure.colour);
     const order: readonly (readonly [Source.Span | undefined, SeatPrimary["kind"]])[] =
       // A **conflict** places call-first and never at a pin: the effect came
@@ -12673,6 +12690,45 @@ class Checker {
    * another variable by the ordering". The colour it found comes back with it,
    * because the conflict's clause names the parameter *that* slot stands at.
    */
+  /**
+   * **A conflict's primary prefers a call directly on a contract slot** *(#889;
+   * Effects §13.2, §9's two conflict rows)* — the one selector both the report's
+   * placement (`#seatPrimary`) and the parameter its clause names
+   * (`#conflictAt`) read, so the two cannot drift.
+   *
+   * The failing conflict and its upper arrow are fixed first, exactly as
+   * before. Then, among the calls that carry the impure lower bound into that
+   * conflict — into the conflicting variable the walk selected, directly or
+   * through the ordering — two tiers:
+   *
+   * 1. the first in source order whose callee's outermost colour at this
+   *    instantiation is **directly** a freshened contract slot the impure
+   *    constant bounds below — slot identity read through unification and
+   *    pruning, never the callee's spelling, so a `let k = b` then `k!()`
+   *    qualifies;
+   * 2. only where no such call exists, the first in source order whose callee's
+   *    colour the ordering carries such a slot *to* through another variable.
+   *
+   * Without the first tier a pure local a helper's colour was unified with —
+   * `spare()` standing beside a `b!()` — was named as the primary of a report
+   * whose advice reads "do not call `b` here", because the ordering carried the
+   * bound onto a callee with nothing to do with the contract and `spare()` came
+   * first. And a call on a contract slot that carries nothing into *this*
+   * conflict wins nothing by standing earlier: the first tier is drawn from
+   * this conflict's own lower bounds, not from every slot the seat freshened.
+   *
+   * The merge fallback, the seat fallback, the callback-naming clause and the
+   * merged-slot parameter-order tie-break are unchanged.
+   */
+  #conflictOffendingCall(
+    body: SeatBody,
+    direct: readonly Mono[],
+    carried: readonly Mono[],
+  ): { readonly span: Source.Span; readonly colour: Mono } | undefined {
+    return this.#offendingCallAmong(body, direct) ??
+      this.#offendingCallAmong(body, carried);
+  }
+
   #offendingCallAmong(
     body: SeatBody,
     colours: readonly Mono[],
@@ -12967,17 +13023,36 @@ class Checker {
     ) {
       this.#reportedFaces.add(node);
     }
-    // Each freshened colour is recorded **along its chain**, exactly as the
-    // condemned colour above is, and for the reason `#holdsColour` gives: a
-    // merge may have bound the slot into the colour it was merged with, and it
-    // is then the *representative* a call's mark obligation carries, not the
-    // node the freshening minted. Recording only the minted node left `let f =
-    // if c then k else (() => ())` — a slot merged with a lambda's colour — with
-    // the seat's refusal and a second report calling the very `f!()` it
-    // condemned pure.
-    for (const freshened of body.freshened) {
+    // **The suppression reaches the freshened slots' forward reach** (§13.2,
+    // #889): the set is the fresh variables, one per contract effect slot,
+    // "together with their forward reach through the ordering as it stands at
+    // the failure". A helper that calls the handed callback, `let one(): Unit =
+    // b!()`, carries the seat's unsettled colour, and a mark read off it —
+    // "`one` wants no mark, not `!`" at a `one!()` — is no trustworthy ground
+    // for a correction: the deletion it offers damages a body the seat's one
+    // refusal already names. A helper's colour the ordering does **not** reach
+    // keeps its own mark report, its error being its own.
+    //
+    // Diagnostic recovery only: the seat still settles nothing, and the body's
+    // defaulting and generalization still run. A genuinely wrong mark on a
+    // reached helper surfaces on the next compile, once the seat is repaired.
+    //
+    // `#orderingReach` reads both ends of every edge **through prunes**, so the
+    // set is colours rather than the variables as they stood when the edges
+    // were recorded (`#holdsColour`'s discipline). Each is then recorded along
+    // its chain, exactly as the condemned colour above is: a merge may have
+    // bound a slot into the colour it was merged with, and it is then the
+    // *representative* a call's mark obligation carries, not the node the
+    // freshening minted — recording only the minted node left `let f = if c
+    // then k else (() => ())` with the seat's refusal and a second report
+    // calling the very `f!()` it condemned pure. The chain walk is also what
+    // `#namesReportedFace` needs: a colour §3.4 later defaults prunes to the
+    // pure constant, which every bare call in the program shares, so the read
+    // that matters is "is one of these variables on this obligation's chain".
+    const reach = this.#orderingReach(body.ordering, body.freshened);
+    for (const reached of [...body.freshened, ...reach]) {
       for (
-        let node: Mono | undefined = freshened;
+        let node: Mono | undefined = reached;
         node !== undefined && node.kind === "Variable";
         node = node.instance
       ) {
