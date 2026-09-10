@@ -1836,6 +1836,12 @@ describe("Effects §3.4: a bounded body colour is a dependency, not a quantifier
   const LINKED_HEAD = "constraint C<r> =\n" +
     "    go(runner: r, a: () ->? Unit, b: () ->! Unit) ->? Unit\n";
   const IMPURE_HEAD = "constraint C<r> =\n    go(runner: r, b: () ->! Unit) ->! Unit\n";
+  const BODY_3_4 = (lines: readonly string[]): string =>
+    PURE_HEAD +
+    "export record R = { id: Int }\n" +
+    "honor C<R> =\n" +
+    "    go(runner, b) =\n" +
+    lines.map((line) => `        ${line}\n`).join("");
 
   test("a `fun` knot inside a seat is bounded whichever call the `if` reaches first", () => {
     // The knot is what made the defect unmissable: `ping` and `pong` close
@@ -1898,6 +1904,42 @@ describe("Effects §3.4: a bounded body colour is a dependency, not a quantifier
     expect(messages(source)).toEqual([pureConflict("go", "b")]);
     expect(primaries(source)).toEqual(["b!()"]);
     expect(labels(source)).toEqual([["the contract's failing arrow: \"->\""]]);
+  });
+
+  test("and a helper whose colour a lambda's binds into: the guard's own witness", () => {
+    // *(Review round 4, MINOR 3.)* The guard at generalization reads
+    // `#seatBounded` **through prunes**, and this is the shape that needs it.
+    // `inner`'s colour is the one the seat bounded; the second callee is an
+    // inline lambda, whose colour Decision 3 deliberately leaves deferred — so
+    // it is still a variable when `inner`'s body absorbs it, the ordinary arm
+    // binds the bounded colour into it, and a guard reading the node it stored
+    // no longer recognises the colour it had just bounded. Quantified there,
+    // every use of `inner` instantiates a copy the ordering, the settle and the
+    // disposal can none of them reach — #865 reopened, a `->!` callback's
+    // effects performed under a `->` contract with no diagnostic at all.
+    //
+    // Round 3's witness for this was a *named* second callee, which Decision 3
+    // now defaults at its own generalization; the lambda is what still reaches
+    // it.
+    const inline = BODY_3_4([
+      "let inner(): Unit =",
+      "    b!()",
+      "    (() => ())()",
+      "inner()",
+    ]);
+    expect(messages(inline)).toEqual([pureConflict("go", "b")]);
+    expect(primaries(inline)).toEqual(["b!()"]);
+    // The same with the lambda standing in a record field rather than applied
+    // where it is written — a second route to the same deferral.
+    const stored = BODY_3_4([
+      "let r = { f = () => () }",
+      "let inner(): Unit =",
+      "    b!()",
+      "    r.f()",
+      "inner()",
+    ]);
+    expect(messages(stored)).toEqual([pureConflict("go", "b")]);
+    expect(primaries(stored)).toEqual(["b!()"]);
   });
 
   test("and one local helper conducting the callback, under each outer arrow", () => {
