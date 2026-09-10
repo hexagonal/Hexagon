@@ -3148,3 +3148,255 @@ describe("Effects §13.2: each slot's own merge, and its own reach", () => {
   });
 
 });
+
+/**
+ * **§13.2's three merge forms, over every route into a seat report** *(review
+ * round 8, MEDIUM 1, MEDIUM 2 and MINOR 3)*.
+ *
+ * §13.2 names the forms that join two colours as "an `if`, a `match`, **a value
+ * carrying both**", and pairs the spellings: "the conformance suite pins the
+ * named-function and inline-lambda forms as a pair receiving equivalent
+ * explanations wherever both are refused". The third form is open-ended, and
+ * the two doors that used to take the record — the `If` and `Match` arms of the
+ * elaborator — could see only a join whose two sides were *themselves*
+ * functions. A join one level down, under a record field, a tuple element or a
+ * vector element, reached no door at all: the merge went unrecorded, the
+ * published value wore the pure branch's constant, and the three spellings came
+ * apart, the named and `let`-bound ones drawing advice that named a `->` demand
+ * the program did not contain.
+ *
+ * So the record is taken at the **unification** (`#joining`, `#bind`) and the
+ * seat's node is published at **every** colour position the join fixed
+ * (`#publishJoinedColours`), not only at a joined value's outermost arrow. This
+ * table is the enumeration: **a merge form added to the language is added
+ * here**, and the row it adds must agree with every other row.
+ */
+describe("Effects §13.2: the merge forms, spelled three ways, in both orders", () => {
+  /** One compile, all three views — 36 programs is 36 compiles, not 108. */
+  function seen(source: string): {
+    readonly messages: readonly string[];
+    readonly primaries: readonly string[];
+    readonly labels: readonly (readonly string[])[];
+  } {
+    const text = "module Main\n\n" + source;
+    const diagnostics = compileFiles([["/main.hex", text], ["/io.js", ""]])
+      .diagnostics;
+    const at = (span: { start: { offset: number }; end: { offset: number } }) =>
+      text.slice(span.start.offset, span.end.offset).trimEnd();
+    return {
+      messages: diagnostics.map(({ message }) => message),
+      primaries: diagnostics.map(({ primary }) => at(primary)),
+      labels: diagnostics.map(({ labels: related }) =>
+        (related ?? []).map(({ message, span }) => `${message}: ${JSON.stringify(at(span))}`)
+      ),
+    };
+  }
+
+  /**
+   * The three spellings §13.2 pairs. `bind` is what has to stand above the
+   * merge for the spelling to exist at all.
+   */
+  const SPELLINGS = [
+    { name: "a named function", pure: "spare", bind: "" },
+    { name: "an inline lambda", pure: "(() => ())", bind: "" },
+    { name: "a `let`-bound lambda", pure: "g", bind: "        let g = () => ()\n" },
+  ] as const;
+
+  /**
+   * **The merge forms.** `join` is the expression that does the joining — the
+   * one §13.2 makes the merge, and the one a conflict names as its related
+   * location. `after` is what the body does with the joined value, and `call`
+   * is the primary the report must take.
+   */
+  const FORMS = [
+    {
+      name: "an `if`",
+      join: (first: string, second: string) => `if c then ${first} else ${second}`,
+      after: (join: string) => `        let f = ${join}\n        f()\n`,
+      call: "f()",
+    },
+    {
+      name: "a `match`, the slot in one arm and a pure function in the others",
+      join: (first: string, second: string) =>
+        `match t\n            A => ${first}\n            B => spare\n            Z => ${second}`,
+      after: (join: string) => `        let f = ${join}\n        f()\n`,
+      call: "f()",
+    },
+    {
+      name: "a record field",
+      join: (first: string, second: string) =>
+        `if c then { cb = ${first} } else { cb = ${second} }`,
+      after: (join: string) => `        let z = ${join}\n        z.cb()\n`,
+      call: "z.cb()",
+    },
+    {
+      name: "a tuple element",
+      join: (first: string, second: string) =>
+        `if c then (${first}, 1) else (${second}, 2)`,
+      after: (join: string) =>
+        `        let (q, n) = ${join}\n        ignore(n)\n        q()\n`,
+      call: "q()",
+    },
+    {
+      name: "a vector element",
+      join: (first: string, second: string) => `[${first}, ${second}]`,
+      after: (join: string) =>
+        `        let v = ${join}\n        match Vector.get(v, 0)\n` +
+        "            Some(u) => u()\n            None => ()\n",
+      call: "u()",
+    },
+    {
+      name: "a `catch` arm",
+      join: (first: string, second: string) =>
+        `try\n                ${first}\n            catch\n                Boom(n) =>\n` +
+        `                    ignore(n)\n                    ${second}`,
+      after: (join: string) => `        let f =\n            ${join}\n        f()\n`,
+      call: "f()",
+    },
+  ] as const;
+
+  const HEAD =
+    "constraint C<r> =\n    go(runner: r, b: () ->! Unit) -> Unit\n" +
+    "record R = { id: Int }\n" +
+    "exception Boom(code: Int)\n" +
+    "union T = A | B | Z\n" +
+    "let t: T = A\n" +
+    "let c: Bool = True\n" +
+    "let spare(): Unit = ()\n" +
+    "honor C<R> =\n    go(runner, b) =\n";
+
+  for (const form of FORMS) {
+    for (const slotFirst of [true, false]) {
+      test(
+        `${form.name}, the slot written ${slotFirst ? "first" : "second"}`,
+        () => {
+          for (const spelling of SPELLINGS) {
+            const join = slotFirst
+              ? form.join("b", spelling.pure)
+              : form.join(spelling.pure, "b");
+            const source = HEAD + spelling.bind + form.after(join);
+            const { messages: said, primaries: at, labels: related } = seen(source);
+            // One report, the conflict row — the merge fixed the handed slot
+            // pure and the body then called it under the contract's `->`.
+            expect([spelling.name, said]).toEqual([spelling.name, [pureConflict("go", "b")]]);
+            // The call, not the merge: a call carries the condemned colour.
+            expect([spelling.name, at]).toEqual([spelling.name, [form.call]]);
+            // The failing arrow, then the merge that joined the slot in — the
+            // merge being the joining expression itself, whichever form it is.
+            expect([spelling.name, related]).toEqual([spelling.name, [[
+              'the contract\'s failing arrow: "->"',
+              `the merge that joined the handed callback in: ${JSON.stringify(join)}`,
+            ]]]);
+            // And never the demand limb: none of these programs writes an
+            // annotation or hands the callback to a `->` position, so advice
+            // that says to do so is a repair for a defect nobody committed.
+            for (const message of said) {
+              expect([spelling.name, message.includes("to a `->` demand")])
+                .toEqual([spelling.name, false]);
+            }
+          }
+        },
+      );
+    }
+  }
+});
+
+/**
+ * **The two regressions the merge door carried into review round 8**, both one
+ * line, neither pinned in either direction by any test in the suite at the time
+ * — which is why they are pinned here rather than inside a family.
+ */
+describe("Effects §13.2: the merge record is every slot's, and it is the seat's node", () => {
+  test("a `match` records EVERY arm's merge, not only the first slot-carrying one", () => {
+    // *(Review round 8, MEDIUM 1.)* `#recordMerge` is not a query — it records
+    // — so calling it behind `merged ??=` recorded the first arm that carried a
+    // slot and no arm after it. Here arm 1 hands in `d`'s slot and arm 3 hands
+    // in `b`'s: with the short-circuit, `b`'s merge went unrecorded, its report
+    // fell through to the demand limb, and the advice named a `->` demand this
+    // program does not contain. `d` is written `->`, so only `b` fails and the
+    // report must stand on the LATER slot's merge.
+    const source =
+      "constraint C<r> =\n" +
+      "    go(runner: r, d: () -> Unit, b: () ->! Unit) ->! (() -> Unit)\n" +
+      "record R = { id: Int }\n" +
+      "let spare(): Unit = ()\n" +
+      "union T = A | B | Z\n" +
+      "let t: T = A\n" +
+      "honor C<R> =\n    go(runner, d, b) =\n" +
+      "        let g = match t\n" +
+      "            A => d\n            B => spare\n            Z => b\n" +
+      "        () => g()\n";
+    expect(messages(source)).toEqual([mergeNarrower("go", "b", true)]);
+    // The whole `match` — the expression that did the joining.
+    expect(primaries(source).map((text) => text.trimEnd())).toEqual([
+      "match t\n            A => d\n            B => spare\n            Z => b",
+    ]);
+    // The `if` counterpart — two merges in one body, the report on the second —
+    // is pinned by "a merge on ANOTHER slot reclassifies nothing" above.
+  });
+
+  test("and it records the SEAT's node, so a `->` demand beside the merge moves nothing", () => {
+    // *(Review round 8, MEDIUM 2.)* `#recordMerge` recorded the first `Variable`
+    // arm. For `if c then (() => ()) else b` that arm is the inline lambda's own
+    // frame colour — the seat leaves that frame deferred, so it is still a
+    // variable when the merge is recorded — and not `b`'s slot. `#offendingMerge`
+    // compares by node once a chain has reached a constant, so the moment the
+    // `let p: () -> Unit = f` below solved the merged colour pure it could no
+    // longer match the merge against the slot: the inline spelling alone moved
+    // to the demand limb, and §13.2's pair came apart on the spelling.
+    const demanded = (other: string, bind = "") =>
+      "constraint C<r> =\n    go(runner: r, b: () ->! Unit) -> Unit\n" +
+      "record R = { id: Int }\nlet c: Bool = True\nlet spare(): Unit = ()\n" +
+      "honor C<R> =\n    go(runner, b) =\n" + bind +
+      `        let f = if c then ${other} else b\n` +
+      "        let p: () -> Unit = f\n        ignore(p)\n        f()\n";
+    // And with the merge written the other way round, which is the axis round
+    // 7's MEDIUM 1 closed and this one re-opened for one of the three.
+    const demandedFirst = (other: string, bind = "") =>
+      "constraint C<r> =\n    go(runner: r, b: () ->! Unit) -> Unit\n" +
+      "record R = { id: Int }\nlet c: Bool = True\nlet spare(): Unit = ()\n" +
+      "honor C<R> =\n    go(runner, b) =\n" + bind +
+      `        let f = if c then b else ${other}\n` +
+      "        let p: () -> Unit = f\n        ignore(p)\n        f()\n";
+    for (
+      const [other, bind] of [
+        ["spare", ""],
+        ["(() => ())", ""],
+        ["g", "        let g = () => ()\n"],
+      ] as const
+    ) {
+      for (const source of [demanded(other, bind), demandedFirst(other, bind)]) {
+        expect([other, messages(source)]).toEqual([other, [pureConflict("go", "b")]]);
+        expect([other, primaries(source)]).toEqual([other, ["f()"]]);
+        expect([other, labels(source)[0]?.[0]])
+          .toEqual([other, 'the contract\'s failing arrow: "->"']);
+      }
+    }
+  });
+
+  test("and the same through an annotated local function", () => {
+    // The variant the round asked for beside it: the merge under a `let` whose
+    // own result type is annotated `-> Unit`, called through.
+    const annotated = (other: string, bind = "") =>
+      "constraint C<r> =\n    go(runner: r, b: () ->! Unit) -> Unit\n" +
+      "record R = { id: Int }\nlet c: Bool = True\nlet spare(): Unit = ()\n" +
+      "honor C<R> =\n    go(runner, b) =\n" + bind +
+      `        let choose(): (() -> Unit) = if c then ${other} else b\n` +
+      "        choose()()\n";
+    for (
+      const [other, bind] of [
+        ["spare", ""],
+        ["(() => ())", ""],
+        ["g", "        let g = () => ()\n"],
+      ] as const
+    ) {
+      const source = annotated(other, bind);
+      expect([other, messages(source)]).toEqual([other, [pureConflict("go", "b")]]);
+      expect([other, primaries(source)]).toEqual([other, ["choose()()"]]);
+      expect([other, labels(source)]).toEqual([other, [[
+        'the contract\'s failing arrow: "->"',
+        `the merge that joined the handed callback in: ${JSON.stringify(`if c then ${other} else b`)}`,
+      ]]]);
+    }
+  });
+});

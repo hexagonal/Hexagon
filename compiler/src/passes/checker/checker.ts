@@ -2134,6 +2134,26 @@ class Checker {
    */
   readonly #colourMerges: ColourMerge[] = [];
   /**
+   * The span of the **joining expression** whose unification is running, if one
+   * is *(review round 8, MINOR 3; Effects §13.2)*.
+   *
+   * §13.2's merge forms are "an `if`, a `match`, **a value carrying both**",
+   * and the third is open-ended: a record field, a tuple element, a vector
+   * element, a `catch` arm. Testing the joined *types* for a top-level function
+   * — which is all a door in the elaborator can see — misses every join one
+   * level down, so the record is taken where the join actually happens, at the
+   * unification
+   * that binds the colour (`#bind`), with this field naming the expression that
+   * asked for it. The recursion through records, tuples and vectors is then
+   * free: `#unify` already walks into them, and a field's colour joining under
+   * an `if` is the `if`'s merge.
+   *
+   * Set only around a **join** — result-against-arm, branch-against-branch,
+   * element-against-element — never around an annotation's or an argument's
+   * unification, which are §13.2's *other* two pins and must stay so.
+   */
+  #mergeSite: Source.Span | undefined;
+  /**
    * **The ordering**, flat *(#867, #885)*: every lower-bound edge a seat body's
    * calls recorded in place of §3.4's unification. A seat takes the slice its
    * own body wrote (`#seatMark`/`#seatSince`), and the bounds test, the settle
@@ -6883,10 +6903,24 @@ class Checker {
         break;
       case "Vector": {
         const element = this.#fresh(level, false);
+        const elements: Mono[] = [];
         for (const value of expression.elements) {
-          this.#unifyExpected(element, this.#inferExpr(value, level), value, value.span, true);
+          const inferred = this.#inferExpr(value, level);
+          elements.push(inferred);
+          // *(Review round 8, MINOR 3.)* A literal's elements join one element
+          // type, and §13.2's third merge form — "a value carrying both" — is
+          // exactly this: `[spare, b]` fixes `b`'s slot as surely as
+          // `if c then spare else b` does.
+          this.#joining(expression.span, () =>
+            this.#unifyExpected(element, inferred, value, value.span, true));
         }
-        type = { kind: "Vector", element };
+        // And the published element wears the seat's node where an element
+        // carried one, so a call through the vector records the edge.
+        let published: Mono = element;
+        for (const inferred of elements) {
+          published = this.#publishJoinedColours(published, inferred);
+        }
+        type = { kind: "Vector", element: published };
         break;
       }
       case "Record":
@@ -7251,14 +7285,8 @@ class Checker {
         // An `if` with both arms is one of §13.2's **merges** *(#867)*: two
         // colours the body joined by its own act, which a constraint seat names
         // as a related location, or as the primary where no call carries the
-        // colour it condemned. Recorded before the join, since afterwards the
-        // two arms are one node and the merge is invisible.
-        // The node the merge carried, for the published colour below: a branch
-        // order that puts the pure arm first would otherwise publish the one
-        // constant every pure arrow shares (review round 7, MEDIUM 1).
-        const merged = expression.elseless
-          ? undefined
-          : this.#recordMerge(consequence, alternative, expression.span);
+        // colour it condemned. The record is taken at the join itself
+        // (`#joining` below), and the seat's node published afterwards.
         if (expression.elseless) {
           // `else`-less: the false branch is the synthesized `Unit`, so the
           // `then` branch must be `Unit` (Operators §11.2). No numeric
@@ -7301,25 +7329,38 @@ class Checker {
         ) {
           type = consequence;
         } else {
-          this.#unify(
-            consequence,
-            alternative,
-            expression.span,
-            // *(#821.)* A forwarding form has no lift of its own to stand down:
-            // the face reaches **both** branches, one enters it and one cannot,
-            // and the disagreement Operators §11 already reports is the whole
-            // refusal. What §2.2 adds is the boundary repair — the receiver this
-            // form sits in took a face, and an ascription stops it.
-            this.#forwardingBranchRepair(
-              expression,
+          this.#joining(expression.span, () =>
+            this.#unify(
               consequence,
               alternative,
-              expected,
-            ),
-          );
+              expression.span,
+              // *(#821.)* A forwarding form has no lift of its own to stand down:
+              // the face reaches **both** branches, one enters it and one cannot,
+              // and the disagreement Operators §11 already reports is the whole
+              // refusal. What §2.2 adds is the boundary repair — the receiver this
+              // form sits in took a face, and an ascription stops it.
+              this.#forwardingBranchRepair(
+                expression,
+                consequence,
+                alternative,
+                expected,
+              ),
+            ));
           type = consequence;
         }
-        type = this.#publishMergedColour(type, merged);
+        // *(#867; review round 7, MEDIUM 1; review round 8, MINOR 3.)* The
+        // published value wears the seat's node at every colour the join fixed.
+        // A branch order that puts the pure arm first would otherwise publish
+        // the one constant every pure arrow in the program shares, and a colour
+        // one level down — a record field, a tuple element — would publish it
+        // whichever order was written. Against both branches: the walk is a
+        // no-op against the one the form published — the two sides are then one
+        // node and it returns at the first test — and the other is the one that
+        // may hold the seat's node.
+        if (!expression.elseless) {
+          type = this.#publishJoinedColours(type, consequence);
+          type = this.#publishJoinedColours(type, alternative);
+        }
         break;
       }
       case "While": {
@@ -7438,10 +7479,6 @@ class Checker {
         const scrutinee = this.#inferExpr(expression.scrutinee, level);
         const result = this.#fresh(level, false);
         const outerArmTop = this.#matchArmTop;
-        // The seat node the first merging arm carried, for the published colour
-        // (review round 7, MEDIUM 1): a `match` publishes its **first** arm's
-        // node, so a pure first arm hides the slot a later one merged in.
-        let merged: Mono | undefined;
         // The value paths, accumulated as they elaborate (`#formParts`). A
         // disagreement at an early arm leaves the record incomplete, and an
         // incomplete record answers nothing — see the field.
@@ -7473,18 +7510,18 @@ class Checker {
           this.#formParts.set(expression, { total, parts: [...paths] });
           // A second and later arm is a **merge** of two colours, exactly as an
           // `if`'s two branches are (#867; Effects §13.2). The first arm joins
-          // nothing — it establishes the result — so the record starts at the
-          // second, and its span is the whole `match`, the expression that did
+          // nothing — it establishes the result — and the join below is where
+          // each later arm's merge is recorded, so the record is **every**
+          // arm's rather than the first slot-carrying one's (review round 8,
+          // MEDIUM 1). Its span is the whole `match`, the expression that did
           // the joining.
-          if (paths.length > 1) {
-            merged ??= this.#recordMerge(result, body, expression.span);
-          }
-          this.#unify(
-            result,
-            body,
-            arm.body.span,
-            this.#forwardingBranchRepair(expression, result, body, expected),
-          );
+          this.#joining(expression.span, () =>
+            this.#unify(
+              result,
+              body,
+              arm.body.span,
+              this.#forwardingBranchRepair(expression, result, body, expected),
+            ));
         }
         // The match catch clause (Exceptions §5.4): its arms are `try`'s arms in
         // a second seat, so they carry §5.3 whole and their bodies join the one
@@ -7562,7 +7599,13 @@ class Checker {
           );
           break;
         }
-        type = this.#publishMergedColour(result, merged);
+        type = result;
+        // *(Review round 7, MEDIUM 1; review round 8, MINOR 3.)* Every arm,
+        // data and `catch` alike — `paths` is the one array both loops push
+        // into — so a colour a later arm carried, at the arm's own arrow or
+        // inside a record, a tuple or a vector it built, reaches the published
+        // value as the seat's node and not as the first arm's constant.
+        for (const path of paths) type = this.#publishJoinedColours(type, path.type);
         break;
       }
       case "Throw": {
@@ -7585,7 +7628,10 @@ class Checker {
           total: 1 + expression.arms.length,
           paths,
         });
+        // *(Review round 8, MINOR 3.)* The arms joined the body's colour, so
+        // the form publishes the seat's node where one of them carried it.
         type = result;
+        for (const path of paths) type = this.#publishJoinedColours(type, path.type);
         break;
       }
       case "Call": {
@@ -8948,14 +8994,20 @@ class Checker {
           parts: [...form.paths],
         });
       }
-      this.#unify(
-        result,
-        body,
-        arm.body.span,
-        form === undefined
-          ? undefined
-          : this.#forwardingBranchRepair(form.expression, result, body, expected),
-      );
+      // *(Review round 8, MINOR 3.)* A `catch` arm joins the one result exactly
+      // as a data arm does, and §13.2's merge form covers it: the arm is where
+      // the writer joined the two colours. The site is the whole form where one
+      // holds the arms, and the arm's own body otherwise — a bare `try` clause
+      // has no enclosing expression to name.
+      this.#joining(form?.expression.span ?? arm.body.span, () =>
+        this.#unify(
+          result,
+          body,
+          arm.body.span,
+          form === undefined
+            ? undefined
+            : this.#forwardingBranchRepair(form.expression, result, body, expected),
+        ));
     }
     // §5.3's set logic is §7.2's usefulness over the open `Exn` sum: the column
     // has no signature, so no set of exception constructors ever completes it —
@@ -11832,14 +11884,14 @@ class Checker {
 
   /**
    * One expression's **merge** of two colours *(#867; Effects §13.2)*, recorded
-   * before the join that erases it.
+   * at the unification that erases it.
    *
    * A merge is an expression that joins two colours — an `if`, a `match`, a
    * value carrying both — and the constraint seat needs it twice: as the
    * related location beside an offending call, so the expression a writer must
    * change is named, and as the primary where no call carries the condemned
    * colour. **Forwarding is not a merge**: `make(k) = k` joins one colour to a
-   * slot, and the pair below is then the same node twice, which records nothing.
+   * slot, and the two sides are then the same node, which records nothing.
    *
    * One arm may already be a **constant** — a named pure function, whose
    * colour §3.4 defaulted before its generalization — which is the incidental
@@ -11847,62 +11899,202 @@ class Checker {
    * way, because the classification asks the *bounds* whether a pure upper
    * arrow was met, not the merge.
    *
-   * **And that arm may be the one the merge publishes** *(review round 7,
-   * MEDIUM 1)*. An `if` takes its *then* branch's node and a `match` its first
-   * arm's, so `if c then spare else b` publishes the pure function's node — and
-   * a pure function's colour node **is** the one pure constant every pure arrow
-   * in the program shares. Written that way round the merged binding carried no
-   * identity at all: `#carriesSeatSlot` could not tell it from any other pure
-   * callee, the call recorded no edge, and §13.2's paired requirement came apart
-   * on the branch order alone. So the answer here is the seat's own node for the
-   * slot the merge joined, and the merging form publishes its colour — the same
-   * canonicalisation `copyEffect` performs at an instantiation, done at the one
-   * other door that can destroy the identity. Both nodes prune alike the moment
-   * the join lands, so no type moves; what it buys is that the three spellings
-   * §13.2 pairs reach the seat as one shape whichever branch is written first.
+   * **Where the record is taken** *(review round 8, MEDIUM 1, MEDIUM 2 and
+   * MINOR 3)*. It used to be taken at two **doors** — the `If` and `Match` arms
+   * of the elaborator — from the joined *types*, and that shape leaked three
+   * times in one round. The door had to be told not to short-circuit, because
+   * recording is not a query. It recorded the first arm that happened to hold a
+   * variable, which for an inline lambda is the lambda's own frame colour and
+   * not the seat's slot. And it could see a join only where both sides were
+   * *themselves* functions, so §13.2's third form — "a value carrying both" —
+   * reached no door at all: a colour joined under a record field, a tuple
+   * element or a vector element was never recorded, and the named and
+   * `let`-bound spellings drew advice naming a `->` demand the program did not
+   * contain.
+   *
+   * So there is **one** place now, and it is not a door: the unification
+   * itself. A joining form names its span (`#joining`), `#bind` records what
+   * the join actually fixed (`#recordJoinedColour`), and the recursion through
+   * records, tuples and vectors is `#unify`'s own — a field's colour joining
+   * under an `if` is the `if`'s merge, with no arm of the elaborator knowing
+   * that records exist. The node recorded is always the **seat's own**, which
+   * is the node `#offendingMerge` compares against once a chain has reached the
+   * pure constant.
    */
-  #recordMerge(left: Mono, right: Mono, span: Source.Span): Mono | undefined {
-    const first = this.#prune(left);
-    const second = this.#prune(right);
-    if (first.kind !== "Function" || second.kind !== "Function") return undefined;
-    const rawA = first.effect ?? PURE;
-    const rawB = second.effect ?? PURE;
-    const a = this.#prune(rawA);
-    const b = this.#prune(rawB);
-    if (a === b) return undefined;
-    const variable = a.kind === "Variable" ? a : b.kind === "Variable" ? b : undefined;
-    if (variable === undefined) return undefined;
-    this.#colourMerges.push({ span, colour: variable });
-    // Asked **before** the join, while the slot's chain still ends at a
-    // variable: afterwards a merge with a pure constant has solved it, and the
-    // question "does this arm carry a slot" is the very one the constant
-    // destroys.
-    return this.#carriesSeatSlot(rawA) ?? this.#carriesSeatSlot(rawB);
+  #joining<T>(span: Source.Span, run: () => T): T {
+    const enclosing = this.#mergeSite;
+    this.#mergeSite = span;
+    try {
+      return run();
+    } finally {
+      this.#mergeSite = enclosing;
+    }
   }
 
   /**
-   * The type a merging form publishes, wearing the seat node its merge carried
-   * *(review round 7, MEDIUM 1; Effects §13.2)*.
+   * Records the merge a **join** just made of a seat-held colour *(review round
+   * 8, MINOR 3)* — called from `#bind`, the one place a colour meets another
+   * colour, so every joining form reaches it through the same door and a form
+   * added later needs no door of its own.
    *
-   * `#recordMerge` answers with the node the seat holds for the slot the two
-   * arms joined, or nothing where no seat is open and no slot was joined. Where
-   * it answered, the form's own node may be the *other* arm's — an `if` takes
-   * its `then` branch, a `match` its first arm — and where that arm's colour is
-   * a constant the merged binding is indistinguishable from every pure value in
-   * the program. Relabelling is sound because the join has already run: the two
-   * colours prune alike, so the node handed back prunes to exactly what the
-   * form's own node prunes to, and every reader prunes. Only the effect slot
-   * moves; the non-effect structure is the form's own.
+   * Asked while the chain still ends at a variable, which is what makes the
+   * question answerable at all: after the join a merge with a pure constant has
+   * solved the slot, and "does this side carry a slot" is the very question the
+   * constant destroys.
    */
-  #publishMergedColour(type: Mono, carried: Mono | undefined): Mono {
-    if (carried === undefined) return type;
-    const actual = this.#prune(type);
-    if (actual.kind !== "Function") return type;
-    const effect = actual.effect ?? PURE;
-    if (effect === carried) return type;
-    // Never a type change: only a colour the join already made this one.
-    if (this.#prune(effect) !== this.#prune(carried)) return type;
-    return { ...actual, effect: carried };
+  #recordJoinedColour(variable: Variable, type: Mono): void {
+    const span = this.#mergeSite;
+    if (span === undefined || this.#seatSlots === undefined) return;
+    const seat = this.#carriesSeatSlot(variable) ??
+      (type.kind === "Variable" ? this.#carriesSeatSlot(type) : undefined);
+    if (seat === undefined) return;
+    this.#colourMerges.push({ span, colour: seat });
+  }
+
+  /**
+   * The type a joining form publishes, wearing the seat's node at **every**
+   * colour position the join fixed *(review round 8, MINOR 3; Effects §13.2)*.
+   *
+   * A merging form publishes one branch's node, and where that branch wrote
+   * the pure function the node is the one pure constant every pure arrow in the
+   * program shares — so §13.2's paired requirement came apart on the branch
+   * order alone (review round 7, MEDIUM 1). Relabelling the joined value's
+   * **outermost** arrow answers that for §13.2's first two forms, where the
+   * joined value *is* the function. The third — "a value carrying both" — puts
+   * the colour one level down: a record field, a tuple element, a vector
+   * element. There the form publishes one
+   * branch's structure, and where that branch wrote the pure function the node
+   * standing at the field is the pure constant every pure arrow in the program
+   * shares. A call through it (`z.cb()`) then records no edge, `#carriesSeatSlot`
+   * cannot tell it from any other pure callee, and the three spellings §13.2
+   * pairs come apart on which branch was written first — the same defect round
+   * 7's MEDIUM 1 closed at the top level, one level down.
+   *
+   * So the published structure is walked against the branch it joined, and at
+   * each colour position the seat's node is preferred to a node that is not
+   * one. Never a type change: a position is rewritten only where the two sides
+   * already **prune alike**, which the join has just made true, so every reader
+   * that prunes sees exactly what it saw before. Only the effect slots move.
+   */
+  #publishJoinedColours(published: Mono, other: Mono): Mono {
+    if (this.#seatSlots === undefined || this.#seatSlots.size === 0) return published;
+    return this.#republishColours(published, other, 0);
+  }
+
+  /**
+   * The colour to stand at one position: the seat's node where the join put one
+   * on either side, and the published side's own otherwise.
+   */
+  #preferSeatColour(own: Mono | undefined, other: Mono | undefined): Mono | undefined {
+    const ownColour = own ?? PURE;
+    const otherColour = other ?? PURE;
+    if (ownColour === otherColour) return own;
+    // Only a colour the join already made this one — never a type change.
+    if (this.#prune(ownColour) !== this.#prune(otherColour)) return own;
+    // The seat's **own** node, not merely a node that reaches it: an inline
+    // lambda's frame colour reaches the slot the moment the join binds it, and
+    // answers `#carriesSeatSlot` on that account — but it is a different node,
+    // and the moment a later demand solves the chain to the pure constant node
+    // identity is all that separates the ordering's colours from every other
+    // pure arrow in the program. Publishing the frame there is what made the
+    // inline spelling diverge from the other two (review round 8, MEDIUM 2).
+    return this.#carriesSeatSlot(ownColour) ?? this.#carriesSeatSlot(otherColour) ?? own;
+  }
+
+  /**
+   * `#publishJoinedColours`' walk. Bounded by `DEPTH`, which no source type
+   * reaches: the walk descends only where both sides are the same composite,
+   * and a type deep enough to exhaust it has already been rejected by
+   * `#occurs`. The bound is there so a cyclic node the checker built for a
+   * refused program cannot spin.
+   */
+  #republishColours(published: Mono, other: Mono, depth: number): Mono {
+    if (depth > 24) return published;
+    const own = this.#prune(published);
+    const against = this.#prune(other);
+    if (own === against || own.kind !== against.kind) return published;
+    switch (own.kind) {
+      case "Function": {
+        if (against.kind !== "Function") return published;
+        if (own.parameters.length !== against.parameters.length) return published;
+        const parameters = own.parameters.map((parameter, index) =>
+          this.#republishColours(parameter, against.parameters[index]!, depth + 1)
+        );
+        const result = this.#republishColours(own.result, against.result, depth + 1);
+        const effect = this.#preferSeatColour(own.effect, against.effect);
+        if (
+          effect === own.effect && result === own.result &&
+          parameters.every((parameter, index) => parameter === own.parameters[index])
+        ) {
+          return published;
+        }
+        const rebuilt: Mono = { ...own, parameters, result };
+        if (effect !== undefined) return { ...rebuilt, effect };
+        delete (rebuilt as { effect?: Mono }).effect;
+        return rebuilt;
+      }
+      case "Tuple": {
+        if (against.kind !== "Tuple") return published;
+        if (own.elements.length !== against.elements.length) return published;
+        const elements = own.elements.map((element, index) =>
+          this.#republishColours(element, against.elements[index]!, depth + 1)
+        );
+        if (elements.every((element, index) => element === own.elements[index])) return published;
+        return { ...own, elements };
+      }
+      case "Record": {
+        if (against.kind !== "Record") return published;
+        let moved = false;
+        const fields = new Map<string, Mono>();
+        for (const [name, field] of own.fields) {
+          const counterpart = against.fields.get(name);
+          const republished = counterpart === undefined
+            ? field
+            : this.#republishColours(field, counterpart, depth + 1);
+          if (republished !== field) moved = true;
+          fields.set(name, republished);
+        }
+        return moved ? { ...own, fields } : published;
+      }
+      case "Union":
+      case "NominalRecord": {
+        if (against.kind !== "Union" && against.kind !== "NominalRecord") return published;
+        if (own.arguments.length !== against.arguments.length) return published;
+        const args = own.arguments.map((argument, index) =>
+          this.#republishColours(argument, against.arguments[index]!, depth + 1)
+        );
+        if (args.every((argument, index) => argument === own.arguments[index])) return published;
+        return { ...own, arguments: args };
+      }
+      case "Vector":
+      case "Set":
+      case "Array":
+      case "JsSet":
+      case "Node": {
+        if (
+          against.kind !== "Vector" && against.kind !== "Set" && against.kind !== "Array" &&
+          against.kind !== "JsSet" && against.kind !== "Node"
+        ) {
+          return published;
+        }
+        const element = this.#republishColours(own.element, against.element, depth + 1);
+        return element === own.element ? published : { ...own, element };
+      }
+      case "Nullable": {
+        if (against.kind !== "Nullable") return published;
+        const value = this.#republishColours(own.value, against.value, depth + 1);
+        return value === own.value ? published : { ...own, value };
+      }
+      case "Map":
+      case "JsMap": {
+        if (against.kind !== "Map" && against.kind !== "JsMap") return published;
+        const key = this.#republishColours(own.key, against.key, depth + 1);
+        const value = this.#republishColours(own.value, against.value, depth + 1);
+        return key === own.key && value === own.value ? published : { ...own, key, value };
+      }
+      default:
+        return published;
+    }
   }
 
   /**
@@ -12027,7 +12219,7 @@ class Checker {
           // reached a constant stands at no `->?` inlet.
           //
           // The guard has a **witness** since the merge publishes the seat's own
-          // node (`#publishMergedColour`), which is what first brings a
+          // node (`#publishJoinedColours`), which is what first brings a
           // constant-solved colour to this arm *(review round 8, INFO 4)*.
           // Without it, a linked slot a merge solved pure is what
           // `#seatConducted` holds, and the next `?` call unifies that constant
@@ -12175,8 +12367,9 @@ class Checker {
    * it answers by node — a variable's, or a seat-held node's — because the two
    * doors that could hand it a colour with no node of its own canonicalise
    * there rather than here. An **instantiation** hands back the node the seat
-   * holds (`copyEffect`); a **merge** publishes the node the seat holds for the
-   * slot it joined (`#recordMerge`, `#publishMergedColour`), so a call on a
+   * holds (`copyEffect`); a **merge** records and publishes the node the seat
+   * holds for the slot it joined (`#recordJoinedColour`,
+   * `#publishJoinedColours`), so a call on a
    * binding whose colour a recorded merge fixed carries that slot into the
    * ordering exactly as a variable-coloured conductor does. Answering the
    * question here instead — "is the callee's constant the constant some merge
@@ -15233,6 +15426,7 @@ class Checker {
       // watching *that* one when the arrow arrives (#700).
       const owner = this.#pinnedVars.get(variable.id);
       if (owner !== undefined) this.#pinnedVars.set(type.id, owner);
+      this.#recordJoinedColour(variable, type);
       variable.instance = type;
       return;
     }
@@ -15279,6 +15473,11 @@ class Checker {
       if (recorded === undefined || precedes(span, recorded)) {
         this.#colourPins.set(variable, span);
       }
+      // *(Review round 8, MINOR 3.)* And where the pin was a **join** rather
+      // than a demand or an annotation, that is §13.2's merge — recorded here,
+      // at the binding, so that a join reached through a record field, a tuple
+      // element or a vector element is the merge its enclosing form is.
+      this.#recordJoinedColour(variable, type);
     }
     variable.instance = type;
     for (const requirement of variable.requirements) this.#validate(requirement);
