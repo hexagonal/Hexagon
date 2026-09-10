@@ -195,6 +195,20 @@ const narrowerAcceptance = (
   "yours, write the member's callback parameter `->`" +
   (inletGain ? " and the member's outer arrow `->` with it" : "");
 
+/**
+ * Either narrower-acceptance row in its **merge form** (§13.2's selection
+ * table: "its merge form where the pin is a merge"). `effects` picks the `->!`
+ * contract colour over the member's variable.
+ */
+const mergeNarrower = (member: string, parameter: string, effects: boolean): string =>
+  "this expression merges the callback with a pure function, and " +
+  `\`${member}\`'s contract accepts ${article(parameter)} \`${parameter}\` ` +
+  (effects ? "that performs effects" : "of either colour") +
+  ", and this instance accepts only a pure one — an instance accepts " +
+  "everything its contract promises to accept — do not merge " +
+  `\`${parameter}\` with a pure function here, or, if the constraint is ` +
+  "yours, write the member's callback parameter `->`";
+
 /** Effects §9's **`->!`** narrower-acceptance row, verbatim. */
 const impureNarrowerAcceptance = (member: string, parameter: string): string =>
   `\`${member}\`'s contract accepts ${article(parameter)} \`${parameter}\` that performs effects, ` +
@@ -2859,5 +2873,154 @@ describe("Effects §13.2: a slot narrowed through the ordering", () => {
         javascript.replaceAll('"./io.js"', JSON.stringify(linked)),
     });
     expect((exports_["count"] as () => number)()).toBe(1);
+  });
+});
+
+describe("Effects §13.2: the merge's branch order, and each slot's own reach", () => {
+  /**
+   * *(Review round 8.)* Two findings with one root: the pure constant is a
+   * **shared node with no chain**, so wherever the seat identifies a colour by
+   * node, a colour that *is* that constant carries no identity — it can neither
+   * enter the ordering nor be told apart from every other pure colour in the
+   * body. The first half of this block is entry (MEDIUM 1), the second is
+   * telling apart (MEDIUM 2).
+   */
+  /** The three spellings §13.2 pairs, and the binding each needs above it. */
+  const SPELLINGS = [
+    ["spare", ""],
+    ["(() => ())", ""],
+    ["g", "        let g = () => ()\n"],
+  ] as const;
+
+  /** Both written orders of one merge — the slot first, and the pure arm first. */
+  const orders = (slot: string, other: string): readonly string[] => [
+    `if c then ${slot} else ${other}`,
+    `if c then ${other} else ${slot}`,
+  ];
+
+  test("the triple coincides in both branch orders, at the OUTER arrow", () => {
+    // *(Review round 8, MEDIUM 1.)* Round 7 pinned this family in one written
+    // order only. Flipped, the `if` takes its **then** branch's node, which for
+    // a named or `let`-bound pure function is the one pure constant every pure
+    // arrow in the program shares: the merged binding carried no identity, the
+    // call `f()` recorded no edge, and the named and `let`-bound spellings took
+    // the narrower-acceptance merge form while the inline one took the conflict
+    // — different row, different sentence, different primary. §13.2 requires
+    // the three "coincide in primary, in text, and in placement".
+    const outer = (merge: string, bind: string) =>
+      "constraint C<r> =\n    go(runner: r, b: () ->! Unit) -> Unit\n" +
+      "record R = { id: Int }\nlet c: Bool = True\nlet spare(): Unit = ()\n" +
+      "honor C<R> =\n    go(runner, b) =\n" + bind +
+      `        let f = ${merge}\n` +
+      "        f()\n";
+    for (const [other, bind] of SPELLINGS) {
+      for (const merge of orders("b", other)) {
+        const source = outer(merge, bind);
+        expect(messages(source)).toEqual([pureConflict("go", "b")]);
+        expect(primaries(source)).toEqual(["f()"]);
+        expect(labels(source)).toEqual([[
+          'the contract\'s failing arrow: "->"',
+          "the merge that joined the handed callback in: " + JSON.stringify(merge),
+        ]]);
+      }
+    }
+  });
+
+  test("the triple coincides in both branch orders, at a NESTED arrow", () => {
+    // The pure ceiling on the arrow the contract **returns** rather than on the
+    // member's own outer one, so the failing arrow is a nested one and the
+    // report's related locations are the two contract arrows.
+    const nested = (merge: string, bind: string) =>
+      "constraint Maker<a> =\n    make(k: () ->! Unit) -> (() -> Unit)\n" +
+      "export record S = { n: Int }\nlet c: Bool = True\nlet spare(): Unit = ()\n" +
+      "honor Maker<S> =\n    make(k) =\n" + bind + `        ${merge}\n`;
+    for (const [other, bind] of SPELLINGS) {
+      for (const merge of orders("k", other)) {
+        const source = nested(merge, bind);
+        expect(messages(source)).toEqual([pureMergeConflict("make", "k", true)]);
+        expect(primaries(source)).toEqual([merge]);
+        expect(labels(source)).toEqual([[
+          'the contract\'s failing arrow: "->"',
+          'the handed callback\'s contract arrow: "->!"',
+        ]]);
+      }
+    }
+  });
+
+  test("the triple coincides in both branch orders, with the merge on a CONDUCTOR", () => {
+    // One step further out: the merge fixes a **helper's** colour, and the
+    // ordering carries `b`'s slot to that helper. The node the merge publishes
+    // is then the helper's, not the slot's, and the reach has to start there.
+    const conductor = (merge: string, bind: string) =>
+      "constraint C<r> =\n    go(runner: r, b: () ->! Unit) -> Unit\n" +
+      "record R = { id: Int }\nlet c: Bool = True\nlet spare(): Unit = ()\n" +
+      "honor C<R> =\n    go(runner, b) =\n" +
+      "        let one(): Unit = b!()\n" + bind +
+      `        let f = ${merge}\n` +
+      "        ignore(f)\n" +
+      "        one()\n";
+    for (const [other, bind] of SPELLINGS) {
+      for (const merge of orders("one", other)) {
+        const source = conductor(merge, bind);
+        expect(messages(source)).toEqual([pureConflict("go", "b")]);
+        expect(primaries(source)).toEqual(["b!()"]);
+        expect(labels(source)).toEqual([[
+          'the contract\'s failing arrow: "->"',
+          "the merge that joined the handed callback in: " + JSON.stringify(merge),
+        ]]);
+      }
+    }
+  });
+
+  test("and the retained acceptance difference is the same in both branch orders", () => {
+    // §13.2's recorded refactoring cost, unmoved: where the merged colour meets
+    // **no** pure upper arrow, the named and `let`-bound spellings are refused
+    // in the row's merge form and the inline one is accepted. That difference is
+    // inherited inference behaviour, and it must not depend on which branch the
+    // writer put first either.
+    const alone = (merge: string, bind: string) =>
+      "constraint Maker<a> =\n    make(k: () ->! Unit) -> (() ->! Unit)\n" +
+      "export record S = { n: Int }\nlet c: Bool = True\nlet spare(): Unit = ()\n" +
+      "honor Maker<S> =\n    make(k) =\n" + bind + `        ${merge}\n`;
+    for (const [other, bind] of SPELLINGS) {
+      for (const merge of orders("k", other)) {
+        const source = alone(merge, bind);
+        if (other === "(() => ())") {
+          expect(messages(source)).toEqual([]);
+          continue;
+        }
+        expect(messages(source)).toEqual([mergeNarrower("make", "k", true)]);
+        expect(primaries(source)).toEqual([merge]);
+      }
+    }
+  });
+
+  test("a linked slot a merge solved pure conducts nothing", () => {
+    // *(Review round 8, INFO 4.)* §13.2's one *joining* clause at a seat asks
+    // its question of a colour still a **variable**: a chain that has reached a
+    // constant stands at no `->?` inlet. The guard had no witness while the seat
+    // arm was unreachable for a constant colour; MEDIUM 1's fix admits a
+    // merge-solved slot into it, and without the guard `a`'s constant is held by
+    // `#seatConducted` and then unified into `b`'s untouched slot — so the
+    // refusal moves off the merge the writer must change and onto `b?()`, a
+    // callback this body conducts correctly.
+    const linked = (merge: string) =>
+      "constraint C<r> =\n    go(runner: r, b: () ->? Unit, a: () ->? Unit) ->? Unit\n" +
+      "record R = { id: Int }\nlet c: Bool = True\nlet spare(): Unit = ()\n" +
+      "honor C<R> =\n    go(runner, b, a) =\n" +
+      `        let f = ${merge}\n` +
+      "        f()\n" +
+      "        b?()\n";
+    for (const merge of orders("a", "spare")) {
+      const source = linked(merge);
+      expect(messages(source)).toEqual([mergeNarrower("go", "a", false)]);
+      expect(primaries(source)).toEqual([merge]);
+    }
+    // The same body with neither slot merged conducts both and is accepted.
+    expect(messages(
+      "constraint C<r> =\n    go(runner: r, b: () ->? Unit, a: () ->? Unit) ->? Unit\n" +
+      "record R = { id: Int }\n" +
+      "honor C<R> =\n    go(runner, b, a) =\n        a?()\n        b?()\n",
+    )).toEqual([]);
   });
 });

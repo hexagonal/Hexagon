@@ -7253,9 +7253,12 @@ class Checker {
         // as a related location, or as the primary where no call carries the
         // colour it condemned. Recorded before the join, since afterwards the
         // two arms are one node and the merge is invisible.
-        if (!expression.elseless) {
-          this.#recordMerge(consequence, alternative, expression.span);
-        }
+        // The node the merge carried, for the published colour below: a branch
+        // order that puts the pure arm first would otherwise publish the one
+        // constant every pure arrow shares (review round 7, MEDIUM 1).
+        const merged = expression.elseless
+          ? undefined
+          : this.#recordMerge(consequence, alternative, expression.span);
         if (expression.elseless) {
           // `else`-less: the false branch is the synthesized `Unit`, so the
           // `then` branch must be `Unit` (Operators §11.2). No numeric
@@ -7316,6 +7319,7 @@ class Checker {
           );
           type = consequence;
         }
+        type = this.#publishMergedColour(type, merged);
         break;
       }
       case "While": {
@@ -7434,6 +7438,10 @@ class Checker {
         const scrutinee = this.#inferExpr(expression.scrutinee, level);
         const result = this.#fresh(level, false);
         const outerArmTop = this.#matchArmTop;
+        // The seat node the first merging arm carried, for the published colour
+        // (review round 7, MEDIUM 1): a `match` publishes its **first** arm's
+        // node, so a pure first arm hides the slot a later one merged in.
+        let merged: Mono | undefined;
         // The value paths, accumulated as they elaborate (`#formParts`). A
         // disagreement at an early arm leaves the record incomplete, and an
         // incomplete record answers nothing — see the field.
@@ -7468,7 +7476,9 @@ class Checker {
           // nothing — it establishes the result — so the record starts at the
           // second, and its span is the whole `match`, the expression that did
           // the joining.
-          if (paths.length > 1) this.#recordMerge(result, body, expression.span);
+          if (paths.length > 1) {
+            merged ??= this.#recordMerge(result, body, expression.span);
+          }
           this.#unify(
             result,
             body,
@@ -7552,7 +7562,7 @@ class Checker {
           );
           break;
         }
-        type = result;
+        type = this.#publishMergedColour(result, merged);
         break;
       }
       case "Throw": {
@@ -11836,17 +11846,63 @@ class Checker {
    * unification James's classification turns on; the record is the same either
    * way, because the classification asks the *bounds* whether a pure upper
    * arrow was met, not the merge.
+   *
+   * **And that arm may be the one the merge publishes** *(review round 7,
+   * MEDIUM 1)*. An `if` takes its *then* branch's node and a `match` its first
+   * arm's, so `if c then spare else b` publishes the pure function's node — and
+   * a pure function's colour node **is** the one pure constant every pure arrow
+   * in the program shares. Written that way round the merged binding carried no
+   * identity at all: `#carriesSeatSlot` could not tell it from any other pure
+   * callee, the call recorded no edge, and §13.2's paired requirement came apart
+   * on the branch order alone. So the answer here is the seat's own node for the
+   * slot the merge joined, and the merging form publishes its colour — the same
+   * canonicalisation `copyEffect` performs at an instantiation, done at the one
+   * other door that can destroy the identity. Both nodes prune alike the moment
+   * the join lands, so no type moves; what it buys is that the three spellings
+   * §13.2 pairs reach the seat as one shape whichever branch is written first.
    */
-  #recordMerge(left: Mono, right: Mono, span: Source.Span): void {
+  #recordMerge(left: Mono, right: Mono, span: Source.Span): Mono | undefined {
     const first = this.#prune(left);
     const second = this.#prune(right);
-    if (first.kind !== "Function" || second.kind !== "Function") return;
-    const a = this.#prune(first.effect ?? PURE);
-    const b = this.#prune(second.effect ?? PURE);
-    if (a === b) return;
+    if (first.kind !== "Function" || second.kind !== "Function") return undefined;
+    const rawA = first.effect ?? PURE;
+    const rawB = second.effect ?? PURE;
+    const a = this.#prune(rawA);
+    const b = this.#prune(rawB);
+    if (a === b) return undefined;
     const variable = a.kind === "Variable" ? a : b.kind === "Variable" ? b : undefined;
-    if (variable === undefined) return;
+    if (variable === undefined) return undefined;
     this.#colourMerges.push({ span, colour: variable });
+    // Asked **before** the join, while the slot's chain still ends at a
+    // variable: afterwards a merge with a pure constant has solved it, and the
+    // question "does this arm carry a slot" is the very one the constant
+    // destroys.
+    return this.#carriesSeatSlot(rawA) ?? this.#carriesSeatSlot(rawB);
+  }
+
+  /**
+   * The type a merging form publishes, wearing the seat node its merge carried
+   * *(review round 7, MEDIUM 1; Effects §13.2)*.
+   *
+   * `#recordMerge` answers with the node the seat holds for the slot the two
+   * arms joined, or nothing where no seat is open and no slot was joined. Where
+   * it answered, the form's own node may be the *other* arm's — an `if` takes
+   * its `then` branch, a `match` its first arm — and where that arm's colour is
+   * a constant the merged binding is indistinguishable from every pure value in
+   * the program. Relabelling is sound because the join has already run: the two
+   * colours prune alike, so the node handed back prunes to exactly what the
+   * form's own node prunes to, and every reader prunes. Only the effect slot
+   * moves; the non-effect structure is the form's own.
+   */
+  #publishMergedColour(type: Mono, carried: Mono | undefined): Mono {
+    if (carried === undefined) return type;
+    const actual = this.#prune(type);
+    if (actual.kind !== "Function") return type;
+    const effect = actual.effect ?? PURE;
+    if (effect === carried) return type;
+    // Never a type change: only a colour the join already made this one.
+    if (this.#prune(effect) !== this.#prune(carried)) return type;
+    return { ...actual, effect: carried };
   }
 
   /**
@@ -11969,6 +12025,14 @@ class Checker {
           // Linked slots are the member's one variable, so this joining clause
           // asks its question of a colour still a variable; a chain that has
           // reached a constant stands at no `->?` inlet.
+          //
+          // The guard has a **witness** since the merge publishes the seat's own
+          // node (`#publishMergedColour`), which is what first brings a
+          // constant-solved colour to this arm *(review round 8, INFO 4)*.
+          // Without it, a linked slot a merge solved pure is what
+          // `#seatConducted` holds, and the next `?` call unifies that constant
+          // into a linked slot the body conducted correctly — moving the refusal
+          // off the merge the writer must change and onto that call.
           if (colour.kind === "Variable") this.#conductLinkedSlot(colour, span);
           // The lower recorded is the **node the seat already holds**, not the
           // callee's own node and not the constant it prunes to. Both of the
@@ -12106,6 +12170,19 @@ class Checker {
    *
    * Answers with **the node the seat holds**, so the caller can record that
    * node rather than the callee's own — one canonical node per colour.
+   *
+   * **This is the one membership function** *(review round 7, MEDIUM 1)*, and
+   * it answers by node — a variable's, or a seat-held node's — because the two
+   * doors that could hand it a colour with no node of its own canonicalise
+   * there rather than here. An **instantiation** hands back the node the seat
+   * holds (`copyEffect`); a **merge** publishes the node the seat holds for the
+   * slot it joined (`#recordMerge`, `#publishMergedColour`), so a call on a
+   * binding whose colour a recorded merge fixed carries that slot into the
+   * ordering exactly as a variable-coloured conductor does. Answering the
+   * question here instead — "is the callee's constant the constant some merge
+   * in this body produced?" — cannot be asked at all: one pure constant is
+   * every pure colour in the program, so the test would carry the slot to every
+   * bare call in the body, which is the hub §13.2's per-slot reach forbids.
    */
   #carriesSeatSlot(colour: Mono): Mono | undefined {
     if (this.#seatSlots === undefined) return undefined;
@@ -12183,6 +12260,15 @@ class Checker {
         // — an `upper` is always a variable — but the set is what guarantees
         // each edge is taken at most once, so the fixpoint terminates on the
         // edges rather than on a colour test.
+        //
+        // `held` is a **pure termination guard** and nothing else *(review
+        // round 7, INFO 5, confirmed both ways)*: removing it fails 0 of the
+        // suite and does not hang, because `reaches` already answers for every
+        // node the walk has admitted. It is kept because termination should be
+        // structural rather than a consequence of a colour test — growth is
+        // over `edge.upper` nodes, each admitted at most once — and a
+        // mutually recursive `fun` knot cycling through three members
+        // terminates on it in a third of a second.
         if (held.has(edge.upper) || reaches(edge.upper) || !reaches(edge.lower)) continue;
         nodes.push(edge.upper);
         held.add(edge.upper);
@@ -13085,6 +13171,7 @@ class Checker {
    * `if`, `match`, or value that carried two colours (§13.2). Its span is the
    * primary where no call carries the colour, and a related location beside the
    * call where one does.
+   *
    */
   #offendingMerge(body: SeatBody, colours: readonly Mono[]): Source.Span | undefined {
     const wanted = new Set(colours.map((colour) => this.#prune(colour)));
