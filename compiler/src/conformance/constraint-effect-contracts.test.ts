@@ -48,6 +48,21 @@ function primaries(source: string): readonly string[] {
   );
 }
 
+/**
+ * Each diagnostic's related locations, as `message: source text`. §13.2 makes
+ * the contract's failing arrow, and the merge that joined a handed slot in,
+ * related locations on every conflict report, so they are pinned too.
+ */
+function labels(source: string): readonly (readonly string[])[] {
+  const text = "module Main\n\n" + source;
+  return compileFiles([["/main.hex", text], ["/io.js", ""]]).diagnostics.map(
+    ({ labels: related }) =>
+      (related ?? []).map(({ message, span }) =>
+        `${message}: ${JSON.stringify(text.slice(span.start.offset, span.end.offset))}`
+      ),
+  );
+}
+
 /** Every fixit a one-module project offered, as `message: replacement`. */
 function fixes(source: string): readonly string[] {
   return compileFiles([["/main.hex", "module Main\n\n" + source]]).diagnostics
@@ -69,26 +84,83 @@ function hoveredType(source: string, needle: string): string | undefined {
 /** The world's door, so a body has a genuine effect to perform. */
 const IO = 'extern from "./io.js"\n    export fun readIt(path: String): String\n\n';
 
-/** Effects §9's pure-contract row, verbatim, for the member it names. */
+/** Effects §9's pure-contract row, base form, verbatim, for the member it names. */
 const pureContract = (member: string): string =>
   `this call performs effects, and \`${member}\`'s contract is the pure arrow ` +
   "`->` — an instance performs no more than its contract permits — keep this " +
   "body pure, or, if the constraint is yours, write `->!` on the member";
 
-/** Effects §9's linked-contract row, verbatim. */
+/**
+ * Effects §9's pure-contract row in its **conflict form**: the effect is one
+ * the contract handed the body, so the clause names the callback and the advice
+ * says what not to call.
+ */
+const pureConflict = (member: string, handed: string): string =>
+  `this call performs effects the contract hands the body, and \`${member}\`'s ` +
+  "contract is the pure arrow `->` — an instance performs no more than its " +
+  `contract permits, and \`${handed}\` may perform effects whatever the caller ` +
+  `supplies — do not call \`${handed}\` here, or, if the constraint is yours, ` +
+  "write `->!` on the member";
+
+/** The same row with the **merge** as its primary (§13.2; James, 2026-09-10). */
+const pureMergeConflict = (member: string, handed: string, returns = false): string =>
+  "this expression merges in a function that may perform effects the contract " +
+  `hands it, and \`${member}\`'s contract ` +
+  (returns ? "returns a `->` function" : "is the pure arrow `->`") +
+  " — an instance performs no more than its contract permits, and " +
+  `\`${handed}\` may perform effects whatever the caller supplies — do not merge ` +
+  `\`${handed}\` into that arrow, or, if the constraint is yours, write \`->!\` on ` +
+  (returns ? "the arrow the contract returns" : "the member");
+
+/** The same row with the **seat** as its primary — a body that merely forwards. */
+const pureSeatConflict = (member: string, handed: string, returns = false): string =>
+  `this instance ${returns ? "returns" : "supplies"} a function that may perform ` +
+  `effects the contract hands it, and \`${member}\`'s contract ` +
+  (returns ? "returns a `->` function" : "is the pure arrow `->`") +
+  " — an instance performs no more than its contract permits, and " +
+  `\`${handed}\` may perform effects whatever the caller supplies — do not ` +
+  `supply \`${handed}\` here, or, if the constraint is yours, write \`->!\` on ` +
+  (returns ? "the arrow the contract returns" : "the member");
+
+/** Effects §9's linked-contract row, base form, verbatim. */
 const linkedContract = (member: string): string =>
   `this call performs effects unconditionally, and \`${member}\`'s contract is ` +
   "linked `->?` — an instance must be pure whenever what it is handed is pure, " +
   "so its effects may come only from what it is handed — move this effect " +
-  "behind the callback, or write `->!` on the member";
+  "behind the callback, or, if the constraint is yours, write `->!` on the member";
 
-/** Effects §9's narrower-acceptance row, verbatim. */
-const narrowerAcceptance = (member: string, parameter: string): string =>
+/** Effects §9's linked-contract row in its **conflict form**, verbatim. */
+const linkedConflict = (member: string, handed: string): string =>
+  `this call performs effects the contract hands the body, and \`${member}\`'s ` +
+  "contract is linked `->?` — a linked `->?` is pure whenever the caller's " +
+  `callbacks are pure, and \`${handed}\` may perform effects whatever the caller ` +
+  `supplies — do not call \`${handed}\` here, or, if the constraint is yours, ` +
+  "write `->!` on the member";
+
+/**
+ * Effects §9's **linked** narrower-acceptance row, verbatim, at a top-level
+ * callback parameter. `inletGain` is the clause the advice takes on where
+ * rewriting this parameter would leave the header inlet-less.
+ */
+const narrowerAcceptance = (
+  member: string,
+  parameter: string,
+  inletGain = true,
+): string =>
   `\`${member}\`'s contract accepts an \`${parameter}\` of either colour, and ` +
   "this instance accepts only a pure one — an instance accepts everything its " +
   "contract promises to accept — call the callback with `?` instead of handing " +
-  "it to a `->` demand, or, if the constraint is yours, write the member " +
-  "pure-only — the callback `->` and the outer arrow `->`";
+  "it, or a function that calls it, to a `->` demand, or, if the constraint is " +
+  "yours, write the member's callback parameter `->`" +
+  (inletGain ? " and the member's outer arrow `->` with it" : "");
+
+/** Effects §9's **`->!`** narrower-acceptance row, verbatim. */
+const impureNarrowerAcceptance = (member: string, parameter: string): string =>
+  `\`${member}\`'s contract accepts an \`${parameter}\` that performs effects, ` +
+  "and this instance accepts only a pure one — an instance accepts everything " +
+  "its contract promises to accept — call the callback with `!` instead of " +
+  "handing it, or a function that calls it, to a `->` demand, or, if the " +
+  "constraint is yours, write the member's callback parameter `->`";
 
 describe("Constraints §2, §8: the header writes its arrow, and `:` is a parse error", () => {
   test("`->`, `->!` and `->?` are all legal on a member header", () => {
@@ -301,7 +373,7 @@ describe("Effects §13.2: a body colour still a variable collects its bounds", (
     // The invoked arrow is the one that failed, so the covariant bound reports —
     // and the mark that reads the condemned colour owes no second report.
     expect(messages(RUNNER("->") + "honor Runner<Job> =\n    run(job, action) = action!()\n"))
-      .toEqual([pureContract("run")]);
+      .toEqual([pureConflict("run", "action")]);
   });
 
   test("and under a `->!` contract the same body is accepted", () => {
@@ -322,7 +394,7 @@ describe("Effects §13.2: the sign is the variance product", () => {
       "the function this instance returns performs effects, and `make`'s " +
       "contract returns a `->` function — an instance performs no more than its " +
       "contract permits — keep this body pure, or, if the constraint is yours, " +
-      "write `->!` on the member",
+      "write `->!` on the arrow the contract returns",
     ]);
   });
 
@@ -594,6 +666,21 @@ describe("Effects §13.6: derived instances and display", () => {
   });
 
   test("no diagnostic displays a numbered inference variable (#649)", () => {
+    // Over a message that **displays a type**: §9's contract rows name arrows
+    // and parameters and never render one, so the predecessor pin could not
+    // have failed however many variables a member owned. This mismatch renders
+    // the member's whole face, which is where a second variable would show.
+    const messagesWithTypes = messages(
+      "constraint Tx<t> =\n" +
+      "    within(t: t, action: () ->? Unit) ->! Unit\n" +
+      "export record Db = { name: String }\n" +
+      "honor Tx<Db> =\n    within(db, action) = action?()\n" +
+      "let bad(d: Db): Int = within\n",
+    );
+    expect(messagesWithTypes).toContain(
+      "type mismatch: expected Int, found (a, () ->? Unit) ->! Unit",
+    );
+    for (const message of messagesWithTypes) expect(message).not.toMatch(/\?\d/);
     for (const message of messages(IO +
       "constraint Runner<r> =\n" +
       "    run(runner: r, action: () ->? Unit) ->? Unit\n" +
@@ -601,5 +688,801 @@ describe("Effects §13.6: derived instances and display", () => {
       "honor Runner<Job> =\n    run(job, action) = Debug.log(readIt!(\"x\"))\n")) {
       expect(message).not.toMatch(/\?\d/);
     }
+  });
+});
+
+describe("Effects §13.4: the member's variable is the member's, wherever written", () => {
+  // *(#867, fix round 1.)* §2.4's join as a contract: the outer arrow is the
+  // impure **constant** and the callback parameter carries the member's one
+  // variable. Reading the variable off the outer arrow quantified nothing here,
+  // so the seat compared one instantiation and every call in the program shared
+  // one monomorphic colour.
+  const TX =
+    "constraint Tx<t> =\n" +
+    "    within(t: t, action: () ->? Unit) ->! Unit\n" +
+    "export record Db = { name: String }\n";
+
+  test("the supplied direction is checked at a `->?` under a constant outer arrow", () => {
+    // (1a.) A body handing the linked callback to a `->` demand accepts only
+    // pure callbacks, and the seat refuses it at the demand that narrowed it.
+    // The advice does **not** gain "and the member's outer arrow `->` with it":
+    // the outer arrow is `->!`, so rewriting the parameter leaves no inlet to
+    // lose (§9).
+    const source = TX +
+      "let force(f: () -> Unit): Unit = f()\n" +
+      "honor Tx<Db> =\n    within(db, action) = force(action)\n";
+    expect(messages(source)).toEqual([narrowerAcceptance("within", "action", false)]);
+    expect(primaries(source)).toEqual(["force(action)"]);
+  });
+
+  test("and the variable is instantiated fresh at every call", () => {
+    // (1b.) Two callers, one supplying an effectful callback and one a pure
+    // one. Sharing a single unquantified colour, the second was refused.
+    expect(messages(IO + TX +
+      "honor Tx<Db> =\n    within(db, action) = action?()\n" +
+      "let world(): Unit = Debug.log(readIt!(\"x\"))\n" +
+      "export let effectful(d: Db): Unit = d.within!(() => world!())\n" +
+      "export let pure(d: Db): Unit = d.within!(() => ())\n",
+    )).toEqual([]);
+  });
+
+  test("and the header itself draws no face report", () => {
+    // (1c.) The member's own `->?` is quantified at the member, so §4.2's
+    // impure-direction face check never sees a signature variable solved to a
+    // constant on the header's behalf.
+    expect(messages(TX)).toEqual([]);
+  });
+
+  test("the face carries exactly one variable, displayed undecorated", () => {
+    // (1d.) §10 numbers a face carrying **more than one** variable. Two
+    // variables here — one for the outer arrow's absent quantifier, one for the
+    // callback — would render `->?¹`, which is what the #649 pin above catches.
+    expect(messages(TX + "honor Tx<Db> =\n    within(db, action) = action?()\n" +
+      "let bad(d: Db): Int = within\n")).toContain(
+        "type mismatch: expected Int, found (a, () ->? Unit) ->! Unit",
+      );
+  });
+});
+
+describe("Effects §13.2: where a seat's refusal stands", () => {
+  const RUN = (arrow: string) =>
+    "constraint Runner<r> =\n" +
+    `    run(runner: r, a: () ->! Unit, b: () ->! Unit) ${arrow} Unit\n` +
+    "export record Job = { id: Int }\n";
+
+  test("the offending call is the first in SOURCE order", () => {
+    // Absorption order is elaboration order; §13.2 says source order, and the
+    // two part company as soon as a call stands inside a nested lambda.
+    const source = RUN("->") +
+      "honor Runner<Job> =\n    run(job, a, b) =\n        a!()\n        b!()\n";
+    expect(messages(source)).toEqual([pureConflict("run", "a")]);
+    expect(primaries(source)).toEqual(["a!()"]);
+  });
+
+  test("one report per seat, however many arrows offend", () => {
+    const source = RUN("->") +
+      "honor Runner<Job> =\n    run(job, a, b) =\n        b!()\n        a!()\n";
+    expect(messages(source)).toHaveLength(1);
+    expect(primaries(source)).toEqual(["b!()"]);
+  });
+
+  test("the seat itself is the primary where no call carries the colour", () => {
+    // `make(k) = k` merges nothing of its own and calls nothing: the refusal is
+    // anchored at the member line, and **both** contract arrows are related
+    // locations, neither being visible from the seat.
+    const source =
+      "constraint Maker<a> =\n    make(k: () ->! Unit) -> (() -> Unit)\n" +
+      "export record S = { n: Int }\n" +
+      "honor Maker<S> =\n    make(k) = k\n";
+    expect(messages(source)).toEqual([pureSeatConflict("make", "k", true)]);
+    expect(primaries(source)).toEqual(["make(k) = k"]);
+    expect(labels(source)).toEqual([[
+      "the handed callback's contract arrow: \"->!\"",
+    ]]);
+  });
+
+  test("a merge is the primary where no call carries the colour", () => {
+    const source =
+      "constraint Maker<a> =\n    make(k: () ->! Unit) -> (() -> Unit)\n" +
+      "export record S = { n: Int }\n" +
+      "let c: Bool = True\n" +
+      "honor Maker<S> =\n    make(k) = if c then k else (() => ())\n";
+    expect(messages(source)).toEqual([pureMergeConflict("make", "k", true)]);
+    expect(primaries(source)).toEqual(["if c then k else (() => ())"]);
+  });
+});
+
+describe("Effects §13.2: every frame names the arrow's actual position", () => {
+  const MAKER = (result: string, body: string) =>
+    IO + `constraint Maker<a> =\n    make(seed: a) -> ${result}\n` +
+    "export record S = { n: Int }\n" +
+    `honor Maker<S> =\n    make(seed) = ${body}\n`;
+
+  test("the result form, where the path is result steps alone", () => {
+    expect(messages(MAKER("(() -> Unit)", '() => Debug.log(readIt!("x"))'))).toEqual([
+      "the function this instance returns performs effects, and `make`'s " +
+      "contract returns a `->` function — an instance performs no more than its " +
+      "contract permits — keep this body pure, or, if the constraint is yours, " +
+      "write `->!` on the arrow the contract returns",
+    ]);
+  });
+
+  test("and a step into data ends that path", () => {
+    // *(Fix round 1.)* `Vector(() -> Unit)` is not a function this instance
+    // *returns*: the descent into the vector's element is a data step, and the
+    // frame that claimed otherwise was false.
+    expect(messages(MAKER("Vector(() -> Unit)", '[() => Debug.log(readIt!("x"))]')))
+      .toEqual([
+        "a function this instance supplies performs effects, and `make`'s " +
+        "contract writes `->` inside its result — an instance performs no more " +
+        "than its contract permits — keep this body pure, or, if the constraint " +
+        "is yours, write `->!` on that arrow inside its result",
+      ]);
+  });
+
+  test("the parameter form, for an arrow standing under a named parameter", () => {
+    expect(messages(IO +
+      "constraint Maker<a> =\n    make(seed: a, use: (() -> Unit) -> Unit) -> Unit\n" +
+      "export record S = { n: Int }\n" +
+      "honor Maker<S> =\n    make(seed, use) = use(() => Debug.log(readIt!(\"x\")))\n",
+    )).toEqual([
+      "a function this instance supplies performs effects, and `make`'s " +
+      "contract writes `->` inside the parameter `use` — an instance performs " +
+      "no more than its contract permits — keep this body pure, or, if the " +
+      "constraint is yours, write `->!` on that arrow inside the parameter `use`",
+    ]);
+  });
+
+  test("the narrower-acceptance rows take the same three forms", () => {
+    expect(messages(
+      "constraint Runner<r> =\n    run(runner: r, cell: (() ->! Unit, Int)) -> Unit\n" +
+      "export record Job = { id: Int }\n" +
+      "let force(c: (() -> Unit, Int)): Unit = ()\n" +
+      "honor Runner<Job> =\n    run(job, cell) = force(cell)\n",
+    )).toEqual([
+      "`run`'s contract accepts a function inside the parameter `cell` that " +
+      "performs effects, and this instance accepts only a pure one — an " +
+      "instance accepts everything its contract promises to accept — call the " +
+      "callback with `!` instead of handing it, or a function that calls it, to " +
+      "a `->` demand, or, if the constraint is yours, write that arrow `->` " +
+      "inside the parameter `cell`",
+    ]);
+    expect(messages(
+      "constraint Maker<a> =\n    make(seed: a) -> ((() ->! Unit) -> Unit)\n" +
+      "export record S = { n: Int }\n" +
+      "let apply(f: () -> Unit): Unit = f()\n" +
+      "honor Maker<S> =\n    make(seed) = (g => apply(g))\n",
+    )).toEqual([
+      "`make`'s contract accepts a function inside its result that performs " +
+      "effects, and this instance accepts only a pure one — an instance accepts " +
+      "everything its contract promises to accept — call the callback with `!` " +
+      "instead of handing it, or a function that calls it, to a `->` demand, " +
+      "or, if the constraint is yours, write that arrow `->` inside its result",
+    ]);
+  });
+
+  test("and each nested form reports at the act that narrowed the slot", () => {
+    expect(primaries(
+      "constraint Runner<r> =\n    run(runner: r, cell: (() ->! Unit, Int)) -> Unit\n" +
+      "export record Job = { id: Int }\n" +
+      "let force(c: (() -> Unit, Int)): Unit = ()\n" +
+      "honor Runner<Job> =\n    run(job, cell) = force(cell)\n",
+    )).toEqual(["force(cell)"]);
+    expect(primaries(
+      "constraint Maker<a> =\n    make(seed: a) -> ((() ->! Unit) -> Unit)\n" +
+      "export record S = { n: Int }\n" +
+      "let apply(f: () -> Unit): Unit = f()\n" +
+      "honor Maker<S> =\n    make(seed) = (g => apply(g))\n",
+    )).toEqual(["apply(g)"]);
+  });
+
+  test("the linked-contract row has a conflict form of its own", () => {
+    // §13.2's own worked contract: `a` carries the inlet, so the header is
+    // legal, and the body's effect is one `b` handed it — the guarantee broken
+    // is the linked outer arrow's, not the base row's "unconditionally".
+    const source =
+      "constraint Runner<r> =\n" +
+      "    run(runner: r, a: () ->? Unit, b: () ->! Unit) ->? Unit\n" +
+      "export record Job = { id: Int }\n" +
+      "honor Runner<Job> =\n    run(job, a, b) = b!()\n";
+    expect(messages(source)).toEqual([linkedConflict("run", "b")]);
+    expect(primaries(source)).toEqual(["b!()"]);
+  });
+
+  test("the article follows the parameter's own name", () => {
+    // `an \`action\`` is §9's example, not a constant: a parameter named `k`
+    // earns "a `k`".
+    expect(messages(
+      "constraint Maker<a> =\n    make(k: () ->! Unit) -> Unit\n" +
+      "export record S = { n: Int }\n" +
+      "honor Maker<S> =\n    make(k: () -> Unit) = ()\n",
+    )).toEqual([
+      "`make`'s contract accepts a `k` that performs effects, and this instance " +
+      "accepts only a pure one — an instance accepts everything its contract " +
+      "promises to accept — do not narrow the callback here, or, if the " +
+      "constraint is yours, write the member's callback parameter `->`",
+    ]);
+  });
+});
+
+describe("Effects §13.2: the settle, the disposal, and what the bounds leave behind", () => {
+  const RUN = (parameters: string, arrow: string, body: string) =>
+    `constraint Runner<r> =\n    run(runner: r, ${parameters}) ${arrow} Unit\n` +
+    "export record Job = { id: Int }\n" +
+    `honor Runner<Job> =\n    run(job, ${parameters.split(":")[0]!.trim()}` +
+    `${parameters.includes(",") ? ", " + parameters.split(",")[1]!.split(":")[0]!.trim() : ""}) = ${body}\n`;
+
+  test("a `->!` callback's slot settles, so its calls wear `!`", () => {
+    // Left a variable, the colour would default pure and no body that calls
+    // what it is handed could honor the member.
+    expect(messages(RUN("k: () ->! Unit", "->!", "k!()"))).toEqual([]);
+    expect(messages(RUN("k: () ->! Unit", "->!", "k()"))).toEqual([
+      "this call runs effects, so `k` wants `!`, not no mark",
+    ]);
+  });
+
+  test("a `->` callback's slot is released, so its calls stay bare — even under a linked header", () => {
+    // **The disposal** (fix round 1). The frame's own defaulting stands down
+    // for the inlet, so without the disposal the released slot stayed a
+    // variable and `k()` was told to wear `?`.
+    expect(messages(
+      "constraint Runner<r> =\n" +
+      "    run(runner: r, k: () -> Unit, action: () ->? Unit) ->? Unit\n" +
+      "export record Job = { id: Int }\n" +
+      "honor Runner<Job> =\n    run(job, k, action) = k()\n",
+    )).toEqual([]);
+  });
+
+  test("and `k!()` at a `->` callback is refused", () => {
+    // §13.2's pin for the conduit arm at a seat: a call on a freshened callback
+    // bounds the body's colour, and a `->` slot fixes nothing, so the mark is
+    // read off the released colour.
+    expect(messages(RUN("k: () -> Unit", "->", "k!()"))).toEqual([
+      "this call is pure, so `k` wants no mark, not `!`",
+    ]);
+  });
+
+  test("a linked slot is kept, so a conducted callback keeps the linked face", () => {
+    // "a released colour takes the join of its lower bounds … so
+    // `run(job, action) = action?()` keeps its linked outer face."
+    expect(messages(RUN("action: () ->? Unit", "->?", "action?()"))).toEqual([]);
+  });
+
+  test("a variable settles whenever SOME lower bound is a `->!` arrow's", () => {
+    // Reading only the *first* lower bound recorded, a variable under both a
+    // linked and a `->!` callback never settled, and the `->!` call's own mark
+    // was then refused.
+    expect(messages(
+      "constraint Runner<r> =\n" +
+      "    run(runner: r, a: () ->? Unit, b: () ->! Unit) ->! Unit\n" +
+      "export record Job = { id: Int }\n" +
+      "honor Runner<Job> =\n    run(job, a, b) =\n        b!()\n        a!()\n",
+    )).toEqual([]);
+  });
+
+  test("bounds are per instantiation and never pooled", () => {
+    // A linked arrow's pure upper bound at the pure instantiation beside its
+    // impure lower bound at the impure is the everyday pair pooling would read
+    // as a contradiction.
+    expect(messages(RUN("action: () ->? Unit", "->?", "action?()"))).toEqual([]);
+  });
+
+  test("a failed seat draws no mark report against the colour it condemned", () => {
+    expect(messages(
+      "constraint Runner<r> =\n" +
+      "    run(runner: r, a: () ->! Unit) -> Unit\n" +
+      "export record Job = { id: Int }\n" +
+      "honor Runner<Job> =\n    run(job, a) = a!()\n",
+    )).toEqual([pureConflict("run", "a")]);
+  });
+});
+
+describe("Effects §13.2: broader acceptance, the raise, the annotation, and the merges", () => {
+  const MAKER = (parameter: string, arrow: string, body: string) =>
+    `constraint Maker<a> =\n    make(k: ${parameter}) ${arrow} Unit\n` +
+    "export record S = { n: Int }\n" +
+    `honor Maker<S> =\n    make(k) = ${body}\n`;
+
+  test("the raise: a `->!` demand on a `->` callback is accepted silently", () => {
+    expect(messages(
+      "constraint Maker<a> =\n    make(k: () -> Unit) ->! Unit\n" +
+      "export record S = { n: Int }\n" +
+      "let force(f: () ->! Unit): Unit = f!()\n" +
+      "honor Maker<S> =\n    make(k) = force!(k)\n",
+    )).toEqual([]);
+  });
+
+  test("the annotation: writing `->!` where the contract writes `->` is accepted silently", () => {
+    expect(messages(
+      "constraint Maker<a> =\n    make(k: () -> Unit) ->! Unit\n" +
+      "export record S = { n: Int }\n" +
+      "honor Maker<S> =\n    make(k: () ->! Unit) = k!()\n",
+    )).toEqual([]);
+  });
+
+  test("but a written annotation holds the slot, so it cannot be narrowed", () => {
+    // "An explicit implementation annotation is preserved: a member's own
+    // written annotation for the parameter is its face, exact."
+    expect(messages(MAKER("() ->! Unit", "->", "()").replace(
+      "make(k) = ()",
+      "make(k: () -> Unit) = ()",
+    ))).toEqual([
+      "`make`'s contract accepts a `k` that performs effects, and this instance " +
+      "accepts only a pure one — an instance accepts everything its contract " +
+      "promises to accept — do not narrow the callback here, or, if the " +
+      "constraint is yours, write the member's callback parameter `->`",
+    ]);
+  });
+
+  test("and writing the contract's own `->!` holds it, which is accepted", () => {
+    expect(messages(MAKER("() ->! Unit", "->!", "k!()").replace(
+      "make(k) = k!()",
+      "make(k: () ->! Unit) = k!()",
+    ))).toEqual([]);
+  });
+
+  test("`->` merged with `->!` wears `!`", () => {
+    expect(messages(
+      "constraint Runner<r> =\n" +
+      "    run(runner: r, j: () -> Unit, b: () ->! Unit) ->! Unit\n" +
+      "export record Job = { id: Int }\n" +
+      "let c: Bool = True\n" +
+      "honor Runner<Job> =\n" +
+      "    run(job, j, b) =\n" +
+      "        let f = if c then j else b\n" +
+      "        j!()\n",
+    )).toEqual([]);
+  });
+
+  test("`->` merged with `->?` wears `?`", () => {
+    expect(messages(
+      "constraint Runner<r> =\n" +
+      "    run(runner: r, j: () -> Unit, a: () ->? Unit) ->? Unit\n" +
+      "export record Job = { id: Int }\n" +
+      "let c: Bool = True\n" +
+      "honor Runner<Job> =\n" +
+      "    run(job, j, a) =\n" +
+      "        let f = if c then j else a\n" +
+      "        j?()\n",
+    )).toEqual([]);
+  });
+
+  test("`->?` merged with `->!` settles impure under a `->!` outer arrow", () => {
+    // The body asked for one colour by its own act, so `a!()` is then correct
+    // and `a?()` refused under a header that writes `->?` at `a`.
+    const merged = (mark: string) =>
+      "constraint Runner<r> =\n" +
+      "    run(runner: r, a: () ->? Unit, b: () ->! Unit) ->! Unit\n" +
+      "export record Job = { id: Int }\n" +
+      "let c: Bool = True\n" +
+      "honor Runner<Job> =\n" +
+      "    run(job, a, b) =\n" +
+      "        let f = if c then a else b\n" +
+      `        a${mark}()\n`;
+    expect(messages(merged("!"))).toEqual([]);
+    expect(messages(merged("?"))).toEqual([
+      "this call runs effects, so `a` wants `!`, not `?`",
+    ]);
+  });
+
+  test("`->?` merged with `->!` conflicts under a `->` outer arrow", () => {
+    const source =
+      "constraint Runner<r> =\n" +
+      "    run(runner: r, a: () ->? Unit, b: () ->! Unit) -> Unit\n" +
+      "export record Job = { id: Int }\n" +
+      "let c: Bool = True\n" +
+      "honor Runner<Job> =\n" +
+      "    run(job, a, b) =\n" +
+      "        let f = if c then a else b\n" +
+      "        a!()\n";
+    expect(messages(source)).toHaveLength(1);
+    expect(messages(source)[0]).toContain("may perform effects whatever the caller supplies");
+  });
+
+  test("a merge alone narrowing a handed slot, with no pure upper arrow met", () => {
+    // James, 2026-09-10: the narrower-acceptance row in its **merge form**, the
+    // merge its pin — never in preference to a conflict that is available.
+    expect(messages(
+      "constraint Maker<a> =\n    make(k: () ->! Unit) -> (() ->! Unit)\n" +
+      "export record S = { n: Int }\n" +
+      "let pureFn(): Unit = ()\n" +
+      "let c: Bool = True\n" +
+      "honor Maker<S> =\n    make(k) = if c then k else pureFn\n",
+    )).toEqual([
+      "this expression merges the callback with a pure function, and `make`'s " +
+      "contract accepts a `k` that performs effects, and this instance accepts " +
+      "only a pure one — an instance accepts everything its contract promises " +
+      "to accept — do not merge `k` with a pure function here, or, if the " +
+      "constraint is yours, write the member's callback parameter `->`",
+    ]);
+  });
+
+  test("and its inline-lambda counterpart is accepted — the inherited difference", () => {
+    // James, 2026-09-10: **retained** and recorded as inherited inference
+    // behaviour with a refactoring cost — a named function's colour was
+    // defaulted pure before its generalization where a lambda's is still a
+    // variable the seat has not defaulted. Extracting the lambda into a named
+    // function can change the verdict; the paired requirement below promises
+    // equivalent *explanations*, never identical acceptance.
+    expect(messages(
+      "constraint Maker<a> =\n    make(k: () ->! Unit) -> (() ->! Unit)\n" +
+      "export record S = { n: Int }\n" +
+      "let c: Bool = True\n" +
+      "honor Maker<S> =\n    make(k) = if c then k else (() => ())\n",
+    )).toEqual([]);
+  });
+
+  test("the paired requirement: named and inline coincide where both are refused", () => {
+    // A **pure** upper arrow is met, so the merge's incidental unification with
+    // a pure constant classifies as the conflict it would have been without the
+    // constant — same row, same form, same primary (James, 2026-09-10).
+    const paired = (other: string) =>
+      "constraint Maker<a> =\n    make(k: () ->! Unit) -> (() -> Unit)\n" +
+      "export record S = { n: Int }\n" +
+      "let pureFn(): Unit = ()\n" +
+      "let c: Bool = True\n" +
+      `honor Maker<S> =\n    make(k) = if c then k else ${other}\n`;
+    expect(messages(paired("pureFn"))).toEqual([pureMergeConflict("make", "k", true)]);
+    expect(messages(paired("(() => ())"))).toEqual([pureMergeConflict("make", "k", true)]);
+    expect(primaries(paired("pureFn"))).toEqual(["if c then k else pureFn"]);
+    expect(primaries(paired("(() => ())"))).toEqual(["if c then k else (() => ())"]);
+  });
+
+  test("and plain forwarding keeps its seat-level conflict report", () => {
+    const source =
+      "constraint Maker<a> =\n    make(k: () ->! Unit) -> (() -> Unit)\n" +
+      "export record S = { n: Int }\n" +
+      "honor Maker<S> =\n    make(k) = k\n";
+    expect(messages(source)).toEqual([pureSeatConflict("make", "k", true)]);
+    expect(primaries(source)).toEqual(["make(k) = k"]);
+  });
+});
+
+describe("Effects §13.2: invariant and phantom positions", () => {
+  const CELLS = (element: string, arrow: string, extra: string, body: string) =>
+    `constraint Runner<r> =\n    run(runner: r, cells: Array(${element})${extra}) ${arrow} Unit\n` +
+    "export record Job = { id: Int }\n" +
+    `honor Runner<Job> =\n    run(job, cells${extra === "" ? "" : ", action"}) = ${body}\n`;
+
+  test("an invariant `->!` slot settles, so a body that calls an element is accepted", () => {
+    expect(messages(CELLS("() ->! Unit", "->!", "", "ignore(Array.get(cells, 0))")))
+      .toEqual([]);
+  });
+
+  test("an invariant `->?` slot keeps the member's variable", () => {
+    expect(messages(CELLS(
+      "() ->? Unit",
+      "->?",
+      ", action: () ->? Unit",
+      "action?()",
+    ))).toEqual([]);
+  });
+
+  test("but an invariant slot admits no raise, in its own clause", () => {
+    // The body did not perform an effect — it *demanded* one — so the frame,
+    // the guarantee, and the advice are the invariant clause's, at the pin.
+    const source =
+      "constraint Runner<r> =\n    run(runner: r, cells: Array(() -> Unit)) -> Unit\n" +
+      "export record Job = { id: Int }\n" +
+      "let force(fs: Array(() ->! Unit)): Unit = ()\n" +
+      "honor Runner<Job> =\n    run(job, cells) = force(cells)\n";
+    expect(messages(source)).toEqual([
+      "this instance demands a function that may perform effects where `run`'s " +
+      "contract writes `->` inside the parameter `cells` — an invariant " +
+      "position admits no widening — do not require effects of the function " +
+      "inside `cells` here, or, if the constraint is yours, write `->!` on that " +
+      "arrow inside the parameter `cells`",
+    ]);
+    expect(primaries(source)).toEqual(["force(cells)"]);
+  });
+
+  test("and an invariant linked slot raised the same way says `->?`", () => {
+    expect(messages(
+      "constraint Runner<r> =\n" +
+      "    run(runner: r, cells: Array(() ->? Unit), action: () ->? Unit) ->? Unit\n" +
+      "export record Job = { id: Int }\n" +
+      "let force(fs: Array(() ->! Unit)): Unit = ()\n" +
+      "honor Runner<Job> =\n    run(job, cells, action) = force(cells)\n",
+    )).toEqual([
+      "this instance demands a function that may perform effects where `run`'s " +
+      "contract writes `->?` inside the parameter `cells` — an invariant " +
+      "position admits no widening — do not require effects of the function " +
+      "inside `cells` here, or, if the constraint is yours, write `->!` on that " +
+      "arrow inside the parameter `cells`",
+    ]);
+  });
+
+  test("an invariant slot narrowed the other way takes the narrower-acceptance row", () => {
+    expect(messages(
+      "constraint Runner<r> =\n    run(runner: r, cells: Array(() ->! Unit)) -> Unit\n" +
+      "export record Job = { id: Int }\n" +
+      "let force(fs: Array(() -> Unit)): Unit = ()\n" +
+      "honor Runner<Job> =\n    run(job, cells) = force(cells)\n",
+    )).toEqual([
+      "`run`'s contract accepts a function inside the parameter `cells` that " +
+      "performs effects, and this instance accepts only a pure one — an " +
+      "instance accepts everything its contract promises to accept — call the " +
+      "callback with `!` instead of handing it, or a function that calls it, " +
+      "to a `->` demand, or, if the constraint is yours, write that arrow `->` " +
+      "inside the parameter `cells`",
+    ]);
+  });
+
+  test("a phantom position contributes no bound and pins nothing", () => {
+    // §13.2's vacuous inlet: the header is legal under §2.2.1's coarse test,
+    // the slot is compared with nothing, and a caller supplies either colour.
+    const PHANTOM =
+      "export union Tag(a) = Plain | Marked\n" +
+      "constraint Runner<r> =\n" +
+      "    run(runner: r, tag: Tag(() ->? Unit), action: () ->? Unit) ->? Unit\n" +
+      "export record Job = { id: Int }\n" +
+      "honor Runner<Job> =\n    run(job, tag, action) = action?()\n";
+    expect(messages(PHANTOM)).toEqual([]);
+    expect(messages(PHANTOM + "export let pure(j: Job): Unit = j.run(Plain, () => ())\n"))
+      .toEqual([]);
+  });
+
+  test("and a header whose only `->?` stands at a phantom position is still legal", () => {
+    expect(messages(
+      "export union Tag(a) = Plain | Marked\n" +
+      "constraint Runner<r> =\n    run(runner: r, tag: Tag(() ->? Unit)) ->? Unit\n" +
+      "export record Job = { id: Int }\n" +
+      "honor Runner<Job> =\n    run(job, tag) = ()\n",
+    )).toEqual([]);
+  });
+});
+
+describe("Constraints §4.7: a door wears the member's colour, and the listed members must agree", () => {
+  const LINKED = "module Lib\n\n" +
+    "export constraint R<a> =\n    run(s: a, n: Int, action: () ->? Unit) ->? Unit\n";
+  const DOOR = "module Main\n\nimport Lib\n\nexport record P = { name: String }\n" +
+    "widens Lib.run(s: P, n: BigInt, action: () ->? Unit): Unit =\n    action?()\n" +
+    "honor Lib.R<P> =\n    run = widened\n";
+
+  test("a door under a `->?` member wears the member's variable, not a second one", () => {
+    // *(Fix round 1.)* The `->?` the door writes at a widened seat denotes the
+    // member's own variable, so its face carries **one** colour across the
+    // outer arrow and the callback parameter — §10 displays it undecorated.
+    const session = new AnalysisSession();
+    session.setFile("/io.js", "");
+    session.setFile("/lib.hex", LINKED);
+    session.setFile("/main.hex", DOOR);
+    expect(session.hover("/main.hex", DOOR.indexOf("run(s: P"))?.displayedType)
+      .toBe("(P, BigInt, () ->? Unit) ->? Unit");
+  });
+
+  test("so a call through the door conducts", () => {
+    const call = (mark: string, callback: string) =>
+      DOOR + `export let through(p: P, cb: () ->? Unit): Unit = run${mark}(p, 2n, ${callback})\n`;
+    expect(projectMessages([
+      ["/lib.hex", LINKED],
+      ["/main.hex", call("?", "cb")],
+      ["/io.js", ""],
+    ])).toEqual([]);
+    expect(projectMessages([
+      ["/lib.hex", LINKED],
+      ["/main.hex", call("", "cb")],
+      ["/io.js", ""],
+    ])).toEqual([
+      "this call is as effectful as the enclosing instantiation makes it, so " +
+      "`run` wants `?`, not no mark",
+    ]);
+    // And a pure callback instantiates the same variable pure, so the call is bare.
+    expect(projectMessages([
+      ["/lib.hex", LINKED],
+      ["/main.hex", DOOR + "export let through(p: P): Unit = run(p, 2n, () => ())\n"],
+      ["/io.js", ""],
+    ])).toEqual([]);
+  });
+
+  test("a `Unit`-returning member admits a door at all (#887)", () => {
+    // `Unit` is the empty tuple, and `#sameSeat` recognised neither tuples nor
+    // functions: every such door was refused as not reaching its own seat,
+    // ``the result is `Unit`, not `Unit` ``. Fixed minimally here because
+    // #867's own shapes — doors under `->!`/`->?` members with callback
+    // parameters — all land on it.
+    expect(projectMessages([
+      ["/lib.hex", "module Lib\n\nexport constraint R<a> =\n    ping(s: a, n: Int) ->! Unit\n"],
+      ["/main.hex", "module Main\n\nimport Lib\n\nexport record P = { name: String }\n" +
+        "widens Lib.ping(s: P, n: BigInt): Unit = ()\n" +
+        "honor Lib.R<P> =\n    ping = widened\n"],
+      ["/io.js", ""],
+    ])).toEqual([]);
+  });
+
+  test("and so does a member with a function-typed parameter (#887)", () => {
+    expect(projectMessages([
+      ["/lib.hex", "module Lib\n\nexport constraint R<a> =\n" +
+        "    apply(s: a, n: Int, f: () -> Unit) -> Unit\n"],
+      ["/main.hex", "module Main\n\nimport Lib\n\nexport record P = { name: String }\n" +
+        "widens Lib.apply(s: P, n: BigInt, f: () -> Unit): Unit = f()\n" +
+        "honor Lib.R<P> =\n    apply = widened\n"],
+      ["/io.js", ""],
+    ])).toEqual([]);
+  });
+
+  test("a door's seat report places at the offending call in the door's body", () => {
+    // *(Fix round 1.)* The door's seat runs at the honor block, long after the
+    // door's own body closed and with no frame of its own — and it still names
+    // the call the writer must change.
+    const PURE_LIB = "module Lib\n\nexport constraint R<a> =\n    tag(s: a, n: Int) -> String\n";
+    const main = "module Main\n\nimport Lib\n\n" + IO +
+      "export record P = { name: String }\n" +
+      "widens Lib.tag(s: P, n: BigInt): String =\n" +
+      "    let prefix = s.name\n" +
+      '    Debug.log(readIt!("x"))\n' +
+      "    prefix\n" +
+      "honor Lib.R<P> =\n    tag = widened\n";
+    const compiled = compileFiles([
+      ["/lib.hex", PURE_LIB],
+      ["/main.hex", main],
+      ["/io.js", ""],
+    ]);
+    expect(compiled.diagnostics.map(({ message }) => message)).toEqual([pureContract("tag")]);
+    expect(
+      compiled.diagnostics.map(({ primary }) =>
+        main.slice(primary.start.offset, primary.end.offset)
+      ),
+    ).toEqual(['readIt!("x")']);
+  });
+
+  const multi = (first: string, second: string, third?: string) => {
+    const heads = ["Lib.op", "Lib2.op", ...(third === undefined ? [] : ["Lib3.op"])];
+    return [
+      ["/lib.hex", `module Lib\n\nexport constraint P<a> =\n    op(v: a, n: Int) ${first} Int\n`],
+      ["/lib2.hex", `module Lib2\n\nexport constraint M<a> =\n    op(v: a, n: Int) ${second} Int\n`],
+      ...(third === undefined
+        ? []
+        : [["/lib3.hex", `module Lib3\n\nexport constraint Q<a> =\n    op(v: a, n: Int) ${third} Int\n`]]),
+      ["/main.hex", "module Main\n\nimport Lib\nimport Lib2\n" +
+        (third === undefined ? "" : "import Lib3\n") +
+        "\nexport record S = { n: Int }\n" +
+        `widens ${heads.join(", ")}(v: S, n: BigInt): Int = v.n\n` +
+        "honor Lib.P<S> =\n    op = widened\n" +
+        "honor Lib2.M<S> =\n    op = widened\n" +
+        (third === undefined ? "" : "honor Lib3.Q<S> =\n    op = widened\n")],
+      ["/io.js", ""],
+    ].map((entry) => [entry[0]!, entry[1]!] as const);
+  };
+
+  test("listed members that agree on colour are accepted", () => {
+    expect(projectMessages(multi("->!", "->!"))).toEqual([]);
+  });
+
+  test("and a disagreement at the outer arrow is refused at the head", () => {
+    // *(Fix round 1, root three.)* The impure constant is **not** taken as the
+    // wider licence, and the body's inferred colour is not read either — both
+    // are refused in Effects §11.
+    expect(projectMessages(multi("->", "->!"))).toEqual([
+      "this declaration widens `Lib.op`, whose contract is `->`, and `Lib2.op`, " +
+      "whose contract is `->!` — a door wears one colour, the member's " +
+      "contract, and these disagree; if the constraints are yours, give the " +
+      "members one contract; otherwise write each member in its honor block " +
+      "instead of a door",
+    ]);
+  });
+
+  test("three members list in head order, with `and` before the last", () => {
+    expect(projectMessages(multi("->", "->!", "->"))).toEqual([
+      "this declaration widens `Lib.op`, whose contract is `->`, `Lib2.op`, " +
+      "whose contract is `->!`, and `Lib3.op`, whose contract is `->` — a door " +
+      "wears one colour, the member's contract, and these disagree; if the " +
+      "constraints are yours, give the members one contract; otherwise write " +
+      "each member in its honor block instead of a door",
+    ]);
+  });
+
+  test("a nested disagreement names the position", () => {
+    expect(projectMessages([
+      ["/lib.hex", "module Lib\n\nexport constraint P<a> =\n" +
+        "    op(v: a, n: Int, action: () -> Unit) -> Int\n"],
+      ["/lib2.hex", "module Lib2\n\nexport constraint M<a> =\n" +
+        "    op(v: a, n: Int, action: () ->! Unit) -> Int\n"],
+      ["/main.hex", "module Main\n\nimport Lib\nimport Lib2\n\n" +
+        "export record S = { n: Int }\n" +
+        "widens Lib.op, Lib2.op(v: S, n: BigInt, action: () -> Unit): Int = v.n\n" +
+        "honor Lib.P<S> =\n    op = widened\n" +
+        "honor Lib2.M<S> =\n    op = widened\n"],
+      ["/io.js", ""],
+    ])).toEqual([
+      "this declaration widens `Lib.op`, whose contract writes `->` inside the " +
+      "parameter `action`, and `Lib2.op`, whose contract writes `->!` inside " +
+      "the parameter `action` — a door wears one colour, the member's " +
+      "contract, and these disagree; if the constraints are yours, give the " +
+      "members one contract; otherwise write each member in its honor block " +
+      "instead of a door",
+      // §4.7's failed-door row stands beside it, and truthfully: a door's
+      // arrows are its **written face** and exact (§4.6), so whichever arrow
+      // this declaration writes at that seat, one of the two listed members
+      // refuses it. The colour refusal says why no spelling would do.
+      "this declaration does not widen `Lib2.op`: `() ->! Unit` does not reach " +
+      "the seat `() -> Unit` exactly",
+    ]);
+  });
+
+  test("two linked members agree — the relationship, not the variable's name", () => {
+    // "Agreement is on the linked relationship — which positions share the
+    // member's one variable — and on the constant written at every other
+    // position, never on variable names, which are immaterial."
+    expect(projectMessages([
+      ["/lib.hex", "module Lib\n\nexport constraint P<a> =\n" +
+        "    op(v: a, n: Int, action: () ->? Unit) ->? Unit\n"],
+      ["/lib2.hex", "module Lib2\n\nexport constraint M<a> =\n" +
+        "    op(v: a, n: Int, action: () ->? Unit) ->? Unit\n"],
+      ["/main.hex", "module Main\n\nimport Lib\nimport Lib2\n\n" +
+        "export record S = { n: Int }\n" +
+        "widens Lib.op, Lib2.op(v: S, n: BigInt, action: () ->? Unit): Unit =\n" +
+        "    action?()\n" +
+        "honor Lib.P<S> =\n    op = widened\n" +
+        "honor Lib2.M<S> =\n    op = widened\n"],
+      ["/io.js", ""],
+    ])).toEqual([]);
+  });
+});
+
+describe("Effects §13.2: the freshening, and what the bounds leave as the ordering", () => {
+  test("the contract's colours do not reach the body: every slot is freshened", () => {
+    // A `->!` arrow the contract *returns* is a ceiling. Had its colour arrived
+    // at the body, the pure lambda beneath it would wear `->!` as a written
+    // face and §4.2 would refuse it for performing no effect; freshened, the
+    // lambda infers its own colour and the seat compares.
+    expect(messages(
+      "constraint Maker<a> =\n    make(seed: a) -> (() ->! Unit)\n" +
+      "export record S = { n: Int }\n" +
+      "let quiet(): Unit = ()\n" +
+      "honor Maker<S> =\n    make(seed) = (() => quiet())\n",
+    )).toEqual([]);
+  });
+
+  test("and the same for a supplied slot: a pure body accepts an effectful callback", () => {
+    expect(messages(
+      "constraint Runner<r> =\n    run(runner: r, k: () ->! Unit) ->! Unit\n" +
+      "export record Job = { id: Int }\n" +
+      "honor Runner<Job> =\n    run(job, k) = ()\n",
+    )).toEqual([]);
+  });
+
+  test("a released closure takes the join of its lower bounds, through a chain", () => {
+    // "a chain of released closures each conducting the next lands on the one
+    // kept slot" — so the body's own colour is the callback's, and the marks
+    // read it.
+    const chain = (mark: string) =>
+      "constraint Runner<r> =\n    run(runner: r, action: () ->? Unit) ->? Unit\n" +
+      "export record Job = { id: Int }\n" +
+      "honor Runner<Job> =\n" +
+      "    run(job, action) =\n" +
+      "        let inner = () => action?()\n" +
+      `        inner${mark}()\n`;
+    expect(messages(chain("?"))).toEqual([]);
+    expect(messages(chain(""))).toEqual([
+      "this call is as effectful as the enclosing instantiation makes it, so " +
+      "`inner` wants `?`, not no mark",
+    ]);
+  });
+});
+
+describe("Constraints §8: a member header's arrow seat, and what recovery leaks", () => {
+  test("`=>` at the arrow seat takes the type-arrow redirect, and one typo yields one report", () => {
+    // *(Fix round 1.)* Four diagnostics before this: the redirect's absence
+    // cost the header its result type, and the parser's `Invalid` placeholder
+    // then leaked into the resolver and back out at the member name.
+    const source = "constraint C<a> =\n    m(x: a) => String\n";
+    expect(messages(source)).toEqual([
+      "Hexagon's type arrows are `->`, `->?`, `->!`; `=>` is the lambda arrow " +
+      "— for a function type write `Int -> Int` (or `->?` / `->!` for its colour)",
+    ]);
+    expect(primaries(source)).toEqual(["=>"]);
+    expect(fixes(source)).toEqual(['write `->`: "->"']);
+  });
+
+  test("and the retired `=>!` recovers as `->!`", () => {
+    expect(messages("constraint C<a> =\n    m(x: a) =>! String\n")).toHaveLength(1);
+    expect(fixes("constraint C<a> =\n    m(x: a) =>! String\n"))
+      .toEqual(['write `->!`: "->!"']);
+  });
+
+  test("a header with no arrow at all reports once, and leaks no `Invalid`", () => {
+    const source = "constraint C<a> =\n    m(x: a)\n";
+    expect(messages(source)).toEqual(["constraint members require a result type"]);
   });
 });
