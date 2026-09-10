@@ -2056,8 +2056,13 @@ class Checker {
    * left free — the round-up applies to the function, not to what it forwards.
    */
   #pendingOwnEffect: Mono | undefined;
-  /** Signature colours a face report has already condemned; see `#checkMarks`. */
-  readonly #reportedFaces = new Set<Variable>();
+  /**
+   * The written calls a report has already answered — a condemned signature
+   * face's, or a failed seat's. Stamped at the ruling by `#suppressMarksOn`,
+   * because the colours it decides from are ones a later prune moves; see
+   * `#checkMarks`.
+   */
+  readonly #reportedCalls = new Set<MarkObligation>();
   readonly #frameByLambda = new WeakMap<Resolved.LambdaExpr, EffectFrame>();
   /**
    * The frame a call was *written* in. Dot calls may be elaborated later, from
@@ -13059,23 +13064,17 @@ class Checker {
    */
   #reportSeat(contract: SeatContract, body: SeatBody, failure: SeatFailure): void {
     // The seat's verdict is the ruling on this colour, so the marks that read it
-    // owe no second report — the family `#namesReportedFace` already serves for
-    // a condemned signature face. Without this a body conducting a `->!`
-    // callback under a pure contract draws the seat's refusal *and* a mark
-    // report saying the very call it condemned is pure, which is the pre-#868
-    // defaulting talking about a colour the seat has already decided.
+    // owe no second report — `#suppressMarksOn` is the same door a condemned
+    // signature face uses. Without this a body conducting a `->!` callback
+    // under a pure contract draws the seat's refusal *and* a mark report saying
+    // the very call it condemned is pure, which is the pre-#868 defaulting
+    // talking about a colour the seat has already decided.
     //
     // A **failed** seat settles nothing, so no mark report is made against any
     // colour the freshening minted either (§13.2): a `b!()` written correctly
     // under a `->!` callback whose settling the seat never reached is the
     // writer's compliance, not an error.
-    for (
-      let node: Mono | undefined = failure.colour;
-      node !== undefined && node.kind === "Variable";
-      node = node.instance
-    ) {
-      this.#reportedFaces.add(node);
-    }
+    //
     // **The suppression reaches the freshened slots' forward reach** (§13.2,
     // #889): the set is the fresh variables, one per contract effect slot,
     // "together with their forward reach through the ordering as it stands at
@@ -13090,28 +13089,14 @@ class Checker {
     // defaulting and generalization still run. A genuinely wrong mark on a
     // reached helper surfaces on the next compile, once the seat is repaired.
     //
-    // `#orderingReach` reads both ends of every edge **through prunes**, so the
-    // set is colours rather than the variables as they stood when the edges
-    // were recorded (`#holdsColour`'s discipline). Each is then recorded along
-    // its chain, exactly as the condemned colour above is: a merge may have
-    // bound a slot into the colour it was merged with, and it is then the
-    // *representative* a call's mark obligation carries, not the node the
-    // freshening minted — recording only the minted node left `let f = if c
-    // then k else (() => ())` with the seat's refusal and a second report
-    // calling the very `f!()` it condemned pure. The chain walk is also what
-    // `#namesReportedFace` needs: a colour §3.4 later defaults prunes to the
-    // pure constant, which every bare call in the program shares, so the read
-    // that matters is "is one of these variables on this obligation's chain".
-    const reach = this.#orderingReach(body.ordering, body.freshened);
-    for (const reached of [...body.freshened, ...reach]) {
-      for (
-        let node: Mono | undefined = reached;
-        node !== undefined && node.kind === "Variable";
-        node = node.instance
-      ) {
-        this.#reportedFaces.add(node);
-      }
-    }
+    // The condemned colour and the reach go through the door together, so one
+    // sweep settles the whole ruling — at the failure, where the colours still
+    // stand apart, rather than after §3.4's defaulting has made them one.
+    this.#suppressMarksOn([
+      failure.colour,
+      ...body.freshened,
+      ...this.#orderingReach(body.ordering, body.freshened),
+    ]);
     const member = `\`${contract.member}\``;
     const at = this.#seatPosition(contract, failure.place);
     const primary = this.#seatPrimary(body, failure);
@@ -13498,17 +13483,69 @@ class Checker {
   }
 
   /**
-   * Whether a call's colour is one of the signature variables a face report has
-   * already condemned — followed along the binding chain, since absorption is
-   * what turned the variable into the constant being complained about.
+   * **The one door**: a colour a report has already ruled on suppresses the
+   * mark obligations that read it — a condemned signature face's (§4.2), and a
+   * failed seat's condemned colour and freshened slots with their forward reach
+   * (§13.2). The answer is recorded **on the obligations**, here, at the
+   * ruling, and never re-derived later from the colours.
+   *
+   * *When* the question is asked is the whole of it, and it is `#holdsColour`'s
+   * discipline: **never keep an answer a later bind or compression can move**.
+   * `#prune` performs path compression — it rewrites `node.instance` to the
+   * chain's end — so a set of variables recorded here and consulted at
+   * `#checkMarks` is read against a chain that no longer records the question.
+   * A mutually recursive `fun` knot inside a failed seat is the witness:
+   * `ping`'s colour is bound into `pong`'s, so the reach holds `pong`'s node
+   * alone; §3.4's defaulting then binds `pong` to the pure constant, and the
+   * next prune of `ping` rewrites `ping.instance` straight to that constant and
+   * cuts `pong` out of the chain. Two marks the seat's own refusal already
+   * answers were reported false, each offering to delete a `!` from a genuinely
+   * impure call. `#checkMarks` compounded it by pruning the obligation itself
+   * one line before asking, so the walk it made could only ever see the two
+   * ends of a chain it had just flattened.
+   *
+   * Asked *here*, one raw chain walk decides it, and cannot be defeated:
+   *
+   * - A chain walk from either side ends at the same node — the variable root,
+   *   where a bind has not yet reached a constant — and compression only ever
+   *   shortens the walk to it. So "is a recorded node on this obligation's
+   *   chain" *is* `#holdsColour`'s "do these two prune alike", for as long as
+   *   the root is still a variable. Two colours unification made one are
+   *   therefore caught whichever direction the bind went, `let f = if c then k
+   *   else (() => ())` and the knot's members alike.
+   * - Where the root is already a **constant** — a condemned face solved to it,
+   *   a body colour a `->!` demand sourced — the root says nothing, since every
+   *   bare call in the program shares it, and only the variables' own identity
+   *   does. That is why the whole chain is recorded and the whole chain walked.
+   *
+   * Both readings want the same instant: before §3.4's defaulting binds the
+   * roots and before `#checkMarks` prunes. A ruling made after a body has
+   * closed and before the marks are read has it.
    */
-  #namesReportedFace(effect: Mono): boolean {
-    for (let node: Mono | undefined = effect; node !== undefined;) {
-      if (node.kind !== "Variable") return false;
-      if (this.#reportedFaces.has(node)) return true;
-      node = node.instance;
+  #suppressMarksOn(colours: readonly Mono[]): void {
+    const condemned = new Set<Mono>();
+    for (const colour of colours) {
+      for (
+        let node: Mono | undefined = colour;
+        node !== undefined && node.kind === "Variable";
+        node = node.instance
+      ) {
+        condemned.add(node);
+      }
     }
-    return false;
+    if (condemned.size === 0) return;
+    for (const obligation of this.#markObligations) {
+      if (this.#reportedCalls.has(obligation)) continue;
+      for (
+        let node: Mono | undefined = obligation.effect;
+        node !== undefined && node.kind === "Variable";
+        node = node.instance
+      ) {
+        if (!condemned.has(node)) continue;
+        this.#reportedCalls.add(obligation);
+        break;
+      }
+    }
   }
 
   /** Whether a settled colour belongs to a frame further out than this one. */
@@ -13541,10 +13578,12 @@ class Checker {
         required = undefined;
       }
       if (required === obligation.mark) continue;
-      // A call whose colour *is* a signature variable the face report has
-      // already condemned is the same defect told twice: the face is what went
-      // wrong, and the marks in the body follow from it.
-      if (this.#namesReportedFace(obligation.effect)) continue;
+      // A call whose colour a face report or a seat has already condemned is
+      // the same defect told twice: the face is what went wrong, and the marks
+      // in the body follow from it. Read, never re-derived — the stamp was put
+      // on at the ruling, before this loop's own `#prune` above compressed the
+      // chain it would have had to walk.
+      if (this.#reportedCalls.has(obligation)) continue;
       this.#diagnostics.add({
         severity: "error",
         message: markMessage(obligation.callee, obligation.mark, required),
@@ -13567,13 +13606,17 @@ class Checker {
    * to a constant has falsified that promise.
    */
   #checkSignatureFaces(): void {
+    // The colours condemned here, swept through `#suppressMarksOn` once at the
+    // end — `#checkMarks` prunes each obligation before it reads the stamp, so
+    // the question has to be asked before that loop begins, not inside it.
+    const condemned: Mono[] = [];
     for (const face of this.#signatureFaces) {
       const colour = this.#prune(face.effect);
       if (colour.kind !== "Effect") continue;
       // §4.4's recovery again: a face constantified by scaffolding has already
       // been reported at the arrow that was refused.
       if (isRecovered(colour)) continue;
-      this.#reportedFaces.add(face.effect);
+      condemned.push(face.effect);
       // §4.2: the report stands at a written `->?`, not presumptively at the
       // outer arrow — the constantified variable may be spelled only on a
       // nested one, while the outer arrow is honestly `->` or `->!`. A
@@ -13612,6 +13655,7 @@ class Checker {
           : {}),
       });
     }
+    this.#suppressMarksOn(condemned);
   }
 
   /**

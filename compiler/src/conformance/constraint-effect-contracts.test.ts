@@ -2034,6 +2034,66 @@ describe("Effects §13.2: a failed seat's suppression, and the conflict's two ti
     expect(primaries(source)).toEqual(["b!()"]);
   });
 
+  test("and the marks the reach suppresses survive a `fun` knot's compression", () => {
+    // *(Review round 4, MAJOR 1.)* The knot is what defeats a suppression set
+    // read off the colours afterwards: `ping`'s colour is bound into `pong`'s,
+    // so the reach holds `pong`'s node alone — and once §3.4's defaulting binds
+    // `pong` to the pure constant, `#prune`'s **path compression** rewrites
+    // `ping`'s chain straight to that constant and cuts `pong` out of it. Three
+    // diagnostics stood here, two of them affirmatively false about the program
+    // and each offering to delete a `!` from a genuinely impure call.
+    //
+    // The bare spelling above sidesteps the shape entirely, because a mark that
+    // is already right is never reported. These are the same programs with the
+    // marks the writer would have written.
+    const KNOT = (head: string, args: string, first: string, second: string) =>
+      head +
+      "record R = { id: Int }\n" +
+      "honor C<R> =\n" +
+      `    go(${args}) =\n` +
+      "        fun\n" +
+      `            ping(n: Int): Unit = if n == 0 then ${first} else ${second}\n` +
+      "            pong(n: Int): Unit = ping!(n)\n" +
+      "        ping!(2)\n";
+    for (const source of [
+      KNOT(PURE_HEAD, "runner, b", "b!()", "pong!(n - 1)"),
+      KNOT(PURE_HEAD, "runner, b", "pong!(n - 1)", "b!()"),
+    ]) {
+      expect(messages(source)).toEqual([pureConflict("go", "b")]);
+      expect(primaries(source)).toEqual(["b!()"]);
+      // The whole of the damage: no deletion offered against `ping!` or `pong!`.
+      expect(fixes(source)).toEqual([]);
+    }
+    for (const source of [
+      KNOT(LINKED_HEAD, "runner, a, b", "b!()", "pong!(n - 1)"),
+      KNOT(LINKED_HEAD, "runner, a, b", "pong!(n - 1)", "b!()"),
+    ]) {
+      expect(messages(source)).toEqual([linkedConflict("go", "b")]);
+      expect(primaries(source)).toEqual(["b!()"]);
+      expect(fixes(source)).toEqual([]);
+    }
+  });
+
+  test("and the two-locals and lambda shapes in the marked spelling too", () => {
+    // The same question of the shapes that do not knot: a chain of two named
+    // locals, and a lambda the ordering reaches. Both are marked as the writer
+    // would mark them once the member is repaired, and the failed seat says
+    // nothing about either.
+    const twoLocals = BODY(PURE_HEAD, "runner, b", [
+      "let one(): Unit = b!()",
+      "let two(): Unit = one!()",
+      "two!()",
+    ]);
+    expect(messages(twoLocals)).toEqual([pureConflict("go", "b")]);
+    expect(fixes(twoLocals)).toEqual([]);
+    const lambda = BODY(PURE_HEAD, "runner, b", [
+      "let f = () => b!()",
+      "f!()",
+    ]);
+    expect(messages(lambda)).toEqual([pureConflict("go", "b")]);
+    expect(fixes(lambda)).toEqual([]);
+  });
+
   test("a helper the ordering does not reach keeps its own mark report", () => {
     // "its error being its own": `quiet` calls nothing, so no slot reaches it
     // and §4.1 speaks about it as it would anywhere.
