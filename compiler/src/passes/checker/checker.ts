@@ -12740,8 +12740,9 @@ class Checker {
     // pin is the merge. Classification only: typing and acceptance are
     // unchanged, and the acceptance difference between the two forms there is
     // inherited inference behaviour the suite records rather than removes.
-    if (failure?.pin === "merge" && failure.slot !== undefined) {
-      const bound = bounds.get(failure.slot);
+    const merged = failure;
+    if (merged?.pin === "merge" && merged.slot !== undefined) {
+      const bound = bounds.get(merged.slot);
       // "Where the merged colour also meets a pure upper arrow the contract
       // writes, **directly or through the ordering**": the arrow above may bound
       // the body's own colour rather than the merged slot itself, and with two
@@ -12754,13 +12755,29 @@ class Checker {
       // directly, or through the conductor the ordering carries it to — so its
       // forward reach is exactly §13.2's "through the ordering", and it is the
       // same list the conflict's own selector reads.
-      if (bound !== undefined && bound.lowers.length > 0) {
+      //
+      // And seeded at **this failure's own** slot, not at every lower bound the
+      // entry holds *(review round 7, MEDIUM 2)*. The entry's key is the pure
+      // constant precisely because a merge solved the slot, and `#colourKey`
+      // pools every slot any merge solved pure under that one key: read whole,
+      // the reach, the conflict's own two-tier selector and the merge related
+      // location all answer about a *set* of callbacks, and a refusal that names
+      // `b` could point the writer at the expression that merged `d`. §13.2
+      // asks each row's own test of each slot, so the entry is narrowed to the
+      // lower bounds standing at the colour that failed.
+      const own = bound?.lowers.filter((lower) =>
+        this.#sameColour(lower.colour, merged.colour)
+      );
+      const lowers = own !== undefined && own.length > 0 ? own : bound?.lowers;
+      if (bound !== undefined && lowers !== undefined && lowers.length > 0) {
         const above = this.#pureUpperAbove(
           bounds,
           body.ordering,
-          bound.lowers.map((lower) => lower.colour),
+          lowers.map((lower) => lower.colour),
         );
-        if (above !== undefined) failure = this.#conflictAt(body, bound, above);
+        if (above !== undefined) {
+          failure = this.#conflictAt(body, { ...bound, lowers }, above);
+        }
       }
     }
     if (failure === undefined) failure = conflict;
@@ -13172,12 +13189,30 @@ class Checker {
    * primary where no call carries the colour, and a related location beside the
    * call where one does.
    *
+   * **Per slot, in `#orderingNodes`' terms** *(review round 7, MEDIUM 2)*. Read
+   * through representatives this selector had the same hub `#orderingNodes` and
+   * `#offendingCallAmong` were converted away from, and worse consequences than
+   * either: every colour a merge solved pure prunes to the one pure constant,
+   * so *every* pure merge in the body matched *every* query. A demand that
+   * narrowed `b`, standing beside an `if` over two pure functions that merged
+   * `j`, was classified a merge and reported at `j`'s expression — an
+   * expression that fixed nothing about `b` and repairs nothing — and with a
+   * call beside it the row itself moved, to advice ("write `->!` on the
+   * member") that leaves the demand narrowing the slot and the seat still
+   * refusing. §13.2 scopes the merge limb to "a constant a **merge's**
+   * incidental unification fixed a handed slot to", and gives each row's
+   * primary "the first in source order … qualification being each row's own
+   * test": a merge on another slot qualifies for nothing here.
+   *
+   * So membership is `#sameColour` — representative identity while the chain
+   * still ends at a variable, node identity once it has reached a constant —
+   * and the nodes compared are the ones the merge and the ordering recorded.
+   * Two slots two different merges solved pure are two nodes, and stay two.
    */
   #offendingMerge(body: SeatBody, colours: readonly Mono[]): Source.Span | undefined {
-    const wanted = new Set(colours.map((colour) => this.#prune(colour)));
     let earliest: Source.Span | undefined;
     for (const merge of body.merges) {
-      if (!wanted.has(this.#prune(merge.colour))) continue;
+      if (!colours.some((colour) => this.#sameColour(colour, merge.colour))) continue;
       if (earliest === undefined || precedes(merge.span, earliest)) earliest = merge.span;
     }
     return earliest;

@@ -3024,3 +3024,127 @@ describe("Effects §13.2: the merge's branch order, and each slot's own reach", 
     )).toEqual([]);
   });
 });
+
+describe("Effects §13.2: each slot's own merge, and its own reach", () => {
+  /**
+   * *(Review round 8, MEDIUM 2.)* The same root read the other way round: where
+   * a merge solves a handed slot to the pure constant, `#colourKey` names that
+   * entry by the constant, and the constant is one node every pure colour in
+   * the program shares. Read through representatives the merge selector, the
+   * narrowing classification and the conflict's own two-tier selector all
+   * answered about a *set* of callbacks, so an expression that merged one slot
+   * reclassified a refusal about another, moved its row, and labelled the wrong
+   * merge beside a correct primary. §13.2 asks each row's own test of each
+   * slot: "qualification being each row's own test".
+   */
+
+  const TWO = (lines: readonly string[]) =>
+    "constraint C<r> =\n    go(runner: r, b: () ->! Unit, j: () -> Unit) -> Unit\n" +
+    "record R = { id: Int }\nlet c: Bool = True\nlet spare(): Unit = ()\n" +
+    "honor C<R> =\n    go(runner, b, j) =\n" +
+    lines.map((line) => `        ${line}\n`).join("");
+
+  test("an unrelated merge does not reclassify a demand's narrowing", () => {
+    // *(Review round 8, MEDIUM 2a.)* `#offendingMerge` pruned into a `Set`, so
+    // every colour a merge solved pure prunes to the one constant and **every**
+    // pure merge in the body matched every query. A demand narrowing `b`, with
+    // an `if` over two pure functions merging `j` standing above it, reported as
+    // a merge and stood on `j`'s expression — which fixed nothing about `b` and
+    // repairs nothing. §13.2 scopes the merge limb to "a constant a merge's
+    // incidental unification fixed a handed slot to", and this constant came
+    // from a demand.
+    const withMerge = TWO([
+      "let m = if c then j else spare",
+      "ignore(m)",
+      "let p: () -> Unit = b",
+      "ignore(p)",
+    ]);
+    const without = TWO(["let p: () -> Unit = b", "ignore(p)"]);
+    for (const source of [withMerge, without]) {
+      expect(messages(source)).toEqual([impureNarrowerAcceptance("go", "b")]);
+      expect(primaries(source)).toEqual(["() -> Unit"]);
+      expect(labels(source)).toEqual([['the contract\'s failing arrow: "->!"']]);
+    }
+  });
+
+  test("and it does not move the ROW when a call stands on the demand's alias", () => {
+    // The same root moving the row rather than the pin: with `p()` beside it the
+    // hub classified the demand a merge, James's rule then found the outer
+    // arrow's pure ceiling through the ordering, and the report became the
+    // pure-contract conflict advising "write `->!` on the member" — a **wrong
+    // repair**, since the `let p: () -> Unit = b` still narrows the slot and the
+    // seat still refuses. The two extra lines have nothing to do with `b`.
+    const withMerge = TWO([
+      "let m = if c then j else spare",
+      "ignore(m)",
+      "let p: () -> Unit = b",
+      "p()",
+    ]);
+    const without = TWO(["let p: () -> Unit = b", "p()"]);
+    for (const source of [withMerge, without]) {
+      expect(messages(source)).toEqual([impureNarrowerAcceptance("go", "b")]);
+      expect(primaries(source)).toEqual(["() -> Unit"]);
+    }
+  });
+
+  const PAIR = (result: string, lines: readonly string[]) =>
+    `constraint C<r> =\n    go(runner: r, d: () ->${result} Unit, b: () ->! Unit) ->! (() -> Unit)\n` +
+    "record R = { id: Int }\nlet c: Bool = True\nlet spare(): Unit = ()\n" +
+    "honor C<R> =\n    go(runner, d, b) =\n" +
+    lines.map((line) => `        ${line}\n`).join("");
+
+  test("two callbacks each merged pure: the report stands on its own slot's merge", () => {
+    // *(Review round 8, MEDIUM 2c.)* `#colourKey` pools **every** slot a merge
+    // solved pure under the one pure constant, so the entry read whole answers
+    // about a set of callbacks: the refusal named `d` and pointed at the
+    // expression that merged `b`. Each slot's reach is its own, so `d`'s failure
+    // — first in walk order, and meeting no pure upper arrow — reports in its
+    // own merge form at its own merge, whichever order the two are written in.
+    const merges = [
+      "let f = if c then d else spare",
+      "let g = if c then b else spare",
+    ] as const;
+    for (const [first, second] of [merges, [merges[1], merges[0]]] as const) {
+      const source = PAIR("!", [first, second, "ignore(f)", "ignore(g)", "() => ()"]);
+      expect(messages(source)).toEqual([mergeNarrower("go", "d", true)]);
+      expect(primaries(source)).toEqual(["if c then d else spare"]);
+    }
+    // And with a **call** on one of the two, which is what read the pooled entry
+    // whole: `b`'s slot reaches the returned arrow's pure ceiling through the
+    // ordering, so `d`'s failure was reclassified as a conflict using `b`'s
+    // reach — naming `b`, standing at `g()`, and labelling `d`'s merge. `d`'s
+    // failure is first in walk order and its own merged colour meets no pure
+    // upper arrow, so §13.2's merge form on `d`'s own merge is the one report.
+    const called = PAIR("!", [...merges, "ignore(f)", "() => g()"]);
+    expect(messages(called)).toEqual([mergeNarrower("go", "d", true)]);
+    expect(primaries(called)).toEqual(["if c then d else spare"]);
+    expect(labels(called)).toEqual([['the contract\'s failing arrow: "->!"']]);
+  });
+
+  test("and a conflict's merge related location is the merge on its own slot", () => {
+    // The same pooling crossing a **conflict**: the report named `b`, its
+    // primary was `g()` — both right — and its related location read "the merge
+    // that joined the handed callback in: `if c then d else spare`", which is
+    // `d`'s. With `d` written `->` there is one failing slot and the label must
+    // be `b`'s own merge.
+    const source = PAIR("", [
+      "let f = if c then d else spare",
+      "let g = if c then b else spare",
+      "ignore(f)",
+      "() => g()",
+    ]);
+    expect(messages(source)).toEqual([
+      "this call performs effects the contract hands the body, and `go`'s " +
+      "contract returns a `->` function — an instance performs no more than " +
+      "its contract permits, and `b` may perform effects whatever the caller " +
+      "supplies — do not call `b` here, or, if the constraint is yours, write " +
+      "`->!` on the arrow the contract returns",
+    ]);
+    expect(primaries(source)).toEqual(["g()"]);
+    expect(labels(source)).toEqual([[
+      'the contract\'s failing arrow: "->"',
+      'the merge that joined the handed callback in: "if c then b else spare"',
+    ]]);
+  });
+
+});
