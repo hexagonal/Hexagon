@@ -2431,6 +2431,7 @@ class Parser {
       const memberArrow = this.#arrowAt();
       let memberEffect: Parsed.ArrowEffect | undefined;
       let memberArrowSpan: Source.Span | undefined;
+      let missingArrow = false;
       if (memberArrow === undefined) {
         const separator = this.#current();
         if (separator.kind === "Colon") {
@@ -2444,19 +2445,36 @@ class Parser {
             }],
           });
           this.#advance();
+        } else if (separator.kind === "FatArrow") {
+          // A fat arrow at a member header's **arrow seat** can have no other
+          // reading — a member has no body to begin (Constraints §2) — so it
+          // takes Effects §9's type-arrow redirect, and recovery resolves it to
+          // the arrow it spells: one typo, one report *(#867, #410)*. Without
+          // this the header lost its result type as well, and the placeholder
+          // `Invalid` leaked out of the parser as three further diagnostics.
+          const redirected = this.#redirectTypeArrow();
+          memberArrowSpan = redirected.span;
+          if (redirected.effect !== "pure") memberEffect = redirected.effect;
         } else {
           this.#errorAt(separator.span, "constraint members require a result type");
+          missingArrow = true;
         }
       } else {
         memberArrowSpan = this.#current().span;
         if (memberArrow !== "pure") memberEffect = memberArrow;
         this.#advance();
       }
-      const result = this.#parseTypeAnnotation() ?? {
-        kind: "NamedType" as const,
-        name: fallbackName,
-        span: fallbackName.span,
-      };
+      // The placeholder never leaks *(#867)*. A header whose result type could
+      // not be parsed has already been reported at the arrow seat; handing the
+      // checker a named type spelled `Invalid` earns it a second, false report
+      // — "unknown type `Invalid`" — against a name no writer wrote. Nor does a
+      // header that ended at its parameter list ask for a type annotation it
+      // has already been told it lacks: one typo, one report.
+      const ended = missingArrow &&
+        (this.#at("VSep") || this.#at("VClose") || this.#at("Eof"));
+      const result: Parsed.TypeAnnotation =
+        (ended ? undefined : this.#parseTypeAnnotation()) ??
+        { kind: "NamedType", name: fallbackName, synthesized: true, span: fallbackName.span };
       let defaultValue: Parsed.LambdaExpr | undefined;
       if (this.#at("Equal")) {
         this.#advance();
@@ -6152,6 +6170,7 @@ function invalidType(name: Parsed.Name): Parsed.NamedType {
   return {
     kind: "NamedType",
     name: { ...name, text: "Invalid", startClass: "upper" },
+    synthesized: true,
     span: name.span,
   };
 }

@@ -5634,6 +5634,12 @@ class Resolver {
       });
       return { kind: "ErrorType", span: annotation.span };
     }
+    // The parser's own placeholder stands down *(#867)*: a header whose result
+    // type could not be parsed was reported at the arrow seat, and "unknown
+    // type `Invalid`" would blame a spelling no writer wrote.
+    if (annotation.kind === "NamedType" && annotation.synthesized === true) {
+      return { kind: "ErrorType", span: annotation.span };
+    }
     this.#diagnostics.add({
       severity: "error",
       message: `unknown type \`${name}\``,

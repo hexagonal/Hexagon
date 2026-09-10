@@ -589,6 +589,13 @@ export interface NamedType {
   readonly kind: "NamedType";
   readonly qualifier?: Name;
   readonly name: Name;
+  /**
+   * A placeholder the **parser** minted where a type could not be parsed and
+   * the fault was already reported *(#867)*. The resolver stands down on it:
+   * "unknown type `Invalid`" names a spelling no writer wrote, and one typo
+   * owes one diagnostic.
+   */
+  readonly synthesized?: boolean;
   readonly span: Source.Span;
 }
 
