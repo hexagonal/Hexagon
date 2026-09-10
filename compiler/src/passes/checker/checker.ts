@@ -414,6 +414,22 @@ interface ColourEdge {
   readonly span: Source.Span;
 }
 
+/**
+ * **One join the seat's ordinary arm made** *(#865; Effects §13.2)*.
+ *
+ * Where the conduit arm's qualification does not apply, §3.4's ordinary arm
+ * runs and unification makes two colours one. §13.2's suppression is stated
+ * over colours — "a colour ordinary unification has identified with any colour
+ * in that set being that colour" — and identity survives a bind but not
+ * `#prune`'s path compression, which rewrites the middle of a chain away. So
+ * the two nodes are recorded here, at the join, and the ruling closes its
+ * condemned set over them.
+ */
+interface ColourJoin {
+  readonly left: Mono;
+  readonly right: Mono;
+}
+
 /** What `#openSeatSlots` saves and `#closeSeatSlots` restores around a seat. */
 interface SeatSlots {
   readonly slots: Set<Mono> | undefined;
@@ -453,6 +469,8 @@ interface SeatBody {
   readonly freshened: readonly Variable[];
   /** The ordering this body's calls recorded (§13.2's conduit qualification). */
   readonly ordering: readonly ColourEdge[];
+  /** The joins this body's calls made where the conduit arm did not apply. */
+  readonly joins: readonly ColourJoin[];
 }
 
 /**
@@ -2122,6 +2140,12 @@ class Checker {
    * and the disposal all read it through.
    */
   readonly #colourOrdering: ColourEdge[] = [];
+  /**
+   * **The joins**, flat *(#865)*: the pairs a seat body's ordinary arm made one
+   * colour, recorded in the nodes as they stood. Sliced per seat exactly as the
+   * ordering is, and read by one caller — the failed seat's mark suppression.
+   */
+  readonly #colourJoins: ColourJoin[] = [];
   /**
    * The colours the **current** seat's freshening minted, and the ones its
    * disposal will keep *(#867)*. The conduit arm asks both: whether a callee's
@@ -5778,8 +5802,10 @@ class Checker {
                 calls: door.calls,
                 merges: door.merges,
                 // A door's body closed outside this seat, so it recorded no
-                // ordering of its own: freshened at no slot, it has none.
+                // ordering of its own: freshened at no slot, it has none, and
+                // so no joins either.
                 ordering: [],
+                joins: [],
                 seat: member.span,
                 fallback: door.span,
               });
@@ -11763,25 +11789,34 @@ class Checker {
     readonly calls: number;
     readonly merges: number;
     readonly ordering: number;
+    readonly joins: number;
   } {
     return {
       calls: this.#absorbedCalls.length,
       merges: this.#colourMerges.length,
       ordering: this.#colourOrdering.length,
+      joins: this.#colourJoins.length,
     };
   }
 
   #seatSince(
-    mark: { readonly calls: number; readonly merges: number; readonly ordering: number },
+    mark: {
+      readonly calls: number;
+      readonly merges: number;
+      readonly ordering: number;
+      readonly joins: number;
+    },
   ): {
     readonly calls: readonly AbsorbedCall[];
     readonly merges: readonly ColourMerge[];
     readonly ordering: readonly ColourEdge[];
+    readonly joins: readonly ColourJoin[];
   } {
     return {
       calls: this.#absorbedCalls.slice(mark.calls),
       merges: this.#colourMerges.slice(mark.merges),
       ordering: this.#colourOrdering.slice(mark.ordering),
+      joins: this.#colourJoins.slice(mark.joins),
     };
   }
 
@@ -11921,6 +11956,15 @@ class Checker {
         this.#seatBounded.add(own);
         continue;
       }
+      // §3.4's ordinary arm, and inside a seat the pair it is about to make one
+      // colour is recorded first (#865): after the bind, `#prune`'s path
+      // compression can cut either node out of the other's chain, and the
+      // failed seat's suppression is stated over colours ordinary unification
+      // identified. A `fun` knot inside a seat is the witness — `ping`'s colour
+      // is bounded by the handed callback and `pong`'s is joined to it here, and
+      // once a pin solves the pair pure the two nodes prune alike to a constant
+      // every bare call in the program shares.
+      if (atSeat) this.#colourJoins.push({ left: frame.own, right: effect });
       this.#unify(frame.own, colour, span);
     }
     if (!atSeat) this.#defaultFrameColour(frame);
@@ -12038,6 +12082,40 @@ class Checker {
       }
     }
     return reached;
+  }
+
+  /**
+   * The same reach, in the **raw nodes the edges recorded** rather than in
+   * pruned representatives *(#865)*.
+   *
+   * `#orderingReach` answers "which colours does this slot carry to", and a
+   * colour is a representative — which is the right answer wherever the
+   * question is about the *colour*. Two questions are about the **node**, and
+   * lose their answer to pruning:
+   *
+   * - **Where was a reached colour pinned?** A pin is recorded on the variable
+   *   the constant reached (`#colourPins`), and a reached colour ordinary
+   *   unification has since solved arrives at `#orderingReach` as the constant,
+   *   which carries no pin and no span. §13.2 reports such a narrowing "at the
+   *   pin that fixed the colour … directly or through a colour the ordering
+   *   carries to it", so the pin has to be reachable from the ordering.
+   * - **Which mark obligations did a ruling answer?** `#suppressMarksOn` walks
+   *   raw chains for exactly the reason its own comment gives, and a reach
+   *   handed to it in representatives contributes nothing once the
+   *   representative is a constant — every bare call in the program shares it.
+   *
+   * Reachability is still decided in representatives, because that is what a
+   * colour *is*; only what comes back is raw. Every edge whose lower end the
+   * reach holds contributes its upper node, so two helpers pinned to the same
+   * constant both come back, and the seeds come back as given.
+   */
+  #orderingNodes(edges: readonly ColourEdge[], from: readonly Mono[]): Mono[] {
+    const reached = this.#orderingReach(edges, from);
+    const nodes: Mono[] = [...from];
+    for (const edge of edges) {
+      if (reached.has(this.#prune(edge.lower))) nodes.push(edge.upper);
+    }
+    return nodes;
   }
 
   /**
@@ -12412,6 +12490,40 @@ class Checker {
     // this propagation that brings the callback's bound up to the arrow that
     // fails. A colour the ordering reaches that the walk never bounded — a
     // closure's, a local's — takes the settle without taking a report.
+    //
+    // **And the ordering is read through in the narrowing direction too**
+    // *(#865)*. The propagation above carries a slot's impure lower bound *up*;
+    // this carries the pure constant that stands above the slot back *down*.
+    // §13.2: the seat refuses a body that hands the contract's callback to a
+    // `->` demand, "reporting at the pin that fixed the colour, narrowed or
+    // raised … directly or **through a colour the ordering carries to it**, a
+    // `->` demand met by a lambda that conducts the callback narrowing it as
+    // surely as one met by the callback itself". A slot the walk bounded below
+    // by an impure contract arrow, carried by the ordering to a colour ordinary
+    // unification has since solved **pure**, is a slot narrowed to pure — the
+    // supplied direction's failure, recorded no differently than one the walk
+    // met on the slot itself, because the constant arrived after the frame that
+    // carries it closed rather than before.
+    //
+    // Only the pure constant narrows: the impure one is the top of the lattice
+    // and bounds nothing below it.
+    //
+    // The row, form and pin are the ones the supplied arrow already selected in
+    // `#compareArrow` — the selection table reaches a narrower-acceptance row
+    // "by a demand, an explicit annotation, or … a merge", and a merge is then
+    // re-classified by James's rule below exactly as a merge on the slot itself
+    // is. What changes is the **colour the report reads**: the pin lives on the
+    // reached node, not on the slot, so that node is what the primary and
+    // `#narrowingPin` are taken from.
+    let narrowed: SeatFailure | undefined;
+    for (const [key, bound] of bounds) {
+      const lower = bound.lowers[0];
+      if (lower === undefined) continue;
+      if (narrowed !== undefined && narrowed.order <= lower.order) continue;
+      const pinned = this.#pureNarrowingNode(body.ordering, key);
+      if (pinned === undefined) continue;
+      narrowed = { ...lower, colour: pinned, pin: this.#narrowingPin(body, pinned) };
+    }
     for (const [key, bound] of [...bounds]) {
       if (bound.lowers.length === 0) continue;
       for (const colour of this.#orderingReach(body.ordering, [key])) {
@@ -12437,6 +12549,14 @@ class Checker {
       // rather than the first: a variable under both a linked and a `->!`
       // callback carries both, and the constant one is what settles.
       if (bound.unconditional && variable.kind === "Variable") settle.add(variable);
+    }
+    // A narrowing the ordering carried down is a failure of the same supplied
+    // arrow the walk would have recorded on the slot itself, so it takes its
+    // place in **walk order** beside the direct ones (§13.2's "the first such in
+    // walk order") rather than behind or ahead of them, and reaches James's
+    // classification below on the same terms.
+    if (narrowed !== undefined && (failure === undefined || narrowed.order < failure.order)) {
+      failure = narrowed;
     }
     // **James's merge classification** (§13.2, 2026-09-10). A direct failure the
     // walk recorded wins outright — *except* one a **merge's incidental
@@ -12508,6 +12628,45 @@ class Checker {
         arrow: chosen.arrow,
       },
     };
+  }
+
+  /**
+   * **Where a slot was narrowed to pure through the ordering** *(#865; Effects
+   * §13.2)* — the node the report reads, or nothing where no such narrowing
+   * happened.
+   *
+   * §13.2 fixes both halves of this. That a narrowing counts at all when it
+   * reaches the slot indirectly: "the demand, annotation, supplied argument, or
+   * other expression whose unification fixed it, **directly or through a colour
+   * the ordering carries to it**". And that a conducting lambda is one of the
+   * things that can carry it: "a `->` demand met by a lambda that conducts the
+   * callback narrowing it as surely as one met by the callback itself". So
+   * `force(() => b!())` is refused where `force(b)` is, and a helper the body
+   * annotates `-> Unit` narrows `b` as an annotation on `b` would.
+   *
+   * The **node**, not the colour: the colour is the pure constant, which every
+   * bare call in the program shares and which carries no span. `#colourPins`
+   * records the pin on the variable the constant reached, so the answer is the
+   * reached node whose pin stands **first in source order** — §13.2's tie-break
+   * wherever several pins qualify — and a reached node with no pin is no
+   * narrowing anyone wrote.
+   *
+   * A colour that traces to a §4.4 recovery narrows nothing: "the recovery binds
+   * nothing it meets, at this seat as anywhere".
+   */
+  #pureNarrowingNode(edges: readonly ColourEdge[], key: Mono): Mono | undefined {
+    let chosen: Mono | undefined;
+    let earliest: Source.Span | undefined;
+    for (const node of this.#orderingNodes(edges, [key])) {
+      const solved = this.#prune(node);
+      if (solved.kind !== "Effect" || solved.impure || isRecovered(solved)) continue;
+      const pin = this.#colourPin(node);
+      if (pin === undefined) continue;
+      if (earliest !== undefined && !precedes(pin, earliest)) continue;
+      earliest = pin;
+      chosen = node;
+    }
+    return chosen;
   }
 
   /**
@@ -13092,11 +13251,19 @@ class Checker {
     // The condemned colour and the reach go through the door together, so one
     // sweep settles the whole ruling — at the failure, where the colours still
     // stand apart, rather than after §3.4's defaulting has made them one.
-    this.#suppressMarksOn([
-      failure.colour,
-      ...body.freshened,
-      ...this.#orderingReach(body.ordering, body.freshened),
-    ]);
+    //
+    // **The reach goes through in the nodes the edges recorded**
+    // (`#orderingNodes`, #865). A reach in *representatives* is enough only
+    // while every colour on it is still a variable, and at a failed seat that is
+    // not so: ordinary unification in the body pins a conducting helper's colour
+    // to the pure constant — an annotation, a `->` demand — long before the seat
+    // rules, and §13.2 has the seat refuse exactly there. Handed to the door as
+    // a representative, such a colour arrives as the constant, whose chain
+    // records nothing, and the helper's own obligation goes unstamped: the false
+    // `` "`one` wants no mark, not `!`" `` survives the refusal that answers it.
+    // The raw upper node is what carries the helper's identity, and that is what
+    // the door is given.
+    this.#suppressMarksOn(this.#seatCondemned(body, failure));
     const member = `\`${contract.member}\``;
     const at = this.#seatPosition(contract, failure.place);
     const primary = this.#seatPrimary(body, failure);
@@ -13514,9 +13681,16 @@ class Checker {
    *   therefore caught whichever direction the bind went, `let f = if c then k
    *   else (() => ())` and the knot's members alike.
    * - Where the root is already a **constant** — a condemned face solved to it,
-   *   a body colour a `->!` demand sourced — the root says nothing, since every
-   *   bare call in the program shares it, and only the variables' own identity
-   *   does. That is why the whole chain is recorded and the whole chain walked.
+   *   a body colour a `->!` demand sourced, a conducting helper an annotation or
+   *   a `->` demand pinned pure before the seat ever ruled (#865) — the root
+   *   says nothing, since every bare call in the program shares it, and only the
+   *   variables' own identity does. That is why the whole chain is recorded and
+   *   the whole chain walked — and why what is handed in must be the **nodes**
+   *   the ordering recorded rather than the colours it reaches
+   *   (`#orderingNodes`). At a failed seat the root is *not* reliably a
+   *   variable: the programs §13.2 refuses for narrowing a slot through the
+   *   ordering are precisely the ones whose reached colours are constants
+   *   already.
    *
    * Both readings want the same instant: before §3.4's defaulting binds the
    * roots and before `#checkMarks` prunes. A ruling made after a body has
@@ -13546,6 +13720,61 @@ class Checker {
         break;
       }
     }
+  }
+
+  /**
+   * **What a failed seat's ruling has answered** *(#865; Effects §13.2)* — the
+   * nodes handed to `#suppressMarksOn`, in the raw chains that carry identity.
+   *
+   * Three sources, closed together:
+   *
+   * 1. the colour the seat condemned;
+   * 2. the freshened slots and their **forward reach** through the ordering, in
+   *    the nodes the edges recorded (`#orderingNodes`);
+   * 3. every colour **ordinary unification identified** with one of those — the
+   *    joins the seat's own arm made (`ColourJoin`). §13.2 says the identity is
+   *    read "wherever the set is consulted — never off the variable as it stood
+   *    when the edge was recorded", and after a bind that identity lives in the
+   *    chain; `#prune`'s path compression then cuts the middle of that chain
+   *    away, so the pair is closed over here instead of walked for later.
+   *
+   * The closure is a fixpoint over the joins, because one join can bring a node
+   * in that a second join then reaches from.
+   */
+  #seatCondemned(body: SeatBody, failure: SeatFailure): Mono[] {
+    const held = new Set<Mono>();
+    const chain = (colour: Mono): Mono[] => {
+      const nodes: Mono[] = [];
+      for (
+        let node: Mono | undefined = colour;
+        node !== undefined && node.kind === "Variable";
+        node = node.instance
+      ) {
+        nodes.push(node);
+      }
+      return nodes;
+    };
+    for (
+      const colour of [
+        failure.colour,
+        ...this.#orderingNodes(body.ordering, body.freshened),
+      ]
+    ) {
+      for (const node of chain(colour)) held.add(node);
+    }
+    for (let growing = held.size > 0; growing;) {
+      growing = false;
+      for (const join of body.joins) {
+        const nodes = [...chain(join.left), ...chain(join.right)];
+        if (!nodes.some((node) => held.has(node))) continue;
+        for (const node of nodes) {
+          if (held.has(node)) continue;
+          held.add(node);
+          growing = true;
+        }
+      }
+    }
+    return [...held];
   }
 
   /** Whether a settled colour belongs to a frame further out than this one. */
@@ -17442,6 +17671,44 @@ class Checker {
             replacements.get(variable.id) ?? variable,
           ]),
         );
+    /**
+     * A **colour the seat's ordering has bounded** is copied as the node it is,
+     * not as the constant it prunes to *(#865; Effects §13.2)*.
+     *
+     * `copy` prunes, which is right everywhere else: a copy of a solved variable
+     * is its solution. But a seat's ruling is read off the ordering, and the
+     * ordering's nodes are what carry the identity. `let one(): Unit = b!()`
+     * bounds `one`'s colour by the handed callback's slot; a `let p: () -> Unit
+     * = one` beside it then solves that colour to the pure constant, and every
+     * later `one!()` instantiated a callee whose colour was the bare constant —
+     * every bare call in the program shares it, so §13.2's "no mark report is
+     * made against any colour the ordering carries a freshened slot to" had
+     * nothing left to recognise, and the false `` "`one` wants no mark" ``
+     * deletion the seat's own refusal answers was reported beside it.
+     *
+     * Preserving the node changes no type: it prunes to exactly what the copy
+     * would have been, and every reader prunes. It is live only while a seat is
+     * open and only for the colours that seat bounded — `#seatBounded` is
+     * cleared at every seat's close.
+     *
+     * And only where the chain has since reached a **constant**, which is both
+     * where the identity is lost and the one case that cannot collide with
+     * freshening: a variable a scheme quantifies is a variable `#prune` still
+     * ends at, so the guard below never stands in front of a replacement. An
+     * unsolved colour is already copied as itself where no quantifier claims it.
+     */
+    const copyEffect = (effect: Mono): Mono => {
+      if (this.#seatBounded.size > 0 && this.#prune(effect).kind === "Effect") {
+        for (
+          let node: Mono | undefined = effect;
+          node !== undefined && node.kind === "Variable";
+          node = node.instance
+        ) {
+          if (this.#seatBounded.has(node)) return effect;
+        }
+      }
+      return copy(effect);
+    };
     const copy = (type: Mono): Mono => {
       const actual = this.#prune(type);
       if (actual.kind === "Variable") {
@@ -17493,7 +17760,7 @@ class Checker {
           kind: "Function",
           parameters: actual.parameters.map(copy),
           result: copy(actual.result),
-          ...(actual.effect === undefined ? {} : { effect: copy(actual.effect) }),
+          ...(actual.effect === undefined ? {} : { effect: copyEffect(actual.effect) }),
         };
       }
       if (actual.kind === "Tuple") {

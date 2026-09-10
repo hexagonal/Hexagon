@@ -19,7 +19,7 @@
 import { describe, expect, test } from "vitest";
 import { AnalysisSession } from "../analysis/session.js";
 import { STDLIB_SOURCES } from "../stdlib-sources.js";
-import { compileFiles } from "../support/test-project.js";
+import { compileFiles, runProject } from "../support/test-project.js";
 
 /** A one-module project's diagnostics, `module Main` prepended. */
 function messages(source: string): readonly string[] {
@@ -176,12 +176,19 @@ const linkedConflict = (member: string, handed: string): string =>
  * callback parameter. `inletGain` is the clause the advice takes on where
  * rewriting this parameter would leave the header inlet-less.
  */
+/**
+ * The article §9's rows take before the parameter they quote — the compiler's
+ * own `indefiniteArticle`, so a row about `b` reads "a `b`" where the spec's
+ * own example, `action`, reads "an `action`".
+ */
+const article = (name: string): string => (/^[aeiou]/iu.test(name) ? "an" : "a");
+
 const narrowerAcceptance = (
   member: string,
   parameter: string,
   inletGain = true,
 ): string =>
-  `\`${member}\`'s contract accepts an \`${parameter}\` of either colour, and ` +
+  `\`${member}\`'s contract accepts ${article(parameter)} \`${parameter}\` of either colour, and ` +
   "this instance accepts only a pure one — an instance accepts everything its " +
   "contract promises to accept — call the callback with `?` instead of handing " +
   "it, or a function that calls it, to a `->` demand, or, if the constraint is " +
@@ -190,7 +197,7 @@ const narrowerAcceptance = (
 
 /** Effects §9's **`->!`** narrower-acceptance row, verbatim. */
 const impureNarrowerAcceptance = (member: string, parameter: string): string =>
-  `\`${member}\`'s contract accepts an \`${parameter}\` that performs effects, ` +
+  `\`${member}\`'s contract accepts ${article(parameter)} \`${parameter}\` that performs effects, ` +
   "and this instance accepts only a pure one — an instance accepts everything " +
   "its contract promises to accept — call the callback with `!` instead of " +
   "handing it, or a function that calls it, to a `->` demand, or, if the " +
@@ -1924,11 +1931,18 @@ describe("Effects §3.4: a bounded body colour is a dependency, not a quantifier
     const inline = BODY_3_4([
       "let inner(): Unit =",
       "    b!()",
-      "    (() => ())()",
+      "    ignore(((n: Int) => n * 2)(runner.id))",
       "inner()",
     ]);
     expect(messages(inline)).toEqual([pureConflict("go", "b")]);
     expect(primaries(inline)).toEqual(["b!()"]);
+    // The lambda is applied where it is written, with an argument list, so the
+    // shape is one a program takes — an inline transformation named nowhere
+    // (review round 5, MINOR 5). What the witness needs of it is only that it
+    // be the *callee*: a lambda handed to a higher-order helper puts the
+    // helper's colour on the call, not the lambda's, and the deferral the guard
+    // turns on is the inline lambda's own.
+    //
     // The same with the lambda standing in a record field rather than applied
     // where it is written — a second route to the same deferral.
     const stored = BODY_3_4([
@@ -2337,5 +2351,323 @@ describe("Effects §13.2: a failed seat's suppression, and the conflict's two ti
       "this call is as effectful as the enclosing instantiation makes it, so " +
       "`spare` wants `?`, not no mark",
     ]);
+  });
+});
+
+/**
+ * **A slot the ordering carries to a pure constant is a slot narrowed**, and the
+ * seat refuses it at the pin — Effects §13.2's own sentence, in the half the
+ * implementation read only in one direction.
+ *
+ * *(Review round 5, BLOCKER 1 and MEDIUM 2: #865 reopened, with an executable
+ * witness.)* §13.2 has the seat refuse a body that hands the contract's callback
+ * to a `->` demand, "reporting at the pin that fixed the colour, narrowed or
+ * raised — the demand, annotation, supplied argument, or other expression whose
+ * unification fixed it, **directly or through a colour the ordering carries to
+ * it**, a `->` demand met by a lambda that **conducts** the callback narrowing
+ * it as surely as one met by the callback itself". Both halves were missed. The
+ * bounds test propagated a slot's impure lower bound *up* the ordering and never
+ * carried a pure constant standing above the slot back *down*, so a helper the
+ * body pinned pure after its frame closed narrowed the slot and nothing saw it:
+ * `force(b)` was refused while `force(() => b!())` beside it compiled to zero
+ * diagnostics and **ran the effect** behind the pure contract.
+ *
+ * The row is the one the selection table already gives such a narrowing: "a
+ * narrower-acceptance row is reached by a demand, an explicit annotation, or …
+ * a merge", and a merge alone is re-classified by James's rule where a pure
+ * upper arrow the contract writes is met. So a demand or an annotation reaching
+ * the slot through the ordering reports exactly as one reaching it directly —
+ * the same row, the same sentence, the pin as its primary — which is what the
+ * neighbouring case's own advice already promised: "call the callback with `!`
+ * instead of handing it, **or a function that calls it**, to a `->` demand".
+ */
+describe("Effects §13.2: a slot narrowed through the ordering", () => {
+  const PURE_HEAD = "constraint C<r> =\n    go(runner: r, b: () ->! Unit) -> Unit\n";
+  const IMPURE_HEAD = "constraint C<r> =\n    go(runner: r, b: () ->! Unit) ->! Unit\n";
+  const LINKED_HEAD = "constraint C<r> =\n" +
+    "    go(runner: r, a: () ->? Unit, b: () ->! Unit) ->? Unit\n";
+  const LINKED_ONLY = "constraint C<r> =\n    go(runner: r, a: () ->? Unit) ->? Unit\n";
+  const PURE_CALLBACK = "constraint C<r> =\n    go(runner: r, b: () -> Unit) -> Unit\n";
+  const BODY = (head: string, args: string, lines: readonly string[]): string =>
+    head +
+    "record R = { id: Int }\n" +
+    "honor C<R> =\n" +
+    `    go(${args}) =\n` +
+    lines.map((line) => `        ${line}\n`).join("");
+  /** A `->` demand, which is what a conducting lambda gets handed to. */
+  const FORCE = "let force(f: () -> Unit): Unit = f()\n";
+
+  test("an annotation on a helper that conducts the callback narrows the slot", () => {
+    // BLOCKER 1's minimal witness: the suite's own accepted shape with one line
+    // added. `one`'s colour is bounded below by `b`'s slot when its frame
+    // closes; `let p: () -> Unit = one` then solves that colour to the pure
+    // constant, which is `b`'s slot narrowed to pure through the ordering.
+    const lines = [
+      "let one(): Unit = b!()",
+      "let p: () -> Unit = one",
+      "one()",
+    ];
+    for (const [head, args] of [
+      [PURE_HEAD, "runner, b"],
+      [IMPURE_HEAD, "runner, b"],
+      [LINKED_HEAD, "runner, a, b"],
+    ] as const) {
+      const source = BODY(head, args, head === LINKED_HEAD ? [...lines, "a?()"] : lines);
+      expect(messages(source)).toEqual([impureNarrowerAcceptance("go", "b")]);
+      // §13.2 reports "at the pin that fixed the colour", and the pin here is
+      // the annotation, not the call and not the seat.
+      expect(primaries(source)).toEqual(["() -> Unit"]);
+    }
+  });
+
+  test("without the pin the same body is the conflict it always was", () => {
+    // The control the blocker turned on: delete the annotation and the seat
+    // refuses at `b!()` in the pure-contract row's conflict form. So the pin is
+    // what moves the report, and adding one no longer silences it.
+    const source = BODY(PURE_HEAD, "runner, b", [
+      "let one(): Unit = b!()",
+      "one()",
+    ]);
+    expect(messages(source)).toEqual([pureConflict("go", "b")]);
+    expect(primaries(source)).toEqual(["b!()"]);
+  });
+
+  test("a `->` demand met by a conducting lambda narrows it as the callback does", () => {
+    // §13.2's own clause, and the shape the neighbouring row's advice names.
+    // `force(b)` was already refused; `force(() => b!())` is handing "a function
+    // that calls it" to the same demand, and is refused in the same words.
+    const handed = FORCE + BODY(PURE_HEAD, "runner, b", ["force(b)"]);
+    const conducted = FORCE + BODY(PURE_HEAD, "runner, b", ["force(() => b!())"]);
+    expect(messages(conducted)).toEqual(messages(handed));
+    expect(messages(conducted)).toEqual([impureNarrowerAcceptance("go", "b")]);
+    expect(primaries(conducted)).toEqual(["force(() => b!())"]);
+    expect(primaries(handed)).toEqual(["force(b)"]);
+  });
+
+  test("and through a named local, a `fun`, and a second helper beyond it", () => {
+    // The conductor's spelling is immaterial: what the ordering carries is the
+    // colour. A `fun` reaches it because a colour the ordering bounds is
+    // §3.4's excluded case and stays a variable through the knot's close.
+    for (const lines of [
+      ["let g = () => b!()", "force(g)"],
+      ["let g(): Unit = b!()", "force(g)"],
+      ["fun g(): Unit = b!()", "force(g)"],
+      ["let mid(): Unit = b!()", "force(() => mid!())"],
+    ]) {
+      const source = FORCE + BODY(PURE_HEAD, "runner, b", lines);
+      expect(messages(source)).toEqual([impureNarrowerAcceptance("go", "b")]);
+    }
+  });
+
+  test("and through an alias of the conductor, and an annotation on the alias", () => {
+    // Slot identity read through unification, as everywhere else at this seat:
+    // `let k = one` prunes to `one`'s colour, and the annotation on `k` is the
+    // pin. The aliased *slot* — `let k = b` annotated directly — is the
+    // pre-existing direct case, and reports identically, which is the pair.
+    const throughAlias = BODY(PURE_HEAD, "runner, b", [
+      "let one(): Unit = b!()",
+      "let k = one",
+      "let p: () -> Unit = k",
+      "one()",
+    ]);
+    const onTheSlot = BODY(PURE_HEAD, "runner, b", [
+      "let k = b",
+      "let p: () -> Unit = k",
+      "()",
+    ]);
+    expect(messages(throughAlias)).toEqual([impureNarrowerAcceptance("go", "b")]);
+    expect(messages(onTheSlot)).toEqual(messages(throughAlias));
+    expect(primaries(throughAlias)).toEqual(["() -> Unit"]);
+  });
+
+  test("and through a collection element and a record field", () => {
+    // The annotation need not stand on a function binding at all: what it
+    // narrows is the colour, wherever the writer spelled `->` over it.
+    const inVector = BODY(PURE_HEAD, "runner, b", [
+      "let handlers: Vector(() -> Unit) = [() => b!()]",
+      "ignore(handlers)",
+    ]);
+    expect(messages(inVector)).toEqual([impureNarrowerAcceptance("go", "b")]);
+    expect(primaries(inVector)).toEqual(["Vector(() -> Unit)"]);
+    const inField = BODY(PURE_HEAD, "runner, b", [
+      "let one(): Unit = b!()",
+      "let box: { f: () -> Unit } = { f = one }",
+      "ignore(box)",
+    ]);
+    expect(messages(inField)).toEqual([impureNarrowerAcceptance("go", "b")]);
+    expect(primaries(inField)).toEqual(["{ f: () -> Unit }"]);
+  });
+
+  test("a linked callback narrowed through the ordering takes the linked row", () => {
+    // The row is the one the *contract colour at the failing arrow* selects, as
+    // §13.2's selection table says — so a `->?` callback conducted into a `->`
+    // demand takes the linked narrower-acceptance row, at its impure
+    // instantiation, with the inlet clause its advice carries.
+    const viaHelper = BODY(LINKED_ONLY, "runner, a", [
+      "let one(): Unit = a?()",
+      "let p: () -> Unit = one",
+      "one()",
+    ]);
+    expect(messages(viaHelper)).toEqual([narrowerAcceptance("go", "a")]);
+    expect(primaries(viaHelper)).toEqual(["() -> Unit"]);
+    const viaDemand = FORCE + BODY(LINKED_ONLY, "runner, a", ["force(() => a?())"]);
+    expect(messages(viaDemand)).toEqual([narrowerAcceptance("go", "a")]);
+    expect(primaries(viaDemand)).toEqual(["force(() => a?())"]);
+  });
+
+  test("a `->` callback narrowed is accepted: the floor is the bottom", () => {
+    // The rule is one-directional, and this is the side that must not move. A
+    // contract that promises only a pure callback places no floor to violate,
+    // so conducting it into a `->` demand is exactly what it promised.
+    expect(messages(FORCE + BODY(PURE_CALLBACK, "runner, b", ["force(() => b())"])))
+      .toEqual([]);
+    expect(messages(BODY(PURE_CALLBACK, "runner, b", [
+      "let one(): Unit = b()",
+      "let p: () -> Unit = one",
+      "one()",
+    ]))).toEqual([]);
+  });
+
+  test("and a conductor that is not narrowed is accepted under a `->!` header", () => {
+    // Nothing here pins the conducted colour, so nothing narrows the slot: the
+    // settle fixes it impure and the helper's own call wears `!`.
+    expect(messages(BODY(IMPURE_HEAD, "runner, b", [
+      "let one(): Unit = b!()",
+      "one!()",
+    ]))).toEqual([]);
+    // Under a **linked** header the same body is refused, and not for narrowing:
+    // an unconditional `->!` call fails the pure instantiation, which is the
+    // suite's standing pin for that shape. Recorded here so the acceptance above
+    // is not read as a claim about every outer arrow.
+    expect(messages(BODY(LINKED_HEAD, "runner, a, b", [
+      "let one(): Unit = b!()",
+      "one!()",
+    ]))).toEqual([linkedConflict("go", "b")]);
+  });
+
+  test("the refusal is the seat's one report, with no deletion fixit beside it", () => {
+    // *(Review round 5, MEDIUM 2.)* These are the programs in which a colour
+    // the reach carries is **already the pure constant** when the seat rules, so
+    // the suppression cannot be keyed on representatives: every bare call in the
+    // program shares that constant. Before the reach was taken in the nodes the
+    // ordering recorded, the knot drew three false "wants no mark" reports
+    // beside the refusal, each offering to delete a `!` from a genuinely impure
+    // call — the damage §13.2's suppression exists to prevent.
+    const knot = BODY(PURE_HEAD, "runner, b", [
+      "let force(f: (Int) -> Unit): Unit = f(0)",
+      "fun",
+      "    ping(n: Int): Unit = if n == 0 then b!() else pong!(n - 1)",
+      "    pong(n: Int): Unit = ping!(n)",
+      "force(ping)",
+      "ping!(2)",
+    ]);
+    expect(messages(knot)).toEqual([impureNarrowerAcceptance("go", "b")]);
+    expect(primaries(knot)).toEqual(["force(ping)"]);
+    expect(fixes(knot)).toEqual([]);
+    const twoLocals = BODY(PURE_HEAD, "runner, b", [
+      "let one(): Unit = b!()",
+      "let p: () -> Unit = one",
+      "one!()",
+    ]);
+    expect(messages(twoLocals)).toEqual([impureNarrowerAcceptance("go", "b")]);
+    expect(primaries(twoLocals)).toEqual(["() -> Unit"]);
+    expect(fixes(twoLocals)).toEqual([]);
+  });
+
+  test("where two pins qualify, the first in source order is the one named", () => {
+    // §13.2's standing tie-break — "wherever several calls, merges, pins, or
+    // demands qualify for any seat row's primary, the first in source order is
+    // the one named". The ordering carries `b`'s slot to both helpers, and both
+    // are annotated, so both pins narrow it; the report names one.
+    const pins = (first: string, second: string) =>
+      BODY(PURE_HEAD, "runner, b", [
+        "let one(): Unit = b!()",
+        "let two(n: Int): Unit = one()",
+        first,
+        second,
+        "two(0)",
+      ]);
+    const onFirst = pins("let p: () -> Unit = one", "let q: (Int) -> Unit = two");
+    const onSecond = pins("let q: (Int) -> Unit = two", "let p: () -> Unit = one");
+    expect(messages(onFirst)).toEqual([impureNarrowerAcceptance("go", "b")]);
+    expect(messages(onSecond)).toEqual(messages(onFirst));
+    // Written order, not walk order and not the order the edges were recorded.
+    expect(primaries(onFirst)).toEqual(["() -> Unit"]);
+    expect(primaries(onSecond)).toEqual(["(Int) -> Unit"]);
+  });
+
+  test("an impure constant above the slot narrows nothing: the top is the top", () => {
+    // The direction is the whole rule. A conductor the body pins `->!` puts the
+    // *top* of the lattice above the slot, which is no bound at all — the
+    // contract's `->!` callback is exactly what it accepts. Read symmetrically,
+    // this program becomes a refusal saying the instance accepts only a pure
+    // callback while its own annotation writes `->!`.
+    expect(messages(BODY(IMPURE_HEAD, "runner, b", [
+      "let one(): Unit = b!()",
+      "let p: () ->! Unit = one",
+      "one!()",
+    ]))).toEqual([]);
+  });
+
+  test("a helper the ordering does not reach still keeps its own mark report", () => {
+    // The suppression's boundary, unmoved: `quiet` conducts nothing, so its
+    // colour is no colour the seat ruled on and its error is its own.
+    const source = BODY(PURE_HEAD, "runner, b", [
+      "let quiet(): Unit = ()",
+      "let one(): Unit = b!()",
+      "let p: () -> Unit = one",
+      "quiet!()",
+      "one()",
+    ]);
+    expect(messages(source)).toEqual([
+      impureNarrowerAcceptance("go", "b"),
+      "this call is pure, so `quiet` wants no mark, not `!`",
+    ]);
+  });
+
+  test("#865's executable witness no longer compiles, and its repair runs once", async () => {
+    // *(Review round 5, BLOCKER 1, executed.)* The reviewer compiled this,
+    // linked it, and watched `readIt` run behind the `->` contract with the
+    // compiler reporting nothing. It is refused now — so it never runs — and
+    // the member written `->!`, which is the row's own advice, both compiles and
+    // performs the effect exactly once.
+    const io =
+      "let reads = 0;\n" +
+      "export function readIt(path) { reads += 1; return path; }\n" +
+      "export function readCount() { return reads; }\n";
+    const program = (arrow: string, body: readonly string[]) => [
+      ["/main.hex",
+        "module Main\n\n" +
+        'extern from "./io.js"\n' +
+        "    export fun readIt(path: String): String\n" +
+        "    export fun readCount(): Int\n\n" +
+        "constraint Runner<r> =\n" +
+        `    run(runner: r, action: () ->! Unit) ${arrow} Unit\n\n` +
+        "record Job = { id: Int }\n\n" +
+        "honor Runner<Job> =\n" +
+        "    run(job, action) =\n" +
+        body.map((line) => `        ${line}\n`).join("") +
+        '\nlet world(): Unit = ignore(readIt!("x"))\n\n' +
+        "let job: Job = Job({ id = 1 })\n\n" +
+        "export let count(): Int =\n" +
+        `    run${arrow === "->" ? "" : "!"}(job, () => world!())\n` +
+        "    readCount!()\n"],
+      ["/io.js", io],
+    ] as const;
+    const laundered = program("->", [
+      "let one(): Unit = action!()",
+      "let p: () -> Unit = one",
+      "one()",
+    ]);
+    expect(projectMessages(laundered))
+      .toEqual([impureNarrowerAcceptance("run", "action")]);
+    const honest = program("->!", ["action!()"]);
+    expect(projectMessages(honest)).toEqual([]);
+    const linked = `data:text/javascript;charset=utf-8,${encodeURIComponent(io)}`;
+    const exports_ = await runProject([...honest], {
+      transform: (_path, javascript) =>
+        javascript.replaceAll('"./io.js"', JSON.stringify(linked)),
+    });
+    expect((exports_["count"] as () => number)()).toBe(1);
   });
 });
