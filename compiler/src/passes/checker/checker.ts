@@ -11893,6 +11893,37 @@ class Checker {
   }
 
   /**
+   * **How every seat-side set is read** *(#885; Effects §13.2, §3.4)*.
+   *
+   * A seat's sets hold colours, and a colour is not a node: it is whatever the
+   * node's chain currently ends at. Ordinary unification runs between the write
+   * and the read — the conduit loop's own ordinary arm binds one body colour
+   * into another three lines below where the seat records it — so a set read by
+   * *identity* on the node it stored answers "no" the moment anything binds
+   * that node, and the seat silently loses a slot it holds. That is not a
+   * corner: it is the ordinary case for a body that calls two things.
+   *
+   * So both sides are pruned **at the moment of the read**. A later bind can
+   * only change what `#prune` returns, and it changes it for the stored colour
+   * and the asked colour alike — two colours unification made one have one
+   * representative, and this test finds them equal whichever direction the bind
+   * went and however long the chain grew. What a writer stored is therefore
+   * immaterial — the node it had in hand will do — and no writer has to
+   * remember to re-canonicalise a set after a unification.
+   *
+   * Linear in the set, which holds one entry per freshened slot plus one per
+   * body colour the seat bounded — a handful, once per absorbed call.
+   */
+  #holdsColour(held: Iterable<Mono> | undefined, colour: Mono): boolean {
+    if (held === undefined) return false;
+    const representative = this.#prune(colour);
+    for (const candidate of held) {
+      if (this.#prune(candidate) === representative) return true;
+    }
+    return false;
+  }
+
+  /**
    * Whether a callee's colour is one this seat's freshening minted, or one the
    * ordering already carries such a slot to — a parameter's, a local's that
    * carries it, or a closure's that conducts it *(#885; Effects §13.2)*.
@@ -11903,17 +11934,7 @@ class Checker {
    * as §3.4's arms do.
    */
   #carriesSeatSlot(colour: Mono): boolean {
-    const carried = this.#seatSlots;
-    if (carried === undefined) return false;
-    if (carried.has(this.#prune(colour))) return true;
-    // A colour ordinary unification bound since the slot was recorded reaches
-    // it through its own chain, so the set is read down the chain rather than
-    // rebuilt: the closure is grown one edge at a time, as the ordering is.
-    for (let node: Mono | undefined = colour; node !== undefined; node = node.instance) {
-      if (node.kind !== "Variable") break;
-      if (carried.has(node)) return true;
-    }
-    return false;
+    return this.#holdsColour(this.#seatSlots, colour);
   }
 
   /**
@@ -11924,7 +11945,7 @@ class Checker {
    * it has.
    */
   #conductLinkedSlot(colour: Mono, span: Source.Span): void {
-    if (this.#seatLinkedSlots?.has(colour) !== true) return;
+    if (!this.#holdsColour(this.#seatLinkedSlots, colour)) return;
     const first = this.#seatConducted;
     if (first === undefined) {
       this.#seatConducted = colour;
@@ -12946,8 +12967,22 @@ class Checker {
     ) {
       this.#reportedFaces.add(node);
     }
+    // Each freshened colour is recorded **along its chain**, exactly as the
+    // condemned colour above is, and for the reason `#holdsColour` gives: a
+    // merge may have bound the slot into the colour it was merged with, and it
+    // is then the *representative* a call's mark obligation carries, not the
+    // node the freshening minted. Recording only the minted node left `let f =
+    // if c then k else (() => ())` — a slot merged with a lambda's colour — with
+    // the seat's refusal and a second report calling the very `f!()` it
+    // condemned pure.
     for (const freshened of body.freshened) {
-      if (this.#prune(freshened).kind === "Variable") this.#reportedFaces.add(freshened);
+      for (
+        let node: Mono | undefined = freshened;
+        node !== undefined && node.kind === "Variable";
+        node = node.instance
+      ) {
+        this.#reportedFaces.add(node);
+      }
     }
     const member = `\`${contract.member}\``;
     const at = this.#seatPosition(contract, failure.place);
@@ -16630,11 +16665,26 @@ class Checker {
     // the contract's callback would read as pure at its call. Sunk to this
     // level, as every other declined variable is, so no enclosing
     // generalization quantifies it either.
-    if (this.#seatBounded.size > 0 && variables.some((v) => this.#seatBounded.has(v))) {
-      for (const variable of variables) {
-        if (this.#seatBounded.has(variable)) variable.level = level;
+    //
+    // Read through prunes, as `#holdsColour` explains: the conduit loop records
+    // `own` and then its own ordinary arm binds that very variable into another
+    // one, so a guard that asked `has(variable)` on the node it stored stopped
+    // recognising the colour it had just bounded — and quantified it, and every
+    // use of the enclosing helper then instantiated a copy the ordering, the
+    // settle and the disposal could none of them reach. That is #865 reopened:
+    // a body performing a `->!` callback's effects under a `->` contract was
+    // accepted with no diagnostic at all.
+    if (this.#seatBounded.size > 0) {
+      const bounded = new Set<Mono>();
+      for (const variable of this.#seatBounded) bounded.add(this.#prune(variable));
+      // `#collectVariables` yields representatives, so this compares
+      // representative against representative, both taken now.
+      if (variables.some((variable) => bounded.has(variable))) {
+        for (const variable of variables) {
+          if (bounded.has(variable)) variable.level = level;
+        }
+        variables = variables.filter((variable) => !bounded.has(variable));
       }
-      variables = variables.filter((variable) => !this.#seatBounded.has(variable));
     }
     if (allow && this.#prune(evaluated ?? type).kind !== "Function") {
       // Closure doc §13.6, the evidence-seat rule. Evidence has exactly one

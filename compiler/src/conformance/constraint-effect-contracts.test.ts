@@ -1663,6 +1663,182 @@ describe("Effects §13.2: the freshening, and what the bounds leave as the order
   });
 });
 
+/**
+ * **A colour the seat bounded is a dependency** — Effects §3.4's fifth, and the
+ * one the seat adds *(#885)*. A body colour the ordering carries a slot to may
+ * not be generalized: every use would instantiate a copy the seat's comparison,
+ * settle and disposal could none of them reach.
+ *
+ * *(Review round 3, BLOCKER 1.)* The guard existed and was defeated by the
+ * ordinary unification standing three lines from where the bound is recorded:
+ * it was keyed on the **node** the conduit arm had in hand, and a body that
+ * calls a second thing binds that node into another. Every case below is a body
+ * that calls two things — the ordinary case, not a corner — and each one gave
+ * the wrong verdict before the seat's sets were read through prunes. The worst
+ * is the first: a body performing a `->!` callback's effects under a `->`
+ * contract, accepted with no diagnostic at all, which is #865, the defect this
+ * PR closes.
+ */
+describe("Effects §3.4: a bounded body colour is a dependency, not a quantifier", () => {
+  const KNOT = (head: string, args: string, mark: string, first: string, second: string) =>
+    head +
+    "export record R = { id: Int }\n" +
+    "honor C<R> =\n" +
+    `    go(${args}) =\n` +
+    "        fun\n" +
+    `            ping(n: Int): Unit = if n == 0 then ${first} else ${second}\n` +
+    `            pong(n: Int): Unit = ping${mark}(n)\n` +
+    `        ping${mark}(2)\n`;
+  const PURE_HEAD = "constraint C<r> =\n    go(runner: r, b: () ->! Unit) -> Unit\n";
+  const LINKED_HEAD = "constraint C<r> =\n" +
+    "    go(runner: r, a: () ->? Unit, b: () ->! Unit) ->? Unit\n";
+  const IMPURE_HEAD = "constraint C<r> =\n    go(runner: r, b: () ->! Unit) ->! Unit\n";
+
+  test("a `fun` knot inside a seat is bounded whichever call the `if` reaches first", () => {
+    // The knot is what made the defect unmissable: `ping` and `pong` close
+    // together, so the body's own colour is bound into a sibling's before the
+    // seat ever compares. Both orders, because the defect's signature was that
+    // swapping these two calls flipped the verdict.
+    const first = KNOT(PURE_HEAD, "runner, b", "", "b!()", "pong(n - 1)");
+    expect(messages(first)).toEqual([pureConflict("go", "b")]);
+    expect(primaries(first)).toEqual(["b!()"]);
+    expect(labels(first)).toEqual([["the contract's failing arrow: \"->\""]]);
+    const second = KNOT(PURE_HEAD, "runner, b", "", "pong(n - 1)", "b!()");
+    expect(messages(second)).toEqual([pureConflict("go", "b")]);
+    // The offending call is the first in source order carrying the condemned
+    // colour, and in this order that is the sibling the knot conducts through.
+    expect(primaries(second)).toEqual(["pong(n - 1)"]);
+    expect(labels(second)).toEqual([["the contract's failing arrow: \"->\""]]);
+  });
+
+  test("and the same knot under a linked header refuses at the pure instantiation", () => {
+    const first = KNOT(LINKED_HEAD, "runner, a, b", "?", "b!()", "pong?(n - 1)");
+    expect(messages(first)).toEqual([linkedConflict("go", "b")]);
+    expect(primaries(first)).toEqual(["b!()"]);
+    expect(labels(first)).toEqual([["the contract's failing arrow: \"->?\""]]);
+    const second = KNOT(LINKED_HEAD, "runner, a, b", "?", "pong?(n - 1)", "b!()");
+    expect(messages(second)).toEqual([linkedConflict("go", "b")]);
+    expect(primaries(second)).toEqual(["pong?(n - 1)"]);
+  });
+
+  test("and under a `->!` header the knot is accepted, in both orders", () => {
+    // The mirror image of the first case, and the defect's other face: with the
+    // bound lost, the knot's colours generalized, the seat settled nothing, and
+    // a correctly written `ping!(2)` drew "this call is pure, so `ping` wants no
+    // mark" — a false refusal of a program the contract permits.
+    expect(messages(KNOT(IMPURE_HEAD, "runner, b", "!", "b!()", "pong!(n - 1)")))
+      .toEqual([]);
+    expect(messages(KNOT(IMPURE_HEAD, "runner, b", "!", "pong!(n - 1)", "b!()")))
+      .toEqual([]);
+  });
+
+  test("a helper that calls the handed callback and then a second callee", () => {
+    // No knot needed: two ordinary local functions reach it, because the second
+    // callee's colour is still a variable — the seat holds the defaulting back —
+    // and the ordinary arm binds the helper's own colour into it. The seat's
+    // refusal stands at `b!()`, and nothing is said about `spare`, which is
+    // `let spare(): Unit = ()`.
+    const source = PURE_HEAD +
+      "export record R = { id: Int }\n" +
+      "honor C<R> =\n" +
+      "    go(runner, b) =\n" +
+      "        let spare(): Unit = ()\n" +
+      "        let inner(): Unit =\n" +
+      "            b!()\n" +
+      "            spare()\n" +
+      "        inner()\n";
+    expect(messages(source)).toEqual([pureConflict("go", "b")]);
+    expect(primaries(source)).toEqual(["b!()"]);
+    expect(labels(source)).toEqual([["the contract's failing arrow: \"->\""]]);
+  });
+
+  test("and one local helper conducting the callback, under each outer arrow", () => {
+    const helper = (head: string, args: string, mark: string) =>
+      head +
+      "export record R = { id: Int }\n" +
+      "honor C<R> =\n" +
+      `    go(${args}) =\n` +
+      "        let inner(): Unit =\n" +
+      "            b!()\n" +
+      `        inner${mark}()\n`;
+    expect(messages(helper(PURE_HEAD, "runner, b", "")))
+      .toEqual([pureConflict("go", "b")]);
+    expect(primaries(helper(PURE_HEAD, "runner, b", ""))).toEqual(["b!()"]);
+    expect(messages(helper(LINKED_HEAD, "runner, a, b", "?")))
+      .toEqual([linkedConflict("go", "b")]);
+    expect(primaries(helper(LINKED_HEAD, "runner, a, b", "?"))).toEqual(["b!()"]);
+    expect(messages(helper(IMPURE_HEAD, "runner, b", "!"))).toEqual([]);
+  });
+
+  test("a merged slot is still a slot: the seat bounds it rather than joining it", () => {
+    // *(Review round 3, MEDIUM 2 — the witness that set had none.)* The set of
+    // colours the freshening minted was read by identity too, and a merge binds
+    // the slot into the colour it was merged with. Read that way the call on
+    // `f` fell to the ordinary arm, which *joined* the slot to the body's own —
+    // "two slots that stay two" (§13.2) collapsed into one — and the impure
+    // bound `k!()` puts on the body's colour then arrived at `j`'s pure slot,
+    // so a bare call on a provably pure merge was told to write `!`.
+    const merged = (before: string, after: string) =>
+      "constraint Runner<r> =\n" +
+      "    run(runner: r, j: () -> Unit, k: () ->! Unit) ->! Unit\n" +
+      "export record Job = { id: Int }\n" +
+      "let c: Bool = True\n" +
+      "honor Runner<Job> =\n" +
+      "    run(job, j, k) =\n" +
+      "        let f = if c then j else (() => ())\n" +
+      `${before}${after}`;
+    expect(messages(merged("        f()\n", "        k!()\n"))).toEqual([]);
+    // And in the other call order, which is where the identity read's answer
+    // depended on which way the merge's unification happened to bind.
+    expect(messages(merged("        k!()\n", "        f()\n"))).toEqual([]);
+    // The merge written the other way round binds the other way and was right
+    // by luck; it must stay right.
+    expect(messages(
+      "constraint Runner<r> =\n" +
+      "    run(runner: r, j: () -> Unit, k: () ->! Unit) ->! Unit\n" +
+      "export record Job = { id: Int }\n" +
+      "let c: Bool = True\n" +
+      "honor Runner<Job> =\n" +
+      "    run(job, j, k) =\n" +
+      "        let f = if c then (() => ()) else j\n" +
+      "        f()\n" +
+      "        k!()\n",
+    )).toEqual([]);
+  });
+
+  test("and the same merged slot under a linked outer arrow", () => {
+    expect(messages(
+      "constraint Runner<r> =\n" +
+      "    run(runner: r, j: () -> Unit, a: () ->? Unit) ->? Unit\n" +
+      "export record Job = { id: Int }\n" +
+      "let c: Bool = True\n" +
+      "honor Runner<Job> =\n" +
+      "    run(job, j, a) =\n" +
+      "        let f = if c then j else (() => ())\n" +
+      "        f()\n" +
+      "        a?()\n",
+    )).toEqual([]);
+  });
+
+  test("a merged slot the seat condemned draws no second report about its call", () => {
+    // The companion set (review round 3): `#reportedFaces` is keyed the same
+    // way, and a merge may bind the freshened slot into the colour it was
+    // merged with — so the node the freshening minted is no longer the one the
+    // call's mark obligation carries. Recording the chain rather than the node
+    // keeps §13.2's "a failed seat settles nothing, so no mark report is made
+    // against any colour the freshening minted" true of a merged slot too.
+    const source =
+      "constraint Runner<r> =\n    run(runner: r, k: () ->! Unit) -> Unit\n" +
+      "export record Job = { id: Int }\n" +
+      "let c: Bool = True\n" +
+      "honor Runner<Job> =\n" +
+      "    run(job, k) =\n" +
+      "        let f = if c then k else (() => ())\n" +
+      "        f!()\n";
+    expect(messages(source)).toEqual([pureConflict("run", "k")]);
+  });
+});
+
 describe("Constraints §8: a member header's arrow seat, and what recovery leaks", () => {
   test("`=>` at the arrow seat takes the type-arrow redirect, and one typo yields one report", () => {
     // *(Fix round 1.)* Four diagnostics before this: the redirect's absence
