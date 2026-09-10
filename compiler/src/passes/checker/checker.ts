@@ -12958,6 +12958,21 @@ class Checker {
       // `b` could point the writer at the expression that merged `d`. §13.2
       // asks each row's own test of each slot, so the entry is narrowed to the
       // lower bounds standing at the colour that failed.
+      //
+      // **The fallback below is for the conductor** *(review round 8, INFO 4)*.
+      // Where the merge stands on a **helper** rather than on the slot — the
+      // ordering carrying `b` to `one`, and the merge fixing `one` — the colour
+      // the merge solved is the helper's, and the entry's lower bounds stand at
+      // the slot the helper carries. The filter then finds none of its own, and
+      // reading the pooled entry is what answers: there is one merged colour in
+      // the entry to be confused with, its own. Three shapes in this file reach
+      // it, all three conductors — the merge on a conductor, `#pureUpperAbove`'s
+      // through-the-ordering arm at a nested frame, and the triple in both
+      // orders with the merge on a conductor — and dropping the fallback fails
+      // exactly those three. So the narrowing above is per-slot **where the
+      // entry holds the failing slot's own bound**, which is every direct
+      // merge; a conductor's merge reads the entry whole, having nothing else
+      // to read.
       const own = bound?.lowers.filter((lower) =>
         this.#sameColour(lower.colour, merged.colour)
       );
