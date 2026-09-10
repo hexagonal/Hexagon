@@ -11942,20 +11942,50 @@ class Checker {
     // handed callback narrows that callback as surely as a `->` demand does,
     // and the seat then reports at that pin. And two **linked** slots one body
     // conducts are still made one colour, at the second `?` call.
+    //
+    // **The seat arm is reached before the constant skip** *(#865, review round
+    // 6)*. §3.4's ordinary arm has nothing to do with a callee whose colour is
+    // already a constant — a pure one joins nothing and an impure one was
+    // unified in the loop above — so that skip was the whole of the test. But
+    // the seat arm's question is a different one, and §13.2 answers it in the
+    // ordering rather than in the colour: the test is "read against the
+    // ordering as it then stands, **which only grows**". The ordering is a
+    // relation over the *nodes* its edges recorded, and ordinary unification
+    // solving a conductor's colour pure does not take that node out of it. So a
+    // `let two(): Unit = one()` beyond a `let p: () -> Unit = one` still bounds
+    // `two`'s colour by `one`'s, and the reach the failed seat's suppression and
+    // the narrowing read both walk still reaches `two`.
+    //
+    // A pure lower bound fixes nothing — it is the bottom of the lattice — so
+    // the arm's typing is unchanged by admitting it: the branch it takes from
+    // skipped no unification either. What changes is what the ordering records.
     for (const { effect, span } of frame.absorbed) {
       const colour = this.#prune(effect);
-      if (colour.kind === "Effect") continue;
       const own = this.#prune(frame.own);
       if (isImpure(own)) continue;
-      if (atSeat && own.kind === "Variable" && this.#carriesSeatSlot(colour)) {
-        this.#conductLinkedSlot(colour, span);
-        this.#colourOrdering.push({ lower: colour, upper: own, span });
-        // The ordering "only grows", and so does its closure: a colour a slot
-        // now bounds is one a later call on it bounds through (§13.2).
-        this.#seatSlots?.add(own);
-        this.#seatBounded.add(own);
-        continue;
+      if (atSeat && own.kind === "Variable") {
+        const carried = this.#carriesSeatSlot(effect);
+        if (carried !== undefined) {
+          // Linked slots are the member's one variable, so this joining clause
+          // asks its question of a colour still a variable; a chain that has
+          // reached a constant stands at no `->?` inlet.
+          if (colour.kind === "Variable") this.#conductLinkedSlot(colour, span);
+          // The lower recorded is the **node the seat already holds**, not the
+          // callee's own node and not the constant it prunes to. Both of the
+          // others lose the edge: a constant is the one colour every pure call
+          // in the program wears, and a callee's node is one `#prune`'s path
+          // compression can cut out of every chain the ordering can still see.
+          // Recording the node the test just matched keeps the ordering a
+          // relation over its own nodes, which is what lets it "only grow".
+          this.#colourOrdering.push({ lower: carried, upper: own, span });
+          // The ordering "only grows", and so does its closure: a colour a slot
+          // now bounds is one a later call on it bounds through (§13.2).
+          this.#seatSlots?.add(own);
+          this.#seatBounded.add(own);
+          continue;
+        }
       }
+      if (colour.kind === "Effect") continue;
       // §3.4's ordinary arm, and inside a seat the pair it is about to make one
       // colour is recorded first (#865): after the bind, `#prune`'s path
       // compression can cut either node out of the other's chain, and the
@@ -12035,6 +12065,29 @@ class Checker {
   }
 
   /**
+   * **Whether two colours are one node of the ordering** *(#865, review round
+   * 6; Effects §13.2)*.
+   *
+   * `#holdsColour`'s representative test is the right one while the chain still
+   * ends at a **variable**: two colours unification made one have one
+   * representative, and a colour unified with a recorded node *is* that node.
+   * It stops being the right one the moment the chain reaches a **constant**,
+   * because every pure colour in the program shares that constant — the same
+   * hazard `copyEffect` and `#suppressMarksOn` read raw chains for. There the
+   * **node** is the only thing that separates the ordering's colours from the
+   * rest, and node identity is enough because every colour that reaches this
+   * test has been canonicalised at the door it came through: an instantiation
+   * hands back the node the seat holds (`copyEffect`), and an edge records the
+   * node its own test matched (`#settleFrame`). No chain walk, so `#prune`'s
+   * path compression has nothing to cut short.
+   */
+  #sameColour(left: Mono, right: Mono): boolean {
+    const representative = this.#prune(left);
+    if (representative !== this.#prune(right)) return false;
+    return representative.kind === "Variable" || left === right;
+  }
+
+  /**
    * Whether a callee's colour is one this seat's freshening minted, or one the
    * ordering already carries such a slot to — a parameter's, a local's that
    * carries it, or a closure's that conducts it *(#885; Effects §13.2)*.
@@ -12043,9 +12096,28 @@ class Checker {
    * the edges are consulted in the order the calls were absorbed, so a chain
    * built in order is carried in order, and a knot's close reaches its fixpoint
    * as §3.4's arms do.
+   *
+   * **And it only grows** *(review round 6)*: the set is read by `#sameColour`,
+   * which keeps a recorded node recognisable after ordinary unification has
+   * solved its colour to a constant. Read through representatives alone the
+   * ordering would stop growing exactly where §13.2 has the seat refuse — a
+   * conductor an annotation or a `->` demand pinned pure, with a second helper
+   * calling it one line below.
+   *
+   * Answers with **the node the seat holds**, so the caller can record that
+   * node rather than the callee's own — one canonical node per colour.
    */
-  #carriesSeatSlot(colour: Mono): boolean {
-    return this.#holdsColour(this.#seatSlots, colour);
+  #carriesSeatSlot(colour: Mono): Mono | undefined {
+    if (this.#seatSlots === undefined) return undefined;
+    for (const candidate of this.#seatSlots) {
+      if (this.#sameColour(candidate, colour)) return candidate;
+    }
+    return undefined;
+  }
+
+  /** Whether an open seat holds any node an instantiation must not copy away. */
+  #seatHoldsNodes(): boolean {
+    return this.#seatBounded.size > 0 || (this.#seatSlots?.size ?? 0) > 0;
   }
 
   /**
@@ -12066,36 +12138,16 @@ class Checker {
   }
 
   /**
-   * What the ordering carries a set of colours to — the transitive closure of
-   * §13.2's lower-bound edges, in pruned colours so a pair ordinary unification
-   * merged is one node here. The seed is included: a slot carries itself.
-   */
-  #orderingReach(edges: readonly ColourEdge[], from: readonly Mono[]): Set<Mono> {
-    const reached = new Set<Mono>(from.map((colour) => this.#prune(colour)));
-    for (let growing = true; growing;) {
-      growing = false;
-      for (const edge of edges) {
-        const upper = this.#prune(edge.upper);
-        if (reached.has(upper) || !reached.has(this.#prune(edge.lower))) continue;
-        reached.add(upper);
-        growing = true;
-      }
-    }
-    return reached;
-  }
-
-  /**
-   * The same reach, in the **raw nodes the edges recorded** rather than in
-   * pruned representatives *(#865)*.
+   * What the ordering carries a set of colours to, in the **raw nodes the edges
+   * recorded** *(#865)*. The seed is included: a slot carries itself.
    *
-   * `#orderingReach` answers "which colours does this slot carry to", and a
-   * colour is a representative — which is the right answer wherever the
-   * question is about the *colour*. Two questions are about the **node**, and
-   * lose their answer to pruning:
+   * `#orderingReach` below answers the same question in representatives, which
+   * is the right answer wherever the question is about the *colour*. Three
+   * questions are about the **node**, and lose their answer to pruning:
    *
    * - **Where was a reached colour pinned?** A pin is recorded on the variable
    *   the constant reached (`#colourPins`), and a reached colour ordinary
-   *   unification has since solved arrives at `#orderingReach` as the constant,
+   *   unification has since solved arrives in representatives as the constant,
    *   which carries no pin and no span. §13.2 reports such a narrowing "at the
    *   pin that fixed the colour … directly or through a colour the ordering
    *   carries to it", so the pin has to be reachable from the ordering.
@@ -12103,19 +12155,53 @@ class Checker {
    *   raw chains for exactly the reason its own comment gives, and a reach
    *   handed to it in representatives contributes nothing once the
    *   representative is a constant — every bare call in the program shares it.
+   * - **Which slot's chain is this?** *(review round 6, MINOR 3.)* One pure
+   *   constant is every pure colour's representative, so a reach that grows
+   *   through representatives makes it a **hub**: once any colour on one slot's
+   *   chain prunes pure, every edge in the seat's ordering whose lower prunes
+   *   pure joins the reach, and a report about `b` can take its pin off a
+   *   conductor of `c`. §13.2 gives each row's primary "the first in source
+   *   order … qualification being each row's own test", and an annotation that
+   *   narrows another slot qualifies for nothing here.
    *
-   * Reachability is still decided in representatives, because that is what a
-   * colour *is*; only what comes back is raw. Every edge whose lower end the
-   * reach holds contributes its upper node, so two helpers pinned to the same
-   * constant both come back, and the seeds come back as given.
+   * So growth is decided by `#sameColour`: representative identity while the
+   * chain still ends at a variable — a colour unification made one with a
+   * recorded node *is* that node — and node identity once it has reached a
+   * constant. Reachability and the answer are then the same walk, and a
+   * constant is never a hub, because a constant is on no chain of its own.
    */
   #orderingNodes(edges: readonly ColourEdge[], from: readonly Mono[]): Mono[] {
-    const reached = this.#orderingReach(edges, from);
     const nodes: Mono[] = [...from];
-    for (const edge of edges) {
-      if (reached.has(this.#prune(edge.lower))) nodes.push(edge.upper);
+    const held = new Set<Mono>(from);
+    const reaches = (colour: Mono): boolean =>
+      nodes.some((node) => this.#sameColour(node, colour));
+    for (let growing = true; growing;) {
+      growing = false;
+      for (const edge of edges) {
+        // Node identity first, and not only as a shortcut: it is what bounds
+        // the walk. `#sameColour` is reflexive on every node an edge can carry
+        // — an `upper` is always a variable — but the set is what guarantees
+        // each edge is taken at most once, so the fixpoint terminates on the
+        // edges rather than on a colour test.
+        if (held.has(edge.upper) || reaches(edge.upper) || !reaches(edge.lower)) continue;
+        nodes.push(edge.upper);
+        held.add(edge.upper);
+        growing = true;
+      }
     }
     return nodes;
+  }
+
+  /**
+   * The same reach in **colours** — the pruned representatives of the nodes
+   * above — for the readers whose question is about the colour: the bounds a
+   * seat collects are keyed by representative (`#colourKey`), and so is the
+   * join a released colour takes.
+   */
+  #orderingReach(edges: readonly ColourEdge[], from: readonly Mono[]): Set<Mono> {
+    return new Set(
+      this.#orderingNodes(edges, from).map((colour) => this.#prune(colour)),
+    );
   }
 
   /**
@@ -12574,9 +12660,21 @@ class Checker {
       // writes, **directly or through the ordering**": the arrow above may bound
       // the body's own colour rather than the merged slot itself, and with two
       // slots that stay two those are two variables (§13.2).
-      const above = this.#pureUpperAbove(bounds, body.ordering, failure.slot);
-      if (above !== undefined && bound !== undefined && bound.lowers.length > 0) {
-        failure = this.#conflictAt(body, bound, above);
+      //
+      // Seeded at the **handed slots' own body colours**, never at the bounds
+      // key: the key of a colour the merge solved is the pure constant, which
+      // is on no chain of its own and so carries the reach nowhere
+      // (`#orderingNodes`). The handed slot is the colour the merge fixed —
+      // directly, or through the conductor the ordering carries it to — so its
+      // forward reach is exactly §13.2's "through the ordering", and it is the
+      // same list the conflict's own selector reads.
+      if (bound !== undefined && bound.lowers.length > 0) {
+        const above = this.#pureUpperAbove(
+          bounds,
+          body.ordering,
+          bound.lowers.map((lower) => lower.colour),
+        );
+        if (above !== undefined) failure = this.#conflictAt(body, bound, above);
       }
     }
     if (failure === undefined) failure = conflict;
@@ -12606,16 +12704,21 @@ class Checker {
     // is slot identity read through pruning — `let k = b` prunes to the same
     // colour `b`'s slot does, so a `k!()` is a direct call (§13.2, #889).
     const direct = bound.lowers
-      .map((lower) => this.#prune(lower.colour))
+      .map((lower) => lower.colour)
       .filter((colour) => this.#holdsColour(body.freshened, colour));
-    const carried = [...this.#orderingReach(
+    // The **nodes**, not the colours (#865, review round 6): a merge can solve a
+    // handed slot to the pure constant, and a set of representatives then holds
+    // one colour every bare call in the program shares — the offending call
+    // becomes unfindable and the report falls back to the merge, parting the
+    // named form from the inline one §13.2 pairs it with.
+    const carried = this.#orderingNodes(
       body.ordering,
       bound.lowers.map((lower) => lower.colour),
-    )];
+    );
     const call = this.#conflictOffendingCall(body, direct, carried);
     const chosen = (call === undefined
       ? undefined
-      : bound.lowers.find((lower) => this.#prune(lower.colour) === call.colour)) ??
+      : bound.lowers.find((lower) => this.#sameColour(lower.colour, call.colour))) ??
       bound.lowers[0]!;
     return {
       ...upper,
@@ -12674,14 +12777,23 @@ class Checker {
    * slot itself or by a colour the ordering carries it to (§13.2's merge
    * classification). "First" is walk order, the same order every other seat
    * selection reads.
+   *
+   * The `slots` handed in are the handed slots' own body **nodes**, so the
+   * reach starts on the chains the merge solved rather than at the constant it
+   * solved them to. That is what makes §13.2's paired requirement hold where
+   * the pure ceiling is the **outer** arrow — `go(runner: r, b: () ->! Unit) ->
+   * Unit` honored by a body that merges `b` with a pure function and then calls
+   * the merge, one of the two spellings §13.2 pairs. The call
+   * records the edge, the outer arrow bounds the body's own colour above, and
+   * the named, `let`-bound and inline spellings all report that conflict.
    */
   #pureUpperAbove(
     bounds: ReadonlyMap<Mono, SeatBounds>,
     edges: readonly ColourEdge[],
-    slot: Mono,
+    slots: readonly Mono[],
   ): SeatFailure | undefined {
     let earliest: SeatFailure | undefined;
-    for (const colour of this.#orderingReach(edges, [slot])) {
+    for (const colour of this.#orderingReach(edges, slots)) {
       const above = bounds.get(colour)?.pureUpper;
       if (above === undefined) continue;
       if (earliest === undefined || above.order < earliest.order) earliest = above;
@@ -12950,20 +13062,19 @@ class Checker {
     body: SeatBody,
     colours: readonly Mono[],
   ): { readonly span: Source.Span; readonly colour: Mono } | undefined {
-    const wanted = new Set<Mono>();
-    for (const colour of colours) {
-      const solved = this.#prune(colour);
-      // A colour ordinary unification solved **pure** is carried by no offending
-      // call: every bare call in the body wears it (`#offendingCall`).
-      if (solved.kind === "Effect" && !solved.impure) continue;
-      wanted.add(solved);
-    }
+    // "Slot identity, not spelling … the identity read through pruning"
+    // (§13.2), which is `#sameColour`: representative identity while the chain
+    // still ends at a variable, and **node** identity once it has reached a
+    // constant. The node test is what keeps a slot a merge solved pure findable
+    // — a set of representatives would hold the one colour every bare call in
+    // the body wears, so the old read had to drop such a colour entirely and
+    // the conflict then had no offending call to stand at.
     let earliest: { span: Source.Span; colour: Mono } | undefined;
     for (const call of body.calls) {
-      const solved = this.#prune(call.effect);
-      if (!wanted.has(solved)) continue;
+      const matched = colours.find((colour) => this.#sameColour(colour, call.effect));
+      if (matched === undefined) continue;
       if (earliest === undefined || precedes(call.span, earliest.span)) {
-        earliest = { span: call.span, colour: solved };
+        earliest = { span: call.span, colour: matched };
       }
     }
     return earliest;
@@ -17688,8 +17799,20 @@ class Checker {
      *
      * Preserving the node changes no type: it prunes to exactly what the copy
      * would have been, and every reader prunes. It is live only while a seat is
-     * open and only for the colours that seat bounded — `#seatBounded` is
-     * cleared at every seat's close.
+     * open and only for the colours that seat holds — a colour the ordering
+     * bounded, and (review round 6) a **freshened slot** itself, which a merge
+     * can solve pure just as an annotation solves a conductor's: `let f = if c
+     * then b else spare` fixes `b`'s own slot, and without the node the call
+     * `f()` below records no edge and §13.2's paired requirement has no
+     * ordering to read. Both sets are cleared at every seat's close.
+     *
+     * The node returned is **the one the seat holds**, not the head of the
+     * chain that reached it. The two prune alike, so no type moves; what it
+     * buys is that every colour the seat later reads is a node the seat's own
+     * sets contain, and the ordering's identity test is then plain node
+     * identity rather than a chain walk `#prune`'s path compression can cut
+     * short. One canonical node per colour, chosen at the one door that mints
+     * them.
      *
      * And only where the chain has since reached a **constant**, which is both
      * where the identity is lost and the one case that cannot collide with
@@ -17698,13 +17821,15 @@ class Checker {
      * unsolved colour is already copied as itself where no quantifier claims it.
      */
     const copyEffect = (effect: Mono): Mono => {
-      if (this.#seatBounded.size > 0 && this.#prune(effect).kind === "Effect") {
+      if (this.#seatHoldsNodes() && this.#prune(effect).kind === "Effect") {
         for (
           let node: Mono | undefined = effect;
           node !== undefined && node.kind === "Variable";
           node = node.instance
         ) {
-          if (this.#seatBounded.has(node)) return effect;
+          if (this.#seatBounded.has(node) || this.#seatSlots?.has(node) === true) {
+            return node;
+          }
         }
       }
       return copy(effect);

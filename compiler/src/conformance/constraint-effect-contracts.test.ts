@@ -1394,6 +1394,85 @@ describe("Effects §13.2: broader acceptance, the raise, the annotation, and the
     expect(primaries(bound)).toEqual(["if c then k else g"]);
   });
 
+  test("the paired requirement holds where the pure upper arrow is the OUTER one", () => {
+    // *(Review round 6, MEDIUM 2.)* The pair above puts the pure ceiling on the
+    // arrow the contract **returns**. Here it is the member's own **outer**
+    // arrow, and the named and `let`-bound spellings took the
+    // narrower-acceptance merge form while the inline one took the conflict —
+    // different row, different sentence, different primary, both refused. §13.2
+    // pins them "as a pair receiving equivalent explanations **wherever both
+    // are refused**", and its merge classification says which of the two:
+    // a merge's incidental constant reports as the conflict "where the merged
+    // colour also meets a pure upper arrow the contract writes, directly or
+    // **through the ordering**". The outer arrow is such an arrow — the call
+    // `f()` records the edge that carries the merged slot up to the body's own
+    // colour, which the outer `->` bounds above.
+    const outer = (other: string, bind = "") =>
+      "constraint C<r> =\n    go(runner: r, b: () ->! Unit) -> Unit\n" +
+      "record R = { id: Int }\nlet c: Bool = True\nlet spare(): Unit = ()\n" +
+      "honor C<R> =\n    go(runner, b) =\n" + bind +
+      `        let f = if c then b else ${other}\n` +
+      "        f()\n";
+    for (
+      const [other, bind] of [
+        ["spare", ""],
+        ["(() => ())", ""],
+        ["g", "        let g = () => ()\n"],
+      ] as const
+    ) {
+      const source = outer(other, bind);
+      expect(messages(source)).toEqual([pureConflict("go", "b")]);
+      expect(primaries(source)).toEqual(["f()"]);
+      expect(labels(source)).toEqual([[
+        'the contract\'s failing arrow: "->"',
+        "the merge that joined the handed callback in: " +
+        JSON.stringify(`if c then b else ${other}`),
+      ]]);
+    }
+  });
+
+  test("and where the merge stands on a CONDUCTOR rather than on the slot", () => {
+    // The same pair one step further out: the merge fixes a helper's colour,
+    // and the ordering carries `b`'s slot to that helper and the helper's to
+    // the body. At `86bb9e6` the named spelling was accepted outright — the
+    // hole BLOCKER 1 closed — so this instance of the divergence is one this
+    // train created, and it is closed with the rest of the family.
+    const conductor = (other: string) =>
+      "constraint C<r> =\n    go(runner: r, b: () ->! Unit) -> Unit\n" +
+      "record R = { id: Int }\nlet c: Bool = True\nlet spare(): Unit = ()\n" +
+      "honor C<R> =\n    go(runner, b) =\n" +
+      "        let one(): Unit = b!()\n" +
+      `        let f = if c then one else ${other}\n` +
+      "        ignore(f)\n" +
+      "        one()\n";
+    for (const source of [conductor("spare"), conductor("(() => ())")]) {
+      expect(messages(source)).toEqual([pureConflict("go", "b")]);
+      expect(primaries(source)).toEqual(["b!()"]);
+    }
+  });
+
+  test("`#pureUpperAbove`'s through-the-ordering arm, at a nested frame", () => {
+    // *(Review round 6, INFO 4.)* The arm reads the ordering because "the arrow
+    // above may bound the body's own colour rather than the merged slot
+    // itself, and with two slots that stay two those are two variables". This
+    // is the shape that reaches it with the edge recorded at an **inner**
+    // frame's close: `two` conducts `one`, the merge fixes `two`, and the body
+    // itself calls `one`. Restricted to the merged slot's own key the two
+    // spellings diverge; reading the ordering they coincide.
+    const nested = (other: string) =>
+      "constraint C<r> =\n    go(runner: r, b: () ->! Unit) -> Unit\n" +
+      "record R = { id: Int }\nlet c: Bool = True\nlet spare(): Unit = ()\n" +
+      "honor C<R> =\n    go(runner, b) =\n" +
+      "        let one(): Unit = b!()\n" +
+      "        let two(): Unit = one()\n" +
+      "        one()\n" +
+      `        ignore(if c then two else ${other})\n`;
+    for (const source of [nested("spare"), nested("(() => ())")]) {
+      expect(messages(source)).toEqual([pureConflict("go", "b")]);
+      expect(primaries(source)).toEqual(["b!()"]);
+    }
+  });
+
   test("and plain forwarding keeps its seat-level conflict report", () => {
     const source =
       "constraint Maker<a> =\n    make(k: () ->! Unit) -> (() -> Unit)\n" +
@@ -2170,6 +2249,60 @@ describe("Effects §13.2: a failed seat's suppression, and the conflict's two ti
     }
   });
 
+  test("and the reach carries past a conductor a pin has already solved", () => {
+    // *(Review round 6, MEDIUM 1.)* The suppression was fixed for a conductor
+    // the pin stands **on**. It was not fixed for one standing **beyond** the
+    // pin, and the difference is one line of source order: `let p` solves
+    // `one`'s colour pure, and `two` calls `one` after that. Read through
+    // representatives the ordering stopped growing exactly there, so `two` was
+    // in no reach, in no join and on no chain, and §3.4 defaulted it pure —
+    // "this call is pure, so `two` wants no mark, not `!`", with a fixit
+    // offering to delete the `!` from a genuinely impure call, beside a
+    // refusal that already names the body. §13.2 has the test "read against
+    // the ordering as it then stands, **which only grows**".
+    const twoLocals = BODY(PURE_HEAD, "runner, b", [
+      "let one(): Unit = b!()",
+      "let p: () -> Unit = one",
+      "let two(): Unit = one()",
+      "two!()",
+    ]);
+    expect(messages(twoLocals)).toEqual([impureNarrowerAcceptance("go", "b")]);
+    expect(primaries(twoLocals)).toEqual(["() -> Unit"]);
+    expect(fixes(twoLocals)).toEqual([]);
+    // The knot beyond the pin, which drew four: three false deletions.
+    const knot = BODY(PURE_HEAD, "runner, b", [
+      "let one(): Unit = b!()",
+      "let p: () -> Unit = one",
+      "fun",
+      "    ping(n: Int): Unit = if n == 0 then one() else pong!(n - 1)",
+      "    pong(n: Int): Unit = ping!(n)",
+      "ping!(2)",
+    ]);
+    expect(messages(knot)).toEqual([impureNarrowerAcceptance("go", "b")]);
+    expect(primaries(knot)).toEqual(["() -> Unit"]);
+    expect(fixes(knot)).toEqual([]);
+    // The order-flipped control, correct all along: with the pin written after
+    // the conductor the edge was recorded while both colours were variables.
+    // One diagnostic and no fixit on either side of the line, which is the
+    // point — source order is not what decides a colour's identity.
+    const flipped = BODY(PURE_HEAD, "runner, b", [
+      "let one(): Unit = b!()",
+      "let two(): Unit = one()",
+      "let p: () -> Unit = one",
+      "two!()",
+    ]);
+    expect(messages(flipped)).toEqual([impureNarrowerAcceptance("go", "b")]);
+    expect(fixes(flipped)).toEqual([]);
+    // And the deletions were wrong repairs, measured: repair the seat instead
+    // and every mark they offered to remove is a mark the program needs.
+    const repaired = BODY(IMPURE_HEAD, "runner, b", [
+      "let one(): Unit = b!()",
+      "let two(): Unit = one!()",
+      "two!()",
+    ]);
+    expect(messages(repaired)).toEqual([]);
+  });
+
   test("and the two-locals and lambda shapes in the marked spelling too", () => {
     // The same question of the shapes that do not knot: a chain of two named
     // locals, and a lambda the ordering reaches. Both are marked as the writer
@@ -2572,6 +2705,63 @@ describe("Effects §13.2: a slot narrowed through the ordering", () => {
     expect(messages(twoLocals)).toEqual([impureNarrowerAcceptance("go", "b")]);
     expect(primaries(twoLocals)).toEqual(["() -> Unit"]);
     expect(fixes(twoLocals)).toEqual([]);
+  });
+
+  test("and the pin is taken from THIS slot's conductors, never another's", () => {
+    // *(Review round 6, MINOR 3.)* Two `->!` callbacks, each with its own chain
+    // of conductors and its own annotation. Reachability read in
+    // **representatives** made the pure constant a hub: once any colour on a
+    // slot's chain pruned pure, every edge in the seat's ordering whose lower
+    // pruned pure joined the reach — including a different slot's — and the
+    // report about `b` took its primary from `let r2`, an annotation on a
+    // helper that conducts `c`. Deleting `r2` repairs nothing about `b`.
+    // §13.2: "the first in source order is the one named — **qualification
+    // being each row's own test**". The two chains are spelled at different
+    // arities so the primary's own text says which one it stands on.
+    const source =
+      "constraint C<r> =\n" +
+      "    go(runner: r, b: () ->! Unit, c: (Int) ->! Unit) -> Unit\n" +
+      "record R = { id: Int }\n" +
+      "honor C<R> =\n    go(runner, b, c) =\n" +
+      "        let two(n: Int): Unit = c!(n)\n" +
+      "        let three(n: Int): Unit = two(n)\n" +
+      "        let r2: (Int) -> Unit = three\n" +
+      "        let q: (Int) -> Unit = two\n" +
+      "        let one(): Unit = b!()\n" +
+      "        let p: () -> Unit = one\n" +
+      "        one()\n" +
+      "        three(0)\n";
+    expect(messages(source)).toEqual([impureNarrowerAcceptance("go", "b")]);
+    expect(primaries(source)).toEqual(["() -> Unit"]);
+  });
+
+  test("a body-local `let` annotation takes the row's DEMAND limb", () => {
+    // *(Review round 6, INFO 5.)* §9's first limb reads "do not narrow the
+    // callback here" "where the pin is an annotation rather than a demand", and
+    // `#annotationPins` holds the member's **own parameter annotation** alone.
+    // A `let p: () -> Unit = one` written in the body is a demand, and §4.3
+    // says so in as many words: outside a seat the same binding reports "a `->`
+    // arrow promises purity … the demand is written `->`". §13.2 introduces the
+    // annotation limb as "a member's own written annotation for the parameter
+    // is its face". So the two spellings take the two limbs, and the choice is
+    // deliberate rather than incidental — pinned here because round 6 makes the
+    // distinction load-bearing in a dozen cases that had only ever been checked
+    // on the member-parameter spelling.
+    const demanded = BODY(PURE_HEAD, "runner, b", [
+      "let one(): Unit = b!()",
+      "let p: () -> Unit = one",
+      "one()",
+    ]);
+    expect(messages(demanded)).toEqual([impureNarrowerAcceptance("go", "b")]);
+    const annotated = PURE_HEAD +
+      "record R = { id: Int }\n" +
+      "honor C<R> =\n    go(runner, b: () -> Unit) = ()\n";
+    expect(messages(annotated)).toEqual([
+      "`go`'s contract accepts a `b` that performs effects, and this instance " +
+      "accepts only a pure one — an instance accepts everything its contract " +
+      "promises to accept — do not narrow the callback here, or, if the " +
+      "constraint is yours, write the member's callback parameter `->`",
+    ]);
   });
 
   test("where two pins qualify, the first in source order is the one named", () => {
