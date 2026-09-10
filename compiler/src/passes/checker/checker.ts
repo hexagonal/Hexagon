@@ -5305,6 +5305,10 @@ class Checker {
             item.span,
           );
         }
+        // §13.2's "before its generalization": a named local function's colour
+        // defaults here, inside a seat as outside one, and only a lambda keeps
+        // the variable the seat has not defaulted (`#defaultNamedFrame`).
+        this.#defaultNamedFrame(item.value);
         const scheme = this.#generalize(
           valueType,
           level,
@@ -6163,6 +6167,14 @@ class Checker {
       // discharges its fence here rather than where it reported.
       if (knot.refused) this.#errorKnotHeads(knot);
       this.#pinUnreachableKnotEvidence(knot, recursiveTypes, level);
+      // The knot's close is where a `fun` member's colour is generalized, and
+      // so where §3.4's defaulting reaches it (§4.1: "a knot sibling's is
+      // checked at the knot's close, when it is no longer undetermined"). Every
+      // member first, then every scheme: a sibling's colour a member conducts is
+      // decided before any of them is quantified (`#defaultNamedFrame`).
+      for (const symbol of ordered) {
+        this.#defaultNamedFrame(bySymbol.get(symbol)!.value);
+      }
       for (const symbol of ordered) {
         this.#schemes.set(
           symbol,
@@ -11692,6 +11704,47 @@ class Checker {
     for (const frame of this.#deferredFrames.splice(from)) {
       this.#defaultFrameColour(frame);
     }
+  }
+
+  /**
+   * **A named local function defaults at its own generalization, inside a seat
+   * as outside one** *(#867; Effects §13.2, §3.4)*.
+   *
+   * §13.2 says which colours a seat holds a variable and why: "a named
+   * function's colour having been defaulted pure before its generalization
+   * (§3.4) where a lambda's is still a variable the seat has not defaulted".
+   * The deferral the seat imposes is therefore a **lambda's**, not every nested
+   * frame's — a lambda has no generalization point of its own, so its
+   * defaulting belongs to the enclosing binding's, which follows the seat. A
+   * `let f() = …` and a `fun` knot member have one, and §3.4's defaulting
+   * clause reaches them there: an unconstrained body colour is pure before its
+   * scheme is built.
+   *
+   * Blanket deferral made `let spare(): Unit = ()` beside a `b!()` refused
+   * under a `->!` header — `spare`'s colour was still a variable when the
+   * enclosing body's conduit loop absorbed `spare()`, so §3.4's *ordinary* arm
+   * joined the two and the seat's settle then drove the helper impure. The same
+   * program outside a seat is accepted, and nothing in §13.2 asks for the
+   * difference.
+   *
+   * **Constrained is not unconstrained.** A colour the ordering bounds — a
+   * helper that calls what the contract handed the body, or one that conducts
+   * such a helper — is exactly what §3.4's defaulting clause excludes, so it
+   * stays a variable and stays deferred: the seat's settle and disposal are
+   * what answer it, and `#releaseDeferredFrames` defaults whatever is left. The
+   * test reads `#seatBounded` through prunes (`#holdsColour`), because the
+   * conduit loop's own ordinary arm binds one body colour into another between
+   * the write and this read.
+   */
+  #defaultNamedFrame(value: Resolved.Expr): void {
+    if (this.#seatBodies === 0 || value.kind !== "Lambda") return;
+    const frame = this.#frameByLambda.get(value);
+    if (frame === undefined) return;
+    const index = this.#deferredFrames.indexOf(frame);
+    if (index < 0) return;
+    if (this.#holdsColour(this.#seatBounded, frame.own)) return;
+    this.#defaultFrameColour(frame);
+    if (this.#prune(frame.own).kind !== "Variable") this.#deferredFrames.splice(index, 1);
   }
 
   /**

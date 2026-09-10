@@ -2034,6 +2034,22 @@ describe("Effects §13.2: a failed seat's suppression, and the conflict's two ti
     expect(primaries(source)).toEqual(["b!()"]);
   });
 
+  test("a helper the ordering does not reach keeps its own mark report", () => {
+    // "its error being its own": `quiet` calls nothing, so no slot reaches it
+    // and §4.1 speaks about it as it would anywhere.
+    const source = BODY(PURE_HEAD, "runner, b", [
+      "let one(): Unit = b!()",
+      "let quiet(): Unit = ()",
+      "quiet!()",
+      "one()",
+    ]);
+    expect(messages(source)).toEqual([
+      pureConflict("go", "b"),
+      "this call is pure, so `quiet` wants no mark, not `!`",
+    ]);
+    expect(primaries(source)).toEqual(["b!()", "!"]);
+  });
+
   test("and a wrong mark on a reached helper surfaces once the seat is repaired", () => {
     // "diagnostic recovery only": the seat settles nothing and defaulting still
     // runs, so the suppression buys one compile, never silence. Repaired by
@@ -2116,4 +2132,68 @@ describe("Effects §13.2: a failed seat's suppression, and the conflict's two ti
     expect(primaries(source)).toEqual(["b!()"]);
   });
 
+  test("a named local function defaults at its own generalization, seat or no seat", () => {
+    // §13.2's merge-classification sentence says which colour a seat holds a
+    // variable and why: "a named function's colour having been defaulted pure
+    // before its generalization (§3.4) where a lambda's is still a variable the
+    // seat has not defaulted". Blanket deferral made this program refused —
+    // `spare`'s colour was joined to the body's own, and the settle then drove
+    // the helper impure.
+    expect(messages(BODY(IMPURE_HEAD, "runner, b", [
+      "let spare(): Unit = ()",
+      "spare()",
+      "b!()",
+    ]))).toEqual([]);
+    // A `fun` knot member has a generalization point too — the knot's close.
+    expect(messages(BODY(IMPURE_HEAD, "runner, b", [
+      "fun spare(): Unit = ()",
+      "spare()",
+      "b!()",
+    ]))).toEqual([]);
+    // And the `->` refusal is unchanged: the helper says nothing, the seat says
+    // everything.
+    const refused = BODY(PURE_HEAD, "runner, b", [
+      "let spare(): Unit = ()",
+      "spare()",
+      "b!()",
+    ]);
+    expect(messages(refused)).toEqual([pureConflict("go", "b")]);
+    expect(primaries(refused)).toEqual(["b!()"]);
+  });
+
+  test("and under a linked header the seat's answer is the answer outside one", () => {
+    // The same two locals under a `->?` outer arrow. The seat accepts them, and
+    // the mark the inlet demands of `spare()` is **#890**'s — a pre-existing
+    // #868 gap that reproduces with no constraint in sight, so the pin here is
+    // the equivalence: inside a seat, a named local function is answered
+    // exactly as it is outside one.
+    const LINKED_ONLY = "constraint C<r> =\n    go(runner: r, a: () ->? Unit) ->? Unit\n";
+    expect(messages(BODY(LINKED_ONLY, "runner, a", [
+      "let spare(): Unit = ()",
+      "spare?()",
+      "a?()",
+    ]))).toEqual([]);
+    expect(messages(BODY(LINKED_ONLY, "runner, a", [
+      "fun spare(): Unit = ()",
+      "spare?()",
+      "a?()",
+    ]))).toEqual([]);
+    // Bare, the seat says what the constraint-free program says, word for word.
+    const inSeat = messages(BODY(LINKED_ONLY, "runner, a", [
+      "let spare(): Unit = ()",
+      "spare()",
+      "a?()",
+    ]));
+    const outside = messages(
+      "let outer(a: () ->? Unit): Unit =\n" +
+      "    let spare(): Unit = ()\n" +
+      "    spare()\n" +
+      "    a?()\n",
+    );
+    expect(inSeat).toEqual(outside);
+    expect(inSeat).toEqual([
+      "this call is as effectful as the enclosing instantiation makes it, so " +
+      "`spare` wants `?`, not no mark",
+    ]);
+  });
 });
