@@ -759,11 +759,65 @@ describe("Effects §13.2: where a seat's refusal stands", () => {
     expect(primaries(source)).toEqual(["a!()"]);
   });
 
+  test("the clause names the slot the offending call stands at, not another", () => {
+    // "the message names the contract parameter that slot stands at, whatever
+    // the call spells". Two `->!` slots that merely both settle are not a body
+    // that "merged several contract slots into one", so the merged-slot clause
+    // — the first in the contract's parameter order — does not apply, and a
+    // report primary at `b!()` may not tell the writer not to call `a`.
+    const source = RUN("->") +
+      "export record Pair = { x: Unit, y: Unit }\n" +
+      "honor Runner<Job> =\n" +
+      "    run(job, a, b) = ignore(Pair({ y = b!(), x = a!() }))\n";
+    expect(primaries(source)).toEqual(["b!()"]);
+    expect(messages(source)).toEqual([pureConflict("run", "b")]);
+  });
+
+  test("but where a merge made several slots one, the first in contract order", () => {
+    // The clause §13.2 reserves for an actual merge: `f` is `a` and `b` at
+    // once, no call can tell them apart, and `a` is first in the header.
+    const source = RUN("->") +
+      "let c: Bool = True\n" +
+      "honor Runner<Job> =\n" +
+      "    run(job, a, b) =\n        let f = if c then b else a\n        f!()\n";
+    expect(primaries(source)).toEqual(["f!()"]);
+    expect(messages(source)).toEqual([pureConflict("run", "a")]);
+  });
+
   test("one report per seat, however many arrows offend", () => {
     const source = RUN("->") +
       "honor Runner<Job> =\n    run(job, a, b) =\n        b!()\n        a!()\n";
     expect(messages(source)).toHaveLength(1);
     expect(primaries(source)).toEqual(["b!()"]);
+  });
+
+  test("the conflicting variable whose first bound the walk took EARLIEST", () => {
+    // Two conflicting variables in one walk, which two slots that stay two make
+    // reachable: the body's own colour under the outer `->`, and the returned
+    // closure's under the `->` the contract returns. Both are bounded below by
+    // `k`'s slot through the ordering; the outer arrow's bound was taken first,
+    // so the outer arrow's frame is the one that reports, and the result form
+    // waits for the next compile (§13.2's "one committed answer at a time").
+    const source =
+      "constraint Maker<a> =\n    make(seed: a, k: () ->! Unit) -> (() -> Unit)\n" +
+      "export record S = { n: Int }\n" +
+      "honor Maker<S> =\n    make(seed, k) =\n        k!()\n        (() => k!())\n";
+    expect(messages(source)).toEqual([pureConflict("make", "k")]);
+    expect(primaries(source)).toEqual(["k!()"]);
+    // With only the returned closure offending, the same seat takes the result
+    // form — so the message above is the *choice* of variable, not the only
+    // frame this contract can produce.
+    expect(messages(
+      "constraint Maker<a> =\n    make(seed: a, k: () ->! Unit) -> (() -> Unit)\n" +
+      "export record S = { n: Int }\n" +
+      "honor Maker<S> =\n    make(seed, k) = (() => k!())\n",
+    )).toEqual([
+      "this call performs effects the contract hands the body, and `make`'s " +
+      "contract returns a `->` function — an instance performs no more than " +
+      "its contract permits, and `k` may perform effects whatever the caller " +
+      "supplies — do not call `k` here, or, if the constraint is yours, write " +
+      "`->!` on the arrow the contract returns",
+    ]);
   });
 
   test("the seat itself is the primary where no call carries the colour", () => {
@@ -776,7 +830,11 @@ describe("Effects §13.2: where a seat's refusal stands", () => {
       "honor Maker<S> =\n    make(k) = k\n";
     expect(messages(source)).toEqual([pureSeatConflict("make", "k", true)]);
     expect(primaries(source)).toEqual(["make(k) = k"]);
+    // **Both**, as the comment says: the failing upper arrow — the `->` inside
+    // `(() -> Unit)`, whose written token is recorded like every other arrow's
+    // — and the handed callback's, in walk order.
     expect(labels(source)).toEqual([[
+      "the contract's failing arrow: \"->\"",
       "the handed callback's contract arrow: \"->!\"",
     ]]);
   });
@@ -789,6 +847,61 @@ describe("Effects §13.2: where a seat's refusal stands", () => {
       "honor Maker<S> =\n    make(k) = if c then k else (() => ())\n";
     expect(messages(source)).toEqual([pureMergeConflict("make", "k", true)]);
     expect(primaries(source)).toEqual(["if c then k else (() => ())"]);
+    // A merge primary takes the handed callback's arrow as its second related
+    // location, beside the failing one (§9, §13.2).
+    expect(labels(source)).toEqual([[
+      "the contract's failing arrow: \"->\"",
+      "the handed callback's contract arrow: \"->!\"",
+    ]]);
+  });
+
+  test("a call primary relates the merge that joined the handed callback in", () => {
+    // "the merge that joined the handed slot into the colour that arrow bounds
+    // … a second related location where one did" (§9's contract rows).
+    const source =
+      "constraint Runner<r> =\n    run(runner: r, k: () ->! Unit) -> Unit\n" +
+      "export record Job = { id: Int }\n" +
+      "let c: Bool = True\n" +
+      "honor Runner<Job> =\n" +
+      "    run(job, k) =\n" +
+      "        let f = if c then k else (() => ())\n" +
+      "        f!()\n";
+    expect(messages(source)).toEqual([pureConflict("run", "k")]);
+    expect(primaries(source)).toEqual(["f!()"]);
+    expect(labels(source)).toEqual([[
+      "the contract's failing arrow: \"->\"",
+      "the merge that joined the handed callback in: " +
+      "\"if c then k else (() => ())\"",
+    ]]);
+  });
+
+  test("the invariant clause relates the contract's invariant arrow", () => {
+    const source =
+      "constraint Runner<r> =\n    run(runner: r, cells: Array(() -> Unit)) -> Unit\n" +
+      "export record Job = { id: Int }\n" +
+      "let force(fs: Array(() ->! Unit)): Unit = ()\n" +
+      "honor Runner<Job> =\n    run(job, cells) = force(cells)\n";
+    expect(primaries(source)).toEqual(["force(cells)"]);
+    expect(labels(source)).toEqual([[
+      "the contract's invariant arrow: \"->\"",
+    ]]);
+  });
+
+  test("a default body's seat relates its failing arrow too", () => {
+    // Constraints §8's row names two seats — the honor block's member line and
+    // the constraint's default member line — and Effects §9 gives them the same
+    // related location. The default body is compared against the member's own
+    // scheme rather than a re-elaborated contract, so both must reach the
+    // written arrow through one route.
+    const source =
+      IO + "constraint Deflt<a> =\n    tag(x: a) -> String = readIt!(\"z\")\n" +
+      "export record P = { name: String }\n" +
+      "honor Deflt<P> =\n    tag(x) = x.name\n";
+    expect(messages(source)).toEqual([pureContract("tag")]);
+    expect(primaries(source)).toEqual(["readIt!(\"z\")"]);
+    expect(labels(source)).toEqual([[
+      "the contract's failing arrow: \"->\"",
+    ]]);
   });
 });
 
@@ -799,41 +912,55 @@ describe("Effects §13.2: every frame names the arrow's actual position", () => 
     `honor Maker<S> =\n    make(seed) = ${body}\n`;
 
   test("the result form, where the path is result steps alone", () => {
-    expect(messages(MAKER("(() -> Unit)", '() => Debug.log(readIt!("x"))'))).toEqual([
+    const source = MAKER("(() -> Unit)", '() => Debug.log(readIt!("x"))');
+    expect(messages(source)).toEqual([
       "the function this instance returns performs effects, and `make`'s " +
       "contract returns a `->` function — an instance performs no more than its " +
       "contract permits — keep this body pure, or, if the constraint is yours, " +
       "write `->!` on the arrow the contract returns",
     ]);
+    // §9 makes the failing arrow a related location on **every** row, and a
+    // `->` fails as readily as a coloured arrow does.
+    expect(labels(source)).toEqual([["the contract's failing arrow: \"->\""]]);
   });
 
   test("and a step into data ends that path", () => {
     // *(Fix round 1.)* `Vector(() -> Unit)` is not a function this instance
     // *returns*: the descent into the vector's element is a data step, and the
     // frame that claimed otherwise was false.
-    expect(messages(MAKER("Vector(() -> Unit)", '[() => Debug.log(readIt!("x"))]')))
-      .toEqual([
-        "a function this instance supplies performs effects, and `make`'s " +
-        "contract writes `->` inside its result — an instance performs no more " +
-        "than its contract permits — keep this body pure, or, if the constraint " +
-        "is yours, write `->!` on that arrow inside its result",
-      ]);
+    const source = MAKER("Vector(() -> Unit)", '[() => Debug.log(readIt!("x"))]');
+    expect(messages(source)).toEqual([
+      "a function this instance supplies performs effects, and `make`'s " +
+      "contract writes `->` inside its result — an instance performs no more " +
+      "than its contract permits — keep this body pure, or, if the constraint " +
+      "is yours, write `->!` on that arrow inside its result",
+    ]);
+    expect(labels(source)).toEqual([["the contract's failing arrow: \"->\""]]);
   });
 
   test("the parameter form, for an arrow standing under a named parameter", () => {
-    expect(messages(IO +
+    const source = IO +
       "constraint Maker<a> =\n    make(seed: a, use: (() -> Unit) -> Unit) -> Unit\n" +
       "export record S = { n: Int }\n" +
-      "honor Maker<S> =\n    make(seed, use) = use(() => Debug.log(readIt!(\"x\")))\n",
-    )).toEqual([
+      "honor Maker<S> =\n    make(seed, use) = use(() => Debug.log(readIt!(\"x\")))\n";
+    expect(messages(source)).toEqual([
       "a function this instance supplies performs effects, and `make`'s " +
       "contract writes `->` inside the parameter `use` — an instance performs " +
       "no more than its contract permits — keep this body pure, or, if the " +
       "constraint is yours, write `->!` on that arrow inside the parameter `use`",
     ]);
+    expect(labels(source)).toEqual([["the contract's failing arrow: \"->\""]]);
   });
 
   test("the narrower-acceptance rows take the same three forms", () => {
+    // Each row's own failing arrow — supplied, and so `->!` — is its related
+    // location (§9's two narrower-acceptance rows).
+    expect(labels(
+      "constraint Runner<r> =\n    run(runner: r, cell: (() ->! Unit, Int)) -> Unit\n" +
+      "export record Job = { id: Int }\n" +
+      "let force(c: (() -> Unit, Int)): Unit = ()\n" +
+      "honor Runner<Job> =\n    run(job, cell) = force(cell)\n",
+    )).toEqual([["the contract's failing arrow: \"->!\""]]);
     expect(messages(
       "constraint Runner<r> =\n    run(runner: r, cell: (() ->! Unit, Int)) -> Unit\n" +
       "export record Job = { id: Int }\n" +
@@ -887,11 +1014,18 @@ describe("Effects §13.2: every frame names the arrow's actual position", () => 
       "honor Runner<Job> =\n    run(job, a, b) = b!()\n";
     expect(messages(source)).toEqual([linkedConflict("run", "b")]);
     expect(primaries(source)).toEqual(["b!()"]);
+    // The failing arrow here is the member's own outer `->?`.
+    expect(labels(source)).toEqual([["the contract's failing arrow: \"->?\""]]);
   });
 
   test("the article follows the parameter's own name", () => {
     // `an \`action\`` is §9's example, not a constant: a parameter named `k`
     // earns "a `k`".
+    expect(labels(
+      "constraint Maker<a> =\n    make(k: () ->! Unit) -> Unit\n" +
+      "export record S = { n: Int }\n" +
+      "honor Maker<S> =\n    make(k: () -> Unit) = ()\n",
+    )).toEqual([["the contract's failing arrow: \"->!\""]]);
     expect(messages(
       "constraint Maker<a> =\n    make(k: () ->! Unit) -> Unit\n" +
       "export record S = { n: Int }\n" +
@@ -948,15 +1082,66 @@ describe("Effects §13.2: the settle, the disposal, and what the bounds leave be
     expect(messages(RUN("action: () ->? Unit", "->?", "action?()"))).toEqual([]);
   });
 
-  test("a variable settles whenever SOME lower bound is a `->!` arrow's", () => {
-    // Reading only the *first* lower bound recorded, a variable under both a
-    // linked and a `->!` callback never settled, and the `->!` call's own mark
-    // was then refused.
+  test("a settled `->!` slot beside a kept linked one: two slots that stay two", () => {
+    // **§13.2's conduit qualification** (#885): a call on a freshened callback
+    // slot bounds the body's colour below instead of unifying with it, so the
+    // two slots stay two. `b`'s settles off its own `->!` bound; `a`'s is the
+    // member's variable still, and its calls wear `?`. Unifying them made one
+    // colour of the pair and settled it, which refused the `?` and accepted the
+    // `!` — the inverse of what the contract says.
+    const both = (mark: string) =>
+      "constraint Runner<r> =\n" +
+      "    run(runner: r, a: () ->? Unit, b: () ->! Unit) ->! Unit\n" +
+      "export record Job = { id: Int }\n" +
+      `honor Runner<Job> =\n    run(job, a, b) =\n        b!()\n        a${mark}()\n`;
+    expect(messages(both("?"))).toEqual([]);
+    expect(messages(both("!"))).toEqual([
+      "this call is as effectful as the enclosing instantiation makes it, so " +
+      "`a` wants `?`, not `!`",
+    ]);
+  });
+
+  test("two slots that stay two: a `->` callback beside a `->!` one", () => {
+    // Neither a merge, nor a raise, nor an annotation — none of the three acts
+    // §13.2 names as the body fixing a slot — so `a`'s calls stay bare off
+    // §3.4's defaulting while `b`'s wear `!`.
+    expect(messages(
+      "constraint Both<r> =\n" +
+      "    both(runner: r, a: () -> Unit, b: () ->! Unit) ->! Unit\n" +
+      "export record R = { id: String }\n" +
+      "honor Both<R> =\n    both(runner, a, b) =\n        a()\n        b!()\n",
+    )).toEqual([]);
+  });
+
+  test("and a `->` callback beside a `->?` one, under a linked header", () => {
+    // The suite's own released-slot case with one further call added: order is
+    // irrelevant, and the second call fixes nothing about the first's slot.
+    expect(messages(
+      "constraint Runner<r> =\n" +
+      "    run(runner: r, k: () -> Unit, action: () ->? Unit) ->? Unit\n" +
+      "export record Job = { id: Int }\n" +
+      "honor Runner<Job> =\n    run(job, k, action) =\n        k()\n        action?()\n",
+    )).toEqual([]);
+  });
+
+  test("a merged linked-and-`->!` colour settles, and the merge's calls wear `!`", () => {
+    // §13.2's merge outcome under a `->!` outer arrow, through a binding: the
+    // body asked for one colour by its own act, and the settle fixes it before
+    // the disposal can keep it.
+    //
+    // It does **not** pin "some lower bound rather than the first": a linked
+    // arrow imposes no lower bound at all at the pure instantiation, which is
+    // compared first, so the colour that settles carries the constant bound
+    // alone in the walk that settles it. See the PR's deferred list.
     expect(messages(
       "constraint Runner<r> =\n" +
       "    run(runner: r, a: () ->? Unit, b: () ->! Unit) ->! Unit\n" +
       "export record Job = { id: Int }\n" +
-      "honor Runner<Job> =\n    run(job, a, b) =\n        b!()\n        a!()\n",
+      "let c: Bool = True\n" +
+      "honor Runner<Job> =\n" +
+      "    run(job, a, b) =\n" +
+      "        let f = if c then a else b\n" +
+      "        f!()\n",
     )).toEqual([]);
   });
 
@@ -1220,6 +1405,23 @@ describe("Effects §13.2: invariant and phantom positions", () => {
     expect(messages(PHANTOM)).toEqual([]);
     expect(messages(PHANTOM + "export let pure(j: Job): Unit = j.run(Plain, () => ())\n"))
       .toEqual([]);
+  });
+
+  test("a CONSTANT phantom slot is compared with nothing, in both directions", () => {
+    // The two phantom cases above use a *linked* slot, whose per-instantiation
+    // bounds never conflict, so neither can tell the rule from its absence. A
+    // `->!` under an unused constructor parameter can: handed to a `Tag(() ->
+    // Unit)` demand, it would be the narrower-acceptance row's refusal at the
+    // supplied direction and the invariant clause's at the invoked one —
+    // "where the analysis's **unused** point erases the occurrence, the slot is
+    // compared with nothing", and nothing is what a value of `Tag` carries.
+    expect(messages(
+      "export union Tag(a) = Plain | Marked\n" +
+      "constraint Runner<r> =\n    run(runner: r, tag: Tag(() ->! Unit)) -> Unit\n" +
+      "export record Job = { id: Int }\n" +
+      "let force(t: Tag(() -> Unit)): Unit = ()\n" +
+      "honor Runner<Job> =\n    run(job, tag) = force(tag)\n",
+    )).toEqual([]);
   });
 
   test("and a header whose only `->?` stands at a phantom position is still legal", () => {

@@ -395,6 +395,35 @@ interface AbsorbedCall {
 }
 
 /**
+ * One edge of **the ordering** *(#867, #885; Effects §13.2, §3.4)*.
+ *
+ * At a constraint seat §3.4's conduit arm is qualified: a call whose callee's
+ * outermost colour is a colour the freshening minted — or one the ordering
+ * already carries such a slot to — does not *join* that colour to the colour of
+ * the body the call stands in. It imposes it as a **lower bound**, `lower ⊑
+ * upper`, so the walk's bounds on the callback and on the outer arrow meet on
+ * the body's colour without making the two slots one variable: two slots that
+ * stay two. The bounds test, the settle, and the disposal all read this graph
+ * through, and it only grows.
+ */
+interface ColourEdge {
+  /** The callee's colour — the body is at least as effectful as this. */
+  readonly lower: Mono;
+  /** The colour of the body the call stands in (§3.4's frames, unchanged). */
+  readonly upper: Mono;
+  readonly span: Source.Span;
+}
+
+/** What `#openSeatSlots` saves and `#closeSeatSlots` restores around a seat. */
+interface SeatSlots {
+  readonly slots: Set<Mono> | undefined;
+  readonly linked: ReadonlySet<Mono> | undefined;
+  readonly conducted: Mono | undefined;
+  /** The colours the enclosing seat had bounded, restored on close. */
+  readonly bounded: readonly Variable[];
+}
+
+/**
  * One expression of a body that **joined two colours** *(#867; Effects §13.2)*
  * — an `if`, a `match`, a value carrying both. Forwarding is not one: a body
  * that hands on what it was handed merges nothing of its own.
@@ -422,6 +451,8 @@ interface SeatBody {
   readonly fallback: Source.Span;
   /** Every colour the freshening minted for this seat (`#recolour`). */
   readonly freshened: readonly Variable[];
+  /** The ordering this body's calls recorded (§13.2's conduit qualification). */
+  readonly ordering: readonly ColourEdge[];
 }
 
 /**
@@ -483,6 +514,15 @@ interface SeatFailure {
   readonly pin?: "demand" | "annotation" | "merge";
   /** This colour's name in the ordering (`#colourKey`) — the bounds' key. */
   readonly slot?: Mono;
+  /**
+   * Set on a bounds conflict: the colours that carry the impure bound into the
+   * failing variable — the bounded slots themselves and everything the ordering
+   * carries them to (§13.2). The offending call is looked for among *these*,
+   * never among the failing colour alone: with two slots that stay two, the
+   * call that offends stands at the callback's slot while the arrow that fails
+   * bounds the body's own colour.
+   */
+  readonly carried?: readonly Mono[];
   /** Where in the walk this failure was found — the deterministic tie-break. */
   readonly order: number;
 }
@@ -493,6 +533,14 @@ interface SeatBounds {
   upper?: SeatFailure;
   /** The supplied or invariant arrow that demanded impure of it. */
   lower?: SeatFailure;
+  /**
+   * **Every** impure lower bound on this colour, in walk order — the contract's
+   * parameter order — whether the walk imposed it here or the ordering carried
+   * it here from a slot below (§13.2). The conflict names the one the offending
+   * call stands at, and where several slots are one colour the first of them,
+   * which is §13.2's merged-slot clause read off the same list.
+   */
+  readonly lowers: SeatFailure[];
   /**
    * Whether *some* lower bound came from a supplied arrow whose contract colour
    * is the impure **constant** — the unconditional bound §13.2 settles on. Read
@@ -2028,6 +2076,19 @@ class Checker {
    */
   readonly #writtenArrowSpans = new WeakMap<FunctionMono, Source.Span>();
   /**
+   * The one door into the map above *(#867)*. Every place that elaborates a
+   * written arrow into a `Function` node registers it here — the annotation
+   * walk, the member scheme built when a constraint is registered, and the
+   * contract a seat re-elaborates at its subject — so both seats read the
+   * contract's arrows through **one** lookup. A second route would drift: the
+   * default-body seat is compared against the member's *scheme* node while an
+   * `honor` seat is compared against a re-elaborated one, and a map filled at
+   * only one of the two doors loses the related location at the other.
+   */
+  #recordArrowSpan(type: FunctionMono, span: Source.Span | undefined): void {
+    if (span !== undefined) this.#writtenArrowSpans.set(type, span);
+  }
+  /**
    * Every call colour a body absorbed, flat and in no particular order
    * *(#867)*. `#seatSpan` needs "the first call in source order whose colour is
    * the condemned variable", and the offending call may sit in a lambda nested
@@ -2040,6 +2101,33 @@ class Checker {
    * primary where no call carries the condemned colour.
    */
   readonly #colourMerges: ColourMerge[] = [];
+  /**
+   * **The ordering**, flat *(#867, #885)*: every lower-bound edge a seat body's
+   * calls recorded in place of §3.4's unification. A seat takes the slice its
+   * own body wrote (`#seatMark`/`#seatSince`), and the bounds test, the settle
+   * and the disposal all read it through.
+   */
+  readonly #colourOrdering: ColourEdge[] = [];
+  /**
+   * The colours the **current** seat's freshening minted, and the ones its
+   * disposal will keep *(#867)*. The conduit arm asks both: whether a callee's
+   * colour is a slot of this seat (so the call bounds rather than unifies), and
+   * whether it is one of the two **linked** slots §13.2 still makes one colour
+   * when one body conducts both. Seats do not nest — an instance body holds no
+   * `honor` block — so one of each is enough, saved and restored around a seat.
+   */
+  #seatSlots: Set<Mono> | undefined;
+  #seatLinkedSlots: ReadonlySet<Mono> | undefined;
+  /** The first linked slot this seat's body conducted; the second joins it. */
+  #seatConducted: Mono | undefined;
+  /**
+   * Every colour the open seat's ordering **bounds from below** *(#885)* — the
+   * upper endpoint of an edge. Effects §3.4 counts it a dependency, the fifth,
+   * one the defaulting never touches and generalization may not quantify: the
+   * join is delivered by the seat, after the comparison, and a colour
+   * quantified before that hands each use a copy the join can never reach.
+   */
+  readonly #seatBounded = new Set<Variable>();
   /**
    * Every span at which an **explicit implementation annotation** unified a
    * colour *(#867)*. §9's narrower-acceptance rows read "do not narrow the
@@ -3290,13 +3378,25 @@ class Checker {
           this.#quantified.add(contractVariable.id);
           this.#memberColours.set(member.binding.symbol, contractVariable);
         }
+        // The **default body's** contract is this node, not the one an `honor`
+        // seat re-elaborates at its subject (`#seatContract`), so the outer
+        // arrow's token is registered here too *(#867)*: Effects §9 gives a
+        // default member line's seat report the same related location an honor
+        // block's gets, and Constraints §8 names the two seats in one row.
+        const memberType: FunctionMono = {
+          kind: "Function",
+          parameters,
+          result,
+          effect: contractEffect,
+        };
+        this.#recordArrowSpan(memberType, member.arrowSpan);
         this.#schemes.set(member.binding.symbol, {
           variables: [
             subject,
             ...impliedTypes.values(),
             ...(contractVariable === undefined ? [] : [contractVariable]),
           ],
-          type: { kind: "Function", parameters, result, effect: contractEffect },
+          type: memberType,
           constraint: item.name,
           constraintIdentity: item.identity,
           constraintSubject: subject,
@@ -5248,6 +5348,11 @@ class Checker {
             level + 1,
             freshened,
           ) as FunctionMono;
+          // What the conduit arm asks of this seat *(#885)*: which colours the
+          // freshening minted, so that a call on one bounds the body's colour
+          // rather than joining it, and which of them the disposal will keep,
+          // so that two linked slots one body conducts are still made one.
+          const enclosingSlots = this.#openSeatSlots(contract, freshened, expected);
           defaultValue.parameters.forEach((parameter, index) => {
             this.#schemes.set(parameter.symbol, {
               variables: [],
@@ -5309,6 +5414,7 @@ class Checker {
             seat: member.span,
             fallback: defaultValue.span,
           });
+          this.#closeSeatSlots(enclosingSlots);
           this.#releaseDeferredFrames(deferredFrom);
           this.#defaultFrameColour(frame);
         }
@@ -5531,6 +5637,13 @@ class Checker {
             level + 1,
             freshened,
           ) as FunctionMono;
+          // The conduit arm's two questions for this seat *(#885)*: which
+          // colours the freshening minted, and which of them the disposal keeps.
+          const enclosingSlots = this.#openSeatSlots(
+            contract,
+            freshened,
+            expectedFunction,
+          );
           if (expectedFunction.parameters.length !== member.value.parameters.length) {
             this.#diagnostics.add({
               severity: "error",
@@ -5646,6 +5759,9 @@ class Checker {
                 freshened: [],
                 calls: door.calls,
                 merges: door.merges,
+                // A door's body closed outside this seat, so it recorded no
+                // ordering of its own: freshened at no slot, it has none.
+                ordering: [],
                 seat: member.span,
                 fallback: door.span,
               });
@@ -5665,6 +5781,7 @@ class Checker {
               fallback: member.span,
             });
           }
+          this.#closeSeatSlots(enclosingSlots);
           this.#releaseDeferredFrames(deferredFrom);
           this.#defaultFrameColour(frame);
         };
@@ -11575,16 +11692,29 @@ class Checker {
    * wrote, nested lambdas' included, which is what "the offending call" and
    * "the merge that joined the handed slot" range over.
    */
-  #seatMark(): { readonly calls: number; readonly merges: number } {
-    return { calls: this.#absorbedCalls.length, merges: this.#colourMerges.length };
+  #seatMark(): {
+    readonly calls: number;
+    readonly merges: number;
+    readonly ordering: number;
+  } {
+    return {
+      calls: this.#absorbedCalls.length,
+      merges: this.#colourMerges.length,
+      ordering: this.#colourOrdering.length,
+    };
   }
 
   #seatSince(
-    mark: { readonly calls: number; readonly merges: number },
-  ): { readonly calls: readonly AbsorbedCall[]; readonly merges: readonly ColourMerge[] } {
+    mark: { readonly calls: number; readonly merges: number; readonly ordering: number },
+  ): {
+    readonly calls: readonly AbsorbedCall[];
+    readonly merges: readonly ColourMerge[];
+    readonly ordering: readonly ColourEdge[];
+  } {
     return {
       calls: this.#absorbedCalls.slice(mark.calls),
       merges: this.#colourMerges.slice(mark.merges),
+      ordering: this.#colourOrdering.slice(mark.ordering),
     };
   }
 
@@ -11664,7 +11794,7 @@ class Checker {
    * One body's colour, decided the moment the body closes: absorb what it
    * calls, then default what nothing constrained.
    */
-  #settleFrame(frame: EffectFrame, deferDefaulting = false): void {
+  #settleFrame(frame: EffectFrame, atSeat = false): void {
     // Constants first: they are the only thing that can *force* a colour, and a
     // forced `own` then satisfies every remaining `⊒` outright — which is what
     // keeps a `->!` face from constantifying the callback it forwards.
@@ -11695,13 +11825,165 @@ class Checker {
     // calls, and with two points and no subtyping the join is unification —
     // which is also how one variable per signature emerges rather than being
     // imposed.
+    //
+    // **At a constraint seat the arm is qualified** *(#885; Effects §13.2,
+    // §3.4)*: a call on a colour the freshening minted — or on one the ordering
+    // already carries such a slot to — imposes that colour as a **lower bound**
+    // on the body's own instead of joining the two, so the walk's bounds on the
+    // callback and on the outer arrow meet on the body's colour without making
+    // the two slots one variable. Two slots that stay two: `{ a(); b!() }`
+    // under `a: () -> Unit, b: () ->! Unit` leaves `a`'s slot free and settles
+    // only `b`'s, which unification cannot do.
+    //
+    // Two exceptions, both §13.2's own. A body's own colour already a
+    // **constant** unifies as it always did — a written `->` face conducting a
+    // handed callback narrows that callback as surely as a `->` demand does,
+    // and the seat then reports at that pin. And two **linked** slots one body
+    // conducts are still made one colour, at the second `?` call.
     for (const { effect, span } of frame.absorbed) {
       const colour = this.#prune(effect);
       if (colour.kind === "Effect") continue;
-      if (isImpure(this.#prune(frame.own))) continue;
+      const own = this.#prune(frame.own);
+      if (isImpure(own)) continue;
+      if (atSeat && own.kind === "Variable" && this.#carriesSeatSlot(colour)) {
+        this.#conductLinkedSlot(colour, span);
+        this.#colourOrdering.push({ lower: colour, upper: own, span });
+        // The ordering "only grows", and so does its closure: a colour a slot
+        // now bounds is one a later call on it bounds through (§13.2).
+        this.#seatSlots?.add(own);
+        this.#seatBounded.add(own);
+        continue;
+      }
       this.#unify(frame.own, colour, span);
     }
-    if (!deferDefaulting) this.#defaultFrameColour(frame);
+    if (!atSeat) this.#defaultFrameColour(frame);
+  }
+
+  /**
+   * Opens the seat the conduit arm reads *(#885)*: the colours this seat's
+   * freshening minted, and the ones its disposal will keep. Returns what was
+   * open before, for `#closeSeatSlots` to restore — seats do not nest, so the
+   * enclosing answer is always "none", and restoring it is what keeps a body
+   * checked after a seat from being read as though it stood inside one.
+   */
+  #openSeatSlots(
+    contract: SeatContract,
+    freshened: readonly Variable[],
+    expected: Mono,
+  ): SeatSlots {
+    const enclosing: SeatSlots = {
+      slots: this.#seatSlots,
+      linked: this.#seatLinkedSlots,
+      conducted: this.#seatConducted,
+      bounded: [...this.#seatBounded],
+    };
+    this.#seatSlots = new Set<Mono>(freshened.map((slot) => this.#prune(slot)));
+    this.#seatLinkedSlots = this.#keptSeatSlots(contract, expected);
+    this.#seatConducted = undefined;
+    this.#seatBounded.clear();
+    return enclosing;
+  }
+
+  #closeSeatSlots(enclosing: SeatSlots): void {
+    this.#seatSlots = enclosing.slots;
+    this.#seatLinkedSlots = enclosing.linked;
+    this.#seatConducted = enclosing.conducted;
+    this.#seatBounded.clear();
+    for (const variable of enclosing.bounded) this.#seatBounded.add(variable);
+  }
+
+  /**
+   * Whether a callee's colour is one this seat's freshening minted, or one the
+   * ordering already carries such a slot to — a parameter's, a local's that
+   * carries it, or a closure's that conducts it *(#885; Effects §13.2)*.
+   *
+   * "The test read against the ordering as it then stands, which only grows":
+   * the edges are consulted in the order the calls were absorbed, so a chain
+   * built in order is carried in order, and a knot's close reaches its fixpoint
+   * as §3.4's arms do.
+   */
+  #carriesSeatSlot(colour: Mono): boolean {
+    const carried = this.#seatSlots;
+    if (carried === undefined) return false;
+    if (carried.has(this.#prune(colour))) return true;
+    // A colour ordinary unification bound since the slot was recorded reaches
+    // it through its own chain, so the set is read down the chain rather than
+    // rebuilt: the closure is grown one edge at a time, as the ordering is.
+    for (let node: Mono | undefined = colour; node !== undefined; node = node.instance) {
+      if (node.kind !== "Variable") break;
+      if (carried.has(node)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * §13.2's one *joining* clause at a seat: **two linked slots one body
+   * conducts are still made one colour**, "unified with each other at the
+   * second `?` call, whichever frames the two calls stand in, both slots being
+   * the member's one variable". A body that conducts one, or none, keeps what
+   * it has.
+   */
+  #conductLinkedSlot(colour: Mono, span: Source.Span): void {
+    if (this.#seatLinkedSlots?.has(colour) !== true) return;
+    const first = this.#seatConducted;
+    if (first === undefined) {
+      this.#seatConducted = colour;
+      return;
+    }
+    if (this.#prune(first) !== colour) this.#unify(first, colour, span);
+  }
+
+  /**
+   * What the ordering carries a set of colours to — the transitive closure of
+   * §13.2's lower-bound edges, in pruned colours so a pair ordinary unification
+   * merged is one node here. The seed is included: a slot carries itself.
+   */
+  #orderingReach(edges: readonly ColourEdge[], from: readonly Mono[]): Set<Mono> {
+    const reached = new Set<Mono>(from.map((colour) => this.#prune(colour)));
+    for (let growing = true; growing;) {
+      growing = false;
+      for (const edge of edges) {
+        const upper = this.#prune(edge.upper);
+        if (reached.has(upper) || !reached.has(this.#prune(edge.lower))) continue;
+        reached.add(upper);
+        growing = true;
+      }
+    }
+    return reached;
+  }
+
+  /**
+   * The slots §13.2's disposal **keeps**: a body colour standing at a supplied
+   * or invariant arrow whose contract colour is the member's own variable. It
+   * keeps the body's own variable there, protected and read exactly as any
+   * signature parameter's variable is, so a `->?` callback parameter's calls
+   * wear `?`.
+   *
+   * One walk, read at every door that asks the question — the disposal's, the
+   * released colours' join, and the conduit arm's test for the two linked slots
+   * a body that conducts both makes one colour.
+   */
+  #keptSeatSlots(contract: SeatContract, type: Mono): Set<Mono> {
+    const kept = new Set<Mono>();
+    if (contract.colour === undefined) return kept;
+    const walk = (contractSide: Mono, bodySide: Mono, sign: Variance): void => {
+      const left = this.#prune(contractSide);
+      const right = this.#prune(bodySide);
+      if (left.kind !== "Function" || right.kind !== "Function") return;
+      if (
+        (sign === "contra" || sign === "inv") &&
+        this.#prune(left.effect ?? PURE) === contract.colour
+      ) {
+        kept.add(this.#prune(right.effect ?? PURE));
+      }
+      left.parameters.forEach((parameter, index) => {
+        const counterpart = right.parameters[index];
+        if (counterpart !== undefined) walk(parameter, counterpart, flipVariance(sign));
+      });
+      walk(left.result, right.result, sign);
+    };
+    walk(contract.type, type, "co");
+    return kept;
   }
 
   /**
@@ -11790,27 +12072,29 @@ class Checker {
   #disposeSeatSlots(contract: SeatContract, body: SeatBody): void {
     if (contract.colour === undefined) {
       // With no member variable there is nothing a slot can be kept *for*: the
-      // frame's own defaulting (§3.4) already reaches every released colour.
+      // frame's own defaulting (§3.4) already reaches every released colour,
+      // and `#settleSeat` has already fixed the ones an impure bound reached.
       return;
     }
-    const kept = new Set<Mono>();
-    const walk = (contractSide: Mono, bodySide: Mono, sign: Variance): void => {
-      const left = this.#prune(contractSide);
-      const right = this.#prune(bodySide);
-      if (left.kind !== "Function" || right.kind !== "Function") return;
-      if (
-        (sign === "contra" || sign === "inv") &&
-        this.#prune(left.effect ?? PURE) === contract.colour
-      ) {
-        kept.add(this.#prune(right.effect ?? PURE));
+    const kept = this.#keptSeatSlots(contract, body.type);
+    // **The join of a released colour's lower bounds** (§13.2). The impure
+    // constant is already there — `#settleSeat` ran first and pruned every
+    // colour an unconditional bound reached to it — so what is left is the
+    // second arm: the kept slot the ordering carries to this colour, which is
+    // what makes a chain of released closures each conducting the next land on
+    // the one kept slot. With the conduit arm bounding rather than unifying,
+    // this join is the seat's own work; unification used to do it in passing.
+    for (const slot of kept) {
+      const source = this.#prune(slot);
+      if (source.kind !== "Variable") continue;
+      for (const colour of this.#orderingReach(body.ordering, [source])) {
+        if (colour === source || colour.kind !== "Variable" || kept.has(colour)) continue;
+        if (body.frame !== undefined && this.#ownedByEnclosing(body.frame, colour)) continue;
+        // The younger colour takes the older, never the reverse: the kept slot
+        // is what every colour above it is to read.
+        colour.instance = source;
       }
-      left.parameters.forEach((parameter, index) => {
-        const counterpart = right.parameters[index];
-        if (counterpart !== undefined) walk(parameter, counterpart, flipVariance(sign));
-      });
-      walk(left.result, right.result, sign);
-    };
-    walk(contract.type, body.type, "co");
+    }
     for (const slot of [...body.freshened, ...(body.frame === undefined ? [] : [body.frame.own])]) {
       const colour = this.#prune(slot);
       if (colour.kind !== "Variable") continue;
@@ -12032,20 +12316,32 @@ class Checker {
     // walk itself wins outright, and only where the walk recorded none does a
     // conflict report — then the variable whose *first* bound the walk took
     // earliest.
-    const conflictOf = (bound: SeatBounds, upper: SeatFailure): SeatFailure => ({
-      ...upper,
-      order: bound.order,
-      handed: {
-        place: bound.lower!.place,
-        linked: bound.lower!.linked === true,
-        arrow: bound.lower!.arrow,
-      },
-    });
+    //
+    // **The ordering is read through first** *(#885)*. A slot bounded below by
+    // the impure constant bounds below it, in turn, every colour the ordering
+    // carries it to: with the conduit arm bounding rather than unifying, the
+    // callback's slot and the body's own colour are two variables, and it is
+    // this propagation that brings the callback's bound up to the arrow that
+    // fails. A colour the ordering reaches that the walk never bounded — a
+    // closure's, a local's — takes the settle without taking a report.
+    for (const [key, bound] of [...bounds]) {
+      if (bound.lowers.length === 0) continue;
+      for (const colour of this.#orderingReach(body.ordering, [key])) {
+        if (colour === key) continue;
+        const above = bounds.get(colour);
+        if (above === undefined) {
+          if (bound.unconditional && colour.kind === "Variable") settle.add(colour);
+          continue;
+        }
+        above.lowers.push(...bound.lowers);
+        if (above.lower === undefined && bound.lower !== undefined) above.lower = bound.lower;
+        if (bound.unconditional) above.unconditional = true;
+      }
+    }
     let conflict: SeatFailure | undefined;
     for (const [variable, bound] of bounds) {
-      const { upper, lower } = bound;
-      if (upper !== undefined && lower !== undefined) {
-        const candidate = conflictOf(bound, upper);
+      if (bound.upper !== undefined && bound.lowers.length > 0) {
+        const candidate = this.#conflictAt(body, bound, bound.upper);
         if (conflict === undefined || candidate.order < conflict.order) conflict = candidate;
         continue;
       }
@@ -12066,14 +12362,76 @@ class Checker {
     // inherited inference behaviour the suite records rather than removes.
     if (failure?.pin === "merge" && failure.slot !== undefined) {
       const bound = bounds.get(failure.slot);
-      if (bound?.pureUpper !== undefined && bound.lower !== undefined) {
-        failure = conflictOf(bound, bound.pureUpper);
+      // "Where the merged colour also meets a pure upper arrow the contract
+      // writes, **directly or through the ordering**": the arrow above may bound
+      // the body's own colour rather than the merged slot itself, and with two
+      // slots that stay two those are two variables (§13.2).
+      const above = this.#pureUpperAbove(bounds, body.ordering, failure.slot);
+      if (above !== undefined && bound !== undefined && bound.lowers.length > 0) {
+        failure = this.#conflictAt(body, bound, above);
       }
     }
     if (failure === undefined) failure = conflict;
     if (failure === undefined) return false;
     this.#reportSeat(contract, body, failure);
     return true;
+  }
+
+  /**
+   * One bounds conflict, with the callback the contract handed in named
+   * *(#867, #885; Effects §13.2)*.
+   *
+   * The clause "names the contract parameter that slot stands at, whatever the
+   * call spells", and the report is primary at the offending call — so the two
+   * are decided together: the call is looked for among the colours that carry
+   * the impure bound into this variable, and the parameter named is the one the
+   * call's own callee slot stands at. Where several contract slots are **one**
+   * colour — a body that merged them — no call can tell them apart, and the
+   * first in the contract's parameter order is named, which is walk order and
+   * so the order `lowers` is in. Where no call carries the colour at all, the
+   * first lower bound in that same order is the one the merge or seat form
+   * names.
+   */
+  #conflictAt(body: SeatBody, bound: SeatBounds, upper: SeatFailure): SeatFailure {
+    const carried = [...this.#orderingReach(
+      body.ordering,
+      bound.lowers.map((lower) => lower.colour),
+    )];
+    const call = this.#offendingCallAmong(body, carried);
+    const chosen = (call === undefined
+      ? undefined
+      : bound.lowers.find((lower) => this.#prune(lower.colour) === call.colour)) ??
+      bound.lowers[0]!;
+    return {
+      ...upper,
+      order: bound.order,
+      carried,
+      handed: {
+        place: chosen.place,
+        linked: chosen.linked === true,
+        arrow: chosen.arrow,
+      },
+    };
+  }
+
+  /**
+   * The first **pure upper arrow the contract writes** over a slot — met by the
+   * slot itself or by a colour the ordering carries it to (§13.2's merge
+   * classification). "First" is walk order, the same order every other seat
+   * selection reads.
+   */
+  #pureUpperAbove(
+    bounds: ReadonlyMap<Mono, SeatBounds>,
+    edges: readonly ColourEdge[],
+    slot: Mono,
+  ): SeatFailure | undefined {
+    let earliest: SeatFailure | undefined;
+    for (const colour of this.#orderingReach(edges, [slot])) {
+      const above = bounds.get(colour)?.pureUpper;
+      if (above === undefined) continue;
+      if (earliest === undefined || above.order < earliest.order) earliest = above;
+    }
+    return earliest;
   }
 
   /** One arrow pair, ordered at its sign (§13.2's third bullet). */
@@ -12089,7 +12447,17 @@ class Checker {
     record: (failure: SeatFailure) => void,
     step: number,
   ): void {
+    // **The phantom point** (§13.2): "where the analysis's `unused` point erases
+    // the occurrence, the slot is compared with nothing" — nothing the contract
+    // writes beneath a constructor parameter no value of that constructor
+    // carries reaches a value. This line is where that rule lives, and the two
+    // directions below read the sign through it rather than each excluding
+    // `unused` on its own account: with it gone, a phantom slot is compared in
+    // both directions, which is invariance, and no phantom position could carry
+    // a `->!` a body hands to a `->` demand.
     if (sign === "unused") return;
+    const invoked = sign !== "contra";
+    const supplied = sign !== "co";
     const written = this.#prune(left.effect ?? PURE);
     // The member's own variable, at whatever position the header wrote it
     // (§13.4). `contract.colour` is set wherever the header opened a signature
@@ -12104,7 +12472,7 @@ class Checker {
     const boundsOf = (variable: Mono): SeatBounds => {
       const existing = bounds.get(variable);
       if (existing !== undefined) return existing;
-      const fresh: SeatBounds = { unconditional: false, order: step };
+      const fresh: SeatBounds = { unconditional: false, order: step, lowers: [] };
       bounds.set(variable, fresh);
       return fresh;
     };
@@ -12119,7 +12487,7 @@ class Checker {
     // contract. `->!` is the top of the lattice and refuses nothing. An
     // **invariant** arrow is a ceiling and a floor at once, so it reports in
     // both directions, in its own clause (§9's invariant clauses).
-    if ((sign === "co" || sign === "inv") && !demanded.impure) {
+    if (invoked && !demanded.impure) {
       const failure: SeatFailure = {
         row: linked ? "linked-contract" : "pure-contract",
         place,
@@ -12138,7 +12506,7 @@ class Checker {
     }
     // **Supplied** — the caller hands this arrow in, so the contract must be at
     // most the body: an instance accepts everything its contract promises.
-    if ((sign === "contra" || sign === "inv") && demanded.impure) {
+    if (supplied && demanded.impure) {
       const failure: SeatFailure = {
         row: "narrower-acceptance",
         place,
@@ -12153,6 +12521,7 @@ class Checker {
       if (slot !== undefined) {
         const bound = boundsOf(slot);
         bound.lower ??= failure;
+        bound.lowers.push(failure);
         // The settle test reads *every* lower bound, not the first recorded
         // (§13.2): a linked arrow imposes no bound at the pure instantiation
         // and never settles, but a `->!` arrow beside it does, whichever the
@@ -12194,7 +12563,7 @@ class Checker {
    * merge classification turns on.
    */
   #narrowingPin(body: SeatBody, colour: Mono): "demand" | "annotation" | "merge" {
-    if (this.#offendingMerge(body, colour) !== undefined) return "merge";
+    if (this.#offendingMerge(body, [colour]) !== undefined) return "merge";
     const pin = this.#colourPin(colour);
     return pin !== undefined && this.#annotationPins.has(pin) ? "annotation" : "demand";
   }
@@ -12224,8 +12593,15 @@ class Checker {
    * call as well as a primary of its own.
    */
   #seatPrimary(body: SeatBody, failure: SeatFailure): SeatPrimary {
-    const merge = this.#offendingMerge(body, failure.colour);
-    const call = this.#offendingCall(body, failure.colour);
+    // A **conflict** looks among the colours that carry the impure bound into
+    // the failing variable, never among the failing colour alone: the call that
+    // offends stands at the callback's slot, and with two slots that stay two
+    // that is not the colour the failing arrow bounds (§13.2, #885).
+    const carried = failure.carried ?? [failure.colour];
+    const merge = this.#offendingMerge(body, carried);
+    const call = failure.carried === undefined
+      ? this.#offendingCall(body, failure.colour)
+      : this.#offendingCallAmong(body, carried)?.span;
     const pin = this.#colourPin(failure.colour);
     const order: readonly (readonly [Source.Span | undefined, SeatPrimary["kind"]])[] =
       // A **conflict** places call-first and never at a pin: the effect came
@@ -12270,16 +12646,46 @@ class Checker {
   }
 
   /**
-   * The first **merge** in source order that joined the condemned colour — the
+   * The same selector over a **set** of colours *(#885)* — "the first call in
+   * source order whose callee's outermost colour at this instantiation is a
+   * slot the contract's impure constant bounds below, directly or through
+   * another variable by the ordering". The colour it found comes back with it,
+   * because the conflict's clause names the parameter *that* slot stands at.
+   */
+  #offendingCallAmong(
+    body: SeatBody,
+    colours: readonly Mono[],
+  ): { readonly span: Source.Span; readonly colour: Mono } | undefined {
+    const wanted = new Set<Mono>();
+    for (const colour of colours) {
+      const solved = this.#prune(colour);
+      // A colour ordinary unification solved **pure** is carried by no offending
+      // call: every bare call in the body wears it (`#offendingCall`).
+      if (solved.kind === "Effect" && !solved.impure) continue;
+      wanted.add(solved);
+    }
+    let earliest: { span: Source.Span; colour: Mono } | undefined;
+    for (const call of body.calls) {
+      const solved = this.#prune(call.effect);
+      if (!wanted.has(solved)) continue;
+      if (earliest === undefined || precedes(call.span, earliest.span)) {
+        earliest = { span: call.span, colour: solved };
+      }
+    }
+    return earliest;
+  }
+
+  /**
+   * The first **merge** in source order that joined one of these colours — the
    * `if`, `match`, or value that carried two colours (§13.2). Its span is the
    * primary where no call carries the colour, and a related location beside the
    * call where one does.
    */
-  #offendingMerge(body: SeatBody, colour: Mono): Source.Span | undefined {
-    const solved = this.#prune(colour);
+  #offendingMerge(body: SeatBody, colours: readonly Mono[]): Source.Span | undefined {
+    const wanted = new Set(colours.map((colour) => this.#prune(colour)));
     let earliest: Source.Span | undefined;
     for (const merge of body.merges) {
-      if (this.#prune(merge.colour) !== solved) continue;
+      if (!wanted.has(this.#prune(merge.colour))) continue;
       if (earliest === undefined || precedes(merge.span, earliest)) earliest = merge.span;
     }
     return earliest;
@@ -12897,9 +13303,7 @@ class Checker {
         // names (§13.2's "with the contract's invoked arrow as a related
         // location"). The nested arrows register themselves as
         // `#annotationType` elaborates them.
-        if (member.arrowSpan !== undefined) {
-          this.#writtenArrowSpans.set(contractType, member.arrowSpan);
-        }
+        this.#recordArrowSpan(contractType, member.arrowSpan);
         return {
           type: contractType,
           // The member's variable, wherever the header wrote it (§13.4). Not
@@ -16219,6 +16623,19 @@ class Checker {
     variables = this.#collectVariables(type).filter(
       (variable) => variable.level > level,
     );
+    // **A colour the seat bounded is a dependency** *(#885; Effects §3.4's
+    // fifth)*. The ordering has recorded the bound; the *join* is delivered by
+    // the seat, after the comparison — so a colour quantified here would hand
+    // every use a copy the join can never reach, and a closure that conducts
+    // the contract's callback would read as pure at its call. Sunk to this
+    // level, as every other declined variable is, so no enclosing
+    // generalization quantifies it either.
+    if (this.#seatBounded.size > 0 && variables.some((v) => this.#seatBounded.has(v))) {
+      for (const variable of variables) {
+        if (this.#seatBounded.has(variable)) variable.level = level;
+      }
+      variables = variables.filter((variable) => !this.#seatBounded.has(variable));
+    }
     if (allow && this.#prune(evaluated ?? type).kind !== "Function") {
       // Closure doc §13.6, the evidence-seat rule. Evidence has exactly one
       // seat — a function's trailing parameter suffix (Constraints §6.1) — so a
@@ -17010,9 +17427,7 @@ class Checker {
       // constraint seat's report names an arrow the contract wrote, and where
       // no call in the body carries the condemned colour that arrow is the
       // primary span (Effects §13.2); everywhere else this map is never read.
-      if (annotation.arrowSpan !== undefined) {
-        this.#writtenArrowSpans.set(elaborated, annotation.arrowSpan);
-      }
+      this.#recordArrowSpan(elaborated, annotation.arrowSpan);
       return elaborated;
     }
     // The written qualifier rides the elaborated node from here (FFI Part 7

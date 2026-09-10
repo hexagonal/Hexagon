@@ -5705,7 +5705,8 @@ class Parser {
         kind: "Function",
         parameters: left.parameters ?? [left.annotation],
         result,
-        ...(effect === "pure" ? {} : { effect, arrowSpan }),
+        arrowSpan,
+        ...(effect === "pure" ? {} : { effect }),
         span: spanFrom(left.annotation.span, result.span),
       };
     }
@@ -5737,13 +5738,20 @@ class Parser {
       }
       return left.annotation;
     }
-    this.#advance();
+    // **The pure arrow's own token, kept like every other's** *(#867)*. A
+    // constraint seat makes "the contract's failing arrow" a related location on
+    // every row (Effects §9), and a `->` fails as readily as a `->!` does — at
+    // an invoked arrow it is the arrow that fails, and at an invariant one it is
+    // the whole of the clause. Recorded only where the arrow is written: an
+    // absent arrow is `->` too, and has no token to stand on.
+    const arrowSpan = this.#advance().span;
     const result = this.#parseTypeAnnotation(typeArrowRedirect);
     if (result === undefined) return undefined;
     return {
       kind: "Function",
       parameters: left.parameters ?? [left.annotation],
       result,
+      arrowSpan,
       span: spanFrom(left.annotation.span, result.span),
     };
   }
