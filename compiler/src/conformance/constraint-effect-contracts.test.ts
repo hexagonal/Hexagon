@@ -1331,6 +1331,34 @@ describe("Effects §13.2: broader acceptance, the raise, the annotation, and the
     )).toEqual([]);
   });
 
+  test("and the boundary is inline versus bound, not lambda versus named", () => {
+    // *(Review round 4, MINOR 2.)* §3.4 says where the defaulting happens: "at
+    // body close for a lone binding … and for a lambda that is **no binding's
+    // right-hand side**, where the binding whose body holds it closes". A `let
+    // g = () => ()` is a lone binding, so its colour defaults at its own
+    // generalization exactly as `let g(): Unit = ()` does, and §13.2's "a
+    // lambda's is still a variable the seat has not defaulted" is true of the
+    // **inline** lambda alone. The refactoring cost §13.2 records is therefore
+    // one step earlier than "extracting into a named function": giving the
+    // lambda a name is what moves the verdict, whichever spelling the name
+    // takes.
+    const narrower = (bind: string, other: string) =>
+      "constraint Maker<a> =\n    make(k: () ->! Unit) -> (() ->! Unit)\n" +
+      "export record S = { n: Int }\n" +
+      "let c: Bool = True\n" +
+      "honor Maker<S> =\n    make(k) =\n" + bind + `        if c then k else ${other}\n`;
+    const merged = "this expression merges the callback with a pure function, and `make`'s " +
+      "contract accepts a `k` that performs effects, and this instance accepts " +
+      "only a pure one — an instance accepts everything its contract promises " +
+      "to accept — do not merge `k` with a pure function here, or, if the " +
+      "constraint is yours, write the member's callback parameter `->`";
+    // Inline: accepted, as the pair above pins it.
+    expect(messages(narrower("", "(() => ())"))).toEqual([]);
+    // Bound to a name, either spelling: refused, and with the same sentence.
+    expect(messages(narrower("        let g = () => ()\n", "g"))).toEqual([merged]);
+    expect(messages(narrower("        let g(): Unit = ()\n", "g"))).toEqual([merged]);
+  });
+
   test("the paired requirement: named and inline coincide where both are refused", () => {
     // A **pure** upper arrow is met, so the merge's incidental unification with
     // a pure constant classifies as the conflict it would have been without the
@@ -1345,6 +1373,18 @@ describe("Effects §13.2: broader acceptance, the raise, the annotation, and the
     expect(messages(paired("(() => ())"))).toEqual([pureMergeConflict("make", "k", true)]);
     expect(primaries(paired("pureFn"))).toEqual(["if c then k else pureFn"]);
     expect(primaries(paired("(() => ())"))).toEqual(["if c then k else (() => ())"]);
+    // And the third member of the family (review round 4, MINOR 2): a lambda
+    // bound to a name, which defaults where a named function does. Where a pure
+    // upper arrow is met all three coincide, which is what "equivalent
+    // explanations" promises.
+    const bound =
+      "constraint Maker<a> =\n    make(k: () ->! Unit) -> (() -> Unit)\n" +
+      "export record S = { n: Int }\n" +
+      "let c: Bool = True\n" +
+      "honor Maker<S> =\n    make(k) =\n        let g = () => ()\n" +
+      "        if c then k else g\n";
+    expect(messages(bound)).toEqual([pureMergeConflict("make", "k", true)]);
+    expect(primaries(bound)).toEqual(["if c then k else g"]);
   });
 
   test("and plain forwarding keeps its seat-level conflict report", () => {
