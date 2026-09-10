@@ -122,6 +122,40 @@ const pureSeatConflict = (member: string, handed: string, returns = false): stri
   `supply \`${handed}\` here, or, if the constraint is yours, write \`->!\` on ` +
   (returns ? "the arrow the contract returns" : "the member");
 
+/**
+ * The **invariant** counterpart of the conflict form's seat primary (§9's
+ * invariant clause; §13.2 asks for "the invariant counterpart of each"). The
+ * failing arrow is the one written *inside the parameter*, so the member's
+ * outer arrow changes nothing about the sentence — an invariant position admits
+ * no widening at either.
+ */
+const invariantSeatConflict = (
+  member: string,
+  handed: string,
+  parameter: string,
+  arrow: string,
+): string =>
+  "this instance supplies a function that may perform effects the contract " +
+  `hands it, and \`${member}\`'s contract writes \`${arrow}\` inside the ` +
+  `parameter \`${parameter}\` — an invariant position admits no widening, and ` +
+  `\`${handed}\` may perform effects whatever the caller supplies — do not ` +
+  `supply \`${handed}\` there, or, if the constraint is yours, write \`->!\` on ` +
+  `that arrow inside the parameter \`${parameter}\``;
+
+/** The same, where the body's own **merge** is what carried the callback in. */
+const invariantMergeConflict = (
+  member: string,
+  handed: string,
+  parameter: string,
+  arrow: string,
+): string =>
+  "this expression merges in a function that may perform effects the contract " +
+  `hands it, and \`${member}\`'s contract writes \`${arrow}\` inside the ` +
+  `parameter \`${parameter}\` — an invariant position admits no widening, and ` +
+  `\`${handed}\` may perform effects whatever the caller supplies — do not ` +
+  `merge \`${handed}\` into that arrow, or, if the constraint is yours, write ` +
+  `\`->!\` on that arrow inside the parameter \`${parameter}\``;
+
 /** Effects §9's linked-contract row, base form, verbatim. */
 const linkedContract = (member: string): string =>
   `this call performs effects unconditionally, and \`${member}\`'s contract is ` +
@@ -1375,6 +1409,75 @@ describe("Effects §13.2: invariant and phantom positions", () => {
       "inside `cells` here, or, if the constraint is yours, write `->!` on that " +
       "arrow inside the parameter `cells`",
     ]);
+  });
+
+  test("the conflict form's invariant counterpart, at a forward and at a merge", () => {
+    // *(Review round 3, MINOR 4.)* §13.2 asks for "the invariant counterpart of
+    // each" of the pinned outcomes, and these two were the outcomes with none:
+    // a body that hands the contract's own effectful callback into an invariant
+    // `->` position, by forwarding it and by merging it. The effect is one the
+    // contract handed the body, so the clause names `k` and the advice says
+    // what not to supply — the conflict form, in the invariant frame.
+    const FORWARD =
+      "constraint Runner<r> =\n" +
+      "    run(runner: r, k: () ->! Unit, cells: Array(() -> Unit)) -> Unit\n" +
+      "export record Job = { id: Int }\n" +
+      "let take<a>(xs: Array(a), x: a): Unit = ()\n" +
+      "honor Runner<Job> =\n    run(job, k, cells) = take(cells, k)\n";
+    expect(messages(FORWARD))
+      .toEqual([invariantSeatConflict("run", "k", "cells", "->")]);
+    expect(primaries(FORWARD)).toEqual(["run(job, k, cells) = take(cells, k)"]);
+    expect(labels(FORWARD)).toEqual([[
+      "the contract's invariant arrow: \"->\"",
+      "the handed callback's contract arrow: \"->!\"",
+    ]]);
+    const MERGE =
+      "constraint Runner<r> =\n" +
+      "    run(runner: r, k: () ->! Unit, cells: Array(() -> Unit)) -> Unit\n" +
+      "export record Job = { id: Int }\n" +
+      "let c: Bool = True\n" +
+      "let take<a>(xs: Array(a), x: a): Unit = ()\n" +
+      "honor Runner<Job> =\n" +
+      "    run(job, k, cells) =\n" +
+      "        let f = if c then k else (() => ())\n" +
+      "        take(cells, f)\n";
+    expect(messages(MERGE))
+      .toEqual([invariantMergeConflict("run", "k", "cells", "->")]);
+    expect(primaries(MERGE)).toEqual(["if c then k else (() => ())"]);
+    expect(labels(MERGE)).toEqual([[
+      "the contract's invariant arrow: \"->\"",
+      "the handed callback's contract arrow: \"->!\"",
+    ]]);
+  });
+
+  test("and both invariant counterparts say the same under a linked outer arrow", () => {
+    // The failing arrow is the one inside `cells`, not the member's own, so a
+    // header that carries an inlet reports identically — which is the claim the
+    // outer arrow could have falsified and does not.
+    const HEAD =
+      "constraint Runner<r> =\n" +
+      "    run(runner: r, a: () ->? Unit, k: () ->! Unit, " +
+      "cells: Array(() -> Unit)) ->? Unit\n" +
+      "export record Job = { id: Int }\n" +
+      "let c: Bool = True\n" +
+      "let take<a>(xs: Array(a), x: a): Unit = ()\n";
+    const FORWARD = HEAD +
+      "honor Runner<Job> =\n    run(job, a, k, cells) = take(cells, k)\n";
+    expect(messages(FORWARD))
+      .toEqual([invariantSeatConflict("run", "k", "cells", "->")]);
+    expect(primaries(FORWARD)).toEqual(["run(job, a, k, cells) = take(cells, k)"]);
+    const MERGE = HEAD +
+      "honor Runner<Job> =\n" +
+      "    run(job, a, k, cells) =\n" +
+      "        let f = if c then k else (() => ())\n" +
+      "        take(cells, f)\n";
+    expect(messages(MERGE))
+      .toEqual([invariantMergeConflict("run", "k", "cells", "->")]);
+    expect(primaries(MERGE)).toEqual(["if c then k else (() => ())"]);
+    expect(labels(MERGE)).toEqual([[
+      "the contract's invariant arrow: \"->\"",
+      "the handed callback's contract arrow: \"->!\"",
+    ]]);
   });
 
   test("an invariant slot narrowed the other way takes the narrower-acceptance row", () => {
