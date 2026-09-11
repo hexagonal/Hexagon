@@ -267,6 +267,17 @@ const FUN_BLOCK_HEAD_EXPORT =
 const EXPORT_BELOW_MODULE_LEVEL =
   "`export` marks module-level declarations; a local binding cannot be exported";
 
+/**
+ * Constraints §8's row for a member header written with the `:` separator
+ * *(#867)*. A member is a contract with no body to infer from, so its header
+ * writes the arrow the contract is about; `:` is the implementation header's
+ * separator — a `let`, a `fun` member, an `honor` member, a `widens` door.
+ */
+const MEMBER_COLON_SEPARATOR =
+  "a constraint member declares its effect — write `show(x: a) -> String` " +
+  "(`->!` for a member whose instances may perform effects, `->?` for one as " +
+  "effectful as a callback it is handed)";
+
 /** Doc Comments §5: the head binds no name, so it documents nothing (#700). */
 const FUN_BLOCK_HEAD_DOC =
   "documentation attaches to a `fun` block's members, not to the block — move " +
@@ -2412,12 +2423,58 @@ class Parser {
           this.#errorAt(parameter.span, "constraint member parameters require type annotations");
         }
       }
-      this.#expect("Colon", "constraint members require a result type");
-      const result = this.#parseTypeAnnotation() ?? {
-        kind: "NamedType" as const,
-        name: fallbackName,
-        span: fallbackName.span,
-      };
+      // *(#867.)* A member header writes its **outer arrow** — it is a
+      // *contract*, with no body beneath it to infer from (Constraints §2;
+      // Effects §13.1). The `:` result separator belongs to implementation
+      // headers, which write `:` and infer; written on a member it is a parse
+      // error whose fixit is the arrow (Constraints §8).
+      const memberArrow = this.#arrowAt();
+      let memberEffect: Parsed.ArrowEffect | undefined;
+      let memberArrowSpan: Source.Span | undefined;
+      let missingArrow = false;
+      if (memberArrow === undefined) {
+        const separator = this.#current();
+        if (separator.kind === "Colon") {
+          this.#diagnostics.add({
+            severity: "error",
+            message: MEMBER_COLON_SEPARATOR,
+            primary: separator.span,
+            fixes: [{
+              message: "write `->`",
+              edits: [{ span: separator.span, replacement: "->" }],
+            }],
+          });
+          this.#advance();
+        } else if (separator.kind === "FatArrow") {
+          // A fat arrow at a member header's **arrow seat** can have no other
+          // reading — a member has no body to begin (Constraints §2) — so it
+          // takes Effects §9's type-arrow redirect, and recovery resolves it to
+          // the arrow it spells: one typo, one report *(#867, #410)*. Without
+          // this the header lost its result type as well, and the placeholder
+          // `Invalid` leaked out of the parser as three further diagnostics.
+          const redirected = this.#redirectTypeArrow();
+          memberArrowSpan = redirected.span;
+          if (redirected.effect !== "pure") memberEffect = redirected.effect;
+        } else {
+          this.#errorAt(separator.span, "constraint members require a result type");
+          missingArrow = true;
+        }
+      } else {
+        memberArrowSpan = this.#current().span;
+        if (memberArrow !== "pure") memberEffect = memberArrow;
+        this.#advance();
+      }
+      // The placeholder never leaks *(#867)*. A header whose result type could
+      // not be parsed has already been reported at the arrow seat; handing the
+      // checker a named type spelled `Invalid` earns it a second, false report
+      // — "unknown type `Invalid`" — against a name no writer wrote. Nor does a
+      // header that ended at its parameter list ask for a type annotation it
+      // has already been told it lacks: one typo, one report.
+      const ended = missingArrow &&
+        (this.#at("VSep") || this.#at("VClose") || this.#at("Eof"));
+      const result: Parsed.TypeAnnotation =
+        (ended ? undefined : this.#parseTypeAnnotation()) ??
+        { kind: "NamedType", name: fallbackName, synthesized: true, span: fallbackName.span };
       let defaultValue: Parsed.LambdaExpr | undefined;
       if (this.#at("Equal")) {
         this.#advance();
@@ -2433,6 +2490,8 @@ class Parser {
         name: parsedName(memberToken),
         parameters,
         returnAnnotation: result,
+        ...(memberEffect === undefined ? {} : { effect: memberEffect }),
+        ...(memberArrowSpan === undefined ? {} : { arrowSpan: memberArrowSpan }),
         ...(defaultValue === undefined ? {} : { defaultValue }),
         span: spanFrom(memberToken.span, result.span),
       };
@@ -5646,7 +5705,8 @@ class Parser {
         kind: "Function",
         parameters: left.parameters ?? [left.annotation],
         result,
-        ...(effect === "pure" ? {} : { effect, arrowSpan }),
+        arrowSpan,
+        ...(effect === "pure" ? {} : { effect }),
         span: spanFrom(left.annotation.span, result.span),
       };
     }
@@ -5678,13 +5738,20 @@ class Parser {
       }
       return left.annotation;
     }
-    this.#advance();
+    // **The pure arrow's own token, kept like every other's** *(#867)*. A
+    // constraint seat makes "the contract's failing arrow" a related location on
+    // every row (Effects §9), and a `->` fails as readily as a `->!` does — at
+    // an invoked arrow it is the arrow that fails, and at an invariant one it is
+    // the whole of the clause. Recorded only where the arrow is written: an
+    // absent arrow is `->` too, and has no token to stand on.
+    const arrowSpan = this.#advance().span;
     const result = this.#parseTypeAnnotation(typeArrowRedirect);
     if (result === undefined) return undefined;
     return {
       kind: "Function",
       parameters: left.parameters ?? [left.annotation],
       result,
+      arrowSpan,
       span: spanFrom(left.annotation.span, result.span),
     };
   }
@@ -6111,6 +6178,7 @@ function invalidType(name: Parsed.Name): Parsed.NamedType {
   return {
     kind: "NamedType",
     name: { ...name, text: "Invalid", startClass: "upper" },
+    synthesized: true,
     span: name.span,
   };
 }

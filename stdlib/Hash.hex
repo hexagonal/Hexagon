@@ -6,4 +6,4 @@ module Hash
 export constraint Hash<a: Eq> =
     (** A hash of `value`. Equal values hash equally; unequal values may collide,
         and the hash is not resistant to an adversary choosing them. *)
-    hash(value: a): Int
+    hash(value: a) -> Int

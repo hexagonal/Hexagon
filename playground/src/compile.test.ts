@@ -415,7 +415,7 @@ describe("compileSource", () => {
    */
   describe("the build report's two obligations", () => {
     /** §16(h)'s constraint: no fundamental type honors it, so no tuple is lawful. */
-    const weighty = "constraint Weighty<a> =\n    weight(subject: a): Float\n\n";
+    const weighty = "constraint Weighty<a> =\n    weight(subject: a) -> Float\n\n";
     const heaviest = "export fun heaviest<a: Weighty>(x: a, y: a): Float =\n" +
       "    if x.weight() > y.weight() then x.weight() else y.weight()\n";
     const stamp = "export fun stamp<a: Hash>(x: a, salt: Int): Int = x.hash() + salt\n";

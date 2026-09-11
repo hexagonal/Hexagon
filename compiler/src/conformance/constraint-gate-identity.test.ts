@@ -132,7 +132,7 @@ describe("the derivability gate reads the declaration", () => {
     expect(
       diagnostics(
         "constraint Weigh<a> =\n" +
-          "    weigh(value: a): String\n" +
+          "    weigh(value: a) -> String\n" +
           "record P derives (Weigh) = {x: Int}\n",
       ),
     ).toEqual([
@@ -262,7 +262,7 @@ describe("defaulting reads the declaration", () => {
     expect(
       diagnostics(
         "constraint Weigh<a> =\n" +
-          "    weigh(value: a): String\n" +
+          "    weigh(value: a) -> String\n" +
           "honor Weigh<Int> =\n" +
           '    weigh(value) = "int"\n' +
           "export fun render<a: Weigh>(value: a): String = weigh(value)\n" +
@@ -456,7 +456,7 @@ describe("the implied-type binder refusal keeps its repair under a qualifier", (
       diagnostics(
         "constraint Holds<c> =\n" +
           "    type Item\n" +
-          "    first(source: c): Item\n" +
+          "    first(source: c) -> Item\n" +
           "export fun peek<c: Holds>(source: c): Int = 0\n",
       ),
     ).toEqual([

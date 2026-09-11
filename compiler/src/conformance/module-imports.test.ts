@@ -1667,7 +1667,7 @@ describe("a `catch` arm is no seat of the door's (§2.2)", () => {
 describe("Modules §5.3's uniform access reaches an honored member through the alias", () => {
   test("`Alias.member` works for a constraint the aliased module honors at its own type", async () => {
     const files = [
-      ["/sized.hex", "module Sized\n\n" + "export constraint Sized<a> =\n    size(value: a): Int\n"],
+      ["/sized.hex", "module Sized\n\n" + "export constraint Sized<a> =\n    size(value: a) -> Int\n"],
       ["/box.hex",
         "module Box\n\n" + 'import Sized\n' +
         "export record Box = {n: Int}\n" +

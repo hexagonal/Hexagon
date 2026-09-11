@@ -90,7 +90,7 @@ const MIX_CANONICAL =
  */
 const DESCRIBE =
   "export constraint Describe<a> =\n" +
-  "    tag(value: a): String\n" +
+  "    tag(value: a) -> String\n" +
   "\n" +
   "export record Point = {x: Int}\n" +
   "\n" +

@@ -402,7 +402,7 @@ describe("the function channel: none, and `ignore`", () => {
       "/Result.hex",
       `${STDLIB_SOURCES["Result"]!}\n` +
       "export constraint Digest<a> =\n" +
-      "    hash(value: a): Int\n",
+      "    hash(value: a) -> Int\n",
     ];
     const messages = (main: string) =>
       compileFiles([["/main.hex", "module Main\n\n" + main], second]).diagnostics.map(({ message }) => message);
@@ -752,7 +752,7 @@ describe("the member channel: `show` only", () => {
         "/Result.hex",
         `${STDLIB_SOURCES["Result"]!}\n` +
         "export constraint Loud<a> =\n" +
-        "    show(value: a): String\n",
+        "    show(value: a) -> String\n",
       ],
     ]);
 

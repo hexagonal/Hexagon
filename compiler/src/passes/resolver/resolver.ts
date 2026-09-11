@@ -3143,6 +3143,11 @@ class Resolver {
             binding,
             parameters,
             returnAnnotation: this.#resolveTypeAnnotation(member.returnAnnotation, typeParameters, impliedContext),
+            // The contract's outer arrow travels verbatim (#867): what the
+            // header wrote is the bound the seat compares against, and the
+            // arrow's own span is where §4.4 stands its refusal.
+            ...(member.effect === undefined ? {} : { effect: member.effect }),
+            ...(member.arrowSpan === undefined ? {} : { arrowSpan: member.arrowSpan }),
             ...(member.defaultValue === undefined
               ? {}
               : { defaultValue: this.#resolveDefaultBody(member.defaultValue, scope, impliedContext) }),
@@ -5627,6 +5632,12 @@ class Resolver {
         message: this.#aliasIsNotATypeMessage(name, aliased),
         primary: annotation.span,
       });
+      return { kind: "ErrorType", span: annotation.span };
+    }
+    // The parser's own placeholder stands down *(#867)*: a header whose result
+    // type could not be parsed was reported at the arrow seat, and "unknown
+    // type `Invalid`" would blame a spelling no writer wrote.
+    if (annotation.kind === "NamedType" && annotation.synthesized === true) {
       return { kind: "ErrorType", span: annotation.span };
     }
     this.#diagnostics.add({

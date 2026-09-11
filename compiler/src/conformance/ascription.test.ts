@@ -55,7 +55,7 @@ function declarations(source: string): string {
  * learned that the hard way.
  */
 const TAG = "constraint Tag<a> =\n" +
-  "    label(value: a): String\n" +
+  "    label(value: a) -> String\n" +
   "honor Tag<String> =\n" +
   '    label(value) = "string"\n' +
   "fun describe<a: Tag>(value: a): String = label(value)\n";

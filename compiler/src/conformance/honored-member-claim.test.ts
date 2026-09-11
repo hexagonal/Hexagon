@@ -151,8 +151,8 @@ describe("what the claim does not reach", () => {
    */
   test("two constraints with one member name, honored at one type", async () => {
     const exports = await runProject([
-      ["/loud.hex", "module Loud\n\n" + "export constraint Loud<a> =\n    volume(value: a): Int\n"],
-      ["/soft.hex", "module Soft\n\n" + "export constraint Soft<a> =\n    volume(value: a): Int\n"],
+      ["/loud.hex", "module Loud\n\n" + "export constraint Loud<a> =\n    volume(value: a) -> Int\n"],
+      ["/soft.hex", "module Soft\n\n" + "export constraint Soft<a> =\n    volume(value: a) -> Int\n"],
       ["/main.hex", "module Main\n\n" + [
         "import Loud",
         "import Soft",
@@ -186,7 +186,7 @@ describe("what the claim does not reach", () => {
   test("a module may declare a constraint and honor it", async () => {
     const exports = await runProject([["/main.hex", "module Main\n\n" + [
       "export constraint Describe<a> =",
-      "    describe(value: a): String",
+      "    describe(value: a) -> String",
       "",
       "export record Metre = {span: Int}",
       "",

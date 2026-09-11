@@ -160,7 +160,7 @@ describe("the no-such-operation diagnostic tells the truth again (#585)", () => 
  */
 const GAUGE = [
   "/gauge.hex",
-  "module Gauge\n\n" + "export constraint Gauge<a> =\n    stretch(value: a, factor: Int): a\n",
+  "module Gauge\n\n" + "export constraint Gauge<a> =\n    stretch(value: a, factor: Int) -> a\n",
 ] as const;
 
 const PANEL = [

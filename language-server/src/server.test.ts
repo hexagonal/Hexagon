@@ -1519,7 +1519,7 @@ describe("the companion fallback reaches the editor", () => {
     "module Render",
     "",
     "export constraint Render<a> =",
-    "    render(value: a): String",
+    "    render(value: a) -> String",
     "",
   ].join("\n");
 

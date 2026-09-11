@@ -315,7 +315,7 @@ describe("the program table is what makes a prelude module's plan the consumer's
 describe("a declared constraint's candidates are its own instances", () => {
   const DESCRIBE = [
     "constraint Describe<a> =",
-    "    describe(subject: a): String",
+    "    describe(subject: a) -> String",
     "",
     "honor Describe<Int> =",
     "    describe(n) = \"int ${n}\"",
@@ -353,7 +353,7 @@ describe("a declared constraint's candidates are its own instances", () => {
     // ever grows a tuple branch.
     const compiled = compileFiles([["/main.hex", "module Main\n\n" + [
       "constraint Describe<a> =",
-      "    describe(subject: a): String",
+      "    describe(subject: a) -> String",
       "",
       "honor Describe<Unit> =",
       "    describe(u) = \"unit\"",
@@ -389,7 +389,7 @@ describe("a declared constraint's candidates are its own instances", () => {
   test("no instance at any fundamental is §3.4's zero-entry-point export", () => {
     const compiled = project([["/main.hex", "module Main\n\n" + [
       "constraint Render<a> =",
-      "    render(value: a): String",
+      "    render(value: a) -> String",
       "",
       "export fun show1<a: Render>(x: a): String = render(x)",
       "",
@@ -452,7 +452,7 @@ describe("a declared constraint's candidates are its own instances", () => {
     const compiled = project([
       ["/describe.hex", "module Describe\n\n" + [
         "export constraint Describe<a> =",
-        "    describe(subject: a): String",
+        "    describe(subject: a) -> String",
         "",
         "honor Describe<Int> =",
         "    describe(n) = \"int ${n}\"",

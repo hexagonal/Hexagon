@@ -259,7 +259,7 @@ describe("`Integral` is a held declaration now, not a name", () => {
   test("a module-level redeclaration is refused as a pre-registered twin", () => {
     expect(projectDiagnostics("module Main\n\n" + [
       "constraint Integral<a: (Num, Ord)> =",
-      "    div(left: a, right: a): a",
+      "    div(left: a, right: a) -> a",
       "",
     ].join("\n"))).toEqual([
       "constraint `Integral` is pre-registered and cannot be redeclared",

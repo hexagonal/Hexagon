@@ -286,7 +286,7 @@ describe("the dot call reaches the door as one claimant (Method Syntax §6.1)", 
         "import Gauge",
         "",
         "export constraint Quiet<a> =",
-        "    describe(value: a): String",
+        "    describe(value: a) -> String",
         "",
         "honor Quiet<Gauge.Gauge> =",
         "    describe(value) = \"quiet\"",
@@ -551,8 +551,8 @@ describe("the manifest and the head (Constraints §4.7)", () => {
       ["/scale.hex", "module Scale\n\n" + [
         "// scale",
         "export constraint Scale<a> =",
-        "    scale(value: a, factor: Int): a",
-        "    label(value: a): String",
+        "    scale(value: a, factor: Int) -> a",
+        "    label(value: a) -> String",
         "",
       ].join("\n")],
       ["/matrix.hex", "module Matrix\n\n" + [
@@ -724,7 +724,7 @@ describe("the manifest and the head (Constraints §4.7)", () => {
       ["/scale.hex", "module Scale\n\n" + [
         "// scale",
         "export constraint Scale<a> =",
-        "    scale(value: a, factor: Int): a",
+        "    scale(value: a, factor: Int) -> a",
         "",
       ].join("\n")],
       ["/matrix.hex", "module Matrix\n\n" + [
@@ -779,8 +779,8 @@ describe("what the supply route serves, beyond one required member (§4.7)", () 
   const scale = [
     "// scale",
     "export constraint Scale<a> =",
-    "    scale(value: a, factor: Int): a",
-    "    scaleBy(value: a, factor: Int): a = scale(value, factor)",
+    "    scale(value: a, factor: Int) -> a",
+    "    scaleBy(value: a, factor: Int) -> a = scale(value, factor)",
     "",
   ].join("\n");
 
@@ -788,7 +788,7 @@ describe("what the supply route serves, beyond one required member (§4.7)", () 
   const blend = [
     "// blend",
     "export constraint Blend<a> =",
-    "    blend(value: a, weight: Int, bias: Int): a",
+    "    blend(value: a, weight: Int, bias: Int) -> a",
     "",
     "// The polymorphic face, written on the declaring side: the member, never",
     "// the door, so a run through here cannot be answered by the wider face.",
@@ -892,7 +892,7 @@ describe("several same-spelled members: widen all of them or none (§4.7)", () =
   const mul = [
     "// mul",
     "export constraint Mul<a> =",
-    "    pow(value: a, exponent: Int): a",
+    "    pow(value: a, exponent: Int) -> a",
     "",
     "// The polymorphic face, written on the declaring side: bare `pow` here is",
     "// the member's forwarder, and the evidence rides the call.",

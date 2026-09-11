@@ -203,7 +203,7 @@ describe("`opaque` on a subject it does not apply to (§10)", () => {
     const applies = "`opaque` applies to `record` and `union` declarations";
     expect(projectDiagnostics("module Main\n\n" + "opaque let width: Int = 3\n")).toContain(applies);
     expect(projectDiagnostics("module Main\n\n" + "opaque fun width(): Int = 3\n")).toContain(applies);
-    expect(projectDiagnostics("module Main\n\n" + "opaque constraint Hidden<a> =\n    peek(subject: a): Int\n",
+    expect(projectDiagnostics("module Main\n\n" + "opaque constraint Hidden<a> =\n    peek(subject: a) -> Int\n",
     )).toContain(applies);
     expect(projectDiagnostics("module Main\n\n" + "opaque exception Torn(reason: String)\n")).toContain(applies);
   });
@@ -334,7 +334,7 @@ describe("the `opaque` head lays out like the head it replaced (Lexer & Layout)"
    * defect, and it should be the only report.
    */
   test("a redirected `opaque constraint` still opens its body", () => {
-    expect(projectDiagnostics("module Main\n\n" + "opaque constraint Hidden<a> =\n    peek(subject: a): Int\n",
+    expect(projectDiagnostics("module Main\n\n" + "opaque constraint Hidden<a> =\n    peek(subject: a) -> Int\n",
     )).toEqual([
       "`opaque` applies to `record` and `union` declarations",
     ]);

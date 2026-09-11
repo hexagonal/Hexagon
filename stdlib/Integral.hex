@@ -9,15 +9,15 @@ export exception DivideByZeroError(message: String)
     `quot`/`rem` — along with greatest common divisors. *)
 export constraint Integral<a: (Num, Ord)> =
     (** The Euclidean quotient of `left` divided by `right`. *)
-    div(left: a, right: a): a
+    div(left: a, right: a) -> a
     (** The Euclidean remainder of `left` divided by `right`, always in
         `[0, abs(right))` whatever the signs. *)
-    mod(left: a, right: a): a
+    mod(left: a, right: a) -> a
     (** The truncated quotient of `left` divided by `right`, rounding toward
         zero. *)
-    quot(left: a, right: a): a
+    quot(left: a, right: a) -> a
     (** The truncated remainder of `left` divided by `right`, taking the sign of
         `left`. *)
-    rem(left: a, right: a): a
+    rem(left: a, right: a) -> a
     (** The greatest common divisor of `left` and `right`, never negative. *)
-    gcd(left: a, right: a): a
+    gcd(left: a, right: a) -> a

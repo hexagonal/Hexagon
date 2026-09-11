@@ -780,7 +780,7 @@ describe("parse", () => {
     const module = parseSource(
       "constraint Source<a> =\n" +
         "    type Item\n" +
-        "    get(value: a): Item\n" +
+        "    get(value: a) -> Item\n" +
         "honor Source<Int> =\n" +
         "    type Item = String\n" +
         '    get(value) = "${value}"',
@@ -803,8 +803,8 @@ describe("parse", () => {
   test("parses defaults, derives headers, and parameterized honors", () => {
     const module = parseSource(
       "constraint Same<a> =\n" +
-        "    same(left: a, right: a): Bool\n" +
-        "    different(left: a, right: a): Bool = not same(left, right)\n" +
+        "    same(left: a, right: a) -> Bool\n" +
+        "    different(left: a, right: a) -> Bool = not same(left, right)\n" +
         "record Box(a) derives (Eq, Show) = {value: a}\n" +
         "honor<a: Eq> Eq<Box(a)> = derive",
     );
@@ -1833,7 +1833,7 @@ describe("parse", () => {
         "opaque let width: Int = 3\n",
         "opaque fun width(): Int = 3\n",
         "opaque exception Torn(reason: String)\n",
-        "opaque constraint Hidden<a> =\n    peek(subject: a): Int\n",
+        "opaque constraint Hidden<a> =\n    peek(subject: a) -> Int\n",
       ]) {
         expect(messages(text)).toEqual([
           "`opaque` applies to `record` and `union` declarations",

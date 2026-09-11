@@ -238,7 +238,7 @@ describe("Step 1: the completed syntactic-value list", () => {
   // variable is gone before any of this is observable (§2a of the arc's notes,
   // and three false results that came of ignoring it).
   const TAG = "constraint Tag<a> =\n" +
-    "    label(value: a): String\n" +
+    "    label(value: a) -> String\n" +
     "honor Tag<String> =\n" +
     '    label(value) = "string"\n' +
     "fun describe<a: Tag>(value: a): String = label(value)\n";
@@ -317,9 +317,9 @@ describe("Step 1: the completed syntactic-value list", () => {
     // one constraint each, so a singular noun over a plural list read "its
     // `Tag`, `Other` constraint" and no test could see it.
     const source = "constraint Tag<a> =\n" +
-      "    label(value: a): String\n" +
+      "    label(value: a) -> String\n" +
       "constraint Other<a> =\n" +
-      "    other(value: a): String\n" +
+      "    other(value: a) -> String\n" +
       "honor Tag<String> =\n" +
       '    label(value) = "s"\n' +
       "honor Other<String> =\n" +

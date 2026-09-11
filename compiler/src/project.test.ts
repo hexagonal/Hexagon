@@ -970,7 +970,7 @@ describe("§3.3 — the order a contest is printed in, and who draws the manifes
 describe("a repair offered inside a dependency is a line that dependency can write", () => {
   const HEFT_LIB = [
     "export constraint Heft<a: Num> =",
-    "    heft(value: a): a",
+    "    heft(value: a) -> a",
     "export let useHeft<a: Heft>(n: a): a = heft(n)",
     "",
   ].join("\n");

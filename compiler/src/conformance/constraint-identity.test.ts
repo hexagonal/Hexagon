@@ -28,7 +28,7 @@ import { compileFiles, runProject } from "../support/test-project.js";
 const sameNamedConstraints: readonly (readonly [string, string])[] = [
   ["/alpha.hex", "module Alpha\n\n" + [
     "constraint Describe<a> =",
-    "    describe(subject: a): String",
+    "    describe(subject: a) -> String",
     "",
     "honor Describe<Int> =",
     "    describe(n) = \"alpha sees ${n}\"",
@@ -38,7 +38,7 @@ const sameNamedConstraints: readonly (readonly [string, string])[] = [
   ].join("\n")],
   ["/beta.hex", "module Beta\n\n" + [
     "constraint Describe<a> =",
-    "    describe(value: a): String",
+    "    describe(value: a) -> String",
     "",
     "honor Describe<Int> =",
     "    describe(count) = \"beta counted ${count} times\"",
@@ -103,7 +103,7 @@ describe("same-named constraints in different modules are distinct", () => {
         "import Beta",
         "",
         "constraint Describe<a> =",
-        "    describe(item: a): String",
+        "    describe(item: a) -> String",
         "",
         "honor Describe<Int> =",
         "    describe(k) = \"main\"",
@@ -122,7 +122,7 @@ describe("coherence still holds within one constraint declaration", () => {
   test("two instances of the *same* declaration are a duplicate", () => {
     const compiled = compileFiles([["/main.hex", "module Main\n\n" + [
       "constraint Describe<a> =",
-      "    describe(subject: a): String",
+      "    describe(subject: a) -> String",
       "",
       "honor Describe<Int> =",
       "    describe(n) = \"first\"",
@@ -175,7 +175,7 @@ describe("a requirement crossing a module boundary keeps its declaration", () =>
     const exports = await runProject([
       ["/alpha.hex", "module Alpha\n\n" + [
         "constraint Describe<a> =",
-        "    describe(subject: a): String",
+        "    describe(subject: a) -> String",
         "",
         "honor Describe<Int> =",
         "    describe(n) = \"alpha sees ${n}\"",
@@ -202,7 +202,7 @@ describe("a requirement crossing a module boundary keeps its declaration", () =>
     const compiled = compileFiles([
       ["/alpha.hex", "module Alpha\n\n" + [
         "constraint Describe<a> =",
-        "    describe(subject: a): String",
+        "    describe(subject: a) -> String",
         "",
         "export fun announce<a: Describe>(subject: a): String = describe(subject)",
         "",
@@ -211,7 +211,7 @@ describe("a requirement crossing a module boundary keeps its declaration", () =>
         "import Alpha",
         "",
         "constraint Describe<a> =",
-        "    describe(item: a): String",
+        "    describe(item: a) -> String",
         "",
         "honor Describe<Bool> =",
         "    describe(b) = \"local\"",
@@ -236,7 +236,7 @@ describe("pre-registered constraints have one identity, held by the compiler", (
   test("a module may not redeclare a pre-registered name", () => {
     const compiled = compileFiles([["/main.hex", "module Main\n\n" + [
       "constraint Hash<a> =",
-      "    hash(subject: a): Int",
+      "    hash(subject: a) -> Int",
       "",
     ].join("\n")]]);
 
@@ -257,7 +257,7 @@ describe("pre-registered constraints have one identity, held by the compiler", (
     // `NON_REDECLARABLE_CONSTRAINTS`, which no longer filters anything out.
     for (const name of PRE_REGISTERED_CONSTRAINTS) {
       const compiled = compileFiles([["/main.hex",
-        "module Main\n\n" + `constraint ${name}<a> =\n    probe(subject: a): Int\n`,
+        "module Main\n\n" + `constraint ${name}<a> =\n    probe(subject: a) -> Int\n`,
       ]]);
 
       expect(compiled.diagnostics.map(({ message }) => message)).toContain(
@@ -269,10 +269,10 @@ describe("pre-registered constraints have one identity, held by the compiler", (
   test("redeclaring a module's own constraint keeps its own report", () => {
     const compiled = compileFiles([["/main.hex", "module Main\n\n" + [
       "constraint Describe<a> =",
-      "    describe(subject: a): String",
+      "    describe(subject: a) -> String",
       "",
       "constraint Describe<a> =",
-      "    narrate(subject: a): String",
+      "    narrate(subject: a) -> String",
       "",
     ].join("\n")]]);
 

@@ -44,7 +44,7 @@ describe("importing a constraint brings its module, and members reach through it
   const files = [
     ["/labels.hex", "module Labels\n\n" + [
       "export constraint Label<a> =",
-      "    label(subject: a): String",
+      "    label(subject: a) -> String",
       "",
       "honor Label<Int> =",
       "    label(n) = \"#${n}\"",
@@ -123,7 +123,7 @@ describe("importing a constraint brings its module, and members reach through it
 describe("an unexported constraint stays private", () => {
   const home = [
     "constraint Whisper<a> =",
-    "    whisper(subject: a): String",
+    "    whisper(subject: a) -> String",
     "",
     "honor Whisper<Int> =",
     "    whisper(n) = \"psst ${n}\"",
@@ -167,8 +167,8 @@ describe("an unexported constraint stays private", () => {
     // the honoring dictionary as before.
     const text = emitted([["/main.hex", "module Main\n\n" + [
       "constraint Greet<a> =",
-      "    greet(subject: a): String",
-      "    greetLoudly(subject: a): String = greet(subject) ++ \"!\"",
+      "    greet(subject: a) -> String",
+      "    greetLoudly(subject: a) -> String = greet(subject) ++ \"!\"",
       "",
       "honor Greet<Int> =",
       "    greet(n) = \"hi ${n}\"",
@@ -191,10 +191,10 @@ describe("an unexported constraint stays private", () => {
  */
 const hierarchy = [
   "export constraint Describe<a> =",
-  "    describe(subject: a): String",
+  "    describe(subject: a) -> String",
   "",
   "export constraint Loud<a: Describe> =",
-  "    shout(subject: a): String",
+  "    shout(subject: a) -> String",
   "",
   "export record Metre = {span: Int}",
   "",
@@ -282,7 +282,7 @@ describe("base-constraint entailment through an imported constraint", () => {
         "import Units",
         "",
         "constraint Describe<a> =",
-        "    narrate(subject: a): String",
+        "    narrate(subject: a) -> String",
         "",
         "record Note = {body: String}",
         "",
@@ -322,7 +322,7 @@ describe("base-constraint entailment through an imported constraint", () => {
         "record Siren = {pitch: Int}",
         "",
         "constraint Loud<a> =",
-        "    blare(subject: a): String",
+        "    blare(subject: a) -> String",
         "",
         "honor Loud<Siren> =",
         "    blare(s) = \"weeee\"",
@@ -355,13 +355,13 @@ describe("base-constraint entailment through an imported constraint", () => {
  */
 const chain = [
   "constraint Tiny<a> =",
-  "    tiny(subject: a): String",
+  "    tiny(subject: a) -> String",
   "",
   "constraint Small<a: Tiny> =",
-  "    small(subject: a): String",
+  "    small(subject: a) -> String",
   "",
   "export constraint Big<a: Small> =",
-  "    big(subject: a): String",
+  "    big(subject: a) -> String",
   "",
   "export record Gram = {mass: Int}",
   "",
@@ -491,10 +491,10 @@ describe("the orphan rule reads files, never imports (Constraints §5.3)", () =>
     const messages = messagesOf([
       ["/broken.hex", "module Broken\n\n" + [
         "export constraint Ring<a: Chain> =",
-        "    ring(subject: a): Int",
+        "    ring(subject: a) -> Int",
         "",
         "export constraint Chain<a: Ring> =",
-        "    chain(subject: a): Int",
+        "    chain(subject: a) -> Int",
         "",
       ].join("\n")],
       ["/main.hex", "module Main\n\n" + [
@@ -516,8 +516,8 @@ describe("defaults hoist once, at home (Constraints §6.5)", () => {
     "fun decorate(text: String): String = \"<< \" ++ text ++ \" >>\"",
     "",
     "export constraint Stamp<a> =",
-    "    mark(subject: a): String",
-    "    stamped(subject: a): String = decorate(mark(subject))",
+    "    mark(subject: a) -> String",
+    "    stamped(subject: a) -> String = decorate(mark(subject))",
     "",
     "export record Seal = {sigil: String}",
     "",
@@ -589,8 +589,8 @@ describe("defaults hoist once, at home (Constraints §6.5)", () => {
     const exports = await runProject([
       ["/chimes.hex", "module Chimes\n\n" + [
         "export constraint Chime<a> =",
-        "    note(subject: a): String",
-        "    peal(subject: a): String = note(subject) ++ note(subject)",
+        "    note(subject: a) -> String",
+        "    peal(subject: a) -> String = note(subject) ++ note(subject)",
         "",
       ].join("\n")],
       ["/main.hex", "module Main\n\n" + [
@@ -622,7 +622,7 @@ describe("a parameterized honor of an imported constraint", () => {
     const exports = await runProject([
       ["/renders.hex", "module Renders\n\n" + [
         "export constraint Render<a> =",
-        "    render(subject: a): String",
+        "    render(subject: a) -> String",
         "",
         "honor Render<Int> =",
         "    render(n) = \"${n}\"",
@@ -662,7 +662,7 @@ describe("aliased and namespace imports (Modules §3.2, §3.3)", () => {
     const exports = await runProject([
       ["/weights.hex", "module Weights\n\n" + [
         "export constraint Weigh<a> =",
-        "    grams(subject: a): Int",
+        "    grams(subject: a) -> Int",
         "",
       ].join("\n")],
       ["/main.hex", "module Main\n\n" + [
@@ -686,7 +686,7 @@ describe("aliased and namespace imports (Modules §3.2, §3.3)", () => {
     const exports = await runProject([
       ["/weights.hex", "module Weights\n\n" + [
         "export constraint Weigh<a> =",
-        "    grams(subject: a): Int",
+        "    grams(subject: a) -> Int",
         "",
         "export record Anvil = {mass: Int}",
         "",
@@ -718,7 +718,7 @@ describe("aliased and namespace imports (Modules §3.2, §3.3)", () => {
     const exports = await runProject([
       ["/geo.hex", "module Geo\n\n" + [
         "export constraint Perimeter<a> =",
-        "    around(subject: a): Int",
+        "    around(subject: a) -> Int",
         "",
       ].join("\n")],
       ["/main.hex", "module Main\n\n" + [
@@ -744,10 +744,10 @@ describe("aliased and namespace imports (Modules §3.2, §3.3)", () => {
     expect(messagesOf([
       ["/atlas.hex", "module Atlas\n\n" + [
         "constraint Hidden<a> =",
-        "    trace(subject: a): String",
+        "    trace(subject: a) -> String",
         "",
         "export constraint Plotted<a> =",
-        "    plot(subject: a): String",
+        "    plot(subject: a) -> String",
         "",
       ].join("\n")],
       ["/main.hex", "module Main\n\n" + [
@@ -763,7 +763,7 @@ describe("aliased and namespace imports (Modules §3.2, §3.3)", () => {
     const exports = await runProject([
       ["/geo.hex", "module Geo\n\n" + [
         "export constraint Area<a> =",
-        "    area(subject: a): Int",
+        "    area(subject: a) -> Int",
         "",
         "export record Square = {side: Int}",
         "",
@@ -793,7 +793,7 @@ describe("implied types project through an imported member", () => {
     ["/streams.hex", "module Streams\n\n" + [
       "export constraint Source<a> =",
       "    type Item",
-      "    peek(supply: a): Item",
+      "    peek(supply: a) -> Item",
       "",
       "export record Ledger = {entries: Vector(String)}",
       "",
@@ -885,7 +885,7 @@ describe("`export honor` and `opaque constraint` (Modules §4.1, §10)", () => {
   test("`export honor` names the rule rather than the grammar", () => {
     expect(messagesOf([["/main.hex", "module Main\n\n" + [
       "constraint Tally<a> =",
-      "    tally(subject: a): Int",
+      "    tally(subject: a) -> Int",
       "",
       "export honor Tally<Int> =",
       "    tally(n) = n",
@@ -898,7 +898,7 @@ describe("`export honor` and `opaque constraint` (Modules §4.1, §10)", () => {
   test("`opaque constraint` names where `opaque` applies", () => {
     expect(messagesOf([["/main.hex", "module Main\n\n" + [
       "opaque constraint Hidden<a> =",
-      "    peek(subject: a): Int",
+      "    peek(subject: a) -> Int",
       "",
     ].join("\n")]])).toContain(
       "`opaque` applies to `record` and `union` declarations",
@@ -927,8 +927,8 @@ describe("internal names that contest one spelling (#430)", () => {
   const files = [
     ["/ledger.hex", "module Ledger\n\n" + [
       "export constraint Tally<a> =",
-      "    mark(entry: a): String",
-      "    log(entry: a): String = mark(entry) ++ \" (logged)\"",
+      "    mark(entry: a) -> String",
+      "    log(entry: a) -> String = mark(entry) ++ \" (logged)\"",
       "",
       "export let default_log<a: Tally>(entry: a): String = \"[\" ++ mark(entry) ++ \"]\"",
       "",
@@ -994,8 +994,8 @@ describe("internal names that contest one spelling (#430)", () => {
     const twins = [
       ["/tolls.hex", "module Tolls\n\n" + [
         "export constraint Fare<a> =",
-        "    price(entry: a): Int",
-        "    log(entry: a): Int = price(entry) + 1",
+        "    price(entry: a) -> Int",
+        "    log(entry: a) -> Int = price(entry) + 1",
         "",
         "export let default_log<a: Fare>(entry: a): Int = price(entry) * 10",
         "export let default_log_1<a: Fare>(entry: a): Int = price(entry) * 100",
@@ -1043,9 +1043,9 @@ describe("internal names that contest one spelling (#430)", () => {
     const marks = [
       ["/marks.hex", "module Marks\n\n" + [
         "export constraint Stamp<a> =",
-        "    mark(entry: a): String",
-        "    log(entry: a): String = mark(entry) ++ \" (logged)\"",
-        "    default_log(entry: a): String",
+        "    mark(entry: a) -> String",
+        "    log(entry: a) -> String = mark(entry) ++ \" (logged)\"",
+        "    default_log(entry: a) -> String",
         "",
         "export record Slip = {tag: String}",
         "",
@@ -1096,9 +1096,9 @@ describe("internal names that contest one spelling (#430)", () => {
     const tags = [
       ["/tags.hex", "module Tags\n\n" + [
         "export constraint Note<a> =",
-        "    body(entry: a): String",
-        "    log(entry: a): String = body(entry) ++ \"!\"",
-        "    default_log_1(entry: a): String",
+        "    body(entry: a) -> String",
+        "    log(entry: a) -> String = body(entry) ++ \"!\"",
+        "    default_log_1(entry: a) -> String",
         "",
         "export let default_log<a: Note>(entry: a): String = \"[\" ++ body(entry) ++ \"]\"",
         "",
@@ -1152,10 +1152,10 @@ describe("internal names that contest one spelling (#430)", () => {
   test("no module exports one internal spelling twice, however deep the probe", async () => {
     const dense = [["/tiers.hex", "module Tiers\n\n" + [
       "export constraint Rung<a> =",
-      "    height(entry: a): Int",
-      "    log(entry: a): Int = height(entry) + 1",
-      "    default_log_1(entry: a): Int",
-      "    default_log_2(entry: a): Int",
+      "    height(entry: a) -> Int",
+      "    log(entry: a) -> Int = height(entry) + 1",
+      "    default_log_1(entry: a) -> Int",
+      "    default_log_2(entry: a) -> Int",
       "",
       "export let default_log<a: Rung>(entry: a): Int = height(entry) * 2",
       "export let default_log_3<a: Rung>(entry: a): Int = height(entry) * 3",
@@ -1198,12 +1198,12 @@ describe("internal names that contest one spelling (#430)", () => {
     const rivals = [
       ["/loudly.hex", "module Loudly\n\n" + [
         "export constraint Loud<a> =",
-        "    pitch(value: a): Int",
+        "    pitch(value: a) -> Int",
         "",
       ].join("\n")],
       ["/softly.hex", "module Softly\n\n" + [
         "export constraint Soft<a> =",
-        "    pitch(value: a): Int",
+        "    pitch(value: a) -> Int",
         "",
       ].join("\n")],
       ["/organ.hex", "module Organ\n\n" + [

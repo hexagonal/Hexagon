@@ -38,7 +38,7 @@ function scaleModule(tag: string): string {
     "",
     `// scale ${tag}`,
     "export constraint Scale<a> =",
-    "    scale(value: a, factor: Int): a",
+    "    scale(value: a, factor: Int) -> a",
     "",
     "// The genuinely polymorphic face, written on the declaring side: bare",
     "// `scale` here is the member's forwarder, and the evidence rides the call.",
@@ -339,7 +339,7 @@ describe("where the law is never consulted (Modules §5.3)", () => {
     const diagnostics = compileFiles([["/main.hex", "module Main\n\n" + [
       "// declaring module carve",
       "export constraint Scale<a> =",
-      "    scale(value: a, factor: Int): a",
+      "    scale(value: a, factor: Int) -> a",
       "",
       "export record Matrix = {n: Float}",
       "",

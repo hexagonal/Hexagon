@@ -1877,7 +1877,7 @@ describe("emitJavaScript", () => {
   test("declares user constraint members as generic dictionary dispatch", () => {
     const module = coreSource(
       "constraint Render<a> =\n" +
-        "    render(value: a): String\n" +
+        "    render(value: a) -> String\n" +
         "let display<a: Render>(value: a): String = render(value)",
     );
 
@@ -1895,7 +1895,7 @@ describe("emitJavaScript", () => {
   test("checks ground honor declarations and selects their dictionaries", () => {
     const module = coreSource(
       "constraint Render<a> =\n" +
-        "    render(value: a): String\n" +
+        "    render(value: a) -> String\n" +
         "record Point = {x: Int}\n" +
         "honor Render<Point> =\n" +
         '    render(point) = "Point(${point.x})"\n' +
@@ -1922,8 +1922,8 @@ describe("emitJavaScript", () => {
   test("emits inherited defaults through the instance dictionary", () => {
     const module = coreSource(
       "constraint Same<a> =\n" +
-        "    same(left: a, right: a): Bool\n" +
-        "    different(left: a, right: a): Bool = not same(left, right)\n" +
+        "    same(left: a, right: a) -> Bool\n" +
+        "    different(left: a, right: a) -> Bool = not same(left, right)\n" +
         "record Token = {value: Int}\n" +
         "honor Same<Token> =\n" +
         "    same(left, right) = left.value == right.value\n" +
@@ -1956,9 +1956,9 @@ describe("emitJavaScript", () => {
   test("emits base-constraint slots and selects them as generic evidence", () => {
     const module = coreSource(
       "constraint Same<a> =\n" +
-        "    same(left: a, right: a): Bool\n" +
+        "    same(left: a, right: a) -> Bool\n" +
         "constraint Labeled<a: Same> =\n" +
-        "    label(value: a): String\n" +
+        "    label(value: a) -> String\n" +
         "record Token = {value: Int}\n" +
         "honor Same<Token> =\n" +
         "    same(left, right) = left.value == right.value\n" +
@@ -1984,7 +1984,7 @@ describe("emitJavaScript", () => {
   test("emits parameterized honors as dictionary factories", () => {
     const module = coreSource(
         "constraint Render<a> =\n" +
-        "    render(value: a): String\n" +
+        "    render(value: a) -> String\n" +
         "honor Render<Int> =\n" +
         '    render(value) = "${value}"\n' +
         "record Box(a) = {value: a}\n" +
@@ -2023,7 +2023,7 @@ describe("emitJavaScript", () => {
   test("threads instance evidence through pattern-bound members and recursive instances", () => {
     const module = coreSource(
       "constraint Describe<a> =\n" +
-        "    describe(value: a): String\n" +
+        "    describe(value: a) -> String\n" +
         "honor Describe<Int> =\n" +
         '    describe(value) = "${value}"\n' +
         "union Tree(a) = Leaf | Node(left: Tree(a), item: a, right: Tree(a))\n" +
@@ -2073,8 +2073,8 @@ describe("emitJavaScript", () => {
     const module = coreSource(
       "union Held(a) = Missing | Held2(value: a)\n" +
         "constraint Pick<a> =\n" +
-        "    pick(value: a): a\n" +
-        "    pickHeld(fallback: a, held: Held(a)): a = match held\n" +
+        "    pick(value: a) -> a\n" +
+        "    pickHeld(fallback: a, held: Held(a)) -> a = match held\n" +
         "        Missing => fallback\n" +
         "        Held2(value) => pick(value)\n" +
         "honor Pick<Int> =\n" +
@@ -2145,7 +2145,7 @@ describe("emitJavaScript", () => {
     const module = coreSource(
       "constraint Source<a> =\n" +
         "    type Item\n" +
-        "    get(value: a): Item\n" +
+        "    get(value: a) -> Item\n" +
         "record Box = {value: Int}\n" +
         "honor Source<Box> =\n" +
         "    type Item = Int\n" +

@@ -213,8 +213,8 @@ describe("§6.1 — a ground instance's members hoist to member seats", () => {
     // is what keeps an override winning (§2).
     const source =
       "constraint Chirp<a> =\n" +
-        "    note(x: a): String\n" +
-        '    twice(x: a): String = note(x) ++ note(x)\n' +
+        "    note(x: a) -> String\n" +
+        '    twice(x: a) -> String = note(x) ++ note(x)\n' +
         "record Finch = {call: String}\n" +
         "honor Chirp<Finch> =\n" +
         "    note(f) = f.call\n" +

@@ -105,7 +105,7 @@ function applied(text: string, diagnostic: Diagnostics.Diagnostic | undefined): 
 /** A user constraint, unimported: the arrival state both constraint seats own. */
 const SCALE = [
   "/scale.hex",
-  "module Scale\n\n" + "export constraint Scale<a> =\n    scale(value: a, factor: Int): a\n",
+  "module Scale\n\n" + "export constraint Scale<a> =\n    scale(value: a, factor: Int) -> a\n",
 ] as const;
 
 describe("the type seat (Modules §5.1 rule 1)", () => {
@@ -514,7 +514,7 @@ describe("the bare constraint seat (Constraints §8's row)", () => {
     // (Modules §10). It cannot read the import's `specifier`, which since #829
     // holds the *emitted* JS path for the edge (§11.2) and no module name.
     expect(messages([
-      ["/render.hex", "module Render\n\n" + "export constraint Render<a> =\n    render(value: a): String\n"],
+      ["/render.hex", "module Render\n\n" + "export constraint Render<a> =\n    render(value: a) -> String\n"],
       ["/main.hex",
         "module Main\n\n" + 'import Render as R\n' +
         "export fun label<a: R>(x: a): String = R.render(x)\n"],
@@ -524,8 +524,8 @@ describe("the bare constraint seat (Constraints §8's row)", () => {
     );
     expect(messages([
       ["/lib.hex",
-        "module Lib\n\n" + "export constraint One<a> =\n    one(value: a): Int\n" +
-        "export constraint Two<a> =\n    two(value: a): Int\n"],
+        "module Lib\n\n" + "export constraint One<a> =\n    one(value: a) -> Int\n" +
+        "export constraint Two<a> =\n    two(value: a) -> Int\n"],
       ["/main.hex",
         "module Main\n\n" + 'import Lib\n' +
         "export fun size<a: Lib>(x: a): Int = 1\n"],
@@ -573,7 +573,7 @@ describe("the bare constraint seat (Constraints §8's row)", () => {
       "export let one: Int = Scale.unit + Other.n\n";
     const { diagnostics } = compileFiles([
       ["/scale.hex",
-        "module Scale\n\n" + "export constraint Scale<a> =\n    scale(value: a, factor: Int): a\n" +
+        "module Scale\n\n" + "export constraint Scale<a> =\n    scale(value: a, factor: Int) -> a\n" +
         "export let unit: Int = 1\n"],
       ["/other.hex", "module Other\n\n" + "export let n: Int = 1\n"],
       ["/main.hex", text],
@@ -591,7 +591,7 @@ describe("the bare constraint seat (Constraints §8's row)", () => {
     expect(
       messages([
         ["/scale.hex",
-          "module Scale\n\n" + "export constraint Scale<a> =\n    scale(value: a, factor: Int): a\n" +
+          "module Scale\n\n" + "export constraint Scale<a> =\n    scale(value: a, factor: Int) -> a\n" +
           "export let unit: Int = 1\n"],
         ["/other.hex", "module Other\n\n" + "export let n: Int = 1\n"],
         ["/main.hex",
@@ -621,7 +621,7 @@ describe("the bare constraint seat (Constraints §8's row)", () => {
     // §4.1's `Alias.Name` spelling arrives under its whole dotted name. That
     // writer already holds an alias; `import D.NotThere` names no module.
     expect(messages([
-      ["/describe.hex", "module Describe\n\n" + "export constraint Describe<a> =\n    describe(value: a): String\n"],
+      ["/describe.hex", "module Describe\n\n" + "export constraint Describe<a> =\n    describe(value: a) -> String\n"],
       ["/main.hex",
         "module Main\n\n" + 'import Describe as D\n' +
         "export record Box = {n: Int}\n" +
@@ -715,7 +715,7 @@ describe("a type of the spelling at a constraint seat (§5.1 rule 1's type branc
    */
   const SCAFFOLD = "export record Box = {n: Int}\n" +
     "export record Twin(a) = {left: a, right: a}\n" +
-    "export constraint Own<a> =\n    own(value: a): Int\n";
+    "export constraint Own<a> =\n    own(value: a) -> Int\n";
 
   /**
    * Rule 1's report, of however many the fixture drew.
@@ -747,7 +747,7 @@ describe("a type of the spelling at a constraint seat (§5.1 rule 1's type branc
   const SHAPE_HOME = [
     "/shape.hex",
     "module Shape\n\n" + "export union Shape = Circle(Float)\n" +
-      "export constraint Describe<a> =\n    describe(value: a): String\n",
+      "export constraint Describe<a> =\n    describe(value: a) -> String\n",
   ] as const;
 
   describe("row 533 — a type this module declares", () => {
@@ -757,7 +757,7 @@ describe("a type of the spelling at a constraint seat (§5.1 rule 1's type branc
         // use names the module's own binding and the drop is carried (§5.1's
         // condition, one namespace over from the term seat's).
         const declarations = SCAFFOLD + "export record Shape = {n: Int}\n" +
-          "export constraint Describe<a> =\n    describe(value: a): String\n";
+          "export constraint Describe<a> =\n    describe(value: a) -> String\n";
         const file = main(declarations, write("Shape.Describe"));
         const report = ruleOne([file]);
         expect(report.message).toBe("`Shape` is a type, not a module; write `Describe`");
@@ -798,7 +798,7 @@ describe("a type of the spelling at a constraint seat (§5.1 rule 1's type branc
       // another module's declaration. The fact is still the type's.
       const report = ruleOne([
         ["/describe.hex",
-          "module Describe\n\n" + "export constraint Describe<a> =\n    describe(value: a): String\n"],
+          "module Describe\n\n" + "export constraint Describe<a> =\n    describe(value: a) -> String\n"],
         main("import Describe\nexport record Point = {x: Int}\n",
           "honor Point.Describe<Point> =\n    describe(value) = \"p\"\n"),
       ]);
@@ -858,7 +858,7 @@ describe("a type of the spelling at a constraint seat (§5.1 rule 1's type branc
         "/geometry.hex",
         "module Geometry\n\n" + "export union Shape = Circle(Float)\n" +
           "export let unit: Float = 1.0\n" +
-          "export constraint Describe<a> =\n    describe(value: a): String\n",
+          "export constraint Describe<a> =\n    describe(value: a) -> String\n",
       ] as const;
       const text = "module Main\n\n" + "import Geometry as G\n" + "type Shape = G.Shape\n" +
         "export record Box = {n: Int}\n" +
@@ -1106,7 +1106,7 @@ describe("the resolving package's own segment (Packages §3.3)", () => {
     for (const options of SHAPES) {
       expect(messages([
         ["/render.hex",
-          "module Render\n\n" + "export constraint Render<a> =\n    render(value: a): String\n"],
+          "module Render\n\n" + "export constraint Render<a> =\n    render(value: a) -> String\n"],
         ["/main.hex",
           "module Main\n\n" + "import Render as R\n" +
           "export fun label<a: R>(x: a): String = R.render(x)\n"],
@@ -1220,7 +1220,7 @@ describe("a module does not qualify through itself (§5.1 rule 1, §3.1)", () =>
     // are resolved there — so a report that stopped at the sentence here would
     // be rule 1 implemented at three of its four seats.
     const text = "module Scale\n\n" +
-      "export constraint Scale<a> =\n    s(x: a): a\n" +
+      "export constraint Scale<a> =\n    s(x: a) -> a\n" +
       "export fun go<a: Scale.Scale>(x: a): a = x\n";
     const [diagnostic, ...rest] = compileFiles([["/scale.hex", text]]).diagnostics;
     expect(diagnostic?.message).toBe("a module does not qualify through itself; write `Scale`");
@@ -1229,7 +1229,7 @@ describe("a module does not qualify through itself (§5.1 rule 1, §3.1)", () =>
     expect(rest).toEqual([]);
     expect(applied(text, diagnostic)).toBe(
       "module Scale\n\n" +
-        "export constraint Scale<a> =\n    s(x: a): a\n" +
+        "export constraint Scale<a> =\n    s(x: a) -> a\n" +
         "export fun go<a: Scale>(x: a): a = x\n",
     );
     // The dropped form is a program, which is what makes the drop the repair
@@ -1260,12 +1260,12 @@ describe("a module does not qualify through itself (§5.1 rule 1, §3.1)", () =>
     // behind. The range travels from the parser instead, which is the only
     // reader that saw both names.
     const text = "module Scale\n\n" +
-      "export constraint Scale<a> =\n    s(x: a): a\n" +
+      "export constraint Scale<a> =\n    s(x: a) -> a\n" +
       "export fun go<a: Scale . Scale>(x: a): a = x\n";
     const [diagnostic] = compileFiles([["/scale.hex", text]]).diagnostics;
     expect(applied(text, diagnostic)).toBe(
       "module Scale\n\n" +
-        "export constraint Scale<a> =\n    s(x: a): a\n" +
+        "export constraint Scale<a> =\n    s(x: a) -> a\n" +
         "export fun go<a: Scale>(x: a): a = x\n",
     );
   });

@@ -352,7 +352,7 @@ describe("the rule is local: a type declared elsewhere is refused at home (#629)
     // where the fix does — in `lib`, at the member, with the label on `Hidden`'s
     // row — and the consumer still hears only about the annotation it owes.
     const lib = 'extern from "./lib.js"\n    type Hidden\n' +
-      "export constraint Probe<a> =\n    probe(x: a): Hidden\n";
+      "export constraint Probe<a> =\n    probe(x: a) -> Hidden\n";
     const consumer = 'import Lib\n' +
       "export fun g<a: Lib.Probe>(x: a) = Lib.probe(x)\n";
     const alone = project({ "/src/lib.hex": lib }).diagnostics;
@@ -360,7 +360,7 @@ describe("the rule is local: a type declared elsewhere is refused at home (#629)
       "exported constraint `Probe` exposes private type `Hidden`; " +
         "export the type, perhaps opaquely, or keep the constraint private",
     ]);
-    expect(at(lib, alone[0]!.primary, "module Lib\n\n")).toBe("probe(x: a): Hidden");
+    expect(at(lib, alone[0]!.primary, "module Lib\n\n")).toBe("probe(x: a) -> Hidden");
     expect(at(lib, alone[0]!.labels![0]!.span, "module Lib\n\n")).toBe("type Hidden");
     // The consumer adds nothing about `Hidden`: locality holds here as at every
     // other face, and the unnameability backstop stands behind it — `main`
@@ -383,7 +383,7 @@ describe("the rule is local: a type declared elsewhere is refused at home (#629)
       "export fun g<a: Lib.Probe>(x: a) = Lib.probe(x)\n";
     const compiled = project({
       "/src/lib.hex": "record Hidden = {n: Int}\n" +
-        "export constraint Probe<a> =\n    probe(x: a): Hidden\n",
+        "export constraint Probe<a> =\n    probe(x: a) -> Hidden\n",
       "/src/main.hex": consumer,
     });
     expect(compiled.diagnostics.map(({ message }) => message)).toEqual([
@@ -596,10 +596,10 @@ describe("an exported constraint's member signatures are the sixth face (#626)",
 
   test("the issue's own shape: a private extern type in a member's result", () => {
     const source = 'extern from "./lib.js"\n    type Hidden\n' +
-      "export constraint Probe<a> =\n    probe(x: a): Hidden\n";
+      "export constraint Probe<a> =\n    probe(x: a) -> Hidden\n";
     const drawn = lone(source);
     expect(drawn.message).toBe(REFUSED);
-    expect(at(source, drawn.primary)).toBe("probe(x: a): Hidden");
+    expect(at(source, drawn.primary)).toBe("probe(x: a) -> Hidden");
     expect(at(source, drawn.labels![0]!.span)).toBe("type Hidden");
   });
 
@@ -608,10 +608,10 @@ describe("an exported constraint's member signatures are the sixth face (#626)",
     // miniature, the family's second anchor that is not an annotation — and the
     // label rides at the declaration, where the one-keyword fix goes.
     const source = "record Hidden = {a: Int}\n" +
-      "export constraint Probe<a> =\n    peek(x: a): Hidden\n";
+      "export constraint Probe<a> =\n    peek(x: a) -> Hidden\n";
     const drawn = lone(source);
     expect(drawn.message).toBe(REFUSED);
-    expect(at(source, drawn.primary)).toBe("peek(x: a): Hidden");
+    expect(at(source, drawn.primary)).toBe("peek(x: a) -> Hidden");
     expect(drawn.labels?.map(({ message }) => message)).toEqual([
       "`Hidden` is declared private here",
     ]);
@@ -619,28 +619,28 @@ describe("an exported constraint's member signatures are the sixth face (#626)",
   });
 
   test("a private type in a member's *parameter* is read the same", () => {
-    const source = HIDDEN + "export constraint Probe<a> =\n    poke(x: a, h: Hidden): Int\n";
+    const source = HIDDEN + "export constraint Probe<a> =\n    poke(x: a, h: Hidden) -> Int\n";
     const drawn = lone(source);
     expect(drawn.message).toBe(REFUSED);
-    expect(at(source, drawn.primary)).toBe("poke(x: a, h: Hidden): Int");
+    expect(at(source, drawn.primary)).toBe("poke(x: a, h: Hidden) -> Int");
   });
 
   test("a nested occurrence still anchors at the whole member signature", () => {
-    const source = HIDDEN + "export constraint Probe<a> =\n    peek(x: a): Vector(Hidden)\n";
-    expect(at(source, lone(source).primary)).toBe("peek(x: a): Vector(Hidden)");
+    const source = HIDDEN + "export constraint Probe<a> =\n    peek(x: a) -> Vector(Hidden)\n";
+    expect(at(source, lone(source).primary)).toBe("peek(x: a) -> Vector(Hidden)");
   });
 
   test("two members mentioning one private type draw one, at the first", () => {
     // The family's dedupe, per (constraint, type), members in written order.
     const source = HIDDEN + "export constraint Probe<a> =\n" +
-      "    peek(x: a): Hidden\n    poke(x: a, h: Hidden): a\n";
+      "    peek(x: a) -> Hidden\n    poke(x: a, h: Hidden) -> a\n";
     const drawn = lone(source);
-    expect(at(source, drawn.primary)).toBe("peek(x: a): Hidden");
+    expect(at(source, drawn.primary)).toBe("peek(x: a) -> Hidden");
   });
 
   test("a constraint leaking two private types draws two, each at its own first member", () => {
     const source = "record Alpha = {n: Int}\nrecord Beta = {n: Int}\n" +
-      "export constraint Probe<a> =\n    one(x: a): Alpha\n    two(x: a): Beta\n";
+      "export constraint Probe<a> =\n    one(x: a) -> Alpha\n    two(x: a) -> Beta\n";
     const drawn = diagnose(source);
     expect(drawn.map(({ message }) => message)).toEqual([
       "exported constraint `Probe` exposes private type `Alpha`; " +
@@ -649,8 +649,8 @@ describe("an exported constraint's member signatures are the sixth face (#626)",
         "export the type, perhaps opaquely, or keep the constraint private",
     ]);
     expect(drawn.map((one) => at(source, one.primary))).toEqual([
-      "one(x: a): Alpha",
-      "two(x: a): Beta",
+      "one(x: a) -> Alpha",
+      "two(x: a) -> Beta",
     ]);
     expect(drawn.map((one) => at(source, one.labels![0]!.span))).toEqual([
       "record Alpha = {n: Int}",
@@ -660,18 +660,18 @@ describe("an exported constraint's member signatures are the sixth face (#626)",
 
   test("an `opaque` type mentioned in a member is fine — that is the whole point", () => {
     expect(messages("opaque record Hidden = {n: Int}\n" +
-      "export constraint Probe<a> =\n    peek(x: a): Hidden\n")).toEqual([]);
+      "export constraint Probe<a> =\n    peek(x: a) -> Hidden\n")).toEqual([]);
   });
 
   test("an unexported constraint mentions private types freely", () => {
     // Only an exported face shows anybody anything, exactly as for a private
     // carrier.
-    expect(messages(HIDDEN + "constraint Probe<a> =\n    peek(x: a): Hidden\n" +
+    expect(messages(HIDDEN + "constraint Probe<a> =\n    peek(x: a) -> Hidden\n" +
       "export let n: Int = 1\n")).toEqual([]);
   });
 
   test("an `honor` block at a private type is still exempt (§7.4)", () => {
-    expect(messages(HIDDEN + "export constraint Probe<a> =\n    peek(x: a): Int\n" +
+    expect(messages(HIDDEN + "export constraint Probe<a> =\n    peek(x: a) -> Int\n" +
       "honor Probe<Hidden> =\n    peek(x) = x.n\n")).toEqual([]);
   });
 
@@ -692,20 +692,20 @@ describe("an exported constraint's member signatures are the sixth face (#626)",
     // reporting here, at a seat with no fix behind it. The sibling case below is
     // the other half — the walk is not derailed by the implied type either.
     expect(messages(HIDDEN + "export record Ledger = {n: Int}\n" +
-      "export constraint Source<a> =\n    type Item\n    peek(supply: a): Item\n" +
+      "export constraint Source<a> =\n    type Item\n    peek(supply: a) -> Item\n" +
       "honor Source<Ledger> =\n    type Item = Hidden\n" +
       "    peek(l) = Hidden({n = l.n})\n")).toEqual([]);
   });
 
   test("but a projection-bearing constraint's *other* member is still refused", () => {
     const source = HIDDEN + "export constraint Source<a> =\n    type Item\n" +
-      "    peek(supply: a): Item\n    poke(supply: a): Hidden\n";
+      "    peek(supply: a) -> Item\n    poke(supply: a) -> Hidden\n";
     const drawn = lone(source);
     expect(drawn.message).toBe(
       "exported constraint `Source` exposes private type `Hidden`; " +
         "export the type, perhaps opaquely, or keep the constraint private",
     );
-    expect(at(source, drawn.primary)).toBe("poke(supply: a): Hidden");
+    expect(at(source, drawn.primary)).toBe("poke(supply: a) -> Hidden");
   });
 });
 
@@ -716,12 +716,12 @@ describe("default bodies are bodies, not faces (#626; Constraints §6.5)", () =>
     // context, and a private module-level name is exactly what it is entitled to
     // reach — the same freedom an instance has (§7.4).
     expect(messages(HIDDEN + "let secret: Hidden = Hidden({n = 7})\n" +
-      "export constraint Probe<a> =\n    size(x: a): Int = secret.n\n")).toEqual([]);
+      "export constraint Probe<a> =\n    size(x: a) -> Int = secret.n\n")).toEqual([]);
   });
 
   test("a default body may *construct* the private type", () => {
     expect(messages(HIDDEN + "export constraint Probe<a> =\n" +
-      "    size(x: a): Int = Hidden({n = 3}).n\n")).toEqual([]);
+      "    size(x: a) -> Int = Hidden({n = 3}).n\n")).toEqual([]);
   });
 });
 
@@ -735,7 +735,7 @@ describe("the sealing idiom is lawful, deliberately (#626)", () => {
 
   test("a private constraint gates an exported function, and a consumer calls it", () => {
     const compiled = project({
-      "/src/lib.hex": "constraint Priv<a> =\n    twiddle(x: a): Int\n" +
+      "/src/lib.hex": "constraint Priv<a> =\n    twiddle(x: a) -> Int\n" +
         "export record Pub = {n: Int}\n" +
         "honor Priv<Pub> =\n    twiddle(x) = x.n\n" +
         "export fun use<a: Priv>(x: a): Int = twiddle(x)\n",
@@ -746,8 +746,8 @@ describe("the sealing idiom is lawful, deliberately (#626)", () => {
   });
 
   test("a private constraint may be the base of an exported one", () => {
-    expect(messages("constraint Priv<a> =\n    twiddle(x: a): Int\n" +
-      "export constraint Shown<a: Priv> =\n    show(x: a): Int\n")).toEqual([]);
+    expect(messages("constraint Priv<a> =\n    twiddle(x: a) -> Int\n" +
+      "export constraint Shown<a: Priv> =\n    show(x: a) -> Int\n")).toEqual([]);
   });
 });
 
@@ -763,8 +763,8 @@ describe("`opaque` is the recovery the message names (#626)", () => {
   const OPAQUE_LIB = "opaque record Hidden = {n: Int}\n" +
     "export record Pub = {n: Int}\n" +
     "export constraint Probe<a> =\n" +
-    "    peek(x: a): Hidden\n" +
-    "    poke(x: a, h: Hidden): Int\n" +
+    "    peek(x: a) -> Hidden\n" +
+    "    poke(x: a, h: Hidden) -> Int\n" +
     "honor Probe<Pub> =\n" +
     "    peek(x) = Hidden({n = x.n})\n" +
     "    poke(x, h) = h.n + x.n\n";
@@ -799,7 +799,7 @@ describe("`opaque` is the recovery the message names (#626)", () => {
       "/src/lib.hex": 'extern from "./lib.js"\n    type Hidden\n' +
         "export type Exposed = Hidden\n",
       "/src/main.hex": 'import Lib\n' +
-        "export constraint Probe<a> =\n    peek(x: a): Lib.Exposed\n",
+        "export constraint Probe<a> =\n    peek(x: a) -> Lib.Exposed\n",
     });
     expect(compiled.diagnostics.map(({ message }) => message)).toEqual([
       "exported type alias `Exposed` exposes private type `Hidden`; " +

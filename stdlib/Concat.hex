@@ -4,4 +4,4 @@ module Concat
     `++` operator. *)
 export constraint Concat<a> =
     (** `left` followed by `right`. *)
-    concat(left: a, right: a): a
+    concat(left: a, right: a) -> a

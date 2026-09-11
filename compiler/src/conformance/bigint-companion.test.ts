@@ -568,7 +568,7 @@ describe("the orphan rule reads for a primitive as it does for a nominal (§5.3)
   /** The other half: the module that *does* declare the constraint still may. */
   test("a module declaring its own constraint may still honor it at BigInt", () => {
     expect(projectDiagnostics("module Main\n\n" + "export constraint Describe<a> =\n" +
-      "    describe(value: a): String\n" +
+      "    describe(value: a) -> String\n" +
       "honor Describe<BigInt> =\n" +
       '    describe(value) = "a big integer"\n' +
       "export let d: String = describe(1n)\n",

@@ -92,7 +92,7 @@ function emitted(
  */
 const WEIGH_LIB = [
   "export constraint Weigh<a> =",
-  "    weigh(value: a): String",
+  "    weigh(value: a) -> String",
   "",
   "honor Weigh<Int> =",
   '    weigh(value) = "int"',
@@ -136,7 +136,7 @@ describe("a base constraint's slot follows its declaration, not the spelling", (
     'import Lib as Heft',
     "",
     "export constraint Both<a: Heft.Weigh> =",
-    "    label(value: a): String",
+    "    label(value: a) -> String",
     "",
     'export let use<a: Both>(n: a): String = "${Heft.weigh(n)}/${label(n)}"',
     "",
@@ -162,7 +162,7 @@ describe("a base constraint's slot follows its declaration, not the spelling", (
     'import Lib as L',
     "",
     "export constraint Both<a: L.Weigh> =",
-    "    label(value: a): String",
+    "    label(value: a) -> String",
     "",
     'export let use<a: Both>(n: a): String = "${L.weigh(n)}/${label(n)}"',
     "",
@@ -193,7 +193,7 @@ describe("two same-spelled bases both stay reachable", () => {
   function tagLib(member: string, answer: string): string {
     return [
       "export constraint Tag<a> =",
-      `    ${member}(value: a): String`,
+      `    ${member}(value: a) -> String`,
       "",
       "honor Tag<Int> =",
       `    ${member}(value) = "int"`,
@@ -206,7 +206,7 @@ describe("two same-spelled bases both stay reachable", () => {
     'import Lib2',
     "",
     "export constraint Both<a: (Lib1.Tag, Lib2.Tag)> =",
-    "    label(value: a): String",
+    "    label(value: a) -> String",
     "",
     'export let use<a: Both>(n: a): String = ' +
       '"${Lib1.one(n)}/${Lib2.two(n)}/${label(n)}"',
@@ -273,7 +273,7 @@ describe("two same-spelled bases both stay reachable", () => {
     function lib(constraint: string, member: string): string {
       return [
         `export constraint ${constraint}<a> =`,
-        `    ${member}(value: a): String`,
+        `    ${member}(value: a) -> String`,
         "",
       ].join("\n");
     }
@@ -283,7 +283,7 @@ describe("two same-spelled bases both stay reachable", () => {
       'import Lib3',
       "",
       "export constraint Both<a: (Lib1.Tag, Lib2.Tag, Lib3.Tag_1)> =",
-      "    label(value: a): String",
+      "    label(value: a) -> String",
       "",
       'export let use<a: Both>(n: a): String = ' +
         '"${Lib1.one(n)}/${Lib2.two(n)}/${Lib3.three(n)}/${label(n)}"',
@@ -369,7 +369,7 @@ describe("a base list names each declaration once", () => {
       'import Lib as L',
       "",
       "export constraint Both<a: (Weigh, L.Weigh)> =",
-      "    label(value: a): String",
+      "    label(value: a) -> String",
       "",
       'export let use<a: Both>(n: a): String = "${L.weigh(n)}/${label(n)}"',
       "",
@@ -393,7 +393,7 @@ describe("a base list names each declaration once", () => {
       'import Lib as L',
       "",
       "export constraint Both<a: (W.Weigh, L.Weigh)> =",
-      "    label(value: a): String",
+      "    label(value: a) -> String",
       "",
       'export let use<a: Both>(n: a): String = "${W.weigh(n)}/${label(n)}"',
       "",
@@ -411,7 +411,7 @@ describe("a base list names each declaration once", () => {
     // is all the repair needs.
     expect(diagnostics([[
       "/main.hex",
-      "module Main\n\n" + "export constraint Loud<a: (Show, Show)> =\n    boom(value: a): String\n",
+      "module Main\n\n" + "export constraint Loud<a: (Show, Show)> =\n    boom(value: a) -> String\n",
     ]])).toEqual([
       "`Show` and `Show` both name the constraint declared `Show`; remove one",
     ]);
@@ -424,7 +424,7 @@ describe("a base list names each declaration once", () => {
     // and the repair it offers is not the repair the reader needs.
     const mid = [
       "export constraint Both<a: (Bogus, Bogus)> =",
-      "    label(value: a): String",
+      "    label(value: a) -> String",
       "",
     ].join("\n");
     expect(diagnostics([["/mid.hex", "module Mid\n\n" + mid]])).toEqual([
@@ -441,7 +441,7 @@ describe("a base list names each declaration once", () => {
       'import Lib as L',
       "",
       "export constraint Both<a: (W.Weigh, L.Weigh, Bogus)> =",
-      "    label(value: a): String",
+      "    label(value: a) -> String",
       "",
     ].join("\n");
     expect(diagnostics([["/lib.hex", "module Lib\n\n" + WEIGH_LIB], ["/mid.hex", "module Mid\n\n" + mid]])).toEqual([
@@ -459,12 +459,12 @@ describe("a base list names each declaration once", () => {
       'import Lib2',
       "",
       "export constraint Both<a: (Lib1.Tag, Lib2.Tag)> =",
-      "    label(value: a): String",
+      "    label(value: a) -> String",
       "",
     ].join("\n");
     const tagLib = [
       "export constraint Tag<a> =",
-      "    tag(value: a): String",
+      "    tag(value: a) -> String",
       "",
     ].join("\n");
     expect(diagnostics([
@@ -483,7 +483,7 @@ describe("a member cannot take a minted slot, and needs no rule saying so", () =
   // case, sit in one object literal, and must both answer.
   const LIB = [
     "export constraint Weigh<a> =",
-    "    heaviness(value: a): String",
+    "    heaviness(value: a) -> String",
     "",
     "honor Weigh<Int> =",
     '    heaviness(value) = "int"',
@@ -494,7 +494,7 @@ describe("a member cannot take a minted slot, and needs no rule saying so", () =
     'import Lib as Weigh',
     "",
     "export constraint Both<a: Weigh> =",
-    "    weigh(value: a): String",
+    "    weigh(value: a) -> String",
     "",
     'export let use<a: Both>(n: a): String = "${Weigh.heaviness(n)}/${weigh(n)}"',
     "",
@@ -554,7 +554,7 @@ describe("a member cannot take a minted slot, and needs no rule saying so", () =
       'import Lib as Heft',
       "",
       "export constraint Both<a: Heft.Weigh> =",
-      "    heft(value: a): String",
+      "    heft(value: a) -> String",
       "",
     ].join("\n");
     expect(diagnostics([["/lib.hex", "module Lib\n\n" + LIB], ["/mid.hex", "module Mid\n\n" + mid]])).toEqual([]);
@@ -586,10 +586,10 @@ describe("an uncontested slot is the base declaration's name, verbatim", () => {
   test("a user constraint's own base is spelled from its declaration", () => {
     const main = [
       "constraint Weigh<a> =",
-      "    weigh(value: a): String",
+      "    weigh(value: a) -> String",
       "",
       "constraint Both<a: Weigh> =",
-      "    label(value: a): String",
+      "    label(value: a) -> String",
       "",
       "record Wrap = {n: Int}",
       "",

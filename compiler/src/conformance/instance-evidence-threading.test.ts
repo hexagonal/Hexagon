@@ -20,7 +20,7 @@ import { runMain } from "../support/test-project.js";
 describe("instance evidence threads at runtime", () => {
   test("a recursive parameterized instance runs", async () => {
     const exports = await runMain("module Main\n\n" + "constraint Describe<a> =\n" +
-        "    describe(value: a): String\n" +
+        "    describe(value: a) -> String\n" +
         "honor Describe<Int> =\n" +
         '    describe(value) = "${value}"\n' +
         "union Tree(a) = Leaf | Node(left: Tree(a), item: a, right: Tree(a))\n" +
@@ -40,8 +40,8 @@ describe("instance evidence threads at runtime", () => {
   test("copied defaults run against their own instance", async () => {
     const exports = await runMain("module Main\n\n" + "union Held(a) = Missing | Held2(value: a)\n" +
         "constraint Pick<a> =\n" +
-        "    pick(value: a): a\n" +
-        "    pickHeld(fallback: a, held: Held(a)): a = match held\n" +
+        "    pick(value: a) -> a\n" +
+        "    pickHeld(fallback: a, held: Held(a)) -> a = match held\n" +
         "        Missing => fallback\n" +
         "        Held2(value) => pick(value)\n" +
         "honor Pick<Int> =\n" +

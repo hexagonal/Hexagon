@@ -368,7 +368,7 @@ describe("the gate: what draws no fixit at all", () => {
     expect(messagesOf([
       ["/render.hex", "module Render\n\n" + [
         "export constraint Render<a> =",
-        "    render(subject: a): String",
+        "    render(subject: a) -> String",
         "",
       ].join("\n")],
       ["/main.hex", "module Main\n\n" + [
