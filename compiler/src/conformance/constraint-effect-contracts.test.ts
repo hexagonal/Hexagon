@@ -3527,6 +3527,41 @@ describe("Effects §13.2: a `var`'s re-assignment is the merge, past the table",
     }
   });
 
+  test("a `:=` §6.3 refuses still classifies as a merge, and that is the better advice", () => {
+    // *(Review round 11, MINOR 1.)* `#joining` wraps the unification of **every**
+    // `Assignment`, and the target's mutability is tested after it — so a
+    // re-assignment the language refuses still reaches the merge boundary, and
+    // the narrower-acceptance row arrives in its **merge form**. §13.2's
+    // sentence names a `var`'s re-assignment, so this family is wider than the
+    // sentence that licenses it; it is pinned because hoisting the mutability
+    // test above `#joining` is three lines and would move it back with nothing
+    // failing. The wider form is the better advice: the base row would end
+    // "call the callback with `!` instead of handing it, or a function that
+    // calls it, to a `->` demand" on a program that writes no `->` demand
+    // anywhere, while the merge form names what the program actually did.
+    for (
+      const [order, first, second] of [
+        ["the handed slot joined second", "spare", "b"],
+        ["the handed slot joined first", "b", "spare"],
+      ] as const
+    ) {
+      const seat = seen(
+        IMPURE + `        let p = { cb = ${first} }\n` +
+          `        p := { cb = ${second} }\n        ignore(p)\n`,
+      );
+      expect([order, seat.messages]).toEqual([order, [
+        "`p` is not mutable; declare it with `var` if you need to update it",
+        mergeNarrower("go", "b", true),
+      ]]);
+      // §6.3's refusal is on the target alone; the merge's is on the whole
+      // assignment, exactly where it stands when the target is a `var`.
+      expect([order, seat.primaries])
+        .toEqual([order, ["p", `p := { cb = ${second} }`]]);
+      expect([order, seat.labels])
+        .toEqual([order, [[], ['the contract\'s failing arrow: "->!"']]]);
+    }
+  });
+
   test("and a `var` a seat never sees is untouched: the boundary costs it nothing", () => {
     // The two entry points return before any loop where no seat is open, so a
     // re-assignment outside a seat is the program it was. Both shapes the
