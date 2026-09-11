@@ -88,33 +88,13 @@ let describeCount(count: Int): String =
 `Int`, `Float`, and `String` always need a wildcard or variable catch-all because a
 finite list of literals cannot cover every possible value.
 
-`Bool` needs no wildcard either, but for a different reason than a short literal list
-would give. `True` and `False` are constructor patterns, so this is the ordinary union
-exhaustiveness of the previous chapter:
-
-```hexagon
-match enabled
-    True => "enabled"
-    False => "disabled"
-```
-
-`Unit` also has one possible value, written `()`, and the same spelling is its pattern:
-
-```hexagon
-let finished: Unit = ()
-
-match finished
-    () => "finished"
-```
-
-That single arm is exhaustive because every `Unit` value is `()`.
-
 A `Float` literal matches by the same equality that `==` uses, and no more loosely:
 a computed value matches a written one only when `==` would say they are equal. The
 `surprising` value from the primitive types chapter, `0.1 + 0.2`, does not match the
 literal `0.3`, and no literal pattern is a close-enough test: a tolerance has to be
-spelled out, in a guard. A pattern contains no operators, so a `-` before a literal is
-part of the pattern, and a negative literal is a pattern too:
+spelled out, in a guard, say. A pattern contains no operators, so a `-` before a literal
+is part of that literal, not an operator applied to it, and a negative literal is a
+pattern too:
 
 ```hexagon
 let describeTemperature(celsius: Float): String =
@@ -127,8 +107,9 @@ let describeTemperature(celsius: Float): String =
 Hexagon's `Float` equality treats `0.0` and `-0.0` as equal and `NaN` as equal to
 itself, so the `0.0` arm also matches negative zero. An arm `-0.0` after an arm `0.0`
 is therefore a compile error, an unreachable case: the equality the arms test through
-cannot tell the two apart. `1.0`, `1.00`, and `1.0e0` are one literal for the same
-reason, so an arm cannot handle one of them twice. A program that must tell the zeros
+cannot tell the two apart. A literal stands for its value, never its spelling: `0.0`
+and `-0.0` are two values this equality equates, and `1.0`, `1.00`, and `1.0e0` are one
+value written three ways, so the second spelling is an unreachable case too. A program that must tell the zeros
 apart does so in a guard, by an operation that can: both zeros pass `x == 0.0`, and
 `Float` division follows IEEE 754, so of those two only negative zero sends `1.0 / x` to
 negative infinity, positive zero giving `Float.infinity`. The guard
@@ -150,8 +131,29 @@ let classify(value: Float): String =
 ```
 
 The first guard works because `==` on `Float` says `NaN` equals `NaN`; `Float.isNan`
-says the same thing by name. Write `Float.nan` in pattern position instead and the
-compiler refuses it, naming that guard as the rewrite.
+says the same thing by name. Written in pattern position, `Float.nan` is refused, and
+the refusal names that guard as the rewrite.
+
+`Bool`, by contrast, needs no wildcard, and for a different reason than a short literal
+list would give. `True` and `False` are constructor patterns, so this is the ordinary union
+exhaustiveness of the previous chapter:
+
+```hexagon
+match enabled
+    True => "enabled"
+    False => "disabled"
+```
+
+`Unit` also has one possible value, written `()`, and the same spelling is its pattern:
+
+```hexagon
+let finished: Unit = ()
+
+match finished
+    () => "finished"
+```
+
+That single arm is exhaustive because every `Unit` value is `()`.
 
 ## Or-patterns share one arm
 
@@ -198,7 +200,7 @@ just another binding.
 
 ## Guards add runtime conditions
 
-A pattern handles shape; a guard handles a condition that must be evaluated:
+A pattern handles shape; a **guard** handles a condition that must be evaluated:
 
 ```hexagon
 let classifyPort(port: Int): String =
