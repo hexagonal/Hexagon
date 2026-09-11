@@ -11978,7 +11978,7 @@ class Checker {
    */
   #publishJoinedColours(published: Mono, other: Mono): Mono {
     if (this.#seatSlots === undefined || this.#seatSlots.size === 0) return published;
-    return this.#republishColours(published, other, 0);
+    return this.#republishColours(published, other, new Set());
   }
 
   /**
@@ -12002,25 +12002,54 @@ class Checker {
   }
 
   /**
-   * `#publishJoinedColours`' walk. Bounded by `DEPTH`, which no source type
-   * reaches: the walk descends only where both sides are the same composite,
-   * and a type deep enough to exhaust it has already been rejected by
-   * `#occurs`. The bound is there so a cyclic node the checker built for a
-   * refused program cannot spin.
+   * `#publishJoinedColours`' walk, over the tree the join built *(review round
+   * 9, MEDIUM 3)*.
+   *
+   * It used to carry a `depth > 24` cut under a comment claiming no source type
+   * reaches it. **Twenty-four nested records reach it**, and `#occurs` rejects
+   * none of them — the walk descends where both sides are the same composite,
+   * and a composite twenty-five records deep is an ordinary type. Crossing the
+   * cut changed nothing about the verdict and everything about the report: the
+   * slot below it kept the pure branch's constant, so the row moved from the
+   * conflict form to the narrower-acceptance merge form, the primary from the
+   * call to the whole `if`, and the related locations from two to one — the
+   * exact three things §13.2's merge table exists to hold steady, silently
+   * different on one side of a number.
+   *
+   * So the cut is gone, and termination is structural instead. The walk is over
+   * a **finite tree** — every recursive call descends into a child of `own` —
+   * so the only thing that could spin is a node that contains itself, which is
+   * what the count was really guarding against. `walking` is the nodes on the
+   * **current path**, and a node already on its own path is left as it stands.
+   * It is a path set rather than a visited set because sharing is ordinary: one
+   * node stands at two fields of the same record, and a visited set would skip
+   * the second and publish the constant there.
    */
-  #republishColours(published: Mono, other: Mono, depth: number): Mono {
-    if (depth > 24) return published;
+  #republishColours(published: Mono, other: Mono, walking: Set<Mono>): Mono {
     const own = this.#prune(published);
     const against = this.#prune(other);
     if (own === against || own.kind !== against.kind) return published;
+    if (walking.has(own)) return published;
+    walking.add(own);
+    const republished = this.#republishParts(own, against, published, walking);
+    walking.delete(own);
+    return republished;
+  }
+
+  /**
+   * One composite's parts, republished. Split from the walk above so the path
+   * guard reads as the four lines it is; `own` and `against` arrive pruned and
+   * of the same kind, and `published` is what to hand back where nothing moved.
+   */
+  #republishParts(own: Mono, against: Mono, published: Mono, walking: Set<Mono>): Mono {
     switch (own.kind) {
       case "Function": {
         if (against.kind !== "Function") return published;
         if (own.parameters.length !== against.parameters.length) return published;
         const parameters = own.parameters.map((parameter, index) =>
-          this.#republishColours(parameter, against.parameters[index]!, depth + 1)
+          this.#republishColours(parameter, against.parameters[index]!, walking)
         );
-        const result = this.#republishColours(own.result, against.result, depth + 1);
+        const result = this.#republishColours(own.result, against.result, walking);
         const effect = this.#preferSeatColour(own.effect, against.effect);
         if (
           effect === own.effect && result === own.result &&
@@ -12037,7 +12066,7 @@ class Checker {
         if (against.kind !== "Tuple") return published;
         if (own.elements.length !== against.elements.length) return published;
         const elements = own.elements.map((element, index) =>
-          this.#republishColours(element, against.elements[index]!, depth + 1)
+          this.#republishColours(element, against.elements[index]!, walking)
         );
         if (elements.every((element, index) => element === own.elements[index])) return published;
         return { ...own, elements };
@@ -12050,7 +12079,7 @@ class Checker {
           const counterpart = against.fields.get(name);
           const republished = counterpart === undefined
             ? field
-            : this.#republishColours(field, counterpart, depth + 1);
+            : this.#republishColours(field, counterpart, walking);
           if (republished !== field) moved = true;
           fields.set(name, republished);
         }
@@ -12061,7 +12090,7 @@ class Checker {
         if (against.kind !== "Union" && against.kind !== "NominalRecord") return published;
         if (own.arguments.length !== against.arguments.length) return published;
         const args = own.arguments.map((argument, index) =>
-          this.#republishColours(argument, against.arguments[index]!, depth + 1)
+          this.#republishColours(argument, against.arguments[index]!, walking)
         );
         if (args.every((argument, index) => argument === own.arguments[index])) return published;
         return { ...own, arguments: args };
@@ -12077,19 +12106,19 @@ class Checker {
         ) {
           return published;
         }
-        const element = this.#republishColours(own.element, against.element, depth + 1);
+        const element = this.#republishColours(own.element, against.element, walking);
         return element === own.element ? published : { ...own, element };
       }
       case "Nullable": {
         if (against.kind !== "Nullable") return published;
-        const value = this.#republishColours(own.value, against.value, depth + 1);
+        const value = this.#republishColours(own.value, against.value, walking);
         return value === own.value ? published : { ...own, value };
       }
       case "Map":
       case "JsMap": {
         if (against.kind !== "Map" && against.kind !== "JsMap") return published;
-        const key = this.#republishColours(own.key, against.key, depth + 1);
-        const value = this.#republishColours(own.value, against.value, depth + 1);
+        const key = this.#republishColours(own.key, against.key, walking);
+        const value = this.#republishColours(own.value, against.value, walking);
         return key === own.key && value === own.value ? published : { ...own, key, value };
       }
       default:

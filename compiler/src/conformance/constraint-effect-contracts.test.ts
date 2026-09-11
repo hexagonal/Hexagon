@@ -3400,3 +3400,89 @@ describe("Effects §13.2: the merge record is every slot's, and it is the seat's
     }
   });
 });
+
+/**
+ * **The publish walk's two structural guards** *(review round 9, MEDIUM 2 and
+ * MEDIUM 3)*. Both were recorded in the PR as rules with no observable witness.
+ * Both are observable: one would change a **type**, the other changed a
+ * **report** on one side of a number. Neither had a pin, so they are pinned
+ * here rather than left to a reader's trust in the reasoning.
+ */
+describe("Effects §13.2: the publish walk moves a colour, never a type and never a row", () => {
+  test("a slot raised impure BEFORE the merge keeps the face the join gave it", () => {
+    // *(Review round 9, MEDIUM 2.)* `#preferSeatColour` rewrites a position only
+    // where the two sides already **prune alike** — which a join has just made
+    // true. The PR recorded that guard as unobservable, reasoning that the only
+    // way two sides at one position fail to prune alike after a join is a
+    // unification that reported and returned without binding, and that no such
+    // position also holds a seat node. The second half is false, and this is the
+    // shape: `let q: () ->! Unit = b` raises the slot to the impure constant
+    // FIRST, so the `if` below merges that constant with the pure one, §4.3
+    // reports the two-point lattice's own row, and the unify binds nothing. The
+    // two sides do not prune alike, and the `else` side holds the seat's node.
+    //
+    // This is the ONE place the walk would change a TYPE rather than a colour:
+    // unguarded, `f` is published wearing the seat's impure node, its inferred
+    // face becomes `() ->! Unit`, and a second report follows it — the seat's
+    // own under `->`, a mark report under `->!`. "Never a type change" is the
+    // whole licence for running this walk on every joining form in every body,
+    // so the verdict and the face are both pinned, exactly.
+    const raisedFirst = (arrow: string): string =>
+      "constraint C<r> =\n" +
+      `    go(runner: r, b: () ->! Unit) ${arrow} Unit\n` +
+      "record R = { id: Int }\nlet c: Bool = True\nlet spare(): Unit = ()\n" +
+      "honor C<R> =\n    go(runner, b) =\n" +
+      "        let q: () ->! Unit = b\n" +
+      "        ignore(q)\n" +
+      "        let f = if c then spare else b\n" +
+      "        f()\n";
+    for (const arrow of ["->", "->!"]) {
+      const source = raisedFirst(arrow);
+      // The verdict: §4.3's row for the merge the program really wrote, and
+      // nothing beside it.
+      expect([arrow, messages(source)]).toEqual([arrow, [
+        "a `->` arrow promises purity, and this function performs effects — the " +
+        "demand is written `->`, the function's face `->?` or `->!`",
+      ]]);
+      // And the face the join left: the merge bound nothing, so `f` is the pure
+      // arrow its own branch published. Unguarded this reads `() ->! Unit`.
+      expect([arrow, hoveredType("module Main\n\n" + source, "f = if c")])
+        .toEqual([arrow, "() -> Unit"]);
+    }
+  });
+
+  test("thirty nested records report exactly as one nested record does", () => {
+    // *(Review round 9, MEDIUM 3.)* The walk carried a `depth > 24` cut, under a
+    // comment claiming no source type reached it. Twenty-four nested records
+    // reach it and `#occurs` rejects none of them: past the cut the slot below
+    // kept the pure branch's constant, so the call recorded no edge and the
+    // report changed row (conflict → narrower-acceptance merge), primary (the
+    // call → the whole `if`) and related locations (two → one) — the exact three
+    // things §13.2's merge table exists to hold steady. Termination is
+    // structural now: a path set over the nodes, on a finite tree. Depth 24 is
+    // the first rung the old cut swallowed and 30 is well past it.
+    const wrap = (n: number, inner: string): string => {
+      let text = inner;
+      for (let index = 0; index < n; index += 1) text = `{ a = ${text} }`;
+      return text;
+    };
+    const merge = (n: number): string =>
+      `if c then ${wrap(n, "{ cb = spare }")} else ${wrap(n, "{ cb = b }")}`;
+    const nested = (n: number): string =>
+      "constraint C<r> =\n" +
+      "    go(runner: r, b: () ->! Unit) -> Unit\n" +
+      "record R = { id: Int }\nlet c: Bool = True\nlet spare(): Unit = ()\n" +
+      "honor C<R> =\n    go(runner, b) =\n" +
+      `        let z = ${merge(n)}\n` +
+      `        z${".a".repeat(n)}.cb()\n`;
+    for (const n of [1, 24, 30]) {
+      const source = nested(n);
+      expect([n, messages(source)]).toEqual([n, [pureConflict("go", "b")]]);
+      expect([n, primaries(source)]).toEqual([n, [`z${".a".repeat(n)}.cb()`]]);
+      expect([n, labels(source)]).toEqual([n, [[
+        'the contract\'s failing arrow: "->"',
+        `the merge that joined the handed callback in: ${JSON.stringify(merge(n))}`,
+      ]]]);
+    }
+  });
+});
