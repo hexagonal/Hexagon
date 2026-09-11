@@ -11985,7 +11985,9 @@ class Checker {
    * seat holds, which includes a **bounded body colour** it would otherwise
    * copy away. The difference is the question, not an oversight. And `#bind`
    * calls this on every variable-to-variable bind rather than on colours alone
-   * (checker.ts:15441) because a colour is not distinguishable from any other
+   * — at `#bind`'s **variable arm**, named rather than numbered because a line
+   * number rots on the next edit above it *(review round 10, MINOR 1)* —
+   * because a colour is not distinguishable from any other
    * variable at that point; the cost is the first line — outside a joining form
    * `#mergeSite` is `undefined` and the call is one comparison — and inside one
    * at a seat it is a walk of `#seatSlots`, which holds one entry per freshened
@@ -12071,9 +12073,16 @@ class Checker {
    * so the only thing that could spin is a node that contains itself, which is
    * what the count was really guarding against. `walking` is the nodes on the
    * **current path**, and a node already on its own path is left as it stands.
-   * It is a path set rather than a visited set because sharing is ordinary: one
-   * node stands at two fields of the same record, and a visited set would skip
-   * the second and publish the constant there.
+   *
+   * It is a path set rather than a visited set because that is the safe choice
+   * where sharing is ordinary — one node standing at two fields of the same
+   * record, which a visited set would skip the second of. Stated as the reason
+   * for the choice and not as a behaviour of this build: **no program witnesses
+   * the difference** *(review round 10, INFO 1)*. Where the sharing is real the
+   * shared node is already the seat's own and the walk moves nothing at either
+   * position; where the node moves, the two positions are two instantiations
+   * and so two nodes; and the helper-parameter family that would witness it is
+   * refused at the call by #892's route before the merge is reached.
    */
   #republishColours(published: Mono, other: Mono, walking: Set<Mono>): Mono {
     const own = this.#prune(published);
