@@ -486,6 +486,32 @@ describe("the literal at the type of its position (§2.5's checking rule, #519)"
     ))).toEqual([refusal]);
   });
 
+  test("the common unannotated spelling is §6.1's too, with #513's rider", () => {
+    // `match 0` is the minimal case; this is the one a reader meets. Under the old
+    // monomorphic-`Int` typing the literal arm silently fixed the parameter to
+    // `Int` and the function compiled; §2.5 contributes constraints instead, the
+    // parameter stays undetermined, and §6.1 refuses the match — with the rider
+    // #513 wrote for exactly this scrutinee and which nothing in the repo pinned.
+    const rider = "cannot match on a value of abstract type; the parameter's type " +
+      "is not determined here; give the parameter a type — bind the function with " +
+      "its own annotated `let`, or use it where its parameter type is known";
+    expect(projectDiagnostics(main(
+      "fun f(x) =\n" +
+        "    match x\n" +
+        "        0 => \"zero\"\n" +
+        "        _ => \"other\"\n" +
+        "export let a: String = f(1)\n",
+    ))).toEqual([rider]);
+    // Annotated, it compiles and runs at the annotation's type.
+    expect(projectDiagnostics(main(
+      "fun f(x: Nat): String =\n" +
+        "    match x\n" +
+        "        0 => \"zero\"\n" +
+        "        _ => \"other\"\n" +
+        "export let a: String = f(1)\n",
+    ))).toEqual([]);
+  });
+
   test("a declared variable takes the demands, and then the restriction", () => {
     // §2.5's order, at the one position a declared variable is reachable from: the
     // constraints are raised first — `Num` and `Eq`, which an undeclared signature
@@ -1065,6 +1091,28 @@ describe("the emitted integer literal is canonical (#897)", () => {
     );
     expect(text).toContain("__match === 7");
     expect(text).not.toContain("007");
+  });
+
+  test("`-0` emits `0`, the literal §7.2 says it is", () => {
+    // §7.2: "`-0` is the literal `0`" for both judgments, and the coverage key
+    // agrees (the duplicate pin above). The emitted test follows the same law:
+    // `=== -0` behaves identically in JavaScript, so the spelling is the only thing
+    // at stake and it should read as the literal the arm matches.
+    const text = emitted(
+      "export fun f(i: Int): String =\n" +
+        "    match i\n" +
+        "        -0 => \"zero\"\n" +
+        "        _ => \"other\"\n",
+    );
+    expect(text).toContain("__match === 0");
+    expect(text).not.toContain("-0");
+    // A sign that carries a value keeps it.
+    expect(emitted(
+      "export fun f(i: Int): String =\n" +
+        "    match i\n" +
+        "        -007 => \"minus seven\"\n" +
+        "        _ => \"other\"\n",
+    )).toContain("__match === -7");
   });
 
   test("so does an expression's, at every numeric representation", () => {

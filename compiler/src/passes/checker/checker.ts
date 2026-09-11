@@ -10051,12 +10051,6 @@ class Checker {
         return this.#structuralRecordColumn(actual, patterns);
       case "Vector":
         return this.#vectorColumn(actual, patterns);
-      case "Constructor":
-        // The infinite domains, and `Exn`: no signature, so no set of literals
-        // ever completes the column — §7.1's "a catch-all is required". The
-        // literals' own identity is `#coverageColumn`'s, one law for every
-        // column (§7.2).
-        return this.#openColumn();
       case "Variable":
       case "Error":
         // Nothing is known about this domain, so nothing may be concluded from
@@ -22880,8 +22874,16 @@ function renderLiteralPatternKey(
 }
 
 /**
- * An integer literal's value as a key — exact at every width, which `Number`
- * would not be past 2^53, and the one place `-0` becomes `0`.
+ * An integer literal's value as a key — exact at every width, and the one place
+ * `-0` becomes `0`.
+ *
+ * The exactness is **unreachable today**, and worth saying so rather than claiming
+ * a guarantee no program exercises: the lexer refuses every integer literal above
+ * `Int` range, at a `BigInt` scrutinee as anywhere else, and `0n` is not a pattern
+ * form — so a `match` on `BigInt` can only test values up to 2^53−1, which is most
+ * of what lifting #519's gate was for (#898, open). `BigInt` here is what keeps the
+ * key from rounding the day one of those two changes; the `catch` beside it is
+ * defensive only.
  */
 function integerLiteralKey(decimal: string): string {
   const digits = cleanDigits(decimal);

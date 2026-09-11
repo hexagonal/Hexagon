@@ -29,7 +29,11 @@ export function canonicalIntegerLiteral(decimal: string): string {
   const digits = cleanDigits(decimal);
   const negative = digits.startsWith("-");
   const magnitude = (negative ? digits.slice(1) : digits).replace(/^0+(?=\d)/u, "");
-  return `${negative ? "-" : ""}${magnitude}`;
+  // `-0` prints `0`, because at these types it *is* the literal `0` — Pattern
+  // Matching §7.2 says so for both judgments, and the coverage key already agrees
+  // (`-0` after `0` is an unreachable arm). `=== -0` behaves identically in
+  // JavaScript, so this is the spelling following the law rather than a repair.
+  return `${negative && magnitude !== "0" ? "-" : ""}${magnitude}`;
 }
 
 /**

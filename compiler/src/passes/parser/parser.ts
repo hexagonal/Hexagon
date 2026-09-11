@@ -4171,14 +4171,20 @@ class Parser {
    * The gap runs from the last token that occupies source to the token standing
    * here; the layout pass's own tokens are zero-width and are stepped over,
    * because a dropped literal leaves the block opener sitting on the *next*
-   * token (`1.0e309 => "n"` opens its arm block at the `=>`). A report inside
-   * that gap can only be about source no token survived, which is exactly the
-   * construct this seat must not report a second time.
+   * token (`9007199254740993 => "n"` opens its arm block at the `=>`). A report
+   * inside that gap can only be about source no token survived, which is exactly
+   * the construct this seat must not report a second time.
+   *
+   * The one construct that reaches it is the **oversize integer** literal, whose
+   * token the lexer still drops (#898). An overflowing `Float` no longer does —
+   * Lexer §9's recovery form carries it, and the `Float` seat reads `recovered`
+   * instead of asking here.
    *
    * Zero-width reports are excluded, so a layout complaint carated at a line's
-   * start never silences a real refusal; and a *surviving* token's own report —
-   * "integer literal exceeds Int range", whose token the lexer still returns —
-   * never reaches the gap at all, since the token itself bounds it.
+   * start never silences a real refusal. What keeps the gap from being over-broad
+   * is that it is bounded by surviving tokens on both sides: a genuinely bad token
+   * the lexer *does* return, standing after a dropped one, is outside every gap
+   * and still takes this seat's refusal.
    */
   #lexicallyRefusedHere(): boolean {
     if (this.#lexicalSpans.length === 0) return false;
