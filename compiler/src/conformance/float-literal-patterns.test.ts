@@ -3,10 +3,10 @@ import { describe, expect, test } from "vitest";
 import { compileMain, projectDiagnostics, runMain } from "../support/test-project.js";
 
 /**
- * Conformance for **literal patterns at the scrutinee's type** — Pattern Matching
- * §2.5, §4, §7.2, §8, §12, §15 (k); #894, and #519's two refusals with it.
+ * Conformance for **literal patterns at the type of their position** — Pattern
+ * Matching §2.5, §4, §7.2, §8, §12, §15 (k); #894, and #519's two refusals with it.
  *
- * Three sentences govern every case below.
+ * Four sentences govern every case below.
  *
  * - **`Float` literals are patterns.** The permanent ban is lifted: `Eq<Float>` is
  *   SameValueZero (Decisions Batch §1), so the NaN half of its rationale was
@@ -137,10 +137,18 @@ describe("acceptance and matching (§2.5, §15 (k))", () => {
         "        1.5 => \"never\"\n" +
         "        _ => \"ok\"\n",
     )).toEqual(["type mismatch: expected Rat, found Float"]);
+    // §12's row names the nested position too: the slot's type, not the
+    // scrutinee's, is what the literal is checked against.
+    expect(projectDiagnostics("module Main\n\nimport Rat\n\n" +
+      "export fun f(o: Option(Rat.Rat)): String =\n" +
+        "    match o\n" +
+        "        Some(0.0) => \"never\"\n" +
+        "        _ => \"ok\"\n",
+    )).toEqual(["type mismatch: expected Rat, found Float"]);
   });
 });
 
-describe("the literal at the scrutinee's type (§2.5's checking rule, #519)", () => {
+describe("the literal at the type of its position (§2.5's checking rule, #519)", () => {
   test("an integer literal stands at each of the four permitted primitives", () => {
     // All four drew "type mismatch: expected X, found Int" before the ruling, and
     // `x == 0` was accepted at every one of them. `Nat` and `BigInt` also drew
@@ -365,6 +373,13 @@ describe("the literal at the scrutinee's type (§2.5's checking rule, #519)", ()
     // the old monomorphic typing unified the scrutinee to `Int` at arm-check,
     // while the same match with `_` alone, or with the guard twin, was refused.
     // §6.1 reads the scrutinee at dispatch, and all three now read alike.
+    // The refusal is §6.1's own, unaltered and unmoved: it names the scrutinee's
+    // type only where that type is a **declared** variable, and `match 0`'s is an
+    // undetermined inference variable, which #649 keeps out of diagnostics. §15
+    // (k)'s transcript of this line writes the name in (`abstract type \`a\``) —
+    // flagged for James rather than resolved here, since minting a display name
+    // for an undetermined variable would be a new convention at a new seat and no
+    // normative sentence asks for one.
     const refusal = "cannot match on a value of abstract type; " +
       "use the operations its constraints provide";
     expect(projectDiagnostics(main(
@@ -625,6 +640,16 @@ describe("a term's spelling in pattern position (§2.5, §12)", () => {
   });
 
   test("an unbound qualifier is Modules §5.1 rule 1's report, before any of these", () => {
+    // §12's row: rule 1's report leads, carrying its repair where `import Rat`
+    // would resolve — the spelling names a real module here, just an unimported
+    // one, and the selection above is never reached.
+    expect(projectDiagnostics(main(
+      "export fun f(t: Float): String =\n" +
+        "    match t\n" +
+        "        Rat.zilch => \"never\"\n" +
+        "        _ => \"ok\"\n",
+    ))).toEqual(["no module alias `Rat`; `import Rat`"]);
+    // And without a module of the name, the same report with no repair invented.
     expect(projectDiagnostics(main(
       "export fun f(t: Float): String =\n" +
         "    match t\n" +

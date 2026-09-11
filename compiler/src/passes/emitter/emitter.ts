@@ -6355,11 +6355,11 @@ class JavaScriptEmitter {
   /**
    * The tests and bindings one pattern makes against a subject expression.
    *
-   * `evidenceNames` rides along for one seat and one reason (#894): a literal's
-   * arm test is `Eq` at the scrutinee's type, and the literal is *built* at that
-   * type (Pattern Matching §2.5, §8) — both of which are evidence applications
-   * wherever the type is not a primitive, `Rat.fromNat(0)` being the plain case.
-   * Every caller already holds the map for the arm bodies beside the tests.
+   * `evidenceNames` rides along for one seat and one reason (#894): a literal is
+   * *built* at the type of its position (Pattern Matching §2.5, §8), and that
+   * construction is an evidence application — `FromNat` at every one of the four
+   * primitives §2.5 permits. Every caller already holds the map for the arm bodies
+   * beside the tests.
    */
   #emitPatternPlan(
     pattern: Core.Pattern,

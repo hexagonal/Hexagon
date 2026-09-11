@@ -2534,8 +2534,8 @@ class Checker {
    */
   readonly #brokenPatterns = new Set<Resolved.Pattern>();
   /**
-   * What each integer literal pattern resolved to — the scrutinee's type at its
-   * position, and the `Num` and `Eq` requirements it raised there (§2.5).
+   * What each integer literal pattern resolved to — the type of its position, and
+   * the `Num` requirement that builds the literal there (§2.5).
    *
    * Read by `#materializePattern`, which cannot re-derive any of it: the
    * expected type is the pattern seat's, and the pattern node carries only
@@ -7664,8 +7664,8 @@ class Checker {
           // §7.1's "a catch-all is required" said in witnesses. `Float` arrived
           // with #513; `Nat` and `BigInt` with #519, whose "cannot match on `X`
           // yet" stood here only because the old literal typing refused their
-          // arms anyway — §2.5 settles the literal at the scrutinee's type, and
-          // with that settled the gate had nothing left to protect.
+          // arms anyway — §2.5 settles the literal at the type of its position,
+          // and with that settled the gate had nothing left to protect.
           //
           // The vector joins it too (#600). Its lengths *are* a signature
           // (Collections Part 3 §3.3, `#vectorColumn`), so the length-only
@@ -22589,9 +22589,9 @@ function rewritePipe(expression: Resolved.BinaryExpr): Resolved.CallExpr {
 /**
  * Pattern Matching §7.2's **literal identity**, for both judgments.
  *
- * > A literal's identity is its value at the scrutinee's type under that type's
- * > `Eq` — never its spelling — at a type whose `Eq` the compiler computes, the
- * > primitives.
+ * > A literal's identity, for both judgments, is its value at the type of its
+ * > position under that type's `Eq` — never its spelling — at a type whose `Eq`
+ * > the compiler computes, the primitives.
  *
  * `primitive` is the column's primitive, and the key is that type's value:
  *

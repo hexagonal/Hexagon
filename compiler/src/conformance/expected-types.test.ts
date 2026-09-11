@@ -524,7 +524,7 @@ describe("Pattern Matching §6.1's refusal, reduced and re-worded", () => {
     )).toEqual(["match is missing cases: `_`"]);
 
     // **Both of this block's old refusals are retired** (#894, #519). §2.5 now
-    // checks a literal pattern at the scrutinee's type: an integer literal rides
+    // checks a literal pattern at the type of its position: an integer literal rides
     // `Num` to `Float` there, exactly as `x == 0` does, and the `Float` literal is
     // a pattern — the ban's own NaN rationale was false under SameValueZero. The
     // two programs that drew "type mismatch: expected Float, found Int" and
