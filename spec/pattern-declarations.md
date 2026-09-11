@@ -324,7 +324,8 @@ fun zeros(c: Color): String =
     match c
         (0.0, _, _)rgb => "no red"
         (-0.0, _, _)rgb => "never"           -- ERROR: this case is unreachable; the arm
-        _ => "some red"                      --   (0.0, _, _)rgb above already covers it (one Float literal, §4)
+                                             --   (0.0, _, _)rgb above already covers it (one Float literal, §4)
+        _ => "some red"
 let x = (0.0, 0.0, 0.0)rgb                   -- ERROR: rgb is a match-only pattern: its
                                              --   declaration has no build
 fun channels(c: Color): Float =
