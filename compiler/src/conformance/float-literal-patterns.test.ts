@@ -420,6 +420,28 @@ describe("the literal at the scrutinee's type (§2.5's checking rule, #519)", ()
       "write `<a: (Num, Eq)>`",
     ]);
   });
+
+  test("the **binding** walk takes the same seat, not the old `Int` unification", () => {
+    // §2.5 is one rule for both pattern walks, and the binding walk's literals are
+    // reachable despite §5's refutability gate: the gate is a *second* report, and
+    // the typing still happens. A `let`'s tuple component at `Float` drew "type
+    // mismatch: expected Float, found Int" beside the gate before the ruling.
+    expect(projectDiagnostics(main(
+      "export let p: (Float, Int) = (1.5, 1)\n" +
+        "\n" +
+        "let (0, b) = p\n",
+    ))).toEqual(["this pattern can fail: `(_, _)`; use `match`"]);
+    // And a lambda parameter's literal is typed through `Num` rather than pinned to
+    // `Int`, which is what the generalized signature reads back.
+    expect(projectDiagnostics(main("export let f = (0) => 1\n"))).toEqual([
+      "exported function `f` requires a complete signature; add type for " +
+      "parameter `_` and a return type",
+      "exported function `f` must declare every constraint in its signature; " +
+      "write `<a: (Eq, Num)>`",
+      "this pattern can fail: `_`; use `match` — for a match function, write " +
+      "`match` with arms",
+    ]);
+  });
 });
 
 describe("coverage identity is the value, not the spelling (§7.2)", () => {
