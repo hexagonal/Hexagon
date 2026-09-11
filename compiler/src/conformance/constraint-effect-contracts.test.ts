@@ -2940,10 +2940,10 @@ describe("Effects §13.2: the merge's branch order, and each slot's own reach", 
       "        f()\n";
     for (const [other, bind] of SPELLINGS) {
       for (const merge of orders("b", other)) {
-        const source = outer(merge, bind);
-        expect(messages(source)).toEqual([pureConflict("go", "b")]);
-        expect(primaries(source)).toEqual(["f()"]);
-        expect(labels(source)).toEqual([[
+        const seat = seen(outer(merge, bind));
+        expect(seat.messages).toEqual([pureConflict("go", "b")]);
+        expect(seat.primaries).toEqual(["f()"]);
+        expect(seat.labels).toEqual([[
           'the contract\'s failing arrow: "->"',
           "the merge that joined the handed callback in: " + JSON.stringify(merge),
         ]]);
@@ -2961,10 +2961,10 @@ describe("Effects §13.2: the merge's branch order, and each slot's own reach", 
       "honor Maker<S> =\n    make(k) =\n" + bind + `        ${merge}\n`;
     for (const [other, bind] of SPELLINGS) {
       for (const merge of orders("k", other)) {
-        const source = nested(merge, bind);
-        expect(messages(source)).toEqual([pureMergeConflict("make", "k", true)]);
-        expect(primaries(source)).toEqual([merge]);
-        expect(labels(source)).toEqual([[
+        const seat = seen(nested(merge, bind));
+        expect(seat.messages).toEqual([pureMergeConflict("make", "k", true)]);
+        expect(seat.primaries).toEqual([merge]);
+        expect(seat.labels).toEqual([[
           'the contract\'s failing arrow: "->"',
           'the handed callback\'s contract arrow: "->!"',
         ]]);
@@ -2986,10 +2986,10 @@ describe("Effects §13.2: the merge's branch order, and each slot's own reach", 
       "        one()\n";
     for (const [other, bind] of SPELLINGS) {
       for (const merge of orders("one", other)) {
-        const source = conductor(merge, bind);
-        expect(messages(source)).toEqual([pureConflict("go", "b")]);
-        expect(primaries(source)).toEqual(["b!()"]);
-        expect(labels(source)).toEqual([[
+        const seat = seen(conductor(merge, bind));
+        expect(seat.messages).toEqual([pureConflict("go", "b")]);
+        expect(seat.primaries).toEqual(["b!()"]);
+        expect(seat.labels).toEqual([[
           'the contract\'s failing arrow: "->"',
           "the merge that joined the handed callback in: " + JSON.stringify(merge),
         ]]);
