@@ -8090,11 +8090,42 @@ class Checker {
         // expected type through `#unifyExpected` (Numeric Literals §5.1).
         const target = this.#inferExpr(expression.target, level);
         const value = this.#inferExpr(expression.value, level);
-        this.#unifyExpected(target, value, expression.value, expression.span, true);
+        // **A re-assignment is a merge** *(Effects §13.2)*. A `var` has one
+        // monotype, and the assigned value's type is unified with it; where two
+        // function colours meet in that unification the re-assignment has
+        // joined them exactly as an `if`'s two branches join theirs. The join
+        // is through the **shared static type** — not a runtime value retaining
+        // both assignments, the variable's monotype saying nothing about which
+        // assignment a run performs — which is why it reaches the same boundary
+        // every other joining form reaches and needs no door of its own: the
+        // span below is the merge's, `#recordJoinedColour` takes the record
+        // inside `#unify`, and the disposal, the selection and the priorities
+        // among calls, pins, merges and the seat read it as they read any
+        // merge. Acceptance is untouched: `#joining` sets a span and nothing
+        // else, and the publish below rewrites only effect nodes at positions
+        // the join has already made prune alike.
+        this.#joining(expression.span, () =>
+          this.#unifyExpected(target, value, expression.value, expression.span, true));
         if (
-          expression.target.kind !== "Name" ||
-          !this.#mutableSymbols.has(expression.target.symbol)
+          expression.target.kind === "Name" &&
+          this.#mutableSymbols.has(expression.target.symbol)
         ) {
+          // And the var's own monotype carries the seat's node forward, so a
+          // later read through it — `z.cb()` — records the edge the `if` form's
+          // `f()` records. The monotype is the one the *scheme* holds: the
+          // reference above is `#instantiate`'s copy, which shares every leaf
+          // but rebuilds the composites, so republishing it would publish into
+          // a tree no later read consults. A `var` never generalizes
+          // (Functions §8.4), so the scheme is `{ variables: [], type }` and
+          // the walk is over a monotype, as it is for every other form.
+          const scheme = this.#schemes.get(expression.target.symbol);
+          if (scheme !== undefined) {
+            this.#schemes.set(expression.target.symbol, {
+              ...scheme,
+              type: this.#publishJoinedColours(scheme.type, value),
+            });
+          }
+        } else {
           this.#diagnostics.add({
             severity: "error",
             message: expression.target.kind === "Name"

@@ -63,6 +63,31 @@ function labels(source: string): readonly (readonly string[])[] {
   );
 }
 
+/**
+ * All three views off **one** compile. Every family below wants the sentence,
+ * the primary and the related locations of the same program, and asking for
+ * them through the three helpers above compiles it three times — which is what
+ * put the heaviest blocks of this file over vitest's per-test budget the moment
+ * the merge table grew.
+ */
+function seen(source: string): {
+  readonly messages: readonly string[];
+  readonly primaries: readonly string[];
+  readonly labels: readonly (readonly string[])[];
+} {
+  const text = "module Main\n\n" + source;
+  const diagnostics = compileFiles([["/main.hex", text], ["/io.js", ""]]).diagnostics;
+  const at = (span: { start: { offset: number }; end: { offset: number } }) =>
+    text.slice(span.start.offset, span.end.offset).trimEnd();
+  return {
+    messages: diagnostics.map(({ message }) => message),
+    primaries: diagnostics.map(({ primary }) => at(primary)),
+    labels: diagnostics.map(({ labels: related }) =>
+      (related ?? []).map(({ message, span }) => `${message}: ${JSON.stringify(at(span))}`)
+    ),
+  };
+}
+
 /** Every fixit a one-module project offered, as `message: replacement`. */
 function fixes(source: string): readonly string[] {
   return compileFiles([["/main.hex", "module Main\n\n" + source]]).diagnostics
@@ -3172,26 +3197,6 @@ describe("Effects §13.2: each slot's own merge, and its own reach", () => {
  * here**, and the row it adds must agree with every other row.
  */
 describe("Effects §13.2: the merge forms, spelled three ways, in both orders", () => {
-  /** One compile, all three views — 36 programs is 36 compiles, not 108. */
-  function seen(source: string): {
-    readonly messages: readonly string[];
-    readonly primaries: readonly string[];
-    readonly labels: readonly (readonly string[])[];
-  } {
-    const text = "module Main\n\n" + source;
-    const diagnostics = compileFiles([["/main.hex", text], ["/io.js", ""]])
-      .diagnostics;
-    const at = (span: { start: { offset: number }; end: { offset: number } }) =>
-      text.slice(span.start.offset, span.end.offset).trimEnd();
-    return {
-      messages: diagnostics.map(({ message }) => message),
-      primaries: diagnostics.map(({ primary }) => at(primary)),
-      labels: diagnostics.map(({ labels: related }) =>
-        (related ?? []).map(({ message, span }) => `${message}: ${JSON.stringify(at(span))}`)
-      ),
-    };
-  }
-
   /**
    * The three spellings §13.2 pairs. `bind` is what has to stand above the
    * merge for the spelling to exist at all.
@@ -3205,10 +3210,29 @@ describe("Effects §13.2: the merge forms, spelled three ways, in both orders", 
   /**
    * **The merge forms.** `join` is the expression that does the joining — the
    * one §13.2 makes the merge, and the one a conflict names as its related
-   * location. `after` is what the body does with the joined value, and `call`
-   * is the primary the report must take.
+   * location. `after` is what the body does with the joined value — it is
+   * handed the merge and, for the forms that need it, the two joined
+   * spellings — and `call` is the primary the report must take.
+   *
+   * `before` is a report the *language* makes about the program before the seat
+   * says anything: the function-typed `var` row below is refused by Statements
+   * §6.1 whatever a seat thinks of it, and the row exists to hold the seat's
+   * report steady beside that refusal rather than to claim the program is
+   * otherwise legal.
    */
-  const FORMS = [
+  interface MergeForm {
+    readonly name: string;
+    readonly join: (first: string, second: string) => string;
+    readonly after: (join: string, first: string, second: string) => string;
+    readonly call: string;
+    readonly before?: readonly {
+      readonly message: string;
+      readonly primary: string;
+      readonly labels: readonly string[];
+    }[];
+  }
+
+  const FORMS: readonly MergeForm[] = [
     {
       name: "an `if`",
       join: (first: string, second: string) => `if c then ${first} else ${second}`,
@@ -3253,7 +3277,51 @@ describe("Effects §13.2: the merge forms, spelled three ways, in both orders", 
       after: (join: string) => `        let f =\n            ${join}\n        f()\n`,
       call: "f()",
     },
-  ] as const;
+    // **The `var` rows** *(#867's rider; Effects §13.2, §12)*. A `var` has one
+    // monotype, and the assigned value's type is unified with it: two function
+    // colours meeting there are joined exactly as an `if`'s branches join
+    // theirs, through the **shared static type** — the variable's monotype says
+    // nothing about which assignment a run performs, and no runtime value
+    // retains both. So the merge is the assignment, and every column of this
+    // table reads the same as the `if` row's.
+    {
+      name: "a `var` of record type, re-assigned",
+      join: (_first: string, second: string) => `z := { cb = ${second} }`,
+      after: (join: string, first: string) =>
+        `        var z = { cb = ${first} }\n        ${join}\n        z.cb()\n`,
+      call: "z.cb()",
+    },
+    {
+      name: "a `var` of vector type, re-assigned",
+      join: (_first: string, second: string) => `v := [${second}]`,
+      after: (join: string, first: string) =>
+        `        var v = [${first}]\n        ${join}\n` +
+        "        match Vector.get(v, 0)\n" +
+        "            Some(u) => u()\n            None => ()\n",
+      call: "u()",
+    },
+    {
+      // The join at the **outermost** arrow, with no composite between the
+      // colours and the variable's own type. Statements §6.1 bans a
+      // function-typed `var` outright, so this form is never a legal program —
+      // but the ban is a separate refusal at the binding, the assignment still
+      // unifies the two arrows, and the seat's report must be the same row,
+      // sentence, primary and related locations the other forms take. Recorded
+      // as a row rather than left out, because leaving it out would be the
+      // enumeration claiming a form the grammar admits does not exist.
+      name: "a `var` of function type, re-assigned (refused by Statements §6.1)",
+      join: (_first: string, second: string) => `f := ${second}`,
+      after: (join: string, first: string) =>
+        `        var f = ${first}\n        ${join}\n        f()\n`,
+      call: "f()",
+      before: [{
+        message: "`f` is a `var`, and a `var` cannot hold a function — vars " +
+          "accumulate data; model changing behavior as a union and `match` on it",
+        primary: "f",
+        labels: [],
+      }],
+    },
+  ];
 
   const HEAD =
     "constraint C<r> =\n    go(runner: r, b: () ->! Unit) -> Unit\n" +
@@ -3271,22 +3339,36 @@ describe("Effects §13.2: the merge forms, spelled three ways, in both orders", 
         `${form.name}, the slot written ${slotFirst ? "first" : "second"}`,
         () => {
           for (const spelling of SPELLINGS) {
-            const join = slotFirst
-              ? form.join("b", spelling.pure)
-              : form.join(spelling.pure, "b");
-            const source = HEAD + spelling.bind + form.after(join);
+            const [first, second] = slotFirst
+              ? ["b", spelling.pure]
+              : [spelling.pure, "b"];
+            const join = form.join(first, second);
+            const source = HEAD + spelling.bind + form.after(join, first, second);
             const { messages: said, primaries: at, labels: related } = seen(source);
-            // One report, the conflict row — the merge fixed the handed slot
-            // pure and the body then called it under the contract's `->`.
-            expect([spelling.name, said]).toEqual([spelling.name, [pureConflict("go", "b")]]);
+            const before = form.before ?? [];
+            // One report from the seat, the conflict row — the merge fixed the
+            // handed slot pure and the body then called it under the contract's
+            // `->` — behind whatever the language itself already refused.
+            expect([spelling.name, said]).toEqual([spelling.name, [
+              ...before.map(({ message }) => message),
+              pureConflict("go", "b"),
+            ]]);
             // The call, not the merge: a call carries the condemned colour.
-            expect([spelling.name, at]).toEqual([spelling.name, [form.call]]);
+            expect([spelling.name, at]).toEqual([spelling.name, [
+              ...before.map(({ primary }) => primary),
+              form.call,
+            ]]);
             // The failing arrow, then the merge that joined the slot in — the
-            // merge being the joining expression itself, whichever form it is.
-            expect([spelling.name, related]).toEqual([spelling.name, [[
-              'the contract\'s failing arrow: "->"',
-              `the merge that joined the handed callback in: ${JSON.stringify(join)}`,
-            ]]]);
+            // merge being the joining expression itself, whichever form it is,
+            // and for a `var` the re-assignment that unified the two colours
+            // through the variable's one monotype.
+            expect([spelling.name, related]).toEqual([spelling.name, [
+              ...before.map(({ labels }) => labels),
+              [
+                'the contract\'s failing arrow: "->"',
+                `the merge that joined the handed callback in: ${JSON.stringify(join)}`,
+              ],
+            ]]);
             // And never the demand limb: none of these programs writes an
             // annotation or hands the callback to a `->` position, so advice
             // that says to do so is a repair for a defect nobody committed.
@@ -3299,6 +3381,164 @@ describe("Effects §13.2: the merge forms, spelled three ways, in both orders", 
       );
     }
   }
+});
+
+/**
+ * **A `var`'s re-assignment, past the table's own cells** *(#867's rider;
+ * Effects §13.2, §12)*.
+ *
+ * The table above holds the re-assignment against its `if` counterpart where a
+ * **call** carries the condemned colour. These are the cells the table's shape
+ * cannot reach: the re-assignment standing as the **primary** where no call
+ * carries it, the assignment written inside a **helper** the seat conducts, and
+ * a `var` re-assigned **twice**, where three colours meet in one monotype and
+ * the merge named has to be chosen.
+ *
+ * Every one of them is measured against the `if` form written beside it, since
+ * the ruling is that the two forms are one mechanism and not two.
+ */
+describe("Effects §13.2: a `var`'s re-assignment is the merge, past the table", () => {
+  const IMPURE =
+    "constraint C<r> =\n    go(runner: r, b: () ->! Unit) ->! Unit\n" +
+    "record R = { id: Int }\nlet c: Bool = True\nlet spare(): Unit = ()\n" +
+    "honor C<R> =\n    go(runner, b) =\n";
+  const PURE =
+    "constraint C<r> =\n    go(runner: r, b: () ->! Unit) -> Unit\n" +
+    "record R = { id: Int }\nlet c: Bool = True\nlet spare(): Unit = ()\n" +
+    "honor C<R> =\n    go(runner, b) =\n";
+
+  test("where no call carries the colour, the assignment IS the primary", () => {
+    // §13.2: "Where the merged colour meets no pure upper arrow … the
+    // narrower-acceptance row … reports in its merge form, the merge its pin".
+    // Under a `->!` header nothing the body calls is refused, so the merge
+    // alone narrows the slot — and for a `var` the merge is the assignment.
+    // The `if` form is written beside each one: same row, same sentence, same
+    // single related location, and only the span of the merge differs.
+    for (
+      const [pure, bind] of [
+        ["spare", ""],
+        ["g", "        let g = () => ()\n"],
+      ] as const
+    ) {
+      for (const slotFirst of [true, false]) {
+        const [first, second] = slotFirst ? ["b", pure] : [pure, "b"];
+        const shapes = [
+          {
+            merge: `z := { cb = ${second} }`,
+            source: `        var z = { cb = ${first} }\n        z := { cb = ${second} }\n` +
+              "        ignore(z)\n",
+          },
+          {
+            merge: `v := [${second}]`,
+            source: `        var v = [${first}]\n        v := [${second}]\n        ignore(v)\n`,
+          },
+        ];
+        // The `if` counterpart is the third shape, measured beside the two.
+        const joined = `if c then { cb = ${first} } else { cb = ${second} }`;
+        shapes.push({
+          merge: joined,
+          source: `        let z = ${joined}\n        ignore(z)\n`,
+        });
+        for (const { merge, source } of shapes) {
+          const seat = seen(IMPURE + bind + source);
+          expect([merge, seat.messages])
+            .toEqual([merge, [mergeNarrower("go", "b", true)]]);
+          expect([merge, seat.primaries]).toEqual([merge, [merge]]);
+          // One related location — the contract's own arrow — and no second
+          // one, because the merge is the primary rather than a label beside
+          // a call.
+          expect([merge, seat.labels])
+            .toEqual([merge, [['the contract\'s failing arrow: "->!"']]]);
+          // No demand limb: the program writes no annotation and hands the
+          // callback to no `->` position, so advice naming one is a repair for
+          // a defect nobody committed. The merge form's advice is "do not
+          // merge `b` with a pure function here" and stops there.
+          for (const message of seat.messages) {
+            expect([merge, message.includes("to a `->` demand")]).toEqual([merge, false]);
+          }
+        }
+      }
+    }
+  });
+
+  test("and the inline lambda's retained acceptance difference is the `if`'s, exactly", () => {
+    // §13.2's "inherited inference behaviour": a named function's colour was
+    // defaulted pure before its generalization (§3.4), an inline lambda's is
+    // still a variable the seat has not defaulted, so the merge meets no
+    // constant and the program is accepted. That difference is the `if` form's
+    // already — the suite records it as a refactoring cost, not as a seat
+    // distinction — and the re-assignment must inherit it rather than invent
+    // an answer of its own.
+    for (
+      const source of [
+        "        var z = { cb = (() => ()) }\n        z := { cb = b }\n        ignore(z)\n",
+        "        var z = { cb = b }\n        z := { cb = (() => ()) }\n        ignore(z)\n",
+        "        var v = [(() => ())]\n        v := [b]\n        ignore(v)\n",
+        "        let z = if c then { cb = (() => ()) } else { cb = b }\n        ignore(z)\n",
+        "        let v = [(() => ()), b]\n        ignore(v)\n",
+      ]
+    ) {
+      expect([source, seen(IMPURE + source).messages]).toEqual([source, []]);
+    }
+  });
+
+  test("an assignment inside a helper is that helper's merge, and the seat reads it", () => {
+    // A conductor: the `var`, the assignment and the call all stand inside
+    // `h`, whose colour the ordering carries the slot to. The merge is still
+    // the assignment — a nested frame does not own the record, the seat does —
+    // and the report is the table's, on the call inside the helper.
+    for (const call of ["        h()\n", "        h!()\n"]) {
+      const source = PURE +
+        "        let h() =\n" +
+        "            var z = { cb = spare }\n" +
+        "            z := { cb = b }\n" +
+        "            z.cb()\n" + call;
+      const seat = seen(source);
+      expect([call, seat.messages]).toEqual([call, [pureConflict("go", "b")]]);
+      expect([call, seat.primaries]).toEqual([call, ["z.cb()"]]);
+      expect([call, seat.labels]).toEqual([call, [[
+        'the contract\'s failing arrow: "->"',
+        'the merge that joined the handed callback in: "z := { cb = b }"',
+      ]]]);
+    }
+  });
+
+  test("a `var` re-assigned twice names the first merge that joins the handed slot", () => {
+    // Three colours meet in one monotype — `spare`'s constant, the handed slot
+    // `b`, and a `let`-bound lambda `g` — across two assignments, of which only
+    // one joins `b`. That one is the merge named, wherever it stands in source
+    // order, because the merge a report names is a merge **on the slot the
+    // report is about** ("each slot's merge is its own", above).
+    for (
+      const [order, body] of [
+        ["the handed slot joined first", "        z := { cb = b }\n        z := { cb = g }\n"],
+        ["the handed slot joined last", "        z := { cb = g }\n        z := { cb = b }\n"],
+      ] as const
+    ) {
+      const source = PURE + "        let g = () => ()\n" +
+        "        var z = { cb = spare }\n" + body + "        z.cb()\n";
+      const seat = seen(source);
+      expect([order, seat.messages]).toEqual([order, [pureConflict("go", "b")]]);
+      expect([order, seat.primaries]).toEqual([order, ["z.cb()"]]);
+      expect([order, seat.labels]).toEqual([order, [[
+        'the contract\'s failing arrow: "->"',
+        'the merge that joined the handed callback in: "z := { cb = b }"',
+      ]]]);
+    }
+  });
+
+  test("and a `var` a seat never sees is untouched: the boundary costs it nothing", () => {
+    // The two entry points return before any loop where no seat is open, so a
+    // re-assignment outside a seat is the program it was. Both shapes the
+    // rows above use, compiled with no constraint in sight.
+    expect(seen(
+      "record P = { cb: () -> Unit }\nlet spare(): Unit = ()\n" +
+      "let main(): Unit =\n    var z = { cb = spare }\n    z := { cb = spare }\n    z.cb()\n",
+    ).messages).toEqual([]);
+    expect(seen(
+      "let main(): Unit =\n    var n = 1\n    n := 2\n    ignore(n)\n",
+    ).messages).toEqual([]);
+  });
 });
 
 /**
@@ -3369,9 +3609,10 @@ describe("Effects §13.2: the merge record is every slot's, and it is the seat's
       ] as const
     ) {
       for (const source of [demanded(other, bind), demandedFirst(other, bind)]) {
-        expect([other, messages(source)]).toEqual([other, [pureConflict("go", "b")]]);
-        expect([other, primaries(source)]).toEqual([other, ["f()"]]);
-        expect([other, labels(source)[0]?.[0]])
+        const seat = seen(source);
+        expect([other, seat.messages]).toEqual([other, [pureConflict("go", "b")]]);
+        expect([other, seat.primaries]).toEqual([other, ["f()"]]);
+        expect([other, seat.labels[0]?.[0]])
           .toEqual([other, 'the contract\'s failing arrow: "->"']);
       }
     }
