@@ -1204,8 +1204,18 @@ interface ReachabilityReports {
   readonly constructor: (name: string) => string;
   /** A duplicate literal. */
   readonly literal: string;
-  /** Covered by one arm above, whose pattern is not a constructor's (§7.2). */
-  readonly shadower: (pattern: string) => string;
+  /**
+   * Covered by one arm above, whose pattern is not a constructor's (§7.2).
+   *
+   * Absent at `catch`, where nothing reaches it: `coverageAlternatives` unwraps
+   * `as` and flattens `|` before reporting, and a catch alternative stands at the
+   * open `Exn`, so what arrives is an exception constructor's head (the
+   * `constructor` row's), a binder or wildcard (unreachable only behind a
+   * catch-all, which the `everything` row takes two tiers above), or a broken node
+   * (the arm is skipped). `#soleShadower` is never consulted there, and a row that
+   * cannot fire would be an unpinnable sentence in the corpus.
+   */
+  readonly shadower?: (pattern: string) => string;
   /** Covered by the arms above jointly, with no single arm to name. */
   readonly covered: string;
   /** Where the whole-arm report points. */
@@ -1226,8 +1236,8 @@ const CATCH_ARM_REPORTS: ReachabilityReports = {
   everything: "this catch arm is unreachable because an earlier arm catches everything",
   constructor: (name) => `exception \`${name}\` is already caught above`,
   literal: "this literal case is unreachable; it is already handled above",
-  shadower: (pattern) =>
-    `this catch arm is unreachable; the arm \`${pattern}\` above already covers it`,
+  // No `shadower`: see the field. Nothing at this seat reaches the naming tier, and
+  // a sentence no program can draw is one the corpus cannot hold to anything.
   covered: "this catch arm is unreachable; the arms above already cover it",
   armSpan: (arm) => arm.span,
 };
@@ -2594,6 +2604,31 @@ class Checker {
    */
   #armGuardSeat = false;
   /**
+   * Whether the arm this pattern belongs to **already carries a guard**.
+   *
+   * §2.5's rewrite puts its test "in the arm's guard (§3)", and what is rendered is
+   * the whole arm head — pattern plus `when …`. So at an arm that already has one,
+   * the rewrite a reader pastes *replaces* it: `(0, k) when k > 5` was offered
+   * `(y, k) when y == 0`, which compiles and fires for every `k`, and where the
+   * existing guard was itself refused (`when k == Nowhere.zilch`) it took that
+   * report with it. Joining the two — `(y, k) when y == 0 and k > 5` — is what §2.5
+   * licenses, and this seat has no printer for a resolved expression, so the rewrite
+   * is withheld instead: the direction the seat takes at every other condition, and
+   * the only safe one here, because the wrong rewrite *compiles*.
+   *
+   * Read by both guard-naming sentences, and so by both of `literalPatternGuard`'s
+   * exits — the top-of-arm `x when x == 0` replaces a guard just as readily.
+   *
+   * Saved and restored around each arm's pattern for hygiene, and that restore is an
+   * **equivalent mutant**: every arm assigns the flag at its own head, so a latched
+   * `true` is overwritten before the next arm reads it, and the arm's guard and body
+   * are checked after the restore at a seat where `#armGuardSeat` is false anyway.
+   * Recorded rather than pinned, because no program can discriminate it — unlike
+   * `#insideWrapper`'s two restores, which a nested `as` inside an or-alternative
+   * does discriminate.
+   */
+  #armHasGuard = false;
+  /**
    * True only while `#inferIntegerPattern` is raising its demands, so that every
    * requirement minted there is stamped `patternSeat` — see that field, which one
    * sentence of one report reads.
@@ -2619,6 +2654,7 @@ class Checker {
     readonly root: Resolved.Pattern | undefined;
     readonly inOrAlternative: boolean;
     readonly armGuardSeat: boolean;
+    readonly armHasGuard: boolean;
   }[] = [];
   /**
    * How far beneath the top of a pattern the two pattern walks currently are —
@@ -7621,12 +7657,15 @@ class Checker {
         for (const arm of expression.arms) {
           this.#matchArmTop = true;
           const outerGuardSeat = this.#armGuardSeat;
+          const outerHasGuard = this.#armHasGuard;
           this.#armGuardSeat = true;
+          this.#armHasGuard = arm.guard !== undefined;
           try {
             this.#inferMatchPattern(arm.pattern, scrutinee, level);
           } finally {
             this.#matchArmTop = outerArmTop;
             this.#armGuardSeat = outerGuardSeat;
+            this.#armHasGuard = outerHasGuard;
           }
           if (arm.guard !== undefined) {
             const guard = this.#inferExpr(arm.guard, level);
@@ -9060,6 +9099,7 @@ class Checker {
         root: this.#patternRoot,
         inOrAlternative: this.#inOrAlternative,
         armGuardSeat: this.#armGuardSeat,
+        armHasGuard: this.#armHasGuard,
       });
       return;
     }
@@ -9071,7 +9111,7 @@ class Checker {
       pattern,
       actual,
       this.#patternRoot,
-      this.#inOrAlternative || !this.#armGuardSeat,
+      this.#inOrAlternative || !this.#armGuardSeat || this.#armHasGuard,
     );
   }
 
@@ -9151,7 +9191,7 @@ class Checker {
     // drops the `| 1`, which is a different program rather than a repair. Both are
     // "valid at that position" in §2.5's sense, and both are the restriction's
     // conditions too (`#checkLiteralPrimitive`'s `guardUnavailable`).
-    if (!this.#armGuardSeat || this.#inOrAlternative) return false;
+    if (!this.#armGuardSeat || this.#inOrAlternative || this.#armHasGuard) return false;
     if (refusal.symbol === undefined) return false;
     const scheme = this.#schemes.get(refusal.symbol);
     if (scheme === undefined || scheme.variables.length > 0) return false;
@@ -9203,10 +9243,12 @@ class Checker {
     root: Resolved.Pattern | undefined,
     /**
      * Whether §2.5's rewrite is invalid *at this position* — inside an
-     * or-alternative, where §2.6 refuses a single-literal swap, or outside a
-     * `match`/`catch` arm, where §3 allows no guard at all. Passed rather than read
-     * off the checker: the restriction on an undetermined position is judged after
-     * every arm, when neither fact is still current (`#pendingLiteralRestrictions`).
+     * or-alternative, where §2.6 refuses a single-literal swap; outside a
+     * `match`/`catch` arm, where §3 allows no guard at all; or at an arm that
+     * already has a guard, which the rendered arm head would replace
+     * (`#armHasGuard`). Passed rather than read off the checker: the restriction on
+     * an undetermined position is judged after every arm, when none of the three
+     * facts is still current (`#pendingLiteralRestrictions`).
      */
     guardUnavailable: boolean,
   ): void {
@@ -9246,7 +9288,7 @@ class Checker {
    */
   #checkPendingLiteralRestrictions(): void {
     for (
-      const { pattern, type, root, inOrAlternative, armGuardSeat }
+      const { pattern, type, root, inOrAlternative, armGuardSeat, armHasGuard }
         of this.#pendingLiteralRestrictions
     ) {
       const actual = this.#prune(type);
@@ -9254,7 +9296,12 @@ class Checker {
       // blocked, and §4's own report has already named it; an error type has been
       // reported too. Neither is this restriction's to speak about.
       if (actual.kind === "Variable" || actual.kind === "Error") continue;
-      this.#checkLiteralPrimitive(pattern, actual, root, inOrAlternative || !armGuardSeat);
+      this.#checkLiteralPrimitive(
+        pattern,
+        actual,
+        root,
+        inOrAlternative || !armGuardSeat || armHasGuard,
+      );
     }
     this.#pendingLiteralRestrictions.length = 0;
   }
@@ -9481,12 +9528,22 @@ class Checker {
     },
   ): void {
     for (const arm of arms) {
+      // §3 names `catch` beside `match`, so both flags are set here as there. Neither
+      // is observable at this seat today and no pin can reach them: a guard would
+      // have to be *offered* at an arm whose position is the open `Exn`, and nothing
+      // unifies with `Exn` and nothing honors `Eq` at it. Set anyway, because the rule
+      // is about the seat rather than about what happens to stand at it — a `catch`
+      // arm that one day carries a comparable scrutinee would otherwise be the one
+      // seat that forgot.
       const outerGuardSeat = this.#armGuardSeat;
+      const outerHasGuard = this.#armHasGuard;
       this.#armGuardSeat = true;
+      this.#armHasGuard = arm.guard !== undefined;
       try {
         this.#inferExceptionPattern(arm.pattern, level);
       } finally {
         this.#armGuardSeat = outerGuardSeat;
+        this.#armHasGuard = outerHasGuard;
       }
       if (arm.guard !== undefined) {
         const guard = this.#inferExpr(arm.guard, level);
@@ -10914,12 +10971,18 @@ class Checker {
     // above makes this alternative useless on its own. Where several are needed
     // jointly, naming one would be false and the sentence below says what is true
     // instead.
-    const shadower = this.#soleShadower(above, alternative, type);
+    // `reports.shadower` is absent at `catch`, where no alternative reaches this
+    // tier (see the field); asking `#soleShadower` there would be work for a
+    // sentence that cannot be printed.
+    const naming = reports.shadower;
+    const shadower = naming === undefined
+      ? undefined
+      : this.#soleShadower(above, alternative, type);
     this.#diagnostics.add({
       severity: "error",
-      message: shadower === undefined
-        ? reports.covered
-        : reports.shadower(renderPattern(shadower)),
+      message: naming !== undefined && shadower !== undefined
+        ? naming(renderPattern(shadower))
+        : reports.covered,
       primary: alternative.span,
     });
   }
@@ -23498,18 +23561,6 @@ function missingFieldMessage(
 }
 
 /**
- * A pattern rendered back as the reader wrote it — Pattern Matching §12's
- * closed-door rewrite, and §2.4's convention for the whole redirect family:
- * "the user's own pattern wrapped in the missing constructor: it names the
- * fields the pattern itself wrote, punned — never the declaration's list".
- *
- * The resolved tree is the source of the text, not the source file: the checker
- * holds no module text, and every shape below has one spelling the parser would
- * read back to the same tree. Punning is restored where the field's sub-pattern
- * is a binder of the field's own name, which is the one place the two spellings
- * differ and the one the convention names.
- */
-/**
  * The guard §2.5 names as a rewrite — "bind a name and test it in a guard" — for
  * either sentence that names one: the permitted-primitive refusal and the
  * term-spelling value sentence, whose rewrites differ only in what the binder is
@@ -23551,6 +23602,18 @@ function literalPatternGuard(
   return `${renderPattern(root, { target: refused, binder })} when ${binder} == ${operand}`;
 }
 
+/**
+ * A pattern rendered back as the reader wrote it — Pattern Matching §12's
+ * closed-door rewrite, and §2.4's convention for the whole redirect family:
+ * "the user's own pattern wrapped in the missing constructor: it names the
+ * fields the pattern itself wrote, punned — never the declaration's list".
+ *
+ * The resolved tree is the source of the text, not the source file: the checker
+ * holds no module text, and every shape below has one spelling the parser would
+ * read back to the same tree. Punning is restored where the field's sub-pattern
+ * is a binder of the field's own name, which is the one place the two spellings
+ * differ and the one the convention names.
+ */
 function renderPattern(
   pattern: Resolved.Pattern,
   /** One node to print as a binder instead — see `literalPatternGuard`. */

@@ -4047,19 +4047,6 @@ class Resolver {
   }
 
   /**
-   * The constructor `Alias.Ctor` names, for a **pattern** — Modules §3.3's
-   * qualified form, which Unions §2 delegates to and Modules §5.4 requires in
-   * pattern position as well as value position.
-   *
-   * `#namedModule` is the same door value position uses (the `Access` arm), so
-   * an explicit import alias and a prelude module's own name (§6.4's
-   * guaranteed home) answer alike, and neither consults the bare-name layer —
-   * which is the point: an occluded prelude constructor is unreachable bare and
-   * must stay reachable here.
-   *
-   * Answers `undefined` having reported, so the caller has nothing to add.
-   */
-  /**
    * Pattern Matching §2.5 / §12's **term-spelling** refusal: `Float.nan`,
    * `Helper.zero`, `-Float.infinity` written where a pattern belongs.
    *
@@ -4127,6 +4114,19 @@ class Resolver {
     };
   }
 
+  /**
+   * The constructor `Alias.Ctor` names, for a **pattern** — Modules §3.3's
+   * qualified form, which Unions §2 delegates to and Modules §5.4 requires in
+   * pattern position as well as value position.
+   *
+   * `#namedModule` is the same door value position uses (the `Access` arm), so
+   * an explicit import alias and a prelude module's own name (§6.4's
+   * guaranteed home) answer alike, and neither consults the bare-name layer —
+   * which is the point: an occluded prelude constructor is unreachable bare and
+   * must stay reachable here.
+   *
+   * Answers `undefined` having reported, so the caller has nothing to add.
+   */
   #qualifiedConstructor(
     qualifier: Parsed.Name,
     name: Parsed.Name,

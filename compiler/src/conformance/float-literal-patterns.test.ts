@@ -1025,6 +1025,114 @@ describe("a term's spelling in pattern position (§2.5, §12)", () => {
     ]);
   });
 
+  test("an arm that already has a guard is offered no rewrite", () => {
+    // §2.5 puts the test "in the arm's guard (§3)", and what the rewrite renders is
+    // the whole arm head — pattern *plus* `when …`. At an arm that already carries
+    // one, pasting it *replaces* that guard: `(0, k) when k > 5` was offered
+    // `(y, k) when y == 0`, which compiles and then fires for every `k`, and where
+    // the existing guard was itself refused it took that report with it. Joining the
+    // two is what §2.5 licenses and what this seat has no printer for, so the
+    // rewrite is withheld — the one safe direction, the wrong rewrite compiling.
+    const rat = (body: string): string => "module Main\n\nimport Rat\n\n" + body;
+    const tuple = (arm: string): string => rat(
+      "export fun f(p: (Rat.Rat, Int)): String =\n" +
+        "    match p\n" +
+        `        ${arm} => "z"\n` +
+        "        _ => \"ok\"\n",
+    );
+    expect(projectDiagnostics(tuple("(0, k) when k > 5")))
+      .toEqual(["`0` is not a pattern at `Rat`"]);
+    // At the top of an arm too: `x when x == 0` replaces a guard just as readily.
+    expect(projectDiagnostics(rat(
+      "export fun f(r: Rat.Rat, g: Bool): String =\n" +
+        "    match r\n" +
+        "        0 when g => \"z\"\n" +
+        "        _ => \"ok\"\n",
+    ))).toEqual(["`0` is not a pattern at `Rat`"]);
+    // And at the value sentence, which renders through the same path.
+    expect(diagnostics([HELPER, [
+      "/main.hex",
+      "module Main\n\nimport Helper\n\n" +
+      "export fun f(p: (Int, Int)): String =\n" +
+        "    match p\n" +
+        "        (Helper.count, k) when k > 5 => \"z\"\n" +
+        "        _ => \"ok\"\n",
+    ]])).toEqual(["`Helper.count` is a value, not a pattern"]);
+    // The row that is round 3's finding reached through the guard: the replaced
+    // guard was itself refused, so the rewrite deleted a report.
+    expect(projectDiagnostics(tuple("(0, k) when k == Nowhere.zilch")))
+      .toEqual(["`0` is not a pattern at `Rat`", "no module alias `Nowhere`"]);
+    // The controls: the unguarded twins still offer their rewrites, and the flag is
+    // the arm's own — a *later* guarded arm leaves an earlier one's offer standing.
+    expect(projectDiagnostics(tuple("(0, k)"))).toEqual([
+      "`0` is not a pattern at `Rat`; bind a name and test it in a guard: " +
+      "`(y, k) when y == 0`",
+    ]);
+    expect(diagnostics([HELPER, [
+      "/main.hex",
+      "module Main\n\nimport Helper\n\n" +
+      "export fun f(p: (Int, Int)): String =\n" +
+        "    match p\n" +
+        "        (Helper.count, k) => \"z\"\n" +
+        "        _ => \"ok\"\n",
+    ]])).toEqual([
+      "`Helper.count` is a value, not a pattern; bind a name and test it in a " +
+      "guard: `(y, k) when y == Helper.count`",
+    ]);
+    expect(projectDiagnostics(rat(
+      "export fun f(p: (Rat.Rat, Int)): String =\n" +
+        "    match p\n" +
+        "        (0, k) => \"z\"\n" +
+        "        (1, k) when k > 5 => \"y\"\n" +
+        "        _ => \"ok\"\n",
+    ))).toEqual([
+      "`0` is not a pattern at `Rat`; bind a name and test it in a guard: " +
+      "`(y, k) when y == 0`",
+      "`1` is not a pattern at `Rat`",
+    ]);
+    // And in the other order, which is what says the flag is restored rather than
+    // latched: a guarded arm above leaves the unguarded arm below it its rewrite.
+    expect(projectDiagnostics(rat(
+      "export fun f(p: (Rat.Rat, Int)): String =\n" +
+        "    match p\n" +
+        "        (1, k) when k > 5 => \"y\"\n" +
+        "        (0, k) => \"z\"\n" +
+        "        _ => \"ok\"\n",
+    ))).toEqual([
+      "`1` is not a pattern at `Rat`",
+      "`0` is not a pattern at `Rat`; bind a name and test it in a guard: " +
+      "`(y, k) when y == 0`",
+    ]);
+    // The **late** judgment takes the same three facts: a position undetermined when
+    // the literal was checked is judged after inference, and the arm's guard is read
+    // from the record rather than from the checker, which has moved on.
+    // (Both programs also draw the delegated `Num` failure, which lands at the
+    // unification that resolved the position — after the literal was checked, so
+    // outcome 1 does not precede outcome 2 here as it does at a concrete position.
+    // Measured and reported, not repaired: see the PR's "For James".)
+    expect(projectDiagnostics(
+      "module Main\n\nexport let a: String =\n" +
+        "    match None\n" +
+        "        Some(0) => \"z\"\n" +
+        "        Some({x = _}) => \"y\"\n" +
+        "        _ => \"o\"\n",
+    )).toEqual([
+      "type `{x: a, ...}` has no `Num` instance",
+      "`0` is not a pattern at `{x: Int, ...}`; bind a name and test it in a guard: " +
+      "`Some(y) when y == 0`",
+    ]);
+    expect(projectDiagnostics(
+      "module Main\n\nexport let a: String =\n" +
+        "    match None\n" +
+        "        Some(0) when True => \"z\"\n" +
+        "        Some({x = _}) => \"y\"\n" +
+        "        _ => \"o\"\n",
+    )).toEqual([
+      "type `{x: a, ...}` has no `Num` instance",
+      "`0` is not a pattern at `{x: Int, ...}`",
+    ]);
+  });
+
   test("a polymorphic term is declined its guard", () => {
     // `#termSpellingGuardOffered` declines a term whose scheme has variables: its
     // type would have to be instantiated, and instantiating mints variables and
