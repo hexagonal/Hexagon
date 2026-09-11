@@ -383,7 +383,7 @@ Both generalize from Unions §4.3. Both remain **hard errors**. Both remain **ex
 ### 7.1 Exhaustiveness
 
 - Domains with finitely many shapes — unions (closed, nominal — which since #147 includes the prelude `Bool`), and tuples/records thereof — are checked exactly. `Unit`'s former standalone listing is **deleted** *(2026-07-30, #159)*: since it is the arity-0 tuple (Products §2.7), a `match` on `Unit` with a `()` arm is exhaustive with no `_` through the ordinary tuple clause, vacuously at zero components. **A `match` on `Bool` with `True` and `False` arms is exhaustive with no `_`** — this survives verbatim in force, respelled in form: it is now the ordinary closed-constructor union path, and the former "`Bool` via literals" carve-out (the first non-union exhaustive domain) is **deleted** *(corrected 2026-07-29, #147; the acceptance test is retained, respelled, now exercising the union path)*.
-- Infinite domains (`Int`, `String`, `Float`) are never covered by literals; exactness there means: **a catch-all (`_` or bare variable, possibly under `as`/or-composition per §5.1's coverage semantics) is required.**
+- Infinite domains (`Int`, `Nat`, `BigInt`, `Float`, `String`) are never covered by literals; exactness there means: **a catch-all (`_` or bare variable, possibly under `as`/or-composition per §5.1's coverage semantics) is required.**
 - **Guarded arms contribute nothing** — including `when True`. Coverage is computed as if guarded arms were absent.
 - **Or-pattern rows expand first**: a row whose pattern is an or-pattern, at the top or in any column, stands in the matrix as one row per alternative before any specialisation — which is how `True | False` covers `Bool` (§5.1) and how one arm `(True)flag | (False)flag` is the same matrix as two.
 - **Declared patterns** (Pattern Declarations §4, which owns the clauses): each declared pattern present in a column is a complete **signature** of its own — its view's totality the author's unchecked law (Pattern Declarations §5) — a one-constructor shape — beside the type's constructor signature. Specialising on a pattern `p` of arity *n* yields *n* component columns; rows headed by `p` contribute their components, wildcard rows *n* wildcards, and rows headed by any other signature's head are **dropped** (sound, since the checker cannot relate two views; conservative, so a match mixing views needs a catch-all) — save a row irrefutable at the column's type (§5.1's judgment, whatever its form), which is a wildcard row at that column. A wildcard is useful in the column iff useful under every complete signature present — and in the default matrix where the constructor signature is incomplete or absent — so the match is exhaustive iff some complete signature's every specialisation is; the witness is built from the constructor signature where present, else the first pattern the arms write. A pattern the arms do not write enters no column.
@@ -650,10 +650,6 @@ match ratio                           -- ratio: Rat — the restriction is check
 match None                            -- a nested position, undetermined when the literal is checked
     Some(0) => "zero"                 -- OK: inference and defaulting resolve it — a match at Option(Int)
     _ => "other"
-match 0                               -- the scrutinee itself is still a variable at dispatch: §6.1 leads
-    0 => "zero"                       -- ERROR: cannot match on a value of abstract type `a`; use the
-    _ => "other"                      --   operations its constraints provide — no arm is checked; the
-                                      --   variable is named, never numbered (Constraints §8, #649)
 match name                            -- name: String — the literal's Num is unmet: what name == 0 draws
     0 => "zero"                       -- ERROR: integer literal cannot have type String
     _ => "ok"
