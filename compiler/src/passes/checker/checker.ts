@@ -2551,9 +2551,48 @@ class Checker {
    * beneath the top that guard is the *enclosing* pattern with a binder where the
    * literal stood — `Some(y) when y == 0`, not `x when x == 0`.
    *
-   * Set wherever `#patternDepth` is zero, which is exactly a root.
+   * Set at a root, and a root is a depth-zero pattern **that `#patternRootHeld`
+   * does not say is already inside one**: `as` and `|` wrap a pattern at its own
+   * position rather than descending into one (see `#patternDepth`), so they
+   * re-enter the walk at depth zero and would otherwise re-take the root — which
+   * cost `0 as z` its binder, the rewrite printing `x when x == 0` and losing the
+   * name the arm body reads.
    */
   #patternRoot: Resolved.Pattern | undefined;
+  /**
+   * Set while an `as` or `|` recurses **at its own position**, so the root stays
+   * the pattern the walk began at.
+   *
+   * Only those two need it. Every other descent goes through `#nestedPattern` /
+   * `#nestedMatchPattern`, which bump `#patternDepth`, and the root is taken at
+   * depth zero alone.
+   */
+  #patternRootHeld = false;
+  /**
+   * Whether the pattern being checked sits inside an **or-pattern alternative**.
+   *
+   * One reader: §2.5's guard rewrite, which is offered "only where it is valid at
+   * that position". Replacing one alternative's literal with a fresh binder gives
+   * `Some(y | 1)`, and §2.6's same-bindings rule refuses it — the other
+   * alternatives bind nothing of the name — so the refusal stops at "`0` is not a
+   * pattern at `Rat`" there and offers nothing. A disjunctive rewrite
+   * (`Some(y) when y == 0 or y == 1`) would be one report for several literals,
+   * which this seat has no way to say.
+   */
+  #inOrAlternative = false;
+  /**
+   * Whether a **guard could be written** for the arm this pattern belongs to —
+   * true inside a `match` arm's pattern and a `catch` arm's, false everywhere
+   * else.
+   *
+   * §3: "guards are only legal on `match` and `catch` arms". So the rewrite §2.5
+   * names twice — "bind a name and test it in a guard" — is valid at those two
+   * seats and nowhere else: at a `let`, a `for..in` head, or a parameter there is
+   * no guard to put the test in, and the offer would be a repair the next compile
+   * refuses. §2.5's "only where it is valid at that position" is the rule; this is
+   * the half of it that is about the *position* rather than the types.
+   */
+  #armGuardSeat = false;
   /**
    * True only while `#inferIntegerPattern` is raising its demands, so that every
    * requirement minted there is stamped `patternSeat` — see that field, which one
@@ -2578,6 +2617,8 @@ class Checker {
     readonly pattern: Resolved.IntegerPattern;
     readonly type: Mono;
     readonly root: Resolved.Pattern | undefined;
+    readonly inOrAlternative: boolean;
+    readonly armGuardSeat: boolean;
   }[] = [];
   /**
    * How far beneath the top of a pattern the two pattern walks currently are —
@@ -7579,10 +7620,13 @@ class Checker {
           (expression.catchArms?.length ?? 0);
         for (const arm of expression.arms) {
           this.#matchArmTop = true;
+          const outerGuardSeat = this.#armGuardSeat;
+          this.#armGuardSeat = true;
           try {
             this.#inferMatchPattern(arm.pattern, scrutinee, level);
           } finally {
             this.#matchArmTop = outerArmTop;
+            this.#armGuardSeat = outerGuardSeat;
           }
           if (arm.guard !== undefined) {
             const guard = this.#inferExpr(arm.guard, level);
@@ -8755,7 +8799,7 @@ class Checker {
      */
     evaluated: Mono = expected,
   ): void {
-    if (this.#patternDepth === 0) this.#patternRoot = pattern;
+    if (this.#patternDepth === 0 && !this.#patternRootHeld) this.#patternRoot = pattern;
     if (pattern.kind === "Wildcard") return;
     if (pattern.kind === "Unit") {
       this.#unifyPattern(pattern, expected, UNIT);
@@ -8769,7 +8813,9 @@ class Checker {
       return;
     }
     if (pattern.kind === "As") {
-      this.#inferPattern(pattern.pattern, expected, level, generalizable, evaluated);
+      this.#insideWrapper(false, () =>
+        this.#inferPattern(pattern.pattern, expected, level, generalizable, evaluated)
+      );
       this.#schemes.set(
         pattern.binding.symbol,
         this.#generalize(expected, level, generalizable, undefined, evaluated),
@@ -8873,6 +8919,7 @@ class Checker {
       return;
     }
     if (pattern.kind === "Error") {
+      this.#reportTermSpelling(pattern, expected);
       this.#brokenPatterns.add(pattern);
       return;
     }
@@ -9006,6 +9053,8 @@ class Checker {
         pattern,
         type: actual,
         root: this.#patternRoot,
+        inOrAlternative: this.#inOrAlternative,
+        armGuardSeat: this.#armGuardSeat,
       });
       return;
     }
@@ -9013,7 +9062,105 @@ class Checker {
     // — so it is judged here, and §2.5 names it among the refusals: `Some(0)` at
     // `Option(a)` under `<a: (Num, Eq)>` satisfies both constraints and is still
     // not a pattern, because the value at `a` is not one the compiler computes.
-    this.#checkLiteralPrimitive(pattern, actual, this.#patternRoot);
+    this.#checkLiteralPrimitive(
+      pattern,
+      actual,
+      this.#patternRoot,
+      this.#inOrAlternative || !this.#armGuardSeat,
+    );
+  }
+
+  /**
+   * Pattern Matching §2.5 / §12's **value sentence**, finished here — the one of
+   * the four term-spelling sentences the resolver could not complete *(#894)*.
+   *
+   * > "`Float.nan` is a value, not a pattern; bind a name and test it in a guard:
+   * > `x when x == Float.nan`" … **The guard is offered only where it is valid at
+   * > that position**: the term's type unifying with the position's, and the `Eq`
+   * > the comparison needs — and, for a negated spelling, the `Signed` — in scope
+   * > there; where it is not, the report stops at "`Float.nan` is a value, not a
+   * > pattern" and offers nothing, a fixit that would not compile being worse than
+   * > none.
+   *
+   * One report either way, at the span the resolver carated. The other three
+   * sentences never reach here: they were reported where the names were resolved,
+   * and an error pattern that carries no spelling is a parse or lex failure whose
+   * report already stands.
+   */
+  #reportTermSpelling(pattern: Resolved.ErrorPattern, expected: Mono): void {
+    const refusal = pattern.termSpelling;
+    if (refusal === undefined) return;
+    const head = `\`${refusal.spelling}\` is a value, not a pattern`;
+    const guard = this.#termSpellingGuardOffered(refusal, expected)
+      ? `; bind a name and test it in a guard: \`x when x == ${refusal.spelling}\``
+      : "";
+    this.#diagnostics.add({
+      severity: "error",
+      message: `${head}${guard}`,
+      primary: pattern.span,
+    });
+  }
+
+  /**
+   * Whether `x when x == Term` compiles at this position — §2.5's two conditions,
+   * asked without reporting and without binding anything.
+   *
+   * Deliberately **conservative in one direction only**: every answer of `true`
+   * must be a guard that compiles, and an answer of `false` costs the reader a
+   * fixit they could have used. That asymmetry is the spec's own ("a fixit that
+   * would not compile being worse than none"), and it is what licenses the two
+   * approximations here rather than a second unifier and a second instance
+   * resolver:
+   *
+   * - the equality is read off the **instance table** (`#supportsTarget`), so a
+   *   position whose `Eq` is satisfied *structurally* — a tuple, a record, a
+   *   `Vector` — answers `false` and the guard is withheld though it would have
+   *   worked. Those subjects never enter the table at all (`#subjectKey`), and
+   *   reproducing `#validate`'s componentwise walk here would be a second copy of
+   *   the decision procedure for a fixit's sake.
+   * - the unifiability test is `#couldUnify`, which declines every shape it is not
+   *   sure of.
+   *
+   * A term whose scheme is polymorphic is declined for the same reason: its type
+   * would have to be instantiated, and instantiating mints variables and
+   * requirements into a program that is already refused.
+   */
+  #termSpellingGuardOffered(
+    refusal: NonNullable<Resolved.ErrorPattern["termSpelling"]>,
+    expected: Mono,
+  ): boolean {
+    if (!this.#armGuardSeat || refusal.symbol === undefined) return false;
+    const scheme = this.#schemes.get(refusal.symbol);
+    if (scheme === undefined || scheme.variables.length > 0) return false;
+    const position = this.#prune(expected);
+    if (!this.#couldUnify(scheme.type, position)) return false;
+    if (!this.#supportsTarget(position, "Eq")) return false;
+    return !refusal.negated || this.#supportsTarget(position, "Signed");
+  }
+
+  /**
+   * Whether two types **could** unify, decided structurally and without binding —
+   * see `#termSpellingGuardOffered`, its one caller.
+   *
+   * Not a unifier and not a substitute for one: it answers `false` for every shape
+   * `#typeShape` declines to name, which is the whole of its error budget. A
+   * flexible variable on either side takes any type and answers `true`; a declared
+   * one takes only itself, which the identity test above it has already asked.
+   */
+  #couldUnify(left: Mono, right: Mono): boolean {
+    const first = this.#prune(left);
+    const second = this.#prune(right);
+    if (first === second) return true;
+    if (first.kind === "Variable") return first.rigidName === undefined;
+    if (second.kind === "Variable") return second.rigidName === undefined;
+    const shape = typeShape(first);
+    const other = typeShape(second);
+    if (shape === undefined || other === undefined) return false;
+    return shape.head === other.head &&
+      shape.children.length === other.children.length &&
+      shape.children.every((child, index) =>
+        this.#couldUnify(child, other.children[index]!)
+      );
   }
 
   /**
@@ -9031,14 +9178,30 @@ class Checker {
     pattern: Resolved.IntegerPattern,
     type: Mono,
     root: Resolved.Pattern | undefined,
+    /**
+     * Whether §2.5's rewrite is invalid *at this position* — inside an
+     * or-alternative, where §2.6 refuses a single-literal swap, or outside a
+     * `match`/`catch` arm, where §3 allows no guard at all. Passed rather than read
+     * off the checker: the restriction on an undetermined position is judged after
+     * every arm, when neither fact is still current (`#pendingLiteralRestrictions`).
+     */
+    guardUnavailable: boolean,
   ): void {
     if (type.kind === "Constructor" && PERMITTED_LITERAL_PRIMITIVES.has(type.name)) {
       return;
     }
+    const head = `\`${pattern.decimal}\` is not a pattern at \`${this.#display(type)}\``;
+    // §2.5: the guard is offered **only where it is valid at that position**. Its
+    // two halves are settled here for free — the type unifies by construction (the
+    // literal stood at it) and `Num` and `Eq` are in scope because a failed demand
+    // returned before this check. The third is or-patterns: inside an alternative,
+    // no single-literal rewrite compiles (§2.6), so the sentence stops.
+    const guard = guardUnavailable ? undefined : literalPatternGuard(pattern, root);
     this.#diagnostics.add({
       severity: "error",
-      message: `\`${pattern.decimal}\` is not a pattern at \`${this.#display(type)}\`; ` +
-        `bind a name and test it in a guard: \`${literalPatternGuard(pattern, root)}\``,
+      message: guard === undefined
+        ? head
+        : `${head}; bind a name and test it in a guard: \`${guard}\``,
       primary: pattern.span,
     });
     this.#brokenPatterns.add(pattern);
@@ -9057,15 +9220,42 @@ class Checker {
    * asks for; an eager judgment would have to guess.
    */
   #checkPendingLiteralRestrictions(): void {
-    for (const { pattern, type, root } of this.#pendingLiteralRestrictions) {
+    for (
+      const { pattern, type, root, inOrAlternative, armGuardSeat }
+        of this.#pendingLiteralRestrictions
+    ) {
       const actual = this.#prune(type);
       // A variable that survived defaulting is one a non-defaultable constraint
       // blocked, and §4's own report has already named it; an error type has been
       // reported too. Neither is this restriction's to speak about.
       if (actual.kind === "Variable" || actual.kind === "Error") continue;
-      this.#checkLiteralPrimitive(pattern, actual, root);
+      this.#checkLiteralPrimitive(pattern, actual, root, inOrAlternative || !armGuardSeat);
     }
     this.#pendingLiteralRestrictions.length = 0;
+  }
+
+  /**
+   * One step **through a wrapper** — `as`, or one alternative of `|` — rather than
+   * down into a slot.
+   *
+   * The two differ from `#nestedPattern` in the one way §2.5's rewrite cares
+   * about: a wrapper re-enters the walk at the *same* position, so the root the
+   * rewrite prints must survive it (`#patternRootHeld`), and an or-alternative
+   * additionally has no valid single-literal rewrite at all
+   * (`#inOrAlternative`). Both flags are saved and restored, so a wrapper inside a
+   * slot inside a wrapper reads correctly.
+   */
+  #insideWrapper(orAlternative: boolean, walk: () => void): void {
+    const heldRoot = this.#patternRootHeld;
+    const inOrAlternative = this.#inOrAlternative;
+    this.#patternRootHeld = true;
+    this.#inOrAlternative ||= orAlternative;
+    try {
+      walk();
+    } finally {
+      this.#patternRootHeld = heldRoot;
+      this.#inOrAlternative = inOrAlternative;
+    }
   }
 
   /** `#inferPattern` one slot down; see `#nestedMatchPattern`. */
@@ -9089,7 +9279,7 @@ class Checker {
     expected: Mono,
     level: number,
   ): void {
-    if (this.#patternDepth === 0) this.#patternRoot = pattern;
+    if (this.#patternDepth === 0 && !this.#patternRootHeld) this.#patternRoot = pattern;
     if (pattern.kind === "Wildcard") return;
     if (pattern.kind === "Unit") {
       this.#unifyPattern(pattern, expected, UNIT);
@@ -9100,14 +9290,18 @@ class Checker {
       return;
     }
     if (pattern.kind === "As") {
-      this.#inferMatchPattern(pattern.pattern, expected, level);
+      this.#insideWrapper(false, () =>
+        this.#inferMatchPattern(pattern.pattern, expected, level)
+      );
       this.#schemes.set(pattern.binding.symbol, { variables: [], type: expected });
       return;
     }
     if (pattern.kind === "Or") {
       const common = new Map<Resolved.SymbolId, Mono>();
       for (const alternative of pattern.alternatives) {
-        this.#inferMatchPattern(alternative, expected, level);
+        this.#insideWrapper(true, () =>
+          this.#inferMatchPattern(alternative, expected, level)
+        );
         for (const binding of resolvedPatternBindings(alternative)) {
           const current = this.#scheme(binding.symbol).type;
           const previous = common.get(binding.symbol);
@@ -9130,8 +9324,10 @@ class Checker {
     }
     if (pattern.kind === "Error") {
       // §7.3's fourth tier, for a pattern that failed to lex, to parse, or to
-      // resolve: it is read as `_` by coverage and is never a shadower, so the
-      // one report already made stands alone.
+      // resolve: it is read as `_` by coverage and is never a shadower, so the one
+      // report stands alone — made already, or made here where §2.5 left the
+      // sentence to be finished at a seat that knows the position's type.
+      this.#reportTermSpelling(pattern, expected);
       this.#brokenPatterns.add(pattern);
       return;
     }
@@ -9260,7 +9456,13 @@ class Checker {
     },
   ): void {
     for (const arm of arms) {
-      this.#inferExceptionPattern(arm.pattern, level);
+      const outerGuardSeat = this.#armGuardSeat;
+      this.#armGuardSeat = true;
+      try {
+        this.#inferExceptionPattern(arm.pattern, level);
+      } finally {
+        this.#armGuardSeat = outerGuardSeat;
+      }
       if (arm.guard !== undefined) {
         const guard = this.#inferExpr(arm.guard, level);
         this.#unify(guard, this.#boolType(arm.guard.span), arm.guard.span);
@@ -9308,7 +9510,7 @@ class Checker {
       return;
     }
     if (pattern.kind === "As") {
-      this.#inferExceptionPattern(pattern.pattern, level);
+      this.#insideWrapper(false, () => this.#inferExceptionPattern(pattern.pattern, level));
       this.#schemes.set(pattern.binding.symbol, {
         variables: [],
         type: primitive("Exn"),
@@ -9318,7 +9520,7 @@ class Checker {
     if (pattern.kind === "Or") {
       const common = new Map<Resolved.SymbolId, Mono>();
       for (const alternative of pattern.alternatives) {
-        this.#inferExceptionPattern(alternative, level);
+        this.#insideWrapper(true, () => this.#inferExceptionPattern(alternative, level));
         for (const binding of resolvedPatternBindings(alternative)) {
           const current = this.#scheme(binding.symbol).type;
           const previous = common.get(binding.symbol);
@@ -22584,6 +22786,53 @@ function rewritePipe(expression: Resolved.BinaryExpr): Resolved.CallExpr {
         ...stageMark,
         span: expression.span,
       };
+}
+
+/**
+ * A type's **head and arguments**, for the one structural comparison that is not a
+ * unification (`Checker#couldUnify`).
+ *
+ * `undefined` for every shape that comparison declines to reason about — a
+ * variable and an error type, which its caller has already parted on, and a
+ * function, a record row, and an effect, whose unification has rules of its own
+ * (arity and row tails, §4's subsumption). The heads are spelled as
+ * `#subjectKey`'s are, and for the same reason — one spelling of "which type
+ * constructor is this" — but the *arguments* travel here, which a coherence key
+ * deliberately drops.
+ */
+function typeShape(
+  type: Mono,
+): { readonly head: string; readonly children: readonly Mono[] } | undefined {
+  switch (type.kind) {
+    case "Constructor":
+      return { head: `primitive:${type.name}`, children: [] };
+    case "Union":
+      return { head: `union:${Number(type.union)}`, children: type.arguments };
+    case "NominalRecord":
+      return { head: `record:${Number(type.record)}`, children: type.arguments };
+    case "Tuple":
+      return { head: `tuple:${type.elements.length}`, children: type.elements };
+    case "Vector":
+      return { head: "vector", children: [type.element] };
+    case "Set":
+      return { head: "set", children: [type.element] };
+    case "Array":
+      return { head: "array", children: [type.element] };
+    case "JsSet":
+      return { head: "jsset", children: [type.element] };
+    case "Node":
+      return { head: "node", children: [type.element] };
+    case "Nullable":
+      return { head: "nullable", children: [type.value] };
+    case "Map":
+      return { head: "map", children: [type.key, type.value] };
+    case "JsMap":
+      return { head: "jsmap", children: [type.key, type.value] };
+    case "Range":
+      return { head: "range", children: [] };
+    default:
+      return undefined;
+  }
 }
 
 /**

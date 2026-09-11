@@ -1,6 +1,11 @@
 import { describe, expect, test } from "vitest";
 
-import { compileMain, projectDiagnostics, runMain } from "../support/test-project.js";
+import {
+  compileFiles,
+  compileMain,
+  projectDiagnostics,
+  runMain,
+} from "../support/test-project.js";
 
 /**
  * Conformance for **literal patterns at the type of their position** — Pattern
@@ -41,6 +46,31 @@ const emitted = (body: string): string => {
 };
 
 const DUPLICATE = "this literal case is unreachable; it is already handled above";
+
+/** Several modules' diagnostics, for the cases that need a term to import. */
+const diagnostics = (
+  files: readonly (readonly [string, string])[],
+): readonly string[] => compileFiles(files).diagnostics.map(({ message }) => message);
+
+/** A module of plain terms, one per shape §2.5's guard condition parts on. */
+const HELPER: readonly [string, string] = [
+  "/helper.hex",
+  "module Helper\n\n" +
+  "export let zero: Nat = 0\n" +
+  "export let count: Int = 0\n" +
+  "export let text: String = \"x\"\n" +
+  "export let go = (n: Int): Int => n\n",
+];
+
+/** A union with no `Eq`, and the same union with one. */
+const HUE: readonly [string, string] = [
+  "/hue.hex",
+  "module Hue\n\nexport union Hue = Red | Green\nexport let first: Hue = Red\n",
+];
+const HUE_EQ: readonly [string, string] = [
+  "/hueeq.hex",
+  "module HueEq\n\nexport union Hue derives Eq = Red | Green\nexport let first: Hue = Red\n",
+];
 
 describe("acceptance and matching (§2.5, §15 (k))", () => {
   test("positive and negative finite literals match, and `0.0` matches `-0.0`", async () => {
@@ -220,6 +250,66 @@ describe("the literal at the type of its position (§2.5's checking rule, #519)"
     ))).toEqual([
       "`0` is not a pattern at `a`; bind a name and test it in a guard: " +
       "`(y1, y) when y1 == 0`",
+    ]);
+  });
+
+  test("the rewrite keeps an `as` binder, and declines inside an or-pattern", () => {
+    // §2.5's rewrite has to be one the reader can paste, which is what the walk's
+    // root is for. `as` and `|` re-enter the walk at their own position, so they
+    // used to re-take the root: `0 as z` printed `x when x == 0` and silently
+    // dropped the binder the arm body reads.
+    const rat = (body: string): string => "module Main\n\nimport Rat\n\n" +
+      "fun use(r: Rat.Rat): String = \"used\"\n" + body;
+    expect(projectDiagnostics(rat(
+      "export fun f(r: Rat.Rat): String =\n" +
+        "    match r\n" +
+        "        0 as z => use(z)\n" +
+        "        _ => \"ok\"\n",
+    ))).toEqual([
+      "`0` is not a pattern at `Rat`; bind a name and test it in a guard: " +
+      "`y as z when y == 0`",
+    ]);
+    // And the rewrite compiles, binder and all — which is the whole claim.
+    expect(projectDiagnostics(rat(
+      "export fun f(r: Rat.Rat): String =\n" +
+        "    match r\n" +
+        "        y as z when y == 0 => use(z)\n" +
+        "        _ => \"ok\"\n",
+    ))).toEqual([]);
+    // Beneath the top the `as` travels with the rest of the shape.
+    expect(projectDiagnostics(rat(
+      "export fun f(o: Option(Rat.Rat)): String =\n" +
+        "    match o\n" +
+        "        Some(0 as z) => use(z)\n" +
+        "        _ => \"ok\"\n",
+    ))).toEqual([
+      "`0` is not a pattern at `Rat`; bind a name and test it in a guard: " +
+      "`Some(y as z) when y == 0`",
+    ]);
+    // Inside an or-alternative there is no single-literal rewrite: swapping one
+    // alternative's literal for a fresh binder is what §2.6's same-bindings rule
+    // refuses, so the sentence stops. One report per refused literal, still.
+    for (const pattern of ["0 | 1", "Some(0 | 1)"]) {
+      const scrutinee = pattern.startsWith("Some") ? "Option(Rat.Rat)" : "Rat.Rat";
+      expect(projectDiagnostics(rat(
+        `export fun f(r: ${scrutinee}): String =\n` +
+          "    match r\n" +
+          `        ${pattern} => "small"\n` +
+          "        _ => \"ok\"\n",
+      ))).toEqual([
+        "`0` is not a pattern at `Rat`",
+        "`1` is not a pattern at `Rat`",
+      ]);
+    }
+    // The control: the rewrite the seat declined to offer is indeed refused.
+    expect(projectDiagnostics(rat(
+      "export fun f(o: Option(Rat.Rat)): String =\n" +
+        "    match o\n" +
+        "        Some(y | 1) when y == 0 => \"small\"\n" +
+        "        _ => \"ok\"\n",
+    ))).toEqual([
+      "`y` must be bound in every alternative of an or-pattern",
+      "`1` is not a pattern at `Rat`",
     ]);
   });
 
@@ -634,17 +724,160 @@ describe("a term's spelling in pattern position (§2.5, §12)", () => {
 
   test("the sentence is general, not `Float`'s", () => {
     // §2.5 states the refusal for any qualified spelling whose last segment names
-    // a term — `Helper.zero` is its own example — so a function's name takes it as
-    // readily as a constant's.
-    expect(projectDiagnostics("module Main\n\nimport Rat\n\n" +
-      "export fun f(i: Int): String =\n" +
-        "    match i\n" +
-        "        Rat.fromInt => \"zero\"\n" +
+    // a term — `Helper.zero` is its own example — so a user module's constant takes
+    // it as readily as the prelude's.
+    expect(diagnostics([HELPER, [
+      "/main.hex",
+      "module Main\n\nimport Helper\n\n" +
+      "export fun f(n: Nat): String =\n" +
+        "    match n\n" +
+        "        Helper.zero => \"zero\"\n" +
         "        _ => \"ok\"\n",
-    )).toEqual([
-      "`Rat.fromInt` is a value, not a pattern; bind a name and test it in a " +
-      "guard: `x when x == Rat.fromInt`",
+    ]])).toEqual([
+      "`Helper.zero` is a value, not a pattern; bind a name and test it in a " +
+      "guard: `x when x == Helper.zero`",
     ]);
+  });
+
+  test("the guard is offered only where it is valid at that position", () => {
+    // §2.5, as James ruled it: "the term's type unifying with the position's, and
+    // the `Eq` the comparison needs — and, for a negated spelling, the `Signed` —
+    // in scope there; where it is not, the report stops at "`Float.nan` is a
+    // value, not a pattern" and offers nothing, a fixit that would not compile
+    // being worse than none". Each case below pins the report **and** compiles the
+    // guard it either offered or withheld, so the rule is checked rather than
+    // asserted.
+    const arm = (
+      scrutinee: string,
+      type: string,
+      pattern: string,
+      imports: string,
+    ): string =>
+      `module Main\n\n${imports}\n` +
+      `export fun f(${scrutinee}: ${type}): String =\n` +
+      `    match ${scrutinee}\n` +
+      `        ${pattern} => "n"\n` +
+      "        _ => \"ok\"\n";
+    const guard = (
+      scrutinee: string,
+      type: string,
+      spelling: string,
+      imports: string,
+    ): string =>
+      `module Main\n\n${imports}\n` +
+      `export fun f(${scrutinee}: ${type}): String =\n` +
+      `    match ${scrutinee}\n` +
+      `        x when x == ${spelling} => "n"\n` +
+      "        _ => \"ok\"\n";
+
+    // Offered. `Eq<Float>` and `Signed<Float>` are both in scope, and the term is
+    // a `Float` — and each guard compiles clean.
+    for (const spelling of ["Float.nan", "-Float.infinity"]) {
+      expect(projectDiagnostics(arm("t", "Float", spelling, "import Float\n")))
+        .toEqual([
+          `\`${spelling}\` is a value, not a pattern; bind a name and test it in ` +
+          `a guard: \`x when x == ${spelling}\``,
+        ]);
+      expect(projectDiagnostics(guard("t", "Float", spelling, "import Float\n")))
+        .toEqual([]);
+    }
+    // Offered at a union that derives `Eq`, withheld at the same union without one
+    // — the one difference between the two modules.
+    expect(diagnostics([HUE_EQ, [
+      "/main.hex",
+      arm("h", "HueEq.Hue", "HueEq.first", "import HueEq\n"),
+    ]])).toEqual([
+      "`HueEq.first` is a value, not a pattern; bind a name and test it in a " +
+      "guard: `x when x == HueEq.first`",
+    ]);
+    expect(diagnostics([HUE_EQ, [
+      "/main.hex",
+      guard("h", "HueEq.Hue", "HueEq.first", "import HueEq\n"),
+    ]])).toEqual([]);
+    expect(diagnostics([HUE, [
+      "/main.hex",
+      arm("h", "Hue.Hue", "Hue.first", "import Hue\n"),
+    ]])).toEqual(["`Hue.first` is a value, not a pattern"]);
+    expect(diagnostics([HUE, [
+      "/main.hex",
+      guard("h", "Hue.Hue", "Hue.first", "import Hue\n"),
+    ]])).toEqual([
+      "type `Hue` has no `Eq` instance; it could only be declared in module `Hue` " +
+      "(declares `Hue`) or the module declaring `Eq`; add `derives Eq` to the " +
+      "declaration of `Hue`",
+    ]);
+    // The `Signed` half: `Eq<Nat>` is in scope, `Signed<Nat>` is not, and only the
+    // negated spelling is refused its guard.
+    expect(diagnostics([HELPER, [
+      "/main.hex",
+      arm("n", "Nat", "-Helper.zero", "import Helper\n"),
+    ]])).toEqual(["`-Helper.zero` is a value, not a pattern"]);
+    expect(diagnostics([HELPER, [
+      "/main.hex",
+      guard("n", "Nat", "-Helper.zero", "import Helper\n"),
+    ]])).toEqual([
+      "type `Nat` has no `Signed` instance; its only legal homes are the module " +
+      "declaring `Signed` and `Nat`'s prelude companion module, both outside " +
+      "project source, so this pair's honored set is closed — change the type, or " +
+      "go through the operations those homes export; a written `Int` face runs the " +
+      "operation and admits the result (`let difference: Int = …`)",
+    ]);
+    // The unification half: `Eq<String>` is in scope and the term is an `Int`.
+    expect(diagnostics([HELPER, [
+      "/main.hex",
+      arm("s", "String", "Helper.count", "import Helper\n"),
+    ]])).toEqual(["`Helper.count` is a value, not a pattern"]);
+    expect(diagnostics([HELPER, [
+      "/main.hex",
+      guard("s", "String", "Helper.count", "import Helper\n"),
+    ]])).toEqual(["type mismatch: expected Int, found String"]);
+    // A function-typed term: no `Eq` at a function, and no unification either.
+    expect(diagnostics([HELPER, [
+      "/main.hex",
+      arm("i", "Int", "Helper.go", "import Helper\n"),
+    ]])).toEqual(["`Helper.go` is a value, not a pattern"]);
+    // A `catch` arm's position is `Exn`, which no term is.
+    expect(diagnostics([HELPER, [
+      "/main.hex",
+      "module Main\n\nimport Helper\n\n" +
+      "export fun f(): Int =\n" +
+        "    match Helper.go(1)\n" +
+        "        x => x\n" +
+        "    catch\n" +
+        "        Helper.count => 0\n" +
+        "        _ => 1\n",
+    ]])).toEqual(["`Helper.count` is a value, not a pattern"]);
+    // A spelling that resolved through an honored member carries no term symbol,
+    // and the guard is withheld — rightly: `Rat.fromInt` is a function.
+    expect(projectDiagnostics("module Main\n\nimport Rat\n\n" +
+      arm("i", "Int", "Rat.fromInt", "").slice("module Main\n\n\n".length),
+    )).toEqual(["`Rat.fromInt` is a value, not a pattern"]);
+  });
+
+  test("and only where a guard may be written at all (§3)", () => {
+    // §3: "guards are only legal on `match` and `catch` arms". At a `let`, a
+    // `for..in` head, or a parameter there is no guard to put the test in, so the
+    // sentence stops — the same rule as above, about the position rather than the
+    // types. The refusal itself still fires at every seat.
+    const seats = [
+      "export fun f(): Int =\n    let Helper.count = 1\n    2\n",
+      "export fun f(v: Vector(Int)): Int =\n" +
+        "    for Helper.count in v\n        ignore(1)\n    1\n",
+      "export fun f(Helper.count: Int): Int = 1\n",
+    ];
+    for (const seat of seats) {
+      expect(diagnostics([HELPER, [
+        "/main.hex",
+        "module Main\n\nimport Helper\n\n" + seat,
+      ]])).toContain("`Helper.count` is a value, not a pattern");
+      expect(diagnostics([HELPER, [
+        "/main.hex",
+        "module Main\n\nimport Helper\n\n" + seat,
+      ]])).not.toContain(
+        "`Helper.count` is a value, not a pattern; bind a name and test it in a " +
+        "guard: `x when x == Helper.count`",
+      );
+    }
   });
 
   test("a name the module exports nothing for takes the expression-position report", () => {
@@ -745,28 +978,48 @@ describe("the lexer's conversion governs (§2.5, §12; Lexer §5)", () => {
     ))).toEqual([]);
   });
 
-  test("`1.0e309` draws the lexer's report, and no pattern report beside it", () => {
+  test("`1.0e309` draws the lexer's report, and nothing else anywhere", () => {
     // §2.5: "a construct the lexer has already diagnosed draws no further report
     // from the pattern seat". Before #894 the seat added "expected a binding,
     // `_`, constructor, tuple, or record pattern" and the match added "match is
-    // missing cases: `_`".
-    const diagnostics = projectDiagnostics(main(
+    // missing cases: `_`"; the layout pass then added two more, because the lexer
+    // **dropped** the token and the arm block's shape was computed from whatever
+    // followed. Lexer §9's recovery form ends all of it: one report, at every seat.
+    expect(projectDiagnostics(main(
       "export fun f(t: Float): String =\n" +
         "    match t\n" +
         "        1.0e309 => \"hot\"\n" +
         "        _ => \"ok\"\n",
-    ));
-    expect(diagnostics[0]).toBe("Float literal is too large; use `Float.infinity`");
-    expect(diagnostics).not.toContain(
-      "expected a binding, `_`, constructor, tuple, or record pattern",
-    );
-    expect(diagnostics).not.toContain("match is missing cases: `_`");
-    // What remains is the layout pass's own cascade, which the dropped token
-    // causes in expression position identically — pre-existing, and no pattern
-    // seat's to suppress.
-    expect(diagnostics.slice(1)).toEqual([
-      "inconsistent dedent; expected one of columns 0, 4",
-      "expected a newline or `;` between block items",
+    ))).toEqual(["Float literal is too large; use `Float.infinity`"]);
+    // The sign rides the same stand-down.
+    expect(projectDiagnostics(main(
+      "export fun f(t: Float): String =\n" +
+        "    match t\n" +
+        "        -1.0e309 => \"cold\"\n" +
+        "        _ => \"ok\"\n",
+    ))).toEqual(["Float literal is too large; use `Float.infinity`"]);
+    // And in expression position, where the same two layout reports followed it.
+    expect(projectDiagnostics(main("export let big: Float = 1.0e309\n")))
+      .toEqual(["Float literal is too large; use `Float.infinity`"]);
+  });
+
+  test("§15 (k)'s last block, as one program", () => {
+    // The golden block, which the dropped token used to swallow: its overflow arm
+    // collapsed the `match` and the two arms below it were never parsed, so two of
+    // its three expected reports were absent. All three, in source order.
+    expect(projectDiagnostics("module Main\n\nimport Float\n\n" +
+      "export fun f(temp: Float): String =\n" +
+        "    match temp\n" +
+        "        1.0e309 => \"hot\"\n" +
+        "        Float.nan => \"not a number\"\n" +
+        "        -Float.infinity => \"cold\"\n" +
+        "        _ => \"ok\"\n",
+    )).toEqual([
+      "Float literal is too large; use `Float.infinity`",
+      "`Float.nan` is a value, not a pattern; bind a name and test it in a guard: " +
+      "`x when x == Float.nan`",
+      "`-Float.infinity` is a value, not a pattern; bind a name and test it in a " +
+      "guard: `x when x == -Float.infinity`",
     ]);
   });
 

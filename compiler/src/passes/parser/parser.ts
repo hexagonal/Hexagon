@@ -4232,6 +4232,12 @@ class Parser {
     // what the arm test emits.
     if (token.kind === "Float") {
       this.#advance();
+      // §2.5's overflow row: a construct the lexer has already diagnosed draws no
+      // further report from this seat, and Lexer §9's recovery form is exactly
+      // that construct — reported, and no literal. The arm is kept as the error it
+      // is, so §7.3's fourth tier reads it as `_` and the arms below it still
+      // parse and still report.
+      if (token.recovered === true) return { kind: "Error", span: token.span };
       return {
         kind: "Float",
         spelling: token.spelling,
@@ -4245,11 +4251,13 @@ class Parser {
     if (token.kind === "Minus" && this.#peek(1).kind === "Float") {
       const minus = this.#advance();
       const float = this.#advance() as Lexed.FloatToken;
+      const span = spanFrom(minus.span, float.span);
+      if (float.recovered === true) return { kind: "Error", span };
       return {
         kind: "Float",
         spelling: `-${float.spelling}`,
         value: -float.value,
-        span: spanFrom(minus.span, float.span),
+        span,
       };
     }
     if (token.kind === "String") {

@@ -1168,6 +1168,29 @@ export interface FloatPattern {
  */
 export interface ErrorPattern {
   readonly kind: "Error";
+  /**
+   * A **term's spelling** written where a pattern belongs, carried to the checker
+   * rather than reported here (Pattern Matching §2.5, §12; #894).
+   *
+   * The resolver settles which of §2.5's four sentences this spelling draws — it
+   * alone knows the name tables — and three of them it reports itself. The fourth,
+   * the value sentence, ends in a guard the reader is meant to paste, and §2.5
+   * offers that guard "only where it is valid at that position": the term's type
+   * unifying with the position's, and the `Eq` the comparison needs — and, for a
+   * negated spelling, the `Signed` — in scope there. Both halves are facts about a
+   * *type*, and the resolver has none, so the sentence is finished at the pattern
+   * seat that does.
+   *
+   * `symbol` is the term's, where the module's term surface holds it. A spelling
+   * that resolved through a constraint member or an honored member has none, and
+   * the guard is withheld: such a member is a function, and `x == Rat.fromInt`
+   * neither unifies nor finds an `Eq`.
+   */
+  readonly termSpelling?: {
+    readonly spelling: string;
+    readonly negated: boolean;
+    readonly symbol?: SymbolId;
+  };
   readonly span: Source.Span;
 }
 

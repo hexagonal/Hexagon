@@ -4110,13 +4110,21 @@ class Resolver {
       });
       return broken();
     }
-    this.#diagnostics.add({
-      severity: "error",
-      message: `\`${spelling}\` is a value, not a pattern; bind a name and ` +
-        `test it in a guard: \`x when x == ${spelling}\``,
-      primary: pattern.span,
-    });
-    return broken();
+    // The value sentence is the checker's, not because the name needs it but
+    // because its **guard** does: §2.5 offers the guard only where it is valid at
+    // the position, which is two facts about a type this pass cannot see. The
+    // spelling and its sign travel on the error pattern, with the term's symbol
+    // where the module's term surface holds one.
+    const symbol = module.terms.get(name.text);
+    return {
+      kind: "Error",
+      termSpelling: {
+        spelling,
+        negated,
+        ...(symbol === undefined ? {} : { symbol: symbol.id }),
+      },
+      span: pattern.span,
+    };
   }
 
   #qualifiedConstructor(

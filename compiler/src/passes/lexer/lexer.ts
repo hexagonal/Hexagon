@@ -687,7 +687,21 @@ class Scanner {
         this.#offset,
         "Float literal is too large; use `Float.infinity`",
       );
-      return undefined;
+      // §9's **recovery form**, not a successful token: reported, marked, and
+      // handed on so the construct around it still parses. Dropping it left a hole
+      // in the token stream, and the layout pass then computed the enclosing
+      // block's shape from whatever followed — "inconsistent dedent" and
+      // "expected a newline or `;`" at every seat, and at a `match` arm the three
+      // arms below were swallowed with it (Pattern Matching §15 (k)'s last block,
+      // whose other two arms owe reports of their own). Every reader of a `Float`
+      // token asks about `recovered`; none may treat this as a literal.
+      return {
+        kind: "Float",
+        spelling,
+        value,
+        recovered: true,
+        span: this.#source.span(start, this.#offset),
+      };
     }
 
     return {

@@ -119,6 +119,19 @@ export interface FloatToken {
   readonly kind: "Float";
   readonly spelling: string;
   readonly value: number;
+  /**
+   * Set on the **recovery form** §9 licenses: a spelling whose value overflows
+   * binary64, already reported by the lexer and handed on so the parse continues
+   * (`value` is the infinity `Number` computed, the spelling as written).
+   *
+   * "Never part of the public successful token inventory" is what this field says
+   * out loud — every seat that reads a `Float` token asks about it, and the pattern
+   * seat stands down on one rather than reading a literal the program cannot have
+   * meant (Pattern Matching §2.5, §12's overflow row). Dropping the token instead
+   * collapsed the enclosing block: §15 (k)'s overflow arm swallowed the three arms
+   * below it, two of which owe reports of their own.
+   */
+  readonly recovered?: true;
   readonly span: Source.Span;
 }
 
