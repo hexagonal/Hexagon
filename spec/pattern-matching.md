@@ -3,7 +3,7 @@
 **Status:** Decided (July 2026).
 **Scope:** The full pattern grammar — nested constructor patterns, tuple and record patterns, record punning, literal patterns, or-patterns, as-patterns, and (by reference) vector patterns; guards as arm syntax; the irrefutability judgment; the five pattern positions (`match` arms, `catch` arms, `let`, `for..in`, lambda parameters) and the generalized `match` scrutinee; exhaustiveness and reachability over the full grammar; emission. Rider decision: record **construction** punning (`{x}` ≡ `{x = x}` in value position) ships in v1 (§9). Term-position field separator is `=` corpus-wide (Products §8; §16 here).
 **Not in scope:** the vector pattern's forms, typing, length-based exhaustiveness, irrefutability, rest spelling, and emission (Collections Part 3 §3 — the form joins this grammar, §2/§11.1; that spec owns its algorithm), range patterns (deferred, §11.2), declared (view) patterns — the `pattern` declaration, its suffix form, resolution, coverage, and emission are Pattern Declarations', the form joining this grammar in §2 — the `match` keyword's precedence slot (Operators §3.2 already seats it among the eats-right forms), `Exn` matching (permanently excluded; Exceptions §3 is authoritative), string representation details behind `Eq<String>` (Primitive Types §5).
-**Companions:** Unions (flat constructor patterns as this grammar's degenerate case; exhaustiveness doctrine; `match` emission baseline), Products (flat `let`-destructuring as degenerate case; record openness vocabulary; tuple emission), Exceptions (catch arms; open-sum reachability model), Statements/Blocks/Mutability §5/§5.4 (binder class is positional; `let`-pattern binders sequential), Collections Part 3 §3 (vector patterns), Collections Part 4 §7.2 (`for (k, v) in map` iteration), Operators (Eq/Ord elaboration for literals; chained comparisons in guards; `match` eats right), Decisions Batch 2026-07 (`Eq<Float>` SameValueZero — the reason Float literals are banned from patterns), Declarations Preamble §1.1 (the Rewrite Rule, which this doc's diagnostics obey).
+**Companions:** Unions (flat constructor patterns as this grammar's degenerate case; exhaustiveness doctrine; `match` emission baseline), Products (flat `let`-destructuring as degenerate case; record openness vocabulary; tuple emission), Exceptions (catch arms; open-sum reachability model), Statements/Blocks/Mutability §5/§5.4 (binder class is positional; `let`-pattern binders sequential), Collections Part 3 §3 (vector patterns), Collections Part 4 §7.2 (`for (k, v) in map` iteration), Operators (Eq/Ord elaboration for literals; chained comparisons in guards; `match` eats right), Decisions Batch 2026-07 (`Eq<Float>` SameValueZero — the equality a `Float` literal pattern tests through), Numeric Literals (the literal's typing: integer literals `Num`-polymorphic, decimal literals `Float`), Lexer & Layout §5 (a `Float` token's binary64 value; overflow refused), Declarations Preamble §1.1 (the Rewrite Rule, which this doc's diagnostics obey).
 
 ---
 
@@ -29,7 +29,7 @@ C(p1, ..., pn)           -- constructor pattern, sub-patterns nest freely
 C                        -- nullary constructor
 (p1, ..., pn)            -- tuple pattern, arity 0 or ≥ 2; (p) is grouping
 {f1 = p1, f2, ...}       -- record pattern: open; {f} puns as {f = f}
-0   "yes"                -- literal patterns: Int, String only (#147)
+0   1.5   "yes"          -- literal patterns: Int, Float, String (Bool's are constructors, #147)
 p1 | p2                  -- or-pattern
 p as x                   -- as-pattern: match p, additionally bind the whole to x
 ()                       -- the empty-tuple (`Unit`) pattern: the arity-0 tuple form (#159)
@@ -87,7 +87,7 @@ Arity must equal the tuple's arity (Products §2.1 report shape). `(p)` is **gro
 - Nominal records: a bare record pattern does **not** match a nominal-record-typed scrutinee (the unifier never unfolds nominal names — Products §5.1). Go through the constructor pattern: `Point({x, y})`. Diagnostic: "`Point` is a nominal record; destructure it with `Point({x, y})`." The suggestion is the user's own pattern wrapped in the missing constructor: it names the fields the pattern itself wrote, punned — never the declaration's list — so it teaches exactly the missing move and can enumerate nothing the author has not already spelled. **Opacity intercepts the redirect** (Modules §4.2): outside an opaque record's home module the suggested spelling is a locked door — the constructor is private there — so the seat draws the opaque family's refusal instead, "cannot destructure opaque record `Point`; use an operation exported by its home module", the sibling of the field-access and update sentences. An opaque **union** takes the same sentence at its own noun — "cannot destructure opaque union `Handle`; use an operation exported by its home module" — at the door's seat (§2.2), the redirect above being a nominal record's alone. **Where the home module exports a declared pattern over the type, the sentence names it instead** — "cannot destructure opaque record `Rat`; match it with `(top, bottom)rat`", every exported pattern over the type in its own spelling, components as declared, up to a small cap (Pattern Declarations §3.3): the door the reader was meant to take is named, not merely the one that is locked. A diagnostic never signposts a spelling the reader cannot write. Inside the home module `opaque` changes nothing, here as everywhere.
 - Separator near-miss: `:` inside a term-position record — pattern or literal — is a parse error with the Products §6/§8 fixit ("record fields bind with `=`; `:` gives a field its type in record *types*"). This retires the old type-position confusion guard: under `:`-in-terms, `{x: Float}` in a pattern parsed as a constructor sub-pattern and needed a bespoke "`Float` is a type, not a constructor" diagnostic; under `=` the misreading is caught at the token (§16). One refinement, because the old guard's actual customer *meant an annotation*: when the text after the `:` is uppercase-start (`{x: Float}`), the separator repair alone would be a wrong turn — `{x = Float}` just errors again below — so the fixit appends: "if you meant a type, patterns destructure values; annotate outside the pattern." The bespoke message survives only for the genuinely written `{x = Float}` — `Float` there *is* a constructor-position name, and the error stays "`Float` is a type, not a constructor — patterns destructure values."
 
-### 2.5 Literal patterns — `Int`, `String`; never `Float`
+### 2.5 Literal patterns — `Int`, `Float`, `String`
 
 ```
 match n
@@ -95,17 +95,32 @@ match n
     1 => "one"
     _ => "many"
 
+match reading
+    0.0 => "zero"                  -- and -0.0: Eq<Float> is SameValueZero
+    -2.5 => "minus two and a half"
+    _ => "something else"
+
 match answer
     True => proceed()
     False => abort()               -- NOT literal patterns: constructor patterns (§2.2)
 ```
 
 - **Bool left this section (corrected 2026-07-29, #147).** `Bool` is now the prelude union `False | True` (Unions §8), so `True`/`False` in patterns are nullary **constructor patterns** (§2.2), and the exhaustiveness of the second example above is ordinary closed-constructor union checking (§7.1) — no literal machinery involved. The example is retained here as the contrast case, because it is the respelling of what was previously this section's Bool-literal example.
-- A literal pattern elaborates through **`Eq`** exactly as `==` does (Operators §5.1): the arm test is `equals(scrutinee, lit)`, emitting `===` on the primitive fast path — which is every v1 case, since the allowed types are `Int`, `String` *(corrected 2026-07-29, #147 — Bool removed)*.
-- **Typing joins ordinary inference.** An integer literal in a pattern contributes the same `Num` (via `fromNat`) and `Eq` constraints that `x == 0` would, and unifies with the scrutinee type; defaulting applies as usual. In v1 the scrutinee is concrete by the time patterns check, so this is invisible — but the spec fixes the mechanism so a future polymorphic scrutinee doesn't force an improvised rule. Literal patterns do not force early monomorphization beyond what the constraints require.
-- **`Float` literal patterns are a permanent hard error**, not a deferral. `Eq<Float>` is SameValueZero (Decisions Batch §1): `NaN` would never match its own literal, and `-0.0`/`0.0` would collapse — a pattern that *reads* exact and isn't. The diagnostic must redirect: "Float literals cannot appear in patterns; use a guard: `x when x == 1.5`" — where the SameValueZero semantics is at least attached to a visible `==`. Matching *on* a `Float` scrutinee is fine (variables, `_`, guards); only the literal form is banned.
+- A literal pattern elaborates through **`Eq`** exactly as `==` does (Operators §5.1): the arm test is `equals(scrutinee, lit)`, and it emits what `scrutinee == lit` emits at the type — `===` at `Int` and `String`, and at `Float` the SameValueZero shape, the inline test or the on-demand `__floatEquals` helper (Decisions Batch §1.5; the choice between the two texts is the emitter's, as at every `Float` comparison, Constraints §6.1). A literal arm and a guard `when scrutinee == lit` test the same thing by the same code; the arm differs from the guard only in that it is a pattern — it counts for reachability (§7.2), and a guard counts for nothing.
+- **Typing joins ordinary inference.** An integer literal in a pattern contributes the same `Num` (via `fromNat`) and `Eq` constraints that `x == 0` would, and unifies with the scrutinee type; defaulting applies as usual. In v1 the scrutinee is concrete by the time patterns check, so this is invisible — but the spec fixes the mechanism so a future polymorphic scrutinee doesn't force an improvised rule. Literal patterns do not force early monomorphization beyond what the constraints require. A **decimal literal** is `Float`, monomorphic, in a pattern as in an expression (Numeric Literals §1), and unifies with the scrutinee type: `0.0` against an `Int` scrutinee is the ordinary mismatch, `expected Int, found Float` — a pattern is checked against a type already fixed (§4), and it is no operand seat, so Numeric Literals §5.1's lift, which is an operation's, has nothing to act on. Its value is the lexer's (Lexer & Layout §5): the correctly rounded binary64 — `1.0e308` is a legal pattern, `1.0e309` is the lexer's own overflow error and never reaches the pattern grammar, and `1.0e-400` underflows to the pattern `0.0`.
+- **A `Float` literal matches through `Eq<Float>`, which is SameValueZero** (Decisions Batch §1) — the language's one `Float` equality, and the one `==` uses. So the arm `0.0` matches `-0.0`, exactly as `x == 0.0` is true of it: a literal pattern reads as exactly as `==` reads, no more and no less, and a program that must tell the zeros apart does so with the operations that can (`Float`'s companion), in a guard. No tolerance is implied and none exists — a computed value matches `0.1` only where `==` says so — and the pattern adds no coercion and no rounding of its own beyond the lexer's. `Float.nan`, `Float.infinity`, and `-Float.infinity` are **terms, not literals** — a pattern names nothing but binders, constructors, and declared patterns (§2.8), and a negated name or a division is an expression — so the named special values are tested in **guards**, which the same equality makes work, `NaN` included:
+
+  ```
+  match value
+      x when x == Float.nan => "not a number"
+      x when x == Float.infinity => "positive infinity"
+      x when x == -Float.infinity => "negative infinity"
+      _ => "finite"
+  ```
+
+  Three guards and a catch-all: the guards contribute nothing to coverage (§3, §7.1), the `_` supplies it by the ordinary rule, and nothing is special-cased for the special values. There is no constant pattern and no expression pattern; the guard is the spelling, and a spelling that reads like a pattern — `Float.nan` or `-Float.infinity` in pattern position — is refused at the name with the guard as its rewrite: "`Float.nan` is a value, not a pattern; bind a name and test it in a guard: `x when x == Float.nan`" — the Rewrite Rule's obligation (Declarations Preamble §1.1), and the former ban's own fixit, kept at the one seat where a reader still reaches for it. The refusal is the parser's: a qualified name in pattern position is a constructor's spelling (`Direction.North`, §2.2), and one whose last segment is non-uppercase-start names a term; `-` in pattern position is followed by a numeric token and nothing else.
 - There is no `Char` type in Hexagon; single-character strings are `String` literals like any other.
-- Negative integer literals: `-3` is legal as a literal pattern (the lexer/parser treats the sign as part of the literal in pattern position — patterns contain no operators, so there is no unary-minus expression to collide with).
+- Negative literals: `-3` and `-2.5` are legal as literal patterns — the parser forms the signed literal pattern from the `-` and the token, which itself carries no sign (Lexer & Layout §5); patterns contain no operators, so there is no unary-minus expression to collide with. `-0.0` is a literal pattern, and it is the pattern `0.0` for every judgment (§7.2).
 
 ### 2.6 Or-patterns `p | q`
 
@@ -168,7 +183,7 @@ Pattern typing is checking-mode against the scrutinee type, structurally:
 - `C(p...)`: `C` resolves per §2.2 — in scope, else in the expected type, which a door-resolved head reads before anything unifies — then the scrutinee unifies with `C`'s union (or nominal record) type at a fresh instantiation, and sub-patterns check against the instantiated slot types. (A scope-resolved head may thereby *determine* an undetermined scrutinee; a door-resolved head was determined by it.)
 - Tuples: arity check, then componentwise.
 - Records: each mentioned field's sub-pattern checks against that field's type; on an unknown scrutinee type, each mentioned field *constrains* the row exactly as dot-access does (fresh hidden tail — Products §3.2). Row vocabulary stays banned from diagnostics.
-- Literals: unify with the scrutinee type and contribute `Eq` (+ `Num` for integer literals) constraints (§2.5).
+- Literals: an integer literal contributes `Num` and `Eq` and unifies with the scrutinee type; a `Float` or `String` literal is its own type and unifies with the scrutinee (§2.5).
 - `p | q`: both check against the scrutinee type; binder types unify pairwise per the same-bindings rule.
 - `p as x`: `p` checks against the scrutinee type; `x` binds at it.
 
@@ -378,6 +393,7 @@ Both generalize from Unions §4.3. Both remain **hard errors**. Both remain **ex
 ### 7.2 Reachability
 
 - An arm is unreachable if its pattern is useless relative to the *unguarded* arms above it (guarded arms above cannot subsume — their guards may fail). Hard error, naming the shadowing arm, as before. When no single arm subsumes — the arm is dead only against several arms jointly, as in `W(True)` / `W(False)` / `_` — the report names none of them, because naming one would be false: "this case is unreachable; the patterns above already cover it".
+- **A literal's identity, for both judgments, is its value at the scrutinee's type under that type's `Eq` — never its spelling.** At `Float` that value is the lexer's binary64 and the equality is SameValueZero (§2.5): `1.0`, `1.00`, `1.0e0`, and `10e-1` are one literal; `0.0` and `-0.0` are one; two spellings the lexer rounds to one double — underflow to zero included — are one. So an unguarded `0.0` arm makes a later `-0.0` arm unreachable, and in `1.0 | 1.00` the second alternative is dead, exactly as `0 | 0` is at `Int` — the same hard errors in the same words — "this literal case is unreachable; it is already handled above" at the top of an arm, and the general unreachable-arm report where the duplicate sits in a nested column, the matrix judging both. The coverage key and the runtime test cannot disagree, because they are one function: what `Eq<Float>` equates, the matrix equates.
 - Two arms with the same pattern and different guards are both reachable (the checker cannot prove a guard total): legal.
 - A guarded arm whose pattern is already fully covered by an earlier **unguarded** arm is unreachable — `when True` does not launder it.
 - Anything after a catch-all arm is unreachable — a declared pattern whose components are all irrefutable included, being irrefutable at the column's type (Pattern Declarations §4). An arm, whatever its head, is dead beneath a complete signature present in the column — the type's constructors, or another view's — and is otherwise never reported dead on another view's account, the checker being unable to relate two views of a value, as it cannot prove a guard total (Pattern Declarations §4); the exactness claim ranges over what it can decide. In `catch`, the Exceptions §5.3 logic transfers with or-patterns folded in: a second `JsError(_)` arm, or anything after `_`, is unreachable; domestic arms after a `JsError` arm are fine.
@@ -403,7 +419,7 @@ The tiers are judged per constructor occurrence — a nested witness may print a
 - Scrutinee evaluated exactly once; sub-values are read, never copied or reconstructed.
 - Arms top to bottom; within an arm, or-pattern alternatives left to right; guard after pattern success, at most once (§3).
 - Binding is left to right, all binders simultaneous (no pattern binder is in scope inside its own pattern).
-- Patterns never invoke user code except the `Eq` test behind a literal (primitive `===` in every v1 case) — and a declared pattern's pure `view`, applied at most once per pattern per position before the arms are tested (Pattern Declarations §5).
+- Patterns never invoke user code except the `Eq` test behind a literal (the type's own: `===` at `Int` and `String`, the SameValueZero shape at `Float` — §2.5) — and a declared pattern's pure `view`, applied at most once per pattern per position before the arms are tested (Pattern Declarations §5).
 
 ---
 
@@ -427,7 +443,7 @@ The tiers are judged per constructor occurrence — a nested witness may print a
 | **The "transparency rule"** — banning top-level constructor patterns in lambda heads only | Proposed and reversed within this design session; recorded in full so it stays dead. The "reads as a call" objection proves too much (`let UserId(n) = id` and match arms look like calls too; one learned rule covers all positions). The suggested workaround (model newtypes as records to regain head-destructuring) let a grammar carve-out reach backwards into data modeling — disqualifying. And a per-position form exclusion is exactly the "third class" disease Statements §5 warned against. Uniform grammar + irrefutability gate is strictly simpler and F#-faithful. |
 | **`or` as the or-pattern combinator** (C# precedent) | Four independent strikes. (1) Symbol coherence: pattern `\|` echoes the union-declaration `\|` — "match either" mirrors "the type is any of"; `or`-patterns beside `\|`-declarations breaks the rhyme. (2) Disanalogy: C#'s `and`/`or`/`not` patterns compose *predicates* (relational, type, property patterns); Hexagon patterns are purely structural, and predicate composition already lives in guards, where the real `or` works (`when x == 0 or y == 0`). (3) Symmetry pressure: C# ships the trio; adopting `or` invites demands for `and`-patterns (Hexagon's answer is `as`) and `not`-patterns (which wreck exhaustiveness reasoning). (4) A genuine parse ambiguity in paren-free lambda heads: `x or y => e` is both the expression `x or (y => e)` (eats-right lambda as `or`'s right operand — a valid parse) and a lambda with parameter pattern `x or y`; `\|` cannot collide because it is not an expression operator at all. |
 | Guards inside patterns (`Some(x when x > 0)`) | Wrecks or-pattern factoring, same-bindings, and exhaustiveness locality. Guards are arm syntax, permanently (§3). |
-| `Float` literal patterns | SameValueZero `Eq<Float>` makes them lie (`NaN`, `-0.0`). Permanent; guards are the escape (§2.5). |
+| **Refusing `Float` literal patterns** on the ground that `Eq<Float>` is SameValueZero | This spec once did, permanently, reasoning that `NaN` would never match its own literal and that `0.0`/`-0.0` would collapse. The first is false under SameValueZero — `NaN` equals `NaN` — and the second is what `==` does, which a literal pattern follows by its first rule; a pattern is not more exact than the equality it elaborates through, and refusing it taught the wrong lesson about that equality. Lifted (§2.5); the named special values stay guard terms, and no tolerance or constant pattern rides in with the literal. Do not reinstate on the old ground. |
 | `@` for as-patterns | Words-only aesthetic; F# precedent for `as`; `@` is a new sigil buying nothing (§2.7). |
 | Type-test patterns (F# `:? T`) | No subtyping, no downcasting, nominal opacity. There is nothing to test. Permanent. |
 | Closed record patterns / `...` in patterns | Openness has no opt-out in v1; a "match exactly these fields" pattern has no use case that isn't better served by the type. Revisit only with evidence. |
@@ -460,7 +476,9 @@ The tiers are judged per constructor occurrence — a nested witness may print a
 | Or-pattern binding mismatch | "`x` is bound on the left of `\|` but not the right — bind it in both alternatives; if unused, remove the binding from both" (§2.6) |
 | Duplicate binder in one pattern (incl. `as`, nested) | "`w` is bound twice in this pattern; rename one occurrence"; for an unused subpattern binder suggest `_`, and for an unused `as` binder suggest removing the `as` clause (§2.1) |
 | `let`-pattern name already in scope | Statements §5.1/§9.3's "already bound" error with the pattern-aware fixits (§6.3 here) |
-| `Float` literal pattern | permanent error + guard fixit (§2.5) |
+| `Float` literal against a scrutinee of another type | the ordinary type mismatch — `expected Int, found Float` (§2.5, §4); no widening, no fixit of the pattern's own |
+| Named special value in pattern position (`Float.nan`, `-Float.infinity`) | "`Float.nan` is a value, not a pattern; bind a name and test it in a guard: `x when x == Float.nan`" — at the name, one report, no cascade (§2.5) |
+| `Float` literal that overflows binary64 (`1.0e309`) | the lexer's error, "Float literal is too large; use `Float.infinity`" (Lexer & Layout §5) — and the named value it points to is a guard's term, not a pattern's (§2.5) |
 | Guard on `let`/`for..in`/lambda param | "guards are only legal on `match` and `catch` arms; use a `match`" (§3) |
 | `when` inside a nested pattern | parse error, same message (§3) |
 | `match` on `Exn` | "match requires a closed type; exceptions are inspected with `try`/`catch`" (§6.1) |
@@ -496,7 +514,7 @@ The tiers are judged per constructor occurrence — a nested witness may print a
 | Witness tiers re-cut for the door (#763, #762): tier 1 is every constructor the door reaches; tier 3 is the taken-spelling case, repaired by the module import alone | §7.3 |
 | Record patterns open by default, no `...`, punning `{f}` ≡ `{f = f}`; sub-pattern in field slot | §2.4 |
 | Pattern field separator is `=`, matching literals (Products §8); the `{x: Float}` type-confusion guard is retired in favour of the token-level `:`-in-terms fixit | §2.4, §16 |
-| Literal patterns: `Int`/`String` via `Eq` (`Bool` removed 2026-07-29, #147 — constructor patterns now); ordinary inference (`Num` + `Eq` constraints); `Float` permanently banned with guard fixit; no `Char` | §2.5 |
+| Literal patterns: `Int`/`Float`/`String` via `Eq` (`Bool` removed 2026-07-29, #147 — constructor patterns now); ordinary inference (`Num` + `Eq` constraints for integer literals; a decimal literal is `Float`); a `Float` literal tests through SameValueZero and emits what `==` emits; named special values are guard terms; a literal's coverage identity is its value at the scrutinee's type under its `Eq`, never its spelling — the former permanent `Float` ban is lifted (§10); no `Char` | §2.5, §7.2 |
 | Or-patterns with F# same-bindings rule; spelling `\|` (C#'s `or` rejected: declaration/pattern coherence, predicate disanalogy, `and`/`not` pressure, lambda-head ambiguity) | §2.6, §10 |
 | Guard termination: top-level `=>` after `when` belongs to the arm; the claim is dropped inside any bracket, so a lambda in a guard needs no extra parens; the parenthesize fixit is retired | §3 |
 | `as` keyword; loosest pattern operator, looser than `\|`; refutability-transparent; zero-cost | §2.7 |
@@ -595,11 +613,26 @@ let name = "Ada"
 let user = {name, verified = True}  -- {name = name, ...}; emits {name, verified: true}
 let {name = n} = user               -- n = "Ada"
 
--- (k) Float literal ban
+-- (k) Float literals, through Eq<Float>
 match temp
-    0.0 => "freezing"                 -- ERROR: Float literals cannot appear in patterns; use a guard
-    t when t <= 0.0 => "freezing"     -- the sanctioned spelling
+    0.0 => "zero"                     -- matches -0.0 too: SameValueZero; emits __floatEquals(temp, 0.0)
+    -40.0 => "the same on both scales"
+    t when t == Float.nan => "not a number"      -- a named special value is a term: a guard
+    t when t == Float.infinity => "too hot"
+    t when t <= 0.0 => "freezing"
+    _ => "ok"                         -- required: Float is an infinite domain
+match temp
+    0.0 => "zero"
+    -0.0 => "never"                   -- ERROR: this literal case is unreachable; it is already handled above
+    1.0 | 1.00 | 1.0e0 => "one"       -- ERROR: the second alternative is unreachable (and the third)
     _ => "ok"
+match count                           -- count: Int
+    0.0 => "zero"                     -- ERROR: type mismatch: expected Int, found Float
+    _ => "ok"
+match temp
+    1.0e309 => "hot"                  -- ERROR (lexer): Float literal is too large; use `Float.infinity`
+    Float.nan => "not a number"       -- ERROR: Float.nan is a value, not a pattern; bind a name and
+    _ => "ok"                         --   test it in a guard: x when x == Float.nan
 
 -- (l) Nominal record destructure
 record Point = {x: Float, y: Float}
