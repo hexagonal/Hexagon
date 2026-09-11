@@ -753,7 +753,9 @@ late pedagogy pass, not a commitment to the current order.
   a runtime test**.
 - Structural patterns nest. Record patterns are open and use no `...`; nominal records
   cross through constructor patterns such as `Point({x, y})`.
-- Literal patterns admit `Int` and `String`, never `Float`. `True`/`False` are
+- Literal patterns admit `Int`, `Float`, and `String`, each matching by its type's `==`
+  equality; a `Float` literal follows SameValueZero (`0.0` matches `-0.0`), and the named
+  special values (`Float.nan`, the infinities) are tested in guards. `True`/`False` are
   constructor patterns, and a `match` over both is exhaustive by ordinary closed-union
   checking, not by a finite-literal-domain rule.
 - `()` is the sole `Unit` pattern and covers `Unit` exhaustively.

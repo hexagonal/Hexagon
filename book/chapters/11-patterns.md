@@ -74,7 +74,7 @@ A bare `{x, y}` pattern would describe a structural record, not the nominal `Poi
 
 ## Literals match particular values
 
-`Int` and `String` literals may appear in patterns:
+`Int`, `Float`, and `String` literals may appear in patterns:
 
 ```hexagon
 let describeCount(count: Int): String =
@@ -85,8 +85,8 @@ let describeCount(count: Int): String =
 ```
 
 `_` is the wildcard: it matches anything and binds nothing. Infinite sets such as
-`Int` and `String` always need a wildcard or variable catch-all because a finite list
-of literals cannot cover every possible value.
+`Int`, `Float`, and `String` always need a wildcard or variable catch-all because a
+finite list of literals cannot cover every possible value.
 
 `Bool` needs no wildcard either, but for a different reason than a short literal list
 would give. `True` and `False` are constructor patterns, so this is the ordinary union
@@ -109,9 +109,37 @@ match finished
 
 That single arm is exhaustive because every `Unit` value is `()`.
 
-Float literals are deliberately excluded from patterns. Floating-point equality has
-edge cases such as `NaN` and signed zero that make a literal pattern look more exact
-than it is. Bind the value and make the comparison visible in a guard instead.
+A `Float` literal matches by the same equality that `==` uses. Hexagon's `Float`
+equality treats `0.0` and `-0.0` as equal and `NaN` as equal to itself, so a `0.0` arm
+also matches negative zero, and no literal pattern is more exact than the `==` test it
+stands for:
+
+```hexagon
+let describeReading(reading: Float): String =
+    match reading
+        0.0 => "zero"
+        -40.0 => "the same on both scales"
+        _ => "some other reading"
+```
+
+Because matching follows that equality, an arm `-0.0` after an arm `0.0` is unreachable,
+and the compiler says so — the two spellings name one value.
+
+The special values have names rather than literal spellings. `Float.nan` and
+`Float.infinity` are ordinary values, and a pattern never names a value, so test them
+in guards:
+
+```hexagon
+match reading
+    x when x == Float.nan => "not a number"
+    x when x == Float.infinity => "positive infinity"
+    x when x == -Float.infinity => "negative infinity"
+    _ => "finite"
+```
+
+The first guard works because `==` on `Float` says `NaN` equals `NaN`. Once the three
+guards fail, only finite values reach the last arm, but the compiler does not reason
+about that: the `_` arm is what makes the match exhaustive, because guards never count.
 
 ## Or-patterns share one arm
 
@@ -350,8 +378,9 @@ becomes a JavaScript `switch`; nested shapes and guards may become direct `if` t
 
 The scrutinee is evaluated once, and arms retain their written order. Structural
 patterns add no hidden user-defined dispatch; literal patterns use the same equality
-semantics as `==`, with the permitted literal forms compiling to direct primitive tests.
-The generated code follows the same decisions the source makes visible.
+semantics as `==`: `Int` and `String` literals compile to direct `===` tests, and a
+`Float` literal compiles to the same equality helper that `==` on `Float` uses. The
+generated code follows the same decisions the source makes visible.
 
 This chapter covers the complete pattern language over the data introduced so far.
 Later chapters add patterns where their surrounding feature becomes concrete: vector
@@ -364,9 +393,9 @@ dialects.
 - patterns describe static shapes and may bind names to their pieces;
 - constructor, tuple, and record patterns can nest;
 - record patterns are open and support punning and renaming;
-- `Int` and `String` literals may be patterns, `()` is the `Unit` pattern, and
-  `Float` literals may not appear in patterns; `True` and `False` are constructor
-  patterns, not literals;
+- `Int`, `Float`, and `String` literals may be patterns, matching by the same equality
+  as `==`, and `()` is the `Unit` pattern; `True` and `False` are constructor patterns,
+  not literals, and the named special `Float` values are tested in guards;
 - or-pattern alternatives must bind the same names;
 - as-patterns retain both a matched component and its whole value;
 - guards test runtime conditions and contribute nothing to exhaustiveness;

@@ -22,7 +22,7 @@ positions, and respond to missing/unreachable-case diagnostics.
 
 1. Patterns describe shapes and bind names; they do not run expressions.
 2. Nested constructors, tuples, and open record patterns.
-3. Literal patterns and the permanent Float-literal exclusion.
+3. Literal patterns, `Float` literals matching by `==`'s equality, and guards for the named special values.
 4. Or-patterns and the same-bindings rule.
 5. As-patterns and guards.
 6. Exhaustiveness, reachability, and guarded-arm coverage.
@@ -40,6 +40,7 @@ positions, and respond to missing/unreachable-case diagnostics.
 
 - Guards contribute nothing to exhaustiveness.
 - Infinite literal domains require a catch-all; `Bool` can be covered exactly.
+- A `Float` literal matches by SameValueZero: `0.0` matches `-0.0`, and a `-0.0` arm after `0.0` is unreachable; `Float.nan` and the infinities are values tested in guards.
 - `()` is the sole `Unit` pattern and is exhaustive by itself.
 - Record patterns are open and never write `...`.
 - Every or-pattern alternative binds the same names at compatible types.
