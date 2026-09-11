@@ -904,6 +904,16 @@ describe("a term's spelling in pattern position (§2.5, §12)", () => {
         "guard: `x when x == Helper.count`",
       );
     }
+    // The **restriction's** rewrite is the same guard and takes the same rule: a
+    // `for..in` head and a parameter draw the refusal bare.
+    const refusal = "`0` is not a pattern at `Rat`";
+    expect(projectDiagnostics("module Main\n\nimport Rat\n\n" +
+      "export fun f(v: Vector(Rat.Rat)): Int =\n" +
+        "    for 0 in v\n        ignore(1)\n    1\n",
+    )).toEqual([refusal]);
+    expect(projectDiagnostics("module Main\n\nimport Rat\n\n" +
+      "export fun f(0: Rat.Rat): Int = 1\n",
+    )).toEqual([refusal]);
   });
 
   test("a name the module exports nothing for takes the expression-position report", () => {
@@ -1027,6 +1037,35 @@ describe("the lexer's conversion governs (§2.5, §12; Lexer §5)", () => {
     // And in expression position, where the same two layout reports followed it.
     expect(projectDiagnostics(main("export let big: Float = 1.0e309\n")))
       .toEqual(["Float literal is too large; use `Float.infinity`"]);
+  });
+
+  test("the recovery form is no literal: it keys nothing and covers nothing", () => {
+    // The token is handed on so the parse continues, and the pattern seat reads it
+    // as the error it is (§7.3's fourth tier) rather than as the `Infinity` literal
+    // `Number` computed. So it supplies no coverage —
+    expect(projectDiagnostics(main(
+      "export fun f(t: Float): String =\n" +
+        "    match t\n" +
+        "        1.0e309 => \"a\"\n",
+    ))).toEqual(["Float literal is too large; use `Float.infinity`"]);
+    // — with or without the sign, which the negative seat reads the same way.
+    expect(projectDiagnostics(main(
+      "export fun f(t: Float): String =\n" +
+        "    match t\n" +
+        "        -1.0e309 => \"a\"\n",
+    ))).toEqual(["Float literal is too large; use `Float.infinity`"]);
+    // — and it is never a shadower: two of them draw two lexical reports and no
+    // duplicate-literal report between them.
+    expect(projectDiagnostics(main(
+      "export fun f(t: Float): String =\n" +
+        "    match t\n" +
+        "        1.0e309 => \"a\"\n" +
+        "        1.0e309 => \"b\"\n" +
+        "        _ => \"ok\"\n",
+    ))).toEqual([
+      "Float literal is too large; use `Float.infinity`",
+      "Float literal is too large; use `Float.infinity`",
+    ]);
   });
 
   test("§15 (k)'s last block, as one program", () => {
