@@ -1,8 +1,9 @@
 # Float literal patterns — proposal for Fable
 
-**Status:** Proposed, non-normative; 2026-09-06. Records the design agreed in
-discussion with James. This note requests a specification correction and its
-subsequent implementation; it does not claim either has landed.
+**Status:** Adopted into the specification — Pattern Matching §2.5, §7.2, §15 (k)
+and Pattern Declarations' `Color` examples carry the normative text; implementation
+is tracked as #894. Non-normative; kept as the design record of the discussion with
+James that requested the correction.
 
 ## 1. Decision requested
 

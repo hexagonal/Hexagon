@@ -148,7 +148,7 @@ This is the move the checker already makes for tuples, vectors, and structural r
 Each item is a simplification: a special case that existed *because* Bool was a primitive with union-like aspirations.
 
 1. **The exhaustiveness carve-out.** Pattern Matching's finite-literal-domain listing ("unions …, `Bool` via literals, `Unit`, and tuples/records thereof") loses its Bool clause — Bool is now the "unions" clause. The acceptance test ("a `match` on `Bool` with `true`/`false` arms is exhaustive with no `_`") survives with `True`/`False` spellings, now exercising the union path.
-2. **Bool literal patterns.** The literal-pattern type list shrinks to `Int`, `String` (never `Float`, unchanged). The `Eq`-elaboration note simplifies: every literal pattern is `Int` or `String`, both on the `===` fast path.
+2. **Bool literal patterns.** The literal-pattern type list shrinks to `Int`, `String` (`Float` was refused then, and has since been admitted — Pattern Matching §2.5, which owns the list). The `Eq`-elaboration note simplifies: with `Bool` gone, the literal patterns of that inventory, `Int` and `String`, are both on the `===` fast path (a `Float` literal arm, admitted since, takes `Float`'s own test — Pattern Matching §2.5).
 3. **Decreed constraint rows.** Primitive Types §4's "Standard constraints" fiat list becomes the derivation pointer (§2.1 above).
 4. **The `Show` special row.** Primitive Types §7's table drops its Bool row to a correction pointer; Bool joins the derived structural show story.
 
