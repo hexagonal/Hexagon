@@ -114,9 +114,10 @@ infinity, positive zero giving `Float.infinity`. The guard
 `x when x == 0.0 and 1.0 / x == -Float.infinity` picks it out, and both conjuncts are
 needed: a reciprocal overflows to negative infinity for tiny negative values as well.
 
-A `Float` literal stands for its value, never its spelling. `0.0` and `-0.0` are two
-values this equality equates; `1.0`, `1.00`, and `1.0e0` are one value written three
-ways, so every later spelling of it in the same match is an unreachable case too.
+A `Float` literal, like an `Int` or `String` one, stands for its value, never its
+spelling. `0.0` and `-0.0` are two values this equality equates; `1.0`, `1.00`, and
+`1.0e0` are one value written three ways, so a later arm spelling it any of the three
+ways is unreachable too.
 
 The special values have names, or a negated name, rather than literal spellings.
 `Float.nan` and `Float.infinity` are ordinary values, and a pattern can name a
@@ -134,7 +135,8 @@ let classify(value: Float): String =
 
 The first guard works because `==` on `Float` says `NaN` equals `NaN`; `Float.isNan`
 says the same thing by name. Written in pattern position, any of these spellings is
-refused, `-Float.infinity` with its sign, and the refusal names the guard as the rewrite.
+refused, `-Float.infinity` with its sign, and the refusal names the guard as the
+rewrite.
 
 `Bool`, by contrast, needs no `_` of the kind `classify` just ended with, and for a
 different reason than a short literal list would give. `True` and `False` are constructor patterns, so this is the ordinary union
