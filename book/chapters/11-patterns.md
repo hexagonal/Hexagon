@@ -74,7 +74,7 @@ A bare `{x, y}` pattern would describe a structural record, not the nominal `Poi
 
 ## Literals match particular values
 
-`Int` and `String` literals may appear in patterns:
+`Int`, `Float`, and `String` literals may appear in patterns:
 
 ```hexagon
 let describeCount(count: Int): String =
@@ -85,12 +85,63 @@ let describeCount(count: Int): String =
 ```
 
 `_` is the wildcard: it matches anything and binds nothing. Infinite sets such as
-`Int` and `String` always need a wildcard or variable catch-all because a finite list
-of literals cannot cover every possible value.
+`Int`, `Float`, and `String` always need a wildcard or variable catch-all because a
+finite list of literals cannot cover every possible value.
 
-`Bool` needs no wildcard either, but for a different reason than a short literal list
-would give. `True` and `False` are constructor patterns, so this is the ordinary union
-exhaustiveness of the previous chapter:
+A `Float` literal matches by the same equality that `==` uses, and no more loosely:
+a computed value matches a written one only when `==` would say they are equal. The
+`surprising` value from the primitive types chapter, `0.1 + 0.2`, does not match the
+literal `0.3`, and no literal pattern is a close-enough test: a tolerance has to be
+spelled out, in a guard, say. A pattern contains no operators, so a `-` before a literal
+is part of that literal, not an operator applied to it, and a negative literal is a
+pattern too:
+
+```hexagon
+let describeTemperature(celsius: Float): String =
+    match celsius
+        0.0 => "freezing"
+        -40.0 => "the same in Fahrenheit"
+        _ => "some other temperature"
+```
+
+Hexagon's `Float` equality treats `0.0` and `-0.0` as equal and `NaN` as equal to
+itself, so the `0.0` arm also matches negative zero. An arm `-0.0` after an arm `0.0`
+is therefore a compile error, an unreachable case: the equality the arms test through
+cannot tell the two apart. A program that must tell the zeros apart does so in a
+guard, by an operation that can: both zeros pass `x == 0.0`, and `Float` division
+follows IEEE 754, so of those two only negative zero sends `1.0 / x` to negative
+infinity, positive zero giving `Float.infinity`. The guard
+`x when x == 0.0 and 1.0 / x == -Float.infinity` picks it out, and both conjuncts are
+needed: a reciprocal overflows to negative infinity for tiny negative values as well.
+
+A `Float` literal, like an `Int` or `String` one, stands for its value, never its
+spelling. `0.0` and `-0.0` are two values this equality equates; `1.0`, `1.00`, and
+`1.0e0` are one value written three ways, so a later arm spelling it any of the three
+ways is unreachable too.
+
+The special values have names, or a negated name, rather than literal spellings.
+`Float.nan` and `Float.infinity` are ordinary values, and a pattern can name a
+constructor but not a value the program computes, so test them in a guard, the
+arm-level runtime test this chapter reaches below:
+
+```hexagon
+let classify(value: Float): String =
+    match value
+        x when x == Float.nan => "not a number"
+        x when x == Float.infinity => "positive infinity"
+        x when x == -Float.infinity => "negative infinity"
+        _ => "finite"
+```
+
+The first guard works because `==` on `Float` says `NaN` equals `NaN`; `Float.isNan`
+says the same thing by name. Written in pattern position, any of these spellings is
+refused, `-Float.infinity` with its sign, and the refusal names the guard as the
+rewrite.
+
+`Bool`, by contrast, needs no `_` of the kind `classify` just ended with, and for a
+different reason than a short literal list would give. `True` and `False` are
+constructor patterns, so this is the ordinary union exhaustiveness of the previous
+chapter:
 
 ```hexagon
 match enabled
@@ -108,10 +159,6 @@ match finished
 ```
 
 That single arm is exhaustive because every `Unit` value is `()`.
-
-Float literals are deliberately excluded from patterns. Floating-point equality has
-edge cases such as `NaN` and signed zero that make a literal pattern look more exact
-than it is. Bind the value and make the comparison visible in a guard instead.
 
 ## Or-patterns share one arm
 
@@ -158,7 +205,7 @@ just another binding.
 
 ## Guards add runtime conditions
 
-A pattern handles shape; a guard handles a condition that must be evaluated:
+A pattern handles shape; a **guard** handles a condition that must be evaluated:
 
 ```hexagon
 let classifyPort(port: Int): String =
@@ -350,8 +397,9 @@ becomes a JavaScript `switch`; nested shapes and guards may become direct `if` t
 
 The scrutinee is evaluated once, and arms retain their written order. Structural
 patterns add no hidden user-defined dispatch; literal patterns use the same equality
-semantics as `==`, with the permitted literal forms compiling to direct primitive tests.
-The generated code follows the same decisions the source makes visible.
+semantics as `==`: `Int` and `String` literals compile to direct `===` tests, and a
+`Float` literal compiles to the same equality test that `==` on `Float` emits. The
+generated code follows the same decisions the source makes visible.
 
 This chapter covers the complete pattern language over the data introduced so far.
 Later chapters add patterns where their surrounding feature becomes concrete: vector
@@ -364,9 +412,10 @@ dialects.
 - patterns describe static shapes and may bind names to their pieces;
 - constructor, tuple, and record patterns can nest;
 - record patterns are open and support punning and renaming;
-- `Int` and `String` literals may be patterns, `()` is the `Unit` pattern, and
-  `Float` literals may not appear in patterns; `True` and `False` are constructor
-  patterns, not literals;
+- `Int`, `Float`, and `String` literals may be patterns, matching by the same equality
+  as `==`, and `()` is the `Unit` pattern; `True` and `False` are constructor patterns,
+  not literals;
+- the named special `Float` values are values, not literals, and are tested in guards;
 - or-pattern alternatives must bind the same names;
 - as-patterns retain both a matched component and its whole value;
 - guards test runtime conditions and contribute nothing to exhaustiveness;
