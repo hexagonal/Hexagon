@@ -445,11 +445,11 @@ function elaboratePattern(pattern: Typed.Pattern): Core.Pattern {
     case "String":
       return { ...pattern };
     case "Integer":
-      // Pattern Matching §2.5, §8: the literal is built **at the scrutinee's
-      // type**, so the same elaboration the expression `0` takes there builds the
-      // arm's right-hand operand — `0.0` at `Float`, `0n` at `BigInt`,
-      // `Rat.fromNat(0)` at a user `Num` type — and the `Eq` evidence beside it is
-      // what the test goes through wherever the equality is not a primitive's.
+      // Pattern Matching §2.5, §8: the literal is built **at the type of its
+      // position**, so the same elaboration the expression `0` takes there builds
+      // the arm's right-hand operand — `0.0` at `Float`, `0n` at `BigInt`. The
+      // permitted-primitive restriction leaves no other case, so `ConvertNat`'s
+      // branch of `elaborateInteger` is reachable only on an error program.
       return {
         kind: "Integer",
         decimal: pattern.decimal,
@@ -464,9 +464,6 @@ function elaboratePattern(pattern: Typed.Pattern): Core.Pattern {
               type: pattern.type,
               span: pattern.span,
             }),
-        ...(pattern.equality === undefined
-          ? {}
-          : { equality: evidence(pattern.equality) }),
         span: pattern.span,
       };
     case "As":

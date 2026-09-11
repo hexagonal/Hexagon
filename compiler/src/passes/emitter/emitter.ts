@@ -6405,18 +6405,23 @@ class JavaScriptEmitter {
         const name = this.#identifier(pattern.binding.symbol, pattern.binding.name);
         return { tests: [], bindings: [`const ${name} = ${value};`] };
       }
-      case "Integer":
+      case "Integer": {
+        // Pattern Matching §2.5/§8: the test is what `scrutinee == lit` emits at
+        // the literal's resolved primitive — the SameValueZero shape at `Float`,
+        // `===` at the other three, which the restriction leaves as the only
+        // cases. A type outside them never reaches here: the checker refused the
+        // literal, and this module carries that report.
+        const literal = this.#emitExpr(pattern.literal, 0, evidenceNames);
+        const type = pattern.literal.type;
         return {
-          tests: [this.#literalTest(
-            value,
-            this.#emitExpr(pattern.literal, 0, evidenceNames),
-            pattern.literal.type,
-            pattern.equality,
-            pattern.span,
-            evidenceNames,
-          )],
+          tests: [
+            type.kind === "Primitive" && type.name === "Float"
+              ? `${this.#useHelper("floatEquals")}(${value}, ${literal})`
+              : `${value} === ${literal}`,
+          ],
           bindings: [],
         };
+      }
       case "Float":
         // §2.5: `Eq<Float>` is SameValueZero, so the arm test is what
         // `scrutinee == lit` emits at `Float` — never a bare `===`, which would
@@ -6588,47 +6593,6 @@ class JavaScriptEmitter {
         return { tests: [test, ...combined.tests], bindings: combined.bindings };
       }
     }
-  }
-
-  /**
-   * A literal pattern's arm test — Pattern Matching §2.5's `Eq` at the
-   * scrutinee's type, which is "exactly the runtime comparison `scrutinee == lit`
-   * makes once both stand at one type" (§8; Operators §5.1).
-   *
-   * The selection is the comparison seat's, for the same reason and in the same
-   * words: `===` at `Int`, `Nat`, `BigInt` and `String`, the SameValueZero shape
-   * at `Float`, and the type's own `equals` everywhere else — which is where the
-   * `Eq` evidence the checker raised is spent. A type with no evidence and no
-   * primitive is an error program the checker has already reported; the test
-   * stands down to `false` rather than inventing a comparison, exactly as
-   * `#emitComparisonStep` does.
-   */
-  #literalTest(
-    value: string,
-    literal: string,
-    type: Typed.Type,
-    equality: Core.Evidence | undefined,
-    span: Source.Span,
-    evidenceNames: EvidenceNames,
-  ): string {
-    if (type.kind === "Primitive") {
-      return type.name === "Float"
-        ? `${this.#useHelper("floatEquals")}(${value}, ${literal})`
-        : `${value} === ${literal}`;
-    }
-    if (
-      equality === undefined ||
-      (equality.kind !== "Instance" && equality.kind !== "Structural" &&
-        equality.kind !== "Dictionary")
-    ) return "false";
-    return this.#emitMemberCall(
-      equality,
-      "Eq",
-      "equals",
-      [value, literal],
-      span,
-      evidenceNames,
-    );
   }
 
   #emitConvertNat(

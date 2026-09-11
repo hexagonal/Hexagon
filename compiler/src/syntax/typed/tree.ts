@@ -552,22 +552,22 @@ export interface OrPattern {
 // #147: no `BooleanPattern`. `True`/`False` are nullary constructors, so
 // they are `ConstructorPattern`s like `None`.
 /**
- * An integer literal pattern, checked **at the scrutinee's type** (Pattern
+ * An integer literal pattern, checked **at the type of its position** (Pattern
  * Matching §2.5, #894 / #519).
  *
- * The literal is `fromNat` of its payload at `type`, exactly as the expression
- * `0` is there, so `requirement` is the `Num` evidence that builds it — the same
- * constraint a `FromNat` expression carries — and `equality` the `Eq` evidence
- * the arm tests through, present only where the test is not a primitive's
- * inlined one (§2.5's `===` / SameValueZero list). Both are absent on an error
- * program, where the requirement was never satisfied.
+ * `type` is that position's resolved type, which §2.5's permitted-primitive
+ * restriction has already narrowed to `Int`, `Nat`, `BigInt` or `Float` — the four
+ * whose value and whose equality the compiler computes, so no `Eq` evidence
+ * travels and §8's "patterns never invoke user code" needs no carve-out.
+ * `requirement` is the `Num` evidence that builds the literal there, the same
+ * constraint a `FromNat` expression carries; it is absent on an error program,
+ * where the type never resolved.
  */
 export interface IntegerPattern {
   readonly kind: "Integer";
   readonly decimal: string;
   readonly type: Type;
   readonly requirement?: Constraint;
-  readonly equality?: Constraint;
   readonly span: Source.Span;
 }
 
