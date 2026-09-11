@@ -139,8 +139,9 @@ refused, `-Float.infinity` with its sign, and the refusal names the guard as the
 rewrite.
 
 `Bool`, by contrast, needs no `_` of the kind `classify` just ended with, and for a
-different reason than a short literal list would give. `True` and `False` are constructor patterns, so this is the ordinary union
-exhaustiveness of the previous chapter:
+different reason than a short literal list would give. `True` and `False` are
+constructor patterns, so this is the ordinary union exhaustiveness of the previous
+chapter:
 
 ```hexagon
 match enabled
