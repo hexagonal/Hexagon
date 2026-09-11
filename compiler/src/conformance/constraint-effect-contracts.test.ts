@@ -3308,13 +3308,14 @@ describe("Effects §13.2: the merge forms, spelled three ways, in both orders", 
  */
 describe("Effects §13.2: the merge record is every slot's, and it is the seat's node", () => {
   test("a `match` records EVERY arm's merge, not only the first slot-carrying one", () => {
-    // *(Review round 8, MEDIUM 1.)* `#recordMerge` is not a query — it records
-    // — so calling it behind `merged ??=` recorded the first arm that carried a
-    // slot and no arm after it. Here arm 1 hands in `d`'s slot and arm 3 hands
-    // in `b`'s: with the short-circuit, `b`'s merge went unrecorded, its report
-    // fell through to the demand limb, and the advice named a `->` demand this
-    // program does not contain. `d` is written `->`, so only `b` fails and the
-    // report must stand on the LATER slot's merge.
+    // *(Review round 8, MEDIUM 1.)* The former `#recordMerge` — the elaborator
+    // door round 9 replaced with `#recordJoinedColour` at the unifier — was not
+    // a query but a record, so calling it behind `merged ??=` recorded the first
+    // arm that carried a slot and no arm after it. Here arm 1 hands in `d`'s
+    // slot and arm 3 hands in `b`'s: with the short-circuit, `b`'s merge went
+    // unrecorded, its report fell through to the demand limb, and the advice
+    // named a `->` demand this program does not contain. `d` is written `->`,
+    // so only `b` fails and the report must stand on the LATER slot's merge.
     const source =
       "constraint C<r> =\n" +
       "    go(runner: r, d: () -> Unit, b: () ->! Unit) ->! (() -> Unit)\n" +
@@ -3336,10 +3337,12 @@ describe("Effects §13.2: the merge record is every slot's, and it is the seat's
   });
 
   test("and it records the SEAT's node, so a `->` demand beside the merge moves nothing", () => {
-    // *(Review round 8, MEDIUM 2.)* `#recordMerge` recorded the first `Variable`
-    // arm. For `if c then (() => ()) else b` that arm is the inline lambda's own
-    // frame colour — the seat leaves that frame deferred, so it is still a
-    // variable when the merge is recorded — and not `b`'s slot. `#offendingMerge`
+    // *(Review round 8, MEDIUM 2.)* The former `#recordMerge` — round 9's
+    // `#recordJoinedColour` stands where it stood — recorded the first
+    // `Variable` arm. For `if c then (() => ()) else b` that arm is the inline
+    // lambda's own frame colour — the seat leaves that frame deferred, so it is
+    // still a variable when the merge is recorded — and not `b`'s slot.
+    // `#offendingMerge`
     // compares by node once a chain has reached a constant, so the moment the
     // `let p: () -> Unit = f` below solved the merged colour pure it could no
     // longer match the merge against the slot: the inline spelling alone moved

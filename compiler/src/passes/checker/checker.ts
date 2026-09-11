@@ -8998,7 +8998,11 @@ class Checker {
       // as a data arm does, and §13.2's merge form covers it: the arm is where
       // the writer joined the two colours. The site is the whole form where one
       // holds the arms, and the arm's own body otherwise — a bare `try` clause
-      // has no enclosing expression to name.
+      // has no enclosing expression to name. *(Review round 9, INFO 2.)* So
+      // this is the one form whose "the merge that joined the handed callback
+      // in" related location can point at a **body** rather than at a joining
+      // expression, and it points there because there is no joining expression
+      // to point at, not because a better span was passed over.
       this.#joining(form?.expression.span ?? arm.body.span, () =>
         this.#unify(
           result,
@@ -11941,10 +11945,25 @@ class Checker {
    * question answerable at all: after the join a merge with a pure constant has
    * solved the slot, and "does this side carry a slot" is the very question the
    * constant destroys.
+   *
+   * **What the three doors guard on** *(review round 9, INFO 1 and INFO 3)*.
+   * This door and `#publishJoinedColours` guard **alike**, on `#seatSlots`
+   * alone, because canonicalising onto a *freshened slot* is the whole of what
+   * they do (`#carriesSeatSlot` reads that set and no other); `copyEffect`
+   * guards on `#seatHoldsNodes` instead because it must preserve every node the
+   * seat holds, which includes a **bounded body colour** it would otherwise
+   * copy away. The difference is the question, not an oversight. And `#bind`
+   * calls this on every variable-to-variable bind rather than on colours alone
+   * (checker.ts:15441) because a colour is not distinguishable from any other
+   * variable at that point; the cost is the first line — outside a joining form
+   * `#mergeSite` is `undefined` and the call is one comparison — and inside one
+   * at a seat it is a walk of `#seatSlots`, which holds one entry per freshened
+   * slot.
    */
   #recordJoinedColour(variable: Variable, type: Mono): void {
     const span = this.#mergeSite;
-    if (span === undefined || this.#seatSlots === undefined) return;
+    if (span === undefined) return;
+    if (this.#seatSlots === undefined || this.#seatSlots.size === 0) return;
     const seat = this.#carriesSeatSlot(variable) ??
       (type.kind === "Variable" ? this.#carriesSeatSlot(type) : undefined);
     if (seat === undefined) return;
