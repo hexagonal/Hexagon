@@ -492,13 +492,17 @@ describe("the literal at the type of its position (§2.5's checking rule, #519)"
     // the old monomorphic typing unified the scrutinee to `Int` at arm-check,
     // while the same match with `_` alone, or with the guard twin, was refused.
     // §6.1 reads the scrutinee at dispatch, and all three now read alike.
-    // The refusal is §6.1's own, unaltered and unmoved: it names the scrutinee's
-    // type only where that type is a **declared** variable, and `match 0`'s is an
-    // undetermined inference variable, which #649 keeps out of diagnostics. §15
-    // (k)'s transcript of this line writes the name in (`abstract type \`a\``) —
-    // flagged for James rather than resolved here, since minting a display name
-    // for an undetermined variable would be a new convention at a new seat and no
-    // normative sentence asks for one.
+    // **The text below is pre-existing and this arc does not change it.** §6.1's
+    // refusal names the scrutinee's type only where that type is a *declared*
+    // variable; `match 0`'s is an undetermined inference variable, so the sentence
+    // comes out with no subject at all and the constraint-operations advice points
+    // at a variable carrying only the literal's own `Num` and `Eq`. §6.1's own
+    // normative text and §12's row both spell it *with* the name ("cannot match on
+    // a value of abstract type `c`"), and Constraints §8 / #649 say a diagnostic
+    // names its variable. What this arc did was make the seat reachable from an
+    // ordinary literal arm, so this is the first pin the message has ever had:
+    // filed as a byproduct for James, pinned as measured, deliberately not
+    // repaired here.
     const refusal = "cannot match on a value of abstract type; " +
       "use the operations its constraints provide";
     expect(projectDiagnostics(main(
@@ -961,6 +965,66 @@ describe("a term's spelling in pattern position (§2.5, §12)", () => {
     }
   });
 
+  test("a second broken node in the pattern withholds the rewrite", () => {
+    // §2.5 replaces **the refused node** and nothing else. A second broken node has
+    // no spelling to print — an unresolved qualifier, a term's spelling, a literal
+    // the lexer refused — and printing `_` for it offered a rewrite that *compiles*
+    // while deleting a test the reader wrote, and with it that test's own report.
+    // Withheld instead, at both sentences.
+    const rat = (body: string): string => "module Main\n\nimport Rat\n\n" + body;
+    expect(projectDiagnostics(rat(
+      "export fun f(p: (Rat.Rat, Int)): String =\n" +
+        "    match p\n" +
+        "        (0, Nowhere.zilch) => \"z\"\n" +
+        "        _ => \"ok\"\n",
+    ))).toEqual(["`0` is not a pattern at `Rat`", "no module alias `Nowhere`"]);
+    expect(projectDiagnostics(rat(
+      "export fun f(p: (Rat.Rat, Float)): String =\n" +
+        "    match p\n" +
+        "        (0, 1.0e309) => \"z\"\n" +
+        "        _ => \"ok\"\n",
+    ))).toEqual([
+      "`0` is not a pattern at `Rat`",
+      "Float literal is too large; use `Float.infinity`",
+    ]);
+    // Two term spellings beside each other: each is the other's second broken node.
+    expect(diagnostics([HELPER, [
+      "/main.hex",
+      "module Main\n\nimport Helper\n\n" +
+      "export fun f(p: (Int, String)): String =\n" +
+        "    match p\n" +
+        "        (Helper.count, Helper.text) => \"z\"\n" +
+        "        _ => \"ok\"\n",
+    ]])).toEqual([
+      "`Helper.count` is a value, not a pattern",
+      "`Helper.text` is a value, not a pattern",
+    ]);
+    // The controls, which are what make the rule `Error` nodes alone: a sibling
+    // *literal* is printed as written, and a wildcard sibling is no obstacle.
+    expect(projectDiagnostics(rat(
+      "export fun f(p: (Rat.Rat, Rat.Rat)): String =\n" +
+        "    match p\n" +
+        "        (0, 1) => \"z\"\n" +
+        "        _ => \"ok\"\n",
+    ))).toEqual([
+      "`0` is not a pattern at `Rat`; bind a name and test it in a guard: " +
+      "`(y, 1) when y == 0`",
+      "`1` is not a pattern at `Rat`; bind a name and test it in a guard: " +
+      "`(0, y) when y == 1`",
+    ]);
+    expect(diagnostics([HELPER, [
+      "/main.hex",
+      "module Main\n\nimport Helper\n\n" +
+      "export fun f(p: (Int, String)): String =\n" +
+        "    match p\n" +
+        "        (Helper.count, _) => \"z\"\n" +
+        "        _ => \"ok\"\n",
+    ]])).toEqual([
+      "`Helper.count` is a value, not a pattern; bind a name and test it in a " +
+      "guard: `(y, _) when y == Helper.count`",
+    ]);
+  });
+
   test("a polymorphic term is declined its guard", () => {
     // `#termSpellingGuardOffered` declines a term whose scheme has variables: its
     // type would have to be instantiated, and instantiating mints variables and
@@ -1159,10 +1223,13 @@ describe("the lexer's conversion governs (§2.5, §12; Lexer §5)", () => {
     expect(text).not.toContain("Infinity");
   });
 
-  test("the recovery form is no literal: it keys nothing and covers nothing", () => {
+  test("the recovery form is no literal: it keys nothing and is never a shadower", () => {
     // The token is handed on so the parse continues, and the pattern seat reads it
-    // as the error it is (§7.3's fourth tier) rather than as the `Infinity` literal
-    // `Number` computed. So it supplies no coverage —
+    // as the error it is rather than as the `Infinity` literal `Number` computed.
+    // §7.3's fourth tier then grants the broken arm **maximal** cover — coverage
+    // reads it as `_` — which is why an overflow arm standing alone over an infinite
+    // domain draws no missing-cases report, and why its emitted test is `if (true)`
+    // —
     expect(projectDiagnostics(main(
       "export fun f(t: Float): String =\n" +
         "    match t\n" +

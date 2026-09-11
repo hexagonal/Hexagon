@@ -9011,9 +9011,8 @@ class Checker {
    *    a single insertion order fixes both orders at once and they disagree: the
    *    list follows insertion, the delegated reports follow it too. §2.5 delegates
    *    the *reports*, so they are what the order follows; the list is a completeness
-   *    fixit, which §2.5 does not speak about, and in the one program where it
-   *    appears the literal is refused by outcome 2 besides. Matching both would mean
-   *    carating the literal's `Eq` somewhere it was not demanded.
+   *    fixit, which §2.5 does not speak about. Matching both would mean carating the
+   *    literal's `Eq` somewhere it was not demanded.
    * 2. **The constraints hold but the resolved type is not a permitted
    *    primitive.** `Int`, `Nat`, `BigInt` and `Float` are the four; a resolution
    *    to a `Num`-honoring type outside them — `Rat`, a user's `Money`, a declared
@@ -9106,11 +9105,12 @@ class Checker {
     // `x when x == …` regardless compared the *scrutinee* while its gate asked
     // about the slot, so every nested position was offered a guard that does not
     // compile.
-    const guard = this.#termSpellingGuardOffered(refusal, expected)
-      ? `; bind a name and test it in a guard: \`${
-        literalPatternGuard(pattern, refusal.spelling, this.#patternRoot)
-      }\``
-      : "";
+    const rewrite = this.#termSpellingGuardOffered(refusal, expected)
+      ? literalPatternGuard(pattern, refusal.spelling, this.#patternRoot)
+      : undefined;
+    const guard = rewrite === undefined
+      ? ""
+      : `; bind a name and test it in a guard: \`${rewrite}\``;
     this.#diagnostics.add({
       severity: "error",
       message: `${head}${guard}`,
@@ -23530,8 +23530,21 @@ function literalPatternGuard(
   /** What the refused node is compared against — `0`, `Float.nan`. */
   operand: string,
   root: Resolved.Pattern | undefined,
-): string {
+): string | undefined {
   if (root === undefined || root === refused) return `x when x == ${operand}`;
+  // §2.5 replaces **the refused node** and nothing else, and `renderPattern` can
+  // only keep that promise for nodes it can print. A *second* broken node in the
+  // same pattern has no spelling to print — a term's spelling that failed to
+  // resolve, a literal the lexer refused — and it printed `_`, which is a
+  // different program: `(0, Nowhere.zilch)` at `(Rat, Int)` offered
+  // `(y, _) when y == 0`, which compiles *and silently deletes the mistyped name
+  // and its report*. Withheld instead, the direction this seat takes everywhere
+  // else, since "a `false` only costs a fixit".
+  if (
+    resolvedPatternNodes(root).some((node) =>
+      node.kind === "Error" && node !== refused
+    )
+  ) return undefined;
   const taken = new Set(resolvedPatternBindings(root).map(({ name }) => name));
   let binder = "y";
   for (let suffix = 1; taken.has(binder); suffix += 1) binder = `y${suffix}`;
@@ -23554,9 +23567,13 @@ function renderPattern(
     case "Float":
       return pattern.spelling;
     case "Error":
-      // §7.3's fourth tier: a broken pattern never widens a witness and is never
-      // named as a shadower, so nothing should reach here — and `_` is what it
-      // was read as wherever something did.
+      // Reached only for the **refused node itself**, where `swap` has already
+      // returned the binder above, or from a caller that is not §2.5's rewrite —
+      // `literalPatternGuard` withholds the whole guard when the root holds any
+      // *other* `Error` node, precisely because `_` would be a different program
+      // there. `_` is what §7.3's fourth tier reads a broken pattern as, so it is
+      // the right rendering for a witness; it is the wrong one for a rewrite, and
+      // this arm is no longer the place that decides which.
       return "_";
     case "String":
       return JSON.stringify(pattern.value);
