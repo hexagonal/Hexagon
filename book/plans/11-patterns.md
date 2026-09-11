@@ -40,7 +40,7 @@ positions, and respond to missing/unreachable-case diagnostics.
 
 - Guards contribute nothing to exhaustiveness.
 - Infinite literal domains require a catch-all; `Bool` can be covered exactly.
-- A `Float` literal matches by SameValueZero: `0.0` matches `-0.0`, and a `-0.0` arm after `0.0` is unreachable; `Float.nan` and the infinities are values tested in guards.
+- A `Float` literal matches by SameValueZero: `0.0` matches `-0.0`, `NaN` equals itself, and a `-0.0` arm after `0.0` is unreachable; `Float.nan` and the infinities are values tested in guards.
 - `()` is the sole `Unit` pattern and is exhaustive by itself.
 - Record patterns are open and never write `...`.
 - Every or-pattern alternative binds the same names at compatible types.

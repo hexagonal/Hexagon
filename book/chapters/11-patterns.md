@@ -112,8 +112,9 @@ That single arm is exhaustive because every `Unit` value is `()`.
 A `Float` literal matches by the same equality that `==` uses, and no more loosely:
 a computed value matches a written one only when `==` would say they are equal. The
 `surprising` value from the primitive types chapter, `0.1 + 0.2`, does not match the
-literal `0.3`, and no arm can be written that says "close enough". The sign belongs to
-the literal, so a negative literal is a pattern too:
+literal `0.3`, and no literal pattern is a close-enough test: a tolerance has to be
+spelled out, in a guard. A pattern contains no operators, so a `-` before a literal is
+part of the pattern, and a negative literal is a pattern too:
 
 ```hexagon
 let describeTemperature(celsius: Float): String =
@@ -126,16 +127,18 @@ let describeTemperature(celsius: Float): String =
 Hexagon's `Float` equality treats `0.0` and `-0.0` as equal and `NaN` as equal to
 itself, so the `0.0` arm also matches negative zero. An arm `-0.0` after an arm `0.0`
 is therefore a compile error, an unreachable case: the equality the arms test through
-cannot tell the two apart, and neither can `1.0 | 1.00`, whose second alternative is
-the same value again. A program that must tell the zeros apart asks a question that
-can, in a guard: `Float` division follows IEEE 754, so `1.0 / x` answers negative
-infinity for negative zero alone, and `x when x == 0.0 and 1.0 / x == -Float.infinity`
-picks it out.
+cannot tell the two apart. `1.0`, `1.00`, and `1.0e0` are one literal for the same
+reason, so an arm cannot handle one of them twice. A program that must tell the zeros
+apart does so in a guard, by an operation that can: both zeros pass `x == 0.0`, and
+`Float` division follows IEEE 754, so of those two only negative zero sends `1.0 / x` to
+negative infinity, positive zero giving `Float.infinity`. The guard
+`x when x == 0.0 and 1.0 / x == -Float.infinity` picks it out, and both conjuncts are
+needed: a reciprocal overflows to negative infinity for tiny negative values as well.
 
 The special values have names, or a negated name, rather than literal spellings.
 `Float.nan` and `Float.infinity` are ordinary values, and a pattern can name a
-constructor but not an ordinary value, so test them in a **guard**, the arm-level
-runtime test this chapter reaches below:
+constructor but not a value the program computes, so test them in a guard, the
+arm-level runtime test this chapter reaches below:
 
 ```hexagon
 let classify(value: Float): String =
@@ -146,7 +149,9 @@ let classify(value: Float): String =
         _ => "finite"
 ```
 
-The first guard works because `==` on `Float` says `NaN` equals `NaN`.
+The first guard works because `==` on `Float` says `NaN` equals `NaN`; `Float.isNan`
+says the same thing by name. Write `Float.nan` in pattern position instead and the
+compiler refuses it, naming that guard as the rewrite.
 
 ## Or-patterns share one arm
 
