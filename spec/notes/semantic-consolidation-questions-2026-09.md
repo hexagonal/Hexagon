@@ -37,7 +37,8 @@ fails. Identify any dependence on the order in which expressions are checked.
 ## 4. What must agree?
 
 State the invariants shared by different parts of the language. For example,
-pattern coverage identity must agree with runtime matching equality, and
+equivalent literal patterns should be classified consistently with the equality
+operation used by their runtime tests, and
 equivalent call spellings must agree wherever the language promises equivalence.
 Separate algebraic instance laws from elaboration rules and compiler guarantees;
 record which properties are specified, tested, or proved.
