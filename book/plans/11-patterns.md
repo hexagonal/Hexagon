@@ -22,7 +22,7 @@ positions, and respond to missing/unreachable-case diagnostics.
 
 1. Patterns describe shapes and bind names; they do not run expressions.
 2. Nested constructors, tuples, and open record patterns.
-3. Literal patterns, `Float` literals matching by `==`'s equality, and guards for the named special values.
+3. Literal patterns; `Float` literals match by `==`'s equality with no tolerance; the named special values point ahead to guards.
 4. Or-patterns and the same-bindings rule.
 5. As-patterns and guards.
 6. Exhaustiveness, reachability, and guarded-arm coverage.

@@ -109,37 +109,44 @@ match finished
 
 That single arm is exhaustive because every `Unit` value is `()`.
 
-A `Float` literal matches by the same equality that `==` uses. Hexagon's `Float`
-equality treats `0.0` and `-0.0` as equal and `NaN` as equal to itself, so a `0.0` arm
-also matches negative zero, and no literal pattern is more exact than the `==` test it
-stands for:
+A `Float` literal matches by the same equality that `==` uses, and no more loosely:
+a computed value matches a written one only when `==` would say they are equal. The
+`surprising` value from the primitive types chapter, `0.1 + 0.2`, does not match the
+literal `0.3`, and no arm can be written that says "close enough". The sign belongs to
+the literal, so a negative literal is a pattern too:
 
 ```hexagon
-let describeReading(reading: Float): String =
-    match reading
-        0.0 => "zero"
-        -40.0 => "the same on both scales"
-        _ => "some other reading"
+let describeTemperature(celsius: Float): String =
+    match celsius
+        0.0 => "freezing"
+        -40.0 => "the same in Fahrenheit"
+        _ => "some other temperature"
 ```
 
-Because matching follows that equality, an arm `-0.0` after an arm `0.0` is unreachable,
-and the compiler says so — the two spellings name one value.
+Hexagon's `Float` equality treats `0.0` and `-0.0` as equal and `NaN` as equal to
+itself, so the `0.0` arm also matches negative zero. An arm `-0.0` after an arm `0.0`
+is therefore a compile error, an unreachable case: the equality the arms test through
+cannot tell the two apart, and neither can `1.0 | 1.00`, whose second alternative is
+the same value again. A program that must tell the zeros apart asks a question that
+can, in a guard: `Float` division follows IEEE 754, so `1.0 / x` answers negative
+infinity for negative zero alone, and `x when x == 0.0 and 1.0 / x == -Float.infinity`
+picks it out.
 
-The special values have names rather than literal spellings. `Float.nan` and
-`Float.infinity` are ordinary values, and a pattern never names a value, so test them
-in guards:
+The special values have names, or a negated name, rather than literal spellings.
+`Float.nan` and `Float.infinity` are ordinary values, and a pattern can name a
+constructor but not an ordinary value, so test them in a **guard**, the arm-level
+runtime test this chapter reaches below:
 
 ```hexagon
-match reading
-    x when x == Float.nan => "not a number"
-    x when x == Float.infinity => "positive infinity"
-    x when x == -Float.infinity => "negative infinity"
-    _ => "finite"
+let classify(value: Float): String =
+    match value
+        x when x == Float.nan => "not a number"
+        x when x == Float.infinity => "positive infinity"
+        x when x == -Float.infinity => "negative infinity"
+        _ => "finite"
 ```
 
-The first guard works because `==` on `Float` says `NaN` equals `NaN`. Once the three
-guards fail, only finite values reach the last arm, but the compiler does not reason
-about that: the `_` arm is what makes the match exhaustive, because guards never count.
+The first guard works because `==` on `Float` says `NaN` equals `NaN`.
 
 ## Or-patterns share one arm
 
@@ -379,7 +386,7 @@ becomes a JavaScript `switch`; nested shapes and guards may become direct `if` t
 The scrutinee is evaluated once, and arms retain their written order. Structural
 patterns add no hidden user-defined dispatch; literal patterns use the same equality
 semantics as `==`: `Int` and `String` literals compile to direct `===` tests, and a
-`Float` literal compiles to the same equality helper that `==` on `Float` uses. The
+`Float` literal compiles to the same equality test that `==` on `Float` emits. The
 generated code follows the same decisions the source makes visible.
 
 This chapter covers the complete pattern language over the data introduced so far.
@@ -395,7 +402,8 @@ dialects.
 - record patterns are open and support punning and renaming;
 - `Int`, `Float`, and `String` literals may be patterns, matching by the same equality
   as `==`, and `()` is the `Unit` pattern; `True` and `False` are constructor patterns,
-  not literals, and the named special `Float` values are tested in guards;
+  not literals;
+- the named special `Float` values are values, not literals, and are tested in guards;
 - or-pattern alternatives must bind the same names;
 - as-patterns retain both a matched component and its whole value;
 - guards test runtime conditions and contribute nothing to exhaustiveness;
