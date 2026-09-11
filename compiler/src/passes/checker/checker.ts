@@ -10,6 +10,7 @@
 import { IMPURE_ARROW, linkedArrow, PURE_ARROW } from "../../support/arrows.js";
 import * as Diagnostics from "../../support/diagnostics.js";
 import { stronglyConnectedComponents } from "../../support/graph.js";
+import { cleanDigits } from "../../support/numeric-literal.js";
 import {
   COMPILER_CLAIMS,
   type Declarations as VarianceDeclarations,
@@ -1185,6 +1186,8 @@ interface ReachabilityReports {
   readonly constructor: (name: string) => string;
   /** A duplicate literal. */
   readonly literal: string;
+  /** Covered by one arm above, whose pattern is not a constructor's (§7.2). */
+  readonly shadower: (pattern: string) => string;
   /** Covered by the arms above jointly, with no single arm to name. */
   readonly covered: string;
   /** Where the whole-arm report points. */
@@ -1195,6 +1198,8 @@ const MATCH_ARM_REPORTS: ReachabilityReports = {
   everything: "this match arm is unreachable; an earlier pattern matches everything",
   constructor: (name) => `this case is unreachable; \`${name}\` is already handled above`,
   literal: "this literal case is unreachable; it is already handled above",
+  shadower: (pattern) =>
+    `this case is unreachable; the arm \`${pattern}\` above already covers it`,
   covered: "this case is unreachable; the patterns above already cover it",
   armSpan: (arm) => arm.pattern.span,
 };
@@ -1203,6 +1208,8 @@ const CATCH_ARM_REPORTS: ReachabilityReports = {
   everything: "this catch arm is unreachable because an earlier arm catches everything",
   constructor: (name) => `exception \`${name}\` is already caught above`,
   literal: "this literal case is unreachable; it is already handled above",
+  shadower: (pattern) =>
+    `this catch arm is unreachable; the arm \`${pattern}\` above already covers it`,
   covered: "this catch arm is unreachable; the arms above already cover it",
   armSpan: (arm) => arm.span,
 };
@@ -2491,6 +2498,18 @@ class Checker {
    * programs report.
    */
   readonly #brokenPatterns = new Set<Resolved.Pattern>();
+  /**
+   * What each integer literal pattern resolved to — the scrutinee's type at its
+   * position, and the `Num` and `Eq` requirements it raised there (§2.5).
+   *
+   * Read by `#materializePattern`, which cannot re-derive any of it: the
+   * expected type is the pattern seat's, and the pattern node carries only
+   * digits.
+   */
+  readonly #integerPatterns = new WeakMap<
+    Resolved.IntegerPattern,
+    { readonly type: Mono; readonly num?: Requirement; readonly eq?: Requirement }
+  >();
   /**
    * How far beneath the top of a pattern the two pattern walks currently are —
    * zero at a scrutinee's or a binder's own pattern, one and up inside a
@@ -7557,7 +7576,8 @@ class Checker {
           actual.kind === "Tuple" || actual.kind === "Record" ||
           actual.kind === "Vector" ||
           (actual.kind === "Constructor" &&
-            (actual.name === "Int" || actual.name === "String" ||
+            (actual.name === "Int" || actual.name === "Nat" ||
+              actual.name === "BigInt" || actual.name === "String" ||
               actual.name === "Float"))
         ) {
           // One report for every closed and every infinite domain alike. The
@@ -7565,10 +7585,14 @@ class Checker {
           // and the structural "needs a catch-all" demand were three renderings
           // of one judgment; §7.3 has one, and it is a witness pattern.
           //
-          // The infinite domains (`Int`, `String`, `Float` — the last since
-          // #513) join through the same door: their columns carry no signature,
-          // so no set of literals ever completes them and the witness is `_`,
-          // which is §7.1's "a catch-all is required" said in witnesses.
+          // The infinite domains (`Int`, `Nat`, `BigInt`, `String`, `Float`)
+          // join through the same door: their columns carry no signature, so no
+          // set of literals ever completes them and the witness is `_`, which is
+          // §7.1's "a catch-all is required" said in witnesses. `Float` arrived
+          // with #513; `Nat` and `BigInt` with #519, whose "cannot match on `X`
+          // yet" stood here only because the old literal typing refused their
+          // arms anyway — §2.5 settles the literal at the scrutinee's type, and
+          // with that settled the gate had nothing left to protect.
           //
           // The vector joins it too (#600). Its lengths *are* a signature
           // (Collections Part 3 §3.3, `#vectorColumn`), so the length-only
@@ -8767,7 +8791,15 @@ class Checker {
       return;
     }
     if (pattern.kind === "Integer") {
-      this.#unifyPattern(pattern, expected, primitive("Int"));
+      this.#inferIntegerPattern(pattern, expected);
+      return;
+    }
+    if (pattern.kind === "Float") {
+      this.#unifyPattern(pattern, expected, primitive("Float"));
+      return;
+    }
+    if (pattern.kind === "Error") {
+      this.#brokenPatterns.add(pattern);
       return;
     }
     if (pattern.kind === "String") {
@@ -8829,6 +8861,68 @@ class Checker {
     });
   }
 
+  /**
+   * Pattern Matching §2.5's literal-pattern checking rule, at both pattern seats
+   * *(#894; #519's literal typing)*.
+   *
+   * > A literal pattern is checked at the scrutinee's type, and never widens it.
+   *
+   * So the literal adapts the way an expression checked against an expected type
+   * does (Functions §4.3) — and the seat raises exactly what the expression `0`
+   * raises there, never a unification, which is the only way "the literal adapts,
+   * the scrutinee never does" can be true of one type:
+   *
+   * - `Num` of that type, at the `"literal"` origin, so a type honoring none
+   *   draws the report `x == 0` draws there;
+   * - `Signed` besides where the sign is written, a negative literal being
+   *   `negate` over the payload — Modules §7.6's report at `Nat`, verbatim as
+   *   `x == -1` draws;
+   * - `Eq` of that type, which the arm tests through (§8), demanded only outside
+   *   the primitives whose equality the emitter inlines (§2.5's `===` list and
+   *   `Float`'s SameValueZero shape) — there is no dictionary to name.
+   *
+   * An **undetermined** scrutinee is determined by none of this: the requirements
+   * ride the variable, and §6.1 reads the type at dispatch and refuses it there.
+   * That is what retires the one accident this rule replaces — `match 0` with a
+   * `0` arm compiled only because the old typing unified the scrutinee to `Int`
+   * at arm-check, while the same match with `_` alone, or with the guard twin
+   * `x when x == 0`, was refused.
+   *
+   * The requirements are kept rather than discarded: `#materializePattern` hands
+   * them on, because the literal's *construction* at the type is the `Num`
+   * evidence's (`Rat.fromNat(0)`, Numeric Literals §5.2) and the arm's test is the
+   * `Eq` evidence's.
+   */
+  #inferIntegerPattern(pattern: Resolved.IntegerPattern, expected: Mono): void {
+    const actual = this.#prune(expected);
+    if (actual.kind === "Error") {
+      this.#integerPatterns.set(pattern, { type: actual });
+      return;
+    }
+    const before = this.#diagnostics.count;
+    const num = this.#require("Num", actual, pattern.span, "literal");
+    num.literal = pattern.decimal;
+    if (pattern.decimal.startsWith("-")) {
+      this.#require("Signed", actual, pattern.span);
+    }
+    // One report, never two (§12's rows). A type that cannot carry the literal at
+    // all has nothing to say about the equality the arm would have tested through,
+    // and `Num` has already said what is wrong; the primitives need no evidence
+    // either way, their equality being the one the emitter inlines.
+    const eq = actual.kind === "Constructor" || this.#diagnostics.count > before
+      ? undefined
+      : this.#require("Eq", actual, pattern.span);
+    this.#integerPatterns.set(pattern, {
+      type: actual,
+      num,
+      ...(eq === undefined ? {} : { eq }),
+    });
+    // The same read `#unifyPattern` makes, for the same obligation (§7.3's
+    // fourth tier): a literal the scrutinee's type cannot carry failed to type,
+    // so it widens no witness and shadows no arm below it.
+    if (this.#diagnostics.count > before) this.#brokenPatterns.add(pattern);
+  }
+
   /** `#inferPattern` one slot down; see `#nestedMatchPattern`. */
   #nestedPattern(
     pattern: Resolved.Pattern,
@@ -8881,7 +8975,18 @@ class Checker {
       return;
     }
     if (pattern.kind === "Integer") {
-      this.#unifyPattern(pattern, expected, primitive("Int"));
+      this.#inferIntegerPattern(pattern, expected);
+      return;
+    }
+    if (pattern.kind === "Float") {
+      this.#unifyPattern(pattern, expected, primitive("Float"));
+      return;
+    }
+    if (pattern.kind === "Error") {
+      // §7.3's fourth tier, for a pattern that failed to lex, to parse, or to
+      // resolve: it is read as `_` by coverage and is never a shadower, so the
+      // one report already made stands alone.
+      this.#brokenPatterns.add(pattern);
       return;
     }
     if (pattern.kind === "String") {
@@ -9551,11 +9656,34 @@ class Checker {
         ? headPatterns.filter((pattern) => !this.#brokenPatterns.has(pattern))
         : headPatterns,
     );
-    if (!broken) return column;
+    // §7.2's literal identity is **one law over every column**, not a clause of
+    // the infinite domains': a literal pattern reaches a nominal record's column
+    // at `Rat`, and a union's wherever a union honors `Num`, and the matrix must
+    // equate two of them there by the same rule it uses at `Int`. Held here, at
+    // the one seat every column passes through, because the alternative was each
+    // domain's `split` sending a literal to `distinctHead` — a key on its *span*,
+    // under which no two literals are ever one.
+    const actual = this.#prune(type);
+    const primitive = actual.kind === "Constructor" ? actual.name : undefined;
     return {
       ...(column.signature === undefined ? {} : { signature: column.signature }),
-      split: (pattern) =>
-        this.#brokenPatterns.has(pattern) ? undefined : column.split(pattern),
+      split: (pattern) => {
+        if (broken && this.#brokenPatterns.has(pattern)) return undefined;
+        if (
+          pattern.kind === "Integer" || pattern.kind === "Float" ||
+          pattern.kind === "String"
+        ) {
+          return oneHead(
+            {
+              key: `literal:${renderLiteralPatternKey(pattern, primitive)}`,
+              slots: [],
+              print: () => "_",
+            },
+            [],
+          );
+        }
+        return column.split(pattern);
+      },
     };
   }
 
@@ -9575,6 +9703,12 @@ class Checker {
         return this.#structuralRecordColumn(actual, patterns);
       case "Vector":
         return this.#vectorColumn(actual, patterns);
+      case "Constructor":
+        // The infinite domains, and `Exn`: no signature, so no set of literals
+        // ever completes the column — §7.1's "a catch-all is required". The
+        // literals' own identity is `#coverageColumn`'s, one law for every
+        // column (§7.2).
+        return this.#openColumn();
       case "Variable":
       case "Error":
         // Nothing is known about this domain, so nothing may be concluded from
@@ -9594,21 +9728,16 @@ class Checker {
 
   /**
    * A column with no signature: the infinite domains and the open `Exn` sum.
-   * Patterns here still split — a literal groups with its equal, an exception
-   * constructor with its own — so reachability is exact; what they never do is
-   * complete, which is §7.1's "a catch-all is required".
+   * Patterns here still split — an exception constructor groups with its own, and
+   * a literal with its equal through `#coverageColumn`'s law — so reachability is
+   * exact; what they never do is complete, which is §7.1's "a catch-all is
+   * required".
    */
   #openColumn(): CoverageColumn {
     return {
       split: (pattern) => {
         if (pattern.kind === "Wildcard" || pattern.kind === "Binding") {
           return undefined;
-        }
-        if (pattern.kind === "Integer" || pattern.kind === "String") {
-          return oneHead(
-            { key: `literal:${renderLiteralPatternKey(pattern)}`, slots: [], print: () => "_" },
-            [],
-          );
         }
         if (
           pattern.kind === "Constructor" && pattern.symbol !== undefined &&
@@ -10399,13 +10528,59 @@ class Checker {
       });
       return;
     }
+    if (
+      alternative.kind === "Integer" || alternative.kind === "Float" ||
+      alternative.kind === "String"
+    ) {
+      this.#diagnostics.add({
+        severity: "error",
+        message: reports.literal,
+        primary: alternative.span,
+      });
+      return;
+    }
+    // §12 asks for the shadowing arm by name wherever naming one would be true,
+    // and the constructor clause above is not the only place it is: a duplicate in
+    // a **nested column** — `(0, _)` after `(0, _)`, `(-0.0, _)` after `(0.0, _)`
+    // — is covered by one arm alone, and a report naming none of them left the
+    // reader to find it. The test is the honest one: exactly one unguarded row
+    // above makes this alternative useless on its own. Where several are needed
+    // jointly, naming one would be false and the sentence below says what is true
+    // instead.
+    const shadower = this.#soleShadower(above, alternative, type);
     this.#diagnostics.add({
       severity: "error",
-      message: alternative.kind === "Integer" || alternative.kind === "String"
-        ? reports.literal
-        : reports.covered,
+      message: shadower === undefined
+        ? reports.covered
+        : reports.shadower(renderPattern(shadower)),
       primary: alternative.span,
     });
+  }
+
+  /**
+   * The one arm above that covers this alternative by itself, where exactly one
+   * does — §7.2's "naming the shadowing arm", for an alternative whose head is not
+   * a constructor's.
+   *
+   * A row that is a catch-all is never the answer: an alternative beneath one took
+   * the whole-arm report two tiers up, so reaching here means no row above is
+   * irrefutable, and a row that still covers this alternative alone is the
+   * duplicate the reader is looking for.
+   */
+  #soleShadower(
+    above: readonly (readonly Resolved.Pattern[])[],
+    alternative: Resolved.Pattern,
+    type: Mono,
+  ): Resolved.Pattern | undefined {
+    let found: Resolved.Pattern | undefined;
+    for (const row of above) {
+      const head = row[0];
+      if (head === undefined) continue;
+      if (this.#coverageUseful([type], [row], [alternative])) continue;
+      if (found !== undefined) return undefined;
+      found = head;
+    }
+    return found;
   }
 
   /**
@@ -21319,9 +21494,34 @@ class Checker {
     if (
       pattern.kind === "Wildcard" ||
       pattern.kind === "Unit" ||
-      pattern.kind === "Integer" ||
+      pattern.kind === "Float" ||
       pattern.kind === "String"
     ) return pattern;
+    if (pattern.kind === "Integer") {
+      // §2.5's literal at the scrutinee's type: the `Num` evidence is what builds
+      // it there and the `Eq` evidence what tests it, so both ride into the typed
+      // tree beside the type itself (see `#integerPatterns`).
+      const resolved = this.#integerPatterns.get(pattern);
+      return {
+        kind: "Integer",
+        decimal: pattern.decimal,
+        type: this.#publicType(resolved?.type ?? ERROR),
+        ...(resolved?.num === undefined
+          ? {}
+          : { requirement: this.#publicRequirement(resolved.num) }),
+        ...(resolved?.eq === undefined
+          ? {}
+          : { equality: this.#publicRequirement(resolved.eq) }),
+        span: pattern.span,
+      };
+    }
+    if (pattern.kind === "Error") {
+      // A refused form reaches emission as the wildcard coverage already read it
+      // as (§7.3's fourth tier). The module carries the seat's error, so nothing
+      // downstream runs; the node is shaped so nothing downstream has to know
+      // about a form that never types.
+      return { kind: "Wildcard", span: pattern.span };
+    }
     if (pattern.kind === "Or") {
       return {
         ...pattern,
@@ -22236,15 +22436,69 @@ function rewritePipe(expression: Resolved.BinaryExpr): Resolved.CallExpr {
       };
 }
 
+/**
+ * Pattern Matching §7.2's **literal identity**, for both judgments.
+ *
+ * > A literal's identity is its value at the scrutinee's type under that type's
+ * > `Eq` — never its spelling — at a type whose `Eq` the compiler computes, the
+ * > primitives.
+ *
+ * `primitive` is the column's primitive where it has one, and the key is that
+ * type's value:
+ *
+ * - at `Int`, `Nat`, and `BigInt` the integer's value, so `7` and `007` are one
+ *   literal (Lexer §5 legalises the leading zeroes) and `-0` is the literal `0`;
+ * - at `Float` the binary64 under SameValueZero, so `1.0`, `1.00`, `1.0e0` and
+ *   `10e-1` are one, `0.0` and `-0.0` are one, and two spellings the lexer rounds
+ *   to one double — underflow to zero included — are one;
+ * - at `String` the decoded text, which the token already carries.
+ *
+ * Outside the primitives the key is the literal's **separator-free spelling**:
+ * "the matrix declining to equate what it cannot evaluate: it never leans on an
+ * unchecked law". Conservative and never wrong — two spellings it keeps apart may
+ * be one value under the type's own `Eq` at runtime, and the only consequence is
+ * a dead arm unreported, the posture §7.2 takes for a guard it cannot prove
+ * total.
+ */
 function renderLiteralPatternKey(
-  pattern: Resolved.IntegerPattern | Resolved.StringPattern,
+  pattern: Resolved.IntegerPattern | Resolved.FloatPattern | Resolved.StringPattern,
+  primitive?: Typed.PrimitiveName,
 ): string {
   switch (pattern.kind) {
     case "Integer":
-      return `Int:${pattern.decimal}`;
+      if (primitive === "Float") return `Float:${floatLiteralKey(Number(cleanDigits(pattern.decimal)))}`;
+      if (primitive === "Int" || primitive === "Nat" || primitive === "BigInt") {
+        return `${primitive}:${integerLiteralKey(pattern.decimal)}`;
+      }
+      return `spelling:${cleanDigits(pattern.decimal)}`;
+    case "Float":
+      // A `Float` literal stands only at a `Float` scrutinee; anywhere else it is
+      // the ordinary mismatch (§2.5) and the pattern never reaches a key.
+      return `Float:${floatLiteralKey(pattern.value)}`;
     case "String":
       return `String:${pattern.value}`;
   }
+}
+
+/**
+ * An integer literal's value as a key — exact at every width, which `Number`
+ * would not be past 2^53, and the one place `-0` becomes `0`.
+ */
+function integerLiteralKey(decimal: string): string {
+  const digits = cleanDigits(decimal);
+  try {
+    return BigInt(digits).toString();
+  } catch {
+    // A spelling the lexer admitted and `BigInt` refuses is a defect, not a
+    // program: the spelling keys it, which can only split a group, never merge
+    // two.
+    return digits;
+  }
+}
+
+/** A binary64's key under SameValueZero: the zeros are one value (§7.2). */
+function floatLiteralKey(value: number): string {
+  return String(value === 0 ? 0 : value);
 }
 
 function unwrapAsPattern(pattern: Resolved.Pattern): Resolved.Pattern {
@@ -22641,6 +22895,8 @@ function resolvedPatternNodes(
     case "Wildcard":
     case "Unit":
     case "Integer":
+    case "Float":
+    case "Error":
     case "String":
       return [pattern];
     case "As":
@@ -22676,6 +22932,8 @@ function resolvedPatternBindings(
     case "Wildcard":
     case "Unit":
     case "Integer":
+    case "Float":
+    case "Error":
     case "String":
       return [];
     case "As":
@@ -22833,6 +23091,13 @@ function renderPattern(pattern: Resolved.Pattern): string {
       return "()";
     case "Integer":
       return pattern.decimal;
+    case "Float":
+      return pattern.spelling;
+    case "Error":
+      // §7.3's fourth tier: a broken pattern never widens a witness and is never
+      // named as a shadower, so nothing should reach here — and `_` is what it
+      // was read as wherever something did.
+      return "_";
     case "String":
       return JSON.stringify(pattern.value);
     case "Binding":

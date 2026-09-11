@@ -624,6 +624,12 @@ describe("the error-program obligation: a broken pattern must not widen the voca
   });
 
   test("a literal arm is the same program (#636 R2's third shape)", () => {
+    // The refusal's *wording* moved with #894: §2.5 checks a literal pattern at
+    // the scrutinee's type rather than unifying it with `Int`, so an integer
+    // literal at a type honoring no `Num` draws the report `x == 0` draws there
+    // (§12's row) instead of a mismatch. What this test is about is unchanged —
+    // the broken arm widens no witness, and `Handle`'s constructors, unnameable
+    // here, stay out of the output.
     expect(diagnostics([
       HANDLE,
       [
@@ -634,7 +640,7 @@ describe("the error-program obligation: a broken pattern must not widen the voca
         "        0 => 1\n",
       ],
     ])).toEqual([
-      "type mismatch: expected Handle, found Int",
+      "integer literal cannot have type `Handle`",
     ]);
   });
 
@@ -665,7 +671,9 @@ describe("the error-program obligation: a broken pattern must not widen the voca
         "        0 => 1\n",
       ],
     ])).toEqual([
-      "type mismatch: expected Flag, found Int",
+      // §2.5's report, as above: the literal is checked at `Flag`, which honors
+      // no `Num`.
+      "integer literal cannot have type `Flag`",
     ]);
   });
 
@@ -765,7 +773,7 @@ describe("§7.2 takes the dual: a broken pattern is never a shadower", () => {
         "        On => 2\n" +
         "        Off => 3\n",
       ],
-    ])).toEqual(["type mismatch: expected Flag, found Int"]);
+    ])).toEqual(["integer literal cannot have type `Flag`"]);
   });
 
   test("nor does a broken arm above a catch-all", () => {
@@ -796,8 +804,8 @@ describe("§7.2 takes the dual: a broken pattern is never a shadower", () => {
         "        Off => 4\n",
       ],
     ])).toEqual([
-      "type mismatch: expected Flag, found Int",
-      "type mismatch: expected Flag, found Int",
+      "integer literal cannot have type `Flag`",
+      "integer literal cannot have type `Flag`",
     ]);
   });
 
@@ -851,7 +859,7 @@ describe("§7.2 takes the dual: a broken pattern is never a shadower", () => {
         "        0 => 1\n",
       ],
     ])).toEqual([
-      "type mismatch: expected Flag, found Int",
+      "integer literal cannot have type `Flag`",
       "this match arm is unreachable; an earlier pattern matches everything",
     ]);
   });

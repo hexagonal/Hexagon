@@ -493,6 +493,9 @@ export type Pattern =
   | WildcardPattern
   | UnitPattern
   | IntegerPattern
+  | FloatPattern
+  | TermSpellingPattern
+  | ErrorPattern
   | StringPattern
   | VectorPattern
   | TuplePattern
@@ -541,6 +544,59 @@ export interface IntegerPattern {
 export interface StringPattern {
   readonly kind: "String";
   readonly value: string;
+  readonly span: Source.Span;
+}
+
+/**
+ * A `Float` literal pattern (Pattern Matching §2.5, #894) — the permanent ban
+ * lifted once `Eq<Float>` was settled as SameValueZero (Decisions Batch §1).
+ *
+ * Both halves of Lexer §5's token ride along: the `value` is the correctly
+ * rounded binary64, which is the literal's identity for coverage (§7.2), and
+ * the `spelling` is what the arm test emits, exactly as an expression-side
+ * `Float` literal does. A negative literal carries its sign in both (the token
+ * never does — §2.5's signed-literal rule is the parser's).
+ */
+export interface FloatPattern {
+  readonly kind: "Float";
+  readonly spelling: string;
+  readonly value: number;
+  readonly span: Source.Span;
+}
+
+/**
+ * A **term's spelling** written in pattern position (Pattern Matching §2.5,
+ * §12) — `Float.nan`, `Helper.zero`, `-Float.infinity`.
+ *
+ * A qualified name in a pattern is a constructor's spelling, and one whose last
+ * segment is non-uppercase-start is no constructor's: the parser refuses the
+ * form and builds this node so that the *message* can be selected once names
+ * resolve — the value sentence where the segment names a term, "module `Rat`
+ * does not export `zilch`" where it names nothing, and Modules §5.1 rule 1's
+ * report where the qualifier binds no module alias. `negated` is the `-` a
+ * reader wrote before it, which rides the value sentence and is dropped by the
+ * other two, which name no value.
+ */
+export interface TermSpellingPattern {
+  readonly kind: "TermSpelling";
+  readonly qualifier: Name;
+  readonly name: Name;
+  readonly negated: boolean;
+  readonly span: Source.Span;
+}
+
+/**
+ * A pattern that **failed to parse** (Pattern Matching §7.3's fourth tier).
+ *
+ * The seat has already reported; this stands where the pattern would have, so
+ * the arm survives into the tree. Coverage reads it as `_` and reachability
+ * never lets it shadow an arm below it — "a report fires only for cases that
+ * stay missing under every repair of the broken pattern" — which is the whole
+ * reason a refused arm is kept rather than dropped: a dropped arm made a `match`
+ * non-exhaustive and drew a second report about the hole it left.
+ */
+export interface ErrorPattern {
+  readonly kind: "Error";
   readonly span: Source.Span;
 }
 

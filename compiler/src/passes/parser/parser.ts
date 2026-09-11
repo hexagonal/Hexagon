@@ -424,6 +424,7 @@ export function parseFile(file: LaidOut.File, path = ""): readonly Parsed.Module
     diagnostics,
     new DocBlocks(file.tokens, file.comments, diagnostics),
     file.text,
+    file.diagnostics.map(({ primary }) => primary),
   ).parseFile(file.fileId, file.comments, path);
 }
 
@@ -474,6 +475,17 @@ class Parser {
    * the module was written somewhere the restriction forbids.
    */
   readonly #pendingTypeParameterLambdas = new Map<Parsed.Expr, Source.Span>();
+  /**
+   * The spans the lexer and the layout pass already reported on — read by one
+   * seat, `#parseAtomicPattern`'s stand-down (Pattern Matching §2.5, §12).
+   *
+   * A token the lexer refused is *dropped*, leaving no trace in the stream, so
+   * the seat's question has to be positional: an overflowing `Float` literal
+   * (`1.0e309 =>`) is source the parser never saw, and "a construct the lexer
+   * has already diagnosed draws no further report from the pattern seat" can
+   * only be honored by asking whether a report already covers the gap.
+   */
+  readonly #lexicalSpans: readonly Source.Span[];
 
   /**
    * The mark a pipe stage wore with no argument list of its own — `x |> save!`
@@ -551,11 +563,13 @@ class Parser {
     diagnostics: Diagnostics.Bag,
     docs: DocBlocks,
     text: string,
+    lexicalSpans: readonly Source.Span[] = [],
   ) {
     this.#tokens = tokens;
     this.#diagnostics = diagnostics;
     this.#docs = docs;
     this.#text = text;
+    this.#lexicalSpans = lexicalSpans;
   }
 
   /**
@@ -4120,6 +4134,66 @@ class Parser {
     };
   }
 
+  /**
+   * Pattern Matching §2.5's term-spelling seat: `Upper.lower` in pattern
+   * position, and `-Upper.lower` with it.
+   *
+   * Only `Upper.Upper` is a constructor's qualified spelling (Modules §3.3), so
+   * a non-uppercase-start last segment is no constructor's — it names a term, or
+   * a declared pattern, or nothing the module exports. Which of those it is needs
+   * the name tables, so this seat refuses the *form* and the resolver selects the
+   * sentence (§12's row). `-` before anything but a numeric token or such a
+   * spelling stays the ordinary parse error.
+   */
+  #termSpellingPattern(token: LaidOut.Token): Parsed.Pattern | undefined {
+    const negated = token.kind === "Minus";
+    const offset = negated ? 1 : 0;
+    const qualifier = this.#peek(offset);
+    const name = this.#peek(offset + 2);
+    if (
+      qualifier.kind !== "UpperName" || this.#peek(offset + 1).kind !== "Dot" ||
+      name.kind !== "NonUpperName"
+    ) return undefined;
+    for (let step = 0; step < offset + 3; step += 1) this.#advance();
+    return {
+      kind: "TermSpelling",
+      qualifier: parsedName(qualifier),
+      name: parsedName(name),
+      negated,
+      span: spanFrom(token.span, name.span),
+    };
+  }
+
+  /**
+   * Whether a lexical report already covers the source this seat would have read
+   * — see `#lexicalSpans`.
+   *
+   * The gap runs from the last token that occupies source to the token standing
+   * here; the layout pass's own tokens are zero-width and are stepped over,
+   * because a dropped literal leaves the block opener sitting on the *next*
+   * token (`1.0e309 => "n"` opens its arm block at the `=>`). A report inside
+   * that gap can only be about source no token survived, which is exactly the
+   * construct this seat must not report a second time.
+   *
+   * Zero-width reports are excluded, so a layout complaint carated at a line's
+   * start never silences a real refusal; and a *surviving* token's own report —
+   * "integer literal exceeds Int range", whose token the lexer still returns —
+   * never reaches the gap at all, since the token itself bounds it.
+   */
+  #lexicallyRefusedHere(): boolean {
+    if (this.#lexicalSpans.length === 0) return false;
+    let previous = this.#index - 1;
+    while (
+      previous >= 0 &&
+      this.#tokens[previous]!.span.start.offset === this.#tokens[previous]!.span.end.offset
+    ) previous -= 1;
+    const after = this.#tokens[previous]?.span.end.offset ?? 0;
+    const before = this.#current().span.start.offset;
+    return this.#lexicalSpans.some(({ start, end }) =>
+      end.offset > start.offset && start.offset >= after && end.offset <= before
+    );
+  }
+
   #parseAtomicPattern(): Parsed.Pattern | undefined {
     const token = this.#current();
     if (token.kind === "NonUpperName") {
@@ -4151,13 +4225,32 @@ class Parser {
         span: spanFrom(minus.span, integer.span),
       };
     }
+    // Pattern Matching §2.5, #894: the permanent ban is lifted. A `Float`
+    // literal is a pattern wherever a literal pattern may stand, and the token
+    // carries both halves Lexer §5 stores — the correctly rounded binary64,
+    // which is the literal's identity for coverage, and the spelling, which is
+    // what the arm test emits.
     if (token.kind === "Float") {
       this.#advance();
-      this.#errorAt(
-        token.span,
-        "Float literals cannot appear in patterns; bind a name and compare it in a guard",
-      );
-      return undefined;
+      return {
+        kind: "Float",
+        spelling: token.spelling,
+        value: token.value,
+        span: token.span,
+      };
+    }
+    // The signed literal, whose sign the token never carries (§2.5): `-` in
+    // pattern position is followed by a numeric token, and patterns contain no
+    // operators, so there is no unary-minus expression to collide with.
+    if (token.kind === "Minus" && this.#peek(1).kind === "Float") {
+      const minus = this.#advance();
+      const float = this.#advance() as Lexed.FloatToken;
+      return {
+        kind: "Float",
+        spelling: `-${float.spelling}`,
+        value: -float.value,
+        span: spanFrom(minus.span, float.span),
+      };
     }
     if (token.kind === "String") {
       this.#advance();
@@ -4170,6 +4263,14 @@ class Parser {
         span: token.span,
       };
     }
+    // A **term's spelling** in pattern position (§2.5, §12): a qualified name is
+    // a constructor's spelling, and one whose last segment is non-uppercase-start
+    // is no constructor's. The form is refused here and the *message* is selected
+    // once names resolve, so the node carries the two halves and the `-` a reader
+    // wrote before it — which rides the value sentence and is dropped by the
+    // other two, which name no value.
+    const termSpelling = this.#termSpellingPattern(token);
+    if (termSpelling !== undefined) return termSpelling;
     if (token.kind === "UpperName") {
       this.#advance();
       // Modules §3.3: "Constructors qualify the same way (`Geo.Circle(1.0)`),
@@ -4279,7 +4380,12 @@ class Parser {
       };
     }
     if (token.kind !== "LeftParen") {
-      this.#error("expected a binding, `_`, constructor, tuple, or record pattern");
+      // §2.5's overflow row: a construct the lexer has already diagnosed draws
+      // no further report from this seat, and an overflowing `Float` literal is
+      // exactly that — dropped from the stream, its one report already standing.
+      if (!this.#lexicallyRefusedHere()) {
+        this.#error("expected a binding, `_`, constructor, tuple, or record pattern");
+      }
       return undefined;
     }
 
@@ -5141,9 +5247,20 @@ class Parser {
         this.#skipSeparators();
         continue;
       }
+      const refused = this.#current().span;
       const pattern = this.#parsePattern();
       if (pattern === undefined) {
+        // §7.3's fourth tier: the arm is **kept**, its pattern standing as the
+        // error it is. Coverage reads it as `_` and it shadows nothing below it,
+        // so the one report the seat already made stands alone — dropping the arm
+        // made the `match` non-exhaustive and drew a second report about the hole
+        // the drop had left.
         this.#synchronize(new Set(["VSep", "VClose", "Eof"]));
+        arms.push({
+          pattern: { kind: "Error", span: refused },
+          body: { kind: "ErrorExpr", span: refused },
+          span: refused,
+        });
         this.#skipSeparators();
         continue;
       }
@@ -5183,9 +5300,16 @@ class Parser {
     const arms: Parsed.MatchArm[] = [];
     this.#skipSeparators();
     while (!this.#at("VClose") && !this.#at("Eof")) {
+      const refused = this.#current().span;
       const pattern = this.#parsePattern();
       if (pattern === undefined) {
+        // The arm is kept for §7.3's fourth tier, as at the `match` seat above.
         this.#synchronize(new Set(["VSep", "VClose", "Eof"]));
+        arms.push({
+          pattern: { kind: "Error", span: refused },
+          body: { kind: "ErrorExpr", span: refused },
+          span: refused,
+        });
         this.#skipSeparators();
         continue;
       }

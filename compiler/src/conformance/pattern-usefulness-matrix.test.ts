@@ -189,7 +189,11 @@ describe("dead arms are hard errors, including ones the old checker demanded (§
       "        W(True) => 1\n" +
       "        W(True) => 2\n" +
       "        W(False) => 0\n",
-    )).toEqual(["this case is unreachable; the patterns above already cover it"]);
+      // §7.2 names the shadowing arm wherever naming one would be true, and #894
+      // extended that beyond the constructor clause: `W(True)` is covered by one
+      // arm alone, so the report says which. "the patterns above already cover it"
+      // is kept for the genuinely joint case, two tests below.
+    )).toEqual(["this case is unreachable; the arm `W(True)` above already covers it"]);
   });
 
   test("a catch-all behind arms that now exhaust the domain is unreachable", () => {
@@ -610,7 +614,8 @@ describe("the vector's lengths are a signature (Collections Part 3 §3.3)", () =
       "        [] => 0\n" +
       "        [_, ...rest] => 1\n" +
       "        [_, _] => 2\n",
-    )).toEqual(["this case is unreachable; the patterns above already cover it"]);
+      // One arm covers it — the rest pattern — so §7.2 names it (#894 rider b).
+    )).toEqual(["this case is unreachable; the arm `[_, ...rest]` above already covers it"]);
 
     expect(projectDiagnostics("module Main\n\n" + "export fun f(v: Vector(Int)): Int =\n" +
       "    match v\n" +
@@ -623,7 +628,8 @@ describe("the vector's lengths are a signature (Collections Part 3 §3.3)", () =
       "        [_] => 1\n" +
       "        [True] => 2\n" +
       "        _ => 0\n",
-    )).toEqual(["this case is unreachable; the patterns above already cover it"]);
+      // `[_]` alone covers `[True]`, so §7.2 names it (#894 rider b).
+    )).toEqual(["this case is unreachable; the arm `[_]` above already covers it"]);
   });
 
   test("guarded arms contribute nothing here either (§7.1)", () => {

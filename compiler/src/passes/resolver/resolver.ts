@@ -4059,6 +4059,66 @@ class Resolver {
    *
    * Answers `undefined` having reported, so the caller has nothing to add.
    */
+  /**
+   * Pattern Matching §2.5 / §12's **term-spelling** refusal: `Float.nan`,
+   * `Helper.zero`, `-Float.infinity` written where a pattern belongs.
+   *
+   * The parser refused the form; this selects the sentence, once names resolve,
+   * and it is **one report**:
+   *
+   * - a qualifier bound to no module alias is Modules §5.1 rule 1's report
+   *   before any of these, as it is at every other seat;
+   * - a name the module exports nothing for takes the report the spelling draws
+   *   in expression position, "module `Rat` does not export `zilch`" — a rewrite
+   *   is never offered for a value that does not exist;
+   * - a segment that names a term takes the value sentence, with the guard as its
+   *   rewrite and the written spelling, sign included.
+   *
+   * A declared pattern's qualified spelling takes Pattern Declarations §7's own
+   * sentence — that branch arrives with #834, and nothing here special-cases it.
+   * The `-` rides the value sentence and is dropped by the other two, which name
+   * no value.
+   */
+  #termSpellingPattern(pattern: Parsed.TermSpellingPattern): Resolved.Pattern {
+    const { qualifier, name, negated } = pattern;
+    const spelling = `${negated ? "-" : ""}${qualifier.text}.${name.text}`;
+    const broken = (): Resolved.Pattern => ({ kind: "Error", span: pattern.span });
+    if (this.#reportUnreachedAlias(qualifier, name, "term")) return broken();
+    const module = this.#namedModule(qualifier.text);
+    if (module === undefined) {
+      this.#unboundModuleAlias({
+        kind: "pattern",
+        qualifier,
+        bare: name.text,
+        bareSpan: name.span,
+        ...(this.#moduleScope === undefined ? {} : { scope: this.#moduleScope }),
+      });
+      return broken();
+    }
+    // The surface a **term** is read off in expression position, not the
+    // constructor pattern's narrower `terms` (§5.4 puts pattern and value
+    // position in one scope, and §5.3's honored-member read answers calls): the
+    // sentence selected here turns on whether the spelling names a value at all,
+    // so it has to ask the question expression position asks. `Rat.fromInt` is
+    // the case that separates the two — an honored `Num` member, which `terms`
+    // alone does not hold.
+    if (!this.#aliasOffers(module, qualifier.text, name, "term")) {
+      this.#diagnostics.add({
+        severity: "error",
+        message: `module \`${qualifier.text}\` does not export \`${name.text}\``,
+        primary: name.span,
+      });
+      return broken();
+    }
+    this.#diagnostics.add({
+      severity: "error",
+      message: `\`${spelling}\` is a value, not a pattern; bind a name and ` +
+        `test it in a guard: \`x when x == ${spelling}\``,
+      primary: pattern.span,
+    });
+    return broken();
+  }
+
   #qualifiedConstructor(
     qualifier: Parsed.Name,
     name: Parsed.Name,
@@ -4160,8 +4220,11 @@ class Resolver {
       pattern.kind === "Wildcard" ||
       pattern.kind === "Unit" ||
       pattern.kind === "Integer" ||
+      pattern.kind === "Float" ||
       pattern.kind === "String"
     ) return pattern;
+    if (pattern.kind === "Error") return pattern;
+    if (pattern.kind === "TermSpelling") return this.#termSpellingPattern(pattern);
     if (pattern.kind === "Or") {
       const namesByAlternative = pattern.alternatives.map((alternative) =>
         Parsed.patternNames(alternative)

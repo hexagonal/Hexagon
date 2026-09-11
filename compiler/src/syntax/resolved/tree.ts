@@ -1088,6 +1088,8 @@ export type Pattern =
   | WildcardPattern
   | UnitPattern
   | IntegerPattern
+  | FloatPattern
+  | ErrorPattern
   | StringPattern
   | VectorPattern
   | TuplePattern
@@ -1136,6 +1138,36 @@ export interface IntegerPattern {
 export interface StringPattern {
   readonly kind: "String";
   readonly value: string;
+  readonly span: Source.Span;
+}
+
+/**
+ * A `Float` literal pattern (Pattern Matching §2.5, #894) — the permanent ban
+ * lifted once `Eq<Float>` was settled as SameValueZero (Decisions Batch §1).
+ *
+ * Both halves of Lexer §5's token ride along: the `value` is the correctly
+ * rounded binary64, which is the literal's identity for coverage (§7.2), and
+ * the `spelling` is what the arm test emits, exactly as an expression-side
+ * `Float` literal does. A negative literal carries its sign in both (the token
+ * never does — §2.5's signed-literal rule is the parser's).
+ */
+export interface FloatPattern {
+  readonly kind: "Float";
+  readonly spelling: string;
+  readonly value: number;
+  readonly span: Source.Span;
+}
+
+/**
+ * A pattern that failed to lex, to parse, or to resolve (Pattern Matching §7.3's
+ * fourth tier, and §2.5's term-spelling refusal).
+ *
+ * One report already stands for it, so this node carries nothing but its span:
+ * the checker reads it as a **broken** pattern, which coverage grants maximal
+ * cover and reachability never treats as a shadower.
+ */
+export interface ErrorPattern {
+  readonly kind: "Error";
   readonly span: Source.Span;
 }
 
