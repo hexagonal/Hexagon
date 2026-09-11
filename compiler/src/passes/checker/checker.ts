@@ -8999,15 +8999,21 @@ class Checker {
    *    `x == 0` draws at that type — this seat adds no voice of its own, which is
    *    why `Eq` is demanded before `Num`: report order is observable, and at a type
    *    honoring neither (a union with no `derives Eq`) the comparison reports the
-   *    equality first. Measured, not reasoned — and what is *not* reproducible is
-   *    the order in which the two requirements land on a **declared** variable,
-   *    which a third seat's report reads out (`<a: (Num, Eq)>`): the comparison
-   *    deposits `Num` first and reports `Eq` first, and no sequence of demands at
-   *    one seat does both, because `#bind` validates a variable's requirements in
-   *    the order they were accepted. The delegated reports are what §2.5 names, so
-   *    they are what the order follows; the declared-variable list reads
-   *    `<a: (Eq, Num)>` here, and the program it appears in is refused by outcome 2
-   *    besides.
+   *    equality first.
+   *
+   *    What is **not** reproducible is the order in which the demands land on a
+   *    *declared* variable, which Modules §4.1.1's completeness fixit reads back
+   *    (`<a: (Num, Eq)>` at the comparison, `<a: (Eq, Num)>` here). The reason is
+   *    spans, not sequencing: `x == 0` demands its `Eq` at the **comparison's** span
+   *    and its `Num` (and `Signed`) at the **literal's**, and `Diagnostics.Bag`
+   *    sorts by span, so that seat can report `Eq` first while having *accepted*
+   *    `Num` first. A pattern's three demands are all the literal's, at one span, so
+   *    a single insertion order fixes both orders at once and they disagree: the
+   *    list follows insertion, the delegated reports follow it too. §2.5 delegates
+   *    the *reports*, so they are what the order follows; the list is a completeness
+   *    fixit, which §2.5 does not speak about, and in the one program where it
+   *    appears the literal is refused by outcome 2 besides. Matching both would mean
+   *    carating the literal's `Eq` somewhere it was not demanded.
    * 2. **The constraints hold but the resolved type is not a permitted
    *    primitive.** `Int`, `Nat`, `BigInt` and `Float` are the four; a resolution
    *    to a `Num`-honoring type outside them — `Rat`, a user's `Money`, a declared
@@ -9091,8 +9097,19 @@ class Checker {
     const refusal = pattern.termSpelling;
     if (refusal === undefined) return;
     const head = `\`${refusal.spelling}\` is a value, not a pattern`;
+    // The rewrite goes through `literalPatternGuard`, the one function §2.5's two
+    // guard-naming sentences share: beneath the top of an arm the enclosing pattern
+    // keeps its shape with a binder where the spelling stood
+    // (`Some(y) when y == Helper.count`), an `as` keeps its binder, and the
+    // condition's type is the position's — which is the type
+    // `#termSpellingGuardOffered` already reads. A sentence spelled
+    // `x when x == …` regardless compared the *scrutinee* while its gate asked
+    // about the slot, so every nested position was offered a guard that does not
+    // compile.
     const guard = this.#termSpellingGuardOffered(refusal, expected)
-      ? `; bind a name and test it in a guard: \`x when x == ${refusal.spelling}\``
+      ? `; bind a name and test it in a guard: \`${
+        literalPatternGuard(pattern, refusal.spelling, this.#patternRoot)
+      }\``
       : "";
     this.#diagnostics.add({
       severity: "error",
@@ -9129,7 +9146,13 @@ class Checker {
     refusal: NonNullable<Resolved.ErrorPattern["termSpelling"]>,
     expected: Mono,
   ): boolean {
-    if (!this.#armGuardSeat || refusal.symbol === undefined) return false;
+    // §3 allows no guard outside a `match`/`catch` arm, and §2.6 no single-node swap
+    // inside an or-alternative — `Helper.count | 1` rewritten at the spelling alone
+    // drops the `| 1`, which is a different program rather than a repair. Both are
+    // "valid at that position" in §2.5's sense, and both are the restriction's
+    // conditions too (`#checkLiteralPrimitive`'s `guardUnavailable`).
+    if (!this.#armGuardSeat || this.#inOrAlternative) return false;
+    if (refusal.symbol === undefined) return false;
     const scheme = this.#schemes.get(refusal.symbol);
     if (scheme === undefined || scheme.variables.length > 0) return false;
     const position = this.#prune(expected);
@@ -9196,7 +9219,9 @@ class Checker {
     // literal stood at it) and `Num` and `Eq` are in scope because a failed demand
     // returned before this check. The third is or-patterns: inside an alternative,
     // no single-literal rewrite compiles (§2.6), so the sentence stops.
-    const guard = guardUnavailable ? undefined : literalPatternGuard(pattern, root);
+    const guard = guardUnavailable
+      ? undefined
+      : literalPatternGuard(pattern, pattern.decimal, root);
     this.#diagnostics.add({
       severity: "error",
       message: guard === undefined
@@ -23485,25 +23510,32 @@ function missingFieldMessage(
  * differ and the one the convention names.
  */
 /**
- * The guard §2.5's permitted-primitive refusal names — "bind a name and test it
- * in a guard".
+ * The guard §2.5 names as a rewrite — "bind a name and test it in a guard" — for
+ * either sentence that names one: the permitted-primitive refusal and the
+ * term-spelling value sentence, whose rewrites differ only in what the binder is
+ * compared against ("the same holds of every guard this section names").
  *
- * At the top of an arm the literal *is* the pattern, so the guard binds the
+ * At the top of an arm the refused node *is* the pattern, so the guard binds the
  * scrutinee: `x when x == 0`. Beneath the top the enclosing pattern keeps its
- * shape, with a binder where the literal stood: `Some(y) when y == 0` — the guard
- * spelled at the literal's own position, which is the only rewrite that is both
- * legal and equivalent. The binder avoids every name the pattern already binds, so
- * the rewrite never collides with the reader's own.
+ * shape, with a binder where that node stood: `Some(y) when y == 0`,
+ * `Some(y) when y == Helper.count` — the guard spelled at the node's own position,
+ * which is the only rewrite that is both legal and equivalent, and the reason the
+ * *type* the guard's condition reads is the position's rather than the scrutinee's.
+ * The binder avoids every name the pattern already binds, so the rewrite never
+ * collides with the reader's own.
  */
 function literalPatternGuard(
-  literal: Resolved.IntegerPattern,
+  /** The node the guard replaces: a literal, or a term's spelling (`#894`). */
+  refused: Resolved.Pattern,
+  /** What the refused node is compared against — `0`, `Float.nan`. */
+  operand: string,
   root: Resolved.Pattern | undefined,
 ): string {
-  if (root === undefined || root === literal) return `x when x == ${literal.decimal}`;
+  if (root === undefined || root === refused) return `x when x == ${operand}`;
   const taken = new Set(resolvedPatternBindings(root).map(({ name }) => name));
   let binder = "y";
   for (let suffix = 1; taken.has(binder); suffix += 1) binder = `y${suffix}`;
-  return `${renderPattern(root, { target: literal, binder })} when ${binder} == ${literal.decimal}`;
+  return `${renderPattern(root, { target: refused, binder })} when ${binder} == ${operand}`;
 }
 
 function renderPattern(
@@ -23530,8 +23562,18 @@ function renderPattern(
       return JSON.stringify(pattern.value);
     case "Binding":
       return pattern.binding.name;
-    case "As":
-      return `${renderPattern(pattern.pattern, swap)} as ${pattern.binding.name}`;
+    case "As": {
+      // `as` is the loosest pattern operator (§2.7), so an `as` *inside* an `as` at
+      // one position needs parentheses or the chain it prints has no form in the
+      // grammar: `y1 as y as z` draws four reports, where `(y1 as y) as z`
+      // compiles. Only this one nesting needs them — every other operand is
+      // tighter, and an `As` beneath a constructor or a tuple is already enclosed
+      // by that form's own brackets.
+      const operand = renderPattern(pattern.pattern, swap);
+      return `${
+        pattern.pattern.kind === "As" ? `(${operand})` : operand
+      } as ${pattern.binding.name}`;
+    }
     case "Or":
       return pattern.alternatives.map((alternative) => renderPattern(alternative, swap))
         .join(" | ");

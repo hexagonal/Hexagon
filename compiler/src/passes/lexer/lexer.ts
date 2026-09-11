@@ -693,8 +693,11 @@ class Scanner {
       // block's shape from whatever followed — "inconsistent dedent" and
       // "expected a newline or `;`" at every seat, and at a `match` arm the three
       // arms below were swallowed with it (Pattern Matching §15 (k)'s last block,
-      // whose other two arms owe reports of their own). Every reader of a `Float`
-      // token asks about `recovered`; none may treat this as a literal.
+      // whose other two arms owe reports of their own). Both seats that read a
+      // `Float` token — the parser's pattern seat and its expression seat — ask
+      // about `recovered` and stand down; reusing the public `Float` kind with a
+      // flag is what makes that an obligation on readers rather than a type error,
+      // and the obligation is met by exactly those two.
       return {
         kind: "Float",
         spelling,

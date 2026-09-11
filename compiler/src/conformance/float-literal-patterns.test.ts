@@ -59,7 +59,8 @@ const HELPER: readonly [string, string] = [
   "export let zero: Nat = 0\n" +
   "export let count: Int = 0\n" +
   "export let text: String = \"x\"\n" +
-  "export let go = (n: Int): Int => n\n",
+  "export let go = (n: Int): Int => n\n" +
+  "export let nothing: Option(a) = None\n",
 ];
 
 /** A union with no `Eq`, and the same union with one. */
@@ -286,6 +287,34 @@ describe("the literal at the type of its position (§2.5's checking rule, #519)"
       "`0` is not a pattern at `Rat`; bind a name and test it in a guard: " +
       "`Some(y as z) when y == 0`",
     ]);
+    // `as` is the loosest pattern operator (§2.7), so an `as` directly inside an
+    // `as` needs parentheses: `y1 as y as z` is a chain the grammar has no form for,
+    // and the unparenthesized rewrite drew four reports of its own.
+    expect(projectDiagnostics(rat(
+      "export fun f(r: Rat.Rat): String =\n" +
+        "    match r\n" +
+        "        (0 as y) as z => use(z)\n" +
+        "        _ => \"ok\"\n",
+    ))).toEqual([
+      "`0` is not a pattern at `Rat`; bind a name and test it in a guard: " +
+      "`(y1 as y) as z when y1 == 0`",
+    ]);
+    expect(projectDiagnostics(rat(
+      "export fun f(r: Rat.Rat): String =\n" +
+        "    match r\n" +
+        "        (y1 as y) as z when y1 == 0 => use(z)\n" +
+        "        _ => \"ok\"\n",
+    ))).toEqual([]);
+    // One level down the enclosing form's brackets already separate them.
+    expect(projectDiagnostics(rat(
+      "export fun f(o: Option(Rat.Rat)): String =\n" +
+        "    match o\n" +
+        "        Some(0 as y) as z => use(y)\n" +
+        "        _ => \"ok\"\n",
+    ))).toEqual([
+      "`0` is not a pattern at `Rat`; bind a name and test it in a guard: " +
+      "`Some(y1 as y) as z when y1 == 0`",
+    ]);
     // Inside an or-alternative there is no single-literal rewrite: swapping one
     // alternative's literal for a fresh binder is what §2.6's same-bindings rule
     // refuses, so the sentence stops. One report per refused literal, still.
@@ -492,6 +521,8 @@ describe("the literal at the type of its position (§2.5's checking rule, #519)"
     // `Int` and the function compiled; §2.5 contributes constraints instead, the
     // parameter stays undetermined, and §6.1 refuses the match — with the rider
     // #513 wrote for exactly this scrutinee and which nothing in the repo pinned.
+    // Pre-existing text, like the sentence in the test above, and pinned for the
+    // same reason: this arc is what makes it reachable, not what wrote it.
     const rider = "cannot match on a value of abstract type; the parameter's type " +
       "is not determined here; give the parameter a type — bind the function with " +
       "its own annotated `let`, or use it where its parameter type is known";
@@ -880,6 +911,81 @@ describe("a term's spelling in pattern position (§2.5, §12)", () => {
     )).toEqual(["`Rat.fromInt` is a value, not a pattern"]);
   });
 
+  test("the guard is spelled at the position, not at the scrutinee", () => {
+    // §2.5: "The same holds of every guard this section names as a rewrite." The
+    // value sentence's rewrite goes through the one function the restriction's uses,
+    // so beneath the top of an arm the enclosing pattern keeps its shape with a
+    // binder where the spelling stood — and the condition reads the *position's*
+    // type, which is the type the offer was gated on. Spelled `x when x == …`
+    // regardless, every one of these offered a guard that draws "type mismatch:
+    // expected Int, found Option(Int)" and its siblings.
+    const nested: readonly (readonly [string, string, string, string])[] = [
+      ["o", "Option(Int)", "Some(Helper.count)", "Some(y)"],
+      ["p", "(Int, Int)", "(Helper.count, _)", "(y, _)"],
+      ["r", "{x: Int}", "{x = Helper.count}", "{x = y}"],
+      ["v", "Vector(Int)", "[Helper.count, _]", "[y, _]"],
+      ["o", "Option(Option(Int))", "Some(Some(Helper.count))", "Some(Some(y))"],
+      ["i", "Int", "Helper.count as z", "y as z"],
+    ];
+    for (const [subject, type, pattern, rewrite] of nested) {
+      const program = (arm: string): readonly [string, string] => [
+        "/main.hex",
+        "module Main\n\nimport Helper\n\n" +
+        `export fun f(${subject}: ${type}): String =\n` +
+        `    match ${subject}\n` +
+        `        ${arm} => "n"\n` +
+        "        _ => \"ok\"\n",
+      ];
+      expect(diagnostics([HELPER, program(pattern)])).toEqual([
+        "`Helper.count` is a value, not a pattern; bind a name and test it in a " +
+        `guard: \`${rewrite} when y == Helper.count\``,
+      ]);
+      // The offered rewrite compiles, which is the whole claim.
+      expect(diagnostics([HELPER, program(`${rewrite} when y == Helper.count`)]))
+        .toEqual([]);
+    }
+    // Inside an or-alternative there is none: swapping the spelling alone drops the
+    // other alternatives, which is a different program rather than a repair (§2.6).
+    for (const [subject, type, pattern] of [
+      ["i", "Int", "Helper.count | 1"],
+      ["o", "Option(Int)", "Some(Helper.count) | None"],
+    ] as const) {
+      expect(diagnostics([HELPER, [
+        "/main.hex",
+        "module Main\n\nimport Helper\n\n" +
+        `export fun f(${subject}: ${type}): String =\n` +
+        `    match ${subject}\n` +
+        `        ${pattern} => "n"\n` +
+        "        _ => \"ok\"\n",
+      ]])).toEqual(["`Helper.count` is a value, not a pattern"]);
+    }
+  });
+
+  test("a polymorphic term is declined its guard", () => {
+    // `#termSpellingGuardOffered` declines a term whose scheme has variables: its
+    // type would have to be instantiated, and instantiating mints variables and
+    // requirements into a program that is already refused. The cost is a fixit that
+    // would have worked — `Helper.nothing: Option(a)` at `Option(Int)` — and the
+    // control below is what says so, so the line is a measured choice rather than an
+    // accident.
+    expect(diagnostics([HELPER, [
+      "/main.hex",
+      "module Main\n\nimport Helper\n\n" +
+      "export fun f(o: Option(Int)): String =\n" +
+        "    match o\n" +
+        "        Helper.nothing => \"z\"\n" +
+        "        _ => \"ok\"\n",
+    ]])).toEqual(["`Helper.nothing` is a value, not a pattern"]);
+    expect(diagnostics([HELPER, [
+      "/main.hex",
+      "module Main\n\nimport Helper\n\n" +
+      "export fun f(o: Option(Int)): String =\n" +
+        "    match o\n" +
+        "        x when x == Helper.nothing => \"z\"\n" +
+        "        _ => \"ok\"\n",
+    ]])).toEqual([]);
+  });
+
   test("and only where a guard may be written at all (§3)", () => {
     // §3: "guards are only legal on `match` and `catch` arms". At a `let`, a
     // `for..in` head, or a parameter there is no guard to put the test in, so the
@@ -1037,6 +1143,20 @@ describe("the lexer's conversion governs (§2.5, §12; Lexer §5)", () => {
     // And in expression position, where the same two layout reports followed it.
     expect(projectDiagnostics(main("export let big: Float = 1.0e309\n")))
       .toEqual(["Float literal is too large; use `Float.infinity`"]);
+  });
+
+  test("the recovery form is no literal in **expression** position either", () => {
+    // Lexer §9's "never part of the public successful token inventory" binds both
+    // seats that read a `Float` token. Admitting it emitted the `Infinity` the
+    // conversion produced — `let x: Float = 1.0e309` emitted `1.0e309` — which
+    // nothing ships today only because a failed compile's text has no consumer.
+    const project = compileMain(main("export let x: Float = 1.0e309\n"));
+    expect(project.diagnostics.map(({ message }) => message))
+      .toEqual(["Float literal is too large; use `Float.infinity`"]);
+    const text = project.modules
+      .find(({ source }) => source.path === "/main.hex")!.javascript.text;
+    expect(text).not.toContain("1.0e309");
+    expect(text).not.toContain("Infinity");
   });
 
   test("the recovery form is no literal: it keys nothing and covers nothing", () => {

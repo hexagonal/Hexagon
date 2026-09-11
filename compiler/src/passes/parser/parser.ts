@@ -4652,6 +4652,14 @@ class Parser {
         return { kind: "BigInt", decimal: token.decimal, span: token.span };
       case "Float":
         this.#advance();
+        // Lexer §9's recovery form is "never part of the public successful token
+        // inventory", and that binds this seat as it binds the pattern seat: the
+        // spelling overflowed, the lexer has reported it, and admitting it as a
+        // literal put the `Infinity` the conversion produced into the emitted
+        // module (`let x: Float = 1.0e309` emitted `1.0e309`, and an overflow arm's
+        // test emitted `true`). An error expression instead — the report already
+        // stands, so nothing is added here.
+        if (token.recovered === true) return { kind: "ErrorExpr", span: token.span };
         return {
           kind: "Float",
           spelling: token.spelling,
