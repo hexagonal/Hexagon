@@ -575,6 +575,24 @@ describe("coverage identity is the value, not the spelling (§7.2)", () => {
     ))).toEqual(["this case is unreachable; the patterns above already cover it"]);
   });
 
+  test("a refused negative literal at `Nat` is keyed not at all (§7.2)", () => {
+    // §7.2 names this exception in passing — `Nat`, "whose negative literals are
+    // refused before any key is read". Two `-1` arms draw two `Signed` reports and
+    // no duplicate report between them: each failed to type, and §7.3's fourth tier
+    // keys neither and lets neither shadow.
+    const closedPair = "type `Nat` has no `Signed` instance; its only legal homes " +
+      "are the module declaring `Signed` and `Nat`'s prelude companion module, both " +
+      "outside project source, so this pair's honored set is closed — change the " +
+      "type, or go through the operations those homes export";
+    expect(projectDiagnostics(main(
+      "export fun f(n: Nat): String =\n" +
+        "    match n\n" +
+        "        -1 => \"a\"\n" +
+        "        -1 => \"b\"\n" +
+        "        _ => \"ok\"\n",
+    ))).toEqual([closedPair, closedPair]);
+  });
+
   test("a guarded arm still establishes no coverage (§3, §7.1)", () => {
     expect(projectDiagnostics(main(
       "export fun f(t: Float): String =\n" +
@@ -750,6 +768,34 @@ describe("the lexer's conversion governs (§2.5, §12; Lexer §5)", () => {
       "inconsistent dedent; expected one of columns 0, 4",
       "expected a newline or `;` between block items",
     ]);
+  });
+
+  test("the same stand-down covers an oversize **integer** literal", () => {
+    // The `Nat`/`BigInt` gate's lift makes this program reachable, and the seat's
+    // rule is the same one: the lexer has diagnosed it, so the pattern adds nothing.
+    // Its *fixit* signposts `9007199254740993n`, which the pattern grammar has no
+    // form for — **#898**, filed and unresolved; this pin is only that no second
+    // pattern report rides beside it, which is the half #894 owns.
+    for (const type of ["BigInt", "Int"] as const) {
+      const diagnostics = projectDiagnostics(main(
+        `export fun f(n: ${type}): String =\n` +
+          "    match n\n" +
+          "        9007199254740993 => \"big\"\n" +
+          "        _ => \"ok\"\n",
+      ));
+      expect(diagnostics[0]).toBe(
+        "integer literal exceeds Int range; add `n` for a BigInt, or use an " +
+        "explicit conversion",
+      );
+      expect(diagnostics).not.toContain(
+        "expected a binding, `_`, constructor, tuple, or record pattern",
+      );
+      expect(diagnostics).not.toContain("match is missing cases: `_`");
+      expect(diagnostics.slice(1)).toEqual([
+        "inconsistent dedent; expected one of columns 0, 4",
+        "expected a newline or `;` between block items",
+      ]);
+    }
   });
 });
 
