@@ -18,6 +18,93 @@ import {
 } from "./emitter.js";
 
 describe("emitJavaScript", () => {
+  test("emits declared pattern objects, shared root views, construction, and faces", () => {
+    const module = coreSource(
+      "opaque record Rat = {top: Int, bottom: Int}\n" +
+        "fun create(top: Int, bottom: Int): Rat = Rat({top, bottom})\n" +
+        "fun parts(value: Rat): (Int, Int) = (value.top, value.bottom)\n" +
+        "export pattern rat(top: Int, bottom: Int): Rat\n" +
+        "    view = parts\n" +
+        "    build = create\n" +
+        "export fun numerator(value: Rat): Int = match value\n" +
+        "    (0, _)rat => 0\n" +
+        "    (top, _)rat => top\n" +
+        "export let half: Rat = (1, 2)rat",
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    const output = emitJavaScript(module);
+    expect(output.text).toContain("const rat = { view: parts, build: create };");
+    expect(output.text).toContain("const half = rat.build(1, 2);");
+    expect(output.text.match(/rat\.view\(__match\)/gu)).toHaveLength(1);
+    expect(output.text).toContain("export { rat };");
+    expect(emitDeclarations(module).text).toContain(
+      "export declare const rat: {\n  view(value: Rat): [number, number];\n  build(top: number, bottom: number): Rat;\n};",
+    );
+    expect(output.diagnostics).toEqual([]);
+  });
+
+  test("defers a nested declared view until its outer constructor matches", () => {
+    const module = coreSource(
+      "record Rat = {top: Int, bottom: Int}\n" +
+        "union Wrapped = Wrapped(Rat) | Empty\n" +
+        "pattern rat(top: Int, bottom: Int): Rat\n" +
+        "    view(value) = (value.top, value.bottom)\n" +
+        "fun numerator(value: Wrapped): Int = match value\n" +
+        "    Wrapped((top, _)rat) => top\n" +
+        "    Empty => 0",
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    const output = emitJavaScript(module).text;
+    expect(output).toMatch(/if \(__match\.tag === "Wrapped" && \(__ratViewAt\(\), true\)/u);
+    expect(output.indexOf("const __ratViewAt = () => {")).toBeLessThan(
+      output.indexOf("if (__match.tag === \"Wrapped\""),
+    );
+    expect(output.match(/rat\.view\(__match\.item1\)/gu)).toHaveLength(1);
+  });
+
+  test("keeps equal-spelled payloads of different constructors as distinct positions", () => {
+    const module = coreSource(
+      "record Rat = {top: Int, bottom: Int}\n" +
+        "union Choice = First(Rat) | Second(Rat)\n" +
+        "pattern rat(top: Int, bottom: Int): Rat\n" +
+        "    view(value) = (value.top, value.bottom)\n" +
+        "fun numerator(value: Choice): Int = match value\n" +
+        "    First((top, _)rat) => top\n" +
+        "    Second((top, _)rat) => top",
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    const output = emitJavaScript(module).text;
+    expect(output.match(/rat\.view\(__match\.item1\)/gu)).toHaveLength(2);
+  });
+
+  test("moves the private side of a pattern and term name collision", () => {
+    const exportedPattern = coreSource(
+      "let rat: Int = 7\n" +
+        "export pattern rat(value: Int): Int\n" +
+        "    view(value) = value\n" +
+        "export let observed: Int = rat",
+    );
+    expect(exportedPattern.diagnostics).toEqual([]);
+    expect(emitJavaScript(exportedPattern).text).toContain(
+      "const rat_1 = 7;\nconst rat = { view: value => value };\nconst observed = rat_1;",
+    );
+
+    const privatePattern = coreSource(
+      "export let rat: Int = 7\n" +
+        "pattern rat(value: Int): Int\n" +
+        "    view(value) = value\n" +
+        "    build(value) = value\n" +
+        "export let rebuilt: Int = (8)rat",
+    );
+    expect(privatePattern.diagnostics).toEqual([]);
+    expect(emitJavaScript(privatePattern).text).toContain(
+      "const rat = 7;\nconst rat_1 = { view: value => value, build: value => value };\nconst rebuilt = rat_1.build(8);",
+    );
+  });
+
   test("emits readable extern ESM bindings, stable adapters, and opaque declarations", () => {
     const module = preludeSource(
       "extern from \"tiny-json\"\n" +

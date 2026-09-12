@@ -284,6 +284,16 @@ function expectsBlock(item: readonly Lexed.Token[]): boolean {
   if (first?.kind === "Fun" && funBlockHeadEnds(item, head)) {
     return true;
   }
+  // #834: `pattern name …` is a declaration head whose member block starts on
+  // the next indented line. The alias spelling is the sole form with `=` on
+  // its head and opens no block.
+  if (
+    first?.kind === "NonUpperName" && first.text === "pattern" &&
+    ["NonUpperName", "UpperName"].includes(item[head + 1]?.kind ?? "") &&
+    !item.some((token) => token.kind === "Equal")
+  ) {
+    return true;
+  }
   if (
     first?.kind === "Extern" &&
     item.some((token) => token.kind === "NonUpperName" && token.text === "from") &&

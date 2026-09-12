@@ -84,10 +84,12 @@ open specification work does not make the book outline provisional.
     every respect but one: its representation is pinned to the JavaScript `boolean`.
 
 12. **Patterns** — `match` supports constructor, tuple, record, literal,
-    vector, wildcard, variable, or-, and as-patterns, plus guards and construction
+    vector, wildcard, variable, or-, as-, and declared patterns, plus guards and construction
     punning. Exhaustiveness and unreachable arms are compile errors, and refutable
     patterns are restricted in binding positions; a scrutinee-less `match` is the unary
     function matching its argument, which is how refutable patterns reach callbacks.
+    Declared patterns supply a pure view and optional build; suffix construction
+    supports the ordinary effect marks, and competing imports require explicit aliases.
 
 13. **Constraints** — Constraints such as `Eq`, `Ord`, `Show`, `Num`, `Signed`,
     `Frac`, `Integral`, `Concat`, `Pow`, `Hash`, and `Iterable` express capabilities.

@@ -71,6 +71,8 @@ Related forms and likely lookup terms should point to one another.
 | Option | Chapter 10, “`Option` represents possible absence” | Later collections and FFI chapters |
 | or-pattern | Chapter 11, “Or-patterns share one arm” | — |
 | partial application | Chapter 3, “Arity is part of a function” | Not implicit in Hexagon; write an explicit lambda; see **currying** |
+| declared pattern | Chapter 11, “Declared patterns expose a view” | See also **pattern**, **match-only pattern** |
+| match-only pattern | Chapter 11, “Declared patterns expose a view” | A view without a build |
 | pattern | Chapter 11, opening definition | Chapter 11 throughout |
 | persistent collection | Chapter 22, opening definition | `Vector`, `Map`, and `Set` |
 | polymorphism | Chapter 6, “A `let`-bound function can be reused at several types” | Chapter 6, monomorphic parameters and recursive calls |

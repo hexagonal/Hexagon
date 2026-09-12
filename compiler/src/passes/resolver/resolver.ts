@@ -31,6 +31,8 @@ import * as Resolved from "../../syntax/resolved/index.js";
 export interface ModuleInterface {
   readonly module: Resolved.Module;
   readonly terms: ReadonlyMap<string, Resolved.Symbol>;
+  /** Exported suffix patterns, in their own namespace. */
+  readonly patterns: ReadonlyMap<string, Resolved.PatternReference>;
   readonly unions: ReadonlyMap<string, Resolved.Union>;
   readonly records: ReadonlyMap<string, Resolved.RecordDeclaration>;
   /**
@@ -637,6 +639,8 @@ export interface ModuleImport {
 
 export interface ResolveOptions {
   readonly imports?: ReadonlyMap<string, ModuleImport>;
+  /** Program modules already compiled, for the pattern expected-type door. */
+  readonly patternHomes?: readonly ModuleImport[];
   /**
    * How `import <written>` would resolve for this module, asked at a refusal
    * rather than at an import (Modules §5.1 rule 1's repair clause; Packages §3).
@@ -995,6 +999,7 @@ export function nameDictionaries(
 export function moduleInterface(module: Resolved.Module): ModuleInterface {
   const symbols = new Map(module.symbols.map((symbol) => [symbol.id, symbol]));
   const terms = new Map<string, Resolved.Symbol>();
+  const patterns = new Map<string, Resolved.PatternReference>();
   const unions = new Map<string, Resolved.Union>();
   const records = new Map<string, Resolved.RecordDeclaration>();
   const exceptions = new Map<string, Resolved.ExceptionItem>();
@@ -1125,9 +1130,25 @@ export function moduleInterface(module: Resolved.Module): ModuleInterface {
       item.kind === "Let" && item.widens !== undefined ? [item.binding.name] : []
     ),
   );
+  for (const item of module.items) {
+    if (item.kind !== "PatternDeclaration" || !item.exported) continue;
+    patterns.set(item.name, {
+      identity: item.identity,
+      declaredName: item.name,
+      emitted: item.name,
+      view: item.view.binding.symbol,
+      ...(item.build === undefined ? {} : { build: item.build.binding.symbol }),
+      componentNames: item.head?.components.map(({ name }) => name) ?? [],
+      declaringModule: module.path ?? "",
+      ...(module.path === undefined ? {} : { declaringPath: module.path }),
+      exported: true,
+      declarationSpan: item.span,
+    });
+  }
   return {
     module,
     terms,
+    patterns,
     unions,
     records,
     exceptions,
@@ -1303,6 +1324,12 @@ class Resolver {
   readonly #unions: Resolved.Union[] = [];
   readonly #records: Resolved.RecordDeclaration[] = [];
   readonly #externTypes: Resolved.ExternTypeDeclaration[] = [];
+  /** Pattern declarations are top-down; imports contribute module-wide. */
+  readonly #ownPatterns = new Map<string, Resolved.PatternReference>();
+  readonly #importedPatterns = new Map<string, Resolved.PatternCandidate[]>();
+  readonly #doorPatterns = new Map<string, Resolved.PatternCandidate[]>();
+  readonly #patternHomes: readonly ModuleImport[];
+  readonly #laterPatterns = new Map<string, { readonly name: Parsed.Name; readonly span: Source.Span }>();
   readonly #unionNames = new Map<string, Resolved.UnionId>();
   readonly #unionArities = new Map<string, number>();
   readonly #recordNames = new Map<string, Resolved.RecordId>();
@@ -1615,6 +1642,27 @@ class Resolver {
     this.#nextUnion = options.unionBase ?? 0;
     this.#nextRecord = options.recordBase ?? 0;
     this.#nextExternType = options.externTypeBase ?? 0;
+    this.#patternHomes = options.patternHomes ?? [];
+    for (const home of options.patternHomes ?? []) {
+      for (const [name, reference] of home.interface.patterns) {
+        const candidates = this.#doorPatterns.get(name) ?? [];
+        if (!candidates.some(({ identity }) => identity === reference.identity)) {
+          candidates.push({
+            ...reference,
+            emitted: `${displayModuleName(home.name).split(".").at(-1) ?? home.name}.${reference.declaredName}`,
+            declaringModule: home.name,
+            source: "door",
+            homePatternNames: [...home.interface.patterns.keys()],
+          });
+          this.#doorPatterns.set(name, candidates);
+        }
+        for (const symbol of [reference.view, reference.build]) {
+          if (symbol === undefined) continue;
+          const importedSymbol = home.interface.module.symbols.find(({ id }) => id === symbol);
+          if (importedSymbol !== undefined) this.#importedSymbols.set(symbol, importedSymbol);
+        }
+      }
+    }
     if (!this.#privileged) {
       for (const name of NON_REDECLARABLE_CONSTRAINTS) this.#constraintNames.add(name);
     }
@@ -2349,6 +2397,13 @@ class Resolver {
     // absolute.
     this.#moduleScope = scope;
     this.#predeclareExternTerms(module.items, scope);
+    for (const item of module.items) {
+      if (item.kind === "PatternDeclaration" || item.kind === "PatternAlias") {
+        if (!this.#laterPatterns.has(item.name.text)) {
+          this.#laterPatterns.set(item.name.text, { name: item.name, span: item.span });
+        }
+      }
+    }
     this.#indexHonoredMemberLines(module.items);
     this.#seedHonoredMemberSpellings();
     const walked = this.#resolveItems(module.items, scope);
@@ -2357,6 +2412,32 @@ class Resolver {
     // declaration supplies are derived here, so member seats, emission, and the
     // checker all meet a block whose manifest is complete (Constraints §4.7).
     const resolvedItems = this.#supplyWidenedMembers(walked);
+    for (const pattern of resolvedItems) {
+      if (pattern.kind !== "PatternDeclaration" || !pattern.exported) continue;
+      const term = resolvedItems.flatMap((item): readonly { readonly name: string; readonly span: Source.Span }[] => {
+        if ((item.kind === "Let" || item.kind === "Fun") && item.exported) {
+          return [{ name: item.binding.name, span: item.span }];
+        }
+        if (item.kind === "ExternBlock") {
+          return item.declarations.flatMap((declaration) =>
+            declaration.exported && declaration.kind !== "ExternType"
+              ? [{ name: declaration.localName, span: declaration.span }]
+              : []
+          );
+        }
+        if (item.kind === "ConstraintDeclaration" && item.exported) {
+          return item.members.map((member) => ({ name: member.binding.name, span: member.span }));
+        }
+        return [];
+      }).find(({ name }) => name === pattern.name);
+      if (term === undefined) continue;
+      this.#diagnostics.add({
+        severity: "error",
+        message: `this module already exports \`${pattern.name}\`; an exported pattern and an exported term cannot share a name`,
+        primary: pattern.span,
+        labels: [{ span: term.span, message: "term exported here" }],
+      });
+    }
     // After resolution, never before: the synthesized import's local names have
     // to dodge every name the emitted module binds, and that set is only closed
     // once every declaration has been through `#declare` (PR #91 finding F1).
@@ -2394,6 +2475,19 @@ class Resolver {
           alias,
           members: [...reached.terms].map(([name, symbol]) => ({ name, symbol: symbol.id })),
         })),
+      patternNamespaceNames: [...new Set([
+        ...this.#ownPatterns.keys(),
+        ...this.#importedPatterns.keys(),
+        ...this.#laterPatterns.keys(),
+      ])],
+      patternHomes: this.#patternHomes.flatMap((home) => {
+        const path = home.interface.module.path;
+        return path === undefined ? [] : [{
+          path,
+          module: home.name,
+          patterns: [...home.interface.patterns.values()],
+        }];
+      }),
       unions: this.#unions,
       records: this.#records,
       preludeRecords: this.#preludeRecords,
@@ -2511,6 +2605,26 @@ class Resolver {
       // the project reported it where the package set is known.
       if (home === undefined) continue;
       const imported = home.interface;
+      if (imported !== undefined) {
+        for (const [name, reference] of imported.patterns) {
+          const candidates = this.#importedPatterns.get(name) ?? [];
+          if (!candidates.some(({ identity }) => identity === reference.identity)) {
+            candidates.push({
+              ...reference,
+              emitted: `${item.alias.text}.${reference.declaredName}`,
+              declaringModule: home.name,
+              source: "import",
+              homePatternNames: [...imported.patterns.keys()],
+            });
+          }
+          this.#importedPatterns.set(name, candidates);
+          for (const symbol of [reference.view, reference.build]) {
+            if (symbol === undefined) continue;
+            const importedSymbol = imported.module.symbols.find(({ id }) => id === symbol);
+            if (importedSymbol !== undefined) this.#importedSymbols.set(symbol, importedSymbol);
+          }
+        }
+      }
       const constraints: Resolved.ConstraintImport[] = [];
       let aliasBound = false;
       if (this.#moduleAliases.has(item.alias.text)) {
@@ -2902,6 +3016,173 @@ class Resolver {
 
   #resolveItem(item: Parsed.Item, scope: Scope): Resolved.Item {
     switch (item.kind) {
+      case "PatternAlias": {
+        this.#laterPatterns.delete(item.name.text);
+        if (item.exported) {
+          this.#diagnostics.add({
+            severity: "error",
+            message: "an exported pattern alias is a re-export; pattern re-exports are deferred",
+            primary: item.span,
+          });
+        }
+        const targetModule = item.target.qualifier === undefined
+          ? undefined
+          : this.#moduleAliases.get(item.target.qualifier.text);
+        const target = targetModule?.patterns.get(item.target.name.text);
+        if (item.target.qualifier === undefined) {
+          this.#diagnostics.add({
+            severity: "error",
+            message: `\`${item.target.name.text}\` is already in scope; an alias renames a pattern of another module`,
+            primary: item.target.span,
+          });
+        } else if (target === undefined) {
+          this.#diagnostics.add({
+            severity: "error",
+            message: `module \`${item.target.qualifier.text}\` exports no pattern \`${item.target.name.text}\``,
+            primary: item.target.span,
+          });
+        }
+        const aliased = target === undefined ? undefined : {
+          ...target,
+          emitted: `${item.target.qualifier!.text}.${target.declaredName}`,
+          source: "alias" as const,
+        };
+        if (this.#ownPatterns.has(item.name.text)) {
+          this.#diagnostics.add({
+            severity: "error",
+            message: `pattern \`${item.name.text}\` is already declared`,
+            primary: item.name.span,
+          });
+        } else if (aliased !== undefined) {
+          this.#ownPatterns.set(item.name.text, aliased);
+        }
+        return {
+          kind: "PatternAlias",
+          exported: item.exported,
+          name: item.name.text,
+          ...(aliased === undefined ? {} : { target: aliased }),
+          span: item.span,
+        };
+      }
+      case "PatternDeclaration": {
+        this.#laterPatterns.delete(item.name.text);
+        const typeParameterNames = new Set(item.head?.typeParameters?.map(({ name }) => name.text));
+        const head = item.head === undefined ? undefined : {
+          typeParameters: (item.head.typeParameters ?? []).map((parameter) => ({
+            name: parameter.name.text,
+            constraints: parameter.constraints.map(({ text }) => text),
+            constraintQualifiers: parameter.constraints.map(({ qualification }) => qualification),
+            constraintIdentities: parameter.constraints.map(({ text }) => this.#constraintIdentity(text)),
+            span: parameter.span,
+          })),
+          components: item.head.components.map((component) => ({
+            name: component.name.text,
+            annotation: this.#resolveTypeAnnotation(component.annotation, typeParameterNames),
+            span: component.span,
+          })),
+          result: this.#resolveTypeAnnotation(item.head.result, typeParameterNames),
+          span: item.head.span,
+        };
+        const viewSyntax = item.members.find(({ kind }) => kind === "PatternView");
+        const buildSyntax = item.members.find(({ kind }) => kind === "PatternBuild");
+        const viewBinding = this.#declare(viewSyntax?.name ?? item.name, "fun");
+        const buildBinding = buildSyntax === undefined
+          ? undefined
+          : this.#declare(buildSyntax.name, "fun");
+        const identity = `${this.#identity}:${item.name.text}:${item.span.start.offset}`;
+        const reference: Resolved.PatternReference = {
+          identity,
+          declaredName: item.name.text,
+          emitted: item.name.text,
+          view: viewBinding.symbol,
+          ...(buildBinding === undefined ? {} : { build: buildBinding.symbol }),
+          componentNames: head?.components.map(({ name }) => name) ?? [],
+          declaringModule: this.#identity,
+          ...(this.#path === undefined ? {} : { declaringPath: this.#path }),
+          exported: item.exported,
+          declarationSpan: item.span,
+        };
+        if (this.#ownPatterns.has(item.name.text)) {
+          this.#diagnostics.add({
+            severity: "error",
+            message: `pattern \`${item.name.text}\` is already declared`,
+            primary: item.name.span,
+          });
+        } else {
+          // The declaration's line opens its name, so its member bodies can
+          // use the suffix recursively even though the member values follow.
+          this.#ownPatterns.set(item.name.text, reference);
+        }
+        const resolveMember = (
+          member: Parsed.PatternDeclarationMember,
+          binding: Resolved.Binding,
+        ): Resolved.PatternMember => {
+          let value: Resolved.Expr;
+          if (member.value !== undefined) {
+            value = this.#resolveLambda(member.value, scope);
+          } else if (member.delegate?.qualifier === undefined) {
+            value = this.#resolveName({
+              kind: "Name",
+              name: member.delegate?.name ?? member.name,
+              span: member.delegate?.span ?? member.span,
+            }, scope);
+          } else {
+            value = this.#resolveExpr({
+              kind: "Access",
+              receiver: {
+                kind: "Name",
+                name: member.delegate.qualifier,
+                span: member.delegate.qualifier.span,
+              },
+              field: member.delegate.name,
+              span: member.delegate.span,
+            }, scope);
+          }
+          return {
+            binding,
+            value,
+            delegated: member.delegate !== undefined,
+            span: member.span,
+          };
+        };
+        for (const member of item.members) {
+          if ((member.kind === "PatternView" && member !== viewSyntax) ||
+            (member.kind === "PatternBuild" && member !== buildSyntax)) {
+            this.#diagnostics.add({
+              severity: "error",
+              message: `a pattern declares \`${member.kind === "PatternView" ? "view" : "build"}\` at most once`,
+              primary: member.span,
+            });
+          }
+        }
+        const view = viewSyntax === undefined
+          ? {
+              binding: viewBinding,
+              value: { kind: "ErrorExpr" as const, span: item.span },
+              delegated: false,
+              span: item.span,
+            }
+          : resolveMember(viewSyntax, viewBinding);
+        const build = buildSyntax === undefined ? undefined : resolveMember(buildSyntax, buildBinding!);
+        if (viewSyntax === undefined) {
+          this.#diagnostics.add({
+            severity: "error",
+            message: "a pattern declares `view`",
+            primary: item.span,
+          });
+        }
+        const declaration: Resolved.PatternDeclarationItem = {
+          kind: "PatternDeclaration",
+          exported: item.exported,
+          identity,
+          name: item.name.text,
+          ...(head === undefined ? {} : { head }),
+          view,
+          ...(build === undefined ? {} : { build }),
+          span: item.span,
+        };
+        return declaration;
+      }
       case "Import": {
         // The name's resolution against the program's package set is the
         // project's (Packages §3), which reports every way it can fail —
@@ -3043,6 +3324,7 @@ class Resolver {
               ...(declaration.foreignName === undefined ? {} : { foreignName: declaration.foreignName.text }),
               localName: declaration.localName.text,
               externType: this.#externTypeDeclarations.get(declaration) ?? Resolved.externTypeId(this.#nextExternType++),
+              ...(this.#path === undefined ? {} : { declaringPath: this.#path }),
               span: declaration.span,
             };
             this.#externTypes.push(resolved);
@@ -3681,6 +3963,48 @@ class Resolver {
             this.#resolveExpr(element, scope),
           ),
         };
+      case "PatternConstruction": {
+        const own = this.#ownPatterns.get(expression.name.text);
+        const namespaceCandidates: readonly Resolved.PatternCandidate[] = own !== undefined
+          ? [{ ...own, source: own.emitted.includes(".") ? "alias" : "own" }]
+          : this.#importedPatterns.get(expression.name.text) ?? [];
+        // Expression position has no door, but an imported declaration's
+        // nominal home is still a contestant. Carry the drawer only when the
+        // namespace already answered; the checker reads declaration subjects.
+        const candidates: readonly Resolved.PatternCandidate[] = own !== undefined
+          ? namespaceCandidates
+          : [
+              ...namespaceCandidates,
+              ...(this.#doorPatterns.get(expression.name.text) ?? []).filter((door) =>
+                !namespaceCandidates.some(({ identity }) => identity === door.identity)
+              ),
+            ];
+        const later = this.#laterPatterns.get(expression.name.text);
+        if (own === undefined && later !== undefined) {
+          this.#diagnostics.add({
+            severity: "error",
+            message: `pattern \`${expression.name.text}\` is declared later; move its declaration above this use`,
+            primary: expression.name.span,
+            labels: [{ span: later.span, message: "declared here" }],
+          });
+        } else if (namespaceCandidates.length === 0 && contextualPatternSpacingMessage(expression.name.text) !== undefined) {
+          this.#diagnostics.add({
+            severity: "error",
+            message: contextualPatternSpacingMessage(expression.name.text)!,
+            primary: expression.name.span,
+          });
+        }
+        return {
+          kind: "PatternConstruction",
+          components: expression.components.map((component) => this.#resolveExpr(component, scope)),
+          name: expression.name.text,
+          candidates: later === undefined ? candidates : [],
+          ...(expression.mark === undefined ? {} : { mark: expression.mark }),
+          ...(expression.markSpan === undefined ? {} : { markSpan: expression.markSpan }),
+          nameSpan: expression.name.span,
+          span: expression.span,
+        };
+      }
       case "Record":
         return {
           kind: "Record",
@@ -3932,9 +4256,14 @@ class Resolver {
                   expression.field,
                 );
               if (honored !== undefined) return honored;
+              const pattern = importedModule.patterns.get(expression.field.text);
               this.#diagnostics.add({
                 severity: "error",
-                message: curatedCompanionMiss(
+                message: pattern !== undefined
+                  ? `module \`${expression.receiver.name.text}\` exports no term \`${expression.field.text}\`; ` +
+                    `\`${expression.field.text}\` is a pattern, written ` +
+                    `\`(${pattern.componentNames.join(", ")})${expression.field.text}\``
+                  : curatedCompanionMiss(
                   importedModule.module.companionPrimitive,
                   expression.field.text,
                 ) ??
@@ -4159,14 +4488,17 @@ class Resolver {
       // written head reads the same way, which is what makes the two spellings
       // one refusal.
       const opaque = this.#opaqueConstructorHome(module, name.text);
-      this.#diagnostics.add({
-        severity: "error",
-        message: opaque === undefined
-          ? `module \`${qualifier.text}\` does not export \`${name.text}\``
-          : `cannot destructure opaque ${opaque.noun} \`${opaque.name}\`; ` +
-            "use an operation exported by its home module",
-        primary: name.span,
-      });
+      if (opaque === undefined) {
+        this.#diagnostics.add({
+          severity: "error",
+          message: `module \`${qualifier.text}\` does not export \`${name.text}\``,
+          primary: name.span,
+        });
+      }
+      // The checker owns an opaque refusal because it has both the expected
+      // nominal identity and the exported pattern faces needed to name the
+      // legal destructuring doors. Resolution deliberately leaves the
+      // constructor unresolved here so that ordinary closed-door checking runs.
       return undefined;
     }
     // The same kind test the bare arm makes, so one spelling cannot match what
@@ -4232,6 +4564,51 @@ class Resolver {
       pattern.kind === "String"
     ) return pattern;
     if (pattern.kind === "Error") return pattern;
+    if (pattern.kind === "Declared") {
+      const own = this.#ownPatterns.get(pattern.name.text);
+      const namespaceCandidates: readonly Resolved.PatternCandidate[] = own !== undefined
+        ? [{ ...own, source: own.emitted.includes(".") ? "alias" : "own" }]
+        : this.#importedPatterns.get(pattern.name.text) ?? [];
+      const candidates: readonly Resolved.PatternCandidate[] = own !== undefined
+        ? namespaceCandidates
+        : [
+            ...namespaceCandidates,
+            ...(this.#doorPatterns.get(pattern.name.text) ?? []).filter((door) =>
+              !namespaceCandidates.some(({ identity }) => identity === door.identity)
+            ),
+          ];
+      const later = this.#laterPatterns.get(pattern.name.text);
+      if (own === undefined && later !== undefined) {
+        this.#diagnostics.add({
+          severity: "error",
+          message: `pattern \`${pattern.name.text}\` is declared later; move its declaration above this use`,
+          primary: pattern.name.span,
+          labels: [{ span: later.span, message: "declared here" }],
+        });
+      }
+      if (later === undefined && candidates.length === 0) {
+        const message = contextualPatternSpacingMessage(pattern.name.text);
+        if (message !== undefined) {
+          this.#diagnostics.add({
+            severity: "error",
+            message,
+            primary: pattern.name.span,
+            supersedes: pattern.span,
+          });
+        }
+      }
+      return {
+        kind: "Declared",
+        components: pattern.components.map((component) =>
+          this.#resolvePattern(component, scope, seen, binderClass, sharedBindings)
+        ),
+        name: pattern.name.text,
+        candidates: later === undefined ? candidates : [],
+        ...(later === undefined && namespaceCandidates.length === 0 ? { open: true as const } : {}),
+        nameSpan: pattern.name.span,
+        span: pattern.span,
+      };
+    }
     if (pattern.kind === "TermSpelling") return this.#termSpellingPattern(pattern);
     if (pattern.kind === "Or") {
       const namesByAlternative = pattern.alternatives.map((alternative) =>
@@ -4307,7 +4684,25 @@ class Resolver {
         // own `union` took `Less` over still matches an `Ordering` by
         // `Prelude.Less`.
         const qualified = this.#qualifiedConstructor(pattern.qualifier, pattern.name);
-        if (qualified === undefined) return { kind: "Wildcard", span: pattern.span };
+        if (qualified === undefined) {
+          const module = this.#namedModule(pattern.qualifier.text);
+          const opaque = module === undefined
+            ? undefined
+            : this.#opaqueConstructorHome(module, pattern.name.text);
+          if (opaque === undefined) return { kind: "Wildcard", span: pattern.span };
+          return {
+            kind: "Constructor",
+            open: true,
+            qualifications: [`${pattern.qualifier.text}.${pattern.name.text}`],
+            text: pattern.name.text,
+            tag: pattern.name.text,
+            nameSpan: pattern.name.span,
+            arguments: pattern.arguments.map((argument) =>
+              this.#resolvePattern(argument, scope, seen, binderClass, sharedBindings)
+            ),
+            span: pattern.span,
+          };
+        }
         return {
           kind: "Constructor",
           symbol: qualified,
@@ -7614,4 +8009,18 @@ function constantifyLinkedArrows(annotation: Resolved.TypeAnnotation): Resolved.
     return copy;
   };
   return rebuild(annotation) as Resolved.TypeAnnotation;
+}
+
+/** The three contextual words whose glued spelling is a missing space, not a pattern. */
+function contextualPatternSpacingMessage(name: string): string | undefined {
+  if (name === "when") {
+    return "a guard's `when` stands off the parenthesis; write `(…) when condition`";
+  }
+  if (name === "as") {
+    return "an `as` pattern's `as` stands off the parenthesis; write `(…) as name`";
+  }
+  if (name === "derives") {
+    return "a declaration's `derives` stands off the parenthesis; write `(…) derives (…)`";
+  }
+  return undefined;
 }

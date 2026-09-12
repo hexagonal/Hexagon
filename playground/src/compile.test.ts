@@ -581,9 +581,16 @@ describe("compileSource", () => {
     expect(response.javascript).toContain(
       "const threeHalves = __Frac_Rat.divide(half, third);",
     );
-    expect(response.javascript).toContain("const half = Rat.create(1n, 2n);");
-    expect(response.javascript).toContain("const tenTwelfths = Rat.create(10n, 12n);");
-    expect(response.javascript).toContain("tenTwelfths, fiveSixths");
+    expect(response.javascript).toContain("const half = Rat.rat.build(1n, 2n);");
+    expect(response.javascript).toContain("const third = Rat.rat.build(1n, 3n);");
+    expect(response.javascript).toContain(
+      "__Eq_Rat.equals(Rat.rat.build(10n, 12n), Rat.rat.build(5n, 6n))",
+    );
+    expect(response.javascript).toContain("const fraction = Rat.rat.build(6n, 10n);");
+    expect(response.javascript).toContain("const __ratView = Rat.rat.view(fraction);");
+    expect(response.javascript).toContain("const top = __ratView[0];");
+    expect(response.javascript).toContain("const bottom = __ratView[1];");
+    expect(response.javascript).toContain("const describe = fraction => {");
     expect(response.javascript).not.toContain("opaque record Rat");
     expect(response.executionModules.map(({ path }) => path)).toContain(
       "/Hex/Rat.hex",
@@ -614,8 +621,12 @@ describe("compileSource", () => {
       displayedType: "Rat",
     }));
     expect(response.types).toContainEqual(expect.objectContaining({
-      name: "tenTwelfths",
+      name: "third",
       displayedType: "Rat",
+    }));
+    expect(response.types).toContainEqual(expect.objectContaining({
+      name: "describe",
+      displayedType: "Rat -> String",
     }));
   });
 
@@ -640,6 +651,9 @@ describe("compileSource", () => {
       // `True`, not `true` (#147): interpolating a `Bool` shows its constructor
       // name, the ruling's one silent behaviour change. Pinned here on purpose.
       expect(log).toHaveBeenCalledWith("Does 10/12 = 5/6? True");
+      expect(log).toHaveBeenCalledWith("top = 3");
+      expect(log).toHaveBeenCalledWith("bottom = 5");
+      expect(log).toHaveBeenCalledWith("fraction: 3/5");
     } finally {
       log.mockRestore();
     }

@@ -937,6 +937,12 @@ function topLevelTermNames(
       add(item.binding.name, item.exported);
     } else if (item.kind === "ConstraintDeclaration") {
       for (const member of item.members) add(member.binding.name, false);
+    } else if (item.kind === "PatternDeclaration") {
+      // A pattern emits one module-level object binding. It is not itself
+      // specializable, but it occupies the collision namespace editions use.
+      add(item.name, item.exported);
+    } else if (item.kind === "PatternAlias") {
+      // An alias is compile-time-only and emits no binding.
     } else if (item.kind === "Import") {
       if (item.form.kind === "Namespace") add(item.form.alias, false);
       if (item.form.kind === "Named") {
@@ -974,6 +980,8 @@ function patternBindingNames(pattern: Core.Pattern): readonly string[] {
       return pattern.fields.flatMap(({ pattern }) => patternBindingNames(pattern));
     case "Constructor":
       return pattern.arguments.flatMap(patternBindingNames);
+    case "Declared":
+      return pattern.components.flatMap(patternBindingNames);
     case "Wildcard":
     case "Unit":
     case "Integer":

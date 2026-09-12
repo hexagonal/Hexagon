@@ -344,12 +344,16 @@ Everything else about ranges — inclusivity, emptiness, `Int`-onlyness, lazines
 
 ---
 
-## 10. Postfix forms: `.`, call, `[]`
+## 10. Postfix forms and suffix construction
 
-All level 1, left-associative, freely interleaved: `a.b[i].c(x)[1..3]`.
+Field access, calls, and indexing are all level 1, left-associative, freely
+interleaved: `a.b[i].c(x)[1..3]`. Suffix construction is a primary at the
+same binding strength, with the restricted parenthesised-primary seat below;
+it cannot attach to a call's argument list.
 
 - `.` — field access (records, tuples' `itemN`); also the module-path separator (`Int.div`) — same token, resolved by what the left side names. `e.name(args…)` with a non-uppercase-start `name` and an immediately following argument list creates Method Syntax's DotCall goal (its §2.1); `(e.name)(args…)` remains two postfix operations, field access then call.
 - `f(args)` — call.
+- `(args)name` — suffix construction, a parenthesised primary followed immediately by a pattern name (Pattern Declarations §3.2, §14). An optional trailing `!` or `?` belongs to construction before any following postfix operation is read. To mark a call on a constructed function, group it: `((x)factory)!(y)`.
 - `xs[i]` — indexing; `xs[lo..hi]` — slicing (any `Range`-valued expression is legal between the brackets, not just a literal `..`). **Semantics deferred to the collections/indexing spec**; the standing decisions this table must not contradict: indexing is 1-based, out-of-bounds `xs[i]` throws `IndexError`, and whether a slice clamps or throws is that spec's open question. This spec contributes only the grammar: `[` after a primary expression is postfix indexing, never a list literal — the lexer/parser distinguish by position, and `[1..10]` in expression-head position is reserved for whatever the collections spec decides literals look like.
 
 ---

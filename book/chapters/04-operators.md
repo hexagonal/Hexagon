@@ -36,9 +36,15 @@ types. Division `/` belongs to types honoring `Frac`, including `Float` and exac
 `Rat` values:
 
 ```hexagon
+import Rat
+
 let average = 7.5 / 3.0
-let threeHalves = Rat.create(1, 2) / Rat.create(1, 3)
+let threeHalves = (1, 2)rat / (1, 3)rat
 ```
+
+The `rat` suffix constructs an exact fraction; `import Rat` makes that suffix
+available. The patterns chapter explains how the same spelling takes a fraction
+apart.
 
 If both values are `Float`, this is IEEE 754 division and follows the same infinity and
 `NaN` behavior as JavaScript. Rat division is exact and throws `DivideByZeroError` for

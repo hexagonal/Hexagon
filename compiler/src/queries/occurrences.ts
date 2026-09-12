@@ -388,6 +388,16 @@ class Collector {
           if (member.defaultValue !== undefined) this.#visitExpr(member.defaultValue);
         }
         return;
+      case "PatternDeclaration":
+        if (item.head !== undefined) {
+          for (const component of item.head.components) this.#visitAnnotation(component.annotation);
+          this.#visitAnnotation(item.head.result);
+        }
+        this.#visitExpr(item.view.value);
+        if (item.build !== undefined) this.#visitExpr(item.build.value);
+        return;
+      case "PatternAlias":
+        return;
       case "Honor":
         this.#visitAnnotation(item.subject);
         for (const implied of item.impliedTypes) this.#visitAnnotation(implied.annotation);
@@ -477,6 +487,11 @@ class Collector {
           );
         }
         for (const argument of pattern.arguments) this.#visitPattern(argument);
+        return;
+      case "Declared":
+        // A pattern is its own namespace, not a value identity. Its components
+        // may still bind or reference ordinary values, which are indexed here.
+        for (const component of pattern.components) this.#visitPattern(component);
         return;
       case "As":
         this.#visitPattern(pattern.pattern);
@@ -612,6 +627,12 @@ class Collector {
         this.#visitExpr(expression.target);
         this.#visitExpr(expression.value);
         return;
+      case "PatternConstruction":
+        // Normally the checker lowers this to the selected build call. Retain
+        // the traversal for a recovered resolved tree, where its components can
+        // still contain value references.
+        for (const component of expression.components) this.#visitExpr(component);
+        return;
       default:
         return;
     }
@@ -690,6 +711,16 @@ class Collector {
         return;
       case "LetPattern":
         this.#visitParsedExpr(item.value);
+        return;
+      case "PatternDeclaration":
+        if (item.head !== undefined) {
+          for (const parameter of item.head.typeParameters ?? []) this.#parsedTypeParameter(parameter);
+        }
+        for (const member of item.members) {
+          if (member.value !== undefined) this.#visitParsedExpr(member.value);
+        }
+        return;
+      case "PatternAlias":
         return;
       case "ExprItem":
         this.#visitParsedExpr(item.expression);
@@ -772,6 +803,9 @@ class Collector {
       case "Assignment":
         this.#visitParsedExpr(expression.target);
         this.#visitParsedExpr(expression.value);
+        return;
+      case "PatternConstruction":
+        for (const component of expression.components) this.#visitParsedExpr(component);
         return;
       default:
         return;

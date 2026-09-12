@@ -478,6 +478,10 @@ export interface Module {
   readonly scopes: readonly ScopeRegion[];
   /** Modules addressable by name here, prelude companions included. */
   readonly moduleAliases: readonly ModuleAlias[];
+  /** All own and imported pattern spellings reserved in this module. */
+  readonly patternNamespaceNames?: readonly string[];
+  /** Exported pattern inventories of the program's nominal home modules. */
+  readonly patternHomes?: readonly PatternHome[];
   readonly unions: readonly Union[];
   readonly records: readonly RecordDeclaration[];
   /**
@@ -630,6 +634,12 @@ export interface Module {
   readonly diagnostics: readonly Diagnostics.Diagnostic[];
 }
 
+export interface PatternHome {
+  readonly path: string;
+  readonly module: string;
+  readonly patterns: readonly PatternReference[];
+}
+
 export type Item =
   | ImportItem
   | ExternBlockItem
@@ -643,6 +653,8 @@ export type Item =
   | ExceptionItem
   | ConstraintItem
   | HonorItem
+  | PatternDeclarationItem
+  | PatternAliasItem
   | UnionItem
   | ExprItem
   | ErrorItem;
@@ -713,6 +725,8 @@ export interface ExternTypeDeclaration extends ExternDeclarationFields {
   readonly kind: "ExternType";
   readonly default: false;
   readonly externType: ExternTypeId;
+  /** The nominal type's home module, carried for expected-type doors. */
+  readonly declaringPath?: string;
 }
 
 export interface LetItem {
@@ -1083,6 +1097,62 @@ export interface LetPatternItem {
   readonly span: Source.Span;
 }
 
+/** A resolved public/private pattern view and its optional construction half. */
+export interface PatternDeclarationItem {
+  readonly kind: "PatternDeclaration";
+  readonly exported: boolean;
+  readonly identity: string;
+  readonly name: string;
+  readonly head?: PatternDeclarationHead;
+  readonly view: PatternMember;
+  readonly build?: PatternMember;
+  readonly span: Source.Span;
+}
+
+export interface PatternDeclarationHead {
+  readonly typeParameters: readonly TypeParameter[];
+  readonly components: readonly { readonly name: string; readonly annotation: TypeAnnotation; readonly span: Source.Span }[];
+  readonly result: TypeAnnotation;
+  readonly span: Source.Span;
+}
+
+export interface PatternMember {
+  readonly binding: Binding;
+  readonly value: Expr;
+  readonly delegated: boolean;
+  readonly span: Source.Span;
+}
+
+/** A private spelling for another module's exported pattern; emits no item. */
+export interface PatternAliasItem {
+  readonly kind: "PatternAlias";
+  readonly exported: boolean;
+  readonly name: string;
+  readonly target?: PatternReference;
+  readonly span: Source.Span;
+}
+
+/** The declaration facts needed to type and emit a suffix use. */
+export interface PatternReference {
+  readonly identity: string;
+  readonly declaredName: string;
+  readonly emitted: string;
+  readonly view: SymbolId;
+  readonly build?: SymbolId;
+  readonly componentNames: readonly string[];
+  readonly declaringModule: string;
+  readonly declaringPath?: string;
+  readonly exported: boolean;
+  /** The declaration head, for diagnostics that must point to the pattern. */
+  readonly declarationSpan: Source.Span;
+}
+
+export interface PatternCandidate extends PatternReference {
+  readonly source: "own" | "alias" | "import" | "door";
+  /** Every exported pattern spelling in this candidate's home module. */
+  readonly homePatternNames?: readonly string[];
+}
+
 export type Pattern =
   | BindingPattern
   | WildcardPattern
@@ -1096,7 +1166,20 @@ export type Pattern =
   | RecordPattern
   | OrPattern
   | AsPattern
+  | DeclaredPattern
   | ConstructorPattern;
+
+/** A suffix pattern whose final declaration choice is made with its expected type. */
+export interface DeclaredPattern {
+  readonly kind: "Declared";
+  readonly components: readonly Pattern[];
+  readonly name: string;
+  readonly candidates: readonly PatternCandidate[];
+  /** True when an empty namespace leaves the expected-type door to answer. */
+  readonly open?: true;
+  readonly nameSpan: Source.Span;
+  readonly span: Source.Span;
+}
 
 export interface BindingPattern {
   readonly kind: "Binding";
@@ -1643,6 +1726,7 @@ export type Expr =
   | StringExpr
   | VectorExpr
   | TupleExpr
+  | PatternConstructionExpr
   | RecordExpr
   | GroupExpr
   | AscriptionExpr
@@ -1664,6 +1748,20 @@ export type Expr =
   | ComparisonExpr
   | AssignmentExpr
   | ErrorExpr;
+
+export type CallMark = "bang" | "question";
+
+/** Suffix construction before checking lowers it through the selected build as a call. */
+export interface PatternConstructionExpr {
+  readonly kind: "PatternConstruction";
+  readonly components: readonly Expr[];
+  readonly name: string;
+  readonly candidates: readonly PatternCandidate[];
+  readonly mark?: CallMark;
+  readonly markSpan?: Source.Span;
+  readonly nameSpan: Source.Span;
+  readonly span: Source.Span;
+}
 
 export interface NameExpr {
   readonly kind: "Name";

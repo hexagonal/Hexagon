@@ -8,6 +8,46 @@ import { lex } from "../lexer/lexer.js";
 import { parse } from "./parser.js";
 
 describe("parse", () => {
+  test("parses declared-pattern heads, members, aliases, and both suffix forms", () => {
+    const module = parseSource(
+      "pattern rat<a>(top: a, bottom: a): Rat(a)\n" +
+        "    view(value) = parts(value)\n" +
+        "    build = create\n" +
+        "pattern local = Rat.rat\n" +
+        "let (top, bottom)rat = value\n" +
+        "let made = (1, 2)rat!\n",
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    expect(module.items).toMatchObject([
+      {
+        kind: "PatternDeclaration",
+        name: { text: "rat" },
+        head: {
+          typeParameters: [{ name: { text: "a" } }],
+          components: [{ name: { text: "top" } }, { name: { text: "bottom" } }],
+        },
+        members: [
+          { kind: "PatternView", value: { kind: "Lambda" } },
+          { kind: "PatternBuild", delegate: { name: { text: "create" } } },
+        ],
+      },
+      { kind: "PatternAlias", name: { text: "local" }, target: { qualifier: { text: "Rat" }, name: { text: "rat" } } },
+      { kind: "LetPattern", pattern: { kind: "Declared", name: { text: "rat" } } },
+      { kind: "Let", value: { kind: "PatternConstruction", name: { text: "rat" }, mark: "bang" } },
+    ]);
+  });
+
+  test("keeps suffix adjacency and marks in their dedicated recovery seats", () => {
+    const module = parseSource("let (x) rat = value\nlet (x)rat! = value\nlet made = (1)rat!!\n");
+    expect(module.diagnostics.map(({ message }) => message)).toEqual([
+      "a pattern's name is written against the parenthesis: `(n, d)rat`",
+      "a pattern use has no effect mark; remove `!` or `?`",
+      "a call mark governs an argument list; write it immediately before `(`, " +
+        "or (in a `|>` stage) at the end of the stage — a reference carries no colour",
+    ]);
+  });
+
   test("parses named, aliased, default, type-only, and effect extern declarations", () => {
     const module = parseSource(
       "extern from \"tiny-json\"\n" +

@@ -57,6 +57,21 @@ function elaborateItem(item: Typed.Item): Core.Item {
     case "ExternBlock":
     case "ExternImport":
       return item;
+    case "PatternAlias":
+      return item;
+    case "PatternDeclaration":
+      if (item.build === undefined) {
+        const { build: _build, ...withoutBuild } = item;
+        return {
+          ...withoutBuild,
+          view: { ...item.view, value: elaborateExpr(item.view.value) },
+        };
+      }
+      return {
+        ...item,
+        view: { ...item.view, value: elaborateExpr(item.view.value) },
+        build: { ...item.build, value: elaborateExpr(item.build.value) },
+      };
     case "ConstraintDeclaration":
       // Default bodies are elaborated here, because for an **exported**
       // constraint this declaration is where the body is emitted — hoisted once
@@ -505,6 +520,8 @@ function elaboratePattern(pattern: Typed.Pattern): Core.Pattern {
           pattern: elaboratePattern(field.pattern),
         })),
       };
+    case "Declared":
+      return { ...pattern, components: pattern.components.map(elaboratePattern) };
     case "Constructor":
       // Built field by field rather than spread: the local spelling and its
       // span are the checker's to show a reader, and a Core node that still
