@@ -593,7 +593,7 @@ describe("the literal at the type of its position (§2.5's checking rule, #519)"
         "        _ => \"other\"\n",
     ))).toEqual([
       // The list is alphabetical (Functions §5.1), rendered by
-      // `#advisedConstraintList`, so it is the very list the comparison advises
+      // `advisedConstraintList`, so it is the very list the comparison advises
       // below — although this seat accepted `Eq` first and the comparison
       // accepted `Num` first. Accumulation order reaches nothing a reader pastes.
       "exported function `f` must declare every constraint in its signature; " +

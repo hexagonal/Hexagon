@@ -16742,11 +16742,11 @@ class Checker {
       );
       const spellings = this.#refusalSpellings(declared, requirement, requiredName);
       // The binder this refusal writes **whole** — the author's list replaced by
-      // it — takes Functions §5.1's order; the `honor`-header dialect below
-      // merges into a declaration whose conjunction order is ABI, and takes the
-      // verbatim one.
+      // it — takes Functions §5.1's order. The two arms that print it are the
+      // function binder's and the block head's; the `honor`-header arm below
+      // merges into a declaration whose conjunction order is ABI, and renders
+      // its own verbatim list there.
       const constraintList = advisedConstraintList(spellings);
-      const headerList = verbatimConstraintList(spellings);
       // §5.1.1's collision resolution, and only that: the sides qualify when
       // they share a word and not a declaration, and every other report keeps
       // the bare name it always printed.
@@ -16807,6 +16807,11 @@ class Checker {
         return;
       }
       if (this.#honorBinderVariables.has(variable.id)) {
+        // Verbatim: the rewrite **merges into the binder the author wrote** on
+        // the `honor` header, whose written conjunction order the dictionary
+        // reads (Constraints §6.2, FFI Part 9 §6.2), so the demand is appended
+        // and nothing already there moves.
+        const headerList = verbatimConstraintList(spellings);
         this.#diagnostics.add({
           severity: "error",
           message: sealed !== undefined
