@@ -283,7 +283,8 @@ export interface OrPattern {
  * An integer literal pattern, carrying what the arm test needs at the type of its
  * position (Pattern Matching §2.5, §8, #894 / #519).
  *
- * `literal` is the literal **built at that type** — the elaborated `FromNat`, so
+ * `literal` is the literal **built at that type** — an `n`-suffixed pattern is a
+ * direct `BigInt` expression, while a bare pattern is the elaborated `FromNat`, so
  * `0` at `Float` is the `Number` expression `0.0` and at `BigInt` the `BigInt`
  * expression `0n`. §2.5's permitted-primitive restriction leaves only the four, so
  * the test is always the equality the compiler computes (`===`, or the
@@ -295,6 +296,8 @@ export interface OrPattern {
 export interface IntegerPattern {
   readonly kind: "Integer";
   readonly decimal: string;
+  /** Present for the monomorphic `n`-suffixed form. */
+  readonly bigint?: true;
   readonly literal: Expr;
   readonly span: Source.Span;
 }

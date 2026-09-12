@@ -559,13 +559,15 @@ export interface OrPattern {
  * restriction has already narrowed to `Int`, `Nat`, `BigInt` or `Float` — the four
  * whose value and whose equality the compiler computes, so no `Eq` evidence
  * travels and §8's "patterns never invoke user code" needs no carve-out.
- * `requirement` is the `Num` evidence that builds the literal there, the same
- * constraint a `FromNat` expression carries; it is absent on an error program,
- * where the type never resolved.
+ * `requirement` is the `Num` evidence that builds a bare literal there, the same
+ * constraint a `FromNat` expression carries. It is absent for the monomorphic
+ * `n`-suffixed form and on an error program where the type never resolved.
  */
 export interface IntegerPattern {
   readonly kind: "Integer";
   readonly decimal: string;
+  /** Present for the monomorphic `n`-suffixed form. */
+  readonly bigint?: true;
   readonly type: Type;
   readonly requirement?: Constraint;
   readonly span: Source.Span;

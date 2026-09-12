@@ -453,7 +453,15 @@ function elaboratePattern(pattern: Typed.Pattern): Core.Pattern {
       return {
         kind: "Integer",
         decimal: pattern.decimal,
-        literal: pattern.requirement === undefined
+        ...(pattern.bigint === true ? { bigint: true as const } : {}),
+        literal: pattern.bigint === true
+          ? {
+              kind: "BigInt",
+              decimal: pattern.decimal,
+              type: pattern.type,
+              span: pattern.span,
+            }
+          : pattern.requirement === undefined
           // No `Num` was ever raised, so the type is an error the checker has
           // already reported: there is nothing to build the literal out of.
           ? { kind: "ErrorExpr", type: pattern.type, span: pattern.span }

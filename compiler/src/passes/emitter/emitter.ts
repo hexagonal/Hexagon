@@ -4484,7 +4484,7 @@ class JavaScriptEmitter {
         // #897: the *value*, never the spelling — `007` is a legacy octal
         // literal, which every emitted module refuses. Pattern Matching §7.2
         // keys a literal's identity on the value for the same reason.
-        return canonicalIntegerLiteral(pattern.decimal);
+        return `${canonicalIntegerLiteral(pattern.decimal)}${pattern.bigint === true ? "n" : ""}`;
       case "Float":
         return canonicalFloatLiteral(pattern.spelling);
       case "String":
@@ -6408,7 +6408,7 @@ class JavaScriptEmitter {
       case "Integer": {
         // Pattern Matching §2.5/§8: the test is what `scrutinee == lit` emits at
         // the literal's resolved primitive — the SameValueZero shape at `Float`,
-        // `===` at the other three, which the restriction leaves as the only
+        // `===` at `Int`, `Nat`, and `BigInt`, which the restriction leaves as the only
         // cases. A type outside them never reaches here: the checker refused the
         // literal, and this module carries that report.
         const literal = this.#emitExpr(pattern.literal, 0, evidenceNames);
