@@ -1477,9 +1477,8 @@ describe("the lexer's conversion governs (§2.5, §12; Lexer §5)", BUDGET, () =
   test("the same stand-down covers an oversize **integer** literal", () => {
     // The `Nat`/`BigInt` gate's lift makes this program reachable, and the seat's
     // rule is the same one: the lexer has diagnosed it, so the pattern adds nothing.
-    // Its *fixit* signposts `9007199254740993n`, which the pattern grammar has no
-    // form for — **#898**, filed and unresolved; this pin is only that no second
-    // pattern report rides beside it, which is the half #894 owns.
+    // #898 retains the token so the arm below survives intact. The append-`n`
+    // repair is offered only at the `BigInt` seat, where it compiles.
     for (const type of ["BigInt", "Int"] as const) {
       const diagnostics = projectDiagnostics(main(
         `export fun f(n: ${type}): String =\n` +
@@ -1487,18 +1486,14 @@ describe("the lexer's conversion governs (§2.5, §12; Lexer §5)", BUDGET, () =
           "        9007199254740993 => \"big\"\n" +
           "        _ => \"ok\"\n",
       ));
-      expect(diagnostics[0]).toBe(
-        "integer literal exceeds Int range; add `n` for a BigInt, or use an " +
-        "explicit conversion",
-      );
+      expect(diagnostics[0]).toBe(type === "BigInt"
+        ? "integer literal exceeds Int range; add `n` for a BigInt"
+        : "integer literal exceeds Int range");
       expect(diagnostics).not.toContain(
         "expected a binding, `_`, constructor, tuple, or record pattern",
       );
       expect(diagnostics).not.toContain("match is missing cases: `_`");
-      expect(diagnostics.slice(1)).toEqual([
-        "inconsistent dedent; expected one of columns 0, 4",
-        "expected a newline or `;` between block items",
-      ]);
+      expect(diagnostics.slice(1)).toEqual([]);
     }
   });
 });

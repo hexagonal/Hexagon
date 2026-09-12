@@ -304,7 +304,12 @@ Consequences:
 
 An integer token stores its separator-free decimal spelling. A bare integer must be
 at most `2^53 - 1`, as fixed by Numeric Literals; a larger token is diagnosed with an
-`n`-suffix fix-it. A BigInt payload is arbitrary precision and remains a decimal
+`n`-suffix fix-it in expression position. In pattern position, retain an invalid
+recovery form and select the repair after the position's type is known: `n` only
+at `BigInt`, no repair otherwise (Pattern Matching §2.5, #898). Literal `extern enum`
+members also receive the range error without a repair: their grammar admits neither
+BigInt nor conversions (Foreign Enums §2.4). Recovery never turns an invalid integer
+into a rounded valid value. A BigInt payload is arbitrary precision and remains a decimal
 string until a later phase deliberately chooses another representation.
 
 A Float token stores both its source spelling and the correctly-rounded IEEE-754
@@ -513,7 +518,7 @@ token inventory and the lexer must not report the same source code unit twice.
 | Malformed `_` in a number | "`_` in a number must have a digit on both sides" |
 | `.5` / `1.` | suggest `0.5` / `1.0` |
 | Non-decimal base prefix | "Hexagon v1 has decimal literals only" |
-| Bare integer over safe range | Numeric Literals message + `n` fix-it |
+| Bare integer over safe range | Numeric Literals message + `n` fix-it in expressions; in patterns retain recovery syntax and select the repair by the position's type (Pattern Matching §2.5); literal extern enum members get the range error without a repair (Foreign Enums §2.4) |
 | Float overflow | "Float literal is too large; use `Float.infinity`" |
 | Invalid literal suffix | consume the joined run and name the invalid suffix |
 | Unknown string escape | list or point to the supported escapes |

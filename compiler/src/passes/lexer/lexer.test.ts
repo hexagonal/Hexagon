@@ -194,16 +194,19 @@ describe("lex", () => {
       "Hexagon v1 has decimal literals only",
       "`_` in a number must have a digit on both sides",
       "invalid numeric literal suffix in `12cats`",
-      "integer literal exceeds Int range; add `n` for a BigInt, or use an explicit conversion",
       "Float literal is too large; use `Float.infinity`",
     ]);
-    // §9's **recovery form** for the overflowing `Float` alone (#894): every other
-    // malformed literal here is dropped, and `1e999` is handed on so the construct
-    // around it still parses — marked, never a successful token, and refused by
-    // every seat that reads it.
+    // The numeric overflow recovery forms are handed on so the construct around
+    // each still parses — marked, never successful literals, and refused by every
+    // seat that reads them. The other malformed literals here are dropped.
     expect(kinds(result.tokens))
-      .toEqual(["NonUpperName", "UpperName", "Float", "Eof"]);
+      .toEqual(["NonUpperName", "UpperName", "Integer", "Float", "Eof"]);
     expect(result.tokens[2]).toMatchObject({
+      kind: "Integer",
+      decimal: "9007199254740992",
+      recovered: true,
+    });
+    expect(result.tokens[3]).toMatchObject({
       kind: "Float",
       spelling: "1e999",
       value: Infinity,

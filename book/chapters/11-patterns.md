@@ -74,7 +74,7 @@ A bare `{x, y}` pattern would describe a structural record, not the nominal `Poi
 
 ## Literals match particular values
 
-`Int`, `Float`, and `String` literals may appear in patterns:
+Bare integer, `BigInt`, `Float`, and `String` literals may appear in patterns:
 
 ```hexagon
 let describeCount(count: Int): String =
@@ -85,8 +85,25 @@ let describeCount(count: Int): String =
 ```
 
 `_` is the wildcard: it matches anything and binds nothing. Infinite sets such as
-`Int`, `Float`, and `String` always need a wildcard or variable catch-all because a
-finite list of literals cannot cover every possible value.
+`Int`, `Nat`, `BigInt`, `Float`, and `String` always need a wildcard or variable
+catch-all because a finite list of literals cannot cover every possible value.
+
+The `n` suffix means `BigInt` in a pattern too. It lets you match an exact integer
+beyond the range of a bare literal:
+
+```hexagon
+let describeBig(count: BigInt): String =
+    match count
+        9007199254740993n => "a large count"
+        -9007199254740993n => "its negative"
+        0 => "zero"
+        _ => "another count"
+```
+
+Here bare `0` takes its type from `count`, so it means the same case as `0n`.
+Writing both as separate arms would make the second unreachable. The suffix fixes
+the literal's type: `0n` cannot match an `Int` position, and a pattern never widens
+the value it examines. The same rule holds inside a constructor or tuple pattern.
 
 A `Float` literal matches by the same equality that `==` uses, and no more loosely:
 a computed value matches a written one only when `==` would say they are equal. The
@@ -397,8 +414,8 @@ becomes a JavaScript `switch`; nested shapes and guards may become direct `if` t
 
 The scrutinee is evaluated once, and arms retain their written order. Structural
 patterns add no hidden user-defined dispatch; literal patterns use the same equality
-semantics as `==`: `Int` and `String` literals compile to direct `===` tests, and a
-`Float` literal compiles to the same equality test that `==` on `Float` emits. The
+semantics as `==`: literals at `Int`, `Nat`, `BigInt`, and `String` compile to direct
+`===` tests, with BigInt values emitted as JavaScript bigint literals. A `Float` literal compiles to the same equality test that `==` on `Float` emits. The
 generated code follows the same decisions the source makes visible.
 
 This chapter covers the complete pattern language over the data introduced so far.
@@ -412,8 +429,8 @@ dialects.
 - patterns describe static shapes and may bind names to their pieces;
 - constructor, tuple, and record patterns can nest;
 - record patterns are open and support punning and renaming;
-- `Int`, `Float`, and `String` literals may be patterns, matching by the same equality
-  as `==`, and `()` is the `Unit` pattern; `True` and `False` are constructor patterns,
+- bare integer, `BigInt`, `Float`, and `String` literals may be patterns, matching
+  by the same equality as `==`, and `()` is the `Unit` pattern; `True` and `False` are constructor patterns,
   not literals;
 - the named special `Float` values are values, not literals, and are tested in guards;
 - or-pattern alternatives must bind the same names;

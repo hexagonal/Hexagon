@@ -90,6 +90,22 @@ describe("the declaration (§2.4)", () => {
     )).toContain("const Back = -1;");
   });
 
+  test("an oversized integer member is refused without rounding, for either sign", () => {
+    for (const spelling of [
+      "9_007_199_254_740_993",
+      "-9_007_199_254_740_993",
+    ] as const) {
+      const compiled = compileFiles([["/main.hex", "module Main\n\n" +
+        `extern enum Bad = ${spelling} as Large | 1 as Small\n`]]);
+      const diagnostics = compiled.diagnostics;
+      expect(diagnostics.map(({ message }) => message)).toEqual([
+        "integer literal exceeds Int range",
+      ]);
+      expect(diagnostics[0]?.fixes).toBeUndefined();
+      expect(compiled.modules[0]?.javascript.text).toContain("const Small = 1;");
+    }
+  });
+
   /**
    * §2.4's compact and multi-line spellings are one grammar: the head may end at
    * `=` and continue on indented `|` lines, exactly as a union's does.

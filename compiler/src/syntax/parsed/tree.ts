@@ -538,6 +538,8 @@ export interface OrPattern {
 export interface IntegerPattern {
   readonly kind: "Integer";
   readonly decimal: string;
+  /** Present for the monomorphic `n`-suffixed form. */
+  readonly bigint?: true;
   readonly span: Source.Span;
 }
 
@@ -588,15 +590,17 @@ export interface TermSpellingPattern {
 /**
  * A pattern that **failed to parse** (Pattern Matching §7.3's fourth tier).
  *
- * The seat has already reported; this stands where the pattern would have, so
- * the arm survives into the tree. Coverage reads it as `_` and reachability
- * never lets it shadow an arm below it — "a report fires only for cases that
- * stay missing under every repair of the broken pattern" — which is the whole
- * reason a refused arm is kept rather than dropped: a dropped arm made a `match`
- * non-exhaustive and drew a second report about the hole it left.
+ * The refusing seat has usually already reported. A position-dependent refusal
+ * may instead carry what the checker needs to finish its message. Either way this
+ * stands where the pattern would have, so the arm survives into the tree. Coverage
+ * reads it as `_` and reachability never lets it shadow an arm below it — "a report
+ * fires only for cases that stay missing under every repair of the broken pattern"
+ * — which is the whole reason a refused arm is kept rather than dropped.
  */
 export interface ErrorPattern {
   readonly kind: "Error";
+  /** A bare integer outside Int range, whose repair depends on this pattern's type. */
+  readonly oversizedInteger?: string;
   readonly span: Source.Span;
 }
 
