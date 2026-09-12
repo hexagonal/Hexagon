@@ -2,7 +2,7 @@
 
 **Status:** Decided (September 2026; #834).
 **Scope:** The `pattern` declaration — a named way of matching a value, written as two ordinary functions: a required, pure `view` and an optional `build`. The head and its member block; inference of an unheaded private pattern; the suffix form `(p1, …, pn)name` in pattern and expression position; the pattern namespace (own declarations, imported exports, the `pattern` alias as the rename) and the expected-type door; coverage; evaluation and purity; emission and the `.d.ts` face; diagnostics; rejected alternatives; the standard library's first pattern, `Rat.rat`.
-**Companions:** Pattern Matching (the grammar this spec adds one form to; §2.8/§8's no-user-code rule, whose one exception this is; §5 irrefutability; §7 coverage and witness rendering), Modules (§3 the carve for the pattern namespace; §3.2 the alias row; §4.1 export; §4.1.1 complete exported signatures; §4.2 `opaque`; §5.1 the namespaces; §5.4/§5.5 occlusion and contests; §12.2 re-exports), Declarations Preamble (§7.1 inventory, §7.2 straddling), Functions (§7.1 header syntax; §7.2 top-down reading; §7.3 the member block and the head's binders; §4.2 binders), Constraints (§4.1 member checking — the `honor` precedent; §6.1 the evidence suffix, whose absence §2.1 prices), Effects (§4.3 the pure demand), Products (§2.6 the tuple representation; §5.3 the explicit crossing), Statements (§5.1 the sequential-binder rule), Doc Comments (§4.2; §6.1 the throws manifest), Lexer (§4.2 the contextual head word), Lexer & Layout (§2.1 the block-head row), FFI Part 7 (the exported face; §2.2 binder naming), `rat.md` (§3, §6).
+**Companions:** Pattern Matching (the grammar this spec adds one form to; §2.8/§8's no-user-code rule, whose one exception this is; §5 irrefutability; §7 coverage and witness rendering), Modules (§3 the carve for the pattern namespace; §3.2 the alias row; §4.1 export; §4.1.1 complete exported signatures; §4.2 `opaque`; §5.1 the namespaces; §5.4/§5.5 occlusion and contests; §12.2 re-exports), Declarations Preamble (§7.1 inventory, §7.2 straddling), Functions (§7.1 header syntax; §7.2 top-down reading; §7.3 the member block and the head's binders; §4.2 binders), Constraints (§4.1 member checking — the `honor` precedent; §6.1 the evidence suffix, whose absence §2.1 prices), Effects (§4.3 the pure demand), Products (§2.6 the tuple representation; §5.3 the explicit crossing), Statements (§5.1 the sequential-binder rule), Doc Comments (§4.2; §6.1 the throws manifest), Lexer (§3.2 generated names and allocation; §4.2 the contextual head word), Lexer & Layout (§2.1 the block-head row), FFI Part 7 (the exported face; §2.2 binder naming), `rat.md` (§3, §6).
 
 ---
 
@@ -104,7 +104,7 @@ let user = (7)id
 
 ### 3.3 The pattern namespace
 
-A pattern's name lives in the **pattern namespace** — a namespace of its own, beside the type, constraint, term, and module-alias namespaces of Modules §5.1 — and in no other. `let rat` and `pattern rat` in one module collide with nothing — save at the boundary, where an exported pair is refused (§6); a term `rat` in scope never blocks the suffix; and `Rat.rat` in term position is the ordinary refusal that the name is not there — "module `Rat` exports no term `rat`; `rat` is a pattern, written `(a, b)rat`" — with nothing to say about values, because a pattern is not one and was never in the namespace where values live. A pattern is no member either: it has no receiver, so `r.rat(…)` is Method Syntax's ordinary unknown-member refusal and the bare `r.rat` is field access's missing-field family (Products §3.2), or the opaque sentence abroad.
+A pattern's name lives in the **pattern namespace** — a namespace of its own, beside the type, constraint, term, and module-alias namespaces of Modules §5.1 — and in no other. `let rat` and `pattern rat` in one module collide with nothing, including when both are exported (§6); a term `rat` in scope never blocks the suffix; and, where no term `rat` is exported, `Rat.rat` in term position is the ordinary refusal that the name is not there — "module `Rat` exports no term `rat`; `rat` is a pattern, written `(a, b)rat`" — with nothing to say about values, because a pattern is not one and was never in the namespace where values live. A pattern is no member either: it has no receiver, so `r.rat(…)` is Method Syntax's ordinary unknown-member refusal and the bare `r.rat` is field access's missing-field family (Products §3.2), or the opaque sentence abroad.
 
 **What the namespace holds.** A module's pattern namespace is filled from two sources, and the suffix seat reads it — in a pattern and in an expression alike — before anything else:
 
@@ -165,21 +165,21 @@ Pattern Matching §7's usefulness matrix treats a total view as a **one-construc
 
 ## 6. Emission and the exported face
 
-- **One binding per pattern, one shape, at its source position.** A pattern emits as a single module-level binding of its own name holding a plain object with a `view` property and, where declared, a `build` property: `export const rat = {view: (x) => [top(x), bottom(x)], build: create};` — `export` mapping to `export` (Modules §11.1) — header syntax emitting the function, and the delegation line emitting what a reference to the named function emits under Constraints §6.1: the bare name for an unconstrained delegate (`build: create`), and for a **constrained** one whose constraints the head's types discharge — `build = wrap` with `wrap<a: Show>(x: a): Box` under a ground head — the evidence-applied value, the lambda closing over the pinned instance (`build: (x) => wrap(x, __Show_Int)`, the instance under Constraints §6.1's minted spelling) — Constraints §6.1's governing sentence, the boundary being evidence dischargeability at the reference. A constraint the head's types leave undischarged is the head's own refusal (§2.1); a delegate has no refusal of its own. The head's doc comment rides the binding as JSDoc, and a member's doc rides its property — the record-field seat's shape (Doc Comments §7.1). It is emitted where the declaration stands, among the term bindings, and the direct reference `build: create` is safe there by the source order §2.1 enforces (Functions §7.2's first leg: the delegate is declared above) — no DAG ordering of the Constraints §6.3 kind is needed, because a pattern's emitted binding is an ordinary term binding, not evidence. Match-only and bidirectional patterns take the one shape, and a JavaScript reader finds both directions under the name the Hexagon reader uses.
+- **One binding per pattern, one shape, at its source position.** A pattern emits as a single module-level binding named `__patt_<name>` (Lexer §3.2) holding a plain object with a `view` property and, where declared, a `build` property: `export const __patt_rat = {view: (x) => [top(x), bottom(x)], build: create};` — `export` mapping to `export` (Modules §11.1) — header syntax emitting the function, and the delegation line emitting what a reference to the named function emits under Constraints §6.1: the bare name for an unconstrained delegate (`build: create`), and for a **constrained** one whose constraints the head's types discharge — `build = wrap` with `wrap<a: Show>(x: a): Box` under a ground head — the evidence-applied value, the lambda closing over the pinned instance (`build: (x) => wrap(x, __Show_Int)`, the instance under Constraints §6.1's minted spelling) — Constraints §6.1's governing sentence, the boundary being evidence dischargeability at the reference. A constraint the head's types leave undischarged is the head's own refusal (§2.1); a delegate has no refusal of its own. The head's doc comment rides the binding as JSDoc, and a member's doc rides its property — the record-field seat's shape (Doc Comments §7.1). It is emitted where the declaration stands, among the term bindings, and the direct reference `build: create` is safe there by the source order §2.1 enforces (Functions §7.2's first leg: the delegate is declared above) — no DAG ordering of the Constraints §6.3 kind is needed, because a pattern's emitted binding is an ordinary term binding, not evidence. Match-only and bidirectional patterns take the one shape, and a JavaScript reader finds both directions under the stable `__patt_` spelling of the Hexagon pattern name.
 - **Matching** hoists the view before the arm tests, once per pattern per position (§5), and destructures its result as a tuple's array (Products §2.6) — at arity one, the value itself:
 
   ```
-  match r                                   //  const [n, d] = rat.view(r);
+  match r                                   //  const [n, d] = __patt_rat.view(r);
       (0, _)rat => Zero                     //  if (n === 0n) return Zero;
       (n, 1)rat => Integer(n)               //  if (d === 1n) return Integer(n);
       (n, d)rat => Fraction(n, d)           //  return Fraction(n, d);
   ```
 
   Binder names follow Pattern Matching's emission as for tuples; the illustration names the array slots for legibility only.
-- **An expression use** emits the call `rat.build(1n, 2n)`. A pattern of another module is reached through that module's emitted namespace import (Modules §11): `Rat.rat.view(r)`, `Rat.rat.build(1n, 2n)`. A pattern the **door** resolved from a home this module never imported is reached the same way, through a namespace import the emitter adds for the home — Modules §11's second liberty, the one it grants a resolved companion dot call (§11 item 2; Method Syntax §8.2), exercised for a pattern the checker resolved; load order is unaffected, since the home is already in the graph of whichever module produced the value.
-- **A term of the same name.** `let rat` and `pattern rat` in one module are two JavaScript bindings, and the **private** one takes the emitter's collision-only alias (`rat_1` — Modules §11 item 2's idiom) while an exported one keeps the plain name — a published name never moves (FFI Part 7 §1.1) — and where neither is exported the pattern yields; the one case a JavaScript reader meets the suffix, and only because the Hexagon reader wrote both. Where **both are exported** there is no alias to take: a published name is one name (FFI Part 7 §1.1), so `export pattern rat` beside `export let rat` is refused at the second declaration — "this module already exports `rat`; an exported pattern and an exported term cannot share a name" — the one collision the two namespaces have, and it is the boundary's, not the language's.
+- **An expression use** emits the call `__patt_rat.build(1n, 2n)`. A pattern of another module is reached through that module's emitted namespace import (Modules §11): `Rat.__patt_rat.view(r)`, `Rat.__patt_rat.build(1n, 2n)`. A pattern the **door** resolved from a home this module never imported is reached the same way, through a namespace import the emitter adds for the home — Modules §11's second liberty, the one it grants a resolved companion dot call (§11 item 2; Method Syntax §8.2), exercised for a pattern the checker resolved; load order is unaffected, since the home is already in the graph of whichever module produced the value.
+- **A term of the same name.** A module may declare and export both the term `map` and the pattern `map`: their source namespaces are separate, and their JavaScript exports are `map` and `__patt_map`. This holds whether either declaration is private or exported, and even when no same-named term exists. The pattern spelling is reserved before internal-name allocation (Lexer §3.2); a competing internal binding takes a collision-only local alias. An exported pattern never acquires `_1` because another declaration or import was added. The `__` source reservation excludes a source term named `__patt_map`.
 - **The alias emits nothing.** `pattern rgb = Color.rgb` is resolved statically; its uses emit the original's spelling, and an alias is never exported (§3.4).
-- **The `.d.ts` face** (FFI Part 7): an exported pattern faces as its object — `export const rat: { view(x: Rat): [bigint, bigint]; build(top: bigint, bottom: bigint): Rat };` — the tuple as the array face Products §2.6 gives it, `build` absent from the face where absent from the declaration, and the subject's opaque brand crossing as Part 7 §5 says. A **polymorphic** pattern's head binders are bound **at each member**, as method-level type parameters — `export const top: { view<a>(x: Stack<a>): a; build<a>(x: a): Stack<a> };` — named as Part 7 §2.2 names Hexagon binders; this is the one place a non-function declaration's variables are bound rather than instantiated at `never` (Part 7 §14.1), because the members are the functions and the object is only their roof. A private pattern has no face.
+- **The `.d.ts` face** (FFI Part 7): an exported pattern faces as its object — `export const __patt_rat: { view(x: Rat): [bigint, bigint]; build(top: bigint, bottom: bigint): Rat };` — the tuple as the array face Products §2.6 gives it, `build` absent from the face where absent from the declaration, and the subject's opaque brand crossing as Part 7 §5 says. A **polymorphic** pattern's head binders are bound **at each member**, as method-level type parameters — `export const __patt_top: { view<a>(x: Stack<a>): a; build<a>(x: a): Stack<a> };` — named as Part 7 §2.2 names Hexagon binders; this is the one place a non-function declaration's variables are bound rather than instantiated at `never` (Part 7 §14.1), because the members are the functions and the object is only their roof. A private pattern has no face.
 
 ---
 
@@ -205,7 +205,6 @@ Pattern Matching §7's usefulness matrix treats a total view as a **one-construc
 | Dot on a pattern's name | `r.rat(…)`: Method Syntax's unknown-member refusal; bare `r.rat`: the missing-field family (Products §3.2), or the opaque sentence abroad (§3.3) |
 | Arity mismatch at a use | the constructor family's message: "`rat` has 2 components; write `(_, _)rat`" (§3.1) |
 | Expression use of a match-only pattern | "`rgb` is a match-only pattern: its declaration has no `build`", the declaration named (§3.2) |
-| Exported pattern beside an exported term of one name | "this module already exports `rat`; an exported pattern and an exported term cannot share a name" at the second (§6) |
 | Exported pattern whose head mentions a private nominal of this module | Modules §4.3's private-in-public refusal at the offending seat (§2.3) |
 | Imported pattern whose declared subject's home exports a pattern of the same name | "`rgb` here is `Paint.rgb`, over `Color`, whose home exports its own `rgb` — `import Color`, then declare `pattern rgb = Color.rgb`, or declare `pattern rgb = Paint.rgb`" at every use, the import's applied edit attached; with several imports contesting, the home's joins the list (§3.3) |
 | Two own declarations of one pattern name — two heads, or a head and an alias | hard error at the second (§3.3) |
@@ -265,7 +264,7 @@ Pattern Matching §7's usefulness matrix treats a total view as a **one-construc
 | `pattern name = Alias.p` renames — a contest's repair; private, never exported (Modules §12.2) | §3.4 |
 | Coverage: a total view is a one-constructor shape — one signature per pattern present; specialising drops other signatures' rows save those irrefutable at the column's type, which are wildcard rows (so a catch-all under one view shadows the next, and Pattern Matching §7.2 stands; cross-view relations are outside exactness); exhaustive iff some complete signature's every specialisation is; the witness from the constructor signature, else the first pattern written, always as the arms wrote it; an arm, whatever its head, dead beneath a complete signature present in the column, cross-view relations otherwise outside exactness; a pattern the arms do not write changes no verdict | §4 |
 | The view is applied at most once per pattern per position, before the arms | §5 |
-| One emitted object per pattern, `{view, build?}`, the collision-only alias on the private one where a term shares the name, an exported pair refused (one published name); a constrained delegate emits per Constraints §6.1; a door-resolved unimported home reached through an emitted namespace import; the `.d.ts` faces the object, a polymorphic pattern's binders bound per member | §6 |
+| One emitted object per pattern, `{view, build?}`, the stable `__patt_<name>` spelling in JavaScript and `.d.ts`, same-named term and pattern exports allowed; a constrained delegate emits per Constraints §6.1; a door-resolved unimported home reached through an emitted namespace import; the `.d.ts` faces the object, a polymorphic pattern's binders bound per member | §6 |
 | Prefix spelling, qualified suffix, derivation, selection list, `let` alias, default pattern, discovery by ranking, expression-side door, cross-view specialisation — rejected | §8 |
 | Partial, multi-case, parameterised, constrained heads — deferred or not planned | §9 |
 
@@ -279,7 +278,7 @@ Pattern Matching §7's usefulness matrix treats a total view as a **one-construc
 --                 view(x) = (top(x), bottom(x))
 --                 build = create
 import Rat
-let r = (6, 10)rat                           -- emits: Rat.rat.build(6n, 10n)
+let r = (6, 10)rat                           -- emits: Rat.__patt_rat.build(6n, 10n)
 let (n, d)rat = r                            -- irrefutable; n = 3n, d = 5n
 let same = (6, 10)rat == (3, 5)rat           -- True
 fun classify(r: Rat): String =
@@ -287,7 +286,7 @@ fun classify(r: Rat): String =
         (0, _)rat => "zero"
         (_, 1)rat => "integer"
         (n, d)rat => "${n}/${d}"
--- emits, in classify: const [n, d] = Rat.rat.view(r); if (n === 0n) …
+-- emits, in classify: const [n, d] = Rat.__patt_rat.view(r); if (n === 0n) …
 
 -- (b) The door: an unimported home; a term of the same name blocks nothing
 -- module Mid: import Rat; export fun make(): Rat = Rat.create(1, 3)
@@ -394,9 +393,8 @@ pattern shaped(top: BigInt, bottom: BigInt): Fraction
     build = box                              -- ERROR: build returns Box; the head says Fraction
                                              --   (the member-shape error: the head fixes it)
 export let rat(t: BigInt, b: BigInt): Fraction = create(t, b)
-export pattern rat(top: BigInt, bottom: BigInt): Fraction   -- ERROR: this module already exports rat;
-    view(x) = (top(x), bottom(x))            --   an exported pattern and an exported term
-                                             --   cannot share a name
+export pattern rat(top: BigInt, bottom: BigInt): Fraction   -- OK: exports __patt_rat beside term rat
+    view(x) = (top(x), bottom(x))
 export pattern parts                         -- ERROR: an exported pattern writes its head:
     view(x) = (top(x), bottom(x))            --   pattern parts(c1: BigInt, c2: BigInt): Fraction
 fun k() =
@@ -413,9 +411,17 @@ let later(t: BigInt, b: BigInt): Fraction = create(t, b)   --   declarations are
 let (n, d, e)rat = create(1, 2)              -- ERROR: rat has 2 components; write (_, _)rat
 
 -- (g) The .d.ts face
--- export const rat: { view(x: Rat): [bigint, bigint]; build(top: bigint, bottom: bigint): Rat };
--- export const rgb: { view(c: Color): [number, number, number] };
+-- export const __patt_rat: { view(x: Rat): [bigint, bigint]; build(top: bigint, bottom: bigint): Rat };
+-- export const __patt_rgb: { view(c: Color): [number, number, number] };
 ```
+
+### Generated-name conformance (2026-09-12)
+
+- A module exporting both term `map` and pattern `map` succeeds and exports `map` and `__patt_map`; term calls and suffix uses select their respective declarations.
+- Pattern-only exports use the same `__patt_map` spelling; adding a same-named term does not rename the export. JavaScript and `.d.ts` agree, for match-only and bidirectional patterns and polymorphic member faces.
+- A private pattern uses the same preferred spelling without entering the export set. A competing generated local yields even if its origin precedes the pattern declaration.
+- Imported pattern aliases emit no object; their matching and construction uses reach the original module's `__patt_` export. Expected-type-door uses do so too.
+- Occupied `_1` candidates are skipped; numeric-ending bases are treated literally; repeated compiles produce identical local aliases and exports. Existing dictionary two-pass and interface-contest obligations remain in force.
 
 
 ---

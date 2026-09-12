@@ -938,9 +938,7 @@ function topLevelTermNames(
     } else if (item.kind === "ConstraintDeclaration") {
       for (const member of item.members) add(member.binding.name, false);
     } else if (item.kind === "PatternDeclaration") {
-      // A pattern emits one module-level object binding. It is not itself
-      // specializable, but it occupies the collision namespace editions use.
-      add(item.name, item.exported);
+      // Its fixed `__patt_` object cannot contest a source-spelled edition.
     } else if (item.kind === "PatternAlias") {
       // An alias is compile-time-only and emits no binding.
     } else if (item.kind === "Import") {

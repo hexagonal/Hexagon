@@ -514,8 +514,11 @@ literal tests, field reads, and local `const` bindings. A simple union match com
 becomes a JavaScript `switch`; nested shapes and guards may become direct `if` tests.
 
 A declared pattern emits an ordinary object holding its `view` and optional
-`build` functions. Its uses call those functions directly: Rat construction emits
-`Rat.rat.build(6n, 10n)`, and matching reads `Rat.rat.view(fraction)`. The view
+`build` functions, named `__patt_` followed by the pattern name. A module can
+export both a function `map` and a pattern `map`: their JavaScript names are
+`map` and `__patt_map`. Pattern uses call the view or build function directly:
+Rat construction emits
+`Rat.__patt_rat.build(6n, 10n)`, and matching reads `Rat.__patt_rat.view(fraction)`. The view
 result is shared for that pattern at that position within one match.
 
 The scrutinee is evaluated once, and arms retain their written order. Structural

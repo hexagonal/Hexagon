@@ -27,7 +27,7 @@ describe("resolve", () => {
     ]);
   });
 
-  test("an exported pattern contests foreign and constraint-member term exports", () => {
+  test("an exported pattern may share a source name with term exports", () => {
     const module = resolveSource(
       'extern from "host"\n' +
         "    export fun foreign(value: Int): Int\n" +
@@ -39,10 +39,7 @@ describe("resolve", () => {
         "    view(value) = value",
     );
 
-    expect(module.diagnostics.map(({ message }) => message)).toEqual([
-      "this module already exports `foreign`; an exported pattern and an exported term cannot share a name",
-      "this module already exports `member`; an exported pattern and an exported term cannot share a name",
-    ]);
+    expect(module.diagnostics).toEqual([]);
   });
 
   test("a pattern name is visible recursively inside its member bodies", () => {

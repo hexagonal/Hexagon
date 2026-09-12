@@ -137,8 +137,15 @@ I元素      E无效年龄  M数据库           -- cultural role prefixes, ordi
   JavaScript and declaration-file identifiers *(widened from the exact prefix
   `__hex_`; #425)*. The width is what buys the convention its one-sentence
   reading — a double leading underscore means the compiler wrote the name — so
-  generated names spell themselves directly under the prefix with no further
-  marker: `__Eq_Rat` (a dictionary, Dictionary Sharing §5), `__Show_a` (an
+  generated names use descriptive names, with a short category where it identifies
+  a meaningful family: `__<category>_<name>`. The category vocabulary is `patt`
+  for patterns, `dict` for dictionaries, and `global` for captured JavaScript
+  globals. It need not name a source-language namespace. There is no generic
+  `helper` category: a direct name such as `__matchFail` or `__value` suffices.
+  Pattern Declarations §6 applies `__patt_<name>` now. Existing families retain
+  their individually specified spellings until separately revised; this
+  convention alone does not rename dictionaries or global captures. Thus the
+  existing examples remain `__Eq_Rat` (a dictionary, Dictionary Sharing §5), `__Show_a` (an
   evidence parameter), `__value` (a helper binder). Public-surface spellings a
   generator also chooses — a `.d.ts` brand identifier (FFI Part 7 §5), FFI
   Part 9's documentation parameter names — are faces, not hygiene names, and
@@ -147,8 +154,8 @@ I元素      E无效年龄  M数据库           -- cultural role prefixes, ordi
   governs Hexagon's own name seats; the foreign side of an FFI `as` alias
   (FFI Part 4 §3.2) is outside them, so a `__`-named foreign export stays
   bindable under an ordinary local alias — the lexer emits the token and the
-  parser selects the reservation error, §4.1/§4.2's division. When a foreign
-  or already-emitted name occupies a generated name's preferred spelling, the
+  parser selects the reservation error, §4.1/§4.2's division. When a reserved
+  or already-allocated name occupies a generated name's preferred spelling, the
   name probes numeric suffixes deterministically, starting at 1: `__Eq_Rat_1`,
   then `__Eq_Rat_2`. Within the dictionary family the resolver-assigned ranks
   are stricter — a contest among them suffixes *every* such contestant, none
@@ -165,6 +172,42 @@ I元素      E无效年龄  M数据库           -- cultural role prefixes, ordi
   requires one. Confusables are not rejected or folded.
 - No case folding occurs. `point`, `Point`, and `POINT` are three spellings; only the
   latter two are uppercase-start.
+
+**Generated-name allocation.** Categories improve readability, not uniqueness.
+Compare complete emitted identifiers in the scope where they bind; distinct
+source namespaces do not establish distinct JavaScript bindings. Reserve fixed
+interface spellings before allocating internal names. In particular, each
+pattern declaration reserves `__patt_<sourceName>` in its home module; its
+exported spelling is the same in JavaScript and `.d.ts`, and never gains a
+collision suffix. Distinct lawful pattern names map to distinct spellings.
+Neither an imported pattern alias nor a use creates another pattern object.
+Other generated locals must yield to these reserved spellings.
+
+For the ordinary probe, try the preferred spelling, then append `_1`, `_2`, …
+and take the first unoccupied complete identifier. A spelling ending in digits
+is still a complete base: a collision on `__value_1` tries `__value_1_1`.
+Reserve all fixed names before probing, including ones declared later, and
+include names already allocated in the same scope. Ordinary local allocation
+is sequential: it need not reserve a later local's preferred spelling. Thus,
+with `__patt_map` fixed, requests for `patt_map` and then `patt_map_1` may take
+`__patt_map_1` and `__patt_map_1_1`; both are internal aliases, and the pattern
+keeps `__patt_map`. A family's explicitly specified grouped allocation or
+preferred-name reservation still applies within that family.
+Process ordinary generated
+locals in source order of their originating declaration or expression, then
+left-to-right order within it; a family with an explicit canonical order uses
+that order. Dictionary Sharing §5 retains its jointly-assigned first pass and
+later hoisted pass; both respect the fixed reservations and skip occupied
+suffix candidates. Allocation order must not depend on hash-table iteration,
+parallel execution, or unrelated modules. Separate lexical scopes may reuse
+names where doing so cannot capture a reference.
+
+An imported export's spelling and its local alias are different seats: read the
+exported spelling from the resolved interface, and alias only the local on a
+collision. A pattern stays reachable through its module namespace import;
+renaming that import locally does not rename the pattern export. Dictionary
+Sharing §8 continues to govern dictionary interface contests and transit
+re-exports. The generated-category convention does not replace those rules.
 
 ### 3.3 Unicode evolution
 

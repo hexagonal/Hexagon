@@ -13,6 +13,8 @@
 
 Consequences, fixed here:
 
+- **Pattern exports have a category spelling.** Pattern Declarations §6 maps Hexagon pattern `p` to the stable named export `__patt_p` in both JavaScript and `.d.ts`. This is its defined foreign name, not a collision rename; a term `p` may be exported alongside it. Lexer §3.2 reserves the spelling before internal allocation.
+
 - **Unexported declarations do not exist at the boundary** (Modules §11.1): no ESM export, no `.d.ts` mention. Private aliases inside exported signatures appear as their expansion (Modules §11.4).
 - **A declaration may have a type face and no runtime term** (an `opaque` type with no exported operations, an extern `type`): it appears in `.d.ts` only. The converse — a term with no useful type face — does not arise; every exported term is declared.
 - **The one stated exception to export correspondence** remains Part 8 §3.4's zero-entry-point constrained export, whose doctrine record (Part 8 §17.2) is not modified here.
@@ -495,7 +497,7 @@ This part introduces **two hard errors of its own** — #478's `isHexError` coll
 | Representation-direct values/functions export directly with stable ESM identity; exported `Unit` functions genuinely return `undefined`; no defensive validation anywhere | §1, §7 |
 | One module → one ESM module + one `.d.ts`; single type-only `import type * as Hex from "@hexagon/runtime"` where runtime types appear | §2.1 |
 | All Hexagon-originated `.d.ts` generic binders are lowercase source-style (`a`, `k`, `v`); declared binder order preserved (ABI-relevant per Parts 8–9) | §2.2 |
-| An exported pattern faces as its `{view, build?}` object; a polymorphic pattern's binders are bound at each member, not instantiated (Pattern Declarations §6) | §2.2, §14.1 |
+| An exported pattern faces as its `{view, build?}` object under the stable `__patt_<name>` export, alongside any same-named term; a polymorphic pattern's binders are bound at each member, not instantiated (Pattern Declarations §6) | §2.2, §14.1 |
 | Records: type + constructor export; constructor may be the identity function; direct JS construction legal but the exported constructor is the supported shape | §3 |
 | Unions: type + every constructor; payload constructors as functions, nullary constructors as shared constants; constructor return types are the union type; export forces materialization | §4, §12.2 |
 | Generic nullary constants face as the `never` instantiation (confirmed at review) | §4, §12.1 |

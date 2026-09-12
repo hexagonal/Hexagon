@@ -25,6 +25,7 @@ import { relativeSpecifier } from "../../support/paths.js";
 import { displayModuleName, type ImportRepair, moduleImportLine } from "../../packages.js";
 import * as Source from "../../support/source.js";
 import { dropQualifierFix, ImportRepairs } from "../../support/import-placement.js";
+import { patternExportName } from "../../support/generated-names.js";
 import * as Parsed from "../../syntax/parsed/index.js";
 import * as Resolved from "../../syntax/resolved/index.js";
 
@@ -1135,7 +1136,7 @@ export function moduleInterface(module: Resolved.Module): ModuleInterface {
     patterns.set(item.name, {
       identity: item.identity,
       declaredName: item.name,
-      emitted: item.name,
+      emitted: patternExportName(item.name),
       view: item.view.binding.symbol,
       ...(item.build === undefined ? {} : { build: item.build.binding.symbol }),
       componentNames: item.head?.components.map(({ name }) => name) ?? [],
@@ -1167,7 +1168,7 @@ export function moduleInterface(module: Resolved.Module): ModuleInterface {
  * `Resolved.ImportItem.internalNames` — see its documentation for why an
  * importer is given the inputs rather than the names.
  *
- * Both clauses are the emitter's own-module enumerations on the far side, item
+ * All three clauses are the emitter's own-module enumerations on the far side, item
  * kind for item kind: `constraints` is what `moduleInterface` fills from this
  * module's `export constraint` items and nothing else, and the term walk reads
  * the declaration's own items rather than the interface's `terms` map, because
@@ -1184,7 +1185,10 @@ export function moduleInterface(module: Resolved.Module): ModuleInterface {
 export function internalNameInputs(
   imported: ModuleInterface | undefined,
 ): Resolved.InternalNameInputs {
-  if (imported === undefined) return { members: [], terms: [] };
+  if (imported === undefined) return { fixed: [], members: [], terms: [] };
+  const fixed = imported.module.items.flatMap((item) =>
+    item.kind === "PatternDeclaration" ? [patternExportName(item.name)] : []
+  );
   const members = [...imported.constraints.values()].flatMap((declaration) =>
     declaration.members.map(({ binding, defaultValue }) => ({
       name: binding.name,
@@ -1211,7 +1215,7 @@ export function internalNameInputs(
       ? [item.binding.name]
       : [];
   });
-  return { members, terms };
+  return { fixed, members, terms };
 }
 
 /**
@@ -1649,7 +1653,7 @@ class Resolver {
         if (!candidates.some(({ identity }) => identity === reference.identity)) {
           candidates.push({
             ...reference,
-            emitted: `${displayModuleName(home.name).split(".").at(-1) ?? home.name}.${reference.declaredName}`,
+            emitted: `${displayModuleName(home.name).split(".").at(-1) ?? home.name}.${reference.emitted}`,
             declaringModule: home.name,
             source: "door",
             homePatternNames: [...home.interface.patterns.keys()],
@@ -2412,32 +2416,6 @@ class Resolver {
     // declaration supplies are derived here, so member seats, emission, and the
     // checker all meet a block whose manifest is complete (Constraints §4.7).
     const resolvedItems = this.#supplyWidenedMembers(walked);
-    for (const pattern of resolvedItems) {
-      if (pattern.kind !== "PatternDeclaration" || !pattern.exported) continue;
-      const term = resolvedItems.flatMap((item): readonly { readonly name: string; readonly span: Source.Span }[] => {
-        if ((item.kind === "Let" || item.kind === "Fun") && item.exported) {
-          return [{ name: item.binding.name, span: item.span }];
-        }
-        if (item.kind === "ExternBlock") {
-          return item.declarations.flatMap((declaration) =>
-            declaration.exported && declaration.kind !== "ExternType"
-              ? [{ name: declaration.localName, span: declaration.span }]
-              : []
-          );
-        }
-        if (item.kind === "ConstraintDeclaration" && item.exported) {
-          return item.members.map((member) => ({ name: member.binding.name, span: member.span }));
-        }
-        return [];
-      }).find(({ name }) => name === pattern.name);
-      if (term === undefined) continue;
-      this.#diagnostics.add({
-        severity: "error",
-        message: `this module already exports \`${pattern.name}\`; an exported pattern and an exported term cannot share a name`,
-        primary: pattern.span,
-        labels: [{ span: term.span, message: "term exported here" }],
-      });
-    }
     // After resolution, never before: the synthesized import's local names have
     // to dodge every name the emitted module binds, and that set is only closed
     // once every declaration has been through `#declare` (PR #91 finding F1).
@@ -2611,7 +2589,7 @@ class Resolver {
           if (!candidates.some(({ identity }) => identity === reference.identity)) {
             candidates.push({
               ...reference,
-              emitted: `${item.alias.text}.${reference.declaredName}`,
+              emitted: `${item.alias.text}.${reference.emitted}`,
               declaringModule: home.name,
               source: "import",
               homePatternNames: [...imported.patterns.keys()],
@@ -3044,7 +3022,7 @@ class Resolver {
         }
         const aliased = target === undefined ? undefined : {
           ...target,
-          emitted: `${item.target.qualifier!.text}.${target.declaredName}`,
+          emitted: `${item.target.qualifier!.text}.${target.emitted}`,
           source: "alias" as const,
         };
         if (this.#ownPatterns.has(item.name.text)) {
@@ -3093,7 +3071,7 @@ class Resolver {
         const reference: Resolved.PatternReference = {
           identity,
           declaredName: item.name.text,
-          emitted: item.name.text,
+          emitted: patternExportName(item.name.text),
           view: viewBinding.symbol,
           ...(buildBinding === undefined ? {} : { build: buildBinding.symbol }),
           componentNames: head?.components.map(({ name }) => name) ?? [],

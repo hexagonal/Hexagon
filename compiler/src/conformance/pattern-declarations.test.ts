@@ -184,6 +184,9 @@ describe("pattern declarations (#834)", () => {
       "    component\n";
     const project = compileFiles([["/colour.hex", colour], ["/paint.hex", paint], ["/main.hex", client]]);
     expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
+    const emitted = project.modules.find(({ source }) => source.path === "/main.hex")!.javascript.text;
+    expect(emitted).toContain("Colour.__patt_rgb.build(0.25)");
+    expect(emitted).toContain("Colour.__patt_rgb.view(");
   });
 
   test("the expected type opens an unimported nominal home's pattern", async () => {
@@ -203,11 +206,45 @@ describe("pattern declarations (#834)", () => {
       "export let answer: Int =\n" +
       "    let (value)boxed = Mid.make()\n" +
       "    value\n";
-    const exports = await runProject([
+    const files = [
       ["/box.hex", box],
       ["/mid.hex", mid],
       ["/main.hex", client],
-    ], { transform: distinct("pattern expected-type door") });
+    ] as const;
+    const project = compileFiles(files);
+    const emitted = project.modules.find(({ source }) => source.path === "/main.hex")!.javascript.text;
+    expect(emitted).toContain('import * as Box from "./Box.js";');
+    expect(emitted).toContain("Box.__patt_boxed.view(");
+    const exports = await runProject(files, { transform: distinct("pattern expected-type door") });
+    expect(exports["answer"]).toBe(42);
+  });
+
+  test("fixed pattern exports protect numeric suffix candidates across an import", async () => {
+    const home =
+      "module Views\n\n" +
+      "export constraint Read<a> =\n    read(value: a) -> Int\n" +
+      "export record Box = {value: Int}\n" +
+      "honor Read<Box> =\n    read(box) = box.value\n" +
+      "export pattern map(value: Int): Int\n    view(value) = value\n" +
+      "export pattern map_1(value: Int): Int\n    view(value) = value\n" +
+      "export fun patt_map<a: Read>(value: a): Int = read(value)\n";
+    const client =
+      "module Main\n\n" +
+      "import Views\n" +
+      "export let answer: Int = Views.patt_map(Views.Box({value = 42}))\n";
+    const project = compileFiles([["/views.hex", home], ["/main.hex", client]]);
+    expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
+    const views = project.modules.find(({ source }) => source.path === "/views.hex")!;
+    const mainModule = project.modules.find(({ source }) => source.path === "/main.hex")!;
+    expect(views.javascript.text).toContain("const __patt_map = { view: value => value };");
+    expect(views.javascript.text).toContain("const __patt_map_1 = { view: value => value };");
+    expect(views.javascript.text).toContain("export { patt_map as __patt_map_2 };");
+    expect(views.declarations.text).toContain("export declare const __patt_map: {");
+    expect(views.declarations.text).toContain("export declare const __patt_map_1: {");
+    expect(mainModule.javascript.text).toContain(
+      'import { __patt_map_2 as __patt_map } from "./Views.js";',
+    );
+    const exports = await runProject([["/views.hex", home], ["/main.hex", client]]);
     expect(exports["answer"]).toBe(42);
   });
 
