@@ -777,6 +777,114 @@ describe("coverage identity is the value, not the spelling (§7.2)", BUDGET, () 
     )).toEqual([refusal, refusal]);
   });
 
+  test("the late restriction reaches §7.3 before coverage, like the eager one", () => {
+    const refusal = "`0` is not a pattern at `Rat`; bind a name and test it in a " +
+      "guard: `Some(y) when y == 0`";
+    const arms =
+      "        Some(0) => \"first\"\n" +
+      "        Some(0) => \"second\"\n" +
+      "        Some(r) => \"${Rat.toFloat(r)}\"\n" +
+      "        _ => \"other\"\n";
+    // Concrete at the first arm: both patterns are refused before the matrix.
+    expect(projectDiagnostics(
+      "module Main\n\nimport Rat\n\n" +
+      "export fun eager(value: Option(Rat.Rat)): String =\n" +
+      "    match value\n" + arms,
+    )).toEqual([refusal, refusal]);
+    // Undetermined at both literal arms, then fixed by the sibling. The deferred
+    // verdict is still the matrix's input, so neither refusal is a shadower.
+    expect(projectDiagnostics(
+      "module Main\n\nimport Rat\n\n" +
+      "export let late: String =\n" +
+      "    match None\n" + arms,
+    )).toEqual([refusal, refusal]);
+  });
+
+  test("each late literal receives the delegated failure that its eager twin does", () => {
+    const failure = "integer literal cannot have type `String`";
+    const arms =
+      "        Some(0) => \"first\"\n" +
+      "        Some(0) => \"second\"\n" +
+      "        Some(\"s\") => \"text\"\n" +
+      "        _ => \"other\"\n";
+    expect(projectDiagnostics(main(
+      "export fun eager(value: Option(String)): String =\n" +
+      "    match value\n" + arms,
+    ))).toEqual([failure, failure]);
+    // Both occurrences share one inferred slot and therefore one evidence seat.
+    // Diagnostics remain per failed pattern: evidence deduplication cannot erase
+    // the second typing verdict or let that pattern shadow an arm below it.
+    expect(projectDiagnostics(main(
+      "export let late: String =\n" +
+      "    match None\n" + arms,
+    ))).toEqual([failure, failure]);
+  });
+
+  test("late per-literal validation does not repeat structural component failures", () => {
+    const arms =
+      "        Some(0) => \"first\"\n" +
+      "        Some(0) => \"second\"\n" +
+      "        Some([f]) => f(1)\n" +
+      "        _ => \"other\"\n";
+    const eager = projectDiagnostics(main(
+      "export fun eager(value: Option(Vector((Int) -> String))): String =\n" +
+      "    match value\n" + arms,
+    ));
+    const late = projectDiagnostics(main(
+      "export let late: String =\n" +
+      "    match None\n" + arms,
+    ));
+    expect(eager).toEqual([
+      "functions have no `Eq` instance",
+      "type `Vector((Int) -> String)` has no `Num` instance",
+      "functions have no `Eq` instance",
+      "type `Vector((Int) -> String)` has no `Num` instance",
+    ]);
+    // The inferred path may report before every nested display variable settles,
+    // but it owes the same four failures: one `Eq` and one `Num` for each literal.
+    // Revalidating the resident structural `Eq` would make this five.
+    expect(late).toHaveLength(eager.length);
+    expect(late.filter((message) => message.includes("`Eq`"))).toHaveLength(2);
+    expect(late.filter((message) => message.includes("`Num`"))).toHaveLength(2);
+  });
+
+  test("deferred restrictions stay attached across eager and late matches", () => {
+    const refusal = "`0` is not a pattern at `Rat`; bind a name and test it in a " +
+      "guard: `Some(y) when y == 0`";
+    expect(projectDiagnostics(
+      "module Main\n\nimport Rat\n\n" +
+      "export fun eager(value: Option(Rat.Rat)): String =\n" +
+      "    match value\n" +
+      "        Some(0) => \"zero\"\n" +
+      "        _ => \"other\"\n" +
+      "export let late: String =\n" +
+      "    match None\n" +
+      "        Some(0) => \"zero\"\n" +
+      "        Some(r) => \"${Rat.toFloat(r)}\"\n" +
+      "        _ => \"other\"\n",
+    )).toEqual([refusal, refusal]);
+  });
+
+  test("a genuine catch-all still shadows a late-broken arm below it", () => {
+    const refusal = "`0` is not a pattern at `Rat`; bind a name and test it in a " +
+      "guard: `Some(y) when y == 0`";
+    expect(projectDiagnostics(
+      "module Main\n\nimport Rat\n\n" +
+      "fun f(value): String =\n" +
+      "    let first =\n" +
+      "        match value\n" +
+      "            _ => \"all\"\n" +
+      "            Some(0) => \"broken\"\n" +
+      "    match value\n" +
+      "        Some(r) => \"${Rat.toFloat(r)}\"\n" +
+      "        _ => first\n" +
+      "export let answer: String = f(None)\n",
+    )).toEqual([
+      "this match arm is unreachable; an earlier pattern matches everything",
+      refusal,
+    ]);
+  });
+
   test("a duplicate in a nested column names its one shadowing arm", () => {
     // §7.2 asks for the shadowing arm by name wherever naming one would be true,
     // and a nested duplicate is covered by one arm alone. The general sentence
