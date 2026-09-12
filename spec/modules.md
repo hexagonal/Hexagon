@@ -220,9 +220,9 @@ paragraph the tie for a list first written here. A same-named pair's relative
 order in the advised conjunction is the implementation's own — unspecified but
 stable, FFI Part 9 §6.2.1's terms — and once written it is the declared
 conjunction's order, fixing slots and suffix (Constraints §6.1, §6.2). The
-advised signature is one
-this section accepts as written — same-spelled conjunctions are declarable
-through the routes above. One tier lies past the routes, the law's fourth: a
+advised signature is one this section accepts as written — same-spelled
+conjunctions are declarable through the routes above.
+One tier lies past the routes, the law's fourth: a
 required constraint that is **not exported** — the §4.3 sealing gate — has no
 spelling and no route, and the advice offers no binder at all; the report
 names the gate and the real exits — "exported function `g` requires the
