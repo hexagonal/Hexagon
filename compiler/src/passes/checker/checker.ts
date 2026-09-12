@@ -1214,6 +1214,12 @@ interface ReachabilityReports {
    * catch-all, which the `everything` row takes two tiers above), or a broken node
    * (the arm is skipped). `#soleShadower` is never consulted there, and a row that
    * cannot fire would be an unpinnable sentence in the corpus.
+   *
+   * The cost of the `?` is a **silent default**: a table that omits the row now falls
+   * through to `covered` rather than failing `tsc`. Named here because that is the
+   * whole of the trade — two tables exist, one omits the row deliberately, and the
+   * fall-through is the behaviour that omission asks for. A third table would want
+   * this comment read first.
    */
   readonly shadower?: (pattern: string) => string;
   /** Covered by the arms above jointly, with no single arm to name. */
@@ -9255,12 +9261,28 @@ class Checker {
     if (type.kind === "Constructor" && PERMITTED_LITERAL_PRIMITIVES.has(type.name)) {
       return;
     }
+    // §2.5's two phases, **in order**, which §12's row states unconditionally: "the
+    // constraint fails before the restriction is reached". The refusal below is for
+    // "a resolution to a type honoring `Num` and `Eq` outside them … the constraints
+    // satisfied and the check after them", so where they are not satisfied this
+    // section has nothing to say and the delegated report stands alone.
+    //
+    // Asked here rather than left to the caller, because the two callers cannot both
+    // know it: `#inferIntegerPattern` does — a failed demand reports inside
+    // `#require` and it returns before this call — but `#checkPendingLiteralRestrictions`
+    // does not, its demands having been deferred onto a variable and validated later,
+    // at the unification that resolved the position. That is the whole of this gate's
+    // work: at a resolved position it is already true, and at a deferred one it is
+    // what keeps `match None` with the arms `Some(0)` and `Some({x = _})` to the one
+    // report §12 allows instead of adding a refusal whose fixit cannot clear it.
+    if (!this.#literalDemandsHold(pattern, type)) return;
     const head = `\`${pattern.decimal}\` is not a pattern at \`${this.#display(type)}\``;
     // §2.5: the guard is offered **only where it is valid at that position**. Its
-    // two halves are settled here for free — the type unifies by construction (the
-    // literal stood at it) and `Num` and `Eq` are in scope because a failed demand
-    // returned before this check. The third is or-patterns: inside an alternative,
-    // no single-literal rewrite compiles (§2.6), so the sentence stops.
+    // two halves are settled by now — the type unifies by construction (the literal
+    // stood at it) and the gate above has just established the constraints. The
+    // third is the position's own: inside an or-alternative no single-literal rewrite
+    // compiles (§2.6), outside an arm there is no guard to write (§3), and at an arm
+    // that already has one the rendered arm head would replace it.
     const guard = guardUnavailable
       ? undefined
       : literalPatternGuard(pattern, pattern.decimal, root);
@@ -9272,6 +9294,31 @@ class Checker {
       primary: pattern.span,
     });
     this.#brokenPatterns.add(pattern);
+  }
+
+  /**
+   * Whether the literal's own demands hold at the type its position resolved to —
+   * the first of §2.5's two phases, asked so that both callers of
+   * `#checkLiteralPrimitive` obey the same order.
+   *
+   * The three tests are the ones the term sentence's gate uses
+   * (`#termSpellingGuardOffered`), read off the instance table and binding nothing:
+   * `Num`, `Eq`, and `Signed` besides where the sign is written — exactly the
+   * demands `#inferIntegerPattern` raised. Variables are admitted as subjects
+   * (`allowVariableTarget`), because a **declared** variable is a resolved position
+   * and carries its constraints as requirements: `Some(0)` at `Option(a)` under
+   * `<a: (Num, Eq)>` satisfies both and is refused by the restriction, which is
+   * §2.5's own example.
+   *
+   * Conservative in the direction that matters here: an answer of `false` leaves the
+   * delegated constraint report standing alone, which is what §12's row asks for
+   * anyway, and the permitted primitives have already returned above — so a type the
+   * instance table cannot answer for loses no report.
+   */
+  #literalDemandsHold(pattern: Resolved.IntegerPattern, type: Mono): boolean {
+    return this.#supportsNumericTarget(type, true) &&
+      this.#supportsTarget(type, "Eq", true) &&
+      (!pattern.decimal.startsWith("-") || this.#supportsSignedTarget(type, true));
   }
 
   /**
