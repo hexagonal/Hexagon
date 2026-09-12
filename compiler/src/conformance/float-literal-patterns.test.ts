@@ -1185,6 +1185,45 @@ describe("a term's spelling in pattern position (§2.5, §12)", BUDGET, () => {
     )).toEqual(["integer literal cannot have type `String`"]);
   });
 
+  test("each of the three demands gates the restriction, and only when unmet", () => {
+    // A hand-written `Num` is what separates the gate's three conjuncts, because no
+    // prelude type does: `Nat` is the only one honoring `Num` and `Eq` without
+    // `Signed`, and it is a permitted primitive, which returns above the gate. So the
+    // subject is a record honoring `Num` by hand — which is also §2.5's own example
+    // for the restriction, "a user's `Money` honoring both".
+    const tally = (derives: string, arm: string): string =>
+      "module Main\n\n" +
+      `record Tally${derives} = {count: Int}\n` +
+      "honor Num<Tally> =\n" +
+      "    add(l, r) = Tally({count = l.count + r.count})\n" +
+      "    multiply(l, r) = Tally({count = l.count * r.count})\n" +
+      "    fromNat(n) = Tally({count = Int.fromNat(n)})\n" +
+      "\n" +
+      "export let a: String =\n" +
+        "    match None\n" +
+        `        Some(${arm}) => "z"\n` +
+        "        Some(Tally({count = _})) => \"y\"\n" +
+        "        _ => \"o\"\n";
+    // `Eq` unmet: the delegated report alone.
+    expect(projectDiagnostics(tally("", "0"))).toEqual([
+      "type `Tally` has no `Eq` instance; it could only be declared in module `Main` " +
+      "(declares `Tally`) or the module declaring `Eq`; add `derives Eq` to the " +
+      "declaration of `Tally`",
+    ]);
+    // `Signed` unmet, which only a negative literal demands: likewise.
+    expect(projectDiagnostics(tally(" derives Eq", "-1"))).toEqual([
+      "type `Tally` has no `Signed` instance; it could only be declared in module " +
+      "`Main` (declares `Tally`) or the module declaring `Signed`",
+    ]);
+    // And the control that makes the gate a *condition* rather than a blanket skip:
+    // all three demands met at the same type, and the restriction fires with its
+    // guard — §2.5's "a user's `Money` honoring both … refused at the literal".
+    expect(projectDiagnostics(tally(" derives Eq", "0"))).toEqual([
+      "`0` is not a pattern at `Tally`; bind a name and test it in a guard: " +
+      "`Some(y) when y == 0`",
+    ]);
+  });
+
   test("a polymorphic term is declined its guard", () => {
     // `#termSpellingGuardOffered` declines a term whose scheme has variables: its
     // type would have to be instantiated, and instantiating mints variables and
