@@ -79,7 +79,7 @@
           "//": "spec/comments.md §3.1: `/*` is JavaScript's opener and is detected, never lexed as `/` then `*`. The region it opens is painted as one error, mirroring the compiler's scan-to-`*/` recovery — a pasted JSDoc block is one region, not a line of error followed by `@param` painted as an invalid character. Ending at `$` instead would say that, and would also let #tab-indentation fire on a tab inside the comment body, which the compiler explicitly does not diagnose. The bail-out guard is what stops a half-typed `/*` from repainting the file; see the //line-bail-guard note.",
           "name": "invalid.illegal.javascript-comment.hexagon",
           "begin": "/\\*",
-          "end": "\\*/|(?=^\\S|^[ \\t]*(?:(?:(?:let|var|fun|record|type|constraint|honor|derive|exception|import|export|extern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|opaque(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?:record|union)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|widens(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|union(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|end[ \\t]+module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))|\\|(?!>)))",
+          "end": "\\*/|(?=^\\S|^[ \\t]*(?:(?:(?:let|var|fun|record|type|constraint|honor|derive|exception|import|export|extern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|pattern(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?![\\p{Uppercase}\\p{Lt}])(?!__)(?!(?:catch|else|finally|for|if|in|match|then|try|while|import|export|extern|constraint|derive|exception|fun|honor|let|record|type|var|and|iff|implies|not|or|true|false)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))[\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*[ \\t]*(?=[(<:=]|$)|opaque(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?:record|union)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|widens(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|union(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|end[ \\t]+module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))|\\|(?!>)))",
           "patterns": [{ "include": "#bidirectional-control" }]
         },
         {
@@ -334,6 +334,20 @@
       "patterns": [
         {
           "//": [
+            "Pattern Declarations §2.1 and Lexer §4.2: `pattern` is contextual at a",
+            "declaration head, optionally after `export`, and remains an ordinary name",
+            "everywhere else. The follower is the complete set of tokens that can follow",
+            "the declared non-uppercase name: a headed declaration, alias, or bare head."
+          ],
+          "match": "^[ \\t]*(?:(export)[ \\t]+)?(pattern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+((?![\\p{Uppercase}\\p{Lt}])(?!__)(?!(?:catch|else|finally|for|if|in|match|then|try|while|import|export|extern|constraint|derive|exception|fun|honor|let|record|type|var|and|iff|implies|not|or|true|false)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))[\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*)(?=[ \\t]*(?:[(<:=]|$))",
+          "captures": {
+            "1": { "name": "keyword.control.import.hexagon" },
+            "2": { "name": "storage.type.hexagon" },
+            "3": { "name": "entity.name.function.hexagon" }
+          }
+        },
+        {
+          "//": [
             "spec/functions.md §7.3's block **head** (#700): `fun` alone, or carrying its",
             "binder list, and nothing else on the logical item. It introduces functions",
             "exactly as the fused spelling does — its members are the following lines — so",
@@ -504,7 +518,7 @@
         "1": { "name": "storage.type.hexagon" },
         "2": { "name": "entity.name.type.hexagon" }
       },
-      "end": "$|(?=^\\S|^[ \\t]*(?:(?:(?:let|var|fun|record|type|constraint|honor|derive|exception|import|export|extern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|opaque(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?:record|union)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|widens(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|union(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|end[ \\t]+module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))|\\|(?!>)))",
+      "end": "$|(?=^\\S|^[ \\t]*(?:(?:(?:let|var|fun|record|type|constraint|honor|derive|exception|import|export|extern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|pattern(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?![\\p{Uppercase}\\p{Lt}])(?!__)(?!(?:catch|else|finally|for|if|in|match|then|try|while|import|export|extern|constraint|derive|exception|fun|honor|let|record|type|var|and|iff|implies|not|or|true|false)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))[\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*[ \\t]*(?=[(<:=]|$)|opaque(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?:record|union)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|widens(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|union(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|end[ \\t]+module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))|\\|(?!>)))",
       "patterns": [
         { "include": "#type-expression" }
       ]
@@ -527,7 +541,7 @@
             "2": { "name": "entity.name.type.hexagon" },
             "3": { "name": "punctuation.section.parens.begin.hexagon" }
           },
-          "end": "\\)|(?=^\\S|^[ \\t]*(?:(?:(?:let|var|fun|record|type|constraint|honor|derive|exception|import|export|extern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|opaque(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?:record|union)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|widens(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|union(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|end[ \\t]+module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))|\\|(?!>)))",
+          "end": "\\)|(?=^\\S|^[ \\t]*(?:(?:(?:let|var|fun|record|type|constraint|honor|derive|exception|import|export|extern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|pattern(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?![\\p{Uppercase}\\p{Lt}])(?!__)(?!(?:catch|else|finally|for|if|in|match|then|try|while|import|export|extern|constraint|derive|exception|fun|honor|let|record|type|var|and|iff|implies|not|or|true|false)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))[\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*[ \\t]*(?=[(<:=]|$)|opaque(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?:record|union)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|widens(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|union(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|end[ \\t]+module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))|\\|(?!>)))",
           "endCaptures": {
             "0": { "name": "punctuation.section.parens.end.hexagon" }
           },
@@ -541,7 +555,7 @@
             "2": { "name": "entity.name.type.hexagon" },
             "3": { "name": "punctuation.section.parens.begin.hexagon" }
           },
-          "end": "\\)|$|(?=^\\S|^[ \\t]*(?:(?:(?:let|var|fun|record|type|constraint|honor|derive|exception|import|export|extern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|opaque(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?:record|union)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|widens(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|union(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|end[ \\t]+module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))|\\|(?!>)))",
+          "end": "\\)|$|(?=^\\S|^[ \\t]*(?:(?:(?:let|var|fun|record|type|constraint|honor|derive|exception|import|export|extern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|pattern(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?![\\p{Uppercase}\\p{Lt}])(?!__)(?!(?:catch|else|finally|for|if|in|match|then|try|while|import|export|extern|constraint|derive|exception|fun|honor|let|record|type|var|and|iff|implies|not|or|true|false)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))[\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*[ \\t]*(?=[(<:=]|$)|opaque(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?:record|union)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|widens(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|union(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|end[ \\t]+module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))|\\|(?!>)))",
           "endCaptures": {
             "0": { "name": "punctuation.section.parens.end.hexagon" }
           },
@@ -659,7 +673,7 @@
           "beginCaptures": {
             "0": { "name": "punctuation.section.parens.begin.hexagon" }
           },
-          "end": "\\)|$|(?=^\\S|^[ \\t]*(?:(?:(?:let|var|fun|record|type|constraint|honor|derive|exception|import|export|extern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|opaque(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?:record|union)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|widens(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|union(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|end[ \\t]+module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))|\\|(?!>)))",
+          "end": "\\)|$|(?=^\\S|^[ \\t]*(?:(?:(?:let|var|fun|record|type|constraint|honor|derive|exception|import|export|extern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|pattern(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?![\\p{Uppercase}\\p{Lt}])(?!__)(?!(?:catch|else|finally|for|if|in|match|then|try|while|import|export|extern|constraint|derive|exception|fun|honor|let|record|type|var|and|iff|implies|not|or|true|false)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))[\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*[ \\t]*(?=[(<:=]|$)|opaque(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?:record|union)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|widens(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|union(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|end[ \\t]+module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))|\\|(?!>)))",
           "endCaptures": {
             "0": { "name": "punctuation.section.parens.end.hexagon" }
           },
@@ -703,7 +717,7 @@
             "2": { "name": "punctuation.separator.colon.hexagon" },
             "3": { "name": "punctuation.section.parens.begin.hexagon" }
           },
-          "end": "\\)|$|(?=^\\S|^[ \\t]*(?:(?:(?:let|var|fun|record|type|constraint|honor|derive|exception|import|export|extern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|opaque(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?:record|union)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|widens(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|union(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|end[ \\t]+module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))|\\|(?!>)))",
+          "end": "\\)|$|(?=^\\S|^[ \\t]*(?:(?:(?:let|var|fun|record|type|constraint|honor|derive|exception|import|export|extern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|pattern(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?![\\p{Uppercase}\\p{Lt}])(?!__)(?!(?:catch|else|finally|for|if|in|match|then|try|while|import|export|extern|constraint|derive|exception|fun|honor|let|record|type|var|and|iff|implies|not|or|true|false)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))[\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*[ \\t]*(?=[(<:=]|$)|opaque(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?:record|union)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|widens(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|union(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|end[ \\t]+module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))|\\|(?!>)))",
           "endCaptures": {
             "0": { "name": "punctuation.section.parens.end.hexagon" }
           },
@@ -750,7 +764,7 @@
         "2": { "name": "keyword.operator.arrow.impure.hexagon" },
         "3": { "name": "keyword.operator.type.arrow.hexagon" }
       },
-      "end": "(?=[,)=}\\]]|=>|=(?!=)|$)|(?=^\\S|^[ \\t]*(?:(?:(?:let|var|fun|record|type|constraint|honor|derive|exception|import|export|extern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|opaque(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?:record|union)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|widens(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|union(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|end[ \\t]+module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))|\\|(?!>)))",
+      "end": "(?=[,)=}\\]]|=>|=(?!=)|$)|(?=^\\S|^[ \\t]*(?:(?:(?:let|var|fun|record|type|constraint|honor|derive|exception|import|export|extern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|pattern(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?![\\p{Uppercase}\\p{Lt}])(?!__)(?!(?:catch|else|finally|for|if|in|match|then|try|while|import|export|extern|constraint|derive|exception|fun|honor|let|record|type|var|and|iff|implies|not|or|true|false)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))[\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*[ \\t]*(?=[(<:=]|$)|opaque(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?:record|union)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|widens(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|union(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|end[ \\t]+module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))|\\|(?!>)))",
       "patterns": [
         { "include": "#type-expression" }
       ]
@@ -772,7 +786,7 @@
       "beginCaptures": {
         "0": { "name": "punctuation.separator.colon.hexagon" }
       },
-      "end": "(?=[,)=}\\]]|=>|=(?!=)|$)|(?=^\\S|^[ \\t]*(?:(?:(?:let|var|fun|record|type|constraint|honor|derive|exception|import|export|extern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|opaque(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?:record|union)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|widens(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|union(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|end[ \\t]+module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))|\\|(?!>)))",
+      "end": "(?=[,)=}\\]]|=>|=(?!=)|$)|(?=^\\S|^[ \\t]*(?:(?:(?:let|var|fun|record|type|constraint|honor|derive|exception|import|export|extern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|pattern(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?![\\p{Uppercase}\\p{Lt}])(?!__)(?!(?:catch|else|finally|for|if|in|match|then|try|while|import|export|extern|constraint|derive|exception|fun|honor|let|record|type|var|and|iff|implies|not|or|true|false)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))[\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*[ \\t]*(?=[(<:=]|$)|opaque(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?:record|union)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|widens(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|union(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|end[ \\t]+module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))|\\|(?!>)))",
       "patterns": [
         { "include": "#type-expression" }
       ]
@@ -807,7 +821,7 @@
           "beginCaptures": {
             "0": { "name": "punctuation.section.parens.begin.hexagon" }
           },
-          "end": "\\)|(?=^\\S|^[ \\t]*(?:(?:(?:let|var|fun|record|type|constraint|honor|derive|exception|import|export|extern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|opaque(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?:record|union)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|widens(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|union(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|end[ \\t]+module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))|\\|(?!>)))",
+          "end": "\\)|(?=^\\S|^[ \\t]*(?:(?:(?:let|var|fun|record|type|constraint|honor|derive|exception|import|export|extern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|pattern(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?![\\p{Uppercase}\\p{Lt}])(?!__)(?!(?:catch|else|finally|for|if|in|match|then|try|while|import|export|extern|constraint|derive|exception|fun|honor|let|record|type|var|and|iff|implies|not|or|true|false)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))[\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*[ \\t]*(?=[(<:=]|$)|opaque(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?:record|union)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|widens(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|union(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|end[ \\t]+module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))|\\|(?!>)))",
           "endCaptures": {
             "0": { "name": "punctuation.section.parens.end.hexagon" }
           },
@@ -820,7 +834,7 @@
           "beginCaptures": {
             "0": { "name": "punctuation.section.parens.begin.hexagon" }
           },
-          "end": "\\)|$|(?=^\\S|^[ \\t]*(?:(?:(?:let|var|fun|record|type|constraint|honor|derive|exception|import|export|extern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|opaque(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?:record|union)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|widens(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|union(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|end[ \\t]+module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))|\\|(?!>)))",
+          "end": "\\)|$|(?=^\\S|^[ \\t]*(?:(?:(?:let|var|fun|record|type|constraint|honor|derive|exception|import|export|extern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|pattern(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?![\\p{Uppercase}\\p{Lt}])(?!__)(?!(?:catch|else|finally|for|if|in|match|then|try|while|import|export|extern|constraint|derive|exception|fun|honor|let|record|type|var|and|iff|implies|not|or|true|false)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))[\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*[ \\t]*(?=[(<:=]|$)|opaque(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?:record|union)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|widens(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|union(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|end[ \\t]+module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))|\\|(?!>)))",
           "endCaptures": {
             "0": { "name": "punctuation.section.parens.end.hexagon" }
           },
@@ -833,7 +847,7 @@
           "beginCaptures": {
             "0": { "name": "punctuation.section.braces.begin.hexagon" }
           },
-          "end": "\\}|(?=^\\S|^[ \\t]*(?:(?:(?:let|var|fun|record|type|constraint|honor|derive|exception|import|export|extern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|opaque(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?:record|union)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|widens(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|union(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|end[ \\t]+module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))|\\|(?!>)))",
+          "end": "\\}|(?=^\\S|^[ \\t]*(?:(?:(?:let|var|fun|record|type|constraint|honor|derive|exception|import|export|extern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|pattern(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?![\\p{Uppercase}\\p{Lt}])(?!__)(?!(?:catch|else|finally|for|if|in|match|then|try|while|import|export|extern|constraint|derive|exception|fun|honor|let|record|type|var|and|iff|implies|not|or|true|false)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))[\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*[ \\t]*(?=[(<:=]|$)|opaque(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?:record|union)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|widens(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|union(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|end[ \\t]+module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))|\\|(?!>)))",
           "endCaptures": {
             "0": { "name": "punctuation.section.braces.end.hexagon" }
           },
@@ -846,7 +860,7 @@
           "beginCaptures": {
             "0": { "name": "punctuation.section.braces.begin.hexagon" }
           },
-          "end": "\\}|$|(?=^\\S|^[ \\t]*(?:(?:(?:let|var|fun|record|type|constraint|honor|derive|exception|import|export|extern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|opaque(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?:record|union)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|widens(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|union(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|end[ \\t]+module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))|\\|(?!>)))",
+          "end": "\\}|$|(?=^\\S|^[ \\t]*(?:(?:(?:let|var|fun|record|type|constraint|honor|derive|exception|import|export|extern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|pattern(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?![\\p{Uppercase}\\p{Lt}])(?!__)(?!(?:catch|else|finally|for|if|in|match|then|try|while|import|export|extern|constraint|derive|exception|fun|honor|let|record|type|var|and|iff|implies|not|or|true|false)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))[\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*[ \\t]*(?=[(<:=]|$)|opaque(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?:record|union)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|widens(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|union(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|end[ \\t]+module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))|\\|(?!>)))",
           "endCaptures": {
             "0": { "name": "punctuation.section.braces.end.hexagon" }
           },
@@ -859,7 +873,7 @@
           "beginCaptures": {
             "0": { "name": "punctuation.section.brackets.begin.hexagon" }
           },
-          "end": "\\]|(?=^\\S|^[ \\t]*(?:(?:(?:let|var|fun|record|type|constraint|honor|derive|exception|import|export|extern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|opaque(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?:record|union)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|widens(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|union(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|end[ \\t]+module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))|\\|(?!>)))",
+          "end": "\\]|(?=^\\S|^[ \\t]*(?:(?:(?:let|var|fun|record|type|constraint|honor|derive|exception|import|export|extern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|pattern(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?![\\p{Uppercase}\\p{Lt}])(?!__)(?!(?:catch|else|finally|for|if|in|match|then|try|while|import|export|extern|constraint|derive|exception|fun|honor|let|record|type|var|and|iff|implies|not|or|true|false)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))[\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*[ \\t]*(?=[(<:=]|$)|opaque(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?:record|union)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|widens(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|union(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|end[ \\t]+module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))|\\|(?!>)))",
           "endCaptures": {
             "0": { "name": "punctuation.section.brackets.end.hexagon" }
           },
@@ -872,7 +886,7 @@
           "beginCaptures": {
             "0": { "name": "punctuation.section.brackets.begin.hexagon" }
           },
-          "end": "\\]|$|(?=^\\S|^[ \\t]*(?:(?:(?:let|var|fun|record|type|constraint|honor|derive|exception|import|export|extern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|opaque(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?:record|union)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|widens(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|union(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|end[ \\t]+module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))|\\|(?!>)))",
+          "end": "\\]|$|(?=^\\S|^[ \\t]*(?:(?:(?:let|var|fun|record|type|constraint|honor|derive|exception|import|export|extern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|pattern(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?![\\p{Uppercase}\\p{Lt}])(?!__)(?!(?:catch|else|finally|for|if|in|match|then|try|while|import|export|extern|constraint|derive|exception|fun|honor|let|record|type|var|and|iff|implies|not|or|true|false)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))[\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*[ \\t]*(?=[(<:=]|$)|opaque(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?:record|union)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|widens(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|union(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|end[ \\t]+module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))|\\|(?!>)))",
           "endCaptures": {
             "0": { "name": "punctuation.section.brackets.end.hexagon" }
           },
@@ -996,7 +1010,7 @@
             "1": { "name": "keyword.other.derives.hexagon" },
             "2": { "name": "punctuation.section.parens.begin.hexagon" }
           },
-          "end": "\\)|(?=^\\S|^[ \\t]*(?:(?:(?:let|var|fun|record|type|constraint|honor|derive|exception|import|export|extern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|opaque(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?:record|union)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|widens(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|union(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|end[ \\t]+module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))|\\|(?!>)))",
+          "end": "\\)|(?=^\\S|^[ \\t]*(?:(?:(?:let|var|fun|record|type|constraint|honor|derive|exception|import|export|extern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|pattern(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?![\\p{Uppercase}\\p{Lt}])(?!__)(?!(?:catch|else|finally|for|if|in|match|then|try|while|import|export|extern|constraint|derive|exception|fun|honor|let|record|type|var|and|iff|implies|not|or|true|false)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))[\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*[ \\t]*(?=[(<:=]|$)|opaque(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?:record|union)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|widens(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|union(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|end[ \\t]+module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))|\\|(?!>)))",
           "endCaptures": {
             "0": { "name": "punctuation.section.parens.end.hexagon" }
           },
@@ -1013,7 +1027,7 @@
             "1": { "name": "keyword.other.derives.hexagon" },
             "2": { "name": "punctuation.section.parens.begin.hexagon" }
           },
-          "end": "\\)|$|(?=^\\S|^[ \\t]*(?:(?:(?:let|var|fun|record|type|constraint|honor|derive|exception|import|export|extern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|opaque(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?:record|union)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|widens(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|union(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|end[ \\t]+module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))|\\|(?!>)))",
+          "end": "\\)|$|(?=^\\S|^[ \\t]*(?:(?:(?:let|var|fun|record|type|constraint|honor|derive|exception|import|export|extern)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|pattern(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?![\\p{Uppercase}\\p{Lt}])(?!__)(?!(?:catch|else|finally|for|if|in|match|then|try|while|import|export|extern|constraint|derive|exception|fun|honor|let|record|type|var|and|iff|implies|not|or|true|false)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))[\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*[ \\t]*(?=[(<:=]|$)|opaque(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?:record|union)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|widens(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|union(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|end[ \\t]+module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))|\\|(?!>)))",
           "endCaptures": {
             "0": { "name": "punctuation.section.parens.end.hexagon" }
           },
