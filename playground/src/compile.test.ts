@@ -581,13 +581,13 @@ describe("compileSource", () => {
     expect(response.javascript).toContain(
       "const threeHalves = __Frac_Rat.divide(half, third);",
     );
-    expect(response.javascript).toContain("const half = Rat.rat.build(1n, 2n);");
-    expect(response.javascript).toContain("const third = Rat.rat.build(1n, 3n);");
+    expect(response.javascript).toContain("const half = Rat.__patt_rat.build(1n, 2n);");
+    expect(response.javascript).toContain("const third = Rat.__patt_rat.build(1n, 3n);");
     expect(response.javascript).toContain(
-      "__Eq_Rat.equals(Rat.rat.build(10n, 12n), Rat.rat.build(5n, 6n))",
+      "__Eq_Rat.equals(Rat.__patt_rat.build(10n, 12n), Rat.__patt_rat.build(5n, 6n))",
     );
-    expect(response.javascript).toContain("const fraction = Rat.rat.build(6n, 10n);");
-    expect(response.javascript).toContain("const __ratView = Rat.rat.view(fraction);");
+    expect(response.javascript).toContain("const fraction = Rat.__patt_rat.build(6n, 10n);");
+    expect(response.javascript).toContain("const __ratView = Rat.__patt_rat.view(fraction);");
     expect(response.javascript).toContain("const top = __ratView[0];");
     expect(response.javascript).toContain("const bottom = __ratView[1];");
     expect(response.javascript).toContain("const describe = fraction => {");
@@ -598,6 +598,8 @@ describe("compileSource", () => {
     const ratModule = response.executionModules.find(({ path }) =>
       path === "/Hex/Rat.hex"
     );
+    expect(ratModule?.javascript).toContain("const __patt_rat = {");
+    expect(ratModule?.javascript).toContain("export { __patt_rat");
     expect(ratModule?.javascript).toContain('bottom === 0n');
     expect(ratModule?.javascript).toContain('reducedBottom < 0n');
     // The brand is `Integral.hex`'s `exception` declaration now, reached by

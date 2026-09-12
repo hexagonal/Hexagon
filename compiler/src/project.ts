@@ -740,7 +740,7 @@ export function compileProject(
     // import is written from the exporter's own spellings, and this is the
     // enumeration every written import already travels with.
     const ownInternalNames = ownOperations.size === 0
-      ? { members: [], terms: [] }
+      ? { fixed: [], members: [], terms: [] }
       : internalNameInputs(moduleInterface(resolved));
     for (const [subject, operations] of ownOperations) {
       let seats = programOperations.get(subject);

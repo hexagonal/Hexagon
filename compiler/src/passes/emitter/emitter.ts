@@ -19,6 +19,7 @@ import { relativeSpecifier } from "../../support/paths.js";
 import type * as Source from "../../support/source.js";
 import { isSyntheticParameterName } from "../../support/synthetic.js";
 import { foreignLiteralJs } from "../../support/foreign-literal.js";
+import { patternExportName } from "../../support/generated-names.js";
 import type * as Core from "../../syntax/core/index.js";
 import type * as Emitted from "../../emission/index.js";
 import type * as Resolved from "../../syntax/resolved/index.js";
@@ -438,7 +439,7 @@ function moduleLevelBindings(
       case "Exception":
         return [identifier(item.binding)];
       case "PatternDeclaration":
-        return [item.name];
+        return [patternExportName(item.name)];
       case "ConstraintDeclaration":
         // The forwarders, and the §6.5 helper each defaulted member hoists.
         return item.members.flatMap((member) => [
@@ -2798,7 +2799,7 @@ function declarationTopLevelNames(
         names.add(item.binding.name);
         continue;
       case "PatternDeclaration":
-        names.add(item.name);
+        names.add(patternExportName(item.name));
         continue;
       case "Let":
       case "Fun":
@@ -3199,7 +3200,6 @@ class JavaScriptEmitter {
   /** The JavaScript binding that owns each locally declared pattern identity. */
   readonly #patternLocals = new Map<string, string>();
   readonly #patternMemberLocals = new Map<Resolved.SymbolId, string>();
-  readonly #termLocals = new Map<Resolved.SymbolId, string>();
   readonly #patternDoorImports = new Map<
     string,
     { readonly local: string; readonly specifier: string }
@@ -3275,6 +3275,9 @@ class JavaScriptEmitter {
       ...module.symbols.map(({ name }) => name),
       ...this.#defaultHelpers,
       ...module.items.flatMap((item) =>
+        item.kind === "PatternDeclaration" ? [patternExportName(item.name)] : []
+      ),
+      ...module.items.flatMap((item) =>
         item.kind === "Honor"
           // The member seats ride with their dictionary (§6.1): they are
           // module-level `const`s the resolver already named, so the mint has
@@ -3286,44 +3289,13 @@ class JavaScriptEmitter {
       ),
       ...module.preludeInstances.map(({ localDictionary }) => localDictionary),
     ]);
-    const ordinaryBindings = new Set(moduleLevelBindings({
-      ...module,
-      items: module.items.filter((item) => item.kind !== "PatternDeclaration"),
-    }));
-    const sourceTaken = new Set(moduleLevelBindings(module));
-    const freshSourceLocal = (stem: string): string => {
-      let suffix = 1;
-      let candidate = `${stem}_${suffix}`;
-      while (sourceTaken.has(candidate)) candidate = `${stem}_${++suffix}`;
-      sourceTaken.add(candidate);
-      return candidate;
-    };
     for (const item of module.items) {
       if (item.kind !== "PatternDeclaration") continue;
-      const local = !item.exported && ordinaryBindings.has(item.name)
-        ? freshSourceLocal(item.name)
-        : item.name;
+      const local = patternExportName(item.name);
       this.#patternLocals.set(item.identity, local);
       this.#patternMemberLocals.set(item.view.binding.symbol, `${local}.view`);
       if (item.build !== undefined) {
         this.#patternMemberLocals.set(item.build.binding.symbol, `${local}.build`);
-      }
-      if (!item.exported) continue;
-      for (const other of module.items) {
-        const bindings = other.kind === "Let" || other.kind === "Fun" || other.kind === "Var"
-          ? [other.binding]
-          : other.kind === "LetPattern"
-          ? patternBindings(other.pattern)
-          : [];
-        const exported = other.kind === "Let" || other.kind === "Fun"
-          ? other.exported
-          : false;
-        if (exported) continue;
-        for (const binding of bindings) {
-          if (binding.name === item.name) {
-            this.#termLocals.set(binding.symbol, freshSourceLocal(binding.name));
-          }
-        }
       }
     }
     for (const item of module.items) {
@@ -3778,9 +3750,7 @@ class JavaScriptEmitter {
         ? undefined
         : this.#emitExpr(item.build.value, depth + 1, evidenceNames);
       if (item.exported && depth === 0) {
-        this.#exports.push(name === item.name
-          ? `export { ${name} };`
-          : `export { ${name} as ${item.name} };`);
+        this.#exports.push(`export { ${name} };`);
       }
       const viewDoc = this.#docs.lines(item.view.span, indent(depth + 1), [], false);
       const buildDoc = item.build === undefined
@@ -6515,7 +6485,8 @@ class JavaScriptEmitter {
       };
       this.#patternDoorImports.set(reference.declaringPath, imported);
     }
-    return `${imported.local}.${reference.declaredName}`;
+    const exported = dot >= 0 ? reference.emitted.slice(dot + 1) : reference.emitted;
+    return `${imported.local}.${exported}`;
   }
 
   #patternViewLines(context: PatternViewContext, depth: number): string[] {
@@ -8893,8 +8864,7 @@ class JavaScriptEmitter {
   }
 
   #identifier(symbol: Resolved.SymbolId, sourceName: string): string {
-    return this.#termLocals.get(symbol) ??
-      (isSafeIdentifier(sourceName) ? sourceName : `__binding${Number(symbol)}`);
+    return isSafeIdentifier(sourceName) ? sourceName : `__binding${Number(symbol)}`;
   }
 
   /**
@@ -10653,7 +10623,7 @@ class DeclarationEmitter {
       if (item.kind === "PatternDeclaration") {
         if (!item.exported) continue;
         declarations.push(...this.#docs.lines(item.span, "", [], true));
-        declarations.push(`export declare const ${item.name}: {`);
+        declarations.push(`export declare const ${patternExportName(item.name)}: {`);
         declarations.push(
           ...this.#docs.lines(
             item.view.span,
@@ -13719,14 +13689,14 @@ function internalNamePlan(
   const forwarders = new Set<string>();
   const memberNames = inputs.members.map(({ name }) => name);
   for (const name of memberNames) {
-    const taken = new Set(helpers);
+    const taken = new Set([...inputs.fixed, ...helpers]);
     for (const other of memberNames) if (other !== name) taken.add(`__${other}`);
     const spelling = probeInternalName(name, taken);
     plan.set(name, spelling);
     forwarders.add(spelling);
   }
   for (const name of inputs.terms) {
-    const taken = new Set([...helpers, ...forwarders]);
+    const taken = new Set([...inputs.fixed, ...helpers, ...forwarders]);
     for (const other of inputs.terms) if (other !== name) taken.add(`__${other}`);
     plan.set(name, probeInternalName(name, taken));
   }
@@ -13741,6 +13711,9 @@ function internalNamePlan(
  * and a kind counted here but not there is exactly how the sides would drift.
  */
 function ownInternalNameInputs(module: Core.Module): Resolved.InternalNameInputs {
+  const fixed = module.items.flatMap((item) =>
+    item.kind === "PatternDeclaration" ? [patternExportName(item.name)] : []
+  );
   const members = module.items.flatMap((item) =>
     item.kind === "ConstraintDeclaration" && item.exported
       ? item.members.map(({ binding, defaultValue }) => ({
@@ -13761,7 +13734,7 @@ function ownInternalNameInputs(module: Core.Module): Resolved.InternalNameInputs
       ? [item.binding.name]
       : [];
   });
-  return { members, terms };
+  return { fixed, members, terms };
 }
 
 /**

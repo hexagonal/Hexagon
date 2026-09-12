@@ -779,12 +779,16 @@ export interface WidensTarget {
  * These are the *inputs* to the naming rule, not the names it produces, so the
  * rule has exactly one implementation — the exporting module runs it over its
  * own items, an importer over this, and neither predicts what the other
- * computed. `members` is every member of every **exported** constraint the
+ * computed. `fixed` carries compiler-owned interface names that may include
+ * private declarations but constrain the exported spellings. `members` is
+ * every member of every **exported** constraint the
  * module declares, not only the constraints this import binds, and `terms` is
  * every exported `let`, `fun`, and foreign row: an unconstrained one mints no
  * spelling but still contests one, and both sides must count the same heads.
  */
 export interface InternalNameInputs {
+  /** Fixed generated spellings that every internal export must avoid. */
+  readonly fixed: readonly string[];
   readonly members: readonly {
     readonly name: string;
     readonly defaulted: boolean;

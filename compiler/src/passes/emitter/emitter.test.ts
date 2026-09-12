@@ -34,12 +34,12 @@ describe("emitJavaScript", () => {
 
     expect(module.diagnostics).toEqual([]);
     const output = emitJavaScript(module);
-    expect(output.text).toContain("const rat = { view: parts, build: create };");
-    expect(output.text).toContain("const half = rat.build(1, 2);");
-    expect(output.text.match(/rat\.view\(__match\)/gu)).toHaveLength(1);
-    expect(output.text).toContain("export { rat };");
+    expect(output.text).toContain("const __patt_rat = { view: parts, build: create };");
+    expect(output.text).toContain("const half = __patt_rat.build(1, 2);");
+    expect(output.text.match(/__patt_rat\.view\(__match\)/gu)).toHaveLength(1);
+    expect(output.text).toContain("export { __patt_rat };");
     expect(emitDeclarations(module).text).toContain(
-      "export declare const rat: {\n  view(value: Rat): [number, number];\n  build(top: number, bottom: number): Rat;\n};",
+      "export declare const __patt_rat: {\n  view(value: Rat): [number, number];\n  build(top: number, bottom: number): Rat;\n};",
     );
     expect(output.diagnostics).toEqual([]);
   });
@@ -61,7 +61,7 @@ describe("emitJavaScript", () => {
     expect(output.indexOf("const __ratViewAt = () => {")).toBeLessThan(
       output.indexOf("if (__match.tag === \"Wrapped\""),
     );
-    expect(output.match(/rat\.view\(__match\.item1\)/gu)).toHaveLength(1);
+    expect(output.match(/__patt_rat\.view\(__match\.item1\)/gu)).toHaveLength(1);
   });
 
   test("keeps equal-spelled payloads of different constructors as distinct positions", () => {
@@ -77,19 +77,25 @@ describe("emitJavaScript", () => {
 
     expect(module.diagnostics).toEqual([]);
     const output = emitJavaScript(module).text;
-    expect(output.match(/rat\.view\(__match\.item1\)/gu)).toHaveLength(2);
+    expect(output.match(/__patt_rat\.view\(__match\.item1\)/gu)).toHaveLength(2);
   });
 
-  test("moves the private side of a pattern and term name collision", () => {
+  test("gives every pattern its fixed category spelling beside a same-named term", () => {
     const exportedPattern = coreSource(
-      "let rat: Int = 7\n" +
+      "export let rat: Int = 7\n" +
         "export pattern rat(value: Int): Int\n" +
         "    view(value) = value\n" +
         "export let observed: Int = rat",
     );
     expect(exportedPattern.diagnostics).toEqual([]);
     expect(emitJavaScript(exportedPattern).text).toContain(
-      "const rat_1 = 7;\nconst rat = { view: value => value };\nconst observed = rat_1;",
+      "const rat = 7;\nconst __patt_rat = { view: value => value };\nconst observed = rat;",
+    );
+    expect(emitJavaScript(exportedPattern).text).toContain("export { rat };");
+    expect(emitJavaScript(exportedPattern).text).toContain("export { __patt_rat };");
+    expect(emitDeclarations(exportedPattern).text).toContain("export declare const rat: number;");
+    expect(emitDeclarations(exportedPattern).text).toContain(
+      "export declare const __patt_rat: {",
     );
 
     const privatePattern = coreSource(
@@ -101,7 +107,7 @@ describe("emitJavaScript", () => {
     );
     expect(privatePattern.diagnostics).toEqual([]);
     expect(emitJavaScript(privatePattern).text).toContain(
-      "const rat = 7;\nconst rat_1 = { view: value => value, build: value => value };\nconst rebuilt = rat_1.build(8);",
+      "const rat = 7;\nconst __patt_rat = { view: value => value, build: value => value };\nconst rebuilt = __patt_rat.build(8);",
     );
   });
 
