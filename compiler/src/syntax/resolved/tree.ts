@@ -1132,6 +1132,8 @@ export interface OrPattern {
 export interface IntegerPattern {
   readonly kind: "Integer";
   readonly decimal: string;
+  /** Present for the monomorphic `n`-suffixed form. */
+  readonly bigint?: true;
   readonly span: Source.Span;
 }
 
@@ -1162,12 +1164,14 @@ export interface FloatPattern {
  * A pattern that failed to lex, to parse, or to resolve (Pattern Matching §7.3's
  * fourth tier, and §2.5's term-spelling refusal).
  *
- * One report already stands for it, so this node carries nothing but its span:
- * the checker reads it as a **broken** pattern, which coverage grants maximal
- * cover and reachability never treats as a shadower.
+ * One report either already stands for it or is selected by the checker from the
+ * position-dependent payload below. The checker reads it as a **broken** pattern,
+ * which coverage grants maximal cover and reachability never treats as a shadower.
  */
 export interface ErrorPattern {
   readonly kind: "Error";
+  /** A bare integer outside Int range, whose repair depends on this pattern's type. */
+  readonly oversizedInteger?: string;
   /**
    * A **term's spelling** written where a pattern belongs, carried to the checker
    * rather than reported here (Pattern Matching §2.5, §12; #894).

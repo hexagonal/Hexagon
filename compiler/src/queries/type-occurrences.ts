@@ -276,7 +276,7 @@ function typeOfPattern(pattern: Typed.Pattern): Typed.Type | undefined {
     case "As":
       return pattern.binding.scheme.type;
     case "Integer":
-      return { kind: "Primitive", name: "Int" };
+      return pattern.type;
     case "String":
       return { kind: "Primitive", name: "String" };
     case "Tuple": {

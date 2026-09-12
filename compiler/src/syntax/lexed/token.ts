@@ -106,6 +106,10 @@ export interface NameToken {
 export interface IntegerToken {
   readonly kind: "Integer";
   readonly decimal: string;
+  /** An out-of-Int-range bare spelling retained so its reader can select a valid repair. */
+  readonly recovered?: true;
+  /** The written form, retained only when recovery may offer a source edit. */
+  readonly spelling?: string;
   readonly span: Source.Span;
 }
 

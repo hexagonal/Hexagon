@@ -718,16 +718,16 @@ class Scanner {
   #finishInteger(start: number, digits: string): Lexed.Token | undefined {
     const decimal = digits.replaceAll("_", "");
     if (BigInt(decimal) > MAX_SAFE_INTEGER_DECIMAL) {
-      this.#error(
-        start,
-        this.#offset,
-        "integer literal exceeds Int range; add `n` for a BigInt, or use an explicit conversion",
-        {
-          message: "make this a BigInt literal",
-          replacement: `${this.#source.text.slice(start, this.#offset)}n`,
-        },
-      );
-      return undefined;
+      // Keep the whole construct in the stream. Expressions retain the historic
+      // diagnostic and repair, while a pattern must first know the type of its
+      // position: adding `n` is valid only at a `BigInt` seat.
+      return {
+        kind: "Integer",
+        decimal,
+        recovered: true,
+        spelling: this.#source.text.slice(start, this.#offset),
+        span: this.#source.span(start, this.#offset),
+      };
     }
 
     return {

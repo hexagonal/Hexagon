@@ -2551,7 +2551,8 @@ class Checker {
   readonly #brokenPatterns = new Set<Resolved.Pattern>();
   /**
    * What each integer literal pattern resolved to — the type of its position, and
-   * the `Num` requirement that builds the literal there (§2.5).
+   * for a bare literal the `Num` requirement that builds it there (§2.5). A
+   * monomorphic `n`-suffixed literal has no requirement.
    *
    * Read by `#materializePattern`, which cannot re-derive any of it: the
    * expected type is the pattern seat's, and the pattern node carries only
@@ -2661,6 +2662,11 @@ class Checker {
     readonly inOrAlternative: boolean;
     readonly armGuardSeat: boolean;
     readonly armHasGuard: boolean;
+  }[] = [];
+  /** Oversized bare pattern reports waiting for a sibling to resolve their seat. */
+  readonly #pendingOversizedIntegerPatterns: {
+    readonly pattern: Resolved.ErrorPattern;
+    readonly type: Mono;
   }[] = [];
   /**
    * How far beneath the top of a pattern the two pattern walks currently are —
@@ -3978,6 +3984,7 @@ class Checker {
     // the literals whose position was a variable wait until here — past the
     // defaulting that `Some(0)` under `match None` resolves through.
     this.#checkPendingLiteralRestrictions();
+    this.#checkPendingOversizedIntegerPatterns();
     // Before any scheme is externalised: an exported face has to carry the
     // colour its body proved (Modules §4.1.1), and #355 ruling 9 is what makes
     // that colour computable from the interface alone.
@@ -8956,6 +8963,12 @@ class Checker {
       return;
     }
     if (pattern.kind === "Integer") {
+      if (pattern.bigint === true) {
+        const type = primitive("BigInt");
+        this.#unifyPattern(pattern, expected, type);
+        this.#integerPatterns.set(pattern, { type });
+        return;
+      }
       this.#inferIntegerPattern(pattern, expected);
       return;
     }
@@ -9032,7 +9045,7 @@ class Checker {
    * *(#894; #519's literal typing)*.
    *
    * > A literal pattern is checked at the type of its position, and never widens
-   * > it. An integer literal contributes its numeric and equality constraints —
+   * > it. A bare integer literal contributes its numeric and equality constraints —
    * > `Num` and `Eq`, and `Signed` besides for a negative one — and unifies with
    * > the type at its position.
    *
@@ -9139,6 +9152,15 @@ class Checker {
    * report already stands.
    */
   #reportTermSpelling(pattern: Resolved.ErrorPattern, expected: Mono): void {
+    if (pattern.oversizedInteger !== undefined) {
+      const type = this.#prune(expected);
+      if (type.kind === "Variable" && type.rigidName === undefined) {
+        this.#pendingOversizedIntegerPatterns.push({ pattern, type });
+        return;
+      }
+      this.#reportOversizedIntegerPattern(pattern, type);
+      return;
+    }
     const refusal = pattern.termSpelling;
     if (refusal === undefined) return;
     const head = `\`${refusal.spelling}\` is a value, not a pattern`;
@@ -9353,6 +9375,34 @@ class Checker {
     this.#pendingLiteralRestrictions.length = 0;
   }
 
+  /** Selects an oversized bare pattern's repair after inference and defaulting. */
+  #checkPendingOversizedIntegerPatterns(): void {
+    for (const { pattern, type } of this.#pendingOversizedIntegerPatterns) {
+      this.#reportOversizedIntegerPattern(pattern, this.#prune(type));
+    }
+    this.#pendingOversizedIntegerPatterns.length = 0;
+  }
+
+  /** Reports one oversized bare pattern without changing the type of its position. */
+  #reportOversizedIntegerPattern(pattern: Resolved.ErrorPattern, type: Mono): void {
+    const atBigInt = type.kind === "Constructor" && type.name === "BigInt";
+    this.#diagnostics.add({
+      severity: "error",
+      message: atBigInt
+        ? "integer literal exceeds Int range; add `n` for a BigInt"
+        : "integer literal exceeds Int range",
+      primary: pattern.span,
+      ...(atBigInt
+        ? {
+            fixes: [{
+              message: "make this a BigInt literal",
+              edits: [{ span: pattern.span, replacement: `${pattern.oversizedInteger}n` }],
+            }],
+          }
+        : {}),
+    });
+  }
+
   /**
    * One step **through a wrapper** — `as`, or one alternative of `|` — rather than
    * down into a slot.
@@ -9434,6 +9484,12 @@ class Checker {
       return;
     }
     if (pattern.kind === "Integer") {
+      if (pattern.bigint === true) {
+        const type = primitive("BigInt");
+        this.#unifyPattern(pattern, expected, type);
+        this.#integerPatterns.set(pattern, { type });
+        return;
+      }
       this.#inferIntegerPattern(pattern, expected);
       return;
     }
@@ -21989,6 +22045,7 @@ class Checker {
       return {
         kind: "Integer",
         decimal: pattern.decimal,
+        ...(pattern.bigint === true ? { bigint: true as const } : {}),
         type: this.#publicType(resolved?.type ?? ERROR),
         ...(resolved?.num === undefined
           ? {}
@@ -23012,13 +23069,11 @@ function renderLiteralPatternKey(
  * An integer literal's value as a key — exact at every width, and the one place
  * `-0` becomes `0`.
  *
- * The exactness is **unreachable today**, and worth saying so rather than claiming
- * a guarantee no program exercises: the lexer refuses every integer literal above
- * `Int` range, at a `BigInt` scrutinee as anywhere else, and `0n` is not a pattern
- * form — so a `match` on `BigInt` can only test values up to 2^53−1, which is most
- * of what lifting #519's gate was for (#898, open). `BigInt` here is what keeps the
- * key from rounding the day one of those two changes; the `catch` beside it is
- * defensive only.
+ * The conversion through JavaScript `BigInt` preserves the arbitrary-precision
+ * payload of an `n`-suffixed pattern. It also gives bare and suffixed spellings
+ * one identity at a `BigInt` position, removes leading zeroes, and makes `-0` the
+ * same key as `0`. The `catch` is defensive: a spelling the lexer admits should
+ * always be valid input to `BigInt`.
  */
 function integerLiteralKey(decimal: string): string {
   const digits = cleanDigits(decimal);
@@ -23673,7 +23728,7 @@ function renderPattern(
     case "Unit":
       return "()";
     case "Integer":
-      return pattern.decimal;
+      return `${pattern.decimal}${pattern.bigint === true ? "n" : ""}`;
     case "Float":
       return pattern.spelling;
     case "Error":

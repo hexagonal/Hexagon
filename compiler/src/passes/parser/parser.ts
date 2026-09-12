@@ -3547,6 +3547,7 @@ class Parser {
     if (this.#at("Bar")) this.#advance();
 
     const constructors: Parsed.Constructor[] = [];
+    let recoveredMember = false;
     /** The member that first named each value, keyed as `Object.is` sees it. */
     const values = new Map<string, Parsed.Name>();
     while (!itemEnds.has(this.#current().kind)) {
@@ -3604,35 +3605,38 @@ class Parser {
             "explicit operations for structured foreign values",
         );
       }
-      const key = foreignLiteralKey(value.literal);
-      const first = values.get(key);
-      if (first === undefined) values.set(key, name);
+      if (value.recovered === true) recoveredMember = true;
       else {
-        // §2.4's duplicate-value refusal, naming both members. `-0` was folded
-        // to `0` when the literal was read, so `0 as A | -0 as B` arrives here
-        // as one key and is refused — which is what keeps a signed zero out of
-        // §4's `switch`.
-        this.#diagnostics.add({
-          severity: "error",
-          message:
-            `\`${first.text}\` already names this value; a literal enum's ` +
-            "members are distinct under `Object.is`",
-          primary: value.span,
-          labels: [{ span: first.span, message: "the member that names it" }],
+        const key = foreignLiteralKey(value.literal);
+        const first = values.get(key);
+        if (first === undefined) values.set(key, name);
+        else {
+          // §2.4's duplicate-value refusal, naming both members. `-0` was folded
+          // to `0` when the literal was read, so `0 as A | -0 as B` arrives here
+          // as one key and is refused — which is what keeps a signed zero out of
+          // §4's `switch`.
+          this.#diagnostics.add({
+            severity: "error",
+            message:
+              `\`${first.text}\` already names this value; a literal enum's ` +
+              "members are distinct under `Object.is`",
+            primary: value.span,
+            labels: [{ span: first.span, message: "the member that names it" }],
+          });
+        }
+        constructors.push({
+          name,
+          slots: [],
+          literal: value.literal,
+          span: spanFrom(value.span, name.span),
         });
       }
-      constructors.push({
-        name,
-        slots: [],
-        literal: value.literal,
-        span: spanFrom(value.span, name.span),
-      });
       this.#docs.attach(alternative, name.span, [name.span]);
       if (!this.#at("Bar")) break;
       alternative = this.#current().span.start.offset;
       this.#advance();
     }
-    if (constructors.length === 0) {
+    if (constructors.length === 0 && !recoveredMember) {
       this.#errorAt(nameToken.span, "a literal enum needs at least one member");
     }
     return {
@@ -3900,7 +3904,8 @@ class Parser {
    * collide with.
    */
   #parseForeignLiteral():
-    | { readonly literal: ForeignLiteral; readonly span: Source.Span }
+    | { readonly literal: ForeignLiteral; readonly recovered?: never; readonly span: Source.Span }
+    | { readonly recovered: true; readonly span: Source.Span }
     | undefined
   {
     const token = this.#current();
@@ -3919,12 +3924,19 @@ class Parser {
       const negative = token.kind === "Minus";
       if (negative) this.#advance();
       const integer = this.#advance() as Lexed.IntegerToken;
+      const span = spanFrom(token.span, integer.span);
+      if (integer.recovered === true) {
+        // The literal foreign-enum form excludes BigInt, so appending `n` is not
+        // a repair here. Consume the recovery token, but offer no invalid edit.
+        this.#errorAt(span, "integer literal exceeds Int range");
+        return { recovered: true, span };
+      }
       const magnitude = Number(integer.decimal.replaceAll("_", ""));
       // `-0` denotes `0` (§2.4): the value stored is the one `Object.is` sees,
       // so the two spellings of zero collide in the duplicate check above and
       // no signed zero ever reaches a `switch` case.
       const value = negative && magnitude !== 0 ? -magnitude : magnitude;
-      return { literal: { kind: "Integer", value }, span: spanFrom(token.span, integer.span) };
+      return { literal: { kind: "Integer", value }, span };
     }
     if (token.kind === "True" || token.kind === "False") {
       this.#advance();
@@ -4175,10 +4187,9 @@ class Parser {
    * inside that gap can only be about source no token survived, which is exactly
    * the construct this seat must not report a second time.
    *
-   * The one construct that reaches it is the **oversize integer** literal, whose
-   * token the lexer still drops (#898). An overflowing `Float` no longer does —
-   * Lexer §9's recovery form carries it, and the `Float` seat reads `recovered`
-   * instead of asking here.
+   * No numeric overflow reaches it now: both oversized integers (#898) and
+   * overflowing `Float`s have recovery tokens that their pattern readers consume.
+   * It remains the positional stand-down for lexical failures that have no token.
    *
    * Zero-width reports are excluded, so a layout complaint carated at a line's
    * start never silences a real refusal. What keeps the gap from being over-broad
@@ -4220,14 +4231,42 @@ class Parser {
     }
     if (token.kind === "Integer") {
       this.#advance();
+      if (token.recovered === true) {
+        return {
+          kind: "Error",
+          oversizedInteger: token.spelling ?? token.decimal,
+          span: token.span,
+        };
+      }
       return { kind: "Integer", decimal: token.decimal, span: token.span };
     }
     if (token.kind === "Minus" && this.#peek(1).kind === "Integer") {
       const minus = this.#advance();
       const integer = this.#advance() as Lexed.IntegerToken;
+      if (integer.recovered === true) {
+        return {
+          kind: "Error",
+          oversizedInteger: `-${integer.spelling ?? integer.decimal}`,
+          span: spanFrom(minus.span, integer.span),
+        };
+      }
       return {
         kind: "Integer",
         decimal: `-${integer.decimal}`,
+        span: spanFrom(minus.span, integer.span),
+      };
+    }
+    if (token.kind === "BigInt") {
+      this.#advance();
+      return { kind: "Integer", decimal: token.decimal, bigint: true, span: token.span };
+    }
+    if (token.kind === "Minus" && this.#peek(1).kind === "BigInt") {
+      const minus = this.#advance();
+      const integer = this.#advance() as Lexed.BigIntToken;
+      return {
+        kind: "Integer",
+        decimal: `-${integer.decimal}`,
+        bigint: true,
         span: spanFrom(minus.span, integer.span),
       };
     }
@@ -4646,6 +4685,10 @@ class Parser {
       }
       case "Integer":
         this.#advance();
+        if (token.recovered === true) {
+          this.#reportOversizedInteger(token.span, token.spelling ?? token.decimal);
+          return { kind: "ErrorExpr", span: token.span };
+        }
         return { kind: "Integer", decimal: token.decimal, span: token.span };
       case "BigInt":
         this.#advance();
@@ -6268,6 +6311,19 @@ class Parser {
 
   #errorAt(span: Source.Span, message: string): void {
     this.#diagnostics.add({ severity: "error", message, primary: span });
+  }
+
+  /** The expression-side safe-integer refusal and its context-valid BigInt repair. */
+  #reportOversizedInteger(span: Source.Span, spelling: string): void {
+    this.#diagnostics.add({
+      severity: "error",
+      message: "integer literal exceeds Int range; add `n` for a BigInt, or use an explicit conversion",
+      primary: span,
+      fixes: [{
+        message: "make this a BigInt literal",
+        edits: [{ span, replacement: `${spelling}n` }],
+      }],
+    });
   }
 
   #at(kind: TokenKind): boolean {
