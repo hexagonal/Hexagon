@@ -1047,6 +1047,8 @@ interface Requirement {
   useSpan?: Source.Span;
   readonly impliedTypes?: ReadonlyMap<string, Mono>;
   reported: boolean;
+  /** Set once a concrete subject has been checked, including successful checks. */
+  validated?: true;
   dictionary?: string;
   structural?: boolean;
   dictionaryArguments?: readonly Requirement[];
@@ -2413,6 +2415,12 @@ class Checker {
   readonly #recordAccesses = new WeakMap<Resolved.AccessExpr, string>();
   readonly #indexOperations = new WeakMap<Resolved.IndexExpr, NonNullable<Typed.IndexExpr["operation"]>>();
   readonly #matchUnions = new WeakMap<Resolved.MatchExpr, Resolved.UnionId>();
+  /** Matches whose §7 coverage judgments wait for deferred pattern typing. */
+  readonly #pendingMatchCoverage: {
+    readonly expression: Resolved.MatchExpr;
+    readonly type: Mono;
+    readonly reportMissing: boolean;
+  }[] = [];
   readonly #iterations = new WeakMap<Resolved.ForExpr, Requirement>();
   readonly #schemes = new Map<Resolved.SymbolId, Scheme>();
   // The enclosing definition's declared type variables, in scope while its body is
@@ -2658,6 +2666,8 @@ class Checker {
   readonly #pendingLiteralRestrictions: {
     readonly pattern: Resolved.IntegerPattern;
     readonly type: Mono;
+    /** Every demand from this occurrence, including evidence-deduplicated ones. */
+    readonly demands: readonly Requirement[];
     readonly root: Resolved.Pattern | undefined;
     readonly inOrAlternative: boolean;
     readonly armGuardSeat: boolean;
@@ -3985,6 +3995,7 @@ class Checker {
     // defaulting that `Some(0)` under `match None` resolves through.
     this.#checkPendingLiteralRestrictions();
     this.#checkPendingOversizedIntegerPatterns();
+    this.#checkPendingMatchCoverage();
     // Before any scheme is externalised: an exported face has to carry the
     // colour its body proved (Modules §4.1.1), and #355 ruling 9 is what makes
     // that colour computable from the interface alone.
@@ -7724,12 +7735,14 @@ class Checker {
           });
         }
         const actual = this.#prune(scrutinee);
-        // §7's judgments come off one matrix. Reachability runs wherever the
-        // arms were walked — every domain the dispatch admits below, and the
-        // ones it refuses as well: a dead arm is a dead arm whatever the scrutinee
-        // turned out to be, so a `match` on `Exn` or on a function type reports
-        // its refusal *and* its unreachable arms, exactly as it did before this
-        // seat was rewritten.
+        // §7's judgments come off one matrix. They are queued until defaulting
+        // and deferred pattern checks finish: §2.5 judges a literal on its
+        // resolved type, and §7.3 must see that verdict before deciding whether
+        // the pattern can shadow another arm. Reachability is queued wherever
+        // the arms were walked — every domain the dispatch admits below, and
+        // the ones it refuses as well: a dead arm is a dead arm whatever the
+        // scrutinee turned out to be, so a `match` on `Exn` or on a function
+        // type reports its refusal *and* its unreachable arms.
         //
         // The one exclusion is a scrutinee whose type is an unresolved variable
         // or an error, and it is a property of the matrix rather than a policy
@@ -7737,18 +7750,22 @@ class Checker {
         // reads as a wildcard (`#coverageColumn`) and every arm after the first
         // would be reported dead. Suppressing the judgment is the only way not
         // to invent one.
-        if (actual.kind !== "Variable" && actual.kind !== "Error") {
-          this.#checkArmReachability(expression.arms, actual, MATCH_ARM_REPORTS);
-        }
-        if (
+        const coverageSupported =
           actual.kind === "Union" || actual.kind === "NominalRecord" ||
           actual.kind === "Tuple" || actual.kind === "Record" ||
           actual.kind === "Vector" ||
           (actual.kind === "Constructor" &&
             (actual.name === "Int" || actual.name === "Nat" ||
               actual.name === "BigInt" || actual.name === "String" ||
-              actual.name === "Float"))
-        ) {
+              actual.name === "Float"));
+        if (actual.kind !== "Variable" && actual.kind !== "Error") {
+          this.#pendingMatchCoverage.push({
+            expression,
+            type: actual,
+            reportMissing: coverageSupported,
+          });
+        }
+        if (coverageSupported) {
           // One report for every closed and every infinite domain alike. The
           // union's bare constructor listing, the nominal record's type name,
           // and the structural "needs a catch-all" demand were three renderings
@@ -7773,7 +7790,6 @@ class Checker {
           // #147 deleted the `Bool` branch that stood here. `Bool` is a union,
           // so it reaches this path like every other union.
           if (actual.kind === "Union") this.#matchUnions.set(expression, actual.union);
-          this.#reportMissingCases(expression.arms, actual, expression.span);
         } else if (
           actual.kind === "Constructor" &&
           actual.name === "Exn"
@@ -9101,12 +9117,12 @@ class Checker {
     this.#literalPatternSeat = true;
     // `Eq` first, then `Num`: see outcome 1 above. `Signed` rides with `Num`,
     // both being the numeric half of what a negative literal is.
-    this.#require("Eq", expected, pattern.span);
+    const eq = this.#require("Eq", expected, pattern.span);
     const num = this.#require("Num", expected, pattern.span, "literal");
     num.literal = pattern.decimal;
-    if (pattern.decimal.startsWith("-")) {
-      this.#require("Signed", expected, pattern.span);
-    }
+    const signed = pattern.decimal.startsWith("-")
+      ? this.#require("Signed", expected, pattern.span)
+      : undefined;
     this.#literalPatternSeat = false;
     const actual = this.#prune(expected);
     this.#integerPatterns.set(pattern, { type: actual, num });
@@ -9120,6 +9136,7 @@ class Checker {
       this.#pendingLiteralRestrictions.push({
         pattern,
         type: actual,
+        demands: signed === undefined ? [eq, num] : [eq, num, signed],
         root: this.#patternRoot,
         inOrAlternative: this.#inOrAlternative,
         armGuardSeat: this.#armGuardSeat,
@@ -9350,26 +9367,44 @@ class Checker {
 
   /**
    * §2.5's restriction for every literal whose position was undetermined when it
-   * was checked — run once, after `#defaultRemainingVariables`.
+   * was checked — run after `#defaultRemainingVariables`, before §7 coverage.
    *
    * Ordinary inference and defaulting resolve such a position (`Some(0)` under
    * `match None` is a match at `Option(Int)`), so the overwhelming case resolves
    * to a permitted primitive and nothing is reported. Where it does not, the
-   * refusal is the same one, made late: §7.3's fourth tier has already read the
-   * arm, so the grant is the eager check's and a coverage report may stand beside
-   * this one. That is the price of judging the resolved type, which is what §2.5
-   * asks for; an eager judgment would have to guess.
+   * refusal is the same one, made late. Each occurrence's demands are validated
+   * here too: requirements on one inference variable share one evidence seat, but
+   * a failure at two literal patterns is still two failed patterns, exactly as on
+   * the eager path. Only after this pass has marked every failure broken does §7.3
+   * read the arms.
    */
   #checkPendingLiteralRestrictions(): void {
     for (
-      const { pattern, type, root, inOrAlternative, armGuardSeat, armHasGuard }
+      const {
+        pattern,
+        type,
+        demands,
+        root,
+        inOrAlternative,
+        armGuardSeat,
+        armHasGuard,
+      }
         of this.#pendingLiteralRestrictions
     ) {
       const actual = this.#prune(type);
       // A variable that survived defaulting is one a non-defaultable constraint
       // blocked, and §4's own report has already named it; an error type has been
       // reported too. Neither is this restriction's to speak about.
-      if (actual.kind === "Variable" || actual.kind === "Error") continue;
+      if (actual.kind === "Variable") continue;
+      if (actual.kind === "Error") {
+        this.#brokenPatterns.add(pattern);
+        continue;
+      }
+      for (const demand of demands) this.#validate(demand);
+      if (demands.some(({ reported }) => reported)) {
+        this.#brokenPatterns.add(pattern);
+        continue;
+      }
       this.#checkLiteralPrimitive(
         pattern,
         actual,
@@ -9378,6 +9413,17 @@ class Checker {
       );
     }
     this.#pendingLiteralRestrictions.length = 0;
+  }
+
+  /** Runs §7 only after every deferred pattern has received its typing verdict. */
+  #checkPendingMatchCoverage(): void {
+    for (const { expression, type, reportMissing } of this.#pendingMatchCoverage) {
+      this.#checkArmReachability(expression.arms, type, MATCH_ARM_REPORTS);
+      if (reportMissing) {
+        this.#reportMissingCases(expression.arms, type, expression.span);
+      }
+    }
+    this.#pendingMatchCoverage.length = 0;
   }
 
   /** Selects an oversized bare pattern's repair after inference and defaulting. */
@@ -17255,9 +17301,14 @@ class Checker {
   }
 
   #validate(requirement: Requirement): void {
-    if (requirement.reported) return;
+    if (requirement.reported || requirement.validated === true) return;
     const type = this.#prune(requirement.type);
     if (type.kind === "Variable" || type.kind === "Error") return;
+    // Validation can recursively mint component requirements. A deferred literal
+    // may retain the same parent requirement that was already validated when its
+    // type variable bound; revisiting that successful structural parent would mint
+    // the children twice and duplicate any component failure.
+    requirement.validated = true;
     // No early return for a primitive since #344's last landing. A requirement
     // at one discharges through `#instances` below, exactly as a requirement at
     // a nominal type does — this line used to answer first, from the wired
