@@ -497,24 +497,17 @@ describe("the literal at the type of its position (§2.5's checking rule, #519)"
     ))).toEqual([]);
   });
 
-  test("the undetermined scrutinee is §6.1's, with or without a literal arm", () => {
+  test("an undetermined literal scrutinee is named and points to an ascription", () => {
     // `match 0` with a `0` arm compiled only by the accident the ruling retires:
     // the old monomorphic typing unified the scrutinee to `Int` at arm-check,
     // while the same match with `_` alone, or with the guard twin, was refused.
     // §6.1 reads the scrutinee at dispatch, and all three now read alike.
-    // **The text below is pre-existing and this arc does not change it.** §6.1's
-    // refusal names the scrutinee's type only where that type is a *declared*
-    // variable; `match 0`'s is an undetermined inference variable, so the sentence
-    // comes out with no subject at all and the constraint-operations advice points
-    // at a variable carrying only the literal's own `Num` and `Eq`. §6.1's own
-    // normative text and §12's row both spell it *with* the name ("cannot match on
-    // a value of abstract type `c`"), and Constraints §8 / #649 say a diagnostic
-    // names its variable. What this arc did was make the seat reachable from an
-    // ordinary literal arm, so this is the first pin the message has ever had:
-    // filed as a byproduct for James, pinned as measured, deliberately not
-    // repaired here.
-    const refusal = "cannot match on a value of abstract type; " +
-      "use the operations its constraints provide";
+    // Constraints §8 names the surviving inference variable. Unlike a rigid
+    // abstract type, this value has no useful operations to point at; an
+    // ascription supplies the concrete representation `match` needs.
+    const refusal = "cannot match on a value of abstract type `a`; the value's " +
+      "type is not determined here; give the matched expression a concrete " +
+      "type with an ascription";
     expect(projectDiagnostics(main(
       "export let a: String =\n    match 0\n        0 => \"zero\"\n        _ => \"other\"\n",
     ))).toEqual([refusal]);
@@ -529,6 +522,36 @@ describe("the literal at the type of its position (§2.5's checking rule, #519)"
     ))).toEqual([refusal]);
   });
 
+  test("undetermined name and expression scrutinees take the same advice", () => {
+    expect(projectDiagnostics(main(
+      "fun byName(x) =\n" +
+        "    let alias = x\n" +
+        "    match alias\n" +
+        "        _ => \"value\"\n" +
+        "export let a: String = byName(0)\n",
+    ))).toEqual([
+      "cannot match on a value of abstract type `a`; the value's type is not " +
+        "determined here; give the matched expression a concrete type with an ascription",
+    ]);
+    expect(projectDiagnostics(main(
+      "export let a: String =\n" +
+        "    match (x => x)(0)\n" +
+        "        _ => \"value\"\n",
+    ))).toEqual([
+      "cannot match on a value of abstract type `a`; the value's type is not " +
+        "determined here; give the matched expression a concrete type with an ascription",
+    ]);
+  });
+
+  test("an ascription gives an undetermined literal scrutinee a concrete type", () => {
+    expect(projectDiagnostics(main(
+      "export let a: String =\n" +
+        "    match (0: Int)\n" +
+        "        0 => \"zero\"\n" +
+        "        _ => \"other\"\n",
+    ))).toEqual([]);
+  });
+
   test("the common unannotated spelling is §6.1's too, with #513's rider", () => {
     // `match 0` is the minimal case; this is the one a reader meets. Under the old
     // monomorphic-`Int` typing the literal arm silently fixed the parameter to
@@ -537,7 +560,7 @@ describe("the literal at the type of its position (§2.5's checking rule, #519)"
     // #513 wrote for exactly this scrutinee and which nothing in the repo pinned.
     // Pre-existing text, like the sentence in the test above, and pinned for the
     // same reason: this arc is what makes it reachable, not what wrote it.
-    const rider = "cannot match on a value of abstract type; the parameter's type " +
+    const rider = "cannot match on a value of abstract type `a`; the parameter's type " +
       "is not determined here; give the parameter a type — bind the function with " +
       "its own annotated `let`, or use it where its parameter type is known";
     expect(projectDiagnostics(main(

@@ -38,7 +38,7 @@ const guardOnly = (indent: string): string =>
   `${indent}n when n < 0 => "negative"\n${indent}_ => "other"\n`;
 
 /** §6.1's refusal, with #513's rider for an undetermined lambda parameter. */
-const rider = "cannot match on a value of abstract type; the parameter's " +
+const rider = "cannot match on a value of abstract type `a`; the parameter's " +
   "type is not determined here; give the parameter a type — bind the " +
   "function with its own annotated `let`, or use it where its parameter " +
   "type is known";
