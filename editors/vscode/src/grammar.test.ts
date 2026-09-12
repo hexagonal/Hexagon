@@ -119,6 +119,22 @@ describe("keywords (spec/lexer.md §4)", () => {
 });
 
 describe("contextual keywords are positional (spec/lexer.md §4.2)", () => {
+  it("recognizes `pattern` only at a declaration head", async () => {
+    const exported = await scopePairs("export pattern rat(top: BigInt, bottom: BigInt): Rat");
+    expect(exported).toContainEqual(["export", "keyword.control.import.hexagon"]);
+    expect(exported).toContainEqual(["pattern", "storage.type.hexagon"]);
+    expect(exported).toContainEqual(["rat", "entity.name.function.hexagon"]);
+
+    expect(await scope("pattern pair = Pair.pair", "pattern")).toBe("storage.type.hexagon");
+    expect(await scope("pattern any", "pattern")).toBe("storage.type.hexagon");
+    expect(await scope("let pattern = 3", "pattern")).toBe(
+      "variable.other.definition.hexagon",
+    );
+    expect(await scope("let result = pattern(value)", "pattern")).toBe(
+      "entity.name.function.hexagon",
+    );
+  });
+
   it("recognizes `when` before an arm arrow but not as a binder", async () => {
     expect(await scope("match v\n    Some(x) when ready => x", "when")).toBe(
       "keyword.other.when.hexagon",
@@ -1037,6 +1053,23 @@ describe("an unterminated bracket group stays on its line (#162)", () => {
         "|opaque(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?:record|union)" +
           "(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|widens",
       );
+    }
+  });
+
+  it("admits `pattern` to the guard only for a declaration head", async () => {
+    const guards = endPatterns(JSON.parse(await readFile(grammarPath, "utf8")))
+      .filter((end) => end.includes("(?=^\\S"));
+    expect(guards).toHaveLength(16);
+    for (const guard of guards) {
+      expect(guard, guard).toContain(
+        "|pattern(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+" +
+          "(?![\\p{Uppercase}\\p{Lt}])(?!__)(?!(?:catch|else|finally|for|if|in|match|" +
+          "then|try|while|import|export|extern|constraint|derive|exception|fun|honor|let|" +
+          "record|type|var|and|iff|implies|not|or|true|false)" +
+          "(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))[\\p{ID_Start}$_]" +
+          "[\\p{ID_Continue}$_\\x{200C}\\x{200D}]*[ \\t]*(?=[(<:=]|$)|opaque",
+      );
+      expect(guard, guard).not.toContain("|pattern|");
     }
   });
 
