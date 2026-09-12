@@ -214,10 +214,11 @@ each without a resolving spelling here takes the module route, one clause per
 declaring module, never the singular word that can declare at most one of
 them; one the module can already spell keeps its word (the contested-group
 rule, Constraints §5.1.1). The advised list renders as Functions §5.1 renders a
-generated binder list — redundant bases removed, then alphabetical by declared name, a
-qualified spelling among its name's letter; §5.1 holds the rule, this paragraph the tie for a list first
-written here. A same-named pair's relative order in the advised
-conjunction is the implementation's own — unspecified but stable, FFI Part 9
+generated binder list — redundant bases removed, then alphabetical by declared
+name, a qualified spelling among its name's letter; §5.1 holds the rule, this
+paragraph the tie for a list first written here. A same-named pair's relative
+order in the advised conjunction is the implementation's own — unspecified but
+stable, FFI Part 9
 §6.2.1's terms — and once written it is the declared conjunction's order,
 fixing slots and suffix (Constraints §6.1, §6.2). The advised signature is one
 this section accepts as written — same-spelled conjunctions are declarable
