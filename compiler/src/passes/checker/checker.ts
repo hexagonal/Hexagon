@@ -1159,6 +1159,103 @@ function spellingText(spelling: ConstraintSpelling): string {
   return spelling.kind === "sealed" ? spelling.name : spelling.text;
 }
 
+/**
+ * The **constraint name** a spelling prints, qualification stripped — the one
+ * key an advised list orders by (Functions §5.1: "conjuncts within an entry
+ * order alphabetically by constraint name").
+ *
+ * A tier-2 or tier-3 spelling prints `Alias.Heft`, and the alias is the
+ * reader's import vocabulary, not the constraint's name: ordering on the whole
+ * text would file `Lib.Heft` under `L`, so `<a: (Lib.Heft, Ord)>` and
+ * `<a: (Heft, Ord)>` — one program compiled twice, once with the import in
+ * scope — would disagree about the order of the same two constraints.
+ */
+function bareConstraintName(spelling: ConstraintSpelling): string {
+  if (spelling.kind !== "spelled") return spelling.name;
+  const dot = spelling.text.lastIndexOf(".");
+  return dot === -1 ? spelling.text : spelling.text.slice(dot + 1);
+}
+
+/** Code-unit order, as the displayed scheme's conjuncts take it (`display.ts`). */
+function compareSpellingKeys(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+/**
+ * A constraint list rendered **verbatim**, in the order its spellings arrived:
+ * §4.2's conjunction form, or the bare name where there is only one.
+ *
+ * The form every advised list takes, and the *order* only the fixits that merge
+ * into a declaration the reader already wrote take — a constraint's base list
+ * and an `honor` header's binder. Their written conjunction order is ABI
+ * (Constraints §6.2's slots, FFI Part 9 §6.2's same-named tie), so a fixit that
+ * re-sorted one would move the reader's own dictionary to look tidier. A fixit
+ * that writes a binder list *whole* has no such reader's order to preserve and
+ * goes through `advisedConstraintList` instead.
+ */
+function verbatimConstraintList(spellings: readonly ConstraintSpelling[]): string {
+  return spellings.length === 1
+    ? spellingText(spellings[0]!)
+    : `(${spellings.map(spellingText).join(", ")})`;
+}
+
+/**
+ * One **compiler-generated** constraint list, as a fixit prints it: the bare
+ * name where there is one constraint, §4.2's conjunction form where there are
+ * several — and in both cases Functions §5.1's order.
+ *
+ * > conjuncts within an entry order **alphabetically by constraint name**
+ *
+ * The rule is the displayed scheme's (`display.ts`), and it governs here for
+ * the displayed scheme's reason: the order constraints happened to be
+ * accumulated in is not information the reader can act on, and two spellings
+ * of one program accumulate differently. A literal pattern raises its `Eq`
+ * beside its `Num` at one span; `x == 0` raises the `Eq` at the comparison
+ * and the `Num` at the literal. Both owe the same binder, so both print
+ * `<a: (Eq, Num)>`.
+ *
+ * **Redundant bases are gone before the list gets here**, which is FFI Part 9
+ * §7.2's elimination-then-ordering: a list naming both a constraint and a base
+ * another entry already provides is a list the next compile refuses (Modules
+ * §4.1.1's "must omit base constraint `Num` from `a`; `Signed` already
+ * provides it"), so the `Eq`, `Num` and `Signed` a negative literal raises
+ * advise `(Eq, Signed)`. The elimination is not repeated here, because it has
+ * exactly one home and that home is upstream: `#keptRequirements` — "the one
+ * place the ABI's binder set is decided" — for the completeness report, and
+ * `#maximalAdvisedSpellings` for the refusal family. Both key it on
+ * **identity**, so a same-spelled shadow's bases absorb nothing (#715). A
+ * second sieve here would be a branch no program can reach, and the binder set
+ * would then be decided in two places that could drift.
+ *
+ * So the ordering is all this seat does: **alphabetical by declared name**,
+ * `bareConstraintName` — the word the constraint is declared under, an alias
+ * qualification stripped off.
+ *
+ * The sort is **stable and has no second key**, which is how a §5.1.1
+ * same-named pair keeps the one order it is allowed to have. Two declarations
+ * under one word compare equal here and hold their incoming positions, and the
+ * incoming order is the written one at the refusal seat — the demand appended
+ * to the author's own list (`#maximalAdvisedSpellings`). Reordering a written
+ * same-named conjunction would move the evidence suffix's positional tie (FFI
+ * Part 9 §6.2, §11), so `<a: Lib.Heft>` refused for this module's `Heft`
+ * advises `(Lib.Heft, Heft)` and not the prettier `(Heft, Lib.Heft)`. Where
+ * the list is first written by the fixit — Modules §4.1.1's completeness
+ * report has no author's list to preserve — the same stability makes the pair's
+ * order the demands' arrival order: unspecified by §4.1.1, and fixed here so
+ * that no reader's error log churns between compiles.
+ *
+ * Ordering is **this seat's alone**: it does not reach the route clauses,
+ * which state the imports in the order the demands arrived, nor the per-
+ * constraint refusals, which are one report each at their own spans.
+ */
+function advisedConstraintList(spellings: readonly ConstraintSpelling[]): string {
+  return verbatimConstraintList(
+    [...spellings].sort((left, right) =>
+      compareSpellingKeys(bareConstraintName(left), bareConstraintName(right))
+    ),
+  );
+}
+
 /** One constructor a witness named without a pastable spelling (§7.3 tier 3). */
 interface RouteNeed {
   /** The constructor's declared name — the bare spelling the witness printed. */
@@ -9093,18 +9190,16 @@ class Checker {
    *    honoring neither (a union with no `derives Eq`) the comparison reports the
    *    equality first.
    *
-   *    What is **not** reproducible is the order in which the demands land on a
-   *    *declared* variable, which Modules §4.1.1's completeness fixit reads back
-   *    (`<a: (Num, Eq)>` at the comparison, `<a: (Eq, Num)>` here). The reason is
-   *    spans, not sequencing: `x == 0` demands its `Eq` at the **comparison's** span
-   *    and its `Num` (and `Signed`) at the **literal's**, and `Diagnostics.Bag`
-   *    sorts by span, so that seat can report `Eq` first while having *accepted*
-   *    `Num` first. A pattern's three demands are all the literal's, at one span, so
-   *    a single insertion order fixes both orders at once and they disagree: the
-   *    list follows insertion, the delegated reports follow it too. §2.5 delegates
-   *    the *reports*, so they are what the order follows; the list is a completeness
-   *    fixit, which §2.5 does not speak about. Matching both would mean carating the
-   *    literal's `Eq` somewhere it was not demanded.
+   *    The order the demands *land* in is not reproducible and does not have to
+   *    be: `x == 0` demands its `Eq` at the **comparison's** span and its `Num`
+   *    (and `Signed`) at the **literal's**, and `Diagnostics.Bag` sorts by span, so
+   *    that seat can report `Eq` first while having accepted `Num` first, while a
+   *    pattern's demands are all the literal's at one span and one insertion order
+   *    fixes everything at once. Nothing downstream reads the accumulation order:
+   *    the binder a completeness fixit advises is rendered by
+   *    `advisedConstraintList`, which is alphabetical (Functions §5.1), so
+   *    `Some(0)` and `x == 0` both advise `<a: (Eq, Num)>` and `Some(-1)` and
+   *    `x == -1` both advise `<a: (Eq, Signed)>`.
    * 2. **The constraints hold but the resolved type is not a permitted
    *    primitive.** `Int`, `Nat`, `BigInt` and `Float` are the four; a resolution
    *    to a `Num`-honoring type outside them — `Rat`, a user's `Money`, a declared
@@ -15970,7 +16065,7 @@ class Checker {
    * for a rewrite, where the bare word is the rival. So at tier 3 the rewrite
    * is spelled through the alias the clause binds, and the clause rides with
    * it, which is the shape Constraints §5.1.1's advised spelling already has
-   * ("write `<a: (Ord, Lib.Heft)>` — `Heft` is declared in `./lib` … and spell
+   * ("write `<a: (Lib.Heft, Ord)>` — `Heft` is declared in `./lib` … and spell
    * it `Lib.Heft`").
    *
    * `undefined` where no honest third reading exists: a compilation with no
@@ -16898,9 +16993,12 @@ class Checker {
         requirement.identity,
       );
       const spellings = this.#refusalSpellings(declared, requirement, requiredName);
-      const constraintList = spellings.length === 1
-        ? spellingText(spellings[0]!)
-        : `(${spellings.map(spellingText).join(", ")})`;
+      // The binder this refusal writes **whole** — the author's list replaced by
+      // it — takes Functions §5.1's order. The two arms that print it are the
+      // function binder's and the block head's; the `honor`-header arm below
+      // merges into a declaration whose conjunction order is ABI, and renders
+      // its own verbatim list there.
+      const constraintList = advisedConstraintList(spellings);
       // §5.1.1's collision resolution, and only that: the sides qualify when
       // they share a word and not a declaration, and every other report keeps
       // the bare name it always printed.
@@ -16934,9 +17032,10 @@ class Checker {
       if (this.#constraintSubjectVariables.has(variable.id)) {
         const constraint = declared[0]!;
         const bases = this.#subjectBaseSpellings(constraint, requirement, requiredName);
-        const baseList = bases.length === 1
-          ? spellingText(bases[0]!)
-          : `(${bases.map(spellingText).join(", ")})`;
+        // Verbatim: the rewrite **merges into the base list the author wrote**,
+        // whose order is the dictionary's slot order (Constraints §6.2), so the
+        // demand is appended and nothing already there moves.
+        const baseList = verbatimConstraintList(bases);
         const head = `\`${variable.rigidName}\` is \`${constraint}\`'s subject, so the body reaches ` +
           `only \`${constraint}\` and its base constraints, but it requires `;
         this.#diagnostics.add({
@@ -16960,6 +17059,11 @@ class Checker {
         return;
       }
       if (this.#honorBinderVariables.has(variable.id)) {
+        // Verbatim: the rewrite **merges into the binder the author wrote** on
+        // the `honor` header, whose written conjunction order the dictionary
+        // reads (Constraints §6.2, FFI Part 9 §6.2), so the demand is appended
+        // and nothing already there moves.
+        const headerList = verbatimConstraintList(spellings);
         this.#diagnostics.add({
           severity: "error",
           message: sealed !== undefined
@@ -16968,7 +17072,7 @@ class Checker {
             // names *where* the rewrite goes, and a route clause between the
             // two would part the binder from its header.
             : `${declaration}, but the body requires ${requiredMention}; ` +
-              `write \`<${variable.rigidName}: ${constraintList}>\` on the \`honor\` header${routes}`,
+              `write \`<${variable.rigidName}: ${headerList}>\` on the \`honor\` header${routes}`,
           primary: requirement.span,
         });
         requirement.reported = true;
@@ -17061,8 +17165,13 @@ class Checker {
   }
 
   /**
-   * One advised list: written entries plus the demand, entailment-maximal by
-   * identity, deduplicated by identity, in written order with the demand last.
+   * One advised list's **members**: written entries plus the demand,
+   * entailment-maximal by identity, deduplicated by identity, in written order
+   * with the demand last.
+   *
+   * That order is this function's own and reaches only the route clauses, which
+   * follow the demands as they arrived. The *printed* list is ordered by
+   * `advisedConstraintList`, which every caller renders through.
    */
   #maximalAdvisedSpellings(
     written: readonly { readonly written: string; readonly identity: string }[],
@@ -21293,9 +21402,7 @@ class Checker {
         });
         return;
       }
-      const constraintList = spellings.length === 1
-        ? spellingText(spellings[0]!)
-        : `(${spellings.map(spellingText).join(", ")})`;
+      const constraintList = advisedConstraintList(spellings);
       const binder = `${variable.rigidName ?? inferredTypeVariableName(index)}: ${constraintList}`;
       // *(#700.)* The advice follows the spelling (Modules §4.1.1): a member
       // of a `fun` block writes its binders on the **head**, and a per-member

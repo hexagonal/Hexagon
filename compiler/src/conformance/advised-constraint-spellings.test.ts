@@ -131,7 +131,7 @@ describe("the completeness advice spells each constraint by its own declaration"
     ])).toEqual([
       INCOMPLETE_CALLER,
       "exported function `caller` must declare every constraint in its signature; " +
-      "write `<a: (Ord, Lib.Heft)>` — `Heft` is declared in module `Lib`, and this module " +
+      "write `<a: (Lib.Heft, Ord)>` — `Heft` is declared in module `Lib`, and this module " +
       "binds another `Heft`; `import Lib` and spell it `Lib.Heft`",
     ]);
   });
@@ -144,7 +144,7 @@ describe("the completeness advice spells each constraint by its own declaration"
         "module Main\n\n" + 'import Mid\n' +
         'import Lib\n' +
         "constraint Heft<a: Ord> =\n    other(value: a) -> a\n" +
-        "export let caller<a: (Ord, Lib.Heft)>(n: a, m: a, stop: Bool): Bool =\n" +
+        "export let caller<a: (Lib.Heft, Ord)>(n: a, m: a, stop: Bool): Bool =\n" +
         "    if stop then n <= m else Mid.useHeft(n) <= Mid.useHeft(m)\n"],
     ])).toEqual([]);
   });
@@ -165,7 +165,7 @@ describe("the completeness advice spells each constraint by its own declaration"
     ])).toEqual([
       INCOMPLETE_CALLER,
       "exported function `caller` must declare every constraint in its signature; " +
-      "write `<a: (Ord, Heft)>`",
+      "write `<a: (Heft, Ord)>`",
     ]);
   });
 
@@ -185,7 +185,7 @@ describe("the completeness advice spells each constraint by its own declaration"
     ])).toEqual([
       INCOMPLETE_CALLER,
       "exported function `caller` must declare every constraint in its signature; " +
-      "write `<a: (Ord, L.Heft)>`",
+      "write `<a: (L.Heft, Ord)>`",
     ]);
   });
 
@@ -203,7 +203,7 @@ describe("the completeness advice spells each constraint by its own declaration"
     ])).toEqual([
       INCOMPLETE_CALLER,
       "exported function `caller` must declare every constraint in its signature; " +
-      "write `<a: (Ord, L.Heft)>`",
+      "write `<a: (L.Heft, Ord)>`",
     ]);
   });
 
@@ -222,7 +222,7 @@ describe("the completeness advice spells each constraint by its own declaration"
     ])).toEqual([
       INCOMPLETE_CALLER,
       "exported function `caller` must declare every constraint in its signature; " +
-      "write `<a: (Ord, Second.Heft)>`",
+      "write `<a: (Second.Heft, Ord)>`",
     ]);
   });
 
@@ -241,7 +241,7 @@ describe("the completeness advice spells each constraint by its own declaration"
     ])).toEqual([
       INCOMPLETE_CALLER,
       "exported function `caller` must declare every constraint in its signature; " +
-      "write `<a: (Ord, Lib.Heft)>` — `Heft` is declared in module `Lib`; " +
+      "write `<a: (Lib.Heft, Ord)>` — `Heft` is declared in module `Lib`; " +
       "`import Lib` and spell it `Lib.Heft`",
     ]);
   });
@@ -444,7 +444,7 @@ describe("the refusal family qualifies by home, and only on a collision", () => 
         "let g<a: Ord>(x: a): a = Mid.useHeft(x)\n" + KEEP],
     ])).toEqual([
       "`a` is declared to honor `Ord`, but the body requires `Heft`; " +
-      "write `<a: (Ord, Lib.Heft)>` — `Heft` is declared in module `Lib`; " +
+      "write `<a: (Lib.Heft, Ord)>` — `Heft` is declared in module `Lib`; " +
       "`import Lib` and spell it `Lib.Heft`, " +
       "or remove the constraint annotation to let it be inferred",
     ]);
@@ -593,11 +593,11 @@ describe("the refusal family qualifies by home, and only on a collision", () => 
         "let g<a: Ord>(x: a): a = Mid1.useOne(Mid2.useTwo(x))\n" + KEEP],
     ])).toEqual([
       "`a` is declared to honor `Ord`, but the body requires `Describe`; " +
-      "write `<a: (Ord, Lib1.Describe)>` — `Describe` is declared in module `Lib1`; " +
+      "write `<a: (Lib1.Describe, Ord)>` — `Describe` is declared in module `Lib1`; " +
       "`import Lib1` and spell it `Lib1.Describe`, " +
       "or remove the constraint annotation to let it be inferred",
       "`a` is declared to honor `Ord`, but the body requires `Describe`; " +
-      "write `<a: (Ord, Lib2.Describe)>` — `Describe` is declared in module `Lib2`; " +
+      "write `<a: (Lib2.Describe, Ord)>` — `Describe` is declared in module `Lib2`; " +
       "`import Lib2` and spell it `Lib2.Describe`, " +
       "or remove the constraint annotation to let it be inferred",
     ]);
@@ -722,5 +722,161 @@ describe("the fourth tier: no spelling, no route, no rewrite", () => {
       "exported function `g` requires a complete signature; add type for parameter `x` and a return type",
       "exported function `g` must declare every constraint in its signature; write `<a: Gate>`",
     ]);
+  });
+});
+
+describe("a rendered binder list is ordered by declared name, not by accumulation", () => {
+  /** Declares `Alpha`, whose word sorts before `Ord` while `Zed.` sorts after. */
+  const ALPHA_LIB = [
+    "export constraint Alpha<a> =",
+    "    alpha(value: a) -> a",
+    "export let useAlpha<a: Alpha>(n: a): a = alpha(n)",
+    "",
+  ].join("\n");
+
+  /** The second hop, so the bare word reaches nothing here (see the file header). */
+  const ALPHA_MID = [
+    "import Zed",
+    "export let useAlpha<a: Zed.Alpha>(n: a): a = Zed.useAlpha(n)",
+    "",
+  ].join("\n");
+
+  test("a qualified spelling is filed under the constraint's own name", () => {
+    // Functions §5.1's key is the **constraint name**, and an alias is the
+    // reader's import vocabulary rather than part of it: ordering on the printed
+    // text would file `Zed.Alpha` under `Z`, so one program compiled twice — once
+    // with `import Zed` in scope, once without — would disagree about the order
+    // of the same two constraints. `Alpha` sorts before `Ord`; `Zed.Alpha` after.
+    expect(graphDiagnostics([
+      ["/zed.hex", "module Zed\n\n" + ALPHA_LIB],
+      ["/main.hex",
+        "module Main\n\n" + 'import Zed\n' +
+        "export let caller(n, m, stop: Bool) = " +
+        "if stop then n <= m else Zed.useAlpha(n) <= Zed.useAlpha(m)\n"],
+    ])).toEqual([
+      INCOMPLETE_CALLER,
+      "exported function `caller` must declare every constraint in its signature; " +
+      "write `<a: (Zed.Alpha, Ord)>`",
+    ]);
+  });
+
+  test("and the advised binder compiles, in the order advised", () => {
+    expect(graphDiagnostics([
+      ["/zed.hex", "module Zed\n\n" + ALPHA_LIB],
+      ["/main.hex",
+        "module Main\n\n" + 'import Zed\n' +
+        "export let caller<a: (Zed.Alpha, Ord)>(n: a, m: a, stop: Bool): Bool =\n" +
+        "    if stop then n <= m else Zed.useAlpha(n) <= Zed.useAlpha(m)\n"],
+    ])).toEqual([]);
+  });
+
+  test("the routed form takes the same key, clause and all", () => {
+    // Tier 3 prints `Zed.Alpha` through an alias its own clause binds, and the
+    // clause order is the demands' — untouched by the list's order, which is
+    // why the two can differ without either being wrong.
+    expect(graphDiagnostics([
+      ["/zed.hex", "module Zed\n\n" + ALPHA_LIB],
+      ["/mid.hex", "module Mid\n\n" + ALPHA_MID],
+      ["/main.hex",
+        "module Main\n\n" + 'import Mid\n' +
+        "export let caller(n, m, stop: Bool) = " +
+        "if stop then n <= m else Mid.useAlpha(n) <= Mid.useAlpha(m)\n"],
+    ])).toEqual([
+      INCOMPLETE_CALLER,
+      "exported function `caller` must declare every constraint in its signature; " +
+      "write `<a: (Zed.Alpha, Ord)>` — `Alpha` is declared in module `Zed`; " +
+      "`import Zed` and spell it `Zed.Alpha`",
+    ]);
+  });
+
+  test("a base list is **not** reordered: it merges into what the author wrote", () => {
+    // The contrast, at the same two constraints. A constraint's base list is a
+    // declaration whose written conjunction order the dictionary reads
+    // (Constraints §6.2, FFI Part 9 §6.2's same-named tie), so the demand is
+    // appended and `Ord` keeps its seat — where the binder above sorted.
+    expect(graphDiagnostics([
+      ["/zed.hex", "module Zed\n\n" + ALPHA_LIB],
+      ["/main.hex",
+        "module Main\n\n" + 'import Zed\n' +
+        "constraint Labelled<a: Ord> =\n" +
+        "    label(value: a) -> a\n" +
+        "    shown(value: a) -> a = Zed.useAlpha(value)\n" + KEEP],
+    ])).toEqual([
+      "`a` is `Labelled`'s subject, so the body reaches only `Labelled` and its base " +
+      "constraints, but it requires `Alpha`; add `Alpha` as a base constraint — " +
+      "write `constraint Labelled<a: (Ord, Zed.Alpha)>`",
+    ]);
+  });
+
+  test("nor is an `honor` header's binder, for the same reason", () => {
+    expect(graphDiagnostics([
+      ["/zed.hex", "module Zed\n\n" + ALPHA_LIB],
+      ["/main.hex",
+        "module Main\n\n" + 'import Zed\n' +
+        "record Box(a) = { value: a }\n" +
+        "constraint Wrapped<b> =\n    wrapped(value: b) -> b\n" +
+        "honor<a: Ord> Wrapped<Box(a)> =\n" +
+        "    wrapped(box) = Box({ value = Zed.useAlpha(box.value) })\n" + KEEP],
+    ])).toEqual([
+      "`a` is declared to honor `Ord`, but the body requires `Alpha`; " +
+      "write `<a: (Ord, Zed.Alpha)>` on the `honor` header",
+    ]);
+  });
+
+  test("a written same-named pair keeps the order it was written in", () => {
+    // Two declarations under one word are the one case ordering must not touch:
+    // the sort has a single key and is stable, so a pair comparing equal holds
+    // the positions it arrived in — the author's list, demand appended.
+    // Reordering a written same-named conjunction is an ABI event (FFI Part 9
+    // §6.2's positional tie, §11), so the prettier `(Heft, Lib.Heft)` is the
+    // wrong answer here however it reads.
+    expect(graphDiagnostics([
+      ["/lib.hex", "module Lib\n\n" + HEFT_LIB],
+      ["/main.hex",
+        "module Main\n\n" + 'import Lib\n' +
+        "constraint Heft<a> =\n    other(value: a) -> a\n" +
+        "let g<a: Lib.Heft>(x: a): a = other(x)\n" + KEEP],
+    ])).toEqual([
+      // No collision qualification: the written side is spelled `Lib.Heft`, so
+      // the two sides do not share a word and §5.1.1 reserves qualification for
+      // the case where they do. The list still carries both declarations.
+      "`a` is declared to honor `Lib.Heft`, but the body requires `Heft`; " +
+      "write `<a: (Lib.Heft, Heft)>`, " +
+      "or remove the constraint annotation to let it be inferred",
+    ]);
+  });
+
+  test("and that written pair's order compiles", () => {
+    expect(graphDiagnostics([
+      ["/lib.hex", "module Lib\n\n" + HEFT_LIB],
+      ["/main.hex",
+        "module Main\n\n" + 'import Lib\n' +
+        "constraint Heft<a> =\n    other(value: a) -> a\n" +
+        "let g<a: (Lib.Heft, Heft)>(x: a): a = other(x)\n" + KEEP],
+    ])).toEqual([]);
+  });
+
+  test("the sorted list is de-based: the base went at the one sieve upstream", () => {
+    // Modules §4.1.1 refuses a list naming both a constraint and a base another
+    // names, so a list that rendered one would advise a binder the next compile
+    // rejects. `Signed` carries `Num` (Constraints §7): the demands `Eq`, `Num`
+    // and `Signed` advise two. The elimination is `#keptRequirements`'s, the one
+    // place the binder set is decided — the rendering seat only orders what it is
+    // handed, and this pins the pair working together (FFI Part 9 §7.2's
+    // elimination-then-ordering).
+    expect(projectDiagnostics(
+      "module Main\n\n" + "export let g(x) = if x == -1 then x else 0 - x\n",
+    )).toEqual([
+      "exported function `g` requires a complete signature; " +
+      "add type for parameter `x` and a return type",
+      "exported function `g` must declare every constraint in its signature; " +
+      "write `<a: (Eq, Signed)>`",
+    ]);
+  });
+
+  test("and that de-based binder draws no omit-the-base refusal", () => {
+    expect(projectDiagnostics(
+      "module Main\n\n" + "export let g<a: (Eq, Signed)>(x: a): a = if x == -1 then x else 0 - x\n",
+    )).toEqual([]);
   });
 });
