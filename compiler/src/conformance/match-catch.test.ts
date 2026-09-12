@@ -371,8 +371,12 @@ describe("the cannot-throw judgment (§5.4; Pattern Matching §7.2)", () => {
   });
 
   test("fires on a BigInt literal, which folds to a `kn` literal", () => {
+    // The list used to open with "cannot match on `BigInt` yet" — #519's gate,
+    // retired by #894: §2.5 settles the literal at the type of its position, which
+    // is all the gate was ever protecting, so `BigInt` is an infinite domain like
+    // `Int` and needs only the catch-all §7.1 demands. The judgment under test is
+    // untouched: a `BigInt` literal carries no elaboration evidence at all.
     expect(projectDiagnostics(clause("3n"))).toEqual([
-      "cannot match on `BigInt` yet",
       "this `catch` can never run: evaluating 3n cannot throw",
     ]);
   });

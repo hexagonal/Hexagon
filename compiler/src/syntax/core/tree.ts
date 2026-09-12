@@ -239,6 +239,7 @@ export type Pattern =
   | WildcardPattern
   | UnitPattern
   | IntegerPattern
+  | FloatPattern
   | StringPattern
   | VectorPattern
   | TuplePattern
@@ -278,9 +279,31 @@ export interface OrPattern {
 
 // #147: no `BooleanPattern`. `True`/`False` are nullary constructors, so
 // they are `ConstructorPattern`s like `None`.
+/**
+ * An integer literal pattern, carrying what the arm test needs at the type of its
+ * position (Pattern Matching §2.5, §8, #894 / #519).
+ *
+ * `literal` is the literal **built at that type** — the elaborated `FromNat`, so
+ * `0` at `Float` is the `Number` expression `0.0` and at `BigInt` the `BigInt`
+ * expression `0n`. §2.5's permitted-primitive restriction leaves only the four, so
+ * the test is always the equality the compiler computes (`===`, or the
+ * SameValueZero shape at `Float`) and no evidence rides along.
+ *
+ * `decimal` stays the spelling the reader wrote; nothing emits it directly
+ * (#897 — the emitted integer is `literal`'s canonical printing).
+ */
 export interface IntegerPattern {
   readonly kind: "Integer";
   readonly decimal: string;
+  readonly literal: Expr;
+  readonly span: Source.Span;
+}
+
+/** A `Float` literal pattern: monomorphic, tested SameValueZero (§2.5, #894). */
+export interface FloatPattern {
+  readonly kind: "Float";
+  readonly spelling: string;
+  readonly value: number;
   readonly span: Source.Span;
 }
 

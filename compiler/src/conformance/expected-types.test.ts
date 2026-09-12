@@ -509,8 +509,7 @@ describe("Pattern Matching §6.1's refusal, reduced and re-worded", () => {
 
   test("a `Float` scrutinee is matchable, with the catch-all §7.1 demands", async () => {
     // The specimen a supplying seat can now hand to the dispatch. §6.1 admits
-    // any scrutinee but its two permanent exclusions; §2.5 bans the Float
-    // *literal pattern* alone.
+    // any scrutinee but its two permanent exclusions.
     const exports = await runMain("module Main\n\n" + "let f: (Float) -> String = match\n" +
         "    n when n < 0.5 => \"small\"\n" +
         "    _ => \"big\"\n" +
@@ -524,19 +523,21 @@ describe("Pattern Matching §6.1's refusal, reduced and re-worded", () => {
         "    n when n < 0.5 => \"small\"\n",
     )).toEqual(["match is missing cases: `_`"]);
 
-    // And §2.5's ban stands: `Int` and `String` are the literal-pattern types,
-    // so an integer literal against a `Float` scrutinee is the ordinary
-    // mismatch, and a `Float` literal never parses as a pattern at all.
+    // **Both of this block's old refusals are retired** (#894, #519). §2.5 now
+    // checks a literal pattern at the type of its position: an integer literal rides
+    // `Num` to `Float` there, exactly as `x == 0` does, and the `Float` literal is
+    // a pattern — the ban's own NaN rationale was false under SameValueZero. The
+    // two programs that drew "type mismatch: expected Float, found Int" and
+    // "Float literals cannot appear in patterns" now compile; their conformance
+    // lives in `float-literal-patterns.test.ts`.
     expect(projectDiagnostics("module Main\n\n" + "let f: (Float) -> String = match\n" +
         "    0 => \"zero\"\n" +
         "    _ => \"other\"\n",
-    )).toEqual(["type mismatch: expected Float, found Int"]);
+    )).toEqual([]);
     expect(projectDiagnostics("module Main\n\n" + "let f: (Float) -> String = match\n" +
         "    1.5 => \"one and a half\"\n" +
         "    _ => \"other\"\n",
-    )).toContain(
-      "Float literals cannot appear in patterns; bind a name and compare it in a guard",
-    );
+    )).toEqual([]);
   });
 });
 

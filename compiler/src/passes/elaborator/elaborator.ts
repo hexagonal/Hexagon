@@ -441,9 +441,31 @@ function elaboratePattern(pattern: Typed.Pattern): Core.Pattern {
     case "Binding":
     case "Wildcard":
     case "Unit":
-    case "Integer":
+    case "Float":
     case "String":
       return { ...pattern };
+    case "Integer":
+      // Pattern Matching §2.5, §8: the literal is built **at the type of its
+      // position**, so the same elaboration the expression `0` takes there builds
+      // the arm's right-hand operand — `0.0` at `Float`, `0n` at `BigInt`. The
+      // permitted-primitive restriction leaves no other case, so `ConvertNat`'s
+      // branch of `elaborateInteger` is reachable only on an error program.
+      return {
+        kind: "Integer",
+        decimal: pattern.decimal,
+        literal: pattern.requirement === undefined
+          // No `Num` was ever raised, so the type is an error the checker has
+          // already reported: there is nothing to build the literal out of.
+          ? { kind: "ErrorExpr", type: pattern.type, span: pattern.span }
+          : elaborateInteger({
+              kind: "FromNat",
+              decimal: pattern.decimal,
+              requirement: pattern.requirement,
+              type: pattern.type,
+              span: pattern.span,
+            }),
+        span: pattern.span,
+      };
     case "As":
       return { ...pattern, pattern: elaboratePattern(pattern.pattern) };
     case "Or":

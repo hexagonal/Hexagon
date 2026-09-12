@@ -742,9 +742,11 @@ describe("the special values and their detectors (#358)", () => {
 
   /** The hint the lexer has always given now names something that resolves. */
   test("the overflow fix-it's spelling compiles", () => {
-    // The bad literal also derails the parse, so only the fix-it is asserted.
+    // The bad literal used to derail the parse, so only the fix-it was asserted;
+    // Lexer §9's recovery form (#894) keeps the binding intact and the lexer's
+    // report is now the whole of the output.
     expect(projectDiagnostics("module Main\n\n" + "export let big: Float = 1e400\n"))
-      .toContain("Float literal is too large; use `Float.infinity`");
+      .toEqual(["Float literal is too large; use `Float.infinity`"]);
     expect(projectDiagnostics("module Main\n\n" + "export let big: Float = Float.infinity\n")).toEqual([]);
   });
 });

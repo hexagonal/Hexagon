@@ -1088,6 +1088,8 @@ export type Pattern =
   | WildcardPattern
   | UnitPattern
   | IntegerPattern
+  | FloatPattern
+  | ErrorPattern
   | StringPattern
   | VectorPattern
   | TuplePattern
@@ -1136,6 +1138,59 @@ export interface IntegerPattern {
 export interface StringPattern {
   readonly kind: "String";
   readonly value: string;
+  readonly span: Source.Span;
+}
+
+/**
+ * A `Float` literal pattern (Pattern Matching §2.5, #894) — the permanent ban
+ * lifted once `Eq<Float>` was settled as SameValueZero (Decisions Batch §1).
+ *
+ * Both halves of Lexer §5's token ride along: the `value` is the correctly
+ * rounded binary64, which is the literal's identity for coverage (§7.2), and
+ * the `spelling` is what the arm test emits, exactly as an expression-side
+ * `Float` literal does. A negative literal carries its sign in both (the token
+ * never does — §2.5's signed-literal rule is the parser's).
+ */
+export interface FloatPattern {
+  readonly kind: "Float";
+  readonly spelling: string;
+  readonly value: number;
+  readonly span: Source.Span;
+}
+
+/**
+ * A pattern that failed to lex, to parse, or to resolve (Pattern Matching §7.3's
+ * fourth tier, and §2.5's term-spelling refusal).
+ *
+ * One report already stands for it, so this node carries nothing but its span:
+ * the checker reads it as a **broken** pattern, which coverage grants maximal
+ * cover and reachability never treats as a shadower.
+ */
+export interface ErrorPattern {
+  readonly kind: "Error";
+  /**
+   * A **term's spelling** written where a pattern belongs, carried to the checker
+   * rather than reported here (Pattern Matching §2.5, §12; #894).
+   *
+   * The resolver settles which of §2.5's four sentences this spelling draws — it
+   * alone knows the name tables — and three of them it reports itself. The fourth,
+   * the value sentence, ends in a guard the reader is meant to paste, and §2.5
+   * offers that guard "only where it is valid at that position": the term's type
+   * unifying with the position's, and the `Eq` the comparison needs — and, for a
+   * negated spelling, the `Signed` — in scope there. Both halves are facts about a
+   * *type*, and the resolver has none, so the sentence is finished at the pattern
+   * seat that does.
+   *
+   * `symbol` is the term's, where the module's term surface holds it. A spelling
+   * that resolved through a constraint member or an honored member has none, and
+   * the guard is withheld: such a member is a function, and `x == Rat.fromInt`
+   * neither unifies nor finds an `Eq`.
+   */
+  readonly termSpelling?: {
+    readonly spelling: string;
+    readonly negated: boolean;
+    readonly symbol?: SymbolId;
+  };
   readonly span: Source.Span;
 }
 

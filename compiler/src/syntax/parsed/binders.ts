@@ -17,6 +17,9 @@ export function patternNames(pattern: Pattern): readonly Name[] {
     case "Wildcard":
     case "Unit":
     case "Integer":
+    case "Float":
+    case "TermSpelling":
+    case "Error":
     case "String":
       return [];
     case "As":

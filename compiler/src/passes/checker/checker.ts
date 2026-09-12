@@ -10,6 +10,7 @@
 import { IMPURE_ARROW, linkedArrow, PURE_ARROW } from "../../support/arrows.js";
 import * as Diagnostics from "../../support/diagnostics.js";
 import { stronglyConnectedComponents } from "../../support/graph.js";
+import { cleanDigits } from "../../support/numeric-literal.js";
 import {
   COMPILER_CLAIMS,
   type Declarations as VarianceDeclarations,
@@ -1020,6 +1021,24 @@ interface Requirement {
   /** The literal's digits, so §6's blocked-defaulting report can name it. */
   literal?: string;
   /**
+   * Set where a **literal pattern** raised this requirement — Pattern Matching
+   * §2.5's delegation, and the one thing it does not delegate.
+   *
+   * The failed-constraint report at a literal pattern is the comparison's, word
+   * for word, *except* Method Syntax §9 row 15's written-face rider: the lift that
+   * rider advertises is an operation's, and a pattern is not one (§2.5's "no seat
+   * of the numeric lift exists in a pattern"), so an offer to write an `Int` face
+   * would be a repair the next compile rejects. Nothing replaces it.
+   *
+   * A flag rather than an `origin`, because the origin is already load-bearing at
+   * this seat: the literal's `Num` must stay `"literal"` for §6's defaulting and
+   * for the "integer literal cannot have type `X`" wording, and the `Eq` and
+   * `Signed` beside it must stay `"operation"` so their reports are the
+   * comparison's. What is different here is not *what* demanded the constraint but
+   * *where*, and only one sentence reads it.
+   */
+  patternSeat?: true;
+  /**
    * Where the scheme carrying this requirement was *used*. `span` points at
    * the definition, which a copy inherits, so a report about the use — §6's
    * blocked-defaulting one — would otherwise caret a constraint declaration,
@@ -1185,6 +1204,24 @@ interface ReachabilityReports {
   readonly constructor: (name: string) => string;
   /** A duplicate literal. */
   readonly literal: string;
+  /**
+   * Covered by one arm above, whose pattern is not a constructor's (§7.2).
+   *
+   * Absent at `catch`, where nothing reaches it: `coverageAlternatives` unwraps
+   * `as` and flattens `|` before reporting, and a catch alternative stands at the
+   * open `Exn`, so what arrives is an exception constructor's head (the
+   * `constructor` row's), a binder or wildcard (unreachable only behind a
+   * catch-all, which the `everything` row takes two tiers above), or a broken node
+   * (the arm is skipped). `#soleShadower` is never consulted there, and a row that
+   * cannot fire would be an unpinnable sentence in the corpus.
+   *
+   * The cost of the `?` is a **silent default**: a table that omits the row now falls
+   * through to `covered` rather than failing `tsc`. Named here because that is the
+   * whole of the trade — two tables exist, one omits the row deliberately, and the
+   * fall-through is the behaviour that omission asks for. A third table would want
+   * this comment read first.
+   */
+  readonly shadower?: (pattern: string) => string;
   /** Covered by the arms above jointly, with no single arm to name. */
   readonly covered: string;
   /** Where the whole-arm report points. */
@@ -1195,6 +1232,8 @@ const MATCH_ARM_REPORTS: ReachabilityReports = {
   everything: "this match arm is unreachable; an earlier pattern matches everything",
   constructor: (name) => `this case is unreachable; \`${name}\` is already handled above`,
   literal: "this literal case is unreachable; it is already handled above",
+  shadower: (pattern) =>
+    `this case is unreachable; the arm \`${pattern}\` above already covers it`,
   covered: "this case is unreachable; the patterns above already cover it",
   armSpan: (arm) => arm.pattern.span,
 };
@@ -1203,6 +1242,8 @@ const CATCH_ARM_REPORTS: ReachabilityReports = {
   everything: "this catch arm is unreachable because an earlier arm catches everything",
   constructor: (name) => `exception \`${name}\` is already caught above`,
   literal: "this literal case is unreachable; it is already handled above",
+  // No `shadower`: see the field. Nothing at this seat reaches the naming tier, and
+  // a sentence no program can draw is one the corpus cannot hold to anything.
   covered: "this catch arm is unreachable; the arms above already cover it",
   armSpan: (arm) => arm.span,
 };
@@ -1240,6 +1281,23 @@ const INSTANCE_LEVEL = Number.MAX_SAFE_INTEGER;
  * start at arity 2.
  */
 const UNIT: TupleMono = { kind: "Tuple", elements: [] };
+
+/**
+ * The primitives an integer literal pattern may resolve to — Pattern Matching
+ * §2.5's permitted-primitive restriction.
+ *
+ * The four whose value *and* whose equality the compiler computes, which is the
+ * same property §7.2's identity law is keyed on and the same one §8's "patterns
+ * never invoke user code" rests on. `String` is not here because no integer
+ * literal reaches it — a `String` literal is its own form, and `Num` fails there
+ * first.
+ */
+const PERMITTED_LITERAL_PRIMITIVES: ReadonlySet<Typed.PrimitiveName> = new Set([
+  "Int",
+  "Nat",
+  "BigInt",
+  "Float",
+]);
 
 /**
  * The constraints every structural product satisfies componentwise (Constraints
@@ -2491,6 +2549,119 @@ class Checker {
    * programs report.
    */
   readonly #brokenPatterns = new Set<Resolved.Pattern>();
+  /**
+   * What each integer literal pattern resolved to — the type of its position, and
+   * the `Num` requirement that builds the literal there (§2.5).
+   *
+   * Read by `#materializePattern`, which cannot re-derive any of it: the
+   * expected type is the pattern seat's, and the pattern node carries only
+   * digits.
+   */
+  readonly #integerPatterns = new WeakMap<
+    Resolved.IntegerPattern,
+    { readonly type: Mono; readonly num?: Requirement }
+  >();
+  /**
+   * The whole pattern each walk began at, for one report: §2.5's
+   * permitted-primitive refusal names the guard the reader should write, and
+   * beneath the top that guard is the *enclosing* pattern with a binder where the
+   * literal stood — `Some(y) when y == 0`, not `x when x == 0`.
+   *
+   * Set at a root, and a root is a depth-zero pattern **that `#patternRootHeld`
+   * does not say is already inside one**: `as` and `|` wrap a pattern at its own
+   * position rather than descending into one (see `#patternDepth`), so they
+   * re-enter the walk at depth zero and would otherwise re-take the root — which
+   * cost `0 as z` its binder, the rewrite printing `x when x == 0` and losing the
+   * name the arm body reads.
+   */
+  #patternRoot: Resolved.Pattern | undefined;
+  /**
+   * Set while an `as` or `|` recurses **at its own position**, so the root stays
+   * the pattern the walk began at.
+   *
+   * Only those two need it. Every other descent goes through `#nestedPattern` /
+   * `#nestedMatchPattern`, which bump `#patternDepth`, and the root is taken at
+   * depth zero alone.
+   */
+  #patternRootHeld = false;
+  /**
+   * Whether the pattern being checked sits inside an **or-pattern alternative**.
+   *
+   * One reader: §2.5's guard rewrite, which is offered "only where it is valid at
+   * that position". Replacing one alternative's literal with a fresh binder gives
+   * `Some(y | 1)`, and §2.6's same-bindings rule refuses it — the other
+   * alternatives bind nothing of the name — so the refusal stops at "`0` is not a
+   * pattern at `Rat`" there and offers nothing. A disjunctive rewrite
+   * (`Some(y) when y == 0 or y == 1`) would be one report for several literals,
+   * which this seat has no way to say.
+   */
+  #inOrAlternative = false;
+  /**
+   * Whether a **guard could be written** for the arm this pattern belongs to —
+   * true inside a `match` arm's pattern and a `catch` arm's, false everywhere
+   * else.
+   *
+   * §3: "guards are only legal on `match` and `catch` arms". So the rewrite §2.5
+   * names twice — "bind a name and test it in a guard" — is valid at those two
+   * seats and nowhere else: at a `let`, a `for..in` head, or a parameter there is
+   * no guard to put the test in, and the offer would be a repair the next compile
+   * refuses. §2.5's "only where it is valid at that position" is the rule; this is
+   * the half of it that is about the *position* rather than the types.
+   */
+  #armGuardSeat = false;
+  /**
+   * Whether the arm this pattern belongs to **already carries a guard**.
+   *
+   * §2.5's rewrite puts its test "in the arm's guard (§3)", and what is rendered is
+   * the whole arm head — pattern plus `when …`. So at an arm that already has one,
+   * the rewrite a reader pastes *replaces* it: `(0, k) when k > 5` was offered
+   * `(y, k) when y == 0`, which compiles and fires for every `k`, and where the
+   * existing guard was itself refused (`when k == Nowhere.zilch`) it took that
+   * report with it. Joining the two — `(y, k) when y == 0 and k > 5` — is what §2.5
+   * licenses, and this seat has no printer for a resolved expression, so the rewrite
+   * is withheld instead: the direction the seat takes at every other condition, and
+   * the only safe one here, because the wrong rewrite *compiles*.
+   *
+   * Read by both guard-naming sentences, and so by both of `literalPatternGuard`'s
+   * exits — the top-of-arm `x when x == 0` replaces a guard just as readily.
+   *
+   * Saved and restored around each arm's pattern for hygiene, and that restore is an
+   * **equivalent mutant**: every arm assigns the flag at its own head, so a latched
+   * `true` is overwritten before the next arm reads it, and the arm's guard and body
+   * are checked after the restore at a seat where `#armGuardSeat` is false anyway.
+   * Recorded rather than pinned, because no program can discriminate it — unlike
+   * `#insideWrapper`'s two restores, which a nested `as` inside an or-alternative
+   * does discriminate.
+   */
+  #armHasGuard = false;
+  /**
+   * True only while `#inferIntegerPattern` is raising its demands, so that every
+   * requirement minted there is stamped `patternSeat` — see that field, which one
+   * sentence of one report reads.
+   *
+   * A dynamic mark rather than a parameter, for the reason `#annotationOwner` is
+   * one: `#require` is the single seat that mints a requirement, it already reads
+   * the checker for the context a report needs, and threading a flag through its
+   * callers would touch every demand in the file to serve one.
+   */
+  #literalPatternSeat = false;
+  /**
+   * Integer literal patterns whose position was still an inference variable when
+   * they were checked, awaiting §2.5's restriction on the **resolved** type.
+   *
+   * Only these wait. A position already concrete is judged where it is checked,
+   * which is what lets §7.3's fourth tier read a refused arm as `_` while the
+   * matrix is still being built; a variable resolves by ordinary inference and
+   * defaulting, both of which finish after every arm.
+   */
+  readonly #pendingLiteralRestrictions: {
+    readonly pattern: Resolved.IntegerPattern;
+    readonly type: Mono;
+    readonly root: Resolved.Pattern | undefined;
+    readonly inOrAlternative: boolean;
+    readonly armGuardSeat: boolean;
+    readonly armHasGuard: boolean;
+  }[] = [];
   /**
    * How far beneath the top of a pattern the two pattern walks currently are —
    * zero at a scrutinee's or a binder's own pattern, one and up inside a
@@ -3803,6 +3974,10 @@ class Checker {
     // survivor, before the remaining variables settle.
     this.#resolveDotCallGoals(-1);
     this.#defaultRemainingVariables();
+    // Pattern Matching §2.5's restriction is judged on the **resolved** type, so
+    // the literals whose position was a variable wait until here — past the
+    // defaulting that `Some(0)` under `match None` resolves through.
+    this.#checkPendingLiteralRestrictions();
     // Before any scheme is externalised: an exported face has to carry the
     // colour its body proved (Modules §4.1.1), and #355 ruling 9 is what makes
     // that colour computable from the interface alone.
@@ -7487,10 +7662,16 @@ class Checker {
           (expression.catchArms?.length ?? 0);
         for (const arm of expression.arms) {
           this.#matchArmTop = true;
+          const outerGuardSeat = this.#armGuardSeat;
+          const outerHasGuard = this.#armHasGuard;
+          this.#armGuardSeat = true;
+          this.#armHasGuard = arm.guard !== undefined;
           try {
             this.#inferMatchPattern(arm.pattern, scrutinee, level);
           } finally {
             this.#matchArmTop = outerArmTop;
+            this.#armGuardSeat = outerGuardSeat;
+            this.#armHasGuard = outerHasGuard;
           }
           if (arm.guard !== undefined) {
             const guard = this.#inferExpr(arm.guard, level);
@@ -7557,7 +7738,8 @@ class Checker {
           actual.kind === "Tuple" || actual.kind === "Record" ||
           actual.kind === "Vector" ||
           (actual.kind === "Constructor" &&
-            (actual.name === "Int" || actual.name === "String" ||
+            (actual.name === "Int" || actual.name === "Nat" ||
+              actual.name === "BigInt" || actual.name === "String" ||
               actual.name === "Float"))
         ) {
           // One report for every closed and every infinite domain alike. The
@@ -7565,10 +7747,14 @@ class Checker {
           // and the structural "needs a catch-all" demand were three renderings
           // of one judgment; §7.3 has one, and it is a witness pattern.
           //
-          // The infinite domains (`Int`, `String`, `Float` — the last since
-          // #513) join through the same door: their columns carry no signature,
-          // so no set of literals ever completes them and the witness is `_`,
-          // which is §7.1's "a catch-all is required" said in witnesses.
+          // The infinite domains (`Int`, `Nat`, `BigInt`, `String`, `Float`)
+          // join through the same door: their columns carry no signature, so no
+          // set of literals ever completes them and the witness is `_`, which is
+          // §7.1's "a catch-all is required" said in witnesses. `Float` arrived
+          // with #513; `Nat` and `BigInt` with #519, whose "cannot match on `X`
+          // yet" stood here only because the old literal typing refused their
+          // arms anyway — §2.5 settles the literal at the type of its position,
+          // and with that settled the gate had nothing left to protect.
           //
           // The vector joins it too (#600). Its lengths *are* a signature
           // (Collections Part 3 §3.3, `#vectorColumn`), so the length-only
@@ -8658,6 +8844,7 @@ class Checker {
      */
     evaluated: Mono = expected,
   ): void {
+    if (this.#patternDepth === 0 && !this.#patternRootHeld) this.#patternRoot = pattern;
     if (pattern.kind === "Wildcard") return;
     if (pattern.kind === "Unit") {
       this.#unifyPattern(pattern, expected, UNIT);
@@ -8671,7 +8858,9 @@ class Checker {
       return;
     }
     if (pattern.kind === "As") {
-      this.#inferPattern(pattern.pattern, expected, level, generalizable, evaluated);
+      this.#insideWrapper(false, () =>
+        this.#inferPattern(pattern.pattern, expected, level, generalizable, evaluated)
+      );
       this.#schemes.set(
         pattern.binding.symbol,
         this.#generalize(expected, level, generalizable, undefined, evaluated),
@@ -8767,7 +8956,16 @@ class Checker {
       return;
     }
     if (pattern.kind === "Integer") {
-      this.#unifyPattern(pattern, expected, primitive("Int"));
+      this.#inferIntegerPattern(pattern, expected);
+      return;
+    }
+    if (pattern.kind === "Float") {
+      this.#unifyPattern(pattern, expected, primitive("Float"));
+      return;
+    }
+    if (pattern.kind === "Error") {
+      this.#reportTermSpelling(pattern, expected);
+      this.#brokenPatterns.add(pattern);
       return;
     }
     if (pattern.kind === "String") {
@@ -8829,6 +9027,356 @@ class Checker {
     });
   }
 
+  /**
+   * Pattern Matching §2.5's literal-pattern checking rule, at both pattern seats
+   * *(#894; #519's literal typing)*.
+   *
+   * > A literal pattern is checked at the type of its position, and never widens
+   * > it. An integer literal contributes its numeric and equality constraints —
+   * > `Num` and `Eq`, and `Signed` besides for a negative one — and unifies with
+   * > the type at its position.
+   *
+   * So the seat raises exactly what the expression `0` raises there, and unifies:
+   * the literal adapts, the position's type never widens. Three outcomes, and the
+   * order between them is §2.5's.
+   *
+   * 1. **A constraint is unmet.** The arm draws, for each one, exactly what
+   *    `x == 0` draws at that type — this seat adds no voice of its own, which is
+   *    why `Eq` is demanded before `Num`: report order is observable, and at a type
+   *    honoring neither (a union with no `derives Eq`) the comparison reports the
+   *    equality first.
+   *
+   *    What is **not** reproducible is the order in which the demands land on a
+   *    *declared* variable, which Modules §4.1.1's completeness fixit reads back
+   *    (`<a: (Num, Eq)>` at the comparison, `<a: (Eq, Num)>` here). The reason is
+   *    spans, not sequencing: `x == 0` demands its `Eq` at the **comparison's** span
+   *    and its `Num` (and `Signed`) at the **literal's**, and `Diagnostics.Bag`
+   *    sorts by span, so that seat can report `Eq` first while having *accepted*
+   *    `Num` first. A pattern's three demands are all the literal's, at one span, so
+   *    a single insertion order fixes both orders at once and they disagree: the
+   *    list follows insertion, the delegated reports follow it too. §2.5 delegates
+   *    the *reports*, so they are what the order follows; the list is a completeness
+   *    fixit, which §2.5 does not speak about. Matching both would mean carating the
+   *    literal's `Eq` somewhere it was not demanded.
+   * 2. **The constraints hold but the resolved type is not a permitted
+   *    primitive.** `Int`, `Nat`, `BigInt` and `Float` are the four; a resolution
+   *    to a `Num`-honoring type outside them — `Rat`, a user's `Money`, a declared
+   *    variable under `<a: (Num, Eq)>` — is refused at the literal, naming the
+   *    guard that does work. A failure to type, so §7.3's fourth tier reads the
+   *    arm as `_`.
+   * 3. **Both hold.** The literal is `fromNat` of its payload at that primitive,
+   *    and the arm tests it with the equality the compiler computes there (§8).
+   *
+   * The restriction is judged **on the resolved type**. A position already
+   * resolved — concrete, or a declared variable, which is rigid by declaration —
+   * is judged here, which is what lets the tier-4 grant reach the matrix while it
+   * is still being built; a position that is still an *inference* variable — a
+   * nested one, §6.1 having refused an undetermined scrutinee before any arm —
+   * waits for inference and defaulting in `#checkPendingLiteralRestrictions`.
+   */
+  #inferIntegerPattern(pattern: Resolved.IntegerPattern, expected: Mono): void {
+    const before = this.#diagnostics.count;
+    // Stamped on all three, and read by one sentence (`Requirement.patternSeat`):
+    // the failed-constraint report here is the comparison's, less Method Syntax
+    // §9 row 15's written-face rider. Set around the demands rather than after
+    // them, because a demand at a type already concrete reports inside the call.
+    this.#literalPatternSeat = true;
+    // `Eq` first, then `Num`: see outcome 1 above. `Signed` rides with `Num`,
+    // both being the numeric half of what a negative literal is.
+    this.#require("Eq", expected, pattern.span);
+    const num = this.#require("Num", expected, pattern.span, "literal");
+    num.literal = pattern.decimal;
+    if (pattern.decimal.startsWith("-")) {
+      this.#require("Signed", expected, pattern.span);
+    }
+    this.#literalPatternSeat = false;
+    const actual = this.#prune(expected);
+    this.#integerPatterns.set(pattern, { type: actual, num });
+    if (this.#diagnostics.count > before || actual.kind === "Error") {
+      // §7.3's fourth tier: a literal the position's type cannot carry failed to
+      // type, so it widens no witness and shadows no arm below it.
+      this.#brokenPatterns.add(pattern);
+      return;
+    }
+    if (actual.kind === "Variable" && actual.rigidName === undefined) {
+      this.#pendingLiteralRestrictions.push({
+        pattern,
+        type: actual,
+        root: this.#patternRoot,
+        inOrAlternative: this.#inOrAlternative,
+        armGuardSeat: this.#armGuardSeat,
+        armHasGuard: this.#armHasGuard,
+      });
+      return;
+    }
+    // A **declared** variable is resolved — rigid by declaration (Functions §4.1)
+    // — so it is judged here, and §2.5 names it among the refusals: `Some(0)` at
+    // `Option(a)` under `<a: (Num, Eq)>` satisfies both constraints and is still
+    // not a pattern, because the value at `a` is not one the compiler computes.
+    this.#checkLiteralPrimitive(
+      pattern,
+      actual,
+      this.#patternRoot,
+      this.#inOrAlternative || !this.#armGuardSeat || this.#armHasGuard,
+    );
+  }
+
+  /**
+   * Pattern Matching §2.5 / §12's **value sentence**, finished here — the one of
+   * the four term-spelling sentences the resolver could not complete *(#894)*.
+   *
+   * > "`Float.nan` is a value, not a pattern; bind a name and test it in a guard:
+   * > `x when x == Float.nan`" … **The guard is offered only where it is valid at
+   * > that position**: the term's type unifying with the position's, and the `Eq`
+   * > the comparison needs — and, for a negated spelling, the `Signed` — in scope
+   * > there; where it is not, the report stops at "`Float.nan` is a value, not a
+   * > pattern" and offers nothing, a fixit that would not compile being worse than
+   * > none.
+   *
+   * One report either way, at the span the resolver carated. The other three
+   * sentences never reach here: they were reported where the names were resolved,
+   * and an error pattern that carries no spelling is a parse or lex failure whose
+   * report already stands.
+   */
+  #reportTermSpelling(pattern: Resolved.ErrorPattern, expected: Mono): void {
+    const refusal = pattern.termSpelling;
+    if (refusal === undefined) return;
+    const head = `\`${refusal.spelling}\` is a value, not a pattern`;
+    // The rewrite goes through `literalPatternGuard`, the one function §2.5's two
+    // guard-naming sentences share: beneath the top of an arm the enclosing pattern
+    // keeps its shape with a binder where the spelling stood
+    // (`Some(y) when y == Helper.count`), an `as` keeps its binder, and the
+    // condition's type is the position's — which is the type
+    // `#termSpellingGuardOffered` already reads. A sentence spelled
+    // `x when x == …` regardless compared the *scrutinee* while its gate asked
+    // about the slot, so every nested position was offered a guard that does not
+    // compile.
+    const rewrite = this.#termSpellingGuardOffered(refusal, expected)
+      ? literalPatternGuard(pattern, refusal.spelling, this.#patternRoot)
+      : undefined;
+    const guard = rewrite === undefined
+      ? ""
+      : `; bind a name and test it in a guard: \`${rewrite}\``;
+    this.#diagnostics.add({
+      severity: "error",
+      message: `${head}${guard}`,
+      primary: pattern.span,
+    });
+  }
+
+  /**
+   * Whether `x when x == Term` compiles at this position — §2.5's two conditions,
+   * asked without reporting and without binding anything.
+   *
+   * Deliberately **conservative in one direction only**: every answer of `true`
+   * must be a guard that compiles, and an answer of `false` costs the reader a
+   * fixit they could have used. That asymmetry is the spec's own ("a fixit that
+   * would not compile being worse than none"), and it is what licenses the two
+   * approximations here rather than a second unifier and a second instance
+   * resolver:
+   *
+   * - the equality is read off the **instance table** (`#supportsTarget`), so a
+   *   position whose `Eq` is satisfied *structurally* — a tuple, a record, a
+   *   `Vector` — answers `false` and the guard is withheld though it would have
+   *   worked. Those subjects never enter the table at all (`#subjectKey`), and
+   *   reproducing `#validate`'s componentwise walk here would be a second copy of
+   *   the decision procedure for a fixit's sake.
+   * - the unifiability test is `#couldUnify`, which declines every shape it is not
+   *   sure of.
+   *
+   * A term whose scheme is polymorphic is declined for the same reason: its type
+   * would have to be instantiated, and instantiating mints variables and
+   * requirements into a program that is already refused.
+   */
+  #termSpellingGuardOffered(
+    refusal: NonNullable<Resolved.ErrorPattern["termSpelling"]>,
+    expected: Mono,
+  ): boolean {
+    // §3 allows no guard outside a `match`/`catch` arm, and §2.6 no single-node swap
+    // inside an or-alternative — `Helper.count | 1` rewritten at the spelling alone
+    // drops the `| 1`, which is a different program rather than a repair. Both are
+    // "valid at that position" in §2.5's sense, and both are the restriction's
+    // conditions too (`#checkLiteralPrimitive`'s `guardUnavailable`).
+    if (!this.#armGuardSeat || this.#inOrAlternative || this.#armHasGuard) return false;
+    if (refusal.symbol === undefined) return false;
+    const scheme = this.#schemes.get(refusal.symbol);
+    if (scheme === undefined || scheme.variables.length > 0) return false;
+    const position = this.#prune(expected);
+    if (!this.#couldUnify(scheme.type, position)) return false;
+    if (!this.#supportsTarget(position, "Eq")) return false;
+    return !refusal.negated || this.#supportsTarget(position, "Signed");
+  }
+
+  /**
+   * Whether two types **could** unify, decided structurally and without binding —
+   * see `#termSpellingGuardOffered`, its one caller.
+   *
+   * Not a unifier and not a substitute for one: it answers `false` for every shape
+   * `#typeShape` declines to name, which is the whole of its error budget. A
+   * flexible variable on either side takes any type and answers `true`; a declared
+   * one takes only itself, which the identity test above it has already asked.
+   */
+  #couldUnify(left: Mono, right: Mono): boolean {
+    const first = this.#prune(left);
+    const second = this.#prune(right);
+    if (first === second) return true;
+    if (first.kind === "Variable") return first.rigidName === undefined;
+    if (second.kind === "Variable") return second.rigidName === undefined;
+    const shape = typeShape(first);
+    const other = typeShape(second);
+    if (shape === undefined || other === undefined) return false;
+    return shape.head === other.head &&
+      shape.children.length === other.children.length &&
+      shape.children.every((child, index) =>
+        this.#couldUnify(child, other.children[index]!)
+      );
+  }
+
+  /**
+   * §2.5's permitted-primitive restriction, on a type that has resolved.
+   *
+   * The four primitives are the ones whose value and whose equality the compiler
+   * computes — which is also why §7.2's identity law and §8's "patterns never
+   * invoke user code" can both be stated without a carve-out. Everything else a
+   * literal could have resolved to is refused **with the guard that works**, which
+   * is the Rewrite Rule's obligation: at the top of an arm the guard binds the
+   * scrutinee, and beneath it the enclosing pattern keeps its shape with a binder
+   * where the literal stood.
+   */
+  #checkLiteralPrimitive(
+    pattern: Resolved.IntegerPattern,
+    type: Mono,
+    root: Resolved.Pattern | undefined,
+    /**
+     * Whether §2.5's rewrite is invalid *at this position* — inside an
+     * or-alternative, where §2.6 refuses a single-literal swap; outside a
+     * `match`/`catch` arm, where §3 allows no guard at all; or at an arm that
+     * already has a guard, which the rendered arm head would replace
+     * (`#armHasGuard`). Passed rather than read off the checker: the restriction on
+     * an undetermined position is judged after every arm, when none of the three
+     * facts is still current (`#pendingLiteralRestrictions`).
+     */
+    guardUnavailable: boolean,
+  ): void {
+    if (type.kind === "Constructor" && PERMITTED_LITERAL_PRIMITIVES.has(type.name)) {
+      return;
+    }
+    // §2.5's two phases, **in order**, which §12's row states unconditionally: "the
+    // constraint fails before the restriction is reached". The refusal below is for
+    // "a resolution to a type honoring `Num` and `Eq` outside them … the constraints
+    // satisfied and the check after them", so where they are not satisfied this
+    // section has nothing to say and the delegated report stands alone.
+    //
+    // Asked here rather than left to the caller, because the two callers cannot both
+    // know it: `#inferIntegerPattern` does — a failed demand reports inside
+    // `#require` and it returns before this call — but `#checkPendingLiteralRestrictions`
+    // does not, its demands having been deferred onto a variable and validated later,
+    // at the unification that resolved the position. That is the whole of this gate's
+    // work: at a resolved position it is already true, and at a deferred one it is
+    // what keeps `match None` with the arms `Some(0)` and `Some({x = _})` to the one
+    // report §12 allows instead of adding a refusal whose fixit cannot clear it.
+    if (!this.#literalDemandsHold(pattern, type)) return;
+    const head = `\`${pattern.decimal}\` is not a pattern at \`${this.#display(type)}\``;
+    // §2.5: the guard is offered **only where it is valid at that position**. Its
+    // two halves are settled by now — the type unifies by construction (the literal
+    // stood at it) and the gate above has just established the constraints. The
+    // third is the position's own: inside an or-alternative no single-literal rewrite
+    // compiles (§2.6), outside an arm there is no guard to write (§3), and at an arm
+    // that already has one the rendered arm head would replace it.
+    const guard = guardUnavailable
+      ? undefined
+      : literalPatternGuard(pattern, pattern.decimal, root);
+    this.#diagnostics.add({
+      severity: "error",
+      message: guard === undefined
+        ? head
+        : `${head}; bind a name and test it in a guard: \`${guard}\``,
+      primary: pattern.span,
+    });
+    this.#brokenPatterns.add(pattern);
+  }
+
+  /**
+   * Whether the literal's own demands hold at the type its position resolved to —
+   * the first of §2.5's two phases, asked so that both callers of
+   * `#checkLiteralPrimitive` obey the same order.
+   *
+   * The three tests are the ones the term sentence's gate uses
+   * (`#termSpellingGuardOffered`), read off the instance table and binding nothing:
+   * `Num`, `Eq`, and `Signed` besides where the sign is written — exactly the
+   * demands `#inferIntegerPattern` raised. Variables are admitted as subjects
+   * (`allowVariableTarget`), because a **declared** variable is a resolved position
+   * and carries its constraints as requirements: `Some(0)` at `Option(a)` under
+   * `<a: (Num, Eq)>` satisfies both and is refused by the restriction, which is
+   * §2.5's own example.
+   *
+   * Conservative in the direction that matters here: an answer of `false` leaves the
+   * delegated constraint report standing alone, which is what §12's row asks for
+   * anyway, and the permitted primitives have already returned above — so a type the
+   * instance table cannot answer for loses no report.
+   */
+  #literalDemandsHold(pattern: Resolved.IntegerPattern, type: Mono): boolean {
+    return this.#supportsNumericTarget(type, true) &&
+      this.#supportsTarget(type, "Eq", true) &&
+      (!pattern.decimal.startsWith("-") || this.#supportsSignedTarget(type, true));
+  }
+
+  /**
+   * §2.5's restriction for every literal whose position was undetermined when it
+   * was checked — run once, after `#defaultRemainingVariables`.
+   *
+   * Ordinary inference and defaulting resolve such a position (`Some(0)` under
+   * `match None` is a match at `Option(Int)`), so the overwhelming case resolves
+   * to a permitted primitive and nothing is reported. Where it does not, the
+   * refusal is the same one, made late: §7.3's fourth tier has already read the
+   * arm, so the grant is the eager check's and a coverage report may stand beside
+   * this one. That is the price of judging the resolved type, which is what §2.5
+   * asks for; an eager judgment would have to guess.
+   */
+  #checkPendingLiteralRestrictions(): void {
+    for (
+      const { pattern, type, root, inOrAlternative, armGuardSeat, armHasGuard }
+        of this.#pendingLiteralRestrictions
+    ) {
+      const actual = this.#prune(type);
+      // A variable that survived defaulting is one a non-defaultable constraint
+      // blocked, and §4's own report has already named it; an error type has been
+      // reported too. Neither is this restriction's to speak about.
+      if (actual.kind === "Variable" || actual.kind === "Error") continue;
+      this.#checkLiteralPrimitive(
+        pattern,
+        actual,
+        root,
+        inOrAlternative || !armGuardSeat || armHasGuard,
+      );
+    }
+    this.#pendingLiteralRestrictions.length = 0;
+  }
+
+  /**
+   * One step **through a wrapper** — `as`, or one alternative of `|` — rather than
+   * down into a slot.
+   *
+   * The two differ from `#nestedPattern` in the one way §2.5's rewrite cares
+   * about: a wrapper re-enters the walk at the *same* position, so the root the
+   * rewrite prints must survive it (`#patternRootHeld`), and an or-alternative
+   * additionally has no valid single-literal rewrite at all
+   * (`#inOrAlternative`). Both flags are saved and restored, so a wrapper inside a
+   * slot inside a wrapper reads correctly.
+   */
+  #insideWrapper(orAlternative: boolean, walk: () => void): void {
+    const heldRoot = this.#patternRootHeld;
+    const inOrAlternative = this.#inOrAlternative;
+    this.#patternRootHeld = true;
+    this.#inOrAlternative ||= orAlternative;
+    try {
+      walk();
+    } finally {
+      this.#patternRootHeld = heldRoot;
+      this.#inOrAlternative = inOrAlternative;
+    }
+  }
+
   /** `#inferPattern` one slot down; see `#nestedMatchPattern`. */
   #nestedPattern(
     pattern: Resolved.Pattern,
@@ -8850,6 +9398,7 @@ class Checker {
     expected: Mono,
     level: number,
   ): void {
+    if (this.#patternDepth === 0 && !this.#patternRootHeld) this.#patternRoot = pattern;
     if (pattern.kind === "Wildcard") return;
     if (pattern.kind === "Unit") {
       this.#unifyPattern(pattern, expected, UNIT);
@@ -8860,14 +9409,18 @@ class Checker {
       return;
     }
     if (pattern.kind === "As") {
-      this.#inferMatchPattern(pattern.pattern, expected, level);
+      this.#insideWrapper(false, () =>
+        this.#inferMatchPattern(pattern.pattern, expected, level)
+      );
       this.#schemes.set(pattern.binding.symbol, { variables: [], type: expected });
       return;
     }
     if (pattern.kind === "Or") {
       const common = new Map<Resolved.SymbolId, Mono>();
       for (const alternative of pattern.alternatives) {
-        this.#inferMatchPattern(alternative, expected, level);
+        this.#insideWrapper(true, () =>
+          this.#inferMatchPattern(alternative, expected, level)
+        );
         for (const binding of resolvedPatternBindings(alternative)) {
           const current = this.#scheme(binding.symbol).type;
           const previous = common.get(binding.symbol);
@@ -8881,7 +9434,20 @@ class Checker {
       return;
     }
     if (pattern.kind === "Integer") {
-      this.#unifyPattern(pattern, expected, primitive("Int"));
+      this.#inferIntegerPattern(pattern, expected);
+      return;
+    }
+    if (pattern.kind === "Float") {
+      this.#unifyPattern(pattern, expected, primitive("Float"));
+      return;
+    }
+    if (pattern.kind === "Error") {
+      // §7.3's fourth tier, for a pattern that failed to lex, to parse, or to
+      // resolve: it is read as `_` by coverage and is never a shadower, so the one
+      // report stands alone — made already, or made here where §2.5 left the
+      // sentence to be finished at a seat that knows the position's type.
+      this.#reportTermSpelling(pattern, expected);
+      this.#brokenPatterns.add(pattern);
       return;
     }
     if (pattern.kind === "String") {
@@ -9009,7 +9575,23 @@ class Checker {
     },
   ): void {
     for (const arm of arms) {
-      this.#inferExceptionPattern(arm.pattern, level);
+      // §3 names `catch` beside `match`, so both flags are set here as there. Neither
+      // is observable at this seat today and no pin can reach them: a guard would
+      // have to be *offered* at an arm whose position is the open `Exn`, and nothing
+      // unifies with `Exn` and nothing honors `Eq` at it. Set anyway, because the rule
+      // is about the seat rather than about what happens to stand at it — a `catch`
+      // arm that one day carries a comparable scrutinee would otherwise be the one
+      // seat that forgot.
+      const outerGuardSeat = this.#armGuardSeat;
+      const outerHasGuard = this.#armHasGuard;
+      this.#armGuardSeat = true;
+      this.#armHasGuard = arm.guard !== undefined;
+      try {
+        this.#inferExceptionPattern(arm.pattern, level);
+      } finally {
+        this.#armGuardSeat = outerGuardSeat;
+        this.#armHasGuard = outerHasGuard;
+      }
       if (arm.guard !== undefined) {
         const guard = this.#inferExpr(arm.guard, level);
         this.#unify(guard, this.#boolType(arm.guard.span), arm.guard.span);
@@ -9057,7 +9639,7 @@ class Checker {
       return;
     }
     if (pattern.kind === "As") {
-      this.#inferExceptionPattern(pattern.pattern, level);
+      this.#insideWrapper(false, () => this.#inferExceptionPattern(pattern.pattern, level));
       this.#schemes.set(pattern.binding.symbol, {
         variables: [],
         type: primitive("Exn"),
@@ -9067,7 +9649,7 @@ class Checker {
     if (pattern.kind === "Or") {
       const common = new Map<Resolved.SymbolId, Mono>();
       for (const alternative of pattern.alternatives) {
-        this.#inferExceptionPattern(alternative, level);
+        this.#insideWrapper(true, () => this.#inferExceptionPattern(alternative, level));
         for (const binding of resolvedPatternBindings(alternative)) {
           const current = this.#scheme(binding.symbol).type;
           const previous = common.get(binding.symbol);
@@ -9551,11 +10133,34 @@ class Checker {
         ? headPatterns.filter((pattern) => !this.#brokenPatterns.has(pattern))
         : headPatterns,
     );
-    if (!broken) return column;
+    // §7.2's literal identity is **one law over every column**, not a clause of
+    // the infinite domains': a literal pattern reaches a nominal record's column
+    // at `Rat`, and a union's wherever a union honors `Num`, and the matrix must
+    // equate two of them there by the same rule it uses at `Int`. Held here, at
+    // the one seat every column passes through, because the alternative was each
+    // domain's `split` sending a literal to `distinctHead` — a key on its *span*,
+    // under which no two literals are ever one.
+    const actual = this.#prune(type);
+    const primitive = actual.kind === "Constructor" ? actual.name : undefined;
     return {
       ...(column.signature === undefined ? {} : { signature: column.signature }),
-      split: (pattern) =>
-        this.#brokenPatterns.has(pattern) ? undefined : column.split(pattern),
+      split: (pattern) => {
+        if (broken && this.#brokenPatterns.has(pattern)) return undefined;
+        if (
+          pattern.kind === "Integer" || pattern.kind === "Float" ||
+          pattern.kind === "String"
+        ) {
+          return oneHead(
+            {
+              key: `literal:${renderLiteralPatternKey(pattern, primitive)}`,
+              slots: [],
+              print: () => "_",
+            },
+            [],
+          );
+        }
+        return column.split(pattern);
+      },
     };
   }
 
@@ -9594,21 +10199,16 @@ class Checker {
 
   /**
    * A column with no signature: the infinite domains and the open `Exn` sum.
-   * Patterns here still split — a literal groups with its equal, an exception
-   * constructor with its own — so reachability is exact; what they never do is
-   * complete, which is §7.1's "a catch-all is required".
+   * Patterns here still split — an exception constructor groups with its own, and
+   * a literal with its equal through `#coverageColumn`'s law — so reachability is
+   * exact; what they never do is complete, which is §7.1's "a catch-all is
+   * required".
    */
   #openColumn(): CoverageColumn {
     return {
       split: (pattern) => {
         if (pattern.kind === "Wildcard" || pattern.kind === "Binding") {
           return undefined;
-        }
-        if (pattern.kind === "Integer" || pattern.kind === "String") {
-          return oneHead(
-            { key: `literal:${renderLiteralPatternKey(pattern)}`, slots: [], print: () => "_" },
-            [],
-          );
         }
         if (
           pattern.kind === "Constructor" && pattern.symbol !== undefined &&
@@ -10399,13 +10999,65 @@ class Checker {
       });
       return;
     }
+    if (
+      alternative.kind === "Integer" || alternative.kind === "Float" ||
+      alternative.kind === "String"
+    ) {
+      this.#diagnostics.add({
+        severity: "error",
+        message: reports.literal,
+        primary: alternative.span,
+      });
+      return;
+    }
+    // §12 asks for the shadowing arm by name wherever naming one would be true,
+    // and the constructor clause above is not the only place it is: a duplicate in
+    // a **nested column** — `(0, _)` after `(0, _)`, `(-0.0, _)` after `(0.0, _)`
+    // — is covered by one arm alone, and a report naming none of them left the
+    // reader to find it. The test is the honest one: exactly one unguarded row
+    // above makes this alternative useless on its own. Where several are needed
+    // jointly, naming one would be false and the sentence below says what is true
+    // instead.
+    // `reports.shadower` is absent at `catch`, where no alternative reaches this
+    // tier (see the field); asking `#soleShadower` there would be work for a
+    // sentence that cannot be printed.
+    const naming = reports.shadower;
+    const shadower = naming === undefined
+      ? undefined
+      : this.#soleShadower(above, alternative, type);
     this.#diagnostics.add({
       severity: "error",
-      message: alternative.kind === "Integer" || alternative.kind === "String"
-        ? reports.literal
+      message: naming !== undefined && shadower !== undefined
+        ? naming(renderPattern(shadower))
         : reports.covered,
       primary: alternative.span,
     });
+  }
+
+  /**
+   * The one arm above that covers this alternative by itself, where exactly one
+   * does — §7.2's "naming the shadowing arm", for an alternative whose head is not
+   * a constructor's.
+   *
+   * A row that is a catch-all is never the answer: an alternative beneath one took
+   * the whole-arm report two tiers up, so reaching here means no row above is
+   * irrefutable, and a row that still covers this alternative alone is the
+   * duplicate the reader is looking for.
+   */
+  #soleShadower(
+    above: readonly (readonly Resolved.Pattern[])[],
+    alternative: Resolved.Pattern,
+    type: Mono,
+  ): Resolved.Pattern | undefined {
+    let found: Resolved.Pattern | undefined;
+    for (const row of above) {
+      const head = row[0];
+      if (head === undefined) continue;
+      if (this.#coverageUseful([type], [row], [alternative])) continue;
+      if (found !== undefined) return undefined;
+      found = head;
+    }
+    return found;
   }
 
   /**
@@ -15696,6 +16348,7 @@ class Checker {
       origin,
       ...(demandedBy?.kind === "member" ? { demandedBy: demandedBy.name } : {}),
       ...(impliedTypes === undefined ? {} : { impliedTypes }),
+      ...(this.#literalPatternSeat ? { patternSeat: true as const } : {}),
       reported: false,
     };
     const actual = this.#prune(type);
@@ -16819,6 +17472,11 @@ class Checker {
    * offer the reader cannot take.
    */
   #towerFaceRider(requirement: Requirement, type: Mono): string {
+    // Pattern Matching §2.5: the rider rides at its **operation** seat only, and a
+    // pattern is not one — "no seat of the numeric lift exists in a pattern". The
+    // rest of the report is the comparison's word for word; this clause alone is
+    // dropped, and nothing is offered in its place.
+    if (requirement.patternSeat === true) return "";
     const actual = this.#prune(type);
     if (actual.kind !== "Constructor") return "";
     if (actual.name !== "Nat" && actual.name !== "Int") return "";
@@ -21319,9 +21977,32 @@ class Checker {
     if (
       pattern.kind === "Wildcard" ||
       pattern.kind === "Unit" ||
-      pattern.kind === "Integer" ||
+      pattern.kind === "Float" ||
       pattern.kind === "String"
     ) return pattern;
+    if (pattern.kind === "Integer") {
+      // §2.5's literal at its position's type: the `Num` evidence is what builds
+      // it there, and it rides into the typed tree beside the type itself (see
+      // `#integerPatterns`). No `Eq` evidence travels — the restriction leaves only
+      // the four primitives, whose equality §8 has the compiler compute.
+      const resolved = this.#integerPatterns.get(pattern);
+      return {
+        kind: "Integer",
+        decimal: pattern.decimal,
+        type: this.#publicType(resolved?.type ?? ERROR),
+        ...(resolved?.num === undefined
+          ? {}
+          : { requirement: this.#publicRequirement(resolved.num) }),
+        span: pattern.span,
+      };
+    }
+    if (pattern.kind === "Error") {
+      // A refused form reaches emission as the wildcard coverage already read it
+      // as (§7.3's fourth tier). The module carries the seat's error, so nothing
+      // downstream runs; the node is shaped so nothing downstream has to know
+      // about a form that never types.
+      return { kind: "Wildcard", span: pattern.span };
+    }
     if (pattern.kind === "Or") {
       return {
         ...pattern,
@@ -22236,15 +22917,124 @@ function rewritePipe(expression: Resolved.BinaryExpr): Resolved.CallExpr {
       };
 }
 
+/**
+ * A type's **head and arguments**, for the one structural comparison that is not a
+ * unification (`Checker#couldUnify`).
+ *
+ * `undefined` for every shape that comparison declines to reason about — a
+ * variable and an error type, which its caller has already parted on, and a
+ * function, a record row, and an effect, whose unification has rules of its own
+ * (arity and row tails, §4's subsumption). The heads are spelled as
+ * `#subjectKey`'s are, and for the same reason — one spelling of "which type
+ * constructor is this" — but the *arguments* travel here, which a coherence key
+ * deliberately drops.
+ */
+function typeShape(
+  type: Mono,
+): { readonly head: string; readonly children: readonly Mono[] } | undefined {
+  switch (type.kind) {
+    case "Constructor":
+      return { head: `primitive:${type.name}`, children: [] };
+    case "Union":
+      return { head: `union:${Number(type.union)}`, children: type.arguments };
+    case "NominalRecord":
+      return { head: `record:${Number(type.record)}`, children: type.arguments };
+    case "Tuple":
+      return { head: `tuple:${type.elements.length}`, children: type.elements };
+    case "Vector":
+      return { head: "vector", children: [type.element] };
+    case "Set":
+      return { head: "set", children: [type.element] };
+    case "Array":
+      return { head: "array", children: [type.element] };
+    case "JsSet":
+      return { head: "jsset", children: [type.element] };
+    case "Node":
+      return { head: "node", children: [type.element] };
+    case "Nullable":
+      return { head: "nullable", children: [type.value] };
+    case "Map":
+      return { head: "map", children: [type.key, type.value] };
+    case "JsMap":
+      return { head: "jsmap", children: [type.key, type.value] };
+    case "Range":
+      return { head: "range", children: [] };
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * Pattern Matching §7.2's **literal identity**, for both judgments.
+ *
+ * > A literal's identity, for both judgments, is its value at the type of its
+ * > position under that type's `Eq` — never its spelling — at a type whose `Eq`
+ * > the compiler computes, the primitives.
+ *
+ * `primitive` is the column's primitive, and the key is that type's value:
+ *
+ * - at `Int`, `Nat`, and `BigInt` the integer's value, so `7` and `007` are one
+ *   literal (Lexer §5 legalises the leading zeroes) and `-0` is the literal `0`;
+ * - at `Float` the binary64 under SameValueZero, so `1.0`, `1.00`, `1.0e0` and
+ *   `10e-1` are one, `0.0` and `-0.0` are one, and two spellings the lexer rounds
+ *   to one double — underflow to zero included — are one;
+ * - at `String` the decoded text, which the token already carries.
+ *
+ * There is no other case to key: §2.5's permitted-primitive restriction refuses
+ * an integer literal that resolves anywhere else, a decimal literal stands only at
+ * `Float`, and a string literal only at `String` — so "at a type outside those
+ * primitives no literal pattern stands", and the matrix never equates what it
+ * cannot evaluate. The separator-free spelling below is the defensive default for
+ * a literal the restriction refused; such a pattern is broken, and
+ * `#coverageColumn` reads it as `_` before any key is asked for.
+ */
 function renderLiteralPatternKey(
-  pattern: Resolved.IntegerPattern | Resolved.StringPattern,
+  pattern: Resolved.IntegerPattern | Resolved.FloatPattern | Resolved.StringPattern,
+  primitive?: Typed.PrimitiveName,
 ): string {
   switch (pattern.kind) {
     case "Integer":
-      return `Int:${pattern.decimal}`;
+      if (primitive === "Float") return `Float:${floatLiteralKey(Number(cleanDigits(pattern.decimal)))}`;
+      if (primitive === "Int" || primitive === "Nat" || primitive === "BigInt") {
+        return `${primitive}:${integerLiteralKey(pattern.decimal)}`;
+      }
+      return `spelling:${cleanDigits(pattern.decimal)}`;
+    case "Float":
+      // A `Float` literal stands only at a `Float` scrutinee; anywhere else it is
+      // the ordinary mismatch (§2.5) and the pattern never reaches a key.
+      return `Float:${floatLiteralKey(pattern.value)}`;
     case "String":
       return `String:${pattern.value}`;
   }
+}
+
+/**
+ * An integer literal's value as a key — exact at every width, and the one place
+ * `-0` becomes `0`.
+ *
+ * The exactness is **unreachable today**, and worth saying so rather than claiming
+ * a guarantee no program exercises: the lexer refuses every integer literal above
+ * `Int` range, at a `BigInt` scrutinee as anywhere else, and `0n` is not a pattern
+ * form — so a `match` on `BigInt` can only test values up to 2^53−1, which is most
+ * of what lifting #519's gate was for (#898, open). `BigInt` here is what keeps the
+ * key from rounding the day one of those two changes; the `catch` beside it is
+ * defensive only.
+ */
+function integerLiteralKey(decimal: string): string {
+  const digits = cleanDigits(decimal);
+  try {
+    return BigInt(digits).toString();
+  } catch {
+    // A spelling the lexer admitted and `BigInt` refuses is a defect, not a
+    // program: the spelling keys it, which can only split a group, never merge
+    // two.
+    return digits;
+  }
+}
+
+/** A binary64's key under SameValueZero: the zeros are one value (§7.2). */
+function floatLiteralKey(value: number): string {
+  return String(value === 0 ? 0 : value);
 }
 
 function unwrapAsPattern(pattern: Resolved.Pattern): Resolved.Pattern {
@@ -22641,6 +23431,8 @@ function resolvedPatternNodes(
     case "Wildcard":
     case "Unit":
     case "Integer":
+    case "Float":
+    case "Error":
     case "String":
       return [pattern];
     case "As":
@@ -22676,6 +23468,8 @@ function resolvedPatternBindings(
     case "Wildcard":
     case "Unit":
     case "Integer":
+    case "Float":
+    case "Error":
     case "String":
       return [];
     case "As":
@@ -22814,6 +23608,48 @@ function missingFieldMessage(
 }
 
 /**
+ * The guard §2.5 names as a rewrite — "bind a name and test it in a guard" — for
+ * either sentence that names one: the permitted-primitive refusal and the
+ * term-spelling value sentence, whose rewrites differ only in what the binder is
+ * compared against ("the same holds of every guard this section names").
+ *
+ * At the top of an arm the refused node *is* the pattern, so the guard binds the
+ * scrutinee: `x when x == 0`. Beneath the top the enclosing pattern keeps its
+ * shape, with a binder where that node stood: `Some(y) when y == 0`,
+ * `Some(y) when y == Helper.count` — the guard spelled at the node's own position,
+ * which is the only rewrite that is both legal and equivalent, and the reason the
+ * *type* the guard's condition reads is the position's rather than the scrutinee's.
+ * The binder avoids every name the pattern already binds, so the rewrite never
+ * collides with the reader's own.
+ */
+function literalPatternGuard(
+  /** The node the guard replaces: a literal, or a term's spelling (`#894`). */
+  refused: Resolved.Pattern,
+  /** What the refused node is compared against — `0`, `Float.nan`. */
+  operand: string,
+  root: Resolved.Pattern | undefined,
+): string | undefined {
+  if (root === undefined || root === refused) return `x when x == ${operand}`;
+  // §2.5 replaces **the refused node** and nothing else, and `renderPattern` can
+  // only keep that promise for nodes it can print. A *second* broken node in the
+  // same pattern has no spelling to print — a term's spelling that failed to
+  // resolve, a literal the lexer refused — and it printed `_`, which is a
+  // different program: `(0, Nowhere.zilch)` at `(Rat, Int)` offered
+  // `(y, _) when y == 0`, which compiles *and silently deletes the mistyped name
+  // and its report*. Withheld instead, the direction this seat takes everywhere
+  // else, since "a `false` only costs a fixit".
+  if (
+    resolvedPatternNodes(root).some((node) =>
+      node.kind === "Error" && node !== refused
+    )
+  ) return undefined;
+  const taken = new Set(resolvedPatternBindings(root).map(({ name }) => name));
+  let binder = "y";
+  for (let suffix = 1; taken.has(binder); suffix += 1) binder = `y${suffix}`;
+  return `${renderPattern(root, { target: refused, binder })} when ${binder} == ${operand}`;
+}
+
+/**
  * A pattern rendered back as the reader wrote it — Pattern Matching §12's
  * closed-door rewrite, and §2.4's convention for the whole redirect family:
  * "the user's own pattern wrapped in the missing constructor: it names the
@@ -22825,7 +23661,12 @@ function missingFieldMessage(
  * is a binder of the field's own name, which is the one place the two spellings
  * differ and the one the convention names.
  */
-function renderPattern(pattern: Resolved.Pattern): string {
+function renderPattern(
+  pattern: Resolved.Pattern,
+  /** One node to print as a binder instead — see `literalPatternGuard`. */
+  swap?: { readonly target: Resolved.Pattern; readonly binder: string },
+): string {
+  if (swap !== undefined && pattern === swap.target) return swap.binder;
   switch (pattern.kind) {
     case "Wildcard":
       return "_";
@@ -22833,22 +23674,46 @@ function renderPattern(pattern: Resolved.Pattern): string {
       return "()";
     case "Integer":
       return pattern.decimal;
+    case "Float":
+      return pattern.spelling;
+    case "Error":
+      // Reached only for the **refused node itself**, where `swap` has already
+      // returned the binder above, or from a caller that is not §2.5's rewrite —
+      // `literalPatternGuard` withholds the whole guard when the root holds any
+      // *other* `Error` node, precisely because `_` would be a different program
+      // there. `_` is what §7.3's fourth tier reads a broken pattern as, so it is
+      // the right rendering for a witness; it is the wrong one for a rewrite, and
+      // this arm is no longer the place that decides which.
+      return "_";
     case "String":
       return JSON.stringify(pattern.value);
     case "Binding":
       return pattern.binding.name;
-    case "As":
-      return `${renderPattern(pattern.pattern)} as ${pattern.binding.name}`;
+    case "As": {
+      // `as` is the loosest pattern operator (§2.7), so an `as` *inside* an `as` at
+      // one position needs parentheses or the chain it prints has no form in the
+      // grammar: `y1 as y as z` draws four reports, where `(y1 as y) as z`
+      // compiles. Only this one nesting needs them — every other operand is
+      // tighter, and an `As` beneath a constructor or a tuple is already enclosed
+      // by that form's own brackets.
+      const operand = renderPattern(pattern.pattern, swap);
+      return `${
+        pattern.pattern.kind === "As" ? `(${operand})` : operand
+      } as ${pattern.binding.name}`;
+    }
     case "Or":
-      return pattern.alternatives.map(renderPattern).join(" | ");
+      return pattern.alternatives.map((alternative) => renderPattern(alternative, swap))
+        .join(" | ");
     case "Tuple":
-      return `(${pattern.elements.map(renderPattern).join(", ")})`;
+      return `(${
+        pattern.elements.map((element) => renderPattern(element, swap)).join(", ")
+      })`;
     case "Vector": {
-      const elements = pattern.elements.map(renderPattern);
+      const elements = pattern.elements.map((element) => renderPattern(element, swap));
       if (pattern.rest !== undefined) {
         const rest = pattern.rest.pattern === undefined
           ? "..."
-          : `...${renderPattern(pattern.rest.pattern)}`;
+          : `...${renderPattern(pattern.rest.pattern, swap)}`;
         elements.splice(pattern.rest.index, 0, rest);
       }
       return `[${elements.join(", ")}]`;
@@ -22858,19 +23723,22 @@ function renderPattern(pattern: Resolved.Pattern): string {
         pattern.fields.map(({ name, pattern: field }) =>
           field.kind === "Binding" && field.binding.name === name
             ? name
-            : `${name} = ${renderPattern(field)}`
+            : `${name} = ${renderPattern(field, swap)}`
         ).join(", ")
       }}`;
     case "Constructor":
-      return `${pattern.text}${renderArguments(pattern.arguments)}`;
+      return `${pattern.text}${renderArguments(pattern.arguments, swap)}`;
   }
 }
 
 /** A constructor pattern's argument list, empty for a nullary head. */
-function renderArguments(arguments_: readonly Resolved.Pattern[]): string {
+function renderArguments(
+  arguments_: readonly Resolved.Pattern[],
+  swap?: { readonly target: Resolved.Pattern; readonly binder: string },
+): string {
   return arguments_.length === 0
     ? ""
-    : `(${arguments_.map(renderPattern).join(", ")})`;
+    : `(${arguments_.map((argument) => renderPattern(argument, swap)).join(", ")})`;
 }
 
 /**

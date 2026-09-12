@@ -11,6 +11,10 @@ import {
 import { INTRINSIC_INVENTORY, isIntrinsicScheme } from "../../intrinsics.js";
 import { PRIMITIVE_COMPANION_MODULES } from "../../prelude.js";
 import { type Documentation, throwsManifests } from "../../support/documentation.js";
+import {
+  canonicalFloatLiteral,
+  canonicalIntegerLiteral,
+} from "../../support/numeric-literal.js";
 import { relativeSpecifier } from "../../support/paths.js";
 import type * as Source from "../../support/source.js";
 import { isSyntheticParameterName } from "../../support/synthetic.js";
@@ -4202,7 +4206,7 @@ class JavaScriptEmitter {
           `${prefix}let ${names.join(", ")};`,
         ];
         alternatives.forEach((alternative, index) => {
-          const plan = this.#emitPatternPlan(alternative, matchName);
+          const plan = this.#emitPatternPlan(alternative, matchName, evidenceNames);
           const condition = plan.tests.length === 0
             ? "true"
             : plan.tests.join(" && ");
@@ -4252,7 +4256,11 @@ class JavaScriptEmitter {
         const subject = isSafeIdentifier(value)
           ? value
           : this.#generatedNames.fresh("subject");
-        const plan = this.#emitPatternPlan(withoutUnboundVectors(item.pattern), subject);
+        const plan = this.#emitPatternPlan(
+          withoutUnboundVectors(item.pattern),
+          subject,
+          evidenceNames,
+        );
         return [
           ...(subject === value ? [] : [`${prefix}const ${subject} = ${value};`]),
           ...plan.bindings.map((binding) => `${prefix}${binding}`),
@@ -4473,7 +4481,12 @@ class JavaScriptEmitter {
           span: pattern.span,
         });
       case "Integer":
-        return cleanNumber(pattern.decimal);
+        // #897: the *value*, never the spelling — `007` is a legacy octal
+        // literal, which every emitted module refuses. Pattern Matching §7.2
+        // keys a literal's identity on the value for the same reason.
+        return canonicalIntegerLiteral(pattern.decimal);
+      case "Float":
+        return canonicalFloatLiteral(pattern.spelling);
       case "String":
         return JSON.stringify(pattern.value);
       case "Tuple":
@@ -4796,13 +4809,23 @@ class JavaScriptEmitter {
       case "ErrorExpr":
         return this.#unit;
       case "Number": {
-        const literal = cleanNumber(expression.decimal);
+        // #897: the value in a canonical spelling, not the reader's. Lexer §5
+        // legalises leading zeroes ("`00`, `01`, and `00.5` have no octal
+        // meaning"), and `007` in JavaScript is a legacy octal literal — a
+        // SyntaxError in strict-mode code, which every emitted module is. The
+        // same reason `=== 007` was wrong in a pattern makes `let x = 007`
+        // wrong in an expression.
+        const literal = canonicalIntegerLiteral(expression.decimal);
         return expression.representation === "Float" ? `${literal}.0` : literal;
       }
       case "BigInt":
-        return `${cleanNumber(expression.decimal)}n`;
+        // `007n` is not even a legacy octal: it is an outright SyntaxError.
+        return `${canonicalIntegerLiteral(expression.decimal)}n`;
       case "Float":
-        return cleanNumber(expression.spelling);
+        // The spelling the reader wrote, with #897's one repair: a leading zero
+        // before the point is legal Hexagon (Lexer §5) and a SyntaxError in
+        // JavaScript, which refuses `00.5` as flatly as it refuses `007`.
+        return canonicalFloatLiteral(expression.spelling);
       case "ConvertNat":
         return this.#emitConvertNat(expression, evidenceNames);
       case "WidenNat":
@@ -5382,7 +5405,7 @@ class JavaScriptEmitter {
     }
 
     const itemName = this.#generatedNames.fresh("item");
-    const plan = this.#emitPatternPlan(expression.pattern, itemName);
+    const plan = this.#emitPatternPlan(expression.pattern, itemName, evidenceNames);
     const bindings = plan.bindings.map((binding) =>
       `${indent(depth + 1)}${binding}`
     );
@@ -6059,7 +6082,7 @@ class JavaScriptEmitter {
     }
     for (const [index, arm] of arms.entries()) {
       for (const alternative of alternatives[index]!) {
-        const plan = this.#emitPatternPlan(alternative, error, true, foreign);
+        const plan = this.#emitPatternPlan(alternative, error, evidenceNames, true, foreign);
         const condition = plan.tests.length === 0
           ? "true"
           : plan.tests.join(" && ");
@@ -6266,7 +6289,7 @@ class JavaScriptEmitter {
     for (const arm of expression.arms) {
       const alternatives = expandOrPatterns(arm.pattern);
       for (const [index, alternative] of alternatives.entries()) {
-        const plan = this.#emitPatternPlan(alternative, matchName);
+        const plan = this.#emitPatternPlan(alternative, matchName, evidenceNames);
         const condition = plan.tests.length === 0
           ? "true"
           : plan.tests.join(" && ");
@@ -6329,9 +6352,19 @@ class JavaScriptEmitter {
     return pattern.kind === "Constructor" && pattern.symbol === this.#prelude.jsError;
   }
 
+  /**
+   * The tests and bindings one pattern makes against a subject expression.
+   *
+   * `evidenceNames` rides along for one seat and one reason (#894): a literal is
+   * *built* at the type of its position (Pattern Matching §2.5, §8), and that
+   * construction is an evidence application — `FromNat` at every one of the four
+   * primitives §2.5 permits. Every caller already holds the map for the arm bodies
+   * beside the tests.
+   */
   #emitPatternPlan(
     pattern: Core.Pattern,
     value: string,
+    evidenceNames: EvidenceNames,
     exceptionPatterns = false,
     foreign?: string,
   ): PatternPlan {
@@ -6344,6 +6377,7 @@ class JavaScriptEmitter {
         const nested = this.#emitPatternPlan(
           pattern.pattern,
           value,
+          evidenceNames,
           exceptionPatterns,
           foreign,
         );
@@ -6355,7 +6389,7 @@ class JavaScriptEmitter {
       }
       case "Or": {
         const alternatives = pattern.alternatives.map((alternative) =>
-          this.#emitPatternPlan(alternative, value, exceptionPatterns, foreign)
+          this.#emitPatternPlan(alternative, value, evidenceNames, exceptionPatterns, foreign)
         );
         if (alternatives.some(({ bindings }) => bindings.length > 0)) {
           return { tests: ["false"], bindings: [] };
@@ -6371,8 +6405,37 @@ class JavaScriptEmitter {
         const name = this.#identifier(pattern.binding.symbol, pattern.binding.name);
         return { tests: [], bindings: [`const ${name} = ${value};`] };
       }
-      case "Integer":
-        return { tests: [`${value} === ${cleanNumber(pattern.decimal)}`], bindings: [] };
+      case "Integer": {
+        // Pattern Matching §2.5/§8: the test is what `scrutinee == lit` emits at
+        // the literal's resolved primitive — the SameValueZero shape at `Float`,
+        // `===` at the other three, which the restriction leaves as the only
+        // cases. A type outside them never reaches here: the checker refused the
+        // literal, and this module carries that report.
+        const literal = this.#emitExpr(pattern.literal, 0, evidenceNames);
+        const type = pattern.literal.type;
+        return {
+          tests: [
+            type.kind === "Primitive" && type.name === "Float"
+              ? `${this.#useHelper("floatEquals")}(${value}, ${literal})`
+              : `${value} === ${literal}`,
+          ],
+          bindings: [],
+        };
+      }
+      case "Float":
+        // §2.5: `Eq<Float>` is SameValueZero, so the arm test is what
+        // `scrutinee == lit` emits at `Float` — never a bare `===`, which would
+        // refuse `NaN` its own literal. `0.0` matching `-0.0` needs no help from
+        // the helper: `===` already equates the zeros, and the helper is what
+        // adds the `NaN` half.
+        return {
+          tests: [
+            `${this.#useHelper("floatEquals")}(${value}, ${
+              canonicalFloatLiteral(pattern.spelling)
+            })`,
+          ],
+          bindings: [],
+        };
       case "String":
         return { tests: [`${value} === ${JSON.stringify(pattern.value)}`], bindings: [] };
       case "Tuple":
@@ -6381,6 +6444,7 @@ class JavaScriptEmitter {
             this.#emitPatternPlan(
               element,
               `${value}[${index}]`,
+              evidenceNames,
               exceptionPatterns,
             )
           ),
@@ -6406,6 +6470,7 @@ class JavaScriptEmitter {
           return this.#emitPatternPlan(
             element,
             `${this.#useVectorRuntime("get")}(${value}, ${position})`,
+            evidenceNames,
             exceptionPatterns,
           );
         });
@@ -6418,6 +6483,7 @@ class JavaScriptEmitter {
           : this.#emitPatternPlan(
               pattern.rest.pattern,
               `${this.#useVectorRuntime("slice")}(${value}, ${pattern.rest.index}, ${restEnd})`,
+              evidenceNames,
               exceptionPatterns,
             );
         return {
@@ -6437,6 +6503,7 @@ class JavaScriptEmitter {
             this.#emitPatternPlan(
               field.pattern,
               `${value}.${field.name}`,
+              evidenceNames,
               exceptionPatterns,
             )
           ),
@@ -6452,7 +6519,7 @@ class JavaScriptEmitter {
           const inner = pattern.arguments[0];
           return inner === undefined
             ? { tests: [], bindings: [] }
-            : this.#emitPatternPlan(inner, value, exceptionPatterns);
+            : this.#emitPatternPlan(inner, value, evidenceNames, exceptionPatterns);
         }
         const exception = exceptionPatterns
           ? this.#exceptions.get(pattern.symbol)
@@ -6518,6 +6585,7 @@ class JavaScriptEmitter {
           return this.#emitPatternPlan(
             argument,
             payload,
+            evidenceNames,
             exceptionPatterns,
           );
         });
@@ -6533,7 +6601,8 @@ class JavaScriptEmitter {
   ): string {
     const converted = primitiveInstance(expression.evidence);
     if (converted !== undefined) {
-      const literal = cleanNumber(expression.decimal);
+      // #897's canonical printing, here as at every other integer-literal seat.
+      const literal = canonicalIntegerLiteral(expression.decimal);
       if (converted === "BigInt") return `${literal}n`;
       if (converted === "Float") return `${literal}.0`;
       return literal;
@@ -6543,7 +6612,7 @@ class JavaScriptEmitter {
         expression.evidence,
         "Num",
         "fromNat",
-        [cleanNumber(expression.decimal)],
+        [canonicalIntegerLiteral(expression.decimal)],
         expression.span,
         evidenceNames,
       );
@@ -6556,7 +6625,7 @@ class JavaScriptEmitter {
       evidenceNames,
       expression.evidence.path,
     );
-    return `${dictionary}.fromNat(${cleanNumber(expression.decimal)})`;
+    return `${dictionary}.fromNat(${canonicalIntegerLiteral(expression.decimal)})`;
   }
 
   #emitWidenNat(
@@ -11221,6 +11290,7 @@ function isSimplePayloadBindingPattern(pattern: Core.Pattern): boolean {
         isSimplePayloadBindingPattern(field.pattern)
       );
     case "Integer":
+    case "Float":
     case "String":
     case "Constructor":
     case "As":
@@ -13981,6 +14051,7 @@ function patternBindings(pattern: Core.Pattern): Core.Binding[] {
     case "Wildcard":
     case "Unit":
     case "Integer":
+    case "Float":
     case "String":
       return [];
     case "As":
@@ -14048,6 +14119,7 @@ function withoutUnboundVectors(pattern: Core.Pattern): Core.Pattern {
     case "Wildcard":
     case "Unit":
     case "Integer":
+    case "Float":
     case "String":
       return pattern;
   }
@@ -14071,6 +14143,7 @@ function containsVectorPattern(pattern: Core.Pattern): boolean {
     case "Wildcard":
     case "Unit":
     case "Integer":
+    case "Float":
     case "String":
       return false;
     case "As":
@@ -14164,10 +14237,6 @@ export function emittedModuleSpecifier(specifier: string): string {
   return specifier.endsWith(".hex")
     ? `${specifier.slice(0, -4)}.js`
     : `${specifier}.js`;
-}
-
-function cleanNumber(spelling: string): string {
-  return spelling.replaceAll("_", "");
 }
 
 function indent(depth: number): string {

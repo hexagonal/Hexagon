@@ -41,6 +41,16 @@ function diagnostics(
 /** `union Flag = On | Off`, exported whole. */
 const FLAGS = ["/flags.hex", "module Flags\n\n" + "export union Flag = On | Off\n"] as const;
 
+/**
+ * The `Eq` half of what an integer literal pattern at `Flag` draws — Pattern
+ * Matching §2.5's delegation (#894): the literal contributes `Num` *and* `Eq`, the
+ * union honors neither, and the arm draws one report per unmet constraint, exactly
+ * as `x == 0` does there.
+ */
+const FLAG_EQ = "type `Flag` has no `Eq` instance; it could only be declared in " +
+  "module `Flags` (declares `Flag`) or the module declaring `Eq`; add `derives Eq` " +
+  "to the declaration of `Flag`";
+
 /** Five constructors, so a report can list several and still have a tail. */
 const WIDE = [
   "/flags.hex",
@@ -624,6 +634,12 @@ describe("the error-program obligation: a broken pattern must not widen the voca
   });
 
   test("a literal arm is the same program (#636 R2's third shape)", () => {
+    // The refusal's *wording* moved with #894: §2.5 checks a literal pattern at
+    // the type of its position rather than unifying it with `Int`, so an integer
+    // literal there draws the reports `x == 0` draws — one per unmet constraint,
+    // and `Handle` honors neither `Eq` nor `Num` — instead of a mismatch. What this
+    // test is about is unchanged: the broken arm widens no witness, and `Handle`'s
+    // constructors, unnameable here, stay out of the output.
     expect(diagnostics([
       HANDLE,
       [
@@ -634,7 +650,10 @@ describe("the error-program obligation: a broken pattern must not widen the voca
         "        0 => 1\n",
       ],
     ])).toEqual([
-      "type mismatch: expected Handle, found Int",
+      "type `Handle` has no `Eq` instance; it could only be declared in module `H` " +
+      "(declares `Handle`) or the module declaring `Eq`; add `derives Eq` to the " +
+      "declaration of `Handle`",
+      "integer literal cannot have type `Handle`",
     ]);
   });
 
@@ -665,7 +684,10 @@ describe("the error-program obligation: a broken pattern must not widen the voca
         "        0 => 1\n",
       ],
     ])).toEqual([
-      "type mismatch: expected Flag, found Int",
+      // §2.5's reports, as above: the literal is checked at `Flag`, which honors
+      // neither of the two constraints it contributes.
+      FLAG_EQ,
+      "integer literal cannot have type `Flag`",
     ]);
   });
 
@@ -765,7 +787,7 @@ describe("§7.2 takes the dual: a broken pattern is never a shadower", () => {
         "        On => 2\n" +
         "        Off => 3\n",
       ],
-    ])).toEqual(["type mismatch: expected Flag, found Int"]);
+    ])).toEqual([FLAG_EQ, "integer literal cannot have type `Flag`"]);
   });
 
   test("nor does a broken arm above a catch-all", () => {
@@ -796,8 +818,10 @@ describe("§7.2 takes the dual: a broken pattern is never a shadower", () => {
         "        Off => 4\n",
       ],
     ])).toEqual([
-      "type mismatch: expected Flag, found Int",
-      "type mismatch: expected Flag, found Int",
+      FLAG_EQ,
+      "integer literal cannot have type `Flag`",
+      FLAG_EQ,
+      "integer literal cannot have type `Flag`",
     ]);
   });
 
@@ -851,7 +875,8 @@ describe("§7.2 takes the dual: a broken pattern is never a shadower", () => {
         "        0 => 1\n",
       ],
     ])).toEqual([
-      "type mismatch: expected Flag, found Int",
+      FLAG_EQ,
+      "integer literal cannot have type `Flag`",
       "this match arm is unreachable; an earlier pattern matches everything",
     ]);
   });

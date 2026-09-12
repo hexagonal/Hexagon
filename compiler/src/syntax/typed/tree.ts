@@ -511,6 +511,7 @@ export type Pattern =
   | WildcardPattern
   | UnitPattern
   | IntegerPattern
+  | FloatPattern
   | StringPattern
   | VectorPattern
   | TuplePattern
@@ -550,9 +551,38 @@ export interface OrPattern {
 
 // #147: no `BooleanPattern`. `True`/`False` are nullary constructors, so
 // they are `ConstructorPattern`s like `None`.
+/**
+ * An integer literal pattern, checked **at the type of its position** (Pattern
+ * Matching §2.5, #894 / #519).
+ *
+ * `type` is that position's resolved type, which §2.5's permitted-primitive
+ * restriction has already narrowed to `Int`, `Nat`, `BigInt` or `Float` — the four
+ * whose value and whose equality the compiler computes, so no `Eq` evidence
+ * travels and §8's "patterns never invoke user code" needs no carve-out.
+ * `requirement` is the `Num` evidence that builds the literal there, the same
+ * constraint a `FromNat` expression carries; it is absent on an error program,
+ * where the type never resolved.
+ */
 export interface IntegerPattern {
   readonly kind: "Integer";
   readonly decimal: string;
+  readonly type: Type;
+  readonly requirement?: Constraint;
+  readonly span: Source.Span;
+}
+
+/**
+ * A `Float` literal pattern (Pattern Matching §2.5, #894).
+ *
+ * Monomorphic `Float`, so it carries no evidence: the arm test is the
+ * SameValueZero shape the emitter inlines (Decisions Batch §1.5), and the
+ * `value` is the literal's coverage identity (§7.2) while the `spelling` is what
+ * the test emits.
+ */
+export interface FloatPattern {
+  readonly kind: "Float";
+  readonly spelling: string;
+  readonly value: number;
   readonly span: Source.Span;
 }
 

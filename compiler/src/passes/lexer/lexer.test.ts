@@ -197,7 +197,18 @@ describe("lex", () => {
       "integer literal exceeds Int range; add `n` for a BigInt, or use an explicit conversion",
       "Float literal is too large; use `Float.infinity`",
     ]);
-    expect(kinds(result.tokens)).toEqual(["NonUpperName", "UpperName", "Eof"]);
+    // §9's **recovery form** for the overflowing `Float` alone (#894): every other
+    // malformed literal here is dropped, and `1e999` is handed on so the construct
+    // around it still parses — marked, never a successful token, and refused by
+    // every seat that reads it.
+    expect(kinds(result.tokens))
+      .toEqual(["NonUpperName", "UpperName", "Float", "Eof"]);
+    expect(result.tokens[2]).toMatchObject({
+      kind: "Float",
+      spelling: "1e999",
+      value: Infinity,
+      recovered: true,
+    });
   });
 
   test("uses maximal munch over the complete punctuation inventory", () => {
