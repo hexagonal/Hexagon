@@ -1093,6 +1093,10 @@ class Parser {
       case "Honor":
         this.#docs.attach(start, item.span, [item.constraint.span]);
         return;
+      case "PatternDeclaration":
+      case "PatternAlias":
+        this.#docs.attach(start, item.span, [item.name.span]);
+        return;
       case "ErrorItem":
         this.#docs.discard(start);
         return;
@@ -1291,6 +1295,15 @@ class Parser {
       }
       return this.#parseHonor();
     }
+    if (this.#atPatternHead()) {
+      if (!moduleItems) {
+        const start = this.#advance();
+        this.#errorAt(start.span, "declarations live at module level");
+        this.#synchronize(itemEnds);
+        return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
+      }
+      return this.#parsePatternDeclaration(false);
+    }
     if (this.#at("Export")) {
       const exportToken = this.#advance();
       if (!moduleItems) {
@@ -1340,7 +1353,7 @@ class Parser {
         };
       }
       if (
-        !opensVisibleDeclaration.has(this.#current().kind) &&
+        !opensVisibleDeclaration.has(this.#current().kind) && !this.#atPatternHead() &&
         !this.#atUnionHead() && !this.#atExternEnumHead()
       ) {
         this.#errorAt(
@@ -1495,6 +1508,7 @@ class Parser {
     exported = true,
   ): Parsed.Item {
     if (this.#at("Constraint")) return this.#parseConstraint(exported, itemStart);
+    if (this.#atPatternHead()) return this.#parsePatternDeclaration(exported, itemStart);
     if (this.#at("Type")) return this.#parseTypeAlias(exported, itemStart);
     if (this.#atExternEnumHead()) {
       // `export extern enum T = …` (Foreign Enums §2.3): `export` is the
@@ -2820,6 +2834,11 @@ class Parser {
     return this.#atContextual("widens") && this.#peek(1).kind === "UpperName";
   }
 
+  /** `pattern` is contextual: only a following name makes a declaration head. */
+  #atPatternHead(): boolean {
+    return this.#atContextual("pattern") && this.#peekIsName(1);
+  }
+
   /**
    * Whether an `opaque` **declaration head** starts here — the contextual
    * keyword (Lexer §4.2, #590), recognized by `union`'s mechanism.
@@ -3178,7 +3197,7 @@ class Parser {
     while (!this.#at("Greater") && !this.#at("Eof")) {
       const token = this.#takeName("NonUpperName", "type parameters must be non-uppercase-start names");
       if (token === undefined) break;
-      const name = parsedName(token);
+      const name = parsedName(token as Lexed.NameToken);
       if (seen.has(name.text)) this.#errorAt(name.span, `duplicate type parameter \`${name.text}\``);
       seen.add(name.text);
       if (!this.#at("Colon")) {
@@ -4091,6 +4110,153 @@ class Parser {
     };
   }
 
+  /** Parses #834's declaration, its member block, or its no-block alias form. */
+  #parsePatternDeclaration(exported: boolean, itemStart?: Source.Span): Parsed.Item {
+    const start = this.#advance();
+    const nameToken = this.#takeName("NonUpperName", "`pattern` requires a non-uppercase-start name");
+    if (nameToken === undefined) {
+      this.#synchronize(itemEnds);
+      return { kind: "ErrorItem", span: spanFrom(itemStart ?? start.span, this.#previous().span) };
+    }
+    const name = parsedName(nameToken);
+    if (this.#at("Equal")) {
+      this.#advance();
+      const target = this.#parsePatternDelegate();
+      if (target === undefined) {
+        this.#synchronize(itemEnds);
+        return { kind: "ErrorItem", span: spanFrom(itemStart ?? start.span, this.#previous().span) };
+      }
+      return {
+        kind: "PatternAlias", exported, name, target,
+        span: spanFrom(itemStart ?? start.span, target.span),
+      };
+    }
+
+    let typeParameters: readonly Parsed.TypeParameter[] | undefined;
+    if (this.#at("Less")) typeParameters = this.#parseTypeParameters();
+    let head: Parsed.PatternDeclarationHead | undefined;
+    if (this.#at("LeftParen") || this.#at("Colon")) {
+      const headStart = this.#current().span;
+      const components: Parsed.PatternComponent[] = [];
+      if (this.#at("LeftParen")) {
+        this.#advance();
+        while (!this.#at("RightParen") && !this.#at("Eof")) {
+          const componentToken = this.#takeName(
+            "NonUpperName",
+            "pattern components are non-uppercase-start names",
+          );
+          if (componentToken === undefined) break;
+          const componentName = parsedName(componentToken);
+          this.#expect("Colon", "expected `:` after pattern component name");
+          const annotation = this.#parseTypeAnnotation() ?? invalidType(componentName);
+          components.push({ name: componentName, annotation, span: spanFrom(componentName.span, annotation.span) });
+          if (!this.#at("Comma")) break;
+          this.#advance();
+        }
+        this.#expect("RightParen", "expected `)` after pattern components");
+      }
+      if (!this.#at("Colon")) {
+        this.#errorAt(
+          headStart,
+          "a pattern head is whole or absent: write the result type, or drop the component list",
+        );
+      } else {
+        this.#advance();
+      }
+      const result = this.#parseTypeAnnotation() ?? invalidType(name);
+      head = {
+        ...(typeParameters === undefined ? {} : { typeParameters }),
+        components,
+        result,
+        span: spanFrom(headStart, result.span),
+      };
+    } else if (typeParameters !== undefined) {
+      this.#errorAt(name.span, "a pattern head is whole or absent: write the result type, or drop the component list");
+    }
+
+    if (this.#expect("VOpen", "expected an indented pattern body") === undefined) {
+      return { kind: "ErrorItem", span: spanFrom(itemStart ?? start.span, this.#previous().span) };
+    }
+    const members: Parsed.PatternDeclarationMember[] = [];
+    this.#skipSeparators();
+    while (!this.#at("VClose") && !this.#at("Eof")) {
+      const memberStart = this.#current().span.start.offset;
+      const member = this.#parsePatternMember();
+      if (member !== undefined) {
+        members.push(member);
+        this.#docs.attach(memberStart, member.span, [member.name.span]);
+      } else {
+        this.#synchronize(new Set(["VSep", "VClose", "Eof"]));
+      }
+      this.#skipSeparators();
+    }
+    const closing = this.#expect("VClose", "expected the pattern body to close");
+    return {
+      kind: "PatternDeclaration", exported, name,
+      ...(head === undefined ? {} : { head }), members,
+      span: spanFrom(itemStart ?? start.span, closing?.span ?? members.at(-1)?.span ?? name.span),
+    };
+  }
+
+  #parsePatternMember(): Parsed.PatternDeclarationMember | undefined {
+    const start = this.#current().span;
+    const token = this.#takeName("NonUpperName", "a pattern member is `view` or `build`");
+    if (token === undefined) return undefined;
+    const name = parsedName(token as Lexed.NameToken);
+    if (name.text !== "view" && name.text !== "build") {
+      this.#errorAt(name.span, "a pattern member is `view` or `build`");
+      return undefined;
+    }
+    const memberKind = name.text === "view" ? "PatternView" as const : "PatternBuild" as const;
+    if (this.#at("Equal")) {
+      this.#advance();
+      const delegate = this.#parsePatternDelegate();
+      if (delegate === undefined) return undefined;
+      if (!itemEnds.has(this.#current().kind)) {
+        this.#errorAt(this.#current().span, "a pattern member is `build(a, b) = …` or `build = name`");
+      }
+      return { kind: memberKind, name, delegate, span: spanFrom(start, delegate.span) };
+    }
+    const parameterStart = this.#current().span;
+    if (!this.#at("LeftParen")) {
+      this.#errorAt(parameterStart, "a pattern member is `build(a, b) = …` or `build = name`");
+      return undefined;
+    }
+    const { parameters, destructurings } = this.#parseParameters();
+    this.#rejectDestructurings(destructurings, "pattern members");
+    let returnAnnotation: Parsed.TypeAnnotation | undefined;
+    if (this.#at("Colon")) {
+      this.#advance();
+      returnAnnotation = this.#parseTypeAnnotation();
+    }
+    if (this.#expect("Equal", "expected `=` after pattern member header") === undefined) return undefined;
+    const body = this.#parseBodyExpression();
+    const value: Parsed.LambdaExpr = {
+      kind: "Lambda", parameters,
+      ...(returnAnnotation === undefined ? {} : { returnAnnotation }),
+      ...this.#lambdaDestructurings(destructurings), body,
+      span: spanFrom(parameterStart, body.span),
+    };
+    return { kind: memberKind, name, value, span: spanFrom(start, body.span) };
+  }
+
+  #parsePatternDelegate(): Parsed.PatternDelegate | undefined {
+    const first = this.#at("NonUpperName") || this.#at("UpperName")
+      ? this.#advance() as Lexed.NameToken
+      : undefined;
+    if (first === undefined) {
+      this.#error("a pattern member is `build(a, b) = …` or `build = name`");
+      return undefined;
+    }
+    const firstName = parsedName(first);
+    if (!this.#at("Dot")) return { name: firstName, span: firstName.span };
+    this.#advance();
+    const member = this.#takeName("NonUpperName", "expected a pattern name after `.`");
+    if (member === undefined) return undefined;
+    const name = parsedName(member);
+    return { qualifier: firstName, name, span: spanFrom(firstName.span, name.span) };
+  }
+
   #parsePatternBinding(): Parsed.Item {
     const start = this.#advance();
     const pattern = this.#parsePattern();
@@ -4451,7 +4617,8 @@ class Parser {
     if (first === undefined) return undefined;
     if (!this.#at("Comma")) {
       const closing = this.#expect("RightParen", "expected `)` after pattern");
-      return { ...first, span: spanFrom(opening.span, closing?.span ?? first.span) };
+      const end = closing?.span ?? first.span;
+      return this.#declaredPattern([first], opening.span, end);
     }
     const elements: Parsed.Pattern[] = [first];
     while (this.#at("Comma")) {
@@ -4466,11 +4633,43 @@ class Parser {
       elements.push(element);
     }
     const closing = this.#expect("RightParen", "expected `)` after tuple pattern");
-    return {
-      kind: "Tuple",
-      elements,
-      span: spanFrom(opening.span, closing?.span ?? elements.at(-1)!.span),
-    };
+    return this.#declaredPattern(elements, opening.span, closing?.span ?? elements.at(-1)!.span);
+  }
+
+  /** Turns a parenthesized pattern list into #834's suffix only at its glued name. */
+  #declaredPattern(
+    components: readonly Parsed.Pattern[],
+    opening: Source.Span,
+    closing: Source.Span,
+  ): Parsed.Pattern {
+    if (this.#at("NonUpperName")) {
+      const next = this.#current() as Lexed.NameToken;
+      // These contextual words resume the enclosing pattern grammar when they
+      // are separated from the closing parenthesis.  Glued spellings remain a
+      // suffix use so resolution can give §3.3's dedicated spacing/role hint.
+      if (
+        next.span.start.offset !== closing.end.offset &&
+        (next.text === "as" || next.text === "when" || next.text === "derives")
+      ) {
+        return components.length === 1
+          ? { ...components[0]!, span: spanFrom(opening, closing) }
+          : { kind: "Tuple", elements: components, span: spanFrom(opening, closing) };
+      }
+      const token = this.#advance();
+      const glued = token.span.start.offset === closing.end.offset;
+      if (!glued) {
+        this.#errorAt(token.span, "a pattern's name is written against the parenthesis: `(n, d)rat`");
+      }
+      const name = parsedName(token as Lexed.NameToken);
+      if (this.#at("Bang") || this.#at("Question")) {
+        const mark = this.#advance();
+        this.#errorAt(mark.span, "a pattern use has no effect mark; remove `!` or `?`");
+      }
+      return { kind: "Declared", components, name, span: spanFrom(opening, this.#previous().span) };
+    }
+    return components.length === 1
+      ? { ...components[0]!, span: spanFrom(opening, closing) }
+      : { kind: "Tuple", elements: components, span: spanFrom(opening, closing) };
   }
 
   #parseExpression(
@@ -4922,13 +5121,15 @@ class Parser {
         elements.push(this.#parseElement(stops));
       }
       const closing = this.#expect("RightParen", "expected `)` after tuple elements");
-      return {
-        kind: "Tuple",
-        elements,
-        span: spanFrom(opening.span, closing?.span ?? elements.at(-1)!.span),
-      };
+      return this.#patternConstruction(elements, opening.span, closing?.span ?? elements.at(-1)!.span);
     }
     const closing = this.#expect("RightParen", "expected `)` after expression");
+    const construction = this.#patternConstruction([expression], opening.span, closing?.span ?? expression.span);
+    // A suffix parsed at this parenthesis replaces the grouped form. An inner
+    // construction merely passes through `#patternConstruction`; it still
+    // needs this pair of parentheses in its span so an immediately following
+    // call mark is glued to the grouped callee: `((x)p)!()`.
+    if (construction.kind === "PatternConstruction" && construction !== expression) return construction;
     if (expression.kind === "Ascription") {
       // The group parentheses *are* the ascription's delimiters (§2.1): wrapping
       // it in a `Group` too would leave two nodes where the source wrote one
@@ -4939,6 +5140,44 @@ class Parser {
       kind: "Group",
       expression,
       span: spanFrom(opening.span, closing?.span ?? expression.span),
+    };
+  }
+
+  /** #834's parenthesized component list followed by its glued pattern name. */
+  #patternConstruction(
+    components: readonly Parsed.Expr[],
+    opening: Source.Span,
+    closing: Source.Span,
+  ): Parsed.Expr {
+    if (!this.#at("NonUpperName")) {
+      return components.length === 1
+        ? components[0]!
+        : { kind: "Tuple", elements: components, span: spanFrom(opening, closing) };
+    }
+    const token = this.#advance();
+    const glued = token.span.start.offset === closing.end.offset;
+    if (!glued) {
+      this.#errorAt(token.span, "a pattern's name is written against the parenthesis: `(n, d)rat`");
+    }
+    const name = parsedName(token as Lexed.NameToken);
+    let mark: Parsed.CallMark | undefined;
+    let markSpan: Source.Span | undefined;
+    if (this.#at("Bang") || this.#at("Question")) {
+      const token = this.#advance();
+      if (token.span.start.offset !== name.span.end.offset) {
+        this.#errorAt(token.span, markSeatError);
+      }
+      mark = token.kind === "Bang" ? "bang" : "question";
+      markSpan = token.span;
+      if (this.#at("Bang") || this.#at("Question")) {
+        const duplicate = this.#advance();
+        this.#errorAt(duplicate.span, markSeatError);
+      }
+    }
+    return {
+      kind: "PatternConstruction", components, name,
+      ...(mark === undefined ? {} : { mark, markSpan: markSpan! }),
+      span: spanFrom(opening, markSpan ?? name.span),
     };
   }
 

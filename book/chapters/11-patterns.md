@@ -13,8 +13,10 @@ match status
 ```
 
 These are parts of one language. A **pattern** describes the shape a value must have
-and may bind names to useful pieces of that value. Patterns do not call functions or
-evaluate arbitrary expressions; runtime conditions belong in guards.
+and may bind names to useful pieces of that value. Structural patterns do not call functions or
+evaluate arbitrary expressions; runtime conditions belong in guards. Declared
+patterns, introduced later in this chapter, can apply a pure function to expose
+a view of a value.
 
 A non-uppercase-start name binds the value at that position. `_` matches the same value without
 giving it a name. Each name may be bound only once in a whole pattern:
@@ -406,11 +408,115 @@ scrutinee is the parameter, a value the caller already produced before this func
 entered, so there is nothing left for a clause to watch. That chapter's version of this
 paragraph says what to write instead.
 
+## Declared patterns expose a view
+
+An opaque type can offer a useful way to take its values apart without exposing
+its storage. `Rat` does this with the declared pattern `rat`:
+
+```hexagon
+import Rat
+
+let fraction = (6, 10)rat
+let (numerator, denominator)rat = fraction
+```
+
+In the expression, `(6, 10)rat` constructs a rational number. In the binding,
+`(numerator, denominator)rat` reads its canonical numerator and denominator.
+They are `3n` and `5n`: construction reduces the fraction.
+
+The suffix belongs directly against the closing parenthesis. Its parentheses
+contain a component list, so a one-component pattern is written `(value)name`;
+there is no one-element tuple involved. A component that is itself a tuple
+gets its own parentheses, as in `((x, y))name`.
+
+Declared patterns accept the same sub-patterns as other shapes:
+
+```hexagon
+let describe(value: Rat.Rat): String =
+    match value
+        (0, _)rat => "zero"
+        (_, 1)rat => "an integer"
+        (n, d)rat => "${n}/${d}"
+```
+
+The components here are `BigInt`, so the bare integer patterns are checked at
+`BigInt`. A view exposing `Float` components can likewise contain Float
+literal patterns, with the same equality and signed-zero behavior explained
+earlier. An as-pattern keeps the original subject:
+`(n, d)rat as fraction` binds `fraction` to the Rat, not to a tuple.
+
+A pattern declaration supplies a required `view` function and an optional
+`build` function. Inside the Rat module, after its accessors and `create`
+function, the declaration is:
+
+```hexagon
+export pattern rat(top: BigInt, bottom: BigInt): Rat
+    view(value) = (top(value), bottom(value))
+    build = create
+```
+
+The head describes the components and the subject. Its component names do not
+bind variables inside the functions. `view` takes one subject and returns its
+components; `build` takes those components and returns a subject. The
+delegation line `build = create` names an existing function. Either member may
+instead have its own parameter list and body.
+
+Without `build`, a declaration is a **match-only pattern**: it still
+destructures, but its suffix cannot construct. Private patterns can infer
+their head from the members; an exported pattern writes its full head so
+importers can see the contract.
+
+A view must be pure and is required to return for every subject value.
+Purity is checked; the promise to return is the author's responsibility.
+Thus a declared pattern is irrefutable when its components are irrefutable,
+which permits the `let` binding above. For a pattern with both directions,
+building the components obtained from a view should recover the original
+value. Going in the other direction may normalize the components, as Rat does.
+
+Rat construction and matching are both pure. A zero denominator can still
+throw; the effects chapter explains that distinction and how construction
+follows the ordinary function-call effect rules.
+
+`import Rat` makes the suffix `rat` available in both positions. Pattern
+names occupy their own namespace; an ordinary binding named `rat` does not
+hide the pattern. A pattern itself is not a function value. To pass its building
+direction, write a lambda such as `(n, d) => (n, d)rat`.
+
+An alias gives the same pattern another spelling:
+
+```hexagon
+pattern ratio = Rat.rat
+let third = (1, 3)ratio
+let (n, d)ratio = third
+```
+
+If imported patterns compete for a suffix, choose a declaration explicitly.
+A collision fixit introduces a fresh alias like this one and updates the
+affected uses together. The alias adds a spelling: any remaining uses of the
+contested name still need a choice.
+
+In matching, a known nominal subject can also supply a pattern from its home
+module, even when this module does not import that home directly. That route
+does not apply to construction. An imported pattern cannot silently replace
+the home pattern: a collision requires a choice. If the imported pattern's subject is completely generic
+(a bare type variable), an undetermined subject requires an annotation or
+explicit alias before that pattern can be used.
+
+Coverage understands each declared view's components. It does not guess how
+two different views of the same value relate. When mixing views, a catch-all
+is the straightforward way to cover what the component patterns leave open;
+a complete set of cases through either view also covers the subject.
+
 ## Patterns compile to ordinary tests and bindings
 
-Pattern matching adds no runtime pattern objects. The compiler emits readable tag or
+Structural pattern matching needs no runtime pattern objects. The compiler emits readable tag or
 literal tests, field reads, and local `const` bindings. A simple union match commonly
 becomes a JavaScript `switch`; nested shapes and guards may become direct `if` tests.
+
+A declared pattern emits an ordinary object holding its `view` and optional
+`build` functions. Its uses call those functions directly: Rat construction emits
+`Rat.rat.build(6n, 10n)`, and matching reads `Rat.rat.view(fraction)`. The view
+result is shared for that pattern at that position within one match.
 
 The scrutinee is evaluated once, and arms retain their written order. Structural
 patterns add no hidden user-defined dispatch; literal patterns use the same equality
@@ -427,7 +533,8 @@ dialects.
 ## Summary
 
 - patterns describe static shapes and may bind names to their pieces;
-- constructor, tuple, and record patterns can nest;
+- constructor, tuple, record, and declared patterns can nest;
+- a declared pattern exposes a pure view and optionally supplies construction;
 - record patterns are open and support punning and renaming;
 - bare integer, `BigInt`, `Float`, and `String` literals may be patterns, matching
   by the same equality as `==`, and `()` is the `Unit` pattern; `True` and `False` are constructor patterns,

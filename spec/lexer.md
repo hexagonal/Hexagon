@@ -450,7 +450,7 @@ The lexer special-cases well-known forbidden symbolic logic runs so the user get
 useful error: `&&` and `||` point to `and` and `or`; a `!` in prefix-expression
 position points to `not` *(position-selected by the parser since #355 made `!` a
 call-mark token — the same lexer/parser division as §4.1's reserved words; a mark
-anywhere other than its two grammatical seats gets Effects §9's mark-position
+anywhere other than its grammatical seats gets Effects §9's mark-position
 error)*. `||` must not be accepted as two pattern bars. The JavaScript comment
 spellings `/*` and `*/` join this family with Comments §3.1's redirects *(#171)*.
 
@@ -463,7 +463,11 @@ compound assignments, increment/decrement, and every user-invented punctuation r
 all three now §8.1 tokens: `->` had already shipped, and `!`/`?` are the call
 marks. `??` and `?.` remain absent — maximal munch does not combine two marks or
 a mark and a dot into an unlisted token; the leading mark of such a run falls
-outside a mark's grammatical seats and is refused there by the parser. For #405
+outside a mark's grammatical seats and is refused there by the parser unless
+it is the trailing suffix-construction mark of Pattern Declarations §14. In
+that form a following dot is a separate postfix token, so `(x)name?.field`
+is marked construction followed by field access, never optional chaining.
+Two adjacent marks still form no valid suffix construction. For #405
 the marked type arrows `->?` and `->!` join §8.1 and `=>!` leaves it; a mark
 following `->` is part of that one token and never a mark token in its own
 right, so `->!` is not an arrow beside a stray bang.)*
@@ -528,7 +532,7 @@ token inventory and the lexer must not report the same source code unit twice.
 | Unterminated/unmatched block comment | Comments §5 messages verbatim |
 | JavaScript comment spelling `/*` / `*/` | Comments §5 redirect messages verbatim *(#171)* |
 | `&&`, `||` | suggest `and`, `or` respectively |
-| `!` in prefix-expression position | suggest `not` — the parser selects the message now that `!` is a token *(#355; §8.2)*; a mark outside its two grammatical seats gets Effects §9's mark-position error instead |
+| `!` in prefix-expression position | suggest `not` — the parser selects the message now that `!` is a token *(#355; §8.2)*; a mark outside its grammatical seats gets Effects §9's mark-position error instead |
 | Any other invalid character | name the character and codepoint; consume it once |
 
 There is no warning tier. Every row is either accepted source or a hard error.

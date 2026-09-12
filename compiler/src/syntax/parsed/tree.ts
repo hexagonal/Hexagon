@@ -85,6 +85,8 @@ export type Item =
   | ExceptionItem
   | ConstraintItem
   | HonorItem
+  | PatternDeclarationItem
+  | PatternAliasItem
   | UnionItem
   | ExprItem
   | ErrorItem;
@@ -402,6 +404,64 @@ export interface HonorItem {
   readonly span: Source.Span;
 }
 
+/** A named view, optionally paired with its construction direction (#834). */
+export interface PatternDeclarationItem {
+  readonly kind: "PatternDeclaration";
+  readonly exported: boolean;
+  readonly name: Name;
+  /** Absent exactly for an unheaded private declaration. */
+  readonly head?: PatternDeclarationHead;
+  readonly members: readonly PatternDeclarationMember[];
+  readonly span: Source.Span;
+}
+
+export interface PatternDeclarationHead {
+  readonly typeParameters?: readonly TypeParameter[];
+  readonly components: readonly PatternComponent[];
+  readonly result: TypeAnnotation;
+  readonly span: Source.Span;
+}
+
+export interface PatternComponent {
+  readonly name: Name;
+  readonly annotation: TypeAnnotation;
+  readonly span: Source.Span;
+}
+
+export type PatternDeclarationMember = PatternViewMember | PatternBuildMember;
+
+export interface PatternViewMember {
+  readonly kind: "PatternView";
+  readonly name: Name;
+  readonly value?: LambdaExpr;
+  readonly delegate?: PatternDelegate;
+  readonly span: Source.Span;
+}
+
+export interface PatternBuildMember {
+  readonly kind: "PatternBuild";
+  readonly name: Name;
+  readonly value?: LambdaExpr;
+  readonly delegate?: PatternDelegate;
+  readonly span: Source.Span;
+}
+
+/** The one name grammar a pattern alias or delegation line admits. */
+export interface PatternDelegate {
+  readonly qualifier?: Name;
+  readonly name: Name;
+  readonly span: Source.Span;
+}
+
+export interface PatternAliasItem {
+  readonly kind: "PatternAlias";
+  /** Retained for the resolver to refuse `export pattern p = M.p`. */
+  readonly exported: boolean;
+  readonly name: Name;
+  readonly target: PatternDelegate;
+  readonly span: Source.Span;
+}
+
 export interface HonorImpliedType {
   readonly name: Name;
   readonly annotation: TypeAnnotation;
@@ -502,6 +562,7 @@ export type Pattern =
   | RecordPattern
   | OrPattern
   | AsPattern
+  | DeclaredPattern
   | ConstructorPattern;
 
 export interface BindingPattern {
@@ -523,6 +584,14 @@ export interface UnitPattern {
 export interface AsPattern {
   readonly kind: "As";
   readonly pattern: Pattern;
+  readonly name: Name;
+  readonly span: Source.Span;
+}
+
+/** `(p1, …, pn)name`, whose name resolves in the pattern namespace (#834). */
+export interface DeclaredPattern {
+  readonly kind: "Declared";
+  readonly components: readonly Pattern[];
   readonly name: Name;
   readonly span: Source.Span;
 }
@@ -764,6 +833,7 @@ export type Expr =
   | MatchExpr
   | TryExpr
   | CallExpr
+  | PatternConstructionExpr
   | AccessExpr
   | IndexExpr
   | UnaryExpr
@@ -1030,6 +1100,16 @@ export interface CallExpr {
   readonly callee: Expr;
   readonly arguments: readonly Expr[];
   /** #355 ruling 2: the mark sits before *this* argument list. */
+  readonly mark?: CallMark;
+  readonly markSpan?: Source.Span;
+  readonly span: Source.Span;
+}
+
+/** `(e1, …, en)name[!|?]`, the construction half of a declared pattern (#834). */
+export interface PatternConstructionExpr {
+  readonly kind: "PatternConstruction";
+  readonly components: readonly Expr[];
+  readonly name: Name;
   readonly mark?: CallMark;
   readonly markSpan?: Source.Span;
   readonly span: Source.Span;

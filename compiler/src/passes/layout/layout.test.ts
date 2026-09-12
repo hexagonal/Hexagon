@@ -50,6 +50,22 @@ describe("applyLayout", () => {
     expect(result.diagnostics).toEqual([]);
   });
 
+  test("opens a pattern member block but leaves a pattern alias on one line", () => {
+    const declaration = layout(
+      "export pattern pair(left: Int, right: Int): Pair\n" +
+        "    view(value) = parts(value)\n" +
+        "    build = create",
+    );
+    expect(virtualKinds(declaration.tokens)).toEqual([
+      "VOpen", "VSep", "VOpen", "VSep", "VClose", "VClose",
+    ]);
+    expect(declaration.diagnostics).toEqual([]);
+
+    const alias = layout("pattern pair = Pair.pair\nlet x = 1");
+    expect(virtualKinds(alias.tokens)).toEqual(["VOpen", "VSep", "VSep", "VClose"]);
+    expect(alias.diagnostics).toEqual([]);
+  });
+
   test("keeps an aligned multiline chain in a value binding's block one item", () => {
     // The RHS opens a block, but `.take(5)` at the block's own indentation can
     // only continue an expression, so it receives no VSEP.

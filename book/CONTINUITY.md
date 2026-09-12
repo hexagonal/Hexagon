@@ -252,6 +252,13 @@ late pedagogy pass, not a commitment to the current order.
 
 ### Patterns
 
+- Declared patterns expose a required pure, total view and optional build. The
+  suffix constructs in expressions and destructures in patterns; Rat uses
+  `(n, d)rat` in both directions. Imports activate exported pattern names;
+  collision repairs add fresh aliases and rewrite the affected uses. Generic
+  imports cannot silently replace the expected type's home pattern. Construction
+  marks trail the suffix (`!` or `?`); Rat and all matching remain unmarked.
+
 - Assumes tuples, structural and nominal records, unions, Boolean conditions,
   comparison chains, and simple destructuring.
 - Establishes nested structural patterns, literals, or-patterns, as-patterns, guards,
@@ -748,6 +755,13 @@ late pedagogy pass, not a commitment to the current order.
 - Mixed/payload unions emit tagged POJOs; all-nullary unions emit string literals.
 
 ### Patterns
+
+- Declared patterns expose a required pure, total view and optional build. The
+  suffix constructs in expressions and destructures in patterns; Rat uses
+  `(n, d)rat` in both directions. Imports activate exported pattern names;
+  collision repairs add fresh aliases and rewrite the affected uses. Generic
+  imports cannot silently replace the expected type's home pattern. Construction
+  marks trail the suffix (`!` or `?`); Rat and all matching remain unmarked.
 
 - Core formulation: **a pattern describes a shape and may bind names; a guard performs
   a runtime test**.

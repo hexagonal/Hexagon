@@ -38,6 +38,8 @@ export function patternNames(pattern: Pattern): readonly Name[] {
           ? patternNames(pattern.rest.pattern)
           : []),
       ];
+    case "Declared":
+      return pattern.components.flatMap(patternNames);
     case "Record":
       return pattern.fields.flatMap((field) => patternNames(field.pattern));
     case "Constructor":

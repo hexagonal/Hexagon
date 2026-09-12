@@ -39,8 +39,13 @@ import {
   moduleImportLine,
   moduleNameOfLayoutPath,
 } from "../../packages.js";
-import { dropQualifierFix, type ImportRepairs } from "../../support/import-placement.js";
-import type * as Source from "../../support/source.js";
+import {
+  dropQualifierFix,
+  importInsertionOffset,
+  insertedLine,
+  type ImportRepairs,
+} from "../../support/import-placement.js";
+import * as Source from "../../support/source.js";
 import { displayParameterName } from "../../support/synthetic.js";
 import * as Resolved from "../../syntax/resolved/index.js";
 import * as Typed from "../../syntax/typed/index.js";
@@ -126,6 +131,8 @@ export interface CheckOptions {
    * they need no second copy of the rule.
    */
   readonly packageName?: string;
+  /** Exported suffix spellings across the indexed program, before type checking order. */
+  readonly patternExports?: ReadonlyMap<string, readonly string[]>;
 }
 
 export function check(
@@ -1304,6 +1311,8 @@ interface CoverageColumn {
    * which is §7.1's "a catch-all is required" said in the matrix's own terms.
    */
   readonly signature?: readonly CoverageHead[];
+  /** Alternative complete signatures; satisfying any one covers the column. */
+  readonly signatures?: readonly (readonly CoverageHead[])[];
   /** `undefined` for a pattern that matches every value the column can hold. */
   readonly split: (pattern: Resolved.Pattern) => CoverageMatch | undefined;
 }
@@ -2422,6 +2431,12 @@ class Checker {
   }[] = [];
 
   readonly #expressionTypes = new WeakMap<Resolved.Expr, Mono>();
+  /** Suffix constructions are ordinary build calls after pattern selection. */
+  readonly #patternConstructionCalls = new WeakMap<Resolved.PatternConstructionExpr, Resolved.CallExpr>();
+  /** The declaration selected for a checked suffix pattern. */
+  readonly #declaredPatternReferences = new WeakMap<Resolved.DeclaredPattern, Resolved.PatternReference>();
+  /** Component types fixed while checking a suffix pattern. */
+  readonly #declaredPatternComponents = new WeakMap<Resolved.DeclaredPattern, readonly Mono[]>();
   readonly #requirements = new WeakMap<object, readonly Requirement[]>();
   /** Exact Nat expressions that checking injects into an independently known Num target. */
   readonly #natWidenings = new WeakMap<Resolved.Expr, Requirement>();
@@ -3274,6 +3289,14 @@ class Checker {
   readonly #operationHomes = new Map<Resolved.SymbolId, ProgramOperation>();
   /** This module's file id, held for constraint identity; set by `check`. */
   #fileId = 0;
+  #moduleHeader: Source.Span | undefined;
+  #moduleImports: readonly Source.Span[] = [];
+  readonly #patternRepairNames = new Set<string>();
+  readonly #patternRepairAliases = new Map<string, string>();
+  readonly #patternHomes = new Map<string, Resolved.PatternHome>();
+  readonly #patternExports: ReadonlyMap<string, readonly string[]>;
+  #matchPatternCollisionFixes: Map<string, readonly Diagnostics.Fix[]> | undefined;
+  #currentMatchPattern: Resolved.Pattern | undefined;
   /** This module's source text, where the host supplied it — see `CheckOptions`. */
   readonly #sourceText: string | undefined;
   /** The resolving package's name; see `CheckOptions.packageName`. */
@@ -3336,10 +3359,20 @@ class Checker {
     this.#importRepair = options.importRepair;
     this.#ownDefaultAlias = options.ownDefaultAlias;
     this.#repairs = options.repairs;
+    this.#patternExports = options.patternExports ?? new Map();
   }
 
   check(module: Resolved.Module): Typed.Module {
     this.#fileId = Number(module.fileId);
+    this.#moduleHeader = module.header;
+    this.#moduleImports = module.items.flatMap((item) => item.kind === "Import" ? [item.span] : []);
+    for (const name of module.patternNamespaceNames ?? []) this.#patternRepairNames.add(name);
+    for (const home of module.patternHomes ?? []) this.#patternHomes.set(home.path, home);
+    for (const item of module.items) {
+      if (item.kind === "PatternDeclaration" || item.kind === "PatternAlias") {
+        this.#patternRepairNames.add(item.name);
+      }
+    }
     for (const symbol of module.symbols) this.#symbolKinds.set(symbol.id, symbol.kind);
     // See `#declaredUnions`: an annotation elaborated before the registration
     // below still has to be able to look a union declaration up.
@@ -5542,6 +5575,175 @@ class Checker {
         continue;
       }
 
+      if (item.kind === "PatternAlias") continue;
+
+      if (item.kind === "PatternDeclaration") {
+        const headVariables = new Map<string, Variable>();
+        if (item.head !== undefined) {
+          this.#declareBinderVariables(item.head.typeParameters, level, headVariables, undefined);
+          for (const parameter of item.head.typeParameters) {
+            if (parameter.constraints.length === 0) continue;
+            this.#diagnostics.add({
+              severity: "error",
+              message: "a pattern's binders carry no constraints",
+              primary: parameter.span,
+            });
+          }
+        }
+        const subject = item.head === undefined
+          ? this.#fresh(level + 1, false)
+          : this.#annotationType(item.head.result, level + 1, new Map(), headVariables);
+        const writtenComponents = item.head?.components.map(({ annotation }) =>
+          this.#annotationType(annotation, level + 1, new Map(), headVariables)
+        );
+        if (writtenComponents !== undefined && writtenComponents.length === 0) {
+          this.#diagnostics.add({
+            severity: "error",
+            message: "a pattern has at least one component; a test with no components is a guard",
+            primary: item.head!.span,
+          });
+        }
+        const componentResult = (components: readonly Mono[]): Mono =>
+          components.length === 1 ? components[0]! : { kind: "Tuple", elements: components };
+        const viewExpected: FunctionMono | undefined = writtenComponents === undefined
+          ? undefined
+          : {
+              kind: "Function",
+              parameters: [subject],
+              result: componentResult(writtenComponents),
+              effect: this.#fresh(level + 1, false),
+            };
+        const viewSlot: Mono = viewExpected ?? this.#fresh(level + 1, false);
+        // Both members are visible from the declaration line.  Seed both
+        // recursive names before either body is inferred; for an unheaded
+        // declaration the build slot remains open until the view reveals the
+        // component tuple.
+        const buildSlot: Mono | undefined = item.build === undefined
+          ? undefined
+          : writtenComponents === undefined
+            ? this.#fresh(level + 1, false)
+            : {
+                kind: "Function",
+                parameters: writtenComponents,
+                result: subject,
+                effect: this.#fresh(level + 1, false),
+              };
+        this.#schemes.set(item.view.binding.symbol, { variables: [], type: viewSlot });
+        if (item.build !== undefined && buildSlot !== undefined) {
+          this.#schemes.set(item.build.binding.symbol, { variables: [], type: buildSlot });
+        }
+        const inferredView = this.#inferExpr(item.view.value, level + 1, viewExpected);
+        this.#unify(viewSlot, inferredView, item.view.span, () =>
+          item.head === undefined
+            ? "a pattern's `view` must be a one-argument function"
+            : `\`view\` does not match pattern \`${item.name}\`'s head; expected ${
+              this.#display(viewExpected === undefined ? viewSlot : { ...viewExpected, effect: PURE })
+            }, found ${this.#display(inferredView)}`
+        );
+        const viewType = this.#prune(viewSlot);
+        let components: readonly Mono[] = writtenComponents ?? [ERROR];
+        if (viewType.kind !== "Function" || viewType.parameters.length !== 1) {
+          this.#diagnostics.add({
+            severity: "error",
+            message: "a pattern's `view` takes exactly one subject",
+            primary: item.view.span,
+          });
+        } else {
+          this.#unify(subject, viewType.parameters[0]!, item.view.span);
+          if (writtenComponents === undefined) {
+            const result = this.#prune(viewType.result);
+            components = result.kind === "Tuple" ? result.elements : [result];
+          }
+        }
+        let inferredBuild: Mono | undefined;
+        if (item.build !== undefined) {
+          const buildExpected: FunctionMono = {
+            kind: "Function",
+            parameters: components,
+            result: subject,
+            effect: this.#fresh(level + 1, false),
+          };
+          this.#unify(buildSlot!, buildExpected, item.build.span);
+          inferredBuild = this.#inferExpr(
+            item.build.value,
+            level + 1,
+            item.head === undefined ? undefined : buildExpected,
+          );
+          this.#unify(buildExpected, inferredBuild, item.build.span, () =>
+            item.head === undefined
+              ? `\`build\` has face ${this.#display(inferredBuild!)} but ` +
+                `\`view\` has face ${this.#display(viewType)} — ` +
+                "a pattern's two directions share one subject and component list"
+              : `\`build\` does not match pattern \`${item.name}\`'s head; expected ${
+                this.#display(buildExpected)
+              }, found ${this.#display(inferredBuild!)}`
+          );
+        }
+        // A bare pattern's two members form one inference group. Numeric
+        // defaulting is part of closing that group, so both directions must
+        // first have imposed their shared subject and component equations.
+        this.#defaultNamedFrame(item.view.value);
+        if (item.build !== undefined) this.#defaultNamedFrame(item.build.value);
+        if (viewType.kind === "Function") {
+          // Settle a named pure member before reading its face. An unsolved
+          // outer colour defaults pure; only a colour actually conducted from
+          // a `->?` inlet remains variable here.
+          const viewEffect = this.#prune(viewType.effect ?? PURE);
+          if (viewEffect.kind === "Variable") {
+            const conducted = [...viewType.parameters, viewType.result].some((part) =>
+              this.#effectVariables(part).includes(viewEffect.id)
+            );
+            if (conducted) {
+              this.#diagnostics.add({
+                severity: "error",
+                message: "a pattern's `view` is run by matching, so it is pure — the demand is the pattern head's, and this function's face is `->?`",
+                primary: item.view.span,
+              });
+            } else {
+              this.#unify(PURE, viewEffect, item.view.span);
+            }
+          } else {
+            this.#unify(PURE, viewEffect, item.view.span, () =>
+              "a pattern's `view` is run by matching, so it is pure — the demand is the pattern head's, and this function's face is `->!`"
+            );
+          }
+        }
+        // The two directions are inferred as one group. Generalization waits
+        // until both have imposed their subject and component equations.
+        const viewScheme = this.#generalize(viewType, level, true, item.head?.span);
+        const buildScheme = inferredBuild === undefined
+          ? undefined
+          : this.#generalize(inferredBuild, level, true, item.head?.span);
+        this.#schemes.set(item.view.binding.symbol, viewScheme);
+        if (item.build !== undefined && buildScheme !== undefined) {
+          this.#schemes.set(item.build.binding.symbol, buildScheme);
+        }
+        const explicitConstraints = item.head?.typeParameters.some(
+          ({ constraints }) => constraints.length > 0,
+        ) ?? false;
+        const residual = [...viewScheme.variables, ...(buildScheme?.variables ?? [])]
+          .flatMap((variable) => variable.requirements)
+          .filter((requirement) => !requirement.reported);
+        if (!explicitConstraints && residual.length > 0) {
+          this.#diagnostics.add({
+            severity: "error",
+            message: "a pattern's binders carry no constraints",
+            primary: item.span,
+          });
+        }
+        for (const requirement of residual) requirement.reported = true;
+        if (item.exported && item.head === undefined) {
+          this.#diagnostics.add({
+            severity: "error",
+            message: `an exported pattern writes its head: \`pattern ${item.name}(${
+              components.map((component, index) => `c${index + 1}: ${this.#display(component)}`).join(", ")
+            }): ${this.#display(subject)}\``,
+            primary: item.span,
+          });
+        }
+        continue;
+      }
+
       if (item.kind === "Let") {
         // A written face is the other place a signature lives (Effects §2.2).
         // The declaration form has no outer arrow, so `(Tx ->? a) ->! a` — the
@@ -6305,6 +6507,8 @@ class Checker {
       || finalItem.kind === "Exception"
       || finalItem.kind === "ConstraintDeclaration"
       || finalItem.kind === "Honor"
+      || finalItem.kind === "PatternDeclaration"
+      || finalItem.kind === "PatternAlias"
     ) {
       if (finalItem.kind === "LetPattern") {
         this.#diagnostics.add({
@@ -6324,6 +6528,8 @@ class Checker {
         finalItem.kind === "Import"
         || finalItem.kind === "ExternBlock"
         || finalItem.kind === "ExternImport"
+        || finalItem.kind === "PatternDeclaration"
+        || finalItem.kind === "PatternAlias"
       ) {
         this.#diagnostics.add({
           severity: "error",
@@ -7109,6 +7315,96 @@ class Checker {
   #inferExpr(expression: Resolved.Expr, level: number, expected?: Mono): Mono {
     let type: Mono;
     switch (expression.kind) {
+      case "PatternConstruction": {
+        const namespace = expression.candidates.filter(({ source }) => source !== "door");
+        const contestants = this.#withDeclaredSubjectHomes(namespace, expression.candidates, level);
+        let reference = namespace.length === 1
+          ? namespace[0]
+          : undefined;
+        if (namespace.length === 0 && !["as", "when", "derives"].includes(expression.name)) {
+          const modules = this.#importablePatternModules(
+            expression.name,
+            expression.candidates.filter(({ source }) => source === "door"),
+          );
+          const module = modules.length === 1 ? modules[0] : undefined;
+          const importName = module === undefined ? undefined : this.#patternImportSpelling(module);
+          this.#diagnostics.add({
+            severity: "error",
+            message: module === undefined || importName === undefined
+              ? `no \`${expression.name}\` pattern is in scope; import its module`
+              : `no \`${expression.name}\` here; \`import ${importName}\``,
+            primary: expression.nameSpan,
+            ...(module === undefined || importName === undefined ? {} : {
+              fixes: this.#patternImportFixes(module, expression.nameSpan),
+            }),
+          });
+        }
+        if (namespace.length > 1) {
+          this.#diagnostics.add({
+            severity: "error",
+            message: `pattern \`${expression.name}\` is exported by ${
+              contestants.map(({ declaringModule }) => `\`${declaringModule}\``).join(" and ")
+            }; declare a private pattern alias to choose one`,
+            primary: expression.nameSpan,
+            fixes: this.#patternCollisionFixes(expression, contestants),
+          });
+        }
+        if (reference?.source === "import") {
+          const subject = this.#declaredPatternSubject(reference, level);
+          const homePath = subject === undefined ? undefined : this.#declaredPatternHomePath(subject);
+          const home = expression.candidates.find((candidate) =>
+            candidate.source === "door" && candidate.declaringPath === homePath &&
+            candidate.identity !== reference!.identity &&
+            this.#declaredPatternNominalKey(this.#declaredPatternSubject(candidate, level)) ===
+              this.#declaredPatternNominalKey(subject)
+          );
+          if (home !== undefined) {
+            this.#diagnostics.add({
+              severity: "error",
+              message: `pattern \`${expression.name}\` is exported by \`${reference.declaringModule}\` and \`${home.declaringModule}\`; declare a private pattern alias to choose one`,
+              primary: expression.nameSpan,
+              fixes: this.#patternCollisionFixes(expression, [reference, home]),
+            });
+            reference = undefined;
+          }
+        }
+        if (reference?.build === undefined) {
+          if (reference !== undefined) {
+            this.#diagnostics.add({
+              severity: "error",
+              message: `\`${expression.name}\` is a match-only pattern: its declaration has no \`build\``,
+              primary: expression.nameSpan,
+              labels: [{
+                span: reference.declarationSpan,
+                message: `\`${reference.declaredName}\` is declared match-only here`,
+              }],
+            });
+          }
+          for (const component of expression.components) this.#inferExpr(component, level);
+          type = ERROR;
+          break;
+        }
+        const callee: Resolved.NameExpr = {
+          kind: "Name",
+          symbol: reference.build,
+          // Diagnostics name the suffix the reader wrote; `.build` is only
+          // the emitted implementation member.
+          text: expression.name,
+          emitted: `${reference.emitted}.build`,
+          span: expression.nameSpan,
+        };
+        const call: Resolved.CallExpr = {
+          kind: "Call",
+          callee,
+          arguments: expression.components,
+          ...(expression.mark === undefined ? {} : { mark: expression.mark }),
+          ...(expression.markSpan === undefined ? {} : { markSpan: expression.markSpan }),
+          span: expression.span,
+        };
+        this.#patternConstructionCalls.set(expression, call);
+        type = this.#inferExpr(call, level, expected);
+        break;
+      }
       case "CollectionOperation":
         const collectionRequirements: Requirement[] = [];
         type = this.#collectionOperationType(
@@ -7788,15 +8084,20 @@ class Checker {
         const paths: { expression: Resolved.Expr; type: Mono }[] = [];
         const total = expression.arms.length +
           (expression.catchArms?.length ?? 0);
+        const outerCollisionFixes = this.#matchPatternCollisionFixes;
+        this.#matchPatternCollisionFixes = new Map();
         for (const arm of expression.arms) {
           this.#matchArmTop = true;
           const outerGuardSeat = this.#armGuardSeat;
           const outerHasGuard = this.#armHasGuard;
           this.#armGuardSeat = true;
           this.#armHasGuard = arm.guard !== undefined;
+          const outerMatchPattern = this.#currentMatchPattern;
+          this.#currentMatchPattern = arm.pattern;
           try {
             this.#inferMatchPattern(arm.pattern, scrutinee, level);
           } finally {
+            this.#currentMatchPattern = outerMatchPattern;
             this.#matchArmTop = outerArmTop;
             this.#armGuardSeat = outerGuardSeat;
             this.#armHasGuard = outerHasGuard;
@@ -7832,6 +8133,7 @@ class Checker {
               this.#forwardingBranchRepair(expression, result, body, expected),
             ));
         }
+        this.#matchPatternCollisionFixes = outerCollisionFixes;
         // The match catch clause (Exceptions §5.4): its arms are `try`'s arms in
         // a second seat, so they carry §5.3 whole and their bodies join the one
         // result type. Reachability is per-section — the loop above has already
@@ -8825,8 +9127,7 @@ class Checker {
     if (head.kind === "NominalRecord" && !this.#recordRepresentationVisible(head.record)) {
       this.#diagnostics.add({
         severity: "error",
-        message: `cannot destructure opaque record \`${head.name}\`; ` +
-          "use an operation exported by its home module",
+        message: this.#opaquePatternRefusal("record", head),
         primary: pattern.nameSpan,
       });
       return;
@@ -8834,8 +9135,7 @@ class Checker {
     if (head.kind === "Union" && !this.#unionConstructorsVisible(head.union)) {
       this.#diagnostics.add({
         severity: "error",
-        message: `cannot destructure opaque union \`${head.name}\`; ` +
-          "use an operation exported by its home module",
+        message: this.#opaquePatternRefusal("union", head),
         primary: pattern.nameSpan,
       });
       return;
@@ -8954,8 +9254,7 @@ class Checker {
     if (!this.#recordRepresentationVisible(record.record)) {
       this.#diagnostics.add({
         severity: "error",
-        message: `cannot destructure opaque record \`${record.name}\`; ` +
-          "use an operation exported by its home module",
+        message: this.#opaquePatternRefusal("record", record),
         primary: pattern.span,
       });
       return;
@@ -8967,6 +9266,317 @@ class Checker {
         `\`${record.name}({${fields.join(", ")}})\``,
       primary: pattern.span,
     });
+  }
+
+  /** Exported suffix spellings whose declared subject is this nominal. */
+  #patternsForNominal(type: Mono): readonly string[] {
+    const path = this.#declaredPatternHomePath(type);
+    const key = this.#declaredPatternNominalKey(type);
+    if (path === undefined || key === undefined) return [];
+    return (this.#patternHomes.get(path)?.patterns ?? []).flatMap((reference) =>
+      this.#declaredPatternNominalKey(this.#declaredPatternSubject(reference, 0)) === key
+        ? [`(${reference.componentNames.join(", ")})${reference.declaredName}`]
+        : []
+    ).slice(0, 3);
+  }
+
+  /** Selects a suffix-pattern declaration before its subject is unified. */
+  #selectDeclaredPattern(
+    pattern: Resolved.DeclaredPattern,
+    expected: Mono,
+    level: number,
+  ): Resolved.PatternReference | undefined {
+    const namespace = pattern.candidates.filter(({ source }) => source !== "door");
+    const declaredContestants = this.#withDeclaredSubjectHomes(namespace, pattern.candidates, level);
+    const subjectOf = (reference: Resolved.PatternReference): Mono | undefined => {
+      const view = this.#prune(this.#instantiate(this.#scheme(reference.view), level));
+      return view.kind === "Function" && view.parameters.length === 1
+        ? this.#prune(view.parameters[0]!)
+        : undefined;
+    };
+    const nominalKey = (type: Mono): string | undefined => {
+      const actual = this.#prune(type);
+      if (actual.kind === "Union") return `union:${Number(actual.union)}`;
+      if (actual.kind === "NominalRecord") return `record:${Number(actual.record)}`;
+      if (actual.kind === "ExternType") return `extern:${Number(actual.externType)}`;
+      return undefined;
+    };
+    const expectedType = this.#prune(expected);
+    const expectedKey = nominalKey(expectedType);
+    const expectedHomePath = expectedType.kind === "Union"
+      ? this.#programUnion(expectedType.union)?.declaringPath ??
+        this.#unions.get(expectedType.union)?.declaringPath
+      : expectedType.kind === "NominalRecord"
+        ? this.#programRecord(expectedType.record)?.declaringPath ??
+          this.#records.get(expectedType.record)?.declaringPath
+        : expectedType.kind === "ExternType"
+          ? this.#externTypes.get(expectedType.externType)?.declaringPath
+          : undefined;
+    const home = pattern.candidates.filter(({ source }) => source === "door").find((candidate) => {
+      const subject = subjectOf(candidate);
+      return expectedHomePath !== undefined && candidate.declaringPath === expectedHomePath &&
+        subject !== undefined && nominalKey(subject) === expectedKey;
+    });
+
+    if (namespace.length > 1) {
+      const contestants = [...declaredContestants];
+      if (
+        home !== undefined &&
+        !contestants.some(({ identity }) => identity === home.identity)
+      ) {
+        contestants.push(home);
+      }
+      this.#diagnostics.add({
+        severity: "error",
+        message: `pattern \`${pattern.name}\` is exported by ${
+          contestants.map(({ declaringModule }) => `\`${declaringModule}\``).join(" and ")
+        }; declare a private pattern alias to choose one`,
+        primary: pattern.nameSpan,
+        fixes: this.#patternCollisionFixes(pattern, contestants),
+      });
+      return undefined;
+    }
+
+    const imported = namespace[0];
+    if (imported !== undefined) {
+      const importedSubject = subjectOf(imported);
+      const importedKey = importedSubject === undefined ? undefined : nominalKey(importedSubject);
+      if (
+        home !== undefined && importedKey !== undefined && expectedKey !== undefined &&
+        importedKey !== expectedKey
+      ) {
+        const expectedName = this.#display(expectedType);
+        const importedName = this.#display(importedSubject!);
+        const qualifier = patternModuleAlias(home.declaringModule);
+        this.#diagnostics.add({
+          severity: "error",
+          message: `\`${pattern.name}\` here is \`${imported.declaringModule}.${imported.declaredName}\`, over \`${importedName}\`; ` +
+            `this pattern matches a \`${expectedName}\`, whose home exports its own \`${pattern.name}\` — ` +
+            `rename with \`pattern ${pattern.name}Of = ${qualifier}.${home.declaredName}\` ` +
+            `(\`import ${qualifier}\` first, where the module has not)`,
+          primary: pattern.nameSpan,
+        });
+        return undefined;
+      }
+      const contestants = [...declaredContestants];
+      if (home !== undefined && !contestants.some(({ identity }) => identity === home.identity)) {
+        contestants.push(home);
+      }
+      if (contestants.length > 1) {
+        this.#diagnostics.add({
+          severity: "error",
+          message: `pattern \`${pattern.name}\` is exported by ${
+            contestants.map(({ declaringModule }) => `\`${declaringModule}\``).join(" and ")
+          }; declare a private pattern alias to choose one`,
+          primary: pattern.nameSpan,
+          fixes: this.#patternCollisionFixes(pattern, contestants),
+        });
+        return undefined;
+      }
+      if (importedSubject?.kind === "Variable" && expectedType.kind === "Variable") {
+        this.#diagnostics.add({
+          severity: "error",
+          message: `pattern \`${pattern.name}\` has a generic subject, and this pattern's subject type is not determined; add an annotation or declare a private pattern alias`,
+          primary: pattern.nameSpan,
+        });
+        return undefined;
+      }
+      return imported;
+    }
+
+    if (home !== undefined) return home;
+    const doors = this.#importablePatternModules(
+      pattern.name,
+      pattern.candidates.filter(({ source }) => source === "door"),
+    );
+    const module = doors.length === 1 ? doors[0] : undefined;
+    if (expectedType.kind === "Variable" && module !== undefined) {
+      const importName = this.#patternImportSpelling(module)!;
+      this.#diagnostics.add({
+        severity: "error",
+        message: `no \`${pattern.name}\` here: its type is not determined at this pattern — \`import ${importName}\`, or bind the function with its own annotated \`let\``,
+        primary: pattern.nameSpan,
+        fixes: this.#patternImportFixes(module, pattern.nameSpan),
+      });
+      return undefined;
+    }
+    if (expectedHomePath !== undefined && expectedKey !== undefined) {
+      const names = (this.#patternHomes.get(expectedHomePath)?.patterns ?? []).flatMap(
+        (reference) =>
+          this.#declaredPatternNominalKey(this.#declaredPatternSubject(reference, level)) ===
+              expectedKey
+            ? [reference.declaredName]
+            : [],
+      );
+      const opaque = (expectedType.kind === "NominalRecord" &&
+          !this.#recordRepresentationVisible(expectedType.record)) ||
+        (expectedType.kind === "Union" && !this.#unionConstructorsVisible(expectedType.union));
+      this.#diagnostics.add({
+        severity: "error",
+        message: opaque && names.length === 0
+          ? `cannot destructure opaque ${expectedType.kind === "Union" ? "union" : "record"} ` +
+            `\`${this.#display(expectedType)}\`; use an operation exported by its home module`
+          : `\`${this.#display(expectedType)}\` has no pattern \`${pattern.name}\`` +
+            nearMiss(pattern.name, names),
+        primary: pattern.nameSpan,
+      });
+      return undefined;
+    }
+    this.#diagnostics.add({
+      severity: "error",
+      message: expectedType.kind === "Variable"
+        ? `no \`${pattern.name}\` pattern is in scope, and its type is not determined at this pattern; import its module or add an annotation`
+        : `no \`${pattern.name}\` pattern is in scope; import its module`,
+      primary: pattern.nameSpan,
+    });
+    return undefined;
+  }
+
+  #patternImportFixes(
+    module: string,
+    use: Source.Span,
+  ): readonly Diagnostics.Fix[] {
+    const alias = patternModuleAlias(module);
+    const importName = this.#patternImportSpelling(module);
+    if (importName === undefined) return [];
+    const line = moduleImportLine(module, alias, this.#packageName);
+    const fix = this.#repairs?.fix(importName, line, use.start.offset);
+    return fix === undefined ? [] : [fix];
+  }
+
+  /** Door candidates for which a source-written import would resolve here. */
+  #importablePatternModules(
+    name: string,
+    candidates: readonly Resolved.PatternCandidate[],
+  ): readonly string[] {
+    const modules = new Set([
+      ...uniquePatternModules(candidates).map(({ declaringModule }) => declaringModule),
+      ...(this.#patternExports.get(name) ?? []),
+    ]);
+    return [...modules].filter((module) => this.#patternImportSpelling(module) !== undefined);
+  }
+
+  #patternImportSpelling(module: string): string | undefined {
+    const short = patternModuleAlias(module);
+    const qualified = displayModuleName(module, this.#packageName);
+    for (const spelling of new Set([short, qualified])) {
+      const repair = this.#importRepair?.(spelling);
+      if (repair?.kind === "Resolved" && repair.fullName === module) return spelling;
+    }
+    return undefined;
+  }
+
+  #declaredPatternSubject(reference: Resolved.PatternReference, level: number): Mono | undefined {
+    const view = this.#prune(this.#instantiate(this.#scheme(reference.view), level));
+    return view.kind === "Function" && view.parameters.length === 1
+      ? this.#prune(view.parameters[0]!)
+      : undefined;
+  }
+
+  #declaredPatternHomePath(type: Mono): string | undefined {
+    const actual = this.#prune(type);
+    if (actual.kind === "Union") {
+      return this.#programUnion(actual.union)?.declaringPath ?? this.#unions.get(actual.union)?.declaringPath;
+    }
+    if (actual.kind === "NominalRecord") {
+      return this.#programRecord(actual.record)?.declaringPath ?? this.#records.get(actual.record)?.declaringPath;
+    }
+    if (actual.kind === "ExternType") return this.#externTypes.get(actual.externType)?.declaringPath;
+    return undefined;
+  }
+
+  #declaredPatternNominalKey(type: Mono | undefined): string | undefined {
+    if (type === undefined) return undefined;
+    const actual = this.#prune(type);
+    if (actual.kind === "Union") return `union:${Number(actual.union)}`;
+    if (actual.kind === "NominalRecord") return `record:${Number(actual.record)}`;
+    if (actual.kind === "ExternType") return `extern:${Number(actual.externType)}`;
+    return undefined;
+  }
+
+  #withDeclaredSubjectHomes(
+    namespace: readonly Resolved.PatternCandidate[],
+    candidates: readonly Resolved.PatternCandidate[],
+    level: number,
+  ): readonly Resolved.PatternCandidate[] {
+    const result = [...namespace];
+    for (const imported of namespace) {
+      const subject = this.#declaredPatternSubject(imported, level);
+      const path = subject === undefined ? undefined : this.#declaredPatternHomePath(subject);
+      const key = this.#declaredPatternNominalKey(subject);
+      const home = candidates.find((candidate) =>
+        candidate.source === "door" && candidate.declaringPath === path &&
+        this.#declaredPatternNominalKey(this.#declaredPatternSubject(candidate, level)) === key
+      );
+      if (home !== undefined && !result.some(({ identity }) => identity === home.identity)) result.push(home);
+    }
+    return result;
+  }
+
+  /** Complete source repair selecting one declaration from a suffix contest. */
+  #patternCollisionFixes(
+    pattern: Resolved.DeclaredPattern | Resolved.PatternConstructionExpr,
+    candidates: readonly Resolved.PatternCandidate[],
+  ): readonly Diagnostics.Fix[] {
+    const text = this.#sourceText;
+    if (text === undefined || this.#moduleHeader === undefined) return [];
+    const offset = importInsertionOffset(
+      { header: this.#moduleHeader, imports: this.#moduleImports },
+      text,
+      pattern.nameSpan.start.offset,
+    );
+    if (offset === undefined) return [];
+    const file = new Source.File(Source.fileId(this.#fileId), this.#modulePath ?? "", text);
+    const position = pattern.kind === "Declared" && this.#currentMatchPattern !== undefined
+      ? patternPositionPath(this.#currentMatchPattern, pattern)
+      : undefined;
+    const groupKey = candidates.map(({ identity }) => identity).sort().join("\0") +
+      `\0${pattern.name}\0${position ?? "single"}`;
+    const grouped = position === undefined
+      ? undefined
+      : this.#matchPatternCollisionFixes?.get(groupKey);
+    if (grouped !== undefined) {
+      for (const fix of grouped) {
+        (fix.edits as Diagnostics.Edit[]).push({ span: pattern.nameSpan, replacement: fix.edits[1]!.replacement });
+      }
+      return grouped;
+    }
+    const fixes = candidates.flatMap((candidate) => {
+      if (candidate.componentNames.length !== pattern.components.length) return [];
+      let alias = this.#patternRepairAliases.get(candidate.identity);
+      if (alias === undefined) {
+        if (candidate.source === "door") {
+          for (const name of candidate.homePatternNames ?? []) this.#patternRepairNames.add(name);
+        }
+        const moduleStem = candidate.declaringModule.split(".").at(-1) ?? "pattern";
+        const stem = `${moduleStem[0]?.toLowerCase() ?? "p"}${moduleStem.slice(1)}${
+          candidate.declaredName[0]?.toUpperCase() ?? "P"
+        }${candidate.declaredName.slice(1)}`;
+        alias = stem;
+        for (let suffix = 1; this.#patternRepairNames.has(alias); suffix += 1) {
+          alias = `${stem}${suffix}`;
+        }
+        this.#patternRepairNames.add(alias);
+        this.#patternRepairAliases.set(candidate.identity, alias);
+      }
+      const imported = candidate.source === "import" || candidate.source === "alias";
+      const qualifier = imported
+        ? candidate.emitted.slice(0, candidate.emitted.lastIndexOf("."))
+        : candidate.declaringModule.split(".").at(-1) ?? candidate.declaringModule;
+      const importLine = imported
+        ? ""
+        : `${moduleImportLine(candidate.declaringModule, qualifier, this.#packageName)}\n`;
+      const declaration = `${importLine}pattern ${alias} = ${qualifier}.${candidate.declaredName}\n`;
+      return [{
+        message: `choose \`${candidate.declaringModule}.${candidate.declaredName}\` as \`${alias}\``,
+        edits: [
+          { span: file.span(offset, offset), replacement: insertedLine(text, offset, declaration) },
+          { span: pattern.nameSpan, replacement: alias },
+        ],
+      }];
+    });
+    if (position !== undefined) this.#matchPatternCollisionFixes?.set(groupKey, fixes);
+    return fixes;
   }
 
   #inferPattern(
@@ -9031,6 +9641,43 @@ class Checker {
           ),
         );
       }
+      return;
+    }
+    if (pattern.kind === "Declared") {
+      const reference = this.#selectDeclaredPattern(pattern, expected, level);
+      if (reference === undefined) {
+        for (const component of pattern.components) {
+          this.#nestedPattern(component, ERROR, level, generalizable, evaluated);
+        }
+        this.#brokenPatterns.add(pattern);
+        return;
+      }
+      const view = this.#prune(this.#instantiate(this.#scheme(reference.view), level));
+      if (view.kind !== "Function" || view.parameters.length !== 1) {
+        this.#brokenPatterns.add(pattern);
+        return;
+      }
+      this.#unifyPattern(pattern, expected, view.parameters[0]!);
+      const result = this.#prune(view.result);
+      const components = result.kind === "Tuple" ? result.elements : [result];
+      if (pattern.components.length !== components.length) {
+        this.#diagnostics.add({
+          severity: "error",
+          message: `\`${pattern.name}\` has ${components.length} ${components.length === 1 ? "component" : "components"}; write \`(${components.map(() => "_").join(", ")})${pattern.name}\``,
+          primary: pattern.nameSpan,
+        });
+      }
+      this.#declaredPatternReferences.set(pattern, reference);
+      this.#declaredPatternComponents.set(pattern, components);
+      pattern.components.forEach((component, index) =>
+        this.#nestedPattern(
+          component,
+          components[index] ?? ERROR,
+          level,
+          generalizable,
+          evaluated,
+        )
+      );
       return;
     }
     if (pattern.kind === "Constructor") {
@@ -9835,6 +10482,37 @@ class Checker {
       }
       return;
     }
+    if (pattern.kind === "Declared") {
+      const reference = this.#selectDeclaredPattern(pattern, expected, level);
+      if (reference === undefined) {
+        for (const component of pattern.components) {
+          this.#nestedMatchPattern(component, ERROR, level);
+        }
+        this.#brokenPatterns.add(pattern);
+        return;
+      }
+      const view = this.#prune(this.#instantiate(this.#scheme(reference.view), level));
+      if (view.kind !== "Function" || view.parameters.length !== 1) {
+        this.#brokenPatterns.add(pattern);
+        return;
+      }
+      this.#unifyPattern(pattern, expected, view.parameters[0]!);
+      const result = this.#prune(view.result);
+      const components = result.kind === "Tuple" ? result.elements : [result];
+      if (pattern.components.length !== components.length) {
+        this.#diagnostics.add({
+          severity: "error",
+          message: `\`${pattern.name}\` has ${components.length} ${components.length === 1 ? "component" : "components"}; write \`(${components.map(() => "_").join(", ")})${pattern.name}\``,
+          primary: pattern.nameSpan,
+        });
+      }
+      this.#declaredPatternReferences.set(pattern, reference);
+      this.#declaredPatternComponents.set(pattern, components);
+      pattern.components.forEach((component, index) =>
+        this.#nestedMatchPattern(component, components[index] ?? ERROR, level)
+      );
+      return;
+    }
     if (pattern.kind === "Integer") {
       if (pattern.bigint === true) {
         const type = primitive("BigInt");
@@ -10552,6 +11230,7 @@ class Checker {
     const primitive = actual.kind === "Constructor" ? actual.name : undefined;
     return {
       ...(column.signature === undefined ? {} : { signature: column.signature }),
+      ...(column.signatures === undefined ? {} : { signatures: column.signatures }),
       split: (pattern) => {
         if (broken && this.#brokenPatterns.has(pattern)) return undefined;
         if (
@@ -10576,6 +11255,10 @@ class Checker {
     type: Mono,
     patterns: readonly Resolved.Pattern[],
   ): CoverageColumn {
+    const declared = patterns.filter(
+      (pattern): pattern is Resolved.DeclaredPattern => pattern.kind === "Declared",
+    );
+    if (declared.length > 0) return this.#declaredPatternColumn(type, patterns, declared);
     const actual = this.#prune(type);
     switch (actual.kind) {
       case "Union":
@@ -10603,6 +11286,55 @@ class Checker {
       default:
         return this.#openColumn();
     }
+  }
+
+  /** A total declared view is a one-constructor signature at its subject position. */
+  #declaredPatternColumn(
+    type: Mono,
+    patterns: readonly Resolved.Pattern[],
+    declaredPatterns: readonly Resolved.DeclaredPattern[],
+  ): CoverageColumn {
+    const heads = new Map<string, CoverageHead>();
+    for (const pattern of declaredPatterns) {
+      const reference = this.#declaredPatternReferences.get(pattern);
+      if (reference === undefined || heads.has(reference.identity)) continue;
+      const slots = this.#declaredPatternComponents.get(pattern) ??
+        pattern.components.map(() => ERROR);
+      heads.set(reference.identity, {
+        key: `pattern:${reference.identity}`,
+        slots,
+        print: (witnesses) => `(${witnesses.join(", ")})${pattern.name}`,
+      });
+    }
+    const basePatterns = patterns.filter(({ kind }) => kind !== "Declared");
+    const base = this.#coverageDomain(type, basePatterns);
+    const signatures: readonly (readonly CoverageHead[])[] = [
+      ...[...heads.values()].map((head) => [head]),
+      ...(base.signatures ?? (base.signature === undefined ? [] : [base.signature])),
+    ];
+    const signature = signatures[0];
+    return {
+      ...(signature === undefined ? {} : { signature }),
+      ...(signatures.length === 0 ? {} : { signatures }),
+      split: (pattern) => {
+        if (pattern.kind === "Wildcard" || pattern.kind === "Binding") return undefined;
+        if (pattern.kind !== "Declared") return base.split(pattern);
+        const reference = this.#declaredPatternReferences.get(pattern);
+        const head = reference === undefined ? undefined : heads.get(reference.identity);
+        if (head === undefined) return distinctHead(pattern);
+        const components = Array.from(
+          { length: head.slots.length },
+          (_, index) => pattern.components[index] ?? wildcardAt(pattern.span),
+        );
+        // A total view with irrefutable components is a catch-all for the
+        // subject, even when another view or a native constructor signature is
+        // also present in the column.
+        if (this.#coverageWitnesses(head.slots, [components], 1).length === 0) {
+          return undefined;
+        }
+        return oneHead(head, components);
+      },
+    };
   }
 
   /**
@@ -11080,6 +11812,18 @@ class Checker {
     return present;
   }
 
+  /** The first alternative signature the matrix has named in full. */
+  #completeCoverageSignature(
+    column: CoverageColumn,
+    present: ReadonlySet<string>,
+  ): readonly CoverageHead[] | undefined {
+    const signatures = column.signatures ??
+      (column.signature === undefined ? [] : [column.signature]);
+    return signatures.find((signature) =>
+      signature.every(({ key }) => present.has(key))
+    );
+  }
+
   /**
    * Pattern Matching §7's algorithm **I**: the values `matrix` leaves uncovered
    * over `types`, each rendered by §7.3 as one witness per column.
@@ -11102,12 +11846,13 @@ class Checker {
     const rest = types.slice(1);
     const column = this.#coverageColumn(first, coverageHeadPatterns(matrix));
     const present = this.#columnHeads(column, matrix);
-    const signature = column.signature;
+    const complete = this.#completeCoverageSignature(column, present);
+    const signature = complete ?? column.signature;
     const witnesses: CoverageWitness[] = [];
-    if (signature !== undefined && signature.every(({ key }) => present.has(key))) {
+    if (complete !== undefined) {
       // Every head is named, so nothing is missing *here*: the witnesses, if
       // any, are under one of them.
-      for (const head of signature) {
+      for (const head of complete) {
         for (
           const witness of this.#coverageWitnesses(
             [...head.slots, ...rest],
@@ -11192,8 +11937,8 @@ class Checker {
         );
       }
       const present = this.#columnHeads(column, matrix);
-      const signature = column.signature;
-      if (signature !== undefined && signature.every(({ key }) => present.has(key))) {
+      const signature = this.#completeCoverageSignature(column, present);
+      if (signature !== undefined) {
         return signature.some((candidate) =>
           this.#coverageUseful(
             [...candidate.slots, ...rest],
@@ -15993,8 +16738,7 @@ class Checker {
       this.#materializeReachedRecord(head.record);
       const record = this.#records.get(head.record) ?? this.#programRecord(head.record);
       return record?.constructor.name === written
-        ? `cannot destructure opaque record \`${head.name}\`; ` +
-          "use an operation exported by its home module"
+        ? this.#opaquePatternRefusal("record", head)
         : undefined;
     }
     if (head.kind !== "Union" || this.#unionConstructorsVisible(head.union)) {
@@ -16003,9 +16747,17 @@ class Checker {
     this.#materializeReachedUnion(head.union);
     const union = this.#unions.get(head.union) ?? this.#programUnion(head.union);
     return union?.constructors.some(({ binding }) => binding.name === written) === true
-      ? `cannot destructure opaque union \`${head.name}\`; ` +
-        "use an operation exported by its home module"
+      ? this.#opaquePatternRefusal("union", head)
       : undefined;
+  }
+
+  /** Opaque destructuring's repair, including any exported pattern doors. */
+  #opaquePatternRefusal(kind: "record" | "union", head: Mono): string {
+    const patterns = this.#patternsForNominal(head);
+    return `cannot destructure opaque ${kind} \`${this.#display(head)}\`; ` +
+      (patterns.length === 0
+        ? "use an operation exported by its home module"
+        : `match it with ${patterns.map((candidate) => `\`${candidate}\``).join(" or ")}`);
   }
 
   /**
@@ -16166,6 +16918,11 @@ class Checker {
     /** A replacement for the mismatch sentence; `undefined` keeps the ordinary one. */
     message?: () => string | undefined,
   ): void {
+    const unifyChild = (left: Mono, right: Mono): boolean => {
+      const before = this.#diagnostics.count;
+      this.#unify(left, right, span, message);
+      return message !== undefined && this.#diagnostics.count > before;
+    };
     const actualLeft = this.#prune(left);
     const actualRight = this.#prune(right);
     if (
@@ -16203,7 +16960,7 @@ class Checker {
       // else, because every other direction is instantiation.
       this.#diagnostics.add({
         severity: "error",
-        message: effectMismatchMessage(actualLeft, actualRight),
+        message: message?.() ?? effectMismatchMessage(actualLeft, actualRight),
         primary: span,
       });
       return;
@@ -16214,30 +16971,31 @@ class Checker {
       if (actualLeft.parameters.length !== actualRight.parameters.length) {
         this.#diagnostics.add({
           severity: "error",
-          message: this.#nullaryArityMessage(actualLeft, actualRight) ??
+          message: message?.() ?? this.#nullaryArityMessage(actualLeft, actualRight) ??
             `function arity mismatch: ${actualLeft.parameters.length} and ` +
               `${actualRight.parameters.length}`,
           primary: span,
         });
         return;
       }
-      actualLeft.parameters.forEach((parameter, index) => {
+      for (const [index, parameter] of actualLeft.parameters.entries()) {
         const other = actualRight.parameters[index];
-        if (other !== undefined) this.#unify(parameter, other, span);
-      });
-      this.#unify(actualLeft.result, actualRight.result, span);
+        if (other === undefined) continue;
+        if (unifyChild(parameter, other)) return;
+      }
+      if (unifyChild(actualLeft.result, actualRight.result)) return;
       if (actualLeft.effect !== undefined || actualRight.effect !== undefined) {
         // An absent slot is the pure constant, so an inferred function type
         // meets a compiler-synthesized one without either side needing a slot
         // it was never given.
-        this.#unify(actualLeft.effect ?? PURE, actualRight.effect ?? PURE, span);
+        unifyChild(actualLeft.effect ?? PURE, actualRight.effect ?? PURE);
       }
       return;
     } else if (actualLeft.kind === "Tuple" && actualRight.kind === "Tuple") {
       if (actualLeft.elements.length === actualRight.elements.length) {
-        actualLeft.elements.forEach((element, index) => {
-          this.#unify(element, actualRight.elements[index]!, span);
-        });
+        for (const [index, element] of actualLeft.elements.entries()) {
+          if (unifyChild(element, actualRight.elements[index]!)) return;
+        }
         return;
       }
       // At arity 0 the tuple is `Unit`, and the report must say so (Products
@@ -16245,7 +17003,7 @@ class Checker {
       if (actualLeft.elements.length > 0 && actualRight.elements.length > 0) {
         this.#diagnostics.add({
           severity: "error",
-          message:
+          message: message?.() ??
             `tuple arity mismatch: ${actualLeft.elements.length} and ` +
             `${actualRight.elements.length}`,
           primary: span,
@@ -16253,14 +17011,14 @@ class Checker {
         return;
       }
     } else if (actualLeft.kind === "Record" && actualRight.kind === "Record") {
-      this.#unifyRecords(actualLeft, actualRight, span);
+      this.#unifyRecords(actualLeft, actualRight, span, message);
       return;
     } else if (actualLeft.kind === "Union" && actualRight.kind === "Union") {
       if (actualLeft.union === actualRight.union) {
-        actualLeft.arguments.forEach((argument, index) => {
+        for (const [index, argument] of actualLeft.arguments.entries()) {
           const other = actualRight.arguments[index];
-          if (other !== undefined) this.#unify(argument, other, span);
-        });
+          if (other !== undefined && unifyChild(argument, other)) return;
+        }
         return;
       }
     } else if (
@@ -16268,10 +17026,10 @@ class Checker {
       actualRight.kind === "NominalRecord"
     ) {
       if (actualLeft.record === actualRight.record) {
-        actualLeft.arguments.forEach((argument, index) => {
+        for (const [index, argument] of actualLeft.arguments.entries()) {
           const other = actualRight.arguments[index];
-          if (other !== undefined) this.#unify(argument, other, span);
-        });
+          if (other !== undefined && unifyChild(argument, other)) return;
+        }
         return;
       }
     } else if (
@@ -16286,37 +17044,35 @@ class Checker {
     } else if (actualLeft.kind === "JsValue" && actualRight.kind === "JsValue") {
       return;
     } else if (actualLeft.kind === "Vector" && actualRight.kind === "Vector") {
-      this.#unify(actualLeft.element, actualRight.element, span);
+      unifyChild(actualLeft.element, actualRight.element);
       return;
     } else if (actualLeft.kind === "Set" && actualRight.kind === "Set") {
-      this.#unify(actualLeft.element, actualRight.element, span);
+      unifyChild(actualLeft.element, actualRight.element);
       return;
     } else if (actualLeft.kind === "Array" && actualRight.kind === "Array") {
-      this.#unify(actualLeft.element, actualRight.element, span);
+      unifyChild(actualLeft.element, actualRight.element);
       return;
     } else if (actualLeft.kind === "JsSet" && actualRight.kind === "JsSet") {
-      this.#unify(actualLeft.element, actualRight.element, span);
+      unifyChild(actualLeft.element, actualRight.element);
       return;
     } else if (actualLeft.kind === "JsMap" && actualRight.kind === "JsMap") {
-      this.#unify(actualLeft.key, actualRight.key, span);
-      this.#unify(actualLeft.value, actualRight.value, span);
+      if (!unifyChild(actualLeft.key, actualRight.key)) unifyChild(actualLeft.value, actualRight.value);
       return;
     } else if (actualLeft.kind === "Node" && actualRight.kind === "Node") {
-      this.#unify(actualLeft.element, actualRight.element, span);
+      unifyChild(actualLeft.element, actualRight.element);
       return;
     } else if (actualLeft.kind === "Nullable" && actualRight.kind === "Nullable") {
-      this.#unify(actualLeft.value, actualRight.value, span);
+      unifyChild(actualLeft.value, actualRight.value);
       return;
     } else if (actualLeft.kind === "Map" && actualRight.kind === "Map") {
-      this.#unify(actualLeft.key, actualRight.key, span);
-      this.#unify(actualLeft.value, actualRight.value, span);
+      if (!unifyChild(actualLeft.key, actualRight.key)) unifyChild(actualLeft.value, actualRight.value);
       return;
     }
 
     this.#diagnostics.add({
       severity: "error",
-      message: this.#postFinalisationRedirect(actualLeft, actualRight) ??
-        message?.() ??
+      message: message?.() ??
+        this.#postFinalisationRedirect(actualLeft, actualRight) ??
         `type mismatch: expected ${this.#display(actualLeft)}, found ` +
           this.#display(actualRight),
       primary: span,
@@ -16366,22 +17122,33 @@ class Checker {
     return undefined;
   }
 
-  #unifyRecords(left: RecordMono, right: RecordMono, span: Source.Span): void {
+  #unifyRecords(
+    left: RecordMono,
+    right: RecordMono,
+    span: Source.Span,
+    message?: () => string | undefined,
+  ): void {
     left = this.#normalizeRecord(left);
     right = this.#normalizeRecord(right);
     for (const [name, type] of left.fields) {
       const other = right.fields.get(name);
-      if (other !== undefined) this.#unify(type, other, span);
+      if (other !== undefined) {
+        const before = this.#diagnostics.count;
+        this.#unify(type, other, span, message);
+        if (message !== undefined && this.#diagnostics.count > before) return;
+      }
     }
     const leftOnly = new Map([...left.fields].filter(([name]) => !right.fields.has(name)));
     const rightOnly = new Map([...right.fields].filter(([name]) => !left.fields.has(name)));
 
     if (left.tail === undefined && rightOnly.size > 0) {
-      this.#recordMismatch([...rightOnly.keys()], span);
+      if (message === undefined) this.#recordMismatch([...rightOnly.keys()], span);
+      else this.#diagnostics.add({ severity: "error", message: message() ?? "record shape mismatch", primary: span });
       return;
     }
     if (right.tail === undefined && leftOnly.size > 0) {
-      this.#recordMismatch([...leftOnly.keys()], span);
+      if (message === undefined) this.#recordMismatch([...leftOnly.keys()], span);
+      else this.#diagnostics.add({ severity: "error", message: message() ?? "record shape mismatch", primary: span });
       return;
     }
     if (left.tail !== undefined && right.tail !== undefined) {
@@ -16389,7 +17156,8 @@ class Checker {
       const actualRightTail = this.#prune(right.tail);
       if (actualLeftTail === actualRightTail) {
         if (leftOnly.size > 0 || rightOnly.size > 0) {
-          this.#recordMismatch([...leftOnly.keys(), ...rightOnly.keys()], span);
+          if (message === undefined) this.#recordMismatch([...leftOnly.keys(), ...rightOnly.keys()], span);
+          else this.#diagnostics.add({ severity: "error", message: message() ?? "record shape mismatch", primary: span });
         }
         return;
       }
@@ -21063,6 +21831,23 @@ class Checker {
           span: slot.annotation.span,
         })));
       }
+      if (item.kind === "PatternDeclaration" && item.exported && item.head !== undefined) {
+        const face = this.#prune(this.#scheme(item.view.binding.symbol).type);
+        const subject = face.kind === "Function" ? face.parameters[0] : undefined;
+        const result = face.kind === "Function" ? this.#prune(face.result) : undefined;
+        const components = item.head.components.length === 1
+          ? [result]
+          : result?.kind === "Tuple"
+            ? result.elements
+            : [];
+        carrier("pattern", "pattern", item.name, [
+          { type: subject, span: item.head.result.span },
+          ...item.head.components.map((component, index) => ({
+            type: components[index],
+            span: component.annotation.span,
+          })),
+        ]);
+      }
       // The family's sixth member, and its only **non-carrier** (#626): an
       // exported constraint's member signatures. No `.d.ts` row of its own
       // rides FFI Part 7's carrier list, so the four blocks above cannot reach
@@ -21140,6 +21925,15 @@ class Checker {
             primary: item.span,
           });
         }
+      }
+      if (item.kind === "PatternDeclaration" && item.exported && item.head !== undefined &&
+        (annotationMentionsNode(item.head.result) ||
+          item.head.components.some(({ annotation }) => annotationMentionsNode(annotation)))) {
+        this.#diagnostics.add({
+          severity: "error",
+          message: `exported pattern \`${item.name}\` names the hidden \`Node\` intrinsic, which has no public form; keep the pattern private`,
+          primary: item.span,
+        });
       }
       // Extern is the foreign boundary; `Node` can never cross it, exported or
       // not. The **intrinsic door is not that boundary** (#365): its implementer
@@ -22030,6 +22824,28 @@ class Checker {
     // fix by breaking the interface contract.
     if (item.kind === "Import") return item;
     if (item.kind === "ExternImport") return item;
+    if (item.kind === "PatternAlias") return item;
+    if (item.kind === "PatternDeclaration") {
+      const member = (source: Resolved.PatternMember): Typed.PatternMember => ({
+        binding: {
+          ...source.binding,
+          scheme: this.#publicScheme(this.#scheme(source.binding.symbol)),
+        },
+        value: this.#materializeExpr(source.value),
+        delegated: source.delegated,
+        span: source.span,
+      });
+      return {
+        kind: "PatternDeclaration",
+        exported: item.exported,
+        identity: item.identity,
+        name: item.name,
+        componentNames: item.head?.components.map(({ name }) => name) ?? [],
+        view: member(item.view),
+        ...(item.build === undefined ? {} : { build: member(item.build) }),
+        span: item.span,
+      };
+    }
     if (item.kind === "ExternBlock") {
       return {
         ...item,
@@ -22379,6 +23195,16 @@ class Checker {
         ),
       };
     }
+    if (pattern.kind === "Declared") {
+      const reference = this.#declaredPatternReferences.get(pattern);
+      if (reference === undefined) return { kind: "Wildcard", span: pattern.span };
+      return {
+        kind: "Declared",
+        components: pattern.components.map((component) => this.#materializePattern(component)),
+        reference,
+        span: pattern.span,
+      };
+    }
     if (pattern.kind === "As") {
       return {
         ...pattern,
@@ -22600,6 +23426,12 @@ class Checker {
   #materializeUnwidenedExpr(expression: Resolved.Expr): Typed.Expr {
     const type = this.#publicType(this.#typeOf(expression));
     switch (expression.kind) {
+      case "PatternConstruction": {
+        const call = this.#patternConstructionCalls.get(expression);
+        return call === undefined
+          ? { kind: "ErrorExpr", type, span: expression.span }
+          : this.#materializeUnwidenedExpr(call);
+      }
       case "Name": {
         // A reference in *value* position carries the constraints it resolved,
         // so emission can close over the evidence (defect 4). A callee
@@ -23157,6 +23989,69 @@ class Checker {
     if (effect.kind === "Effect") return effect.impure ? IMPURE_ARROW : PURE_ARROW;
     return linkedArrow(effect.kind === "Variable" ? numbering.get(effect.id) : undefined);
   }
+}
+
+/** Structural seat of one nested pattern, stable across match arms. */
+function patternPositionPath(
+  root: Resolved.Pattern,
+  target: Resolved.Pattern,
+  path = "root",
+): string | undefined {
+  if (root === target) return path;
+  const visit = (child: Resolved.Pattern, step: string): string | undefined =>
+    patternPositionPath(child, target, `${path}/${step}`);
+  if (root.kind === "As") return visit(root.pattern, "as");
+  if (root.kind === "Or") {
+    for (const alternative of root.alternatives) {
+      const found = visit(alternative, "or");
+      if (found !== undefined) return found;
+    }
+  }
+  if (root.kind === "Tuple") {
+    for (const [index, element] of root.elements.entries()) {
+      const found = visit(element, `tuple:${index}`);
+      if (found !== undefined) return found;
+    }
+  }
+  if (root.kind === "Vector") {
+    for (const [index, element] of root.elements.entries()) {
+      const found = visit(element, `vector:${index}`);
+      if (found !== undefined) return found;
+    }
+    if (root.rest?.pattern !== undefined) return visit(root.rest.pattern, `vector-rest:${root.rest.index}`);
+  }
+  if (root.kind === "Record") {
+    for (const field of root.fields) {
+      const found = visit(field.pattern, `record:${field.name}`);
+      if (found !== undefined) return found;
+    }
+  }
+  if (root.kind === "Constructor") {
+    for (const [index, argument] of root.arguments.entries()) {
+      const found = visit(argument, `constructor:${Number(root.symbol)}:${index}`);
+      if (found !== undefined) return found;
+    }
+  }
+  if (root.kind === "Declared") {
+    const identity = root.candidates.map(({ identity }) => identity).sort().join("+");
+    for (const [index, component] of root.components.entries()) {
+      const found = visit(component, `declared:${identity}:${index}`);
+      if (found !== undefined) return found;
+    }
+  }
+  return undefined;
+}
+
+function uniquePatternModules(
+  candidates: readonly Resolved.PatternCandidate[],
+): readonly Resolved.PatternCandidate[] {
+  const modules = new Map<string, Resolved.PatternCandidate>();
+  for (const candidate of candidates) modules.set(candidate.declaringModule, candidate);
+  return [...modules.values()];
+}
+
+function patternModuleAlias(module: string): string {
+  return displayModuleName(module).split(".").at(-1) ?? module;
 }
 
 /** How a report names the thing being called. */
@@ -23807,6 +24702,8 @@ function resolvedPatternNodes(
       return [pattern, ...pattern.alternatives.flatMap(resolvedPatternNodes)];
     case "Tuple":
       return [pattern, ...pattern.elements.flatMap(resolvedPatternNodes)];
+    case "Declared":
+      return [pattern, ...pattern.components.flatMap(resolvedPatternNodes)];
     case "Vector":
       return [
         pattern,
@@ -23846,6 +24743,8 @@ function resolvedPatternBindings(
         : resolvedPatternBindings(pattern.alternatives[0]);
     case "Tuple":
       return pattern.elements.flatMap(resolvedPatternBindings);
+    case "Declared":
+      return pattern.components.flatMap(resolvedPatternBindings);
     case "Vector":
       return [
         ...pattern.elements.flatMap(resolvedPatternBindings),
@@ -24074,6 +24973,8 @@ function renderPattern(
       return `(${
         pattern.elements.map((element) => renderPattern(element, swap)).join(", ")
       })`;
+    case "Declared":
+      return `(${pattern.components.map((component) => renderPattern(component, swap)).join(", ")})${pattern.name}`;
     case "Vector": {
       const elements = pattern.elements.map((element) => renderPattern(element, swap));
       if (pattern.rest !== undefined) {
@@ -24134,15 +25035,23 @@ function nearMiss(written: string, candidates: readonly string[]): string {
 /** Ordinary Levenshtein distance over a single rolling row. */
 function editDistance(left: string, right: string): number {
   let previous = [...Array(right.length + 1).keys()];
+  let beforePrevious: readonly number[] | undefined;
   for (let index = 1; index <= left.length; index += 1) {
     const current = [index];
     for (let other = 1; other <= right.length; other += 1) {
-      current.push(
+      let distance =
         left[index - 1] === right[other - 1]
           ? previous[other - 1]!
-          : 1 + Math.min(previous[other - 1]!, previous[other]!, current[other - 1]!),
-      );
+          : 1 + Math.min(previous[other - 1]!, previous[other]!, current[other - 1]!);
+      if (
+        beforePrevious !== undefined && index > 1 && other > 1 &&
+        left[index - 1] === right[other - 2] && left[index - 2] === right[other - 1]
+      ) {
+        distance = Math.min(distance, beforePrevious[other - 2]! + 1);
+      }
+      current.push(distance);
     }
+    beforePrevious = previous;
     previous = current;
   }
   return previous[right.length]!;

@@ -202,6 +202,8 @@ export type Item =
   | ExceptionItem
   | ConstraintItem
   | HonorItem
+  | PatternDeclarationItem
+  | PatternAliasItem
   | UnionItem
   | ExprItem
   | ErrorItem;
@@ -234,6 +236,32 @@ export interface LetPatternItem {
   readonly span: Source.Span;
 }
 
+export interface PatternDeclarationItem {
+  readonly kind: "PatternDeclaration";
+  readonly exported: boolean;
+  readonly identity: string;
+  readonly name: string;
+  readonly componentNames: readonly string[];
+  readonly view: PatternMember;
+  readonly build?: PatternMember;
+  readonly span: Source.Span;
+}
+
+export interface PatternMember {
+  readonly binding: Binding;
+  readonly value: Expr;
+  readonly delegated: boolean;
+  readonly span: Source.Span;
+}
+
+export interface PatternAliasItem {
+  readonly kind: "PatternAlias";
+  readonly exported: boolean;
+  readonly name: string;
+  readonly target?: Resolved.PatternReference;
+  readonly span: Source.Span;
+}
+
 export type Pattern =
   | BindingPattern
   | WildcardPattern
@@ -246,7 +274,15 @@ export type Pattern =
   | RecordPattern
   | OrPattern
   | AsPattern
+  | DeclaredPattern
   | ConstructorPattern;
+
+export interface DeclaredPattern {
+  readonly kind: "Declared";
+  readonly components: readonly Pattern[];
+  readonly reference: Resolved.PatternReference;
+  readonly span: Source.Span;
+}
 
 export interface BindingPattern {
   readonly kind: "Binding";

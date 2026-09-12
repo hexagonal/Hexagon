@@ -437,6 +437,8 @@ function moduleLevelBindings(
         return [identifier(item.constructor)];
       case "Exception":
         return [identifier(item.binding)];
+      case "PatternDeclaration":
+        return [item.name];
       case "ConstraintDeclaration":
         // The forwarders, and the §6.5 helper each defaulted member hoists.
         return item.members.flatMap((member) => [
@@ -1237,6 +1239,7 @@ function itemExported(item: Core.Item): boolean {
     case "Fun":
     case "RecordDeclaration":
     case "Exception":
+    case "PatternDeclaration":
       return item.exported;
     default:
       return false;
@@ -1258,6 +1261,7 @@ function hasJavaScriptSeat(item: Core.Item): boolean {
     case "Fun":
     case "RecordDeclaration":
     case "Exception":
+    case "PatternDeclaration":
       return true;
     default:
       return false;
@@ -2793,6 +2797,9 @@ function declarationTopLevelNames(
       case "Exception":
         names.add(item.binding.name);
         continue;
+      case "PatternDeclaration":
+        names.add(item.name);
+        continue;
       case "Let":
       case "Fun":
       case "Var":
@@ -3189,6 +3196,14 @@ class JavaScriptEmitter {
    * constraint member's source spelling never can.
    */
   readonly #moduleBindings = new Set<string>();
+  /** The JavaScript binding that owns each locally declared pattern identity. */
+  readonly #patternLocals = new Map<string, string>();
+  readonly #patternMemberLocals = new Map<Resolved.SymbolId, string>();
+  readonly #termLocals = new Map<Resolved.SymbolId, string>();
+  readonly #patternDoorImports = new Map<
+    string,
+    { readonly local: string; readonly specifier: string }
+  >();
   readonly #generatedBodies: {
     readonly specialization: FundamentalSpecialization;
     readonly text: string;
@@ -3271,6 +3286,46 @@ class JavaScriptEmitter {
       ),
       ...module.preludeInstances.map(({ localDictionary }) => localDictionary),
     ]);
+    const ordinaryBindings = new Set(moduleLevelBindings({
+      ...module,
+      items: module.items.filter((item) => item.kind !== "PatternDeclaration"),
+    }));
+    const sourceTaken = new Set(moduleLevelBindings(module));
+    const freshSourceLocal = (stem: string): string => {
+      let suffix = 1;
+      let candidate = `${stem}_${suffix}`;
+      while (sourceTaken.has(candidate)) candidate = `${stem}_${++suffix}`;
+      sourceTaken.add(candidate);
+      return candidate;
+    };
+    for (const item of module.items) {
+      if (item.kind !== "PatternDeclaration") continue;
+      const local = !item.exported && ordinaryBindings.has(item.name)
+        ? freshSourceLocal(item.name)
+        : item.name;
+      this.#patternLocals.set(item.identity, local);
+      this.#patternMemberLocals.set(item.view.binding.symbol, `${local}.view`);
+      if (item.build !== undefined) {
+        this.#patternMemberLocals.set(item.build.binding.symbol, `${local}.build`);
+      }
+      if (!item.exported) continue;
+      for (const other of module.items) {
+        const bindings = other.kind === "Let" || other.kind === "Fun" || other.kind === "Var"
+          ? [other.binding]
+          : other.kind === "LetPattern"
+          ? patternBindings(other.pattern)
+          : [];
+        const exported = other.kind === "Let" || other.kind === "Fun"
+          ? other.exported
+          : false;
+        if (exported) continue;
+        for (const binding of bindings) {
+          if (binding.name === item.name) {
+            this.#termLocals.set(binding.symbol, freshSourceLocal(binding.name));
+          }
+        }
+      }
+    }
     for (const item of module.items) {
       if (item.kind !== "Import") continue;
       for (const { localDictionary } of item.instances) {
@@ -3516,6 +3571,9 @@ class JavaScriptEmitter {
     // After rendering, because rendering is what discovers which prelude
     // dictionaries the body names (#153) and which prelude terms it names
     // (#263), and before the rendered entries, because these are imports.
+    body.push(...[...this.#patternDoorImports.values()].map(({ local, specifier }) =>
+      `import * as ${local} from ${JSON.stringify(emittedModuleSpecifier(specifier))};`
+    ));
     const preludeInstanceImports = this.#preludeInstanceImports();
     body.push(...preludeInstanceImports.map(({ line }) => line));
     const preludeTermImports = this.#preludeTermImports();
@@ -3712,6 +3770,36 @@ class JavaScriptEmitter {
     const prefix = indent(depth);
     if (item.kind === "ErrorItem") return [`${prefix}${this.#unit};`];
     if (item.kind === "TypeAlias") return [];
+    if (item.kind === "PatternAlias") return [];
+    if (item.kind === "PatternDeclaration") {
+      const name = this.#patternLocals.get(item.identity) ?? item.name;
+      const view = this.#emitExpr(item.view.value, depth + 1, evidenceNames);
+      const build = item.build === undefined
+        ? undefined
+        : this.#emitExpr(item.build.value, depth + 1, evidenceNames);
+      if (item.exported && depth === 0) {
+        this.#exports.push(name === item.name
+          ? `export { ${name} };`
+          : `export { ${name} as ${item.name} };`);
+      }
+      const viewDoc = this.#docs.lines(item.view.span, indent(depth + 1), [], false);
+      const buildDoc = item.build === undefined
+        ? []
+        : this.#docs.lines(item.build.span, indent(depth + 1), [], false);
+      if (viewDoc.length === 0 && buildDoc.length === 0) {
+        return [`${prefix}const ${name} = { view: ${view}${
+          build === undefined ? "" : `, build: ${build}`
+        } };`];
+      }
+      return [
+        `${prefix}const ${name} = {`,
+        ...viewDoc,
+        `${indent(depth + 1)}view: ${view},`,
+        ...buildDoc,
+        ...(build === undefined ? [] : [`${indent(depth + 1)}build: ${build},`]),
+        `${prefix}};`,
+      ];
+    }
     if (item.kind === "Import") {
       // A synthesized prelude import is rendered after every item, because its
       // name list is what the rendered body references and nothing else (#263).
@@ -4205,17 +4293,27 @@ class JavaScriptEmitter {
           `${prefix}const ${matchName} = ${value};`,
           `${prefix}let ${names.join(", ")};`,
         ];
+        const armLines: string[] = [];
+        const views: PatternViewContext = { byPosition: new Map(), uses: [] };
         alternatives.forEach((alternative, index) => {
-          const plan = this.#emitPatternPlan(alternative, matchName, evidenceNames);
+          const plan = this.#emitPatternPlan(
+            alternative,
+            matchName,
+            evidenceNames,
+            false,
+            undefined,
+            views,
+          );
           const condition = plan.tests.length === 0
             ? "true"
             : plan.tests.join(" && ");
-          lines.push(`${prefix}${index === 0 ? "if" : "else if"} (${condition}) {`);
+          armLines.push(`${prefix}${index === 0 ? "if" : "else if"} (${condition}) {`);
           for (const binding of plan.bindings) {
-            lines.push(`${indent(depth + 1)}${binding.replace(/^const /, "")}`);
+            armLines.push(`${indent(depth + 1)}${binding.replace(/^const /, "")}`);
           }
-          lines.push(`${prefix}}`);
+          armLines.push(`${prefix}}`);
         });
+        lines.push(...this.#patternViewLines(views, depth), ...armLines);
         lines.push(
           `${prefix}else { throw new ${this.#spell("RangeError")}("Unexpected irrefutable pattern."); }`,
         );
@@ -4246,23 +4344,31 @@ class JavaScriptEmitter {
       // position — §3.4 leaves exactly `[...rest]` and `[...]` — so a test here
       // could only be true, and emitting it would wrap the whole binding group
       // in a dead `if` whose binders would then have to escape it.
-      if (containsVectorPattern(item.pattern)) {
+      if (containsVectorPattern(item.pattern) || containsDeclaredPattern(item.pattern)) {
         // No binder at all is the anonymous rest, `let [...] = xs`: §3.6 emits
         // no slice for it, and the value still has to be evaluated.
-        if (patternBindings(item.pattern).length === 0) return [`${prefix}${value};`];
+        const bindings = patternBindings(item.pattern);
         // §3.6's shape names the subject once per slot read and once per
         // `__trieSize`, so a value that is not already a bare reference is bound
         // first rather than re-evaluated per slot.
         const subject = isSafeIdentifier(value)
           ? value
           : this.#generatedNames.fresh("subject");
+        const views: PatternViewContext = { byPosition: new Map(), uses: [] };
         const plan = this.#emitPatternPlan(
           withoutUnboundVectors(item.pattern),
           subject,
           evidenceNames,
+          false,
+          undefined,
+          views,
         );
         return [
           ...(subject === value ? [] : [`${prefix}const ${subject} = ${value};`]),
+          ...this.#patternViewLines(views, depth),
+          ...(bindings.length === 0 && subject === value && views.uses.length === 0
+            ? [`${prefix}${value};`]
+            : []),
           ...plan.bindings.map((binding) => `${prefix}${binding}`),
         ];
       }
@@ -4500,6 +4606,8 @@ class JavaScriptEmitter {
           this.#emitPattern(element)
         ).join(", ")}]`;
       case "Vector":
+        return "";
+      case "Declared":
         return "";
       case "Record": {
         const fields = pattern.fields.flatMap((field) => {
@@ -4781,6 +4889,8 @@ class JavaScriptEmitter {
         // binding here (§11.2: "never called as though the namespace object
         // were the export").
         const spelled = expression.emitted ?? expression.text;
+        const patternMember = this.#patternMemberLocals.get(expression.symbol);
+        if (patternMember !== undefined) return patternMember;
         if (spelled.includes(".")) return this.#qualifiedSpelling(spelled);
         // An imported symbol is spelled by the local its import binds, which is
         // not always the name the reference carries: the synthesized prelude
@@ -5405,7 +5515,15 @@ class JavaScriptEmitter {
     }
 
     const itemName = this.#generatedNames.fresh("item");
-    const plan = this.#emitPatternPlan(expression.pattern, itemName, evidenceNames);
+    const views: PatternViewContext = { byPosition: new Map(), uses: [] };
+    const plan = this.#emitPatternPlan(
+      expression.pattern,
+      itemName,
+      evidenceNames,
+      false,
+      undefined,
+      views,
+    );
     const bindings = plan.bindings.map((binding) =>
       `${indent(depth + 1)}${binding}`
     );
@@ -5414,6 +5532,7 @@ class JavaScriptEmitter {
     );
     return [
       `${prefix}for (const ${itemName} of ${iterable}) {`,
+      ...this.#patternViewLines(views, depth + 1),
       ...bindings,
       ...body,
       `${prefix}}`,
@@ -6068,6 +6187,8 @@ class JavaScriptEmitter {
   ): string[] {
     const armIndent = indent(depth);
     const lines: string[] = [];
+    const armLines: string[] = [];
+    const views: PatternViewContext = { byPosition: new Map(), uses: [] };
     const alternatives = arms.map((arm) => expandOrPatterns(arm.pattern));
     const foreign = alternatives.some((expanded) => expanded.some((p) => this.#catchesForeign(p)))
       ? this.#generatedNames.fresh("foreign")
@@ -6082,32 +6203,39 @@ class JavaScriptEmitter {
     }
     for (const [index, arm] of arms.entries()) {
       for (const alternative of alternatives[index]!) {
-        const plan = this.#emitPatternPlan(alternative, error, evidenceNames, true, foreign);
+        const plan = this.#emitPatternPlan(
+          alternative,
+          error,
+          evidenceNames,
+          true,
+          foreign,
+          views,
+        );
         const condition = plan.tests.length === 0
           ? "true"
           : plan.tests.join(" && ");
-        lines.push(`${armIndent}if (${condition}) {`);
+        armLines.push(`${armIndent}if (${condition}) {`);
         const bodyDepth = depth + 1;
         const bodyIndent = indent(bodyDepth);
         for (const binding of plan.bindings) {
-          lines.push(`${bodyIndent}${binding}`);
+          armLines.push(`${bodyIndent}${binding}`);
         }
         if (arm.guard === undefined) {
-          lines.push(
+          armLines.push(
             `${bodyIndent}return ${this.#emitExpr(arm.body, bodyDepth, evidenceNames)};`,
           );
         } else {
           const guard = this.#emitExpr(arm.guard, bodyDepth, evidenceNames);
-          lines.push(`${bodyIndent}if (${guard}) {`);
-          lines.push(
+          armLines.push(`${bodyIndent}if (${guard}) {`);
+          armLines.push(
             `${indent(bodyDepth + 1)}return ${this.#emitExpr(arm.body, bodyDepth + 1, evidenceNames)};`,
             `${bodyIndent}}`,
           );
         }
-        lines.push(`${armIndent}}`);
+        armLines.push(`${armIndent}}`);
       }
     }
-    return lines;
+    return [...lines, ...this.#patternViewLines(views, depth), ...armLines];
   }
 
   /**
@@ -6285,37 +6413,47 @@ class JavaScriptEmitter {
           this.#emitExpr(expression.scrutinee, depth, evidenceNames)
         };`]
       : [];
+    const armLines: string[] = [];
+    const views: PatternViewContext = { byPosition: new Map(), uses: [] };
 
     for (const arm of expression.arms) {
       const alternatives = expandOrPatterns(arm.pattern);
       for (const [index, alternative] of alternatives.entries()) {
-        const plan = this.#emitPatternPlan(alternative, matchName, evidenceNames);
+        const plan = this.#emitPatternPlan(
+          alternative,
+          matchName,
+          evidenceNames,
+          false,
+          undefined,
+          views,
+        );
         const condition = plan.tests.length === 0
           ? "true"
           : plan.tests.join(" && ");
         const keyword = index === 0 ? "if" : "else if";
-        lines.push(`${prefix}${keyword} (${condition}) {`);
+        armLines.push(`${prefix}${keyword} (${condition}) {`);
         const armDepth = depth + 1;
         const armPrefix = indent(armDepth);
         for (const binding of plan.bindings) {
-          lines.push(`${armPrefix}${binding}`);
+          armLines.push(`${armPrefix}${binding}`);
         }
         if (arm.guard === undefined) {
-          lines.push(...this.#emitChainArmBody(arm.body, armDepth, armPrefix, evidenceNames));
+          armLines.push(...this.#emitChainArmBody(arm.body, armDepth, armPrefix, evidenceNames));
         } else {
           const guard = this.#emitExpr(arm.guard, armDepth, evidenceNames);
-          lines.push(`${armPrefix}if (${guard}) {`);
-          lines.push(...this.#emitChainArmBody(
+          armLines.push(`${armPrefix}if (${guard}) {`);
+          armLines.push(...this.#emitChainArmBody(
             arm.body,
             armDepth + 1,
             indent(armDepth + 1),
             evidenceNames,
           ));
-          lines.push(`${armPrefix}}`);
+          armLines.push(`${armPrefix}}`);
         }
-        lines.push(`${prefix}}`);
+        armLines.push(`${prefix}}`);
       }
     }
+    lines.push(...this.#patternViewLines(views, depth), ...armLines);
     lines.push(`${prefix}throw new ${this.#spell("RangeError")}("Unexpected pattern.");`);
     return lines;
   }
@@ -6352,6 +6490,51 @@ class JavaScriptEmitter {
     return pattern.kind === "Constructor" && pattern.symbol === this.#prelude.jsError;
   }
 
+  #patternSpelling(reference: Resolved.PatternReference): string {
+    const own = this.#patternLocals.get(reference.identity);
+    if (own !== undefined) return own;
+    const dot = reference.emitted.indexOf(".");
+    if (dot >= 0) {
+      const head = reference.emitted.slice(0, dot);
+      const explicitlyBound = this.#module.items.some((item) =>
+        item.kind === "Import" && item.form.kind === "Namespace" && item.form.alias === head
+      );
+      if (explicitlyBound) return this.#qualifiedSpelling(reference.emitted);
+    }
+    if (reference.declaringPath === undefined || this.#module.modulePath === undefined) {
+      return reference.emitted;
+    }
+    let imported = this.#patternDoorImports.get(reference.declaringPath);
+    if (imported === undefined) {
+      const stem = dot >= 0
+        ? reference.emitted.slice(0, dot)
+        : reference.declaringModule.split(/[./]/u).at(-1) || "Pattern";
+      imported = {
+        local: this.#generatedNames.claimPublic(stem),
+        specifier: relativeSpecifier(this.#module.modulePath, reference.declaringPath),
+      };
+      this.#patternDoorImports.set(reference.declaringPath, imported);
+    }
+    return `${imported.local}.${reference.declaredName}`;
+  }
+
+  #patternViewLines(context: PatternViewContext, depth: number): string[] {
+    const prefix = indent(depth);
+    return context.uses.flatMap((use) => use.getter === undefined
+      ? [`${prefix}const ${use.result} = ${this.#patternSpelling(use.reference)}.view(${use.value});`]
+      : [
+        `${prefix}let ${use.result};`,
+        `${prefix}let ${use.getter}Seen = false;`,
+        `${prefix}const ${use.getter} = () => {`,
+        `${indent(depth + 1)}if (!${use.getter}Seen) {`,
+        `${indent(depth + 2)}${use.result} = ${this.#patternSpelling(use.reference)}.view(${use.value});`,
+        `${indent(depth + 2)}${use.getter}Seen = true;`,
+        `${indent(depth + 1)}}`,
+        `${indent(depth + 1)}return ${use.result};`,
+        `${prefix}};`,
+      ]);
+  }
+
   /**
    * The tests and bindings one pattern makes against a subject expression.
    *
@@ -6367,6 +6550,8 @@ class JavaScriptEmitter {
     evidenceNames: EvidenceNames,
     exceptionPatterns = false,
     foreign?: string,
+    viewContext: PatternViewContext = { byPosition: new Map(), uses: [] },
+    positionKey = "root",
   ): PatternPlan {
     switch (pattern.kind) {
       case "Wildcard":
@@ -6380,6 +6565,8 @@ class JavaScriptEmitter {
           evidenceNames,
           exceptionPatterns,
           foreign,
+          viewContext,
+          positionKey,
         );
         const name = this.#identifier(pattern.binding.symbol, pattern.binding.name);
         return {
@@ -6389,7 +6576,7 @@ class JavaScriptEmitter {
       }
       case "Or": {
         const alternatives = pattern.alternatives.map((alternative) =>
-          this.#emitPatternPlan(alternative, value, evidenceNames, exceptionPatterns, foreign)
+          this.#emitPatternPlan(alternative, value, evidenceNames, exceptionPatterns, foreign, viewContext, positionKey)
         );
         if (alternatives.some(({ bindings }) => bindings.length > 0)) {
           return { tests: ["false"], bindings: [] };
@@ -6446,6 +6633,9 @@ class JavaScriptEmitter {
               `${value}[${index}]`,
               evidenceNames,
               exceptionPatterns,
+              undefined,
+              viewContext,
+              `${positionKey}/tuple:${index}`,
             )
           ),
         );
@@ -6472,6 +6662,9 @@ class JavaScriptEmitter {
             `${this.#useVectorRuntime("get")}(${value}, ${position})`,
             evidenceNames,
             exceptionPatterns,
+            undefined,
+            viewContext,
+            `${positionKey}/vector:${index}`,
           );
         });
         const combined = combinePatternPlans(plans);
@@ -6485,6 +6678,9 @@ class JavaScriptEmitter {
               `${this.#useVectorRuntime("slice")}(${value}, ${pattern.rest.index}, ${restEnd})`,
               evidenceNames,
               exceptionPatterns,
+              undefined,
+              viewContext,
+              `${positionKey}/vector-rest:${pattern.rest.index}`,
             );
         return {
           tests: [
@@ -6505,6 +6701,9 @@ class JavaScriptEmitter {
               `${value}.${field.name}`,
               evidenceNames,
               exceptionPatterns,
+              undefined,
+              viewContext,
+              `${positionKey}/record:${field.name}`,
             )
           ),
         );
@@ -6519,7 +6718,15 @@ class JavaScriptEmitter {
           const inner = pattern.arguments[0];
           return inner === undefined
             ? { tests: [], bindings: [] }
-            : this.#emitPatternPlan(inner, value, evidenceNames, exceptionPatterns);
+            : this.#emitPatternPlan(
+              inner,
+              value,
+              evidenceNames,
+              exceptionPatterns,
+              undefined,
+              viewContext,
+              `${positionKey}/constructor:${Number(pattern.symbol)}:0`,
+            );
         }
         const exception = exceptionPatterns
           ? this.#exceptions.get(pattern.symbol)
@@ -6587,10 +6794,52 @@ class JavaScriptEmitter {
             payload,
             evidenceNames,
             exceptionPatterns,
+            undefined,
+            viewContext,
+            `${positionKey}/constructor:${Number(pattern.symbol)}:${index}`,
           );
         });
         const combined = combinePatternPlans(payloads);
         return { tests: [test, ...combined.tests], bindings: combined.bindings };
+      }
+      case "Declared": {
+        const key = `${pattern.reference.identity}\u0000${positionKey}`;
+        let use = viewContext.byPosition.get(key);
+        if (use === undefined) {
+          const result = this.#generatedNames.fresh(`${pattern.reference.declaredName}View`);
+          use = positionKey === "root"
+            ? { result, value, reference: pattern.reference }
+            : {
+              result,
+              getter: this.#generatedNames.fresh(`${pattern.reference.declaredName}ViewAt`),
+              value,
+              reference: pattern.reference,
+            };
+          viewContext.byPosition.set(key, use);
+          viewContext.uses.push(use);
+        }
+        const viewed = use.getter === undefined ? use.result : `${use.getter}()`;
+        const plans = pattern.components.map((component, index) =>
+          this.#emitPatternPlan(
+            component,
+            pattern.components.length === 1 ? viewed : `${viewed}[${index}]`,
+            evidenceNames,
+            exceptionPatterns,
+            undefined,
+            viewContext,
+            `${positionKey}/declared:${pattern.reference.identity}:${index}`,
+          )
+        );
+        const combined = combinePatternPlans(plans);
+        return use.getter === undefined
+          ? combined
+          : {
+            tests: [`(${use.getter}(), true)`, ...combined.tests],
+            // Irrefutable `let` and `for` seats deliberately discard tests.
+            // Keep the reached nested view in their binding run as well; the
+            // memoized getter makes the match-arm path still call `view` once.
+            bindings: [`${use.getter}();`, ...combined.bindings],
+          };
       }
     }
   }
@@ -8644,7 +8893,8 @@ class JavaScriptEmitter {
   }
 
   #identifier(symbol: Resolved.SymbolId, sourceName: string): string {
-    return isSafeIdentifier(sourceName) ? sourceName : `__binding${Number(symbol)}`;
+    return this.#termLocals.get(symbol) ??
+      (isSafeIdentifier(sourceName) ? sourceName : `__binding${Number(symbol)}`);
   }
 
   /**
@@ -10399,6 +10649,42 @@ class DeclarationEmitter {
         continue;
       }
       if (item.kind === "ExternImport") continue;
+      if (item.kind === "PatternAlias") continue;
+      if (item.kind === "PatternDeclaration") {
+        if (!item.exported) continue;
+        declarations.push(...this.#docs.lines(item.span, "", [], true));
+        declarations.push(`export declare const ${item.name}: {`);
+        declarations.push(
+          ...this.#docs.lines(
+            item.view.span,
+            "  ",
+            hexagonFaceDoc(item.view.binding.scheme),
+            true,
+          ),
+        );
+        const viewParameters = item.view.delegated || item.view.value.kind !== "Lambda"
+          ? ["value"]
+          : item.view.value.parameters.map(({ name }) => name);
+        declarations.push(
+          `  ${renderPatternMethod("view", item.view.binding.scheme, viewParameters, this.#faces)};`,
+        );
+        if (item.build !== undefined) {
+          declarations.push(
+            ...this.#docs.lines(
+              item.build.span,
+              "  ",
+              hexagonFaceDoc(item.build.binding.scheme),
+              true,
+            ),
+          );
+          declarations.push(
+            `  ${renderPatternMethod("build", item.build.binding.scheme, item.componentNames, this.#faces)};`,
+          );
+        }
+        declarations.push("};");
+        isExternalModule = true;
+        continue;
+      }
       if (item.kind === "TypeAlias") {
         if (!item.exported) continue;
         const variables = typeVariableNames(item.parameters);
@@ -11113,6 +11399,18 @@ interface PatternPlan {
   readonly bindings: readonly string[];
 }
 
+interface PatternViewUse {
+  readonly result: string;
+  readonly getter?: string;
+  readonly value: string;
+  readonly reference: Resolved.PatternReference;
+}
+
+interface PatternViewContext {
+  readonly byPosition: Map<string, PatternViewUse>;
+  readonly uses: PatternViewUse[];
+}
+
 /**
  * The parameter the emitted boundary guards take (Exceptions §7.6, #478).
  *
@@ -11237,6 +11535,10 @@ function expandOrPatterns(pattern: Core.Pattern): readonly Core.Pattern[] {
       return combinations(pattern.elements.map(expandOrPatterns)).map(
         (elements) => ({ ...pattern, elements }),
       );
+    case "Declared":
+      return combinations(pattern.components.map(expandOrPatterns)).map(
+        (components) => ({ ...pattern, components }),
+      );
     case "Record":
       return combinations(pattern.fields.map((field) =>
         expandOrPatterns(field.pattern).map((nested) => ({
@@ -11284,6 +11586,8 @@ function isSimplePayloadBindingPattern(pattern: Core.Pattern): boolean {
     case "Tuple":
       return pattern.elements.every(isSimplePayloadBindingPattern);
     case "Vector":
+      return false;
+    case "Declared":
       return false;
     case "Record":
       return pattern.fields.every((field) =>
@@ -13585,6 +13889,26 @@ function renderScheme(
   );
 }
 
+function renderPatternMethod(
+  name: string,
+  scheme: Typed.Scheme,
+  parameterNames: readonly string[],
+  faces: DeclarationFaces,
+): string {
+  if (scheme.type.kind !== "Function") {
+    return `${name}: ${renderScheme(scheme, faces)}`;
+  }
+  const quantified = Typed.quantifiedTypeVariables(scheme);
+  const variables = typeVariableNames(quantified);
+  const genericNames = quantified.map((variable) => variables.get(variable)!);
+  const generics = genericNames.length === 0 ? "" : `<${genericNames.join(", ")}>`;
+  const fallback = declarationParameterNames([], scheme.type.parameters.length);
+  const parameters = scheme.type.parameters.map((parameter, index) =>
+    `${parameterNames[index] ?? fallback[index]}: ${renderType(parameter, variables, faces, false)}`
+  );
+  return `${name}${generics}(${parameters.join(", ")}): ${renderType(scheme.type.result, variables, faces, true)}`;
+}
+
 function renderExternFunctionDeclaration(
   declaration: Core.ExternBlockItem["declarations"][number] & { readonly kind: "ExternFun" },
   exported: boolean,
@@ -14069,6 +14393,8 @@ function patternBindings(pattern: Core.Pattern): Core.Binding[] {
       ];
     case "Record":
       return pattern.fields.flatMap((field) => patternBindings(field.pattern));
+    case "Declared":
+      return pattern.components.flatMap(patternBindings);
     case "Constructor":
       return pattern.arguments.flatMap(patternBindings);
   }
@@ -14113,6 +14439,8 @@ function withoutUnboundVectors(pattern: Core.Pattern): Core.Pattern {
       };
     case "Constructor":
       return { ...pattern, arguments: pattern.arguments.map(withoutUnboundVectors) };
+    case "Declared":
+      return { ...pattern, components: pattern.components.map(withoutUnboundVectors) };
     case "Or":
       return { ...pattern, alternatives: pattern.alternatives.map(withoutUnboundVectors) };
     case "Binding":
@@ -14154,8 +14482,37 @@ function containsVectorPattern(pattern: Core.Pattern): boolean {
       return pattern.elements.some(containsVectorPattern);
     case "Record":
       return pattern.fields.some((field) => containsVectorPattern(field.pattern));
+    case "Declared":
+      return pattern.components.some(containsVectorPattern);
     case "Constructor":
       return pattern.arguments.some(containsVectorPattern);
+  }
+}
+
+function containsDeclaredPattern(pattern: Core.Pattern): boolean {
+  switch (pattern.kind) {
+    case "Declared":
+      return true;
+    case "As":
+      return containsDeclaredPattern(pattern.pattern);
+    case "Or":
+      return pattern.alternatives.some(containsDeclaredPattern);
+    case "Tuple":
+      return pattern.elements.some(containsDeclaredPattern);
+    case "Vector":
+      return pattern.elements.some(containsDeclaredPattern) ||
+        (pattern.rest?.pattern !== undefined && containsDeclaredPattern(pattern.rest.pattern));
+    case "Record":
+      return pattern.fields.some((field) => containsDeclaredPattern(field.pattern));
+    case "Constructor":
+      return pattern.arguments.some(containsDeclaredPattern);
+    case "Binding":
+    case "Wildcard":
+    case "Unit":
+    case "Integer":
+    case "Float":
+    case "String":
+      return false;
   }
 }
 

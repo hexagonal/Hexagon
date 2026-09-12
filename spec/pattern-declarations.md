@@ -145,7 +145,7 @@ match c
 Pattern Matching §7's usefulness matrix treats a total view as a **one-constructor shape**. Three clauses say what that means — specialisation, completeness, and the witness — and Pattern Matching §7.1 carries them by reference:
 
 - **Signatures.** In a column, the heads the arms write sort into **signatures**: the *constructor signature* — the constructors of the column's type present in the column, complete iff every constructor of the type is (Pattern Matching §7.1's ordinary rule) — and **one signature per declared pattern present**, each complete by itself, since a total view is a one-constructor shape. A pattern the arms do not write enters no column: **declaring a pattern over a type changes the verdict of no existing match.**
-- **Specialising a column on a head `c` of a signature** replaces the column by `c`'s sub-columns — a pattern's *n* components, a constructor's payload. A row headed by `c` contributes its sub-patterns; a wildcard or variable row contributes wildcards; a row headed by **any other signature's head** — another pattern over the type, or a constructor where a pattern is the head specialised on — is **dropped**, unless the row's pattern is **irrefutable at this column's type** — Pattern Matching §5.1's judgment, whatever form satisfies it: a declared pattern's row whose components are all irrefutable, a sole-constructor row whose components are, an exhaustive or-pattern, a tuple or record row of irrefutable parts; never a constructor of a union with more than one, whose row is refutable there — in which case it matches every value here and contributes wildcards, as a wildcard row does. Dropping is sound: the checker knows nothing about how two views of one value relate, and a claim that `(_, 0.0, _)hsl` covers some `(…)rgb` case would be a claim it cannot verify. It is conservative: a `match` whose arms mix `(…)rgb` and `(…)hsl` is exhaustive only through a catch-all, and the home module matching a nominal record both ways — `Point({x, y})` and `(r, t)polar` — takes the same rule.
+- **Specialising a column on a head `c` of a signature** replaces the column by `c`'s sub-columns — a pattern's *n* components, a constructor's payload. A row headed by `c` contributes its sub-patterns; a wildcard or variable row contributes wildcards; a row headed by **any other signature's head** — another pattern over the type, or a constructor where a pattern is the head specialised on — is **dropped**, unless the row's pattern is **irrefutable at this column's type** — Pattern Matching §5.1's judgment, whatever form satisfies it: a declared pattern's row whose components are all irrefutable, a sole-constructor row whose components are, an exhaustive or-pattern, a tuple or record row of irrefutable parts; never a constructor of a union with more than one, whose row is refutable there — in which case it matches every value here and contributes wildcards, as a wildcard row does. Dropping is sound: the checker knows nothing about how two views of one value relate, and a claim that `(_, 0.0, _)hsl` covers some `(…)rgb` case would be a claim it cannot verify. It is conservative: partial coverage through different views cannot be combined to establish exhaustiveness; one signature must cover the subject on its own, or a catch-all must do so. The home module matching a nominal record both ways — `Point({x, y})` and `(r, t)polar` — takes the same rule.
 - **Completeness, and the verdict.** A wildcard is *useful* in a column — the match is not exhaustive there — iff it is useful under **every complete signature present**, which for each means useful in the specialisation on some head of it, **and**, where the constructor signature present is incomplete or no signature is present, useful in the default matrix of the wildcard rows (Pattern Matching §7's ordinary incomplete-signature clause). The match is exhaustive, then, iff *some* complete signature's every specialisation is exhaustive: a value matched through any one view is matched, and a value the constructor arms cover is covered whatever pattern arms stand beside them.
 - **The witness is deterministic, and always pastable.** It is built from one signature, in a fixed order: the constructor signature where present, else the declared patterns in the order their names first appear in the arms, top to bottom — so a report names the type's own shape where the arms use it, and `(_, _, _)rgb` for arms that use only views. A pattern's name in a witness prints **as the arms wrote it**: a signature is built from names the arms resolved, every such name is bare (§3.1), and a name the arms resolved pastes back where they stand — Pattern Matching §7.3's first tier, and the only one a pattern ever needs.
 - **Reachability** is the same usefulness judgment with the arm's own pattern as the query, and the specialisation clause serves it unchanged. An arm under one pattern is shadowed by an arm under another only where that arm is a catch-all at the column: `(_, _, _)hsl` after `(_, _, _)rgb` is **dead** — the first arm is irrefutable, and Pattern Matching §7.2's catch-all rule stands — while `(_, 0.0, _)hsl` after `(0.0, 0.0, 0.0)rgb` is live, and stays live even where every black colour has zero saturation: the relation between two views is not the checker's to decide, so a dead arm under another view is not reported — the posture Pattern Matching §7.2 takes for a guard it cannot prove total. Exactness holds over what the checker can decide, and a cross-view relation is outside it. What it can decide it does: a query, **whatever its head**, is judged in its own specialisation **and**, as the wildcard is, beneath every other complete signature present — where the rows above are exhaustive under any of them — the type's constructors, or another view's — the arm is dead, so `(0)p` after `A` and `B` of `union Shade = A | B` is reported, no arm named as its shadower, since the constructor arms cover it jointly (Pattern Matching §7.2), and `(0)size` after `(True)flag` and `(False)flag` is reported the same way — as is a constructor arm `True` beneath them: exhaustiveness under some complete signature present means no value reaches the arm, whatever the arm's head, and an or-pattern row expands per alternative before any of this is judged (Pattern Matching §7.1). A wildcard row above shadows every form, and `(n, d)rat` after `(_, _)rat` is dead as any covered arm is. Within one view a literal component's identity is Pattern Matching §7.2's — its value at the component's type under that type's `Eq`, never its spelling — so `(-0.0, _, _)rgb` after `(0.0, _, _)rgb` is dead, `0.0` and `-0.0` being one `Float` literal under SameValueZero, exactly as `(-0, _)rat` after `(0, _)rat` is, `rat`'s components being `BigInt`, where the key is the value.
@@ -416,3 +416,196 @@ let (n, d, e)rat = create(1, 2)              -- ERROR: rat has 2 components; wri
 -- export const rat: { view(x: Rat): [bigint, bigint]; build(top: bigint, bottom: bigint): Rat };
 -- export const rgb: { view(c: Color): [number, number, number] };
 ```
+
+
+---
+
+## 12. Collision repairs use fresh aliases (September 2026; #834)
+
+**Correction to §3.3, §3.4, §7, and §11's collision diagnostics.** A pattern
+collision requires an explicit choice. Either competing pattern may be selected;
+a generic pattern is not preferred or rejected merely because it is generic.
+
+The diagnostic names every candidate. It offers a fixit for each candidate whose
+complete applied edit passes the checks below. Each fixit names the selected
+declaration, introduces a fresh private pattern alias, and rewrites
+the affected suffix use to that alias. For example, choosing `Generic.flagged`
+may introduce:
+
+```hexagon
+pattern genericFlagged = Generic.flagged
+```
+
+and change `(x)flagged` to `(x)genericFlagged`. Choosing `Ticket.flagged`
+may instead introduce `pattern ticketFlagged = Ticket.flagged` and change the
+use to `(x)ticketFlagged`. These are illustrative suggested names, not reserved
+spellings. The suggestion must be a legal, available name in the receiving
+module's resulting pattern namespace after any added import, respecting
+module-wide reservations and imported names. Introducing the alias must not
+change the resolution of uses outside the repair.
+
+The fixit is one complete edit: add the module import if needed, put the alias
+at module level before its rewritten uses, and update those uses. Within a
+`match`, it updates the affected arms together where they refer to the same
+selected view at the same pattern position. It does not blindly replace every
+occurrence of the old suffix: nested positions or other matches may require a
+different choice. The proposed edit must satisfy the existing applied-edit
+obligation: check all jointly rewritten uses and the resulting module, with no
+new diagnostics introduced by the edit. Other pre-existing collisions may remain.
+A candidate for which this check fails is still named in the diagnostic, but is
+not offered as a working fixit.
+
+An alias adds a spelling; it does not remove an imported contribution under the
+original spelling. Thus `pattern genericFlagged = Generic.flagged` alone does
+not settle a collision at `flagged`. Other uses left at that spelling still
+require their own explicit choice. A programmer may still write a same-name
+alias such as `pattern flagged = Ticket.flagged`; §3.3's own-declaration rule
+then applies. The generated collision repair uses a fresh name and changes the
+affected uses, rather than making that module-wide choice on the programmer's
+behalf.
+
+**Acceptance cases.** Check both candidate selections; a suggested name already
+declared or imported; an absent import for the selected home module; several
+arms using one view; and two independent pattern positions that choose different
+views. After applying a repair, the selected uses resolve to that declaration.
+An unrepaired use of the original contested spelling remains a collision.
+
+§13 supplies the collision-detection correction for an imported generic pattern
+that would otherwise displace a pattern reached through the expected type's home.
+
+---
+
+## 13. Imported generic patterns and the expected type (September 2026; #834)
+
+**Correction to §3.3 and §10's namespace summary.** In pattern position, the
+expected type may reveal a collision between an imported pattern and the
+expected type's home pattern. It never ranks those patterns or selects a winner.
+This supersedes the declaration-only claim in §3.3 to the extent stated below;
+the existing contests between imports and between a nominal declared subject's
+home and an import still apply.
+
+Read the expected type as it stands before unifying the subject of the imported
+candidate with it. At a `match`, `let`, or loop's outer pattern, type the
+scrutinee or element first, as usual. A supplying annotation may establish a
+parameter's expected type. The candidate's own subject or component patterns
+must not manufacture the expected type for this collision check.
+
+- An own pattern declaration or explicit alias retains §3.3's priority: the
+  programmer has chosen that pattern. Ordinary subject and component checking
+  still applies.
+- Existing namespace contests remain errors. A type mismatch does not remove
+  a contestant or allow the compiler to select the other pattern.
+- Where an imported candidate would otherwise answer and the expected type
+  has a determined nominal head, inspect that type's home exports using the
+  existing door's eligibility rule. A different pattern with the same suffix
+  is a contestant even when the imported candidate's declared subject is a
+  type variable. Refuse the use and offer §12's explicit-choice repairs.
+  Finding the same declaration by both routes creates no collision.
+- For an imported pattern whose declared subject is a type variable, an
+  undetermined expected subject is a refusal: require an annotation establishing
+  the subject type or an explicit pattern alias. Do not infer a subject from
+  that candidate and then use the inferred type to justify selecting it.
+  This is the completely generic subject case; a subject such as `Box(a)`
+  has a nominal head and is not a type-variable subject.
+- A determined structural subject has no home. Once the existing namespace
+  checks pass, the imported pattern may be used there. At a determined nominal
+  subject whose home has no eligible competing pattern, it may likewise be
+  used. Both cases retain ordinary type checking.
+
+The no-name case still uses the expected-type door under §3.3. Expression
+position still resolves only through the pattern namespace: these checks add
+neither an expression-side door nor a subject-annotation requirement to suffix
+construction. Generic patterns remain eligible for ordinary imports.
+
+**Regression case.** `Ticket` exports a pure, total
+`pattern flagged(flag: Bool): Ticket` whose view returns `True`.
+`Generic` exports a pure, total `pattern flagged<a>(flag: Bool): a`
+whose view returns `False`. A client obtains a `Ticket` through `Mid`
+without importing `Ticket` and matches:
+
+```hexagon
+match ticket
+    (True)flagged => "yes"
+    (False)flagged => "no"
+```
+
+Without `import Generic`, the home door selects `Ticket.flagged` and the
+result is `"yes"`. Adding `import Generic` must produce a collision, never
+silently change the result to `"no"`. The two §12 repairs select the home
+pattern or the generic pattern explicitly, with distinct fresh aliases and
+the affected arms rewritten together.
+
+Also check an undetermined parameter subject with an imported generic pattern
+(refused), the same use supplied with a subject annotation (check its home),
+and the same use through an explicit alias (ordinary inference is allowed).
+Check a structural subject, a nominal subject with no home competitor, both
+patterns explicitly imported, and one declaration reached by both routes.
+
+
+---
+
+## 14. Effect marks on suffix construction (September 2026; #834)
+
+**Correction to §3.2, §7, and §11.** A suffix construction reports the outer
+effect of its `build` at the call's instantiation, exactly as an ordinary call
+does (Effects §3). The mark is attached to the end of the pattern name:
+
+```hexagon
+(x)name     // pure build
+(x)name!    // effectful build
+(x)name?    // effect-polymorphic build
+```
+
+The three forms correspond to `build(x)`, `build!(x)`, and `build?(x)`.
+The bare form requires the pure constant; `!` requires the impure constant;
+`?` requires an effect variable, with Effects §3's ordinary ownership and
+call-site rules. It does not mean unknown purity. A polymorphic build
+instantiated at pure arguments uses the bare form when its outer effect solves
+to pure. Wrong or missing marks receive the ordinary call-mark diagnostic and
+a repair at the suffix's mark position.
+
+This changes no declaration rule: `view` remains pure, `build` may have any
+ordinary function effect permitted by its type, and a match-only pattern still
+has no construction. Pattern-position uses never accept a mark. A marked
+matching form is refused with removal of the mark as its repair.
+
+**Grammar and attachment.** The component list, closing parenthesis, and suffix
+name retain §3.1's adjacency rule. An optional single `!` or `?` is glued
+directly to the suffix name and belongs to that construction. A floating mark
+or two marks is refused. The mark is not part of the pattern's name or its
+identity. The completed construction remains a primary: field access, dot
+calls, and calls may follow it.
+
+For a constructed function, the suffix's mark and a call on the result must
+remain distinct. In `(x)factory!(y)`, `!` marks the construction and the
+following call on its result is bare. To mark the call on the result, group the
+constructed value, as with other compound callees:
+
+```hexagon
+((x)factory)!(y)     // pure construction, effectful call on the result
+((x)factory!)?(y)   // effectful construction, effect-polymorphic call on the result
+```
+
+Each mark is checked against its own call. Argument evaluation is still once,
+left to right. An effectful argument does not itself require a mark on a pure
+build: `(readTop!(), 2)rat` has an effectful argument call and pure Rat
+construction. Marked suffixes emit the same JavaScript call shape as unmarked
+ones; the marks are checked, not emitted.
+
+**Rat.** `Rat.create` is pure, so `(1, 2)rat` is unmarked. Its documented
+zero-denominator exception does not change its effect. Both `(1, 2)rat!` and
+`(1, 2)rat?` are wrong-mark errors. Matching `(n, d)rat` is likewise
+unmarked.
+
+**Acceptance cases.** Cover all three build effects and wrong/missing marks;
+an effect-polymorphic build instantiated at pure and impure callbacks;
+effectful argument evaluation under a pure build; the two distinct calls when
+construction returns a function; adjacency and duplicate-mark refusals; marked
+matching refusals; and unchanged pure Rat construction. Test both one and
+several components, with the ordinary call's effect inference and argument
+evaluation order.
+
+**Cross-spec edit note.** This section extends Effects §3.2's mark anchor,
+Lexer §8.1's mark adjacency, and Operators §10's postfix forms to suffix
+construction. Those sections' ordinary-call rules continue to govern ordinary
+calls; the suffix's own trailing mark is the additional anchor.

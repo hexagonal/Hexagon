@@ -10,6 +10,56 @@ import { parse } from "../parser/parser.js";
 import { resolve } from "./resolver.js";
 
 describe("resolve", () => {
+  test("rejects duplicate and unknown pattern members without reclassifying recovery", () => {
+    const module = resolveSource(
+      "pattern p(value: Int): Int\n" +
+        "    view(value) = value\n" +
+        "    view(value) = value\n" +
+        "    build(value) = value\n" +
+        "    build(value) = value\n" +
+        "    other(value) = value",
+    );
+
+    expect(module.diagnostics.map(({ message }) => message)).toEqual([
+      "a pattern declares `view` at most once",
+      "a pattern declares `build` at most once",
+      "a pattern member is `view` or `build`",
+    ]);
+  });
+
+  test("an exported pattern contests foreign and constraint-member term exports", () => {
+    const module = resolveSource(
+      'extern from "host"\n' +
+        "    export fun foreign(value: Int): Int\n" +
+        "export constraint C<a> =\n" +
+        "    member(value: a) -> Int\n" +
+        "export pattern foreign(value: Int): Int\n" +
+        "    view(value) = value\n" +
+        "export pattern member(value: Int): Int\n" +
+        "    view(value) = value",
+    );
+
+    expect(module.diagnostics.map(({ message }) => message)).toEqual([
+      "this module already exports `foreign`; an exported pattern and an exported term cannot share a name",
+      "this module already exports `member`; an exported pattern and an exported term cannot share a name",
+    ]);
+  });
+
+  test("a pattern name is visible recursively inside its member bodies", () => {
+    const module = resolveSource(
+      "pattern recursive(value: Int): Int\n" +
+        "    view(value) =\n" +
+        "        let (inner)recursive = value\n" +
+        "        inner\n",
+    );
+
+    expect(module.diagnostics).toEqual([]);
+    expect(module.items[0]).toMatchObject({
+      kind: "PatternDeclaration",
+      view: { value: { kind: "Lambda", body: { kind: "Block" } } },
+    });
+  });
+
   test("gives extern terms and opaque types stable module identities", () => {
     const module = resolveSource(
       "extern from \"tiny-json\"\n" +

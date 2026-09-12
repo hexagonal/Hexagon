@@ -101,6 +101,9 @@ export function collectTypeOccurrences(module: Typed.Module): readonly TypeOccur
         publishSymbol(pattern.symbol, pattern.text, pattern.nameSpan);
         for (const argument of pattern.arguments) visitPattern(argument);
         return;
+      case "Declared":
+        for (const component of pattern.components) visitPattern(component);
+        return;
       default:
         return;
     }
@@ -131,6 +134,12 @@ export function collectTypeOccurrences(module: Typed.Module): readonly TypeOccur
           );
           visitExpr(member.value);
         }
+        return;
+      case "PatternDeclaration":
+        visitExpr(item.view.value);
+        if (item.build !== undefined) visitExpr(item.build.value);
+        return;
+      case "PatternAlias":
         return;
       case "RecordDeclaration":
         for (const field of item.fields) {

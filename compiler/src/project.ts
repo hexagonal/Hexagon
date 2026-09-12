@@ -331,6 +331,19 @@ export function compileProject(
   const byPath = new Map(seated.map((unit) => [unit.path, unit]));
   const parsed = new Map(seated.map((unit) => [unit.path, unit.parsed]));
   const sources = new Map(seated.map((unit) => [unit.path, unit.source]));
+  // Unknown suffix diagnostics need the program's export-name inventory before
+  // dependency-ordered checking has necessarily reached the exporting module.
+  // Faces still come only from checked homes; this index carries names and
+  // module identities solely for package-valid import suggestions.
+  const patternExports = new Map<string, string[]>();
+  for (const unit of seated) {
+    for (const item of unit.parsed.items) {
+      if (item.kind !== "PatternDeclaration" || !item.exported) continue;
+      const modules = patternExports.get(item.name.text) ?? [];
+      if (!modules.includes(unit.fullName)) modules.push(unit.fullName);
+      patternExports.set(item.name.text, modules);
+    }
+  }
 
   /**
    * The edges each module's imports name, keyed by the **written spelling** —
@@ -574,6 +587,24 @@ export function compileProject(
         name: byPath.get(preludePath)!.fullName,
       }];
     });
+    const patternHomes: ModuleImport[] = [];
+    for (const [homePath, home] of checked) {
+      const interface_ = moduleInterface(home.resolved);
+      if (interface_.patterns.size === 0) continue;
+      patternHomes.push({
+        interface: interface_,
+        specifier: relativeSpecifier(path, homePath),
+        name: home.name,
+      });
+      const published = new Map(home.typed.symbols.map((symbol) => [symbol.id, symbol.scheme]));
+      for (const reference of interface_.patterns.values()) {
+        for (const symbol of [reference.view, reference.build]) {
+          if (symbol === undefined) continue;
+          const scheme = published.get(symbol);
+          if (scheme !== undefined) importedSchemes.set(symbol, scheme);
+        }
+      }
+    }
     const unit = byPath.get(path)!;
     // Modules §5.1's "one edit per module, however many seats draw the report".
     // One writer, handed to **both** passes: the resolver reports rule 1 at the
@@ -602,6 +633,7 @@ export function compileProject(
       // reads the text.
       text: source.text,
       imports,
+      patternHomes,
       // Modules §5.1 rule 1's repair clause; see `importRepairFor`.
       importRepair: (written: string) =>
         importRepairFor(written, unit, packagesByName, index),
@@ -673,6 +705,7 @@ export function compileProject(
       programNominals,
       programOperations,
       sourceText: source.text,
+      patternExports,
       // The same fact `resolve` reads, for the same one purpose: the constraint
       // alias's realias line (Packages §3.3).
       ...(unit.packageName === undefined ? {} : { packageName: unit.packageName }),
@@ -931,6 +964,9 @@ export function compileProject(
     return module === undefined ? [] : [module];
   });
 
+  const finalDiagnostics = validatingPatternFixes > 0
+    ? diagnostics.toArray()
+    : validatePatternFixes(diagnostics.toArray(), files, options);
   return {
     modules,
     // Present exactly when some emitted `.d.ts` imports it (FFI Part 1 §8.3
@@ -957,8 +993,103 @@ export function compileProject(
         }
       : undefined,
     fundamentalInstances,
-    diagnostics: diagnostics.toArray(),
+    diagnostics: finalDiagnostics,
   };
+}
+
+/** Guards the recursive compile used to prove a pattern collision repair. */
+let validatingPatternFixes = 0;
+
+function validatePatternFixes(
+  diagnostics: readonly Diagnostics.Diagnostic[],
+  files: readonly Source.File[],
+  options: ProjectOptions,
+): readonly Diagnostics.Diagnostic[] {
+  const diagnosticKey = (
+    diagnostic: Diagnostics.Diagnostic,
+    mapOffset: (fileId: number, offset: number) => number | undefined = (_fileId, offset) => offset,
+  ): string | undefined => {
+    const fileId = Number(diagnostic.primary.fileId);
+    const start = mapOffset(fileId, diagnostic.primary.start.offset);
+    const end = mapOffset(fileId, diagnostic.primary.end.offset);
+    return start === undefined || end === undefined
+      ? undefined
+      : `${fileId}:${start}:${end}:${diagnostic.severity}:${diagnostic.message}`;
+  };
+  const originalCounts = new Map<string, number>();
+  for (const diagnostic of diagnostics) {
+    const key = diagnosticKey(diagnostic)!;
+    originalCounts.set(key, (originalCounts.get(key) ?? 0) + 1);
+  }
+  const cache = new Map<string, boolean>();
+  for (const diagnostic of diagnostics) {
+    const proposed = diagnostic.fixes?.filter(({ message }) => message.startsWith("choose `"));
+    if (proposed === undefined || proposed.length === 0) continue;
+    const valid = proposed.filter((fix) => {
+      const key = JSON.stringify(fix.edits.map(({ span, replacement }) => [
+        Number(span.fileId), span.start.offset, span.end.offset, replacement,
+      ]));
+      const cached = cache.get(key);
+      if (cached !== undefined) return cached;
+      const byFile = new Map<number, Diagnostics.Edit[]>();
+      for (const edit of fix.edits) {
+        const list = byFile.get(Number(edit.span.fileId)) ?? [];
+        list.push(edit);
+        byFile.set(Number(edit.span.fileId), list);
+      }
+      const rewritten = files.map((file) => {
+        const edits = byFile.get(Number(file.id));
+        if (edits === undefined) return file;
+        let text = file.text;
+        for (const edit of [...edits].sort((a, b) => b.span.start.offset - a.span.start.offset)) {
+          text = text.slice(0, edit.span.start.offset) + edit.replacement + text.slice(edit.span.end.offset);
+        }
+        return new Source.File(file.id, file.path, text);
+      });
+      validatingPatternFixes += 1;
+      let checked: CompiledProject;
+      try {
+        checked = compileProject(rewritten, options);
+      } finally {
+        validatingPatternFixes -= 1;
+      }
+      const orderedEdits = new Map(
+        [...byFile].map(([fileId, edits]) => [
+          fileId,
+          [...edits].sort((a, b) => a.span.start.offset - b.span.start.offset),
+        ]),
+      );
+      const mapOffset = (fileId: number, offset: number): number | undefined => {
+        let delta = 0;
+        for (const edit of orderedEdits.get(fileId) ?? []) {
+          const newStart = edit.span.start.offset + delta;
+          const newEnd = newStart + edit.replacement.length;
+          if (offset < newStart) break;
+          if (offset < newEnd) return undefined;
+          delta += edit.replacement.length - (edit.span.end.offset - edit.span.start.offset);
+        }
+        return offset - delta;
+      };
+      const remaining = new Map(originalCounts);
+      let preservesExisting = true;
+      for (const reported of checked.diagnostics) {
+        const key = diagnosticKey(reported, mapOffset);
+        const count = key === undefined ? 0 : remaining.get(key) ?? 0;
+        if (count === 0) {
+          preservesExisting = false;
+          break;
+        }
+        remaining.set(key!, count - 1);
+      }
+      const accepted = checked.diagnostics.length < diagnostics.length && preservesExisting;
+      cache.set(key, accepted);
+      return accepted;
+    });
+    const mutable = diagnostic as { fixes?: readonly Diagnostics.Fix[] };
+    if (valid.length === 0) delete mutable.fixes;
+    else mutable.fixes = valid;
+  }
+  return diagnostics;
 }
 
 /**

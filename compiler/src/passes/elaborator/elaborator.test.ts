@@ -352,6 +352,10 @@ function visitItems(
       case "Honor":
         for (const member of item.members) visitExpr(member.value, visit);
         break;
+      case "PatternDeclaration":
+        visitExpr(item.view.value, visit);
+        if (item.build !== undefined) visitExpr(item.build.value, visit);
+        break;
       case "ExprItem":
         visitExpr(item.expression, visit);
         break;
@@ -368,6 +372,7 @@ function visitItems(
       case "RecordDeclaration":
       case "Exception":
       case "ConstraintDeclaration":
+      case "PatternAlias":
       case "Union":
       case "ErrorItem":
         break;
