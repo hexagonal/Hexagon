@@ -70,7 +70,15 @@ const HELPER: readonly [string, string] = [
   "export let count: Int = 0\n" +
   "export let text: String = \"x\"\n" +
   "export let go = (n: Int): Int => n\n" +
-  "export let nothing: Option(a) = None\n",
+  "export let pair: (Int, Int) = (0, 0)\n" +
+  "export let origin: {x: Int} = {x = 0}\n" +
+  "export let many: Vector(Int) = [0]\n" +
+  "export let nothing: Option(a) = None\n" +
+  "export let empty: Vector(a) = []\n" +
+  "export union Blob = Blob\n" +
+  "export let blobPair: (Blob, Blob) = (Blob, Blob)\n" +
+  "export let blobRecord: {x: Blob} = {x = Blob}\n" +
+  "export let blobs: Vector(Blob) = [Blob]\n",
 ];
 
 /** A union with no `Eq`, and the same union with one. */
@@ -1355,29 +1363,121 @@ describe("a term's spelling in pattern position (§2.5, §12)", BUDGET, () => {
     ]);
   });
 
-  test("a polymorphic term is declined its guard", () => {
-    // `#termSpellingGuardOffered` declines a term whose scheme has variables: its
-    // type would have to be instantiated, and instantiating mints variables and
-    // requirements into a program that is already refused. The cost is a fixit that
-    // would have worked — `Helper.nothing: Option(a)` at `Option(Int)` — and the
-    // control below is what says so, so the line is a measured choice rather than an
-    // accident.
-    expect(diagnostics([HELPER, [
-      "/main.hex",
-      "module Main\n\nimport Helper\n\n" +
-      "export fun f(o: Option(Int)): String =\n" +
+  test("structural and built-in collection equality offer the guard", () => {
+    const cases = [
+      ["(Int, Int)", "Helper.pair"],
+      ["{x: Int}", "Helper.origin"],
+      ["Vector(Int)", "Helper.many"],
+    ] as const;
+    for (const [type, spelling] of cases) {
+      expect(diagnostics([HELPER, [
+        "/main.hex",
+        termArm("value", type, spelling, "import Helper\n"),
+      ]])).toEqual([
+        `\`${spelling}\` is a value, not a pattern; bind a name and test it in ` +
+        `a guard: \`x when x == ${spelling}\``,
+      ]);
+      expect(diagnostics([HELPER, [
+        "/main.hex",
+        termGuard("value", type, spelling, "import Helper\n"),
+      ]])).toEqual([]);
+    }
+  });
+
+  test("a polymorphic term is proved without changing inference state", () => {
+    const source = "module Main\n\nimport Helper\n\n" +
+      "export fun ints(o: Option(Int)): String =\n" +
         "    match o\n" +
         "        Helper.nothing => \"z\"\n" +
-        "        _ => \"ok\"\n",
-    ]])).toEqual(["`Helper.nothing` is a value, not a pattern"]);
+        "        _ => \"ok\"\n\n" +
+      "export fun strings(o: Option(String)): String =\n" +
+        "    match o\n" +
+        "        Helper.nothing => \"z\"\n" +
+        "        _ => \"ok\"\n\n" +
+      "export fun nested(o: Option(Option(Int))): String =\n" +
+        "    match o\n" +
+        "        Helper.nothing => \"z\"\n" +
+        "        _ => \"ok\"\n\n" +
+      "export fun intVectors(v: Vector(Int)): String =\n" +
+        "    match v\n" +
+        "        Helper.empty => \"z\"\n" +
+        "        _ => \"ok\"\n\n" +
+      "export fun stringVectors(v: Vector(String)): String =\n" +
+        "    match v\n" +
+        "        Helper.empty => \"z\"\n" +
+        "        _ => \"ok\"\n";
+    expect(diagnostics([HELPER, ["/main.hex", source]])).toEqual([
+      "`Helper.nothing` is a value, not a pattern; bind a name and test it in a " +
+      "guard: `x when x == Helper.nothing`",
+      "`Helper.nothing` is a value, not a pattern; bind a name and test it in a " +
+      "guard: `x when x == Helper.nothing`",
+      "`Helper.nothing` is a value, not a pattern; bind a name and test it in a " +
+      "guard: `x when x == Helper.nothing`",
+      "`Helper.empty` is a value, not a pattern; bind a name and test it in a " +
+      "guard: `x when x == Helper.empty`",
+      "`Helper.empty` is a value, not a pattern; bind a name and test it in a " +
+      "guard: `x when x == Helper.empty`",
+    ]);
+    // Each offered replacement compiles, and the first proof has neither bound the
+    // shared scheme variable to `Int` nor minted state observed by the second use.
     expect(diagnostics([HELPER, [
       "/main.hex",
-      "module Main\n\nimport Helper\n\n" +
-      "export fun f(o: Option(Int)): String =\n" +
-        "    match o\n" +
-        "        x when x == Helper.nothing => \"z\"\n" +
-        "        _ => \"ok\"\n",
+      source
+        .replaceAll("Helper.nothing =>", "x when x == Helper.nothing =>")
+        .replaceAll("Helper.empty =>", "x when x == Helper.empty =>"),
     ]])).toEqual([]);
+  });
+
+  test("the read-only proof withholds guards whose comparison would fail", () => {
+    const helper: readonly [string, string] = [
+      "/helper.hex",
+      HELPER[1] +
+      "export let split<a>: (Option(a), Option(a)) = (None, None)\n",
+    ];
+    const cases = [
+      ["(Helper.Blob, Helper.Blob)", "Helper.blobPair"],
+      ["{x: Helper.Blob}", "Helper.blobRecord"],
+      ["Vector(Helper.Blob)", "Helper.blobs"],
+    ] as const;
+    for (const [type, spelling] of cases) {
+      expect(diagnostics([helper, [
+        "/main.hex",
+        termArm("value", type, spelling, "import Helper\n"),
+      ]])).toEqual([`\`${spelling}\` is a value, not a pattern`]);
+      expect(diagnostics([helper, [
+        "/main.hex",
+        termGuard("value", type, spelling, "import Helper\n"),
+      ]])).toContain(
+        "type `Blob` has no `Eq` instance; it could only be declared in module " +
+        "`Helper` (declares `Blob`) or the module declaring `Eq`; add `derives Eq` " +
+        "to the declaration of `Blob`",
+      );
+    }
+    // One quantified variable appears twice: one speculative substitution map must
+    // reject two different concrete arguments even though the position has `Eq`.
+    expect(diagnostics([helper, [
+      "/main.hex",
+      termArm(
+        "value",
+        "(Option(Int), Option(String))",
+        "Helper.split",
+        "import Helper\n",
+      ),
+    ]])).toEqual(["`Helper.split` is a value, not a pattern"]);
+    // The `Eq<Option>` head exists, but its parameter obligation does not: merely
+    // finding the instance is not enough to offer a comparison that still fails.
+    expect(diagnostics([helper, [
+      "/main.hex",
+      termArm("value", "Option(Helper.Blob)", "Helper.nothing", "import Helper\n"),
+    ]])).toEqual(["`Helper.nothing` is a value, not a pattern"]);
+    expect(diagnostics([helper, [
+      "/main.hex",
+      termGuard("value", "Option(Helper.Blob)", "Helper.nothing", "import Helper\n"),
+    ]])).toContain(
+      "type `Blob` has no `Eq` instance; it could only be declared in module " +
+      "`Helper` (declares `Blob`) or the module declaring `Eq`; add `derives Eq` " +
+      "to the declaration of `Blob`",
+    );
   });
 
   test("and only where a guard may be written at all (§3)", () => {
