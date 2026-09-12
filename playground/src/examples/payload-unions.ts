@@ -4,7 +4,7 @@ export const payloadUnions: PlaygroundExample = {
   id: "payload-unions",
   title: "Payload Unions",
   description: "Construct tagged values and bind their payloads in an exhaustive match.",
-  source: `module Main
+  source: `module Constructors
 
 union Shape =
     | Circle(radius: Float)

@@ -11,7 +11,7 @@ export const helloWorld: PlaygroundExample = {
   title: "A Tour of Hexagon",
   description: "A commented tour of the language slices implemented so far.",
   source: `// Every file declares its module, and the name is the module's identity.
-module Main
+module Tour
 
 // Unions describe a closed set of alternatives.
 union Suit =

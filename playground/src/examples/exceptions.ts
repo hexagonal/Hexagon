@@ -19,7 +19,7 @@ export let withdraw(balance: Int, amount: Int): Int =
 
 end module Ledger
 
-module Main
+module Exceptions
 
 import Ledger
 

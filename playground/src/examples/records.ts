@@ -4,7 +4,7 @@ export const records: PlaygroundExample = {
   id: "records",
   title: "Records and Rows",
   description: "Annotate open records, update them immutably, and destructure selected fields.",
-  source: `module Main
+  source: `module Records
 
 fun guestName(reservation: {guest: String, ...}) = reservation.guest
 

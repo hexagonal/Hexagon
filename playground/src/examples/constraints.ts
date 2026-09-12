@@ -4,7 +4,7 @@ export const constraints: PlaygroundExample = {
   id: "constraints",
   title: "Constraints",
   description: "Honor the prelude Show constraint for a type and use it from generic code.",
-  source: `module Main
+  source: `module Constraints
 
 // Show is a prelude constraint used by string interpolation.
 record Person = {name: String, age: Int}

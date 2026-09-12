@@ -4,7 +4,7 @@ export const recursion: PlaygroundExample = {
   id: "recursion",
   title: "Recursive Functions",
   description: "An annotated recursive function evaluated at module top level.",
-  source: `module Main
+  source: `module Recursion
 
 // fun introduces a directly recursive binding.
 fun factorial(n: Int) =
