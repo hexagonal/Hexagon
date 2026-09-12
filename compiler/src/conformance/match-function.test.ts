@@ -155,7 +155,7 @@ describe("a scrutinee-less `match` is a unary function literal", () => {
    */
   test("with no seat, both spellings still take §6.1's refusal — with the rider", () => {
     const armsOnly = "    n when n > 0 => \"positive\"\n    _ => \"other\"\n";
-    const rider = "cannot match on a value of abstract type; the parameter's " +
+    const rider = "cannot match on a value of abstract type `a`; the parameter's " +
       "type is not determined here; give the parameter a type — bind the " +
       "function with its own annotated `let`, or use it where its parameter " +
       "type is known";

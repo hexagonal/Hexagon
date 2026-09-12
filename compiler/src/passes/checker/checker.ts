@@ -8533,7 +8533,7 @@ class Checker {
   }
 
   /**
-   * Pattern Matching §6.1's abstract-type refusal, in its two readings.
+   * Pattern Matching §6.1's abstract-type refusal, in its three readings.
    *
    * The refusal itself **stands unchanged** under #513 — a scrutinee whose type
    * is a variable still cannot be matched. What changed is which programs reach
@@ -8551,20 +8551,25 @@ class Checker {
    *   §6.7 spellings, and neither is "annotate the parameter": a match
    *   function's parameter is compiler-fresh and cannot carry one, which is what
    *   keeps the desugar-equality (one diagnostic for both spellings) true.
+   * - Every other **undetermined inference variable** names the value's type and
+   *   points to the supplying seat the writer can add directly: an ascription on
+   *   the matched expression.
    */
   #abstractScrutineeRefusal(
     scrutinee: Resolved.Expr,
     variable: Variable,
   ): string {
-    const subject = "cannot match on a value of abstract type" +
-      (variable.rigidName === undefined ? "" : ` \`${variable.rigidName}\``);
+    const subject = `cannot match on a value of abstract type \`${this.#display(variable)}\``;
     const parameter = variable.rigidName === undefined &&
       scrutinee.kind === "Name" && this.#lambdaParameters.has(scrutinee.symbol);
-    return `${subject}; ` + (parameter
+    return `${subject}; ` + (variable.rigidName !== undefined
+      ? "use the operations its constraints provide"
+      : parameter
       ? "the parameter's type is not determined here; give the parameter a " +
         "type — bind the function with its own annotated `let`, or use it " +
         "where its parameter type is known"
-      : "use the operations its constraints provide");
+      : "the value's type is not determined here; give the matched expression " +
+        "a concrete type with an ascription");
   }
 
   /**
