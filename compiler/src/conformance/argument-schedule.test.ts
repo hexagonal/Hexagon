@@ -223,7 +223,7 @@ describe("the pipe seat supplies (§4.3, Operators §8)", () => {
         "    n when n < 0 => \"negative\"\n" +
         "    _ => \"other\"\n",
     )).toEqual([
-      "cannot match on a value of abstract type; the parameter's type is not " +
+      "cannot match on a value of abstract type `a`; the parameter's type is not " +
       "determined here; give the parameter a type — bind the function with its " +
       "own annotated `let`, or use it where its parameter type is known",
     ]);
@@ -342,7 +342,7 @@ describe("the dot spelling checks as a named call (Method Syntax §2.2)", () => 
         "    _ => \"other\"\n" +
         ")\n",
     )).toEqual([
-      "cannot match on a value of abstract type; the parameter's type is not " +
+      "cannot match on a value of abstract type `a`; the parameter's type is not " +
       "determined here; give the parameter a type — bind the function with its " +
       "own annotated `let`, or use it where its parameter type is known",
     ]);
