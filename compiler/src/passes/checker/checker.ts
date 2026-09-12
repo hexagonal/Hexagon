@@ -1065,6 +1065,19 @@ interface RequirementComponent {
   readonly requirement: Requirement;
 }
 
+interface EvidenceObligation {
+  readonly key: string;
+  readonly name: Typed.ConstraintName;
+  readonly identity: string;
+  readonly type: Mono;
+}
+
+type EvidenceSelection =
+  | { readonly kind: "components"; readonly obligations: readonly EvidenceObligation[] }
+  | { readonly kind: "bool" }
+  | { readonly kind: "instance"; readonly instance: Resolved.HonorItem }
+  | { readonly kind: "missing" };
+
 interface Scheme {
   readonly variables: readonly Variable[];
   readonly type: Mono;
@@ -9193,27 +9206,14 @@ class Checker {
 
   /**
    * Whether `x when x == Term` compiles at this position — §2.5's two conditions,
-   * asked without reporting and without binding anything.
+   * asked without reporting, minting, or binding anything.
    *
-   * Deliberately **conservative in one direction only**: every answer of `true`
-   * must be a guard that compiles, and an answer of `false` costs the reader a
-   * fixit they could have used. That asymmetry is the spec's own ("a fixit that
-   * would not compile being worse than none"), and it is what licenses the two
-   * approximations here rather than a second unifier and a second instance
-   * resolver:
-   *
-   * - the equality is read off the **instance table** (`#supportsTarget`), so a
-   *   position whose `Eq` is satisfied *structurally* — a tuple, a record, a
-   *   `Vector` — answers `false` and the guard is withheld though it would have
-   *   worked. Those subjects never enter the table at all (`#subjectKey`), and
-   *   reproducing `#validate`'s componentwise walk here would be a second copy of
-   *   the decision procedure for a fixit's sake.
-   * - the unifiability test is `#couldUnify`, which declines every shape it is not
-   *   sure of.
-   *
-   * A term whose scheme is polymorphic is declined for the same reason: its type
-   * would have to be instantiated, and instantiating mints variables and
-   * requirements into a program that is already refused.
+   * The ordinary expression path cannot be used speculatively here: instantiation
+   * mints variables and requirements, unification binds them, and evidence
+   * selection records dictionaries. The two read-only proofs below therefore
+   * mirror exactly the parts this comparison needs: scheme instantiation is a
+   * substitution map, and evidence follows `#validate` through structural
+   * components and instance contexts.
    */
   #termSpellingGuardOffered(
     refusal: NonNullable<Resolved.ErrorPattern["termSpelling"]>,
@@ -9227,11 +9227,23 @@ class Checker {
     if (!this.#armGuardSeat || this.#inOrAlternative || this.#armHasGuard) return false;
     if (refusal.symbol === undefined) return false;
     const scheme = this.#schemes.get(refusal.symbol);
-    if (scheme === undefined || scheme.variables.length > 0) return false;
-    const position = this.#prune(expected);
-    if (!this.#couldUnify(scheme.type, position)) return false;
-    if (!this.#supportsTarget(position, "Eq")) return false;
-    return !refusal.negated || this.#supportsTarget(position, "Signed");
+    if (scheme === undefined) return false;
+    const position = this.#peek(expected);
+    const quantified = new Set(scheme.variables.map(({ id }) => id));
+    const substitutions = new Map<number, Mono>();
+    if (!this.#couldUnify(scheme.type, position, quantified, substitutions)) return false;
+    for (const variable of scheme.variables) {
+      const substituted = substitutions.get(variable.id);
+      if (
+        substituted !== undefined &&
+        variable.requirements.some(({ identity }) =>
+          !this.#evidenceAvailable(substituted, identity)
+        )
+      ) return false;
+    }
+    if (!this.#evidenceAvailable(position, EQ_IDENTITY)) return false;
+    return !refusal.negated ||
+      this.#evidenceAvailable(position, preRegisteredConstraintIdentity("Signed"));
   }
 
   /**
@@ -9243,20 +9255,214 @@ class Checker {
    * flexible variable on either side takes any type and answers `true`; a declared
    * one takes only itself, which the identity test above it has already asked.
    */
-  #couldUnify(left: Mono, right: Mono): boolean {
-    const first = this.#prune(left);
-    const second = this.#prune(right);
+  #couldUnify(
+    left: Mono,
+    right: Mono,
+    quantified: ReadonlySet<number> = new Set(),
+    substitutions: Map<number, Mono> = new Map(),
+  ): boolean {
+    const first = this.#peek(left);
+    const second = this.#peek(right);
     if (first === second) return true;
-    if (first.kind === "Variable") return first.rigidName === undefined;
+    if (first.kind === "Variable") {
+      if (quantified.has(first.id)) {
+        const existing = substitutions.get(first.id);
+        if (existing !== undefined) {
+          return this.#couldUnify(existing, second, quantified, substitutions);
+        }
+        substitutions.set(first.id, second);
+        return true;
+      }
+      return first.rigidName === undefined;
+    }
     if (second.kind === "Variable") return second.rigidName === undefined;
+    if (first.kind === "Record" && second.kind === "Record") {
+      const leftFields = first.fields;
+      const rightFields = second.fields;
+      for (const [name, field] of leftFields) {
+        const other = rightFields.get(name);
+        if (other === undefined) {
+          if (second.tail === undefined) return false;
+        } else if (!this.#couldUnify(field, other, quantified, substitutions)) return false;
+      }
+      for (const name of rightFields.keys()) {
+        if (!leftFields.has(name) && first.tail === undefined) return false;
+      }
+      if (first.tail !== undefined && second.tail !== undefined) {
+        return this.#couldUnify(first.tail, second.tail, quantified, substitutions);
+      }
+      return true;
+    }
     const shape = typeShape(first);
     const other = typeShape(second);
     if (shape === undefined || other === undefined) return false;
     return shape.head === other.head &&
       shape.children.length === other.children.length &&
       shape.children.every((child, index) =>
-        this.#couldUnify(child, other.children[index]!)
+        this.#couldUnify(child, other.children[index]!, quantified, substitutions)
       );
+  }
+
+  /** A read-only `#prune`, for a diagnostic probe that must change no inference state. */
+  #peek(type: Mono): Mono {
+    let actual = type;
+    while (actual.kind === "Variable" && actual.instance !== undefined) {
+      actual = actual.instance;
+    }
+    if (actual.kind !== "Nullable") return actual;
+    const value = this.#peek(actual.value);
+    return this.#absorbsNullish(value) ? value : actual;
+  }
+
+  /**
+   * The evidence selection a comparison would perform, observed without creating
+   * a `Requirement`. Structural products recurse into their components; nominal
+   * and primitive subjects select their admitted instance and then prove its
+   * parameter context under the selected subject.
+   */
+  #evidenceAvailable(
+    target: Mono,
+    identity: string,
+    visiting: ReadonlyMap<Resolved.HonorItem, ReadonlySet<Mono>> = new Map(),
+  ): boolean {
+    const type = this.#peek(target);
+    if (type.kind === "Error") return false;
+    if (type.kind === "Variable") {
+      return !type.literalOnly && type.requirements.some((requirement) =>
+        this.#entailmentPath(requirement.identity, identity) !== undefined
+      );
+    }
+    const selection = this.#selectEvidence(type, identity, "Eq");
+    if (selection.kind === "missing") return false;
+    if (selection.kind === "bool") return true;
+    if (selection.kind === "components") {
+      return selection.obligations.every((obligation) =>
+        this.#evidenceAvailable(obligation.type, obligation.identity, visiting)
+      );
+    }
+
+    const instance = selection.instance;
+    const seenAtInstance = visiting.get(instance);
+    if (seenAtInstance?.has(type) === true) return false;
+    const next = new Map(visiting);
+    next.set(instance, new Set(seenAtInstance).add(type));
+    const parameters = new Set(
+      [...(this.#instanceTypeParameters.get(instance)?.values() ?? [])]
+        .map(({ id }) => id),
+    );
+    const substitutions = new Map<number, Mono>();
+    const declared = this.#instanceSubjects.get(instance);
+    if (
+      declared !== undefined &&
+      !this.#couldUnify(declared, type, parameters, substitutions)
+    ) return false;
+    for (const parameter of instance.typeParameters) {
+      const formal = this.#instanceTypeParameters.get(instance)?.get(parameter.name);
+      const actual = formal === undefined ? undefined : substitutions.get(formal.id);
+      if (actual === undefined) continue;
+      if (parameter.constraints.some((constraint, index) =>
+        !this.#evidenceAvailable(
+          actual,
+          parameter.constraintIdentities?.[index] ?? this.#constraintIdentity(constraint),
+          next,
+        )
+      )) return false;
+    }
+    return true;
+  }
+
+  /**
+   * The non-mutating classification shared by real requirement validation and
+   * the guard-validity probe. Tuple and record evidence is automatic structural
+   * evidence. `Vector`'s parameterized built-in instance is represented by the
+   * same component channel at emission, but remains a distinct branch here so
+   * its semantics are not accidentally redescribed as a structural product.
+   */
+  #selectEvidence(
+    type: Mono,
+    identity: string,
+    name: Typed.ConstraintName,
+  ): EvidenceSelection {
+    if (STRUCTURAL_IDENTITIES.has(identity) && type.kind === "Vector") {
+      return {
+        kind: "components",
+        obligations: [{ key: "element", name, identity, type: type.element }],
+      };
+    }
+    if (
+      STRUCTURAL_IDENTITIES.has(identity) &&
+      (type.kind === "Tuple" || type.kind === "Record")
+    ) {
+      const components: readonly (readonly [string, Mono])[] = type.kind === "Tuple"
+        ? type.elements.map((element, index) => [String(index), element] as const)
+        : [...type.fields.entries()];
+      return {
+        kind: "components",
+        obligations: components.map(([key, component]) => ({
+          key,
+          name,
+          identity,
+          type: component,
+        })),
+      };
+    }
+    if (identity === CONCAT_IDENTITY && type.kind === "Vector") {
+      return { kind: "components", obligations: [] };
+    }
+    if (HASHED_CONTAINER_IDENTITIES.has(identity) && type.kind === "Set") {
+      const componentIdentity = identity === SHOW_IDENTITY ? SHOW_IDENTITY : HASH_IDENTITY;
+      return {
+        kind: "components",
+        obligations: [{
+          key: "element",
+          name: identity === SHOW_IDENTITY ? "Show" : "Hash",
+          identity: componentIdentity,
+          type: type.element,
+        }],
+      };
+    }
+    if (HASHED_CONTAINER_IDENTITIES.has(identity) && type.kind === "Map") {
+      const names: readonly Typed.ConstraintName[] = identity === SHOW_IDENTITY
+        ? ["Show", "Show"]
+        : ["Hash", identity === HASH_IDENTITY ? "Hash" : "Eq"];
+      const identities = identity === SHOW_IDENTITY
+        ? [SHOW_IDENTITY, SHOW_IDENTITY]
+        : [HASH_IDENTITY, identity === HASH_IDENTITY ? HASH_IDENTITY : EQ_IDENTITY];
+      return {
+        kind: "components",
+        obligations: [
+          { key: "key", name: names[0]!, identity: identities[0]!, type: type.key },
+          { key: "value", name: names[1]!, identity: identities[1]!, type: type.value },
+        ],
+      };
+    }
+    if (
+      this.#boolUnion !== undefined && type.kind === "Union" &&
+      type.union === this.#boolUnion && DERIVABLE_IDENTITIES.has(identity)
+    ) return { kind: "bool" };
+    const key = this.#resolvedSubjectKey(type);
+    const instance = key === undefined
+      ? undefined
+      : this.#instances.get(`${identity}:${key}`);
+    return instance === undefined ? { kind: "missing" } : { kind: "instance", instance };
+  }
+
+  /**
+   * The admitted head constructors' one coherence key, shared by registration,
+   * real selection, and the read-only diagnostic probe.
+   */
+  #resolvedSubjectKey(subject: Mono): string | undefined {
+    if (subject.kind === "Constructor") return `primitive:${subject.name}`;
+    if (subject.kind === "NominalRecord") return `record:${Number(subject.record)}`;
+    if (subject.kind === "Union") return `union:${Number(subject.union)}`;
+    if (subject.kind === "Range") return "range";
+    if (subject.kind === "Vector") return "vector";
+    if (subject.kind === "Map") return "map";
+    if (subject.kind === "Set") return "set";
+    if (subject.kind === "Array") return "array";
+    if (subject.kind === "JsMap") return "jsmap";
+    if (subject.kind === "JsSet") return "jsset";
+    return undefined;
   }
 
   /**
@@ -17286,68 +17492,23 @@ class Checker {
     // the exception, forwarding the identity it was given because it asks the
     // *same* constraint of each component — hardening rather than a repair, and
     // the currency an imported scheme's unspellable requirement would need.
-    if (
-      STRUCTURAL_IDENTITIES.has(requirement.identity) &&
-      (type.kind === "Tuple" || type.kind === "Record" || type.kind === "Vector")
-    ) {
+    const selection = this.#selectEvidence(type, requirement.identity, requirement.name);
+    if (selection.kind === "components") {
       // The component requirements are *kept* (#278). Each one names the
       // instance the component contributes, and emission renders that selection
       // rather than re-walking the type — the re-walk is what silently ignored a
       // hand-written component instance and read through `opaque`.
-      const components: readonly (readonly [string, Mono])[] = type.kind === "Tuple"
-        ? type.elements.map((element, index) => [String(index), element] as const)
-        : type.kind === "Record"
-        ? [...type.fields.entries()]
-        : [["element", type.element] as const];
-      requirement.components = components.map(([key, component]) => ({
-        key,
+      requirement.components = selection.obligations.map((obligation) => ({
+        key: obligation.key,
         requirement: this.#require(
-          requirement.name,
-          component,
+          obligation.name,
+          obligation.type,
           requirement.span,
           "operation",
           undefined,
-          requirement.identity,
+          obligation.identity,
         ),
       }));
-      requirement.structural = true;
-      return;
-    }
-    if (requirement.identity === CONCAT_IDENTITY && type.kind === "Vector") {
-      // No component demand: concatenation is on the spine alone.
-      requirement.components = [];
-      requirement.structural = true;
-      return;
-    }
-    if (HASHED_CONTAINER_IDENTITIES.has(requirement.identity) && type.kind === "Set") {
-      requirement.components = [{
-        key: "element",
-        requirement: this.#require(
-          requirement.identity === SHOW_IDENTITY ? "Show" : "Hash",
-          type.element,
-          requirement.span,
-        ),
-      }];
-      requirement.structural = true;
-      return;
-    }
-    if (HASHED_CONTAINER_IDENTITIES.has(requirement.identity) && type.kind === "Map") {
-      requirement.components = requirement.identity === SHOW_IDENTITY
-        ? [
-            { key: "key", requirement: this.#require("Show", type.key, requirement.span) },
-            { key: "value", requirement: this.#require("Show", type.value, requirement.span) },
-          ]
-        : [
-            { key: "key", requirement: this.#require("Hash", type.key, requirement.span) },
-            {
-              key: "value",
-              requirement: this.#require(
-                requirement.identity === HASH_IDENTITY ? "Hash" : "Eq",
-                type.value,
-                requirement.span,
-              ),
-            },
-          ];
       requirement.structural = true;
       return;
     }
@@ -17369,20 +17530,15 @@ class Checker {
     // to be compiler-provided instances"). The instances have not moved back
     // into the compiler — the declaration still owns them — but the compiler
     // does now satisfy a direct requirement without consulting them.
-    if (
-      this.#boolUnion !== undefined &&
-      type.kind === "Union" &&
-      type.union === this.#boolUnion &&
-      DERIVABLE_IDENTITIES.has(requirement.identity)
-    ) {
+    if (selection.kind === "bool") {
       // No component demand: the pin satisfies the constraint outright, and
       // emission's `Bool` arms are the licensed inline shortcut (#278).
       requirement.components = [];
       requirement.structural = true;
       return;
     }
-    const instance = this.#instances.get(this.#instanceKey(requirement.identity, type));
-    if (instance !== undefined) {
+    if (selection.kind === "instance") {
+      const instance = selection.instance;
       this.#pinInstanceSubject(instance, type, requirement.span);
       // A provided row (Part 5 §4) has no module to have exported a dictionary,
       // so it takes the structural channel instead of the instance one: the
@@ -19717,10 +19873,8 @@ class Checker {
    */
   #subjectKey(subject: Mono): string {
     const type = this.#prune(subject);
-    if (type.kind === "Constructor") return `primitive:${type.name}`;
-    if (type.kind === "NominalRecord") return `record:${Number(type.record)}`;
-    if (type.kind === "Union") return `union:${Number(type.union)}`;
-    if (type.kind === "Range") return "range";
+    const resolved = this.#resolvedSubjectKey(type);
+    if (resolved !== undefined) return resolved;
     // The structural constructors, keyed on the **head alone** like every other
     // row (#353). Falling through to `#display` below would key on the whole
     // type, so `Vector(Int)` and `Vector(String)` would take different slots —
@@ -19728,12 +19882,6 @@ class Checker {
     // provided `Iterable` rows arrived: `Eq`/`Ord`/`Show`/`Hash` at these
     // constructors are satisfied structurally and never enter the table, and a
     // source `honor` cannot name a structural head at all (Constraints §5.4).
-    if (type.kind === "Vector") return "vector";
-    if (type.kind === "Map") return "map";
-    if (type.kind === "Set") return "set";
-    if (type.kind === "Array") return "array";
-    if (type.kind === "JsMap") return "jsmap";
-    if (type.kind === "JsSet") return "jsset";
     const survivors = this.#collectVariables(type).filter(
       ({ rigidName }) => rigidName === undefined,
     );
