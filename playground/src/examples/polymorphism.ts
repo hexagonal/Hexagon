@@ -5,7 +5,7 @@ export const polymorphism: PlaygroundExample = {
   title: "Polymorphism and Variance",
   description:
     "Reuse one empty sequence at two element types, and declare what an opaque type promises.",
-  source: `module Main
+  source: `module Polymorphism
 
 // A binding whose right-hand side is a value is polymorphic: \`empty\` is a
 // reference to an immutable binding, so \`nothing\` can be reused at any

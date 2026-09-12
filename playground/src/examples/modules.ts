@@ -15,7 +15,7 @@ end module Numbers
 
 // Modules sharing a file are strangers: this one sees Numbers only because it
 // imports it (§2.2), and the import names the module and carries no path (§3.1).
-module Main
+module Modules
 
 import Numbers
 

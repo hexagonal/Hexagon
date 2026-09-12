@@ -12,7 +12,7 @@ export fun जोड़(left: Int, right: Int): Int = left + right
 
 end module Mगणित
 
-module Main
+module International
 
 import Mगणित
 

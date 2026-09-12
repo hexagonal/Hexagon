@@ -240,7 +240,7 @@ describe("compileSource", () => {
     expect(response.executionModules.map(({ path }) => path)).toEqual([
       "/Hex/Debug.hex",
       "/Mगणित.hex",
-      "/Main.hex",
+      "/International.hex",
     ]);
   });
 

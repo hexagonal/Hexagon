@@ -5,7 +5,7 @@ export const temperatures: PlaygroundExample = {
   title: "The Temperature Converter, Untrapped",
   description:
     "The classic C integer-division trap, and the three ways Hexagon refuses to fall into it.",
-  source: `module Main
+  source: `module Numerics
 
 import Rat
 

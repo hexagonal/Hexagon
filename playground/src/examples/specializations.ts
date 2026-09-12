@@ -5,7 +5,7 @@ export const specializations: PlaygroundExample = {
   title: "Fundamental Specializations",
   description:
     "Inspect direct Num editions, then use contextual Int widening to buy some bananas.",
-  source: `module Main
+  source: `module Specializations
 
 // The typed parameters anchor the generic boundary; Num is inferred.
 let plus(x: a, y: a) = x + y
