@@ -592,11 +592,10 @@ describe("the literal at the type of its position (§2.5's checking rule, #519)"
         "        Some(0) => \"zero\"\n" +
         "        _ => \"other\"\n",
     ))).toEqual([
-      // The constraint *list* reads `(Eq, Num)` where the comparison's reads
-      // `(Num, Eq)`: this seat demands `Eq` first so that its delegated *reports*
-      // are the comparison's in order (the test above), and the two orders cannot
-      // both be had — `#bind` validates a variable's requirements in the order it
-      // accepted them. Pinned as measured rather than smoothed over.
+      // The list is alphabetical (Functions §5.1), rendered by
+      // `#advisedConstraintList`, so it is the very list the comparison advises
+      // below — although this seat accepted `Eq` first and the comparison
+      // accepted `Num` first. Accumulation order reaches nothing a reader pastes.
       "exported function `f` must declare every constraint in its signature; " +
       "write `<a: (Eq, Num)>`",
       "`0` is not a pattern at `a`; bind a name and test it in a guard: " +
@@ -616,8 +615,40 @@ describe("the literal at the type of its position (§2.5's checking rule, #519)"
     // only the signature speaks.
     expect(projectDiagnostics(main("export fun f(x: a): Bool = x == 0\n"))).toEqual([
       "exported function `f` must declare every constraint in its signature; " +
-      "write `<a: (Num, Eq)>`",
+      "write `<a: (Eq, Num)>`",
     ]);
+    // The negative literal raises `Signed` besides, and `Signed` carries `Num`
+    // (Constraints §7), so the base goes: a list naming both would be refused by
+    // Modules §4.1.1's own "must omit base constraint `Num`" rule. Both spellings
+    // of the program advise the same two.
+    expect(projectDiagnostics(main(
+      "export fun f(o: Option(a)): String =\n" +
+        "    match o\n" +
+        "        Some(-1) => \"one\"\n" +
+        "        _ => \"other\"\n",
+    ))).toEqual([
+      "exported function `f` must declare every constraint in its signature; " +
+      "write `<a: (Eq, Signed)>`",
+      "`-1` is not a pattern at `a`; bind a name and test it in a guard: " +
+      "`Some(y) when y == -1`",
+    ]);
+    expect(projectDiagnostics(main("export fun f(x: a): Bool = x == -1\n"))).toEqual([
+      "exported function `f` must declare every constraint in its signature; " +
+      "write `<a: (Eq, Signed)>`",
+    ]);
+    // And the advised binder is one the next compile accepts, at both spellings:
+    // de-based, so §4.1.1's omit-the-base rule has nothing to say.
+    expect(projectDiagnostics(main(
+      "export fun f<a: (Eq, Signed)>(o: Option(a)): String =\n" +
+        "    match o\n" +
+        "        Some(-1) => \"one\"\n" +
+        "        _ => \"other\"\n",
+    ))).toEqual([
+      "`-1` is not a pattern at `a`; bind a name and test it in a guard: " +
+      "`Some(y) when y == -1`",
+    ]);
+    expect(projectDiagnostics(main("export fun f<a: (Eq, Signed)>(x: a): Bool = x == -1\n")))
+      .toEqual([]);
   });
 
   test("the **binding** walk takes the same seat, not the old `Int` unification", () => {
