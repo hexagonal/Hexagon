@@ -67,8 +67,9 @@ Keep numeric contracts separate from inference machinery. Complex(Rat) need not
 have rational magnitude: the magnitude of 1 + i is the square root of 2. Sharing
 the name abs does not authorize a silent approximate conversion or a perfect-root
 test. Likewise, an exact BigInt-to-Rat capability and permission for implicit
-widening are separate decisions. The current Pow widening mechanism preserves
-its result type and is not already a solution to result-type variation.
+widening are separate decisions. The current Pow widening mechanism
+([Operators §6.3](../operators-logic-precedence.md)) preserves its result type
+and is not already a solution to result-type variation.
 
 ## Investigation sequence
 
