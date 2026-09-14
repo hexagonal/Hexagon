@@ -52,11 +52,10 @@ honor Ord<Rat> =
         let rightProduct = right.top * left.bottom
         if leftProduct < rightProduct then
             Ordering.Less
+        else if leftProduct > rightProduct then
+            Ordering.Greater
         else
-            if leftProduct > rightProduct then
-                Ordering.Greater
-            else
-                Ordering.Equal
+            Ordering.Equal
 
 honor Show<Rat> =
     (** `value` as `top/bottom`, the `/1` included, so the representation stays
@@ -109,15 +108,25 @@ honor Pow<Rat> =
     pow(value, exponent) =
         // `reciprocal` routes through `create`, which is where a zero base
         // reports.
-        let inverted = exponent < 0
-        let base = if inverted then reciprocal(value) else value
-        let magnitude = if inverted then -exponent else exponent
+        let base = if exponent < 0 then reciprocal(value) else value
+        let magnitude = exponent.abs()
         // A reduced pair stays reduced under powers and a canonical bottom
         // is positive, so the invariant survives the raw constructor.
         Rat({
             top = base.top.pow(magnitude),
             bottom = base.bottom.pow(magnitude),
         })
+
+honor Real<Rat> =
+    abs(x) = if x < 0 then -x else x
+
+    sign(x) =
+        if x == 0 then
+            Sign.Zero
+        else if x < 0 then
+            Sign.Negative
+        else
+            Sign.Positive
 
 // -- `toFloat`, and the exact integer arithmetic the single rounding needs. --
 //

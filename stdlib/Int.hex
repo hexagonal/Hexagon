@@ -131,6 +131,17 @@ honor Integral<Int> =
             smaller := next
         larger
 
+honor Real<Int> =
+    abs(x) = if x < 0 then -x else x
+
+    sign(x) =
+        if x == 0 then
+            Sign.Zero
+        else if x < 0 then
+            Sign.Negative
+        else
+            Sign.Positive
+
 // The largest magnitude an `Int` holds exactly, in either direction: 2^53 - 1.
 // The range being symmetric is what lets `checkedSub` negate its right operand
 // and hand the result to `checkedAdd`.

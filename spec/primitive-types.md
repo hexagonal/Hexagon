@@ -30,7 +30,7 @@ are integral and lie in `0 ... 2^53 - 1`; there is no runtime tag or wrapper. Na
 deliberately not the default for bare literals: `let count = 3` remains `Int`, while
 `let count: Nat = 3` pins the same bare literal to Nat.
 
-Nat honors `Num`, `Eq`, `Ord`, `Show`, `Hash`, `Pow`, and `Integral`, but not `Signed`
+Nat honors `Num`, `Eq`, `Ord`, `Show`, `Hash`, `Pow`, `Integral`, and `Real`, but not `Signed`
 or `Frac`. Generic addition and multiplication therefore accept Nat; subtraction and
 negation do not. `Nat.fromInt : Int -> Option(Nat)` is the checked boundary conversion
 *(#344: built — an ordinary export of `stdlib/Nat.hex`, a sign check in Hexagon over its
@@ -65,7 +65,7 @@ type name from a type variable and enables implicit generalisation without `fora
 
 **Division:** `Int` honors `Num` and `Signed` (add/multiply plus subtract/negate/fromInt) but **not** `Frac` — there is no generic `divide` at Int (decided when `divide` was evicted from `Signed`). Integer division/modulo are `Integral<Int>`'s `div`/`mod`, **Euclidean**, per the Division & Remainder spec — the owning doc; `Int.div`/`Int.mod` are those members qualified *(#344 — this sentence previously said "monomorphic" and "(floored)": it predated both the `Integral` constraint and the Euclidean ruling, and the members now live as source `honor` blocks in `stdlib/Int.hex`)*.
 
-**Standard constraints:** `Num`, `Signed`, `Eq`, `Ord`, `Show`, `Pow` (Operators §6.3), `Hash` (Collections Part 2 §2.5), `Integral` (Integral §3) *(corrected 2026-07-28, #137 — record in §11)*.
+**Standard constraints:** `Real` (Constraints §7), `Num`, `Signed`, `Eq`, `Ord`, `Show`, `Pow` (Operators §6.3), `Hash` (Collections Part 2 §2.5), `Integral` (Integral §3) *(corrected 2026-07-28, #137 — record in §11)*.
 
 ### 2.1 Overflow policy (decided)
 
@@ -97,7 +97,7 @@ Detection is named too, because it cannot be spelled by hand: `Float.isNan` and 
 
 **Literals:** monomorphic, always `Float` — a literal is a Float literal iff it contains a `.` or an exponent (`1.5`, `0.0`, `1e9`, `2.5e-3`). `_` separators allowed per §8. Decimal literals do **not** participate in the polymorphic literal scheme in v1 (deferred — see Numeric Literals spec §7, #525). The deferred piece is the polymorphism, not a conversion: a `Rat` `fromFloat` exists in no spelling, ever (friendly-numerics tenet 7), so a future design must carry the written digits — `0.1` meaning `1/10` — rather than the parsed double, whose exact binary value is not what the writer meant.
 
-**Standard constraints:** `Num`, `Signed`, `Frac` (generic `divide`, lawful up to rounding), `Eq`, `Ord`, `Show`, `Pow` (Operators §6.3), `Hash` (Collections Part 2 §2.5). Never `Integral` — permanently, so that `gcd(1.5, 2.0)` fails with the right message (Integral §3) *(corrected 2026-07-28, #137 — record in §11)*.
+**Standard constraints:** `Real` (Constraints §7), `Num`, `Signed`, `Frac` (generic `divide`, lawful up to rounding), `Eq`, `Ord`, `Show`, `Pow` (Operators §6.3), `Hash` (Collections Part 2 §2.5). Never `Integral` — permanently, so that `gcd(1.5, 2.0)` fails with the right message (Integral §3) *(corrected 2026-07-28, #137 — record in §11)*.
 
 **Show wart, pre-registered as a decision:** `Float.show` is JS number formatting (§7 rule), so `show (0.1 + 0.2)` is `"0.30000000000000004"` and `show 1e21` is `"1e+21"`. This is the honest display of the value and matches JS-developer expectations. Accepted for v1.
 
@@ -194,7 +194,7 @@ Human-facing sorting ("é" before "f", locale digraph rules) is **collation**, i
 
 **FFI:** appears as `bigint` in emitted `.d.ts`. Known landmine, documented once in FFI docs: `JSON.stringify` throws on bigint — but only records that explicitly contain BigInt fields carry it, which is the point of keeping BigInt out of `Int`.
 
-**Standard constraints:** `Num`, `Signed`, `Eq`, `Ord`, `Show` (note `show 1n` is `"1"` — **no** `n` suffix; this is JS `String(1n)` behaviour and is display-correct), `Pow` (Operators §6.3), `Hash` (Collections Part 2 §2.5), `Integral` (Integral §3) *(corrected 2026-07-28, #137 — record in §11)*.
+**Standard constraints:** `Real` (Constraints §7), `Num`, `Signed`, `Eq`, `Ord`, `Show` (note `show 1n` is `"1"` — **no** `n` suffix; this is JS `String(1n)` behaviour and is display-correct), `Pow` (Operators §6.3), `Hash` (Collections Part 2 §2.5), `Integral` (Integral §3) *(corrected 2026-07-28, #137 — record in §11)*.
 
 ---
 
@@ -310,3 +310,13 @@ Two standing rules accompany the reclassification:
 
 1. **Section numbers did not move.** §9 remains "Unit" forever (house rule); its content is a pointer, not a hole. Cross-references of the form "Primitive Types §9" remain valid and now resolve to the pointer.
 2. **Ownership transferred.** `Unit`'s normative home is Products (§2.7, with §2.5/§2.6 carrying constraints and representation) and the decisions doc; this document retains only the representation row and the `Nullable` caution. Where older text elsewhere says "Primitive Types owns `Unit`," the decisions doc's ledger (its §8) governs the fix-on-next-touch.
+
+## Real absolute value and sign
+
+`Nat`, `Int`, `BigInt`, and `Float` honor `Real<a: (Num, Ord)>`.
+`abs(value: a) -> a` preserves the input type, and `sign(value: a) -> Sign`
+returns `Sign.Negative`, `Sign.Zero`, or `Sign.Positive`. Constraints §7 owns
+the contract, including positive-zero normalization by `Float.abs` and
+`Float.UndefinedSignError` for `Float.sign(Float.nan)`. `Rat` also honors
+`Real` exactly (Rat §5). These operations use ordinary dictionary and dot-call
+rules, with no additional numeric widening or result-type inference.

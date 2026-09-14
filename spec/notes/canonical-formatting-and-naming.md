@@ -146,8 +146,8 @@ declarations through this list before considering the segment done.
 - **F3 [canonical]** An effect-position (`Unit`) conditional omits `else`;
   explicit `else ()` is non-canonical ceremony. A value-producing conditional
   writes both branches. A genuinely short conditional stays on one line;
-  otherwise the multiline form. A nested false-branch conditional indents
-  beneath `else`; `else if` only for a complete one-line conditional.
+  otherwise the multiline form. A chain uses `else if` on one line even in multiline code, aligned
+  with the first `if`; each branch body indents one level.
   (Operators §11.2–§11.3; canonical-formatting-plan §5 restates)
 - **F4 [canonical, v1 stance]** *(#700.)* The fused `fun f(…) = …` and the
   single-member `fun` block are both legal, and the formatter rewrites

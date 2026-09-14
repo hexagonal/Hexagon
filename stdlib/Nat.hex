@@ -112,6 +112,11 @@ honor Integral<Nat> =
             smaller := next
         larger
 
+honor Real<Nat> =
+    abs(x) = x
+
+    sign(x) = if x == 0 then Sign.Zero else Sign.Positive
+
 (** The integer `value` as a `Nat`, or `None` when it is negative. The total
     direction is `Num.fromNat`, which widens an established `Nat` into any
     numeric type. *)

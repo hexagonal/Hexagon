@@ -418,9 +418,24 @@ the configured line-width limit. A block arm's value is its final expression per
 the standard block rule.
 
 `else if` is syntactically `else` whose expression is another mandatory-`then`
-conditional; there is no dedicated construct. It may appear in a one-line conditional
-when the whole expression fits. In canonical multiline formatting, the nested
-conditional is indented beneath `else` like every other false-branch expression.
+conditional; there is no dedicated construct. A chain canonically writes `else if`
+on the same line, including in multiline code. Align each `else if` and the final
+`else` with the first `if`, and indent each branch body one level:
+
+```hexagon
+if leftProduct < rightProduct then
+    Ordering.Less
+else if leftProduct > rightProduct then
+    Ordering.Greater
+else
+    Ordering.Equal
+```
+
+This layout keeps a chain of alternatives at one indentation level. It changes
+no association rule: each `else if` starts the preceding conditional's false
+branch, and the final `else` belongs to the last conditional. Writing the nested
+conditional beneath a separate `else` remains legal, but is not canonical for a
+chain. A false branch with preceding statements remains an ordinary block.
 
 An effect-position conditional canonically uses the else-less form:
 

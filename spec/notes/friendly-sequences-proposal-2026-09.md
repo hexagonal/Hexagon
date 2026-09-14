@@ -1,10 +1,13 @@
 # Friendly Sequences — proposal
 
-**Status:** Proposed, non-normative; 2026-09-06. *(`Array` has been a captured foreign collection since #876 and `JsMap`/`JsSet` since #875; this note's "borrowed foreign collections" passages predate both and describe the retired contract.)* Records James's requested
+**Status:** Proposed, non-normative; 2026-09-06, revised 2026-09-13. Records James's requested
 sequence-seat convenience and the simple, bounded design discussed with him.
 Merging this note records a proposal; it does not adopt a language rule or
 claim compiler support. Normative specification and implementation follow
 separately after review.
+
+The generic-implied-types extension has been abandoned. This note retains its
+earlier scope: sequence convenience for a known source constructor.
 
 ## 1. The proposal
 
@@ -46,7 +49,8 @@ User functions taking `Seq(a)` receive the same convenience automatically.
 [Collections Part 5 §§2–4](../collections-part5-iterable.md) already defines
 `Iterable` through its associated `Item` and `toSeq` member. Its coherent
 instances include `Vector`, `Map`, `Set`, `String`, `Range`, `Seq`, and the
-borrowed foreign collections. Provided instances need not appear as source
+FFI collection instances under their current captured-value contracts.
+Provided instances need not appear as source
 `honor` declarations in each companion module.
 
 A `for` head already resolves the source's instance and conceptually converts
@@ -135,9 +139,10 @@ memoization, eager traversal, copying, or snapshotting. Existing sequence
 values pass through unchanged.
 
 Traversal order, laziness, exceptions, and cost are those of the existing
-instance. Purity does not promise termination or constant cost. Borrowed
-foreign collections retain their existing stability and observation contracts;
-conversion does not turn a borrow into an owned snapshot. Effectful `Stream`
+instance. Purity does not promise termination or constant cost. Foreign
+collections retain their current stability and observation contracts; conversion
+adds no new copy or snapshot beyond the selected instance's specified behavior.
+Effectful `Stream`
 remains outside `Iterable`, as specified by [Stream §5](../stream.md).
 
 The type-preservation argument is local: an instance supplies
@@ -190,8 +195,8 @@ Conformance should demonstrate:
   conversion do not acquire implicit adapters.
 - Method lookup and elaboration order remain deterministic, including a
   destination fixed only by a later sibling; no speculative retry occurs.
-- Evaluation happens once and in order; lazy and borrowed-view behavior matches
-  explicit `toSeq`, including exceptions and observation timing.
+- Evaluation happens once and in order; laziness and current foreign-collection
+  observation behavior match explicit `toSeq`, including exceptions and timing.
 - Generalization remains valid for conversion applications, and no effectful
   stream is admitted through the new rule.
 

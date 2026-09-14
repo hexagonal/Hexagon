@@ -109,6 +109,8 @@ the `BigInt.pow` door; nothing converts to `Float`, even internally.
   and exact `fromInt`; Frac supplies exact division through `create`.
 - `Pow<Rat>` is provided, exact at either sign of its `Int` exponent (§4); a
   fractional exponent is a type error at the seat, never a runtime throw.
+- `Real<Rat>` provides exact same-type absolute value and `Sign` classification
+  by comparison with zero (Constraints §7); neither operation converts to `Float`.
 - `Integral<Rat>` is not provided: a rational is not an integer.
 
 ## 6. Surface

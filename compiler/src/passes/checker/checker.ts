@@ -18042,7 +18042,7 @@ class Checker {
    * register): nothing of the spelling is in scope, which is the arrival state
    * of an author who has read §5.3 and not yet written the import, and the two
    * routes that reach a constraint are the import line and the named import.
-   * The arm is unreachable at the eleven pre-registered spellings, which always
+   * The arm is unreachable at the twelve pre-registered spellings, which always
    * resolve (Constraints §5.1.1) — no case is carved for them, because a carve
    * would be a claim about a branch nothing can enter. It is the **bare**
    * spelling's, though, and only that: a qualified head (`honor D.NotThere<T>`,
@@ -19003,11 +19003,11 @@ class Checker {
    *
    * `path` is present only where the home is **offerable**: a pre-registered
    * constraint's declaration lives in the prelude (Constraints §5.1.1's third
-   * bullet, and all eleven have prelude source), where no user may write an
+   * bullet, and all twelve have prelude source), where no user may write an
    * honor, so its path is withheld and `statedHome` carries it instead. The test
    * is the `hex:` identity space rather than the name, which is what makes it
    * occlusion-proof: a module's own `constraint Ord` would be a different
-   * identity (and is refused outright), and the eleven are the whole of the
+   * identity (and is refused outright), and the twelve are the whole of the
    * prelude's constraint inventory.
    */
   #constraintHome(identity: string): LegalHome | undefined {

@@ -1,0 +1,5 @@
+module Real
+
+export constraint Real<a: (Num, Ord)> =
+    abs(value: a) -> a
+    sign(value: a) -> Sign

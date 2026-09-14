@@ -315,7 +315,7 @@ describe("constraint position: the same reading, one namespace over", () => {
     ])).toEqual([]);
   });
 
-  test("the eleven pre-registered names are never reached", () => {
+  test("the twelve pre-registered names are never reached", () => {
     // Constraints §5.1.1: they are always present, so the fallback cannot fire
     // at one — and a module exporting a rival `Show` is refused at its own
     // declaration, long before any importer could name it.

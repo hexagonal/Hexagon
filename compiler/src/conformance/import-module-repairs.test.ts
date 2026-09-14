@@ -629,7 +629,7 @@ describe("the bare constraint seat (Constraints §8's row)", () => {
     ])).toEqual(["unknown constraint `D.NotThere`"]);
   });
 
-  test("the eleven pre-registered spellings cannot reach either seat", () => {
+  test("the twelve pre-registered spellings cannot reach either seat", () => {
     // Constraints §5.1.1: they always resolve, so neither silent seat is
     // reachable at one. No case is carved for that in the implementation; this
     // pins that none is needed — and it is the record correction on #577, whose
@@ -642,7 +642,7 @@ describe("the bare constraint seat (Constraints §8's row)", () => {
         "module Main\n\n" + "export record Box = {value: Float}\n" +
         "widens Pow.pow(value: Box, exponent: Float): Box = value\n"],
     ])).toEqual(["`Pow.pow` is not a member this module honors at its own type"]);
-    // The constraint namespace holds all eleven, so the bare spellings resolve:
+    // The constraint namespace holds all twelve, so the bare spellings resolve:
     // a binder compiles, and an `honor` head reaches its own later failure —
     // here §4.2's base obligation — rather than an unknown-constraint refusal.
     //

@@ -32,7 +32,7 @@ export interface PreludeModule {
  *
  * ## The constraint declarations come as early as their signatures allow (#335)
  *
- * A constraint member is an export of its declaring module, so all **eleven**
+ * A constraint member is an export of its declaring module, so all **twelve**
  * declarations the compiler holds are `.hex` files here, and their seats are
  * what make `Show.show`, `Eq.equals`, `Ord.compare`, `Num.add`, `Integral.div`
  * and `Iterable.toSeq` spellable everywhere. (Their seats no longer put those
@@ -44,7 +44,7 @@ export interface PreludeModule {
  * **a constraint declaration sits as early as the types its member headers name
  * allow**, and no earlier.
  *
- * Ten of them cluster at the front, because their headers name primitives and
+ * Eleven of them cluster at the front, because their headers name primitives and
  * the subject variable and little else. That is the rule's *consequence*, not a
  * rule of its own — `Iterable.hex` obeys the same sentence and lands far down
  * the list, after `Seq.hex`, because `toSeq(xs: c): Seq(Item)` names `Seq`.
@@ -74,8 +74,12 @@ export interface PreludeModule {
  * - `Prelude.hex` follows it, and holds `ignore` alone — the one prelude
  *   function in the bare set (Modules §5.5).
  * - `Integral.hex` follows both of its bases, `Num` and `Ord`.
+ * - `Sign.hex` declares the sign union before `Real.hex`, whose member returns
+ *   it. `Real.hex` also follows `Ord` and `Num`, its bases. Like the other
+ *   standard constraints, its identity is pre-registered and its declaration
+ *   lives in canonical source.
  *
- * `Iterable.hex` is the eleventh, and the one declaration that cannot sit with
+ * `Iterable.hex` is the one declaration that cannot sit with
  * the others: `toSeq(xs: c): Seq(Item)` names `Seq`, so the same
  * signature-types rule that puts `Show.hex` first puts this one after
  * `Seq.hex` — the latest seat any constraint declaration takes, and the reason
@@ -240,6 +244,8 @@ export const PRELUDE_MODULES: readonly PreludeModule[] = [
   "Ordering",
   "Prelude",
   "Ord",
+  "Sign",
+  "Real",
   "Integral",
   "Option",
   "Int",

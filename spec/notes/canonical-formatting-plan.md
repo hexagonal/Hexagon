@@ -167,5 +167,7 @@ else
 The formatter may collapse the multiline form only when the complete conditional
 fits the configured line-width limit.
 
-In multiline code, a nested false-branch conditional is indented beneath `else`;
-`else if` is reserved for a complete conditional that stays on one line.
+In multiline code, a chain canonically uses `else if` on the same line, aligned
+with the first `if` and final `else`. Each branch body indents one level; the
+chain does not accumulate indentation. A separate `else` with an indented nested
+conditional remains legal. Operators §11.3 owns the rule.
