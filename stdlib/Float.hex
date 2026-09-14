@@ -151,3 +151,24 @@ export let isNan(value: Float): Bool = value == nan
     zeroes and every subnormal are finite. *)
 export let isFinite(value: Float): Bool =
     value != infinity and value != -infinity and not isNan(value)
+
+export exception UndefinedSignError(message: String)
+
+honor Real<Float> =
+    abs(x) =
+        if x == 0 then
+            0
+        else if x < 0 then
+            -x
+        else
+            x
+
+    sign(x) =
+        if isNan(x) then
+            throw(UndefinedSignError("NaN has no sign"))
+        else if x == 0 then
+            Sign.Zero
+        else if x < 0 then
+            Sign.Negative
+        else
+            Sign.Positive

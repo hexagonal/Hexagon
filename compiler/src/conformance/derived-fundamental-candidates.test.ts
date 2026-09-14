@@ -130,10 +130,10 @@ describe("the judgment over the pre-registered constraints", () => {
     // is here so that a `stdlib/` edit changing which fundamentals honor what is
     // caught at the planner rather than in a `.d.ts` golden three files away.
     expect(rows(compiled.fundamentalInstances)).toEqual(new Map([
-      ["Nat", preRegistered("Num", "Eq", "Ord", "Show", "Pow", "Integral", "Hash")],
-      ["Int", preRegistered("Num", "Signed", "Eq", "Ord", "Show", "Pow", "Integral", "Hash")],
-      ["Float", preRegistered("Num", "Signed", "Frac", "Eq", "Ord", "Show", "Pow", "Hash")],
-      ["BigInt", preRegistered("Num", "Signed", "Eq", "Ord", "Show", "Pow", "Integral", "Hash")],
+      ["Nat", preRegistered("Num", "Eq", "Ord", "Show", "Pow", "Integral", "Hash", "Real")],
+      ["Int", preRegistered("Num", "Signed", "Eq", "Ord", "Show", "Pow", "Integral", "Hash", "Real")],
+      ["Float", preRegistered("Num", "Signed", "Frac", "Eq", "Ord", "Show", "Pow", "Hash", "Real")],
+      ["BigInt", preRegistered("Num", "Signed", "Eq", "Ord", "Show", "Pow", "Integral", "Hash", "Real")],
       ["String", preRegistered("Eq", "Ord", "Show", "Concat", "Hash")],
       // The two enumeration-membered fundamentals answer from the #147/#159 pin
       // — the four the compiler can derive — because that is exactly what an
@@ -169,7 +169,8 @@ describe("the judgment over the pre-registered constraints", () => {
     // no row and no notice — which is the failure mode the hand table had.
     expect([...seen].sort()).toEqual(
       PRE_REGISTERED_CONSTRAINTS
-        .filter((name) => !["Iterable"].includes(name))
+        // Iterable's standard String row is provided rather than an instance.
+        .filter((name) => name !== "Iterable")
         .map(preRegisteredConstraintIdentity)
         .sort(),
     );
@@ -177,7 +178,7 @@ describe("the judgment over the pre-registered constraints", () => {
 });
 
 describe("the program table is what makes a prelude module's plan the consumer's", () => {
-  test("nine prelude modules see strictly fewer rows than the program does", () => {
+  test("ten prelude modules see strictly fewer rows than the program does", () => {
     const compiled = project([["/main.hex", "module Main\n\n" + COLLECTIONS]]);
     const shortfalls = compiled.modules
       .map(({ source, core }) => ({
@@ -195,6 +196,7 @@ describe("the program table is what makes a prelude module's plan the consumer's
     expect(shortfalls.map(({ path }) => path)).toEqual([
       "/Hex/Pow.hex",
       "/Hex/Hash.hex",
+      "/Hex/Sign.hex",
       "/Hex/Integral.hex",
       "/Hex/Option.hex",
       "/Hex/Int.hex",
@@ -203,8 +205,8 @@ describe("the program table is what makes a prelude module's plan the consumer's
       "/Hex/BigInt.hex",
       "/Hex/Seq.hex",
     ]);
-    expect(shortfalls.find(({ path }) => path === "/Hex/Int.hex")?.missing).toBe(28);
-    expect(shortfalls.find(({ path }) => path === "/Hex/Nat.hex")?.missing).toBe(21);
+    expect(shortfalls.find(({ path }) => path === "/Hex/Int.hex")?.missing).toBe(31);
+    expect(shortfalls.find(({ path }) => path === "/Hex/Nat.hex")?.missing).toBe(23);
   });
 
   test("emission plans from the table it is handed, not from the module", () => {

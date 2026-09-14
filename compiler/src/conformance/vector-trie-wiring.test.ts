@@ -172,11 +172,12 @@ describe("the import surface", () => {
     const files = [["/main.hex", "module Main\n\n" + "export let v: Vector(Int) = [1, 2, 3]\n"]] as const;
     // The trie brings its own dependencies with it since #344: its index
     // arithmetic is `Integral<Int>`'s members at `stdlib/Int.hex`, and that
-    // companion in turn names `Pow.hex`'s and `Integral.hex`'s exceptions and
-    // `Option.hex`'s answer for the checked family. `Vector.hex` is still
-    // absent, which is what this case is about.
+    // companion in turn names `Pow.hex`'s and `Integral.hex`'s exceptions,
+    // `Sign.hex` for its `Real` instance, and `Option.hex`'s answer for the
+    // checked family. `Vector.hex` is still absent, which is what this case is
+    // about.
     expect(emittedPaths(files)).toEqual([
-      "/Hex/Pow.hex", "/Hex/Integral.hex", "/Hex/Option.hex", "/Hex/Int.hex", "/Hex/Runtime/VectorTrie.hex", "/main.hex",
+      "/Hex/Pow.hex", "/Hex/Sign.hex", "/Hex/Integral.hex", "/Hex/Option.hex", "/Hex/Int.hex", "/Hex/Runtime/VectorTrie.hex", "/main.hex",
     ]);
     const javascript = emitted(files, "/main.hex");
     expect(javascript).toContain(

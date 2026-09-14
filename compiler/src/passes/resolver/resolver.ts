@@ -1467,7 +1467,7 @@ class Resolver {
    * the routes its refusal names — in prelude order, one entry per visible
    * exporter.
    *
-   * The bare layer holds sixteen names; every other prelude export reaches a
+   * The bare layer holds seventeen names; every other prelude export reaches a
    * consumer by the dot or the qualified spelling, and a bare reference to one
    * is not an unknown name but a name whose routes the reader has to be told
    * (§10's three rows). Recording the routes at seeding time is the only place
@@ -2647,7 +2647,7 @@ class Resolver {
    * nothing for resolves to the constraint `Name` exported by a visible module
    * alias `Name`: a binder's list and an `honor` head alike, wherever the bare
    * spelling is read. There is no compiler-owned constraint analogue of the
-   * boundary types to order against — the eleven pre-registered names are simply
+   * boundary types to order against — the twelve pre-registered names are simply
    * always present (Constraints §5.1.1), so the fallback never reaches them.
    *
    * Run **after** every import has predeclared, which is what makes "answers,

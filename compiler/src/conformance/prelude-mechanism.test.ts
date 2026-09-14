@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import { compileProject, Source } from "../index";
 import { PRELUDE_MODULES } from "../prelude";
+import { runProject } from "../support/test-project.js";
 
 /**
  * Conformance for the prelude mechanism (Modules §5.5;
@@ -265,6 +266,25 @@ describe("emission follows the new dependency edge", () => {
     const compiled = project([ORDERING, OPTION, RESULT_IMPORTING_OPTION, USES_RESULT]);
     expect(danglingImports(compiled)).toEqual([]);
   });
+});
+
+test("Real and the Sign module are available without imports, including Num and Ord bases", async () => {
+  const main = await runProject([
+    ["/main.hex", "module Main\n\n" +
+      "export let positive: Sign = Sign.Positive\n" +
+      "export let negative: Sign = Sign.Negative\n" +
+      "export let zero: Sign = Sign.Zero\n" +
+      "export let classify<a: Real>(x: a): Sign = Real.sign(x)\n" +
+      "export let doubledAbs<a: Real>(x: a): a = Real.abs(x) + Real.abs(x)\n" +
+      "export let ordered<a: Real>(x: a, y: a): Bool = x <= y\n" +
+      "export let classified: Sign = classify(-3)\n" +
+      "export let doubled: Int = doubledAbs(-3)\n" +
+      "export let inOrder: Bool = ordered(-3, 2)\n"],
+  ]);
+  expect(main["classified"]).toEqual(main["negative"]);
+  expect(main["doubled"]).toBe(6);
+  expect(main["inOrder"]).toBe(true);
+  expect(new Set([main["positive"], main["negative"], main["zero"]]).size).toBe(3);
 });
 
 describe("drift guard: the embedded prelude matches stdlib/", () => {

@@ -644,16 +644,18 @@ describe("the companion's own emitted shape", () => {
     );
     // The Euclidean adjustment is Hexagon here, not a helper anywhere else.
     expect(text).toContain("const remainder = rem(left, right);");
-    // And nothing in the file guards. `Float` gained a *declared* exception at
-    // #526 — `FloatRangeError`, the range the doors into `Float` from the exact
-    // world fail — but no operation here throws it or anything else, which is
-    // the claim: not a single `throw` in the whole emitted companion. Read on
-    // the stripped text, so the claim is about code and the file's own prose
-    // about throwing cannot answer it either way (#540).
-    expect(withoutComments(text)).not.toContain("throw");
+    // `Real.sign` has the file's one guard: NaN has no mathematical sign and
+    // throws the exception declared below. `FloatRangeError` remains a range
+    // error for exact-to-Float conversions and is not thrown by this module.
+    expect(withoutComments(text).match(/\bthrow\b/gu)).toHaveLength(1);
+    expect(text).toContain('throw UndefinedSignError("NaN has no sign")');
     expect(text).toContain(
       "const FloatRangeError = message => " +
         "__exception(\"FloatRangeError\", message, { message });",
+    );
+    expect(text).toContain(
+      "const UndefinedSignError = message => " +
+        "__exception(\"UndefinedSignError\", message, { message });",
     );
     // The brand is the declaring module's full name (Packages §2.3), so the
     // prelude's own `Hex.Float`.

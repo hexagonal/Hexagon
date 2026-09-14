@@ -80,6 +80,8 @@ describe("the module", () => {
       "Ordering",
       "Prelude",
       "Ord",
+      "Sign",
+      "Real",
       "Integral",
       "Option",
       "Int",
@@ -97,8 +99,8 @@ describe("the module", () => {
       // the swap takes nothing from it.
       "Seq",
       "String",
-      // #353 also seats the eleventh and last constraint declaration, and the
-      // only one that cannot sit with the other ten: `toSeq(xs: c): Seq(Item)`
+      // #353 seats `Iterable`, now the twelfth constraint declaration, and the
+      // only one that cannot sit with the other eleven: `toSeq(xs: c): Seq(Item)`
       // names `Seq`, and honoring the reverse order is a genuine cycle — which
       // is why Collections Part 5 §4's rows have no source form.
       "Iterable",
@@ -339,10 +341,11 @@ describe("membership drags nothing in", () => {
     expect(emitted(files, "/main.hex")).not.toContain('from "./Hex/Vector.js"');
     // The trie brings its own dependencies since #344: its index arithmetic is
     // `Integral<Int>`'s members at `stdlib/Int.hex`, which in turn names
-    // `Pow.hex`'s and `Integral.hex`'s exceptions and `Option.hex`'s answer for
-    // the checked family. `Vector.hex` is what must stay out, and does.
+    // `Pow.hex`'s and `Integral.hex`'s exceptions, `Sign.hex` for Int's `Real`
+    // instance, and `Option.hex`'s answer for the checked family. `Vector.hex`
+    // is what must stay out, and does.
     expect(emittedPaths(files)).toEqual([
-      "/Hex/Pow.hex", "/Hex/Integral.hex", "/Hex/Option.hex", "/Hex/Int.hex", "/Hex/Runtime/VectorTrie.hex", "/main.hex",
+      "/Hex/Pow.hex", "/Hex/Sign.hex", "/Hex/Integral.hex", "/Hex/Option.hex", "/Hex/Int.hex", "/Hex/Runtime/VectorTrie.hex", "/main.hex",
     ]);
   });
 
