@@ -142,6 +142,28 @@ JavaScript boundary. The distinction lets Hexagon reject fractional values where
 numbers are required and give arithmetic the appropriate semantics. The generated
 TypeScript type cannot preserve that distinction; both appear as `number`.
 
+When you deliberately want an `Int`, the operation's name says how the fractional part
+is handled:
+
+```hexagon
+3.7.floor()       // 3: toward negative infinity
+(-3.7).ceil()     // -3: toward positive infinity
+(-3.7).trunc()    // -3: toward zero
+2.5.round()       // 3: nearest, halfway values away from zero
+2.5.bankRound()   // 2: nearest, halfway values to the even integer
+3.5.bankRound()   // 4
+```
+
+`round` is the symmetric rule often taught at school: `(-2.5).round()` is `-3`, not the
+`-2` JavaScript's asymmetric `Math.round` produces. `bankRound` differs only for exact
+halfway values; choosing the even neighbour can reduce systematic tie bias when rounded
+values are distributed across even and odd neighbours.
+
+All five functions return `Int`, so they check the result against its safe range. A
+`NaN`, an infinity, or a rounded result beyond that range throws `IntRangeError`. A zero
+result is ordinary `Int` zero even when the source was negative: an IEEE negative-zero
+sign does not cross into the integer world.
+
 ## `Bool`: a condition, not a truthiness convention
 
 `Bool` has the two values familiar from JavaScript, spelled the way Hexagon spells the

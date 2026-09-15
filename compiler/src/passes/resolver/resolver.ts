@@ -1467,7 +1467,7 @@ class Resolver {
    * the routes its refusal names — in prelude order, one entry per visible
    * exporter.
    *
-   * The bare layer holds seventeen names; every other prelude export reaches a
+   * The bare layer holds eighteen names; every other prelude export reaches a
    * consumer by the dot or the qualified spelling, and a bare reference to one
    * is not an unknown name but a name whose routes the reader has to be told
    * (§10's three rows). Recording the routes at seeding time is the only place

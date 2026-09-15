@@ -89,14 +89,20 @@ export function isIntrinsicScheme(specifier: string): boolean {
  * `BigInt.toInt`'s range check.
  *
  * The `float*` and `string*` families are the third landing and the last (§3.2,
- * #344), in the same primop shape, with three things worth naming.
+ * #344), in the same primop shape, with the following things worth naming.
  *
  * - **`floatRem` is a plain export's core, not a member's.** `Float` is never
  *   `Integral` (Integral §1), so `Float.rem` is an ordinary exported function
  *   whose lowering is the bare `a % b` of Division & Remainder §6, and
  *   `Float.mod` is the Euclidean adjustment written over it in Hexagon. There
- *   is no `floatMod` key, and no guard anywhere in either companion: float
- *   partiality is `NaN`, and `String` has no partial operation.
+ *   is no `floatMod` key and no guard in this float-valued family: its
+ *   partiality is `NaN`.
+ * - **The checked rounding exits keep only three capabilities here** (#919).
+ *   `floatTrunc` produces the integer-valued `Float` every rule composes over,
+ *   `floatIsSafeInteger` earns the crossing, and `floatToIntUnchecked` is its
+ *   representation-identity core. Direction, ties, canonical zero, messages,
+ *   and the `IntRangeError` guard stay in ordinary `Float.hex`; there is no
+ *   `floatFloor`, `floatCeil`, or host-asymmetric `floatRound` key.
  * - **One `Float` conversion crosses and one does not.** `floatFromInt` is
  *   keyed, for `intFromNat`'s exact argument: any Hexagon body for `Int` ->
  *   `Float` typechecks only through Numeric Literals §5.1's contextual
@@ -402,6 +408,9 @@ export const INTRINSIC_INVENTORY: ReadonlyMap<string, number> = new Map([
   ["floatPow", 2],
   ["floatHash", 1],
   ["floatRem", 2],
+  ["floatTrunc", 1],
+  ["floatIsSafeInteger", 1],
+  ["floatToIntUnchecked", 1],
   ["stringConcat", 2],
   ["stringEquals", 2],
   ["stringCompare", 2],

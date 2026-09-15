@@ -39,6 +39,14 @@ function companion(source: string): string {
     .find(({ source: file }) => file.path.endsWith("/Float.hex"))!.javascript.text;
 }
 
+/** `stdlib/Float.hex`'s public TypeScript face. */
+function floatDeclarations(source: string): string {
+  const project = compileMain("module Main\n\n" + source);
+  expect(project.diagnostics).toEqual([]);
+  return project.modules
+    .find(({ source: file }) => file.path.endsWith("/Float.hex"))!.declarations.text;
+}
+
 /**
  * `text` with its comments gone — block comments, the emitted JSDoc among them,
  * and line-comment tails — leaving only what the engine runs.
@@ -46,7 +54,7 @@ function companion(source: string): string {
  * A claim about emitted *code* must not be answerable by prose: the companion's
  * comments already say "throws" and "throwing", and one future doc sentence
  * carrying the bare word would fail a raw scan without a line of `Float.hex`
- * changing (#540). Stripping first is what makes "not a single `throw`" a claim
+ * changing (#540). Stripping first is what makes an exact `throw` count a claim
  * about the module rather than about its commentary.
  *
  * The scan is textual rather than a JavaScript lexer's, which is exact for this
@@ -619,20 +627,150 @@ describe("Numeric Literals §4's defaulting is unchanged by the new seats", () =
   });
 });
 
+describe("Primitive Types §3's checked Float-to-Int rounding exits (#919)", () => {
+  test("the five rules work through qualified and dotted calls on both sides of zero", async () => {
+    const exports = await runMain("module Main\n\n" + [
+      "export let floorPositive: Int = Float.floor(3.7)",
+      "export let floorNegative: Int = (-3.7).floor()",
+      "export let ceilPositive: Int = (3.2).ceil()",
+      "export let ceilNegative: Int = Float.ceil(-3.7)",
+      "export let truncPositive: Int = Float.trunc(3.7)",
+      "export let truncNegative: Int = (-3.7).trunc()",
+      "export let roundPositive: Int = (3.6).round()",
+      "export let roundNegative: Int = Float.round(-3.6)",
+      "export let bankPositive: Int = Float.bankRound(3.6)",
+      "export let bankNegative: Int = (-3.6).bankRound()",
+      "",
+    ].join("\n"));
+
+    expect(exports).toMatchObject({
+      floorPositive: 3,
+      floorNegative: -4,
+      ceilPositive: 4,
+      ceilNegative: -3,
+      truncPositive: 3,
+      truncNegative: -3,
+      roundPositive: 4,
+      roundNegative: -4,
+      bankPositive: 4,
+      bankNegative: -4,
+    });
+  });
+
+  test("`round` sends exact halves away from zero and `bankRound` to even", async () => {
+    const exports = await runMain("module Main\n\n" + [
+      "export let school: Vector(Int) = [",
+      "    Float.round(1.5), Float.round(2.5),",
+      "    Float.round(-1.5), Float.round(-2.5)]",
+      "export let bankers: Vector(Int) = [",
+      "    Float.bankRound(1.5), Float.bankRound(2.5), Float.bankRound(3.5),",
+      "    Float.bankRound(-1.5), Float.bankRound(-2.5), Float.bankRound(-3.5)]",
+      "export let around: Vector(Int) = [",
+      "    Float.round(2.4999999999999996), Float.round(2.5000000000000004),",
+      "    Float.bankRound(-2.4999999999999996), Float.bankRound(-2.5000000000000004)]",
+      "",
+    ].join("\n"));
+
+    expect([...(exports["school"] as Iterable<unknown>)]).toEqual([2, 3, -2, -3]);
+    expect([...(exports["bankers"] as Iterable<unknown>)]).toEqual([2, 2, 4, -2, -2, -4]);
+    expect([...(exports["around"] as Iterable<unknown>)]).toEqual([2, 3, -2, -3]);
+  });
+
+  test("every zero result is canonical positive zero", async () => {
+    const exports = await runMain("module Main\n\n" + [
+      "export let floorZero: Int = Float.floor(-0.0)",
+      "export let ceilZero: Int = Float.ceil(-0.25)",
+      "export let truncZero: Int = Float.trunc(-0.25)",
+      "export let roundZero: Int = Float.round(-0.25)",
+      "export let bankZero: Int = Float.bankRound(-0.25)",
+      "export let widenedZero: Float = Float.round(-0.25)",
+      "",
+    ].join("\n"));
+
+    for (const name of ["floorZero", "ceilZero", "truncZero", "roundZero", "bankZero"]) {
+      expect(Object.is(exports[name], 0), name).toBe(true);
+    }
+    expect(Object.is(exports["widenedZero"], 0)).toBe(true);
+  });
+
+  test("the safe boundaries survive, including the add-half regression", async () => {
+    const exports = await runMain("module Main\n\n" + [
+      "let maximum: Float = 9_007_199_254_740_991.0",
+      "let minimum: Float = -9_007_199_254_740_991.0",
+      "export let positive: Vector(Int) = [maximum.floor(), maximum.ceil(),",
+      "    maximum.trunc(), maximum.round(), maximum.bankRound()]",
+      "export let negative: Vector(Int) = [minimum.floor(), minimum.ceil(),",
+      "    minimum.trunc(), minimum.round(), minimum.bankRound()]",
+      "",
+    ].join("\n"));
+
+    expect([...(exports["positive"] as Iterable<unknown>)])
+      .toEqual(Array(5).fill(Number.MAX_SAFE_INTEGER));
+    expect([...(exports["negative"] as Iterable<unknown>)])
+      .toEqual(Array(5).fill(Number.MIN_SAFE_INTEGER));
+  });
+
+  test("NaN, infinities, and unsafe rounded results throw the target-owned error", async () => {
+    const exports = await runMain("module Main\n\n" + [
+      "export fun floorIt(value: Float): Int = value.floor()",
+      "export fun ceilIt(value: Float): Int = value.ceil()",
+      "export fun truncIt(value: Float): Int = value.trunc()",
+      "export fun roundIt(value: Float): Int = value.round()",
+      "export fun bankRoundIt(value: Float): Int = value.bankRound()",
+      "",
+    ].join("\n"));
+    const operations = [
+      ["floorIt", "Float.floor"],
+      ["ceilIt", "Float.ceil"],
+      ["truncIt", "Float.trunc"],
+      ["roundIt", "Float.round"],
+      ["bankRoundIt", "Float.bankRound"],
+    ] as const;
+
+    for (const [binding, operation] of operations) {
+      const call = exports[binding] as (value: number) => number;
+      for (const value of [NaN, Infinity, -Infinity, 2 ** 53, -(2 ** 53)]) {
+        expect(() => call(value), `${operation}(${String(value)})`).toThrowError(
+          expect.objectContaining({
+            name: "IntRangeError",
+            message: `${operation}: result does not fit in Int`,
+            $hex: "Hex.Int",
+          }),
+        );
+      }
+    }
+  });
+
+  test("the public declarations return number and expose the throwing contract", () => {
+    const declarations = floatDeclarations("export let r: Int = Float.bankRound(2.5)\n");
+
+    for (const name of ["floor", "ceil", "trunc", "round", "bankRound"]) {
+      expect(declarations).toContain(`export declare const ${name}: (value: number) => number;`);
+    }
+    expect(declarations.match(/@throws \{IntRangeError\}/gu)).toHaveLength(5);
+  });
+});
+
 describe("the companion's own emitted shape", () => {
   /**
    * The door bindings lower to bare arrows with nothing behind them, which is
-   * what the primop split is for — except the three that cannot be operators,
-   * where the arrow wraps the helper that carries the decided semantics. And
-   * `mod` is the one piece of Hexagon above the door in this file.
+   * what the primop split is for. The comparison/hash rows wrap their established
+   * helpers, and #919's three capabilities expose exactly the host operations
+   * that `mod` and the five rounding rules cannot express in ordinary Hexagon.
    */
-  test("`Float.js` holds the natives as operators and `mod` as source", () => {
+  test("`Float.js` keeps only the narrow natives beneath its source algorithms", () => {
     const text = companion("export let n: Float = Float.mod(8.0, 3.0)\n");
 
     expect(text).toContain("const nativeAdd = (__a, __b) => __a + __b;");
     expect(text).toContain("const nativeDivide = (__a, __b) => __a / __b;");
     expect(text).toContain("const nativePow = (__a, __b) => __a ** __b;");
     expect(text).toContain("const rem = (__a, __b) => __a % __b;");
+    expect(text).toContain("const nativeTrunc = __a => Math.trunc(__a);");
+    expect(text).toContain("const nativeIsSafeInteger = __a => Number.isSafeInteger(__a);");
+    expect(text).toContain("const nativeToIntUnchecked = __a => __a;");
+    expect(text).not.toContain("Math.floor");
+    expect(text).not.toContain("Math.ceil");
+    expect(text).not.toContain("Math.round");
     expect(text).toContain("const nativeFromInt = __a => __a;");
     expect(text).toContain(
       "const nativeEquals = (__a, __b) => __a === __b || " +
@@ -644,11 +782,14 @@ describe("the companion's own emitted shape", () => {
     );
     // The Euclidean adjustment is Hexagon here, not a helper anywhere else.
     expect(text).toContain("const remainder = rem(left, right);");
-    // `Real.sign` has the file's one guard: NaN has no mathematical sign and
-    // throws the exception declared below. `FloatRangeError` remains a range
-    // error for exact-to-Float conversions and is not thrown by this module.
-    expect(withoutComments(text).match(/\bthrow\b/gu)).toHaveLength(1);
+    // `Real.sign` and the shared rounding crossing are the file's two guarded
+    // sites. `FloatRangeError` remains an exact-to-Float error and is not thrown
+    // by this module.
+    expect(withoutComments(text).match(/\bthrow\b/gu)).toHaveLength(2);
     expect(text).toContain('throw UndefinedSignError("NaN has no sign")');
+    expect(text).toContain(
+      "throw IntRangeError(message)",
+    );
     expect(text).toContain(
       "const FloatRangeError = message => " +
         "__exception(\"FloatRangeError\", message, { message });",

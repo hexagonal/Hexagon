@@ -1,5 +1,9 @@
 module Int
 
+(** Raised when an explicit operation promises an `Int` result but that result
+    lies outside the safe-integer range. *)
+export exception IntRangeError(message: String)
+
 // The public `Int` companion. A primitive's home module is its fixed prelude
 // companion (Constraints §5.3), so this file is where `Int`'s instances are
 // declared and where the orphan rule lets them be declared.

@@ -73,6 +73,13 @@ type name from a type variable and enables implicit generalisation without `fora
 
 **Checked stdlib variants** for call sites near the edge: `Int.checkedAdd`, `Int.checkedSub`, `Int.checkedMul : Int -> Int -> Option(Int)` (naming per the standard partiality story). Implementation: `Number.isSafeInteger` on the result — **except `checkedMul`, which must pre-check operand magnitudes**, because an oversized product rounds *before* a post-hoc check can see it (same trap as the fixed-width Rat discussion). Multiplication is also the op that overflows in practice (two ~10^8 operands suffice).
 
+`stdlib/Int.hex` declares `IntRangeError(message: String)` for an explicit
+operation whose promised result must be an `Int` but is not representable in
+the safe range. The first users are §3's five `Float` rounding exits (#919).
+The exception belongs here, at the target type, and is available for a future
+throwing door into `Int`; a checked conversion whose contract returns `Option`
+continues to return `None` instead and does not throw it.
+
 *(#344: built — ordinary exports of `stdlib/Int.hex`. The landed implementation pre-checks all three, not only `checkedMul` — a choice, not a necessity: a post-hoc range comparison against `limit` would also be exact for addition and subtraction in ordinary Hexagon, at the price of an out-of-range value transiting an `Int`-typed binding (sanctioned by this section's overflow contract, but a value the rest of this file never lets exist); pre-checking uniformly keeps every intermediate a true `Int`, matches the strategy `checkedMul` was already mandated, and costs nothing extra. The forms, with `limit` = 2^53 − 1, every intermediate inside the safe range: addition overflows iff `right > 0 and left > limit - right` (that difference lies in `[0, limit)`) or `right < 0 and left < negate(limit) - right` (in `(negate(limit), 0]`); subtraction is `checkedAdd(left, negate(right))`, negation being total on the symmetric range; multiplication answers `Some(0)` on a zero operand and otherwise overflows iff `abs(left) > quot(limit, abs(right))` — the integer-division form of `abs(left) * abs(right) > limit`, exact without computing the product. The observable contract is exactly as decided; only the strategy note is superseded, in the pre-check direction it already pointed.)*
 
 **Reserved for later:** a compiler flag (working name `--checked-int`) routing all Int operators through the checked helpers — the Rust debug/release split — arriving if/when `hexc` grows build profiles. Not v1, but **implementers: write codegen with a pluggable arithmetic-emission point** rather than hardcoding `+`, so the flag is a configuration change, not a rewrite.
@@ -92,6 +99,44 @@ type name from a type variable and enables implicit generalisation without `fora
 Detection is named too, because it cannot be spelled by hand: `Float.isNan` and `Float.isFinite`. The imported idiom `x != x` is **uniformly `False`** here — `Eq<Float>` is SameValueZero, so a `NaN` equals itself (a deliberate choice, so that a float can key a hash table) — and with every partial float operation answering `NaN` rather than throwing, a caller would otherwise hold a value with no test for it. The same equality that retires the idiom implements the replacement: `Float.isNan(x)` is `x == Float.nan`. Comparison/equality semantics around `NaN` and `-0` are specified in the constraint (Eq/Ord) spec, not here.
 
 `stdlib/Float.hex` also declares `FloatRangeError` — the range guard of the exact world's exit doors, thrown by `Rat.toFloat` (`rat.md` §6) and `BigInt.toFloat` (§6): a door's result must be finite, and nonzero when the input is nonzero. The declaration sits here, at the target type, so that any door from the exact world *can* share it; which doors carry the guard is each door's own ruling.
+
+**Rounding into `Int`.** `Float` owns five concrete exits into the safe-integer
+world; they are ordinary companion functions, not constraint members:
+
+```hexagon
+Float.floor(value: Float): Int
+Float.ceil(value: Float): Int
+Float.trunc(value: Float): Int
+Float.round(value: Float): Int
+Float.bankRound(value: Float): Int
+```
+
+`floor` returns the greatest integer no greater than `value`; `ceil` returns the
+least integer no less than it; `trunc` rounds toward zero. `round` returns the
+nearest integer and sends an exact halfway value away from zero. `bankRound`
+also returns the nearest integer, but sends an exact halfway value to the even
+integer. Thus `Float.round(2.5) == 3`, `Float.round(-2.5) == -3`, while
+`Float.bankRound(2.5) == 2`, `Float.bankRound(3.5) == 4`, and the negative cases mirror
+them. The two nearest rules differ only at an exact half; neither uses
+JavaScript `Math.round`'s asymmetric ties-toward-positive-infinity convention.
+
+Each operation first determines its integer-valued `Float`. If that result is
+not a safe integer — exactly the host predicate `Number.isSafeInteger`, which
+rejects `NaN`, both infinities, and finite results outside
+`[-(2^53 - 1), 2^53 - 1]` — it throws
+`IntRangeError("Float.<operation>: result does not fit in Int")`.
+`IntRangeError` is declared by `stdlib/Int.hex`: the failed range belongs to the
+target type, just as `FloatRangeError` belongs here and is thrown by doors in
+other companions. Every successful zero result is canonical `Int` zero; the
+sign bit of a floating negative zero never crosses into `Int` and cannot
+reappear if that result later widens to `Float`.
+
+These are explicit reinterpretations of the stored binary64 value, not implicit
+numeric conversions and not a deferred `Int.fromFloat`: the latter would, if it
+ships, accept only a `Float` already holding a safe integer and return `Option`,
+where these names state how a fractional value is to be changed and throw when
+the requested `Int` cannot exist. Friendly Numerics §2 tenet 7 licenses exactly
+this kind of named exit from the approximate world.
 
 **`Float.pow(value: Float, exponent: Float): Float`** is the analytic power — `exp(y·ln x)`, total, honestly IEEE with every `NaN` edge, `Float.pow(2.0, 0.5)` the nearest double to `√2`. It is the `widens` declaration over `Pow<Float>`'s member (Operators §6.3.1; Constraints §4.7; Modules §5.3's generalisation law): the operator `**` takes the member's `Int` exponent, the qualified spelling and the dot call take this door, and the member is the door's derived restriction to integer exponents, accounted for in the honor block as `pow = widened`. A fractional exponent at `**` draws the mandatory fixit pointing here.
 
@@ -270,6 +315,7 @@ Unchanged and still worth its ink here: **`Unit`'s `undefined` must not be confu
 | `_` separators: JS rule, all numeric literals; decimal-only bases in v1 | this doc §8 |
 | `Unit` = `()` = JS `undefined` | this doc §9 |
 | `Float.nan` / `Float.infinity` constants and `Float.isNan` / `Float.isFinite` detectors; no special-value literals; `x != x` is uniformly `False` | this doc §3 |
+| `Float.floor`/`ceil`/`trunc`/`round`/`bankRound` return `Int`; `round` uses ties away from zero, `bankRound` ties to even; unsafe results throw target-owned `IntRangeError`; zero is canonical | this doc §3; #919 |
 | Int overflow: silent past ±2^53, plain-JS operators; checked stdlib variants; `--checked-int` reserved; int32/`\|0` rejected | this doc §2.1 |
 | `Ord String` = codepoint lexicographic, permanent regardless of grapheme indexing; collation is stdlib, never Ord | this doc §5 |
 | Types uppercase-start; type variables non-uppercase-start (`a b c` by convention) | this doc §1; Lexer §3 |

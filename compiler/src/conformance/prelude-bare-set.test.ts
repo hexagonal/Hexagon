@@ -15,7 +15,7 @@ import {
  *
  * The prelude used to seed every export into every module's bare term scope.
  * §5.5 now seeds **nothing** there by default, and four channel rules put
- * seventeen names back: the nine exception constructors, the six constructors of
+ * eighteen names back: the ten exception constructors, the six constructors of
  * the open unions `Bool`/`Option`/`Result`, `ignore`, and `show`. Everything
  * else is reached by the dot or the qualified spelling, and a bare reference to
  * it draws §10's refusal with its routes named.
@@ -24,7 +24,7 @@ import {
  *
  * The companion suites (`vector-prelude-companion`, `float-companion`,
  * `js-kind-qualification`, …) each pin their own module's surface. This one pins
- * the **rule**: the set is exactly seventeen names and is closed, each channel
+ * the **rule**: the set is exactly eighteen names and is closed, each channel
  * admits what it says it admits and nothing beside, and the refusal has one
  * shape across all three channels. The set pin is written against the *compiled
  * prelude* rather than a transcription, so drift in either direction — a name
@@ -61,10 +61,11 @@ function moduleNames(source: string): readonly string[] {
  * design ruling argued against §5.5, never an edit.
  */
 const BARE_SET = [
-  // The nine exception constructors — a category, not a list (§5.5).
+  // The ten exception constructors — a category, not a list (§5.5).
   "DivideByZeroError",
   "FloatRangeError",
   "IndexError",
+  "IntRangeError",
   "JsError",
   "KeyError",
   "NegativeExponentError",
@@ -83,13 +84,13 @@ const BARE_SET = [
   "show",
 ].sort();
 
-describe("the bare set is exactly seventeen names, and closed", () => {
+describe("the bare set is exactly eighteen names, and closed", () => {
   test("the prelude layer binds the set and nothing else", () => {
     expect(bareNames()).toEqual(BARE_SET);
   });
 
-  test("seventeen is the count the section states", () => {
-    expect(BARE_SET.length).toBe(17);
+  test("eighteen is the count the section states", () => {
+    expect(BARE_SET.length).toBe(18);
   });
 
   /**
@@ -98,7 +99,7 @@ describe("the bare set is exactly seventeen names, and closed", () => {
    * and a `derives` writes no block: the instance is the compiler's. Seeding off
    * the wider index §4.6's laws use gave a deriving module nineteen bare names
    * and let `compare(1, 2)` compile in it, which is ruling 4 undone by an
-   * implementation detail. The layer is the plain seventeen here.
+   * implementation detail. The layer is the plain eighteen here.
    */
   test("a module that derives seeds nothing of its own", () => {
     const source = "export record Box derives (Eq, Ord) = {n: Int}\n";
@@ -695,6 +696,7 @@ describe("the exception channel: all of them, as a category", () => {
     ["NegativeExponentError", "Pow", "(m)"],
     ["DivideByZeroError", "Integral", "(m)"],
     ["FloatRangeError", "Float", "(m)"],
+    ["IntRangeError", "Int", "(m)"],
     ["ReentrancyError", "Seq", ""],
     ["IndexError", "Vector", "(i, n)"],
     ["SliceError", "Vector", "(a, b)"],

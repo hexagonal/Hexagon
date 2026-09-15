@@ -192,7 +192,8 @@ describe("verification replaces trust (§4.2)", () => {
       "`natPow`, `natHash`, `natQuot`, `natRem`, `natFromIntUnchecked`, " +
       "`floatAdd`, `floatMultiply`, `floatSubtract`, `floatNegate`, " +
       "`floatFromInt`, `floatDivide`, `floatEquals`, `floatCompare`, " +
-      "`floatShow`, `floatPow`, `floatHash`, `floatRem`, `stringConcat`, " +
+      "`floatShow`, `floatPow`, `floatHash`, `floatRem`, `floatTrunc`, " +
+      "`floatIsSafeInteger`, `floatToIntUnchecked`, `stringConcat`, " +
       "`stringEquals`, `stringCompare`, `stringHash`, `stringFromSeq`, `hashTrieMix`, " +
       "`hashTrieDigit`, `hashTrieBitTest`, `hashTrieBitSet`, `hashTrieBitClear`, " +
       "`hashTrieBitCount`, `hashTrieBitCountBelow`, `hashTrieNodeSingleton`, " +

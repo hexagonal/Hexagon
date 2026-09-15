@@ -4,13 +4,11 @@ module Float
 // companion (Constraints §5.3), so this file is where `Float`'s instances are
 // declared and where the orphan rule lets them be declared.
 
-// The one exception this file declares, and the one nothing in this file
-// throws: `Float`'s own partiality is `NaN`, so no operation below guards. It
-// belongs to the doors *into* `Float` from the exact world — `Rat.toFloat`
-// today — because the range that fails is `Float`'s, stated once where every
-// such door can share it (the `DivideByZeroError`-in-`Integral.hex` pattern),
-// and because the brand follows the declaring module, so this home never has to
-// move.
+// This file does not throw `FloatRangeError`: it belongs to the doors *into*
+// `Float` from the exact world — `Rat.toFloat` and `BigInt.toFloat` today —
+// because the range that fails is `Float`'s, stated once where every such door
+// can share it (the `DivideByZeroError`-in-`Integral.hex` pattern), and because
+// the brand follows the declaring module, so this home never has to move.
 (** Raised when an exact value has no `Float` that approximates it: past
     `Float`'s finite range, or nonzero yet small enough to erase to zero.
     `message` names the operation that threw. *)
@@ -20,8 +18,9 @@ export exception FloatRangeError(message: String)
 // written in operators or interpolation — that sugar selects the very slot being
 // defined (Constraints §6.1) — so every such member is a one-line delegation to
 // one of the declarations below. The one thing above the door here is `mod`, the
-// Euclidean adjustment over `rem`; there is no guard anywhere in this file,
-// because float partiality is `NaN` rather than a throw.
+// Euclidean adjustment over `rem`. The float-valued arithmetic carries no
+// guard because its partiality is `NaN`; the explicit exits into `Int` below
+// guard the target type's safe range.
 //
 // `Num<Float>`'s `fromNat` is absent from this block on purpose: it composes out
 // of two slots that already exist beneath it — `Signed.fromInt` over
@@ -47,6 +46,9 @@ extern from "hex:intrinsic"
     fun floatShow as nativeShow(value: Float): String
     fun floatPow as nativePow(value: Float, exponent: Float): Float
     fun floatHash as nativeHash(value: Float): Int
+    fun floatTrunc as nativeTrunc(value: Float): Float
+    fun floatIsSafeInteger as nativeIsSafeInteger(value: Float): Bool
+    fun floatToIntUnchecked as nativeToIntUnchecked(value: Float): Int
 
     (** The truncated remainder of `left` divided by `right`, taking the sign of
         `left` — this is JS's `%`, and C's `fmod`. It is exact: the true
@@ -136,8 +138,8 @@ export let mod(left: Float, right: Float): Float =
     spelling: negate it for the other one, `-Float.infinity`. *)
 export let infinity: Float = 1.0 / 0.0
 
-(** The not-a-number float — the answer every partial float operation gives in
-    place of throwing, since nothing in this module guards. Test for it with
+(** The not-a-number float — the answer partial float-valued arithmetic gives
+    in place of throwing. Test for it with
     `Float.isNan` and never with `x != x`: `Eq<Float>` is SameValueZero, so a
     `NaN` here equals itself and the C idiom is uniformly `False`. *)
 export let nan: Float = 0.0 / 0.0
@@ -151,6 +153,70 @@ export let isNan(value: Float): Bool = value == nan
     zeroes and every subnormal are finite. *)
 export let isFinite(value: Float): Bool =
     value != infinity and value != -infinity and not isNan(value)
+
+// The crossing stays last: until the safe-integer predicate succeeds, the
+// rounded value remains a `Float` and no invalid value inhabits `Int`. Zero is
+// normalized separately because `Number.isSafeInteger(-0)` is true, while the
+// integer world has one canonical zero.
+let checkedRoundedInt(message: String, value: Float): Int =
+    if value == 0.0 then
+        nativeToIntUnchecked(0.0)
+    else if nativeIsSafeInteger(value) then
+        nativeToIntUnchecked(value)
+    else
+        throw(IntRangeError(message))
+
+(** The greatest integer no greater than `value`. Throws `IntRangeError` when
+    the result does not fit in `Int`. *)
+export let floor(value: Float): Int =
+    let truncated = nativeTrunc(value)
+    let rounded = if value < truncated then truncated - 1.0 else truncated
+    checkedRoundedInt("Float.floor: result does not fit in Int", rounded)
+
+(** The least integer no less than `value`. Throws `IntRangeError` when the
+    result does not fit in `Int`. *)
+export let ceil(value: Float): Int =
+    let truncated = nativeTrunc(value)
+    let rounded = if value > truncated then truncated + 1.0 else truncated
+    checkedRoundedInt("Float.ceil: result does not fit in Int", rounded)
+
+(** `value` rounded toward zero. Throws `IntRangeError` when the result does
+    not fit in `Int`. *)
+export let trunc(value: Float): Int =
+    checkedRoundedInt("Float.trunc: result does not fit in Int", nativeTrunc(value))
+
+(** The nearest integer to `value`, with exact halfway values rounded away
+    from zero. Throws `IntRangeError` when the result does not fit in `Int`. *)
+export let round(value: Float): Int =
+    let truncated = nativeTrunc(value)
+    let fraction = value - truncated
+    let rounded =
+        if fraction >= 0.5 then
+            truncated + 1.0
+        else if fraction <= -0.5 then
+            truncated - 1.0
+        else
+            truncated
+    checkedRoundedInt("Float.round: result does not fit in Int", rounded)
+
+(** The nearest integer to `value`, with exact halfway values rounded to the
+    even integer. Throws `IntRangeError` when the result does not fit in
+    `Int`. *)
+export let bankRound(value: Float): Int =
+    let truncated = nativeTrunc(value)
+    let fraction = value - truncated
+    let rounded =
+        if fraction > 0.5 then
+            truncated + 1.0
+        else if fraction < -0.5 then
+            truncated - 1.0
+        else if fraction == 0.5 then
+            if rem(truncated, 2.0) == 0.0 then truncated else truncated + 1.0
+        else if fraction == -0.5 then
+            if rem(truncated, 2.0) == 0.0 then truncated else truncated - 1.0
+        else
+            truncated
+    checkedRoundedInt("Float.bankRound: result does not fit in Int", rounded)
 
 export exception UndefinedSignError(message: String)
 
