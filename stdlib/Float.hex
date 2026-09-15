@@ -128,21 +128,21 @@ export let mod(left: Float, right: Float): Float =
     // companion, which is this file, and find nothing. This is a non-case of
     // the stdlib dot rule (`stdlib-roadmap.md` §1).
     let remainder = rem(left, right)
-    if remainder < 0.0 then
-        remainder + (if right < 0.0 then -right else right)
+    if remainder < 0 then
+        remainder + (if right < 0 then -right else right)
     else
         remainder
 
 (** Positive infinity — what every overflow saturates to, and what a positive
     float divided by zero answers. There is no literal for it, so this is the
     spelling: negate it for the other one, `-Float.infinity`. *)
-export let infinity: Float = 1.0 / 0.0
+export let infinity: Float = 1 / 0
 
 (** The not-a-number float — the answer partial float-valued arithmetic gives
     in place of throwing. Test for it with
     `Float.isNan` and never with `x != x`: `Eq<Float>` is SameValueZero, so a
     `NaN` here equals itself and the C idiom is uniformly `False`. *)
-export let nan: Float = 0.0 / 0.0
+export let nan: Float = 0 / 0
 
 (** Whether `value` is the not-a-number float. This is `value == Float.nan`,
     which works for exactly the reason the imported `x != x` idiom does not:
@@ -159,8 +159,8 @@ export let isFinite(value: Float): Bool =
 // normalized separately because `Number.isSafeInteger(-0)` is true, while the
 // integer world has one canonical zero.
 let checkedRoundedInt(message: String, value: Float): Int =
-    if value == 0.0 then
-        nativeToIntUnchecked(0.0)
+    if value == 0 then
+        nativeToIntUnchecked(0)
     else if nativeIsSafeInteger(value) then
         nativeToIntUnchecked(value)
     else
@@ -170,14 +170,14 @@ let checkedRoundedInt(message: String, value: Float): Int =
     the result does not fit in `Int`. *)
 export let floor(value: Float): Int =
     let truncated = nativeTrunc(value)
-    let rounded = if value < truncated then truncated - 1.0 else truncated
+    let rounded = if value < truncated then truncated - 1 else truncated
     checkedRoundedInt("Float.floor: result does not fit in Int", rounded)
 
 (** The least integer no less than `value`. Throws `IntRangeError` when the
     result does not fit in `Int`. *)
 export let ceil(value: Float): Int =
     let truncated = nativeTrunc(value)
-    let rounded = if value > truncated then truncated + 1.0 else truncated
+    let rounded = if value > truncated then truncated + 1 else truncated
     checkedRoundedInt("Float.ceil: result does not fit in Int", rounded)
 
 (** `value` rounded toward zero. Throws `IntRangeError` when the result does
@@ -192,9 +192,9 @@ export let round(value: Float): Int =
     let fraction = value - truncated
     let rounded =
         if fraction >= 0.5 then
-            truncated + 1.0
+            truncated + 1
         else if fraction <= -0.5 then
-            truncated - 1.0
+            truncated - 1
         else
             truncated
     checkedRoundedInt("Float.round: result does not fit in Int", rounded)
@@ -207,13 +207,13 @@ export let bankRound(value: Float): Int =
     let fraction = value - truncated
     let rounded =
         if fraction > 0.5 then
-            truncated + 1.0
+            truncated + 1
         else if fraction < -0.5 then
-            truncated - 1.0
+            truncated - 1
         else if fraction == 0.5 then
-            if rem(truncated, 2.0) == 0.0 then truncated else truncated + 1.0
+            if rem(truncated, 2) == 0 then truncated else truncated + 1
         else if fraction == -0.5 then
-            if rem(truncated, 2.0) == 0.0 then truncated else truncated - 1.0
+            if rem(truncated, 2) == 0 then truncated else truncated - 1
         else
             truncated
     checkedRoundedInt("Float.bankRound: result does not fit in Int", rounded)
