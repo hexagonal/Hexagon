@@ -55,7 +55,7 @@ export function collectTypeOccurrences(module: Typed.Module): readonly TypeOccur
     const scheme = symbol.scheme;
     publish(
       fallbackName,
-      receiverBound ? receiverBoundScheme(scheme) : scheme,
+      scheme,
       // A dot call's span is already exactly the operation name — the checker
       // takes it from the field — and its *name* is the local import spelling,
       // which need not be what the source wrote there. Narrowing by that name
@@ -297,19 +297,6 @@ function typeOfPattern(pattern: Typed.Pattern): Typed.Type | undefined {
     default:
       return undefined;
   }
-}
-
-function receiverBoundScheme(scheme: Typed.Scheme): Typed.Scheme {
-  if (scheme.type.kind !== "Function" || scheme.type.parameters.length === 0) {
-    return scheme;
-  }
-  return {
-    ...scheme,
-    type: {
-      ...scheme.type,
-      parameters: scheme.type.parameters.slice(1),
-    },
-  };
 }
 
 /** Qualified names retain an expression span; hover only the final identifier. */
