@@ -85,7 +85,7 @@ Rust is the direct model: `%` on `f64` is truncated, `f64::rem_euclid` is Euclid
 
 ### 5.3 No `Float.quot`, no Euclidean float division (decided)
 
-The quotient halves exist at `Int`/`BigInt` because those types have no `/` — the pair jointly defines division. `Float` has true `/`; the quotient side is a trivial composition (`Float.trunc(a / b)`, `Float.floor(a / b)`), the division identity holds only up to rounding at float type so there is no exact pair-contract to honor, and Rust's `f64::div_euclid` is the half nobody calls. Omitting them keeps §1's doctrine sentence load-bearing: pairs where they define division, standalone remainders where division already exists.
+The quotient halves exist at `Int`/`BigInt` because those types have no `/` — the pair jointly defines division. `Float` has true `/`; the quotient side is a trivial composition (`Float.trunc(a / b)`, `Float.floor(a / b)` — Primitive Types §3's checked `Float`-to-`Int` exits), the division identity holds only up to rounding at float type so there is no exact pair-contract to honor, and Rust's `f64::div_euclid` is the half nobody calls. Omitting them keeps §1's doctrine sentence load-bearing: pairs where they define division, standalone remainders where division already exists.
 
 ## 6. Emission
 
@@ -164,6 +164,7 @@ isEven = n => Int.mod(n, 2) == 0    -- correct for negative n; with rem it would
 | All integer-type division/remainder functions throw `DivideByZeroError` on zero; BigInt pre-checks rather than rebranding `RangeError` | §3–4 |
 | `Float.mod` (Euclidean) and `Float.rem` (truncated, bare `%`) provided; NaN on zero divisor; no throw | §5 |
 | No `Float.quot`, no Euclidean float division | §5.3 |
+| `Float.trunc(a / b)` and `Float.floor(a / b)` are compositions through Primitive Types §3's checked rounding exits, not a float quotient family | §5.3; #919 |
 | `Float.mod` invariant is `0 <= r <= abs(b)` (boundary via rounding only); `Float.rem` is IEEE-exact | §5.1 |
 | Emission via named runtime helpers; inlining is QoI latitude *(superseded per family by #344 — `BigInt` at the first landing, `Int`/`Nat` at the second, `Float` at the third and last: every body lives in its companion, natives through the intrinsic door, the `__hex_floatMod`/`__hex_floatRem` helpers gone with the door family; the §6 shapes stay normative for behaviour)* | §6 |
 

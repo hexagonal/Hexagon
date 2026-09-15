@@ -40,7 +40,7 @@ import {
 
 /**
  * The budget `module-imports.test.ts` names, for the one test in this file that
- * sits on it — the sweep over every prelude exception, which is fourteen whole
+ * sits on it — the sweep over every prelude exception, which is twenty whole
  * compiles, prelude included, and #829 put the whole standard library in every
  * compilation. It measures 1.2s alone and ~5s under the full suite's parallel
  * load against vitest's 5s default, which is the signature of a budget rather
@@ -94,7 +94,7 @@ describe("a prelude module's own name qualifies its exceptions in catch arms", (
   });
 
   test("every prelude exception is nameable in a catch arm, by both spellings", () => {
-    // The seven the prelude exports — `Seq.hex`'s `ReentrancyError` among them,
+    // The ten the prelude exports — `Seq.hex`'s `ReentrancyError` among them,
     // which has been in the prelude and uncatchable since it was declared (FFI
     // Part 3 §7.4), and `Float.hex`'s `FloatRangeError`, which nothing in its
     // own home module throws either (#526: it is the range the doors *into*
@@ -108,7 +108,10 @@ describe("a prelude module's own name qualifies its exceptions in catch arms", (
       ["Seq", "ReentrancyError"],
       ["Integral", "DivideByZeroError(message)"],
       ["Pow", "NegativeExponentError(message)"],
+      ["Int", "IntRangeError(message)"],
       ["Float", "FloatRangeError(message)"],
+      ["Float", "UndefinedSignError(message)"],
+      ["JsError", "JsError(error)"],
     ];
     for (const [home, arm] of arms) {
       for (const spelling of [arm, `${home}.${arm}`]) {

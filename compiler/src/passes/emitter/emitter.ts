@@ -9906,8 +9906,9 @@ class JavaScriptEmitter {
       // `stringCompare` are the decided total order and the codepoint order,
       // through the comparators that already serve the operator fast paths,
       // wrapped in the `Ordering` value a `compare` slot owes its caller
-      // (#275). Nothing here guards, because nothing at either type can:
-      // `Float`'s partiality is `NaN`, and `String` has no partial operation.
+      // (#275). The raw lowerings do not guard: float-valued arithmetic carries
+      // `NaN`, and #919's target-range and canonical-zero logic sits above its
+      // three narrow capabilities in ordinary `Float.hex`.
       case "floatAdd":
         return "(__a, __b) => __a + __b";
       case "floatMultiply":
@@ -9925,6 +9926,16 @@ class JavaScriptEmitter {
       // over it in the companion's own Hexagon.
       case "floatRem":
         return "(__a, __b) => __a % __b";
+      // Primitive Types §3's checked Float-to-Int exits (#919). `Math.trunc`
+      // keeps the intermediate at `Float`; `Number.isSafeInteger` earns the
+      // identity crossing, after source has also normalized zero. Floor, ceil,
+      // and both tie policies are source logic, never host selections here.
+      case "floatTrunc":
+        return `__a => ${this.#spell("Math")}.trunc(__a)`;
+      case "floatIsSafeInteger":
+        return `__a => ${this.#spell("Number")}.isSafeInteger(__a)`;
+      case "floatToIntUnchecked":
+        return "__a => __a";
       case "floatEquals":
         return "(__a, __b) => __a === __b || (__a !== __a && __b !== __b)";
       case "floatCompare":
