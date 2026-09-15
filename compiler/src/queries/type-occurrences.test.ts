@@ -20,6 +20,8 @@ describe("collectTypeOccurrences", () => {
       "let answer = identity(ada).age\n" +
       "let numbers: Seq(Int) = Seq.iterate(1, number => number + 1)\n" +
       "let selected = numbers.map(number => number + 1)\n" +
+      "let qualifiedRound = Float.bankRound(2.5)\n" +
+      "let dottedRound = 2.5.bankRound()\n" +
       "for item in selected\n" +
       "    Debug.log(\"${item}\")\n";
     // Through `compileProject`, because `Seq(a)` is a prelude declaration now
@@ -47,14 +49,18 @@ describe("collectTypeOccurrences", () => {
     expect(at("age", text.indexOf("age"))?.displayedType).toBe("Int");
     expect(at("show", text.indexOf("show"))?.displayedType).toBe("Person -> String");
     expect(at("age", text.lastIndexOf("age"))?.displayedType).toBe("Int");
-    // `Seq.map` is an ordinary prelude function reached by companion dispatch,
-    // so hover reports its scheme with the subject consumed — the same thing
-    // `identity` reports above. The compiler-known `SeqOperation` family it
-    // replaced published the instantiated type at each use instead; that
-    // inconsistency went with it.
+    // Dot-call syntax supplies the first argument during elaboration, but the
+    // operation identifier still denotes the declaration and therefore keeps
+    // the declaration's complete scheme in hover.
     expect(at("map", text.indexOf("map"))?.displayedType).toBe(
-      "(a -> b) -> Seq(b)",
+      "(Seq(a), a -> b) -> Seq(b)",
     );
+    const qualifiedRound = at("bankRound", text.indexOf("bankRound"));
+    const dottedRound = at("bankRound", text.lastIndexOf("bankRound"));
+    expect(qualifiedRound?.displayedType).toBe("Float -> Int");
+    expect(dottedRound?.displayedType).toBe("Float -> Int");
+    expect(dottedRound?.symbol).toBe(qualifiedRound?.symbol);
+    expect(dottedRound?.receiverBound).toBe(true);
     expect(at("number", text.indexOf("number =>"))?.displayedType).toBe("Int");
     expect(at("item", text.indexOf("item"))?.displayedType).toBe("Int");
     expect(at("item", text.lastIndexOf("item"))?.displayedType).toBe("Int");

@@ -328,6 +328,47 @@ describe("the Hexagon language server", () => {
     });
   });
 
+  test("dot-call hover reports the operation's complete declaration signature", async () => {
+    const source = [
+      "module Main",
+      "",
+      "let qualified: Int = Float.bankRound(2.5)",
+      "let dotted: Int = 2.5.bankRound()",
+      "",
+    ].join("\n");
+    const solo = await harness({ "main.hex": source });
+    try {
+      await solo.client.sendNotification(DidOpenTextDocumentNotification.type, {
+        textDocument: {
+          uri: solo.uriOf("main.hex"),
+          languageId: "hexagon",
+          version: 1,
+          text: source,
+        },
+      });
+
+      const qualified = await solo.client.sendRequest("textDocument/hover", {
+        textDocument: { uri: solo.uriOf("main.hex") },
+        position: positionOf(source, "bankRound"),
+      }) as Hover | null;
+      const dotted = await solo.client.sendRequest("textDocument/hover", {
+        textDocument: { uri: solo.uriOf("main.hex") },
+        position: positionOf(source, "bankRound", 2),
+      }) as Hover | null;
+
+      expect((qualified?.contents as { value: string }).value).toMatch(
+        /^value `bankRound: Float -> Int`/,
+      );
+      expect(dotted?.contents).toEqual(qualified?.contents);
+      expect(dotted?.range).toEqual({
+        start: { line: 3, character: 22 },
+        end: { line: 3, character: 31 },
+      });
+    } finally {
+      await solo.dispose();
+    }
+  });
+
   test("hover names a type without inventing a value type for it", async () => {
     const hover = await hex.client.sendRequest("textDocument/hover", {
       textDocument: { uri: hex.uriOf("main.hex") },
