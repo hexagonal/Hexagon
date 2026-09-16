@@ -924,6 +924,8 @@ export interface InstanceImport {
    * report on the modal library case.
    */
   readonly derived: boolean;
+  /** The source instance declared by the fixed `String` companion. */
+  readonly canonicalStringIterable?: true;
   /**
    * The instance's member seats under the **declaring** module's interface
    * spellings (#444), carried unchanged across every hop for the reason

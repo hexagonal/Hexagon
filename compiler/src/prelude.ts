@@ -124,10 +124,11 @@ export interface PreludeModule {
  * `Seq` cannot be written before `Seq.hex` seats. So `String.hex` follows
  * `Seq.hex` now. The swap costs nothing in the other direction: `Seq.hex`
  * names no string, interpolates none, and shows nothing, so it loses no
- * instance it was using. `String.toSeq` needs no seat at all — it is the
- * provided row's member (Part 5 §4). The text-processing surface now uses both
- * that traversal and eager vectors, so the companion follows `Iterable.hex`
- * and `Vector.hex` as `spec/string-text-processing.md` §11 requires.
+ * instance it was using. `String.toSeq` is now the member of the companion's
+ * source-owned `Iterable<String>` instance, so `Iterable.hex` must precede it.
+ * The text-processing surface also uses eager vectors, and the companion
+ * follows both `Iterable.hex` and `Vector.hex` as
+ * `spec/string-text-processing.md` §11 requires.
  *
  * `Vector.hex` needs a great deal: `first`/`last`/`get` answer with `Option`,
  * and `toSeq`/`fromSeq` name `Seq`.

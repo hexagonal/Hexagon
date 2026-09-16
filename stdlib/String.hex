@@ -25,10 +25,11 @@ module String
 // chunks and join — marking the fold of `++` semantic only and ruling out
 // repeated immutable concatenation by name. The fold is exactly what a Hexagon
 // body would be, so the operation crosses the door to reach a linear join. Its
-// twin `toSeq` is not declared here at all: `Iterable<String>` is a provided
-// row (Part 5 section 4), so `toSeq` at a string is the constraint member. The
-// consumer spellings are the dot call `"ab".toSeq()` and the uniform-access
-// read `String.toSeq("ab")`. The remaining private rows are the Unicode 17.0.0
+// twin `toSeq` is the member of this file's authoritative `Iterable<String>`
+// instance. Its private intrinsic supplies only the lazy representation walk;
+// the source block owns the coherence slot and `Item = String`. The consumer
+// spellings are the dot call `"ab".toSeq()` and the uniform-access read
+// `String.toSeq("ab")`. The remaining private rows are the Unicode 17.0.0
 // property, mapping, and scalar primitives that ordinary Hexagon cannot spell;
 // all traversal and matching policy is source below.
 //
@@ -47,6 +48,8 @@ extern from "hex:intrinsic"
         sequence, so it does not terminate on an infinite one. *)
     export fun stringFromSeq as fromSeq(values: Seq(String)): String
 
+    fun stringToSeq as nativeToSeq(text: String): Seq(String)
+
     fun stringIsWhitespace as nativeIsWhitespace(point: String): Bool
     fun stringIsCased as nativeIsCased(point: String): Bool
     fun stringIsCaseIgnorable as nativeIsCaseIgnorable(point: String): Bool
@@ -56,8 +59,12 @@ extern from "hex:intrinsic"
     fun stringCodepointUnchecked as codepointUnchecked(point: String): Int
     fun stringFromCodepointUnchecked as fromCodepointUnchecked(value: Int): String
 
+honor Iterable<String> =
+    type Item = String
+    toSeq(text) = nativeToSeq(text)
+
 let points(text: String): Vector(String) =
-    Vector.fromSeq(Iterable.toSeq(text))
+    Vector.fromSeq(toSeq(text))
 
 let joinChunks(chunks: Vector(String)): String =
     fromSeq(Iterable.toSeq(chunks))
