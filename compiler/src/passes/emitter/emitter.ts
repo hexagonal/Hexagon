@@ -26,6 +26,14 @@ import type * as Resolved from "../../syntax/resolved/index.js";
 import * as Typed from "../../syntax/typed/index.js";
 import { idContinue, idStart } from "../lexer/unicode-17.js";
 import {
+  casedPattern,
+  caseFoldMapping,
+  caseIgnorablePattern,
+  lowercaseMapping,
+  uppercaseMapping,
+  whiteSpacePattern,
+} from "./unicode-text-17.js";
+import {
   faceOnlyEditionInstances,
   fundamentalInstanceDictionaries,
   planFundamentalSpecializations,
@@ -1752,6 +1760,7 @@ export const RUNTIME_VOCABULARY = [
   "Number",
   "Object",
   "RangeError",
+  "RegExp",
   "Set",
   "String",
   "Symbol",
@@ -9961,6 +9970,22 @@ class JavaScriptEmitter {
         return "(__a, __b) => __a === __b";
       case "stringCompare":
         return `(__a, __b) => ${this.#useHelper("ordering")}(${this.#useHelper("compareString")}(__a, __b))`;
+      case "stringIsWhitespace":
+        return `__a => ${this.#useHelper("unicodeWhiteSpace")}(__a)`;
+      case "stringIsCased":
+        return `__a => ${this.#useHelper("unicodeCased")}(__a)`;
+      case "stringIsCaseIgnorable":
+        return `__a => ${this.#useHelper("unicodeCaseIgnorable")}(__a)`;
+      case "stringLowercaseMapping":
+        return `__a => ${this.#useHelper("unicodeLowercase")}(__a)`;
+      case "stringUppercaseMapping":
+        return `__a => ${this.#useHelper("unicodeUppercase")}(__a)`;
+      case "stringCaseFoldMapping":
+        return `__a => ${this.#useHelper("unicodeCaseFold")}(__a)`;
+      case "stringCodepointUnchecked":
+        return "__a => __a.codePointAt(0)";
+      case "stringFromCodepointUnchecked":
+        return `__a => ${this.#spell("String")}.fromCodePoint(__a)`;
       // `floatFromInt` is the identity over the one shared `number`
       // representation, exactly as `intFromNat` is; it is keyed only because a
       // Hexagon body for it would elaborate through the slot being defined.
@@ -11784,6 +11809,12 @@ function memberAccess(name: string): string {
 type Helper =
   | "compareFloat"
   | "compareString"
+  | "unicodeWhiteSpace"
+  | "unicodeCased"
+  | "unicodeCaseIgnorable"
+  | "unicodeLowercase"
+  | "unicodeUppercase"
+  | "unicodeCaseFold"
   | "ordering"
   | "exception"
   | "floatEquals"
@@ -11833,6 +11864,12 @@ type Helper =
 const HELPER_DEPENDENCIES: Readonly<Record<Helper, readonly Helper[]>> = {
   compareFloat: [],
   compareString: [],
+  unicodeWhiteSpace: [],
+  unicodeCased: [],
+  unicodeCaseIgnorable: [],
+  unicodeLowercase: [],
+  unicodeUppercase: [],
+  unicodeCaseFold: [],
   ordering: [],
   exception: [],
   floatEquals: [],
@@ -12016,6 +12053,37 @@ function comparisonPrecedence(step: Core.ComparisonStep): Precedence {
   return step.test === "Equal" || step.test === "NotEqual"
     ? Precedence.Equality
     : Precedence.Relational;
+}
+
+function unicodePropertyHelper(
+  name: string,
+  pattern: string,
+  spell: (name: RuntimeSpelling) => string,
+): string[] {
+  const table = `${name}Pattern`;
+  return [
+    `const ${table} = new ${spell("RegExp")}(${JSON.stringify(pattern)}, "u");`,
+    `function ${name}(__point) { return ${table}.test(__point); }`,
+  ];
+}
+
+function unicodeMappingHelper(
+  name: string,
+  entries: readonly (readonly [number, string])[],
+  spell: (name: RuntimeSpelling) => string,
+): string[] {
+  const table = `${name}Table`;
+  return [
+    `const ${table} = new ${spell("Map")}(${asciiJson(entries)});`,
+    `function ${name}(__point) { return ${table}.get(__point.codePointAt(0)) ?? __point; }`,
+  ];
+}
+
+function asciiJson(value: unknown): string {
+  return JSON.stringify(value).replace(
+    /[^\x20-\x7E]/g,
+    (unit) => `\\u${unit.charCodeAt(0).toString(16).padStart(4, "0")}`,
+  );
 }
 
 function renderHelper(
@@ -12277,6 +12345,18 @@ function renderHelper(
         "  return __leftPoints.length < __rightPoints.length ? -1 : __leftPoints.length > __rightPoints.length ? 1 : 0;",
         "}",
       ];
+    case "unicodeWhiteSpace":
+      return unicodePropertyHelper(name, whiteSpacePattern, spell);
+    case "unicodeCased":
+      return unicodePropertyHelper(name, casedPattern, spell);
+    case "unicodeCaseIgnorable":
+      return unicodePropertyHelper(name, caseIgnorablePattern, spell);
+    case "unicodeLowercase":
+      return unicodeMappingHelper(name, lowercaseMapping, spell);
+    case "unicodeUppercase":
+      return unicodeMappingHelper(name, uppercaseMapping, spell);
+    case "unicodeCaseFold":
+      return unicodeMappingHelper(name, caseFoldMapping, spell);
     case "range":
       return [
         `function ${name}(__start, __end) {`,

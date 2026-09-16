@@ -92,7 +92,7 @@ For each Hexagon type: its JavaScript runtime representation, its generated `.d.
 | `Float` | any `number` (incl. `NaN`, infinities, `-0`) | `number` | direct | trusted |
 | `BigInt` | `bigint` | `bigint` | direct | trusted |
 | `Bool` | `boolean` | `boolean` | direct | trusted |
-| `String` | `string` | `string` | direct | trusted |
+| `String` | any JavaScript `string`, including one containing lone UTF-16 surrogates | `string` | direct | trusted |
 | `Unit` | `undefined` | `void` (return position), `undefined` elsewhere | direct | trusted |
 | Tuple | plain JS array | TS tuple type (`[number, string]`) | direct — rebuilt component-wise by §5.4's walk when a component type names a captured collection | trusted |
 | Structural record | POJO | structural object type | direct — rebuilt field-wise by §5.4's walk when a field type names a captured collection | trusted |
@@ -244,7 +244,7 @@ The primitive representation requirements (the trusted assertions behind the §4
 | `Float` | any `number`, including `NaN`, infinities, and `-0` |
 | `BigInt` | a `bigint` |
 | `Bool` | a `boolean` — *since #147 a prelude union with pinned representation (Unions §6.2); this row's requirement is unchanged and is the pin's boundary face* |
-| `String` | a `string` |
+| `String` | any `string`, including ill-formed UTF-16; the value is preserved without scalar validation or U+FFFD repair (String Text Processing §1) |
 
 Thus:
 

@@ -285,6 +285,12 @@ JavaScript's `greeting.length` reports six because `🙂` occupies a UTF-16 surr
 pair. Hexagon's string operations report five—the count that is useful when walking the
 text as Unicode codepoints.
 
+At the JavaScript boundary Hexagon accepts every JavaScript string, including the
+unusual strings that contain an unmatched UTF-16 surrogate. Such a value is preserved
+as one codepoint-sized item rather than rejected or silently changed to `�`. Source
+files and `\u{...}` escapes remain Unicode-scalar text, so ordinary Hexagon source does
+not create these values; the rule keeps foreign strings exact and round-trippable.
+
 There is no separate `Char` primitive. Indexing or iterating a string produces a
 one-codepoint `String`. Positions are one-based, like other Hexagon sequence positions.
 Detailed indexing, slicing, and iteration belong with collections; the fact to retain
@@ -298,6 +304,8 @@ emoji. Combining marks and other emoji sequences can be longer still.
 That human-perceived unit is called a grapheme. Grapheme segmentation is a higher-level,
 Unicode-aware library concern. Hexagon's primitive rule is stable and explicit rather
 than pretending UTF-16 units, codepoints, and visible characters are always the same.
+Unicode-sensitive library behavior uses compiler-shipped Unicode 17.0.0 data rather
+than inheriting whichever Unicode version happens to be installed in the host runtime.
 
 ## `BigInt`: arbitrary precision by choice
 

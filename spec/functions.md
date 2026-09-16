@@ -26,6 +26,11 @@ warning. Uppercase-start identifiers are reserved for types and constructors. Th
 gives the resolver a syntactic binder/constructor distinction while allowing names
 such as `用户`, `$parse`, and `_cached` (Lexer §3).
 
+Initialisms are treated as ordinary words regardless of length: `JsMap`,
+`IoStream`, `HtmlParser`, and `containsCi`. At the beginning of a camelCase name
+the word is lowercase: `jsValue`, `ioStream`, and `ciMatch`. A run of capitals
+does not receive a special naming rule.
+
 ---
 
 ## 3. The primary (type-free) forms

@@ -1160,15 +1160,12 @@ describe("HashTrie placement mix (Effects §6.2 species (b))", () => {
  * The seat rule, made checkable — `vector-trie-wiring.test.ts`'s pin for the
  * other runtime module, applied to this one.
  *
- * `HashTrie.hex` sits before `Vector.hex` and must never reach it: a vector
- * literal, bracket, pattern or `Vector.` call written in it would make the
- * emitted `HashTrie.js` import `Vector.js`, and `Vector.js` already imports
- * `VectorTrie.js` — coupling this trie to a runtime it has no use for, through
- * an edge created at emission that no `Import` item records and no acyclicity
- * check can see.
+ * `HashTrie.hex` sits before `Map.hex`, its first emitted consumer. It has no
+ * use for `Vector` or `VectorTrie`, so the emitted module stays independent of
+ * both even though its later seat makes `Vector` visible to its source.
  */
 describe("the emitted module's import surface", () => {
-  test("imports only prelude members seated before Vector.hex, and never Vector itself", () => {
+  test("imports only prelude members seated before Map.hex, and no unused vector runtime", () => {
     const project = compileFiles(
       [[
         PROBE_PATH,
@@ -1192,7 +1189,7 @@ describe("the emitted module's import surface", () => {
     // than the source file's place is #829's own rule, read off the output.
     const seatedBefore = PRELUDE_MODULES
       .map(({ name }) => `../${name}.js`)
-      .slice(0, PRELUDE_MODULES.findIndex(({ name }) => name === "Vector"));
+      .slice(0, PRELUDE_MODULES.findIndex(({ name }) => name === "Map"));
     for (const specifier of specifiers) expect(seatedBefore).toContain(specifier);
     // And it really does import — an empty list would pass the loop vacuously.
     expect(specifiers.length).toBeGreaterThan(0);

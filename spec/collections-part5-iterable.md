@@ -2,7 +2,7 @@
 
 **Status:** Decided (July 2026); pre-landing corrections incorporated in place (§18). Fifth and final part of the Collections effort. The authoritative operational specification of v1 `Iterable`: the resolution and typing of `for p in e`, the finalized provided-instance table (nine rows: six collections-owned, three FFI-owned), table-opening for user instances, static-resolution emission, the collections/stdlib boundary, and the transients decision. Written against Collections Parts 1–4, Constraints, Loops/Ranges/Iteration, Pattern Matching, and Modules; none re-litigated.
 **Scope:** The `for p in e` resolution algorithm and four-way failure taxonomy (unsolved inference variable vs declared type variable; the two-legal-homes user-nominal message); the provided instance table (§4); `Iterable<String>` with `Item = String` and the `String.toSeq`/`String.fromSeq` conversion pair (`fromSeq` = concatenation, full contract §5.3); the collection-conversion-suite domain (finite collections; `Range` and `Seq` exempt with reasons); `toSeq` as a real prelude term (the `Iterable` member); user-instance mechanics, discoverability, and provided-instance collisions; the "writing your own collection" recipe, normative, with `Bag(a)`; static-resolution emission; the combinator-surface boundary; transients runtime-internal only.
-**Not in scope:** The `Iterable` declaration and type-member grammar (Part 2 §5–§8 — consumed, not restated); the v2 implied-types remainder (deferred `Item(α)` goals, `Item(c)` reference syntax, member obligations, `Iterable` binders, `derive via` — Part 2 §11, Part 1 §6.3); the combinator families themselves (`stdlib-roadmap.md` ledger, decided at the stdlib listing; boundary drawn in §10); `AsyncSeq` and any `for await` form (Loops §11.4); **everything normative about the foreign collections `Array(a)`, `JsMap(k, v)`, `JsSet(a)`** — types, capture and borrow contracts, observation semantics, conversions, emission, `.d.ts` faces (FFI Parts 2 and 10; §4 records their instance rows, §6 the discharged `Array` ownership); the foreign (`.d.ts`) representation of constraints on exported polymorphic functions (FFI spec; see §9.3); `String.join`-style conveniences (stdlib listing).
+**Not in scope:** The `Iterable` declaration and type-member grammar (Part 2 §5–§8 — consumed, not restated); the v2 implied-types remainder (deferred `Item(α)` goals, `Item(c)` reference syntax, member obligations, `Iterable` binders, `derive via` — Part 2 §11, Part 1 §6.3); the combinator families themselves (`stdlib-roadmap.md` ledger, decided at the stdlib listing; boundary drawn in §10); `AsyncSeq` and any `for await` form (Loops §11.4); **everything normative about the foreign collections `Array(a)`, `JsMap(k, v)`, `JsSet(a)`** — types, capture and borrow contracts, observation semantics, conversions, emission, `.d.ts` faces (FFI Parts 2 and 10; §4 records their instance rows, §6 the discharged `Array` ownership); the foreign (`.d.ts`) representation of constraints on exported polymorphic functions (FFI spec; see §9.3); String text-processing operations beyond this document's iteration and `fromSeq` contracts (`string-text-processing.md`).
 **Companions:** Collections Part 1 (§6.1/§6.5 made normative here; §9.5/§9.6 closed); Collections Part 2 (§8 declaration; §7.2 binder ban; §9 diagnostics extended); Collections Part 3 (§8 `Iterable<Vector>` row; §9 linear idiom cashed by §5 here); Collections Part 4 (§7.2 rows; §13.1/§13.4 closed here); Loops/Ranges/Iteration (§2.3 desugaring; §5 table finalized as §4 here; §6 `Seq`; §7.1 judgment made normative as instance lookup); Pattern Matching (§5 five-positions gate); Modules (§7 instance globality and orphan rule; §7.6 discoverability); Constraints (§5.1 coherence; §2.2 members); FFI Part 2 (§§6, 8–9: the `Array(a)` obligation discharged); FFI Part 3 (`Seq(a)` boundary crossing); FFI Part 10 (§6 `JsMap`/`JsSet` rows); Primitive Types (§5.1 String indexing).
 
 ---
@@ -112,7 +112,11 @@ Notes:
 
 ### 5.1 The instance — `Item = String`, one codepoint per item
 
-`Iterable<String>` is provided, with `type Item = String`; each item is a **one-codepoint `String`**, in codepoint order. This closes the question Loops §11.6 left open, in the only way it could close:
+`Iterable<String>` is provided, with `type Item = String`; each item is a
+**one-codepoint `String`**, in codepoint order. A valid surrogate pair is one
+item. A lone surrogate supplied by JavaScript is one preserved item, but not a
+Unicode scalar value (Primitive Types §5.1; String Text Processing §1 and §9).
+This closes the question Loops §11.6 left open, in the only way it could close:
 
 - Hexagon has no `Char` (Primitive Types §5.1); a one-codepoint `String` is the established unit — it is exactly what `s[i]` returns (Part 3 §9).
 - Part 2 §8 already carried `String` in the provided-row inventory; Part 3 §9 already tells users "the linear idiom is `for c in s`". This section makes both honest.
@@ -135,7 +139,10 @@ Notes:
 - **Complexity: linear in the total input/output length.** *Implementation note (binding on the emitter/runtime):* collect chunks and join (`parts.join("")`-shaped); the fold-of-`++` description above is **semantic only** and must not license quadratic repeated immutable concatenation.
 - **Round-trip law, one-sided:** `String.fromSeq(String.toSeq(s)) == s`, for every `s`. The converse makes no chunk-boundary claim: `toSeq(fromSeq(xs))` yields one-codepoint items, not `xs`'s original chunks.
 
-This keeps the finite-collection conversion suite (§1) exception-free where it applies. A separator-taking `join` is a stdlib-listing candidate (§14.2) and does not replace this.
+This keeps the finite-collection conversion suite (§1) exception-free where it
+applies. The separator-taking
+`String.join(parts: Seq(String), separator: String): String` is specified by
+String Text Processing §7. It supplements rather than replaces `fromSeq`.
 
 ---
 
@@ -274,7 +281,7 @@ The user-instance call is the ordinary emitted module function (here `Bag_toSeq`
 The roadmap's leaning is fixed as the rule:
 
 - **The collections specs (Parts 1–5) own:** the types and names; representation references and complexity contracts; construction (literals, `fromVector`, `from*` eagerness); the core access surface (the accessor pair, `at`, slicing); the update doctrine (upsert, forgiving removal, representative retention); set algebra; the provided instances (`Eq`/`Ord`/`Show`/`Hash`/`Concat`/`Iterable`); the conversion suite (`toSeq`/`fromSeq` on every finite collection, §1); patterns; operator boundaries.
-- **The stdlib listing owns:** the combinator families over every collection and `Seq`, plus `String.join`-style conveniences — **and the v1 ship-list vs deferred split within them** — inventoried in `stdlib-roadmap.md` and decided at the listing session under the Part 1 §3 naming doctrine, which binds there in full (banned families, subject-first, `Option`-shaped totality).
+- **The stdlib listing owns:** the combinator families over every collection and `Seq`, including the v1 ship-list versus deferred split within them, inventoried in `stdlib-roadmap.md` and decided at the listing session under the Part 1 §3 naming doctrine, which binds there in full (banned families, subject-first, `Option`-shaped totality). String Text Processing now owns `String.join` and the rest of that companion's text-processing surface.
 
 The test for future placement: *does it define what the structure is, or what you can do over it?* Structure here; doing there.
 
@@ -344,7 +351,10 @@ Rejected per §7.2: for a home-module instance the pattern is structurally unnec
 ## 14. Hanging questions (owned elsewhere; recorded, non-blocking)
 
 1. *(discharged)* **The `Array(a)` package** — decided in full by **FFI Part 2** (§§6, 8–9): the capture contract (#876; formerly a borrow contract), `Iterable<Array(a)>`, observation of the captured value, native-iteration emission, the four conversion names, suite membership, `.d.ts` face, shallow element treatment. See §6.
-2. **`String.join(sep, xs)`** and other string conveniences → stdlib listing (§5.3).
+2. *(discharged by String Text Processing)* **`String.join(parts, separator)`
+   and the text-processing companion surface** — sequence-first `join`
+   supplements §5.3's `fromSeq`; the dedicated String specification owns the
+   remaining operations.
 3. **Public `Range.toSeq`** → stdlib listing, candidate at most (§1, §4).
 4. **The v2 implied-types remainder** — deferred `Item(α)` goals, `Item(c)` reference syntax, obligations on type members, `Iterable` binders, `derive via`, `Hash` on user collection types → unchanged, per Part 2 §11 / Part 1 §6.3; nothing here moves it.
 5. **`AsyncSeq` and asynchronous iteration** → the async spec (Loops §11.4, unchanged; it does not depend on anything here).

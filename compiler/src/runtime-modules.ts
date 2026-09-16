@@ -70,13 +70,16 @@ export interface RuntimeModule {
  * is `PRELUDE_MODULES`' law applied to one list rather than two.
  *
  * `Runtime.VectorTrie` is the persistent trie deque `Vector(a)` is (Collections
- * Part 3 §4). `Runtime.HashTrie` is the persistent hash array mapped trie `Map(k, v)`
- * and `Set(a)` are (Part 4 §2.1); it needs `Option`, `Hash`, `Int` and `Seq`,
- * all seated well before `Vector`, and must never reach `Vector` itself.
+ * Part 3 §4), so it precedes `Vector`. `Runtime.HashTrie` is the persistent hash
+ * array mapped trie `Map(k, v)` and `Set(a)` are (Part 4 §2.1), so it precedes
+ * `Map`. That later seat remains acyclic: `String` and `Vector` do not import
+ * the hash trie, while `Map` is its first emitted consumer. It also lets the
+ * generic runtime be exercised at `String` after #924 moved that companion
+ * behind `Vector` for its text-processing dependencies.
  */
 export const RUNTIME_MODULES: readonly RuntimeModule[] = [
   { name: "Runtime.VectorTrie", precedes: "Vector" },
-  { name: "Runtime.HashTrie", precedes: "Vector" },
+  { name: "Runtime.HashTrie", precedes: "Map" },
 ].map(({ name, precedes }) => ({
   name,
   precedes,

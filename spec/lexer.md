@@ -211,9 +211,12 @@ re-exports. The generated-category convention does not replace those rules.
 
 ### 3.3 Unicode evolution
 
-Unicode 17.0.0 fixes v1's tables. A future Hexagon release may adopt a later Unicode
-version through a recorded compatibility update. The compiler release—not the runtime
-host—selects the version so unchanged compiler bits remain deterministic.
+Unicode 17.0.0 fixes the repository-wide Unicode data version, including this
+lexer's identifier tables and String Text Processing's whitespace, casing, and
+folding tables. A future Hexagon release may adopt a later version only through a
+recorded compatibility update that regenerates every affected table together. The
+compiler release—not the runtime host—selects the version, so unchanged compiler
+bits remain deterministic.
 
 ## 4. Keyword inventory
 

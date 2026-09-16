@@ -1838,10 +1838,11 @@ const BUILTIN_COMPANIONS: ReadonlyMap<string, string> = new Map([
  * `Int.hex` and `Nat.hex` followed, bringing `9.checkedMul(9)`-shaped surfaces
  * of their own (`Nat.hex`'s one export takes an `Int` first, so it is reached
  * qualified — `Nat.fromInt(-1)` — not as a dot call on a `Nat`). `Float.hex`
- * and `String.hex` closed the migration: `Float`'s companion surface is `mod`
- * and `rem` (Division & Remainder §5), reached on a receiver as
- * `theta.mod(tau)`, and `String.hex` exports nothing at all — its entry earns
- * its keep entirely by being the home an honored member is read from.
+ * and `String.hex` closed the migration. Their ordinary exports now provide
+ * the named numeric and text-processing operations reached through qualified
+ * or dot-call syntax; for example, `theta.mod(tau)` and `text.toLower()`.
+ * Their entries also make each module the home from which its honored members
+ * are read.
  */
 const PRIMITIVE_COMPANIONS: ReadonlyMap<string, string> = new Map([
   ["BigInt", "primitive:BigInt"],

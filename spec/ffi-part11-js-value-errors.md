@@ -75,6 +75,11 @@ Strictness, per type:
 | `toInt` | `kind` is `Number` **and** `Number.isSafeInteger` holds | `Shape` if not a number; **`Range`** if a number outside the safe-integer domain (`1.5`, `2^53`, `NaN`) |
 | `toBigInt` / `toBool` / `toString` | `kind` is `BigInt` / `Bool` / `String` | `Shape` otherwise |
 
+`toString` accepts every JavaScript string, including one containing lone UTF-16
+surrogates. It preserves the value exactly: decoding performs no Unicode-scalar
+validation and never repairs an unmatched surrogate to U+FFFD (String Text
+Processing §1).
+
 `toInt` is why the reason classes distinguish `Shape` from `Range`: "not a number at all" and "a number `Int` cannot hold" are different programmer errors with different fixes.
 
 ### 4.2 `toArray`: the captured structural door

@@ -401,8 +401,9 @@ describe("the companion fallback outranks the boundary intrinsics", () => {
    * runtime privilege. Adoption reaches it with no project module at all,
    * because a project may supply an **earlier runtime member's** file too: a
    * member sees the injected modules seated before it (Modules §5.5), and
-   * `Runtime.VectorTrie` is one of them. So the pair is reconstructed inside the
-   * two members rather than retired.
+   * `Runtime.VectorTrie` is one of them. `Runtime.HashTrie`'s seat before `Map`
+   * is later, so the pair is reconstructed inside the two members rather than
+   * retired.
    */
   test("`Node` — an alias whose module exports the type outranks the intrinsic", () => {
     // The later member does the aliasing; only its inventory and its one

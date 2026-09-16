@@ -194,7 +194,10 @@ describe("verification replaces trust (§4.2)", () => {
       "`floatFromInt`, `floatDivide`, `floatEquals`, `floatCompare`, " +
       "`floatShow`, `floatPow`, `floatHash`, `floatRem`, `floatTrunc`, " +
       "`floatIsSafeInteger`, `floatToIntUnchecked`, `stringConcat`, " +
-      "`stringEquals`, `stringCompare`, `stringHash`, `stringFromSeq`, `hashTrieMix`, " +
+      "`stringEquals`, `stringCompare`, `stringHash`, `stringFromSeq`, " +
+      "`stringIsWhitespace`, `stringIsCased`, `stringIsCaseIgnorable`, " +
+      "`stringLowercaseMapping`, `stringUppercaseMapping`, `stringCaseFoldMapping`, " +
+      "`stringCodepointUnchecked`, `stringFromCodepointUnchecked`, `hashTrieMix`, " +
       "`hashTrieDigit`, `hashTrieBitTest`, `hashTrieBitSet`, `hashTrieBitClear`, " +
       "`hashTrieBitCount`, `hashTrieBitCountBelow`, `hashTrieNodeSingleton`, " +
       "`hashTrieNodeInsertAt`, `hashTrieNodeRemoveAt`, `mapEmpty`, " +

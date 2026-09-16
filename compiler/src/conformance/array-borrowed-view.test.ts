@@ -352,7 +352,7 @@ describe("the vocabulary this module spends (Modules §5.5)", () => {
     expect(projectDiagnostics("module Main\n\n" + "export let n(v: Vector(Int)): Int = length(v)\n"))
       .toEqual([
         "no bare `length`; write `v.length()`, `Seq.length(v)`, `Vector.length(v)`, " +
-        "or `Array.length(v)`",
+        "`String.length(v)`, or `Array.length(v)`",
       ]);
   });
 

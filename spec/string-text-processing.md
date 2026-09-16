@@ -1,26 +1,54 @@
 # String text processing
 
-**Status:** Design decisions agreed in discussion on 2026-09-06. Proposal only:
-not yet implemented or incorporated into the normative specification or book.
-The integration questions in section 11 remain open.
+**Status:** Normative. The public surface was agreed on 2026-09-06 and promoted
+on 2026-09-16 after the runtime String-domain and Unicode-version questions were
+settled. This document owns the text-processing operations exported by
+`stdlib/String.hex`.
 
 **Home:** Public companion functions in `stdlib/String.hex`. Related Vector
-changes are kept separately in [Vector API follow-ups](vector-string-api-followups.md).
+changes are kept separately in [Vector API follow-ups](notes/vector-string-api-followups.md).
 
 ## 1. Foundation
 
-String operations address Unicode codepoints, not JavaScript UTF-16 code units.
-Positions are 1-based. Iteration already yields one-codepoint Strings through
-`Iterable<String>` / `String.toSeq`; there is no separate `Char` type in this
-proposal. Existing String indexing, slicing, ordering, `toSeq`, and `fromSeq`
-remain governed by their owning specifications.
+String operations address codepoints, not JavaScript UTF-16 code units.
+Positions are 1-based. Iteration yields one-codepoint Strings through
+`Iterable<String>` / `String.toSeq`; there is no separate `Char` type. Existing
+String indexing, slicing, ordering, `toSeq`, and `fromSeq` remain governed by
+their owning specifications.
+
+The foundational operation promised by Primitive Types §5.1 is part of this
+implementation milestone:
+
+```text
+String.length(text: String): Int
+```
+
+It counts the codepoint items described above. The text-processing operations
+below build on that same unit.
+
+Hexagon remains representation-compatible with every JavaScript string. A
+well-formed surrogate pair is one codepoint. A lone leading or trailing
+surrogate supplied through JavaScript is preserved as one surrogate codepoint:
+iteration, indexing, exact matching, splitting, replacement, and reconstruction
+must neither reject it nor replace it with U+FFFD. It has none of the Unicode
+properties used here and maps to itself under case conversion and folding.
+`toCodepoint` is deliberately narrower: it accepts exactly one Unicode scalar
+value, so a one-element String containing a lone surrogate answers `None`.
+`fromCodepoint` never constructs a surrogate.
+
+Unicode-sensitive behavior is fixed by the repository-wide Unicode data
+version, currently Unicode 17.0.0. The compiler ships the tables; the browser,
+Node, or another host runtime cannot change `White_Space`, case mapping, or case
+folding beneath unchanged compiler bits. A later Unicode version is adopted only
+through a recorded Hexagon compatibility update, together with every generated
+Unicode table that the compiler uses.
 
 Use native host operations only where they implement the Hexagon contract.
 Host positions, empty-pattern behaviour, whitespace definitions, replacement
 tokens, and casing algorithms must not silently determine the public semantics.
 Functions that return Strings do not implicitly normalize Unicode text.
 
-Signatures below describe the proposed qualified API; they are not declaration
+Signatures below describe the normative qualified API; they are not declaration
 syntax. Ordinary String-subject functions also support dot calls. Arguments are
 subject-first. `String.join` takes its sequence first and is shown qualified.
 
@@ -30,22 +58,22 @@ subject-first. `String.join` takes its sequence first and is shown qualified.
 String.lines(text: String): Vector(String)
 String.words(text: String): Vector(String)
 String.split(text: String, delimiter: String): Vector(String)
-String.splitCI(text: String, delimiter: String): Vector(String)
+String.splitCi(text: String, delimiter: String): Vector(String)
 ```
 
 All four produce eager Vectors. `split` uses an exact, case-sensitive literal
 delimiter of any length. Both split functions consume leftmost non-overlapping
 matches, scanning from the beginning, and preserve empty fields, including at
-both ends. `splitCI` uses section 5's matching rule and preserves the original
+both ends. `splitCi` uses section 5's matching rule and preserves the original
 spelling of each returned piece.
 
 ```hexagon
 "a,,b".split(",")                  // ["a", "", "b"]
 ",a,".split(",")                   // ["", "a", ""]
 "".split(",")                      // [""]
-"OneENDTwoendThree".splitCI("end")  // ["One", "Two", "Three"]
-"aßb".splitCI("SS")                // ["a", "b"]
-"aßb".splitCI("s")                 // ["aßb"]
+"OneENDTwoendThree".splitCi("end")  // ["One", "Two", "Three"]
+"aßb".splitCi("SS")                // ["a", "b"]
+"aßb".splitCi("s")                 // ["aßb"]
 ```
 
 An empty delimiter matches each original codepoint boundary, including the
@@ -117,21 +145,21 @@ or the end respectively. Interior whitespace is preserved. Empty input stays
 empty; all-whitespace input becomes empty. U+FEFF is not removed. This follows
 Rust's whitespace definition and start/end terminology.
 
-## 5. Literal tests and CI matching
+## 5. Literal tests and case-insensitive matching
 
 ```text
 String.contains(text: String, target: String): Bool
 String.startsWith(text: String, prefix: String): Bool
 String.endsWith(text: String, suffix: String): Bool
-String.containsCI(text: String, target: String): Bool
-String.startsWithCI(text: String, prefix: String): Bool
-String.endsWithCI(text: String, suffix: String): Bool
+String.containsCi(text: String, target: String): Bool
+String.startsWithCi(text: String, prefix: String): Bool
+String.endsWithCi(text: String, suffix: String): Bool
 ```
 
 The ordinary functions match exact, case-sensitive codepoint sequences. Empty
 patterns succeed for all three tests, including on empty input.
 
-The CI family uses Unicode default full case folding, independent of the
+The `Ci` family uses Unicode default full case folding, independent of the
 machine's locale, without implicit normalization. A match must be a contiguous
 substring of the original text whose full case fold equals the full case fold
 of the pattern. Prefix and suffix tests additionally require the corresponding
@@ -139,36 +167,34 @@ original-text endpoint. Matches cannot begin or end inside a codepoint's folded
 expansion. This follows ICU's full-fold literal regex matching precedent.
 
 ```hexagon
-"Straße".containsCI("STRASSE")  // True
-"ß".containsCI("ss")           // True
-"ss".containsCI("ß")           // True
-"ß".containsCI("s")            // False
-"ß".startsWithCI("s")          // False
-"ß".endsWithCI("s")            // False
+"Straße".containsCi("STRASSE")  // True
+"ß".containsCi("ss")           // True
+"ss".containsCi("ß")           // True
+"ß".containsCi("s")            // False
+"ß".startsWithCi("s")          // False
+"ß".endsWithCi("s")            // False
 ```
 
 Consequently, blindly folding both complete inputs and invoking ordinary
 substring search is not a correct implementation. Locale-specific matching is
 outside this agreed family.
 
-**Naming decision:** Two-letter initialisms stay uppercase within camelCase or
-PascalCase names (`containsCI`, `IOStream`); longer initialisms are treated as
-words (`Html`, `Csv`, `Json`, `Http`). At the beginning of a camelCase name the
-initialism is lowercase (`ioStream`). This follows the Microsoft/Kotlin
-precedent. Promotion of the general convention belongs in the naming guidance.
+**Naming decision:** Initialisms are ordinary words regardless of length, so
+the suffix is `Ci`, as in `containsCi`, consistently with `JsMap` and
+`IoStream`. Functions §2 owns the general convention.
 
 ## 6. Replacement
 
 ```text
 String.replace(text: String, target: String, replacement: String): String
 String.replaceFirst(text: String, target: String, replacement: String): String
-String.replaceCI(text: String, target: String, replacement: String): String
-String.replaceFirstCI(text: String, target: String, replacement: String): String
+String.replaceCi(text: String, target: String, replacement: String): String
+String.replaceFirstCi(text: String, target: String, replacement: String): String
 ```
 
-`replace` and `replaceCI` replace all non-overlapping matches, scanning from the
+`replace` and `replaceCi` replace all non-overlapping matches, scanning from the
 beginning. The `First` variants replace only the first match. Matching uses
-section 5's exact or CI rule. Unmatched text preserves its original spelling;
+section 5's exact or case-insensitive rule. Unmatched text preserves its original spelling;
 each matched original span is replaced by the supplied replacement unchanged.
 Both arguments are literal strings, with no regex or replacement-token syntax.
 Inserted text is never searched again. No match leaves the input unchanged.
@@ -183,7 +209,7 @@ beginning. This follows Rust's `replace` / `replacen` behaviour.
 "😀a".replace("", "-")      // "-😀-a-"
 "".replace("", "-")         // "-"
 "ab".replaceFirst("", "-")  // "-ab"
-"ß".replaceCI("", "-")      // "-ß-"
+"ß".replaceCi("", "-")      // "-ß-"
 ```
 
 ## 7. Joining and laws
@@ -198,7 +224,7 @@ singleton produces its element unchanged. A Vector supplies `.toSeq()`.
 Producing the result consumes the sequence; an infinite sequence cannot produce
 a completed result. `String.fromSeq` retains its existing concatenation role.
 
-The following laws hold for finite sequences and valid inputs, including empty
+The following laws hold for finite sequences and all Strings, including empty
 patterns and delimiters:
 
 ```hexagon
@@ -206,26 +232,26 @@ String.join(parts, "") == String.fromSeq(parts)
 String.join(text.split(delimiter).toSeq(), delimiter) == text
 String.join(text.split(target).toSeq(), replacement)
     == text.replace(target, replacement)
-String.join(text.splitCI(target).toSeq(), replacement)
-    == text.replaceCI(target, replacement)
+String.join(text.splitCi(target).toSeq(), replacement)
+    == text.replaceCi(target, replacement)
 ```
 
-Rejoining `splitCI` with its delimiter need not reconstruct the original text:
+Rejoining `splitCi` with its delimiter need not reconstruct the original text:
 matched delimiter spans may have different spelling, case, or codepoint length.
 
 ## 8. Search positions
 
 ```text
 String.indexOf(text: String, target: String): Option(Int)
-String.indexOfCI(text: String, target: String): Option(Int)
+String.indexOfCi(text: String, target: String): Option(Int)
 String.lastIndexOf(text: String, target: String): Option(Int)
-String.lastIndexOfCI(text: String, target: String): Option(Int)
+String.lastIndexOfCi(text: String, target: String): Option(Int)
 ```
 
 Return the least or greatest starting position of a valid match in the original
 text, respectively. Positions count codepoints from 1; absence is `None`.
 Overlapping candidates participate: `"aaa".lastIndexOf("aa") == Some(2)`.
-CI positions use section 5's matching rule and never index the folded text.
+Case-insensitive positions use section 5's matching rule and never index the folded text.
 
 An empty target gives `Some(1)` for the first match and
 `Some(text.length() + 1)` for the last. Both give `Some(1)` on empty text. These
@@ -251,7 +277,8 @@ Hexagon's convention of using Strings for individual codepoints. When
 
 `"😀".toCodepoint() == Some(128512)`;
 `String.fromCodepoint(128512) == Some("😀")`. Empty and multi-scalar Strings fail.
-This is scalar counting, not grapheme counting.
+A one-item String containing a lone surrogate also fails. This is scalar
+conversion, not grapheme counting.
 
 `toUpper` and `toLower` perform Unicode default locale-independent case mappings,
 including the context-sensitive rules of those mappings. `caseFold` performs
@@ -277,7 +304,7 @@ reads UTF-8 and removes exactly one initial U+FEFF; it does not detect UTF-16 or
 UTF-32. F#'s usual .NET reader provides precedent for consuming the signature,
 while Rust's `read_to_string` preserves it.
 
-Illustration using this proposed String API, not a landed module:
+Illustration using this String API; the Node module itself is not landed:
 
 ```hexagon
 module Hex.Experimental.Node.File
@@ -293,31 +320,38 @@ export let readText(path: String): String =
         text
 ```
 
-## 11. Open integration questions and promotion work
+## 11. Integration and implementation requirements
 
-- **Runtime String validity at foreign boundaries:** source literals reject
-  surrogate values, but the current trusted FFI String contract and checked
-  `JsValue.toString` do not establish a scalar-only runtime String invariant.
-  The scalar-only conversions agreed here do not by themselves change that
-  boundary. Decide the handling of ill-formed host strings before implementing
-  this surface; do not silently add replacement or general FFI validation.
-- **Unicode data:** choose the supported data version and update policy for
-  whitespace, case mapping, and full case folding. Host lowercase is not a
-  substitute for full case folding.
-- **Implementation and complexity:** establish the native/Hexagon split under
-  `spec/intrinsics.md`, document costs, and preserve existing collection
-  contracts. In particular, joining must account for element traversal even
-  when elements and separators are empty. No blanket constant-time String
-  indexing or host-delegation claim is made here.
-- **Owning documents:** reconcile `spec/primitive-types.md` and Collections
-  Parts 3 and 5 with the adopted API, including the old separator-first join
-  candidate in Part 5 section 14.2. Update the String companion's stale comment
-  about lacking a codepoint API when the bridge is implemented. Keep normative
-  spec, book, and public source documentation aligned.
-- **Case-insensitive keys:** the existing `CiString` working proposal owes a
-  name and folding semantics. Reconcile it with this full-fold decision and the
-  new initialism convention in its own discussion; no wrapper API is adopted
-  here.
+All public operations in this document are exports of `stdlib/String.hex`.
+There is no public `Unicode`, `Text`, character, or helper module. Private
+intrinsic doors and compiler-generated Unicode tables may provide only the
+primitive capabilities that ordinary Hexagon cannot express; scanning,
+matching policy, original-span selection, empty-pattern rules, result
+construction, and the public operation bodies remain in `String.hex` wherever
+the intrinsic doctrine permits.
+
+The companion is ordered after the prelude modules whose public operations its
+ordinary source uses, including `Iterable` and `Vector`. This is a dependency
+order, not a new public import or a cyclic exception.
+
+Operations perform at least the traversal their result requires. Codepoint
+scans are linear in the traversed input. Output-producing operations also count
+the produced output, including expanded case mappings and folds. `join` counts
+sequence traversal even when every element and separator is empty. Search
+algorithms state their implemented bound; no blanket constant-time String
+indexing or host-delegation claim exists.
+
+The owning primitive, collection, FFI, intrinsic, module, and standard-library
+specifications cross-reference this document rather than restating its API.
+Public `String.hex` documentation carries the library reference. The book is a
+language manual: it explains the String model where useful but does not list
+this companion surface.
+
+Case-insensitive key wrappers remain separate. A future wrapper may reuse
+`String.caseFold`, but its name, stored representation, construction surface,
+and provided `Eq`/`Hash` pair are not part of this document. BOM consumption is
+likewise a text-decoding or file-I/O boundary concern; ordinary String
+processing preserves U+FEFF as section 10 requires.
 
 ## 12. Precedents consulted
 
@@ -335,8 +369,7 @@ export let readText(path: String): String =
   and [default caseless matching, section 3.13.5](https://www.unicode.org/versions/Unicode17.0.0/core-spec/chapter-3/).
 - [ICU literal case-insensitive matching](https://unicode-org.github.io/icu/userguide/strings/regexp.html#case-insensitive-matching):
   full folding with original-character match boundaries.
-- [Kotlin naming](https://kotlinlang.org/docs/coding-conventions.html#choose-good-names)
-  and [Microsoft capitalization](https://learn.microsoft.com/en-us/dotnet/standard/design-guidelines/capitalization-conventions):
-  two-letter versus longer initialisms.
+- [Kotlin naming](https://kotlinlang.org/docs/coding-conventions.html#choose-good-names):
+  initialisms treated as ordinary words.
 - [F#/.NET text reading](https://learn.microsoft.com/en-us/dotnet/api/system.io.file.readalltext):
   consuming an initial BOM at the decoding boundary.

@@ -170,14 +170,31 @@ Unchanged and still normative here: **not `Signed`, and no truthiness** — Hexa
 
 ## 5. String
 
-**Representation:** JS `string` (UTF-16 internally, as JS mandates).
+**Representation:** JS `string` (UTF-16 internally, as JS mandates). Every
+JavaScript string remains representable, including one containing a lone
+surrogate supplied across the boundary. Source escapes still reject surrogate
+values; that lexical rule does not narrow the runtime representation.
 
 ### 5.1 Indexing and length: codepoint-based, 1-based
 
-`String.length` and all index-taking/index-returning String functions operate on **Unicode codepoints**, not UTF-16 code units. `length "𝕏y"` is 2, not 3. This is a deliberate correctness-over-speed choice: codepoint operations on a UTF-16 string are **O(n)** (implementers: iterate with the string iterator / `for..of` semantics, never `.charCodeAt` arithmetic; `.length` on the JS side is a code-unit count and must not leak through the String API).
+`String.length` and all index-taking/index-returning String functions operate on
+**codepoints**, not UTF-16 code units. `length "𝕏y"` is 2, not 3. A valid
+surrogate pair is one codepoint; a lone surrogate is preserved as one surrogate
+codepoint, matching the JavaScript string iterator. It is not a Unicode scalar
+value. This distinction lets `String.toCodepoint` reject it while exact String
+operations and `String.fromSeq(String.toSeq(s))` preserve it. The full rule is
+String Text Processing §1 and §9.
 
-- A later version *may* move the default to grapheme clusters (`Intl.Segmenter`); **both** codepoint and grapheme families will exist in the stdlib regardless — the open question is only which one owns the short names.
-- All indexing in Hexagon is **1-based**. A forthcoming spec covers 1-based indexing globally; String conforms to it. Implementers: do not ship any 0-based index in the public String API.
+This is a deliberate correctness-over-speed choice: codepoint operations on a
+UTF-16 string are **O(n)** (implementers: iterate with the string iterator /
+`for..of` semantics, never `.charCodeAt` arithmetic; `.length` on the JS side is
+a code-unit count and must not leak through the String API).
+
+- Codepoints own ordinary indexing, iteration, and the short names permanently.
+  Grapheme-cluster operations, if they ship, use explicit names (Collections
+  Part 5 §5.1).
+- All indexing in Hexagon is **1-based**, under Collections Part 3 §9.
+  Implementers: do not ship any 0-based index in the public String API.
 - Note the deliberate contrast with the LSP layer, which uses UTF-16 code units and 0-based positions *at the protocol boundary* (per the LSP decisions). These are different domains: LSP columns are a wire-format concession; the *language's* String semantics are codepoints, 1-based. Conversion happens at the LSP boundary, nowhere else.
 
 ### 5.2 Literals: one form, interpolating, multi-line
@@ -217,11 +234,28 @@ Cheap now, prevents a silent meaning change later. Implementers: this is a hard 
 
 **Standard constraints for String:** `Eq`, `Ord`, `Show` (identity), `Concat` (`++` — Operators §7), `Hash` (Collections Part 2 §2.5) *(corrected 2026-07-28, #137 — record in §11)*.
 
-**`Ord String` is codepoint-wise lexicographic, permanently** — even if grapheme-based indexing later becomes the default (§5.1). Rationale: grapheme order genuinely disagrees with codepoint order (e.g. `"a\u0301"` vs `"a\uFFFF"` sort oppositely under the two schemes), so switching Ord across versions would silently reorder users' sorted collections; and grapheme segmentation (UAX #29 / `Intl.Segmenter`) is revised with each Unicode version, so an ordering built on it changes under a browser update, which an `Ord` instance must never do. Codepoint order is eternal, and coincides with UTF-8 byte order. Grapheme mode, if it comes, changes what "position" and "length" mean — not what "less than" means.
+**`Ord String` is codepoint-wise lexicographic, permanently.** Rationale:
+grapheme order genuinely disagrees with codepoint order (e.g. `"a\u0301"` vs
+`"a\uFFFF"` sort oppositely under the two schemes), so a grapheme-based order
+would silently reorder users' sorted collections when segmentation data
+changes. Codepoint order is stable. Grapheme operations, if they come, do not
+change what “less than” means.
 
 Implementers: codepoint order is *not* JS `<` on strings, which compares UTF-16 code units — they disagree when an astral character (≥ U+10000, lead surrogates 0xD800–) meets a BMP character in U+E000–U+FFFF (codepoint-wise `"\u{10000}" > "\uFFFF"`; JS says the opposite). `String.compare` needs a codepoint-aware walk, with a fast path: use JS `<` directly when both strings are all-BMP (the overwhelmingly common case), fall back to iteration otherwise.
 
 Human-facing sorting ("é" before "f", locale digraph rules) is **collation**, is locale-dependent, and therefore must never be `Ord` — it is a future stdlib function (`String.collate`, via `Intl.Collator`), clearly fenced off from the constraint.
+
+### 5.5 Text processing and Unicode data
+
+String Text Processing is the normative owner of splitting, dropping, trimming,
+literal tests, case-insensitive matching, replacement, joining, search
+positions, scalar conversion, and Unicode casing/folding. Every public operation
+is exported by `stdlib/String.hex`.
+
+Unicode-sensitive behavior uses the compiler's repository-wide pinned data
+version, currently Unicode 17.0.0 (Lexer §3.3). It never inherits the browser's
+or Node's Unicode tables implicitly. Ordinary operations perform no Unicode
+normalization.
 
 ---
 

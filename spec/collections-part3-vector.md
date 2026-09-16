@@ -271,7 +271,15 @@ Constraint propagation is the standard parameterized-instance shape (Constraints
 
 ## 9. String indexing
 
-Part 1 §3.3's accessor doctrine extends to `String` here. **Unit of addressing: the Unicode codepoint** — already String's global doctrine (Primitive Types §5.1: length and indexing are codepoint-based, 1-based). The reasoning, recorded: UTF-16 code units (the JS default) rule out too many sensible characters (astral-plane letters, emoji split into surrogates); grapheme clusters are culturally defined and version-unstable; codepoints win by default. Grapheme-aware operations, if ever, are named stdlib functions, never `[]`.
+Part 1 §3.3's accessor doctrine extends to `String` here. **Unit of
+addressing: the codepoint** — already String's global doctrine (Primitive Types
+§5.1 and String Text Processing §1: length and indexing are codepoint-based,
+1-based). A well-formed surrogate pair is one position; a lone surrogate from a
+JavaScript string is preserved as one surrogate-codepoint position. UTF-16 code
+units otherwise rule out too many sensible characters (astral-plane letters and
+emoji split in two); grapheme clusters are culturally defined and
+version-sensitive. Codepoints own the short surface permanently. Grapheme-aware
+operations, if ever, are named stdlib functions, never `[]`.
 
 - `s[i]` — the codepoint at 1-based index `i`, **as a one-codepoint `String`** (there is no `Char` type; Primitive Types is explicit). Throws `IndexError` out of bounds; same payload.
 - `String.get(s, i): Option(String)` — total sibling.

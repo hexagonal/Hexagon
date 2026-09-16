@@ -92,13 +92,7 @@ describe("the module", () => {
       // it uses. Nothing before it names a `BigInt`, so the move costs the
       // three companions above it nothing.
       "BigInt",
-      // #353 swapped `String.hex` past `Seq.hex`. Its instances need nothing
-      // later than `Ord.hex` and its old seat here was a convenience, but
-      // Collections Part 5 §5.3's `String.fromSeq : Seq(String) -> String`
-      // cannot be written before `Seq.hex` seats. `Seq.hex` names no string, so
-      // the swap takes nothing from it.
       "Seq",
-      "String",
       // #353 seats `Iterable`, now the twelfth constraint declaration, and the
       // only one that cannot sit with the other eleven: `toSeq(xs: c): Seq(Item)`
       // names `Seq`, and honoring the reverse order is a genuine cycle — which
@@ -106,6 +100,9 @@ describe("the module", () => {
       "Iterable",
       "Result",
       "Vector",
+      // #924's text surface consumes `Iterable.toSeq` and builds eager vectors,
+      // so its source companion follows both declaring modules.
+      "String",
       // #370 displaced `Vector.hex` from the last seat: `Map.hex` needs `Hash`,
       // `Option`, `Seq` and `Vector` itself, and nothing after it names a `Map`.
       "Map",
@@ -430,7 +427,7 @@ describe("two prelude members exporting one bare name", () => {
       "no bare `prepend`; write `b.prepend(1)`, `Seq.prepend(b, 1)`, " +
       "or `Vector.prepend(b, 1)`",
       "no bare `length`; write `b.length()`, `Seq.length(b)`, `Vector.length(b)`, " +
-      "or `Array.length(b)`",
+        "`String.length(b)`, or `Array.length(b)`",
       "no bare `isEmpty`; write `b.isEmpty()`, `Vector.isEmpty(b)`, " +
       "`Map.isEmpty(b)`, or `Set.isEmpty(b)`",
       "no bare `map`; write `Seq.empty.map((x: Int): Int => x)`, " +
