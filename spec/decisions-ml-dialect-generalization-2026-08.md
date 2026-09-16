@@ -217,7 +217,7 @@ opaque record Sink(-a) = { accept: a -> Unit }
 opaque record Registry(k, +v) = ...      -- claims are per-parameter
 ```
 
-- On a transparent `record`/`union`, or on `type`: parse error — "variance is inferred for transparent types; remove the `+`" (Rewrite Rule form; the sigil buys nothing the public definition doesn't already say — §9.6).
+- On a transparent `record`/`union`, or on `type`: parse error — "variance is inferred for transparent types; remove the `+`" (Rewrite Rule form; the sigil buys nothing the public definition doesn't already say — §9.6). *(#927.)* Except the intrinsic block's `type` rows, opaque by construction (Intrinsics §3.3).
 - A sigil is **not** a constraint; Preamble §2.2's rejection of constrained header parameters (`record Sorted(a: Ord)`) is untouched, and `<>` still never appears in a data-declaration header.
 - Use sites are unchanged: `Seq(Int)`, never `Seq(+Int)` — the sigil is declaration syntax only.
 

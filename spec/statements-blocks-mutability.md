@@ -239,8 +239,8 @@ best := candidate
 
 ### 6.4 What does not exist (pre-registered rejections)
 
-- **Ref cells** (`Ref(a)`, `makeRef`, ML `ref`): none. F# needs `ref` as the escape hatch *because* `let mutable` can't be captured; Hexagon declines the hatch. If shared mutable state is ever needed it is an FFI concern at the boundary, not a language type. Do not re-litigate without new information.
-- **Mutable record fields, mutable tuple slots, array mutation**: none; products are immutable (Products spec) and `:=` targets names only.
+- **Ref cells** (`Ref(a)`, `makeRef`, ML `ref`): none. F# needs `ref` as the escape hatch *because* `let mutable` can't be captured; Hexagon declines the hatch. If shared mutable state is ever needed it is an FFI concern at the boundary, not a language type. Do not re-litigate without new information. *(#927.)* One exception, and it is not a hatch: the intrinsic door's `type` form (Intrinsics §3.3) declares **confined storage** — a mutable type addressable only from the standard-library modules its inventory entry names, `->!`-faced at every row that reads or writes it, with no user-reachable spelling (Effects §6.2 species (d)). Every other case stays as this bullet says.
+- **Mutable record fields, mutable tuple slots, array mutation**: none; products are immutable (Products spec) and `:=` targets names only. *(#927: the one exception is the bullet above's — `Buffer(a)` behind the door — and no other.)*
 - **Compound assignment** (`+=`, `-=`): none in v1. Cheap sugar, but sugar on the language's one dodgy feature; revisit only with field evidence.
 - **`var` at module level**: none, per §6.1. Global mutable state is the one thing this design cannot make invisible.
 
