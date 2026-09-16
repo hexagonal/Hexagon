@@ -1171,6 +1171,8 @@ export interface ForExpr extends ExpressionFields {
   readonly iterable: Expr;
   readonly body: BlockExpr;
   readonly iteration?: Constraint;
+  /** Canonical source-owned `Iterable<String>` keeps native JS iteration. */
+  readonly nativeStringIteration?: true;
 }
 
 export interface RangeExpr extends ExpressionFields {

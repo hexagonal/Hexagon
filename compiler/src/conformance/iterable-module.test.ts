@@ -262,9 +262,9 @@ describe("the qualified spellings survive the retirement (Modules §5.3)", () =>
   /**
    * The companions no longer *export* `toSeq` — Constraints §4.6 forbids a
    * module-level binding of a member's spelling beside the instance — and every
-   * per-type spelling still reads. That is the uniform-access read of a
-   * provided row, homed at the companion the way `Int.show` is homed at
-   * `stdlib/Int.hex`.
+   * per-type spelling still reads. For Vector, Set, and Map that is the
+   * uniform-access read of a provided row; String now takes the ordinary
+   * source-instance path, homed at its companion like `Int.show`.
    */
   test("Vector, Set, Map and String all answer their qualified read", async () => {
     expect(await mainOf(

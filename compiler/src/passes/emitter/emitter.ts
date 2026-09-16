@@ -5468,6 +5468,8 @@ class JavaScriptEmitter {
     // an `Iterable` instance and never asks for evidence.
     const iterable = this.#isSequence(expression.iterable.type)
       ? `${this.#useHelper("seqToIterable")}(${source})`
+      : expression.nativeStringIteration === true
+      ? source
       : expression.iteration === undefined
       ? source
       : this.#emitMemberCall(
@@ -8494,19 +8496,16 @@ class JavaScriptEmitter {
       // Collections Part 5 §4's provided rows, rendered rather than imported
       // (#353). Every one of them is one slot, and every slot but `Seq`'s is
       // the same expression: an emitted `Vector`, `Map`, `Set`, `Range`,
-      // `Array`, `JsMap`, `JsSet` and JavaScript `String` are all iterable
+      // `Array`, `JsMap` and `JsSet` are all iterable
       // values, and `seqFromIterable` is the compiler's one constructor of a
       // `Seq` over one. The per-type meanings §4's table names are already
       // carried by the emitted iterators — a map's yields its entries, a set's
-      // its elements (not the `Unit`s beneath them), a string's its codepoints,
-      // which is §5.1's semantics exactly. The two borrowed views need no arm of
-      // their own for the same reason they need no adaptation: a native `Map`'s
+      // its elements (not the `Unit`s beneath them). The two borrowed views need
+      // no arm of their own for the same reason they need no adaptation: a native `Map`'s
       // entries are two-element arrays, which *is* the tuple representation, and
       // a native `Set` yields its elements (FFI Part 10 §6.3), in the insertion
-      // order the foreign object itself contracts for (§6.2). So `String.toSeq`
-      // is lazy, O(1) to create and O(n) to exhaust (§5.2) for the same reason
-      // `Vector.toSeq` is: the adapter acquires the iterator at the first pull,
-      // never at construction.
+      // order the foreign object itself contracts for (§6.2). String's
+      // source-owned row reaches the same adapter through `stringToSeq` instead.
       //
       // `Seq`'s row is the **identity**, not the adapter: rebuilding a spine
       // over a sequence that already has one would be a second memo for values
@@ -9964,6 +9963,12 @@ class JavaScriptEmitter {
       // which is the no-normalization clause holding by construction.
       case "stringFromSeq":
         return `__values => [...${this.#useHelper("seqToIterable")}(__values)].join("")`;
+      // Collections Part 5 §5.1's source-owned member delegates only the
+      // representation walk. Explicit `toSeq` calls take this lazy O(1)
+      // adapter; direct loops are erased separately after the checker has
+      // identified the canonical source instance (§9.2).
+      case "stringToSeq":
+        return this.#useHelper("seqFromIterable");
       case "stringConcat":
         return "(__a, __b) => __a + __b";
       case "stringEquals":

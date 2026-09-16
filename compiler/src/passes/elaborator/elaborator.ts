@@ -331,6 +331,9 @@ function elaborateExpr(expression: Typed.Expr): Core.Expr {
         ...(expression.iteration === undefined
           ? {}
           : { iteration: evidence(expression.iteration) }),
+        ...(expression.nativeStringIteration === true
+          ? { nativeStringIteration: true as const }
+          : {}),
         type: expression.type,
         span: expression.span,
       };

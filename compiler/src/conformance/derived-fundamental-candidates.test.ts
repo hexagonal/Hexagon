@@ -134,7 +134,7 @@ describe("the judgment over the pre-registered constraints", () => {
       ["Int", preRegistered("Num", "Signed", "Eq", "Ord", "Show", "Pow", "Integral", "Hash", "Real")],
       ["Float", preRegistered("Num", "Signed", "Frac", "Eq", "Ord", "Show", "Pow", "Hash", "Real")],
       ["BigInt", preRegistered("Num", "Signed", "Eq", "Ord", "Show", "Pow", "Integral", "Hash", "Real")],
-      ["String", preRegistered("Eq", "Ord", "Show", "Concat", "Hash")],
+      ["String", preRegistered("Eq", "Ord", "Show", "Concat", "Hash", "Iterable")],
       // The two enumeration-membered fundamentals answer from the #147/#159 pin
       // — the four the compiler can derive — because that is exactly what an
       // edition's `Structural` evidence at them will render.
@@ -143,19 +143,17 @@ describe("the judgment over the pre-registered constraints", () => {
     ]));
   });
 
-  test("`Iterable`'s provided row is not a candidate", () => {
+  test("provided `Iterable` rows are not candidates, while String's source row is", () => {
     const compiled = project([["/main.hex", "module Main\n\n" + "export let x: Int = 1\n"]]);
 
-    // `String` satisfies `Iterable` through a *provided* row (Collections Part 5
-    // §4) — a coherence slot no module writes an instance for and no module
-    // exports a dictionary for. It contributes no row here, so an
-    // `Iterable`-bound export stays generic-only, which is where it was before
-    // this change. Whether §3.2's judgment ought to count provided rows is a
-    // separate question from #679's, and this pins today's answer rather than
-    // settling it.
-    for (const type of ["Nat", "Int", "Float", "BigInt", "String", "Bool", "Unit"]) {
+    // The compiler-provided collection rows still contribute no planner
+    // candidate. `String` is different now because its fixed companion writes
+    // an ordinary source instance, so it participates like that companion's
+    // other fundamental instances.
+    for (const type of ["Nat", "Int", "Float", "BigInt", "Bool", "Unit"]) {
       expect(compiled.fundamentalInstances.has(`hex:Iterable|${type}`)).toBe(false);
     }
+    expect(compiled.fundamentalInstances.has("hex:Iterable|String")).toBe(true);
   });
 
   test("every pre-registered constraint is accounted for, none silently absent", () => {
@@ -169,8 +167,6 @@ describe("the judgment over the pre-registered constraints", () => {
     // no row and no notice — which is the failure mode the hand table had.
     expect([...seen].sort()).toEqual(
       PRE_REGISTERED_CONSTRAINTS
-        // Iterable's standard String row is provided rather than an instance.
-        .filter((name) => name !== "Iterable")
         .map(preRegisteredConstraintIdentity)
         .sort(),
     );
@@ -208,8 +204,10 @@ describe("the program table is what makes a prelude module's plan the consumer's
       "/Hex/Runtime/VectorTrie.hex",
       "/Hex/Vector.hex",
     ]);
-    expect(shortfalls.find(({ path }) => path === "/Hex/Int.hex")?.missing).toBe(31);
-    expect(shortfalls.find(({ path }) => path === "/Hex/Nat.hex")?.missing).toBe(23);
+    // String's newly source-owned `Iterable` row is one more program-visible
+    // candidate that neither earlier numeric companion can see locally.
+    expect(shortfalls.find(({ path }) => path === "/Hex/Int.hex")?.missing).toBe(32);
+    expect(shortfalls.find(({ path }) => path === "/Hex/Nat.hex")?.missing).toBe(24);
   });
 
   test("emission plans from the table it is handed, not from the module", () => {

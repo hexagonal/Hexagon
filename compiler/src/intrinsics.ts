@@ -122,10 +122,11 @@ export function isIntrinsicScheme(specifier: string): boolean {
  *   out by name. A Hexagon body would be that fold, so the operation crosses
  *   here to reach the host's `join` — not because the language cannot say what
  *   it means, but because the language cannot say it at the required
- *   complexity. Its twin `String.toSeq` takes no key at all: it is the provided
- *   `Iterable<String>` row's member (§4, §5.2), rendered at its use sites out
- *   of the same `Seq`-over-an-iterable adapter every other row uses, and JS
- *   string iteration is codepoint-wise, which is §5.1's semantics exactly.
+ *   complexity. Its twin `String.toSeq` is the source-owned
+ *   `Iterable<String>` row's member (§4, §5.2), whose ordinary body delegates
+ *   to private `stringToSeq`. That key is the same lazy
+ *   `Seq`-over-an-iterable adapter the old provided row used, and JS string
+ *   iteration is codepoint-wise, which is §5.1's semantics exactly.
  *
  * The `hashTrie*` family is the door's first **runtime-module** customer (§5.2's
  * runtime bullet, #365): `stdlib/Runtime/HashTrie.hex` declares all ten, unexported,
@@ -416,6 +417,7 @@ export const INTRINSIC_INVENTORY: ReadonlyMap<string, number> = new Map([
   ["stringCompare", 2],
   ["stringHash", 1],
   ["stringFromSeq", 1],
+  ["stringToSeq", 1],
   ["stringIsWhitespace", 1],
   ["stringIsCased", 1],
   ["stringIsCaseIgnorable", 1],

@@ -1,7 +1,7 @@
 # Hexagon Spec: Collections Part 5 — `Iterable` & Collections Closeout
 
-**Status:** Decided (July 2026); pre-landing corrections incorporated in place (§18). Fifth and final part of the Collections effort. The authoritative operational specification of v1 `Iterable`: the resolution and typing of `for p in e`, the finalized provided-instance table (nine rows: six collections-owned, three FFI-owned), table-opening for user instances, static-resolution emission, the collections/stdlib boundary, and the transients decision. Written against Collections Parts 1–4, Constraints, Loops/Ranges/Iteration, Pattern Matching, and Modules; none re-litigated.
-**Scope:** The `for p in e` resolution algorithm and four-way failure taxonomy (unsolved inference variable vs declared type variable; the two-legal-homes user-nominal message); the provided instance table (§4); `Iterable<String>` with `Item = String` and the `String.toSeq`/`String.fromSeq` conversion pair (`fromSeq` = concatenation, full contract §5.3); the collection-conversion-suite domain (finite collections; `Range` and `Seq` exempt with reasons); `toSeq` as a real prelude term (the `Iterable` member); user-instance mechanics, discoverability, and provided-instance collisions; the "writing your own collection" recipe, normative, with `Bag(a)`; static-resolution emission; the combinator-surface boundary; transients runtime-internal only.
+**Status:** Decided (July 2026); pre-landing corrections incorporated in place (§18); `Iterable<String>` source ownership adopted September 2026 (§18.4). Fifth and final part of the Collections effort. The authoritative operational specification of v1 `Iterable`: the resolution and typing of `for p in e`, the finalized standard-instance table (one source-owned String row, five other collections-owned provided rows, and three FFI-owned provided rows), table-opening for user instances, static-resolution emission, the collections/stdlib boundary, and the transients decision. Written against Collections Parts 1–4, Constraints, Loops/Ranges/Iteration, Pattern Matching, and Modules; none re-litigated.
+**Scope:** The `for p in e` resolution algorithm and four-way failure taxonomy (unsolved inference variable vs declared type variable; the two-legal-homes user-nominal message); the standard instance table (§4); `Iterable<String>` with `Item = String`, its authoritative source declaration in `String.hex`, and the `String.toSeq`/`String.fromSeq` conversion pair (`fromSeq` = concatenation, full contract §5.3); the collection-conversion-suite domain (finite collections; `Range` and `Seq` exempt with reasons); `toSeq` as a real prelude term (the `Iterable` member); user-instance mechanics, discoverability, and provided-instance collisions; the "writing your own collection" recipe, normative, with `Bag(a)`; static-resolution emission; the combinator-surface boundary; transients runtime-internal only.
 **Not in scope:** The `Iterable` declaration and type-member grammar (Part 2 §5–§8 — consumed, not restated); the v2 implied-types remainder (deferred `Item(α)` goals, `Item(c)` reference syntax, member obligations, `Iterable` binders, `derive via` — Part 2 §11, Part 1 §6.3); the combinator families themselves (`stdlib-roadmap.md` ledger, decided at the stdlib listing; boundary drawn in §10); `AsyncSeq` and any `for await` form (Loops §11.4); **everything normative about the foreign collections `Array(a)`, `JsMap(k, v)`, `JsSet(a)`** — types, capture and borrow contracts, observation semantics, conversions, emission, `.d.ts` faces (FFI Parts 2 and 10; §4 records their instance rows, §6 the discharged `Array` ownership); the foreign (`.d.ts`) representation of constraints on exported polymorphic functions (FFI spec; see §9.3); String text-processing operations beyond this document's iteration and `fromSeq` contracts (`string-text-processing.md`).
 **Companions:** Collections Part 1 (§6.1/§6.5 made normative here; §9.5/§9.6 closed); Collections Part 2 (§8 declaration; §7.2 binder ban; §9 diagnostics extended); Collections Part 3 (§8 `Iterable<Vector>` row; §9 linear idiom cashed by §5 here); Collections Part 4 (§7.2 rows; §13.1/§13.4 closed here); Loops/Ranges/Iteration (§2.3 desugaring; §5 table finalized as §4 here; §6 `Seq`; §7.1 judgment made normative as instance lookup); Pattern Matching (§5 five-positions gate); Modules (§7 instance globality and orphan rule; §7.6 discoverability); Constraints (§5.1 coherence; §2.2 members); FFI Part 2 (§§6, 8–9: the `Array(a)` obligation discharged); FFI Part 3 (`Seq(a)` boundary crossing); FFI Part 10 (§6 `JsMap`/`JsSet` rows); Primitive Types (§5.1 String indexing).
 
@@ -83,9 +83,14 @@ The prelude home is not user-editable, but naming it makes the two-home rule acc
 
 ---
 
-## 4. Provided instances: the finalized v1 table
+## 4. Standard instances: the finalized v1 table
 
-All compiler/runtime-provided (Part 2 §4.4 wording — specified normatively, no source form). This is the complete v1 table: the first six rows are collections-owned; the final three are FFI-owned captured foreign collections (#876, #875).
+This is the complete v1 table. `String` is declared by an ordinary source
+`honor` block in its fixed primitive companion (§5); the other five core rows
+remain compiler/runtime-provided (Part 2 §4.4 wording — specified normatively,
+no source form). The final three are FFI-owned provided rows over captured
+foreign collections (#876, #875). Source ownership changes neither lookup nor
+the public member spellings.
 
 | Type | `type Item` | `toSeq` (the member) | Fixed by |
 |---|---|---|---|
@@ -94,7 +99,7 @@ All compiler/runtime-provided (Part 2 §4.4 wording — specified normatively, n
 | `Seq(a)` | `a` | identity | Loops §6 |
 | `Map(k, v)` | `(k, v)` | ≡ `entries` | Part 4 §7.2 |
 | `Set(a)` | `a` | element traversal | Part 4 §7.2 |
-| `String` | `String` (one codepoint) | the codepoint sequence, §5.2 | **§5 here** |
+| `String` | `String` (one codepoint) | the source instance's codepoint sequence, §5.2 | **`stdlib/String.hex`; §5 here** |
 | `Array(a)` | `a` | ≡ `Array.toSeq` (FFI Part 2 §9's named conversion) — over the captured array, a stable value (#876) | FFI Part 2 §8 |
 | `JsMap(k, v)` | `(k, v)` | ≡ `entries` — over the captured map, a stable value (#875) | FFI Part 10 §6 |
 | `JsSet(a)` | `a` | ≡ `JsSet.toSeq` — over the captured set, a stable value (#875) | FFI Part 10 §6 |
@@ -112,14 +117,26 @@ Notes:
 
 ### 5.1 The instance — `Item = String`, one codepoint per item
 
-`Iterable<String>` is provided, with `type Item = String`; each item is a
+`Iterable<String>` is declared authoritatively in `stdlib/String.hex` through
+the ordinary instance mechanism:
+
+```hex
+honor Iterable<String> =
+    type Item = String
+    toSeq(text) = nativeToSeq(text)
+```
+
+`nativeToSeq` is a private, explicitly typed intrinsic-door binding for the
+representation traversal; it is not a second instance and is not public API.
+The source block is the unique coherence provider, with `type Item = String`;
+each item is a
 **one-codepoint `String`**, in codepoint order. A valid surrogate pair is one
 item. A lone surrogate supplied by JavaScript is one preserved item, but not a
 Unicode scalar value (Primitive Types §5.1; String Text Processing §1 and §9).
 This closes the question Loops §11.6 left open, in the only way it could close:
 
 - Hexagon has no `Char` (Primitive Types §5.1); a one-codepoint `String` is the established unit — it is exactly what `s[i]` returns (Part 3 §9).
-- Part 2 §8 already carried `String` in the provided-row inventory; Part 3 §9 already tells users "the linear idiom is `for c in s`". This section makes both honest.
+- Part 2 §8 already carried `String` in the iterable inventory; Part 3 §9 already tells users "the linear idiom is `for c in s`". The source declaration now makes that capability visible where readers meet the type.
 - **`for c in s` is O(n) total** — a single pass — which is precisely the escape from the O(n²) bracket-in-a-loop trap Part 3 §9 warns about. The doc states the pairing: brackets for occasional access, the loop for traversal.
 - Grapheme-cluster iteration, if it ever ships, is a named stdlib function (mirroring Part 3 §9's indexing stance); the instance is codepoints, permanently.
 
@@ -269,6 +286,17 @@ Loops §8 is restated **by reference and unchanged** — in particular the count
 
 The user-instance call is the ordinary emitted module function (here `Bag_toSeq`, the instance's `toSeq` body), never dictionary access. Where the instance's `toSeq` is a trivial delegation, the emitter may inline through it; observable behaviour per Loops §2.3 either way.
 
+`String`'s source ownership is deliberately not an abstraction tax. Its
+canonical source instance must retain the pre-migration lowering: a direct
+`for..in` loop emits native `for...of` over the string with no `Seq` allocation,
+dictionary read, or member-call hop, while an explicit `String.toSeq`/
+`Iterable.toSeq`/dot call reaches the same lazy native adapter as before — O(1)
+to construct and O(n) to exhaust. This is a required semantic-and-cost
+preservation rule, not an optional optimization. It is licensed only after
+resolution identifies the canonical `String.hex` declaration; a same-spelled
+user declaration receives no such lowering. Tests must cover runtime items,
+emitted shape, laziness, and the absence of the extra adapter on the loop path.
+
 ### 9.3 Laziness and `.d.ts`
 
 - `for x in s` over a `Seq` pulls elements **on demand** (the functional cursor, Loops §6.2/§6.5); an infinite `Seq` loops forever, computing each element only as reached — exit is via `throw` or process end, per the `while True` stance (Loops §4).
@@ -280,7 +308,7 @@ The user-instance call is the ordinary emitted module function (here `Bag_toSeq`
 
 The roadmap's leaning is fixed as the rule:
 
-- **The collections specs (Parts 1–5) own:** the types and names; representation references and complexity contracts; construction (literals, `fromVector`, `from*` eagerness); the core access surface (the accessor pair, `at`, slicing); the update doctrine (upsert, forgiving removal, representative retention); set algebra; the provided instances (`Eq`/`Ord`/`Show`/`Hash`/`Concat`/`Iterable`); the conversion suite (`toSeq`/`fromSeq` on every finite collection, §1); patterns; operator boundaries.
+- **The collections specs (Parts 1–5) own:** the types and names; representation references and complexity contracts; construction (literals, `fromVector`, `from*` eagerness); the core access surface (the accessor pair, `at`, slicing); the update doctrine (upsert, forgiving removal, representative retention); set algebra; the standard instances (`Eq`/`Ord`/`Show`/`Hash`/`Concat`/`Iterable`), whether source-owned or provided; the conversion suite (`toSeq`/`fromSeq` on every finite collection, §1); patterns; operator boundaries.
 - **The stdlib listing owns:** the combinator families over every collection and `Seq`, including the v1 ship-list versus deferred split within them, inventoried in `stdlib-roadmap.md` and decided at the listing session under the Part 1 §3 naming doctrine, which binds there in full (banned families, subject-first, `Option`-shaped totality). String Text Processing now owns `String.join` and the rest of that companion's text-processing surface.
 
 The test for future placement: *does it define what the structure is, or what you can do over it?* Structure here; doing there.
@@ -370,7 +398,7 @@ Rejected per §7.2: for a home-module instance the pattern is structurally unnec
 | 3 | Normative 8-step algorithm for `for p in e`; pattern heads per Pattern Matching's five positions, irrefutability-gated; body `Unit`; source evaluated once | §3.1 |
 | 4 | **Inference-vs-declared diagnostic split**: unsolved inference variable → annotate; declared type variable → `Seq(a)` parameter hint | §3.2 |
 | 5 | User-nominal not-iterable error names **both legal homes** (the Modules §7.6 discoverability obligation's loop-side face), leading with the actionable one | §3.3 |
-| 6 | The v1 core provided table is exactly six rows: `Range`, `Vector`, `Seq`, `Map`, `Set`, `String`; plus the FFI-owned captured foreign collections `Array(a)` (obligated §6.1, discharged FFI Part 2 §8; #876), `JsMap(k, v)`, `JsSet(a)` (FFI Part 10 §6; #875); nothing else iterable in v1 | §4, §6 |
+| 6 | The v1 core table is exactly six rows: source-owned `String`, plus provided `Range`, `Vector`, `Seq`, `Map`, and `Set`; the FFI-owned captured foreign collections add provided `Array(a)` (obligated §6.1, discharged FFI Part 2 §8; #876), `JsMap(k, v)`, and `JsSet(a)` (FFI Part 10 §6; #875); nothing else iterable in v1 | §4–§6 |
 | 7 | **`Iterable<String>`: `Item = String`, one codepoint per item** — Loops §11.6 closed; graphemes stay named-function territory | §5.1 |
 | 8 | `String.toSeq` lazy codepoint view; **no `codepoints` synonym** | §5.2, §13.1 |
 | 9 | **`String.fromSeq` ships: concatenation**, full contract — `""` on empty, traversal order, any-length elements, no normalization, eager, linear with join-not-fold implementation note, one-sided round-trip law | §5.3 |
@@ -378,7 +406,7 @@ Rejected per §7.2: for a home-module instance the pattern is structurally unnec
 | 11 | **`Iterable<Array(a)>` decided as a binding v1 FFI obligation** (`Item = a`, member `toSeq` behaving as `Array.toSeq`); row meaning, conversions, observation semantics, and emission owned by FFI — discharged in full by FFI Part 2 | §6, §13.5 |
 | 12 | Provided-row `honor` collisions surface as orphan errors + "the prelude already provides…" hint; duplicate-proper unreachable for prelude pairs from user code | §7.3 |
 | 13 | Recipe normative (the instance's `toSeq` member as the conversion + `fromSeq` exported + honest constraint placement); effect-import pattern deliberately untaught; user collections inherit and must state their order contract | §8 |
-| 14 | **Emission: static instance resolution is total** (consequence of the binder ban); Loops §8 erasure mandatory and untouched; `String` emits native `for..of`; no `Iterable`/`Item`/instance machinery in `.d.ts` — other constraints' foreign representation deferred to FFI | §9 |
+| 14 | **Emission: static instance resolution is total** (consequence of the binder ban); Loops §8 erasure mandatory and untouched; source-owned `String` must retain native `for..of` with no adapter/dictionary/call overhead, while explicit `toSeq` retains the same lazy adapter and complexity; no `Iterable`/`Item`/instance machinery in `.d.ts` — other constraints' foreign representation deferred to FFI | §9 |
 | 15 | Collections/stdlib boundary fixed: structure in Parts 1–5, combinator families (and their v1 ship-list) in the stdlib listing under the Part 1 §3 doctrine | §10 |
 | 16 | **Transients runtime-internal only; no public API in v1**; v2 revisit-bar = userland benchmarks | §11 |
 
@@ -406,7 +434,7 @@ The roadmap and agenda edits queued at landing were applied then; the companion-
 ## 17. Acceptance tests (golden: inferred type, runtime value, emitted JS, diagnostics)
 
 ```
--- (a) Every provided row loops, with the right element type
+-- (a) Every standard row loops, with the right element type
 for i in 1..3            -- i : Int      (counting-loop emission, mandatory)
     ...
 for x in [10, 20]        -- x : Int      (Vector)
@@ -510,3 +538,15 @@ The draft declared the `Iterable<Array(a)>` row normatively here while leaving i
 ### 18.3 `Bool` reclassified in §4's non-iterables note (2026-07-29, #147)
 
 §4's closing note listed `Bool` in its concrete-primitive clause; under the ML-dialect ruling (`decisions-ml-dialect-bool-2026-07.md`) `Bool` is the prelude union `False | True` (Unions §8) and now stands with `Option`/`Result` in the prelude-union clause instead. No behavioral change: `Bool` was not iterable and is not iterable; a `for x in myBool` head remains the §3.2 concrete-non-iterable error either way.
+
+### 18.4 `Iterable<String>` moved from a provided row to source (2026-09)
+
+The row's existence, implied type, codepoint semantics, public spellings,
+laziness, and complexity are unchanged. Its authority moves from the compiler's
+provided table into an ordinary `honor Iterable<String>` declaration in the
+primitive's fixed home, `stdlib/String.hex`. The compiler retains only the
+private traversal intrinsic and the canonical-declaration-based lowerings
+required by §9.2; neither is a hidden fallback instance. The migration removes
+the provided row in the same implementation change, so coherence continues to
+have exactly one provider. Other standard Iterable rows remain provided in this
+slice.

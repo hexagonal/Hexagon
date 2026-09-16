@@ -4,10 +4,11 @@ import { compileFiles, compileMain, projectDiagnostics, runMain } from "../suppo
 
 /**
  * PR δ3 of #344: **`String` is a source companion.** `stdlib/String.hex` is the
- * primitive's home module (Constraints §5.3) and its five instances — `Eq`,
- * `Ord`, `Show`, `Concat`, `Hash` — are ordinary `honor` blocks. That milestone
- * retired `String`'s wired rows and Modules §5.3's transitional spelling in the
- * same change; #924 later added the companion's public text-processing surface.
+ * primitive's home module (Constraints §5.3) and its six instances — `Eq`,
+ * `Ord`, `Show`, `Concat`, `Hash`, `Iterable` — are ordinary `honor` blocks.
+ * That milestone retired `String`'s wired rows and Modules §5.3's transitional
+ * spelling in the same change; #924 later added the companion's public
+ * text-processing surface.
  *
  * Two of the five carry semantics no operator has. `Ord<String>` is the
  * codepoint order of Primitive Types §5, which disagrees with the host's own
@@ -342,11 +343,11 @@ describe("Constraints §6.1's inlining survives the move", () => {
 
 describe("`String.hex` keeps its instance implementations source-defined", () => {
   /**
-   * The companion still declares no exception and its five dictionaries remain
+   * The companion still declares no exception and its six dictionaries remain
    * source-defined alongside #924's public operations. This assertion pins the
    * instance implementation shape rather than the companion's whole export set.
    */
-  test("the emitted module holds five natives, five dictionaries, and no guard", () => {
+  test("the emitted module holds six core natives, six dictionaries, and no guard", () => {
     // A program that reaches every instance through a dictionary, so the whole
     // companion is compiled and none of its blocks can be dead.
     const text = companion([
@@ -371,7 +372,8 @@ describe("`String.hex` keeps its instance implementations source-defined", () =>
     expect(text).toContain(
       'const fromSeq = __values => [...__seqToIterable(__values)].join("");',
     );
-    for (const constraint of ["Eq", "Ord", "Show", "Concat", "Hash"]) {
+    expect(text).toContain("const nativeToSeq = __seqFromIterable;");
+    for (const constraint of ["Eq", "Ord", "Show", "Concat", "Hash", "Iterable"]) {
       expect(text).toContain(`__${constraint}_String`);
     }
     // "No guard" is a claim about *this companion's* code, and it is asked of

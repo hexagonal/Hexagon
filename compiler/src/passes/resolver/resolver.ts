@@ -115,6 +115,8 @@ export interface InstanceInterface {
    * exactly as the two fields below do.
    */
   readonly derived: boolean;
+  /** The source instance declared by the fixed `String` companion. */
+  readonly canonicalStringIterable?: true;
   /**
    * The instance's member seats under this interface's spellings (#444), and
    * the path of the module that declared it — see `Resolved.InstanceImport`,
@@ -1025,6 +1027,11 @@ export function moduleInterface(module: Resolved.Module): ModuleInterface {
         // `derives` clause and a `= derive` body both land here as `derived`,
         // and neither is visible to any consumer (#644).
         derived: item.derived,
+        ...(module.companionPrimitive === "String" &&
+            item.constraintIdentity === preRegisteredConstraintIdentity("Iterable") &&
+            item.subject.kind === "Primitive" && item.subject.name === "String"
+          ? { canonicalStringIterable: true as const }
+          : {}),
         // §8's export clause read from the other side, seat by seat: the bare
         // spelling unless a declared-versus-declared contest pushed a suffix
         // this far. `declaringPath` is this module's, because this is the arm
@@ -1050,6 +1057,9 @@ export function moduleInterface(module: Resolved.Module): ModuleInterface {
       // reached there, never through the hop that carried the dictionary, and
       // `derived` is the declaring module's word in the same way.
       derived: instance.derived,
+      ...(instance.canonicalStringIterable === true
+        ? { canonicalStringIterable: true as const }
+        : {}),
       memberSeats: instance.memberSeats,
       ...(instance.declaringPath === undefined
         ? {}
@@ -1969,7 +1979,7 @@ class Resolver {
    * a binding either way: claim a name no surface offers and the message is back
    * to promising a repair that fixes nothing, which is the whole point of asking.
    * `PROVIDED_ROW_ALIASES` is where that line ran once — the seating alone
-   * admits every prelude basename a project file may take, and only seven of
+   * admits every prelude basename a project file may take, and only six of
    * them carry a row.
    */
   #aliasOffers(
@@ -3261,6 +3271,9 @@ class Resolver {
             // suffixes it later if this module contests the spelling (§5).
             localDictionary: instance.dictionary,
             derived: instance.derived,
+            ...(instance.canonicalStringIterable === true
+              ? { canonicalStringIterable: true as const }
+              : {}),
             memberSeats: instance.memberSeats,
             ...this.#seatOrigin(instance.declaringPath),
             span: item.span,
@@ -6616,6 +6629,9 @@ class Resolver {
           // Unaliased, as in the explicit channel; `nameDictionaries` decides.
           localDictionary: instance.dictionary,
           derived: instance.derived,
+          ...(instance.canonicalStringIterable === true
+            ? { canonicalStringIterable: true as const }
+            : {}),
           memberSeats: instance.memberSeats,
           // `specifier` above names the prelude member this instance was
           // *found* in, which the deduplication above may have settled on
@@ -6928,8 +6944,8 @@ class Resolver {
    * instance no module's text declares (Collections Part 5 §4).
    *
    * `#honoredMemberAccess` above answers from `iface.instances`, which is built
-   * from `honor` items, so it cannot answer here: the nine `Iterable` rows have
-   * no source form at all (#353's ruling 1 — `Seq`'s would be a seat cycle and
+   * from `honor` items, so it cannot answer here: the eight provided `Iterable`
+   * rows have no source form (#353's ruling 1 — `Seq`'s would be a seat cycle and
    * `Vector`'s a structural head, both refused). What is *not* different is what
    * the reader is owed. `Vector.toSeq(v)` is the honored-member read of the row
    * at `Vector`, exactly as `Int.show(5)` is the read of `stdlib/Int.hex`'s
@@ -6963,7 +6979,7 @@ class Resolver {
     if (field.text !== "toSeq") return undefined;
     // The alias must be one a row is seated at before anything else is asked, so
     // that this reader and `#aliasOffers` answer the same set. The arms below
-    // are the same seven, and reaching the tail `return undefined` for an alias
+    // are the same six, and reaching the tail `return undefined` for an alias
     // this admitted would be the drift the shared constant exists to prevent.
     if (!PROVIDED_ROW_ALIASES.has(alias)) return undefined;
     // Keyed on the *module*, never on the spelling: a user's own
@@ -7724,7 +7740,6 @@ export const PROVIDED_ROW_ALIASES: ReadonlySet<string> = new Set([
   "Vector",
   "Set",
   "Map",
-  "String",
   "Seq",
   // FFI Part 10 §6.1's two rows (#792). They are here rather than absent for the
   // ordinary reason the others are: the borrowed views now have companions

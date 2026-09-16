@@ -1059,6 +1059,8 @@ interface Requirement {
   dictionary?: string;
   structural?: boolean;
   dictionaryArguments?: readonly Requirement[];
+  /** Selected the source instance declared by the fixed `String` companion. */
+  canonicalStringIterable?: true;
   /**
    * The requirement raised for each direct component of a structurally
    * satisfied type, kept rather than discarded (#278). Emission renders this
@@ -3063,6 +3065,8 @@ class Checker {
    * slot a user tried to fill is one the prelude already holds (§7.3).
    */
   readonly #providedIterableRows = new Set<Resolved.HonorItem>();
+  /** Instance declarations licensed for String's allocation-free direct loop. */
+  readonly #canonicalStringIterableInstances = new WeakSet<Resolved.HonorItem>();
   readonly #instanceIdentities = new Map<string, string>();
   /**
    * The same instances, keyed the other way round: subject key → the constraint
@@ -3605,6 +3609,14 @@ class Checker {
           typeParameters,
         );
         this.#instanceSubjects.set(item, subject);
+        const instanceSubject = this.#prune(subject);
+        if (
+          this.#companionPrimitive === "String" &&
+          item.constraintIdentity === preRegisteredConstraintIdentity("Iterable") &&
+          instanceSubject.kind === "Constructor" && instanceSubject.name === "String"
+        ) {
+          this.#canonicalStringIterableInstances.add(item);
+        }
         this.#storeInstanceImpliedTypes(item, typeParameters, true);
         const key = this.#instanceKey(item.constraintIdentity, subject);
         const occupant = this.#instances.get(key);
@@ -7983,18 +7995,20 @@ class Checker {
         }
         let element: Mono = ERROR;
         // The arms below are the **erasure of Collections Part 5 §4's provided
-        // rows, not a mechanism beside them** (#353, ruling 2). Each row is a
+        // rows, not a mechanism beside them** (#353, ruling 2). Each such row is a
         // real coherence slot — registered by `#seedProvidedIterableRows`, and
         // what `toSeq(xs)` and `Vector.toSeq(xs)` both discharge against — and
         // reading the element type straight off the constructor here computes
         // exactly what looking the row up and substituting would: `Vector(a)`
-        // implies `Item = a`, `Map(k, v)` implies `(k, v)`, `String` implies a
-        // one-codepoint `String`. The shortcut is licensed by the binder ban
+        // implies `Item = a`, and `Map(k, v)` implies `(k, v)`. The shortcut is
+        // licensed by the binder ban
         // (Part 2 §7.2), which makes every `for..in` head monomorphic in its
         // outer constructor, so static resolution is total (§9.1) and the
         // lookup could never answer differently. A user nominal has no arm and
         // falls to the constraint path below, which is the same table's public
-        // door.
+        // door. `String` now follows that same constraint path: its source
+        // instance supplies `Item`, and validation marks only the canonical
+        // declaration for native-loop erasure.
         //
         // `for x in` over a `Seq` stays compiler-owned in *emission* (ruling
         // R3): the emitter's constant-stack `next` loop, not a dictionary call.
@@ -8016,10 +8030,6 @@ class Checker {
           // entries *are* two-element arrays, which is the tuple representation
           // (Part 10 §6.3).
           element = { kind: "Tuple", elements: [actual.key, actual.value] };
-        } else if (
-          actual.kind === "Constructor" && actual.name === "String"
-        ) {
-          element = primitive("String");
         } else if (actual.kind === "Variable" && actual.rigidName !== undefined) {
           // Collections Part 5 §3.2's split. A *declared* type variable and an
           // unsolved inference variable both stop step 2 of §3.1 — the outer
@@ -18484,6 +18494,12 @@ class Checker {
       } else {
         requirement.dictionary = instance.dictionary;
         requirement.dictionaryArguments = this.#instanceArguments(instance, type);
+        if (
+          requirement.origin === "iteration" &&
+          this.#canonicalStringIterableInstances.has(instance)
+        ) {
+          requirement.canonicalStringIterable = true;
+        }
       }
       if (requirement.impliedTypes !== undefined) {
         const bindings = this.#instanceImpliedTypes.get(instance);
@@ -20546,6 +20562,9 @@ class Checker {
       typeParameters,
     );
     this.#instanceSubjects.set(instance, subject);
+    if (imported.canonicalStringIterable === true) {
+      this.#canonicalStringIterableInstances.add(instance);
+    }
     this.#storeInstanceImpliedTypes(instance, typeParameters, false);
     const key = this.#instanceKey(imported.constraintIdentity, subject);
     const existingIdentity = this.#instanceIdentities.get(key);
@@ -20567,7 +20586,7 @@ class Checker {
   }
 
   /**
-   * Collections Part 5 §4's nine provided rows, seeded into the ordinary
+   * Collections Part 5 §4's eight provided rows, seeded into the ordinary
    * evidence universe.
    *
    * **The table is the constraint** (Part 5 §1). The rows are compiler-provided
@@ -20589,7 +20608,7 @@ class Checker {
    * itself — which is #388's lesson applied ahead of the defect rather than
    * after it.
    *
-   * All nine rows are seeded. The last two to arrive were FFI Part 10's borrowed
+   * All eight rows are seeded. The last two to arrive were FFI Part 10's borrowed
    * views, `JsMap(k, v)` and `JsSet(a)`, which waited on the types having a
    * representation to key a slot on at all (#396); their `Item` bindings are
    * Part 10 §6.1's, `(k, v)` and `a`. They are FFI-owned rows in the table
@@ -20723,13 +20742,6 @@ class Checker {
       (parameters) => parameters.get("a")!,
       { kind: "JsSet", element: annotation("a"), span },
     );
-    // `Item = String`, one codepoint per item (§5.1). Hexagon has no `Char`, and
-    // a one-codepoint `String` is what `s[i]` already answers.
-    seed("String", [], () => primitive("String"), () => primitive("String"), {
-      kind: "Primitive",
-      name: "String",
-      span,
-    });
     // The identity row (§4), and it is *lawful* because `Seq` traversal is pure:
     // a persistent pure sequence is re-traversable, so the sequence view of
     // itself is itself. The unsound twin — identity handed to an effectful
@@ -23537,18 +23549,23 @@ class Checker {
           type,
           span: expression.span,
         };
-      case "For":
+      case "For": {
+        const iteration = this.#iterations.get(expression);
         return {
           kind: "For",
           pattern: this.#materializePattern(expression.pattern),
           iterable: this.#materializeExpr(expression.iterable),
           body: this.#materializeExpr(expression.body) as Typed.BlockExpr,
-          ...(this.#iterations.get(expression) === undefined
+          ...(iteration === undefined
             ? {}
-            : { iteration: this.#publicRequirement(this.#iterations.get(expression)!) }),
+            : { iteration: this.#publicRequirement(iteration) }),
+          ...(iteration?.canonicalStringIterable === true
+            ? { nativeStringIteration: true as const }
+            : {}),
           type,
           span: expression.span,
         };
+      }
       case "Throw":
         return {
           kind: "Throw",

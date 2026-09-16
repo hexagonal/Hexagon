@@ -1,7 +1,9 @@
 # Source-defined standard Iterable instances — proposal for Fable
 
-**Status:** Proposed, non-normative; 2026-09-07. This note requests specification
-adoption and subsequent implementation. It claims neither has landed.
+**Status:** Partially adopted; 2026-09-16. `Iterable<String>` has been adopted
+normatively in Collections Part 5 and implemented as the first source-owned
+slice. The remaining rows are still proposed and this note remains
+non-normative for them.
 **Sequence:** Follow the effects arc. Foreign collection instances depend on
 separate adoption and implementation of the snapshot direction agreed in
 discussion; the normative FFI specifications described borrowed views when this was written; #876 and #875 have since made `Array`, `JsMap`, and `JsSet` captured foreign collections.
@@ -127,10 +129,16 @@ instance-home extension in §2. Remove the corresponding compiler-provided
 instance as each source instance becomes authoritative. Do not retain a hidden
 fallback or allow two providers for one `(constraint, subject)` instance.
 
-Native loop emission and other traversal optimizations may remain. They must
-implement the resolved source instance's semantics, including order, laziness,
-effects, exceptions, and snapshot behaviour. A familiar spelling alone is not
-proof that an arbitrary user instance admits a built-in lowering.
+Native loop emission and other traversal optimizations must retain each
+migrated standard instance's pre-migration cost model as well as its semantics.
+In particular, a direct loop that previously erased to native iteration must
+not acquire a `Seq` allocation, dictionary read, or member-call hop merely
+because its authoritative declaration moved into source; an explicit `toSeq`
+must retain its previous laziness and complexity. The optimization is licensed
+only after resolution identifies the canonical source declaration, and must
+implement its order, laziness, effects, exceptions, and snapshot behaviour. A
+familiar spelling alone is not proof that an arbitrary user instance admits a
+built-in lowering.
 
 This does not broaden implied-type inference or adopt an unrelated conversion
 feature. Generic `Iterable` uses and any Iterable-to-Seq adaptation follow their
