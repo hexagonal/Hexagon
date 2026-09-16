@@ -597,15 +597,14 @@ describe("a declaration's constructor names occlude too (#466)", () => {
 });
 
 describe("in prelude source, the prelude layer is the §5.5 visible prefix", () => {
-  // `Result.hex` sees the members before it and only those, so `show` —
+  // `Debug.hex` sees the members before it and only those, so `show` —
   // `Show.hex` is first in the set — is an ordinary prelude name there. The rule
   // reads identically: stdlib source pasted into a user module keeps its meaning.
 
   test("a prelude module's function-local binder shadows an earlier member's export", () => {
     expect(diagnostics(
       "export let use: Int = 1\n",
-      "module Result\n\n" +
-      "export union Result(a, e) = Ok(value: a) | Err(error: e)\n" +
+      "module Debug\n\n" +
       "export let labelled(n: Int): String =\n" +
       "    let show = \"prefix shadow\"\n" +
       "    show\n",
@@ -615,8 +614,7 @@ describe("in prelude source, the prelude layer is the §5.5 visible prefix", () 
   test("and reserves it there for the whole block, exactly as in user code", () => {
     expect(diagnostics(
       "export let use: Int = 1\n",
-      "module Result\n\n" +
-      "export union Result(a, e) = Ok(value: a) | Err(error: e)\n" +
+      "module Debug\n\n" +
       "export let labelled(n: Int): String =\n" +
       "    let early = show(n)\n" +
       "    let show = \"prefix shadow\"\n" +

@@ -15,9 +15,9 @@ module String
 // identity by ruling (Primitive Types §7), so its body is the plain binding
 // `value` — no operator, no interpolation, nothing that selects its own slot —
 // and the strictly-simpler doctrine sends such a body to ordinary Hexagon
-// (`spec/intrinsics.md` §3.2). Everything a string's *contents* can be asked —
-// length, slicing, joining — belongs to the listing and collections surfaces,
-// not here.
+// (`spec/intrinsics.md` §3.2). The public length, text-processing, and joining
+// operations now live in this companion as ordinary Hexagon wherever the
+// language can express their policy.
 //
 // `fromSeq` is the one row here that is not a member's core, and it is here for
 // a different reason than the natives above. Collections Part 5 section 5.3
@@ -28,7 +28,13 @@ module String
 // twin `toSeq` is not declared here at all: `Iterable<String>` is a provided
 // row (Part 5 section 4), so `toSeq` at a string is the constraint member. The
 // consumer spellings are the dot call `"ab".toSeq()` and the uniform-access
-// read `String.toSeq("ab")`.
+// read `String.toSeq("ab")`. The remaining private rows are the Unicode 17.0.0
+// property, mapping, and scalar primitives that ordinary Hexagon cannot spell;
+// all traversal and matching policy is source below.
+//
+// Searching tries each original-codepoint start and compares the target there:
+// its worst-case bound is O(n * m) for source length n and target length m.
+// Split and replacement reuse that search and additionally count their output.
 extern from "hex:intrinsic"
     fun stringConcat as nativeConcat(left: String, right: String): String
     fun stringEquals as nativeEquals(left: String, right: String): Bool
@@ -40,6 +46,403 @@ extern from "hex:intrinsic"
         traversal order, with no Unicode normalization. It forces the whole
         sequence, so it does not terminate on an infinite one. *)
     export fun stringFromSeq as fromSeq(values: Seq(String)): String
+
+    fun stringIsWhitespace as nativeIsWhitespace(point: String): Bool
+    fun stringIsCased as nativeIsCased(point: String): Bool
+    fun stringIsCaseIgnorable as nativeIsCaseIgnorable(point: String): Bool
+    fun stringLowercaseMapping as nativeLowercaseMapping(point: String): String
+    fun stringUppercaseMapping as nativeUppercaseMapping(point: String): String
+    fun stringCaseFoldMapping as nativeCaseFoldMapping(point: String): String
+    fun stringCodepointUnchecked as codepointUnchecked(point: String): Int
+    fun stringFromCodepointUnchecked as fromCodepointUnchecked(value: Int): String
+
+let points(text: String): Vector(String) =
+    Vector.fromSeq(Iterable.toSeq(text))
+
+let joinChunks(chunks: Vector(String)): String =
+    fromSeq(Iterable.toSeq(chunks))
+
+let foldedText(text: String): String =
+    var chunks: Vector(String) = []
+    for point in text
+        chunks := chunks.append(nativeCaseFoldMapping(point))
+    joinChunks(chunks)
+
+let slicePoints(text: String, start: Int, end: Int): String =
+    if start > end then "" else text[start..end]
+
+let exactEnd(source: Vector(String), target: Vector(String), start: Int): Option(Int) =
+    let sourceLength = Vector.length(source)
+    let targetLength = Vector.length(target)
+    if targetLength == 0 then
+        Some(start - 1)
+    else if start < 1 or start + targetLength - 1 > sourceLength then
+        None
+    else
+        var offset = 1
+        var equal = True
+        while equal and offset <= targetLength
+            if source[start + offset - 1] != target[offset] then
+                equal := False
+            else
+                offset := offset + 1
+        if equal then Some(start + targetLength - 1) else None
+
+let foldedEnd(source: Vector(String), target: Vector(String), start: Int): Option(Int) =
+    let sourceLength = Vector.length(source)
+    let targetLength = Vector.length(target)
+    var sourceIndex = start
+    var targetIndex = 1
+    var matching = True
+    var result = None
+    while matching and sourceIndex <= sourceLength
+        let expansion = points(nativeCaseFoldMapping(source[sourceIndex]))
+        let expansionLength = Vector.length(expansion)
+        var expansionIndex = 1
+        while matching and expansionIndex <= expansionLength
+            if targetIndex > targetLength or expansion[expansionIndex] != target[targetIndex] then
+                matching := False
+            else
+                expansionIndex := expansionIndex + 1
+                targetIndex := targetIndex + 1
+        if matching then
+            if targetIndex > targetLength then
+                result := Some(sourceIndex)
+                matching := False
+            else
+                sourceIndex := sourceIndex + 1
+    result
+
+let matchEnd(
+    source: Vector(String),
+    target: Vector(String),
+    foldedTarget: Vector(String),
+    start: Int,
+    insensitive: Bool,
+): Option(Int) =
+    if insensitive then foldedEnd(source, foldedTarget, start) else exactEnd(source, target, start)
+
+let findMatch(
+    source: Vector(String),
+    target: Vector(String),
+    foldedTarget: Vector(String),
+    start: Int,
+    insensitive: Bool,
+): Option((Int, Int)) =
+    let sourceLength = Vector.length(source)
+    let targetLength = Vector.length(target)
+    if targetLength == 0 then
+        Some((start, start - 1))
+    else
+        var position = start
+        var searching = True
+        var result = None
+        while searching and position <= sourceLength
+            match matchEnd(source, target, foldedTarget, position, insensitive)
+                Some(end) =>
+                    result := Some((position, end))
+                    searching := False
+                None => position := position + 1
+        result
+
+let splitWith(text: String, delimiter: String, insensitive: Bool): Vector(String) =
+    let source = points(text)
+    let target = points(delimiter)
+    let foldedTarget = points(foldedText(delimiter))
+    let sourceLength = Vector.length(source)
+    if Vector.length(target) == 0 then
+        var pieces: Vector(String) = [""]
+        var index = 1
+        while index <= sourceLength
+            pieces := pieces.append(source[index])
+            index := index + 1
+        pieces.append("")
+    else
+        var pieces: Vector(String) = []
+        var position = 1
+        var searching = True
+        while searching
+            match findMatch(source, target, foldedTarget, position, insensitive)
+                None =>
+                    pieces := pieces.append(slicePoints(text, position, sourceLength))
+                    searching := False
+                Some((start, end)) =>
+                    pieces := pieces.append(slicePoints(text, position, start - 1))
+                    position := end + 1
+        pieces
+
+let replaceWith(
+    text: String,
+    targetText: String,
+    replacement: String,
+    insensitive: Bool,
+    firstOnly: Bool,
+): String =
+    let source = points(text)
+    let target = points(targetText)
+    let foldedTarget = points(foldedText(targetText))
+    let sourceLength = Vector.length(source)
+    if Vector.length(target) == 0 then
+        var chunks: Vector(String) = [replacement]
+        var index = 1
+        var running = True
+        while running and index <= sourceLength
+            chunks := chunks.append(source[index])
+            if firstOnly then
+                chunks := chunks.append(slicePoints(text, index + 1, sourceLength))
+                running := False
+            else
+                chunks := chunks.append(replacement)
+                index := index + 1
+        joinChunks(chunks)
+    else
+        var chunks: Vector(String) = []
+        var position = 1
+        var searching = True
+        while searching
+            match findMatch(source, target, foldedTarget, position, insensitive)
+                None =>
+                    chunks := chunks.append(slicePoints(text, position, sourceLength))
+                    searching := False
+                Some((start, end)) =>
+                    chunks := chunks.append(slicePoints(text, position, start - 1))
+                    chunks := chunks.append(replacement)
+                    position := end + 1
+                    if firstOnly then
+                        chunks := chunks.append(slicePoints(text, position, sourceLength))
+                        searching := False
+        joinChunks(chunks)
+
+(** The number of codepoints in `text`. Lone surrogates supplied by JavaScript
+    count as one preserved item. *)
+export let length(text: String): Int = Vector.length(points(text))
+
+(** `text` split at CRLF, CR, or LF, without terminators. *)
+export let lines(text: String): Vector(String) =
+    let source = points(text)
+    let sourceLength = Vector.length(source)
+    var result: Vector(String) = []
+    var start = 1
+    var index = 1
+    while index <= sourceLength
+        let point = source[index]
+        if point == "\r" or point == "\n" then
+            result := result.append(slicePoints(text, start, index - 1))
+            if point == "\r" and index < sourceLength and source[index + 1] == "\n" then
+                index := index + 1
+            start := index + 1
+        index := index + 1
+    if start <= sourceLength then result.append(slicePoints(text, start, sourceLength)) else result
+
+(** The nonempty runs separated by Unicode `White_Space`. U+FEFF is content. *)
+export let words(text: String): Vector(String) =
+    let source = points(text)
+    let sourceLength = Vector.length(source)
+    var result: Vector(String) = []
+    var index = 1
+    while index <= sourceLength
+        while index <= sourceLength and nativeIsWhitespace(source[index])
+            index := index + 1
+        let start = index
+        while index <= sourceLength and not nativeIsWhitespace(source[index])
+            index := index + 1
+        if start < index then result := result.append(slicePoints(text, start, index - 1))
+    result
+
+(** Exact literal splitting, preserving empty fields. *)
+export let split(text: String, delimiter: String): Vector(String) = splitWith(text, delimiter, False)
+
+(** Full-fold literal splitting with original-codepoint match boundaries. *)
+export let splitCi(text: String, delimiter: String): Vector(String) = splitWith(text, delimiter, True)
+
+(** `text` without its first `count` codepoints. Nonpositive counts change nothing. *)
+export let dropFirstN(text: String, count: Int): String =
+    if count <= 0 then text else slicePoints(text, count + 1, length(text))
+
+(** `text` without its last `count` codepoints. Nonpositive counts change nothing. *)
+export let dropLastN(text: String, count: Int): String =
+    if count <= 0 then text else slicePoints(text, 1, length(text) - count)
+
+(** `text` without its first codepoint, or `""` when empty. *)
+export let dropFirst(text: String): String = dropFirstN(text, 1)
+(** `text` without its last codepoint, or `""` when empty. *)
+export let dropLast(text: String): String = dropLastN(text, 1)
+
+(** Removes the maximal leading run of Unicode `White_Space`. *)
+export let trimStart(text: String): String =
+    let source = points(text)
+    var start = 1
+    while start <= Vector.length(source) and nativeIsWhitespace(source[start])
+        start := start + 1
+    slicePoints(text, start, Vector.length(source))
+
+(** Removes the maximal trailing run of Unicode `White_Space`. *)
+export let trimEnd(text: String): String =
+    let source = points(text)
+    var end = Vector.length(source)
+    while end >= 1 and nativeIsWhitespace(source[end])
+        end := end - 1
+    slicePoints(text, 1, end)
+
+(** Removes maximal leading and trailing Unicode `White_Space` runs. *)
+export let trim(text: String): String = trimEnd(trimStart(text))
+
+(** The 1-based position of the first exact literal match, or `None`. *)
+export let indexOf(text: String, targetText: String): Option(Int) =
+    match findMatch(points(text), points(targetText), [], 1, False)
+        None => None
+        Some((start, _)) => Some(start)
+
+(** The 1-based position of the first full-fold literal match, or `None`. *)
+export let indexOfCi(text: String, targetText: String): Option(Int) =
+    match findMatch(points(text), points(targetText), points(foldedText(targetText)), 1, True)
+        None => None
+        Some((start, _)) => Some(start)
+
+let lastIndexWith(text: String, targetText: String, insensitive: Bool): Option(Int) =
+    let source = points(text)
+    let target = points(targetText)
+    let foldedTarget = points(foldedText(targetText))
+    if Vector.length(target) == 0 then
+        Some(Vector.length(source) + 1)
+    else
+        var position = 1
+        var result = None
+        while position <= Vector.length(source)
+            match matchEnd(source, target, foldedTarget, position, insensitive)
+                Some(_) => result := Some(position)
+                None => ()
+            position := position + 1
+        result
+
+(** The 1-based position of the last exact literal match, or `None`. *)
+export let lastIndexOf(text: String, targetText: String): Option(Int) = lastIndexWith(text, targetText, False)
+(** The 1-based position of the last full-fold literal match, or `None`. *)
+export let lastIndexOfCi(text: String, targetText: String): Option(Int) = lastIndexWith(text, targetText, True)
+
+(** Whether `targetText` occurs literally in `text`. *)
+export let contains(text: String, targetText: String): Bool = match indexOf(text, targetText)
+    Some(_) => True
+    None => False
+
+(** Whether `targetText` has a full-fold literal match in `text`. *)
+export let containsCi(text: String, targetText: String): Bool = match indexOfCi(text, targetText)
+    Some(_) => True
+    None => False
+
+(** Whether `text` begins with the exact literal `prefix`. *)
+export let startsWith(text: String, prefix: String): Bool = match exactEnd(points(text), points(prefix), 1)
+    Some(_) => True
+    None => False
+
+(** Whether a full-fold match of `prefix` begins at the first original boundary. *)
+export let startsWithCi(text: String, prefix: String): Bool =
+    if length(prefix) == 0 then True else match foldedEnd(points(text), points(foldedText(prefix)), 1)
+        Some(_) => True
+        None => False
+
+(** Whether `text` ends with the exact literal `suffix`. *)
+export let endsWith(text: String, suffix: String): Bool =
+    let start = length(text) - length(suffix) + 1
+    match exactEnd(points(text), points(suffix), start)
+        Some(end) => end == length(text)
+        None => False
+
+(** Whether a full-fold match of `suffix` ends at the last original boundary. *)
+export let endsWithCi(text: String, suffix: String): Bool =
+    if length(suffix) == 0 then
+        True
+    else
+        let source = points(text)
+        let target = points(foldedText(suffix))
+        var position = 1
+        var found = False
+        while position <= Vector.length(source)
+            match foldedEnd(source, target, position)
+                Some(end) => if end == Vector.length(source) then found := True
+                None => ()
+            position := position + 1
+        found
+
+(** Replaces every leftmost non-overlapping exact literal match. *)
+export let replace(text: String, target: String, replacement: String): String =
+    replaceWith(text, target, replacement, False, False)
+(** Replaces the first exact literal match. *)
+export let replaceFirst(text: String, target: String, replacement: String): String =
+    replaceWith(text, target, replacement, False, True)
+(** Replaces every leftmost non-overlapping full-fold literal match. *)
+export let replaceCi(text: String, target: String, replacement: String): String =
+    replaceWith(text, target, replacement, True, False)
+(** Replaces the first full-fold literal match. *)
+export let replaceFirstCi(text: String, target: String, replacement: String): String =
+    replaceWith(text, target, replacement, True, True)
+
+(** Joins `parts` in traversal order with `separator` between adjacent elements. *)
+export let join(parts: Seq(String), separator: String): String =
+    var chunks: Vector(String) = []
+    var current = parts
+    var first = True
+    var running = True
+    while running
+        match Seq.next(current)
+            None => running := False
+            Some((part, rest)) =>
+                if not first then chunks := chunks.append(separator)
+                chunks := chunks.append(part)
+                first := False
+                current := rest
+    joinChunks(chunks)
+
+(** The scalar value of a one-codepoint String, or `None` for any other String. *)
+export let toCodepoint(text: String): Option(Int) =
+    let source = points(text)
+    if Vector.length(source) != 1 then
+        None
+    else
+        let value = codepointUnchecked(source[1])
+        if value >= 55_296 and value <= 57_343 then None else Some(value)
+
+(** The String for `value` when it is a Unicode scalar value, or `None`. *)
+export let fromCodepoint(value: Int): Option(String) =
+    if value < 0 or value > 1_114_111 or (value >= 55_296 and value <= 57_343) then
+        None
+    else
+        Some(fromCodepointUnchecked(value))
+
+(** Unicode 17.0.0 default locale-independent uppercase mapping. *)
+export let toUpper(text: String): String =
+    var chunks: Vector(String) = []
+    for point in text
+        chunks := chunks.append(nativeUppercaseMapping(point))
+    joinChunks(chunks)
+
+(** Unicode 17.0.0 default full case folding. *)
+export let caseFold(text: String): String =
+    foldedText(text)
+
+(** Unicode 17.0.0 default locale-independent lowercase mapping. *)
+export let toLower(text: String): String =
+    let source = points(text)
+    var following: Vector(Bool) = []
+    var afterCased = False
+    var reverseIndex = Vector.length(source)
+    while reverseIndex >= 1
+        following := following.prepend(afterCased)
+        let point = source[reverseIndex]
+        if not nativeIsCaseIgnorable(point) then afterCased := nativeIsCased(point)
+        reverseIndex := reverseIndex - 1
+    var chunks: Vector(String) = []
+    var beforeCased = False
+    var index = 1
+    while index <= Vector.length(source)
+        let point = source[index]
+        if point == "Σ" and beforeCased and not following[index] then
+            chunks := chunks.append("ς")
+        else
+            chunks := chunks.append(nativeLowercaseMapping(point))
+        if not nativeIsCaseIgnorable(point) then beforeCased := nativeIsCased(point)
+        index := index + 1
+    joinChunks(chunks)
 
 honor Eq<String> =
     (** Whether `left` and `right` are the same text. *)

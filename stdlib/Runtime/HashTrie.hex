@@ -14,13 +14,14 @@ module Runtime.HashTrie
 // the emitter writes — so no Hexagon module can import this one, by name or by
 // accident, however the compiler happens to place the file.
 //
-// **This module must not reference `Vector`.** It sees the whole prelude, and a
+// **This module must not reference `Vector`.** Its seat before `Map` makes the
+// earlier prelude visible, and a
 // vector literal, bracket, pattern, or `Vector.` call written here would make
 // the emitted `HashTrie.js` import `Vector.js` — coupling this trie to
 // `VectorTrie.js` for no reason at all, since nothing here wants a vector. The
-// seat (`RUNTIME_MODULES`' `precedes`) is what keeps the rule enforceable: this
-// module is seated before `Vector.hex`, so everything it can name is emitted
-// before it.
+// emitted import-surface conformance test keeps that implementation discipline
+// explicit. The seat itself prevents the actual cycle: `HashTrie` is immediately
+// before `Map`, its first emitted consumer.
 //
 // **Placement is by the mixed hash, never the public one.** Every keyed
 // operation computes `mix(hash(key))` once and navigates by that (Collections

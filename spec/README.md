@@ -30,6 +30,7 @@ Every normative owner appears exactly once. The explicitly marked router and gui
 | Declarations | `intrinsics.md` | the intrinsic door: `extern from "hex:intrinsic"`, keys, gate, self-declaration fallback, door deprecation schedule |
 | Router | `type-system-overview.md` | non-authoritative legacy orientation; superseded by `language.md` at Part 3 |
 | Types | `primitive-types.md` | `Nat`/`Int`/`Float`/`BigInt`/`String`, `Show`/display *(`Bool` reclassified to `unions.md` §8 + the #147 closure doc, 2026-07-29; §4 there is the pointer. `Unit` reclassified to `products.md` §2.7 + the #159 closure doc, 2026-07-30; §9 there is the pointer)* |
+| Types | `string-text-processing.md` | `String.hex` text-processing surface, codepoint operations, Unicode whitespace, default casing and full case folding, exact and case-insensitive matching |
 | Types | `products.md` | tuples (incl. `Unit`, the empty tuple — #159), structural/nominal records, rows, field access |
 | Types | `unions.md` | `union` declarations, `match` surface, representations |
 | Types | `integral-constraint.md` | the `Integral` constraint |

@@ -178,7 +178,7 @@ describe("the judgment over the pre-registered constraints", () => {
 });
 
 describe("the program table is what makes a prelude module's plan the consumer's", () => {
-  test("ten prelude modules see strictly fewer rows than the program does", () => {
+  test("pre-String injected modules see strictly fewer rows than the program does", () => {
     const compiled = project([["/main.hex", "module Main\n\n" + COLLECTIONS]]);
     const shortfalls = compiled.modules
       .map(({ source, core }) => ({
@@ -204,6 +204,9 @@ describe("the program table is what makes a prelude module's plan the consumer's
       "/Hex/Float.hex",
       "/Hex/BigInt.hex",
       "/Hex/Seq.hex",
+      "/Hex/Iterable.hex",
+      "/Hex/Runtime/VectorTrie.hex",
+      "/Hex/Vector.hex",
     ]);
     expect(shortfalls.find(({ path }) => path === "/Hex/Int.hex")?.missing).toBe(31);
     expect(shortfalls.find(({ path }) => path === "/Hex/Nat.hex")?.missing).toBe(23);

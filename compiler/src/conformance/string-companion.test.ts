@@ -5,11 +5,9 @@ import { compileFiles, compileMain, projectDiagnostics, runMain } from "../suppo
 /**
  * PR δ3 of #344: **`String` is a source companion.** `stdlib/String.hex` is the
  * primitive's home module (Constraints §5.3) and its five instances — `Eq`,
- * `Ord`, `Show`, `Concat`, `Hash` — are ordinary `honor` blocks. It exports
- * nothing else: length, slicing, and joining belong to the listing and
- * collections surfaces, so the companion is instances and nothing more, and its
- * milestone retired `String`'s wired rows and Modules §5.3's transitional
- * spelling in the same change.
+ * `Ord`, `Show`, `Concat`, `Hash` — are ordinary `honor` blocks. That milestone
+ * retired `String`'s wired rows and Modules §5.3's transitional spelling in the
+ * same change; #924 later added the companion's public text-processing surface.
  *
  * Two of the five carry semantics no operator has. `Ord<String>` is the
  * codepoint order of Primitive Types §5, which disagrees with the host's own
@@ -247,17 +245,13 @@ describe("the wired rows are gone, not dormant", () => {
     expect(text).toContain('__Ord_String } from "./Hex/String.js"');
   });
 
-  /**
-   * `String.hex` exports no terms at all, so every qualified spelling that is
-   * not an honored member misses as an ordinary does-not-export at a real
-   * module — the same report a user's own module would give, with no curated
-   * companion sentence anywhere.
-   */
-  test("`String.length` misses as an ordinary export, and so does `String.join`", () => {
+  test("the text milestone exports `length` and sequence-first `join`", () => {
     expect(projectDiagnostics("module Main\n\n" + 'export let n: Int = String.length("abc")\n'))
-      .toEqual(["module `String` does not export `length`"]);
-    expect(projectDiagnostics("module Main\n\n" + 'export let j: String = String.join("a", "b")\n'))
-      .toEqual(["module `String` does not export `join`"]);
+      .toEqual([]);
+    expect(projectDiagnostics(
+      "module Main\n\n" +
+        'export let j: String = String.join(Iterable.toSeq(["a", "b"]), "/")\n',
+    )).toEqual([]);
   });
 
   /**
@@ -265,12 +259,8 @@ describe("the wired rows are gone, not dormant", () => {
    * while the honored members it *does* have keep resolving — which is what
    * makes this a routing pin rather than a blanket refusal.
    */
-  test("a `length` dot call takes the neither-error, `concat` does not", () => {
-    expect(projectDiagnostics("module Main\n\n" + 'export let n: Int = "abc".length()\n')).toEqual([
-      "`String` has no field `length`, its companion exports no operation " +
-        "`length`, and no constraint honored at `String` has a subject-first " +
-        "member `length`; call an available subject-first function explicitly",
-    ]);
+  test("subject-first text functions support dot calls", () => {
+    expect(projectDiagnostics("module Main\n\n" + 'export let n: Int = "abc".length()\n')).toEqual([]);
     expect(projectDiagnostics("module Main\n\n" + 'export let c: String = "ab".concat("cd")\n')).toEqual([]);
   });
 });
@@ -350,12 +340,11 @@ describe("Constraints §6.1's inlining survives the move", () => {
   });
 });
 
-describe("`String.hex` is instances and nothing else", () => {
+describe("`String.hex` keeps its instance implementations source-defined", () => {
   /**
-   * The companion declares no exception, no conversion, and no export beyond
-   * its five instances — `String` has no partial operation to guard, and its
-   * contents belong to the listing surfaces. This is the shape assertion that
-   * would notice a helpful addition creeping in.
+   * The companion still declares no exception and its five dictionaries remain
+   * source-defined alongside #924's public operations. This assertion pins the
+   * instance implementation shape rather than the companion's whole export set.
    */
   test("the emitted module holds five natives, five dictionaries, and no guard", () => {
     // A program that reaches every instance through a dictionary, so the whole

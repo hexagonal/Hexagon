@@ -34,14 +34,15 @@ The call means exactly:
 String.fromSeq(Iterable.toSeq(words))
 ```
 
-A future `String.join` taking a `Seq(String)` parameter would equally accept:
+The subsequently promoted String Text Processing specification adopts
+sequence-first `String.join(parts, separator)`, which equally accepts:
 
 ```hex
-String.join(", ", words)
+String.join(words, ", ")
 ```
 
-`String.fromSeq` exists in this checkout. `String.join` remains a stdlib listing
-item; its example illustrates the proposed call behavior, not a shipped API.
+`String.fromSeq` exists in this checkout. `String.join` is now normative in
+`string-text-processing.md`; this note's earlier candidate status is superseded.
 User functions taking `Seq(a)` receive the same convenience automatically.
 
 ## 2. Existing foundations
@@ -154,7 +155,7 @@ generalization rules; conversion insertion is a real application, not a
 representation cast or a license to generalize an expression differently.
 
 Uniformity has visible consequences. Because strings iterate over codepoint
-strings, the proposed `String.join("-", "cat")` produces `"c-a-t"`. Maps supply
+strings, `String.join("cat".toSeq(), "-")` produces `"c-a-t"`. Maps supply
 entry tuples; sets supply their specified traversal order. No consumer-specific
 exceptions are proposed. Infinite sequences remain possible, and an exhaustive
 consumer may not terminate.

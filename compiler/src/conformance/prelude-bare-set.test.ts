@@ -185,7 +185,7 @@ describe("the function channel: none, and `ignore`", () => {
   test("a function that is not dot-callable names the qualified spellings alone", () => {
     expect(projectDiagnostics("module Main\n\n" + "export let s(pairs: Seq(String)): String = fromSeq(pairs)\n"))
       .toEqual([
-        "no bare `fromSeq`; write `String.fromSeq(pairs)`, `Vector.fromSeq(pairs)`, " +
+        "no bare `fromSeq`; write `Vector.fromSeq(pairs)`, `String.fromSeq(pairs)`, " +
         "`Map.fromSeq(pairs)`, `Set.fromSeq(pairs)`, `Stream.fromSeq(pairs)`, " +
         "`JsMap.fromSeq(pairs)`, or `JsSet.fromSeq(pairs)`",
       ]);
@@ -226,7 +226,7 @@ describe("the function channel: none, and `ignore`", () => {
       "no bare `hash`; write `x.hash()` or `Hash.hash(x)`"],
     ["a dot chain", "export let n: Int = length(Seq.empty)\n",
       "no bare `length`; write `Seq.empty.length()`, `Seq.length(Seq.empty)`, " +
-      "`Vector.length(Seq.empty)`, or `Array.length(Seq.empty)`"],
+      "`Vector.length(Seq.empty)`, `String.length(Seq.empty)`, or `Array.length(Seq.empty)`"],
     ["a call", "export let n(g: Int -> Int): Int = hash(g(1))\n",
       "no bare `hash`; write `g(1).hash()` or `Hash.hash(g(1))`"],
     ["an already-grouped expression", "export let n: Int = div((-7), 2)\n",
@@ -319,7 +319,7 @@ describe("the function channel: none, and `ignore`", () => {
   test.each([
     ["a companion function", "export let n: Int = length([1, 2])\n",
       "no bare `length`; write `([1, 2]).length()`, `Seq.length([1, 2])`, " +
-      "`Vector.length([1, 2])`, or `Array.length([1, 2])`"],
+      "`Vector.length([1, 2])`, `String.length([1, 2])`, or `Array.length([1, 2])`"],
     ["`Iterable`'s member", "export let s: Seq(Int) = toSeq([1, 2])\n",
       "no bare `toSeq`; write `([1, 2]).toSeq()` or `Iterable.toSeq([1, 2])`"],
   ])("a vector literal keeps the dot form for %s", (_seat, source, message) => {
@@ -479,9 +479,9 @@ describe("the function channel: none, and `ignore`", () => {
     ["two stages",
       "export let n(xs: Seq(Int), f: Int -> Int): Int = xs |> map(f) |> length()\n",
       ["no bare `map`; write `Seq.map` or `Stream.map`",
-        "no bare `length`; write `Seq.length`, `Vector.length`, or `Array.length`"]],
+        "no bare `length`; write `Seq.length`, `Vector.length`, `String.length`, or `Array.length`"]],
     ["a bare stage", "export let n(xs: Seq(Int)): Int = xs |> length\n",
-      ["no bare `length`; write `Seq.length`, `Vector.length`, or `Array.length`"]],
+      ["no bare `length`; write `Seq.length`, `Vector.length`, `String.length`, or `Array.length`"]],
   ])("%s reads as a reference, not a call", (_shape, source, messages) => {
     expect(projectDiagnostics("module Main\n\n" + source)).toEqual(messages);
   });
@@ -545,7 +545,7 @@ describe("§5.5 and §10's exemplars, character for character", () => {
       "no bare `isNan`; write `reading.isNan()` or `Float.isNan(reading)`"],
     ["§10: not dot-callable",
       "export let s(pairs: Seq(String)): String = fromSeq(pairs)\n",
-      "no bare `fromSeq`; write `String.fromSeq(pairs)`, `Vector.fromSeq(pairs)`, " +
+      "no bare `fromSeq`; write `Vector.fromSeq(pairs)`, `String.fromSeq(pairs)`, " +
       "`Map.fromSeq(pairs)`, `Set.fromSeq(pairs)`, `Stream.fromSeq(pairs)`, " +
       "`JsMap.fromSeq(pairs)`, or `JsSet.fromSeq(pairs)`"],
     ["§10: a reference that is not a call", "export let e: Vector(Int) = empty\n",
@@ -565,7 +565,7 @@ describe("§5.5 and §10's exemplars, character for character", () => {
     ["§5.5: a companion function at the same literal",
       "export let n: Int = length([1, 2])\n",
       "no bare `length`; write `([1, 2]).length()`, `Seq.length([1, 2])`, " +
-      "`Vector.length([1, 2])`, or `Array.length([1, 2])`"],
+      "`Vector.length([1, 2])`, `String.length([1, 2])`, or `Array.length([1, 2])`"],
   ])("%s", (_seat, source, message) => {
     expect(projectDiagnostics("module Main\n\n" + source)[0]).toBe(message);
   });

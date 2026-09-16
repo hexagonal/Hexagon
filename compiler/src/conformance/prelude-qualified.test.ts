@@ -384,7 +384,12 @@ describe("the synthesized import dodges every module-level binding (PR #91 findi
     // other member's import had bound. `Array.hex` joined the exporters at #511
     // and rides the same rule, which is the point of asserting the whole list.
     expect(synthesizedImportNames(fieldMain))
-      .toEqual(["./Hex/Seq:length", "./Hex/Vector:length", "./Hex/Array:length"]);
+      .toEqual([
+        "./Hex/Seq:length",
+        "./Hex/Vector:length",
+        "./Hex/String:length",
+        "./Hex/Array:length",
+      ]);
     expect(fieldMain.javascript.text).not.toContain("Seq.js");
     expect(fieldMain.javascript.text).not.toContain("Vector.js");
   });

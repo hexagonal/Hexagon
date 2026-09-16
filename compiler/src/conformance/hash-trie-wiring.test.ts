@@ -105,16 +105,11 @@ describe("the runtime module's two-sided contract", () => {
   });
 
   /**
-   * The discipline `stdlib/Runtime/HashTrie.hex`'s header states, made checkable. The
-   * module sees the prelude before its seat, and a vector literal, bracket,
-   * pattern or `Vector.` call written in it would make the emitted
-   * `HashTrie.js` import `Vector.js`, which already imports `VectorTrie.js` —
-   * coupling this trie to a runtime nothing here wants, through an edge created
-   * at emission that no `Import` item records and no acyclicity check can see.
-   *
-   * The seat (`RUNTIME_MODULES`' `precedes`) is what keeps the rule enforceable,
-   * and it is why the seat stayed at `Vector` when `Map` took the last
-   * prelude place: a later seat would let this module name `Vector`.
+   * The discipline `stdlib/Runtime/HashTrie.hex`'s header states, made
+   * checkable. The module is seated immediately before `Map`, its first emitted
+   * consumer. Its source has no use for `Vector` or `VectorTrie`, so neither
+   * belongs in the emitted import surface even though the later seat makes
+   * `Vector` visible.
    */
   test("the emitted runtime module never imports Vector or the vector trie", () => {
     const javascript = emitted([["/main.hex", "module Main\n\n" + ONE_MAP]], "/Hex/Runtime/HashTrie.hex");

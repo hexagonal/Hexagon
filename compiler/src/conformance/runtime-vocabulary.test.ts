@@ -976,13 +976,14 @@ describe("the runtime module takes Part 1 §8.3's reserved seat", () => {
         "  __Number = globalThis.Number,\n" +
         "  __Object = globalThis.Object,\n" +
         "  __RangeError = globalThis.RangeError,\n" +
+        "  __RegExp = globalThis.RegExp,\n" +
         "  __Set = globalThis.Set,\n" +
         "  __String = globalThis.String,\n" +
         "  __Symbol = globalThis.Symbol,\n" +
         "  __TypeError = globalThis.TypeError,\n" +
         "  __WeakMap = globalThis.WeakMap;\n" +
         "export { __Array, __BigInt, __Boolean, __console, __Error, __Map, __Math, " +
-        "__Number, __Object, __RangeError, __Set, __String, __Symbol, __TypeError, " +
+        "__Number, __Object, __RangeError, __RegExp, __Set, __String, __Symbol, __TypeError, " +
         "__WeakMap };\n",
     );
   });
