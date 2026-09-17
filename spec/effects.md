@@ -351,7 +351,7 @@ Messages are normative in shape; the mark table's six rows share one sentence fr
 | Prefix `?` on an expression | the mark-position row above — `?` never had a negation reading, so there is no redirect to give it |
 | A callable extern row written with `:` before its result, or any extern row written with the retired `pure`/`conduit` modifier | FFI Part 4 §13's redirects — the arrow that says what the old form said on a callable row, the colourless refusal before a row that declares nothing invocable; `->!` as the fixit for the colon (§6.1, #869) |
 | A `set` row, instance or static, with an arrow other than `->!` | "an extern `set` grants write capability, and a write to foreign state is an effect — its arrow is `->!`" + fixit `->!` (FFI Part 5 §4.1, #869) |
-| `->?` on a callable extern row whose parameters carry no `->?` | the inlet-less-signature row above, carrying FFI Part 4 §4.5's advice at an extern row: "write `->?` on the callback parameter this row runs, or write `->!`" (FFI Part 4 §13) |
+| `->?` on a callable extern row whose parameters carry no `->?` | the inlet-less-signature row above, carrying FFI Part 4 §4.5's advice at an extern callable row: "write `->?` on the callback parameter this row runs, or write `->!`" (FFI Part 4 §4.5) |
 
 ## 10. Display
 
