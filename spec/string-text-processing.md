@@ -177,7 +177,8 @@ expansion. This follows ICU's full-fold literal regex matching precedent.
 
 Consequently, blindly folding both complete inputs and invoking ordinary
 substring search is not a correct implementation. Locale-specific matching is
-outside this agreed family.
+outside this agreed family. `Regex`'s `i` flag uses *simple* case folding, not
+this family's full folding, and `regex.md` §3.4 records that one divergence.
 
 **Naming decision:** Initialisms are ordinary words regardless of length, so
 the suffix is `Ci`, as in `containsCi`, consistently with `JsMap` and
