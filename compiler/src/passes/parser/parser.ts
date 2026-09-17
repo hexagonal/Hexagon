@@ -2428,6 +2428,12 @@ class Parser {
       // what §13's rewrite replaces, and a row that wrote its own arrow (or
       // neither) has nothing there to replace.
       let colonSeat: Source.Span | undefined;
+      // What the row says at its arrow seat where it wrote no `:` — and the
+      // give-way answer has to be *true* of the row. A row that wrote no result
+      // separator at all, or whose `=>` was refused, writes no arrow to stand:
+      // it states none, so the words keep their own sentence while the
+      // missing-result or type-arrow report supplies the rest.
+      let statedArrow: "written" | "unstated" = "unstated";
       // **Every failure at this seat recovers as `->!`** — §4.5's "never a
       // silent claim in either direction". A row that did not validly write its
       // arrow has claimed nothing, and the impure constant is the only reading
@@ -2475,6 +2481,7 @@ class Parser {
       } else {
         arrowSpan = this.#current().span;
         effect = arrow === "pure" ? undefined : arrow;
+        statedArrow = "written";
         this.#advance();
       }
       // One typo, one report — the member header's rule (#867): a row that ended
@@ -2498,7 +2505,7 @@ class Parser {
       const redirect = this.#reportRetiredExternClaims(
         retired,
         missingParameterList ? "value" : "callable",
-        colonSeat === undefined ? "written" : { at: colonSeat },
+        colonSeat === undefined ? statedArrow : { at: colonSeat },
         hasInlet,
       );
       if (redirect !== undefined && !missingParameterList) {
@@ -2564,20 +2571,28 @@ class Parser {
         ? this.#writtenText(callableSeat, this.#previous().span)
         : undefined;
       let letColon: Source.Span | undefined;
-      if (this.#arrowAt() !== undefined) this.#advance();
-      else {
+      let letWritten: string | undefined;
+      if (this.#arrowAt() !== undefined) {
+        const token = this.#advance();
+        letWritten = this.#writtenText(token.span, token.span);
+      } else {
         if (this.#at("Colon")) letColon = this.#current().span;
         this.#expect("Colon", "extern values require a type annotation");
       }
       const annotation = this.#parseTypeAnnotation(true) ?? invalidType(localName);
-      // §4.5: this row spells the `fun`, and **the words supply its arrow** —
-      // `->` for `pure`, `->?` for `conduit` and the pair, `->!` where no `->?`
-      // parameter would link one, and `->!` where no word was written at all.
       const letInlet = writtenSignatureInlet(
         rowParameters.map((parameter) => parameter.annotation),
         annotation,
       );
-      const letArrow = !retired.some((claim) => claim.text === "conduit")
+      // §4.5 composes in order: **a written arrow stands** before the words
+      // supply one. So this row spells the `fun` and keeps whatever arrow its
+      // author already wrote; only where the author wrote `:` do the words
+      // supply it — `->` for `pure`, `->?` for `conduit` and the pair, `->!`
+      // where no `->?` parameter would link one, and `->!` where no word was
+      // written at all.
+      const letArrow = letColon === undefined
+        ? letWritten ?? "->!"
+        : !retired.some((claim) => claim.text === "conduit")
         ? (retired.length === 0 ? "->!" : "->")
         : letInlet
         ? "->?"

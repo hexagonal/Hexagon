@@ -1479,8 +1479,9 @@ export let t: String = trim("x")
     export let parse(text: String) ->
 `]]),
     ).toEqual([
+      // The author wrote the arrow; it stands, and only the result is missing.
       "extern callable declarations use `fun` and write their effect arrow; " +
-      "write `fun parse(text: String) ->! T`",
+      "write `fun parse(text: String) -> T`",
       "expected a type annotation",
     ]);
     expect(
@@ -1516,6 +1517,44 @@ export let t: String = trim("x")
       "callable — write `fun f(x: Int) -> Int`",
       "extern callable declarations use `fun`; a binding of type `(String, Int) ->! Bool` " +
       "is callable — write `fun g(x: String, y: Int) ->! Bool`",
+    ]);
+  });
+
+  it("keeps a `let`-with-parameters row's own arrow in the rewrite it quotes", () => {
+    // §4.5 composes in order here too: a written arrow stands before the words
+    // supply one, so this row's rewrite spells the `fun` and keeps the arrow its
+    // author already wrote. Only a row that wrote `:` has the words fill the
+    // seat — and a row with neither word nor arrow keeps §13's own `->!`.
+    const row = (text: string) =>
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
+    export ${text}
+`]]);
+    expect(row("pure let f(x: Int) ->! Int")).toEqual([
+      giveWay("pure"),
+      "extern callable declarations use `fun` and write their effect arrow; " +
+      "write `fun f(x: Int) ->! Int`",
+    ]);
+    expect(row("let f(x: Int) -> Int")).toEqual([
+      "extern callable declarations use `fun` and write their effect arrow; " +
+      "write `fun f(x: Int) -> Int`",
+    ]);
+    expect(row("let f(x: Int): Int")).toEqual([
+      "extern callable declarations use `fun` and write their effect arrow; " +
+      "write `fun f(x: Int) ->! Int`",
+    ]);
+  });
+
+  it("claims no written arrow on a row that wrote no result separator", () => {
+    // The give-way sentence has to be true of the row. A row that stopped at its
+    // parameter list states no arrow at all, so the word keeps its own sentence
+    // and the missing-result report supplies the rest.
+    expect(
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
+    export pure fun f(x: Int)
+`]]),
+    ).toEqual([
+      RETIRED_PURE,
+      "extern functions require an effect arrow and a result type; write `->! T` when in doubt",
     ]);
   });
 
