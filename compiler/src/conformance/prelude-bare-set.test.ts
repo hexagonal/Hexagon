@@ -893,6 +893,121 @@ describe("`toSeq` is reachable at every iterable", () => {
   });
 
   /**
+   * **One report, however the call is nested** (row 17). A refused call is a
+   * receiver in its own right, and the enclosing dot, finding nothing to
+   * dispatch on what the refusal left behind, used to hand the expression to the
+   * ordinary application path — which elaborates the callee again and says the
+   * same sentence twice. The array is pinned whole, so a second copy fails here.
+   */
+  test("a refused call that is itself a receiver reports once", () => {
+    expect(projectDiagnostics("module Main\n\n" + "export let n(r: Range): Int = Seq.length(r.toSeq().take(2))\n"))
+      .toEqual([
+        "`Range` has no companion module, so `r.toSeq()` has nothing to " +
+        "dispatch to; write `Iterable.toSeq(r)`.",
+      ]);
+  });
+
+  /**
+   * **The call as written, arguments included** *(#934)*. The message used to
+   * hardcode `()` after the name, printing a call form the reader had not
+   * written — `r.fold(0, Num.add)` was reported as `r.fold()`. Each argument is
+   * spelled from source now. `fold` is honored at no constraint here, so this is
+   * also the one-clause form with a non-empty argument list.
+   */
+  test("the call is spelled with its arguments", () => {
+    expect(projectDiagnostics("module Main\n\n" + "export let n(r: Range): Int = r.fold(0, Num.add)\n"))
+      .toEqual([
+        "`Range` has no companion module, so `r.fold(0, Num.add)` has nothing " +
+        "to dispatch to.",
+      ]);
+  });
+
+  /**
+   * An **argument** with no source spelling — one whose span crosses a line
+   * break — leaves the call unquotable whole. The report falls back to the
+   * receiver and the name, both of them text the reader wrote, rather than
+   * standing `…` in the argument seat: a call form nobody wrote is not the call
+   * as written (Modules §7.6).
+   */
+  test("an argument with no spelling drops the argument list, not into an ellipsis", () => {
+    expect(
+      projectDiagnostics(
+        "module Main\n\n" + [
+          "export let n(r: Range): Int =",
+          "    r.fold(0, (x,",
+          "        y) => x)",
+          "",
+        ].join("\n"),
+      ),
+    ).toEqual([
+      "`Range` has no companion module, so `r.fold` has nothing to dispatch to.",
+    ]);
+  });
+
+  /**
+   * A **receiver** with no source spelling has no call to quote and no subject
+   * to paste, so the sentence names the member after the dot and stops — no
+   * `….toSeq()` standing in for a spelling, and no `Iterable.toSeq(…)` offered
+   * as a rewrite that would not compile (Modules §7.6, row 17).
+   */
+  test("a receiver with no spelling names the member and stops", () => {
+    expect(
+      projectDiagnostics(
+        "module Main\n\n" + [
+          "export let n(a: Int, b: Int): Int =",
+          "    Seq.length((a",
+          "        .. b).toSeq())",
+          "",
+        ].join("\n"),
+      ),
+    ).toEqual([
+      "`Range` has no companion module, so `toSeq` after the dot has nothing " +
+      "to dispatch to.",
+    ]);
+  });
+
+  /**
+   * The dot binds tighter than `..`, so a range receiver is written
+   * parenthesized — and those parentheses are the dot spelling's, not the
+   * expression's. The verdict quotes the call as written, parentheses and all;
+   * the **offer** sheds them, because `Iterable.toSeq((1..3))` is nobody's text
+   * (row 17).
+   */
+  test("the offer sheds the receiver's outer parentheses", () => {
+    expect(projectDiagnostics("module Main\n\n" + "export let n(): Int = Seq.length((1..3).toSeq())\n"))
+      .toEqual([
+        "`Range` has no companion module, so `(1..3).toSeq()` has nothing to " +
+        "dispatch to; write `Iterable.toSeq(1..3)`.",
+      ]);
+  });
+
+  /**
+   * Row 17 reaches the receiver that becomes head-known **by the deadline
+   * fixpoint** (§3.1) as well as the one known at the dot: the goal re-fires
+   * through `#settleDotCallGoal`, which replays §3.4's table, and the refusal is
+   * in that table. `v`'s annotation below the dot is what settles it — the same
+   * shape `constraint-member-dispatch.test.ts` uses for §14(d).
+   */
+  test("a receiver that settles at the deadline meets the same refusal", () => {
+    expect(
+      projectDiagnostics(
+        "module Main\n\n" + [
+          "let measure(v) =",
+          "    let width = Seq.length(v.toSeq())",
+          "    let known: Range = v",
+          "    width",
+          "",
+          "export let counted: Int = measure(1..10)",
+          "",
+        ].join("\n"),
+      ),
+    ).toEqual([
+      "`Range` has no companion module, so `v.toSeq()` has nothing to " +
+      "dispatch to; write `Iterable.toSeq(v)`.",
+    ]);
+  });
+
+  /**
    * And the rescue the refusal displaced is **unchanged** where it is true
    * *(#934)*: a receiver whose type really was unknown where it was written
    * takes the row fallback (§3.5), and the contradiction surfaces at the use,
