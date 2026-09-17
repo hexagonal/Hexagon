@@ -2283,6 +2283,16 @@ class Checker {
     | "union"
     | "alias"
     | "no-signature" = "signature";
+  /**
+   * Whether the arrows being elaborated are an **extern row's** *(#869)*.
+   *
+   * §4.4's clause is unchanged at the boundary — an extern callable row is one
+   * of the inlet-less signatures §2.2.1 names — and what this selects is the
+   * extra sentence FFI Part 4 §4.5 promises such a row: the repair in words,
+   * since the row has no body to point into. Set around a row's own
+   * elaboration, foreign and intrinsic alike, and clear everywhere else.
+   */
+  #atExternRow = false;
   /** Arrow spans §4.4 has already condemned, keyed `fileId:start`. */
   readonly #reportedLinkedArrows = new Set<string>();
   /**
@@ -4022,6 +4032,8 @@ class Checker {
             0,
             declaration.span,
           );
+          const enclosingExternRow = this.#atExternRow;
+          this.#atExternRow = true;
           const intrinsicFace = this.#signatureFace;
           const parameters = declaration.parameters.map((parameter) => {
             const type = parameter.annotation === undefined
@@ -4045,6 +4057,7 @@ class Checker {
             declaration.effect,
             declaration.arrowSpan,
           );
+          this.#atExternRow = enclosingExternRow;
           this.#closeSignature(enclosingIntrinsicSignature);
           this.#schemes.set(declaration.binding.symbol, {
             variables: [
@@ -4093,6 +4106,8 @@ class Checker {
           0,
           declaration.span,
         );
+        const enclosingExternRow = this.#atExternRow;
+        this.#atExternRow = true;
         const externFace = this.#signatureFace;
         const parameters = declaration.parameters.map((parameter) => {
           const type = parameter.annotation === undefined
@@ -4122,6 +4137,7 @@ class Checker {
         // inlet-less refusal, reported at the arrow by `#writtenEffect` and
         // recovered as the constant, never quietly re-read.
         const externEffect = this.#writtenEffect(declaration.effect, declaration.arrowSpan);
+        this.#atExternRow = enclosingExternRow;
         this.#closeSignature(enclosingSignature);
         this.#schemes.set(declaration.binding.symbol, {
           variables: externLinked && externFace !== undefined ? [externFace.effect] : [],
@@ -13759,7 +13775,17 @@ class Checker {
       message:
         "`->?` is the caller's colour, and this position has no caller to choose it — " +
         because +
-        "; write `->!` for a function that pulls the world, or `->` for one that does not",
+        "; write `->!` for a function that pulls the world, or `->` for one that does not" +
+        // *(#869.)* FFI Part 4 §4.5 owes an extern row the advice in words
+        // besides: a boundary row has no body, so the repair is a *declaration*
+        // the author writes rather than an arrow the checker can point at, and
+        // which of the two it is — mark the callback this row runs, or give up
+        // the dependency — is the design conversation the report exists to
+        // start. Effects §4.4's clause and its fixit stand unchanged in front
+        // of it; this sentence is what the boundary adds.
+        (this.#atExternRow
+          ? " — write `->?` on the callback parameter this row runs, or write `->!`"
+          : ""),
       primary: arrowSpan,
       fixes: [{
         message: "write `->!`",
@@ -23082,6 +23108,17 @@ class Checker {
               span: declaration.span,
             };
           }
+          // *(#869.)* The published result is **read off the scheme**
+          // `#registerDeclarations` built, never re-elaborated here. That
+          // method opened the row's signature scope and closed it, so a `->?`
+          // the *result* annotation writes — §4.5's own `defer` specimen,
+          // `defer(action: () ->? Unit) -> (() ->? Unit)` — would take §4.4's
+          // orphan branch at this seat and publish the recovered constant in
+          // place of the signature's variable, behind a refusal of an arrow the
+          // row is entitled to write. The parameters are already published from
+          // their registered schemes for the same reason; the result is the one
+          // type in the row that no symbol of its own hands back.
+          const registered = this.#scheme(declaration.binding.symbol).type;
           return {
             kind: "ExternFun",
             exported: declaration.exported,
@@ -23093,12 +23130,19 @@ class Checker {
               ...parameter,
               scheme: this.#publicScheme(this.#scheme(parameter.symbol)),
             })),
-            result: this.#publicType(this.#annotationType(
-              declaration.returnAnnotation,
-              0,
-              new Map(),
-              this.#intrinsicTypeParameters.get(declaration) ?? new Map(),
-            )),
+            result: this.#publicType(
+              registered.kind === "Function"
+                // A row whose registration never built a function type keeps
+                // the old reading: there is no scope to have lost, and the
+                // annotation is all there is.
+                ? registered.result
+                : this.#annotationType(
+                  declaration.returnAnnotation,
+                  0,
+                  new Map(),
+                  this.#intrinsicTypeParameters.get(declaration) ?? new Map(),
+                ),
+            ),
             span: declaration.span,
           };
         }),

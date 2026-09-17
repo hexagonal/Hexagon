@@ -155,10 +155,12 @@ describe("parse", () => {
         "write `fun parse(text: String) ->! String`",
     );
     expect(messages).toContain(
-      "extern `fun` declares a callable and requires a parameter list; for a foreign value, write `let version: Type`",
+      "extern `fun` declares a callable and requires a parameter list; for a " +
+        "foreign value, write `let version: String`",
     );
     expect(messages).toContain(
-      "extern callable declarations use `fun`; write `fun callback(...)` with explicit parameters",
+      "extern callable declarations use `fun`; a binding of type `String -> String` " +
+        "is callable — write `fun callback(x: String) -> String`",
     );
     expect(messages).toContain(
       "`as` aliases a foreign export name; a `default` binding has none — name the binding directly",

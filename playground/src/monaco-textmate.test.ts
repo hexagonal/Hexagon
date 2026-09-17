@@ -180,8 +180,8 @@ describe("a type context never outlives what encloses it", () => {
       'extern from "web-response"',
       "    export type Response",
       "",
-      "    export get status(response: Response): Int",
-      "    export get headers(response: Response): Headers",
+      "    export get status(response: Response) ->! Int",
+      "    export get headers(response: Response) ->! Headers",
     ].join("\n");
     expect(await allTokensFor(source, "export")).toEqual([
       "keyword.control.import.hexagon",

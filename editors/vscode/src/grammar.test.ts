@@ -279,9 +279,9 @@ describe("contextual keywords are positional (spec/lexer.md §4.2)", () => {
     const source = [
       'extern from "url-tools"',
       "    export type SearchParams",
-      "    export method get(params: SearchParams, key: String): Nullable(String)",
-      "    export get status(response: Response): Int",
-      "    export static new(value: Int): SearchParams",
+      "    export method get(params: SearchParams, key: String) ->! Nullable(String)",
+      "    export get status(response: Response) ->! Int",
+      "    export static new(value: Int) ->! SearchParams",
       "    enum Direction = Up | Down",
       "let after = get(1)",
     ].join("\n");
@@ -440,7 +440,7 @@ describe("declarations name what they declare", () => {
     // FFI Part 5 §2.4: a foreign member name that breaks Hexagon naming is legal
     // precisely because it is aliased, so the #154 guard must not reach this slot.
     const pairs = await scopePairs(
-      ['extern from "list-ops"', "    export method for as forEach(xs: T): Unit"].join("\n"),
+      ['extern from "list-ops"', "    export method for as forEach(xs: T) ->! Unit"].join("\n"),
     );
     expect(pairs.find(([text]) => text === "for")?.[1]).toBe("entity.name.function.hexagon");
   });
