@@ -49,8 +49,9 @@ const PROGRAM = "export let asArray(v: JsValue): Result(Array(JsValue), JsConver
   "    catch\n" +
   "        JsError(e) => e\n" +
   "\n" +
-  "// The borrow, held as a value: these take the view itself, so a test can\n" +
-  "// keep one across a foreign mutation and ask it again.\n" +
+  "// The captured array, held as a value: these take it itself, so a test can\n" +
+  "// keep one and ask it again (FFI Part 2 section 6.2; the capture lowering\n" +
+  "// is issue 945).\n" +
   "export let borrowedLength(xs: Array(JsValue)): Int = Array.length(xs)\n" +
   "\n" +
   "export let elementAsInt(xs: Array(JsValue), index: Int): Result(Int, JsConversionError) =\n" +

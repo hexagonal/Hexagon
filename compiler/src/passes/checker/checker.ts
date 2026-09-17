@@ -4077,16 +4077,28 @@ class Checker {
         }
         if (declaration.kind === "ExternLet") {
           // An extern `let` is a value reference, and a value reference carries
-          // no colour (FFI Part 4 §4.5 — the same sentence that refuses `pure`
+          // no colour (FFI Part 4 §4.5 — the same sentence that retires `pure`
           // here). So it is not a signature, and a `->?` written in its
           // annotation takes §4.4's no-signature clause rather than being told
           // that a signature it does not have has no inlet (§2.2.2).
+          //
+          // **Except where the annotation is itself a function type**, which is
+          // not this row at all: FFI Part 4 §13's callable-intended row has
+          // already said so, and its rewrite — the `fun` the binding should have
+          // been — is the whole repair (Effects §9). A second report about the
+          // arrow inside a type that is not going to stay would be a complaint
+          // about the wrong row.
+          const callableIntended = declaration.annotation.kind === "Function";
+          const enclosingSuppression = this.#suppressLinkedArrowReports;
+          if (callableIntended) this.#suppressLinkedArrowReports = true;
+          const externLetType = this.#inPosition(
+            "no-signature",
+            () => this.#annotationType(declaration.annotation),
+          );
+          this.#suppressLinkedArrowReports = enclosingSuppression;
           this.#schemes.set(declaration.binding.symbol, {
             variables: [],
-            type: this.#inPosition(
-              "no-signature",
-              () => this.#annotationType(declaration.annotation),
-            ),
+            type: externLetType,
           });
           continue;
         }
@@ -23097,6 +23109,21 @@ class Checker {
             scheme: this.#publicScheme(this.#scheme(declaration.binding.symbol)),
           };
           if (declaration.kind === "ExternLet") {
+            // The registration arm's two brackets, kept here too: publication
+            // re-elaborates the same annotation, so without them a `->?` inside
+            // one is reported a second time — and reported under the *default*
+            // position, which would name a signature this row does not have.
+            // A function-typed annotation is suppressed outright: §13's
+            // callable-intended row is that row's whole report (Effects §9).
+            const enclosingSuppression = this.#suppressLinkedArrowReports;
+            if (declaration.annotation.kind === "Function") {
+              this.#suppressLinkedArrowReports = true;
+            }
+            const type = this.#publicType(this.#inPosition(
+              "no-signature",
+              () => this.#annotationType(declaration.annotation),
+            ));
+            this.#suppressLinkedArrowReports = enclosingSuppression;
             return {
               kind: "ExternLet",
               exported: declaration.exported,
@@ -23104,7 +23131,7 @@ class Checker {
               ...(declaration.foreignName === undefined ? {} : { foreignName: declaration.foreignName }),
               localName: declaration.localName,
               binding,
-              type: this.#publicType(this.#annotationType(declaration.annotation)),
+              type,
               span: declaration.span,
             };
           }
