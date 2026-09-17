@@ -19316,12 +19316,16 @@ class Checker {
    * — Constraints §5.4/§9.3 refuse a structural instance head outright — so the
    * bare message is the only true report, and every branch above must fall back:
    * that is why `#legalHomesClause` asks this question before it splits. For an
-   * *extern type* a home does exist, the file holding its `extern` block; it
-   * leaves here only because `Resolved.ExternTypeDeclaration` carries no
-   * `declaringPath` to name it with, which makes the fallback merely
-   * conservative — never wrong, only less. Whoever gives extern types a
-   * `declaringPath` should return a home for them here and must not let the
-   * structural case ride out on the same predicate.
+   * *extern type* a home does exist, the file holding its `extern` block, and
+   * the fallback is merely conservative — never wrong, only less. **The reason
+   * this paragraph used to give is stale** (#927): it read "it leaves here only
+   * because `Resolved.ExternTypeDeclaration` carries no `declaringPath` to name
+   * it with", and that declaration has carried one since extern types joined
+   * the expected-type doors. What is owed is the arm that returns it, and it is
+   * not the one-line change the old sentence implied — a **confined** row (§3.3,
+   * #927) is a different case from a foreign one, a type no program can address
+   * being no home to offer anybody. Whoever writes that arm must split the two,
+   * and must not let the structural case ride out on the same predicate.
    */
   #subjectHome(type: Mono): LegalHome | undefined {
     if (type.kind === "Constructor") {
