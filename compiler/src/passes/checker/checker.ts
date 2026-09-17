@@ -2175,8 +2175,8 @@ function moduleAlias(constraint: string): string {
 }
 
 /**
- * A written receiver with its **outer parentheses shed** (Method Syntax §9 row
- * 17, #934).
+ * The receiver node an offer should **spell**, with the parentheses that are
+ * the dot's own grouping shed (Method Syntax §9 row 17, #934).
  *
  * The dot binds tighter than the operators, so a receiver that is an operation
  * is written parenthesized — `(1..3).toSeq()` — and the parentheses belong to
@@ -2184,28 +2184,28 @@ function moduleAlias(constraint: string): string {
  * `Iterable.toSeq((1..3))`, which compiles but is nobody's text; the rewrite the
  * reader pastes is `Iterable.toSeq(1..3)`.
  *
- * Only a group that wraps the **whole** spelling is shed, and only when it holds
- * no comma of its own: `(a) + (b)` is not a wrapped group, and `(a, b)` is a
- * tuple whose parentheses are the value. Both are left alone — shedding is a
- * cosmetic improvement to a rewrite, never a change to what it means.
+ * The question is answered from the **tree**, never from the text. A `Group` is
+ * the one node whose parentheses are nothing but grouping — the parser mints it
+ * for exactly that, and folds every other pair into the form it delimits: `(a,
+ * b)` is a `Tuple`, `()` is `Unit`, `(x)p` is a `PatternConstruction`, and
+ * `(r: Range)` is an `Ascription` whose span already includes the parentheses
+ * because "the group parentheses *are* the ascription's delimiters"
+ * (`#parseParenthesized`, Ascription §2.1). So descending through `Group` sheds
+ * the grouping and nothing else, and `(r: Range).toSeq()` offers
+ * `Iterable.toSeq((r: Range))` — the spelling row 16 gives every ascription
+ * fixit, and the only one that parses in an argument seat.
+ *
+ * Whitelisting `Group` rather than excluding `Ascription` is the robust half of
+ * the choice: a node kind added later keeps its own spelling by default, and a
+ * text scan cannot be fooled into shedding a pair that carried meaning. A
+ * `Group`'s inner expression can hold no top-level comma either — that spelling
+ * would have parsed as a `Tuple` — so the shed spelling is self-delimiting in
+ * the argument seat it is pasted into.
  */
-function unparenthesized(spelling: string): string {
-  let text = spelling.trim();
-  for (; text.startsWith("(") && text.endsWith(")");) {
-    let depth = 0;
-    let wraps = true;
-    for (let index = 0; index < text.length && wraps; index += 1) {
-      const character = text[index];
-      if (character === "(") depth += 1;
-      else if (character === ")") {
-        depth -= 1;
-        if (depth === 0 && index < text.length - 1) wraps = false;
-      } else if (character === "," && depth === 1) wraps = false;
-    }
-    if (!wraps || depth !== 0) break;
-    text = text.slice(1, -1).trim();
-  }
-  return text;
+function ungrouped(receiver: Resolved.Expr): Resolved.Expr {
+  let node = receiver;
+  for (; node.kind === "Group";) node = node.expression;
+  return node;
 }
 
 function constraintMemberCandidates(
@@ -5268,8 +5268,10 @@ class Checker {
    * message. The second offers the route the name *does* have: a subject-first
    * member honored at the type is reachable through its declaring constraint
    * (`Iterable.toSeq(r)` at a `Range` — Method Syntax §3.4's Primitive row,
-   * #932), and that spelling is the one #932 left standing, with the receiver's
-   * outer parentheses shed so `(1..3).toSeq()` offers `Iterable.toSeq(1..3)`.
+   * #932), and that spelling is the one #932 left standing, with the dot's own
+   * grouping shed so `(1..3).toSeq()` offers `Iterable.toSeq(1..3)`. Only the
+   * grouping: `(r: Range).toSeq()` offers `Iterable.toSeq((r: Range))`, because
+   * an ascription's parentheses are the ascription (`ungrouped`).
    *
    * Four cases take the first clause alone, and Modules §7.6 is the reason for
    * three of them — a fixit the reader cannot paste is worse than none:
@@ -5318,11 +5320,16 @@ class Checker {
       : `${receiver}.${name}`;
     const member = (this.#honoredMembers(actual).get(name) ?? [])
       .find(({ subjectFirst }) => subjectFirst);
+    // The subject the offer pastes, spelled off the receiver with the dot's own
+    // grouping descended through — never off the quoted text, which cannot tell
+    // `(1..3)`'s parentheses from `(r: Range)`'s (`ungrouped`). The verdict above
+    // keeps the call exactly as written, parentheses and all.
+    const subject = this.#spelledExpression(ungrouped(callee.receiver)) ?? receiver;
     return `${verdict}\`${call}\` has nothing to dispatch to` +
       (member === undefined || member.parameterCount !== 1 ||
           argumentExpressions.length > 0
         ? "."
-        : `; write ${this.#memberSpelling(member, unparenthesized(receiver))}.`);
+        : `; write ${this.#memberSpelling(member, subject)}.`);
   }
 
   /** §3.4's declared-type-variable row: the bounds, and nothing else. */
@@ -8463,6 +8470,17 @@ class Checker {
             // repeats the sentence `#dispatchDotCall` already said once. Marking
             // the enclosing call makes the gate reach the whole chain: one
             // refusal, however deep the nesting (Method Syntax §9 row 17).
+            //
+            // The mark stops **cascade** reports as well as duplicate ones, and
+            // that reach is deliberate. A sibling operand unifying with the
+            // abandoned chain no longer reports either: `r.toSeq().take(2)
+            // .length() + "x"` says the `toSeq` refusal and stops, where the
+            // unmarked `Error` also drew "an operand of type `String` cannot
+            // enter `Int`" and `String`'s missing `Num` instance — two verdicts
+            // about an addition whose left operand the reader has just been told
+            // to rewrite, and neither survives the rewrite. §9 row 17's "no
+            // second report about the call follows, however the call is nested"
+            // is the rule this answers to.
             this.#refusedReceivers.add(expression);
             type = ERROR;
             break;

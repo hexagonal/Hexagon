@@ -982,6 +982,27 @@ describe("`toSeq` is reachable at every iterable", () => {
   });
 
   /**
+   * And it sheds **only** grouping. An ascription's parentheses are the
+   * ascription — the parser folds them into the node rather than wrapping it in
+   * a `Group` (`#parseParenthesized`, Ascription §2.1) — so `(r: Range)` shed to
+   * `r: Range` gives `Iterable.toSeq(r: Range)`, which does not parse in an
+   * argument seat. The offer keeps them, as row 16 spells every ascription
+   * fixit, and the question is answered from the node's kind rather than from
+   * the quoted text, which cannot tell the two pairs apart (`ungrouped`).
+   */
+  test("the offer keeps an ascription's parentheses, which are not grouping", () => {
+    expect(
+      projectDiagnostics(
+        "module Main\n\n" +
+          "export let n(r: Range): Int = Seq.length((r: Range).toSeq())\n",
+      ),
+    ).toEqual([
+      "`Range` has no companion module, so `(r: Range).toSeq()` has nothing to " +
+      "dispatch to; write `Iterable.toSeq((r: Range))`.",
+    ]);
+  });
+
+  /**
    * Row 17 reaches the receiver that becomes head-known **by the deadline
    * fixpoint** (§3.1) as well as the one known at the dot: the goal re-fires
    * through `#settleDotCallGoal`, which replays §3.4's table, and the refusal is
@@ -1039,13 +1060,22 @@ describe("`toSeq` is reachable at every iterable", () => {
   });
 
   /**
-   * The **arity gate** is reachable, contrary to what round 2 recorded. A
-   * `honor` whose head is `Range` is refused as a head — Instances' "a primitive
-   * or nominal type constructor" — but its members are registered at the type
-   * all the same, so `#honoredMembers` answers `twirl` and the refusal has a
-   * subject-first member to consider. `twirl` takes two parameters, and
+   * The **arity gate** is reachable, and this is the whole of how: **recovery
+   * after a refused instance head**. A `honor` whose head is `Range` is refused
+   * as a head — Instances' "a primitive or nominal type constructor" — but the
+   * checker carries on past that refusal and registers its members at the type
+   * all the same, so `#honoredMembers` answers `twirl` and the dot's refusal has
+   * a subject-first member to consider. `twirl` takes two parameters, and
    * `#memberSpelling` fills the subject seat and no other, so `twirl(r)` would
    * be an offer at the wrong arity (Modules §7.6). Nothing is offered.
+   *
+   * So the gate's reachability is exactly that: **a program already refused at
+   * the instance head**, which is why the pin expects two messages and the head
+   * refusal comes first. No program the compiler accepts reaches it — a `Range`
+   * head is not honorable, and no other route puts a many-parameter member at a
+   * companionless type. The gate still earns its line: what it guards is an
+   * offer that would not compile if pasted, in a report the reader is reading
+   * precisely because their program is already broken.
    *
    * Written with no argument on purpose: this is the case the **arity** gate
    * alone suppresses, the written-argument gate above having nothing to catch.
@@ -1070,7 +1100,11 @@ describe("`toSeq` is reachable at every iterable", () => {
     ]);
   });
 
-  /** The same member with its argument written: both gates hold, one verdict. */
+  /**
+   * The same member with its argument written: both gates hold, one verdict.
+   * Reached the same way and only that way — recovery after the refused
+   * instance head, which is again the first message pinned.
+   */
   test("the arity gate holds with the arguments written too", () => {
     expect(
       projectDiagnostics(
@@ -1092,29 +1126,40 @@ describe("`toSeq` is reachable at every iterable", () => {
   });
 
   /**
-   * The one-parameter sibling, reached the same way, takes the offer — and takes
-   * it **bare**: `Spin` is declared in this module, and a module cannot name
-   * itself (Method Syntax §16.2), so `Spin.spin(r)` is not a rewrite a reader of
-   * `main.hex` could paste. `#memberSpelling`'s local branch, pinned at last.
+   * The one-parameter sibling, reached the same way — recovery after a refused
+   * instance head — takes the offer, and takes it **bare**: `Whirl` is declared
+   * in this module, and a module cannot name itself (Method Syntax §16.2), so
+   * `Whirl.whirl(r)` is not a rewrite a reader of `main.hex` could paste.
+   *
+   * `#memberSpelling`'s local branch is not new here: `constraint-member-
+   * dispatch.test.ts`'s "a refusal inside the declaring module spells its own
+   * claimant bare" already pins it under §4.6's **ambiguity** refusal. This is
+   * its first pin under *this* refusal — the same branch reached by the
+   * companionless-head route, where the bare spelling is the whole offer rather
+   * than one of two.
+   *
+   * The name is `whirl`, not `spin`, on purpose: row 17 and
+   * `#noCompanionToDispatchTo`'s doc both use `r.spin()` as the name **no**
+   * member answers, and the pin above keeps it that way.
    */
   test("a local constraint's member is offered under its bare spelling", () => {
     expect(
       projectDiagnostics(
         "module Main\n\n" + [
-          "constraint Spin<a> =",
-          "    spin(self: a) -> Int",
+          "constraint Whirl<a> =",
+          "    whirl(self: a) -> Int",
           "",
-          "honor Spin<Range> =",
-          "    spin(self) = 1",
+          "honor Whirl<Range> =",
+          "    whirl(self) = 1",
           "",
-          "export let n(r: Range): Int = r.spin()",
+          "export let n(r: Range): Int = r.whirl()",
           "",
         ].join("\n"),
       ),
     ).toEqual([
       "an instance head must name a primitive or nominal type constructor",
-      "`Range` has no companion module, so `r.spin()` has nothing to dispatch " +
-      "to; write `spin(r)`.",
+      "`Range` has no companion module, so `r.whirl()` has nothing to dispatch " +
+      "to; write `whirl(r)`.",
     ]);
   });
 
