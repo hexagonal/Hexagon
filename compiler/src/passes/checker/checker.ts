@@ -2022,6 +2022,15 @@ interface MemberCandidate {
   readonly member: string;
   readonly symbol: Resolved.SymbolId;
   readonly subjectFirst: boolean;
+  /**
+   * How many parameters the member declares, subject seat included *(#934)*.
+   *
+   * The one reader is the offer a refusal prints. `#memberSpelling` fills the
+   * subject seat and nothing else, so a member of more than one parameter would
+   * be spelled at the wrong arity — and Modules §7.6 has a fixit the reader
+   * cannot paste being worse than none.
+   */
+  readonly parameterCount: number;
 }
 
 /**
@@ -2165,6 +2174,43 @@ function moduleAlias(constraint: string): string {
   return dot === -1 ? constraint : constraint.slice(0, dot);
 }
 
+/**
+ * The receiver node an offer should **spell**, with the parentheses that are
+ * the dot's own grouping shed (Method Syntax §9 row 17, #934).
+ *
+ * The dot binds tighter than the operators, so a receiver that is an operation
+ * is written parenthesized — `(1..3).toSeq()` — and the parentheses belong to
+ * the dot spelling, not to the expression. Carrying them into the offer gives
+ * `Iterable.toSeq((1..3))`, which compiles but is nobody's text; the rewrite the
+ * reader pastes is `Iterable.toSeq(1..3)`.
+ *
+ * The question is answered from the **tree**, never from the text. A `Group` is
+ * the one node whose parentheses are nothing but grouping — the parser mints it
+ * for exactly that, and folds every other pair into the form it delimits: `(a,
+ * b)` is a `Tuple`, `()` is `Unit`, `(x)p` is a `PatternConstruction`, and
+ * `(r: Range)` is an `Ascription` whose span already includes the parentheses
+ * because "the group parentheses *are* the ascription's delimiters"
+ * (`#parseParenthesized`, Ascription §2.1). So descending through `Group` sheds
+ * the grouping and nothing else, and `(r: Range).toSeq()` offers
+ * `Iterable.toSeq((r: Range))` — the spelling row 16 gives every ascription
+ * fixit, and the only one that parses in an argument seat. A doubled pair rides
+ * in whole for the same reason: the parser folds the outer parentheses into the
+ * ascription's span too, so `((r: Range)).toSeq()` meets no `Group` and offers
+ * `Iterable.toSeq(((r: Range)))`, which compiles (measured).
+ *
+ * Whitelisting `Group` rather than excluding `Ascription` is the robust half of
+ * the choice: a node kind added later keeps its own spelling by default, and a
+ * text scan cannot be fooled into shedding a pair that carried meaning. A
+ * `Group`'s inner expression can hold no top-level comma either — that spelling
+ * would have parsed as a `Tuple` — so the shed spelling is self-delimiting in
+ * the argument seat it is pasted into.
+ */
+function ungrouped(receiver: Resolved.Expr): Resolved.Expr {
+  let node = receiver;
+  for (; node.kind === "Group";) node = node.expression;
+  return node;
+}
+
 function constraintMemberCandidates(
   declaration: Resolved.ConstraintItem,
 ): readonly MemberCandidate[] {
@@ -2176,6 +2222,7 @@ function constraintMemberCandidates(
       member: member.binding.name,
       symbol: member.binding.symbol,
       subjectFirst: first?.kind === "TypeVariable" && first.name === declaration.subject,
+      parameterCount: member.parameters.length,
     };
   });
 }
@@ -2474,9 +2521,18 @@ class Checker {
     readonly callee: Resolved.AccessExpr;
   } | undefined;
   /**
-   * Receivers whose own elaboration has already refused under a forwarded face
-   * *(#821)*. The dot then abandons the call rather than dispatching on a type
-   * the disagreement left behind — one refusal is the whole verdict.
+   * Expressions whose own elaboration has **already refused**, and which an
+   * enclosing dot must therefore abandon rather than dispatch on the type the
+   * refusal left behind — one refusal is the whole verdict.
+   *
+   * Three sources, one rule. A receiver that refused under a forwarded face
+   * *(#821)*; a dot call refused at §5's ineligible head *(#934)*, whose row 17
+   * says no second report about the call follows however it is nested; and
+   * *(#934)* the enclosing call this set itself made the checker abandon, so
+   * that the abandonment propagates outward instead of suppressing one level.
+   * Without them the enclosing dot falls through to the ordinary application
+   * path, which re-elaborates the callee and repeats the sentence — once per
+   * level of nesting.
    */
   readonly #refusedReceivers = new WeakSet<Resolved.Expr>();
   /**
@@ -4576,6 +4632,35 @@ class Checker {
     // row): they have no fields and no companion module, so the wired instances
     // are their whole dot surface — `42n.show()` is `Show`'s member at `BigInt`.
     const primitive_ = actual.kind === "Constructor";
+    // §5's ineligible row, said **here** rather than left to the fallback
+    // *(#934)*. `Range` is head-known and has no companion module (§3.4's
+    // Primitive row as #932 amended it: `CompanionOf(Range)` is undefined and
+    // §4.2's member clause does not fire at it either), so "no dot fires on it"
+    // — and a refusal at the dot is the only place that can say so truthfully.
+    // Falling through left the receiver to the row fallback, which imposed
+    // `{toSeq: …}` on a type the reader had *written*, and the post-finalisation
+    // rescue (§3.6) then told them their type "was unknown where it was
+    // written". §3.1 has the head-known receiver resolved before the arguments
+    // elaborate, so the information the true message needs is all here.
+    if (actual.kind === "Range") {
+      // Abandoning the call does not excuse the arguments — `#dotCallArguments`
+      // says why.
+      this.#dotCallArguments(expression, level, cachedArguments);
+      // "No second report about the call follows, however the call is nested"
+      // (row 17). A refused call is itself a receiver in a chain —
+      // `r.toSeq().take(2)` — and the enclosing dot, finding no dispatch for the
+      // `Error` this leaves behind, hands the expression to the ordinary
+      // application path, which elaborates the callee **again** and says the
+      // same sentence twice. Marking the call refused is the gate that path
+      // already consults (`#inferExpr`'s `Call` arm), written for #821's face
+      // refusals and true of this one for the same reason: one refusal is the
+      // whole verdict.
+      this.#refusedReceivers.add(expression);
+      return this.#unsupported(
+        callee.field.span,
+        this.#noCompanionToDispatchTo(actual, name, callee, expression.arguments),
+      );
+    }
     if (!nominal && !primitive_) return undefined;
     const { field, operation, scheme, unreachable, claimed, members } = this
       .#dotClaimants(actual, name, callee, expression.arguments);
@@ -5131,14 +5216,26 @@ class Checker {
    * A module cannot name itself (Method Syntax §16.2), so `Loud.volume(x)` is
    * not a rewrite a reader of `loud.hex` can take. Inside the declaring module
    * the bare spelling is the member's own, and it is the one that resolves.
+   *
+   * `argument` is what stands in the subject seat. Every caller but one leaves
+   * it at `…`, naming the spelling rather than a call; #934's refusal passes the
+   * receiver as the reader wrote it, because there the offer is a rewrite —
+   * `Iterable.toSeq(r)`, ready to paste.
+   *
+   * The subject seat is the **only** seat this fills, and there is no rule that
+   * would let it fill another: a member's remaining parameters have no spelling
+   * here, and `…` in their place is Modules §7.6's unpasteable fixit. So the
+   * caller that spells a rewrite asks first whether the member takes the subject
+   * alone (`MemberCandidate.parameterCount`), and offers nothing where it does
+   * not — nor where the call wrote arguments of its own.
    */
-  #memberSpelling(candidate: MemberCandidate): string {
+  #memberSpelling(candidate: MemberCandidate, argument = "…"): string {
     const local = [...this.#localConstraints.values()].some(
       (declaration) => declaration.identity === candidate.identity,
     );
     return local
-      ? `\`${candidate.member}(…)\``
-      : `\`${candidate.constraint}.${candidate.member}(…)\``;
+      ? `\`${candidate.member}(${argument})\``
+      : `\`${candidate.constraint}.${candidate.member}(${argument})\``;
   }
 
   /**
@@ -5161,6 +5258,87 @@ class Checker {
         ? "; call an available subject-first function explicitly"
         : `; \`${nearMiss.constraint}\`'s member \`${name}\` does not take its ` +
           `constraint's subject first — call it as \`${name}(…)\``);
+  }
+
+  /**
+   * §5's ineligible head-known receiver *(#934)*: a type the dot reaches with
+   * its head already known and no companion module to dispatch into.
+   *
+   * Two clauses, and the second only when there is something to say. The first
+   * is the whole verdict — the head is known, it has no companion, so the dot
+   * has no target — and it names **the call as the reader wrote it**, receiver
+   * and arguments (`r.fold(0, add)`), never a call form invented for the
+   * message. The second offers the route the name *does* have: a subject-first
+   * member honored at the type is reachable through its declaring constraint
+   * (`Iterable.toSeq(r)` at a `Range` — Method Syntax §3.4's Primitive row,
+   * #932), and that spelling is the one #932 left standing, with the dot's own
+   * grouping shed so `(1..3).toSeq()` offers `Iterable.toSeq(1..3)`. Only the
+   * grouping: `(r: Range).toSeq()` offers `Iterable.toSeq((r: Range))`, because
+   * an ascription's parentheses are the ascription (`ungrouped`).
+   *
+   * Four cases take the first clause alone, and Modules §7.6 is the reason for
+   * three of them — a fixit the reader cannot paste is worse than none:
+   *
+   * 1. **No member answers the name** (`r.spin()`): there is no route, and
+   *    inventing one would be worse than the silence.
+   * 2. **The member takes more than the subject** — its other seats have no
+   *    spelling here, and `…` in them is not a rewrite (`#memberSpelling`). A
+   *    `honor Twirl<Range>` registers its members though the head itself is
+   *    refused, so `r.twirl()` reaches this and is offered no `twirl(r)`.
+   * 3. **The call wrote arguments of its own** — row 17 offers the rewrite "only
+   *    where the member takes the subject alone *and the call wrote no other
+   *    argument*". `r.toSeq(1, 2)` is arity-wrong however it is spelled, and
+   *    `Iterable.toSeq(r)` would be a fixit that silently deletes the reader's
+   *    `1, 2`. The verdict still quotes their call whole; nothing is offered.
+   * 4. **The receiver has no source spelling** — a span crossing a line break,
+   *    or a compilation with no text at all. There is then no call to quote and
+   *    no subject to paste, so the sentence names the member after the dot and
+   *    stops. No ellipsis stands in for either: `….toSeq()` reads as a spelling
+   *    and is none, and `Iterable.toSeq(…)` is a rewrite that will not compile.
+   */
+  #noCompanionToDispatchTo(
+    actual: Mono,
+    name: string,
+    callee: Resolved.AccessExpr,
+    argumentExpressions: readonly Resolved.Expr[],
+  ): string {
+    const verdict = `\`${this.#display(actual)}\` has no companion module, so `;
+    // The reader's own text where this compilation has it, and the bare receiver
+    // name where it has none — a `check` with no source still spells a name.
+    const receiver = this.#spelledExpression(callee.receiver) ??
+      (callee.receiver.kind === "Name" ? callee.receiver.text : undefined);
+    if (receiver === undefined) {
+      return `${verdict}\`${name}\` after the dot has nothing to dispatch to.`;
+    }
+    // The arguments as written, or nothing. Where one of them has no spelling
+    // the call cannot be quoted whole, and quoting it with `…` in that seat
+    // would print a call form the reader did not write — so the message falls
+    // back to the receiver and the name, which is text they *did* write
+    // (`r.toSeq`), and says only that it has nothing to dispatch to.
+    const spelledArguments = argumentExpressions.map(
+      (argument) => this.#spelledExpression(argument),
+    );
+    const call = spelledArguments.every((argument) => argument !== undefined)
+      ? `${receiver}.${name}(${spelledArguments.join(", ")})`
+      : `${receiver}.${name}`;
+    const verdictAndCall = `${verdict}\`${call}\` has nothing to dispatch to`;
+    const member = (this.#honoredMembers(actual).get(name) ?? [])
+      .find(({ subjectFirst }) => subjectFirst);
+    // No member of the name, a member that wants more than the subject, or a
+    // call that wrote arguments of its own: the report stops at the verdict, and
+    // there is no subject to spell.
+    if (
+      member === undefined || member.parameterCount !== 1 ||
+      argumentExpressions.length > 0
+    ) {
+      return `${verdictAndCall}.`;
+    }
+    // The subject the offer pastes, spelled off the receiver with the dot's own
+    // grouping descended through — never off the quoted text, which cannot tell
+    // `(1..3)`'s parentheses from `(r: Range)`'s (`ungrouped`). The verdict above
+    // keeps the call exactly as written, parentheses and all.
+    const subject = this.#spelledExpression(ungrouped(callee.receiver)) ?? receiver;
+    return `${verdictAndCall}; write ${this.#memberSpelling(member, subject)}.`;
   }
 
   /** §3.4's declared-type-variable row: the bounds, and nothing else. */
@@ -8293,6 +8471,31 @@ class Checker {
             (face !== undefined && this.#prune(receiver).kind === "Error")
           ) {
             this.#dotCallArguments(expression, level, undefined);
+            // The abandonment has to carry, or it suppresses one level only.
+            // This call is itself a receiver — `r.toSeq().take(2).length()` —
+            // and the dot one level out would arrive at an unmarked expression
+            // typed `Error`, find nothing to dispatch on, and hand it to the
+            // ordinary application path, which elaborates the callee again and
+            // repeats the sentence `#dispatchDotCall` already said once. Marking
+            // the enclosing call makes the gate reach the whole chain: one
+            // refusal, however deep the nesting (Method Syntax §9 row 17).
+            //
+            // The mark stops **cascade** reports as well as duplicate ones, and
+            // that reach is deliberate. The chain types `Error`, so nothing its
+            // type would have decided is reported: `r.toSeq().take(2).length()
+            // + "x"` says the `toSeq` refusal and stops, where the unmarked
+            // `Error` also drew "an operand of type `String` cannot enter `Int`"
+            // and `String`'s missing `Num` instance — two verdicts about an
+            // addition whose left operand the reader has just been told to
+            // rewrite. They are not noise: the same program with the offer
+            // applied, `Seq.length(Seq.take(Iterable.toSeq(r), 2)) + "x"`,
+            // reports `type mismatch: expected Int, found String` (measured).
+            // They are unreadable while that operand's type is a refusal, the
+            // first report is the one to act on, and what the addition has to
+            // say returns on the next compile. §9 row 17's "no second report
+            // about the call follows, however the call is nested" is the rule
+            // this answers to.
+            this.#refusedReceivers.add(expression);
             type = ERROR;
             break;
           }

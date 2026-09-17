@@ -863,14 +863,324 @@ describe("`toSeq` is reachable at every iterable", () => {
    * The finding, pinned so it cannot change unnoticed: a `Range` receiver has no
    * dot dispatch, and the diagnostic it draws already names `Iterable.toSeq(…)`
    * as the route. If a `Range` companion ever lands this row is what says so.
+   *
+   * The message is the **refusal at the dot** *(#934)*. It used to be the
+   * post-finalisation rescue's (Method Syntax §3.6), which told the reader their
+   * receiver's type "was unknown where it was written" — of a receiver they had
+   * annotated `r: Range`. The head is known here, at the dot, and §5's ineligible
+   * row is what the reader needs to hear: no companion module, so nothing to
+   * dispatch to, and the provided `Iterable` row's own spelling instead (#932).
    */
   test("a `Range` receiver has no dot dispatch, and is told the route", () => {
     expect(projectDiagnostics("module Main\n\n" + "export let n(r: Range): Int = Seq.length(r.toSeq())\n"))
       .toEqual([
-        "this value's type was inferred as a record with a `toSeq` field because " +
-        "its type was unknown where it was written; `Range` is not a record. " +
-        "Annotate it to use dispatch, or call `Iterable.toSeq(…)` directly.",
+        "`Range` has no companion module, so `r.toSeq()` has nothing to " +
+        "dispatch to; write `Iterable.toSeq(r)`.",
       ]);
+  });
+
+  /**
+   * The second clause is an offer, not a formula: it exists because a member of
+   * the name is honored at the type. A name no constraint honors at `Range` has
+   * no route to be told, and the report stops at the verdict rather than
+   * inventing one *(#934)*.
+   */
+  test("a name with no route stops at the verdict", () => {
+    expect(projectDiagnostics("module Main\n\n" + "export let n(r: Range): Int = r.spin()\n"))
+      .toEqual([
+        "`Range` has no companion module, so `r.spin()` has nothing to dispatch to.",
+      ]);
+  });
+
+  /**
+   * **One report, however the call is nested** (row 17). A refused call is a
+   * receiver in its own right, and the enclosing dot, finding nothing to
+   * dispatch on what the refusal left behind, used to hand the expression to the
+   * ordinary application path — which elaborates the callee again and says the
+   * same sentence twice. The array is pinned whole, so a second copy fails here.
+   */
+  test("a refused call that is itself a receiver reports once", () => {
+    expect(projectDiagnostics("module Main\n\n" + "export let n(r: Range): Int = Seq.length(r.toSeq().take(2))\n"))
+      .toEqual([
+        "`Range` has no companion module, so `r.toSeq()` has nothing to " +
+        "dispatch to; write `Iterable.toSeq(r)`.",
+      ]);
+  });
+
+  /**
+   * **The call as written, arguments included** *(#934)*. The message used to
+   * hardcode `()` after the name, printing a call form the reader had not
+   * written — `r.fold(0, Num.add)` was reported as `r.fold()`. Each argument is
+   * spelled from source now. `fold` is honored at no constraint here, so this is
+   * also the one-clause form with a non-empty argument list.
+   */
+  test("the call is spelled with its arguments", () => {
+    expect(projectDiagnostics("module Main\n\n" + "export let n(r: Range): Int = r.fold(0, Num.add)\n"))
+      .toEqual([
+        "`Range` has no companion module, so `r.fold(0, Num.add)` has nothing " +
+        "to dispatch to.",
+      ]);
+  });
+
+  /**
+   * An **argument** with no source spelling — one whose span crosses a line
+   * break — leaves the call unquotable whole. The report falls back to the
+   * receiver and the name, both of them text the reader wrote, rather than
+   * standing `…` in the argument seat: a call form nobody wrote is not the call
+   * as written (Modules §7.6).
+   */
+  test("an argument with no spelling drops the argument list, not into an ellipsis", () => {
+    expect(
+      projectDiagnostics(
+        "module Main\n\n" + [
+          "export let n(r: Range): Int =",
+          "    r.fold(0, (x,",
+          "        y) => x)",
+          "",
+        ].join("\n"),
+      ),
+    ).toEqual([
+      "`Range` has no companion module, so `r.fold` has nothing to dispatch to.",
+    ]);
+  });
+
+  /**
+   * A **receiver** with no source spelling has no call to quote and no subject
+   * to paste, so the sentence names the member after the dot and stops — no
+   * `….toSeq()` standing in for a spelling, and no `Iterable.toSeq(…)` offered
+   * as a rewrite that would not compile (Modules §7.6, row 17).
+   */
+  test("a receiver with no spelling names the member and stops", () => {
+    expect(
+      projectDiagnostics(
+        "module Main\n\n" + [
+          "export let n(a: Int, b: Int): Int =",
+          "    Seq.length((a",
+          "        .. b).toSeq())",
+          "",
+        ].join("\n"),
+      ),
+    ).toEqual([
+      "`Range` has no companion module, so `toSeq` after the dot has nothing " +
+      "to dispatch to.",
+    ]);
+  });
+
+  /**
+   * The dot binds tighter than `..`, so a range receiver is written
+   * parenthesized — and those parentheses are the dot spelling's, not the
+   * expression's. The verdict quotes the call as written, parentheses and all;
+   * the **offer** sheds them, because `Iterable.toSeq((1..3))` is nobody's text
+   * (row 17).
+   */
+  test("the offer sheds the receiver's outer parentheses", () => {
+    expect(projectDiagnostics("module Main\n\n" + "export let n(): Int = Seq.length((1..3).toSeq())\n"))
+      .toEqual([
+        "`Range` has no companion module, so `(1..3).toSeq()` has nothing to " +
+        "dispatch to; write `Iterable.toSeq(1..3)`.",
+      ]);
+  });
+
+  /**
+   * And it sheds **only** grouping. An ascription's parentheses are the
+   * ascription — the parser folds them into the node rather than wrapping it in
+   * a `Group` (`#parseParenthesized`, Ascription §2.1) — so `(r: Range)` shed to
+   * `r: Range` gives `Iterable.toSeq(r: Range)`, which does not parse in an
+   * argument seat. The offer keeps them, as row 16 spells every ascription
+   * fixit, and the question is answered from the node's kind rather than from
+   * the quoted text, which cannot tell the two pairs apart (`ungrouped`).
+   */
+  test("the offer keeps an ascription's parentheses, which are not grouping", () => {
+    expect(
+      projectDiagnostics(
+        "module Main\n\n" +
+          "export let n(r: Range): Int = Seq.length((r: Range).toSeq())\n",
+      ),
+    ).toEqual([
+      "`Range` has no companion module, so `(r: Range).toSeq()` has nothing to " +
+      "dispatch to; write `Iterable.toSeq((r: Range))`.",
+    ]);
+  });
+
+  /**
+   * Row 17 reaches the receiver that becomes head-known **by the deadline
+   * fixpoint** (§3.1) as well as the one known at the dot: the goal re-fires
+   * through `#settleDotCallGoal`, which replays §3.4's table, and the refusal is
+   * in that table. `v`'s annotation below the dot is what settles it — the same
+   * shape `constraint-member-dispatch.test.ts` uses for §14(d).
+   */
+  test("a receiver that settles at the deadline meets the same refusal", () => {
+    expect(
+      projectDiagnostics(
+        "module Main\n\n" + [
+          "let measure(v) =",
+          "    let width = Seq.length(v.toSeq())",
+          "    let known: Range = v",
+          "    width",
+          "",
+          "export let counted: Int = measure(1..10)",
+          "",
+        ].join("\n"),
+      ),
+    ).toEqual([
+      "`Range` has no companion module, so `v.toSeq()` has nothing to " +
+      "dispatch to; write `Iterable.toSeq(v)`.",
+    ]);
+  });
+
+  /**
+   * "However the call is nested" is a claim about **every** depth, not the
+   * first. Marking the refused call stops the dot one level out; that dot sets
+   * the enclosing expression to `Error` and — until this round — left it
+   * unmarked, so the dot *two* levels out fell through to the ordinary
+   * application path and said the sentence a second time. The abandonment is
+   * marked as well as taken now, so a chain of any length draws one report.
+   */
+  test("a chain three deep still reports once", () => {
+    expect(projectDiagnostics("module Main\n\n" + "export let n(r: Range): Int = r.toSeq().take(2).length()\n"))
+      .toEqual([
+        "`Range` has no companion module, so `r.toSeq()` has nothing to " +
+        "dispatch to; write `Iterable.toSeq(r)`.",
+      ]);
+  });
+
+  /**
+   * The offer is a **rewrite**, so it must not quietly discard the reader's
+   * text. `r.toSeq(1, 2)` is arity-wrong however it is spelled, and
+   * `Iterable.toSeq(r)` would be a fixit that deletes `1, 2` without saying so —
+   * row 17 offers the route "only where the member takes the subject alone and
+   * the call wrote no other argument". The verdict still quotes the call whole.
+   */
+  test("a call that wrote arguments is offered no rewrite that would drop them", () => {
+    expect(projectDiagnostics("module Main\n\n" + "export let n(r: Range): Int = r.toSeq(1, 2)\n"))
+      .toEqual([
+        "`Range` has no companion module, so `r.toSeq(1, 2)` has nothing to " +
+        "dispatch to.",
+      ]);
+  });
+
+  /**
+   * The **arity gate** is reachable, and this is the whole of how: **recovery
+   * after a refused instance head**. A `honor` whose head is `Range` is refused
+   * as a head — Instances' "a primitive or nominal type constructor" — but the
+   * checker carries on past that refusal and registers its members at the type
+   * all the same, so `#honoredMembers` answers `twirl` and the dot's refusal has
+   * a subject-first member to consider. `twirl` takes two parameters, and
+   * `#memberSpelling` fills the subject seat and no other, so `twirl(r)` would
+   * be an offer at the wrong arity (Modules §7.6). Nothing is offered.
+   *
+   * So the gate's reachability is exactly that: **a program already refused at
+   * the instance head**, which is why the pin expects two messages and the head
+   * refusal comes first. No program the compiler accepts reaches it — a `Range`
+   * head is not honorable, and no other route puts a many-parameter member at a
+   * companionless type. The gate still earns its line: what it guards is an
+   * offer that would not compile if pasted, in a report the reader is reading
+   * precisely because their program is already broken.
+   *
+   * Written with no argument on purpose: this is the case the **arity** gate
+   * alone suppresses, the written-argument gate above having nothing to catch.
+   */
+  test("a member of more than one parameter is offered at no arity", () => {
+    expect(
+      projectDiagnostics(
+        "module Main\n\n" + [
+          "constraint Twirl<a> =",
+          "    twirl(self: a, k: Int) -> Int",
+          "",
+          "honor Twirl<Range> =",
+          "    twirl(self, k) = k",
+          "",
+          "export let n(r: Range): Int = r.twirl()",
+          "",
+        ].join("\n"),
+      ),
+    ).toEqual([
+      "an instance head must name a primitive or nominal type constructor",
+      "`Range` has no companion module, so `r.twirl()` has nothing to dispatch to.",
+    ]);
+  });
+
+  /**
+   * The same member with its argument written: both gates hold, one verdict.
+   * Reached the same way and only that way — recovery after the refused
+   * instance head, which is again the first message pinned.
+   */
+  test("the arity gate holds with the arguments written too", () => {
+    expect(
+      projectDiagnostics(
+        "module Main\n\n" + [
+          "constraint Twirl<a> =",
+          "    twirl(self: a, k: Int) -> Int",
+          "",
+          "honor Twirl<Range> =",
+          "    twirl(self, k) = k",
+          "",
+          "export let n(r: Range): Int = r.twirl(2)",
+          "",
+        ].join("\n"),
+      ),
+    ).toEqual([
+      "an instance head must name a primitive or nominal type constructor",
+      "`Range` has no companion module, so `r.twirl(2)` has nothing to dispatch to.",
+    ]);
+  });
+
+  /**
+   * The one-parameter sibling, reached the same way — recovery after a refused
+   * instance head — takes the offer, and takes it **bare**: `Whirl` is declared
+   * in this module, and a module cannot name itself (Method Syntax §16.2), so
+   * `Whirl.whirl(r)` is not a rewrite a reader of `main.hex` could paste.
+   *
+   * `#memberSpelling`'s local branch is not new here: `constraint-member-
+   * dispatch.test.ts`'s "a refusal inside the declaring module spells its own
+   * claimant bare" already pins it under §4.6's **ambiguity** refusal. This is
+   * its first pin under *this* refusal — the same branch reached by the
+   * companionless-head route, where the bare spelling is the whole offer rather
+   * than one of two.
+   *
+   * The name is `whirl`, not `spin`, on purpose: row 17 and
+   * `#noCompanionToDispatchTo`'s doc both use `r.spin()` as the name **no**
+   * member answers, and "a name with no route stops at the verdict" above keeps
+   * it that way.
+   */
+  test("a local constraint's member is offered under its bare spelling", () => {
+    expect(
+      projectDiagnostics(
+        "module Main\n\n" + [
+          "constraint Whirl<a> =",
+          "    whirl(self: a) -> Int",
+          "",
+          "honor Whirl<Range> =",
+          "    whirl(self) = 1",
+          "",
+          "export let n(r: Range): Int = r.whirl()",
+          "",
+        ].join("\n"),
+      ),
+    ).toEqual([
+      "an instance head must name a primitive or nominal type constructor",
+      "`Range` has no companion module, so `r.whirl()` has nothing to dispatch " +
+      "to; write `whirl(r)`.",
+    ]);
+  });
+
+  /**
+   * And the rescue the refusal displaced is **unchanged** where it is true
+   * *(#934)*: a receiver whose type really was unknown where it was written
+   * takes the row fallback (§3.5), and the contradiction surfaces at the use,
+   * with §3.6's enrichment saying why the row exists. The dot in `f` never saw a
+   * head, so no refusal fires there — this is the case the first clause of the
+   * new message would be false about, and it keeps the old words.
+   */
+  test("the unknown-receiver rescue keeps its words", () => {
+    expect(
+      projectDiagnostics("module Main\n\n" + "fun f(r) = Seq.length(r.toSeq())\n" +
+        "export let n: Int = f(1..10)\n"),
+    ).toEqual([
+      "this value's type was inferred as a record with a `toSeq` field because " +
+      "its type was unknown where it was written; `Range` is not a record. " +
+      "Annotate it to use dispatch, or call `Iterable.toSeq(…)` directly.",
+    ]);
   });
 
   test("`for..in` over a range is untouched — it reads evidence, not this layer", async () => {
