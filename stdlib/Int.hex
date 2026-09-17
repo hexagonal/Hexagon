@@ -25,18 +25,18 @@ export exception IntRangeError(message: String)
 // widening, which elaborates through `Num<Int>.fromNat`, the very slot being
 // defined.
 extern from "hex:intrinsic"
-    fun intAdd as nativeAdd(left: Int, right: Int): Int
-    fun intMultiply as nativeMultiply(left: Int, right: Int): Int
-    fun intFromNat as nativeFromNat(value: Nat): Int
-    fun intSubtract as nativeSubtract(left: Int, right: Int): Int
-    fun intNegate as nativeNegate(value: Int): Int
-    fun intEquals as nativeEquals(left: Int, right: Int): Bool
-    fun intCompare as nativeCompare(left: Int, right: Int): Ordering
-    fun intShow as nativeShow(value: Int): String
-    fun intPow as nativePow(left: Int, right: Int): Int
-    fun intHash as nativeHash(value: Int): Int
-    fun intQuot as nativeQuot(left: Int, right: Int): Int
-    fun intRem as nativeRem(left: Int, right: Int): Int
+    fun intAdd as nativeAdd(left: Int, right: Int) -> Int
+    fun intMultiply as nativeMultiply(left: Int, right: Int) -> Int
+    fun intFromNat as nativeFromNat(value: Nat) -> Int
+    fun intSubtract as nativeSubtract(left: Int, right: Int) -> Int
+    fun intNegate as nativeNegate(value: Int) -> Int
+    fun intEquals as nativeEquals(left: Int, right: Int) -> Bool
+    fun intCompare as nativeCompare(left: Int, right: Int) -> Ordering
+    fun intShow as nativeShow(value: Int) -> String
+    fun intPow as nativePow(left: Int, right: Int) -> Int
+    fun intHash as nativeHash(value: Int) -> Int
+    fun intQuot as nativeQuot(left: Int, right: Int) -> Int
+    fun intRem as nativeRem(left: Int, right: Int) -> Int
 
 honor Num<Int> =
     (** The sum of `left` and `right`, exact within the safe range. *)

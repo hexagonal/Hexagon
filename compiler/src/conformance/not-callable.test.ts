@@ -53,7 +53,7 @@ function hoveredType(source: string, needle: string): string | undefined {
  * SCC pin below needs one.
  */
 const world = `extern from "./world.js"
-    export fun save(document: String): Unit
+    export fun save(document: String) ->! Unit
 `;
 
 // Proves this file's harness can observe a failure.

@@ -254,7 +254,7 @@ describe("the foreign contract (§3, §9 tests 1–4)", () => {
       [["/main.hex",
         "module Main\n\n" + 'extern from "counter"\n' +
           "    export enum Counter as Tag = A | B\n" +
-          "    fun reads(): Int\n" +
+          "    fun reads() ->! Int\n" +
           "\n" +
           "export let isA(t: Tag): Bool =\n" +
           "    match t\n" +
@@ -285,7 +285,7 @@ describe("the foreign contract (§3, §9 tests 1–4)", () => {
       [["/main.hex",
         "module Main\n\n" + 'extern from "mut"\n' +
           "    export enum Mut as M = X | Y\n" +
-          "    fun mutate(): Unit\n" +
+          "    fun mutate() ->! Unit\n" +
           "\n" +
           "export let name(v: JsValue): String =\n" +
           "    match fromJsM(v)\n" +
@@ -451,10 +451,10 @@ describe("crossing and matching (§4, §5.1, §9 tests 5–6)", () => {
     const emitted = javascript(
       'extern from "d"\n' +
         "    export enum Direction = Up | Down\n" +
-        "    fun current(): Direction\n" +
-        "    fun move(direction: Direction): Unit\n" +
-        "    fun all(): Array(Direction)\n" +
-        "    fun onChange(handler: (Direction) ->? Unit): Unit\n" +
+        "    fun current() ->! Direction\n" +
+        "    fun move(direction: Direction) ->! Unit\n" +
+        "    fun all() ->! Array(Direction)\n" +
+        "    fun onChange(handler: (Direction) ->? Unit) ->! Unit\n" +
         "\n" +
         "export let go(): Unit = move!(Up)\n" +
         "export let now(): Direction = current!()\n",
@@ -977,7 +977,7 @@ describe("`Nullable` over an object-reading enum", () => {
       [["/main.hex",
         "module Main\n\n" + 'extern from "d"\n' +
           "    export enum Direction = Up | Down\n" +
-          "    fun echo(v: Nullable(Direction)): Nullable(Direction)\n" +
+          "    fun echo(v: Nullable(Direction)) ->! Nullable(Direction)\n" +
           "\n" +
           "export let roundTrip(v: Nullable(Direction)): Nullable(Direction) = echo!(v)\n"]],
       {
@@ -1125,17 +1125,19 @@ describe("diagnostics (§2.1, §2.2, §9 test 11)", () => {
   });
 
   /**
-   * `enum` is a type-introducing row, so the modifiers that belong to a
-   * callable or an imported value have no seat on it — the same sentences the
-   * `type` row draws.
+   * `enum` is a type-introducing row, so `default` — which belongs to an
+   * imported value — has no seat on it, the same sentence the `type` row draws.
+   * The retired `pure` takes FFI Part 4 §13's redirect here as it does anywhere
+   * before a declaration keyword *(#869)*: an `enum` row has no arrow seat, so
+   * dropping the word is the whole repair.
    */
-  test("`default` and the purity claims are refused on an enum row", () => {
+  test("`default` and the retired claim are refused on an enum row", () => {
     expect(projectDiagnostics("module Main\n\n" + 'extern from "d"\n    default enum Direction = Up | Down\n',
     )).toEqual(["`default` applies to foreign functions and values, not types"]);
     expect(projectDiagnostics("module Main\n\n" + 'extern from "d"\n    pure enum Direction = Up | Down\n',
     )).toEqual([
-      "`pure` claims a function's face, and a type has none — the claim belongs " +
-      "on an extern `fun`",
+      "`pure` is retired — write the pure arrow on the row itself: " +
+      "`fun trim(document: String) -> String`",
     ]);
   });
 

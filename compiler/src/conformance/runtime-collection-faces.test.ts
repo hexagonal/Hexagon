@@ -352,7 +352,7 @@ describe("what the ruling leaves alone (obligation 4)", () => {
   test("`Array(a)` stays structural: no brand, whatever its mutability", () => {
     const text = declarations(
       "extern from \"./host.js\"\n" +
-        "    export fun rows(): Array(Int)\n",
+        "    export fun rows() ->! Array(Int)\n",
     );
     expect(text).toContain("export declare function rows(): ReadonlyArray<number>;");
     expect(text).not.toContain("Hex.");

@@ -112,8 +112,8 @@ function ticker(label: string): string {
 const TICKER_HEADER =
   "module Main\n\n" +
   'extern from "ticker"\n' +
-  "    pure fun tick(value: Int): Int\n" +
-  "    fun ticks(): Int\n" +
+  "    fun tick(value: Int) -> Int\n" +
+  "    fun ticks() ->! Int\n" +
   "\n";
 
 describe("Loops §6.4: re-derivation is the default, `memoize` the opt-in", () => {
@@ -289,8 +289,8 @@ describe("failure is memoized per position (FFI Part 3 §7.1, inherited)", () =>
     const exports = await run(
       [["/main.hex",
         "module Main\n\n" + 'extern from "boom"\n' +
-        "    pure fun explode(value: Int): Int\n" +
-        "    fun attempts(): Int\n" +
+        "    fun explode(value: Int) -> Int\n" +
+        "    fun attempts() ->! Int\n" +
         "\n" +
         "let memoized: Seq(Int) = Seq.memoize(Seq.map(Vector.toSeq([1, 2, 3]), explode))\n" +
         "\n" +

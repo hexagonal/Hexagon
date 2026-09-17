@@ -115,12 +115,12 @@ describe("emitJavaScript", () => {
     const module = preludeSource(
       "extern from \"tiny-json\"\n" +
         "    export type JsonValue\n" +
-        "    export fun parse(text: String): JsonValue\n" +
+        "    export fun parse(text: String) ->! JsonValue\n" +
         "    let VERSION as version: String\n" +
-        "    export default fun createClient(): JsonValue\n" +
-        "    fun stream(): Seq(Int)\n" +
+        "    export default fun createClient() ->! JsonValue\n" +
+        "    fun stream() ->! Seq(Int)\n" +
         "    let values: Seq(Int)\n" +
-        "    fun report(message: String): Unit\n" +
+        "    fun report(message: String) ->! Unit\n" +
         "extern import \"telemetry/register\"\n" +
         "export let document: JsonValue = parse!(version)",
     );

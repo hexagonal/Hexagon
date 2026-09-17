@@ -17,16 +17,16 @@ module Nat
 // strictly-simpler doctrine sends such a body to ordinary Hexagon
 // (`spec/intrinsics.md` §3.2).
 extern from "hex:intrinsic"
-    fun natAdd as nativeAdd(left: Nat, right: Nat): Nat
-    fun natMultiply as nativeMultiply(left: Nat, right: Nat): Nat
-    fun natEquals as nativeEquals(left: Nat, right: Nat): Bool
-    fun natCompare as nativeCompare(left: Nat, right: Nat): Ordering
-    fun natShow as nativeShow(value: Nat): String
-    fun natPow as nativePow(value: Nat, exponent: Int): Nat
-    fun natHash as nativeHash(value: Nat): Int
-    fun natQuot as nativeQuot(left: Nat, right: Nat): Nat
-    fun natRem as nativeRem(left: Nat, right: Nat): Nat
-    fun natFromIntUnchecked as fromIntUnchecked(value: Int): Nat
+    fun natAdd as nativeAdd(left: Nat, right: Nat) -> Nat
+    fun natMultiply as nativeMultiply(left: Nat, right: Nat) -> Nat
+    fun natEquals as nativeEquals(left: Nat, right: Nat) -> Bool
+    fun natCompare as nativeCompare(left: Nat, right: Nat) -> Ordering
+    fun natShow as nativeShow(value: Nat) -> String
+    fun natPow as nativePow(value: Nat, exponent: Int) -> Nat
+    fun natHash as nativeHash(value: Nat) -> Int
+    fun natQuot as nativeQuot(left: Nat, right: Nat) -> Nat
+    fun natRem as nativeRem(left: Nat, right: Nat) -> Nat
+    fun natFromIntUnchecked as fromIntUnchecked(value: Int) -> Nat
 
 honor Num<Nat> =
     (** The sum of `left` and `right`, exact within the safe range. *)

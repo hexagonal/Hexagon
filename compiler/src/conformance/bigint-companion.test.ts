@@ -718,7 +718,7 @@ describe("the companion is an ordinary module (Modules §5.3, §5.4)", () => {
    */
   test("a user module cannot reach the new inventory keys", () => {
     expect(projectDiagnostics("module Main\n\n" + 'extern from "hex:intrinsic"\n' +
-      "    export fun bigIntQuot as mine(left: BigInt, right: BigInt): BigInt\n",
+      "    export fun bigIntQuot as mine(left: BigInt, right: BigInt) -> BigInt\n",
     )).toEqual([
       "the `hex:` specifier scheme is reserved to standard-library source; " +
       "to bind your own JavaScript implementation, use an ordinary `extern from` " +

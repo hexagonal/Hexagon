@@ -47,7 +47,7 @@ function main(source: string): readonly string[] {
 
 const DOOR =
   'extern from "hex:intrinsic"\n' +
-  "    export fun seqMemoize as memoized<a>(source: Seq(a)): Seq(a)\n";
+  "    export fun seqMemoize as memoized<a>(source: Seq(a)) -> Seq(a)\n";
 
 describe("the gate (§5)", () => {
   /**
@@ -120,7 +120,7 @@ describe("the gate (§5)", () => {
       ["/main.hex", "module Main\n\n" + "export let ok: Int = 1\n"],
       ["/Debug.hex",
         "module Debug\n\n" + 'extern from "hex:magic"\n' +
-        "    export fun seqMemoize as memoized<a>(source: Seq(a)): Seq(a)\n"],
+        "    export fun seqMemoize as memoized<a>(source: Seq(a)) ->! Seq(a)\n"],
     ])).toEqual([
       "`hex:magic` is not a reserved boundary; `hex:intrinsic` is the scheme's only member",
     ]);
@@ -161,7 +161,7 @@ describe("verification replaces trust (§4.2)", () => {
   test("an unknown key is refused, naming the nearest inventory member", () => {
     expect(privileged(
       'extern from "hex:intrinsic"\n' +
-      "    export fun seqMemoise as memoized<a>(source: Seq(a)): Seq(a)\n",
+      "    export fun seqMemoise as memoized<a>(source: Seq(a)) -> Seq(a)\n",
     )).toEqual([
       "the compiler provides no intrinsic `seqMemoise`; the nearest provided key is `seqMemoize`",
     ]);
@@ -177,7 +177,7 @@ describe("verification replaces trust (§4.2)", () => {
   test("a key with no near neighbour is refused with the inventory, not a guess", () => {
     expect(privileged(
       'extern from "hex:intrinsic"\n' +
-      "    export fun mapInsert as insert<a>(values: Seq(a), index: Int): a\n",
+      "    export fun mapInsert as insert<a>(values: Seq(a), index: Int) -> a\n",
     )).toEqual([
       "the compiler provides no intrinsic `mapInsert`; the keys it provides are " +
       "`seqMemoize`, `streamFromSeq`, `vectorLength`, `vectorAppend`, `vectorPrepend`, `vectorAt`, " +
@@ -218,7 +218,7 @@ describe("verification replaces trust (§4.2)", () => {
   test("an arity mismatch is refused, stating the inventory arity", () => {
     expect(privileged(
       'extern from "hex:intrinsic"\n' +
-      "    export fun seqMemoize as memoized<a>(source: Seq(a), extra: Int): Seq(a)\n",
+      "    export fun seqMemoize as memoized<a>(source: Seq(a), extra: Int) -> Seq(a)\n",
     )).toEqual([
       "intrinsic `seqMemoize` takes 1 parameter, but this declaration has 2",
     ]);
@@ -235,7 +235,7 @@ describe("verification replaces trust (§4.2)", () => {
   test("a divergent declared type is not a user diagnostic", () => {
     expect(privileged(
       'extern from "hex:intrinsic"\n' +
-      "    export fun seqMemoize as memoized(source: Int): Int\n",
+      "    export fun seqMemoize as memoized(source: Int) -> Int\n",
     )).toEqual([]);
   });
 });
@@ -298,7 +298,7 @@ describe("what the block admits (§3.3)", () => {
   test("`default` is refused, once", () => {
     const messages = privileged(
       'extern from "hex:intrinsic"\n' +
-      "    export default fun memoized<a>(source: Seq(a)): Seq(a)\n",
+      "    export default fun memoized<a>(source: Seq(a)) -> Seq(a)\n",
     );
     expect(messages).toEqual([refusalOf("default")]);
   });
@@ -315,7 +315,7 @@ describe("genericity is granted inside the boundary only (§3.4)", () => {
   test("a foreign extern is still monomorphic", () => {
     expect(main(
       'extern from "elsewhere"\n' +
-      "    fun identity<a>(value: a): a\n",
+      "    fun identity<a>(value: a) ->! a\n",
     )).toContain("generic extern declarations are not part of Hexagon v1");
   });
 
@@ -332,7 +332,7 @@ describe("genericity is granted inside the boundary only (§3.4)", () => {
   test("a foreign extern is still unconstrained", () => {
     expect(main(
       'extern from "elsewhere"\n' +
-      "    fun place<k: Hash>(key: k): Int\n",
+      "    fun place<k: Hash>(key: k) ->! Int\n",
     )).toContain("generic extern declarations are not part of Hexagon v1");
   });
 
@@ -353,7 +353,7 @@ describe("genericity is granted inside the boundary only (§3.4)", () => {
    */
   test("an intrinsic declaration may carry constraint brackets, and they bind", () => {
     const constrained = 'extern from "hex:intrinsic"\n' +
-      "    fun hashTrieNodeSingleton as one<a: Hash>(value: a): Node(a)\n";
+      "    fun hashTrieNodeSingleton as one<a: Hash>(value: a) -> Node(a)\n";
     expect(inRuntimeModule(`${constrained}export let ok: Int = Node.get(one(1), 0)\n`))
       .toEqual([]);
     expect(inRuntimeModule(
@@ -382,7 +382,7 @@ describe("genericity is granted inside the boundary only (§3.4)", () => {
         "export let asText: String = Debug.produce(2)\n"],
       ["/Debug.hex",
         "module Debug\n\n" + 'extern from "hex:intrinsic"\n' +
-        "    export fun seqMemoize as produce<a>(source: Int): a\n"],
+        "    export fun seqMemoize as produce<a>(source: Int) -> a\n"],
     ])).toEqual([]);
   });
 });

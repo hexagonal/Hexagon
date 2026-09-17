@@ -35,27 +35,27 @@ export exception FloatRangeError(message: String)
 // typechecks only through Numeric Literals §5.1's contextual widening, which
 // elaborates through `Signed<Float>`'s `fromInt`, the very slot being defined.
 extern from "hex:intrinsic"
-    fun floatAdd as nativeAdd(left: Float, right: Float): Float
-    fun floatMultiply as nativeMultiply(left: Float, right: Float): Float
-    fun floatSubtract as nativeSubtract(left: Float, right: Float): Float
-    fun floatNegate as nativeNegate(value: Float): Float
-    fun floatFromInt as nativeFromInt(value: Int): Float
-    fun floatDivide as nativeDivide(left: Float, right: Float): Float
-    fun floatEquals as nativeEquals(left: Float, right: Float): Bool
-    fun floatCompare as nativeCompare(left: Float, right: Float): Ordering
-    fun floatShow as nativeShow(value: Float): String
-    fun floatPow as nativePow(value: Float, exponent: Float): Float
-    fun floatHash as nativeHash(value: Float): Int
-    fun floatTrunc as nativeTrunc(value: Float): Float
-    fun floatIsSafeInteger as nativeIsSafeInteger(value: Float): Bool
-    fun floatToIntUnchecked as nativeToIntUnchecked(value: Float): Int
+    fun floatAdd as nativeAdd(left: Float, right: Float) -> Float
+    fun floatMultiply as nativeMultiply(left: Float, right: Float) -> Float
+    fun floatSubtract as nativeSubtract(left: Float, right: Float) -> Float
+    fun floatNegate as nativeNegate(value: Float) -> Float
+    fun floatFromInt as nativeFromInt(value: Int) -> Float
+    fun floatDivide as nativeDivide(left: Float, right: Float) -> Float
+    fun floatEquals as nativeEquals(left: Float, right: Float) -> Bool
+    fun floatCompare as nativeCompare(left: Float, right: Float) -> Ordering
+    fun floatShow as nativeShow(value: Float) -> String
+    fun floatPow as nativePow(value: Float, exponent: Float) -> Float
+    fun floatHash as nativeHash(value: Float) -> Int
+    fun floatTrunc as nativeTrunc(value: Float) -> Float
+    fun floatIsSafeInteger as nativeIsSafeInteger(value: Float) -> Bool
+    fun floatToIntUnchecked as nativeToIntUnchecked(value: Float) -> Int
 
     (** The truncated remainder of `left` divided by `right`, taking the sign of
         `left` — this is JS's `%`, and C's `fmod`. It is exact: the true
         remainder of two floats is always a float, so nothing rounds. It never
         throws; a zero divisor or a non-finite operand answers `NaN`, exactly as
         float division does. *)
-    export fun floatRem as rem(left: Float, right: Float): Float
+    export fun floatRem as rem(left: Float, right: Float) -> Float
 
 honor Eq<Float> =
     (** Whether `left` and `right` are the same float, by SameValueZero: `NaN`

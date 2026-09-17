@@ -254,7 +254,7 @@ describe("the depth rule and the irrefutability gate", () => {
 describe("signature positions have no body to destructure into", () => {
   test("an extern function rejects a pattern parameter", () => {
     expect(
-      diagnostics('extern from "m"\n    fun f((x, y): (Int, Int)): Int\n'),
+      diagnostics('extern from "m"\n    fun f((x, y): (Int, Int)) ->! Int\n'),
     ).toContain("extern functions take plain parameter names, not patterns");
   });
 
@@ -265,7 +265,7 @@ describe("signature positions have no body to destructure into", () => {
   });
 
   test("a wildcard is accepted there: it binds nothing, so nothing is destructured", () => {
-    expect(diagnostics('extern from "m"\n    fun f(_: Int): Int\n')).toEqual([]);
+    expect(diagnostics('extern from "m"\n    fun f(_: Int) ->! Int\n')).toEqual([]);
   });
 });
 
@@ -288,7 +288,7 @@ describe("the synthetic binder never reaches the reader", () => {
   });
 
   test("an extern signature does not publish the minted binder", () => {
-    const text = declarations('extern from "m"\n    export fun f(_: Int): Int\n');
+    const text = declarations('extern from "m"\n    export fun f(_: Int) ->! Int\n');
     expect(text).not.toContain("__");
   });
 

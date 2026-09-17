@@ -278,6 +278,33 @@ const MEMBER_COLON_SEPARATOR =
   "(`->!` for a member whose instances may perform effects, `->?` for one as " +
   "effectful as a callback it is handed)";
 
+/**
+ * FFI Part 4 §13's row for a callable extern row written with the retired `:`
+ * separator *(#869)*. The three arrows are named in the order §4.5 names them,
+ * and the fixit is the conservative one: `->!` promises nothing in either
+ * direction, and it is what the retired impure default supplied silently.
+ */
+const EXTERN_COLON_SEPARATOR =
+  "an extern callable declares its effect — write `->` for a function that " +
+  "touches nothing, `->!` for one that may, `->?` for one exactly as effectful " +
+  "as a callback it is handed; when in doubt, `->!`";
+
+/**
+ * FFI Part 4 §13's missing-annotation row for a callable *(#869)*: an extern
+ * declaration has no body to infer from, so a row that stops at its parameter
+ * list is missing both its arrow and its result.
+ */
+const EXTERN_MISSING_RESULT =
+  "extern functions require an effect arrow and a result type; write `->! T` " +
+  "when in doubt";
+
+/** A retired `pure`/`conduit` claim, with the span its removal edits (#869). */
+interface RetiredExternClaim {
+  readonly text: "pure" | "conduit";
+  readonly span: Source.Span;
+  readonly drop: Source.Span;
+}
+
 /** Doc Comments §5: the head binds no name, so it documents nothing (#700). */
 const FUN_BLOCK_HEAD_DOC =
   "documentation attaches to a `fun` block's members, not to the block — move " +
@@ -2123,52 +2150,31 @@ class Parser {
       if (intrinsic) this.#errorAt(this.#current().span, intrinsicFormError("default"));
       this.#advance();
     }
-    // Effects §6.1's opt-out, in the shape `default` already established: a
-    // contextual modifier on one extern declaration. A user-written extern is
-    // effectful by default (trust territory); `pure` is the trusted purity
-    // claim, and `conduit` (#409) is its sibling in the same slot — the claim
-    // that the row is exactly as effectful as the callbacks it is handed.
-    // Compiler-owned intrinsic rows take their purity from intrinsics §4.2's
-    // verification instead, so both modifiers are redundant there.
-    //
-    // Either order is scanned so `conduit pure` reaches the one-claim report
-    // below rather than a parse failure; a *repeated* word is not consumed
-    // twice, and falls to the declaration-keyword check as it always did.
-    const claims: { readonly text: "pure" | "conduit"; readonly span: Source.Span }[] = [];
-    for (;;) {
-      const text = this.#atContextual("pure")
-        ? "pure" as const
-        : this.#atContextual("conduit")
-        ? "conduit" as const
-        : undefined;
-      if (
-        text === undefined || claims.length === 2 ||
-        claims.some((claim) => claim.text === text)
-      ) break;
+    // The retired claims *(#869)*. `pure` and `conduit` left Lexer §4.2's
+    // contextual table with the forms they introduced: a row writes its arrow
+    // now (§4.5), and both words are ordinary names again — `fun pure(x: Int)
+    // -> Int` binds one. What survives is the redirect, and it is keyed on the
+    // seat the retired forms occupied and nothing else: the word standing
+    // immediately *before* an extern declaration keyword, where no name can
+    // stand. Both are scanned so `pure conduit fun …` is redirected twice
+    // rather than reaching the keyword check as a stray name.
+    const retired: RetiredExternClaim[] = [];
+    while (this.#atRetiredExternClaim()) {
+      const text = this.#atContextual("pure") ? "pure" as const : "conduit" as const;
       const { span } = this.#advance();
-      claims.push({ text, span });
-      if (intrinsic) {
-        this.#errorAt(
-          span,
-          `intrinsic rows are verified rather than trusted; \`${text}\` is for user-written externs`,
-        );
-      }
+      // The drop reaches the next token's start, so the word and the space after
+      // it go together and the rewrite leaves no double space behind.
+      retired.push({
+        text,
+        span,
+        drop: { fileId: span.fileId, start: span.start, end: this.#current().span.start },
+      });
     }
-    // FFI Part 4 §4.5: one row, one claim. The two say incompatible things
-    // about the same arrow, so neither is believed — the row falls back to the
-    // impure default, which is the honest reading of a row that claimed nothing.
-    const conflicting = claims.length === 2;
-    if (conflicting) {
-      this.#errorAt(
-        claims[1]!.span,
-        "one row, one claim: `pure` says this function never observably invokes " +
-          "what it is handed, and `conduit` says it is exactly as effectful as " +
-          "what it is handed — write one",
-      );
-    }
-    const pureClaim = !conflicting && claims[0]?.text === "pure";
-    const conduitClaim = conflicting ? undefined : claims.find((claim) => claim.text === "conduit");
     const kind = this.#current().kind;
+    // A callable row's redirect waits for its arrow seat, so the fixit can carry
+    // both edits §13 names — the dropped word *and* the arrow before the result.
+    // Every other row has no such seat, and takes the word's removal alone.
+    if (kind !== "Fun") this.#reportRetiredExternClaims(retired, undefined);
     if (intrinsic && kind !== "Fun") {
       const label = this.#current();
       this.#errorAt(label.span, intrinsicFormError(externDeclarationKeyword(label)));
@@ -2188,26 +2194,6 @@ class Parser {
       this.#errorAt(label.span, text);
       this.#synchronize(new Set(["VSep", "VClose", "Eof"]));
       return undefined;
-    }
-    // FFI Part 4 §4.5: the claim is a claim about a *face*, and only a callable
-    // has one. Refused here rather than believed and dropped, so the row does
-    // not read as carrying a purity the checker never asked about. `conduit`
-    // stands on the same sentence: it colours an outer arrow the non-callable
-    // forms do not have.
-    const pureOnFun = pureClaim && kind === "Fun";
-    const conduitOnFun = kind === "Fun" ? conduitClaim : undefined;
-    if (kind !== "Fun") {
-      for (const claim of claims) {
-        if (conflicting && claim !== claims[0]) continue;
-        this.#errorAt(
-          start.span,
-          kind === "Type" || foreignEnum
-            ? `\`${claim.text}\` claims a function's face, and a type has none — the claim ` +
-              "belongs on an extern `fun`"
-            : `\`${claim.text}\` claims a function's face, and a value reference carries no ` +
-              "colour — the claim belongs on an extern `fun`",
-        );
-      }
     }
     this.#advance();
     if ((kind === "Type" || foreignEnum) && defaultBinding) {
@@ -2328,31 +2314,110 @@ class Parser {
           this.#errorAt(parameter.span, "extern function parameters require type annotations");
         }
       }
-      this.#expect("Colon", "extern functions require a result type");
-      const returnAnnotation = this.#parseTypeAnnotation(true) ?? invalidType(localName);
+      // *(#869.)* A callable extern row writes its **outer arrow** between its
+      // parameters and its result (FFI Part 4 §4.5) — a contract with no body
+      // to infer from, exactly as a constraint member header is, and that
+      // header's seat is the model this one follows. `:` is the retired form
+      // and takes §13's redirect; the conservative arrow is its fixit and its
+      // recovery, so a row written the old way keeps the face the old default
+      // gave it behind one report.
+      const arrow = this.#arrowAt();
+      let effect: Parsed.ArrowEffect | undefined;
+      let arrowSpan: Source.Span | undefined;
+      let missingArrow = false;
+      if (arrow === undefined) {
+        const separator = this.#current();
+        if (separator.kind === "Colon") {
+          // The `let`-with-parameters row's sentence, applied to the other
+          // retired spelling: a row that also wrote `pure` or `conduit` is one
+          // migration, and that redirect's fixit already spells the arrow
+          // *(§13)*. So the colon row is not also reported — one typo, one
+          // report — and the seat still passes to the claim's own fixit below.
+          if (retired.length === 0) {
+            this.#diagnostics.add({
+              severity: "error",
+              message: EXTERN_COLON_SEPARATOR,
+              primary: separator.span,
+              fixes: [{
+                message: "write `->!`",
+                edits: [{ span: separator.span, replacement: "->!" }],
+              }],
+            });
+          }
+          arrowSpan = separator.span;
+          this.#advance();
+          effect = "constant";
+        } else if (separator.kind === "FatArrow") {
+          // The member header's sentence applies unchanged: a fat arrow at a
+          // row's arrow seat can have no other reading — an extern declaration
+          // has no body to begin — so it takes Effects §9's type-arrow
+          // redirect and recovers as the arrow it spells (#410).
+          const redirected = this.#redirectTypeArrow();
+          arrowSpan = redirected.span;
+          if (redirected.effect !== "pure") effect = redirected.effect;
+        } else {
+          this.#errorAt(separator.span, EXTERN_MISSING_RESULT);
+          missingArrow = true;
+        }
+      } else {
+        arrowSpan = this.#current().span;
+        if (arrow !== "pure") effect = arrow;
+        this.#advance();
+      }
+      this.#reportRetiredExternClaims(retired, arrowSpan);
+      // One typo, one report — the member header's rule (#867): a row that ended
+      // at its parameter list has already been told it has no result, and is not
+      // asked for a type annotation a second time.
+      const ended = missingArrow &&
+        (this.#at("VSep") || this.#at("VClose") || this.#at("Eof"));
+      const returnAnnotation = (ended ? undefined : this.#parseTypeAnnotation(true)) ??
+        invalidType(localName);
       this.#rejectExternBody();
       return {
         kind: "ExternFun",
         exported,
         default: defaultBinding,
-        ...(pureOnFun ? { pure: true as const } : {}),
-        ...(conduitOnFun === undefined ? {} : { conduit: conduitOnFun.span }),
         ...(foreignName === undefined ? {} : { foreignName }),
         localName,
         ...(typeParameters === undefined || typeParameters.length === 0
           ? {}
           : { typeParameters }),
         parameters,
+        ...(effect === undefined ? {} : { effect }),
+        ...(arrowSpan === undefined ? {} : { arrowSpan }),
         returnAnnotation,
         span: spanFrom(start.span, returnAnnotation.span),
       };
     }
-    if (this.#at("LeftParen")) {
+    // FFI Part 4 §13's first row, which *fires first*: a `let` carrying a
+    // parameter list is a callable written with the value keyword, and the
+    // rewrite it names already spells the arrow — so the colon row below is not
+    // also reported, and neither is the value form's missing-`:` complaint when
+    // the author reached for an arrow. The report waits for the annotation, so
+    // the rewrite can quote the row the author actually wrote.
+    const callableSeat = this.#at("LeftParen") ? this.#current().span : undefined;
+    if (callableSeat !== undefined) {
+      this.#parseParameters();
+      const parameterText = this.#writtenText(callableSeat, this.#previous().span);
+      if (this.#arrowAt() !== undefined) this.#advance();
+      else this.#expect("Colon", "extern values require a type annotation");
+      const annotation = this.#parseTypeAnnotation(true) ?? invalidType(localName);
       this.#errorAt(
         localName.span,
-        `extern callable declarations use \`fun\`; write \`fun ${localName.text}(...)\` with explicit parameters`,
+        "extern callable declarations use `fun` and write their effect arrow; write " +
+          `\`fun ${localName.text}${parameterText ?? "(…)"} ->! ` +
+          `${this.#writtenText(annotation.span, annotation.span) ?? "T"}\``,
       );
-      this.#parseParameters();
+      this.#rejectExternBody();
+      return {
+        kind: "ExternLet",
+        exported,
+        default: defaultBinding,
+        ...(foreignName === undefined ? {} : { foreignName }),
+        localName,
+        annotation,
+        span: spanFrom(start.span, annotation.span),
+      };
     }
     this.#expect("Colon", "extern values require a type annotation");
     const annotation = this.#parseTypeAnnotation(true) ?? invalidType(localName);
@@ -2372,6 +2437,70 @@ class Parser {
       annotation,
       span: spanFrom(start.span, annotation.span),
     };
+  }
+
+  /**
+   * A retired `pure`/`conduit` claim at the seat the retired forms occupied —
+   * the word immediately before an extern declaration keyword *(#869)*.
+   *
+   * Both words left Lexer §4.2's contextual table with the forms they
+   * introduced, so this is a *redirect*, not a reading: the test is positional,
+   * and nowhere else in the block does either word mean anything but a name.
+   * The seat is one no name can occupy — a row's own name follows its keyword,
+   * never precedes it — so `fun pure(x: Int) -> Int` and `let conduit: Int` are
+   * ordinary rows, unseen by this test.
+   */
+  #atRetiredExternClaim(): boolean {
+    if (!this.#atContextual("pure") && !this.#atContextual("conduit")) return false;
+    const follower = this.#peek(1);
+    return follower.kind === "Fun" || follower.kind === "Let" || follower.kind === "Type" ||
+      (follower.kind === "NonUpperName" &&
+        (follower.text === "enum" || follower.text === "pure" || follower.text === "conduit"));
+  }
+
+  /**
+   * FFI Part 4 §13's two retired-claim rows *(#869)*, each naming the arrow that
+   * says what the old word said.
+   *
+   * The fixit is the pair of edits the row names: the word goes, and the arrow
+   * takes the result separator's place. `arrowSeat` is that separator — the `:`
+   * a retired row still writes, or the arrow a half-migrated one already does —
+   * and it is absent on the rows that have no such seat at all (`let`, `type`,
+   * `enum`), where dropping the word is the whole repair.
+   */
+  #reportRetiredExternClaims(
+    claims: readonly RetiredExternClaim[],
+    arrowSeat: Source.Span | undefined,
+  ): void {
+    for (const claim of claims) {
+      const arrow = claim.text === "pure" ? "->" : "->?";
+      this.#diagnostics.add({
+        severity: "error",
+        message: claim.text === "pure"
+          ? "`pure` is retired — write the pure arrow on the row itself: " +
+            "`fun trim(document: String) -> String`"
+          : "`conduit` is retired — write `->?` on the row's outer arrow: " +
+            "`fun runner(step: () ->? String) ->? Int`",
+        primary: claim.span,
+        fixes: [{
+          message: `drop the word, \`${arrow}\` before the result`,
+          edits: [
+            { span: claim.drop, replacement: "" },
+            ...(arrowSeat === undefined ? [] : [{ span: arrowSeat, replacement: arrow }]),
+          ],
+        }],
+      });
+    }
+  }
+
+  /**
+   * The source a span covers, for a rewrite that quotes what the author wrote
+   * rather than a placeholder. Absent where the text would not read as one
+   * spelling — a row broken across lines, or one long enough to bury the advice.
+   */
+  #writtenText(from: Source.Span, to: Source.Span): string | undefined {
+    const text = this.#text.slice(from.start.offset, to.end.offset);
+    return text.includes("\n") || text.length > 60 ? undefined : text;
   }
 
   #rejectExternBody(): void {

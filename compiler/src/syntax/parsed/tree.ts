@@ -112,24 +112,6 @@ export type ExternDeclaration =
 interface ExternDeclarationFields {
   readonly exported: boolean;
   readonly default: boolean;
-  /**
-   * The trusted purity claim (`pure fun …`), on a user-written extern
-   * (Effects §6.1). Absent is the honest default for the unknown — the impure
-   * constant — and the claim is meaningless on an intrinsic row, whose purity
-   * comes from intrinsics §4.2's verification instead.
-   */
-  readonly pure?: true;
-  /**
-   * The declared-conduit claim (`conduit fun …`), #409's second claim keyword,
-   * carried as the span of the word itself so the checker can stand a report on
-   * it. It seats one colour variable at the row's outer arrow *and* at every
-   * `->?` the signature writes: the row is exactly as effectful as its
-   * callbacks, jointly (FFI Part 4 §4.5).
-   *
-   * One row carries one claim: a row spelling both `pure` and `conduit` records
-   * neither, and takes the impure default behind the parser's report.
-   */
-  readonly conduit?: Source.Span;
   readonly foreignName?: Name;
   readonly localName: Name;
   readonly span: Source.Span;
@@ -149,6 +131,22 @@ export interface ExternFunDeclaration extends ExternDeclarationFields {
    */
   readonly typeParameters?: readonly TypeParameter[];
   readonly parameters: readonly Parameter[];
+  /**
+   * The row's **outer arrow** — the effect contract every callable extern row
+   * writes, foreign and intrinsic alike (FFI Part 4 §4.5, #869; Effects §6.1).
+   * A row is a contract with no body to infer from, so the arrow stands where
+   * an implementation header writes `:`, exactly as a constraint member header
+   * does.
+   *
+   * Absent is `->`, the trusted purity claim; `constant` is `->!`, the honest
+   * arrow for the unknown; `linked` is `->?`, the declared conduit, which seats
+   * one colour variable at this arrow and at every `->?` the signature writes.
+   * A row whose parameters carry no `->?` takes Effects §4.4's inlet-less
+   * refusal at the arrow.
+   */
+  readonly effect?: ArrowEffect;
+  /** The arrow token itself, so §4.4's refusal and a fixit can stand on it. */
+  readonly arrowSpan?: Source.Span;
   readonly returnAnnotation: TypeAnnotation;
 }
 

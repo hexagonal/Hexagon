@@ -37,27 +37,27 @@ module String
 // its worst-case bound is O(n * m) for source length n and target length m.
 // Split and replacement reuse that search and additionally count their output.
 extern from "hex:intrinsic"
-    fun stringConcat as nativeConcat(left: String, right: String): String
-    fun stringEquals as nativeEquals(left: String, right: String): Bool
-    fun stringCompare as nativeCompare(left: String, right: String): Ordering
-    fun stringHash as nativeHash(value: String): Int
+    fun stringConcat as nativeConcat(left: String, right: String) -> String
+    fun stringEquals as nativeEquals(left: String, right: String) -> Bool
+    fun stringCompare as nativeCompare(left: String, right: String) -> Ordering
+    fun stringHash as nativeHash(value: String) -> Int
 
     (** The elements of `values` joined end to end. The empty sequence gives
         `""`; elements may be strings of any length and are concatenated in
         traversal order, with no Unicode normalization. It forces the whole
         sequence, so it does not terminate on an infinite one. *)
-    export fun stringFromSeq as fromSeq(values: Seq(String)): String
+    export fun stringFromSeq as fromSeq(values: Seq(String)) -> String
 
-    fun stringToSeq as nativeToSeq(text: String): Seq(String)
+    fun stringToSeq as nativeToSeq(text: String) -> Seq(String)
 
-    fun stringIsWhitespace as nativeIsWhitespace(point: String): Bool
-    fun stringIsCased as nativeIsCased(point: String): Bool
-    fun stringIsCaseIgnorable as nativeIsCaseIgnorable(point: String): Bool
-    fun stringLowercaseMapping as nativeLowercaseMapping(point: String): String
-    fun stringUppercaseMapping as nativeUppercaseMapping(point: String): String
-    fun stringCaseFoldMapping as nativeCaseFoldMapping(point: String): String
-    fun stringCodepointUnchecked as codepointUnchecked(point: String): Int
-    fun stringFromCodepointUnchecked as fromCodepointUnchecked(value: Int): String
+    fun stringIsWhitespace as nativeIsWhitespace(point: String) -> Bool
+    fun stringIsCased as nativeIsCased(point: String) -> Bool
+    fun stringIsCaseIgnorable as nativeIsCaseIgnorable(point: String) -> Bool
+    fun stringLowercaseMapping as nativeLowercaseMapping(point: String) -> String
+    fun stringUppercaseMapping as nativeUppercaseMapping(point: String) -> String
+    fun stringCaseFoldMapping as nativeCaseFoldMapping(point: String) -> String
+    fun stringCodepointUnchecked as codepointUnchecked(point: String) -> Int
+    fun stringFromCodepointUnchecked as fromCodepointUnchecked(value: Int) -> String
 
 honor Iterable<String> =
     type Item = String

@@ -63,7 +63,7 @@ function diagnose(source: string): readonly string[] {
  * function's parameter and result. `pass` adds the binder position.
  */
 const BORROWED = 'extern from "./rows.js"\n' +
-  "    fun rows(): Array(Int)\n" +
+  "    fun rows() ->! Array(Int)\n" +
   "\n" +
   "export let first: Array(Int) = rows!()\n" +
   "export let head(xs: Array(Int)): Array(Int) = xs\n" +
@@ -99,7 +99,7 @@ describe("the face is `ReadonlyArray<a>` in every position", () => {
     expect(
       declarations(
         'extern from "./rows.js"\n' +
-          "    fun grid(): Array(Array(Int))\n" +
+          "    fun grid() ->! Array(Array(Int))\n" +
           "\n" +
           "export let cells: Array(Array(Int)) = grid!()\n",
       ),
@@ -188,7 +188,7 @@ describe("the covariance hole is closed at the immutable spelling", () => {
 
   test("no `Array(a)`-typed value can be exported: generic externs are not in v1", () => {
     expect(
-      diagnose('extern from "./rows.js"\n    fun none(): Array(a)\n'),
+      diagnose('extern from "./rows.js"\n    fun none() ->! Array(a)\n'),
     ).toContain("generic extern declarations are not part of Hexagon v1");
   });
 });

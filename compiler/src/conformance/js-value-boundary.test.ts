@@ -113,7 +113,7 @@ describe("the type (§2)", () => {
 
 describe("the `.d.ts` face is `unknown`, never `any` (§2)", () => {
   const FACES = 'extern from "./raw.js"\n' +
-    "    fun raw(): JsValue\n" +
+    "    fun raw() ->! JsValue\n" +
     "\n" +
     "export let loose: JsValue = raw!()\n" +
     "export let echo(v: JsValue): JsValue = v\n" +
@@ -145,7 +145,7 @@ describe("the `.d.ts` face is `unknown`, never `any` (§2)", () => {
     const files = {
       "main.d.ts": declarations(
         'extern from "./raw.js"\n' +
-          "    fun raw(): JsValue\n" +
+          "    fun raw() ->! JsValue\n" +
           "\n" +
           "export let loose: JsValue = raw!()\n",
       ),
@@ -371,7 +371,7 @@ describe("nullish absorption (§8, §13.3)", () => {
     const text = declarations(
       'extern from "./handle.js"\n' +
         "    export type Handle\n" +
-        "    fun find(): Nullable(Handle)\n" +
+        "    fun find() ->! Nullable(Handle)\n" +
         "\n" +
         "export let maybe: Nullable(Handle) = find!()\n",
     );
@@ -380,7 +380,7 @@ describe("nullish absorption (§8, §13.3)", () => {
     // typecheck, which is what `JsValue`'s does.
     expect(projectDiagnostics("module Main\n\n" + 'extern from "./handle.js"\n' +
         "    export type Handle\n" +
-        "    fun find(): Nullable(Handle)\n" +
+        "    fun find() ->! Nullable(Handle)\n" +
         "\n" +
         "export let bare: Handle = find!()\n",
     )).toEqual(["type mismatch: expected Handle, found Nullable(Handle)"]);

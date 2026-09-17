@@ -197,7 +197,7 @@ describe("collectOccurrences", () => {
     const source = [
       'extern from "./widget.js"',
       "    type Widget",
-      "    fun widen(value: Widget): Widget",
+      "    fun widen(value: Widget) ->! Widget",
       "",
     ].join("\n");
     const { occurrences } = index([["/main.hex", "module Main\n\n" + source]]);

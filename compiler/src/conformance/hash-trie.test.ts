@@ -1210,8 +1210,8 @@ describe("the emitted module's import surface", () => {
 describe("runtime modules hold the intrinsic door (§5.2)", () => {
   const DOOR =
     'extern from "hex:intrinsic"\n' +
-    "    fun hashTrieBitCount as popcount(bitmap: Int): Int\n" +
-    "    fun hashTrieNodeSingleton as one(value: a): Node(a)\n" +
+    "    fun hashTrieBitCount as popcount(bitmap: Int) -> Int\n" +
+    "    fun hashTrieNodeSingleton as one(value: a) -> Node(a)\n" +
     "let counted: Int = popcount(-1)\n" +
     "let held: Node(Int) = one(counted)\n" +
     "export let answer: Int = Node.get(held, 0)\n";
@@ -1325,7 +1325,7 @@ describe("runtime modules hold the intrinsic door (§5.2)", () => {
    */
   test("a foreign extern still cannot name Node, adopted or not", () => {
     const project = compileFiles(
-      [[PROBE_PATH, `${probeSource}\n` + 'extern from "./host.js"\n    fun host(value: Int): Node(Int)\n'], TOUCH],
+      [[PROBE_PATH, `${probeSource}\n` + 'extern from "./host.js"\n    fun host(value: Int) ->! Node(Int)\n'], TOUCH],
     );
     expect(project.diagnostics.map(({ message }) => message)).toContain(
       "extern declaration `host` names the hidden `Node` intrinsic, " +

@@ -330,8 +330,8 @@ describe("contextual keywords are positional (spec/lexer.md §4.2)", () => {
     // ordinary name.
     const source = [
       'extern from "./trim.js"',
-      "    export pure fun trim(document: String): String",
-      "    export fun save(document: String): Unit",
+      "    export fun trim(document: String) -> String",
+      "    export fun save(document: String) ->! Unit",
       "    export pure",
       "let pure = 1",
     ].join("\n");
@@ -355,8 +355,8 @@ describe("contextual keywords are positional (spec/lexer.md §4.2)", () => {
     // `pure conduit` matches neither word and paints as ordinary terms.
     const source = [
       'extern from "./world.js"',
-      "    export conduit fun runner(step: () ->? String): Int",
-      "    export pure conduit fun both(step: () ->? String): Int",
+      "    export fun runner(step: () ->? String) ->? Int",
+      "    export fun both(step: () ->? String) ->? Int",
       "let conduit = 1",
     ].join("\n");
     const pairs = await scopePairs(source);
@@ -1704,7 +1704,7 @@ describe("contextual keywords in a third position", () => {
 
   it("keeps recognizing them where a subject precedes them", async () => {
     expect(await scope("let u = {p with x = 3}", "with")).toBe("keyword.other.with.hexagon");
-    expect(await scope("export fun seqMemoize as memoize<a>(s: Seq(a)): Seq(a)", "as")).toBe(
+    expect(await scope("export fun seqMemoize as memoize<a>(s: Seq(a)) ->! Seq(a)", "as")).toBe(
       "keyword.other.as.hexagon",
     );
     expect(await scope("union O derives (Eq, Show) =\n    | Less", "derives")).toBe(

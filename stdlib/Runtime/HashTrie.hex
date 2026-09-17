@@ -106,16 +106,16 @@ exception TrieCorruption(message: String)
 // Nothing here is exported: these are this module's internals, and the door's
 // `export` marker is for a companion publishing its own surface.
 extern from "hex:intrinsic"
-    fun hashTrieMix as mix(hash: Int): Int
-    fun hashTrieDigit as digit(hash: Int, shift: Int): Int
-    fun hashTrieBitTest as bitTest(bitmap: Int, index: Int): Bool
-    fun hashTrieBitSet as bitSet(bitmap: Int, index: Int): Int
-    fun hashTrieBitClear as bitClear(bitmap: Int, index: Int): Int
-    fun hashTrieBitCount as bitCount(bitmap: Int): Int
-    fun hashTrieBitCountBelow as bitCountBelow(bitmap: Int, index: Int): Int
-    fun hashTrieNodeSingleton as nodeSingleton(value: a): Node(a)
-    fun hashTrieNodeInsertAt as nodeInsertAt(node: Node(a), index: Int, value: a): Node(a)
-    fun hashTrieNodeRemoveAt as nodeRemoveAt(node: Node(a), index: Int): Node(a)
+    fun hashTrieMix as mix(hash: Int) -> Int
+    fun hashTrieDigit as digit(hash: Int, shift: Int) -> Int
+    fun hashTrieBitTest as bitTest(bitmap: Int, index: Int) -> Bool
+    fun hashTrieBitSet as bitSet(bitmap: Int, index: Int) -> Int
+    fun hashTrieBitClear as bitClear(bitmap: Int, index: Int) -> Int
+    fun hashTrieBitCount as bitCount(bitmap: Int) -> Int
+    fun hashTrieBitCountBelow as bitCountBelow(bitmap: Int, index: Int) -> Int
+    fun hashTrieNodeSingleton as nodeSingleton(value: a) -> Node(a)
+    fun hashTrieNodeInsertAt as nodeInsertAt(node: Node(a), index: Int, value: a) -> Node(a)
+    fun hashTrieNodeRemoveAt as nodeRemoveAt(node: Node(a), index: Int) -> Node(a)
 
 // How many bits of the mixed hash one level consumes. A 32-slot fan is 5 bits.
 let step: Int = 5

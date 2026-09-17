@@ -20,22 +20,22 @@ export exception SliceError(start: Int, end: Int)
 // the block is ordinary Hexagon over these.
 extern from "hex:intrinsic"
     (** How many elements `values` holds, in constant time. *)
-    export fun vectorLength as length(values: Vector(a)): Int
+    export fun vectorLength as length(values: Vector(a)) -> Int
 
     (** `values` with `value` added after its last element. *)
-    export fun vectorAppend as append(values: Vector(a), value: a): Vector(a)
+    export fun vectorAppend as append(values: Vector(a), value: a) -> Vector(a)
 
     (** `values` with `value` added before its first element. *)
-    export fun vectorPrepend as prepend(values: Vector(a), value: a): Vector(a)
+    export fun vectorPrepend as prepend(values: Vector(a), value: a) -> Vector(a)
 
     (** The element at a signed `index`: 1-based from the start, or from the end
         when negative, so `at(values, -1)` is the last element. Throws
         `IndexError` when no such element exists — zero never addresses one. *)
-    export fun vectorAt as at(values: Vector(a), index: Int): a
+    export fun vectorAt as at(values: Vector(a), index: Int) -> a
 
     (** `values` with the element at 1-based `index` replaced by `value`. Throws
         `IndexError` when `index` is out of range; it never extends the vector. *)
-    export fun vectorSet as set(values: Vector(a), index: Int, value: a): Vector(a)
+    export fun vectorSet as set(values: Vector(a), index: Int, value: a) -> Vector(a)
 
     // Unexported, and unexported *permanently*: `Iterable<Vector(a)>` is a
     // provided row (Collections Part 5 section 4), so `toSeq` at a vector is
@@ -52,18 +52,18 @@ extern from "hex:intrinsic"
     // declared here — and a key the compiler provides with no declaration
     // behind it would be an inventory entry no source proves. If that family is
     // ever re-cut, this is the row to cut with it.
-    fun vectorToSeq as elements(values: Vector(a)): Seq(a)
+    fun vectorToSeq as elements(values: Vector(a)) -> Seq(a)
 
     (** The elements of `values` collected into a vector. It forces the whole
         sequence, so it does not terminate on an infinite one. *)
-    export fun vectorFromSeq as fromSeq(values: Seq(a)): Vector(a)
+    export fun vectorFromSeq as fromSeq(values: Seq(a)) -> Vector(a)
 
     (** The elements of `values` as a fresh JavaScript array, in order. The
         array is built at once and is a new one every call, so writing to it
         changes nothing here; the crossing is shallow, so an element that is
         itself a vector arrives as that same vector. The empty vector gives an
         empty array. *)
-    export fun vectorToArray as toArray(values: Vector(a)): Array(a)
+    export fun vectorToArray as toArray(values: Vector(a)) -> Array(a)
 
 (** The empty vector. *)
 export let empty: Vector(a) = []

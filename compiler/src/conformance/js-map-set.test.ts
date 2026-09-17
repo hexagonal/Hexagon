@@ -133,7 +133,7 @@ describe("iteration over the real thing (Part 10 §6)", () => {
   test("`for (key, value) in` a native Map sees entries in insertion order", async () => {
     const exports = await run(
       'extern from "table"\n' +
-        "    fun table(): JsMap(String, Int)\n" +
+        "    fun table() ->! JsMap(String, Int)\n" +
         "\n" +
         "export fun walk(): (String, Int) =\n" +
         '    var letters = ""\n' +
@@ -155,7 +155,7 @@ describe("iteration over the real thing (Part 10 §6)", () => {
   test("`for x in` a native Set sees its elements", async () => {
     const exports = await run(
       'extern from "flags"\n' +
-        "    fun flags(): JsSet(Int)\n" +
+        "    fun flags() ->! JsSet(Int)\n" +
         "\n" +
         "export fun sum(): Int =\n" +
         "    var running = 0\n" +
@@ -180,7 +180,7 @@ describe("iteration over the real thing (Part 10 §6)", () => {
   test("a `Seq` derived from a borrowed view is re-traversable", async () => {
     const exports = await run(
       'extern from "scores"\n' +
-        "    fun scores(): JsSet(Int)\n" +
+        "    fun scores() ->! JsSet(Int)\n" +
         "\n" +
         "export fun twice(): Int =\n" +
         "    let sequence = Iterable.toSeq(scores!())\n" +
@@ -194,7 +194,7 @@ describe("iteration over the real thing (Part 10 §6)", () => {
   test("a `Seq` of a borrowed map's entries replays as pairs", async () => {
     const exports = await run(
       'extern from "prices"\n' +
-        "    fun prices(): JsMap(String, Int)\n" +
+        "    fun prices() ->! JsMap(String, Int)\n" +
         "\n" +
         "export fun report(): Int =\n" +
         "    let rows = Iterable.toSeq(prices!())\n" +
@@ -220,7 +220,7 @@ describe("iteration over the real thing (Part 10 §6)", () => {
   test("a loop over a borrowed view emits native `for…of`, asking for no evidence", () => {
     const text = javascript(
       'extern from "./stock.js"\n' +
-        "    fun stock(): JsSet(Int)\n" +
+        "    fun stock() ->! JsSet(Int)\n" +
         "\n" +
         "export fun tally(): Int =\n" +
         "    var seen = 0\n" +
@@ -241,8 +241,8 @@ describe("the `.d.ts` faces (Part 10 §1)", () => {
    * exposes no mutation on a borrowed view (§1).
    */
   const FACES = 'extern from "./stores.js"\n' +
-    "    fun store(): JsMap(String, Int)\n" +
-    "    fun marks(): JsSet(Float)\n" +
+    "    fun store() ->! JsMap(String, Int)\n" +
+    "    fun marks() ->! JsSet(Float)\n" +
     "\n" +
     "export let table: JsMap(String, Int) = store!()\n" +
     "export let marked: JsSet(Float) = marks!()\n" +
@@ -276,7 +276,7 @@ describe("the `.d.ts` faces (Part 10 §1)", () => {
     expect(
       declarations(
         'extern from "./grids.js"\n' +
-          "    fun grid(): JsMap(String, JsSet(Int))\n" +
+          "    fun grid() ->! JsMap(String, JsSet(Int))\n" +
           "\n" +
           "export let cells: JsMap(String, JsSet(Int)) = grid!()\n",
       ),
@@ -332,7 +332,7 @@ describe("boundary legality of the parameters (Part 10 §8)", () => {
    * wrap — and a borrowed view is a container like any other.
    */
   test("`JsMap(String, Seq(Int))` is the nested-adapter hard error", () => {
-    expect(projectDiagnostics("module Main\n\n" + 'extern from "./feed.js"\n    fun feed(): JsMap(String, Seq(Int))\n',
+    expect(projectDiagnostics("module Main\n\n" + 'extern from "./feed.js"\n    fun feed() ->! JsMap(String, Seq(Int))\n',
     )).toContain(
       "extern type `Seq` requires adaptation inside a direct value; use an " +
         "explicit eager conversion at the boundary or a foreign shim",
@@ -340,7 +340,7 @@ describe("boundary legality of the parameters (Part 10 §8)", () => {
   });
 
   test("`JsSet(Seq(Int))` is refused the same way", () => {
-    expect(projectDiagnostics("module Main\n\n" + 'extern from "./bunch.js"\n    fun bunch(): JsSet(Seq(Int))\n',
+    expect(projectDiagnostics("module Main\n\n" + 'extern from "./bunch.js"\n    fun bunch() ->! JsSet(Seq(Int))\n',
     )).toContain(
       "extern type `Seq` requires adaptation inside a direct value; use an " +
         "explicit eager conversion at the boundary or a foreign shim",
@@ -349,7 +349,7 @@ describe("boundary legality of the parameters (Part 10 §8)", () => {
 
   /** The key position is walked too, not only the value. */
   test("the key position is checked as well", () => {
-    expect(projectDiagnostics("module Main\n\n" + 'extern from "./index.js"\n    fun keyed(): JsMap(Seq(Int), String)\n',
+    expect(projectDiagnostics("module Main\n\n" + 'extern from "./index.js"\n    fun keyed() ->! JsMap(Seq(Int), String)\n',
     )).toContain(
       "extern type `Seq` requires adaptation inside a direct value; use an " +
         "explicit eager conversion at the boundary or a foreign shim",
@@ -362,20 +362,20 @@ describe("boundary legality of the parameters (Part 10 §8)", () => {
    */
   test("borrowed and representation-direct types nest freely", () => {
     expect(projectDiagnostics("module Main\n\n" + 'extern from "./mixed.js"\n' +
-        "    fun mixed(): JsMap(String, Array(Int))\n" +
-        "    fun sets(): JsSet(Vector(Float))\n",
+        "    fun mixed() ->! JsMap(String, Array(Int))\n" +
+        "    fun sets() ->! JsSet(Vector(Float))\n",
     )).toEqual([]);
   });
 });
 
 describe("arity, and what outranks the intrinsic", () => {
   test("`JsMap` takes two arguments", () => {
-    expect(projectDiagnostics("module Main\n\n" + 'extern from "./one.js"\n    fun one(): JsMap(Int)\n',
+    expect(projectDiagnostics("module Main\n\n" + 'extern from "./one.js"\n    fun one() ->! JsMap(Int)\n',
     )).toContain("type `JsMap` expects 2 arguments, but 1 were provided");
   });
 
   test("`JsSet` takes one", () => {
-    expect(projectDiagnostics("module Main\n\n" + 'extern from "./two.js"\n    fun two(): JsSet(Int, Int)\n',
+    expect(projectDiagnostics("module Main\n\n" + 'extern from "./two.js"\n    fun two() ->! JsSet(Int, Int)\n',
     )).toContain("type `JsSet` expects 1 argument, but 2 were provided");
   });
 
@@ -437,7 +437,7 @@ describe("`JsMap.get` and the two-step lowering (Part 10 §4.2)", () => {
   test("a present `undefined` value is `Some`, and only absence is `None`", async () => {
     const exports = await run(
       'extern from "voids"\n' +
-        "    fun voids(): JsMap(String, Unit)\n" +
+        "    fun voids() ->! JsMap(String, Unit)\n" +
         "\n" +
         "let answer(m: JsMap(String, Unit), key: String): String =\n" +
         "    match JsMap.get(m, key)\n" +
@@ -460,7 +460,7 @@ describe("`JsMap.get` and the two-step lowering (Part 10 §4.2)", () => {
   test("a stored `Nullable` `undefined` is `Some` too", async () => {
     const exports = await run(
       'extern from "maybes"\n' +
-        "    fun maybes(): JsMap(String, Nullable(Int))\n" +
+        "    fun maybes() ->! JsMap(String, Nullable(Int))\n" +
         "\n" +
         "let read(m: JsMap(String, Nullable(Int)), key: String): String =\n" +
         "    match JsMap.get(m, key)\n" +
@@ -483,7 +483,7 @@ describe("`JsMap.get` and the two-step lowering (Part 10 §4.2)", () => {
   test("a present ordinary value is handed back inside the `Some`", async () => {
     const exports = await run(
       'extern from "prices"\n' +
-        "    fun prices(): JsMap(String, Int)\n" +
+        "    fun prices() ->! JsMap(String, Int)\n" +
         "\n" +
         "let read(m: JsMap(String, Int), key: String): Int =\n" +
         "    match JsMap.get(m, key)\n" +
@@ -508,9 +508,9 @@ describe("`JsMap.get` and the two-step lowering (Part 10 §4.2)", () => {
   test("the map and the key are each evaluated once", async () => {
     const exports = await run(
       'extern from "counted"\n' +
-        "    fun table(): JsMap(String, Int)\n" +
-        "    fun key(): String\n" +
-        "    fun calls(): Int\n" +
+        "    fun table() ->! JsMap(String, Int)\n" +
+        "    fun key() ->! String\n" +
+        "    fun calls() ->! Int\n" +
         "\n" +
         "export fun probe(): Int =\n" +
         "    match JsMap.get(table!(), key!())\n" +
@@ -539,8 +539,8 @@ describe("the fresh `size` read (Part 10 §3, FFI Part 5 §3.1)", () => {
   test("two reads of one borrowed map see a foreign mutation between them", async () => {
     const exports = await run(
       'extern from "growing"\n' +
-        "    fun table(): JsMap(String, Int)\n" +
-        "    fun grow(): Int\n" +
+        "    fun table() ->! JsMap(String, Int)\n" +
+        "    fun grow() ->! Int\n" +
         "\n" +
         "export fun probe(): (Int, Int) =\n" +
         "    let m = table!()\n" +
@@ -560,8 +560,8 @@ describe("the fresh `size` read (Part 10 §3, FFI Part 5 §3.1)", () => {
   test("and two reads of one borrowed set do the same", async () => {
     const exports = await run(
       'extern from "flags"\n' +
-        "    fun flags(): JsSet(Int)\n" +
-        "    fun add(): Int\n" +
+        "    fun flags() ->! JsSet(Int)\n" +
+        "    fun add() ->! Int\n" +
         "\n" +
         "export fun probe(): (Int, Int) =\n" +
         "    let s = flags!()\n" +
@@ -590,9 +590,9 @@ describe("native equality, not structural (Part 10 §4.3)", () => {
   test("`NaN` finds `NaN` and `-0` finds `+0` in a borrowed map", async () => {
     const exports = await run(
       'extern from "odd"\n' +
-        "    fun table(): JsMap(Float, Int)\n" +
-        "    fun nan(): Float\n" +
-        "    fun negativeZero(): Float\n" +
+        "    fun table() ->! JsMap(Float, Int)\n" +
+        "    fun nan() ->! Float\n" +
+        "    fun negativeZero() ->! Float\n" +
         "\n" +
         "export fun probe(): (Bool, Bool, Bool) =\n" +
         "    let m = table!()\n" +
@@ -613,8 +613,8 @@ describe("native equality, not structural (Part 10 §4.3)", () => {
   test("`JsSet.contains` finds `NaN` too", async () => {
     const exports = await run(
       'extern from "marks"\n' +
-        "    fun marks(): JsSet(Float)\n" +
-        "    fun nan(): Float\n" +
+        "    fun marks() ->! JsSet(Float)\n" +
+        "    fun nan() ->! Float\n" +
         "\n" +
         "export fun probe(): (Bool, Bool) =\n" +
         "    let s = marks!()\n" +
@@ -641,9 +641,9 @@ describe("native equality, not structural (Part 10 §4.3)", () => {
   test("an object key is found by reference and not by contents", async () => {
     const exports = await run(
       'extern from "objects"\n' +
-        "    fun table(): JsMap(JsValue, Int)\n" +
-        "    fun stored(): JsValue\n" +
-        "    fun twin(): JsValue\n" +
+        "    fun table() ->! JsMap(JsValue, Int)\n" +
+        "    fun stored() ->! JsValue\n" +
+        "    fun twin() ->! JsValue\n" +
         "\n" +
         "export fun probe(): (Bool, Bool) =\n" +
         "    let m = table!()\n" +
@@ -662,9 +662,9 @@ describe("native equality, not structural (Part 10 §4.3)", () => {
   test("a set element is a reference too", async () => {
     const exports = await run(
       'extern from "objects"\n' +
-        "    fun members(): JsSet(JsValue)\n" +
-        "    fun stored(): JsValue\n" +
-        "    fun twin(): JsValue\n" +
+        "    fun members() ->! JsSet(JsValue)\n" +
+        "    fun stored() ->! JsValue\n" +
+        "    fun twin() ->! JsValue\n" +
         "\n" +
         "export fun probe(): (Bool, Bool) =\n" +
         "    let s = members!()\n" +
@@ -707,9 +707,9 @@ describe("eager construction from a `Seq` (Part 10 §6.5)", () => {
   test("the key representative it already stored survives the replacement", async () => {
     const exports = await run(
       'extern from "keys"\n' +
-        "    fun first(): JsValue\n" +
-        "    fun second(): JsValue\n" +
-        "    fun twin(): JsValue\n" +
+        "    fun first() ->! JsValue\n" +
+        "    fun second() ->! JsValue\n" +
+        "    fun twin() ->! JsValue\n" +
         "\n" +
         "export fun build(): JsMap(JsValue, Int) =\n" +
         "    JsMap.fromSeq(Vector.toSeq(\n" +
@@ -732,9 +732,9 @@ describe("eager construction from a `Seq` (Part 10 §6.5)", () => {
   test("`JsSet.fromSeq` keeps the first representative and position", async () => {
     const exports = await run(
       'extern from "keys"\n' +
-        "    fun first(): JsValue\n" +
-        "    fun second(): JsValue\n" +
-        "    fun twin(): JsValue\n" +
+        "    fun first() ->! JsValue\n" +
+        "    fun second() ->! JsValue\n" +
+        "    fun twin() ->! JsValue\n" +
         "\n" +
         "export fun build(): JsSet(JsValue) =\n" +
         "    JsSet.fromSeq(Vector.toSeq([first!(), second!(), first!(), twin!()]))\n" +
@@ -816,7 +816,7 @@ describe("the two failure doors (Part 10 §4.4)", () => {
   test("a `Proxy` whose `has` throws lands on `JsError`, never `KeyError` or `None`", async () => {
     const exports = await run(
       'extern from "hostile"\n' +
-        "    fun hostile(): JsMap(String, Int)\n" +
+        "    fun hostile() ->! JsMap(String, Int)\n" +
         "\n" +
         "export fun probe(): String =\n" +
         "    try\n" +
@@ -825,7 +825,7 @@ describe("the two failure doors (Part 10 §4.4)", () => {
         '            Some(_) => "some"\n' +
         "    catch\n" +
         '        KeyError => "KeyError"\n' +
-        '        JsError(e) => "JsError: " ++ JsError.message(e)\n',
+        '        JsError(e) => "JsError: " ++ JsError.message!(e)\n',
       {
         hostile: "export function hostile() {\n" +
           '  const inner = new Map([["a", 1]]);\n' +
@@ -848,19 +848,19 @@ describe("the two failure doors (Part 10 §4.4)", () => {
   test("a throwing `size` and a throwing set `has` take the same door", async () => {
     const exports = await run(
       'extern from "hostile"\n' +
-        "    fun table(): JsMap(String, Int)\n" +
-        "    fun members(): JsSet(Int)\n" +
+        "    fun table() ->! JsMap(String, Int)\n" +
+        "    fun members() ->! JsSet(Int)\n" +
         "\n" +
         "export fun counted(): String =\n" +
         "    try\n" +
         "        Int.show(JsMap.size(table!()))\n" +
         "    catch\n" +
-        "        JsError(e) => JsError.message(e)\n" +
+        "        JsError(e) => JsError.message!(e)\n" +
         "export fun member(): String =\n" +
         "    try\n" +
         "        Bool.show(JsSet.contains(members!(), 1))\n" +
         "    catch\n" +
-        "        JsError(e) => JsError.message(e)\n",
+        "        JsError(e) => JsError.message!(e)\n",
       {
         hostile: "export function table() {\n" +
           "  return new Proxy(new Map(), {\n" +
@@ -900,8 +900,8 @@ describe("the qualified and dot spellings (Part 10 §3, §6.1)", () => {
   test("`JsMap.toSeq`, `JsMap.entries` and `JsSet.toSeq` all traverse", async () => {
     const exports = await run(
       'extern from "stock"\n' +
-        "    fun table(): JsMap(String, Int)\n" +
-        "    fun flags(): JsSet(Int)\n" +
+        "    fun table() ->! JsMap(String, Int)\n" +
+        "    fun flags() ->! JsSet(Int)\n" +
         "\n" +
         "let render(pair: (String, Int)): String =\n" +
         "    let (key, value) = pair\n" +
@@ -936,8 +936,8 @@ describe("the qualified and dot spellings (Part 10 §3, §6.1)", () => {
   test("`m.size()`, `m.get(k)`, `m.toSeq()` and `s.contains(x)` are dot calls", async () => {
     const exports = await run(
       'extern from "stock"\n' +
-        "    fun table(): JsMap(String, Int)\n" +
-        "    fun flags(): JsSet(Int)\n" +
+        "    fun table() ->! JsMap(String, Int)\n" +
+        "    fun flags() ->! JsSet(Int)\n" +
         "\n" +
         "export fun probe(): (Int, Int, Int, Bool, Bool) =\n" +
         "    let m = table!()\n" +
@@ -973,7 +973,7 @@ describe("the qualified and dot spellings (Part 10 §3, §6.1)", () => {
    */
   test("the dispatch rescue names the companion, not the type's display spelling", () => {
     expect(projectDiagnostics("module Main\n\n" + 'extern from "./t.js"\n' +
-        "    fun t(): JsMap(String, Int)\n" +
+        "    fun t() ->! JsMap(String, Int)\n" +
         "let peek(v) = v.size()\n" +
         "export fun out(): Int = peek(t!())\n",
     )).toEqual([
@@ -985,7 +985,7 @@ describe("the qualified and dot spellings (Part 10 §3, §6.1)", () => {
 
   test("...and the same at a borrowed set", () => {
     expect(projectDiagnostics("module Main\n\n" + 'extern from "./t.js"\n' +
-        "    fun t(): JsSet(Int)\n" +
+        "    fun t() ->! JsSet(Int)\n" +
         "let peek(v) = v.contains(1)\n" +
         "export fun out(): Bool = peek(t!())\n",
     )).toEqual([
@@ -1000,7 +1000,7 @@ describe("the qualified and dot spellings (Part 10 §3, §6.1)", () => {
   test("`m.entries()` is a dot call too", async () => {
     const exports = await run(
       'extern from "stock"\n' +
-        "    fun table(): JsMap(String, Int)\n" +
+        "    fun table() ->! JsMap(String, Int)\n" +
         "\n" +
         "export fun probe(): Int =\n" +
         '    Seq.fold(table!().entries(), 0, (acc, pair) =>\n' +

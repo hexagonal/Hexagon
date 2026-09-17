@@ -21,14 +21,14 @@ extern from "hex:intrinsic"
     (** How many elements `s` holds. Read fresh from the native `size` at every
         call, never cached and never hoisted: foreign code owns the set, so two
         observations may honestly disagree (FFI Part 5 section 3.1). *)
-    export fun jsSetSize as size(s: JsSet(a)): Int
+    export fun jsSetSize as size(s: JsSet(a)) -> Int
 
     (** Whether `s` holds `element`, by the native `has` and its equality. The
         only Boolean read a borrowed set has, and the membership spelling
         (section 5). A hostile or proxied `has` that throws is an ordinary
         foreign throw and arrives as `JsError`, never as `False`
         (section 4.4). *)
-    export fun jsSetHas as contains(s: JsSet(a), element: a): Bool
+    export fun jsSetHas as contains(s: JsSet(a), element: a) -> Bool
 
     (** The elements of `elements` collected into a **fresh** native `Set`,
         eagerly and in traversal order. Unconstrained and shallow: nothing is
@@ -37,7 +37,7 @@ extern from "hex:intrinsic"
         construction does — the set keeps the first representative it stored and
         that element's position. Each call builds a new collection and consumes
         its source once, so an infinite sequence does not terminate. *)
-    export fun jsSetFromSeq as fromSeq(elements: Seq(a)): JsSet(a)
+    export fun jsSetFromSeq as fromSeq(elements: Seq(a)) -> JsSet(a)
 
 // `toSeq` is not bound here, and cannot be: `Iterable<JsSet(a)>` is a provided
 // row (Collections Part 5 section 4) whose member *is* the traversal, and a

@@ -341,7 +341,7 @@ describe("completions", () => {
       "    (** What the filesystem knows. *)",
       "    type Stats",
       "    (** Reads the whole file. *)",
-      "    fun readFileSync as readFile(path: String): String",
+      "    fun readFileSync as readFile(path: String) ->! String",
       "",
     ].join("\n");
 

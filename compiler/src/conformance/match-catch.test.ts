@@ -573,7 +573,7 @@ describe("attachment: line-initial match heads only (§5.4, §9)", () => {
       // that complaint fires and synchronizes past the rest of the file.
       expect(survives(
         'extern from "m"\n' +
-          "    fun f(): Int\n" +
+          "    fun f() ->! Int\n" +
           "    catch\n" +
           "        _ => 1\n" +
           "export let after: Int = 1\n",
@@ -587,7 +587,7 @@ describe("attachment: line-initial match heads only (§5.4, §9)", () => {
       // loop's own.
       expect(survives(
         'extern from "m"\n' +
-          "    fun f(): Int\n" +
+          "    fun f() ->! Int\n" +
           "catch\n" +
           "    _ => 1\n" +
           "export let after: Int = 1\n",
@@ -814,7 +814,7 @@ describe("the foreign branch, where `JsError` sits (§6, §7.4)", () => {
   test("a `_` arm in the clause catches a foreign throwable too", async () => {
     const exports = await run(
       'extern from "thrower"\n' +
-        "    fun reading(): Option(Int)\n" +
+        "    fun reading() ->! Option(Int)\n" +
         "\n" +
         "export let run(ignored: Int): Int =\n" +
         "    match reading!()\n" +
@@ -832,7 +832,7 @@ describe("the foreign branch, where `JsError` sits (§6, §7.4)", () => {
     const exports = await run(
       "exception Boom(message: String)\n" +
         'extern from "thrower"\n' +
-        "    fun reading(): Option(Int)\n" +
+        "    fun reading() ->! Option(Int)\n" +
         "\n" +
         "export let run(ignored: Int): Int =\n" +
         "    match reading!()\n" +
@@ -863,14 +863,14 @@ describe("the foreign branch, where `JsError` sits (§6, §7.4)", () => {
   test("a `JsError(e)` arm in the clause reaches the foreign throwable", async () => {
     const exports = await run(
       'extern from "thrower"\n' +
-        "    fun reading(): Option(Int)\n" +
+        "    fun reading() ->! Option(Int)\n" +
         "\n" +
         "export let run(ignored: Int): String =\n" +
         "    match reading!()\n" +
         "        Some(n) => Int.show(n)\n" +
         "        None => \"none\"\n" +
         "    catch\n" +
-        "        JsError(e) => JsError.message(e)\n",
+        "        JsError(e) => JsError.message!(e)\n",
       foreign,
     );
 
@@ -891,7 +891,7 @@ describe("the foreign branch, where `JsError` sits (§6, §7.4)", () => {
         "        Some(n) => Int.show(n)\n" +
         "        None => \"none\"\n" +
         "    catch\n" +
-        "        JsError(e) => JsError.message(e)\n",
+        "        JsError(e) => JsError.message!(e)\n",
     );
 
     expect(project.diagnostics.map(({ message }) => message)).toEqual([]);

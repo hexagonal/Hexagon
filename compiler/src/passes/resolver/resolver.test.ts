@@ -30,7 +30,7 @@ describe("resolve", () => {
   test("an exported pattern may share a source name with term exports", () => {
     const module = resolveSource(
       'extern from "host"\n' +
-        "    export fun foreign(value: Int): Int\n" +
+        "    export fun foreign(value: Int) ->! Int\n" +
         "export constraint C<a> =\n" +
         "    member(value: a) -> Int\n" +
         "export pattern foreign(value: Int): Int\n" +
@@ -61,7 +61,7 @@ describe("resolve", () => {
     const module = resolveSource(
       "extern from \"tiny-json\"\n" +
         "    export type JsonValue\n" +
-        "    export fun parse(text: String): JsonValue\n" +
+        "    export fun parse(text: String) ->! JsonValue\n" +
         "    let VERSION as version: String\n" +
         "let document: JsonValue = parse(version)",
     );

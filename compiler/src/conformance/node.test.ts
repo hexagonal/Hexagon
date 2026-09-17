@@ -243,7 +243,7 @@ describe("Node intrinsic contract (leak-proof rejections)", () => {
 
   test("an extern declaration may not name `Node` (the foreign boundary)", () => {
     const messages = diagnose(
-      "extern from \"host\"\n    fun sink(node: Node(Int)): Unit\n",
+      "extern from \"host\"\n    fun sink(node: Node(Int)) ->! Unit\n",
       { runtime: true },
     );
     expect(messages.some((m) => m.includes("extern") && m.includes("Node"))).toBe(true);

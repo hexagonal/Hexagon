@@ -22,28 +22,28 @@ extern from "hex:intrinsic"
     // Unexported, beneath `empty` below: the block admits `fun` only and an
     // empty set is a value, so the door row is the thunk and the wrapper is what
     // the language sees (`spec/intrinsics.md` section 3.2).
-    fun setEmpty as emptySet(): Set(a)
+    fun setEmpty as emptySet() -> Set(a)
 
     (** A set holding `element` and nothing else. Takes no `Hash`: a one-element
         set holds its element unplaced, so nothing is hashed until the first
         keyed operation. *)
-    export fun setSingleton as singleton(element: a): Set(a)
+    export fun setSingleton as singleton(element: a) -> Set(a)
 
     (** How many elements `s` holds, in constant time. *)
-    export fun setSize as size(s: Set(a)): Int
+    export fun setSize as size(s: Set(a)) -> Int
 
     (** Whether `s` holds `element`. The only Boolean read a set has. *)
-    export fun setContains as contains<a: Hash>(s: Set(a), element: a): Bool
+    export fun setContains as contains<a: Hash>(s: Set(a), element: a) -> Bool
 
     (** `s` with `element` in it. Idempotent, and never throws: adding an element
         the set already holds returns the set unchanged, keeping the
         representative already stored rather than the newcomer (Collections
         Part 4 section 5.1, section 5.4). *)
-    export fun setAdd as add<a: Hash>(s: Set(a), element: a): Set(a)
+    export fun setAdd as add<a: Hash>(s: Set(a), element: a) -> Set(a)
 
     (** `s` with `element` gone. Forgiving: an element that is not there yields
         the set unchanged rather than an error. *)
-    export fun setRemove as remove<a: Hash>(s: Set(a), element: a): Set(a)
+    export fun setRemove as remove<a: Hash>(s: Set(a), element: a) -> Set(a)
 
     // Every element of `s`, lazily. The order is the same for two traversals of
     // one set within one execution, and is promised for nothing else — not
@@ -57,7 +57,7 @@ extern from "hex:intrinsic"
     // as the dot call `s.toSeq()` and as `Set.toSeq(s)` qualified, both of
     // which read the row. The algebra below calls this row directly rather
     // than the member, which is the same walk one indirection shorter.
-    fun setElements as elements(s: Set(a)): Seq(a)
+    fun setElements as elements(s: Set(a)) -> Seq(a)
 
     // Unexported, and the one row here that is not Collections Part 4
     // section 6.2 surface. It answers the element `s` physically stores, not
@@ -67,7 +67,7 @@ extern from "hex:intrinsic"
     // while section 5.4 pins the result's representatives to the left side: when
     // the smaller side is the right one, the left's representative has to be
     // looked up rather than taken from the element in hand.
-    fun setLookup as storedMember<a: Hash>(s: Set(a), element: a): Option(a)
+    fun setLookup as storedMember<a: Hash>(s: Set(a), element: a) -> Option(a)
 
 (** The empty set. *)
 export let empty: Set(a) = emptySet()

@@ -61,7 +61,7 @@ extern from "hex:intrinsic"
         implementation, and the one probe that can throw — `Array.isArray` on a
         revoked proxy — is guarded, so a revoked proxy classifies as
         `JsKind.Object` and no input whatsoever makes this throw. *)
-    export fun jsValueKind as kind(value: JsValue): JsKind
+    export fun jsValueKind as kind(value: JsValue) -> JsKind
 
     // The total injection (section 2). Every Hexagon value already *is* a
     // JavaScript value, so this is the representation-honest identity — and it
@@ -69,27 +69,27 @@ extern from "hex:intrinsic"
     // wrapper and no call. There is no checked path into `JsValue` because none
     // is needed.
     (** `value` seen as the JavaScript value it already is. *)
-    export fun jsValueFrom as from(value: a): JsValue
+    export fun jsValueFrom as from(value: a) -> JsValue
 
     // `Number.isSafeInteger`, which is what separates `Shape` from `Range` at
     // `toInt`. Asked only of a value `kind` has already called `JsKind.Number`,
     // so it is a question about the number and never about the shape.
-    fun jsValueIsSafeInteger as isSafeInteger(value: JsValue): Bool
+    fun jsValueIsSafeInteger as isSafeInteger(value: JsValue) -> Bool
 
     // The five representation crossings, each the identity over one shared
     // representation: a JavaScript `number` *is* an `Int` and a `Float`, a
     // `bigint` *is* a `BigInt`, a `boolean` *is* a `Bool`, a `string` *is* a
     // `String`. Unexported and unchecked: the guard that earns each one is the
     // exported decoder written over it below.
-    fun jsValueAsIntUnchecked as asIntUnchecked(value: JsValue): Int
+    fun jsValueAsIntUnchecked as asIntUnchecked(value: JsValue) -> Int
 
-    fun jsValueAsFloatUnchecked as asFloatUnchecked(value: JsValue): Float
+    fun jsValueAsFloatUnchecked as asFloatUnchecked(value: JsValue) -> Float
 
-    fun jsValueAsBigIntUnchecked as asBigIntUnchecked(value: JsValue): BigInt
+    fun jsValueAsBigIntUnchecked as asBigIntUnchecked(value: JsValue) -> BigInt
 
-    fun jsValueAsBoolUnchecked as asBoolUnchecked(value: JsValue): Bool
+    fun jsValueAsBoolUnchecked as asBoolUnchecked(value: JsValue) -> Bool
 
-    fun jsValueAsStringUnchecked as asStringUnchecked(value: JsValue): String
+    fun jsValueAsStringUnchecked as asStringUnchecked(value: JsValue) -> String
 
     // `Array.isArray`, raw — and raw is the point. `kind` guards this probe so
     // that a revoked proxy classifies as `JsKind.Object` and nothing makes the
@@ -97,13 +97,13 @@ extern from "hex:intrinsic"
     // throwing probe is foreign control flow rather than a verdict about the
     // data. Two callers, two promises, so two rows: this one is asked only by
     // `toArray` below.
-    fun jsValueIsArray as isArray(value: JsValue): Bool
+    fun jsValueIsArray as isArray(value: JsValue) -> Bool
 
     // The sixth crossing, and the same identity as the five above it: a
     // JavaScript array *is* an `Array(JsValue)`, whose elements are the same
     // uncertain values they were. Zero-copy means exactly this — the borrowed
     // view is the array, not a copy of it (section 4.2).
-    fun jsValueAsArrayUnchecked as asArrayUnchecked(value: JsValue): Array(JsValue)
+    fun jsValueAsArrayUnchecked as asArrayUnchecked(value: JsValue) -> Array(JsValue)
 
 (** `value` as a `Float`, or `Err` with reason `Shape` when it is not a
     JavaScript number. Every number succeeds — `NaN`, both infinities and `-0`

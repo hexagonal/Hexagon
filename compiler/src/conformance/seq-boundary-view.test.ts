@@ -171,7 +171,7 @@ describe("the face is representation, at every construction site (§9.4)", () =>
     const exports = await run(
       [["/main.hex",
         "module Main\n\n" + "extern from \"numbers\"\n" +
-        "    fun counter(): Seq(Int)\n" +
+        "    fun counter() ->! Seq(Int)\n" +
         "\n" +
         "export let adapted: Seq(Int) = counter!()\n"]],
       { numbers: "export function counter() { return [7, 8, 9]; }" },
@@ -243,8 +243,8 @@ describe("§9.4 property 2: all cursors share one memoized view", () => {
     const exports = await run(
       [["/main.hex",
         "module Main\n\n" + "extern from \"probe\"\n" +
-        "    pure fun note(value: Int): Int\n" +
-        "    fun steps(): Int\n" +
+        "    fun note(value: Int) -> Int\n" +
+        "    fun steps() ->! Int\n" +
         "\n" +
         "export let counted: Seq(Int) =\n" +
         "    Seq.map(Seq.take(Seq.iterate(1, x => x + 1), 3), note)\n" +
@@ -306,8 +306,8 @@ describe("§9.4 property 3: the view is created lazily", () => {
     const exports = await run(
       [["/main.hex",
         "module Main\n\n" + "extern from \"probe\"\n" +
-        "    pure fun note(value: Int): Int\n" +
-        "    fun steps(): Int\n" +
+        "    fun note(value: Int) -> Int\n" +
+        "    fun steps() ->! Int\n" +
         "\n" +
         "export let counted: Seq(Int) =\n" +
         "    Seq.map(Seq.take(Seq.iterate(1, x => x + 1), 3), note)\n" +
@@ -329,8 +329,8 @@ describe("§9.4 property 3: the view is created lazily", () => {
     const exports = await run(
       [["/main.hex",
         "module Main\n\n" + "extern from \"probe\"\n" +
-        "    pure fun note(value: Int): Int\n" +
-        "    fun steps(): Int\n" +
+        "    fun note(value: Int) -> Int\n" +
+        "    fun steps() ->! Int\n" +
         "\n" +
         "export let counted: Seq(Int) =\n" +
         "    Seq.map(Seq.take(Seq.iterate(1, x => x + 1), 3), note)\n" +
@@ -359,8 +359,8 @@ describe("§9.4 property 4: failure is memoized per position", () => {
     const exports = await run(
       [["/main.hex",
         "module Main\n\n" + "extern from \"probe\"\n" +
-        "    pure fun risky(value: Int): Int\n" +
-        "    fun attempts(): Int\n" +
+        "    fun risky(value: Int) -> Int\n" +
+        "    fun attempts() ->! Int\n" +
         "\n" +
         "export let counted: Seq(Int) =\n" +
         "    Seq.map(Seq.take(Seq.iterate(1, x => x + 1), 3), risky)\n" +
@@ -437,8 +437,8 @@ describe("§9.4 property 6: an early return() ends that cursor only", () => {
     const exports = await run(
       [["/main.hex",
         "module Main\n\n" + "extern from \"numbers\"\n" +
-        "    fun counter(): Seq(Int)\n" +
-        "    fun closes(): Int\n" +
+        "    fun counter() ->! Seq(Int)\n" +
+        "    fun closes() ->! Int\n" +
         "\n" +
         "export let adapted: Seq(Int) = counter!()\n" +
         "export let closed(ignored: Int): Int = closes!()\n"]],
@@ -546,8 +546,8 @@ describe("§9.4 channel separation: internal traversal never uses the face", () 
     const exports = await run(
       [["/main.hex",
         "module Main\n\n" + "extern from \"probe\"\n" +
-        "    pure fun note(value: Int): Int\n" +
-        "    fun steps(): Int\n" +
+        "    fun note(value: Int) -> Int\n" +
+        "    fun steps() ->! Int\n" +
         "\n" +
         "let shared: Seq(Int) = Seq.map(Seq.take(Seq.iterate(1, x => x + 1), 3), note)\n" +
         "\n" +
@@ -592,8 +592,8 @@ describe("§9.4 channel separation: internal traversal never uses the face", () 
     const exports = await run(
       [["/main.hex",
         "module Main\n\n" + "extern from \"probe\"\n" +
-        "    pure fun note(value: Int): Int\n" +
-        "    fun steps(): Int\n" +
+        "    fun note(value: Int) -> Int\n" +
+        "    fun steps() ->! Int\n" +
         "\n" +
         "let counted: Seq(Int) = Seq.map(Seq.take(Seq.iterate(1, x => x + 1), 3), note)\n" +
         "\n" +
@@ -697,8 +697,8 @@ describe("occasion 1's wrapper is transparent to Hexagon importers (§9.4)", () 
         ["/main.hex",
           "module Main\n\n" + "import Lib as LibHex\n" +
           "extern from \"probe\"\n" +
-          "    pure fun note(value: Int): Int\n" +
-          "    fun steps(): Int\n" +
+          "    fun note(value: Int) -> Int\n" +
+          "    fun steps() ->! Int\n" +
           "\n" +
           "let counted: Seq(Int) = Seq.map(Seq.take(Seq.iterate(1, x => x + 1), 3), note)\n" +
           "\n" +

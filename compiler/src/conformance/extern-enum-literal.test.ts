@@ -578,7 +578,7 @@ describe("nullish members (§2.4, §9 test 14)", () => {
   });
 
   test("the refusal covers an extern signature and a declaration's slot", () => {
-    expect(projectDiagnostics("module Main\n\n" + `${ONE_NULLISH}extern from "./x.js"\n    fun d(v: Nullable(Tri)): Int\n`,
+    expect(projectDiagnostics("module Main\n\n" + `${ONE_NULLISH}extern from "./x.js"\n    fun d(v: Nullable(Tri)) ->! Int\n`,
     )).toContain(REFUSAL);
     expect(projectDiagnostics("module Main\n\n" + `${ONE_NULLISH}record Box = { slot: Nullable(Tri) }\n`))
       .toContain(REFUSAL);
@@ -890,7 +890,7 @@ describe("diagnostics (§2.4, §9 test 17)", () => {
    * three continuations are named in one sentence.
    */
   test("a `from`-less `extern` block is refused", () => {
-    expect(projectDiagnostics("module Main\n\n" + "extern\n    fun f(): Int\n"))
+    expect(projectDiagnostics("module Main\n\n" + "extern\n    fun f() ->! Int\n"))
       .toEqual(["expected `from`, `import` or `enum` after `extern`"]);
   });
 

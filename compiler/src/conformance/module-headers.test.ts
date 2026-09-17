@@ -1035,7 +1035,7 @@ describe("Modules §11.1 / FFI Part 4 §2.1 — a foreign specifier is emitted v
     const project = compileFiles([[
       "/n.hex",
       "module Deep.Nested\n\n" +
-      'extern from "./world.js"\n    fun boom(): Int\n' +
+      'extern from "./world.js"\n    fun boom() ->! Int\n' +
       "export let n: Int = boom()\n",
     ]]);
     const nested = project.modules.find(({ name }) => name === "Deep.Nested")!;
@@ -1059,7 +1059,7 @@ describe("Modules §11.1 / FFI Part 4 §2.1 — a foreign specifier is emitted v
     const project = compileFiles([[
       "/n.hex",
       "module Deep.Nested\n\n" +
-      'extern from "tiny-json"\n    fun parse(s: String): Int\n' +
+      'extern from "tiny-json"\n    fun parse(s: String) ->! Int\n' +
       'export let n: Int = parse("1")\n',
     ]]);
     expect(specifiers(project.modules.find(({ name }) => name === "Deep.Nested")!.javascript.text))

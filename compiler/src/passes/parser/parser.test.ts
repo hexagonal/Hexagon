@@ -52,9 +52,9 @@ describe("parse", () => {
     const module = parseSource(
       "extern from \"tiny-json\"\n" +
         "    export type JsonValue\n" +
-        "    export fun parse(text: String): JsonValue\n" +
+        "    export fun parse(text: String) ->! JsonValue\n" +
         "    let VERSION as version: String\n" +
-        "    export default fun createClient(): JsonValue\n" +
+        "    export default fun createClient() ->! JsonValue\n" +
         "extern import \"telemetry/register\"",
     );
 
@@ -93,7 +93,7 @@ describe("parse", () => {
   test("the reserved `__` prefix is decided by the seat the name sits in", () => {
     const module = parseSource(
       'extern from "vendor"\n' +
-        "    export fun __internal as internal(): String\n" +
+        "    export fun __internal as internal() ->! String\n" +
         "    export type __Handle as THandle\n" +
         "    let __state: Int\n" +
         "    export type __Raw\n" +
@@ -131,7 +131,7 @@ describe("parse", () => {
   test("an extern alias's local side is an ordinary name seat", () => {
     const module = parseSource(
       'extern from "vendor"\n' +
-        "    export fun ok as __shadow(): String",
+        "    export fun ok as __shadow() ->! String",
     );
 
     expect(module.diagnostics.map(({ message }) => message)).toEqual([
@@ -145,13 +145,14 @@ describe("parse", () => {
         "    let parse(text: String): String\n" +
         "    fun version: String\n" +
         "    let callback: String -> String\n" +
-        "    default fun create as make(): String\n" +
-        "    fun run(): Unit = ()",
+        "    default fun create as make() ->! String\n" +
+        "    fun run() ->! Unit = ()",
     );
     const messages = module.diagnostics.map(({ message }) => message);
 
     expect(messages).toContain(
-      "extern callable declarations use `fun`; write `fun parse(...)` with explicit parameters",
+      "extern callable declarations use `fun` and write their effect arrow; " +
+        "write `fun parse(text: String) ->! String`",
     );
     expect(messages).toContain(
       "extern `fun` declares a callable and requires a parameter list; for a foreign value, write `let version: Type`",
@@ -1090,8 +1091,8 @@ describe("parse", () => {
         "exception E(f: (Int) => Int)", // exception payload slot
         "let f(g: (Int) => Int): Int = g(1)", // parameter annotation
         "let f = (g: (Int) => Int) => g(1)", // lambda parameter annotation
-        'extern from "m"\n    fun g(x: Int): (Int) => Int\n', // extern row result
-        'extern from "m"\n    fun g(x: (Int) => Int): Int\n', // extern row parameter
+        'extern from "m"\n    fun g(x: Int) -> (Int) => Int\n', // extern row result
+        'extern from "m"\n    fun g(x: (Int) => Int) ->! Int\n', // extern row parameter
         "type H = ((Int) => Int, Int)", // nested inside a tuple type
         "type H = Box((Int) => Int)", // nested inside a type argument
         "type H = () => Int", // the zero-parameter domain, not the `()` redirect

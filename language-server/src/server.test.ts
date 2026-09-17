@@ -1464,7 +1464,7 @@ describe("hover renders the arrow trio", () => {
     "export let twice(step: Int -> Int, value: Int): Int = step(step(value))",
     "",
     "extern from \"./world.js\"",
-    "    export conduit fun runner(step: () ->? String): Int",
+    "    export fun runner(step: () ->? String) ->? Int",
     "",
   ].join("\n");
 

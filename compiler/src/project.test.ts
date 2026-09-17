@@ -68,7 +68,7 @@ test("re-exports extern bindings and opaque types through Hexagon modules", () =
       "/tiny-json.hex",
       "module TinyJson\n\n" + "extern from \"tiny-json\"\n" +
         "    export type JsonValue\n" +
-        "    export fun parse(text: String): JsonValue",
+        "    export fun parse(text: String) ->! JsonValue",
     ),
     new Source.File(
       Source.fileId(1),
@@ -229,7 +229,7 @@ test("rejects extern linkage to a Hexagon source module", () => {
     new Source.File(
       Source.fileId(1),
       "/main.hex",
-      "module Main\n\n" + 'extern from "./library"\n    fun answer(): Int',
+      "module Main\n\n" + 'extern from "./library"\n    fun answer() ->! Int',
     ),
   ]);
 

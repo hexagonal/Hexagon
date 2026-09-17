@@ -4005,6 +4005,24 @@ class Checker {
               this.#require(constraint, variable, parameter.span, "annotation");
             }
           }
+          // *(#869.)* An intrinsic row writes its arrow like every other
+          // callable extern row (Intrinsics §4.2; Effects §6.1) — what is the
+          // compiler's here is *answering* for it, a conformance obligation on
+          // the lowering rather than a trusted claim, which needs no notation.
+          // So the signature scope opens on the same terms the foreign branch's
+          // does: a `->?` the row writes, outer or nested, is this signature's
+          // one variable, and a `->?` with no inlet to take it takes §4.4's
+          // refusal.
+          const intrinsicLinked = signatureInlet(
+            declaration.parameters.map((parameter) => parameter.annotation),
+            declaration.returnAnnotation,
+          );
+          const enclosingIntrinsicSignature = this.#openSignature(
+            intrinsicLinked ? "open" : "clear",
+            0,
+            declaration.span,
+          );
+          const intrinsicFace = this.#signatureFace;
           const parameters = declaration.parameters.map((parameter) => {
             const type = parameter.annotation === undefined
               ? ERROR
@@ -4023,11 +4041,24 @@ class Checker {
           const result = this.#annotationType(
             declaration.returnAnnotation, 0, new Map(), typeParameters,
           );
+          const intrinsicEffect = this.#writtenEffect(
+            declaration.effect,
+            declaration.arrowSpan,
+          );
+          this.#closeSignature(enclosingIntrinsicSignature);
           this.#schemes.set(declaration.binding.symbol, {
-            variables: [...typeParameters.values()].flatMap((type) =>
-              type.kind === "Variable" ? [type] : []
-            ),
-            type: { kind: "Function", parameters, result },
+            variables: [
+              ...[...typeParameters.values()].flatMap((type) =>
+                type.kind === "Variable" ? [type] : []
+              ),
+              ...(intrinsicLinked && intrinsicFace !== undefined ? [intrinsicFace.effect] : []),
+            ],
+            type: {
+              kind: "Function",
+              ...(intrinsicEffect === undefined ? {} : { effect: intrinsicEffect }),
+              parameters,
+              result,
+            },
           });
           continue;
         }
@@ -4071,34 +4102,27 @@ class Checker {
           return type;
         });
         const externResult = this.#annotationType(declaration.returnAnnotation);
+        // The face is **read from the row's arrow** *(#869)*, exactly as a
+        // constraint member header's is: a boundary row is a contract with no
+        // body to infer from (Effects §6.1). `->` is the trusted purity claim,
+        // `->!` the honest arrow for the unknown — what the retired impure
+        // default supplied silently — and `->?` the declared conduit, which
+        // takes the signature's one variable at the outer arrow as well as at
+        // every `->?` the signature writes. What splits by ownership is who
+        // answers for the arrow, not how it is read, so the intrinsic branch
+        // above reads it the same way.
+        //
+        // The signature's variable belongs to the callback slots the row
+        // declares, and is quantified so each caller instantiates it afresh.
+        // Left unquantified it would be one module-global variable that the
+        // first call site pinned for every other — the same trap the intrinsic
+        // branch's snapshot comment names.
+        //
+        // A `->?` on a row whose parameters carry none is Effects §4.4's
+        // inlet-less refusal, reported at the arrow by `#writtenEffect` and
+        // recovered as the constant, never quietly re-read.
+        const externEffect = this.#writtenEffect(declaration.effect, declaration.arrowSpan);
         this.#closeSignature(enclosingSignature);
-        // Effects §6.1: a user-written extern is trust territory, so it is
-        // effectful by default; `pure fun …` is the trusted claim that opts
-        // out. Compiler-owned intrinsic rows never reach here — they take the
-        // branch above and keep their pure faces, because intrinsics §4.2
-        // *verifies* them rather than trusting them, which is the whole reason
-        // the default splits by ownership.
-        //
-        // The row's *own* colour is that default; the signature's variable
-        // belongs to the callback slots it declares, and is quantified so each
-        // caller instantiates it afresh. Left unquantified it would be one
-        // module-global variable that the first call site pinned for every
-        // other — the same trap the intrinsic branch's snapshot comment names.
-        //
-        // #409's third arm: `conduit` seats that same variable at the row's
-        // *outer* arrow too, so the row is exactly as effectful as its
-        // callbacks, jointly. Nothing FFI-specific follows from it — the face
-        // is an ordinary linked face, and callers get §3.3's machinery
-        // unchanged. The claim needs a `->?` to link to, and a row that offers
-        // none is refused rather than quietly re-read (§4.4's own sentence).
-        const conduitClaim = declaration.conduit;
-        const conduitColour = conduitClaim === undefined
-          ? undefined
-          : externLinked && externFace !== undefined
-          ? externFace.effect
-          : (this.#reportUnlinkedConduit(conduitClaim), undefined);
-        const externEffect = conduitColour ??
-          (declaration.pure !== true ? IMPURE : undefined);
         this.#schemes.set(declaration.binding.symbol, {
           variables: externLinked && externFace !== undefined ? [externFace.effect] : [],
           type: {
@@ -13741,31 +13765,6 @@ class Checker {
         message: "write `->!`",
         edits: [{ span: arrowSpan, replacement: "->!" }],
       }],
-    });
-  }
-
-  /**
-   * FFI Part 4 §4.5 (#409): a `conduit` claim on a row with no `->?` anywhere in
-   * its signature. The claim is that the row's colour *is* its callbacks', and a
-   * row declaring no linked slot has none to take — so it is a diagnostic rather
-   * than a silent re-read, on §4.1's and §4.4's own sentence: one spelling, one
-   * meaning, and where the meaning is unavailable, a report.
-   *
-   * The advice is in words rather than a fixit. The two repairs are dropping the
-   * claim and marking a callback parameter `->?`, and which one is right is the
-   * design conversation the report exists to start — the same reason §4.2's
-   * declaration-form branch gives its advice in words when there is no arrow to
-   * rewrite.
-   */
-  #reportUnlinkedConduit(claim: Source.Span): void {
-    this.#diagnostics.add({
-      severity: "error",
-      message:
-        "`conduit` claims this row is exactly as effectful as its callbacks, and " +
-        "this signature has no `->?` slot to take that colour from — write `->?` " +
-        "on the callback parameter this row runs, or drop the claim and take the " +
-        "impure default",
-      primary: claim,
     });
   }
 
