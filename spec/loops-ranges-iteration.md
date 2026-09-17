@@ -198,7 +198,7 @@ Boundary crossing — what a foreign iterable becomes in Hexagon, and what an ex
 ### 6.6 The representation (decided 2026-07-26)
 
 ```
-opaque record Seq(a) = { pull: () -> Option((a, Seq(a))) }
+opaque record Seq(+a) = { pull: () -> Option((a, Seq(a))) }
 
 export let next(source: Seq(a)): Option((a, Seq(a))) = (source.pull)()
 ```
