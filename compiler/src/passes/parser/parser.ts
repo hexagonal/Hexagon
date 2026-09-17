@@ -2645,6 +2645,12 @@ class Parser {
     // parameter list is (§4.1): it takes the callable redirect, and its own
     // rewrite spells the `fun`, so the fixit drops the word alone. Only a `let`
     // with neither is a value reference, and colourless.
+    //
+    // The inlet is measured honestly even though this seat's answer is
+    // `"written"` and the give-way clause therefore reaches first: the arrow
+    // this row's own §13 rewrite spells is the annotation's, so no colon case
+    // arises here and the measurement decides nothing today. It is the seat's
+    // true answer, and the one a seat that did place an arrow would need.
     this.#reportRetiredExternClaims(
       retired,
       annotation.kind === "Function" ? "callable" : "value",
@@ -2751,9 +2757,10 @@ class Parser {
     const claimed = conduit ? "->?" : "->";
     // §4.5's composition rule, and its one exception: a rewrite that would be
     // refused as inlet-less names the conservative arrow instead, and says why.
-    // A form this parser does not read far enough to place an arrow in is also
-    // one it has not read the parameters of, so it makes no claim about what
-    // the row is handed: `"unstated"` takes the plain arrow sentence.
+    // The colon case's question alone. A form this parser does not read far
+    // enough to place an arrow in is also one it has not read the parameters of,
+    // so it makes no claim about what the row is handed: `"unstated"` takes the
+    // plain arrow sentence.
     const inletLess = conduit && !hasInlet && place !== "unstated";
     const written = inletLess ? "->!" : claimed;
     const because = row === "type"
@@ -2767,20 +2774,21 @@ class Parser {
       severity: "error",
       message: row !== "callable"
         ? `\`${words}\` is retired, and ${because} — drop the word${plural}`
+        : place === "written"
+        // **The report follows the rewrite**, and §4.5 composes the rewrite in
+        // order: the written arrow stands — the row's own, or the one a
+        // function-typed `let`'s annotation writes — before any question of an
+        // inlet arises. So the arrow clause gives way here rather than advising
+        // an arrow the rewrite does not place.
+        ? `\`${words}\` is retired, and this row's arrow is written — drop the word${plural}`
         : inletLess
-        // Read **before** the give-way clause: the claim named a dependency the
-        // row has nothing to depend on, and that is true of the row whatever it
-        // writes at its arrow — so this sentence replaces the others (§4.5's
-        // "read instead"). It is §4.5's advice in words rather than a rewrite to
-        // an arrow the checker would refuse, and the inlet-less row at this
-        // row's outer arrow, which says exactly this, is not reported on top of
-        // it (§13).
+        // The colon case, and only it: the arrow the words said would take the
+        // colon's place, and a `->?` there would be refused for want of an
+        // inlet. So the sentence is §4.5's advice in words, and the inlet-less
+        // row at this row's outer arrow, which says exactly this, is not
+        // reported on top of it (§13).
         ? "`conduit` is retired, and nothing this row is handed carries `->?` — " +
           "write `->?` on the callback parameter this row runs, or write `->!`"
-        : place === "written"
-        // The arrow clause gives way: there is no arrow to advise, because the
-        // row — or the rewrite another §13 row supplies — already writes one.
-        ? `\`${words}\` is retired, and this row's arrow is written — drop the word${plural}`
         : claimed === "->"
         ? `\`${words}\` is retired — write the pure arrow on the row itself: ` +
           "`fun trim(document: String) -> String`"

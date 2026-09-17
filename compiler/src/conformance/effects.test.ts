@@ -1519,28 +1519,41 @@ export let t: String = trim("x")
     ]);
   });
 
-  it("measures a `let` row's inlet the way the checker does", () => {
-    // §4.5's inlet test is a *position* test, not a search: an inlet is a `->?`
-    // in something a caller supplies. A `let` whose annotation is a function
-    // type is asked of that signature's own parameters and result spine, and
-    // one with a parameter list is asked of the parameters it wrote — so a row
-    // that spells `->?` only where no caller reaches it is told so, and a row
-    // that spells one where a caller does is not.
+  it("reads the give-way clause before the inlet question, as the rewrite composes", () => {
+    // §4.5 composes the rewrite in order, and **the report follows it**: a
+    // written arrow stands — the row's own, or the one a function-typed `let`'s
+    // annotation writes — before any question of an inlet arises. So a row that
+    // writes its arrow and has no inlet is told its arrow is written, never
+    // advised to rewrite it: the inlet-less sentence names an arrow the rewrite
+    // would place, and here it places none.
     const row = (text: string) =>
       effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
     export ${text}
 `]])[0];
-    // The `->?` is the annotation's own outer arrow: nothing supplies it.
-    expect(row("conduit let f: () ->? Int")).toBe(retiredWithoutInlet("conduit"));
-    // And here it is inside the *result*, which a caller receives rather than
-    // supplies — a search for the token would have found it and been wrong.
-    expect(row("conduit let g: Int -> (() ->? Int)")).toBe(retiredWithoutInlet("conduit"));
-    // A caller does supply this one, so the claim has something to link to.
+    expect(row("conduit fun trim(document: String) -> String")).toBe(giveWay("conduit"));
+    expect(row("conduit let f: () ->? Int")).toBe(giveWay("conduit"));
+    expect(row("conduit let g: Int -> (() ->? Int)")).toBe(giveWay("conduit"));
     expect(row("conduit let h: (() ->? Int) -> Int")).toBe(giveWay("conduit"));
-    // The same three questions at the `let`-with-parameters row, whose own
-    // rewrite spells the `fun` and takes the words' arrow.
+  });
+
+  it("measures the colon case's inlet the way the checker does", () => {
+    // Where the rewrite *does* place an arrow, the inlet decides which one, and
+    // §4.5's inlet test is a *position* test rather than a search: an inlet is a
+    // `->?` in something a caller supplies. The `let`-with-parameters row is
+    // asked of the parameters it wrote, and its own rewrite spells the `fun`
+    // while the words supply its arrow.
+    const row = (text: string) =>
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
+    export ${text}
+`]])[0];
+    // A caller supplies this `->?`, so the claim has something to link to.
     expect(row("conduit let p(x: () ->? Int): Int")).toBe(RETIRED_CONDUIT);
+    // Nothing here carries one at all.
     expect(row("conduit let q(x: Int): Int")).toBe(retiredWithoutInlet("conduit"));
+    // And here the only `->?` stands in the *result*, which a caller receives
+    // rather than supplies — a search for the token would have found it and
+    // been wrong.
+    expect(row("conduit let r(x: Int): (() ->? Int)")).toBe(retiredWithoutInlet("conduit"));
   });
 
   it("reaches Part 5's keywords at the seat, and refuses the form separately", () => {
@@ -1903,12 +1916,11 @@ export let impureUse: Int = runner!(() => readLine!())
     // privilege gate's refusal — this is an ordinary user file.
     for (
       const [claim, message] of [
-        // This row writes its arrow, so `pure`'s arrow clause gives way. The
-        // conduit claim named a dependency the row has nothing to depend on,
-        // which is true whatever the row writes at its arrow — §4.5 has that
-        // sentence read *instead*, so it outranks the give-way clause.
+        // This row writes its arrow, so the clause gives way for either word:
+        // §4.5 composes the rewrite before it asks about an inlet, and the
+        // report follows the rewrite.
         ["pure", giveWay("pure")],
-        ["conduit", retiredWithoutInlet("conduit")],
+        ["conduit", giveWay("conduit")],
       ] as const
     ) {
       expect(
