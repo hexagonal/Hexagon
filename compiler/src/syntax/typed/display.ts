@@ -164,7 +164,13 @@ function displayType(
           displayType(argument, variables, numbering)
         ).join(", ")})`;
     case "ExternType":
-      return type.name;
+      // #927: a parameterized intrinsic `type` row displays its arguments like
+      // any nominal's. A foreign extern type has none and reads as its bare name.
+      return type.arguments.length === 0
+        ? type.name
+        : `${type.name}(${type.arguments.map((argument) =>
+          displayType(argument, variables, numbering)
+        ).join(", ")})`;
     case "Function": {
       const parameters = type.parameters.map((parameter) =>
         displayType(parameter, variables, numbering),
@@ -281,6 +287,8 @@ function collectVariables(
       for (const argument of type.arguments) collectVariables(argument, variables);
       return;
     case "ExternType":
+      for (const argument of type.arguments) collectVariables(argument, variables);
+      return;
     case "Primitive":
     case "Range":
     case "Error":

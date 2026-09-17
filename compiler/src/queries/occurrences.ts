@@ -439,6 +439,9 @@ class Collector {
           annotation.name,
           this.#headNameSpan(annotation.span),
         );
+        // #927: a parameterized intrinsic `type` row's arguments are
+        // occurrences of whatever they name, exactly as a record's are.
+        for (const argument of annotation.arguments) this.#visitAnnotation(argument);
         return;
       case "Tuple":
         for (const element of annotation.elements) this.#visitAnnotation(element);

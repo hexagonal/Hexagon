@@ -49,6 +49,14 @@ export interface RuntimeModule {
    * they are the same thing seen from either end: what this module can see, and
    * what can see it.
    *
+   * *(#927.)* **Absent** where the module needs nothing seated before the end of
+   * the prelude and nothing before the end of the prelude names it. Such a
+   * module takes the first seat after the prelude (`weaveInjected`), which is
+   * the same guarantee stated the only other way it can be: everything is
+   * emitted before it, and nothing it can name imports it. `Runtime.Regex` is
+   * the first — `Hex.Regex`, its only consumer, is a library member seated later
+   * still (`regex.md` §6), and no prelude member names the engine.
+   *
    * `Runtime.VectorTrie` sits before `Vector` because `Vector`'s *emission*
    * imports the trie. That edge exists only in the emitted JavaScript — no
    * `Import` item records it — so the module graph's own acyclicity check
@@ -61,7 +69,7 @@ export interface RuntimeModule {
    * it carries names a member seated before this one, which is why the emission
    * cycle still cannot form.
    */
-  readonly precedes: string;
+  readonly precedes?: string;
 }
 
 /**
@@ -76,13 +84,23 @@ export interface RuntimeModule {
  * the hash trie, while `Map` is its first emitted consumer. It also lets the
  * generic runtime be exercised at `String` after #924 moved that companion
  * behind `Vector` for its text-processing dependencies.
+ *
+ * `Runtime.Regex` is the regular-expression engine (`regex.md` §6), and it is
+ * the first member with **no seat of its own**: nothing it needs is inside the
+ * prelude and no prelude member names it, so it takes the seat after all of
+ * them. Its consumer, `Hex.Regex`, is a library member and later still. At this
+ * landing the module holds the `Buffer` storage rows alone (#927 arc 1); the
+ * engine follows in the arc's later steps, and its dependencies — the whole
+ * prelude's arithmetic and collections — are exactly what the last seat gives
+ * it.
  */
 export const RUNTIME_MODULES: readonly RuntimeModule[] = [
   { name: "Runtime.VectorTrie", precedes: "Vector" },
   { name: "Runtime.HashTrie", precedes: "Map" },
+  { name: "Runtime.Regex" },
 ].map(({ name, precedes }) => ({
   name,
-  precedes,
+  ...(precedes === undefined ? {} : { precedes }),
   source: STDLIB_SOURCES[name]!,
 }));
 

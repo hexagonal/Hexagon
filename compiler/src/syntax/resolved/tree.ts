@@ -320,6 +320,13 @@ export interface ExternTypeAnnotation {
   readonly kind: "ExternType";
   readonly externType: ExternTypeId;
   readonly name: string;
+  /**
+   * The written type arguments (#927, `spec/intrinsics.md` §3.3). Empty for
+   * every foreign extern type, which stays monomorphic (FFI Part 4 §12.4), and
+   * for an arity-0 intrinsic `type` row; non-empty only where an intrinsic row
+   * declared parameters and the occurrence applied them.
+   */
+  readonly arguments: readonly TypeAnnotation[];
   /** See `TypeQualifier`. */
   readonly qualifier?: TypeQualifier;
   readonly span: Source.Span;
@@ -711,6 +718,8 @@ export interface ExternFunDeclaration extends ExternDeclarationFields {
   readonly binding: Binding;
   /** The declared binders and their bounds (#370); see the parsed tree's field. */
   readonly typeParameters?: readonly TypeParameter[];
+  /** The row's written `->!` (#927); see the parsed tree's field. */
+  readonly effect?: "constant";
   readonly parameters: readonly Parameter[];
   readonly returnAnnotation: TypeAnnotation;
 }
@@ -725,6 +734,27 @@ export interface ExternTypeDeclaration extends ExternDeclarationFields {
   readonly kind: "ExternType";
   readonly default: false;
   readonly externType: ExternTypeId;
+  /**
+   * The declared type parameters (#927, `spec/intrinsics.md` §3.3), present only
+   * on an intrinsic `type` row of non-zero arity. Every one is **invariant**:
+   * there is no representation for §6.3 to verify a claim against, so the
+   * opaque-declaration rule's bare parameter is what the row gets, and a written
+   * sigil is refused at the parser.
+   */
+  readonly parameters?: readonly string[];
+  /**
+   * Whether this row came through the intrinsic door (§3.3, #927) and is
+   * therefore **confined**: never addressable outside the modules its inventory
+   * entry names — not in an exported signature, an exported pattern's parameter
+   * types, an exception payload, the representation of a non-`opaque` exported
+   * type, or an `export` of its own.
+   *
+   * Absent on a foreign extern `type`, which is an ordinary nominal that may be
+   * exported like any other (FFI Part 4 §5). The gate's answer travels here for
+   * the reason `ExternBlockItem.intrinsic` carries it: privilege is a property
+   * of the compilation, and a pass re-deriving it would drift.
+   */
+  readonly confined?: true;
   /** The nominal type's home module, carried for expected-type doors. */
   readonly declaringPath?: string;
 }

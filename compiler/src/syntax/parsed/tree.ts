@@ -148,6 +148,19 @@ export interface ExternFunDeclaration extends ExternDeclarationFields {
    * before #370.
    */
   readonly typeParameters?: readonly TypeParameter[];
+  /**
+   * The row's **written outer arrow** (#927, FFI Part 4 §4.5), present exactly
+   * where an intrinsic row wrote `->!`. Absent for `->`, for `->?` (refused at
+   * the parser — no inventory row declares a callback slot for a conduit to link
+   * to), and for the `:` spelling, which is the pure face every shipped
+   * intrinsic row has: §4.2 *verifies* an intrinsic row's arrow rather than
+   * trusting it, so the pure reading is a compiler obligation rather than an
+   * unchecked claim.
+   *
+   * A foreign row never carries it: `:` is still its only result separator until
+   * #869's own implementation arc lands.
+   */
+  readonly effect?: "constant";
   readonly parameters: readonly Parameter[];
   readonly returnAnnotation: TypeAnnotation;
 }
@@ -160,6 +173,16 @@ export interface ExternLetDeclaration extends ExternDeclarationFields {
 export interface ExternTypeDeclaration extends ExternDeclarationFields {
   readonly kind: "ExternType";
   readonly default: false;
+  /**
+   * The declared type parameters, present only inside the reserved boundary
+   * (#927, `spec/intrinsics.md` §3.3): an intrinsic `type` row declares a
+   * compiler-implemented type, and its arity is what §4.2 verifies against the
+   * inventory. A foreign extern `type` stays monomorphic (FFI Part 4 §12.4), so
+   * the field is a boundary fact as much as a syntactic one.
+   *
+   * Absent when the row wrote no list — arity 0, which §3.3 spells that way.
+   */
+  readonly parameters?: readonly Name[];
 }
 
 export interface LetItem {

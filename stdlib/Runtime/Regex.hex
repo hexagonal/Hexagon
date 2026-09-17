@@ -1,0 +1,67 @@
+module Runtime.Regex
+
+// The regular-expression engine (`spec/regex.md` §6) — the RE2-shaped matcher
+// that `Hex.Regex`'s two sealed rows reach through the intrinsic door. This is a
+// runtime-internal module in `Hex.Runtime.HashTrie`'s exact sense: it is
+// compiled only as a privileged runtime module, it exports nothing at the
+// Hexagon level, and the emitted JavaScript is what carries anything out, under
+// an export list the emitter writes. No Hexagon module can import this one, by
+// name or by accident, however the compiler happens to place the file.
+//
+// **What is here now is the storage and nothing else** (#927, implementation arc
+// 1). The engine itself — program construction (§6.1), the lazy DFA and the Pike
+// VM (§6.2), the two Unicode table rows, and the `Compiled` record the sealed
+// rows hand back and forth — lands in later arcs of the same issue. The module
+// exists now because `Buffer` has to be declared somewhere, and §3.3's inventory
+// entry names this module as its one declarer.
+//
+// **The seat.** This module has no `precedes`, which seats it after the whole
+// prelude (`runtime-modules.ts`, `weaveInjected`). Nothing it needs is earlier:
+// the door rows below name `Int`, `Unit` and their own `Buffer`, and the engine
+// the later arcs bring wants the whole prelude's arithmetic and collections
+// beneath it. A `precedes` would buy the seat's usual guarantee — that nothing
+// this module can name imports it — and here that guarantee is free: no prelude
+// member names this one, and the emitted `Regex.js` is reached only from
+// `Regex.hex`'s own emitted door rows, which sit later still.
+//
+// **The storage is confined.** A `Buffer(a)` is addressable from this module and
+// nowhere else (`spec/intrinsics.md` §3.3): it may not appear in an exported
+// signature, in an exception payload, in the representation of a non-`opaque`
+// exported type, or in an `export` of its own, and the checker verifies all of
+// that. It is the half of Effects §6.2 species (d) the compiler can check — the
+// other half being the engine's own obligation never to write a program it has
+// frozen.
+
+// The mutable storage every structure in the engine is built over (§6.3): DFA
+// state tables, the alphabet map, the VM's thread lists, the capture vectors.
+//
+// It is a `type` row rather than a declared form because no declared form can
+// spell it honestly — a Hexagon record is immutable whatever its fields
+// (Statements §6.4), so none can carry the mutation, and an empty `opaque
+// record` would leave the compiler nothing to own.
+//
+// **The arrows are the honest ones** (§3.3, `regex.md` §7). `create`, `read` and
+// `write` are `->!`: a fresh buffer's identity is observable through the other
+// two, a write to one and a read of the other telling two buffers apart.
+// `length` is `->`, because a buffer's size is fixed at creation and no row
+// changes it, so that read is a read of a value.
+//
+// **Bounds are unchecked.** The engine never reads or writes outside a buffer it
+// sized, and that is a conformance obligation on the engine, not a check — which
+// is what keeps the scan step's cost where §6.4's bounds put it.
+extern from "hex:intrinsic"
+    type buffer as Buffer(a)
+
+    // A fresh buffer of `size` slots, every one holding `fill`. The fill is
+    // required: there is no hole to read back, so every index of a buffer this
+    // row answered is a value from the moment it exists.
+    fun bufferCreate as create(size: Int, fill: a) ->! Buffer(a)
+
+    // The slot at `index`, zero-based.
+    fun bufferRead as read(buffer: Buffer(a), index: Int) ->! a
+
+    // Stores `value` at `index`, zero-based.
+    fun bufferWrite as write(buffer: Buffer(a), index: Int, value: a) ->! Unit
+
+    // The slot count the buffer was created with.
+    fun bufferLength as length(buffer: Buffer(a)) -> Int
