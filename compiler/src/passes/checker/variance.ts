@@ -516,10 +516,20 @@ export class VarianceTable {
           field,
         );
         return;
+      case "ExternType":
+        // *(#927.)* An intrinsic `type` row's slots are **invariant**: §3.3
+        // gives the row the opaque-declaration rule, and with no representation
+        // for §6.3 to verify a claim against, the bare parameter — the empty
+        // claim — is what each slot is. A foreign extern type stays monomorphic
+        // (FFI Part 4 §12.4) and its empty argument list walks to nothing, so
+        // the one case serves both.
+        for (const argument of annotation.arguments) {
+          this.#classify(entry, argument, multiply(sign, "inv"), into, field);
+        }
+        return;
       default:
-        // Primitives, ranges, extern types (monomorphic in v1 — FFI Part 4
-        // §12.4), implied types (unreferenceable in v1), and error nodes carry
-        // no parameter occurrence.
+        // Primitives, ranges, implied types (unreferenceable in v1), and error
+        // nodes carry no parameter occurrence.
         return;
     }
   }

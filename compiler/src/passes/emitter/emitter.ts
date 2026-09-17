@@ -273,6 +273,25 @@ export const RUNTIME_WIRINGS: readonly RuntimeModuleWiring[] = [
       { record: "HashSet", helper: "hashSetIterate" },
     ],
   },
+  // *(#927, arc 1.)* The regex engine's wiring, with **no operations yet**: at
+  // this landing `stdlib/Runtime/Regex.hex` holds the `Buffer` storage rows
+  // alone, and a door row is an ordinary binding of its own module's output
+  // rather than something another module imports. `Hex.Regex`'s two sealed rows
+  // (`regex.md` §7) are what will fill this list, in a later arc.
+  //
+  // An empty list is read on both channels and means nothing on either: no
+  // import line is written (`#runtimeImports` writes one only for a module with
+  // uses), and no export line is written (`#runtimeExports` returns none for an
+  // empty present set), so the emitted `Hex/Runtime/Regex.js` is a valid module
+  // with the door rows' own bindings and no export list. The row is present
+  // rather than absent so that the wiring and the injected list agree member for
+  // member, which is what the conformance test reads.
+  {
+    name: "Runtime.Regex",
+    operations: [],
+    localStem: "regex",
+    defaultSpecifier: "./Regex",
+  },
 ];
 
 const VECTOR_WIRING = RUNTIME_WIRINGS[0]!;
@@ -2563,6 +2582,7 @@ function faceQualifiers(type: Typed.Type, into: FaceQualifier[]): void {
           key: nominalHomeKey("externType", Number(type.externType)),
         });
       }
+      for (const argument of type.arguments) faceQualifiers(argument, into);
       return;
     case "Vector":
     case "Set":
@@ -10199,8 +10219,41 @@ class JavaScriptEmitter {
       // identity on a string.
       case "jsErrorRender":
         return `__a => ${this.#spell("String")}(__a)`;
+      // `stdlib/Runtime/Regex.hex`'s four (#927, `spec/intrinsics.md` §3.3,
+      // `regex.md` §7). A `Buffer(a)` **is** a plain JavaScript array: zero-based,
+      // fill required, and the four operations are the four things an array does.
+      //
+      // **Bounds are unchecked**, deliberately (§7): the engine never reads or
+      // writes outside a buffer it sized, and that is a conformance obligation on
+      // the engine rather than a check every scan step would pay for. This is the
+      // one place in the emitter where an index is not guarded, and the type's
+      // confinement is what makes it safe to leave so — no program outside the
+      // declaring module can hold a buffer, let alone index one.
+      //
+      // `Array` is spelled through the contested-vocabulary route (#666, FFI Part
+      // 7 §1.2) for `jsMapFromSeq`'s reason: a module at the injection path may
+      // bind the spelling itself, and a captured `Array` would make `create`
+      // build the user's value.
+      case "bufferCreate":
+        return `(__a, __b) => new ${this.#spell("Array")}(__a).fill(__b)`;
+      case "bufferRead":
+        return "(__a, __b) => __a[__b]";
+      // The write answers Unit, which is what the row declares. A comma
+      // expression rather than a block, because a door binding is initialized
+      // with an arrow *expression* and has nowhere to put statements.
+      case "bufferWrite":
+        return `(__a, __b, __c) => (__a[__b] = __c, ${this.#unit})`;
+      // `->` where its three siblings are `->!`: a buffer's size is fixed at
+      // creation and no row changes it, so this is a read of a value (§3.3).
+      case "bufferLength":
+        return "__a => __a.length";
       default:
-        if (INTRINSIC_INVENTORY.has(key)) {
+        // The **operation** grade only (#927): a `fun` row keyed by a *type*
+        // key is the author's mistake, already reported by the resolver as a
+        // wrong-grade refusal, and a type key has no lowering by construction.
+        // Claiming a compiler defect there would put the compiler's own
+        // self-accusation beside a user diagnostic that is already right.
+        if (INTRINSIC_INVENTORY.get(key)?.grade === "operation") {
           this.#diagnostics.add({
             severity: "error",
             message: `compiler defect: the intrinsic inventory provides \`${key}\`, ` +
@@ -13244,8 +13297,11 @@ function isGroundType(type: Typed.Type): boolean {
     case "Primitive":
     case "Range":
     case "JsValue":
-    case "ExternType":
       return true;
+    // #927: a parameterized intrinsic `type` row is ground when its arguments
+    // are, exactly as a nominal record is.
+    case "ExternType":
+      return type.arguments.every(isGroundType);
     case "Vector":
     case "Set":
     case "Array":
@@ -13305,7 +13361,7 @@ function serializeType(type: Typed.Type): string {
     case "NominalRecord":
       return `R${Number(type.record)}(${type.arguments.map(serializeType).join(",")})`;
     case "ExternType":
-      return `X${Number(type.externType)}`;
+      return `X${Number(type.externType)}(${type.arguments.map(serializeType).join(",")})`;
     case "Function":
       return `(${type.parameters.map(serializeType).join(",")})->${serializeType(type.result)}`;
     case "Variable":
@@ -13357,7 +13413,7 @@ function flattenTypeSpelling(type: Typed.Type): readonly string[] {
     case "NominalRecord":
       return [type.name, ...type.arguments.flatMap(flattenTypeSpelling)];
     case "ExternType":
-      return [type.name];
+      return [type.name, ...type.arguments.flatMap(flattenTypeSpelling)];
     // Unreachable behind `isGroundType`, and spelled rather than thrown on so
     // that a future caller outside the hoist path gets a name instead of a crash.
     case "Function":
@@ -14202,10 +14258,21 @@ function renderType(
         faces,
       );
     case "ExternType":
-      return faces.nominals.reference(
-        { kind: "externType", id: type.externType },
-        type.qualifier,
-        type.name,
+      // A **confined** type never reaches a `.d.ts` (`spec/regex.md` §9): it
+      // cannot be exported, so nothing here renders one. A foreign extern type
+      // is monomorphic, so the arguments below are empty for it too — the
+      // rendering is written through `renderNominal` all the same, so that a
+      // parameterized row reaching a face by some future route reads correctly
+      // rather than losing its arguments silently.
+      return renderNominal(
+        faces.nominals.reference(
+          { kind: "externType", id: type.externType },
+          type.qualifier,
+          type.name,
+        ),
+        type.arguments,
+        variables,
+        faces,
       );
     case "Tuple":
       // The arity-indexed representation's `.d.ts` faces (Products §2.6, #159):

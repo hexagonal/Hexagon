@@ -171,6 +171,13 @@ export interface ExternType {
   readonly kind: "ExternType";
   readonly externType: Resolved.ExternTypeId;
   readonly name: string;
+  /**
+   * The type arguments (#927): empty for a foreign extern type, which stays
+   * monomorphic (FFI Part 4 §12.4), and non-empty for a parameterized intrinsic
+   * `type` row's occurrence. Every slot is invariant (`spec/intrinsics.md`
+   * §3.3).
+   */
+  readonly arguments: readonly Type[];
   /** See `TypeQualifier`; absent for an occurrence the source wrote bare. */
   readonly qualifier?: TypeQualifier;
 }
@@ -481,6 +488,10 @@ export interface ExternTypeDeclaration extends ExternDeclarationFields {
   readonly kind: "ExternType";
   readonly default: false;
   readonly externType: Resolved.ExternTypeId;
+  /** The declared type parameters (#927); see the resolved tree's field. */
+  readonly parameters?: readonly string[];
+  /** Whether the row is door-declared and confined (#927); see the resolved tree. */
+  readonly confined?: true;
   /** The nominal type's home module, carried for expected-type doors. */
   readonly declaringPath?: string;
 }

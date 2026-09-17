@@ -1561,8 +1561,10 @@ interface InjectedModule {
  *
  * A `precedes` naming no prelude member would silently put the module last,
  * which is the one placement its seat exists to forbid, so it lands at the end
- * only when that is what the list already says. There is no such member today
- * and the conformance test pins the resulting order.
+ * only when that is what the list already says. *(#927.)* A member with **no**
+ * `precedes` asks for that last seat outright — the seat is stated by its
+ * absence rather than reached by a name that missed — and the conformance test
+ * pins the resulting order either way.
  *
  * The library members take the **last** seats, and the seat is all they take:
  * they put no name in bare scope (Modules §5.5's set is the prelude's), and
@@ -1575,7 +1577,8 @@ function weaveInjected(
   runtime: readonly {
     readonly name: string;
     readonly source: string;
-    readonly precedes: string;
+    /** Absent for an unseated member; see `RuntimeModule.precedes`. */
+    readonly precedes?: string;
   }[],
   library: readonly { readonly name: string; readonly source: string }[],
 ): readonly InjectedModule[] {

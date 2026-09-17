@@ -306,6 +306,7 @@ function variablesOf(
       return found;
     case "Union":
     case "NominalRecord":
+    case "ExternType":
       for (const argument of type.arguments) variablesOf(argument, found);
       return found;
     case "Function":
@@ -314,7 +315,6 @@ function variablesOf(
     case "Primitive":
     case "Range":
     case "JsValue":
-    case "ExternType":
     case "Error":
       return found;
   }

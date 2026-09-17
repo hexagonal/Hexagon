@@ -979,6 +979,18 @@ interface ExternMono {
   readonly kind: "ExternType";
   readonly externType: Resolved.ExternTypeId;
   readonly name: string;
+  /**
+   * The type arguments (#927, `spec/intrinsics.md` §3.3). Empty for every
+   * foreign extern type, which stays monomorphic (FFI Part 4 §12.4); non-empty
+   * for a parameterized intrinsic `type` row's occurrence.
+   *
+   * **Every slot is invariant.** There is no representation for §6.3 to verify
+   * a claim against, so §3.3 gives the row the opaque-declaration rule's bare
+   * parameter, and a written sigil is refused at the parser. Unification is
+   * therefore equality on each argument, and generalization refuses to quantify
+   * a variable that occurs in one.
+   */
+  readonly arguments: readonly Mono[];
   readonly qualifier?: Qualifier;
 }
 
@@ -4023,11 +4035,25 @@ class Checker {
           const result = this.#annotationType(
             declaration.returnAnnotation, 0, new Map(), typeParameters,
           );
+          // *(#927.)* The row's **written arrow**, where it wrote one (FFI Part
+          // 4 §4.5): `->!` on the rows that touch a confined buffer's contents,
+          // `->` — the absent effect — on the rest. What distinguishes an
+          // intrinsic row from a user row is who answers for the arrow: here it
+          // is *verified*, an obligation on the lowering (§4.2), where a user
+          // row's is trusted. A row that wrote `:` keeps the pure face every
+          // shipped row has had, which is the same claim under the same
+          // obligation.
+          const intrinsicEffect = declaration.effect === "constant" ? IMPURE : undefined;
           this.#schemes.set(declaration.binding.symbol, {
             variables: [...typeParameters.values()].flatMap((type) =>
               type.kind === "Variable" ? [type] : []
             ),
-            type: { kind: "Function", parameters, result },
+            type: {
+              kind: "Function",
+              ...(intrinsicEffect === undefined ? {} : { effect: intrinsicEffect }),
+              parameters,
+              result,
+            },
           });
           continue;
         }
@@ -14164,8 +14190,12 @@ class Checker {
         return moved ? { ...own, fields } : published;
       }
       case "Union":
-      case "NominalRecord": {
-        if (against.kind !== "Union" && against.kind !== "NominalRecord") return published;
+      case "NominalRecord":
+      case "ExternType": {
+        if (
+          against.kind !== "Union" && against.kind !== "NominalRecord" &&
+          against.kind !== "ExternType"
+        ) return published;
         if (own.arguments.length !== against.arguments.length) return published;
         const args = own.arguments.map((argument, index) =>
           this.#republishColours(argument, against.arguments[index]!, walking)
@@ -16050,7 +16080,8 @@ class Checker {
         };
       }
       case "Union":
-      case "NominalRecord": {
+      case "NominalRecord":
+      case "ExternType": {
         if (!this.#carriesArrow(actual)) return actual;
         return {
           ...actual,
@@ -16097,6 +16128,7 @@ class Checker {
         return [...actual.fields.values()].some((field) => this.#carriesArrow(field, seen));
       case "Union":
       case "NominalRecord":
+      case "ExternType":
         return actual.arguments.some((argument) => this.#carriesArrow(argument, seen));
       case "Vector":
       case "Set":
@@ -16599,6 +16631,11 @@ class Checker {
       const { qualifier: _inferred, ...carried } = target;
       return {
         ...carried,
+        arguments: carried.arguments.map((argument, index) =>
+          index < source.arguments.length
+            ? this.#applyWrittenQualifiers(source.arguments[index]!, argument)
+            : argument
+        ),
         ...(source.qualifier === undefined ? {} : { qualifier: source.qualifier }),
       };
     }
@@ -17250,7 +17287,17 @@ class Checker {
       actualLeft.kind === "ExternType" &&
       actualRight.kind === "ExternType"
     ) {
-      if (actualLeft.externType === actualRight.externType) return;
+      // #927: an intrinsic `type` row's arguments unify pairwise. Unification is
+      // equality-based throughout (closure doc §5.4), so invariance costs no
+      // second rule here — it is what the *generalization* side reads off the
+      // slot, and `#variablePositions` is where it is stated.
+      if (actualLeft.externType === actualRight.externType) {
+        for (const [index, argument] of actualLeft.arguments.entries()) {
+          const other = actualRight.arguments[index];
+          if (other !== undefined && unifyChild(argument, other)) return;
+        }
+        return;
+      }
     } else if (actualLeft.kind === "Range" && actualRight.kind === "Range") {
       return;
     // FFI Part 11 §2: `JsValue` unifies with itself and nothing else. It carries
@@ -17663,6 +17710,7 @@ class Checker {
         return;
       case "Union":
       case "NominalRecord":
+      case "ExternType":
         for (const argument of actual.arguments) this.#lowerLevels(argument, level);
         return;
       case "Vector":
@@ -17706,6 +17754,9 @@ class Checker {
       return actual.arguments.some((argument) => this.#occurs(variable, argument));
     }
     if (actual.kind === "NominalRecord") {
+      return actual.arguments.some((argument) => this.#occurs(variable, argument));
+    }
+    if (actual.kind === "ExternType") {
       return actual.arguments.some((argument) => this.#occurs(variable, argument));
     }
     if (actual.kind === "Vector") return this.#occurs(variable, actual.element);
@@ -19860,6 +19911,16 @@ class Checker {
             walk(argument, multiplyVariance(sign, this.#variance.effectiveRecord(actual.record, index)))
           );
           return;
+        // #927: every slot of an intrinsic `type` row is **invariant**. §3.3
+        // gives the row the opaque-declaration rule and there is no
+        // representation for §6.3 to verify a claim against, so the bare
+        // parameter — the empty claim, meaning invariant — is what every one of
+        // them is, and a written sigil is refused at the parser. That is what
+        // makes `Buffer(Int)` and `Buffer(Num)`-ish widening two different types
+        // and a `Buffer`-valued expansive binding ungeneralizable.
+        case "ExternType":
+          for (const argument of actual.arguments) walk(argument, "inv");
+          return;
         case "Vector":
         case "Set":
         case "Array":
@@ -20147,6 +20208,10 @@ class Checker {
     if (actual.kind === "NominalRecord") {
       for (const argument of actual.arguments) this.#collectVariables(argument, found);
     }
+    // #927: an intrinsic `type` row's arguments hold variables like any nominal's.
+    if (actual.kind === "ExternType") {
+      for (const argument of actual.arguments) this.#collectVariables(argument, found);
+    }
     if (actual.kind === "Vector") this.#collectVariables(actual.element, found);
     if (actual.kind === "Set") this.#collectVariables(actual.element, found);
     if (actual.kind === "Array") this.#collectVariables(actual.element, found);
@@ -20344,6 +20409,10 @@ class Checker {
       if (actual.kind === "NominalRecord") {
         return { ...actual, arguments: actual.arguments.map(copy) };
       }
+      // #927: a parameterized intrinsic `type` row instantiates like any nominal.
+      if (actual.kind === "ExternType") {
+        return { ...actual, arguments: actual.arguments.map(copy) };
+      }
       if (actual.kind === "Vector") return { kind: "Vector", element: copy(actual.element) };
       if (actual.kind === "Set") return { kind: "Set", element: copy(actual.element) };
       if (actual.kind === "Array") return { kind: "Array", element: copy(actual.element) };
@@ -20521,6 +20590,11 @@ class Checker {
         kind: "ExternType",
         externType: annotation.externType,
         name: annotation.name,
+        // #927: an intrinsic `type` row's arguments are interned like any
+        // nominal's. Empty for a foreign extern type, which is monomorphic.
+        arguments: annotation.arguments.map((argument) =>
+          this.#annotationType(argument, level, namedTails, typeParameters, impliedTypes, holes)
+        ),
         ...(annotation.qualifier === undefined ? {} : { qualifier: annotation.qualifier }),
       };
     }
@@ -21122,6 +21196,7 @@ class Checker {
         case "NominalRecord": return { ...type, arguments: type.arguments.map(copy) };
         case "ExternType": return {
           ...type,
+          arguments: type.arguments.map(copy),
           name: this.#externTypes.get(type.externType)?.localName ?? type.name,
         };
         case "Function": return {
@@ -21203,6 +21278,7 @@ class Checker {
       }
       if (actual.kind === "Union") return { ...actual, arguments: actual.arguments.map(copy) };
       if (actual.kind === "NominalRecord") return { ...actual, arguments: actual.arguments.map(copy) };
+      if (actual.kind === "ExternType") return { ...actual, arguments: actual.arguments.map(copy) };
       if (actual.kind === "Vector") return { kind: "Vector", element: copy(actual.element) };
       if (actual.kind === "Set") return { kind: "Set", element: copy(actual.element) };
       if (actual.kind === "Array") return { kind: "Array", element: copy(actual.element) };
@@ -21486,6 +21562,7 @@ class Checker {
         return this.#mentionsNode(actual.key) || this.#mentionsNode(actual.value);
       case "Union":
       case "NominalRecord":
+      case "ExternType":
         return actual.arguments.some((argument) => this.#mentionsNode(argument));
       default: return false;
     }
@@ -21864,8 +21941,196 @@ class Checker {
     return false;
   }
 
+  /**
+   * §3.3's **confinement**, verified (`spec/intrinsics.md` §11's "Confined type
+   * escaping" row, #927/#930).
+   *
+   * A door-declared `type` names a compiler-implemented type *no program can
+   * address*: values arise only from the block's `fun` rows, and the type itself
+   * is never addressable outside the modules its inventory entry names. The
+   * declarer list is the resolver's half of that (a declaration elsewhere is
+   * refused at the row); this is the other half — no value of the type escapes
+   * the module through a face a consumer could name.
+   *
+   * Five carriers are refused, and the message's clause is selected by which
+   * one fired, as the rest of §11's checklist selects its clauses:
+   *
+   *  - an **exported signature** — an exported binding's or exported door row's;
+   *  - an **exported pattern's parameter types** (a pattern is a capability and
+   *    crosses — Modules §4.2);
+   *  - an **exception payload**, exported or not: an exception escapes the
+   *    module by being thrown, so `export` is not what makes its payload travel.
+   *    §3.3's clause carries no `exported` qualifier where its neighbours do,
+   *    and this is what that difference says;
+   *  - the **representation of a non-`opaque` exported type** — a record's
+   *    field, a union constructor's payload, a type alias's target;
+   *  - an **`export` of the row itself**.
+   *
+   * And one carrier is **accepted**: an `opaque` exported record's field or an
+   * `opaque` exported union constructor's payload, because an opaque value's
+   * structure is unreadable outside the home module (Modules §4.2). That is how
+   * a value over confined storage travels — a compiled `Regex` carries its
+   * program and its cache — while the storage stays addressable only from a
+   * module that declares it. It falls out of the carrier list rather than
+   * needing an exemption: the `opaque` heads are simply not walked.
+   *
+   * A `derives` clause over such a carrier needs no rule here. A confined type
+   * has no derived instances (§3.3's second property), so the derivation asks
+   * for `Eq`/`Ord`/`Hash`/`Show` at the field's type and finds none — the
+   * refusal is the missing instance, at the seat that wanted it, which is the
+   * report that names what is actually absent.
+   *
+   * Local like its neighbour `#checkPublicSignatures`: only a row **this
+   * module** declared is confined here, and a confined type is unexported by
+   * this very check, so no other module can hold one to report.
+   */
+  #checkConfinedTypes(items: readonly Resolved.Item[]): void {
+    type Mentions = Map<string, Source.Span>;
+    const visit = (type: Mono, found: Mentions = new Map()): ReadonlyMap<string, Source.Span> => {
+      const actual = this.#prune(type);
+      if (actual.kind === "ExternType") {
+        const declaration = this.#externTypes.get(actual.externType);
+        if (declaration?.confined === true) found.set(actual.name, declaration.span);
+        actual.arguments.forEach((argument) => visit(argument, found));
+      } else if (actual.kind === "Union" || actual.kind === "NominalRecord") {
+        actual.arguments.forEach((argument) => visit(argument, found));
+      } else if (actual.kind === "Function") {
+        actual.parameters.forEach((parameter) => visit(parameter, found));
+        visit(actual.result, found);
+      } else if (actual.kind === "Tuple") actual.elements.forEach((element) => visit(element, found));
+      else if (actual.kind === "Record") actual.fields.forEach((field) => visit(field, found));
+      else if (
+        actual.kind === "Vector" || actual.kind === "Set" || actual.kind === "Array" ||
+        actual.kind === "JsSet" || actual.kind === "Node"
+      ) visit(actual.element, found);
+      else if (actual.kind === "Nullable") visit(actual.value, found);
+      else if (actual.kind === "Map" || actual.kind === "JsMap") {
+        visit(actual.key, found);
+        visit(actual.value, found);
+      }
+      return found;
+    };
+    /** §11's row, with the clause the carrier selects. */
+    const escapes = (
+      exposed: string,
+      clause: "head" | "carry" | "export",
+      declaration: Source.Span,
+      primary: Source.Span,
+    ): void => {
+      this.#diagnostics.add({
+        severity: "error",
+        message: `the intrinsic type \`${exposed}\` is private to this module; ` +
+          (clause === "head"
+            ? "head the carrier `opaque`, carry it in an opaque record, or drop the `export`"
+            : clause === "carry"
+              ? "carry it in an opaque record, or keep this private"
+              : "drop the `export`"),
+        primary,
+        labels: [{ span: declaration, message: `\`${exposed}\` is declared here` }],
+      });
+    };
+    const carrier = (
+      clause: "head" | "carry" | "export",
+      seats: readonly { readonly type: Mono | undefined; readonly span: Source.Span }[],
+    ): void => {
+      const reported = new Set<string>();
+      for (const seat of seats) {
+        if (seat.type === undefined) continue;
+        for (const [exposed, declaration] of visit(seat.type)) {
+          if (reported.has(exposed)) continue;
+          reported.add(exposed);
+          escapes(exposed, clause, declaration, seat.span);
+        }
+      }
+    };
+    const slotTypes = (symbol: Resolved.SymbolId): readonly Mono[] => {
+      const type = this.#prune(this.#scheme(symbol).type);
+      return type.kind === "Function" ? type.parameters : [];
+    };
+    for (const item of items) {
+      if (item.kind === "ExternBlock") {
+        for (const declaration of item.declarations) {
+          // The row exporting *itself*. Its own `export` is the whole defect and
+          // the whole repair, so the clause names only the modifier.
+          if (declaration.kind === "ExternType") {
+            if (declaration.confined === true && declaration.exported) {
+              escapes(declaration.localName, "export", declaration.span, declaration.span);
+            }
+            continue;
+          }
+          if (!declaration.exported) continue;
+          carrier("carry", [{
+            type: this.#schemes.get(declaration.binding.symbol)?.type,
+            span: declaration.span,
+          }]);
+        }
+        continue;
+      }
+      if ((item.kind === "Let" || item.kind === "Fun") && item.exported) {
+        carrier("carry", [{
+          type: this.#schemes.get(item.binding.symbol)?.type,
+          span: item.binding.span,
+        }]);
+      }
+      // An exception's payload travels by being thrown, not by being exported,
+      // so this seat is read whatever the head says.
+      if (item.kind === "Exception") {
+        const types = slotTypes(item.binding.symbol);
+        carrier("carry", item.slots.map((slot, index) => ({
+          type: types[index],
+          span: slot.annotation.span,
+        })));
+      }
+      if (item.kind === "RecordDeclaration" && item.exported && !item.opaque) {
+        const fields = this.#recordFields.get(item.record);
+        carrier("head", item.fields.map((field) => ({
+          type: fields?.get(field.name),
+          span: field.annotation.span,
+        })));
+      }
+      if (item.kind === "Union" && item.exported && !item.opaque) {
+        carrier("head", item.constructors.flatMap((constructor) => {
+          const types = slotTypes(constructor.binding.symbol);
+          return constructor.slots.map((slot, index) => ({
+            type: types[index],
+            span: slot.annotation.span,
+          }));
+        }));
+      }
+      // A type alias has no `opaque` head to take (Modules §4.2), so an exported
+      // one carrying a confined type has only the other two repairs.
+      if (item.kind === "TypeAlias" && item.exported) {
+        carrier("carry", [{ type: this.#aliasTarget(item), span: item.annotation.span }]);
+      }
+      if (item.kind === "PatternDeclaration" && item.exported && item.head !== undefined) {
+        const face = this.#prune(this.#scheme(item.view.binding.symbol).type);
+        const subject = face.kind === "Function" ? face.parameters[0] : undefined;
+        const result = face.kind === "Function" ? this.#prune(face.result) : undefined;
+        const components = item.head.components.length === 1
+          ? [result]
+          : result?.kind === "Tuple"
+            ? result.elements
+            : [];
+        carrier("carry", [
+          { type: subject, span: item.head.result.span },
+          ...item.head.components.map((component, index) => ({
+            type: components[index],
+            span: component.annotation.span,
+          })),
+        ]);
+      }
+      if (item.kind === "ConstraintDeclaration" && item.exported) {
+        carrier("carry", item.members.map((member) => ({
+          type: this.#schemes.get(member.binding.symbol)?.type,
+          span: member.span,
+        })));
+      }
+    }
+  }
+
   #checkPublicSignatures(items: readonly Resolved.Item[]): void {
     this.#checkGeneratedGuardCollision(items);
+    this.#checkConfinedTypes(items);
     const publicUnions = new Set(items.flatMap((item) => item.kind === "Union" && item.exported ? [item.union] : []));
     const publicRecords = new Set(items.flatMap((item) => item.kind === "RecordDeclaration" && item.exported ? [item.record] : []));
     // Each private nominal the walk finds, by name, against the span of the
@@ -21905,9 +22170,19 @@ class Checker {
         actual.arguments.forEach((argument) => visit(argument, found));
       } else if (actual.kind === "ExternType") {
         const declaration = this.#externTypes.get(actual.externType);
-        if (declaration !== undefined && !declaration.exported) {
+        // *(#927.)* A **confined** row is not this family's business: it is
+        // unexported by construction and `#checkConfinedTypes` has already
+        // spoken for it with §11's own wording and its own carrier clause.
+        // Reporting it here too would give one escape two diagnostics, the
+        // second offering "export the type, perhaps opaquely" — a repair §3.3
+        // forbids outright.
+        if (
+          declaration !== undefined && !declaration.exported &&
+          declaration.confined !== true
+        ) {
           found.set(actual.name, declaration.span);
         }
+        actual.arguments.forEach((argument) => visit(argument, found));
       } else if (actual.kind === "Function") {
         actual.parameters.forEach((parameter) => visit(parameter, found));
         visit(actual.result, found);
@@ -22660,6 +22935,7 @@ class Checker {
         kind: "ExternType",
         externType: actual.externType,
         name: actual.name,
+        arguments: actual.arguments.map((argument) => this.#publicType(argument, seen)),
         ...(actual.qualifier === undefined ? {} : { qualifier: actual.qualifier }),
       };
     }
@@ -24129,7 +24405,13 @@ class Checker {
           actual.arguments.map((argument) => this.#render(argument, numbering)).join(", ")
         })`;
     }
-    if (actual.kind === "ExternType") return actual.name;
+    if (actual.kind === "ExternType") {
+      return actual.arguments.length === 0
+        ? actual.name
+        : `${actual.name}(${
+          actual.arguments.map((argument) => this.#render(argument, numbering)).join(", ")
+        })`;
+    }
     if (actual.kind === "Range") return "Range";
     if (actual.kind === "Vector") return `Vector(${this.#render(actual.element, numbering)})`;
     if (actual.kind === "Set") return `Set(${this.#render(actual.element, numbering)})`;
@@ -24423,6 +24705,8 @@ function typeShape(
       return { head: `union:${Number(type.union)}`, children: type.arguments };
     case "NominalRecord":
       return { head: `record:${Number(type.record)}`, children: type.arguments };
+    case "ExternType":
+      return { head: `extern:${Number(type.externType)}`, children: type.arguments };
     case "Tuple":
       return { head: `tuple:${type.elements.length}`, children: type.elements };
     case "Vector":
@@ -24735,8 +25019,8 @@ function typeAnnotationHoleNodes(
       return annotation.fields.flatMap((field) => typeAnnotationHoleNodes(field.annotation));
     case "Union":
     case "RecordDeclaration":
-      return annotation.arguments.flatMap(typeAnnotationHoleNodes);
     case "ExternType":
+      return annotation.arguments.flatMap(typeAnnotationHoleNodes);
     case "Primitive":
     case "Range":
     case "JsValue":
@@ -24776,8 +25060,8 @@ function annotationHasTypeVariable(
       );
     case "Union":
     case "RecordDeclaration":
-      return annotation.arguments.some(annotationHasTypeVariable);
     case "ExternType":
+      return annotation.arguments.some(annotationHasTypeVariable);
     case "Primitive":
     case "Range":
     case "JsValue":
@@ -24823,11 +25107,11 @@ function annotationMentionsNode(annotation: Resolved.TypeAnnotation): boolean {
       return annotation.fields.some((field) => annotationMentionsNode(field.annotation));
     case "Union":
     case "RecordDeclaration":
+    case "ExternType":
       return annotation.arguments.some(annotationMentionsNode);
     case "Primitive":
     case "Range":
     case "JsValue":
-    case "ExternType":
     case "TypeVariable":
     case "ImpliedType":
     case "Hole":

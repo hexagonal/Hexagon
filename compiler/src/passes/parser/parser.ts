@@ -2169,7 +2169,11 @@ class Parser {
     const pureClaim = !conflicting && claims[0]?.text === "pure";
     const conduitClaim = conflicting ? undefined : claims.find((claim) => claim.text === "conduit");
     const kind = this.#current().kind;
-    if (intrinsic && kind !== "Fun") {
+    // §3.3 admits two forms and no more: `fun`, and — since #927 — `type`, the
+    // compiler-implemented type whose values only the block's `fun` rows
+    // construct and inspect. Everything else is a hard error naming the ordinary
+    // declaration it should have been.
+    if (intrinsic && kind !== "Fun" && kind !== "Type") {
       const label = this.#current();
       this.#errorAt(label.span, intrinsicFormError(externDeclarationKeyword(label)));
       this.#synchronize(new Set(["VSep", "VClose", "Eof"]));
@@ -2271,6 +2275,18 @@ class Parser {
           `foreign type \`${foreignName?.text ?? localName.text}\` needs an uppercase-start local alias; write \`type ${foreignName?.text ?? localName.text} as T${localName.text}\``,
         );
       }
+      // *(#927.)* A type row inside the reserved boundary may be parameterized:
+      // §3.4's genericity grant covers it for the reason it covers a `fun` row
+      // — the implementer is the compiler, which owns the representation of
+      // every instantiation, so Part 4 §12.4's representation question does not
+      // arise. The parameters are written in the *declaration* shape, a
+      // parenthesised list like a record's head, because that is what they are
+      // — `type buffer as Buffer(a)` declares `Buffer`'s arity. A foreign row
+      // keeps Part 4 §12.4's refusal below, unchanged and for both bracket
+      // shapes.
+      const parameters = intrinsic && this.#at("LeftParen")
+        ? this.#parseIntrinsicTypeParameters()
+        : undefined;
       if (this.#at("LeftParen") || this.#at("Less")) {
         this.#errorAt(this.#current().span, "generic extern declarations are not part of Hexagon v1");
         this.#synchronize(new Set(["VSep", "VClose", "Eof"]));
@@ -2281,6 +2297,7 @@ class Parser {
         default: false,
         ...(foreignName === undefined ? {} : { foreignName }),
         localName,
+        ...(parameters === undefined ? {} : { parameters }),
         span: spanFrom(start.span, this.#previous().span),
       };
     }
@@ -2328,7 +2345,39 @@ class Parser {
           this.#errorAt(parameter.span, "extern function parameters require type annotations");
         }
       }
-      this.#expect("Colon", "extern functions require a result type");
+      // *(#927.)* An intrinsic row may write its **outer arrow** in the result
+      // separator's seat — `->`, `->!` or `->?` — which is the shape FFI Part 4
+      // §4.5 fixes for every callable extern row and which §4.2 makes *verified*
+      // rather than trusted here: the compiler is the implementer, so the arrow
+      // is an obligation on the lowering. The `buffer` rows are what needed it
+      // (`regex.md` §7): `create`, `read` and `write` are `->!`, `length` is
+      // `->`, and no `:` can say that.
+      //
+      // `:` stays admitted and stays the pure face, because that is what every
+      // row in the shipped inventory writes today and because #869's own
+      // implementation arc — which retires `:` on *every* callable row, foreign
+      // rows included — is not this one. A foreign row is unchanged: it reaches
+      // the `#expect` below and takes the existing message.
+      let intrinsicEffect: "constant" | undefined;
+      const intrinsicArrow = intrinsic ? this.#arrowAt() : undefined;
+      if (intrinsicArrow === undefined) {
+        this.#expect("Colon", "extern functions require a result type");
+      } else {
+        const arrowToken = this.#advance();
+        if (intrinsicArrow === "constant") intrinsicEffect = "constant";
+        if (intrinsicArrow === "linked") {
+          // The declared conduit seats one colour variable at the row's outer
+          // arrow *and* at every `->?` its signature writes (FFI Part 4 §4.5),
+          // and no row of the inventory declares a callback slot for one to link
+          // to. Refused rather than accepted and read as something else: the two
+          // arrows that say something true about a row here are named.
+          this.#errorAt(
+            arrowToken.span,
+            "an intrinsic row has no callback slot for `->?` to link to; write " +
+              "`->!`, or `->` where the row is a value function of its arguments",
+          );
+        }
+      }
       const returnAnnotation = this.#parseTypeAnnotation(true) ?? invalidType(localName);
       this.#rejectExternBody();
       return {
@@ -2336,6 +2385,7 @@ class Parser {
         exported,
         default: defaultBinding,
         ...(pureOnFun ? { pure: true as const } : {}),
+        ...(intrinsicEffect === undefined ? {} : { effect: intrinsicEffect }),
         ...(conduitOnFun === undefined ? {} : { conduit: conduitOnFun.span }),
         ...(foreignName === undefined ? {} : { foreignName }),
         localName,
@@ -3262,6 +3312,64 @@ class Parser {
    * the keyword only ever followed `export`; Preamble §2.1 now says plainly what
    * the code always tested — "only on an `opaque` declaration".)
    */
+  /**
+   * An intrinsic `type` row's parameter list (`spec/intrinsics.md` §3.3, #927):
+   * `type buffer as Buffer(a)`. Arity 0 is spelled with no list at all, which is
+   * why the caller asks whether the paren is there rather than this method
+   * answering an empty one.
+   *
+   * **A written variance sigil is refused here.** §3.3 gives the row the
+   * opaque-declaration rule — a bare parameter is invariant everywhere, and a
+   * written sigil is a *trusted* claim under §4.2's parametricity obligation,
+   * with no representation for §6.3 to verify it against. Honouring such a claim
+   * means carrying it through both variance walks (the annotation walk in
+   * `variance.ts` and the checker's own `#variablePositions`), and a claim
+   * recorded but not carried is worse than no claim at all: the sigil would read
+   * as load-bearing and do nothing. No customer writes one — `Buffer(a)` is
+   * invariant, which is the whole reason it is a `type` row — so the form is
+   * refused rather than half-built, and `Node(+a)`'s scheduled migration (§9.2)
+   * is what will pay for it.
+   */
+  #parseIntrinsicTypeParameters(): readonly Parsed.Name[] {
+    this.#advance();
+    const parameters: Parsed.Name[] = [];
+    const seen = new Set<string>();
+    while (!this.#at("RightParen") && !this.#at("Eof")) {
+      if (this.#at("Plus") || this.#at("Minus")) {
+        const sigil = this.#advance();
+        this.#errorAt(
+          sigil.span,
+          "an intrinsic `type` row takes no variance claim; every parameter is " +
+            `invariant here — remove the \`${sigil.kind === "Plus" ? "+" : "-"}\``,
+        );
+      }
+      const parameter = this.#takeName(
+        "NonUpperName",
+        "intrinsic type parameters must be non-uppercase-start names",
+      );
+      if (parameter === undefined) break;
+      const name = parsedName(parameter);
+      if (seen.has(name.text)) {
+        this.#errorAt(name.span, `duplicate type parameter \`${name.text}\``);
+      }
+      seen.add(name.text);
+      parameters.push(name);
+      if (!this.#at("Comma")) break;
+      this.#advance();
+    }
+    this.#expect("RightParen", "expected `)` after intrinsic type parameters");
+    // An empty list is arity 0 written the long way, and §3.3 spells arity 0
+    // with no list. Reported rather than accepted, so one spelling means one
+    // arity and the verification in the resolver has one shape to read.
+    if (parameters.length === 0) {
+      this.#errorAt(
+        this.#previous().span,
+        "an intrinsic type with no parameters is written without a parameter list",
+      );
+    }
+    return parameters;
+  }
+
   #takeVarianceSigil(
     opaque: boolean,
   ): { readonly claim: "co" | "contra"; readonly span: Source.Span } | undefined {
@@ -6636,9 +6744,14 @@ function externDeclarationKeyword(token: LaidOut.Token): string {
 
 /**
  * §11's inadmissible-form diagnostic. The intrinsic boundary provides operations
- * only; compiler-owned *types* in particular do not enter here (§3.3), which is
- * why the rewrite points at an ordinary declaration in the same module rather
- * than at a different extern spelling.
+ * and — since #927 — compiler-implemented types, and nothing else; the rewrite
+ * points at an ordinary declaration in the same module rather than at a
+ * different extern spelling.
+ *
+ * *(#927.)* `type` left the refused list when §3.3 admitted it, and the
+ * parenthetical now names the ordinary form a type *programs must be able to
+ * address* should take — one outside §3.3's confinement bar (#930). The `type`
+ * row is for a type no program can address; `opaque record` is for every other.
  *
  * The row's sentence carries the head exemplar at its **tail** since #590's
  * respell rider: `export opaque` had reduced to the one word `opaque`, and a
@@ -6648,9 +6761,10 @@ function externDeclarationKeyword(token: LaidOut.Token): string {
  * not become adjacent parentheses.
  */
 function intrinsicFormError(form: string): string {
-  return `the intrinsic boundary provides operations only; declare \`fun\` here, ` +
-    `and declare types as ordinary declarations in this module ` +
-    `(typically \`opaque record\`) — \`${form}\` is not admitted`;
+  return `the intrinsic boundary provides operations and compiler-implemented ` +
+    `types only; declare \`fun\` or \`type\` here, and declare everything else ` +
+    `as an ordinary declaration in this module (typically \`opaque record\`) — ` +
+    `\`${form}\` is not admitted`;
 }
 
 function lowerInitial(name: string): string {
