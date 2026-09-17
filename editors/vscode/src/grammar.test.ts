@@ -323,52 +323,31 @@ describe("contextual keywords are positional (spec/lexer.md §4.2)", () => {
     expect(pairs).toContainEqual(["after", "variable.other.definition.hexagon"]);
   });
 
-  it("paints `pure` as a modifier on an extern `fun`, and nowhere else", async () => {
-    // spec/effects.md §6.1's trusted purity claim. It is contextual, so the
-    // rule keys on the `fun` that must follow: the rows FFI Part 4 §4.5 refuses
-    // it on get nothing, and a binding called `pure` outside the block is an
-    // ordinary name.
+  it("paints `pure` and `conduit` as ordinary names, in and out of the block", async () => {
+    // *(#869.)* Both words left Lexer §4.2's contextual table with the forms
+    // they introduced — a row writes its arrow now — so the grammar paints no
+    // modifier at either seat. A row may be *called* `pure`, and a binding
+    // outside the block is an ordinary name, as it always was.
     const source = [
       'extern from "./trim.js"',
       "    export fun trim(document: String) -> String",
       "    export fun save(document: String) ->! Unit",
-      "    export pure",
+      "    export fun pure(document: String) -> String",
+      "    export let conduit: Int",
       "let pure = 1",
-    ].join("\n");
-    const pairs = await scopePairs(source);
-
-    expect(pairs).toContainEqual(["pure", "storage.modifier.hexagon"]);
-    expect(pairs).toContainEqual(["pure", "variable.other.definition.hexagon"]);
-    // The claimed row and the unclaimed one both keep their own name scope.
-    expect(pairs).toContainEqual(["trim", "entity.name.function.hexagon"]);
-    expect(pairs).toContainEqual(["save", "entity.name.function.hexagon"]);
-    // `export pure` with no `fun` behind it is not the claim, so `pure` there is
-    // an ordinary term rather than a modifier.
-    expect(pairs.filter(([text, scope]) =>
-      text === "pure" && scope === "storage.modifier.hexagon"
-    )).toHaveLength(1);
-  });
-
-  it("paints `conduit` the same way, and nowhere else", async () => {
-    // FFI Part 4 §4.5's declared-conduit claim (#409) sits in `pure`'s slot and
-    // takes `pure`'s rule, lookahead included. One row carries one claim, so
-    // `pure conduit` matches neither word and paints as ordinary terms.
-    const source = [
-      'extern from "./world.js"',
-      "    export fun runner(step: () ->? String) ->? Int",
-      "    export fun both(step: () ->? String) ->? Int",
       "let conduit = 1",
     ].join("\n");
     const pairs = await scopePairs(source);
 
-    expect(pairs).toContainEqual(["conduit", "storage.modifier.hexagon"]);
+    expect(pairs).toContainEqual(["pure", "variable.other.definition.hexagon"]);
     expect(pairs).toContainEqual(["conduit", "variable.other.definition.hexagon"]);
-    expect(pairs).toContainEqual(["runner", "entity.name.function.hexagon"]);
+    // The row named `pure` is a row like any other, painted at its own name.
+    expect(pairs).toContainEqual(["pure", "entity.name.function.hexagon"]);
+    expect(pairs).toContainEqual(["trim", "entity.name.function.hexagon"]);
+    expect(pairs).toContainEqual(["save", "entity.name.function.hexagon"]);
+    // The retired modifier scope is painted nowhere at all.
     expect(pairs.filter(([text, scope]) =>
-      text === "conduit" && scope === "storage.modifier.hexagon"
-    )).toHaveLength(1);
-    expect(pairs.filter(([text, scope]) =>
-      text === "pure" && scope === "storage.modifier.hexagon"
+      (text === "pure" || text === "conduit") && scope === "storage.modifier.hexagon"
     )).toHaveLength(0);
   });
 

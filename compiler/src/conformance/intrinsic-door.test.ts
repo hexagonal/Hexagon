@@ -240,6 +240,71 @@ describe("verification replaces trust (§4.2)", () => {
   });
 });
 
+describe("an intrinsic row writes its arrow (§4.2, #869)", () => {
+  /**
+   * Effects §6.1's ownership split needs no notation: an intrinsic row writes
+   * `->`, `->!` or `->?` like every other callable extern row, and what the
+   * door changes is who *answers* for the arrow — the compiler, verified,
+   * rather than the author, trusted. So the face a caller sees is read from the
+   * arrow here exactly as it is at a foreign row, which is what these
+   * observations are: a bare call, a `!` call, and a linked call whose colour
+   * follows the callback.
+   *
+   * §4.2's own sentence licenses the declared types: they are normative in the
+   * declaration, not in a compiler-side table, so only the key and its arity
+   * are verified and a row may be declared at whatever scheme a test needs.
+   */
+  function privileged(block: string): readonly string[] {
+    return diagnostics([
+      ["/main.hex", "module Main\n\n" + "export let ok: Int = 1\n"],
+      ["/Debug.hex", "module Debug\n\n" + block],
+    ]);
+  }
+
+  const ROWS = 'extern from "hex:intrinsic"\n' +
+    "    fun stringHash as pureRow(value: String) -> Int\n" +
+    "    fun stringConcat as impureRow(left: String, right: String) ->! String\n" +
+    "    fun seqMemoize as linkedRow(step: () ->? String) ->? Int\n\n";
+
+  test("`->` is pure at the call, `->!` wants `!`, `->?` follows its callback", () => {
+    expect(privileged(ROWS +
+      "export let a: Int = pureRow(\"x\")\n" +
+      "export let b: String = impureRow!(\"x\", \"y\")\n" +
+      "export let c: Int = linkedRow(() => \"x\")\n" +
+      "export let d: Int = linkedRow!(() => impureRow!(\"a\", \"b\"))\n",
+    )).toEqual([]);
+  });
+
+  test("the faces are enforced in both directions", () => {
+    // The mark table's rows, reached with nothing FFI-specific: a `->!` row
+    // called bare, a `->` row called with `!`, and a `->?` row whose callback
+    // is impure called bare.
+    expect(privileged(ROWS +
+      "export let b: String = impureRow(\"x\", \"y\")\n",
+    )).toEqual(["this call runs effects, so `impureRow` wants `!`, not no mark"]);
+    expect(privileged(ROWS +
+      "export let a: Int = pureRow!(\"x\")\n",
+    )).toEqual(["this call is pure, so `pureRow` wants no mark, not `!`"]);
+    expect(privileged(ROWS +
+      "export let d: Int = linkedRow(() => impureRow!(\"a\", \"b\"))\n",
+    )).toEqual(["this call runs effects, so `linkedRow` wants `!`, not no mark"]);
+  });
+
+  test("an inlet-less `->?` row is refused at the arrow, as a foreign row is", () => {
+    // Effects §4.4's signature clause: the outer arrow is part of the row's
+    // signature, and nothing this one's parameters supply can instantiate it.
+    expect(privileged(
+      'extern from "hex:intrinsic"\n' +
+      "    fun stringHash as linkedRow(value: String) ->? Int\n",
+    )).toEqual([
+      "`->?` is the caller's colour, and this position has no caller to choose it — " +
+      "nothing a caller of this signature supplies carries `->?`, so nothing " +
+      "instantiates it; write `->!` for a function that pulls the world, or `->` " +
+      "for one that does not",
+    ]);
+  });
+});
+
 describe("what the block admits (§3.3)", () => {
   function privileged(block: string): readonly string[] {
     return diagnostics([

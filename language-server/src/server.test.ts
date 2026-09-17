@@ -1524,12 +1524,13 @@ describe("hover renders the arrow trio", () => {
     expect(await hovered("twice")).toBe("value `twice: (Int -> Int, Int) -> Int`");
   });
 
-  test("a `conduit` boundary row reaches the editor as the linked face it is", async () => {
-    // #409's keyword is declaration surface only: what it seats is one colour
-    // variable at the outer arrow and at every `->?` slot, and what a reader
-    // sees is therefore an ordinary single-variable face, undecorated. Asked of
-    // the real server because the boundary row is the one face in the language
-    // whose colour is *claimed* rather than inferred from a body.
+  test("a `->?` boundary row reaches the editor as the linked face it is", async () => {
+    // A row's outer arrow is declaration surface only *(#869)*: what `->?`
+    // seats is one colour variable at that arrow and at every `->?` slot, and
+    // what a reader sees is therefore an ordinary single-variable face,
+    // undecorated. Asked of the real server because the boundary row is the one
+    // face in the language whose colour is *written* rather than inferred from
+    // a body.
     expect(await hovered("runner")).toBe("value `runner: (() ->? String) ->? Int`");
   });
 });

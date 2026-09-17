@@ -488,9 +488,12 @@ class Parser {
    */
   readonly #moduleMarkers: ModuleMarker[] = [];
   /**
-   * The file's own source text — read by one fixit and nothing else (Modules
-   * §2.2's header move; see `Lexed.File.text`). Every other decision this
-   * parser makes is over tokens and spans, and stays that way.
+   * The file's own source text — read by one fixit (Modules §2.2's header move)
+   * and by one rewrite that quotes the row a writer wrote back to them (FFI
+   * Part 4 §13's `let`-with-parameters redirect, `#writtenText`); see
+   * `Lexed.File.text`. Every other *decision* this parser makes is over tokens
+   * and spans, and stays that way — what the text serves is advice, never a
+   * reading.
    */
   readonly #text: string;
   #index = 0;
