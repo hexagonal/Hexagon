@@ -157,18 +157,46 @@ describe("`Buffer(a)` is invariant (§3.3)", () => {
    * generalized nothing at all.
    */
   test("a variable inside a `Buffer` slot is not generalized; a `Seq(+a)`'s is", () => {
+    // The variable is reached through a **covariant** `Seq` slot, so the only
+    // thing that can make it invariant is `Buffer`'s own row. Reached directly
+    // it would be invariant anyway — a `Buffer`-valued binding pins its slot by
+    // unification whatever the variance table says — and the test would pass
+    // against a compiler whose row read `co`. Through one covariant hop it does
+    // not: the sign that arrives at `a` is the product, and the product is the
+    // row.
     expect(diagnostics(
-      "let identity(b: Buffer(a)): Buffer(a) = b\n" +
-      "let shared = identity(create!(1, 0))\n" +
-      "let asInt: Buffer(Int) = shared\n" +
-      "let asText: Buffer(String) = shared\n",
+      "let nested(k: Int): Seq(Buffer(a)) = Seq.empty\n" +
+      "let shared = nested(1)\n" +
+      "let asInt: Seq(Buffer(Int)) = shared\n" +
+      "let asText: Seq(Buffer(String)) = shared\n",
     )).toEqual(["type mismatch: expected String, found Int"]);
+    // The **control**, one constructor different and otherwise identical:
+    // `Seq(+a)`'s sigil is written in `stdlib/Seq.hex`, so the same shape
+    // generalizes and the two consumers instantiate independently. Without it
+    // this test would pass against a compiler that generalized nothing at all.
     expect(diagnostics(
-      "let identity(s: Seq(a)): Seq(a) = s\n" +
-      "let shared = identity(Seq.empty)\n" +
-      "let asInt: Seq(Int) = shared\n" +
-      "let asText: Seq(String) = shared\n",
+      "let nested(k: Int): Seq(Seq(a)) = Seq.empty\n" +
+      "let shared = nested(1)\n" +
+      "let asInt: Seq(Seq(Int)) = shared\n" +
+      "let asText: Seq(Seq(String)) = shared\n",
     )).toEqual([]);
+  });
+
+  /**
+   * The third reader of the same row, and the only one that is an *annotation*
+   * walk rather than a type walk (`variance.ts`): a declaration whose field
+   * holds a `Buffer(a)` uses `a` invariantly, so a `+` claim over it is refused
+   * by the closure doc's §6.3 verification, with the field named as witness.
+   *
+   * The `Seq` control again, the same shape one constructor different, so the
+   * refusal is about `Buffer`'s row and not about the machinery being broken.
+   */
+  test("a field holding a `Buffer(a)` uses `a` invariantly", () => {
+    expect(diagnostics("opaque record Box(+a) = {slots: Buffer(a)}\n")).toEqual([
+      "`a` cannot be declared covariant in `Box`: field `slots` uses `a` in an " +
+      "invariant position. Remove the `+`, or change the field",
+    ]);
+    expect(diagnostics("opaque record Box(+a) = {slots: Seq(a)}\n")).toEqual([]);
   });
 });
 
