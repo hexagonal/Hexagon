@@ -2193,7 +2193,10 @@ function moduleAlias(constraint: string): string {
  * (`#parseParenthesized`, Ascription §2.1). So descending through `Group` sheds
  * the grouping and nothing else, and `(r: Range).toSeq()` offers
  * `Iterable.toSeq((r: Range))` — the spelling row 16 gives every ascription
- * fixit, and the only one that parses in an argument seat.
+ * fixit, and the only one that parses in an argument seat. A doubled pair rides
+ * in whole for the same reason: the parser folds the outer parentheses into the
+ * ascription's span too, so `((r: Range)).toSeq()` meets no `Group` and offers
+ * `Iterable.toSeq(((r: Range)))`, which compiles (measured).
  *
  * Whitelisting `Group` rather than excluding `Ascription` is the robust half of
  * the choice: a node kind added later keeps its own spelling by default, and a
@@ -5318,18 +5321,24 @@ class Checker {
     const call = spelledArguments.every((argument) => argument !== undefined)
       ? `${receiver}.${name}(${spelledArguments.join(", ")})`
       : `${receiver}.${name}`;
+    const verdictAndCall = `${verdict}\`${call}\` has nothing to dispatch to`;
     const member = (this.#honoredMembers(actual).get(name) ?? [])
       .find(({ subjectFirst }) => subjectFirst);
+    // No member of the name, a member that wants more than the subject, or a
+    // call that wrote arguments of its own: the report stops at the verdict, and
+    // there is no subject to spell.
+    if (
+      member === undefined || member.parameterCount !== 1 ||
+      argumentExpressions.length > 0
+    ) {
+      return `${verdictAndCall}.`;
+    }
     // The subject the offer pastes, spelled off the receiver with the dot's own
     // grouping descended through — never off the quoted text, which cannot tell
     // `(1..3)`'s parentheses from `(r: Range)`'s (`ungrouped`). The verdict above
     // keeps the call exactly as written, parentheses and all.
     const subject = this.#spelledExpression(ungrouped(callee.receiver)) ?? receiver;
-    return `${verdict}\`${call}\` has nothing to dispatch to` +
-      (member === undefined || member.parameterCount !== 1 ||
-          argumentExpressions.length > 0
-        ? "."
-        : `; write ${this.#memberSpelling(member, subject)}.`);
+    return `${verdictAndCall}; write ${this.#memberSpelling(member, subject)}.`;
   }
 
   /** §3.4's declared-type-variable row: the bounds, and nothing else. */
@@ -8472,15 +8481,20 @@ class Checker {
             // refusal, however deep the nesting (Method Syntax §9 row 17).
             //
             // The mark stops **cascade** reports as well as duplicate ones, and
-            // that reach is deliberate. A sibling operand unifying with the
-            // abandoned chain no longer reports either: `r.toSeq().take(2)
-            // .length() + "x"` says the `toSeq` refusal and stops, where the
-            // unmarked `Error` also drew "an operand of type `String` cannot
-            // enter `Int`" and `String`'s missing `Num` instance — two verdicts
-            // about an addition whose left operand the reader has just been told
-            // to rewrite, and neither survives the rewrite. §9 row 17's "no
-            // second report about the call follows, however the call is nested"
-            // is the rule this answers to.
+            // that reach is deliberate. The chain types `Error`, so nothing its
+            // type would have decided is reported: `r.toSeq().take(2).length()
+            // + "x"` says the `toSeq` refusal and stops, where the unmarked
+            // `Error` also drew "an operand of type `String` cannot enter `Int`"
+            // and `String`'s missing `Num` instance — two verdicts about an
+            // addition whose left operand the reader has just been told to
+            // rewrite. They are not noise: the same program with the offer
+            // applied, `Seq.length(Seq.take(Iterable.toSeq(r), 2)) + "x"`,
+            // reports `type mismatch: expected Int, found String` (measured).
+            // They are unreadable while that operand's type is a refusal, the
+            // first report is the one to act on, and what the addition has to
+            // say returns on the next compile. §9 row 17's "no second report
+            // about the call follows, however the call is nested" is the rule
+            // this answers to.
             this.#refusedReceivers.add(expression);
             type = ERROR;
             break;

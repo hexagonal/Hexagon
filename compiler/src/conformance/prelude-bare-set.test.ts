@@ -1140,7 +1140,8 @@ describe("`toSeq` is reachable at every iterable", () => {
    *
    * The name is `whirl`, not `spin`, on purpose: row 17 and
    * `#noCompanionToDispatchTo`'s doc both use `r.spin()` as the name **no**
-   * member answers, and the pin above keeps it that way.
+   * member answers, and "a name with no route stops at the verdict" above keeps
+   * it that way.
    */
   test("a local constraint's member is offered under its bare spelling", () => {
     expect(
