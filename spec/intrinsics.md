@@ -121,7 +121,7 @@ whose body renders the value through `show` and hands the door the `String`. The
 
 ### 3.3 What the block admits
 
-`fun` declarations, and *(#927)* **`type` declarations**. `let`, `default`, `method`, `get`, `set`, `class`, and `enum` remain hard errors inside a `"hex:intrinsic"` block (§11) — no customer needs them, and the house bar for adding a form is concrete demand (Part 4 §11's own posture). The four collection companions still declare their types as ordinary declarations in Hexagon source: a `type` row is for a type that **has no Hexagon representation at all**, not for one that has a representation the door happens to implement.
+`fun` declarations, and *(#927)* **`type` declarations**. `let`, `default`, `method`, `get`, `set`, `class`, and `enum` remain hard errors inside a `"hex:intrinsic"` block (§11) — no customer needs them, and the house bar for adding a form is concrete demand (Part 4 §11's own posture). The four collection companions still declare their types as ordinary declarations in Hexagon source: a `type` row is for a type that **has no Hexagon representation at all**, not for one that has a representation the door happens to implement. *(#927.)* The bar is read at the door: a runtime module's own unexported record standing behind a `type` row — `regexProgram` over `Hex.Runtime.Regex`'s `Compiled`, `regex.md` §6.1 — is a representation no module can name and no row exposes, so the row is the whole of what the language sees; the collection companions' case, which the bar contrasts, is the one where the representation is declared in source as the type itself.
 
 A `type` row declares a **compiler-implemented type** — one whose values only the block's `fun` rows construct and inspect:
 
