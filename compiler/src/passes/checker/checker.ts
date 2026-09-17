@@ -2030,7 +2030,7 @@ interface MemberCandidate {
    * be spelled at the wrong arity — and Modules §7.6 has a fixit the reader
    * cannot paste being worse than none.
    */
-  readonly parameters: number;
+  readonly parameterCount: number;
 }
 
 /**
@@ -2219,7 +2219,7 @@ function constraintMemberCandidates(
       member: member.binding.name,
       symbol: member.binding.symbol,
       subjectFirst: first?.kind === "TypeVariable" && first.name === declaration.subject,
-      parameters: member.parameters.length,
+      parameterCount: member.parameters.length,
     };
   });
 }
@@ -2522,11 +2522,14 @@ class Checker {
    * enclosing dot must therefore abandon rather than dispatch on the type the
    * refusal left behind — one refusal is the whole verdict.
    *
-   * Two sources, one rule. A receiver that refused under a forwarded face
-   * *(#821)*; and a dot call refused at §5's ineligible head *(#934)*, whose
-   * row 17 says no second report about the call follows however it is nested.
-   * Without the second the enclosing dot falls through to the ordinary
-   * application path, which re-elaborates the callee and repeats the sentence.
+   * Three sources, one rule. A receiver that refused under a forwarded face
+   * *(#821)*; a dot call refused at §5's ineligible head *(#934)*, whose row 17
+   * says no second report about the call follows however it is nested; and
+   * *(#934)* the enclosing call this set itself made the checker abandon, so
+   * that the abandonment propagates outward instead of suppressing one level.
+   * Without them the enclosing dot falls through to the ordinary application
+   * path, which re-elaborates the callee and repeats the sentence — once per
+   * level of nesting.
    */
   readonly #refusedReceivers = new WeakSet<Resolved.Expr>();
   /**
@@ -5220,7 +5223,8 @@ class Checker {
    * would let it fill another: a member's remaining parameters have no spelling
    * here, and `…` in their place is Modules §7.6's unpasteable fixit. So the
    * caller that spells a rewrite asks first whether the member takes the subject
-   * alone (`MemberCandidate.parameters`), and offers nothing where it does not.
+   * alone (`MemberCandidate.parameterCount`), and offers nothing where it does
+   * not — nor where the call wrote arguments of its own.
    */
   #memberSpelling(candidate: MemberCandidate, argument = "…"): string {
     const local = [...this.#localConstraints.values()].some(
@@ -5267,15 +5271,21 @@ class Checker {
    * #932), and that spelling is the one #932 left standing, with the receiver's
    * outer parentheses shed so `(1..3).toSeq()` offers `Iterable.toSeq(1..3)`.
    *
-   * Three cases take the first clause alone, and Modules §7.6 is the reason for
-   * two of them — a fixit the reader cannot paste is worse than none:
+   * Four cases take the first clause alone, and Modules §7.6 is the reason for
+   * three of them — a fixit the reader cannot paste is worse than none:
    *
    * 1. **No member answers the name** (`r.spin()`): there is no route, and
    *    inventing one would be worse than the silence.
    * 2. **The member takes more than the subject** — its other seats have no
-   *    spelling here, and `…` in them is not a rewrite (`#memberSpelling`).
-   *    Latent today, `toSeq` being the only member honored at a `Range`.
-   * 3. **The receiver has no source spelling** — a span crossing a line break,
+   *    spelling here, and `…` in them is not a rewrite (`#memberSpelling`). A
+   *    `honor Twirl<Range>` registers its members though the head itself is
+   *    refused, so `r.twirl()` reaches this and is offered no `twirl(r)`.
+   * 3. **The call wrote arguments of its own** — row 17 offers the rewrite "only
+   *    where the member takes the subject alone *and the call wrote no other
+   *    argument*". `r.toSeq(1, 2)` is arity-wrong however it is spelled, and
+   *    `Iterable.toSeq(r)` would be a fixit that silently deletes the reader's
+   *    `1, 2`. The verdict still quotes their call whole; nothing is offered.
+   * 4. **The receiver has no source spelling** — a span crossing a line break,
    *    or a compilation with no text at all. There is then no call to quote and
    *    no subject to paste, so the sentence names the member after the dot and
    *    stops. No ellipsis stands in for either: `….toSeq()` reads as a spelling
@@ -5309,7 +5319,8 @@ class Checker {
     const member = (this.#honoredMembers(actual).get(name) ?? [])
       .find(({ subjectFirst }) => subjectFirst);
     return `${verdict}\`${call}\` has nothing to dispatch to` +
-      (member === undefined || member.parameters !== 1
+      (member === undefined || member.parameterCount !== 1 ||
+          argumentExpressions.length > 0
         ? "."
         : `; write ${this.#memberSpelling(member, unparenthesized(receiver))}.`);
   }
@@ -8444,6 +8455,15 @@ class Checker {
             (face !== undefined && this.#prune(receiver).kind === "Error")
           ) {
             this.#dotCallArguments(expression, level, undefined);
+            // The abandonment has to carry, or it suppresses one level only.
+            // This call is itself a receiver — `r.toSeq().take(2).length()` —
+            // and the dot one level out would arrive at an unmarked expression
+            // typed `Error`, find nothing to dispatch on, and hand it to the
+            // ordinary application path, which elaborates the callee again and
+            // repeats the sentence `#dispatchDotCall` already said once. Marking
+            // the enclosing call makes the gate reach the whole chain: one
+            // refusal, however deep the nesting (Method Syntax §9 row 17).
+            this.#refusedReceivers.add(expression);
             type = ERROR;
             break;
           }

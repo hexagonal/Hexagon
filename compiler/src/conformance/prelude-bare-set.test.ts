@@ -1008,6 +1008,117 @@ describe("`toSeq` is reachable at every iterable", () => {
   });
 
   /**
+   * "However the call is nested" is a claim about **every** depth, not the
+   * first. Marking the refused call stops the dot one level out; that dot sets
+   * the enclosing expression to `Error` and — until this round — left it
+   * unmarked, so the dot *two* levels out fell through to the ordinary
+   * application path and said the sentence a second time. The abandonment is
+   * marked as well as taken now, so a chain of any length draws one report.
+   */
+  test("a chain three deep still reports once", () => {
+    expect(projectDiagnostics("module Main\n\n" + "export let n(r: Range): Int = r.toSeq().take(2).length()\n"))
+      .toEqual([
+        "`Range` has no companion module, so `r.toSeq()` has nothing to " +
+        "dispatch to; write `Iterable.toSeq(r)`.",
+      ]);
+  });
+
+  /**
+   * The offer is a **rewrite**, so it must not quietly discard the reader's
+   * text. `r.toSeq(1, 2)` is arity-wrong however it is spelled, and
+   * `Iterable.toSeq(r)` would be a fixit that deletes `1, 2` without saying so —
+   * row 17 offers the route "only where the member takes the subject alone and
+   * the call wrote no other argument". The verdict still quotes the call whole.
+   */
+  test("a call that wrote arguments is offered no rewrite that would drop them", () => {
+    expect(projectDiagnostics("module Main\n\n" + "export let n(r: Range): Int = r.toSeq(1, 2)\n"))
+      .toEqual([
+        "`Range` has no companion module, so `r.toSeq(1, 2)` has nothing to " +
+        "dispatch to.",
+      ]);
+  });
+
+  /**
+   * The **arity gate** is reachable, contrary to what round 2 recorded. A
+   * `honor` whose head is `Range` is refused as a head — Instances' "a primitive
+   * or nominal type constructor" — but its members are registered at the type
+   * all the same, so `#honoredMembers` answers `twirl` and the refusal has a
+   * subject-first member to consider. `twirl` takes two parameters, and
+   * `#memberSpelling` fills the subject seat and no other, so `twirl(r)` would
+   * be an offer at the wrong arity (Modules §7.6). Nothing is offered.
+   *
+   * Written with no argument on purpose: this is the case the **arity** gate
+   * alone suppresses, the written-argument gate above having nothing to catch.
+   */
+  test("a member of more than one parameter is offered at no arity", () => {
+    expect(
+      projectDiagnostics(
+        "module Main\n\n" + [
+          "constraint Twirl<a> =",
+          "    twirl(self: a, k: Int) -> Int",
+          "",
+          "honor Twirl<Range> =",
+          "    twirl(self, k) = k",
+          "",
+          "export let n(r: Range): Int = r.twirl()",
+          "",
+        ].join("\n"),
+      ),
+    ).toEqual([
+      "an instance head must name a primitive or nominal type constructor",
+      "`Range` has no companion module, so `r.twirl()` has nothing to dispatch to.",
+    ]);
+  });
+
+  /** The same member with its argument written: both gates hold, one verdict. */
+  test("the arity gate holds with the arguments written too", () => {
+    expect(
+      projectDiagnostics(
+        "module Main\n\n" + [
+          "constraint Twirl<a> =",
+          "    twirl(self: a, k: Int) -> Int",
+          "",
+          "honor Twirl<Range> =",
+          "    twirl(self, k) = k",
+          "",
+          "export let n(r: Range): Int = r.twirl(2)",
+          "",
+        ].join("\n"),
+      ),
+    ).toEqual([
+      "an instance head must name a primitive or nominal type constructor",
+      "`Range` has no companion module, so `r.twirl(2)` has nothing to dispatch to.",
+    ]);
+  });
+
+  /**
+   * The one-parameter sibling, reached the same way, takes the offer — and takes
+   * it **bare**: `Spin` is declared in this module, and a module cannot name
+   * itself (Method Syntax §16.2), so `Spin.spin(r)` is not a rewrite a reader of
+   * `main.hex` could paste. `#memberSpelling`'s local branch, pinned at last.
+   */
+  test("a local constraint's member is offered under its bare spelling", () => {
+    expect(
+      projectDiagnostics(
+        "module Main\n\n" + [
+          "constraint Spin<a> =",
+          "    spin(self: a) -> Int",
+          "",
+          "honor Spin<Range> =",
+          "    spin(self) = 1",
+          "",
+          "export let n(r: Range): Int = r.spin()",
+          "",
+        ].join("\n"),
+      ),
+    ).toEqual([
+      "an instance head must name a primitive or nominal type constructor",
+      "`Range` has no companion module, so `r.spin()` has nothing to dispatch " +
+      "to; write `spin(r)`.",
+    ]);
+  });
+
+  /**
    * And the rescue the refusal displaced is **unchanged** where it is true
    * *(#934)*: a receiver whose type really was unknown where it was written
    * takes the row fallback (§3.5), and the contradiction surfaces at the use,
