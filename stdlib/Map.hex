@@ -14,33 +14,33 @@ extern from "hex:intrinsic"
     // Unexported, beneath `empty` below: the block admits `fun` only and an
     // empty map is a value, so the door row is the thunk and the wrapper is what
     // the language sees (`spec/intrinsics.md` section 3.2).
-    fun mapEmpty as emptyMap(): Map(k, v)
+    fun mapEmpty as emptyMap() -> Map(k, v)
 
     (** A map binding `key` to `value` and nothing else. Takes no `Hash`: a
         one-entry map holds its pair unplaced, so nothing is hashed until the
         first keyed operation. *)
-    export fun mapSingleton as singleton(key: k, value: v): Map(k, v)
+    export fun mapSingleton as singleton(key: k, value: v) -> Map(k, v)
 
     (** How many entries `map` holds, in constant time. *)
-    export fun mapSize as size(map: Map(k, v)): Int
+    export fun mapSize as size(map: Map(k, v)) -> Int
 
     (** The value `map` binds `key` to, or `None` when it binds none. The total
         accessor: an absent key is an answer, not a fault. *)
-    export fun mapGet as get<k: Hash>(map: Map(k, v), key: k): Option(v)
+    export fun mapGet as get<k: Hash>(map: Map(k, v), key: k) -> Option(v)
 
     (** `map` with `key` bound to `value`, inserting or replacing. It never
         throws, and a key already present keeps the representative the map
         already holds while its value is replaced. *)
-    export fun mapSet as set<k: Hash>(map: Map(k, v), key: k, value: v): Map(k, v)
+    export fun mapSet as set<k: Hash>(map: Map(k, v), key: k, value: v) -> Map(k, v)
 
     (** `map` with `key` unbound. Forgiving: a key that is not there yields the
         map unchanged rather than an error. *)
-    export fun mapRemove as remove<k: Hash>(map: Map(k, v), key: k): Map(k, v)
+    export fun mapRemove as remove<k: Hash>(map: Map(k, v), key: k) -> Map(k, v)
 
     (** Every key/value pair in `map`, lazily. The order is the same for two
         traversals of one map within one execution, and is promised for nothing
         else — not insertion, not sorted, not stable across runs. *)
-    export fun mapEntries as entries(map: Map(k, v)): Seq((k, v))
+    export fun mapEntries as entries(map: Map(k, v)) -> Seq((k, v))
 
 (** The empty map. *)
 export let empty: Map(k, v) = emptyMap()

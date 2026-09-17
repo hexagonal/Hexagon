@@ -137,7 +137,7 @@ describe("pattern declarations (#834)", () => {
   test("head, arity, purity, export, and alias diagnostics keep their dedicated seats", () => {
     expect(messages(
       "extern from \"side-effect\"\n" +
-        "    fun noisy(): Unit\n" +
+        "    fun noisy() ->! Unit\n" +
         "record Box = {value: Int}\n" +
         "export pattern absent\n" +
         "    view(box: Box) = box.value\n" +
@@ -275,7 +275,7 @@ describe("pattern declarations (#834)", () => {
 describe("suffix construction marks (§14)", () => {
   const impureBuild =
     "extern from \"./world.js\"\n" +
-    "    fun make(value: Int): Box\n" +
+    "    fun make(value: Int) ->! Box\n" +
     "record Box = {value: Int}\n" +
     "pattern boxed(value: Int): Box\n" +
     "    view(box) = box.value\n" +
@@ -295,7 +295,7 @@ describe("suffix construction marks (§14)", () => {
   test("a conduit build is bare at a pure callback and marked at an impure callback", () => {
     expect(messages(
       "extern from \"./world.js\"\n" +
-        "    fun save(text: String): Unit\n" +
+        "    fun save(text: String) ->! Unit\n" +
         "let identity(value: a): a = value\n" +
         "let tap(step: () ->? Int): (() ->? Int) =\n" +
         "    let _ = step?()\n" +
@@ -313,7 +313,7 @@ describe("suffix construction marks (§14)", () => {
   test("the next call's mark belongs to a returned function, never to the build", () => {
     expect(messages(
       "extern from \"./world.js\"\n" +
-        "    fun save(text: String): Unit\n" +
+        "    fun save(text: String) ->! Unit\n" +
         "record Box = {value: Int}\n" +
         "let factory(value: Int): (() ->! Int) = () =>\n" +
         "    save!(\"x\")\n" +
@@ -367,7 +367,7 @@ describe("unheaded inference and a view's effect demand", () => {
   test("a conduit-effect view reports its linked `->?` face", () => {
     expect(messages(
       "extern from \"./world.js\"\n" +
-        "    conduit fun inspect(step: () ->? Int): Int\n" +
+        "    fun inspect(step: () ->? Int) ->? Int\n" +
         "pattern force\n" +
         "    view(step: () ->? Int) = inspect?(step)\n",
     )).toEqual([

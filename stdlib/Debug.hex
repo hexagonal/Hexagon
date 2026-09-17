@@ -26,7 +26,7 @@ extern from "hex:intrinsic"
     // nothing else, so it stays at the one type the sink takes. `Show<String>`
     // is the identity (Primitive Types section 7), so a `String` operand of
     // `log` reaches this row byte-identically to a direct call.
-    fun debugLog as writeLine(message: String): Unit
+    fun debugLog as writeLine(message: String) -> Unit
 
 (** Writes `value`'s rendering to the debugging console. The write is invisible
     to the program, so a probe inside a pure producer may print once, many

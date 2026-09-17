@@ -278,7 +278,7 @@ describe("§5: the hard errors", () => {
 
   test("the `extern from` header gets its own message", () => {
     const source = '(** The filesystem module. *)\nextern from "node:fs"\n' +
-      "  fun readFileSync(path: String): String\n";
+      "  fun readFileSync(path: String) ->! String\n";
 
     expect(diagnostics(source)).toEqual([
       "documentation attaches to the items an `extern from` block introduces, " +
@@ -457,7 +457,7 @@ describe("§7: emission into both artifacts", () => {
     const main = compiled(
       'extern from "node:fs"\n' +
         "  (** Reads a file. *)\n" +
-        "  export fun readFileSync(path: String): String\n",
+        "  export fun readFileSync(path: String) ->! String\n",
     );
 
     expect(main.javascript.text).toContain(

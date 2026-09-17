@@ -23,12 +23,12 @@ extern from "hex:intrinsic"
     (** How many entries `map` holds. Read fresh from the native `size` at every
         call, never cached and never hoisted: foreign code owns the map, so two
         observations may honestly disagree (FFI Part 5 section 3.1). *)
-    export fun jsMapSize as size(map: JsMap(k, v)): Int
+    export fun jsMapSize as size(map: JsMap(k, v)) -> Int
 
     (** Whether `map` binds `key`, by the native `has` and its equality. A
         hostile or proxied `has` that throws is an ordinary foreign throw and
         arrives as `JsError`, never as an answer (section 4.4). *)
-    export fun jsMapHas as containsKey(map: JsMap(k, v), key: k): Bool
+    export fun jsMapHas as containsKey(map: JsMap(k, v), key: k) -> Bool
 
     // Unexported, beneath `get` below: the bare native `get`, which answers
     // `undefined` for a stored `undefined` and for an absent key alike and so
@@ -36,7 +36,7 @@ extern from "hex:intrinsic"
     // reaches this row only once the key is known to be there, which is
     // section 4.2's two-step lowering written in Hexagon rather than arranged
     // in the emitter.
-    fun jsMapGetUnchecked as readUnchecked(map: JsMap(k, v), key: k): v
+    fun jsMapGetUnchecked as readUnchecked(map: JsMap(k, v), key: k) -> v
 
     (** The pairs of `pairs` collected into a **fresh** native `Map`, eagerly and
         in traversal order. Unconstrained and shallow: nothing is hashed,
@@ -46,7 +46,7 @@ extern from "hex:intrinsic"
         position and the key representative it already stored. Each call builds
         a new collection and consumes its source once, so an infinite sequence
         does not terminate. *)
-    export fun jsMapFromSeq as fromSeq(pairs: Seq((k, v))): JsMap(k, v)
+    export fun jsMapFromSeq as fromSeq(pairs: Seq((k, v))) -> JsMap(k, v)
 
 (** The value `map` binds `key` to, or `None` when it binds none. The total
     accessor: an absent key is an answer, not a fault.

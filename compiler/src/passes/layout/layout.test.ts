@@ -119,7 +119,7 @@ describe("applyLayout", () => {
     const result = layout(
       "extern from \"tiny-json\"\n" +
         "    export type JsonValue\n" +
-        "    export fun parse(text: String): JsonValue\n" +
+        "    export fun parse(text: String) ->! JsonValue\n" +
         "extern import \"telemetry/register\"",
     );
 

@@ -467,8 +467,8 @@ describe("the boundary face (FFI Part 3)", () => {
     const exports = await run(
       [["/main.hex",
         "module Main\n\n" + "extern from \"numbers\"\n" +
-        "    fun counter(): Seq(Int)\n" +
-        "    fun other(): Seq(Int)\n" +
+        "    fun counter() ->! Seq(Int)\n" +
+        "    fun other() ->! Seq(Int)\n" +
         "\n" +
         "export let one: Seq(Int) = Seq.singleton(1)\n" +
         "export let many: Seq(Int) = Seq.take(Seq.iterate(1, x => x + 1), 3)\n" +
@@ -507,7 +507,7 @@ describe("the boundary face (FFI Part 3)", () => {
         Source.fileId(0),
         "/main.hex",
         "module Main\n\n" + "extern from \"./numbers.js\"\n" +
-        "    export fun counter(): Seq(Int)\n" +
+        "    export fun counter() ->! Seq(Int)\n" +
         "\n" +
         "export let first: Option(Int) =\n" +
         "    match Seq.next(counter!())\n" +
@@ -535,7 +535,7 @@ describe("the boundary face (FFI Part 3)", () => {
         Source.fileId(0),
         "/main.hex",
         "module Main\n\n" + "extern from \"./numbers.js\"\n" +
-        "    fun consume(values: Seq(Int)): Int\n" +
+        "    fun consume(values: Seq(Int)) ->! Int\n" +
         "\n" +
         "export let out: Int = consume!(Seq.singleton(1))\n",
       ),
@@ -552,7 +552,7 @@ describe("the boundary face (FFI Part 3)", () => {
     const exports = await run(
       [["/main.hex",
         "module Main\n\n" + "extern from \"numbers\"\n" +
-        "    fun consume(values: Seq(Int)): Int\n" +
+        "    fun consume(values: Seq(Int)) ->! Int\n" +
         "\n" +
         "export let out: Int = consume!(Seq.take(Seq.iterate(1, x => x + 1), 4))\n"]],
       {
@@ -575,7 +575,7 @@ describe("the boundary face (FFI Part 3)", () => {
     const exports = await run(
       [["/main.hex",
         "module Main\n\n" + "extern from \"numbers\"\n" +
-        "    fun echo(values: Seq(Int)): Seq(Int)\n" +
+        "    fun echo(values: Seq(Int)) ->! Seq(Int)\n" +
         "\n" +
         "let sent: Seq(Int) = Seq.singleton(1)\n" +
         "export let same(ignored: Int): Bool = Seq.length(echo!(sent)) == Seq.length(sent)\n" +
@@ -593,7 +593,7 @@ describe("the boundary face (FFI Part 3)", () => {
     const exports = await run(
       [["/main.hex",
         "module Main\n\n" + "extern from \"numbers\"\n" +
-        "    fun counter(): Seq(Int)\n" +
+        "    fun counter() ->! Seq(Int)\n" +
         "\n" +
         "export let firstPass: Vector(Int) = Vector.fromSeq(counter!())\n" +
         "export let secondPass: Vector(Int) = Vector.fromSeq(counter!())\n"]],
@@ -622,7 +622,7 @@ describe("the inbound adapter's protocol access order (FFI Part 3 §7.2)", () =>
     const exports = await run(
       [["/main.hex",
         "module Main\n\n" + "extern from \"numbers\"\n" +
-        "    fun counter(): Seq(Int)\n" +
+        "    fun counter() ->! Seq(Int)\n" +
         "\n" +
         "export let collected: Vector(Int) = Vector.fromSeq(counter!())\n"]],
       {
@@ -646,8 +646,8 @@ describe("the inbound adapter's protocol access order (FFI Part 3 §7.2)", () =>
     const exports = await run(
       [["/main.hex",
         "module Main\n\n" + "extern from \"numbers\"\n" +
-        "    fun counter(): Seq(Int)\n" +
-        "    fun valueReads(): Int\n" +
+        "    fun counter() ->! Seq(Int)\n" +
+        "    fun valueReads() ->! Int\n" +
         "\n" +
         "export let collected: Vector(Int) = Vector.fromSeq(counter!())\n" +
         "export let reads: Int = valueReads!()\n"]],
@@ -677,7 +677,7 @@ describe("the inbound adapter's protocol access order (FFI Part 3 §7.2)", () =>
     await expect(run(
       [["/main.hex",
         "module Main\n\n" + "extern from \"numbers\"\n" +
-        "    fun counter(): Seq(Int)\n" +
+        "    fun counter() ->! Seq(Int)\n" +
         "\n" +
         "export let collected: Vector(Int) = Vector.fromSeq(counter!())\n"]],
       {
@@ -696,8 +696,8 @@ describe("the inbound adapter's protocol access order (FFI Part 3 §7.2)", () =>
     const exports = await run(
       [["/main.hex",
         "module Main\n\n" + "extern from \"numbers\"\n" +
-        "    fun counter(): Seq(Int)\n" +
-        "    fun acquisitions(): Int\n" +
+        "    fun counter() ->! Seq(Int)\n" +
+        "    fun acquisitions() ->! Int\n" +
         "\n" +
         "let unused: Seq(Int) = counter!()\n" +
         "export let before: Int = acquisitions!()\n"]],
@@ -742,8 +742,8 @@ describe("the inbound adapter memoizes a forcing failure (FFI Part 3 §7.1)", ()
     const exports = await run(
       [["/main.hex",
         "module Main\n\n" + "extern from \"numbers\"\n" +
-        "    fun counter(): Seq(Int)\n" +
-        "    fun touches(): Int\n" +
+        "    fun counter() ->! Seq(Int)\n" +
+        "    fun touches() ->! Int\n" +
         "\n" +
         "let shared: Seq(Int) = counter!()\n" +
         "\n" +
@@ -889,8 +889,8 @@ describe("the inbound adapter memoizes a forcing failure (FFI Part 3 §7.1)", ()
     const exports = await run(
       [["/main.hex",
         "module Main\n\n" + "extern from \"numbers\"\n" +
-        "    fun counter(): Seq(Int)\n" +
-        "    fun touches(): Int\n" +
+        "    fun counter() ->! Seq(Int)\n" +
+        "    fun touches() ->! Int\n" +
         "\n" +
         "let shared: Seq(Int) = counter!()\n" +
         "\n" +
@@ -1102,7 +1102,7 @@ describe("the memoizing spine reclaims an unreachable prefix (FFI Part 3 §5)", 
     const exports = await run(
       [["/main.hex",
         "module Main\n\n" + "extern from \"boxes\"\n" +
-        "    fun boxes(count: Int): Seq((Int, Int))\n" +
+        "    fun boxes(count: Int) ->! Seq((Int, Int))\n" +
         "\n" +
         "export let build(count: Int): Seq((Int, Int)) = boxes!(count)\n" +
         "\n" + cursorHelpers]],
@@ -1186,9 +1186,9 @@ describe("forcing is not reentrant (FFI Part 3 §7.3)", () => {
    */
   const selfObserving =
     "extern from \"probe\"\n" +
-    "    fun source(): Seq(Int)\n" +
-    "    fun setSeq(held: Seq(Int)): Unit\n" +
-    "    fun outcome(): String\n" +
+    "    fun source() ->! Seq(Int)\n" +
+    "    fun setSeq(held: Seq(Int)) ->! Unit\n" +
+    "    fun outcome() ->! String\n" +
     "\n" +
     "let shared: Seq(Int) = source!()\n" +
     "\n" +

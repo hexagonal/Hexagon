@@ -1136,7 +1136,7 @@ describe("the written signature is the face's spelling, at every published seat"
   test("an extern type follows the same rule, at both seats", async () => {
     const host: readonly [string, string] = [
       "/host.hex",
-      "module Host\n\n" + 'extern from "./host.js"\n    export type Handle\n    export fun make(): Handle\n',
+      "module Host\n\n" + 'extern from "./host.js"\n    export type Handle\n    export fun make() ->! Handle\n',
     ];
     const aliases = "module Main\n\n" + 'import Host as Handle\nimport Host as B\n';
 
@@ -1183,7 +1183,7 @@ describe("the written signature is the face's spelling, at every published seat"
     const compiled = project([
       [
         "/host.hex",
-        "module Host\n\n" + 'extern from "./host.js"\n    export type Handle\n    export fun make(): Handle\n',
+        "module Host\n\n" + 'extern from "./host.js"\n    export type Handle\n    export fun make() ->! Handle\n',
       ],
       ["/main.hex", "module Main\n\n" + 'import Host as A\nexport fun h(): A.Handle = A.make!()\n'],
     ]);
@@ -1372,7 +1372,7 @@ describe("the face walk counts every arm `emit` renders, and no other", () => {
       [
         "/main.hex",
         "module Main\n\n" + 'import Lib\nextern from "./host.js"\n' +
-          "    export fun take(p: Lib.Point): Int\n",
+          "    export fun take(p: Lib.Point) ->! Int\n",
       ],
     ]);
     const text = declarations(compiled);

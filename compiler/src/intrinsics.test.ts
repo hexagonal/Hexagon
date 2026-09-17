@@ -40,7 +40,7 @@ describe("the inventory and its lowerings agree", () => {
           Source.fileId(1),
           "/Debug.hex",
           "module Debug\n\n" + 'extern from "hex:intrinsic"\n' +
-          `    export fun ${key} as declared(${parameters}): Int\n`,
+          `    export fun ${key} as declared(${parameters}) -> Int\n`,
         ),
       ]).diagnostics;
       expect(diagnostics.map((diagnostic) => diagnostic.message)).toEqual([]);

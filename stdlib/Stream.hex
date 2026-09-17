@@ -9,7 +9,7 @@ extern from "hex:intrinsic"
     (** A pure sequence driven as a stream: each pull takes one step of `source`
         and holds the successor. Feeding a script to a consumer written against
         `Stream` is how an ambient source is stood in for. *)
-    export fun streamFromSeq as fromSeq(source: Seq(a)): Stream(a)
+    export fun streamFromSeq as fromSeq(source: Seq(a)) -> Stream(a)
 
 (** Pulls the next element, or `None` once the stream is exhausted. Pulling an
     exhausted stream yields `None` again. *)

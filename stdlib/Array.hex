@@ -27,7 +27,7 @@ extern from "hex:intrinsic"
     (** How many elements `values` holds. It is the borrowed array's own
         `length`, read in constant time and without touching a single element:
         nothing here scans, so a sparse array costs no more than a dense one. *)
-    export fun arrayLength as length(values: Array(a)): Int
+    export fun arrayLength as length(values: Array(a)) -> Int
 
 (** The element at 1-based `index`, or `None` when there is none. The total
     accessor: out of bounds is an answer, not a fault. `values[index]` is its

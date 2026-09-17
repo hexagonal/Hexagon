@@ -423,9 +423,9 @@ describe("the universe decides — per file, per spelling", () => {
     const text = declarations(project({
       "/main.hex": "export record ReadonlyArray = {a: Int}\n" +
         'extern from "./x.js"\n' +
-        "    fun rows(): Array(Int)\n" +
-        "    fun table(): JsMap(String, Int)\n" +
-        "    fun flags(): JsSet(Int)\n" +
+        "    fun rows() ->! Array(Int)\n" +
+        "    fun table() ->! JsMap(String, Int)\n" +
+        "    fun flags() ->! JsSet(Int)\n" +
         "\n" +
         "export let first: Array(Int) = rows!()\n" +
         "export let counts: JsMap(String, Int) = table!()\n" +
@@ -487,9 +487,9 @@ describe("the negatives — nothing else moves", () => {
     "/lib.hex": "export record Point = {x: Int}\n",
     "/main.hex": 'import Lib as Point\n' +
       'extern from "./x.js"\n' +
-      "    fun rows(): Array(Int)\n" +
-      "    fun table(): JsMap(String, Int)\n" +
-      "    fun flags(): JsSet(Int)\n" +
+      "    fun rows() ->! Array(Int)\n" +
+      "    fun table() ->! JsMap(String, Int)\n" +
+      "    fun flags() ->! JsSet(Int)\n" +
       "\n" +
       "export exception Boom(value: Int)\n" +
       "export let first: Array(Int) = rows!()\n" +

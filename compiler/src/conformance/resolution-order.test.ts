@@ -242,13 +242,13 @@ describe("the boundary intrinsics are a fallback in both directions", () => {
   // still resolve when nothing competes, and that they yield when something does.
   test("`Array` at an extern boundary", () => {
     expect(diagnostics(
-      "extern from \"host\"\n    fun sink(values: Array(Int)): Unit\n",
+      "extern from \"host\"\n    fun sink(values: Array(Int)) ->! Unit\n",
     )).toEqual([]);
   });
 
   test("`Nullable` at an extern boundary", () => {
     expect(diagnostics(
-      "extern from \"host\"\n    fun sink(value: Nullable(Int)): Unit\n",
+      "extern from \"host\"\n    fun sink(value: Nullable(Int)) ->! Unit\n",
     )).toEqual([]);
   });
 
@@ -303,7 +303,7 @@ describe("the boundary intrinsics are a fallback in both directions", () => {
     // likely to be surprised by, and it is a consequence of the spec as written.
     expect(diagnostics(
       "export record Array(a) = { item: a }\n" +
-      "extern from \"host\"\n    fun sink(values: Array(Int)): Unit\n" +
+      "extern from \"host\"\n    fun sink(values: Array(Int)) ->! Unit\n" +
       "export fun use(item: Int): Unit = sink!(Array({ item = item }))\n",
     )).toEqual([]);
   });
@@ -349,7 +349,7 @@ describe("the companion fallback outranks the boundary intrinsics", () => {
     // draw `unknown generic type \`Array\``.
     expect(diagnostics(
       'import Arr as Array\n' +
-      'extern from "host"\n    fun rows(): Array(Int)\n' +
+      'extern from "host"\n    fun rows() ->! Array(Int)\n' +
       "export let first: Array(Int) = rows!()\n" +
       "export let n: Int = Array.count()\n",
       [["/arr.hex", "module Arr\n\n" + "export fun count(): Int = 1\n"]],
@@ -364,7 +364,7 @@ describe("the companion fallback outranks the boundary intrinsics", () => {
     )).toEqual([]);
     expect(diagnostics(
       'import Nul as Nullable\n' +
-      'extern from "host"\n    fun maybe(): Nullable(Int)\n' +
+      'extern from "host"\n    fun maybe() ->! Nullable(Int)\n' +
       "export let first: Nullable(Int) = maybe!()\n" +
       "export let n: Int = Nullable.count()\n",
       [["/nul.hex", "module Nul\n\n" + "export fun count(): Int = 1\n"]],

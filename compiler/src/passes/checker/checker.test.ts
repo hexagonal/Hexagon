@@ -15,7 +15,7 @@ describe("check", () => {
     const module = checkSource(
       "extern from \"tiny-json\"\n" +
         "    export type JsonValue\n" +
-        "    export fun parse(text: String): JsonValue\n" +
+        "    export fun parse(text: String) ->! JsonValue\n" +
         "    let VERSION as version: String\n" +
         "let document = parse!(version)",
     );
@@ -30,9 +30,9 @@ describe("check", () => {
   test("rejects generic externs and adapter-requiring nested positions", () => {
     const module = checkProject(
       "extern from \"streams\"\n" +
-        "    fun generic(value: a): a\n" +
-        "    fun nested(): Array(Seq(Int))\n" +
-        "    fun callback(run: (() -> Seq(Int))): Unit",
+        "    fun generic(value: a) ->! a\n" +
+        "    fun nested() ->! Array(Seq(Int))\n" +
+        "    fun callback(run: (() -> Seq(Int))) ->! Unit",
     );
     const messages = module.diagnostics.map(({ message }) => message);
 

@@ -11,21 +11,21 @@ module BigInt
 // operations is ordinary Hexagon further down: the Euclidean pair over the
 // truncated one, `gcd`'s loop over `rem`, `lcm` over `gcd`, and every guard.
 extern from "hex:intrinsic"
-    fun bigIntAdd as nativeAdd(left: BigInt, right: BigInt): BigInt
-    fun bigIntMultiply as nativeMultiply(left: BigInt, right: BigInt): BigInt
-    fun bigIntFromNat as nativeFromNat(value: Nat): BigInt
-    fun bigIntSubtract as nativeSubtract(left: BigInt, right: BigInt): BigInt
-    fun bigIntNegate as nativeNegate(value: BigInt): BigInt
-    fun bigIntFromInt as nativeFromInt(value: Int): BigInt
-    fun bigIntEquals as nativeEquals(left: BigInt, right: BigInt): Bool
-    fun bigIntCompare as nativeCompare(left: BigInt, right: BigInt): Ordering
-    fun bigIntShow as nativeShow(value: BigInt): String
-    fun bigIntPow as nativePow(value: BigInt, exponent: BigInt): BigInt
-    fun bigIntHash as nativeHash(value: BigInt): Int
-    fun bigIntQuot as nativeQuot(left: BigInt, right: BigInt): BigInt
-    fun bigIntRem as nativeRem(left: BigInt, right: BigInt): BigInt
-    fun bigIntToIntUnchecked as toIntUnchecked(value: BigInt): Int
-    fun bigIntToFloatUnchecked as toFloatUnchecked(value: BigInt): Float
+    fun bigIntAdd as nativeAdd(left: BigInt, right: BigInt) -> BigInt
+    fun bigIntMultiply as nativeMultiply(left: BigInt, right: BigInt) -> BigInt
+    fun bigIntFromNat as nativeFromNat(value: Nat) -> BigInt
+    fun bigIntSubtract as nativeSubtract(left: BigInt, right: BigInt) -> BigInt
+    fun bigIntNegate as nativeNegate(value: BigInt) -> BigInt
+    fun bigIntFromInt as nativeFromInt(value: Int) -> BigInt
+    fun bigIntEquals as nativeEquals(left: BigInt, right: BigInt) -> Bool
+    fun bigIntCompare as nativeCompare(left: BigInt, right: BigInt) -> Ordering
+    fun bigIntShow as nativeShow(value: BigInt) -> String
+    fun bigIntPow as nativePow(value: BigInt, exponent: BigInt) -> BigInt
+    fun bigIntHash as nativeHash(value: BigInt) -> Int
+    fun bigIntQuot as nativeQuot(left: BigInt, right: BigInt) -> BigInt
+    fun bigIntRem as nativeRem(left: BigInt, right: BigInt) -> BigInt
+    fun bigIntToIntUnchecked as toIntUnchecked(value: BigInt) -> Int
+    fun bigIntToFloatUnchecked as toFloatUnchecked(value: BigInt) -> Float
 
 honor Num<BigInt> =
     (** The sum of `left` and `right`, exactly. *)

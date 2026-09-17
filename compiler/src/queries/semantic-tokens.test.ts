@@ -217,7 +217,7 @@ describe("semantic tokens", () => {
     // asked of the checker.
     const source = "module Main\n\n" + [
       'extern from "./shim.js"',
-      "    fun compute(value: Int): Int",
+      "    fun compute(value: Int) ->! Int",
       "    let version: String",
       "",
       "let answer: Int = compute!(1)",
@@ -237,7 +237,7 @@ describe("semantic tokens", () => {
     // the same in both, and a per-module table would only know its own.
     const helper = "module Helper\n\n" + [
       'extern from "./shim.js"',
-      "    export fun compute(value: Int): Int",
+      "    export fun compute(value: Int) ->! Int",
       "    export let version: String",
       "",
     ].join("\n");

@@ -104,7 +104,7 @@ describe("§14.1 the crossing accepts what a single-pass source is", () => {
   test("a bare foreign iterator crosses, and pulls through `next!`", async () => {
     const exports = await run(
       'extern from "source"\n' +
-      "    fun readings(): Stream(Int)\n" +
+      "    fun readings() ->! Stream(Int)\n" +
       "\n" +
       "export let drained(ignored: Int): Vector(Int) =\n" +
       "    let stream: Stream(Int) = readings!()\n" +
@@ -130,7 +130,7 @@ describe("§14.1 the crossing accepts what a single-pass source is", () => {
   test("the same source reaches `collect!`, the consumer the chapter leads with", async () => {
     const exports = await run(
       'extern from "source"\n' +
-      "    fun readings(): Stream(Int)\n" +
+      "    fun readings() ->! Stream(Int)\n" +
       "\n" +
       "export let sample(ignored: Int): Vector(Int) = Stream.collect!(readings!(), 2)\n",
       {
@@ -151,8 +151,8 @@ describe("§14.1 the crossing accepts what a single-pass source is", () => {
   test("an iterable crosses too, and its iterator is requested once, at the crossing", async () => {
     const exports = await run(
       'extern from "source"\n' +
-      "    fun readings(): Stream(Int)\n" +
-      "    fun acquisitions(): Int\n" +
+      "    fun readings() ->! Stream(Int)\n" +
+      "    fun acquisitions() ->! Int\n" +
       "\n" +
       "export let probe(ignored: Int): (Int, Vector(Int), Int) =\n" +
       "    let stream: Stream(Int) = readings!()\n" +
@@ -200,7 +200,7 @@ describe("§14.1 the crossing accepts what a single-pass source is", () => {
   test("repeated crossings of one iterator share its cursor, as two foreign consumers would", async () => {
     const exports = await run(
       'extern from "source"\n' +
-      "    fun readings(): Stream(Int)\n" +
+      "    fun readings() ->! Stream(Int)\n" +
       "\n" +
       "export let twice(ignored: Int): (Vector(Int), Vector(Int)) =\n" +
       "    let earlier: Vector(Int) = Stream.collect!(readings!(), 2)\n" +
@@ -238,7 +238,7 @@ describe("§14.1 the absences: nothing is manufactured, memoized, or strengthene
   test("an exhausted source is not latched — the next pull is whatever the cursor does", async () => {
     const exports = await run(
       'extern from "source"\n' +
-      "    fun readings(): Stream(Int)\n" +
+      "    fun readings() ->! Stream(Int)\n" +
       "\n" +
       "let stream: Stream(Int) = readings!()\n" +
       "\n" +
@@ -278,7 +278,7 @@ describe("§14.1 the absences: nothing is manufactured, memoized, or strengthene
   test("a foreign throw propagates out of the pull, and is not memoized", async () => {
     const exports = await run(
       'extern from "source"\n' +
-      "    fun readings(): Stream(Int)\n" +
+      "    fun readings() ->! Stream(Int)\n" +
       "\n" +
       "let stream: Stream(Int) = readings!()\n" +
       "\n" +
@@ -324,7 +324,7 @@ describe("§14.1 the absences: nothing is manufactured, memoized, or strengthene
   test("that throw arrives at a `JsError(e)` arm as the source's own value", async () => {
     const exports = await run(
       'extern from "source"\n' +
-      "    fun readings(): Stream(Int)\n" +
+      "    fun readings() ->! Stream(Int)\n" +
       "\n" +
       "let stream: Stream(Int) = readings!()\n" +
       "\n" +
@@ -334,7 +334,7 @@ describe("§14.1 the absences: nothing is manufactured, memoized, or strengthene
       "            None => \"none\"\n" +
       "            Some(value) => Int.show(value)\n" +
       "    catch\n" +
-      "        JsError(e) => JsError.message(e)\n",
+      "        JsError(e) => JsError.message!(e)\n",
       {
         source: [
           "let step = 0;",
@@ -358,7 +358,7 @@ describe("§14.1 the absences: nothing is manufactured, memoized, or strengthene
   test("a malformed iterator result is the §7.2 TypeError, and nothing more", async () => {
     const exports = await run(
       'extern from "source"\n' +
-      "    fun readings(): Stream(Int)\n" +
+      "    fun readings() ->! Stream(Int)\n" +
       "\n" +
       "export let pull(ignored: Int): Int =\n" +
       "    match Stream.next!(readings!())\n" +
@@ -379,8 +379,8 @@ describe("§14.1 the absences: nothing is manufactured, memoized, or strengthene
   test("`done` is read before `value`, and `value` is not read at all when done", async () => {
     const exports = await run(
       'extern from "source"\n' +
-      "    fun readings(): Stream(Int)\n" +
-      "    fun reads(): String\n" +
+      "    fun readings() ->! Stream(Int)\n" +
+      "    fun reads() ->! String\n" +
       "\n" +
       "let stream: Stream(Int) = readings!()\n" +
       "\n" +
@@ -409,8 +409,8 @@ describe("§14.1 the absences: nothing is manufactured, memoized, or strengthene
   test("the shim never calls `return()`, even when a consumer stops early", async () => {
     const exports = await run(
       'extern from "source"\n' +
-      "    fun readings(): Stream(Int)\n" +
-      "    fun closes(): Int\n" +
+      "    fun readings() ->! Stream(Int)\n" +
+      "    fun closes() ->! Int\n" +
       "\n" +
       "let stream: Stream(Int) = readings!()\n" +
       "\n" +
@@ -448,8 +448,8 @@ describe("§14 position declares intent", () => {
   test("one source crossed at both positions launders at `Seq` and stays raw at `Stream`", async () => {
     const exports = await run(
       'extern from "source"\n' +
-      "    fun asSeq(): Seq(Int)\n" +
-      "    fun asStream(): Stream(Int)\n" +
+      "    fun asSeq() ->! Seq(Int)\n" +
+      "    fun asStream() ->! Stream(Int)\n" +
       "\n" +
       "export let sequence(ignored: Int): (Vector(Int), Vector(Int)) =\n" +
       "    let source: Seq(Int) = asSeq!()\n" +

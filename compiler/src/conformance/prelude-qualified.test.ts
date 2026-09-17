@@ -327,7 +327,7 @@ describe("the synthesized import dodges every module-level binding (PR #91 findi
     const project = compileProject([
       new Source.File(Source.fileId(0), "/main.hex",
         "module Main\n\n" + "extern from \"lib\"\n" +
-        "    fun fold(value: Int): Int\n" +
+        "    fun fold(value: Int) ->! Int\n" +
         "export let mine: Int = fold!(1)\n" +
         "export let theirs: Int = Seq.length(Vector.toSeq([1, 2]))\n"),
     ]);

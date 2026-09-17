@@ -172,7 +172,7 @@ describe("§8.6 the total-contract fence (§5.4)", () => {
       ["union U = A(_)\nexport let out: Int = 1\n", "a `union` declaration"],
       ["exception Boom(payload: _)\nexport let out: Int = 1\n", "an `exception` declaration"],
       [
-        'extern from "./foreign.js"\n    fun f(x: _): Int\nexport let out: Int = 1\n',
+        'extern from "./foreign.js"\n    fun f(x: _) ->! Int\nexport let out: Int = 1\n',
         "an `extern` declaration",
       ],
       [
@@ -194,7 +194,7 @@ describe("§8.6 the total-contract fence (§5.4)", () => {
   test("the intrinsic door is a declaration surface too", () => {
     // `spec/intrinsics.md` §3.4 grants the door *genericity*, which a hole is
     // not: it is still a written signature checked against no body.
-    expect(projectDiagnostics("module Main\n\n" + 'extern from "hex:intrinsic"\n    fun seqMemoize as memoize(source: _): Int\n' +
+    expect(projectDiagnostics("module Main\n\n" + 'extern from "hex:intrinsic"\n    fun seqMemoize as memoize(source: _) -> Int\n' +
         "export let out: Int = 1\n",
     )).toContain(`an \`extern\` declaration writes its types in full; ${rewrite}`);
   });
@@ -220,10 +220,10 @@ describe("§8.6 the total-contract fence (§5.4)", () => {
   test("a hole cannot buy an extern the genericity v1 refuses it", () => {
     // The two refusals answer different questions and must not be confused: the
     // fence fires for `_`, the generic-extern rule for a written variable.
-    const hole = projectDiagnostics("module Main\n\n" + 'extern from "./foreign.js"\n    fun f(x: _): Int\nexport let out: Int = 1\n',
+    const hole = projectDiagnostics("module Main\n\n" + 'extern from "./foreign.js"\n    fun f(x: _) ->! Int\nexport let out: Int = 1\n',
     );
     expect(hole).not.toContain("generic extern declarations are not part of Hexagon v1");
-    expect(projectDiagnostics("module Main\n\n" + 'extern from "./foreign.js"\n    fun f(x: a): Int\nexport let out: Int = 1\n',
+    expect(projectDiagnostics("module Main\n\n" + 'extern from "./foreign.js"\n    fun f(x: a) ->! Int\nexport let out: Int = 1\n',
     )).toContain("generic extern declarations are not part of Hexagon v1");
   });
 
@@ -265,7 +265,7 @@ describe("§8.6 the total-contract fence (§5.4)", () => {
         [`union U = A(Pair(_))\n${TAIL}`, "a `union` declaration"],
         [`exception Boom(payload: Pair(_))\n${TAIL}`, "an `exception` declaration"],
         [
-          `extern from "./foreign.js"\n    fun f(x: Pair(_)): Int\n${TAIL}`,
+          `extern from "./foreign.js"\n    fun f(x: Pair(_)) ->! Int\n${TAIL}`,
           "an `extern` declaration",
         ],
         [`extern from "./foreign.js"\n    let v: Pair(_)\n${TAIL}`, "an `extern` declaration"],

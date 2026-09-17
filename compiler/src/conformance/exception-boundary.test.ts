@@ -676,7 +676,7 @@ describe("the throws manifest (#479, Doc Comments §6.1/§7.4)", () => {
       "export exception Boom\n" +
       "extern from \"node:fs\"\n" +
       "    (** Reads a file. Throws `Boom` when the path is bad. *)\n" +
-      "    export fun readFileSync(path: String): String\n",
+      "    export fun readFileSync(path: String) ->! String\n",
     );
 
     // One block, in §7.3's order: user content, then the generated prose, then

@@ -170,7 +170,7 @@ describe("the provided rows: bare `toSeq` and the `Item` projection", () => {
   test("Array(a) gives a", () => {
     expect(messagesOf([["/main.hex",
       "module Main\n\n" + 'extern from "./rows.js"\n' +
-        "    fun rows(): Array(Int)\n" +
+        "    fun rows() ->! Array(Int)\n" +
         "\n" +
         "export let main(): Int = Seq.length(Iterable.toSeq(rows!()))\n",
     ]])).toEqual([]);
@@ -179,7 +179,7 @@ describe("the provided rows: bare `toSeq` and the `Item` projection", () => {
   test("JsMap(k, v) gives the pair (k, v)", () => {
     expect(messagesOf([["/main.hex",
       "module Main\n\n" + 'extern from "./rows.js"\n' +
-        "    fun table(): JsMap(String, Int)\n" +
+        "    fun table() ->! JsMap(String, Int)\n" +
         "\n" +
         "export let main(): Int = Seq.length(Iterable.toSeq(table!()))\n",
     ]])).toEqual([]);
@@ -188,7 +188,7 @@ describe("the provided rows: bare `toSeq` and the `Item` projection", () => {
   test("JsSet(a) gives a", () => {
     expect(messagesOf([["/main.hex",
       "module Main\n\n" + 'extern from "./rows.js"\n' +
-        "    fun flags(): JsSet(Int)\n" +
+        "    fun flags() ->! JsSet(Int)\n" +
         "\n" +
         "export let main(): Int = Seq.length(Iterable.toSeq(flags!()))\n",
     ]])).toEqual([]);
@@ -206,8 +206,8 @@ describe("the provided rows: bare `toSeq` and the `Item` projection", () => {
   test("the borrowed views' `Item` bindings are (k, v) and a", () => {
     expect(messagesOf([["/main.hex",
       "module Main\n\n" + 'extern from "./rows.js"\n' +
-        "    fun table(): JsMap(String, Int)\n" +
-        "    fun flags(): JsSet(Int)\n" +
+        "    fun table() ->! JsMap(String, Int)\n" +
+        "    fun flags() ->! JsSet(Int)\n" +
         "\n" +
         "export fun main(): Int =\n" +
         '    var text = ""\n' +
@@ -225,7 +225,7 @@ describe("the provided rows: bare `toSeq` and the `Item` projection", () => {
   test("a `JsMap` item does not bind at the key's type", () => {
     expect(messagesOf([["/main.hex",
       "module Main\n\n" + 'extern from "./rows.js"\n' +
-        "    fun table(): JsMap(String, Int)\n" +
+        "    fun table() ->! JsMap(String, Int)\n" +
         "\n" +
         "export fun main(): String =\n" +
         '    var text = ""\n' +

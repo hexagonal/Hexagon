@@ -172,7 +172,7 @@ describe("the representation pin (#147 §3)", () => {
     // pin's whole purpose is that it still is. A foreign predicate's result
     // flows into a `match` and back out through an export with no conversion.
     const project = compileMain("module Main\n\n" + "extern from \"host\"\n" +
-        "    export fun isReady(): Bool\n" +
+        "    export fun isReady() ->! Bool\n" +
         "export let describe(): String =\n" +
         "    match isReady!()\n" +
         "        True => \"ready\"\n" +

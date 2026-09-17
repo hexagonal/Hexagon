@@ -214,7 +214,7 @@ describe("the synthesized prelude import is what Core references", () => {
     const javascript = emitted([[
       "/main.hex",
       "module Main\n\n" + 'extern from "lib"\n' +
-      "    fun map(x: Int): Int\n" +
+      "    fun map(x: Int) ->! Int\n" +
       "export let out: Vector(Int) =\n" +
       "    Vector.fromSeq(Vector.toSeq([9]).map(x => x * 2))\n",
     ]], "/main.hex");

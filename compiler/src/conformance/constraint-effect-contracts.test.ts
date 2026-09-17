@@ -107,7 +107,7 @@ function hoveredType(source: string, needle: string): string | undefined {
 }
 
 /** The world's door, so a body has a genuine effect to perform. */
-const IO = 'extern from "./io.js"\n    export fun readIt(path: String): String\n\n';
+const IO = 'extern from "./io.js"\n    export fun readIt(path: String) ->! String\n\n';
 
 /** Effects §9's pure-contract row, base form, verbatim, for the member it names. */
 const pureContract = (member: string): string =>
@@ -2868,8 +2868,8 @@ describe("Effects §13.2: a slot narrowed through the ordering", () => {
       ["/main.hex",
         "module Main\n\n" +
         'extern from "./io.js"\n' +
-        "    export fun readIt(path: String): String\n" +
-        "    export fun readCount(): Int\n\n" +
+        "    export fun readIt(path: String) ->! String\n" +
+        "    export fun readCount() ->! Int\n\n" +
         "constraint Runner<r> =\n" +
         `    run(runner: r, action: () ->! Unit) ${arrow} Unit\n\n` +
         "record Job = { id: Int }\n\n" +

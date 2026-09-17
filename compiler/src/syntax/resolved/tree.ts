@@ -697,10 +697,6 @@ export type ExternDeclaration =
 interface ExternDeclarationFields {
   readonly exported: boolean;
   readonly default: boolean;
-  /** The #355 trusted purity claim; see the parsed tree's field. */
-  readonly pure?: true;
-  /** #409's declared-conduit claim, at its own word; see the parsed tree's field. */
-  readonly conduit?: Source.Span;
   readonly foreignName?: string;
   readonly localName: string;
   readonly span: Source.Span;
@@ -712,6 +708,10 @@ export interface ExternFunDeclaration extends ExternDeclarationFields {
   /** The declared binders and their bounds (#370); see the parsed tree's field. */
   readonly typeParameters?: readonly TypeParameter[];
   readonly parameters: readonly Parameter[];
+  /** The row's outer arrow (#869); see the parsed tree's field. */
+  readonly effect?: "linked" | "constant";
+  /** The arrow token itself, so §4.4's refusal and a fixit can stand on it. */
+  readonly arrowSpan?: Source.Span;
   readonly returnAnnotation: TypeAnnotation;
 }
 

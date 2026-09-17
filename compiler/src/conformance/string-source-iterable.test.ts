@@ -17,7 +17,7 @@ function withoutStringInstance(): string {
 describe("String owns its Iterable instance in source", () => {
   test("the canonical source is the sole coherence provider", () => {
     const source = STDLIB_SOURCES["String"]!;
-    expect(source).toContain("fun stringToSeq as nativeToSeq(text: String): Seq(String)");
+    expect(source).toContain("fun stringToSeq as nativeToSeq(text: String) -> Seq(String)");
     expect(source).toContain(SOURCE_INSTANCE.trim());
     expect(source).toContain("Vector.fromSeq(toSeq(text))");
     expect(source).toContain("fromSeq(Iterable.toSeq(chunks))");
@@ -87,7 +87,7 @@ describe("String owns its Iterable instance in source", () => {
   test("a same-shaped noncanonical declaration receives the ordinary member call", () => {
     const iterable = STDLIB_SOURCES["Iterable"]! +
       '\nextern from "hex:intrinsic"\n' +
-      "    fun stringToSeq as nativeToSeq(text: String): Seq(String)\n\n" +
+      "    fun stringToSeq as nativeToSeq(text: String) -> Seq(String)\n\n" +
       "honor Iterable<String> =\n" +
       "    type Item = String\n" +
       "    toSeq(text) = nativeToSeq(text)\n";

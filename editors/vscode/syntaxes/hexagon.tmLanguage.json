@@ -298,14 +298,6 @@
           }
         },
         {
-          "//": "spec/effects.md §6.1's trusted purity claim and FFI Part 4 §4.5's declared-conduit claim. Both are contextual modifiers on a user-written extern `fun` and ordinary names everywhere else, so the lookahead requires the `fun` — which also keeps them off the extern `let` and `type` rows, where §4.5 refuses either claim outright. One row carries one claim, so `pure conduit` matches neither and paints as ordinary terms.",
-          "match": "^[ \\t]*(?:(export)[ \\t]+)?(pure|conduit)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(?=[ \\t]+fun(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))",
-          "captures": {
-            "1": { "name": "keyword.control.import.hexagon" },
-            "2": { "name": "storage.modifier.hexagon" }
-          }
-        },
-        {
           "//": "`export new(...)` constructor description, and the `default` import position.",
           "match": "^[ \\t]*(?:(export)[ \\t]+)?(?:(static)[ \\t]+)?(new|default)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])",
           "captures": {

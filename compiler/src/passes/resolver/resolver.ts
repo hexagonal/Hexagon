@@ -3311,7 +3311,6 @@ class Resolver {
               kind: "ExternType",
               exported: declaration.exported,
               default: false,
-              ...(declaration.pure === undefined ? {} : { pure: declaration.pure }),
               ...(declaration.foreignName === undefined ? {} : { foreignName: declaration.foreignName.text }),
               localName: declaration.localName.text,
               externType: this.#externTypeDeclarations.get(declaration) ?? Resolved.externTypeId(this.#nextExternType++),
@@ -3326,8 +3325,6 @@ class Resolver {
           const common = {
             exported: declaration.exported,
             default: declaration.default,
-            ...(declaration.pure === undefined ? {} : { pure: declaration.pure }),
-            ...(declaration.conduit === undefined ? {} : { conduit: declaration.conduit }),
             ...(declaration.foreignName === undefined ? {} : { foreignName: declaration.foreignName.text }),
             localName: declaration.localName.text,
             binding,
@@ -3365,6 +3362,10 @@ class Resolver {
                 })),
               }),
             parameters,
+            // The row's outer arrow, carried through with the span it was
+            // written at so §4.4's refusal and its fixit can stand on it (#869).
+            ...(declaration.effect === undefined ? {} : { effect: declaration.effect }),
+            ...(declaration.arrowSpan === undefined ? {} : { arrowSpan: declaration.arrowSpan }),
             returnAnnotation: this.#resolveTypeAnnotation(declaration.returnAnnotation),
           };
         });

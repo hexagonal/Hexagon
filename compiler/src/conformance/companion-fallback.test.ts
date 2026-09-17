@@ -126,7 +126,7 @@ describe("type position: §5.3's consumer, compiling", () => {
       ["/host.hex",
         "module Host\n\n" + 'extern from "./host.js"\n' +
         "    export type Host\n" +
-        "    export fun make(): Host\n"],
+        "    export fun make() ->! Host\n"],
       ["/main.hex",
         "module Main\n\n" + 'import Host\n' +
         "export fun pass(h: Host): Host = h\n" +

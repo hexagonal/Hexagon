@@ -256,13 +256,16 @@ describe("eager: the answer is a genuine vector, built at the call (§9)", () =>
 
 describe("the snapshot outlives the borrow (§9, §6.2)", () => {
   /**
-   * **What §9 means by "the explicit escape".** §6.2 obliges foreign code to
-   * keep a borrowed array's elements and length stable while Hexagon may
-   * observe it; §6.5 then rules that live and snapshot iteration coincide
-   * *under that contract*, and names this operation as the way out for a caller
-   * who needs stability beyond it. So the assertion is the one thing the borrow
-   * cannot promise: the source array is mutated after the call, and the vector
-   * does not move.
+   * **What §9 means by "the explicit escape".** An `Array(a)` is **captured at
+   * acquisition** (§6.2, #876): its contents cannot vary while Hexagon holds
+   * it, which is what makes its reads reads of a value (Effects §6.2 species
+   * (c)). What this operation adds is a *Hexagon* value with Hexagon's own
+   * operations on it, and the assertion below is that the vector is one: the
+   * source array is mutated after the call, and the vector does not move.
+   *
+   * The capture lowering is issue #945; until it lands the vector's
+   * independence is what this test can observe, and the `Array` side of the
+   * same fact is that arc's to pin.
    */
   test("appending to the source afterwards leaves the vector's length alone", () => {
     const source = [1, 2, 3];
