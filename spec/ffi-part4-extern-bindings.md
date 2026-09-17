@@ -363,7 +363,7 @@ Hard errors introduced or relied on by this part, each with its named rewrite pe
 |---|---|---|
 | extern callable declared with `let` (parameter list present) | "extern callable declarations use `fun` and write their effect arrow; write `fun parse(text: String) ->! JsonValue`" — this redirect fires first, and its rewrite already spells the arrow, so the colon row below is not also reported | §4.2, §4.5 |
 | extern `let` annotated with a function type | "extern callable declarations use `fun`; a binding of type `Int -> Int` is callable — write `fun f(x: Int) -> Int`" | §4.1; Part 6 §2.4 |
-| extern `fun` without a parameter list | "extern `fun` declares a callable and requires a parameter list; for a foreign value, write `let version: String`" | §4.2 |
+| extern `fun` without a parameter list | "extern `fun` declares a callable and requires a parameter list; for a foreign value, write `let version: String`" — the rewrite is a `let`, which keeps `:`, so the colon row below is not also reported on it | §4.2 |
 | unaliased foreign name violating Hexagon start-class rules or the reserved `__` prefix | "bind it with an alias: `let VERSION as version: String`" (resp. `let __state as state: Int`) | §3.2 |
 | `as` alias on a `default` declaration | "a `default` binding has no foreign export name; name the binding directly" | §6 |
 | extern declaration with a body | syntax error — extern declarations are bodyless typed assertions | §1 |
