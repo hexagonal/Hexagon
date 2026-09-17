@@ -298,6 +298,7 @@ All hard errors, each with its named rewrite per the Rewrite Rule (Declarations 
 - **Type key arity** *(#927)* — declaration-site, as for a `fun` key: "intrinsic type `buffer` takes 1 type parameter, but this declaration has 2." The rewrite is the inventory arity.
 - **Type key declared outside its named declarers** *(#927, §3.3)* — declaration-site: "`buffer` may be declared only in `Hex.Runtime.Regex`; a value over it reaches other modules through a sealed row (§4.2), never through the type." The rewrite is the sealed row.
 - **Key at the wrong grade** *(#927, §4.2)* — declaration-site: "`buffer` is an intrinsic type, not an operation; declare it with `type`," and the converse for an operation key under `type`. The rewrite is the row's keyword.
+- **Inlet-less `->?` on an intrinsic row** *(#869)* — Effects §4.4's inlet-less refusal, not restated here: an intrinsic row is refused as any extern callable row is, carrying FFI Part 4 §4.5's advice.
 - **Generic foreign extern** — unchanged Part 4 behavior; not restated here (§3.4 grants genericity — and, #370, constraint brackets — inside the reserved boundary only; foreign externs remain monomorphic and unconstrained).
 
 ---

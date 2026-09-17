@@ -351,7 +351,7 @@ Hard errors with named rewrites per the Rewrite Rule:
 | getter and setter introducing the same term name | ordinary collision error + "alias the setter: `set timeout as setTimeout(...)`" | §4.2 |
 | `new` without `as` | "name the companion constructor: `new as create(text: String) -> Url`" | §6.2 |
 | `new` row whose result is not the class's own type, or with no arrow | "`new` constructs `Url`; write `new as create(text: String) ->! Url` (`->` only where construction touches nothing)" | §6.2 |
-| member row with `:` before its result; `pure`/`conduit` before a member keyword | Part 4 §13's redirects, unchanged for `method`/`get`/`set`/`new`/`static` (#869) | Part 4 §4.5 |
+| member row with `:` before its result; `pure`/`conduit` before a member keyword or the `class` header | Part 4 §4.5's redirect — a member row declares a callable; the `class` header declares nothing invocable and takes the drop-the-word report (#869) | Part 4 §4.5 |
 | `set` (instance or static) with an arrow other than `->!` | "an extern `set` grants write capability, and a write to foreign state is an effect — its arrow is `->!`; write `set timeout as setTimeout(request: Request, value: Int) ->! Unit`" + fixit `->!` (#869) | §4.1, §6.3 |
 | `fun`/`let`/`type` inside a class block | "extern class members are `new`, `method`, `get`, `set`, and their `static` forms; declare this at block level" | §6.1 |
 | `export` on an individual class member | "`export class` exports every declared member; export the class, or declare the member at block level" | §7 |
