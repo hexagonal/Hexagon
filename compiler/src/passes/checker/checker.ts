@@ -4576,6 +4576,25 @@ class Checker {
     // row): they have no fields and no companion module, so the wired instances
     // are their whole dot surface — `42n.show()` is `Show`'s member at `BigInt`.
     const primitive_ = actual.kind === "Constructor";
+    // §5's ineligible row, said **here** rather than left to the fallback
+    // *(#934)*. `Range` is head-known and has no companion module (§3.4's
+    // Primitive row as #932 amended it: `CompanionOf(Range)` is undefined and
+    // §4.2's member clause does not fire at it either), so "no dot fires on it"
+    // — and a refusal at the dot is the only place that can say so truthfully.
+    // Falling through left the receiver to the row fallback, which imposed
+    // `{toSeq: …}` on a type the reader had *written*, and the post-finalisation
+    // rescue (§3.6) then told them their type "was unknown where it was
+    // written". §3.1 has the head-known receiver resolved before the arguments
+    // elaborate, so the information the true message needs is all here.
+    if (actual.kind === "Range") {
+      // Abandoning the call does not excuse the arguments — `#dotCallArguments`
+      // says why.
+      this.#dotCallArguments(expression, level, cachedArguments);
+      return this.#unsupported(
+        callee.field.span,
+        this.#noCompanionToDispatchTo(actual, name, callee),
+      );
+    }
     if (!nominal && !primitive_) return undefined;
     const { field, operation, scheme, unreachable, claimed, members } = this
       .#dotClaimants(actual, name, callee, expression.arguments);
@@ -5131,14 +5150,19 @@ class Checker {
    * A module cannot name itself (Method Syntax §16.2), so `Loud.volume(x)` is
    * not a rewrite a reader of `loud.hex` can take. Inside the declaring module
    * the bare spelling is the member's own, and it is the one that resolves.
+   *
+   * `argument` is what stands in the subject seat. Every caller but one leaves
+   * it at `…`, naming the spelling rather than a call; #934's refusal passes the
+   * receiver as the reader wrote it, because there the offer is a rewrite —
+   * `Iterable.toSeq(r)`, ready to paste.
    */
-  #memberSpelling(candidate: MemberCandidate): string {
+  #memberSpelling(candidate: MemberCandidate, argument = "…"): string {
     const local = [...this.#localConstraints.values()].some(
       (declaration) => declaration.identity === candidate.identity,
     );
     return local
-      ? `\`${candidate.member}(…)\``
-      : `\`${candidate.constraint}.${candidate.member}(…)\``;
+      ? `\`${candidate.member}(${argument})\``
+      : `\`${candidate.constraint}.${candidate.member}(${argument})\``;
   }
 
   /**
@@ -5161,6 +5185,39 @@ class Checker {
         ? "; call an available subject-first function explicitly"
         : `; \`${nearMiss.constraint}\`'s member \`${name}\` does not take its ` +
           `constraint's subject first — call it as \`${name}(…)\``);
+  }
+
+  /**
+   * §5's ineligible head-known receiver *(#934)*: a type the dot reaches with
+   * its head already known and no companion module to dispatch into.
+   *
+   * Two clauses, and the second only when there is something to say. The first
+   * is the whole verdict — the head is known, it has no companion, so the dot
+   * has no target — and it names the call as the reader wrote it. The second
+   * offers the route the name *does* have: a subject-first member honored at the
+   * type is reachable through its declaring constraint (`Iterable.toSeq(r)` at a
+   * `Range` — Method Syntax §3.4's Primitive row, #932), and that spelling is
+   * the one #932 left standing. Where no member answers there is no route to
+   * offer, and inventing one would be worse than the silence: the message stops
+   * at the first clause.
+   */
+  #noCompanionToDispatchTo(
+    actual: Mono,
+    name: string,
+    callee: Resolved.AccessExpr,
+  ): string {
+    // The reader's own text where this compilation has it, the bare receiver
+    // name where it does not, and `…` where neither answers — the spelling
+    // `#dotCallReachability` already uses for the same reason.
+    const receiver = this.#spelledExpression(callee.receiver) ??
+      (callee.receiver.kind === "Name" ? callee.receiver.text : "…");
+    const member = (this.#honoredMembers(actual).get(name) ?? [])
+      .find(({ subjectFirst }) => subjectFirst);
+    return `\`${this.#display(actual)}\` has no companion module, so ` +
+      `\`${receiver}.${name}()\` has nothing to dispatch to` +
+      (member === undefined
+        ? "."
+        : `; write ${this.#memberSpelling(member, receiver)}.`);
   }
 
   /** §3.4's declared-type-variable row: the bounds, and nothing else. */

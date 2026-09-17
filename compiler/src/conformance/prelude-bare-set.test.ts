@@ -863,14 +863,52 @@ describe("`toSeq` is reachable at every iterable", () => {
    * The finding, pinned so it cannot change unnoticed: a `Range` receiver has no
    * dot dispatch, and the diagnostic it draws already names `Iterable.toSeq(…)`
    * as the route. If a `Range` companion ever lands this row is what says so.
+   *
+   * The message is the **refusal at the dot** *(#934)*. It used to be the
+   * post-finalisation rescue's (Method Syntax §3.6), which told the reader their
+   * receiver's type "was unknown where it was written" — of a receiver they had
+   * annotated `r: Range`. The head is known here, at the dot, and §5's ineligible
+   * row is what the reader needs to hear: no companion module, so nothing to
+   * dispatch to, and the provided `Iterable` row's own spelling instead (#932).
    */
   test("a `Range` receiver has no dot dispatch, and is told the route", () => {
     expect(projectDiagnostics("module Main\n\n" + "export let n(r: Range): Int = Seq.length(r.toSeq())\n"))
       .toEqual([
-        "this value's type was inferred as a record with a `toSeq` field because " +
-        "its type was unknown where it was written; `Range` is not a record. " +
-        "Annotate it to use dispatch, or call `Iterable.toSeq(…)` directly.",
+        "`Range` has no companion module, so `r.toSeq()` has nothing to " +
+        "dispatch to; write `Iterable.toSeq(r)`.",
       ]);
+  });
+
+  /**
+   * The second clause is an offer, not a formula: it exists because a member of
+   * the name is honored at the type. A name no constraint honors at `Range` has
+   * no route to be told, and the report stops at the verdict rather than
+   * inventing one *(#934)*.
+   */
+  test("a name with no route stops at the verdict", () => {
+    expect(projectDiagnostics("module Main\n\n" + "export let n(r: Range): Int = r.spin()\n"))
+      .toEqual([
+        "`Range` has no companion module, so `r.spin()` has nothing to dispatch to.",
+      ]);
+  });
+
+  /**
+   * And the rescue the refusal displaced is **unchanged** where it is true
+   * *(#934)*: a receiver whose type really was unknown where it was written
+   * takes the row fallback (§3.5), and the contradiction surfaces at the use,
+   * with §3.6's enrichment saying why the row exists. The dot in `f` never saw a
+   * head, so no refusal fires there — this is the case the first clause of the
+   * new message would be false about, and it keeps the old words.
+   */
+  test("the unknown-receiver rescue keeps its words", () => {
+    expect(
+      projectDiagnostics("module Main\n\n" + "fun f(r) = Seq.length(r.toSeq())\n" +
+        "export let n: Int = f(1..10)\n"),
+    ).toEqual([
+      "this value's type was inferred as a record with a `toSeq` field because " +
+      "its type was unknown where it was written; `Range` is not a record. " +
+      "Annotate it to use dispatch, or call `Iterable.toSeq(…)` directly.",
+    ]);
   });
 
   test("`for..in` over a range is untouched — it reads evidence, not this layer", async () => {

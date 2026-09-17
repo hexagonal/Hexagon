@@ -1998,7 +1998,7 @@ class Resolver {
     // the same file reached two ways yields two interfaces, so the comparison is
     // by `fileId`. The alias filter above it is what keeps this from claiming
     // `Int.toSeq` — every prelude basename a project file may take is seated,
-    // and only seven of them carry a row.
+    // and only six of them carry a row.
     const companion = this.#preludeModuleAliases.get(alias);
     return companion !== undefined && companion.module.fileId === iface.module.fileId;
   }
@@ -7034,9 +7034,6 @@ class Resolver {
         { kind: "Map", key: variable("k"), value: variable("v"), span },
         ["k", "v"],
       );
-    }
-    if (alias === "String") {
-      return pin({ kind: "Primitive", name: "String", span }, []);
     }
     if (alias === "JsMap") {
       return pin(
