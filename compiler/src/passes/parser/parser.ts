@@ -298,12 +298,68 @@ const EXTERN_MISSING_RESULT =
   "extern functions require an effect arrow and a result type; write `->! T` " +
   "when in doubt";
 
+/** Whether a written annotation spells a `->?` anywhere inside it (Effects §2.2.1). */
+function writesLinkedArrow(annotation: Parsed.TypeAnnotation | undefined): boolean {
+  let found = false;
+  const walk = (node: unknown): void => {
+    if (found || node === null || typeof node !== "object") return;
+    if (Array.isArray(node)) {
+      for (const child of node) walk(child);
+      return;
+    }
+    const record = node as { kind?: unknown; effect?: unknown };
+    if (record.kind === "Function" && record.effect === "linked") {
+      found = true;
+      return;
+    }
+    for (const [key, child] of Object.entries(record)) {
+      if (key === "span" || key === "arrowSpan") continue;
+      walk(child);
+    }
+  };
+  walk(annotation);
+  return found;
+}
+
+/**
+ * Effects §2.2.1's inlet test over a **written** row, asked here so §13's
+ * rewrite never names an arrow the checker would turn round and refuse.
+ *
+ * The same descent the checker's own test makes: a caller supplies the
+ * parameters of every arrow on the application spine, so the result is followed
+ * while it is a function type and its parameters count too.
+ */
+function writtenSignatureInlet(
+  parameters: readonly (Parsed.TypeAnnotation | undefined)[],
+  result: Parsed.TypeAnnotation | undefined,
+): boolean {
+  if (parameters.some(writesLinkedArrow)) return true;
+  for (
+    let node = result;
+    node !== undefined && node.kind === "Function";
+    node = node.result
+  ) {
+    if (node.parameters.some(writesLinkedArrow)) return true;
+  }
+  return false;
+}
+
 /**
  * The parameter names §13's function-type rewrite invents, a function type
  * carrying none. Past the list a rewrite spells `x4`, `x5`, … — a signature that
  * wide has left the territory where a quoted exemplar helps anyone.
  */
 const PARAMETER_PLACEHOLDERS = ["x", "y", "z"] as const;
+
+/** What §13's retired-word redirect resolved to, for the row's own recovery. */
+interface RetiredRedirect {
+  /** The arrow the words said — `->` for `pure`, `->?` for `conduit` and the pair. */
+  readonly claimed: "->" | "->?";
+  /** What the rewrite writes: the claim, or `->!` where a `->?` would have no inlet. */
+  readonly written: "->" | "->?" | "->!";
+  /** Whether that arrow was actually written into the row, at a `:` seat. */
+  readonly rewritesArrow: boolean;
+}
 
 /** A retired `pure`/`conduit` claim, with the span its removal edits (#869). */
 interface RetiredExternClaim {
@@ -2150,22 +2206,14 @@ class Parser {
     specifier: string,
   ): Parsed.ExternDeclaration | Parsed.UnionItem | undefined {
     const start = this.#current();
+    // The seat is anywhere in the head ahead of the keyword (§4.5): before or
+    // after each leading modifier, and beside the other word. Scanned at each
+    // of those points rather than once, so `pure export fun` and `export pure
+    // fun` are one rule and neither leaves a modifier stranded.
+    const retired: RetiredExternClaim[] = [];
+    this.#scanRetiredExternClaims(retired);
     const exported = this.#at("Export");
     if (exported) this.#advance();
-    // The retired claims *(#869)*. `pure` and `conduit` left Lexer §4.2's
-    // contextual table with the forms they introduced: a row writes its arrow
-    // now (§4.5), and both words are ordinary names again — `fun pure(x: Int)
-    // -> Int` binds one. What survives is the redirect, and it is keyed on the
-    // seat the retired forms occupied and nothing else: the word standing
-    // immediately *before* an extern declaration keyword, where no name can
-    // stand. Both are scanned so `pure conduit fun …` is redirected twice
-    // rather than reaching the keyword check as a stray name.
-    //
-    // Scanned on **both sides of `default`**, because the seat is one slot wide
-    // and the modifier shares the run: `default pure fun` is the order the
-    // retired grammar wrote, `pure default fun` the one an author reaches for,
-    // and either leaves the modifier where its own reading expects it.
-    const retired: RetiredExternClaim[] = [];
     this.#scanRetiredExternClaims(retired);
     const defaultBinding = this.#atContextual("default");
     if (defaultBinding) {
@@ -2182,16 +2230,16 @@ class Parser {
     // because the retired-claim report below asks what the row *introduces*, and
     // an `enum` introduces a type however it is spelled.
     const foreignEnum = this.#atContextual("enum");
-    // A callable row's redirect waits for its arrow seat, so the fixit can carry
-    // both edits §13 names — the dropped word *and* the arrow before the result.
-    // Every other row has no such seat, and no face for the claim to have been
-    // about: it takes the sentence that says so, and the word's removal alone.
-    if (kind !== "Fun") {
-      this.#reportRetiredExternClaims(
-        retired,
-        kind === "Type" || foreignEnum ? "type" : "value",
-        undefined,
-      );
+    // **Callability decides the sentence, and the keyword does not say it.**
+    // §13's first row makes a `let` carrying a parameter list a *callable*
+    // written with the value keyword, so `pure let parse(text: String): T` is a
+    // callable row and must not be told a value reference is colourless. Only a
+    // `type` — or the `enum` row, which introduces one — is settled here: no
+    // parameter list can follow either. A `let` waits for its own seat below,
+    // and a `fun` waits for its arrow seat, where the fixit can carry both
+    // edits §13 names.
+    if (kind === "Type" || foreignEnum) {
+      this.#reportRetiredExternClaims(retired, "type", undefined);
     }
     if (intrinsic && kind !== "Fun") {
       const label = this.#current();
@@ -2338,6 +2386,10 @@ class Parser {
       // recovery, so a row written the old way keeps the face the old default
       // gave it behind one report.
       const arrow = this.#arrowAt();
+      // The `:` seat, recorded only where the author actually wrote one: it is
+      // what §13's rewrite replaces, and a row that wrote its own arrow (or
+      // neither) has nothing there to replace.
+      let colonSeat: Source.Span | undefined;
       // **Every failure at this seat recovers as `->!`** — §4.5's "never a
       // silent claim in either direction". A row that did not validly write its
       // arrow has claimed nothing, and the impure constant is the only reading
@@ -2367,6 +2419,7 @@ class Parser {
             });
           }
           arrowSpan = separator.span;
+          colonSeat = separator.span;
           this.#advance();
         } else if (separator.kind === "FatArrow") {
           // Effects §9's type-arrow redirect (#410): a fat arrow at a row's
@@ -2386,7 +2439,6 @@ class Parser {
         effect = arrow === "pure" ? undefined : arrow;
         this.#advance();
       }
-      this.#reportRetiredExternClaims(retired, "callable", arrowSpan);
       // One typo, one report — the member header's rule (#867): a row that ended
       // at its parameter list has already been told it has no result, and is not
       // asked for a type annotation a second time.
@@ -2394,6 +2446,39 @@ class Parser {
         (this.#at("VSep") || this.#at("VClose") || this.#at("Eof"));
       const returnAnnotation = (ended ? undefined : this.#parseTypeAnnotation(true)) ??
         invalidType(localName);
+      // §13's redirect, once the whole row is in hand: the inlet test reads the
+      // parameters *and* the result, so the arrow the rewrite names is one the
+      // checker will not turn round and refuse.
+      //
+      // A `fun` **without** a parameter list declares no callable: its rewrite
+      // is a `let`, and a `let` has no arrow for the word to redirect to — the
+      // nothing-invocable row, which that rewrite's keyword selects.
+      const hasInlet = writtenSignatureInlet(
+        parameters.map((parameter) => parameter.annotation),
+        returnAnnotation,
+      );
+      const redirect = this.#reportRetiredExternClaims(
+        retired,
+        missingParameterList ? "value" : "callable",
+        missingParameterList ? undefined : colonSeat,
+        hasInlet,
+      );
+      if (redirect !== undefined && !missingParameterList) {
+        // §4.5: the face the row recovers with is **the arrow the fixit names**
+        // — the rewritten one where the rewrite wrote it, and otherwise the
+        // arrow the row already writes, which stands. The one thing that never
+        // survives is an inlet-less `->?`: this redirect has been reported, and
+        // §13 does not report the inlet-less row on top of it.
+        if (redirect.rewritesArrow) {
+          effect = redirect.written === "->"
+            ? undefined
+            : redirect.written === "->?"
+            ? "linked"
+            : "constant";
+        } else if (effect === "linked" && !hasInlet) {
+          effect = "constant";
+        }
+      }
       if (missingParameterList) {
         this.#errorAt(
           localName.span,
@@ -2425,6 +2510,12 @@ class Parser {
     // also reported, and neither is the value form's missing-`:` complaint when
     // the author reached for an arrow. The report waits for the annotation, so
     // the rewrite can quote the row the author actually wrote.
+    //
+    // This is also where a retired claim on a `let` row learns which row it is
+    // standing on: the seat is **callable**, so the word takes no colourless
+    // sentence — and none of its own either, because this row's rewrite is the
+    // whole repair and already shows the word gone, exactly as it shows the `:`
+    // gone. One migration, one report.
     const callableSeat = this.#at("LeftParen") ? this.#current().span : undefined;
     if (callableSeat !== undefined) {
       this.#parseParameters();
@@ -2443,6 +2534,9 @@ class Parser {
           `\`fun ${localName.text}${parameterText ?? "(…)"} ->! ` +
           `${this.#writtenAnnotation(annotation) ?? "T"}\``,
       );
+      // Row 1 has fired, and its rewrite carries the arrow — so the retired
+      // word's own redirect is the callable one, with the word alone to drop.
+      this.#reportRetiredExternClaims(retired, "callable", undefined);
       this.#rejectExternBody();
       return {
         kind: "ExternLet",
@@ -2484,6 +2578,17 @@ class Parser {
             : `\`fun ${localName.text}(${slots.join(", ")}) ${arrow} ${result}\``),
       );
     }
+    // §13 keys the retired word on what the row **declares**, and a `let`
+    // annotated with a function type is callable-intended exactly as one with a
+    // parameter list is (§4.1): it takes the callable redirect, and its own
+    // rewrite spells the `fun`, so the fixit drops the word alone. Only a `let`
+    // with neither is a value reference, and colourless.
+    this.#reportRetiredExternClaims(
+      retired,
+      annotation.kind === "Function" ? "callable" : "value",
+      undefined,
+      annotation.kind === "Function" && writesLinkedArrow(annotation),
+    );
     this.#rejectExternBody();
     return {
       kind: "ExternLet",
@@ -2530,6 +2635,7 @@ class Parser {
     // and a follower this test misses reaches the keyword check as a stray name
     // and draws the wrong sentence entirely.
     return follower.kind === "Fun" || follower.kind === "Let" || follower.kind === "Type" ||
+      follower.kind === "Export" ||
       (follower.kind === "NonUpperName" &&
         (follower.text === "enum" || follower.text === "default" ||
           follower.text === "pure" || follower.text === "conduit"));
@@ -2551,35 +2657,59 @@ class Parser {
   #reportRetiredExternClaims(
     claims: readonly RetiredExternClaim[],
     row: "callable" | "type" | "value",
-    arrowSeat: Source.Span | undefined,
-  ): void {
-    for (const claim of claims) {
-      const arrow = claim.text === "pure" ? "->" : "->?";
-      const callable = row === "callable";
-      const because = row === "type"
-        ? "a type has no face"
-        : "a value reference carries no colour";
-      this.#diagnostics.add({
-        severity: "error",
-        message: callable
-          ? (claim.text === "pure"
-            ? "`pure` is retired — write the pure arrow on the row itself: " +
-              "`fun trim(document: String) -> String`"
-            : "`conduit` is retired — write `->?` on the row's outer arrow: " +
-              "`fun runner(step: () ->? String) ->? Int`")
-          : `\`${claim.text}\` is retired, and ${because} — drop the word`,
-        primary: claim.span,
-        fixes: [{
-          message: callable ? `drop the word, \`${arrow}\` before the result` : "drop the word",
-          edits: [
-            { span: claim.drop, replacement: "" },
-            ...(callable && arrowSeat !== undefined
-              ? [{ span: arrowSeat, replacement: arrow }]
-              : []),
-          ],
-        }],
-      });
-    }
+    // The `:` the arrow would take the place of, and absent where the row
+    // already writes its own arrow or another rewrite supplies one.
+    colonSeat: Source.Span | undefined,
+    hasInlet = false,
+  ): RetiredRedirect | undefined {
+    const first = claims[0];
+    if (first === undefined) return undefined;
+    // One report, and one spelling: a row that wrote both said one thing about
+    // one arrow whichever order it wrote them in, and the thing it said is the
+    // conduit — `->?` being the weaker claim, so the migration never
+    // strengthens what the row said (§4.5).
+    const both = claims.length > 1;
+    const words = both ? "pure conduit" : claims[0]!.text;
+    const claimed = claims.some((claim) => claim.text === "conduit") ? "->?" : "->";
+    // §4.5's composition rule, and its one exception: a rewrite that would be
+    // refused as inlet-less names the conservative arrow instead, and says why.
+    const inletLess = claimed === "->?" && !hasInlet;
+    const written = inletLess ? "->!" : claimed;
+    const because = row === "type"
+      ? "a type declares nothing invocable"
+      : "a value reference is colourless";
+    const rewritesArrow = row === "callable" && colonSeat !== undefined;
+    this.#diagnostics.add({
+      severity: "error",
+      message: row !== "callable"
+        ? `\`${words}\` is retired, and ${because} — drop the word${
+          both ? "s" : ""
+        }`
+        : inletLess
+        // The claim named a dependency the row has nothing to depend on, so the
+        // sentence is §4.5's advice in words rather than a rewrite to an arrow
+        // the checker would refuse — and the inlet-less row, which says exactly
+        // this, is not reported on top of it (§13).
+        // The pair's sentence here names `conduit` alone: the missing inlet is
+        // the conduit half's problem, and the pure half had nothing to add.
+        ? "`conduit` is retired, and nothing this row is handed carries `->?` — " +
+          "write `->?` on the callback parameter this row runs, or write `->!`"
+        : claimed === "->"
+        ? `\`${words}\` is retired — write the pure arrow on the row itself: ` +
+          "`fun trim(document: String) -> String`"
+        : `\`${words}\` is retired — write \`->?\` on the row's outer arrow: ` +
+          "`fun runner(step: () ->? String) ->? Int`",
+      primary: first.span,
+      fixes: [{
+        message: `drop the word${both ? "s" : ""}` +
+          (rewritesArrow ? `, \`${written}\` before the result` : ""),
+        edits: [
+          ...claims.map((claim) => ({ span: claim.drop, replacement: "" })),
+          ...(rewritesArrow ? [{ span: colonSeat, replacement: written }] : []),
+        ],
+      }],
+    });
+    return { claimed, written, rewritesArrow };
   }
 
   /**

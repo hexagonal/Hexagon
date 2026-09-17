@@ -1135,7 +1135,7 @@ describe("diagnostics (§2.1, §2.2, §9 test 11)", () => {
     expect(projectDiagnostics("module Main\n\n" + 'extern from "d"\n    default enum Direction = Up | Down\n',
     )).toEqual(["`default` applies to foreign functions and values, not types"]);
     expect(projectDiagnostics("module Main\n\n" + 'extern from "d"\n    pure enum Direction = Up | Down\n',
-    )).toEqual(["`pure` is retired, and a type has no face — drop the word"]);
+    )).toEqual(["`pure` is retired, and a type declares nothing invocable — drop the word"]);
   });
 
   /**

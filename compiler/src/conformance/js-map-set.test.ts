@@ -528,56 +528,21 @@ describe("`JsMap.get` and the two-step lowering (Part 10 §4.2)", () => {
   });
 });
 
-describe("the fresh `size` read (Part 10 §3, FFI Part 5 §3.1)", () => {
-  /**
-   * Never cached and never hoisted. Both reads sit in one Hexagon function with
-   * a foreign mutation between them, so a compiler treating the pure-faced
-   * `size` as a value to compute once would answer `(1, 1)` — which is the
-   * defect the discipline exists against, since foreign code owns the
-   * collection and the borrow contract permits it to change.
-   */
-  test("two reads of one borrowed map see a foreign mutation between them", async () => {
-    const exports = await run(
-      'extern from "growing"\n' +
-        "    fun table() ->! JsMap(String, Int)\n" +
-        "    fun grow() ->! Int\n" +
-        "\n" +
-        "export fun probe(): (Int, Int) =\n" +
-        "    let m = table!()\n" +
-        "    let before = JsMap.size(m)\n" +
-        "    ignore(grow!())\n" +
-        "    let after = JsMap.size(m)\n" +
-        "    (before, after)\n",
-      {
-        growing: 'const shared = new Map([["a", 1]]);\n' +
-          "export function table() { return shared; }\n" +
-          'export function grow() { shared.set("b", 2); return 0; }\n',
-      },
-    );
-    expect((exports["probe"] as () => [number, number])()).toEqual([1, 2]);
-  });
-
-  test("and two reads of one borrowed set do the same", async () => {
-    const exports = await run(
-      'extern from "flags"\n' +
-        "    fun flags() ->! JsSet(Int)\n" +
-        "    fun add() ->! Int\n" +
-        "\n" +
-        "export fun probe(): (Int, Int) =\n" +
-        "    let s = flags!()\n" +
-        "    let before = JsSet.size(s)\n" +
-        "    ignore(add!())\n" +
-        "    let after = JsSet.size(s)\n" +
-        "    (before, after)\n",
-      {
-        flags: "const shared = new Set([4]);\n" +
-          "export function flags() { return shared; }\n" +
-          "export function add() { shared.add(5); return 0; }\n",
-      },
-    );
-    expect((exports["probe"] as () => [number, number])()).toEqual([1, 2]);
-  });
-});
+/*
+ * The `size` reads were pinned here as **fresh** reads — two of them in one
+ * body, a foreign mutation between, answering `(1, 2)` — which is the borrow
+ * contract `JsMap`/`JsSet` carried before #875. That contract is retired: a
+ * boundary collection is **captured at acquisition** (FFI Part 10 §2), so its
+ * contents cannot vary while Hexagon holds it, and `size` is a read of a value
+ * — Effects §6.2 species (c), which is why the rows write `->` (#869).
+ *
+ * The capture *lowering* is not implemented yet; it is issue #945, and the
+ * observation this block used to pin is the one that arc will pin inverted —
+ * two reads of a captured map answer `(1, 1)` however the source moves. The
+ * tests are gone rather than inverted because nothing today performs the copy,
+ * and a test asserting the arc's answer before the arc lands is a test that
+ * cannot pass.
+ */
 
 describe("native equality, not structural (Part 10 §4.3)", () => {
   /**

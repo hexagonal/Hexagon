@@ -126,22 +126,22 @@ describe("success is the same array, borrowed (§4.2)", () => {
     expect(borrowed(nested)).toBe(nested);
   });
 
-  /**
-   * The same fact from the Hexagon side, which is where it matters: a view held
-   * across a foreign mutation reports the *new* length. A copy would have kept
-   * reporting the old one — and this is precisely why §6.2 puts a stability
-   * obligation on foreign code rather than on the compiler.
+  /*
+   * A held view reporting a foreign mutation's *new* length was pinned here —
+   * the borrow contract `Array(a)` carried before #876, which put a stability
+   * obligation on foreign code rather than on the compiler. That contract is
+   * retired: a boundary collection is **captured at acquisition** (FFI Part 2
+   * §6.2; FFI Part 1 §5.4), so its contents cannot vary while Hexagon holds it,
+   * and `length` is a read of a value — Effects §6.2 species (c), which is why
+   * the rows write `->` (#869).
+   *
+   * The capture *lowering* is not implemented yet; it is issue #945, and the
+   * observation this test used to pin is the one that arc will pin inverted — a
+   * held `Array` answers the length it was captured with however its source
+   * moves. It is gone rather than inverted because nothing today performs the
+   * copy, and a test asserting the arc's answer before the arc lands is a test
+   * that cannot pass.
    */
-  test("a foreign mutation is visible through the held borrow", () => {
-    const length = exports_["borrowedLength"] as (xs: unknown) => number;
-    const source = [1, 2, 3];
-    const view = borrowed(source);
-    expect(length(view)).toBe(3);
-    source.push(4);
-    expect(length(view)).toBe(4);
-    source.length = 1;
-    expect(length(view)).toBe(1);
-  });
 
   /**
    * §4.2: the elements "remain uncertain, and each is decoded individually by
