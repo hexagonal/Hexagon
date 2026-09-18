@@ -244,20 +244,20 @@ describe("the `.d.ts` faces (Part 10 §1)", () => {
     "    fun store() ->! JsMap(String, Int)\n" +
     "    fun marks() ->! JsSet(Float)\n" +
     "\n" +
-    "export let table: JsMap(String, Int) = store!()\n" +
-    "export let marked: JsSet(Float) = marks!()\n" +
+    "export let table(): JsMap(String, Int) = store!()\n" +
+    "export let marked(): JsSet(Float) = marks!()\n" +
     "export let keep(m: JsMap(String, Int)): JsMap(String, Int) = m\n" +
     "export let hold(s: JsSet(Float)): JsSet(Float) = s\n";
 
   test("`JsMap(String, Int)` faces as `ReadonlyMap<string, number>`", () => {
     expect(declarations(FACES)).toContain(
-      "export declare const table: ReadonlyMap<string, number>;",
+      "export declare const table: () => ReadonlyMap<string, number>;",
     );
   });
 
   test("`JsSet(Float)` faces as `ReadonlySet<number>`", () => {
     expect(declarations(FACES)).toContain(
-      "export declare const marked: ReadonlySet<number>;",
+      "export declare const marked: () => ReadonlySet<number>;",
     );
   });
 
@@ -278,10 +278,10 @@ describe("the `.d.ts` faces (Part 10 §1)", () => {
         'extern from "./grids.js"\n' +
           "    fun grid() ->! JsMap(String, JsSet(Int))\n" +
           "\n" +
-          "export let cells: JsMap(String, JsSet(Int)) = grid!()\n",
+          "export let cells(): JsMap(String, JsSet(Int)) = grid!()\n",
       ),
     ).toContain(
-      "export declare const cells: ReadonlyMap<string, ReadonlySet<number>>;",
+      "export declare const cells: () => ReadonlyMap<string, ReadonlySet<number>>;",
     );
   });
 
@@ -298,13 +298,13 @@ describe("the `.d.ts` faces (Part 10 §1)", () => {
       await typeScriptErrors({
         "main.d.ts": face,
         "consumer.ts": 'import { table, marked } from "./main.js";\n' +
-          "export const one: number | undefined = table.get(\"a\");\n" +
-          "export const known: boolean = table.has(\"a\");\n" +
-          "export const size: number = marked.size;\n" +
+          "export const one: number | undefined = table().get(\"a\");\n" +
+          "export const known: boolean = table().has(\"a\");\n" +
+          "export const size: number = marked().size;\n" +
           "export function total(): number {\n" +
           "  let sum = 0;\n" +
-          "  for (const [, value] of table) sum += value;\n" +
-          "  for (const mark of marked) sum += mark;\n" +
+          "  for (const [, value] of table()) sum += value;\n" +
+          "  for (const mark of marked()) sum += mark;\n" +
           "  return sum;\n" +
           "}\n",
       }),
@@ -313,10 +313,10 @@ describe("the `.d.ts` faces (Part 10 §1)", () => {
     const errors = await typeScriptErrors({
       "main.d.ts": face,
       "consumer.ts": 'import { table, marked } from "./main.js";\n' +
-        'table.set("a", 1);\n' +
-        'table.delete("a");\n' +
-        "marked.add(2);\n" +
-        "marked.clear();\n",
+        'table().set("a", 1);\n' +
+        'table().delete("a");\n' +
+        "marked().add(2);\n" +
+        "marked().clear();\n",
     });
     expect(errors).toHaveLength(4);
     for (const error of errors) expect(error).toContain("error TS2339");

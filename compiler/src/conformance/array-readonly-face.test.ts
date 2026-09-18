@@ -65,7 +65,7 @@ function diagnose(source: string): readonly string[] {
 const BORROWED = 'extern from "./rows.js"\n' +
   "    fun rows() ->! Array(Int)\n" +
   "\n" +
-  "export let first: Array(Int) = rows!()\n" +
+  "export let first(): Array(Int) = rows!()\n" +
   "export let head(xs: Array(Int)): Array(Int) = xs\n" +
   "export fun pass(xs: Array(a)): Array(a) = xs\n";
 
@@ -77,9 +77,13 @@ function emittedFiles(
 }
 
 describe("the face is `ReadonlyArray<a>` in every position", () => {
-  test("an extern-returned value: the `declare const` position", () => {
+  // The nullary-function position, which is where an extern-returned array
+  // reaches a consumer since #876: an exported *value* binding naming a
+  // captured collection is refused (FFI Part 7 §7), and the nullary function
+  // over it is the rewrite that refusal names.
+  test("an extern-returned value: the nullary-function position", () => {
     expect(declarations(BORROWED)).toContain(
-      "export declare const first: ReadonlyArray<number>;",
+      "export declare const first: () => ReadonlyArray<number>;",
     );
   });
 
@@ -101,9 +105,9 @@ describe("the face is `ReadonlyArray<a>` in every position", () => {
         'extern from "./rows.js"\n' +
           "    fun grid() ->! Array(Array(Int))\n" +
           "\n" +
-          "export let cells: Array(Array(Int)) = grid!()\n",
+          "export let cells(): Array(Array(Int)) = grid!()\n",
       ),
-    ).toContain("export declare const cells: ReadonlyArray<ReadonlyArray<number>>;");
+    ).toContain("export declare const cells: () => ReadonlyArray<ReadonlyArray<number>>;");
   });
 
   // The mutable spelling must be gone, not merely outnumbered: `ReadonlyArray<`
@@ -137,9 +141,9 @@ describe("the mutation surface is gone, by `tsc`", () => {
   test("`push`, index assignment, and `sort` are all refused", async () => {
     const errors = await typeScriptErrors(emittedFiles({
       "consumer.ts": 'import { first } from "./main.js";\n' +
-        "first.push(4);\n" +
-        "first[0] = 9;\n" +
-        "first.sort();\n",
+        "first().push(4);\n" +
+        "first()[0] = 9;\n" +
+        "first().sort();\n",
     }));
     expect(errors).toHaveLength(3);
     expect(errors[0]).toContain("error TS2339");
@@ -156,14 +160,14 @@ describe("the mutation surface is gone, by `tsc`", () => {
     expect(
       await typeScriptErrors(emittedFiles({
         "consumer.ts": 'import { first, head } from "./main.js";\n' +
-          "export const one: number | undefined = first[0];\n" +
-          "export const size: number = first.length;\n" +
+          "export const one: number | undefined = first()[0];\n" +
+          "export const size: number = first().length;\n" +
           "export function total(): number {\n" +
           "  let sum = 0;\n" +
-          "  for (const n of head(first)) sum += n;\n" +
+          "  for (const n of head(first())) sum += n;\n" +
           "  return sum;\n" +
           "}\n" +
-          "export const copy: number[] = Array.from(first);\n",
+          "export const copy: number[] = Array.from(first());\n",
       })),
     ).toEqual([]);
   });
@@ -198,7 +202,7 @@ describe("nothing but declaration text changes", () => {
     const javascript = module(BORROWED).javascript.text;
     expect(javascript).toBe(
       'import { rows } from "./rows.js";\n' +
-        "const first = rows();\n" +
+        "const first = () => rows();\n" +
         "const head = xs => xs;\n" +
         "function pass(xs) {\n" +
         "  return xs;\n" +
@@ -215,7 +219,7 @@ describe("the inspection preview renders the same face", () => {
   test("the Playground's declarations pane shows `ReadonlyArray<number>`", () => {
     const text = preview(BORROWED);
     expect(text).toContain("declare function rows(): ReadonlyArray<number>;");
-    expect(text).toContain("export declare const first: ReadonlyArray<number>;");
+    expect(text).toContain("export declare const first: () => ReadonlyArray<number>;");
     expect(text).not.toMatch(/(?<!Readonly)Array</);
   });
 });

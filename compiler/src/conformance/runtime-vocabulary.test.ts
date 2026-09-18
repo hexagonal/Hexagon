@@ -676,8 +676,12 @@ const UNCONTESTED_CORPUS: readonly string[] = [
   // entry the two spellings would be in the vocabulary and in no scanned text,
   // and the completeness half of the tripwire below would be the thing that said
   // so.
-  "export let jm: JsMap(String, Int) = JsMap.fromSeq(Vector.toSeq([(\"a\", 1)]))\n" +
-    "export let js: JsSet(Int) = JsSet.fromSeq(Vector.toSeq([1, 2]))\n" +
+  // Module-private, because an exported *value* binding naming a captured
+  // collection is refused (FFI Part 1 §5.4 item 4). The `new Map(…)`/`new
+  // Set(…)` seats this entry exists to scan are the constructors themselves,
+  // which emit either way.
+  "let jm: JsMap(String, Int) = JsMap.fromSeq(Vector.toSeq([(\"a\", 1)]))\n" +
+    "let js: JsSet(Int) = JsSet.fromSeq(Vector.toSeq([1, 2]))\n" +
     "export let jn: Int = JsMap.size(jm) + JsSet.size(js)\n",
   "export let d(a: Int, b: Int): Int = Int.div(a, b)\n" +
     "export let fl(a: Float, b: Float): Bool = a == b\n" +
