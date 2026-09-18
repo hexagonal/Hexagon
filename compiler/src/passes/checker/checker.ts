@@ -22197,8 +22197,14 @@ class Checker {
    * the walk cannot enter the `Vector`, which is exactly why item 1 refuses it
    * at a position, and why an exception payload or an exported value binding of
    * that type is refused by items 3 and 4 *with the container notwithstanding*.
-   * Only a type variable and a type with no arguments end a path. The captured
-   * heads are `Array(a)`, `JsMap(k, v)`, `JsSet(a)`.
+   * Only a type variable and a type with no reachable components end a path.
+   * The captured heads are `Array(a)`, `JsMap(k, v)`, `JsSet(a)`, and they end
+   * no path either: a captured head is a finding **and** a constructor, so
+   * `Array(Vector(Array(Int)))` is item 1's refusal — §5.4 item 1 reads "at any
+   * depth". A captured head guards nothing on its own, the walk copying it
+   * layer by layer, which is why `JsMap(String, Array(Int))` stays "a legal
+   * face … captured layer by layer" while `Vector(JsMap(String, Array(Int)))`
+   * is refused for the `Vector`.
    *
    * Two constructors are followed by their **arguments** rather than by what
    * they declare, and for opposite reasons. The five runtime containers —
@@ -22265,6 +22271,15 @@ class Checker {
           if (finding.container !== undefined || finding.opaque !== undefined) {
             return { first, guarded: finding };
           }
+          // A captured head is a finding **and** a constructor, so the path
+          // carries on through it. §5.4 item 1 reads "at any depth", and a
+          // captured collection reachable only through another one —
+          // `Array(Vector(Array(Int)))`, `JsMap(String, Vector(Array(Int)))` —
+          // is guarded by the same container it would be guarded by anywhere
+          // else. The step's guard is passed **unchanged**: a captured head is
+          // not one of the five, and the walk copies it, so it hides nothing on
+          // its own.
+          push(actual.kind === "JsMap" ? [actual.key, actual.value] : [actual.element]);
           break;
         }
         case "Tuple":
@@ -22387,12 +22402,17 @@ class Checker {
   #guardedRefusal(finding: CaptureFinding | undefined): string | undefined {
     if (finding === undefined) return undefined;
     if (finding.opaque !== undefined) {
+      // **"whose element types name none in turn"**, as item 3 carries it and
+      // for the same reason: since the trigger follows the five containers,
+      // `opaque record Box = { rows: Vector(Array(Int)) }` draws this refusal,
+      // and "keep an identity-safe representation such as `Vector`" alone would
+      // be advice its author had already taken (Declarations Preamble §1.1).
       return `opaque type \`${finding.opaque.name}\` names the captured collection ` +
         `\`${this.#display(finding.captured)}\` in its representation ` +
         `(\`${finding.opaque.component}\`); an opaque value crosses the foreign boundary by ` +
         "identity, so its representation cannot be copied at the crossing — keep an " +
-        "identity-safe representation such as `Vector`, or expose the collection through an " +
-        "exported accessor";
+        "identity-safe representation such as a `Vector` whose element types name none in " +
+        "turn, or expose the collection through an exported accessor";
     }
     if (finding.container !== undefined) {
       return `captured collection \`${this.#display(finding.captured)}\` beneath ` +
@@ -22454,7 +22474,7 @@ class Checker {
     type: Mono,
     span: Source.Span,
     positionOnly?: (captured: Mono) => string,
-  ): boolean {
+  ): void {
     const found = this.#findCapturedCollection(type);
     const message = found === "unbounded"
       ? this.#captureBoundRefusal(type)
@@ -22462,9 +22482,8 @@ class Checker {
         (positionOnly === undefined || found.first === undefined
           ? undefined
           : positionOnly(found.first.captured));
-    if (message === undefined) return false;
+    if (message === undefined) return;
     this.#diagnostics.add({ severity: "error", message, primary: span });
-    return true;
   }
 
   #checkPublicSignatures(items: readonly Resolved.Item[]): void {
@@ -22649,33 +22668,6 @@ class Checker {
           );
         }
       }
-      // FFI Part 1 §5.4 items 1 and 2 at an **exported union's constructors**.
-      // §5.4 item 4 says it in one line — "Exported constructors are functions
-      // and take occasion 4 like any other" — and a constructor of an exported
-      // union is a function JavaScript calls (Part 7 §6), so each payload slot
-      // is a parameter position and is read as one, at its own annotation.
-      //
-      // Three scope lines. A payload naming a captured collection outright —
-      // `Rows(Array(Int))` — is **not** refused: occasion 4's stable export
-      // wrapper walks it on entry, exactly as it walks an exported function's
-      // parameter, so item 4 has nothing to say about a function. An
-      // **unexported** union publishes no constructor and is not a position at
-      // all. An **opaque** exported union publishes only its brand (Part 7 §5),
-      // so its constructors are not exported either; a position naming the type
-      // meets item 2 where it stands, which is the seat that can name the
-      // field. Exported *records* take nothing here for the same reason their
-      // fields do: the constructor's positions are already read wherever the
-      // record itself reaches a boundary.
-      if (item.kind === "Union" && item.exported && !item.opaque) {
-        for (const constructor of item.constructors) {
-          const payloads = slotTypes(constructor.binding.symbol);
-          for (const [index, slot] of constructor.slots.entries()) {
-            const payload = payloads[index];
-            if (payload === undefined) continue;
-            this.#refuseCapturedPosition(payload, slot.annotation.span);
-          }
-        }
-      }
       // FFI Part 1 §5.4 item 3, at the declaration and **unconditionally**
       // (Exceptions §2): an exception crosses wherever a throw travels, out of
       // an exported function into a JavaScript `catch` and through foreign
@@ -22753,13 +22745,37 @@ class Checker {
         })));
       }
       if (item.kind === "Union" && item.exported && !item.opaque) {
-        carrier("union", "union", item.name, item.constructors.flatMap((constructor) => {
+        const slots = item.constructors.flatMap((constructor) => {
           const types = slotTypes(constructor.binding.symbol);
           return constructor.slots.map((slot, index) => ({
             type: types[index],
             span: slot.annotation.span,
           }));
-        }));
+        });
+        carrier("union", "union", item.name, slots);
+        // FFI Part 1 §5.4 items 1 and 2 at the **same** slots, and read off the
+        // same enumeration rather than a second copy of it: §5.4 item 4 says it
+        // in one line — "Exported constructors are functions and take occasion
+        // 4 like any other" — and a constructor of an exported union is a
+        // function JavaScript calls (Part 7 §6), so each payload slot is a
+        // parameter position, at its own annotation.
+        //
+        // The two refusals share the gate as well as the list, and that is the
+        // point of sharing it: **exported and not opaque** is the same
+        // condition for both. An opaque union publishes only its brand (Part 7
+        // §5), so it publishes no constructor and carries no field; a position
+        // naming the type meets item 2 where it stands, which is the seat that
+        // can name the field. An unexported union is no position at all.
+        //
+        // One scope line this refusal owns alone: a payload naming a captured
+        // collection **outright** — `Rows(Array(Int))` — is not refused, since
+        // occasion 4's stable export wrapper walks it on entry exactly as it
+        // walks an exported function's parameter. Exported *records* take
+        // nothing here for the same reason their fields do: the constructor's
+        // positions are already read wherever the record reaches a boundary.
+        for (const slot of slots) {
+          if (slot.type !== undefined) this.#refuseCapturedPosition(slot.type, slot.span);
+        }
       }
       if (item.kind === "Exception" && item.exported) {
         const types = slotTypes(item.binding.symbol);
@@ -23014,6 +23030,10 @@ class Checker {
       });
     }
     this.#releaseSeats = [];
+    // Both halves of the seat set, cleared together: the struck callees are
+    // meaningful only against the seats they struck, and a node identity held
+    // past the module that produced it is a leak and a hazard in equal measure.
+    this.#releaseCallees.clear();
   }
 
   /**

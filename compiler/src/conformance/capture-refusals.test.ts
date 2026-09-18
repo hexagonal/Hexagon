@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { projectDiagnostics } from "../support/test-project.js";
+import { compileMain, projectDiagnostics } from "../support/test-project.js";
 
 /**
  * Conformance for **the capture walk's refused positions** — FFI Part 1 §5.4's
@@ -39,6 +39,25 @@ const MAIN = "module Main\n\n";
 
 function diagnose(source: string): readonly string[] {
   return projectDiagnostics(MAIN + source);
+}
+
+/**
+ * Each diagnostic's message paired with **the source text its primary span
+ * covers**, which `projectDiagnostics` drops.
+ *
+ * One row needs it. Since round 4 recorded a seat at every occurrence of
+ * `JsValue.from`, reading a direct application's callee through its parentheses
+ * no longer changes *whether* the program is refused — the reference seat
+ * inside the group reports the same sentence — so the message alone cannot tell
+ * the two apart. What it still decides is **where the diagnostic points**: at
+ * the argument, which the call seat owns, or at the callee name, which is the
+ * reference seat's span and a worse label for "this argument's type is a
+ * variable".
+ */
+function spans(source: string): readonly (readonly [string, string])[] {
+  const text = MAIN + source;
+  return compileMain(text).diagnostics.map(({ message, primary }) =>
+    [message, text.slice(primary.start.offset, primary.end.offset)] as const);
 }
 
 /**
@@ -224,6 +243,46 @@ describe("item 1 — a captured collection beneath one of the five containers", 
         'extern from "./m.js"\n    fun rows() ->! Phantom(Array(Int))\n',
     )).toEqual([]);
   });
+
+  /**
+   * **A captured head ends no path either.** §5.4 item 1 reads "at any depth",
+   * and the trigger's own sentence ends a path only at a type variable and at a
+   * type with no reachable components — `Array`, `JsMap` and `JsSet` are
+   * neither. So the walk records the finding *and* carries on through the head's
+   * arguments, with the step's guard unchanged: a captured head guards nothing
+   * on its own, the walk copying it layer by layer.
+   *
+   * That is what keeps `JsMap(String, Array(Int))` "a legal face … captured
+   * layer by layer" while everything below is refused for the container or the
+   * opaque type *inside* the captured collection.
+   */
+  test("a captured head is a constructor too, so the walk continues through it", () => {
+    const row = (written: string): readonly string[] =>
+      diagnose(`extern from "./m.js"\n    fun rows() ->! ${written}\n`);
+    expect(row("Array(Vector(Array(Int)))")).toEqual([beneath("Array(Int)", "Vector")]);
+    expect(row("JsMap(String, Vector(Array(Int)))")).toEqual([beneath("Array(Int)", "Vector")]);
+    expect(row("JsSet(Vector(Array(Int)))")).toEqual([beneath("Array(Int)", "Vector")]);
+    expect(row("Array(Set(JsSet(Int)))")).toEqual([beneath("JsSet(Int)", "Set")]);
+    expect(diagnose(
+      "record Row = { v: Vector(Array(Int)) }\n\n" +
+        'extern from "./m.js"\n    fun rows() ->! Array(Row)\n',
+    )).toEqual([beneath("Array(Int)", "Vector")]);
+    // …and item 2 reaches through one just as item 1 does.
+    expect(diagnose(
+      "opaque record Secret = { rows: Array(Int) }\n\n" +
+        'extern from "./m.js"\n    fun rows() ->! Array(Secret)\n',
+    )).toEqual([
+      "opaque type `Secret` names the captured collection `Array(Int)` in its representation " +
+      "(`rows`); an opaque value crosses the foreign boundary by identity, so its " +
+      "representation cannot be copied at the crossing — keep an identity-safe " +
+      "representation such as a `Vector` whose element types name none in turn, or expose " +
+      "the collection through an exported accessor",
+    ]);
+    // The unguarded neighbour stays legal: a captured collection inside a
+    // captured collection is copied with it (Part 10 §8).
+    expect(row("JsMap(String, Array(Int))")).toEqual([]);
+    expect(row("Array(JsSet(Int))")).toEqual([]);
+  });
 });
 
 describe("item 2 — a Hexagon opaque type whose representation names one", () => {
@@ -231,7 +290,8 @@ describe("item 2 — a Hexagon opaque type whose representation names one", () =
   const message = "opaque type `Box` names the captured collection `Array(Int)` in its " +
     "representation (`rows`); an opaque value crosses the foreign boundary by identity, so " +
     "its representation cannot be copied at the crossing — keep an identity-safe " +
-    "representation such as `Vector`, or expose the collection through an exported accessor";
+    "representation such as a `Vector` whose element types name none in turn, or expose " +
+    "the collection through an exported accessor";
 
   test("the message names the field and both rewrites", () => {
     expect(diagnose(`${box}extern from "./m.js"\n    fun take(b: Box) ->! Unit\n`))
@@ -256,7 +316,8 @@ describe("item 2 — a Hexagon opaque type whose representation names one", () =
       "opaque type `Box` names the captured collection `Array(Int)` in its representation " +
       "(`rows`); an opaque value crosses the foreign boundary by identity, so its " +
       "representation cannot be copied at the crossing — keep an identity-safe " +
-      "representation such as `Vector`, or expose the collection through an exported accessor",
+      "representation such as a `Vector` whose element types name none in turn, or expose " +
+      "the collection through an exported accessor",
     ]);
   });
 
@@ -268,7 +329,8 @@ describe("item 2 — a Hexagon opaque type whose representation names one", () =
       "opaque type `Cell` names the captured collection `Array(Int)` in its representation " +
       "(`Filled.item1`); an opaque value crosses the foreign boundary by identity, so its " +
       "representation cannot be copied at the crossing — keep an identity-safe representation " +
-      "such as `Vector`, or expose the collection through an exported accessor",
+      "such as a `Vector` whose element types name none in turn, or expose the collection " +
+      "through an exported accessor",
     ]);
   });
 
@@ -451,7 +513,8 @@ describe("item 4's other half — an exported union's constructors", () => {
       "opaque type `Box` names the captured collection `Array(Int)` in its representation " +
       "(`rows`); an opaque value crosses the foreign boundary by identity, so its " +
       "representation cannot be copied at the crossing — keep an identity-safe " +
-      "representation such as `Vector`, or expose the collection through an exported accessor",
+      "representation such as a `Vector` whose element types name none in turn, or expose " +
+      "the collection through an exported accessor",
     ]);
   });
 
@@ -561,14 +624,25 @@ describe("item 5 — the release seat, `JsValue.from`", () => {
   // and the emitter erases it too. Each of these is **one** diagnostic: the
   // callee is a reference as well as a callee, and the reference seat it
   // records is struck in favour of the call's.
-  test("a parenthesised callee is the same seat", () => {
+  test("a parenthesised callee is the same seat, and points at the argument", () => {
+    const released =
+      "`JsValue.from` cannot release a value at type `a`: the type variable `a` determines " +
+      "no release operation, and the seat never falls back to identity — inject where the " +
+      "concrete type is known, or pass an explicit conversion function `(a) -> JsValue` " +
+      "into the generic helper";
     expect(diagnose("let w(x: a): JsValue = (JsValue.from)(x)\nexport let go(): Int = 1\n"))
-      .toEqual([
-        "`JsValue.from` cannot release a value at type `a`: the type variable `a` determines " +
-        "no release operation, and the seat never falls back to identity — inject where the " +
-        "concrete type is known, or pass an explicit conversion function `(a) -> JsValue` " +
-        "into the generic helper",
-      ]);
+      .toEqual([released]);
+    // **The span is the pin**, the message being the same either way. Reading
+    // the callee through its parentheses is what makes this the *call's* seat,
+    // whose span is the argument the type belongs to; without it the group is
+    // no `Name`, no call seat is recorded, the callee's own reference seat is
+    // never struck, and the diagnostic labels `JsValue.from` instead.
+    expect(spans("let w(x: a): JsValue = (JsValue.from)(x)\nexport let go(): Int = 1\n"))
+      .toEqual([[released, "x"]]);
+    // The unparenthesised spelling is already the call's seat, and lands on the
+    // same label — which is the whole content of "a group is punctuation".
+    expect(spans("let w(x: a): JsValue = JsValue.from(x)\nexport let go(): Int = 1\n"))
+      .toEqual([[released, "x"]]);
   });
 
   test("a defaulted literal and a resolved variable are both ground", () => {
