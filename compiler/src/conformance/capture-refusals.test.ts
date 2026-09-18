@@ -924,7 +924,11 @@ describe("item 7 — an open structural record where Hexagon supplies it", () =>
         ' {r with guest = "Renamed"}\n',
     ],
     ["an exported constructor's payload", "export union Shape = Rows({n: Int, ...})\n"],
-    ["an exported value binding", "export let point: {x: Int, ...q} = { x = 1, y = 2 }\n"],
+    // An exported *value* binding has no row for this table: a record value
+    // cannot carry a field its type does not name, so the initializer closes
+    // the tail and the seat never sees an open one. Its own interaction with
+    // item 7 — `positionOnly` against a partial answer — is the ninth row of
+    // the bound's per-seat table below.
     [
       "an exported constraint's member parameter",
       "export constraint Rowy<a> =\n    rows(x: {n: Int, ...}) -> Int\n",
@@ -1330,9 +1334,12 @@ describe("the fixpoint terminates, and answers each occurrence on its own", () =
    * refused for item 1, 2 or 7 is protected; replacing that message with one
    * naming no type would be a worse report of the same verdict.
    *
-   * `"unbounded"` is what a walk that decided **nothing** answers, which is the
-   * half that keeps a silent acceptance impossible — the row below it, and the
-   * two beside it in this block.
+   * The walk states no verdict of its own: it returns its `CaptureFindings`
+   * with `exhausted` set, and **the seat decides** what a partial answer is
+   * worth, falling back to `#captureBoundRefusal` where it finds nothing it may
+   * report. That is the half that keeps a silent acceptance impossible — the
+   * row below this one, the two beside it in this block, and the nine-seat
+   * table above them.
    */
   test("a non-regular type refused for item 7 says so, not that it gave up", () => {
     expect(diagnose(
@@ -1361,9 +1368,14 @@ describe("the fixpoint terminates, and answers each occurrence on its own", () =
    * item 7's refusal at the two seats that read it and `#captureBoundRefusal`'s
    * at every seat that does not.
    *
-   * One type, eight seats. Without this every `foreign` and `within` seat below
+   * One type, nine seats. Without this every `foreign` and `within` seat below
    * went **clean**, which is the silent acceptance §5.4's bound exists to
    * prevent, and a regression against the behaviour that shipped with #949.
+   *
+   * The exported **value** binding is the one seat where the position's own
+   * refusal and the partial answer meet: item 4 asks the trigger's question,
+   * the partial answer names no captured collection, and what is left is the
+   * bound's.
    */
   const partial = "export record R(a) = { x: Option(R(Map(a, a))), r: {n: Int, ...} }\n\n";
   const bound = "the type `R(Int)` at this boundary position expands past the capture " +
@@ -1378,6 +1390,10 @@ describe("the fixpoint terminates, and answers each occurrence on its own", () =
     ["an exported function's parameter", "export fun f(v: R(Int)): Int = 1\n"],
     ["an exported constructor's payload", "export union U = A(v: R(Int))\n"],
     ["an exported constraint member", "export constraint C<b> =\n    m(x: R(Int)) -> b\n"],
+    [
+      "an exported value binding",
+      "export let v: R(Int) = R({x = None, r = {n = 1}})\n",
+    ],
   ])("a seat that cannot read the partial answer takes the bound — %s", (_what, source) => {
     expect(diagnose(partial + source)).toEqual([bound]);
   });
