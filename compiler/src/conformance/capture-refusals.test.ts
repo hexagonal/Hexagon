@@ -54,8 +54,9 @@ function beneath(captured: string, container: string): string {
     ? "convert each element with `Array.toVector` before the crossing, perform the " +
       "conversion at a controlled boundary, or bind through a foreign shim or an opaque " +
       "foreign handle"
-    : "convert the elements to a persistent `Map`/`Set` at a controlled boundary, or bind " +
-      "through a foreign shim or an opaque foreign handle";
+    : "convert the elements to a persistent `Map`/`Set` before the crossing, perform the " +
+      "conversion at a controlled boundary, or bind through a foreign shim or an opaque " +
+      "foreign handle";
   return `captured collection \`${captured}\` beneath \`${container}\` cannot cross the ` +
     `foreign boundary; ${rewrites}`;
 }
@@ -90,8 +91,9 @@ describe("item 1 — a captured collection beneath one of the five containers", 
     expect(diagnose('extern from "./m.js"\n    fun rows() ->! Map(String, JsSet(Int))\n'))
       .toEqual([
         "captured collection `JsSet(Int)` beneath `Map` cannot cross the foreign boundary; " +
-        "convert the elements to a persistent `Map`/`Set` at a controlled boundary, or bind " +
-        "through a foreign shim or an opaque foreign handle",
+        "convert the elements to a persistent `Map`/`Set` before the crossing, perform the " +
+        "conversion at a controlled boundary, or bind through a foreign shim or an opaque " +
+        "foreign handle",
       ]);
   });
 
@@ -250,8 +252,7 @@ describe("item 3 — an `exception` payload", () => {
   const message = "exception `Bad`'s payload `rows` names the captured collection " +
     "`Array(Int)`; an exception may be thrown through foreign code, so its payload cannot " +
     "hold a foreign collection — carry a `Vector` (`Array.toVector` at the construction " +
-    "site), or a persistent `Map`/`Set` (`Map.fromJsMap`/`Set.fromJsSet`, whose `Result` " +
-    "the construction site handles)";
+    "site)";
 
   // Exceptions §2: the refusal is **unconditional** — a property of the
   // declaration, not of any use, because an exception's travel is not
@@ -265,8 +266,38 @@ describe("item 3 — an `exception` payload", () => {
     expect(diagnose("exception Bad(rows: Option(Array(Int)))\n")).toEqual([message]);
   });
 
+  // The rewrite is the payload's own, for item 1's reason: `Map.fromJsMap` and
+  // `Set.fromJsSet` are unshipped (#796), so a keyed payload is told what to
+  // carry rather than which operation to call.
+  test("a keyed payload names the rewrite it actually has", () => {
+    expect(diagnose("exception Bad(s: JsSet(Int))\n")).toEqual([
+      "exception `Bad`'s payload `s` names the captured collection `JsSet(Int)`; an " +
+      "exception may be thrown through foreign code, so its payload cannot hold a foreign " +
+      "collection — carry a persistent `Map`/`Set` built at the construction site",
+    ]);
+  });
+
   test("the rewrite the message names compiles", () => {
     expect(diagnose("exception Bad(rows: Vector(Int))\n")).toEqual([]);
+  });
+
+  /**
+   * **A `Seq` or `Stream` payload is accepted**, and this row records that
+   * rather than endorsing it. The trigger does not enter the five runtime
+   * containers (§5.4's "keeps its own category and is not entered"), and `Seq`
+   * and `Stream` are the two of them that are nominal records — so the guard
+   * inside `#namesCapturedCollection` is what keeps their representation, a
+   * pull function over their own parameter, out of the answer. An exception
+   * payload is the one seat that asks the trigger *alone*, items 1 and 2 having
+   * no position here, so it is the one seat where that guard is visible.
+   *
+   * It is also the seat of the open question James holds: item 3's trigger is
+   * "names a captured collection", and Exceptions §2 words it more loosely. If
+   * that question resolves the other way, this row is the row that changes.
+   */
+  test("a `Seq` or `Stream` payload is accepted — the trigger stops at the container", () => {
+    expect(diagnose("exception Bad(s: Seq(Array(Int)))\n")).toEqual([]);
+    expect(diagnose("exception Bad(s: Stream(Array(Int)))\n")).toEqual([]);
   });
 });
 
@@ -356,12 +387,14 @@ describe("item 5 — the release seat, `JsValue.from`", () => {
 
   /**
    * **A type variable, and only a type variable.** §2 refuses the seat where
-   * the compiler cannot determine a release operation, and an *effect* variable
-   * determines nothing to release: a function type naming no captured
-   * collection is §5.4's identity, colour or no colour. The colour is not even
-   * rendered as a name — `->?` is how it prints — so a refusal keyed on it
-   * would name a variable the type it quotes does not contain, which is the
-   * shape #649 abolished.
+   * the compiler cannot determine a release operation, and two of the solver's
+   * variables determine nothing to release. An *effect* variable: a function
+   * type naming no captured collection is §5.4's identity, colour or no colour,
+   * and the colour prints as `->?` rather than as a name. A *row tail*: an open
+   * record crosses as the POJO it already is, and `#render` prints the tail as
+   * `...`. A refusal keyed on either would name a variable the type it quotes
+   * does not contain, which is the shape #649 abolished — and that is what the
+   * second half of each row below asserts.
    *
    * The two halves are one table because the second is only meaningful beside
    * the first: every colour-only row is legal, and every refused row names a
@@ -370,10 +403,12 @@ describe("item 5 — the release seat, `JsValue.from`", () => {
   test.each([
     ["(Int) ->? Int", false],
     ["(Int) ->? Bool", false],
+    ["{n: Int, ...q}", false],
     ["a", true],
     ["Vector(a)", true],
     ["(a, Int)", true],
     ["(Int) ->? b", true],
+    ["{n: a, ...q}", true],
   ])("`JsValue.from` at `%s` — refused: %s", (written, refused) => {
     const messages = diagnose(
       `let w(x: ${written}): JsValue = JsValue.from(x)\nexport let go(): Int = 1\n`,
@@ -490,23 +525,90 @@ describe("the fixpoint terminates, and answers each occurrence on its own", () =
   });
 
   /**
-   * **Non-regular recursion terminates**, and it terminates by truncating the
-   * key rather than by giving up at the first re-entry: `R(Int)`'s inner
-   * `R(Array(Int))` has a `y` of type `Array(Int)`, so the position really does
-   * name a captured collection and really is refused. Keying on the
-   * declaration alone missed it outright.
+   * **The captured collection named is the shallowest**, not the first a
+   * depth-first walk stumbles into. `R`'s `x` leads down a tower of `Vector`
+   * layers and its `y` holds the `Array(Int)` the author wrote; a walk that
+   * descends `x` first names an `Array(Vector(Vector(…)))` the reader never
+   * typed, and swapping the two fields changes the message. The pair below is
+   * the pin: the field order must not matter, and the type named must be the
+   * one in the source.
    */
-  test("a non-regular recursive record terminates, and is still answered", () => {
-    const refused = diagnose(
+  test.each([
+    ["deep branch first", "{ x: Option(R(Vector(a))), y: Array(a) }"],
+    ["shallow branch first", "{ y: Array(a), x: Option(R(Vector(a))) }"],
+  ])("the message names the nearest captured collection — %s", (_order, fields) => {
+    expect(diagnose(
+      `record R(a) = ${fields}\n\n` +
+        'extern from "./m.js"\n    fun rows() ->! Vector(R(Int))\n',
+    )).toEqual([beneath("Array(Int)", "Vector")]);
+  });
+
+  /**
+   * **Non-regular recursion terminates** — Hexagon accepts it — and it
+   * terminates *with an answer where there is one*: `R(Int)`'s inner
+   * `R(Array(Int))` has a `y` of type `Array(Int)`, so the position really does
+   * name a captured collection, and it is the shallow one the message names.
+   */
+  test("a non-regular recursive record is still answered where the walk can answer", () => {
+    expect(diagnose(
       "record R(a) = { x: Nullable(R(Array(a))), y: a }\n\n" +
         'extern from "./m.js"\n    fun rows() ->! Vector(R(Int))\n',
-    );
-    expect(refused).toHaveLength(1);
-    expect(refused[0]).toContain("beneath `Vector` cannot cross the foreign boundary");
-    // The same shape with nothing captured stays legal — `a` reaches no field.
+    )).toEqual([beneath("Array(Int)", "Vector")]);
+  });
+
+  /**
+   * **And where it cannot answer, the position is refused.** §5.4's sentence is
+   * "no *declared* position crosses unprotected because the compiler could not
+   * protect it", so a type the walk cannot finish is refused for that, in its
+   * own words, rather than waved through. The two shapes below are the two ways
+   * a type outruns the bound: one grows its occurrence by a layer each time,
+   * and one doubles it.
+   */
+  test.each([
+    ["growing", "record R(a) = { x: Nullable(R(Array(a))) }"],
+    ["doubling", "record R(a) = { x: Option(R(Map(a, a))), n: Int }"],
+  ])("a %s non-regular type is refused as undecided, not accepted", (_shape, declaration) => {
+    const started = Date.now();
+    expect(diagnose(`${declaration}\n\nextern from "./m.js"\n    fun rows() ->! R(Int)\n`))
+      .toEqual([
+        "the type `R(Int)` at this boundary position expands past the capture check's bound, " +
+        "so the compiler cannot decide whether it names a captured foreign collection, and " +
+        "no declared position crosses undecided (FFI Part 1 §5.4); declare a position whose " +
+        "type does not nest without bound, or bind through an opaque foreign handle",
+      ]);
+    // The heap, not only the clock: before the bound counted nodes rather than
+    // layers, the doubling shape rendered a 2ᵏ-node key per layer and killed
+    // the compiler outright.
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
+
+  test("the bound refuses at every seat, not only at an extern row", () => {
+    const declaration = "record R(a) = { x: Option(R(Map(a, a))), n: Int }\n\n";
+    const bound = "the type `R(Int)` at this boundary position expands past the capture " +
+      "check's bound, so the compiler cannot decide whether it names a captured foreign " +
+      "collection, and no declared position crosses undecided (FFI Part 1 §5.4); declare a " +
+      "position whose type does not nest without bound, or bind through an opaque foreign " +
+      "handle";
+    expect(diagnose(`${declaration}exception Bad(r: R(Int))\n`)).toEqual([bound]);
     expect(diagnose(
-      "record R(a) = { x: Nullable(R(Array(a))) }\n\n" +
-        'extern from "./m.js"\n    fun rows() ->! Vector(R(Int))\n',
-    )).toEqual([]);
+      `${declaration}let w(r: R(Int)): JsValue = JsValue.from(r)\nexport let go(): Int = 1\n`,
+    )).toEqual([bound]);
+  });
+
+  /**
+   * **And the bound is nowhere near an ordinary type.** Seventy nested
+   * one-field records is far past anything written by hand and is still
+   * decided, naming the `Array(Int)` at the bottom — which is what pins the
+   * bound *from below*: shrink it and this row reads the undecided refusal
+   * instead. A depth cap rather than a size one failed exactly here, accepting
+   * sixty-five layers while refusing sixty-four.
+   */
+  test("seventy layers of an ordinary nominal are decided, not bounded out", () => {
+    let written = "Array(Int)";
+    for (let layer = 0; layer < 70; layer += 1) written = `Box(${written})`;
+    expect(diagnose(
+      "record Box(a) = { v: a }\n\n" +
+        `extern from "./m.js"\n    fun rows() ->! Vector(${written})\n`,
+    )).toEqual([beneath("Array(Int)", "Vector")]);
   });
 });

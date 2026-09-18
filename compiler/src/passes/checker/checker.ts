@@ -22014,6 +22014,31 @@ class Checker {
   }
 
   /**
+   * How much work either capture walk may do at one boundary position before it
+   * gives up and says so.
+   *
+   * A bound is unavoidable. Hexagon accepts **non-regular** recursion — `record
+   * R(a) = { x: Option(R(Map(a, a))), n: Int }` compiles — and such a
+   * declaration has no finite expansion at all: each layer's occurrence is
+   * twice the size of the last, so a walk that insists on distinguishing every
+   * occurrence exhausts the heap rather than the patience. The bound counts
+   * *nodes* — every type node the walk pops and every node its occurrence keys
+   * read — because depth alone does not bound size, and it was size that ran
+   * away.
+   *
+   * What the walk does at the bound is the load-bearing half, and it is
+   * §5.4's own sentence: "no *declared* position crosses unprotected because
+   * the compiler could not protect it". Undecided is not legal. The seat is
+   * **refused**, by `#captureBoundRefusal`, and the reader is told the check
+   * could not follow the type rather than told the type is fine.
+   *
+   * The number is three orders of magnitude above any declaration graph a
+   * program writes: a seventy-deep chain of one-field records costs a few
+   * thousand nodes, the whole stdlib nothing approaching it.
+   */
+  static readonly #walkBudget = 50_000;
+
+  /**
    * A structural key for one type, distinguishing exactly what the walks below
    * have to distinguish: two occurrences of one nominal declaration under
    * *different* arguments are different questions, and under the same arguments
@@ -22023,17 +22048,17 @@ class Checker {
    * share a spelling (a local `Row` and an imported one), and conflating them
    * would answer the second with the first's verdict.
    *
-   * `depth` truncates: past the cap every type keys the same, so two
-   * occurrences that differ only below it are asked once. That is what makes
-   * **non-regular** recursion terminate — `record R(a) = { x:
-   * Nullable(R(Array(a))) }` grows its argument by a layer per expansion, so
-   * without truncation the keys never repeat and the walk never stops — and it
-   * is a conflation the budget already permits: a captured collection first
-   * reachable sixty-four argument layers down is one no value carries.
+   * `budget` is the walk's own node counter, spent here as well as on the nodes
+   * the walk pops, because building a key *is* the walk reading the type.
+   * Past it the key truncates, which conflates occurrences — harmless, because
+   * a walk that has spent its budget reports `"unbounded"` and its seat is
+   * refused either way.
    */
-  #typeKey(type: Mono, depth = 0): string {
-    if (depth > Checker.#keyDepth) return "…";
+  #typeKey(type: Mono, budget: { steps: number }): string {
+    budget.steps += 1;
+    if (budget.steps > Checker.#walkBudget) return "…";
     const actual = this.#prune(type);
+    const key = (inner: Mono): string => this.#typeKey(inner, budget);
     switch (actual.kind) {
       case "Variable":
         return `?${actual.id}`;
@@ -22050,69 +22075,41 @@ class Checker {
       case "ExternType":
         return `x${actual.externType}`;
       case "Tuple":
-        return `(${actual.elements.map((element) => this.#typeKey(element, depth + 1)).join(",")})`;
+        return `(${actual.elements.map(key).join(",")})`;
       case "Record":
-        return `{${
-          [...actual.fields].map(([name, field]) => `${name}:${this.#typeKey(field, depth + 1)}`).join(",")
-        }}`;
+        return `{${[...actual.fields].map(([name, field]) => `${name}:${key(field)}`).join(",")}}`;
       case "Function":
-        return `(${actual.parameters.map((p) => this.#typeKey(p, depth + 1)).join(",")})->${
-          this.#typeKey(actual.result, depth + 1)
-        }`;
+        return `(${actual.parameters.map(key).join(",")})->${key(actual.result)}`;
       case "Vector":
-        return `Vector(${this.#typeKey(actual.element, depth + 1)})`;
+        return `Vector(${key(actual.element)})`;
       case "Set":
-        return `Set(${this.#typeKey(actual.element, depth + 1)})`;
+        return `Set(${key(actual.element)})`;
       case "Array":
-        return `Array(${this.#typeKey(actual.element, depth + 1)})`;
+        return `Array(${key(actual.element)})`;
       case "JsSet":
-        return `JsSet(${this.#typeKey(actual.element, depth + 1)})`;
+        return `JsSet(${key(actual.element)})`;
       case "Node":
-        return `Node(${this.#typeKey(actual.element, depth + 1)})`;
+        return `Node(${key(actual.element)})`;
       case "Nullable":
-        return `Nullable(${this.#typeKey(actual.value, depth + 1)})`;
+        return `Nullable(${key(actual.value)})`;
       case "Map":
       case "JsMap":
-        return `${actual.kind}(${this.#typeKey(actual.key, depth + 1)},${this.#typeKey(actual.value, depth + 1)})`;
+        return `${actual.kind}(${key(actual.key)},${key(actual.value)})`;
       case "Union":
-        return this.#nominalKey(`u${actual.union}`, actual.arguments, depth);
+        return actual.arguments.length === 0
+          ? `u${actual.union}`
+          : `u${actual.union}(${actual.arguments.map(key).join(",")})`;
       case "NominalRecord":
-        return this.#nominalKey(`r${actual.record}`, actual.arguments, depth);
+        return actual.arguments.length === 0
+          ? `r${actual.record}`
+          : `r${actual.record}(${actual.arguments.map(key).join(",")})`;
     }
   }
 
-  #nominalKey(head: string, args: readonly Mono[], depth: number): string {
-    return args.length === 0
-      ? head
-      : `${head}(${args.map((argument) => this.#typeKey(argument, depth + 1)).join(",")})`;
-  }
-
-  /** How deep `#typeKey` distinguishes before it truncates; see its doc. */
-  static readonly #keyDepth = 64;
-
-  /**
-   * How many distinct nominal occurrences either walk below will expand before
-   * it stops expanding them.
-   *
-   * Hexagon accepts **non-regular** recursion — `record R(a) = { x:
-   * Nullable(R(Array(a))) }` compiles — and such a declaration generates
-   * unboundedly many distinct occurrences, so a walk that keys on the
-   * occurrence needs a stop. The budget is the stop, and it is generous by
-   * three orders of magnitude over any declaration graph a program writes: what
-   * it bounds is the *depth* of an argument tower, and a captured collection
-   * that first appears a thousand towers down is one no value reaches. It is a
-   * termination guard, stated as one, not a heuristic about ordinary types.
-   *
-   * It is also strictly more reach than keying on the declaration alone, which
-   * is what this walk did before: that discipline stopped at the *first*
-   * re-entry, so `record R(a) = { x: Nullable(R(Array(a))), y: a }` — whose
-   * `R(Int)` names an `Array(Int)` one level down — was missed outright.
-   */
-  static readonly #nominalBudget = 1024;
-
   /**
    * **The one membership function**: the captured foreign collection a declared
-   * type *names* (FFI Part 1 §2.2, §5.4), or nothing.
+   * type *names* (FFI Part 1 §2.2, §5.4), `"unbounded"` where the type outran
+   * `#walkBudget`, or nothing.
    *
    * §5.4 states it as "the least fixpoint over the declared type's constructor
    * graph", and the walk's own clauses say which constructors are in that
@@ -22125,55 +22122,59 @@ class Checker {
    * five runtime containers of item 1 are **not** entered either — which is
    * exactly why item 1 exists as a separate refusal rather than falling out of
    * this predicate. `Vector(Array(Int))` therefore names no captured collection
-   * and is refused by `#capturedCollectionRefusal` below.
+   * and is refused by `#capturedCollectionRefusal` below. `Seq` and `Stream`
+   * are the two of the five that are nominal records, so the guard is what
+   * keeps their *representation* — a pull function over their own parameter —
+   * out of the answer.
    *
-   * **It is plain reachability, so it is computed as reachability**: an
-   * explicit stack, and a `seen` set of nominal *occurrences* that is never
-   * unwound. A path set — added on the way in, removed on the way out — is the
-   * same verdict and exponential on a shared-subterm graph: `record Li = { a:
-   * L(i-1), b: L(i-1) }` visits `L0` 2ⁱ times, and a twenty-deep chain takes
-   * seconds. Keeping the entry makes each distinct occurrence one visit, and it
-   * is still the least fixpoint because an occurrence already on the stack, or
-   * already answered "no", contributes nothing a second visit could add — the
-   * predicate is a disjunction over components and the first "yes" returns.
+   * **It is plain reachability, so it is computed as reachability**: a queue,
+   * and a `seen` set of nominal *occurrences* that is never unwound. A path set
+   * — added on the way in, removed on the way out — is the same verdict and
+   * exponential on a shared-subterm graph: `record Li = { a: L(i-1), b: L(i-1)
+   * }` visits `L0` 2ⁱ times, and a twenty-deep chain takes seconds.
    *
-   * The stack is filled in reverse so the walk is pre-order in source order:
-   * which captured collection a diagnostic names, where a type has two, is the
-   * one the reader meets first.
+   * The queue is **breadth-first**, and that is a property of the diagnostic
+   * rather than of the verdict: the captured collection reported is the one
+   * nearest the declared type, so `record R(a) = { x: Option(R(Vector(a))), y:
+   * Array(a) }` at `R(Int)` names the `Array(Int)` its author wrote at `y`
+   * rather than the `Array(Vector(Vector(…)))` a depth-first walk reaches by
+   * descending `x` first. Within one layer the order is the source's.
    */
-  #namesCapturedCollection(type: Mono): Mono | undefined {
+  #namesCapturedCollection(
+    type: Mono,
+    budget: { steps: number } = { steps: 0 },
+  ): Mono | "unbounded" | undefined {
     const pending: Mono[] = [type];
     const seen = new Set<string>();
-    const push = (types: readonly Mono[]): void => {
-      for (let index = types.length - 1; index >= 0; index -= 1) pending.push(types[index]!);
-    };
-    while (pending.length > 0) {
-      const actual = this.#prune(pending.pop()!);
+    for (let head = 0; head < pending.length; head += 1) {
+      budget.steps += 1;
+      if (budget.steps > Checker.#walkBudget) return "unbounded";
+      const actual = this.#prune(pending[head]!);
       switch (actual.kind) {
         case "Array":
         case "JsMap":
         case "JsSet":
           return actual;
         case "Tuple":
-          push(actual.elements);
+          pending.push(...actual.elements);
           break;
         case "Record":
-          push([...actual.fields.values()]);
+          pending.push(...actual.fields.values());
           break;
         case "Nullable":
           pending.push(actual.value);
           break;
         case "Function":
-          push([...actual.parameters, actual.result]);
+          pending.push(...actual.parameters, actual.result);
           break;
         case "Union":
         case "NominalRecord": {
           if (this.#runtimeContainer(actual) !== undefined) break;
-          if (seen.size >= Checker.#nominalBudget) break;
-          const key = this.#typeKey(actual);
+          const key = this.#typeKey(actual, budget);
+          if (budget.steps > Checker.#walkBudget) return "unbounded";
           if (seen.has(key)) break;
           seen.add(key);
-          push(this.#nominalComponents(actual).map(({ type: component }) => component));
+          for (const component of this.#nominalComponents(actual)) pending.push(component.type);
           break;
         }
         default:
@@ -22181,6 +22182,23 @@ class Checker {
       }
     }
     return undefined;
+  }
+
+  /**
+   * The refusal a seat takes when the capture walk could not finish (§5.4's
+   * "no declared position crosses unprotected because the compiler could not
+   * protect it"). Undecided is refused, never accepted.
+   *
+   * The type it names is the *declared* one, which is always small — it is what
+   * the author wrote. What outran the bound is its expansion, and saying so is
+   * the whole content of the message.
+   */
+  #captureBoundRefusal(type: Mono): string {
+    return `the type \`${this.#display(type)}\` at this boundary position expands past the ` +
+      "capture check's bound, so the compiler cannot decide whether it names a captured " +
+      "foreign collection, and no declared position crosses undecided (FFI Part 1 §5.4); " +
+      "declare a position whose type does not nest without bound, or bind through an opaque " +
+      "foreign handle";
   }
 
   /**
@@ -22201,8 +22219,9 @@ class Checker {
       ? "convert each element with `Array.toVector` before the crossing, perform the " +
         "conversion at a controlled boundary, or bind through a foreign shim or an opaque " +
         "foreign handle"
-      : "convert the elements to a persistent `Map`/`Set` at a controlled boundary, or bind " +
-        "through a foreign shim or an opaque foreign handle";
+      : "convert the elements to a persistent `Map`/`Set` before the crossing, perform the " +
+        "conversion at a controlled boundary, or bind through a foreign shim or an opaque " +
+        "foreign handle";
   }
 
   /**
@@ -22230,13 +22249,29 @@ class Checker {
    */
   #capturedCollectionRefusal(type: Mono): string | undefined {
     let container: string | undefined;
+    let unbounded = false;
     const seen = new Set<string>();
+    // One budget for the seat, spent by this descent and by every membership
+    // question it asks, so a position costs a bounded amount of work however it
+    // is shaped.
+    const budget = { steps: 0 };
+    const names = (node: Mono): Mono | undefined => {
+      const found = this.#namesCapturedCollection(node, budget);
+      if (found !== "unbounded") return found;
+      unbounded = true;
+      return undefined;
+    };
     const descend = (node: Mono): string | undefined => {
+      budget.steps += 1;
+      if (budget.steps > Checker.#walkBudget) {
+        unbounded = true;
+        return undefined;
+      }
       const actual = this.#prune(node);
       const enclosure = this.#runtimeContainer(actual);
       if (enclosure !== undefined) {
         for (const argument of enclosure.arguments) {
-          const captured = this.#namesCapturedCollection(argument);
+          const captured = names(argument);
           if (captured === undefined) continue;
           if (container === undefined) {
             container = `captured collection \`${this.#display(captured)}\` beneath ` +
@@ -22287,14 +22322,17 @@ class Checker {
         }
         case "Union":
         case "NominalRecord": {
-          if (seen.size >= Checker.#nominalBudget) return undefined;
-          const key = this.#typeKey(actual);
+          const key = this.#typeKey(actual, budget);
+          if (budget.steps > Checker.#walkBudget) {
+            unbounded = true;
+            return undefined;
+          }
           if (seen.has(key)) return undefined;
           seen.add(key);
           const components = this.#nominalComponents(actual);
           if (this.#nominalDeclaration(actual)?.opaque === true) {
             for (const component of components) {
-              const captured = this.#namesCapturedCollection(component.type);
+              const captured = names(component.type);
               if (captured === undefined) continue;
               return `opaque type \`${actual.name}\` names the captured collection ` +
                 `\`${this.#display(captured)}\` in its representation (\`${component.key}\`); ` +
@@ -22314,7 +22352,10 @@ class Checker {
           return undefined;
       }
     };
-    return descend(type) ?? container;
+    const found = descend(type) ?? container;
+    // The bound speaks **last**: a position the walk could decide is decided,
+    // and only one it could not falls back on the conservative refusal.
+    return found ?? (unbounded ? this.#captureBoundRefusal(type) : undefined);
   }
 
   /**
@@ -22357,10 +22398,11 @@ class Checker {
    * Every boundary refusal FFI Part 1 §5.4 states, reported once per seat.
    *
    * `positionOnly` carries the refusal the *position* owns and the walk's own
-   * two do not — item 4's exported value binding, item 3's exception payload —
-   * so that a seat draws one diagnostic: items 1 and 2 speak first where they
-   * apply, because they name a nested type the position's own message would not
-   * mention.
+   * two do not — item 4's exported value binding — so that a seat draws one
+   * diagnostic: items 1 and 2 speak first where they apply, because they name a
+   * nested type the position's own message would not mention. A position whose
+   * type the walk could not finish is refused by `#captureBoundRefusal`, which
+   * `#capturedCollectionRefusal` has already applied by the time this reads it.
    */
   #refuseCapturedPosition(
     type: Mono,
@@ -22371,7 +22413,9 @@ class Checker {
       (() => {
         if (positionOnly === undefined) return undefined;
         const captured = this.#namesCapturedCollection(type);
-        return captured === undefined ? undefined : positionOnly(captured);
+        return captured === undefined || captured === "unbounded"
+          ? undefined
+          : positionOnly(captured);
       })();
     if (message === undefined) return false;
     this.#diagnostics.add({ severity: "error", message, primary: span });
@@ -22576,14 +22620,32 @@ class Checker {
           if (type === undefined) continue;
           const captured = this.#namesCapturedCollection(type);
           if (captured === undefined) continue;
+          // A payload the walk could not finish is refused for that, exactly as
+          // a boundary position is: an exception travels through foreign frames
+          // and the declaration is the one place safety can be established, so
+          // undecided is no better here than there.
+          if (captured === "unbounded") {
+            this.#diagnostics.add({
+              severity: "error",
+              message: this.#captureBoundRefusal(type),
+              primary: slot.span,
+            });
+            continue;
+          }
+          // The rewrite is the one the payload's own captured type has. §5.4
+          // and Exceptions §2 offer two, and `Map.fromJsMap`/`Set.fromJsSet`
+          // are unshipped (#796), so the sentence names `Array.toVector` where
+          // that is the conversion and describes the persistent target where it
+          // is not — the Rewrite Rule wants constructs already in the language
+          // (Declarations Preamble §1.1).
+          const carry = captured.kind === "Array"
+            ? "carry a `Vector` (`Array.toVector` at the construction site)"
+            : "carry a persistent `Map`/`Set` built at the construction site";
           this.#diagnostics.add({
             severity: "error",
             message: `exception \`${name}\`'s payload \`${slot.field}\` names the captured ` +
               `collection \`${this.#display(captured)}\`; an exception may be thrown through ` +
-              "foreign code, so its payload cannot hold a foreign collection — carry a " +
-              "`Vector` (`Array.toVector` at the construction site), or a persistent " +
-              "`Map`/`Set` (`Map.fromJsMap`/`Set.fromJsSet`, whose `Result` the construction " +
-              "site handles)",
+              `foreign code, so its payload cannot hold a foreign collection — ${carry}`,
             primary: slot.span,
           });
         }
@@ -22767,12 +22829,12 @@ class Checker {
           // An **exported** `extern let` takes item 4 besides. Its acquisition
           // is a supported position — captured once at module initialization,
           // Hexagon's snapshot from then on (Part 4 §4.4) — but `export` on the
-          // row re-exports the imported binding from this module's facade
-          // (Part 4 §7), and that is the very thing item 4 refuses: one live
-          // ESM binding, read by JavaScript and by every Hexagon importer,
-          // which no copy can protect. The two spellings of that export —
-          // this row, and `export let rows: Array(Int) = raw` beside it —
-          // therefore draw one refusal, as they must.
+          // row publishes a value binding from this module, and Part 7 §7's
+          // argument reaches it exactly: a wrapper cannot sit on a value, so
+          // the one live ESM binding is what JavaScript and every Hexagon
+          // importer share and no copy can protect it. The two spellings of
+          // that export — this row, and `export let rows: Array(Int) = raw`
+          // beside it — therefore draw one refusal, as they must.
           if (declaration.kind === "ExternType") continue;
           const signature = this.#prune(this.#scheme(declaration.binding.symbol).type);
           if (declaration.kind === "ExternLet") {
@@ -22834,17 +22896,23 @@ class Checker {
    */
   #checkReleaseSeats(): void {
     for (const { type, span } of this.#releaseSeats) {
-      // **Type** variables only. Part 11 §2 refuses the seat where the compiler
-      // cannot determine a release operation, and an *effect* variable
-      // determines nothing to release: a function type naming no captured
-      // collection is §5.4's identity, colour or no colour, and the colour is
-      // not even rendered as a name (`#arrow` prints it as `->?`), so a report
-      // keyed on it would name a variable that appears nowhere in the type it
-      // quotes. The filter is `#nameSurvivingVariables`' own, so the variable
-      // named below is by construction one the rendered type shows.
-      const colours = new Set(this.#effectVariables(type));
+      // **Type** variables only, and the two exclusions are the two variables
+      // the rendered type does not spell.
+      //
+      // An *effect* variable determines nothing to release: a function type
+      // naming no captured collection is §5.4's identity, colour or no colour,
+      // and the colour prints as `->?` rather than as a name. A *row tail* is
+      // not a type Part 11 §2 could refuse either: `{n: Int, ...q}` crosses as
+      // the POJO it already is, the release operation is determined by the
+      // fields that are there, and `#render` prints the tail as `...`. A report
+      // keyed on either would name a variable that appears nowhere in the type
+      // it quotes, which is the shape #649 abolished.
+      const invisible = new Set([
+        ...this.#effectVariables(type),
+        ...this.#rowTailVariables(type),
+      ]);
       const survivors = this.#collectVariables(type)
-        .filter((variable) => !colours.has(variable.id));
+        .filter((variable) => !invisible.has(variable.id));
       if (survivors.length === 0) {
         this.#refuseCapturedPosition(type, span);
         continue;
@@ -24880,6 +24948,49 @@ class Checker {
    * its own arrow, then its result, so the effect slot is visited between the
    * parameters and the result.
    */
+  /**
+   * Every **row-tail** variable in a type — the `q` of `{n: Int, ...q}`.
+   *
+   * The dual of `#effectVariables`, and it exists for that function's reason: a
+   * report that has to name a surviving variable may name only a variable the
+   * reader can see, and `#render` prints a tail as `...` (§#649). An open row
+   * is one variable in the solver and no variable at all in the type as it is
+   * written back.
+   */
+  #rowTailVariables(type: Mono, found = new Set<number>()): ReadonlySet<number> {
+    const actual = this.#prune(type);
+    if (actual.kind === "Record") {
+      for (const field of actual.fields.values()) this.#rowTailVariables(field, found);
+      if (actual.tail !== undefined) {
+        const tail = this.#prune(actual.tail);
+        if (tail.kind === "Variable") found.add(tail.id);
+        else this.#rowTailVariables(tail, found);
+      }
+    }
+    if (actual.kind === "Tuple") {
+      for (const element of actual.elements) this.#rowTailVariables(element, found);
+    }
+    if (actual.kind === "Function") {
+      for (const parameter of actual.parameters) this.#rowTailVariables(parameter, found);
+      this.#rowTailVariables(actual.result, found);
+    }
+    if (actual.kind === "Union" || actual.kind === "NominalRecord") {
+      for (const argument of actual.arguments) this.#rowTailVariables(argument, found);
+    }
+    if (
+      actual.kind === "Vector" || actual.kind === "Set" || actual.kind === "Array" ||
+      actual.kind === "JsSet" || actual.kind === "Node"
+    ) {
+      this.#rowTailVariables(actual.element, found);
+    }
+    if (actual.kind === "Nullable") this.#rowTailVariables(actual.value, found);
+    if (actual.kind === "Map" || actual.kind === "JsMap") {
+      this.#rowTailVariables(actual.key, found);
+      this.#rowTailVariables(actual.value, found);
+    }
+    return found;
+  }
+
   #effectVariables(type: Mono, found = new Set<number>()): readonly number[] {
     const actual = this.#prune(type);
     if (actual.kind === "Function") {
