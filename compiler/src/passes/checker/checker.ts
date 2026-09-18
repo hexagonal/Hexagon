@@ -1007,8 +1007,8 @@ interface CaptureFinding {
 }
 
 /**
- * What one walk over one type answers, which is **two** questions, because the
- * trigger and the walk are two questions (FFI Part 1 §5.4).
+ * What one walk over one type answers, which is **three** questions, because
+ * the trigger, the walk, and item 7 are three questions (FFI Part 1 §5.4).
  *
  * `first` is the trigger's: does this type *name* a captured collection at all,
  * container or no container — what items 3 and 4 ask, and what the wrappers of
@@ -1022,10 +1022,18 @@ interface CaptureFinding {
  * `cells`, which the walk copies quite happily, *and* hides one under `kids`,
  * which it cannot reach: reporting the nearer one would report the safe one and
  * let the position through.
+ *
+ * `open` is **item 7's** (#952): the nearest **open structural record** on any
+ * path, normalized so the fields it reports are the ones the declaration really
+ * knows. It is a third question about the same graph rather than a second walk
+ * over it, and it is asked at the same nodes for the same reason — an open row
+ * declares only *some* of its components, so nothing the walk finds below it
+ * decides the position either way.
  */
 interface CaptureFindings {
   readonly first: CaptureFinding | undefined;
   readonly guarded: CaptureFinding | undefined;
+  readonly open: RecordMono | undefined;
 }
 
 interface Requirement {
@@ -22227,6 +22235,13 @@ class Checker {
    * it is and never as an opaque type, so `Seq(Array(Int))` reports as §5.4
    * says it is: item 1's.
    *
+   * **Item 7's open row rides the same queue** (#952), a third finding rather
+   * than a second walk: every structural record the walk pops is normalized,
+   * and one whose tail is still a variable is recorded. The reach item 7 asks
+   * for is exactly the reach already here — "at any depth, through a nominal
+   * record's field, and inside one of item 1's five containers" — so it costs a
+   * case and not a traversal.
+   *
    * **It is plain reachability, so it is computed as reachability**: a queue,
    * and a `seen` set of nominal *occurrences* that is never unwound. A path set
    * — added on the way in, removed on the way out — is the same verdict and
@@ -22246,6 +22261,8 @@ class Checker {
     const pending: CaptureStep[] = [{ type }];
     const seen = new Set<string>();
     let first: CaptureFinding | undefined;
+    // Item 7's finding (#952), recorded by the same walk at the same nodes.
+    let open: RecordMono | undefined;
     // The **guarded** finding is what ends the walk, not the first one: a type
     // may name a captured collection the walk copies and hide another under a
     // container, and it is the second that decides the position. So a
@@ -22269,7 +22286,7 @@ class Checker {
           };
           first ??= finding;
           if (finding.container !== undefined || finding.opaque !== undefined) {
-            return { first, guarded: finding };
+            return { first, guarded: finding, open };
           }
           // A captured head is a finding **and** a constructor, so the path
           // carries on through it. §5.4 item 1 reads "at any depth", and a
@@ -22285,9 +22302,18 @@ class Checker {
         case "Tuple":
           push(actual.elements);
           break;
-        case "Record":
-          push([...actual.fields.values()]);
+        case "Record": {
+          // **Item 7** (#952). The row is normalized first, so a tail inference
+          // has already solved contributes its fields to the walk and no longer
+          // counts as open — `{n: Int, ...q}` with `q` bound to `{v: Int}` is
+          // the closed `{n: Int, v: Int}`, which is a declaration the walk can
+          // be directed by. A tail that is still a variable is what item 7
+          // refuses, and the normalized record is what the diagnostic shows.
+          const row = this.#normalizeRecord(actual);
+          if (row.tail !== undefined) open ??= row;
+          push([...row.fields.values()]);
           break;
+        }
         case "Nullable":
           push([actual.value]);
           break;
@@ -22342,7 +22368,7 @@ class Checker {
           break;
       }
     }
-    return { first, guarded: undefined };
+    return { first, guarded: undefined, open };
   }
 
   /**
@@ -22423,6 +22449,58 @@ class Checker {
   }
 
   /**
+   * FFI Part 1 §5.4 **item 7** (#952): an open structural record at a boundary
+   * position or at the release seat, as a message or nothing.
+   *
+   * The walk is directed by the declared type, and an open row declares only
+   * *some* of its components: a caller may widen `{n: Int, ...}` with a `v:
+   * Vector(Array(Int))` the declaration never named, and that component then
+   * crosses unseen — neither copied nor refused, since neither the walk nor the
+   * refusals can see a field the declaration does not spell. A boundary
+   * declaration must therefore be closed to be walked.
+   *
+   * The vocabulary is Products §4's, which is **binding**: "this record may
+   * have more fields", never "row" and never "row variable". The record quoted
+   * is the normalized one, so the fields the declaration *does* know are shown
+   * and the tail prints as `...` — the reader is never shown a variable the
+   * rendered type does not spell (#649).
+   *
+   * The seat chooses the rewrite. At a boundary position it is §5.4's own pair:
+   * name every field, or declare `JsValue` where the foreign side genuinely
+   * accepts anything. At the **release seat** it is the one §5.4 names there —
+   * inject at a closed type — and item 5 is not also reported, which is why
+   * this message is built before the release seat's survivors are consulted.
+   *
+   * **An undeclared seat is not one of item 7's.** §5.4's sentence is that no
+   * *declared* position crosses unprotected, and item 7's is that "a boundary
+   * declaration must therefore be closed to be walked" — so where an exported
+   * binding writes no annotation at a seat, Modules §4.1.1 has already refused
+   * the export for having no declaration there, and its rewrite *is* item 7's
+   * ("name every field the crossing carries" is the annotation §4.1.1 asks
+   * for). Two refusals, one remedy, and the second would quote a type the
+   * author never wrote: `export fun copy(r) = {...r}` would be told that
+   * `{...}` may have more fields, which names nothing the reader can see
+   * (#649). Items 1, 2 and 4 are unaffected — each names a captured collection
+   * the *value* holds whether or not the type is written.
+   */
+  #openRowRefusal(
+    row: RecordMono | undefined,
+    seat: "position" | "release" | "undeclared",
+  ): string | undefined {
+    if (row === undefined || seat === "undeclared") return undefined;
+    const rendered = this.#display(row);
+    return seat === "release"
+      ? `this record may have more fields (\`${rendered}\`), so \`JsValue.from\` cannot ` +
+        "release it: the release is directed by the declared type, and a field the type " +
+        "does not name would cross uncopied (FFI Part 1 §5.4) — inject at a closed type"
+      : `this record may have more fields (\`${rendered}\`), so it cannot cross the foreign ` +
+        "boundary at this position: the crossing is directed by the declared type, and a " +
+        "field the declaration does not name would cross uncopied (FFI Part 1 §5.4) — name " +
+        "every field the crossing carries, or declare `JsValue` where the foreign side " +
+        "genuinely accepts anything";
+  }
+
+  /**
    * The boundary positions of one **exported** binding, each with the span a
    * refusal stands on.
    *
@@ -22433,55 +22511,92 @@ class Checker {
    * annotation for a seat, and where the binding is not a declaration-form
    * function at all, the binding's own name is the anchor: it is the one span
    * that always exists, and a report has to land somewhere the reader wrote.
+   *
+   * `declared` says which of the two a seat is, because item 7 asks (#952): a
+   * seat whose type the author did not write is one Modules §4.1.1 has already
+   * refused for exactly that, and `#openRowRefusal` explains why the two do not
+   * both speak.
    */
   #exportedSeats(
     item: Resolved.LetItem | Resolved.FunItem,
     signature: Mono,
-  ): readonly { readonly type: Mono; readonly span: Source.Span }[] {
+  ): readonly {
+    readonly type: Mono;
+    readonly span: Source.Span;
+    readonly declared: boolean;
+  }[] {
     const written = item.kind === "Let" ? item.annotation?.span : undefined;
     const anchor = written ?? item.binding.span;
-    if (signature.kind !== "Function") return [{ type: signature, span: anchor }];
+    const whole = { span: anchor, declared: written !== undefined };
+    if (signature.kind !== "Function") return [{ type: signature, ...whole }];
     const lambda = item.kind === "Fun"
       ? item.value
       : item.value.kind === "Lambda"
         ? item.value
         : undefined;
     if (lambda === undefined || lambda.parameters.length !== signature.parameters.length) {
-      return [{ type: signature, span: anchor }];
+      return [{ type: signature, ...whole }];
     }
     return [
       ...lambda.parameters.map((parameter, index) => ({
         type: signature.parameters[index]!,
         span: parameter.annotation?.span ?? parameter.span,
+        declared: parameter.annotation !== undefined,
       })),
-      { type: signature.result, span: lambda.returnAnnotation?.span ?? anchor },
+      {
+        type: signature.result,
+        span: lambda.returnAnnotation?.span ?? anchor,
+        declared: lambda.returnAnnotation !== undefined,
+      },
     ];
   }
 
   /**
-   * Every boundary refusal FFI Part 1 §5.4 states, reported once per seat.
+   * Every boundary refusal FFI Part 1 §5.4 states at one seat, as **one**
+   * message, read off **one** set of findings.
    *
-   * `positionOnly` carries the refusal the *position* owns and the walk's own
-   * two do not — item 4's exported value binding — so that a seat draws one
-   * diagnostic: items 1 and 2 speak first where they apply, because they name a
-   * nested type the position's own message would not mention. A position whose
-   * type the walk could not finish is refused for that, before either.
+   * The order is the order the refusals decide in. A position the walk could
+   * not finish is refused for that before anything else: undecided is not
+   * legal. **Item 7** speaks next, because an open row is a declaration the
+   * walk cannot be directed by at all — whatever it found below such a record
+   * is a report about the part of the type the author did spell, and the
+   * unspelled part is what decides the position. Items 1 and 2 follow, naming a
+   * nested type the position's own message would not mention. `positionOnly`
+   * last: it carries the refusal the *position* owns and the walk's own do not —
+   * item 4's exported value binding.
+   */
+  #capturedRefusalMessage(
+    type: Mono,
+    found: CaptureFindings | "unbounded",
+    positionOnly: ((captured: Mono) => string) | undefined,
+    seat: "position" | "release" | "undeclared",
+  ): string | undefined {
+    if (found === "unbounded") return this.#captureBoundRefusal(type);
+    return this.#openRowRefusal(found.open, seat) ??
+      this.#guardedRefusal(found.guarded) ??
+      (positionOnly === undefined || found.first === undefined
+        ? undefined
+        : positionOnly(found.first.captured));
+  }
+
+  /**
+   * The same, reported at a seat's span.
    *
    * **One walk at the door**, and one budget with it: the seat asks its
-   * question once and reads both of the walk's answers off the one finding.
+   * question once and reads all three of the walk's answers off the one finding.
    */
   #refuseCapturedPosition(
     type: Mono,
     span: Source.Span,
     positionOnly?: (captured: Mono) => string,
+    declared = true,
   ): void {
-    const found = this.#findCapturedCollection(type);
-    const message = found === "unbounded"
-      ? this.#captureBoundRefusal(type)
-      : this.#guardedRefusal(found.guarded) ??
-        (positionOnly === undefined || found.first === undefined
-          ? undefined
-          : positionOnly(found.first.captured));
+    const message = this.#capturedRefusalMessage(
+      type,
+      this.#findCapturedCollection(type),
+      positionOnly,
+      declared ? "position" : "undeclared",
+    );
     if (message === undefined) return;
     this.#diagnostics.add({ severity: "error", message, primary: span });
   }
@@ -22665,6 +22780,7 @@ class Checker {
                 "JavaScript and by every Hexagon importer, so no copy can protect it — " +
                 "export a function whose result is copied at the crossing, or export a " +
                 "`Vector`",
+            seat.declared,
           );
         }
       }
@@ -22838,6 +22954,45 @@ class Checker {
           type: this.#schemes.get(member.binding.symbol)?.type,
           span: member.span,
         })));
+        // FFI Part 1 §5.4 at the **same** members, on the same enumeration and
+        // under the same gate (#953). §5.4's positions table gained the row and
+        // Part 9 §3.4 states it: "An exported constraint's member parameters
+        // and result are boundary positions in their own right … so Part 1
+        // §5.4's refusals 1, 2, and 7 apply at the member annotation, whether
+        // or not §5's closure publishes a handle." A public dictionary handle
+        // is a record of functions crossing outbound, and its affected members
+        // are stable copying wrappers — the wrapper the walk can no more
+        // install inside a `Vector` here than anywhere else.
+        //
+        // **Whether or not** is the load-bearing half, and it is why this sits
+        // on the declaration rather than waiting for PR 5's handles: §5's
+        // closure decides what is *published*, and a member signature that
+        // could not be walked is refused where it is written, once, in the
+        // module that can perform the rewrite.
+        //
+        // Each parameter and the result is its own seat at its own annotation,
+        // exactly as the extern and export halves read theirs — the carrier
+        // check above keeps the whole signature as one seat because its own
+        // dedupe is per (constraint, type), and these two granularities are
+        // each their own family's.
+        //
+        // Item 4 is not among them: a member is a function, and a function is
+        // never refused for naming a captured collection — §3.4's wrapper walks
+        // it. An **unexported** constraint publishes nothing and is no position,
+        // as the carrier gate above already has it.
+        for (const member of item.members) {
+          const signature = this.#prune(this.#scheme(member.binding.symbol).type);
+          if (signature.kind !== "Function") continue;
+          if (signature.parameters.length === member.parameters.length) {
+            for (const [index, parameter] of member.parameters.entries()) {
+              this.#refuseCapturedPosition(
+                signature.parameters[index]!,
+                parameter.annotation?.span ?? member.span,
+              );
+            }
+          }
+          this.#refuseCapturedPosition(signature.result, member.returnAnnotation.span);
+        }
       }
       // `Node` also has no public form when it hides in an *exported* algebraic
       // type: the constructor of an exported union/record/exception becomes a
@@ -22994,27 +23149,44 @@ class Checker {
   #checkReleaseSeats(): void {
     for (const { type, span, node } of this.#releaseSeats) {
       if (node !== undefined && this.#releaseCallees.has(node)) continue;
+      // §5.4's own refusals first, and **item 7 first among them**: Part 11 §2
+      // says the seat is "refused first, and alone, when the argument type is
+      // or contains an open structural record", and §5.4 item 7 spells the
+      // "alone" out — item 5 is not also reported, and the rewrite is to inject
+      // at a closed type rather than to name a variable the reader cannot see.
+      // The walk runs once here and its findings are read once.
+      const message = this.#capturedRefusalMessage(
+        type,
+        this.#findCapturedCollection(type),
+        undefined,
+        "release",
+      );
+      if (message !== undefined) {
+        this.#diagnostics.add({ severity: "error", message, primary: span });
+        continue;
+      }
       // **Type** variables only, and the two exclusions are the two variables
       // the rendered type does not spell.
       //
       // An *effect* variable determines nothing to release: a function type
       // naming no captured collection is §5.4's identity, colour or no colour,
       // and the colour prints as `->?` rather than as a name. A *row tail* is
-      // not a type Part 11 §2 could refuse either: `{n: Int, ...q}` crosses as
-      // the POJO it already is, the release operation is determined by the
-      // fields that are there, and `#render` prints the tail as `...`. A report
-      // keyed on either would name a variable that appears nowhere in the type
-      // it quotes, which is the shape #649 abolished.
+      // not a type Part 11 §2 could refuse either, and since #952 it is not a
+      // type that reaches this line at all where the walk can see it: an open
+      // row is item 7's refusal above. The exclusion stays as the backstop for
+      // the tails the walk does not reach — a row under a *phantom* nominal
+      // parameter, which holds nothing and so is no component of the crossing —
+      // and it is what keeps the two answers in agreement: neither reports a
+      // row tail as a type variable. A report keyed on either variable would
+      // name one that appears nowhere in the type it quotes, which is the shape
+      // #649 abolished.
       const invisible = new Set([
         ...this.#effectVariables(type),
         ...this.#rowTailVariables(type),
       ]);
       const survivors = this.#collectVariables(type)
         .filter((variable) => !invisible.has(variable.id));
-      if (survivors.length === 0) {
-        this.#refuseCapturedPosition(type, span);
-        continue;
-      }
+      if (survivors.length === 0) continue;
       // #649: the report names the variable, never numbers it. `#display`
       // names every survivor on entry, so the two renderings below agree on
       // the letter the reader sees.

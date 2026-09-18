@@ -551,9 +551,14 @@ describe("monotonicity spot-checks (§4.3)", () => {
   test("a row-polymorphic bare parameter is untouched", () => {
     // Method Syntax §3.5: `fun f(r) = r.callback(3)` infers
     // `{callback: Int -> a, ...} -> a` exactly as before this spec existed.
-    const source = "export fun getX(p: {x: Int, ...a}): Int = p.x\n" +
+    // Both row-polymorphic functions are module-private, which since #952 is
+    // the only place they can be: FFI Part 1 §5.4 item 7 refuses an open
+    // structural record at a boundary position, and an exported Hexagon
+    // function's parameters are positions. Nothing about inference turns on the
+    // keyword, which is the whole of what this row asserts.
+    const source = "fun getX(p: {x: Int, ...a}): Int = p.x\n" +
       "fun apply(r) = r.callback(3)\n" +
-      "export let used: Int = apply({callback = (n: Int) => n})\n";
+      "export let used: Int = apply({callback = (n: Int) => n}) + getX({x = 1, y = 2})\n";
     expect(projectDiagnostics("module Main\n\n" + source)).toEqual([]);
   });
 

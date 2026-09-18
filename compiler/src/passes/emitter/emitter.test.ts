@@ -722,12 +722,37 @@ describe("emitJavaScript", () => {
     );
   });
 
+  /** FFI Part 1 §5.4 item 7's refusal, whose conformance lives elsewhere. */
+  const openRowRefusal = (row: string): string =>
+    `this record may have more fields (\`${row}\`), so it cannot cross the foreign boundary ` +
+    "at this position: the crossing is directed by the declared type, and a field the " +
+    "declaration does not name would cross uncopied (FFI Part 1 §5.4) — name every field " +
+    "the crossing carries, or declare `JsValue` where the foreign side genuinely accepts " +
+    "anything";
+
+  /**
+   * The renderer's own pin, and since #952 it is pinned **against a module the
+   * checker refuses**. FFI Part 1 §5.4 item 7 makes an open structural record a
+   * refused boundary position, and an exported Hexagon function's parameters
+   * and result are positions — so the one declaration whose `.d.ts` carries a
+   * shared row tail is exactly the one that no longer compiles, and the two
+   * diagnostics below are that refusal at the parameter and at the result.
+   *
+   * The rendering stays pinned regardless, because the emitter still has to
+   * render a row tail it is handed: emission is best-effort for an errored
+   * module by design, and a row tail reaches a declaration file by other routes
+   * this file does not enumerate (an exported record's field, which is no
+   * position of its own).
+   */
   test("renders shared named record tails in TypeScript declarations", () => {
     const module = coreSource(
       'export fun rename(r: {guest: String, ...rest}): {guest: String, ...rest} = {r with guest = "Renamed"}',
     );
 
-    expect(module.diagnostics).toEqual([]);
+    expect(module.diagnostics.map(({ message }) => message)).toEqual([
+      openRowRefusal("{guest: String, ...}"),
+      openRowRefusal("{guest: String, ...}"),
+    ]);
     expect(emitDeclarations(module).text).toContain(
       "export declare function rename<a>(r: ({ guest: string } & a)): ({ guest: string } & a);",
     );
