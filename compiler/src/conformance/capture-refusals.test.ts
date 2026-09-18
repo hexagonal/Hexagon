@@ -480,6 +480,27 @@ describe("item 4 — an exported non-function binding", () => {
     )).toEqual([sharedBinding("rows", "Array(Int)")]);
   });
 
+  /**
+   * **Item 4 speaks before item 7, and alone.** An ESM value binding is shared
+   * whatever its type, so closing the row could not make this export legal —
+   * the rewrite item 7 names would be work that only revealed item 4
+   * underneath it. (Items 1 and 2 still outrank item 4, for their own reason:
+   * they name the container and the captured type inside it, where "export a
+   * `Vector`" would be advice the reader has already taken. The two rows above
+   * pin that pair.)
+   */
+  test("an exported value binding takes item 4 before item 7", () => {
+    expect(diagnose(
+      'extern from "./m.js"\n' +
+        "    export let cfg: {f: ({n: Int, ...}) -> Unit, rows: Array(Int)}\n",
+    )).toEqual([sharedBinding("cfg", "Array(Int)")]);
+    // Unexported, the row is the only thing wrong with it and item 7 says so.
+    expect(diagnose(
+      'extern from "./m.js"\n' +
+        "    let cfg: {f: ({n: Int, ...}) -> Unit, rows: Array(Int)}\n",
+    )).toEqual([openRow("{n: Int, ...}")]);
+  });
+
   test("an unexported extern row is untouched — the acquisition is supported", () => {
     expect(diagnose(
       'extern from "./m.js"\n    let rows: Array(Int)\nexport let n(): Int = 1\n',
@@ -811,6 +832,36 @@ describe("item 7 — an open structural record where Hexagon supplies it", () =>
       'extern from "./m.js"\n' +
         "    fun get() ->! {onEach: ({n: Int, ...}) -> Unit, other: {p: Int, ...}}\n",
     )).toEqual([openRow("{n: Int, ...}")]);
+  });
+
+  /**
+   * **And a nominal is a different question under a function type**, which is
+   * a claim about the walk's `seen` set rather than about the rule. One
+   * `record Holder = { r: {n: Int, ...} }` reached at a plain field carries the
+   * foreign side's open row and is legal; the same declaration reached through
+   * a function type carries Hexagon's and is refused. A key that could not tell
+   * the two occurrences apart cut whichever came second, so the verdict
+   * depended on the order the fields were written — and the nominal went clean
+   * where its structural twin was refused.
+   *
+   * Both orders, at both `within` seats, and the legal control beneath them.
+   */
+  const holder = "record Holder = { r: {n: Int, ...} }\n\n";
+  test.each([
+    ["a record, the plain field first", "fun make() ->! {a: Holder, f: () -> Holder}"],
+    ["a record, the function field first", "fun make() ->! {f: () -> Holder, a: Holder}"],
+    ["a tuple, the function first", "fun make() ->! (() -> Holder, Option(Holder))"],
+    ["a tuple, the plain occurrence first", "fun make() ->! (Holder, Option(() -> Holder))"],
+    ["an `extern let`", "let v: {a: Holder, f: () -> Holder}"],
+  ])("a nominal under a function type is refused — %s", (_what, row) => {
+    expect(diagnose(`${holder}extern from "./m.js"\n    ${row}\n`))
+      .toEqual([openRow("{n: Int, ...}")]);
+  });
+
+  test("and the same nominal reached by no function type is legal", () => {
+    expect(diagnose(
+      `${holder}extern from "./m.js"\n    fun make() ->! {a: Holder, b: Option(Holder)}\n`,
+    )).toEqual([]);
   });
 
   /**
@@ -1299,6 +1350,44 @@ describe("the fixpoint terminates, and answers each occurrence on its own", () =
       "no declared position crosses undecided (FFI Part 1 §5.4); declare a position whose " +
       "type does not nest without bound, or bind through an opaque foreign handle",
     ]);
+  });
+
+  /**
+   * **And the bound decides per seat, because "decided" is a seat's word.**
+   * The findings a spent walk hands over are partial: what they hold, the walk
+   * decided; what they do not hold is unknown. Whether that is enough is the
+   * seat's question — an `open` row refuses an extern parameter and the release
+   * seat and means nothing at an exported one — so the same partial answer is
+   * item 7's refusal at the two seats that read it and `#captureBoundRefusal`'s
+   * at every seat that does not.
+   *
+   * One type, eight seats. Without this every `foreign` and `within` seat below
+   * went **clean**, which is the silent acceptance §5.4's bound exists to
+   * prevent, and a regression against the behaviour that shipped with #949.
+   */
+  const partial = "export record R(a) = { x: Option(R(Map(a, a))), r: {n: Int, ...} }\n\n";
+  const bound = "the type `R(Int)` at this boundary position expands past the capture " +
+    "check's bound, so the compiler cannot decide whether it names a captured foreign " +
+    "collection, and no declared position crosses undecided (FFI Part 1 §5.4); declare a " +
+    "position whose type does not nest without bound, or bind through an opaque foreign " +
+    "handle";
+  test.each([
+    ["an exception payload", "exception Bad(r: R(Int))\n"],
+    ["an extern result", 'extern from "./m.js"\n    fun make() ->! R(Int)\n'],
+    ["an `extern let`", 'extern from "./m.js"\n    let v: R(Int)\n'],
+    ["an exported function's parameter", "export fun f(v: R(Int)): Int = 1\n"],
+    ["an exported constructor's payload", "export union U = A(v: R(Int))\n"],
+    ["an exported constraint member", "export constraint C<b> =\n    m(x: R(Int)) -> b\n"],
+  ])("a seat that cannot read the partial answer takes the bound — %s", (_what, source) => {
+    expect(diagnose(partial + source)).toEqual([bound]);
+  });
+
+  test("and the two seats that can read it take item 7 instead", () => {
+    expect(diagnose(`${partial}extern from "./m.js"\n    fun send(v: R(Int)) ->! Unit\n`))
+      .toEqual([openRow("{n: Int, ...}")]);
+    expect(diagnose(
+      `${partial}let w(v: R(Int)): JsValue = JsValue.from(v)\nexport let go(): Int = 1\n`,
+    )).toEqual([releasedOpenRow("{n: Int, ...}")]);
   });
 
   test("the bound refuses at every seat, not only at an extern row", () => {
