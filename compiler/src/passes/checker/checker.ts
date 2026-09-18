@@ -1043,8 +1043,9 @@ interface CaptureFinding {
  * where *Hexagon* supplies the record, and at an extern `fun`'s result or an
  * `extern let` the one such place is inside a function type — a callback whose
  * result Hexagon produces, a foreign function value whose arguments Hexagon
- * chooses. `open` is what an extern parameter and the release seat read;
- * `openInFunction` is what those two positions read.
+ * chooses. `open` is what an extern parameter and the release seat read (the
+ * `supplied` and `release` seats); `openInFunction` is what an extern `fun`'s
+ * result and an `extern let` read (the `within` seats).
  */
 interface CaptureFindings {
   readonly first: CaptureFinding | undefined;
@@ -1071,8 +1072,12 @@ interface CaptureFindings {
  *   has no record extension), so it holds them exactly as it holds a value at a
  *   type variable. Item 7 is silent.
  * * `release` — `JsValue.from`, where Hexagon supplies the value by definition.
- *   Every open row is refused, with §5.4's own rewrite for that seat, and item
- *   5 is not also reported.
+ *   Every open row is refused, with §5.4's own rewrite for that seat. It is the
+ *   **only** refusal that pre-empts item 5 there: Part 11 §2 says the seat is
+ *   "refused first, and alone" for an open row, and licenses the rest of §5.4
+ *   at a **ground** argument only — so a type still carrying a type variable is
+ *   item 5's, and items 1, 2 and the bound are asked after the survivors, not
+ *   before them (`#checkReleaseSeats`).
  */
 type OpenRowSeat = "supplied" | "within" | "foreign" | "release";
 
@@ -22293,6 +22298,14 @@ class Checker {
    * Array(a) }` at `R(Int)` names the `Array(Int)` its author wrote at `y`
    * rather than the `Array(Vector(Vector(…)))` a depth-first walk reaches by
    * descending `x` first. Within one layer the order is the source's.
+   *
+   * It is also **run to exhaustion**, and only the budget stops it early. Every
+   * answer is the first of its own kind in queue order, so each is still the
+   * nearest one; what the walk may not do is stop at the first *guarded*
+   * finding, because item 7 outranks it and item 7's answers may lie further
+   * along the queue. Stopping there made the verdict depend on which branch
+   * breadth-first order reached first — a tuple refused for item 1 and the same
+   * tuple written the other way round refused for item 7.
    */
   #findCapturedCollection(
     type: Mono,
@@ -22304,13 +22317,37 @@ class Checker {
     // Item 7's two findings (#952), recorded by the same walk at the same nodes.
     let open: RecordMono | undefined;
     let openInFunction: RecordMono | undefined;
-    // The **guarded** finding is what ends the walk, not the first one: a type
-    // may name a captured collection the walk copies and hide another under a
-    // container, and it is the second that decides the position. So a
-    // container-less finding is recorded and the queue carries on.
+    let guarded: CaptureFinding | undefined;
+    // **Nothing ends the walk early**, and the budget is what bounds it.
+    //
+    // Two reasons, and they are the two refusals that outrank a guarded
+    // finding. A type may name a captured collection the walk copies and hide
+    // another under a container, so the container-less finding is recorded and
+    // the queue carries on — `first` and `guarded` are different answers. And
+    // **item 7 speaks before items 1 and 2**, so its two answers have to be
+    // settled before a guarded one may be honoured: returning at the first
+    // guarded node made the verdict depend on which branch breadth-first order
+    // reached first, and `fun send(r: (Vector(Array(Int)), Option({n: Int,
+    // ...}))) ->! Unit` drew item 1 while the same tuple written the other way
+    // round drew item 7.
+    // What the bound answers, and it is **not** always "undecided". A refusal
+    // already in hand is a decision the walk made, and §5.4's sentence is that
+    // no declared position crosses *unprotected*: a position refused for item
+    // 1, 2 or 7 is protected, and telling its author the check gave up would
+    // replace a message naming the offending type with one naming none. So the
+    // bound reports what it decided where it decided something, and
+    // `"unbounded"` only where it decided nothing — which is what keeps a
+    // silent acceptance impossible. A walk that ran out holding a guarded
+    // finding may have missed an open row further along, so such a position is
+    // refused for the finding it has rather than for item 7; both are true of
+    // the type, and the position is refused either way.
+    const bounded = (): CaptureFindings | "unbounded" =>
+      guarded !== undefined || open !== undefined || openInFunction !== undefined
+        ? { first, guarded, open, openInFunction }
+        : "unbounded";
     for (let head = 0; head < pending.length; head += 1) {
       budget.steps += 1;
-      if (budget.steps > Checker.#walkBudget) return "unbounded";
+      if (budget.steps > Checker.#walkBudget) return bounded();
       const step = pending[head]!;
       const actual = this.#prune(step.type);
       const push = (types: readonly Mono[], within?: Partial<CaptureStep>): void => {
@@ -22327,7 +22364,7 @@ class Checker {
           };
           first ??= finding;
           if (finding.container !== undefined || finding.opaque !== undefined) {
-            return { first, guarded: finding, open, openInFunction };
+            guarded ??= finding;
           }
           // A captured head is a finding **and** a constructor, so the path
           // carries on through it. §5.4 item 1 reads "at any depth", and a
@@ -22354,15 +22391,15 @@ class Checker {
           // item 7 refuses, and the normalized record is what the message
           // shows.
           //
-          // The normalization is **defensive**, and measured to be so: every
-          // record that reaches item 7's seats is either an extern annotation,
-          // whose tail nothing can solve (an extern declaration has no body),
-          // or the unifier's own product, which `#unifyRecords` has already
-          // flattened — so no conformance row distinguishes this call from
-          // reading `actual.tail`. It stays because the question is "is the
-          // tail still a variable", which is a question about the pruned chain
-          // and not about the field; `#rowTailVariables` next door prunes for
-          // exactly this reason.
+          // The normalization is **load-bearing**, not defensive. Unification
+          // does not always merge two rows into one record: a branch join binds
+          // one parameter's tail to the *other* record, so `let pick(b: Bool,
+          // x: {n: Int, ...p}, y: {m: Int, ...q})` leaves the seat holding a
+          // record of one field whose tail is itself a record. Read raw it is
+          // `{n: Int, ...}`, which hides the field the join brought in; read
+          // through the tail it is the `{n: Int, m: Int, ...}` the value
+          // carries. `#rowTailVariables` next door prunes the same chain for
+          // the same reason.
           const row = this.#normalizeRecord(actual);
           if (row.tail !== undefined) {
             open ??= row;
@@ -22407,9 +22444,9 @@ class Checker {
           // reached through `kids` hides one the walk cannot reach, and a key
           // that could not tell them apart cut the second and let the position
           // through. Two classes, so at most twice the visits.
-          const guarded = step.container !== undefined || step.opaque !== undefined;
-          const key = `${this.#typeKey(actual, budget)}|${guarded ? "g" : "u"}`;
-          if (budget.steps > Checker.#walkBudget) return "unbounded";
+          const pathGuarded = step.container !== undefined || step.opaque !== undefined;
+          const key = `${this.#typeKey(actual, budget)}|${pathGuarded ? "g" : "u"}`;
+          if (budget.steps > Checker.#walkBudget) return bounded();
           if (seen.has(key)) break;
           seen.add(key);
           const opaqueHere = this.#nominalDeclaration(actual)?.opaque === true;
@@ -22428,7 +22465,7 @@ class Checker {
           break;
       }
     }
-    return { first, guarded: undefined, open, openInFunction };
+    return { first, guarded, open, openInFunction };
   }
 
   /**
@@ -22628,13 +22665,19 @@ class Checker {
    * The same, reported at a seat's span.
    *
    * **One walk at the door**, and one budget with it: the seat asks its
-   * question once and reads all three of the walk's answers off the one finding.
+   * question once and reads all four of the walk's answers off the one finding.
+   *
+   * `seat` has **no default**, deliberately. Item 7's permissive answer is the
+   * `foreign` one, and a seat that inherited it by omission would be silently
+   * exempt — which is exactly what Part 5's `method`, `set` and `new` must not
+   * be when their tree nodes arrive (#952: they take `supplied`, with an extern
+   * `fun`'s parameters). Every seat states its side.
    */
   #refuseCapturedPosition(
     type: Mono,
     span: Source.Span,
-    positionOnly?: (captured: Mono) => string,
-    seat: OpenRowSeat = "foreign",
+    positionOnly: ((captured: Mono) => string) | undefined,
+    seat: OpenRowSeat,
   ): void {
     const message = this.#capturedRefusalMessage(
       type,
@@ -22829,6 +22872,7 @@ class Checker {
                 "JavaScript and by every Hexagon importer, so no copy can protect it — " +
                 "export a function whose result is copied at the crossing, or export a " +
                 "`Vector`",
+            "foreign",
           );
         }
       }
@@ -22943,7 +22987,9 @@ class Checker {
         // the fields it did not declare exactly as it holds a value at a type
         // variable.
         for (const slot of slots) {
-          if (slot.type !== undefined) this.#refuseCapturedPosition(slot.type, slot.span);
+          if (slot.type !== undefined) {
+            this.#refuseCapturedPosition(slot.type, slot.span, undefined, "foreign");
+          }
         }
       }
       if (item.kind === "Exception" && item.exported) {
@@ -23046,10 +23092,17 @@ class Checker {
               this.#refuseCapturedPosition(
                 signature.parameters[index]!,
                 parameter.annotation?.span ?? member.span,
+                undefined,
+                "foreign",
               );
             }
           }
-          this.#refuseCapturedPosition(signature.result, member.returnAnnotation.span);
+          this.#refuseCapturedPosition(
+            signature.result,
+            member.returnAnnotation.span,
+            undefined,
+            "foreign",
+          );
         }
       }
       // `Node` also has no public form when it hides in an *exported* algebraic
@@ -23226,23 +23279,29 @@ class Checker {
   #checkReleaseSeats(): void {
     for (const { type, span, node } of this.#releaseSeats) {
       if (node !== undefined && this.#releaseCallees.has(node)) continue;
-      // §5.4's own refusals first, and **item 7 first among them**: Part 11 §2
-      // says the seat is "refused first, and alone, when the argument type is
-      // or contains an open structural record", and §5.4 item 7 spells the
-      // "alone" out — item 5 is not also reported, and the rewrite is to inject
-      // at a closed type rather than to name a variable the reader cannot see.
-      // The seat is `release` and not `foreign` because Hexagon supplies the
-      // value by definition here: this is the one seat where the *Hexagon* side
-      // hands over the record, which is the whole of #952's direction rule.
-      // The walk runs once here and its findings are read once.
-      const message = this.#capturedRefusalMessage(
-        type,
-        this.#findCapturedCollection(type),
-        undefined,
-        "release",
-      );
-      if (message !== undefined) {
-        this.#diagnostics.add({ severity: "error", message, primary: span });
+      // One walk, read three times in Part 11 §2's own order.
+      const found = this.#findCapturedCollection(type);
+      // **Item 7 first, and it alone pre-empts item 5** — §2's "refused first,
+      // and alone, when the argument type is or contains an open structural
+      // record", and §5.4 item 7's "item 5 is not also reported". The rewrite
+      // is to inject at a closed type rather than to name a variable the reader
+      // cannot see. The seat is `release` and not `foreign` because Hexagon
+      // supplies the value by definition here: this is the one seat where the
+      // *Hexagon* side hands the record over, which is the whole of #952's
+      // direction rule.
+      //
+      // **Nothing else may pre-empt it.** §2 licenses the rest of §5.4 at this
+      // seat with one word — "a **ground** argument type still obeys Part 1
+      // §5.4's refusals" — so a type still carrying a variable is item 5's, and
+      // `JsValue.from` at `Vector(Array(a))` names the `a` that determines no
+      // release operation rather than the `Array(a)` beneath the `Vector`. The
+      // survivors are therefore the gate for every refusal below, exactly as
+      // they were before item 7 arrived.
+      const openRefusal = found === "unbounded"
+        ? undefined
+        : this.#openRowRefusal(found, "release");
+      if (openRefusal !== undefined) {
+        this.#diagnostics.add({ severity: "error", message: openRefusal, primary: span });
         continue;
       }
       // **Type** variables only, and the two exclusions are the two variables
@@ -23266,7 +23325,17 @@ class Checker {
       ]);
       const survivors = this.#collectVariables(type)
         .filter((variable) => !invisible.has(variable.id));
-      if (survivors.length === 0) continue;
+      if (survivors.length === 0) {
+        // Ground, so §5.4's remaining refusals apply here as at any position —
+        // items 1, 2 and the bound, off the findings the walk already produced.
+        // `release` rather than `foreign` keeps one seat kind on one seat; item
+        // 7 has already been asked and missed.
+        const message = this.#capturedRefusalMessage(type, found, undefined, "release");
+        if (message !== undefined) {
+          this.#diagnostics.add({ severity: "error", message, primary: span });
+        }
+        continue;
+      }
       // #649: the report names the variable, never numbers it. `#display`
       // names every survivor on entry, so the two renderings below agree on
       // the letter the reader sees.

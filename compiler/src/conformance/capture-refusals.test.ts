@@ -685,6 +685,42 @@ describe("item 5 — the release seat, `JsValue.from`", () => {
       .toEqual([]);
   });
 
+  /**
+   * **And only a ground one does.** §2 licenses the rest of §5.4 at this seat
+   * with one word — "a **ground** argument type still obeys Part 1 §5.4's
+   * refusals" — so a type still carrying a type variable is item 5's, whatever
+   * else the walk found in it. Item 7 is the one refusal §2 lets pre-empt the
+   * variable (pinned above); items 1, 2, 6 and the bound are asked *after* the
+   * survivors, not before them.
+   *
+   * Each row draws exactly one diagnostic, and it names the variable.
+   */
+  test.each([
+    ["a container over a captured collection", "Vector(Array(a))", "a", ""],
+    ["a variable beside one", "(a, Vector(Array(Int)))", "a", ""],
+    [
+      "an opaque representation naming one",
+      "Box(a)",
+      "a",
+      "opaque record Box(a) = { rows: Array(a) }\n\n",
+    ],
+    [
+      "a type the walk cannot finish",
+      "R(b)",
+      "b",
+      "record R(a) = { x: Option(R(Map(a, a))), n: Int }\n\n",
+    ],
+  ])("a non-ground argument is item 5's — %s", (_what, written, variable, preamble) => {
+    expect(diagnose(
+      `${preamble}let f(x: ${written}): JsValue = JsValue.from(x)\nexport let go(): Int = 1\n`,
+    )).toEqual([
+      `\`JsValue.from\` cannot release a value at type \`${written}\`: the type variable ` +
+      `\`${variable}\` determines no release operation, and the seat never falls back to ` +
+      "identity — inject where the concrete type is known, or pass an explicit conversion " +
+      `function \`(${variable}) -> JsValue\` into the generic helper`,
+    ]);
+  });
+
   test("a ground argument still obeys the other refusals", () => {
     // §2: "A ground argument type still obeys Part 1 §5.4's refusals" — legal
     // at a captured collection, refused beneath a container.
@@ -921,6 +957,23 @@ describe("item 7 — an open structural record where Hexagon supplies it", () =>
   });
 
   /**
+   * **The seat reads the row through its tail**, which is what normalizing it
+   * does and what no other pin here needs. A branch join binds one parameter's
+   * tail to the *other* record rather than merging two annotations: `p` becomes
+   * `{m: Int, ...q}`, so the type the seat holds is a record of one field with
+   * a tail that is itself a record. Read raw it is `{n: Int, ...}`, which hides
+   * the field the join brought in; read through the tail it is the `{n: Int, m:
+   * Int, ...}` the value really carries.
+   */
+  test("a tail bound to another record contributes its fields to the message", () => {
+    expect(diagnose(
+      "let pick(b: Bool, x: {n: Int, ...p}, y: {m: Int, ...q}): JsValue =\n" +
+        "    JsValue.from(if b then x else y)\n" +
+        "export let go(): Int = 1\n",
+    )).toEqual([releasedOpenRow("{n: Int, m: Int, ...}")]);
+  });
+
+  /**
    * **Item 7 speaks before items 1 and 2** where it speaks at all, and the
    * order is the order the refusals decide in: a declaration that does not name
    * its own components is one the walk cannot be directed by, so what the walk
@@ -930,6 +983,38 @@ describe("item 7 — an open structural record where Hexagon supplies it", () =>
     expect(diagnose(
       'extern from "./m.js"\n    fun send(r: {v: Vector(Array(Int)), ...}) ->! Unit\n',
     )).toEqual([openRow("{v: Vector(Array(Int)), ...}")]);
+  });
+
+  /**
+   * **And it speaks first however the source is ordered**, which is a claim
+   * about the walk and not only about the precedence above. The two rows here
+   * are one tuple written both ways round: the guarded finding and the open row
+   * are in *sibling* branches, so a walk that stopped at the first guarded node
+   * reported item 1 for one spelling and item 7 for the other — the verdict
+   * decided by which branch breadth-first order reached first. The walk now
+   * settles item 7's answers before honouring a guarded one, and the budget is
+   * what bounds it.
+   */
+  test.each([
+    ["the guarded branch first", "(Vector(Array(Int)), Option({n: Int, ...}))"],
+    ["the open branch first", "(Option({n: Int, ...}), Vector(Array(Int)))"],
+  ])("a sibling guarded finding does not pre-empt item 7 — %s", (_order, written) => {
+    expect(diagnose(`extern from "./m.js"\n    fun send(r: ${written}) ->! Unit\n`))
+      .toEqual([openRow("{n: Int, ...}")]);
+  });
+
+  test("the same at an extern result under a function type", () => {
+    expect(diagnose(
+      'extern from "./m.js"\n' +
+        "    fun get() ->! ((Vector(Array(Int)), Option({n: Int, ...}))) -> Unit\n",
+    )).toEqual([openRow("{n: Int, ...}")]);
+  });
+
+  test("and at the release seat, where §2 makes it first and alone", () => {
+    expect(diagnose(
+      "let f(x: (Vector(Array(Int)), Option({n: Int, ...q}))): JsValue = JsValue.from(x)\n" +
+        "export let go(): Int = 1\n",
+    )).toEqual([releasedOpenRow("{n: Int, ...}")]);
   });
 
   /**
@@ -1183,6 +1268,37 @@ describe("the fixpoint terminates, and answers each occurrence on its own", () =
     // layers, the doubling shape rendered a 2ᵏ-node key per layer and killed
     // the compiler outright.
     expect(Date.now() - started).toBeLessThan(2_000);
+  });
+
+  /**
+   * **A decision already made survives the bound.** Since the walk may no
+   * longer stop at the first guarded finding (item 7 outranks it, #952), it
+   * runs into the budget on a non-regular type that used to short-circuit — and
+   * the answer there is the refusal it decided, not "undecided". §5.4's
+   * sentence is that no declared position crosses *unprotected*, and a position
+   * refused for item 1, 2 or 7 is protected; replacing that message with one
+   * naming no type would be a worse report of the same verdict.
+   *
+   * `"unbounded"` is what a walk that decided **nothing** answers, which is the
+   * half that keeps a silent acceptance impossible — the row below it, and the
+   * two beside it in this block.
+   */
+  test("a non-regular type refused for item 7 says so, not that it gave up", () => {
+    expect(diagnose(
+      "record R(a) = { x: Option(R(Map(a, a))), r: {n: Int, ...} }\n\n" +
+        'extern from "./m.js"\n    fun send(v: R(Int)) ->! Unit\n',
+    )).toEqual([openRow("{n: Int, ...}")]);
+    // …and the same declaration with nothing for the walk to decide is
+    // undecided, at the same seat.
+    expect(diagnose(
+      "record R(a) = { x: Option(R(Map(a, a))), n: Int }\n\n" +
+        'extern from "./m.js"\n    fun send(v: R(Int)) ->! Unit\n',
+    )).toEqual([
+      "the type `R(Int)` at this boundary position expands past the capture check's bound, " +
+      "so the compiler cannot decide whether it names a captured foreign collection, and " +
+      "no declared position crosses undecided (FFI Part 1 §5.4); declare a position whose " +
+      "type does not nest without bound, or bind through an opaque foreign handle",
+    ]);
   });
 
   test("the bound refuses at every seat, not only at an extern row", () => {
