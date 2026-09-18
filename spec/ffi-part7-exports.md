@@ -379,7 +379,7 @@ export declare function isHexError(
 
 ## 7. Direct exports versus stable wrappers
 
-**Export directly when the runtime value already has its declared JS representation**: primitives, `Nullable`, genuine `Hex.Vector`/`Hex.Map`/`Hex.Set` values, records and unions naming no captured collection, opaque erased values, exceptions, and representation-direct functions and callbacks. Direct export means the ESM binding *is* the runtime value or emitted function — raw identity, no indirection (Part 6 §1). `Array(a)` left this list at #876, and `JsMap`/`JsSet` at #875: it is a captured foreign collection (Part 1 §2.2), and what JavaScript receives at any `Array` position is a copy.
+**Export directly when the runtime value already has its declared JS representation**: primitives, `Nullable`, genuine `Hex.Vector`/`Hex.Map`/`Hex.Set` values whose type arguments name no captured collection, records and unions naming none, opaque erased values, exceptions, and representation-direct functions and callbacks. Direct export means the ESM binding *is* the runtime value or emitted function — raw identity, no indirection (Part 6 §1). `Array(a)` left this list at #876, and `JsMap`/`JsSet` at #875: it is a captured foreign collection (Part 1 §2.2), and what JavaScript receives at any `Array` position is a copy.
 
 **Generate one stable module-level boundary wrapper only when a supported top-level signature needs adaptation or calling-convention plumbing.** The v1 occasions are exactly Part 6 §1's table:
 
