@@ -13,12 +13,14 @@ import { projectDiagnostics } from "../support/test-project.js";
  * (§2.2) and whose entered constructors are the aggregates — records, tuples,
  * unions, `Option`, `Nullable`, function types, and a nominal record or union
  * through its declared components, so that "a recursive record or union names
- * one iff some reachable component does". What the fixpoint does **not** enter
- * is as load-bearing as what it does: the five Hexagon runtime containers keep
- * their own category, which is exactly why item 1 exists as a refusal of its
- * own rather than falling out of the predicate. That shape is pinned here
- * directly — `Vector(Array(Int))` is refused by item 1's message and not by
- * item 4's, at a position where both would otherwise speak.
+ * one iff some reachable component does". The graph is followed through
+ * **every** constructor, the five Hexagon runtime containers included: only a
+ * type variable and a type with no arguments end a path. `Vector(Array(Int))`
+ * therefore *names* a captured collection although the capture **walk** cannot
+ * enter the `Vector` — which is why item 1 refuses it at a position, and why an
+ * exception payload or an exported value binding of that type is refused with
+ * the container notwithstanding. Trigger and walk are two different questions
+ * about one type, and this file pins both.
  *
  * The positions are §5.4's own table, less the ones that do not exist yet: an
  * extern `fun`'s parameters and result, an `extern let`'s value, an exported
@@ -170,6 +172,24 @@ describe("item 1 — a captured collection beneath one of the five containers", 
       .toEqual([beneath("Array(Int)", "Vector")]);
   });
 
+  /**
+   * **Item 1 speaks, and item 4 does not.** An exported value binding of a type
+   * naming a captured collection beneath a container is a seat both refusals
+   * reach — the trigger follows the container, so item 4's "names a captured
+   * collection" is satisfied too — and the precedence is fixed rather than
+   * incidental: item 1 names the container and the captured type inside it,
+   * where item 4's rewrite ("export a `Vector`") would be advice the reader has
+   * already taken.
+   */
+  test("at an exported value binding, item 1 outranks item 4", () => {
+    expect(diagnose("export let v: Vector(Array(Int)) = []\n"))
+      .toEqual([beneath("Array(Int)", "Vector")]);
+    // …and with no container on the path, item 4 is what speaks.
+    expect(diagnose(
+      'extern from "./m.js"\n    let raw: Array(Int)\n\nexport let v: Array(Int) = raw\n',
+    )).toEqual([sharedBinding("v", "Array(Int)")]);
+  });
+
   test("the export side is a position too — a function's seats and a value binding", () => {
     expect(diagnose("export let f(rows: Vector(Array(Int))): Int = 1\n"))
       .toEqual([beneath("Array(Int)", "Vector")]);
@@ -195,6 +215,14 @@ describe("item 1 — a captured collection beneath one of the five containers", 
     // An exported *function* over a captured collection is not refused at all:
     // Part 7 §7 occasion 4's stable export wrapper walks its seats.
     expect(diagnose("export let f(xs: Array(Int)): Int = 1\n")).toEqual([]);
+    // A **phantom** parameter holds nothing, so a nominal is followed by its
+    // declared components and not by its arguments: §5.4's "a recursive record
+    // or union names one iff some reachable component does" is the half of the
+    // trigger that the container clause does not displace.
+    expect(diagnose(
+      "record Phantom(a) = { n: Int }\n\n" +
+        'extern from "./m.js"\n    fun rows() ->! Phantom(Array(Int))\n',
+    )).toEqual([]);
   });
 });
 
@@ -214,6 +242,22 @@ describe("item 2 — a Hexagon opaque type whose representation names one", () =
     expect(diagnose(`${box}export let f(b: Box): Int = 1\n`)).toEqual([message]);
     expect(diagnose(`${box}extern from "./m.js"\n    fun take(b: Vector(Box)) ->! Unit\n`))
       .toEqual([message]);
+  });
+
+  // The trigger follows the container, so a representation holding
+  // `Vector(Array(Int))` names one as surely as one holding `Array(Int)` does.
+  // The refusal is still item 2's, because the opaque type is what stands
+  // between the collection and the crossing.
+  test("a representation holding one beneath a container is the same refusal", () => {
+    expect(diagnose(
+      "opaque record Box = { rows: Vector(Array(Int)) }\n\n" +
+        'extern from "./m.js"\n    fun take(b: Box) ->! Unit\n',
+    )).toEqual([
+      "opaque type `Box` names the captured collection `Array(Int)` in its representation " +
+      "(`rows`); an opaque value crosses the foreign boundary by identity, so its " +
+      "representation cannot be copied at the crossing — keep an identity-safe " +
+      "representation such as `Vector`, or expose the collection through an exported accessor",
+    ]);
   });
 
   test("an opaque union names its constructor slot", () => {
@@ -249,10 +293,14 @@ describe("item 2 — a Hexagon opaque type whose representation names one", () =
 });
 
 describe("item 3 — an `exception` payload", () => {
+  // "whose element types name none in turn" is Exceptions §2's own clause, and
+  // it is load-bearing once the trigger follows the five containers: a payload
+  // of `Vector(Array(Int))` draws this refusal too, and "carry a `Vector`"
+  // alone would be advice its author had already taken.
   const message = "exception `Bad`'s payload `rows` names the captured collection " +
     "`Array(Int)`; an exception may be thrown through foreign code, so its payload cannot " +
-    "hold a foreign collection — carry a `Vector` (`Array.toVector` at the construction " +
-    "site)";
+    "hold a foreign collection — carry a `Vector` whose element types name none in turn " +
+    "(`Array.toVector` at the construction site)";
 
   // Exceptions §2: the refusal is **unconditional** — a property of the
   // declaration, not of any use, because an exception's travel is not
@@ -266,6 +314,31 @@ describe("item 3 — an `exception` payload", () => {
     expect(diagnose("exception Bad(rows: Option(Array(Int)))\n")).toEqual([message]);
   });
 
+  /**
+   * **A container on the path does not save the payload.** The trigger follows
+   * every constructor, so a payload of `Vector(Array(Int))` names a captured
+   * collection exactly as a payload of `Array(Int)` does — and the argument is
+   * the same in either case, because none of an exception's crossings is a
+   * declared position the walk could sit on, container or no container.
+   */
+  test.each([
+    ["Vector(Array(Int))"],
+    ["Seq(Array(Int))"],
+    ["Stream(Array(Int))"],
+    ["Set(Array(Int))"],
+  ])("a payload of %s is refused at the declaration", (written) => {
+    expect(diagnose(`exception Bad(rows: ${written})\n`)).toEqual([message]);
+  });
+
+  test("a keyed shape beneath a container keeps the keyed rewrite", () => {
+    expect(diagnose("exception Bad(rows: Map(String, JsSet(Int)))\n")).toEqual([
+      "exception `Bad`'s payload `rows` names the captured collection `JsSet(Int)`; an " +
+      "exception may be thrown through foreign code, so its payload cannot hold a foreign " +
+      "collection — carry a persistent `Map`/`Set` whose element types name none in turn, " +
+      "built at the construction site",
+    ]);
+  });
+
   // The rewrite is the payload's own, for item 1's reason: `Map.fromJsMap` and
   // `Set.fromJsSet` are unshipped (#796), so a keyed payload is told what to
   // carry rather than which operation to call.
@@ -273,7 +346,8 @@ describe("item 3 — an `exception` payload", () => {
     expect(diagnose("exception Bad(s: JsSet(Int))\n")).toEqual([
       "exception `Bad`'s payload `s` names the captured collection `JsSet(Int)`; an " +
       "exception may be thrown through foreign code, so its payload cannot hold a foreign " +
-      "collection — carry a persistent `Map`/`Set` built at the construction site",
+      "collection — carry a persistent `Map`/`Set` whose element types name none in turn, " +
+      "built at the construction site",
     ]);
   });
 
@@ -281,24 +355,6 @@ describe("item 3 — an `exception` payload", () => {
     expect(diagnose("exception Bad(rows: Vector(Int))\n")).toEqual([]);
   });
 
-  /**
-   * **A `Seq` or `Stream` payload is accepted**, and this row records that
-   * rather than endorsing it. The trigger does not enter the five runtime
-   * containers (§5.4's "keeps its own category and is not entered"), and `Seq`
-   * and `Stream` are the two of them that are nominal records — so the guard
-   * inside `#namesCapturedCollection` is what keeps their representation, a
-   * pull function over their own parameter, out of the answer. An exception
-   * payload is the one seat that asks the trigger *alone*, items 1 and 2 having
-   * no position here, so it is the one seat where that guard is visible.
-   *
-   * It is also the seat of the open question James holds: item 3's trigger is
-   * "names a captured collection", and Exceptions §2 words it more loosely. If
-   * that question resolves the other way, this row is the row that changes.
-   */
-  test("a `Seq` or `Stream` payload is accepted — the trigger stops at the container", () => {
-    expect(diagnose("exception Bad(s: Seq(Array(Int)))\n")).toEqual([]);
-    expect(diagnose("exception Bad(s: Stream(Array(Int)))\n")).toEqual([]);
-  });
 });
 
 describe("item 4 — an exported non-function binding", () => {
@@ -354,6 +410,57 @@ describe("item 4 — an exported non-function binding", () => {
     expect(diagnose(
       'extern from "./m.js"\n    let rows: Array(Int)\n\n' +
         "let weekdays: Array(Int) = rows\nexport let n(): Int = 1\n",
+    )).toEqual([]);
+  });
+});
+
+describe("item 4's other half — an exported union's constructors", () => {
+  /**
+   * §5.4 item 4: "Exported constructors are functions and take occasion 4 like
+   * any other." A constructor of an exported union is a function JavaScript
+   * calls (Part 7 §6), so each payload slot is a **parameter position** and is
+   * read as one — which means items 1 and 2, and not item 4: a function is
+   * never refused for naming a captured collection, occasion 4's wrapper being
+   * what walks it.
+   */
+  test("a payload naming one outright is legal — the export wrapper walks it", () => {
+    expect(diagnose("export union Shape = Rows(Array(Int)) | Empty\n")).toEqual([]);
+  });
+
+  test("a payload beneath a container is refused at the payload", () => {
+    expect(diagnose("export union Shape = Rows(Vector(Array(Int)))\n"))
+      .toEqual([beneath("Array(Int)", "Vector")]);
+  });
+
+  test("each slot of one constructor is its own position", () => {
+    expect(diagnose("export union Shape = Rows(Vector(Array(Int)), Set(JsSet(Int)))\n"))
+      .toEqual([beneath("Array(Int)", "Vector"), beneath("JsSet(Int)", "Set")]);
+  });
+
+  test("a payload reaching one through a nominal is refused too", () => {
+    expect(diagnose(
+      "export record Row = { cells: Array(Int) }\n" +
+        "export union Shape = Rows(Vector(Row))\n",
+    )).toEqual([beneath("Array(Int)", "Vector")]);
+  });
+
+  test("an opaque payload takes item 2, which names the field", () => {
+    expect(diagnose(
+      "opaque record Box = { rows: Array(Int) }\nexport union Shape = Rows(Box)\n",
+    )).toEqual([
+      "opaque type `Box` names the captured collection `Array(Int)` in its representation " +
+      "(`rows`); an opaque value crosses the foreign boundary by identity, so its " +
+      "representation cannot be copied at the crossing — keep an identity-safe " +
+      "representation such as `Vector`, or expose the collection through an exported accessor",
+    ]);
+  });
+
+  // An unexported union publishes no constructor, so there is no position; an
+  // exported *record* takes nothing here either, its constructor's positions
+  // being read wherever the record itself reaches a boundary.
+  test("an unexported union is not a position", () => {
+    expect(diagnose(
+      "union Shape = Rows(Vector(Array(Int)))\nexport let n(): Int = 1\n",
     )).toEqual([]);
   });
 });
@@ -423,8 +530,37 @@ describe("item 5 — the release seat, `JsValue.from`", () => {
     expect(quoted?.[1]).toContain(quoted?.[2] ?? "\u0000");
   });
 
+  /**
+   * **A reference is a seat.** `JsValue.from` handed on as a value names the
+   * same injection an application of it names, chosen by the type the reference
+   * was instantiated at — so `let g = JsValue.from` generalizes a seat whose
+   * argument type is a variable, and is refused there. That is also what closes
+   * `let g = JsValue.from` followed by `g(x)`: the call site is an ordinary
+   * call to `g` and no gate on `JsValue.from` could see it.
+   */
+  test("an unapplied reference is a seat at its instantiated type", () => {
+    const refused = "`JsValue.from` cannot release a value at type `a`: the type variable " +
+      "`a` determines no release operation, and the seat never falls back to identity — " +
+      "inject where the concrete type is known, or pass an explicit conversion function " +
+      "`(a) -> JsValue` into the generic helper";
+    expect(diagnose("let g = JsValue.from\nexport let n(): Int = 1\n")).toEqual([refused]);
+    expect(diagnose(
+      "let g = JsValue.from\nlet w(x: a): JsValue = g(x)\nexport let n(): Int = 1\n",
+    )).toEqual([refused]);
+    // An annotation that grounds the reference grounds the seat.
+    expect(diagnose(
+      "let g: (Int) -> JsValue = JsValue.from\nexport let n(): Int = 1\n",
+    )).toEqual([]);
+    // And a ground reference obeys the other refusals, as a ground call does.
+    expect(diagnose(
+      "let g: (Vector(Array(Int))) -> JsValue = JsValue.from\nexport let n(): Int = 1\n",
+    )).toEqual([beneath("Array(Int)", "Vector")]);
+  });
+
   // A group is punctuation: `(JsValue.from)(x)` is the same direct application,
-  // and the emitter erases it too.
+  // and the emitter erases it too. Each of these is **one** diagnostic: the
+  // callee is a reference as well as a callee, and the reference seat it
+  // records is struck in favour of the call's.
   test("a parenthesised callee is the same seat", () => {
     expect(diagnose("let w(x: a): JsValue = (JsValue.from)(x)\nexport let go(): Int = 1\n"))
       .toEqual([

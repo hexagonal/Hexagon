@@ -987,6 +987,47 @@ interface ErrorMono {
   readonly kind: "Error";
 }
 
+/**
+ * One node the capture walk has reached, with the path that reached it: the
+ * innermost of FFI Part 1 §5.4 item 1's five runtime containers enclosing it,
+ * and the innermost Hexagon opaque type on the path with the component entered
+ * through it. Both are what a refusal reads; neither affects the verdict.
+ */
+interface CaptureStep {
+  readonly type: Mono;
+  readonly container?: string;
+  readonly opaque?: { readonly name: string; readonly component: string };
+}
+
+/** A captured foreign collection the walk found, and how it was reached. */
+interface CaptureFinding {
+  readonly captured: Mono;
+  readonly container: string | undefined;
+  readonly opaque: { readonly name: string; readonly component: string } | undefined;
+}
+
+/**
+ * What one walk over one type answers, which is **two** questions, because the
+ * trigger and the walk are two questions (FFI Part 1 §5.4).
+ *
+ * `first` is the trigger's: does this type *name* a captured collection at all,
+ * container or no container — what items 3 and 4 ask, and what the wrappers of
+ * a later part will ask. `guarded` is the walk's: is there a captured
+ * collection the walk could not reach, because one of the five runtime
+ * containers or a Hexagon opaque type stands between it and the crossing —
+ * what items 1 and 2 ask.
+ *
+ * They are genuinely different findings and not one with a flag. A `record Tree
+ * = { kids: Vector(Tree), cells: Array(Int) }` names a captured collection at
+ * `cells`, which the walk copies quite happily, *and* hides one under `kids`,
+ * which it cannot reach: reporting the nearer one would report the safe one and
+ * let the position through.
+ */
+interface CaptureFindings {
+  readonly first: CaptureFinding | undefined;
+  readonly guarded: CaptureFinding | undefined;
+}
+
 interface Requirement {
   readonly name: Typed.ConstraintName;
   /**
@@ -2716,7 +2757,23 @@ class Checker {
    * inference left it. Judged by `#checkReleaseSeats` once every group has been
    * solved and defaulted, which is FFI Part 11 §2's own timing.
    */
-  #releaseSeats: { readonly type: Mono; readonly span: Source.Span }[] = [];
+  #releaseSeats: {
+    readonly type: Mono;
+    readonly span: Source.Span;
+    /** Present on a *reference* seat; see `#releaseCallees`. */
+    readonly node?: Resolved.Expr;
+  }[] = [];
+  /**
+   * The `JsValue.from` references that turned out to be the callee of a direct
+   * application, and whose reference seat is therefore struck.
+   *
+   * A callee is inferred as a reference before the call it heads is assembled,
+   * so both seats are recorded and one is withdrawn rather than one being
+   * predicted. The call's seat is the one that survives: it carries the
+   * argument's own type, which is what §2 releases, where the reference carries
+   * the instantiation that type will unify with.
+   */
+  readonly #releaseCallees = new Set<Resolved.Expr>();
   /**
    * This module's own path, when the compilation had one
    * (`Resolved.Module.path`). Read by Collections Part 5 §3.3's diagnostic and
@@ -7729,6 +7786,27 @@ class Checker {
             knot.references.push({ host: knot.host, target: expression.symbol });
           }
         }
+        // FFI Part 11 §2's release seat, at a **reference**. `JsValue.from`
+        // handed on as a value is the same seat as `JsValue.from` applied: the
+        // injection it names is chosen by the type the reference was
+        // instantiated at, and `let g = JsValue.from` generalizes a seat whose
+        // argument type is a variable exactly as `JsValue.from(x)` does inside
+        // a generic helper. Recording it here is what closes `let g =
+        // JsValue.from` followed by `g(x)`, which no call-site gate can see.
+        //
+        // Every occurrence records, the callee of a direct application
+        // included; that one is struck again by `#releaseCallees`, where the
+        // call records the seat it owns and the argument type it really has.
+        if (expression.symbol === this.#jsValueFromSymbol) {
+          const injection = this.#prune(type);
+          if (injection.kind === "Function" && injection.parameters.length === 1) {
+            this.#releaseSeats.push({
+              type: injection.parameters[0]!,
+              span: expression.span,
+              node: expression,
+            });
+          }
+        }
         break;
       case "Unit":
         type = UNIT;
@@ -8946,6 +9024,7 @@ class Checker {
           releaseCallee.symbol === this.#jsValueFromSymbol &&
           arguments_.length === 1
         ) {
+          this.#releaseCallees.add(releaseCallee);
           this.#releaseSeats.push({
             type: arguments_[0]!,
             span: expression.arguments[0]?.span ?? expression.span,
@@ -22107,31 +22186,45 @@ class Checker {
   }
 
   /**
-   * **The one membership function**: the captured foreign collection a declared
-   * type *names* (FFI Part 1 §2.2, §5.4), `"unbounded"` where the type outran
+   * **The one membership function, and the only one**: the captured foreign
+   * collection a declared type *names* (FFI Part 1 §2.2, §5.4), the path by
+   * which the type names it, `"unbounded"` where the type outran
    * `#walkBudget`, or nothing.
    *
-   * §5.4 states it as "the least fixpoint over the declared type's constructor
-   * graph", and the walk's own clauses say which constructors are in that
-   * graph. The captured heads are `Array(a)`, `JsMap(k, v)`, `JsSet(a)`. The
-   * aggregates are entered — records, tuples, unions, `Option`, `Nullable`,
-   * function types, and a nominal record or union through its declared
-   * components under this occurrence's arguments. Everything else "keeps its
-   * own category and is not entered", and that list is load-bearing twice over:
-   * a type variable is carried by identity and sound by parametricity, and the
-   * five runtime containers of item 1 are **not** entered either — which is
-   * exactly why item 1 exists as a separate refusal rather than falling out of
-   * this predicate. `Vector(Array(Int))` therefore names no captured collection
-   * and is refused by `#capturedCollectionRefusal` below. `Seq` and `Stream`
-   * are the two of the five that are nominal records, so the guard is what
-   * keeps their *representation* — a pull function over their own parameter —
-   * out of the answer.
+   * §5.4 states the trigger as "the least fixpoint over the declared type's
+   * constructor graph", and the graph is followed **through every
+   * constructor**: `Vector(Array(Int))` names a captured collection although
+   * the walk cannot enter the `Vector`, which is exactly why item 1 refuses it
+   * at a position, and why an exception payload or an exported value binding of
+   * that type is refused by items 3 and 4 *with the container notwithstanding*.
+   * Only a type variable and a type with no arguments end a path. The captured
+   * heads are `Array(a)`, `JsMap(k, v)`, `JsSet(a)`.
+   *
+   * Two constructors are followed by their **arguments** rather than by what
+   * they declare, and for opposite reasons. The five runtime containers —
+   * `Vector`, `Map`, `Set`, `Seq`, `Stream` — hold their arguments and have no
+   * user-visible components; `Seq` and `Stream` happen to be prelude records,
+   * and their representation, a pull function over their own parameter, is the
+   * compiler's business rather than the position's. Every other nominal is
+   * followed by its declared **components** under this occurrence's arguments,
+   * which is the same paragraph's "a recursive record or union names one iff
+   * some reachable component does" — a phantom parameter holds nothing, so a
+   * `Phantom(Array(Int))` names nothing. `Node(a)` is followed like the holder
+   * it is; it reaches no boundary position, being refused outright wherever one
+   * could name it, so the choice is documented rather than observable.
+   *
+   * The **path** is what the two walk-owned refusals read. `container` is the
+   * innermost of the five enclosing the captured collection, which is what item
+   * 1's diagnostic names; `opaque` is the innermost Hexagon opaque type on the
+   * path with the component entered through it, which is item 2's. A container
+   * that is also an opaque record — `Seq`, `Stream` — counts as the container
+   * it is and never as an opaque type, so `Seq(Array(Int))` reports as §5.4
+   * says it is: item 1's.
    *
    * **It is plain reachability, so it is computed as reachability**: a queue,
    * and a `seen` set of nominal *occurrences* that is never unwound. A path set
    * — added on the way in, removed on the way out — is the same verdict and
-   * exponential on a shared-subterm graph: `record Li = { a: L(i-1), b: L(i-1)
-   * }` visits `L0` 2ⁱ times, and a twenty-deep chain takes seconds.
+   * exponential on a shared-subterm graph.
    *
    * The queue is **breadth-first**, and that is a property of the diagnostic
    * rather than of the verdict: the captured collection reported is the one
@@ -22140,48 +22233,101 @@ class Checker {
    * rather than the `Array(Vector(Vector(…)))` a depth-first walk reaches by
    * descending `x` first. Within one layer the order is the source's.
    */
-  #namesCapturedCollection(
+  #findCapturedCollection(
     type: Mono,
     budget: { steps: number } = { steps: 0 },
-  ): Mono | "unbounded" | undefined {
-    const pending: Mono[] = [type];
+  ): CaptureFindings | "unbounded" {
+    const pending: CaptureStep[] = [{ type }];
     const seen = new Set<string>();
+    let first: CaptureFinding | undefined;
+    // The **guarded** finding is what ends the walk, not the first one: a type
+    // may name a captured collection the walk copies and hide another under a
+    // container, and it is the second that decides the position. So a
+    // container-less finding is recorded and the queue carries on.
     for (let head = 0; head < pending.length; head += 1) {
       budget.steps += 1;
       if (budget.steps > Checker.#walkBudget) return "unbounded";
-      const actual = this.#prune(pending[head]!);
+      const step = pending[head]!;
+      const actual = this.#prune(step.type);
+      const push = (types: readonly Mono[], within?: Partial<CaptureStep>): void => {
+        for (const next of types) pending.push({ ...step, ...within, type: next });
+      };
       switch (actual.kind) {
         case "Array":
         case "JsMap":
-        case "JsSet":
-          return actual;
+        case "JsSet": {
+          const finding: CaptureFinding = {
+            captured: actual,
+            container: step.container,
+            opaque: step.opaque,
+          };
+          first ??= finding;
+          if (finding.container !== undefined || finding.opaque !== undefined) {
+            return { first, guarded: finding };
+          }
+          break;
+        }
         case "Tuple":
-          pending.push(...actual.elements);
+          push(actual.elements);
           break;
         case "Record":
-          pending.push(...actual.fields.values());
+          push([...actual.fields.values()]);
           break;
         case "Nullable":
-          pending.push(actual.value);
+          push([actual.value]);
+          break;
+        case "Node":
+          push([actual.element]);
           break;
         case "Function":
-          pending.push(...actual.parameters, actual.result);
+          push([...actual.parameters, actual.result]);
+          break;
+        case "Vector":
+          push([actual.element], { container: "Vector" });
+          break;
+        case "Set":
+          push([actual.element], { container: "Set" });
+          break;
+        case "Map":
+          push([actual.key, actual.value], { container: "Map" });
           break;
         case "Union":
         case "NominalRecord": {
-          if (this.#runtimeContainer(actual) !== undefined) break;
-          const key = this.#typeKey(actual, budget);
+          const enclosure = this.#runtimeContainer(actual);
+          if (enclosure !== undefined) {
+            push(enclosure.arguments, { container: enclosure.name });
+            break;
+          }
+          // The occurrence key carries **whether the path is already guarded**,
+          // and it has to: one nominal is two questions when a container
+          // encloses one of its occurrences and not the other. `record Tree = {
+          // kids: Vector(Tree), cells: Array(Int) }` is the case — `Tree`
+          // reached directly names a collection the walk copies, and `Tree`
+          // reached through `kids` hides one the walk cannot reach, and a key
+          // that could not tell them apart cut the second and let the position
+          // through. Two classes, so at most twice the visits.
+          const guarded = step.container !== undefined || step.opaque !== undefined;
+          const key = `${this.#typeKey(actual, budget)}|${guarded ? "g" : "u"}`;
           if (budget.steps > Checker.#walkBudget) return "unbounded";
           if (seen.has(key)) break;
           seen.add(key);
-          for (const component of this.#nominalComponents(actual)) pending.push(component.type);
+          const opaqueHere = this.#nominalDeclaration(actual)?.opaque === true;
+          for (const component of this.#nominalComponents(actual)) {
+            pending.push({
+              ...step,
+              type: component.type,
+              ...(opaqueHere
+                ? { opaque: { name: actual.name, component: component.key } }
+                : {}),
+            });
+          }
           break;
         }
         default:
           break;
       }
     }
-    return undefined;
+    return { first, guarded: undefined };
   }
 
   /**
@@ -22226,136 +22372,34 @@ class Checker {
 
   /**
    * FFI Part 1 §5.4's refusals **1 and 2** at one boundary position, as a
-   * message or nothing.
+   * message or nothing — the two the *walk* owns, as against the ones a
+   * position owns (items 3 and 4).
    *
-   * One descent answers both, because both ask the same question at different
-   * nodes: item 2 at a Hexagon opaque type, whose erased value crosses by
-   * identity (Part 7 §5) so its representation cannot be copied; item 1 at one
-   * of the five runtime containers, which the walk cannot enter. The descent
-   * reaches every node of the declared type — through aggregates, through a
-   * container's arguments, and through a nominal's declared components — so
-   * "at any depth" is the walk's own reach rather than a second rule.
+   * Both read one finding, because both ask the same question about the same
+   * path: item 2 where a Hexagon opaque type stands on it, the erased value
+   * crossing by identity (Part 7 §5) so that its representation cannot be
+   * copied at the crossing; item 1 where one of the five runtime containers
+   * does, the walk being unable to enter it.
    *
-   * Item 2 is preferred where both fire, and it is preferred for a reason
-   * rather than by taste: it names the field, which is where the rewrite goes,
-   * and the five containers are *excluded* from it so that `Seq(Array(Int))`
-   * — `Seq` being an opaque prelude record — reports as item 1's container,
-   * which is what §5.4 says it is.
-   *
-   * `seen` is one set for the whole descent and is never unwound, for
-   * `#namesCapturedCollection`'s reason: this is a search, a second visit to an
-   * occurrence can find nothing the first did not, and a path set would make
-   * the descent exponential on a shared-subterm graph.
+   * Item 2 is preferred where both stand on the path, and for a reason rather
+   * than by taste: it names the field, which is where the rewrite goes.
    */
-  #capturedCollectionRefusal(type: Mono): string | undefined {
-    let container: string | undefined;
-    let unbounded = false;
-    const seen = new Set<string>();
-    // One budget for the seat, spent by this descent and by every membership
-    // question it asks, so a position costs a bounded amount of work however it
-    // is shaped.
-    const budget = { steps: 0 };
-    const names = (node: Mono): Mono | undefined => {
-      const found = this.#namesCapturedCollection(node, budget);
-      if (found !== "unbounded") return found;
-      unbounded = true;
-      return undefined;
-    };
-    const descend = (node: Mono): string | undefined => {
-      budget.steps += 1;
-      if (budget.steps > Checker.#walkBudget) {
-        unbounded = true;
-        return undefined;
-      }
-      const actual = this.#prune(node);
-      const enclosure = this.#runtimeContainer(actual);
-      if (enclosure !== undefined) {
-        for (const argument of enclosure.arguments) {
-          const captured = names(argument);
-          if (captured === undefined) continue;
-          if (container === undefined) {
-            container = `captured collection \`${this.#display(captured)}\` beneath ` +
-              `\`${enclosure.name}\` cannot cross the foreign boundary; ` +
-              this.#capturedRewrites(captured);
-          }
-          break;
-        }
-        // A container is not entered by the walk and its *representation* is
-        // none of the position's business — `Seq`'s pull function is the
-        // compiler's. Its arguments are, and are where a nested container hides
-        // (`Vector(Vector(Array(Int)))`).
-        for (const argument of enclosure.arguments) {
-          const found = descend(argument);
-          if (found !== undefined) return found;
-        }
-        return undefined;
-      }
-      switch (actual.kind) {
-        case "Array":
-        case "JsSet":
-        case "Node":
-          return descend(actual.element);
-        case "JsMap":
-          return descend(actual.key) ?? descend(actual.value);
-        case "Nullable":
-          return descend(actual.value);
-        case "Tuple": {
-          for (const element of actual.elements) {
-            const found = descend(element);
-            if (found !== undefined) return found;
-          }
-          return undefined;
-        }
-        case "Record": {
-          for (const field of actual.fields.values()) {
-            const found = descend(field);
-            if (found !== undefined) return found;
-          }
-          return undefined;
-        }
-        case "Function": {
-          for (const parameter of actual.parameters) {
-            const found = descend(parameter);
-            if (found !== undefined) return found;
-          }
-          return descend(actual.result);
-        }
-        case "Union":
-        case "NominalRecord": {
-          const key = this.#typeKey(actual, budget);
-          if (budget.steps > Checker.#walkBudget) {
-            unbounded = true;
-            return undefined;
-          }
-          if (seen.has(key)) return undefined;
-          seen.add(key);
-          const components = this.#nominalComponents(actual);
-          if (this.#nominalDeclaration(actual)?.opaque === true) {
-            for (const component of components) {
-              const captured = names(component.type);
-              if (captured === undefined) continue;
-              return `opaque type \`${actual.name}\` names the captured collection ` +
-                `\`${this.#display(captured)}\` in its representation (\`${component.key}\`); ` +
-                "an opaque value crosses the foreign boundary by identity, so its " +
-                "representation cannot be copied at the crossing — keep an identity-safe " +
-                "representation such as `Vector`, or expose the collection through an " +
-                "exported accessor";
-            }
-          }
-          for (const component of components) {
-            const found = descend(component.type);
-            if (found !== undefined) return found;
-          }
-          return undefined;
-        }
-        default:
-          return undefined;
-      }
-    };
-    const found = descend(type) ?? container;
-    // The bound speaks **last**: a position the walk could decide is decided,
-    // and only one it could not falls back on the conservative refusal.
-    return found ?? (unbounded ? this.#captureBoundRefusal(type) : undefined);
+  #guardedRefusal(finding: CaptureFinding | undefined): string | undefined {
+    if (finding === undefined) return undefined;
+    if (finding.opaque !== undefined) {
+      return `opaque type \`${finding.opaque.name}\` names the captured collection ` +
+        `\`${this.#display(finding.captured)}\` in its representation ` +
+        `(\`${finding.opaque.component}\`); an opaque value crosses the foreign boundary by ` +
+        "identity, so its representation cannot be copied at the crossing — keep an " +
+        "identity-safe representation such as `Vector`, or expose the collection through an " +
+        "exported accessor";
+    }
+    if (finding.container !== undefined) {
+      return `captured collection \`${this.#display(finding.captured)}\` beneath ` +
+        `\`${finding.container}\` cannot cross the foreign boundary; ` +
+        this.#capturedRewrites(finding.captured);
+    }
+    return undefined;
   }
 
   /**
@@ -22401,22 +22445,23 @@ class Checker {
    * two do not — item 4's exported value binding — so that a seat draws one
    * diagnostic: items 1 and 2 speak first where they apply, because they name a
    * nested type the position's own message would not mention. A position whose
-   * type the walk could not finish is refused by `#captureBoundRefusal`, which
-   * `#capturedCollectionRefusal` has already applied by the time this reads it.
+   * type the walk could not finish is refused for that, before either.
+   *
+   * **One walk at the door**, and one budget with it: the seat asks its
+   * question once and reads both of the walk's answers off the one finding.
    */
   #refuseCapturedPosition(
     type: Mono,
     span: Source.Span,
     positionOnly?: (captured: Mono) => string,
   ): boolean {
-    const message = this.#capturedCollectionRefusal(type) ??
-      (() => {
-        if (positionOnly === undefined) return undefined;
-        const captured = this.#namesCapturedCollection(type);
-        return captured === undefined || captured === "unbounded"
+    const found = this.#findCapturedCollection(type);
+    const message = found === "unbounded"
+      ? this.#captureBoundRefusal(type)
+      : this.#guardedRefusal(found.guarded) ??
+        (positionOnly === undefined || found.first === undefined
           ? undefined
-          : positionOnly(captured);
-      })();
+          : positionOnly(found.first.captured));
     if (message === undefined) return false;
     this.#diagnostics.add({ severity: "error", message, primary: span });
     return true;
@@ -22604,6 +22649,33 @@ class Checker {
           );
         }
       }
+      // FFI Part 1 §5.4 items 1 and 2 at an **exported union's constructors**.
+      // §5.4 item 4 says it in one line — "Exported constructors are functions
+      // and take occasion 4 like any other" — and a constructor of an exported
+      // union is a function JavaScript calls (Part 7 §6), so each payload slot
+      // is a parameter position and is read as one, at its own annotation.
+      //
+      // Three scope lines. A payload naming a captured collection outright —
+      // `Rows(Array(Int))` — is **not** refused: occasion 4's stable export
+      // wrapper walks it on entry, exactly as it walks an exported function's
+      // parameter, so item 4 has nothing to say about a function. An
+      // **unexported** union publishes no constructor and is not a position at
+      // all. An **opaque** exported union publishes only its brand (Part 7 §5),
+      // so its constructors are not exported either; a position naming the type
+      // meets item 2 where it stands, which is the seat that can name the
+      // field. Exported *records* take nothing here for the same reason their
+      // fields do: the constructor's positions are already read wherever the
+      // record itself reaches a boundary.
+      if (item.kind === "Union" && item.exported && !item.opaque) {
+        for (const constructor of item.constructors) {
+          const payloads = slotTypes(constructor.binding.symbol);
+          for (const [index, slot] of constructor.slots.entries()) {
+            const payload = payloads[index];
+            if (payload === undefined) continue;
+            this.#refuseCapturedPosition(payload, slot.annotation.span);
+          }
+        }
+      }
       // FFI Part 1 §5.4 item 3, at the declaration and **unconditionally**
       // (Exceptions §2): an exception crosses wherever a throw travels, out of
       // an exported function into a JavaScript `catch` and through foreign
@@ -22618,13 +22690,13 @@ class Checker {
         for (const [index, slot] of item.slots.entries()) {
           const type = types[index];
           if (type === undefined) continue;
-          const captured = this.#namesCapturedCollection(type);
-          if (captured === undefined) continue;
+          const found = this.#findCapturedCollection(type);
+          if (found !== "unbounded" && found.first === undefined) continue;
           // A payload the walk could not finish is refused for that, exactly as
           // a boundary position is: an exception travels through foreign frames
           // and the declaration is the one place safety can be established, so
           // undecided is no better here than there.
-          if (captured === "unbounded") {
+          if (found === "unbounded") {
             this.#diagnostics.add({
               severity: "error",
               message: this.#captureBoundRefusal(type),
@@ -22638,9 +22710,18 @@ class Checker {
           // that is the conversion and describes the persistent target where it
           // is not — the Rewrite Rule wants constructs already in the language
           // (Declarations Preamble §1.1).
+          //
+          // **"whose element types name none in turn"** is not decoration.
+          // Since the trigger follows the five containers, a payload of
+          // `Vector(Array(Int))` draws this refusal too, and "carry a `Vector`"
+          // alone would be advice its author had already taken. Exceptions §2
+          // carries the same clause for the same reason.
+          const captured = found.first!.captured;
           const carry = captured.kind === "Array"
-            ? "carry a `Vector` (`Array.toVector` at the construction site)"
-            : "carry a persistent `Map`/`Set` built at the construction site";
+            ? "carry a `Vector` whose element types name none in turn " +
+              "(`Array.toVector` at the construction site)"
+            : "carry a persistent `Map`/`Set` whose element types name none in turn, " +
+              "built at the construction site";
           this.#diagnostics.add({
             severity: "error",
             message: `exception \`${name}\`'s payload \`${slot.field}\` names the captured ` +
@@ -22895,7 +22976,8 @@ class Checker {
    * refused here as at any position").
    */
   #checkReleaseSeats(): void {
-    for (const { type, span } of this.#releaseSeats) {
+    for (const { type, span, node } of this.#releaseSeats) {
+      if (node !== undefined && this.#releaseCallees.has(node)) continue;
       // **Type** variables only, and the two exclusions are the two variables
       // the rendered type does not spell.
       //
