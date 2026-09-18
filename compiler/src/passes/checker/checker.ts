@@ -48,6 +48,7 @@ import {
 import * as Source from "../../support/source.js";
 import { displayParameterName } from "../../support/synthetic.js";
 import * as Resolved from "../../syntax/resolved/index.js";
+import { preludeExportSymbol } from "../../support/prelude-symbol.js";
 import * as Typed from "../../syntax/typed/index.js";
 
 export interface CheckOptions {
@@ -3487,7 +3488,11 @@ class Checker {
     );
     this.#seqRecord = module.preludeRecords.get("Seq");
     this.#streamRecord = module.preludeRecords.get("Stream");
-    this.#jsValueFromSymbol = preludeExportSymbol(module, "JsValue", "from");
+    this.#jsValueFromSymbol = preludeExportSymbol(
+      module.items.filter((item) => item.kind === "Import"),
+      "JsValue",
+      "from",
+    );
     this.#typeSpellings = module.typeSpellings;
     // Modules §5.1 rule 1 reads the module-alias namespace **first**, so the
     // set it reads has to be the whole of it. `Module.moduleAliases` is that —
@@ -8925,12 +8930,20 @@ class Checker {
         // FFI Part 11 §2's **release seat**, recorded rather than judged: the
         // argument's type is not the seat's answer until the enclosing binding
         // group has been solved and defaulted, so the verdict waits for
-        // `#checkReleaseSeats`. The gate is the emitter's exactly — the callee
-        // resolves to the binding the synthesized prelude import names, so an
-        // occluding module's own `from` (Modules §5.4) is an ordinary call.
+        // `#checkReleaseSeats`.
+        //
+        // The callee is read **through its parentheses** (`ungrouped`): a group
+        // is punctuation, and `(JsValue.from)(x)` is the same direct
+        // application `JsValue.from(x)` is — the emitter erases it too, its own
+        // gate reading a Core tree the grouping never reached. What the gate
+        // asks is the identity: the callee resolves to the binding the
+        // synthesized prelude import names, so an occluding module's own `from`
+        // (Modules §5.4) is an ordinary call. The emitter's gate is this one
+        // plus an evidence guard its lowering needs and this question does not.
+        const releaseCallee = ungrouped(expression.callee);
         if (
-          expression.callee.kind === "Name" &&
-          expression.callee.symbol === this.#jsValueFromSymbol &&
+          releaseCallee.kind === "Name" &&
+          releaseCallee.symbol === this.#jsValueFromSymbol &&
           arguments_.length === 1
         ) {
           this.#releaseSeats.push({
@@ -22001,6 +22014,103 @@ class Checker {
   }
 
   /**
+   * A structural key for one type, distinguishing exactly what the walks below
+   * have to distinguish: two occurrences of one nominal declaration under
+   * *different* arguments are different questions, and under the same arguments
+   * they are the same question and are asked once.
+   *
+   * Nominals key on their **identity**, never their name: two declarations may
+   * share a spelling (a local `Row` and an imported one), and conflating them
+   * would answer the second with the first's verdict.
+   *
+   * `depth` truncates: past the cap every type keys the same, so two
+   * occurrences that differ only below it are asked once. That is what makes
+   * **non-regular** recursion terminate — `record R(a) = { x:
+   * Nullable(R(Array(a))) }` grows its argument by a layer per expansion, so
+   * without truncation the keys never repeat and the walk never stops — and it
+   * is a conflation the budget already permits: a captured collection first
+   * reachable sixty-four argument layers down is one no value carries.
+   */
+  #typeKey(type: Mono, depth = 0): string {
+    if (depth > Checker.#keyDepth) return "…";
+    const actual = this.#prune(type);
+    switch (actual.kind) {
+      case "Variable":
+        return `?${actual.id}`;
+      case "Constructor":
+        return actual.name;
+      case "Effect":
+        return actual.impure ? "->!" : "->";
+      case "Range":
+        return "Range";
+      case "JsValue":
+        return "JsValue";
+      case "Error":
+        return "<error>";
+      case "ExternType":
+        return `x${actual.externType}`;
+      case "Tuple":
+        return `(${actual.elements.map((element) => this.#typeKey(element, depth + 1)).join(",")})`;
+      case "Record":
+        return `{${
+          [...actual.fields].map(([name, field]) => `${name}:${this.#typeKey(field, depth + 1)}`).join(",")
+        }}`;
+      case "Function":
+        return `(${actual.parameters.map((p) => this.#typeKey(p, depth + 1)).join(",")})->${
+          this.#typeKey(actual.result, depth + 1)
+        }`;
+      case "Vector":
+        return `Vector(${this.#typeKey(actual.element, depth + 1)})`;
+      case "Set":
+        return `Set(${this.#typeKey(actual.element, depth + 1)})`;
+      case "Array":
+        return `Array(${this.#typeKey(actual.element, depth + 1)})`;
+      case "JsSet":
+        return `JsSet(${this.#typeKey(actual.element, depth + 1)})`;
+      case "Node":
+        return `Node(${this.#typeKey(actual.element, depth + 1)})`;
+      case "Nullable":
+        return `Nullable(${this.#typeKey(actual.value, depth + 1)})`;
+      case "Map":
+      case "JsMap":
+        return `${actual.kind}(${this.#typeKey(actual.key, depth + 1)},${this.#typeKey(actual.value, depth + 1)})`;
+      case "Union":
+        return this.#nominalKey(`u${actual.union}`, actual.arguments, depth);
+      case "NominalRecord":
+        return this.#nominalKey(`r${actual.record}`, actual.arguments, depth);
+    }
+  }
+
+  #nominalKey(head: string, args: readonly Mono[], depth: number): string {
+    return args.length === 0
+      ? head
+      : `${head}(${args.map((argument) => this.#typeKey(argument, depth + 1)).join(",")})`;
+  }
+
+  /** How deep `#typeKey` distinguishes before it truncates; see its doc. */
+  static readonly #keyDepth = 64;
+
+  /**
+   * How many distinct nominal occurrences either walk below will expand before
+   * it stops expanding them.
+   *
+   * Hexagon accepts **non-regular** recursion — `record R(a) = { x:
+   * Nullable(R(Array(a))) }` compiles — and such a declaration generates
+   * unboundedly many distinct occurrences, so a walk that keys on the
+   * occurrence needs a stop. The budget is the stop, and it is generous by
+   * three orders of magnitude over any declaration graph a program writes: what
+   * it bounds is the *depth* of an argument tower, and a captured collection
+   * that first appears a thousand towers down is one no value reaches. It is a
+   * termination guard, stated as one, not a heuristic about ordinary types.
+   *
+   * It is also strictly more reach than keying on the declaration alone, which
+   * is what this walk did before: that discipline stopped at the *first*
+   * re-entry, so `record R(a) = { x: Nullable(R(Array(a))), y: a }` — whose
+   * `R(Int)` names an `Array(Int)` one level down — was missed outright.
+   */
+  static readonly #nominalBudget = 1024;
+
+  /**
    * **The one membership function**: the captured foreign collection a declared
    * type *names* (FFI Part 1 §2.2, §5.4), or nothing.
    *
@@ -22017,56 +22127,82 @@ class Checker {
    * this predicate. `Vector(Array(Int))` therefore names no captured collection
    * and is refused by `#capturedCollectionRefusal` below.
    *
-   * `visiting` is a path set over nominal identities, so a recursive record
-   * terminates — "a recursive record or union names one iff some reachable
-   * component does" — and is removed on the way out, so two siblings of one
-   * type are each asked in full.
+   * **It is plain reachability, so it is computed as reachability**: an
+   * explicit stack, and a `seen` set of nominal *occurrences* that is never
+   * unwound. A path set — added on the way in, removed on the way out — is the
+   * same verdict and exponential on a shared-subterm graph: `record Li = { a:
+   * L(i-1), b: L(i-1) }` visits `L0` 2ⁱ times, and a twenty-deep chain takes
+   * seconds. Keeping the entry makes each distinct occurrence one visit, and it
+   * is still the least fixpoint because an occurrence already on the stack, or
+   * already answered "no", contributes nothing a second visit could add — the
+   * predicate is a disjunction over components and the first "yes" returns.
+   *
+   * The stack is filled in reverse so the walk is pre-order in source order:
+   * which captured collection a diagnostic names, where a type has two, is the
+   * one the reader meets first.
    */
-  #namesCapturedCollection(type: Mono, visiting: Set<string> = new Set()): Mono | undefined {
-    const actual = this.#prune(type);
-    switch (actual.kind) {
-      case "Array":
-      case "JsMap":
-      case "JsSet":
-        return actual;
-      case "Tuple":
-        return this.#firstCapturedCollection(actual.elements, visiting);
-      case "Record":
-        return this.#firstCapturedCollection([...actual.fields.values()], visiting);
-      case "Nullable":
-        return this.#namesCapturedCollection(actual.value, visiting);
-      case "Function":
-        return this.#firstCapturedCollection(
-          [...actual.parameters, actual.result],
-          visiting,
-        );
-      case "Union":
-      case "NominalRecord": {
-        if (this.#runtimeContainer(actual) !== undefined) return undefined;
-        const key = actual.kind === "Union" ? `u${actual.union}` : `r${actual.record}`;
-        if (visiting.has(key)) return undefined;
-        visiting.add(key);
-        const found = this.#firstCapturedCollection(
-          this.#nominalComponents(actual).map(({ type: component }) => component),
-          visiting,
-        );
-        visiting.delete(key);
-        return found;
+  #namesCapturedCollection(type: Mono): Mono | undefined {
+    const pending: Mono[] = [type];
+    const seen = new Set<string>();
+    const push = (types: readonly Mono[]): void => {
+      for (let index = types.length - 1; index >= 0; index -= 1) pending.push(types[index]!);
+    };
+    while (pending.length > 0) {
+      const actual = this.#prune(pending.pop()!);
+      switch (actual.kind) {
+        case "Array":
+        case "JsMap":
+        case "JsSet":
+          return actual;
+        case "Tuple":
+          push(actual.elements);
+          break;
+        case "Record":
+          push([...actual.fields.values()]);
+          break;
+        case "Nullable":
+          pending.push(actual.value);
+          break;
+        case "Function":
+          push([...actual.parameters, actual.result]);
+          break;
+        case "Union":
+        case "NominalRecord": {
+          if (this.#runtimeContainer(actual) !== undefined) break;
+          if (seen.size >= Checker.#nominalBudget) break;
+          const key = this.#typeKey(actual);
+          if (seen.has(key)) break;
+          seen.add(key);
+          push(this.#nominalComponents(actual).map(({ type: component }) => component));
+          break;
+        }
+        default:
+          break;
       }
-      default:
-        return undefined;
-    }
-  }
-
-  #firstCapturedCollection(
-    types: readonly Mono[],
-    visiting: Set<string>,
-  ): Mono | undefined {
-    for (const type of types) {
-      const found = this.#namesCapturedCollection(type, visiting);
-      if (found !== undefined) return found;
     }
     return undefined;
+  }
+
+  /**
+   * The rewrites item 1's diagnostic names, chosen by the captured type.
+   *
+   * The Rewrite Rule (Declarations Preamble §1.1) requires the rewrite to use
+   * "constructs already in the language", so the sentence names the shipped
+   * conversion and nothing else. §5.4's own illustration is a `Vector.map(rows,
+   * Array.toVector)` call, which `stdlib/Vector.hex` does not export and whose
+   * `rows` is the spec's example binding, not the reader's — so the element
+   * conversion is named in words and the two always-available rewrites, a
+   * controlled boundary and a foreign handle, follow it. `Map.fromJsMap` and
+   * `Set.fromJsSet` are likewise unshipped (#796), so a captured keyed shape
+   * names the persistent target rather than an operation nobody can call.
+   */
+  #capturedRewrites(captured: Mono): string {
+    return captured.kind === "Array"
+      ? "convert each element with `Array.toVector` before the crossing, perform the " +
+        "conversion at a controlled boundary, or bind through a foreign shim or an opaque " +
+        "foreign handle"
+      : "convert the elements to a persistent `Map`/`Set` at a controlled boundary, or bind " +
+        "through a foreign shim or an opaque foreign handle";
   }
 
   /**
@@ -22086,26 +22222,35 @@ class Checker {
    * and the five containers are *excluded* from it so that `Seq(Array(Int))`
    * — `Seq` being an opaque prelude record — reports as item 1's container,
    * which is what §5.4 says it is.
+   *
+   * `seen` is one set for the whole descent and is never unwound, for
+   * `#namesCapturedCollection`'s reason: this is a search, a second visit to an
+   * occurrence can find nothing the first did not, and a path set would make
+   * the descent exponential on a shared-subterm graph.
    */
   #capturedCollectionRefusal(type: Mono): string | undefined {
     let container: string | undefined;
-    const descend = (node: Mono, visiting: Set<string>): string | undefined => {
+    const seen = new Set<string>();
+    const descend = (node: Mono): string | undefined => {
       const actual = this.#prune(node);
       const enclosure = this.#runtimeContainer(actual);
       if (enclosure !== undefined) {
-        const captured = this.#firstCapturedCollection(enclosure.arguments, new Set());
-        if (captured !== undefined && container === undefined) {
-          container = `captured collection \`${this.#display(captured)}\` beneath ` +
-            `\`${enclosure.name}\` cannot cross the foreign boundary; convert the elements ` +
-            "(`Vector.map(rows, Array.toVector)`), convert at a controlled boundary, or bind " +
-            "through a foreign shim or an opaque foreign handle";
+        for (const argument of enclosure.arguments) {
+          const captured = this.#namesCapturedCollection(argument);
+          if (captured === undefined) continue;
+          if (container === undefined) {
+            container = `captured collection \`${this.#display(captured)}\` beneath ` +
+              `\`${enclosure.name}\` cannot cross the foreign boundary; ` +
+              this.#capturedRewrites(captured);
+          }
+          break;
         }
         // A container is not entered by the walk and its *representation* is
         // none of the position's business — `Seq`'s pull function is the
         // compiler's. Its arguments are, and are where a nested container hides
         // (`Vector(Vector(Array(Int)))`).
         for (const argument of enclosure.arguments) {
-          const found = descend(argument, visiting);
+          const found = descend(argument);
           if (found !== undefined) return found;
         }
         return undefined;
@@ -22114,67 +22259,98 @@ class Checker {
         case "Array":
         case "JsSet":
         case "Node":
-          return descend(actual.element, visiting);
+          return descend(actual.element);
         case "JsMap":
-          return descend(actual.key, visiting) ?? descend(actual.value, visiting);
+          return descend(actual.key) ?? descend(actual.value);
         case "Nullable":
-          return descend(actual.value, visiting);
+          return descend(actual.value);
         case "Tuple": {
           for (const element of actual.elements) {
-            const found = descend(element, visiting);
+            const found = descend(element);
             if (found !== undefined) return found;
           }
           return undefined;
         }
         case "Record": {
           for (const field of actual.fields.values()) {
-            const found = descend(field, visiting);
+            const found = descend(field);
             if (found !== undefined) return found;
           }
           return undefined;
         }
         case "Function": {
           for (const parameter of actual.parameters) {
-            const found = descend(parameter, visiting);
+            const found = descend(parameter);
             if (found !== undefined) return found;
           }
-          return descend(actual.result, visiting);
+          return descend(actual.result);
         }
         case "Union":
         case "NominalRecord": {
-          const key = actual.kind === "Union" ? `u${actual.union}` : `r${actual.record}`;
-          if (visiting.has(key)) return undefined;
-          visiting.add(key);
+          if (seen.size >= Checker.#nominalBudget) return undefined;
+          const key = this.#typeKey(actual);
+          if (seen.has(key)) return undefined;
+          seen.add(key);
           const components = this.#nominalComponents(actual);
-          const opaque = this.#nominalDeclaration(actual)?.opaque === true;
-          let reported: string | undefined;
-          if (opaque) {
+          if (this.#nominalDeclaration(actual)?.opaque === true) {
             for (const component of components) {
               const captured = this.#namesCapturedCollection(component.type);
               if (captured === undefined) continue;
-              reported = `opaque type \`${actual.name}\` names the captured collection ` +
+              return `opaque type \`${actual.name}\` names the captured collection ` +
                 `\`${this.#display(captured)}\` in its representation (\`${component.key}\`); ` +
                 "an opaque value crosses the foreign boundary by identity, so its " +
                 "representation cannot be copied at the crossing — keep an identity-safe " +
                 "representation such as `Vector`, or expose the collection through an " +
                 "exported accessor";
-              break;
             }
           }
-          if (reported === undefined) {
-            for (const component of components) {
-              reported = descend(component.type, visiting);
-              if (reported !== undefined) break;
-            }
+          for (const component of components) {
+            const found = descend(component.type);
+            if (found !== undefined) return found;
           }
-          visiting.delete(key);
-          return reported;
+          return undefined;
         }
         default:
           return undefined;
       }
     };
-    return descend(type, new Set()) ?? container;
+    return descend(type) ?? container;
+  }
+
+  /**
+   * The boundary positions of one **exported** binding, each with the span a
+   * refusal stands on.
+   *
+   * §5.4's table makes "an exported Hexagon function's parameters / result" a
+   * row of positions, not one position, so a signature with two offending
+   * parameters draws two diagnostics, each on its own annotation — the same
+   * granularity the extern half has always had. Where the declaration writes no
+   * annotation for a seat, and where the binding is not a declaration-form
+   * function at all, the binding's own name is the anchor: it is the one span
+   * that always exists, and a report has to land somewhere the reader wrote.
+   */
+  #exportedSeats(
+    item: Resolved.LetItem | Resolved.FunItem,
+    signature: Mono,
+  ): readonly { readonly type: Mono; readonly span: Source.Span }[] {
+    const written = item.kind === "Let" ? item.annotation?.span : undefined;
+    const anchor = written ?? item.binding.span;
+    if (signature.kind !== "Function") return [{ type: signature, span: anchor }];
+    const lambda = item.kind === "Fun"
+      ? item.value
+      : item.value.kind === "Lambda"
+        ? item.value
+        : undefined;
+    if (lambda === undefined || lambda.parameters.length !== signature.parameters.length) {
+      return [{ type: signature, span: anchor }];
+    }
+    return [
+      ...lambda.parameters.map((parameter, index) => ({
+        type: signature.parameters[index]!,
+        span: parameter.annotation?.span ?? parameter.span,
+      })),
+      { type: signature.result, span: lambda.returnAnnotation?.span ?? anchor },
+    ];
   }
 
   /**
@@ -22358,23 +22534,31 @@ class Checker {
       // collection: Part 7 §7 occasion 4's stable export wrapper walks its
       // parameters and result. Items 1 and 2 still reach its signature, because
       // the wrapper cannot install itself inside a `Vector` or copy an opaque
-      // value that crosses by identity. A **non-function** binding meets item 4
-      // as well: one ESM value binding is shared by JavaScript and by every
-      // Hexagon importer, so no copy can protect it.
+      // value that crosses by identity — and they reach it **per seat**, since
+      // §5.4's table makes each parameter and the result a position of its own,
+      // exactly as the extern half below reads them. The report stands on the
+      // offending annotation where one is written, and on the binding's name
+      // where the signature was inferred and there is nothing else to point at.
+      // A **non-function** binding meets item 4 as well: one ESM value binding
+      // is shared by JavaScript and by every Hexagon importer, so no copy can
+      // protect it.
       if ((item.kind === "Let" || item.kind === "Fun") && item.exported) {
         const signature = this.#prune(this.#scheme(item.binding.symbol).type);
         const name = item.binding.name;
-        this.#refuseCapturedPosition(
-          signature,
-          item.binding.span,
-          signature.kind === "Function"
-            ? undefined
-            : (captured) =>
-              `exported binding \`${name}\` names the captured collection ` +
-              `\`${this.#display(captured)}\`; one ESM value binding is shared by ` +
-              "JavaScript and by every Hexagon importer, so no copy can protect it — " +
-              "export a function whose result is copied at the crossing, or export a `Vector`",
-        );
+        for (const seat of this.#exportedSeats(item, signature)) {
+          this.#refuseCapturedPosition(
+            seat.type,
+            seat.span,
+            signature.kind === "Function"
+              ? undefined
+              : (captured) =>
+                `exported binding \`${name}\` names the captured collection ` +
+                `\`${this.#display(captured)}\`; one ESM value binding is shared by ` +
+                "JavaScript and by every Hexagon importer, so no copy can protect it — " +
+                "export a function whose result is copied at the crossing, or export a " +
+                "`Vector`",
+          );
+        }
       }
       // FFI Part 1 §5.4 item 3, at the declaration and **unconditionally**
       // (Exceptions §2): an exception crosses wherever a throw travels, out of
@@ -22578,14 +22762,33 @@ class Checker {
           // intrinsic door is not a foreign crossing (§5.4's "what is a foreign
           // crossing"), so an `Array(a)` there copies nothing and refuses
           // nothing. Each declared position is one seat, reported at its own
-          // annotation. Item 4 has no extern edition: an `extern let`'s value
-          // is captured once at module initialization and is Hexagon's snapshot
-          // from then on (Part 4 §4.4), which is a supported position and not a
-          // shared ESM binding of Hexagon's making.
+          // annotation.
+          //
+          // An **exported** `extern let` takes item 4 besides. Its acquisition
+          // is a supported position — captured once at module initialization,
+          // Hexagon's snapshot from then on (Part 4 §4.4) — but `export` on the
+          // row re-exports the imported binding from this module's facade
+          // (Part 4 §7), and that is the very thing item 4 refuses: one live
+          // ESM binding, read by JavaScript and by every Hexagon importer,
+          // which no copy can protect. The two spellings of that export —
+          // this row, and `export let rows: Array(Int) = raw` beside it —
+          // therefore draw one refusal, as they must.
           if (declaration.kind === "ExternType") continue;
           const signature = this.#prune(this.#scheme(declaration.binding.symbol).type);
           if (declaration.kind === "ExternLet") {
-            this.#refuseCapturedPosition(signature, declaration.annotation.span);
+            const exported = declaration.localName;
+            this.#refuseCapturedPosition(
+              signature,
+              declaration.annotation.span,
+              declaration.exported
+                ? (captured) =>
+                  `exported binding \`${exported}\` names the captured collection ` +
+                  `\`${this.#display(captured)}\`; one ESM value binding is shared by ` +
+                  "JavaScript and by every Hexagon importer, so no copy can protect it — " +
+                  "export a function whose result is copied at the crossing, or export a " +
+                  "`Vector`"
+                : undefined,
+            );
             continue;
           }
           const seats = signature.kind === "Function" &&
@@ -22631,7 +22834,17 @@ class Checker {
    */
   #checkReleaseSeats(): void {
     for (const { type, span } of this.#releaseSeats) {
-      const survivors = this.#collectVariables(type);
+      // **Type** variables only. Part 11 §2 refuses the seat where the compiler
+      // cannot determine a release operation, and an *effect* variable
+      // determines nothing to release: a function type naming no captured
+      // collection is §5.4's identity, colour or no colour, and the colour is
+      // not even rendered as a name (`#arrow` prints it as `->?`), so a report
+      // keyed on it would name a variable that appears nowhere in the type it
+      // quotes. The filter is `#nameSurvivingVariables`' own, so the variable
+      // named below is by construction one the rendered type shows.
+      const colours = new Set(this.#effectVariables(type));
+      const survivors = this.#collectVariables(type)
+        .filter((variable) => !colours.has(variable.id));
       if (survivors.length === 0) {
         this.#refuseCapturedPosition(type, span);
         continue;
@@ -25336,32 +25549,6 @@ function annotationMentionsNode(annotation: Resolved.TypeAnnotation): boolean {
     case "ErrorType":
       return false;
   }
-}
-
-/**
- * One export of one prelude module, as **this** module sees it, or nothing.
- *
- * The symbol is read off the synthesized prelude import, which is where the
- * resolver records the identity a bare or qualified reference landed on: both
- * spellings resolve to the one symbol (Modules §6.4), so one check covers both,
- * and an occluding module's own binding has a different symbol and never
- * matches. The emitter asks the same question of its own `Core.Module` and must
- * keep the same answer — `preludeExportSymbol` there, over the same items.
- */
-function preludeExportSymbol(
-  module: Resolved.Module,
-  basename: string,
-  exported: string,
-): Resolved.SymbolId | undefined {
-  for (const item of module.items) {
-    if (item.kind !== "Import" || !item.synthesized) continue;
-    if (item.form.kind !== "Named") continue;
-    if (item.specifier.slice(item.specifier.lastIndexOf("/") + 1) !== basename) continue;
-    for (const name of item.form.names) {
-      if (name.imported === exported && name.typeOnly !== true) return name.symbol;
-    }
-  }
-  return undefined;
 }
 
 /**

@@ -39,11 +39,33 @@ function diagnose(source: string): readonly string[] {
   return projectDiagnostics(MAIN + source);
 }
 
-/** Item 1's message, for a captured `type` under `container`. */
+/**
+ * Item 1's message, for a captured `type` under `container`.
+ *
+ * The rewrites differ by the captured type, and they differ because the Rewrite
+ * Rule (Declarations Preamble §1.1) wants constructs already in the language:
+ * `Array.toVector` has shipped, `Vector.map` has not, and `Map.fromJsMap` /
+ * `Set.fromJsSet` have not either (#796) — so the element conversion is named
+ * where it exists and described where it does not, and the two rewrites that
+ * are always available follow it.
+ */
 function beneath(captured: string, container: string): string {
+  const rewrites = captured.startsWith("Array(")
+    ? "convert each element with `Array.toVector` before the crossing, perform the " +
+      "conversion at a controlled boundary, or bind through a foreign shim or an opaque " +
+      "foreign handle"
+    : "convert the elements to a persistent `Map`/`Set` at a controlled boundary, or bind " +
+      "through a foreign shim or an opaque foreign handle";
   return `captured collection \`${captured}\` beneath \`${container}\` cannot cross the ` +
-    "foreign boundary; convert the elements (`Vector.map(rows, Array.toVector)`), convert " +
-    "at a controlled boundary, or bind through a foreign shim or an opaque foreign handle";
+    `foreign boundary; ${rewrites}`;
+}
+
+/** Item 4's message, whichever of the two export spellings drew it. */
+function sharedBinding(name: string, captured: string): string {
+  return `exported binding \`${name}\` names the captured collection \`${captured}\`; one ` +
+    "ESM value binding is shared by JavaScript and by every Hexagon importer, so no copy " +
+    "can protect it — export a function whose result is copied at the crossing, or export " +
+    "a `Vector`";
 }
 
 describe("item 1 — a captured collection beneath one of the five containers", () => {
@@ -55,8 +77,41 @@ describe("item 1 — a captured collection beneath one of the five containers", 
   test("the message names the container, the captured type, and three rewrites", () => {
     expect(diagnose('extern from "./m.js"\n    fun rows() ->! Vector(Array(Int))\n')).toEqual([
       "captured collection `Array(Int)` beneath `Vector` cannot cross the foreign boundary; " +
-      "convert the elements (`Vector.map(rows, Array.toVector)`), convert at a controlled " +
-      "boundary, or bind through a foreign shim or an opaque foreign handle",
+      "convert each element with `Array.toVector` before the crossing, perform the " +
+      "conversion at a controlled boundary, or bind through a foreign shim or an opaque " +
+      "foreign handle",
+    ]);
+  });
+
+  // The keyed shapes' twin. Their element conversions — `Map.fromJsMap`,
+  // `Set.fromJsSet` — are unshipped (#796), so the sentence names the
+  // persistent target rather than an operation the reader cannot call.
+  test("a captured keyed shape names the rewrites it actually has", () => {
+    expect(diagnose('extern from "./m.js"\n    fun rows() ->! Map(String, JsSet(Int))\n'))
+      .toEqual([
+        "captured collection `JsSet(Int)` beneath `Map` cannot cross the foreign boundary; " +
+        "convert the elements to a persistent `Map`/`Set` at a controlled boundary, or bind " +
+        "through a foreign shim or an opaque foreign handle",
+      ]);
+  });
+
+  // §5.4's table makes each parameter and the result a position, so a signature
+  // with three offending seats draws three diagnostics — and it draws them at
+  // the export as at the extern, which is the same table read once.
+  test("each parameter and the result is its own seat, on both halves", () => {
+    const extern = 'extern from "./m.js"\n' +
+      "    fun g(a: Vector(Array(Int)), b: Set(Array(Int))) ->! Vector(Array(Int))\n";
+    expect(diagnose(extern)).toEqual([
+      beneath("Array(Int)", "Vector"),
+      beneath("Array(Int)", "Set"),
+      beneath("Array(Int)", "Vector"),
+    ]);
+    expect(diagnose(
+      "export let g(a: Vector(Array(Int)), b: Set(Array(Int))): Vector(Array(Int)) = a\n",
+    )).toEqual([
+      beneath("Array(Int)", "Vector"),
+      beneath("Array(Int)", "Set"),
+      beneath("Array(Int)", "Vector"),
     ]);
   });
 
@@ -227,16 +282,37 @@ describe("item 4 — an exported non-function binding", () => {
     ]);
   });
 
+  /**
+   * **Both spellings of the export, one refusal.** `export` on an extern row
+   * re-exports the imported binding from this module's facade (Part 4 §7), so
+   * the live ESM binding item 4 is about is the same live binding the Hexagon
+   * spelling beside it would publish. The row's *acquisition* is a supported
+   * position — Part 4 §4.4's snapshot — and that is a different crossing; what
+   * is refused here is the publication.
+   */
+  test("an exported `extern let` draws it too, and says the same thing", () => {
+    expect(diagnose('extern from "./m.js"\n    export let rows: Array(Int)\n'))
+      .toEqual([sharedBinding("rows", "Array(Int)")]);
+    expect(diagnose('extern from "./m.js"\n    export let m: JsMap(String, Int)\n'))
+      .toEqual([sharedBinding("m", "JsMap(String, Int)")]);
+    // The Hexagon spelling of the same export, for comparison.
+    expect(diagnose(
+      'extern from "./m.js"\n    let raw: Array(Int)\n\nexport let rows: Array(Int) = raw\n',
+    )).toEqual([sharedBinding("rows", "Array(Int)")]);
+  });
+
+  test("an unexported extern row is untouched — the acquisition is supported", () => {
+    expect(diagnose(
+      'extern from "./m.js"\n    let rows: Array(Int)\nexport let n(): Int = 1\n',
+    )).toEqual([]);
+  });
+
   test("the type may name one from inside an aggregate", () => {
     expect(diagnose(
       "export record Row = { cells: Array(Int) }\n\n" +
         'extern from "./m.js"\n    let row: Row\n\n' +
         "export let first: Row = row\n",
-    )).toEqual([
-      "exported binding `first` names the captured collection `Array(Int)`; one ESM value " +
-      "binding is shared by JavaScript and by every Hexagon importer, so no copy can protect " +
-      "it — export a function whose result is copied at the crossing, or export a `Vector`",
-    ]);
+    )).toEqual([sharedBinding("first", "Array(Int)")]);
   });
 
   test("a function export and a private binding are both untouched", () => {
@@ -276,6 +352,52 @@ describe("item 5 — the release seat, `JsValue.from`", () => {
       "where the concrete type is known, or pass an explicit conversion function " +
       "`(a) -> JsValue` into the generic helper",
     ]);
+  });
+
+  /**
+   * **A type variable, and only a type variable.** §2 refuses the seat where
+   * the compiler cannot determine a release operation, and an *effect* variable
+   * determines nothing to release: a function type naming no captured
+   * collection is §5.4's identity, colour or no colour. The colour is not even
+   * rendered as a name — `->?` is how it prints — so a refusal keyed on it
+   * would name a variable the type it quotes does not contain, which is the
+   * shape #649 abolished.
+   *
+   * The two halves are one table because the second is only meaningful beside
+   * the first: every colour-only row is legal, and every refused row names a
+   * variable its own rendered type shows.
+   */
+  test.each([
+    ["(Int) ->? Int", false],
+    ["(Int) ->? Bool", false],
+    ["a", true],
+    ["Vector(a)", true],
+    ["(a, Int)", true],
+    ["(Int) ->? b", true],
+  ])("`JsValue.from` at `%s` — refused: %s", (written, refused) => {
+    const messages = diagnose(
+      `let w(x: ${written}): JsValue = JsValue.from(x)\nexport let go(): Int = 1\n`,
+    );
+    if (!refused) {
+      expect(messages).toEqual([]);
+      return;
+    }
+    expect(messages).toHaveLength(1);
+    const quoted = /at type `([^`]*)`: the type variable `([^`]*)`/u.exec(messages[0] ?? "");
+    expect(quoted).not.toBeNull();
+    expect(quoted?.[1]).toContain(quoted?.[2] ?? "\u0000");
+  });
+
+  // A group is punctuation: `(JsValue.from)(x)` is the same direct application,
+  // and the emitter erases it too.
+  test("a parenthesised callee is the same seat", () => {
+    expect(diagnose("let w(x: a): JsValue = (JsValue.from)(x)\nexport let go(): Int = 1\n"))
+      .toEqual([
+        "`JsValue.from` cannot release a value at type `a`: the type variable `a` determines " +
+        "no release operation, and the seat never falls back to identity — inject where the " +
+        "concrete type is known, or pass an explicit conversion function `(a) -> JsValue` " +
+        "into the generic helper",
+      ]);
   });
 
   test("a defaulted literal and a resolved variable are both ground", () => {
@@ -324,14 +446,67 @@ describe("the fixpoint terminates, and answers each occurrence on its own", () =
     )).toEqual([beneath("Array(Int)", "Vector")]);
   });
 
-  // The path set is removed on the way out, so a nominal asked once and
-  // answered "no" is asked again in full at its next occurrence — a whole-walk
-  // visited set would silently clear the second `Vector(Row)` here.
-  test("two occurrences of one nominal are each asked in full", () => {
+  /**
+   * **The walk keys on the occurrence, not on the declaration.** Both `Box`es
+   * below are visited by one membership call, and they are different questions:
+   * `Box(Int)` names no captured collection and `Box(Array(Int))` does. A
+   * visited set keyed on `Box` alone answers the second with the first's "no"
+   * and lets the position through.
+   */
+  test("two occurrences of one nominal under different arguments are both asked", () => {
     expect(diagnose(
-      "record Row = { cells: Array(Int) }\n" +
-        "record Pair = { a: Vector(Int), b: Vector(Row) }\n\n" +
-        'extern from "./m.js"\n    fun rows() ->! Pair\n',
+      "union Box(a) = Empty | Full(a)\n" +
+        "record Pair = { u: Box(Int), v: Box(Array(Int)) }\n\n" +
+        'extern from "./m.js"\n    fun rows() ->! Vector(Pair)\n',
     )).toEqual([beneath("Array(Int)", "Vector")]);
+    // …and the same pair with no `Array` in it stays legal, so the row above
+    // is not passing on the mere presence of a second occurrence.
+    expect(diagnose(
+      "union Box(a) = Empty | Full(a)\n" +
+        "record Pair = { u: Box(Int), v: Box(Vector(Int)) }\n\n" +
+        'extern from "./m.js"\n    fun rows() ->! Vector(Pair)\n',
+    )).toEqual([]);
+  });
+
+  /**
+   * **And the visited entry is never unwound**, which is what keeps the walk
+   * linear on a shared-subterm graph. `Li` names `L(i-1)` twice, so a path set
+   * — added on the way in, removed on the way out — visits `L0` 2ⁱ times: at
+   * i = 22 that is four million visits and about nine seconds, against the
+   * hundred-odd milliseconds the whole compile takes without the chain. The
+   * budget below is loose enough for a slow machine and nowhere near the
+   * exponential it excludes.
+   */
+  test("a shared-subterm chain is linear, not exponential", () => {
+    const declarations = ["record L0 = { q: Int }"];
+    for (let level = 1; level <= 22; level += 1) {
+      declarations.push(`record L${level} = { a: L${level - 1}, b: L${level - 1} }`);
+    }
+    const source = `${declarations.join("\n")}\n\n` +
+      'extern from "./m.js"\n    fun rows() ->! Vector(L22)\n';
+    const started = Date.now();
+    expect(diagnose(source)).toEqual([]);
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
+
+  /**
+   * **Non-regular recursion terminates**, and it terminates by truncating the
+   * key rather than by giving up at the first re-entry: `R(Int)`'s inner
+   * `R(Array(Int))` has a `y` of type `Array(Int)`, so the position really does
+   * name a captured collection and really is refused. Keying on the
+   * declaration alone missed it outright.
+   */
+  test("a non-regular recursive record terminates, and is still answered", () => {
+    const refused = diagnose(
+      "record R(a) = { x: Nullable(R(Array(a))), y: a }\n\n" +
+        'extern from "./m.js"\n    fun rows() ->! Vector(R(Int))\n',
+    );
+    expect(refused).toHaveLength(1);
+    expect(refused[0]).toContain("beneath `Vector` cannot cross the foreign boundary");
+    // The same shape with nothing captured stays legal — `a` reaches no field.
+    expect(diagnose(
+      "record R(a) = { x: Nullable(R(Array(a))) }\n\n" +
+        'extern from "./m.js"\n    fun rows() ->! Vector(R(Int))\n',
+    )).toEqual([]);
   });
 });

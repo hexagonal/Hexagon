@@ -23,6 +23,7 @@ import { patternExportName } from "../../support/generated-names.js";
 import type * as Core from "../../syntax/core/index.js";
 import type * as Emitted from "../../emission/index.js";
 import type * as Resolved from "../../syntax/resolved/index.js";
+import { preludeExportSymbol } from "../../support/prelude-symbol.js";
 import * as Typed from "../../syntax/typed/index.js";
 import { idContinue, idStart } from "../lexer/unicode-17.js";
 import {
@@ -1382,42 +1383,30 @@ function isVirtualJsError(item: Typed.ExceptionItem): boolean {
  * **The resolved binding, never the spelling.** A module may declare its own
  * `ignore` or its own `from` (Modules §5.4), and calls to *those* must emit as
  * ordinary calls — erasing them would drop a user's function body on the floor.
- * The symbol is read off the synthesized prelude import, which is where the
- * resolver records the identity a bare or qualified reference landed on: both
- * spellings resolve to the one symbol (Modules §6.4), so one check covers both,
- * and an occluding module's own binding has a different symbol and never
- * matches.
- *
- * Absent inside the declaring module itself, which has no import of its own to
- * read — the self-blindness `preludeIds` documents for `seq` and `bool`, here
- * with no fallback because none is owed: neither `stdlib/Prelude.hex` nor
- * `stdlib/JsValue.hex` calls the name it declares, and a missing entry costs an
- * un-erased call rather than a wrong one.
+ * `support/prelude-symbol.ts` states the rest, and is where the function lives:
+ * the checker refuses the release seat at exactly the binding this erases, so
+ * the two passes read one implementation rather than two copies of it.
  */
-function preludeExportSymbol(
+function preludeExport(
   module: Core.Module,
   basename: string,
   exported: string,
 ): Resolved.SymbolId | undefined {
-  for (const item of module.items) {
-    if (item.kind !== "Import" || !item.synthesized) continue;
-    if (item.form.kind !== "Named") continue;
-    if (item.specifier.slice(item.specifier.lastIndexOf("/") + 1) !== basename) continue;
-    for (const name of item.form.names) {
-      if (name.imported === exported && name.typeOnly !== true) return name.symbol;
-    }
-  }
-  return undefined;
+  return preludeExportSymbol(
+    module.items.filter((item) => item.kind === "Import"),
+    basename,
+    exported,
+  );
 }
 
 /**
  * `stdlib/Prelude.hex`'s `ignore` as this module sees it, or nothing when the
- * module never reached the name (#313) — `preludeExportSymbol` above states the
+ * module never reached the name (#313) — `preludeExportSymbol` states the
  * properties, of which the load-bearing one is that this is the resolved
  * binding and not the spelling.
  */
 function preludeIgnoreSymbol(module: Core.Module): Resolved.SymbolId | undefined {
-  return preludeExportSymbol(module, "Prelude", "ignore");
+  return preludeExport(module, "Prelude", "ignore");
 }
 
 function preludeIds(module: Core.Module): PreludeIds {
@@ -1485,7 +1474,7 @@ function preludeIds(module: Core.Module): PreludeIds {
     // body for `a -> JsValue` typechecks through nothing — so the module-level
     // binding exists for a foreign caller reaching the export, and this entry is
     // what keeps a Hexagon call site from paying for it.
-    jsValueFrom: preludeExportSymbol(module, "JsValue", "from"),
+    jsValueFrom: preludeExport(module, "JsValue", "from"),
     // The exception door (Exceptions §6.2, #509). Read off `visibleExceptions`
     // rather than off the synthesized import the two entries above read, and the
     // difference is load-bearing: an exception reaches a module as a *pattern*
