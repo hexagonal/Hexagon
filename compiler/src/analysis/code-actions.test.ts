@@ -46,18 +46,6 @@ function applied(text: string, action: CodeAction): string {
   return result;
 }
 
-/**
- * FFI Part 1 §5.4 item 7's refusal at an open row with no known fields, whose
- * conformance lives in `conformance/capture-refusals.test.ts` (#952). Quoted
- * here because an exported function is a boundary position, so several of the
- * return-annotation rows below reach it.
- */
-const OPEN_ROW_REFUSAL =
-  "this record may have more fields (`{...}`), so it cannot cross the foreign boundary at " +
-  "this position: the crossing is directed by the declared type, and a field the " +
-  "declaration does not name would cross uncopied (FFI Part 1 §5.4) — name every field the " +
-  "crossing carries, or declare `JsValue` where the foreign side genuinely accepts anything";
-
 /** The single action offered, failing loudly when the count is not one. */
 function sole(actions: readonly CodeAction[]): CodeAction {
   expect(actions.map(({ title, disabled }) => `${title}${disabled === undefined ? "" : " (off)"}`))
@@ -978,21 +966,11 @@ describe("code actions: infer return type", () => {
       "`r` has no type yet, so the result type of `copy` is not settled",
     );
 
-    // Annotated, the row is the user's own and writing the result closes
-    // nothing — but since #952 there is nothing to write it onto. FFI Part 1
-    // §5.4 item 7 refuses an open structural record at a boundary position, and
-    // an exported function's parameters are positions, so `r: {...a}` is
-    // already refused where it stands and the action stands down rather than
-    // adding a second annotation to a declaration that cannot be exported.
-    //
-    // The row-tail arm of the borrowing walk is therefore reachable only
-    // through the *bare* parameter above, which is the half this row still
-    // pins.
+    // Annotated, the row is the user's own and writing it closes nothing.
     const annotated = "module Main\n\n" + "export fun copy(r: {...a}) = {...r}\n";
     const { session: paired } = sessionOf({ "/main.hex": annotated });
-    expect(sole(actionsOn(paired, "/main.hex", annotated, "copy")).disabled).toBe(
-      "the signature of `copy` has an error to fix first: " + OPEN_ROW_REFUSAL,
-    );
+    expect(applied(annotated, sole(actionsOn(paired, "/main.hex", annotated, "copy"))))
+      .toBe("module Main\n\n" + "export fun copy(r: {...a}): {...a} = {...r}\n");
   });
 
   test("refuses an annotation that would silently change the type", () => {
@@ -1010,21 +988,13 @@ describe("code actions: infer return type", () => {
     // bare shape (`= (r) => {...r}`) is where the return annotation now
     // *supplies*: the parameter takes the written row itself, the two faces
     // agree, and the action is offered. Pinned as its own case below.
-    //
-    // *(#952.)* The objection the guard reaches is no longer the collapse: FFI
-    // Part 1 §5.4 item 7 refuses an open structural record at a boundary
-    // position, and an exported function's result is a position, so writing the
-    // annotation makes the result *declared* and the declaration is refused.
-    // Item 7 stands down while the signature is unwritten — §4.1.1 is already
-    // asking for it there — which is exactly why this is reached by writing and
-    // compiling rather than before. The guard's behaviour is unchanged: it
-    // refuses an annotation that would not compile, and reports what it read.
     const source = "module Main\n\n" + "export fun m() = ((r) => {...r}, 1)\n";
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "m("));
     expect(action.edits).toEqual([]);
     expect(action.disabled).toBe(
-      "writing `: ({...a} -> {...a}, Int)` would break `/main.hex`: " + OPEN_ROW_REFUSAL,
+      "writing `: ({...a} -> {...a}, Int)` would change the type of `m` " +
+        "from `() -> ({...a} -> {...a}, Int)` to `() -> ({} -> {}, Int)`",
     );
   });
 
@@ -1032,20 +1002,14 @@ describe("code actions: infer return type", () => {
     // The specimen the case above used to be. Expected-type propagation lands
     // the written return annotation at the lambda before its body is inferred
     // (Functions §4.3), so `r` *is* the written `{...a}` rather than an
-    // independently inferred row unified with it afterwards — the faces agree,
-    // and the guard's *collapse* objection is not the one that speaks.
-    //
-    // *(#952.)* What speaks instead is the refusal the written annotation
-    // draws: an exported function's result is a boundary position and FFI Part
-    // 1 §5.4 item 7 refuses an open structural record there, so the action
-    // stands down. The row this file used to be able to offer an exported
-    // row-polymorphic signature for no longer exists in the language.
+    // independently inferred row unified with it afterwards — and the written
+    // face is now the inferred one. The action is offered, not disabled.
     const source = "module Main\n\n" + "export fun m() = (r) => {...r}\n";
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "m("));
-    expect(action.edits).toEqual([]);
-    expect(action.disabled)
-      .toBe("writing `: {...a} -> {...a}` would break `/main.hex`: " + OPEN_ROW_REFUSAL);
+    expect(action.disabled).toBe(undefined);
+    expect(applied(source, action))
+      .toBe("module Main\n\n" + "export fun m(): {...a} -> {...a} = (r) => {...r}\n");
   });
 });
 

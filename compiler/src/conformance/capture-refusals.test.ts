@@ -4,8 +4,8 @@ import { compileFiles, compileMain, projectDiagnostics } from "../support/test-p
 
 /**
  * Conformance for **the capture walk's refused positions** — FFI Part 1 §5.4's
- * six items and the diagnostics checklist rows §9 gives five of them (#945,
- * part 1).
+ * seven items and the diagnostics checklist rows §9 gives six of them (#945,
+ * part 1, and its rider #952/#953/#954).
  *
  * §5.4 states one mechanism and one trigger. The trigger is **"names a captured
  * collection"**: "the least fixpoint over the declared type's constructor
@@ -24,10 +24,18 @@ import { compileFiles, compileMain, projectDiagnostics } from "../support/test-p
  *
  * The positions are §5.4's own table, less the ones that do not exist yet: an
  * extern `fun`'s parameters and result, an `extern let`'s value, an exported
- * Hexagon function's parameters and result, an exported value binding, and the
- * release seat `JsValue.from`. Part 5's receiver members (`get`/`method`/`set`/
- * `new`) are not in the language yet and are not pinned here; they inherit the
- * same seat when they arrive.
+ * Hexagon function's parameters and result, an exported value binding, an
+ * exported constraint's member parameters and result (#953), and the release
+ * seat `JsValue.from`. Part 5's receiver members (`get`/`method`/`set`/`new`)
+ * are not in the language yet and are not pinned here; they inherit the same
+ * seats when they arrive, `method`/`set`/`new` taking item 7's `supplied` side
+ * with an extern `fun`'s parameters.
+ *
+ * **Item 7 is directional** (#952). It refuses an open structural record only
+ * where *Hexagon* supplies the record — an extern `fun`'s parameters, any
+ * function type anywhere in an extern declaration, the release seat — and every
+ * other position keeps its open rows, the foreign side instantiating the tail
+ * and parametricity covering what Hexagon can neither name nor extend.
  *
  * **Nothing about emission is here.** This part ships the refusals only; the
  * copying wrappers of Part 4 §4.3, Part 6 §5.5 and Part 7 §7 occasion 4 are a
@@ -83,7 +91,7 @@ function beneath(captured: string, container: string): string {
 }
 
 /**
- * Item 7's message, for an open structural record at a boundary position.
+ * Item 7's message, at a position where **Hexagon supplies the record**.
  *
  * Products §4's diagnostics vocabulary is **binding** — "this record may have
  * more fields", never "row" and never "row variable" — and §9's row asks for
@@ -91,17 +99,17 @@ function beneath(captured: string, container: string): string {
  */
 function openRow(rendered: string): string {
   return `this record may have more fields (\`${rendered}\`), so it cannot cross the foreign ` +
-    "boundary at this position: the crossing is directed by the declared type, and a field " +
-    "the declaration does not name would cross uncopied (FFI Part 1 §5.4) — name every " +
-    "field the crossing carries, or declare `JsValue` where the foreign side genuinely " +
-    "accepts anything";
+    "boundary at this position: Hexagon supplies the record here, and a field the " +
+    "declaration does not name would cross uncopied (FFI Part 1 §5.4) — name every field " +
+    "the crossing carries, or declare `JsValue` where the foreign side genuinely accepts " +
+    "anything";
 }
 
 /** The same at the release seat, whose rewrite §5.4 item 7 states separately. */
 function releasedOpenRow(rendered: string): string {
   return `this record may have more fields (\`${rendered}\`), so \`JsValue.from\` cannot ` +
-    "release it: the release is directed by the declared type, and a field the type does " +
-    "not name would cross uncopied (FFI Part 1 §5.4) — inject at a closed type";
+    "release it: Hexagon supplies the value here, and a field the type does not name would " +
+    "cross uncopied (FFI Part 1 §5.4) — inject at a closed type";
 }
 
 /** Item 4's message, whichever of the two export spellings drew it. */
@@ -698,14 +706,14 @@ describe("item 6 — the nested-adapter refusal is unchanged", () => {
   });
 });
 
-describe("item 7 — an open structural record at a position, or at the release seat", () => {
+describe("item 7 — an open structural record where Hexagon supplies it", () => {
   /**
    * **The program #952 found.** The refusals are computed over the *declared*
    * type, and an open row declares only some of its components: the closed
    * spelling below is refused by item 1, and before this item the open one
-   * compiled clean while a caller widened it with the very `Vector(Array(Int))`
-   * item 1 exists to refuse. §2.2's guarantee is a guarantee about the
-   * published boundary, so the declaration has to be closed to be walked.
+   * compiled clean while a Hexagon caller widened it with the very
+   * `Vector(Array(Int))` item 1 exists to refuse. An extern `fun`'s parameter
+   * is a position Hexagon fills, so the declaration has to be closed.
    */
   test("the pair the ruling turns on: open refused, closed refused by item 1", () => {
     expect(diagnose('extern from "./m.js"\n    fun send(r: {n: Int, ...}) ->! Unit\n'))
@@ -716,9 +724,64 @@ describe("item 7 — an open structural record at a position, or at the release 
   });
 
   /**
+   * **The direction rule, in one pair.** An extern `fun`'s **parameter** is
+   * filled by a Hexagon caller and is refused; its **result** is filled by the
+   * foreign side and keeps its open row, because Hexagon can neither name nor
+   * add the fields it did not declare (Products §4 has no record extension) and
+   * so holds them as it holds a value at a type variable — parametricity, the
+   * same argument that excuses an exported `first(xs: Array(a)): a`.
+   */
+  test("a parameter is refused and a result is not", () => {
+    expect(diagnose('extern from "./m.js"\n    fun send(r: {n: Int, ...}) ->! Unit\n'))
+      .toEqual([openRow("{n: Int, ...}")]);
+    expect(diagnose('extern from "./m.js"\n    fun get() ->! {n: Int, ...}\n')).toEqual([]);
+    expect(diagnose('extern from "./m.js"\n    let config: {name: String, ...}\n')).toEqual([]);
+  });
+
+  /**
+   * **A function type anywhere in an extern declaration is Hexagon's side
+   * again**, and it is taken whole rather than slot by slot: at a *callback*
+   * Hexagon produces the result and the foreign side fills the parameters, and
+   * at a foreign function *value* Hexagon chooses the arguments — one type, two
+   * readings, so the conservative rule is the only one that is right in both.
+   */
+  test.each([
+    ["a callback at a result", 'fun get() ->! ({n: Int, ...}) -> Unit'],
+    ["a function's result at a result", 'fun get() ->! (Int) -> {n: Int, ...}'],
+    ["a function inside a container", 'fun get() ->! Vector(({n: Int, ...}) -> Unit)'],
+    ["a callback at a parameter", 'fun send(f: ({n: Int, ...}) -> Int) ->! Unit'],
+  ])("%s is refused", (_what, row) => {
+    expect(diagnose(`extern from "./m.js"\n    ${row}\n`)).toEqual([openRow("{n: Int, ...}")]);
+  });
+
+  // An `extern let` takes the same rule, and reaches it through a type that is
+  // not itself callable — Part 4's grammar refuses a callable `let` on its own
+  // (`extern callable declarations use \`fun\``), so a bare function-typed row
+  // would pin two things at once.
+  test.each([
+    ["a `Vector` of them", "let handlers: Vector(({n: Int, ...}) -> Unit)"],
+    ["a record field", "let hooks: {onEach: ({n: Int, ...}) -> Unit}"],
+  ])("an `extern let` holding a function through %s is refused", (_what, row) => {
+    expect(diagnose(`extern from "./m.js"\n    ${row}\n`)).toEqual([openRow("{n: Int, ...}")]);
+  });
+
+  /**
+   * **The two findings are genuinely two.** One result names an open row under
+   * a function type and another beside it at no function at all; only the first
+   * is Hexagon's to fill, and it is the one the message quotes.
+   */
+  test("only the row a function type stands above is refused", () => {
+    expect(diagnose(
+      'extern from "./m.js"\n' +
+        "    fun get() ->! {onEach: ({n: Int, ...}) -> Unit, other: {p: Int, ...}}\n",
+    )).toEqual([openRow("{n: Int, ...}")]);
+  });
+
+  /**
    * **The same at the release seat**, where §5.4 gives the item its own
-   * rewrite: the value is Hexagon's own and the fix is to inject at a type that
-   * names every field, rather than to name fields on a foreign declaration.
+   * rewrite: the value is Hexagon's own by definition — this is the one seat
+   * where the Hexagon side hands the record over — and the fix is to inject at
+   * a type that names every field.
    */
   test("the release seat has its own rewrite, and the closed neighbour is legal", () => {
     expect(diagnose(
@@ -761,75 +824,107 @@ describe("item 7 — an open structural record at a position, or at the release 
       .toEqual([openRow("{n: Int, ...}")]);
   });
 
-  // "including through any aggregate or **function type** inside the
-  // container": a callback's own parameters are positions at each invocation
-  // (§5.4's table, Part 6 §5.5), and the conversion wrapper that would walk
-  // them is directed by the declared type exactly as everything else is.
-  test("a callback's parameter is a position of its own", () => {
-    expect(diagnose(
-      'extern from "./m.js"\n    fun send(f: ({n: Int, ...}) -> Int) ->! Unit\n',
-    )).toEqual([openRow("{n: Int, ...}")]);
-  });
-
-  // An exported union's constructor is a function JavaScript calls (Part 7 §6),
-  // so each payload slot is a parameter position — items 1, 2 and now 7.
-  test("an exported union constructor's payload is a position", () => {
-    expect(diagnose("export union Shape = Rows({n: Int, ...})\n"))
-      .toEqual([openRow("{n: Int, ...}")]);
-    expect(diagnose("union Shape = Rows({n: Int, ...})\nexport let go(): Int = 1\n")).toEqual([]);
+  /**
+   * **Every position the foreign side fills keeps its open rows**, which is the
+   * other half of the ruling and the half with a language-visible cost if it
+   * went the other way: the row-polymorphic function stays exportable, and the
+   * declaration file renders its shared tail as before.
+   */
+  test.each([
+    [
+      "an exported function's parameters and result",
+      'export fun rename(r: {guest: String, ...rest}): {guest: String, ...rest} =' +
+        ' {r with guest = "Renamed"}\n',
+    ],
+    ["an exported constructor's payload", "export union Shape = Rows({n: Int, ...})\n"],
+    ["an exported value binding", "export let point: {x: Int, ...q} = { x = 1, y = 2 }\n"],
+    [
+      "an exported constraint's member parameter",
+      "export constraint Rowy<a> =\n    rows(x: {n: Int, ...}) -> Int\n",
+    ],
+    [
+      "an exported constraint's member result",
+      "export constraint Rowy<a> =\n    rows(x: a) -> {n: Int, ...}\n",
+    ],
+    [
+      "a module-private row-polymorphic function",
+      "let widest(r: {n: Int, ...}): Int = r.n\n" +
+        "export let go(): Int = widest({ n = 1, m = 2 })\n",
+    ],
+  ])("%s keeps its open row", (_what, source) => {
+    expect(diagnose(source)).toEqual([]);
   });
 
   /**
-   * **"Hexagon-to-Hexagon calls are not crossings and keep their open rows."**
-   * The row-polymorphic function is the ordinary Hexagon idiom, and nothing
-   * about it changes: what §5.4 refuses is a *boundary* declaration.
+   * **The mechanism that separates the two sides**, pinned as the one pair that
+   * shows it: a written tail is **rigid** inside the definition Hexagon
+   * compiles (Functions §4.1), so nothing Hexagon holds can enter it and an
+   * exported function's own callback parameter keeps its open row; an extern
+   * declaration's tail is instead solved afresh at each Hexagon call site,
+   * invisibly to a wrapper compiled against the open declaration, and the same
+   * function type there is refused.
    */
-  test("a module-private row-polymorphic function is untouched", () => {
+  test("the same callback type is exempt at an export and refused at an extern", () => {
+    expect(diagnose("export fun each(f: ({n: Int, ...}) -> Unit): Unit = f({n = 1})\n"))
+      .toEqual([]);
     expect(diagnose(
-      "let widest(r: {n: Int, ...}): Int = r.n\n" +
-        "export let go(): Int = widest({ n = 1, m = 2 })\n",
-    )).toEqual([]);
+      'extern from "./m.js"\n    fun each(f: ({n: Int, ...}) -> Unit) ->! Unit\n',
+    )).toEqual([openRow("{n: Int, ...}")]);
+  });
+
+  /**
+   * **Judged on the type after solving, never on the annotation text.** At an
+   * extern parameter the spelling of the tail decides nothing — anonymous or
+   * named, it is a variable the walk finds and the position is refused — and
+   * the closed spelling beside it is legal because the *type* is closed, not
+   * because a `...` is absent from the source.
+   *
+   * An extern declaration has no body, so nothing can solve its tail: that is
+   * §5.4's "solved afresh at each Hexagon call site", and it is why this seat
+   * is always the annotation's answer while the release seat below is not.
+   */
+  test("the tail's spelling decides nothing at an extern parameter", () => {
+    expect(diagnose('extern from "./m.js"\n    fun send(r: {n: Int, ...q}) ->! Unit\n'))
+      .toEqual([openRow("{n: Int, ...}")]);
+    expect(diagnose('extern from "./m.js"\n    fun send(r: {n: Int, m: Int}) ->! Unit\n'))
+      .toEqual([]);
   });
 
   /**
    * **A tail inference has solved is no longer open**, which is why the walk
-   * normalizes the row before asking. `f`'s parameter is written open and the
-   * call in its own binding group closes it, so the seat sees the closed record
-   * the crossing would really be directed by.
+   * normalizes the row before asking and reads the mono rather than the
+   * annotation. `w`'s parameter is written open and the call to `g` in its own
+   * binding group closes it, so the release seat sees the closed record the
+   * crossing would really be directed by — and any captured collection that
+   * solved it would then be items 1 and 2's business.
    */
   test("a solved tail closes the row, and the seat is legal", () => {
     expect(diagnose(
-      "let g(r: {n: Int, m: Int}): Int = r.n\nexport let f(r: {n: Int, ...q}): Int = g(r)\n",
+      "let g(r: {n: Int, m: Int}): Int = r.n\n" +
+        "let w(r: {n: Int, ...q}): (Int, JsValue) = (g(r), JsValue.from(r))\n" +
+        "export let go(): Int = 1\n",
     )).toEqual([]);
     // …and the same declaration with nothing to close it is refused.
-    expect(diagnose("export let f(r: {n: Int, ...q}): Int = r.n\n"))
-      .toEqual([openRow("{n: Int, ...}")]);
+    expect(diagnose(
+      "let w(r: {n: Int, ...q}): (Int, JsValue) = (r.n, JsValue.from(r))\n" +
+        "export let go(): Int = 1\n",
+    )).toEqual([releasedOpenRow("{n: Int, ...}")]);
+    // And a tail solved only *partly* — `q` bound to another open row — is
+    // still open, and the message quotes the fields the solution contributed.
+    // Reading the annotation instead of the solved type would quote `{n: Int,
+    // ...}` and hide the field the reader has to think about.
+    expect(diagnose(
+      "let g(r: {n: Int, m: Int, ...z}): Int = r.n\n" +
+        "let w(r: {n: Int, ...q}): (Int, JsValue) = (g(r), JsValue.from(r))\n" +
+        "export let go(): Int = 1\n",
+    )).toEqual([releasedOpenRow("{n: Int, m: Int, ...}")]);
   });
 
   /**
-   * **An undeclared seat is not item 7's.** §5.4's sentence is about a
-   * *declared* position, and Modules §4.1.1 has already refused an exported
-   * binding that writes no annotation — with item 7's own rewrite, since
-   * "name every field the crossing carries" is the annotation §4.1.1 asks for.
-   * Reporting both would quote `{...}`, a type the author never wrote and one
-   * that names nothing the reader can see (#649).
-   */
-  test("an exported signature that is not written draws §4.1.1 alone", () => {
-    expect(diagnose("export fun copy(r) = {...r}\n")).toEqual([
-      "exported function `copy` requires a complete signature; add type for parameter " +
-      "`r` and a return type",
-    ]);
-    // Written, the same declaration is refused twice over — once at the
-    // parameter and once at the result, §5.4's table making each a position.
-    expect(diagnose("export fun copy(r: {...a}): {...a} = {...r}\n"))
-      .toEqual([openRow("{...}"), openRow("{...}")]);
-  });
-
-  /**
-   * **Item 7 speaks before items 1 and 2**, and the order is the order the
-   * refusals decide in: a declaration that does not name its own components is
-   * one the walk cannot be directed by at all, so what the walk found *inside*
-   * it is a report about the part the author did spell.
+   * **Item 7 speaks before items 1 and 2** where it speaks at all, and the
+   * order is the order the refusals decide in: a declaration that does not name
+   * its own components is one the walk cannot be directed by, so what the walk
+   * found *inside* it is a report about the part the author did spell.
    */
   test("an open row outranks a captured collection beneath a container", () => {
     expect(diagnose(
@@ -857,11 +952,11 @@ describe("#953 — an exported constraint's member parameters and result", () =>
   /**
    * FFI Part 9 §3.4, and §5.4's positions table: "An exported constraint's
    * member parameters and result are boundary positions in their own right …
-   * so Part 1 §5.4's refusals 1, 2, and 7 apply at the member annotation,
-   * whether or not §5's closure publishes a handle." A public handle is a
-   * record of functions crossing outbound, and a member naming a captured
-   * collection beneath a container asks for the copying wrapper the walk can no
-   * more install inside a `Vector` here than anywhere else.
+   * so Part 1 §5.4's refusals 1 and 2 apply at the member annotation, whether
+   * or not §5's closure publishes a handle." A public handle is a record of
+   * functions crossing outbound, and a member naming a captured collection
+   * beneath a container asks for the copying wrapper the walk can no more
+   * install inside a `Vector` here than anywhere else.
    */
   test("item 1 at a member's result", () => {
     expect(diagnose("export constraint Rowy<a> =\n    rows(x: a) -> Vector(Array(Int))\n"))
@@ -881,13 +976,15 @@ describe("#953 — an exported constraint's member parameters and result", () =>
     ]);
   });
 
-  test("item 7 at a member's parameter", () => {
-    expect(diagnose("export constraint Rowy<a> =\n    rows(x: {n: Int, ...}) -> Int\n"))
-      .toEqual([openRow("{n: Int, ...}")]);
-  });
-
-  // Each parameter and the result is a seat of its own, as on the extern and
-  // export halves — §5.4's table makes each a position, not the signature.
+  /**
+   * Each parameter and the result is a seat of its own, as on the extern and
+   * export halves — §5.4's table makes each a position, not the signature.
+   *
+   * **Item 7 is not among the refusals**, as Part 9 §3.4 says in the same
+   * sentence: the handle's foreign caller instantiates any open tail, and
+   * parametricity covers it. A member's open rows are pinned with the rest of
+   * the foreign side's, in item 7's block above.
+   */
   test("each parameter and the result is its own seat", () => {
     expect(diagnose(
       "export constraint Rowy<a> =\n" +
