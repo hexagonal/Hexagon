@@ -350,7 +350,7 @@ describe("the companion fallback outranks the boundary intrinsics", () => {
     expect(diagnostics(
       'import Arr as Array\n' +
       'extern from "host"\n    fun rows() ->! Array(Int)\n' +
-      "export let first: Array(Int) = rows!()\n" +
+      "export let first(): Array(Int) = rows!()\n" +
       "export let n: Int = Array.count()\n",
       [["/arr.hex", "module Arr\n\n" + "export fun count(): Int = 1\n"]],
     )).toEqual([]);

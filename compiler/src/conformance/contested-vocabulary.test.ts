@@ -427,14 +427,14 @@ describe("the universe decides — per file, per spelling", () => {
         "    fun table() ->! JsMap(String, Int)\n" +
         "    fun flags() ->! JsSet(Int)\n" +
         "\n" +
-        "export let first: Array(Int) = rows!()\n" +
-        "export let counts: JsMap(String, Int) = table!()\n" +
-        "export let seen: JsSet(Int) = flags!()\n",
+        "export let first(): Array(Int) = rows!()\n" +
+        "export let counts(): JsMap(String, Int) = table!()\n" +
+        "export let seen(): JsSet(Int) = flags!()\n",
     }));
 
-    expect(text).toContain("export declare const first: globalThis.ReadonlyArray<number>;");
-    expect(text).toContain("export declare const counts: ReadonlyMap<string, number>;");
-    expect(text).toContain("export declare const seen: ReadonlySet<number>;");
+    expect(text).toContain("export declare const first: () => globalThis.ReadonlyArray<number>;");
+    expect(text).toContain("export declare const counts: () => ReadonlyMap<string, number>;");
+    expect(text).toContain("export declare const seen: () => ReadonlySet<number>;");
   });
 });
 
@@ -492,9 +492,9 @@ describe("the negatives — nothing else moves", () => {
       "    fun flags() ->! JsSet(Int)\n" +
       "\n" +
       "export exception Boom(value: Int)\n" +
-      "export let first: Array(Int) = rows!()\n" +
-      "export let counts: JsMap(String, Int) = table!()\n" +
-      "export let seen: JsSet(Int) = flags!()\n" +
+      "export let first(): Array(Int) = rows!()\n" +
+      "export let counts(): JsMap(String, Int) = table!()\n" +
+      "export let seen(): JsSet(Int) = flags!()\n" +
       "export let near(p: Point): Int = p.x\n" + SEQ_FACE,
   };
 
@@ -512,9 +512,12 @@ describe("the negatives — nothing else moves", () => {
         "export declare namespace Boom {\n" +
         "  function is(__error: unknown): __error is Boom;\n" +
         "}\n" +
-        "export declare const first: ReadonlyArray<number>;\n" +
-        "export declare const counts: ReadonlyMap<string, number>;\n" +
-        "export declare const seen: ReadonlySet<number>;\n" +
+        "/** Hexagon: `() ->! Array(Int)` */\n" +
+        "export declare const first: () => ReadonlyArray<number>;\n" +
+        "/** Hexagon: `() ->! JsMap(String, Int)` */\n" +
+        "export declare const counts: () => ReadonlyMap<string, number>;\n" +
+        "/** Hexagon: `() ->! JsSet(Int)` */\n" +
+        "export declare const seen: () => ReadonlySet<number>;\n" +
         "export declare const near: (p: Point) => number;\n" +
         "export declare const twice: (s: Iterable<number>) => number;\n" +
         "export declare function isHexError(__error: unknown): __error is Error & { readonly $hex: string; readonly name: string };\n",
