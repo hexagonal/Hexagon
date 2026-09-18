@@ -269,7 +269,7 @@ export { parse };
 
 (Or via an internal alias, as in §6; the emitter chooses.) The intended shape for a curated binding is the familiar one from Modules §5.3: a binding module declares the externs, keeps the raw or awkward ones private, exports the good surface, and consumers `import TinyJson` — the extern block never forces its consumers to know it is an extern block.
 
-Exported extern bindings are ordinary Hexagon exports thereafter: reached through a module alias like any export (Modules §3.1). The `.d.ts` details of the re-exported face are Part 7's. An exported extern binding whose signature names a captured foreign collection re-exports its §4.3 copying wrapper, never the raw import *(#876)*: the binding a Hexagon importer or a JavaScript consumer reaches under the Hexagon name is the one that copies.
+Exported extern bindings are ordinary Hexagon exports thereafter: reached through a module alias like any export (Modules §3.1). The `.d.ts` details of the re-exported face are Part 7's. An exported extern `fun` whose signature names a captured foreign collection re-exports its §4.3 copying wrapper, never the raw import *(#876)*: the binding a Hexagon importer or a JavaScript consumer reaches under the Hexagon name is the one that copies. An exported extern `let` whose type names one has no wrapper to re-export — a wrapper cannot sit on a value — and is refused as any exported value binding is (Part 1 §5.4 item 4, Part 7 §7); the unexported row stays a supported acquisition (§4.4).
 
 ---
 
@@ -404,4 +404,4 @@ Hard errors introduced or relied on by this part, each with its named rewrite pe
 | Fixed visible arity; explicit nullish slots modeled with `Nullable(...)` + `Nullable.undefined`/`Nullable.null`; no optional/default/rest/overloads in v1 | §9, §11 |
 | Globals, CommonJS forms, overloads, rest/variadic, string export names, opaque callables deferred with a concrete-library revisit bar | §11 |
 | Generic extern declarations are monomorphic in v1; parameterized types/functions/classes deferred as one family | §11, §12.4 |
-| *(#876)* A signature naming a captured foreign collection: the binding denotes one stable module-level copying wrapper (FFI Part 1 §5.4's walk on captured arguments out and result in), never the raw import; an exported such binding re-exports the wrapper; a `->` claim over a captured result additionally warrants that the source does not vary between calls | §4.3, §4.5, §7 |
+| *(#876)* A signature naming a captured foreign collection: the binding denotes one stable module-level copying wrapper (FFI Part 1 §5.4's walk on captured arguments out and result in), never the raw import; an exported such `fun` re-exports the wrapper, an exported such `let` is refused (Part 7 §7); a `->` claim over a captured result additionally warrants that the source does not vary between calls | §4.3, §4.5, §7 |
