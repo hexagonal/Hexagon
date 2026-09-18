@@ -206,6 +206,7 @@ The captured category (§2.2) has one mechanism, stated here once and consumed b
 | a `get`'s result; a `method`'s parameters / result; a `set`'s argument; a `new`'s arguments | in / out per slot | Part 5 |
 | an exported Hexagon function's parameters / result | in / out — through the stable export wrapper of Part 7 §7 occasion 4; Hexagon importers bind the internal function and never copy | Part 7 §7 |
 | a callback's parameters / result, at each invocation | in / out per slot — through the conversion wrapper of Part 6 §5.5, in both directions of function crossing | Part 6 §5.5 |
+| an exported constraint's member parameters / result | in / out per slot — through the public dictionary handle's stable copying wrappers, wrapped once at materialization; Hexagon evidence binds the unwrapped internal dictionary and never copies | Part 9 §3.4 |
 
 Three **bindings** are not positions but carry the wrapper whose calls perform the walk at the positions above: an exported Hexagon function (Part 7 §7 occasion 4), an extern binding (Part 4 §4.3), and a first-class receiver member (Part 5 §2.3), each denoting one stable wrapper; and two **named operations** also run the walk without being declared positions, and no other operation does: `JsValue.from` (out — the **release seat**, a Hexagon value entering the uncertain world, Part 11 §2) and `JsValue.toArray` (in — the acquisition performed by a decoder instead of a declaration, Part 11 §4.2).
 
