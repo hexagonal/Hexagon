@@ -26338,13 +26338,18 @@ function receiverSpelling(receiver: Resolved.Expr): string {
 
 /**
  * FFI Part 2 §6.3's specialized hard error: the bare property read `xs.length`
- * on a borrowed `Array(a)`. It is the door's **one** new diagnostic (§10), kept
+ * on a captured `Array(a)`. It is the door's **one** new diagnostic (§10), kept
  * specialized because `.length` is the single most-typed reflex the door meets.
+ *
+ * The category word is the spec's own: #876 retired the **borrowed foreign
+ * view** and `spec/ffi.md`'s vocabulary table carries it as retired, so the
+ * sentence names the **captured foreign collection** `Array(a)` now is. Nothing
+ * else about the message moves — the subject was never the category.
  *
  * **The subject is grammar, not vocabulary** (§13.1's re-charactering, after the
  * `Array.size` → `Array.length` rename). The word the author typed is the right
  * word; what is wrong is that they spelled a *field read* against a nominal
- * foreign view, which has no field surface and across which no property read
+ * foreign type, which has no field surface and across which no property read
  * travels. So the message says the type is not a record and that the companion
  * call is the read, and it never suggests the name is wrong — the author who
  * typed `length` typed the name the library uses.
@@ -26366,7 +26371,7 @@ function receiverSpelling(receiver: Resolved.Expr): string {
  * where the receiver has a name and neutral where it has none.
  */
 function arrayLengthReadMessage(receiver: string): string {
-  return "`Array(a)` is a borrowed foreign view, not a record: it has no fields, " +
+  return "`Array(a)` is a captured foreign collection, not a record: it has no fields, " +
     "and a property read does not cross the boundary — the companion call is the " +
     `read. Write \`Array.length(${receiver})\`, or \`${receiver}.length()\` for the ` +
     "smallest edit.";

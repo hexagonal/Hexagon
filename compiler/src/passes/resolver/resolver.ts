@@ -5972,7 +5972,7 @@ class Resolver {
       // §6.6), reached through the record table above. The names left are the
       // boundary intrinsics that no `.hex` module declares — `JsMap` and
       // `JsSet` (FFI Part 10 §1) among them, reached here for the same reason
-      // `Array` is: a borrowed foreign view has no Hexagon declaration site.
+      // `Array` is: a captured foreign collection has no Hexagon declaration site.
       if (
         name === "Vector" || name === "Set" || name === "Array" ||
         name === "Nullable" || name === "JsSet"
