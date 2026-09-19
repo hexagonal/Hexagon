@@ -4219,6 +4219,10 @@ class Checker {
                 type.kind === "Variable" ? [type] : []
               ),
               ...(intrinsicLinked && intrinsicFace !== undefined ? [intrinsicFace.effect] : []),
+              // An intrinsic row is not a crossing, but a shared tail is the
+              // same module-global variable the comment above names, so it
+              // takes the same treatment rather than an exception.
+              ...this.#externRowTails([...parameters, result]),
             ],
             type: {
               kind: "Function",
@@ -4251,7 +4255,7 @@ class Checker {
           );
           this.#suppressLinkedArrowReports = enclosingSuppression;
           this.#schemes.set(declaration.binding.symbol, {
-            variables: [],
+            variables: [...this.#externRowTails([externLetType])],
             type: externLetType,
           });
           continue;
@@ -4305,8 +4309,14 @@ class Checker {
         const externEffect = this.#writtenEffect(declaration.effect, declaration.arrowSpan);
         this.#atExternRow = enclosingExternRow;
         this.#closeSignature(enclosingSignature);
+        // The declaration's own open rows are quantified beside its colour, so
+        // no call site can close one (`#externRowTails`, FFI Part 1 §5.4 item
+        // 7's mechanism paragraph).
         this.#schemes.set(declaration.binding.symbol, {
-          variables: externLinked && externFace !== undefined ? [externFace.effect] : [],
+          variables: [
+            ...(externLinked && externFace !== undefined ? [externFace.effect] : []),
+            ...this.#externRowTails([...parameters, externResult]),
+          ],
           type: {
             kind: "Function",
             ...(externEffect === undefined ? {} : { effect: externEffect }),
@@ -23384,7 +23394,7 @@ class Checker {
       // #649 abolished.
       const invisible = new Set([
         ...this.#effectVariables(type),
-        ...this.#rowTailVariables(type),
+        ...this.#rowTailVariables(type).keys(),
       ]);
       const survivors = this.#collectVariables(type)
         .filter((variable) => !invisible.has(variable.id));
@@ -23860,10 +23870,21 @@ class Checker {
       };
     }
     if (actual.kind === "Record") {
-      const tail = actual.tail === undefined ? undefined : this.#prune(actual.tail);
+      // **Normalized, exactly as the capture walk normalizes it.** Unification
+      // does not always merge two rows into one record — a branch join binds
+      // one tail to the *other* record — so a raw read publishes `{n: Int}`
+      // where the value carries `{n: Int, m: Int}`, and the tail it drops takes
+      // those fields with it. `#findCapturedCollection` normalizes for that
+      // reason ("the normalization is **load-bearing**"), and this is the same
+      // row read at the pass boundary: a later pass directed by the declared
+      // type has to be directed by the row the checker judged, or the two
+      // disagree at a position that compiles (#961 review 1, finding 2 — the
+      // emitter's copy walk rebuilt the syntactic fields and dropped the rest).
+      const row = this.#normalizeRecord(actual);
+      const tail = row.tail === undefined ? undefined : this.#prune(row.tail);
       return {
         kind: "Record",
-        fields: [...actual.fields].map(([name, field]) => ({
+        fields: [...row.fields].map(([name, field]) => ({
           name,
           type: this.#publicType(field, seen),
         })),
@@ -25435,6 +25456,40 @@ class Checker {
    * parameters and the result.
    */
   /**
+   * The row-tail variables an **extern declaration's own signature** opens,
+   * quantified as it collects them.
+   *
+   * FFI Part 1 §5.4 item 7's mechanism paragraph is normative and this is the
+   * sentence it turns on: "an extern declaration's tail is instead solved
+   * afresh at each Hexagon call site, **invisibly to a wrapper compiled against
+   * the open declaration**" — beside "the classification is static, by
+   * position". Neither is true of a tail the declaration shares with its
+   * callers. Left free, the tail is one module-global variable, and the first
+   * Hexagon call site that passes a closed record solves it *for the
+   * declaration*: item 7's refusal at a `supplied` seat silently retracts, and
+   * a `foreign` seat's row goes from open to closed, so the wrapper compiled
+   * against it rebuilds the fields the declaration named and drops the tail the
+   * foreign side filled. Both were measured (#961 review 1, finding 2).
+   *
+   * Quantifying is the whole repair, and it is the repair the two neighbouring
+   * variables already have: a signature's colour variable is quantified "so
+   * each caller instantiates it afresh", and an intrinsic row's type parameters
+   * are quantified so that "a module-global unification variable shared by
+   * every consumer" cannot be pinned by the first call site. `#instantiate`
+   * already copies a record's tail through `replacements`, so a quantified tail
+   * freshens at each reference with no further change.
+   *
+   * `#quantified` besides, for the same reason the intrinsic binders take it:
+   * a quantified variable is not one the defaulting step may settle.
+   */
+  #externRowTails(types: readonly Mono[]): readonly Variable[] {
+    const found = new Map<number, Variable>();
+    for (const type of types) this.#rowTailVariables(type, found);
+    for (const variable of found.values()) this.#quantified.add(variable.id);
+    return [...found.values()];
+  }
+
+  /**
    * Every **row-tail** variable in a type — the `q` of `{n: Int, ...q}`.
    *
    * The dual of `#effectVariables`, and it exists for that function's reason: a
@@ -25442,14 +25497,21 @@ class Checker {
    * reader can see, and `#render` prints a tail as `...` (§#649). An open row
    * is one variable in the solver and no variable at all in the type as it is
    * written back.
+   *
+   * It answers with the **variables**, not their ids, because its second reader
+   * needs the nodes: an extern declaration quantifies its own tails
+   * (`#externRowTails`), and a scheme quantifies variables.
    */
-  #rowTailVariables(type: Mono, found = new Set<number>()): ReadonlySet<number> {
+  #rowTailVariables(
+    type: Mono,
+    found = new Map<number, Variable>(),
+  ): ReadonlyMap<number, Variable> {
     const actual = this.#prune(type);
     if (actual.kind === "Record") {
       for (const field of actual.fields.values()) this.#rowTailVariables(field, found);
       if (actual.tail !== undefined) {
         const tail = this.#prune(actual.tail);
-        if (tail.kind === "Variable") found.add(tail.id);
+        if (tail.kind === "Variable") found.set(tail.id, tail);
         else this.#rowTailVariables(tail, found);
       }
     }

@@ -4884,6 +4884,23 @@ class JavaScriptEmitter {
     switch (expression.kind) {
       case "Name": {
         this.#referencedSymbols.add(expression.symbol);
+        // FFI Part 11 §2's release seat, reached **unapplied**. `JsValue.from`
+        // is a seat rather than an ordinary function, and §2 puts the walk "on
+        // its argument at the seat's concrete type" without asking whether the
+        // seat was written applied: `let g: (Array(Int)) -> JsValue =
+        // JsValue.from` is the same release as `JsValue.from(xs)` one call
+        // later. Item 5 is what makes this decidable here — an unapplied seat
+        // whose argument type is not ground is already refused — so a reference
+        // that compiles has a concrete argument type to walk at.
+        //
+        // The wrapper is per reference and allocated where the reference is,
+        // which is all §2 needs: it names no identity contract for the seat,
+        // and the *binding* wrappers §5.4 lists (Part 4 §4.3's, Part 7 §7
+        // occasion 4's) are elsewhere. A seat whose argument names no captured
+        // collection stays the erased identity — the stdlib row itself — and
+        // emits exactly what it always did.
+        const released = this.#releasedReference(expression);
+        if (released !== undefined) return released;
         // The pin at the reference site (#147, decisions doc §3.2): `True` emits
         // `true`. Ahead of every other spelling rule, because the constructor
         // never needs a binding, a local, or an import to be named by.
@@ -5389,6 +5406,9 @@ class JavaScriptEmitter {
     if (injected !== undefined) {
       return this.#copies(injected.type) ? Precedence.Call : this.#emittedPrecedence(injected);
     }
+    // An unapplied release seat that copies emits an arrow, not a name
+    // (`#releasedReference`), and an arrow binds loosest of all.
+    if (this.#releasesUnapplied(expression)) return Precedence.Arrow;
     return this.#ignoreOperand(expression) === undefined
       ? expressionPrecedence(expression)
       : Precedence.Unary;
@@ -9567,6 +9587,41 @@ class JavaScriptEmitter {
     return this.#capturePlans.planFor(type) !== undefined;
   }
 
+  /**
+   * An **unapplied** reference to `JsValue.from` whose argument type names a
+   * captured collection, as the per-reference release wrapper FFI Part 11 §2
+   * asks for — or nothing, which leaves every other reference, and the erased
+   * seat, exactly as they were.
+   *
+   * The gate is `#jsValueFromOperand`'s one symbol: the callee resolves to the
+   * binding `preludeIds` pinned, so an occluding module's own `from` is an
+   * ordinary name here. An applied call never reaches this seat — `case "Call"`
+   * takes it first — so the two cannot both fire, and they walk at the same
+   * type: the operand's for the call, the reference's own parameter for this.
+   */
+  #releasedReference(expression: Core.Expr): string | undefined {
+    if (!this.#releasesUnapplied(expression)) return undefined;
+    const signature = expression.type as Typed.FunctionType;
+    const plan = this.#capturePlans.planFor(signature.parameters[0]!)!;
+    const released = this.#generatedNames.fresh("released");
+    return `${released} => ${
+      this.#useHelper("capture")
+    }(${this.#capturePlanName()}, ${plan}, ${released})`;
+  }
+
+  /**
+   * Whether this expression is an unapplied `JsValue.from` whose argument type
+   * the walk copies — asked apart from the emission because the precedence
+   * table has to know the shape before the text exists.
+   */
+  #releasesUnapplied(expression: Core.Expr): boolean {
+    if (this.#prelude.jsValueFrom === undefined || expression.kind !== "Name") return false;
+    if (expression.symbol !== this.#prelude.jsValueFrom) return false;
+    const signature = expression.type;
+    if (signature.kind !== "Function" || signature.parameters.length !== 1) return false;
+    return this.#copies(signature.parameters[0]!);
+  }
+
   /** The module-level capture-plan table's name, minted on first use. */
   #capturePlanName(): string {
     return this.#capturePlanTable ??= this.#generatedNames.fixed("capturePlans");
@@ -12641,10 +12696,34 @@ function renderHelper(
         "      }",
         "      continue;",
         "    }",
-        "    const __node = __plans[__task.plan];",
         "    const __from = __task.from;",
+        "    let __node = __plans[__task.plan];",
         "    let __copy = __from;",
-        "    if (__node.k === \"array\") {",
+        // **`Nullable` is resolved here and never deferred.** It is the one node
+        // with no cell of its own (§5.4: "for `Nullable`, which has no cell, the
+        // walk at `a` itself"), so it has nothing to put in its parent's slot
+        // ahead of the copy — and a node that pushed its work instead would
+        // leave the *source* in that slot for whatever reads it next. A `fill`
+        // task is exactly such a reader: it runs after the tasks the map pushed
+        // and inserts what the cells hold, so a deferred `Nullable` under a
+        // `JsMap`/`JsSet` inserted the foreign object and the copy landed in a
+        // cell nobody read again (review 1, finding 1 — `JsMap(String,
+        // Nullable(Array(Int)))` handed back the foreign array by identity).
+        // Unwrapping in this task keeps the invariant every other node already
+        // had: **a task settles its own slot before it ends.**
+        `    while (__node.k === "nullable") {`,
+        "      __node = __from === null || __from === undefined ? undefined : __plans[__node.e];",
+        "      if (__node === undefined) break;",
+        "    }",
+        "    if (__node === undefined) {",
+        "      // A nullish value under a `Nullable` is itself.",
+        `    } else if (__node.k === "array") {`,
+        // A hole in the source becomes a stored `undefined` here, which is what
+        // Part 2 §6.4 says a hole observes as. Where the element type is *not*
+        // `Nullable` and the element plan is a walk, that `undefined` reaches
+        // the next task and throws: a hole at a non-nullable element type is
+        // Part 1 §3.1's representation violation, whose observations are
+        // unspecified, and a throw out of the crossing frame is one of them.
         "      const __size = __from.length;",
         `      __copy = new ${spell("Array")}(__size);`,
         "      for (let __index = 0; __index < __size; __index += 1) {",
@@ -12679,16 +12758,22 @@ function renderHelper(
         "        else __work.push({ plan: __node.e[__index], from: __element, into: __copy, at: __index });",
         "      }",
         `    } else if (__node.k === "record") {`,
+        // An **open** row starts from a spread, which carries the fields the
+        // declaration never named (§5.4 item 7); a closed one is rebuilt from
+        // its fields alone. Either way each field is read **once**: the walked
+        // ones are taken off `__copy`, where the spread has already put them,
+        // rather than off the source a second time.
         "      __copy = __node.open ? { ...__from } : {};",
         "      for (const __field of __node.fields) {",
-        "        const __held = __from[__field[0]];",
+        "        const __held = __node.open ? __copy[__field[0]] : __from[__field[0]];",
         "        if (__field[1] === null) __copy[__field[0]] = __held;",
         "        else __work.push({ plan: __field[1], from: __held, into: __copy, at: __field[0] });",
         "      }",
         `    } else if (__node.k === "union") {`,
+        "      const __tag = __from.tag;",
         "      for (const __arm of __node.arms) {",
-        "        if (__arm[0] !== __from.tag) continue;",
-        "        __copy = { tag: __from.tag };",
+        "        if (__arm[0] !== __tag) continue;",
+        "        __copy = { tag: __tag };",
         "        for (const __slot of __arm[1]) {",
         "          const __held = __from[__slot[0]];",
         "          if (__slot[1] === null) __copy[__slot[0]] = __held;",
@@ -12696,8 +12781,6 @@ function renderHelper(
         "        }",
         "        break;",
         "      }",
-        `    } else if (__node.k === "nullable" && __from !== null && __from !== undefined) {`,
-        "      __work.push({ plan: __node.e, from: __from, into: __task.into, at: __task.at });",
         "    }",
         "    __task.into[__task.at] = __copy;",
         "  }",

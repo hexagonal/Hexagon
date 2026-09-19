@@ -47,5 +47,5 @@ extern from "hex:intrinsic"
 // as the dot call `s.toSeq()` and as `JsSet.toSeq(s)` qualified, both of which
 // read the row. It is lazy over the captured set and allocates no second copy;
 // it may be forced at any time and observes the same elements, because the set
-// cannot change (section 6.3). Unlike `JsMap`, there is no second name for it — the persistent `Set` has no `elements`
-// export to mirror.
+// cannot change (section 6.3). Unlike `JsMap`, there is no second name for
+// it — the persistent `Set` has no `elements` export to mirror.

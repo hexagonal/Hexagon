@@ -995,6 +995,58 @@ describe("`JsValue.from` is the release seat (Part 11 §2)", () => {
   });
 
   /**
+   * **Unapplied, the seat is still the seat.** §2 puts the walk "on its
+   * argument at the seat's concrete type" and says nothing about the reference
+   * being written applied, so `let g: (Array(Int)) -> JsValue = JsValue.from`
+   * releases exactly as `JsValue.from(xs)` does. Item 5 is what makes this
+   * decidable: an unapplied seat whose argument type is not ground is already
+   * refused, so a reference that compiles has a concrete type to walk at.
+   *
+   * Before the repair the two seats disagreed — the applied one copied and the
+   * unapplied one emitted the stdlib row, whose lowering is the identity — so
+   * a `JsValue` handed onward aliased the storage a Hexagon `Array` denotes.
+   */
+  test("an unapplied `JsValue.from` at a captured type copies too", async () => {
+    const { main, foreign } = await run(
+      'extern from "sink"\n' +
+        "    fun keep(value: JsValue) ->! Unit\n" +
+        "\n" +
+        "let release: (Array(Int)) -> JsValue = JsValue.from\n" +
+        "\n" +
+        "export fun leak(xs: Array(Int)): Unit = keep!(release(xs))\n",
+      {
+        sink: "export const seen = [];\n" +
+          "export function keep(value) { seen.push(value); }\n",
+      },
+    );
+    const held: (number | undefined)[] = [1, 2, 3];
+    delete held[1];
+    (main["leak"] as (xs: readonly (number | undefined)[]) => void)(held);
+    const { seen } = await foreign("sink") as { seen: (number | undefined)[][] };
+    expect(seen[0]).not.toBe(held);
+    // And it is the same walk, so the copy is dense: the hole became a stored
+    // `undefined` on the way out, which is what JavaScript can tell apart.
+    expect(seen[0]).toHaveLength(3);
+    expect(1 in seen[0]!).toBe(true);
+    expect(seen[0]![1]).toBeUndefined();
+  });
+
+  /** The emitted shape of both seats, side by side. */
+  test("the unapplied seat is a wrapper; at a type naming none it is the row", () => {
+    const emitted = javascript(
+      "let release: (Array(Int)) -> JsValue = JsValue.from\n" +
+        "let plain: (Int) -> JsValue = JsValue.from\n" +
+        "export fun both(xs: Array(Int), n: Int): (JsValue, JsValue) = (release(xs), plain(n))\n",
+    );
+    expect(emitted).toMatch(
+      /const release = (__\w+) => __capture\(__capturePlans, \d+, \1\);/u,
+    );
+    // The seat that names no captured collection binds the stdlib row itself,
+    // exactly as it always did — no wrapper, no plan.
+    expect(emitted).toContain("const plain = from;");
+  });
+
+  /**
    * And the seat is **still erased** where the argument names no captured
    * collection — "the representation-honest identity, erased in emission,
    * exactly as before". Pinned on the emitted text, because an identity helper
@@ -1070,6 +1122,208 @@ describe("a crossing that copies nothing is unchanged (§5.4)", () => {
         "export fun probe(xs: Array(Int)): Int = Array.length(pass(xs))\n",
     );
     expect(emitted).not.toContain("capturePlans");
+  });
+});
+
+describe("no node leaves the source in its parent's slot (§5.4, Part 10 §2)", () => {
+  /**
+   * **`Nullable` beneath a keyed shape**, the one nesting order where a
+   * deferred walk was observable. A `JsMap`/`JsSet` reads its entries into
+   * cells and inserts them from a `fill` task that runs after the walks it
+   * pushed; a node that assigned the *source* to its cell and deferred its own
+   * copy therefore had the foreign object inserted, and wrote the copy into a
+   * cell the collection no longer read. `Nullable` was that node, because §5.4
+   * gives it no cell of its own to allocate.
+   *
+   * Part 10 §2's words are the contract: "a fresh native `Map` … its key
+   * carried through Part 1 §5.4's walk at `k` and its value through the walk at
+   * `v`", and §2.2's "sharing no storage with the foreign original".
+   */
+  test("a `Nullable` value under a `JsMap` is copied, not aliased", async () => {
+    const { main, foreign } = await run(
+      'extern from "maybe"\n' +
+        "    fun table() ->! JsMap(String, Nullable(Array(Int)))\n" +
+        "\n" +
+        "export fun probe(): JsMap(String, Nullable(Array(Int))) = table!()\n",
+      {
+        maybe: "export const inner = [1, 2];\n" +
+          'export const source = new Map([["a", inner], ["b", null]]);\n' +
+          "export function table() { return source; }\n",
+      },
+    );
+    const got = (main["probe"] as () => Map<string, number[] | null>)();
+    const { inner, source } = await foreign("maybe") as {
+      inner: number[];
+      source: Map<string, number[] | null>;
+    };
+    expect(got).not.toBe(source);
+    expect(got.get("a")).not.toBe(inner);
+    expect(got.get("a")).toEqual([1, 2]);
+    // A nullish value under a `Nullable` is itself (§5.4), and the entry is
+    // still there.
+    expect(got.has("b")).toBe(true);
+    expect(got.get("b")).toBeNull();
+  });
+
+  /** The same at a `JsSet`, whose cells hold one slot rather than two. */
+  test("a `Nullable` element under a `JsSet` is copied, not aliased", async () => {
+    const { main, foreign } = await run(
+      'extern from "marks"\n' +
+        "    fun marks() ->! JsSet(Nullable(Array(Int)))\n" +
+        "\n" +
+        "export fun probe(): JsSet(Nullable(Array(Int))) = marks!()\n",
+      {
+        marks: "export const inner = [3, 4];\n" +
+          "export const source = new Set([inner, null]);\n" +
+          "export function marks() { return source; }\n",
+      },
+    );
+    const got = (main["probe"] as () => Set<number[] | null>)();
+    const { inner, source } = await foreign("marks") as {
+      inner: number[];
+      source: Set<number[] | null>;
+    };
+    expect(got).not.toBe(source);
+    expect(got.has(inner)).toBe(false);
+    expect(got.has(null)).toBe(true);
+    expect([...got].filter((element) => element !== null)).toEqual([[3, 4]]);
+  });
+
+  /**
+   * And one layer deeper, which is what makes the repair a rule rather than a
+   * patch on two nodes: the walk under the `Nullable` is itself an aggregate,
+   * and its shell has to be in the cell before the `fill` task reads it.
+   */
+  test("a `Nullable` tuple under a `JsMap` is copied, not aliased", async () => {
+    const { main, foreign } = await run(
+      'extern from "deep"\n' +
+        "    fun table() ->! JsMap(String, Nullable((Int, Array(Int))))\n" +
+        "\n" +
+        "export fun probe(): JsMap(String, Nullable((Int, Array(Int)))) = table!()\n",
+      {
+        deep: "export const inner = [5];\n" +
+          "export const pair = [1, inner];\n" +
+          'export const source = new Map([["a", pair]]);\n' +
+          "export function table() { return source; }\n",
+      },
+    );
+    const got = (main["probe"] as () => Map<string, [number, number[]]>)();
+    const { inner, pair } = await foreign("deep") as { inner: number[]; pair: unknown };
+    expect(got.get("a")).not.toBe(pair);
+    expect(got.get("a")![1]).not.toBe(inner);
+    expect(got.get("a")).toEqual([1, [5]]);
+  });
+});
+
+describe("an extern declaration's open row is its own (§5.4 item 7)", () => {
+  /**
+   * §5.4 item 7's mechanism paragraph, made true: "an extern declaration's tail
+   * is instead solved afresh at each Hexagon call site, **invisibly to a
+   * wrapper compiled against the open declaration**", and "the classification
+   * is static, by position".
+   *
+   * The declaration alone was already refused. What this pins is that a **call
+   * site cannot retract the refusal** by passing a closed record: the tail is
+   * quantified in the declaration's scheme, so the caller instantiates its own.
+   * Before the repair the two programs below disagreed, and the second one
+   * emitted `const send = r => { __sendForeign(r); }` — a declared position
+   * crossing a Hexagon `Array` uncopied, which is the one thing §5.4 says
+   * cannot happen.
+   */
+  test("a closing call site does not retract the refusal", () => {
+    const refusal = "this record may have more fields (`{n: Int, ...}`), so it cannot cross " +
+      "the foreign boundary at this position: Hexagon supplies the record here, and a field " +
+      "the declaration does not name would cross uncopied (FFI Part 1 §5.4) — name every " +
+      "field the crossing carries, or declare `JsValue` where the foreign side genuinely " +
+      "accepts anything";
+    const declaration = 'extern from "./sink.js"\n' +
+      "    fun send(r: {n: Int, ...}) ->! Unit\n";
+    // The declaration on its own.
+    expect(projectDiagnostics("module Main\n\n" + declaration)).toEqual([refusal]);
+    // And with a Hexagon caller that passes a closed record carrying an
+    // `Array(Int)` the declaration never named.
+    expect(projectDiagnostics(
+      "module Main\n\n" + declaration +
+        "\nexport fun forward(r: {n: Int, v: Array(Int)}): Unit = send!(r)\n",
+    )).toEqual([refusal]);
+  });
+
+  /**
+   * The other half, at the position item 7 **keeps** open — an extern result,
+   * where the foreign side instantiates the tail. A Hexagon annotation that
+   * writes the same open row must not close the declaration's, because the
+   * walk compiled against it would then rebuild the declared fields alone and
+   * drop what the foreign side filled. Measured through the value, which PR 2
+   * lets a JavaScript caller read directly.
+   */
+  test("an annotated export leaves the inbound row open, and the tail rides through", async () => {
+    const { main, foreign } = await run(
+      'extern from "open"\n' +
+        "    fun sheet() ->! {rows: Array(Int), ...}\n" +
+        "\n" +
+        "export fun probe(): {rows: Array(Int), ...} = sheet!()\n",
+      {
+        open: "export const rows = [1, 2];\n" +
+          "export const extra = { id: 7 };\n" +
+          "export const source = { rows, extra };\n" +
+          "export function sheet() { return source; }\n",
+      },
+    );
+    const captured = (main["probe"] as () => { rows: number[]; extra: unknown })();
+    const fixtures = await foreign("open") as {
+      rows: number[];
+      extra: unknown;
+      source: unknown;
+    };
+    expect(captured).not.toBe(fixtures.source);
+    expect(captured.rows).not.toBe(fixtures.rows);
+    expect(captured.rows).toEqual([1, 2]);
+    // The field the declaration never named is still there, by identity.
+    expect(captured.extra).toBe(fixtures.extra);
+    // And the plan says so, which is what the walk is directed by.
+    expect(javascript(
+      'extern from "./open.js"\n' +
+        "    fun sheet() ->! {rows: Array(Int), ...}\n" +
+        "\n" +
+        "export fun probe(): {rows: Array(Int), ...} = sheet!()\n",
+    )).toContain('{ k: "record", fields: [["rows", 1]], open: true }');
+  });
+
+  /**
+   * A closed row is still closed, and is still rebuilt from its fields alone —
+   * so the flag above is measured rather than assumed — and each walked field
+   * is read exactly **once**, off the spread rather than off the source a
+   * second time.
+   */
+  test("a closed row is rebuilt from its fields; an open row reads each once", async () => {
+    expect(javascript(
+      'extern from "./closed.js"\n' +
+        "    fun sheet() ->! {rows: Array(Int), label: String}\n" +
+        "\n" +
+        "export fun probe(): Int = Array.length(sheet!().rows)\n",
+    )).toContain('{ k: "record", fields: [["rows", 1], ["label", null]], open: false }');
+
+    const { main, foreign } = await run(
+      'extern from "watched"\n' +
+        "    fun sheet() ->! {rows: Array(Int), ...}\n" +
+        "\n" +
+        "export fun probe(): Int = Array.length(sheet!().rows)\n",
+      {
+        watched: "export const reads = [];\n" +
+          "const inner = { rows: [1], other: 2 };\n" +
+          "const watched = new Proxy(inner, {\n" +
+          "  get(target, property) {\n" +
+          "    reads.push(String(property));\n" +
+          "    return Reflect.get(target, property, target);\n" +
+          "  },\n" +
+          "});\n" +
+          "export function sheet() { return watched; }\n",
+      },
+    );
+    expect((main["probe"] as () => number)()).toBe(1);
+    const { reads } = await foreign("watched") as { reads: string[] };
+    // The spread reads both fields once; nothing reads `rows` a second time.
+    expect(reads.filter((read) => read === "rows")).toHaveLength(1);
   });
 });
 

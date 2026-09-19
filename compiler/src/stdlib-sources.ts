@@ -1167,8 +1167,8 @@ export const STDLIB_SOURCES: Readonly<Record<string, string>> = {
     + "// as the dot call `s.toSeq()` and as `JsSet.toSeq(s)` qualified, both of which\n"
     + "// read the row. It is lazy over the captured set and allocates no second copy;\n"
     + "// it may be forced at any time and observes the same elements, because the set\n"
-    + "// cannot change (section 6.3). Unlike `JsMap`, there is no second name for it — the persistent `Set` has no `elements`\n"
-    + "// export to mirror.\n",
+    + "// cannot change (section 6.3). Unlike `JsMap`, there is no second name for\n"
+    + "// it — the persistent `Set` has no `elements` export to mirror.\n",
   "JsValue":
     "module JsValue\n"
     + "\n"

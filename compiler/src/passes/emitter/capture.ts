@@ -40,8 +40,18 @@
  * collection under one of item 1's five containers, inside an opaque
  * representation — where the checker says "names one, and is refused" and this
  * walk says "identity", never reaching the position because the program does
- * not compile. `capture-walk.test.ts` pins the agreement at the shapes where it
- * could drift.
+ * not compile. `Node`, the hidden trie node, is identity here and followed
+ * there; it has no annotation syntax and reaches no boundary position, so no
+ * type can put the difference at a seat.
+ *
+ * **The agreement is by construction at the one node that could break it.** A
+ * structural record's row is normalized *before* it crosses the pass boundary
+ * (`#publicType`), so a tail unification solved is a tail this walk sees
+ * through, exactly as `#findCapturedCollection` does — the two read one row.
+ * That is the repair for #961 review 1's finding 2: read raw, the same record
+ * was "closed and walkable" to the checker and "open and names nothing" here,
+ * and the position that compiled crossed uncopied. `capture-walk.test.ts` pins
+ * the agreement at the shapes where it could still drift.
  */
 
 import type * as Typed from "../../syntax/typed/index.js";
