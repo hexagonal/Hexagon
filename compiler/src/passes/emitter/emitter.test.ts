@@ -1909,7 +1909,23 @@ describe("emitJavaScript", () => {
   test("renames JavaScript-reserved source identifiers deterministically", () => {
     const output = emitJavaScript(coreSource("let await = 1\nawait"));
 
-    expect(output.text).toBe("const __binding0 = 1;\n__binding0;\n");
+    expect(output.text).toBe("const __await = 1;\n__await;\n");
+    expect(output.diagnostics).toEqual([]);
+  });
+
+  test("uses the descriptive spelling consistently for unsafe parameters and nested bindings", () => {
+    const output = emitJavaScript(
+      coreSource(
+        "let read(null: Int): Int =\n" +
+          "    let await = null + 1\n" +
+          "    await",
+      ),
+    );
+
+    expect(output.text).toContain("const read = __null => {");
+    expect(output.text).toContain("const __await = __null + 1;");
+    expect(output.text).toContain("return __await;");
+    expect(output.text).not.toContain("__binding");
     expect(output.diagnostics).toEqual([]);
   });
 

@@ -23,8 +23,8 @@ import { RUNTIME_VOCABULARY, renderEveryHelper } from "../passes/emitter/emitter
  * scope, `globalThis` included — so a contested module imports the globals it
  * contests as `__`-reserved captures from the program's runtime module, `hex.js`
  * (Part 1 §8.3's reserved seat, now taken), Unit takes `void 0` exactly where
- * `undefined` is bound, and the unpublishable seats extend the `__binding`
- * rename. On the spelling alone, per module: a module binding no vocabulary
+ * `undefined` is bound, and unsafe value seats take stable descriptive aliases.
+ * On the spelling alone, per module: a module binding no vocabulary
  * spelling emits the bare text it always did, byte-identically.
  *
  * **The capture classes are executed, never merely emitted.** Three of the four
@@ -307,10 +307,10 @@ describe("the two `SyntaxError` classes — the module never parsed at all", () 
     // a load-time `SyntaxError`: nothing in the module ran. The rename is
     // lawful here on the lowercase gate — every JavaScript reserved word is
     // lowercase and a Hexagon type name is parser-gated uppercase, so a
-    // `__binding` alias can carry a value's export seat but never a type's.
+    // descriptive alias can carry a value's export seat but never a type's.
     expect(javascript([["/main.hex", "module Main\n\n" + "export let eval: Int = 7\n"]])).toBe(
-      "const __binding0 = 7;\n" +
-        "export { __binding0 as eval };\n",
+      "const __eval = 7;\n" +
+        "export { __eval as eval };\n",
     );
 
     const exports = await runProject([["/main.hex", "module Main\n\n" + "export let eval: Int = 7\n"]]);
@@ -319,8 +319,8 @@ describe("the two `SyntaxError` classes — the module never parsed at all", () 
 
   test("`arguments` is the same hole and closes with it", async () => {
     expect(javascript([["/main.hex", "module Main\n\n" + "export let arguments: Int = 8\n"]])).toBe(
-      "const __binding0 = 8;\n" +
-        "export { __binding0 as arguments };\n",
+      "const __arguments = 8;\n" +
+        "export { __arguments as arguments };\n",
     );
 
     const exports = await runProject([["/main.hex", "module Main\n\n" + "export let arguments: Int = 8\n"]]);
@@ -486,7 +486,7 @@ describe("the minted-local negative — the trigger reads source bindings only",
     // The declaring module's own forwarder took the rename at its export seat,
     // which the emitter already did; the import above is the reading leg.
     expect(javascript(CONSTRAINT("eval"), "/lib.hex")).toContain(
-      "export { __binding0 as __eval };",
+      "export { __eval_1 as __eval };",
     );
 
     // The observation is that the module *loads*: a strict-mode `eval` binding
@@ -494,6 +494,54 @@ describe("the minted-local negative — the trigger reads source bindings only",
     // `twice` is constrained, so it publishes under its internal name (§6.5).
     const exports = await runProject(CONSTRAINT("eval"));
     expect(Object.keys(exports)).toContain("__twice");
+  });
+
+  test("a hazardous minted import probes past an unsafe parameter alias", async () => {
+    const files: readonly (readonly [string, string])[] = [
+      ["/lib.hex", "module Lib\n\n" + [
+        "export constraint Boxy<a> =",
+        "    null(x: a) -> Int",
+        "",
+        "export record Box = {n: Int}",
+        "honor Boxy<Box> =",
+        "    null(x) = x.n",
+        "",
+      ].join("\n")],
+      ["/main.hex", "module Main\n\n" + [
+        "import Lib as Boxy",
+        "export let read<a: Boxy>(null: a): Int = Boxy.null(null)",
+        "export let answer: Int = read(Boxy.Box({n = 7}))",
+        "",
+      ].join("\n")],
+    ];
+
+    const text = javascript(files);
+    expect(text).toContain('import { __null as __null_1 } from "./Lib.js";');
+    expect(text).toContain("const read = (__null, __Boxy_a) => __null_1(__null, __Boxy_a);");
+
+    const exports = await runProject(files);
+    expect(exports["answer"]).toBe(7);
+  });
+
+  test("the descriptive alias probes deterministically through `_1` to `_2`", () => {
+    const files: readonly (readonly [string, string])[] = [[
+      "/lib.hex",
+      "module Lib\n\n" + [
+        "export constraint Boxy<a> =",
+        "    eval(x: a) -> Int",
+        "    eval_1(x: a) -> Int",
+        "",
+        "export record Box = {n: Int}",
+        "honor Boxy<Box> =",
+        "    eval(x) = x.n",
+        "    eval_1(x) = x.n",
+        "",
+      ].join("\n"),
+    ]];
+
+    const text = javascript(files, "/lib.hex");
+    expect(text).toContain("const __eval_2 = (x, __Boxy_a) => __Boxy_a.eval(x);");
+    expect(text).toContain("export { __eval_2 as __eval };");
   });
 
   test("the negative baseline: unaliased, the importer is a `SyntaxError` at load", async () => {

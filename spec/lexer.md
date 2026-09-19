@@ -173,6 +173,25 @@ I元素      E无效年龄  M数据库           -- cultural role prefixes, ordi
 - No case folding occurs. `point`, `Point`, and `POINT` are three spellings; only the
   latter two are uppercase-start.
 
+**Source bindings unsafe in JavaScript.** A lawful Hexagon value-binding name
+that JavaScript refuses as a local in the emitted strict-mode module uses the
+preferred compiler spelling `__<sourceName>`: `null` becomes `__null`, `eval`
+becomes `__eval`, and `arguments` becomes `__arguments`. The ordinary allocation
+rule below applies: use the bare preferred spelling unless an occupied or
+reserved complete identifier requires `_1`, `_2`, … . Symbol IDs and counters
+unrelated to a collision must not enter the spelling; adding an unrelated
+prelude binding or module must not rename it. Allocate once for each binding
+and use its chosen spelling consistently at every reference. Where that local
+is represented in both JavaScript and `.d.ts`, both use the same spelling.
+The source export name remains unchanged (`export { __null as null }`);
+FFI Part 7 §1.2 defines the affected emission seats and the separate treatment
+of compiler-minted imports and captured globals.
+
+These aliases need no category prefix: they remain ordinary value bindings,
+with the source name providing their descriptive stem. Unlike `__patt_<name>`,
+they do not define a separate category of foreign exports. This rule does not
+rename existing generated families or make additional source names legal.
+
 **Generated-name allocation.** Categories improve readability, not uniqueness.
 Compare complete emitted identifiers in the scope where they bind; distinct
 source namespaces do not establish distinct JavaScript bindings. Reserve fixed

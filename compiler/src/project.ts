@@ -541,9 +541,10 @@ export function compileProject(
     // a pair: since #829 every `stdlib/` module is compiled with every program,
     // so leaving one out of the reserved range would push a project's first
     // binding from `0` to whatever the standard library happened to spend —
-    // observable in emitted JavaScript wherever a name is minted from an id
-    // (`__binding0`), and a fact about the library rather than about the
-    // program.
+    // observable wherever emitted identity still follows resolver ids, and a
+    // fact about the library rather than about the program. Unsafe source locals
+    // are deliberately not such a seat: Lexer §3.2 derives their stable
+    // `__<sourceName>` aliases from spelling alone.
     const isInjected = isPrelude || isRuntimeModule || libraryModuleSet.has(path);
     const source = sources.get(path)!;
     const parsedModule = parsed.get(path)!;
