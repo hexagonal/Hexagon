@@ -102,6 +102,15 @@ exactGuest({guest = "Mira", seats = 3}) // error: extra field seats
 
 The compiler can suggest `...` when the extra fields were probably intentional.
 
+`...` belongs to the annotations of functions and values, where the compiler works out
+from the body which fields are really used, and to `type` aliases, which are read
+wherever they are used. It is refused in two kinds of place. Inside a `record` declaration's
+field types and a union constructor's payload, a row is written once for every value
+of the type, so a field that one construction added would silently belong to every
+value. Anywhere in an `extern` declaration, there is no body to learn from, so a
+field the declaration did not name could arrive from JavaScript unseen. Name the
+fields, or give the field the type `JsValue` when it genuinely may hold anything.
+
 Very occasionally, two annotations must preserve the same unknown remainder. A named
 tail expresses that relationship:
 

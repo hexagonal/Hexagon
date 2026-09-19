@@ -120,6 +120,8 @@ Inside an extern block, the declaration keywords make a strict distinction:
 
 The distinction follows the declared type as well as the surface punctuation: an extern `let` annotated with a function type is a callable declaration and therefore a hard error. It must be written as `fun` with the corresponding explicit parameter list (Part 6 §2.4/§12.2).
 
+Every record type an extern declaration writes is **closed**: `...` is refused at every position of the declaration — parameters, result, `let`, Part 5 member slots, any function type inside it — because an extern has no body to derive a face from, and an open tail in the declaring module can be named into (Part 1 §5.4 item 7, which owns the refusal and its rewrites).
+
 This is contextual foreign-declaration vocabulary. `fun` here means *callable* — not that Hexagon can see or cares whether the JavaScript implementation is recursive; extern declarations have no bodies, so the ordinary `fun`-enables-self-reference reading has no work to do. The trusted-boundary rule remains: declaring a non-callable JS export with `fun`, or a value with an incompatible declared type, is a programmer contract violation (Part 1 §3.1), not a reason for automatic runtime inspection.
 
 ### 4.2 Targeted diagnostics
