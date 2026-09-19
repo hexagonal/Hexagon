@@ -58,40 +58,36 @@
  *    declare (#961 review 2). The cost is that at a non-extern position a
  *    chain ending in a live variable publishes closed, which PR 3's export
  *    wrapper will have to look at again.
- * 3. *The extern's own row, and a nominal's field row.* Both are judged as
- *    **written**: the extern's by `#externDeclaredSignatures`, which is also
- *    what this walk is handed, and a nominal field's by item 7's second
- *    reading (`#captureFindingsAt`). Freezing only ever adds open rows and
- *    open rows at these seats are refusals, so a position the checker accepts
- *    only because a construction closed a row does not exist for this walk to
- *    compile a plan from (#961 review 3).
+ * 3. *The extern's own row.* It is judged as **written**
+ *    (`#externDeclaredSignatures`), which is also what this walk is handed, so
+ *    a call site that solved the shared tail can redirect neither the refusal
+ *    nor the copy (#961 reviews 2 and 3).
+ * 4. *A nominal's field row.* There is nothing left to hold together: #962
+ *    refuses `...` anywhere in a nominal `record`'s field types, a union
+ *    payload or an `exception` payload, at the declaration
+ *    (`#rejectOpenRowsInDeclarations`, Products §4). A declaration's row is
+ *    one row for every value of the type, so the row a construction could
+ *    once widen — and with it the two readings the checker used to need, and
+ *    the disagreement this header recorded as its one live difference — no
+ *    longer exists to be read two ways.
  *
- * **Three differences remain, and the third reaches a seat.**
+ * **Two differences remain, and neither reaches a seat.** `Node`, the hidden
+ * trie node, is identity here and followed there; it has no annotation syntax,
+ * so no declaration can put it at a position. And the budget is asymmetric —
+ * the checker's walk passes `#walkBudget` into `#normalizeRecord` and the pass
+ * boundary passes none — which runs in the safe direction, because a chain the
+ * checker abandons is a position it refuses.
  *
- * Two cannot. `Node`, the hidden trie node, is identity here and followed
- * there; it has no annotation syntax, so no declaration can put it at a
- * position. And the budget is asymmetric — the checker's walk passes
- * `#walkBudget` into `#normalizeRecord` and the pass boundary passes none —
- * which runs in the safe direction, because a chain the checker abandons is a
- * position it refuses.
+ * The third difference this header carried until #962 was a nominal's field
+ * row at a seat that kept its open rows: the checker's live walk saw what a
+ * construction had put in the field and the published row did not, so an
+ * extern result of that nominal compiled with no plan and Hexagon held the
+ * foreign array (#961 review 4's residue). It is gone because the declaration
+ * that produced it is gone, which is where it had to be killed — the
+ * disagreement was one record declaration's row being two rows, and no reading
+ * here could have made it one.
  *
- * The third is **a nominal's field row at a `foreign` seat**, and it is a
- * disagreement about *content* rather than about openness, so place 3 above
- * does not reach it: that seat keeps its open rows (§5.4 item 7's "every other
- * position") and so takes one reading, the live one. With `record Holder = {r:
- * {n: Int, ...}}` and a construction somewhere in the program putting an
- * `Array(Int)` into `r`, an extern **result** of type `Holder` has the checker
- * seeing `r: {n: Int, v: Array(Int)}` — legal, and therefore copied — while the
- * row published to this walk still carries an unsolved tail and names nothing.
- * No plan is compiled, and the `Array(Int)` Hexagon ends up holding is the
- * foreign array itself (#961 review 4's residue). It is the inbound mirror of
- * the supplied-seat case place 3 closes, it is `origin/main`'s typing rather
- * than this pass's doing, and the rider that refuses an open row in a nominal
- * record or union payload **declaration** kills it at the declaration, which
- * is where it has to be killed: the disagreement is one record declaration's
- * row being two rows, and no reading here can make it one.
- *
- * `capture-walk.test.ts` pins each of the three places above. The header claims
+ * `capture-walk.test.ts` pins each of the four places above. The header claims
  * nothing the file does not pin, and denies nothing the file cannot prevent.
  */
 

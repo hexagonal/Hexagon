@@ -169,6 +169,20 @@ export interface RecordTypeAnnotation {
   readonly fields: readonly RecordTypeField[];
   readonly open: boolean;
   readonly tail?: string;
+  /**
+   * The `type` alias this **open** row was written through, where the row
+   * reached this position by an alias expansion rather than by being written
+   * here (#962).
+   *
+   * A face carries an alias's expansion and never its name (FFI Part 7 §1), so
+   * nothing downstream reads this as a type. It exists for one diagnostic:
+   * Products §4 refuses `...` inside a nominal declaration "at any depth, and
+   * through any alias", and its report is "reported at the field or slot,
+   * naming the alias when one carried the tail" — which is the one thing the
+   * expansion would otherwise have thrown away. Set only on open rows, and the
+   * **outermost** expansion wins, because that is the name the reader wrote.
+   */
+  readonly throughAlias?: string;
   readonly span: Source.Span;
 }
 
