@@ -3095,9 +3095,13 @@ class Checker {
    * calls it. That is an ordering fault in the *check*, not in the type system:
    * the fix is to look at the row the author wrote, which is what this holds.
    *
-   * Only the extern's **own** written tails are frozen. A tail inside a nominal
-   * record's declared field is that record's, shared as it always was, and
-   * nothing here changes it.
+   * Only the extern's **own** written tails are frozen here. A tail inside a
+   * nominal record's declared field is that record's, shared by every
+   * construction in the program as it always was — and that sharing is exactly
+   * as able to retract item 7 as this one was, one field deeper. It is frozen
+   * too, at the occurrence rather than here, because items 1 and 2 need the
+   * solved field and item 7 needs the written one: `#captureFindingsAt` reads
+   * both and says why.
    */
   readonly #externDeclaredSignatures = new Map<Resolved.SymbolId, Mono>();
 
@@ -22378,6 +22382,15 @@ class Checker {
   #findCapturedCollection(
     type: Mono,
     budget: { steps: number } = { steps: 0 },
+    /**
+     * Read a nominal's declared components with their **row tails frozen** —
+     * the row the declaration wrote, not the row a construction left.
+     *
+     * Item 7 alone asks for this, and items 1 and 2 must not have it: see
+     * `#captureFindingsAt`, which runs the two readings and says why each
+     * needs its own.
+     */
+    asDeclared = false,
   ): CaptureFindings {
     const pending: CaptureStep[] = [{ type }];
     const seen = new Set<string>();
@@ -22533,7 +22546,11 @@ class Checker {
           for (const component of this.#nominalComponents(actual)) {
             pending.push({
               ...step,
-              type: component.type,
+              // A declaration's field row is one variable shared by every
+              // construction of it, so under `asDeclared` it is frozen here,
+              // at the occurrence — the record's own fields, its own tail
+              // replaced by a variable nothing will unify (`#frozenRowTails`).
+              type: asDeclared ? this.#frozenRowTails(component.type) : component.type,
               ...(opaqueHere
                 ? { opaque: { name: actual.name, component: component.key } }
                 : {}),
@@ -22758,6 +22775,49 @@ class Checker {
   }
 
   /**
+   * FFI Part 1 §5.4's findings at one seat, read the **two ways the section
+   * asks for** and merged.
+   *
+   * Items 1 and 2 ask what the value can carry, so they read the components a
+   * nominal's declaration has *now*: `record Holder = { r: {n: Int, ...} }`
+   * whose row some construction closed with a `Vector(Array(Int))` really does
+   * carry that container, and item 1 refuses the position for it. Reading the
+   * row as written there would lose the finding.
+   *
+   * Item 7 asks the opposite question — what the *declaration* admits — and
+   * §5.4 answers it "at any depth, **through a nominal record's field**", with
+   * "the classification is **static, by position**". A record declaration's
+   * field row is one variable shared by every construction in the program, so
+   * read live it stops being open the moment somebody writes
+   * `Holder({r = {n = 1, v = xs}})` somewhere — and the position that item 7
+   * refuses on its own then compiles, crossing that `xs` uncopied (#961 review
+   * 3). So item 7 reads the components with their tails frozen.
+   *
+   * The two cannot disagree in the direction that matters. Freezing only ever
+   * *adds* open rows, so every position the live reading refuses for item 7 the
+   * declared reading refuses too, and the extra ones are refusals — never
+   * acceptances. **The emitter therefore never compiles a plan for a type the
+   * checker accepted only because a construction closed a nominal's field**:
+   * that position is refused here, whichever field the construction closed.
+   *
+   * Only a seat that can report item 7 pays for the second walk; a `foreign`
+   * seat keeps its open rows (§5.4 item 7's "every other position") and asks
+   * once.
+   */
+  #captureFindingsAt(type: Mono, seat: OpenRowSeat): CaptureFindings {
+    const live = this.#findCapturedCollection(type);
+    if (seat === "foreign") return live;
+    const declared = this.#findCapturedCollection(type, { steps: 0 }, true);
+    return {
+      first: live.first,
+      guarded: live.guarded,
+      open: declared.open,
+      openInFunction: declared.openInFunction,
+      exhausted: live.exhausted || declared.exhausted,
+    };
+  }
+
+  /**
    * The same, reported at a seat's span.
    *
    * **One walk at the door**, and one budget with it: the seat asks its
@@ -22777,7 +22837,7 @@ class Checker {
   ): void {
     const message = this.#capturedRefusalMessage(
       type,
-      this.#findCapturedCollection(type),
+      this.#captureFindingsAt(type, seat),
       positionOnly,
       seat,
     );
@@ -23387,8 +23447,10 @@ class Checker {
   #checkReleaseSeats(): void {
     for (const { type, span, node } of this.#releaseSeats) {
       if (node !== undefined && this.#releaseCallees.has(node)) continue;
-      // One walk, read three times in Part 11 §2's own order.
-      const found = this.#findCapturedCollection(type);
+      // Read three times in Part 11 §2's own order, off the two readings the
+      // seat is owed (`#captureFindingsAt`): item 7 on the rows as declared,
+      // items 1 and 2 on what the value carries.
+      const found = this.#captureFindingsAt(type, "release");
       // **Item 7 first, and it alone pre-empts item 5** — §2's "refused first,
       // and alone, when the argument type is or contains an open structural
       // record", and §5.4 item 7's "item 5 is not also reported". The rewrite

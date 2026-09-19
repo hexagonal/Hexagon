@@ -40,30 +40,40 @@
  * collection under one of item 1's five containers, inside an opaque
  * representation — where the checker says "names one, and is refused" and this
  * walk says "identity", never reaching the position because the program does
- * not compile. `Node`, the hidden trie node, is identity here and followed
- * there; it has no annotation syntax and reaches no boundary position, so no
- * type can put the difference at a seat.
+ * not compile.
  *
- * **The agreement is by construction at the one node that could break it.** A
- * structural record's **fields** are normalized before they cross the pass
- * boundary (`#publicType`), so a tail unification solved contributes the
- * fields it carries, exactly as `#findCapturedCollection` sees them — the two
- * read one row. That is the repair for #961 review 1's finding 2: read raw,
- * the same record was "closed and walkable" to the checker and "open and names
- * nothing" here, and the position that compiled crossed uncopied. The row's
- * **tail** is a different question and is read one link, never chased: a
- * published tail is a row a consumer could instantiate, and §5.4 item 7 leaves
- * a foreign seat's row open precisely because Hexagon cannot name what it did
- * not declare (#961 review 2).
+ * **Where a record's row is concerned, the two are held together at three
+ * named places rather than by one construction.** A row is the only node at
+ * which they can disagree about what a type *contains*, because it is the only
+ * one whose contents unification can change after the declaration is written.
  *
- * At an **extern** position this walk is directed by the declaration's own
- * frozen row rather than by whatever a caller left in the shared tail —
- * §5.4 item 7's "a wrapper compiled against the open declaration". The one
- * asymmetry left is the budget: the checker's walk passes `#walkBudget` into
- * `#normalizeRecord` and the pass boundary passes none, which runs in the safe
- * direction — a chain the checker abandons is a position it refuses, so this
- * walk never reaches it. `capture-walk.test.ts` pins the agreement at the
- * shapes where it could still drift.
+ * 1. *The fields.* A structural record's fields are normalized before they
+ *    cross the pass boundary (`#publicType`), so a tail unification solved
+ *    contributes the fields it carries, exactly as `#findCapturedCollection`
+ *    sees them. That is the repair for #961 review 1's finding 2: read raw,
+ *    one record was "closed and walkable" to the checker and "open and names
+ *    nothing" here, and the position that compiled crossed uncopied.
+ * 2. *The published tail.* Read one link, never chased: a published tail is a
+ *    row a **consumer** could instantiate, and §5.4 item 7 leaves a foreign
+ *    seat's row open precisely because Hexagon cannot name what it did not
+ *    declare (#961 review 2). The cost is that at a non-extern position a
+ *    chain ending in a live variable publishes closed, which PR 3's export
+ *    wrapper will have to look at again.
+ * 3. *The extern's own row, and a nominal's field row.* Both are judged as
+ *    **written**: the extern's by `#externDeclaredSignatures`, which is also
+ *    what this walk is handed, and a nominal field's by item 7's second
+ *    reading (`#captureFindingsAt`). Freezing only ever adds open rows and
+ *    open rows at these seats are refusals, so a position the checker accepts
+ *    only because a construction closed a row does not exist for this walk to
+ *    compile a plan from (#961 review 3).
+ *
+ * Two differences remain and neither can reach a seat. `Node`, the hidden trie
+ * node, is identity here and followed there; it has no annotation syntax. And
+ * the budget is asymmetric — the checker's walk passes `#walkBudget` into
+ * `#normalizeRecord` and the pass boundary passes none — which runs in the safe
+ * direction, because a chain the checker abandons is a position it refuses.
+ * `capture-walk.test.ts` pins each of the three places above; the header claims
+ * nothing the file does not pin.
  */
 
 import type * as Typed from "../../syntax/typed/index.js";

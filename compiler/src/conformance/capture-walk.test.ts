@@ -1432,6 +1432,108 @@ describe("an extern declaration's open row is its own (§5.4 item 7)", () => {
   });
 });
 
+describe("a nominal's field row is judged as declared (§5.4 item 7)", () => {
+  const REFUSAL = "this record may have more fields (`{n: Int, ...}`), so it cannot cross " +
+    "the foreign boundary at this position: Hexagon supplies the record here, and a field " +
+    "the declaration does not name would cross uncopied (FFI Part 1 §5.4) — name every " +
+    "field the crossing carries, or declare `JsValue` where the foreign side genuinely " +
+    "accepts anything";
+
+  /**
+   * §5.4 item 7 refuses an open row at a supplied position "at any depth,
+   * **through a nominal record's field**". A record declaration's field row is
+   * one variable shared by every construction in the program — that is
+   * `origin/main`'s behaviour and this arc does not change it — so read live,
+   * the row stops being open the moment somebody writes
+   * `Holder({r = {n = 1, v = xs}})` anywhere in the module, and the position
+   * item 7 refuses on its own compiles. Executed before the repair, foreign
+   * code received `h.r.v === xs`: a Hexagon `Array` reachable from JavaScript
+   * across a declared position, with no plan and no copy (#961 review 3).
+   *
+   * The declaration is what item 7 is judged on, so the verdict does not
+   * depend on what some other line of the module constructed.
+   */
+  test("a construction cannot lift the refusal on a nominal's open field", () => {
+    const holder = "export record Holder = {r: {n: Int, ...}}\n";
+    const sink = 'extern from "./sink.js"\n' + "    fun send(h: Holder) ->! Unit\n";
+    // Without a construction anywhere — the position on its own.
+    expect(projectDiagnostics(
+      "module Main\n\n" + holder + "\n" + sink + "\nexport fun p(h: Holder): Unit = send!(h)\n",
+    )).toEqual([REFUSAL]);
+    // And with the construction that used to close the row.
+    expect(projectDiagnostics(
+      "module Main\n\n" + holder + "\n" + sink +
+        "\nexport fun p(xs: Array(Int)): Unit = send!(Holder({r = {n = 1, v = xs}}))\n",
+    )).toEqual([REFUSAL]);
+  });
+
+  /** The declaration order does not decide it either, nor does the module. */
+  test("the record may be declared after the extern block, or in another module", () => {
+    expect(projectDiagnostics(
+      "module Main\n\n" +
+        'extern from "./sink.js"\n' + "    fun send(h: Holder) ->! Unit\n" +
+        "\nexport record Holder = {r: {n: Int, ...}}\n" +
+        "\nexport fun p(xs: Array(Int)): Unit = send!(Holder({r = {n = 1, v = xs}}))\n",
+    )).toEqual([REFUSAL]);
+
+    expect(compileFiles([
+      ["/Shapes.hex", "module Shapes\n\nexport record Holder = {r: {n: Int, ...}}\n"],
+      ["/main.hex", "module Main\n\nimport Shapes\n\n" +
+        'extern from "./sink.js"\n' + "    fun send(h: Shapes.Holder) ->! Unit\n" +
+        "\nexport fun p(xs: Array(Int)): Unit =\n" +
+        "    send!(Shapes.Holder({r = {n = 1, v = xs}}))\n"],
+    ]).diagnostics.map(({ message }) => message)).toEqual([REFUSAL]);
+  });
+
+  /** A union arm carrying the open row is the same position and the same row. */
+  test("a union arm's open payload is refused too", () => {
+    expect(projectDiagnostics(
+      "module Main\n\n" +
+        "export union Wrap = Held({n: Int, ...}) | Empty\n" +
+        "\n" +
+        'extern from "./sink.js"\n' + "    fun send(w: Wrap) ->! Unit\n" +
+        "\nexport fun p(xs: Array(Int)): Unit = send!(Held({n = 1, v = xs}))\n",
+    )).toEqual([REFUSAL]);
+  });
+
+  /**
+   * And the declared reading is item 7's alone. Items 1 and 2 keep reading the
+   * components a nominal's declaration has **now**, because the collection
+   * they look for may be the very thing a construction put there: the same
+   * field, closed with a `Vector(Array(Int))`, draws item 1 as well.
+   */
+  test("items 1 and 2 still read what a construction put in the field", () => {
+    expect(projectDiagnostics(
+      "module Main\n\n" +
+        "export record Holder = {r: {n: Int, ...}}\n" +
+        "\n" +
+        'extern from "./sink.js"\n' + "    fun send(h: Holder) ->! Unit\n" +
+        "\nexport fun p(v: Vector(Array(Int))): Unit = send!(Holder({r = {n = 1, v = v}}))\n",
+    )).toEqual([
+      REFUSAL,
+      "captured collection `Array(Int)` beneath `Vector` cannot cross the foreign boundary; " +
+      "convert each element with `Array.toVector` before the crossing, perform the " +
+      "conversion at a controlled boundary, or bind through a foreign shim or an opaque " +
+      "foreign handle",
+    ]);
+  });
+
+  /**
+   * A nominal whose field row is **closed as declared** crosses as it always
+   * did, with the plan its fields ask for — so the refusal above is the row's
+   * openness and not the nominal.
+   */
+  test("a closed field row crosses, and gets its plan", () => {
+    const source = "export record Box = {r: {n: Int}, xs: Array(Int)}\n" +
+      "\n" +
+      'extern from "./sink.js"\n' + "    fun send(b: Box) ->! Unit\n" +
+      "\nexport fun p(b: Box): Unit = send!(b)\n";
+    expect(projectDiagnostics("module Main\n\n" + source)).toEqual([]);
+    expect(javascript(source))
+      .toContain('{ k: "record", fields: [["r", null], ["xs", 1]], open: false }');
+  });
+});
+
 describe("the emitter copies at every type the checker accepts (the one trigger)", () => {
   /**
    * The checker owns §5.4's membership function over `Mono`; this pass asks the
