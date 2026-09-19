@@ -496,9 +496,9 @@ describe("two prelude members exporting one bare name", () => {
    * alone precedes it) and a four-home one in the consumer. One project, one
    * name, two sentences.
    *
-   * `Result.hex` is supplied by the project rather than embedded, the idiom the
-   * prelude injection path already carries; its real source is extended rather
-   * than replaced, so this pins the rule and not a transcription.
+   * `Result.hex` is supplied and explicitly trusted as the registered member;
+   * its real source is extended rather than replaced, so this pins the rule and
+   * not a transcription.
    */
   test("a prelude member reaches a predecessor's function qualified, not bare", () => {
     const compiled = compileFiles([
@@ -508,7 +508,7 @@ describe("two prelude members exporting one bare name", () => {
         `${STDLIB_SOURCES["Result"]!}\n` +
         "export let member: Seq(Int) = empty\n",
       ],
-    ]);
+    ], { trustedStandardLibraryModules: new Set(["Result"]) });
 
     expect(compiled.diagnostics.map(({ message }) => message)).toEqual([
       "no bare `empty`; write `Seq.empty`, `Vector.empty`, `Map.empty`, " +
@@ -526,7 +526,7 @@ describe("two prelude members exporting one bare name", () => {
         `${STDLIB_SOURCES["Result"]!}\n` +
         "export let member: Seq(Int) = Seq.empty\n",
       ],
-    ]);
+    ], { trustedStandardLibraryModules: new Set(["Result"]) });
 
     expect(compiled.diagnostics.map(({ message }) => message)).toEqual([]);
   });
@@ -548,7 +548,7 @@ describe("two prelude members exporting one bare name", () => {
         `${STDLIB_SOURCES["Result"]!}\n` +
         "export let empty: Int = 0\n",
       ],
-    ]);
+    ], { trustedStandardLibraryModules: new Set(["Result"]) });
 
     expect(compiled.diagnostics.map(({ message }) => message)).toEqual([
       "no bare `empty`; write `Seq.empty`, `Result.empty`, `Vector.empty`, " +

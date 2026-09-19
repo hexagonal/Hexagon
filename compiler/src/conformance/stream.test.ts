@@ -270,15 +270,14 @@ describe("§4.5 what the surface refuses", () => {
 
 describe("§2.5 the field's arrow is the impure constant", () => {
   /**
-   * A modified `Stream.hex` seated as the prelude member: a project file with a
-   * prelude basename wins over the injected copy, which is the only way to
-   * reach the opaque record's constructor at all.
+   * A modified `Stream.hex` explicitly granted the registered prelude seat,
+   * which is the only way to reach the opaque record's constructor at all.
    */
   function withStream(mutated: string): readonly string[] {
     return compileFiles([
       ["/Stream.hex", mutated],
       ["/main.hex", "module Main\n\n" + "export let x: Int = 1\n"],
-    ]).diagnostics.map(({ message }) => message);
+    ], { trustedStandardLibraryModules: new Set(["Stream"]) }).diagnostics.map(({ message }) => message);
   }
 
   it("refuses a pure lambda at `next` with the reverse-demand sentence", () => {

@@ -31,7 +31,8 @@ describe("the inventory and its lowerings agree", () => {
       ).join(", ");
       const diagnostics = compileProject([
         new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + "export let ok: Int = 1\n"),
-        // A prelude injection path, so the module is privileged (§5.2).
+        // The explicit host grant below gives this source the registered
+        // prelude member's privilege (§5.2).
         // `Debug.hex` and not another: it is **last** in the prelude order, so
         // replacing it with a door-only module takes nothing out from under a
         // later member. `Result.hex` served until `JsValue.hex` seated after
@@ -42,7 +43,7 @@ describe("the inventory and its lowerings agree", () => {
           "module Debug\n\n" + 'extern from "hex:intrinsic"\n' +
           `    export fun ${key} as declared(${parameters}) -> Int\n`,
         ),
-      ]).diagnostics;
+      ], { trustedStandardLibraryModules: new Set(["Debug"]) }).diagnostics;
       expect(diagnostics.map((diagnostic) => diagnostic.message)).toEqual([]);
     },
   );

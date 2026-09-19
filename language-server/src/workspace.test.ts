@@ -164,7 +164,7 @@ describe("the workspace walk", () => {
    * because the checker separately forbids `Node` from crossing an exported
    * signature — privilege lets a module *name* it, not publish it.
    */
-  test("a module declaring a runtime member's name is privileged, and nothing else is", async () => {
+  test("a runtime member's name does not grant an ordinary workspace privilege", async () => {
     const path = await makeRoot();
     await writeFile(
       join(path, "trie.hex"),
@@ -182,26 +182,18 @@ describe("the workspace walk", () => {
       join(path, "VectorTrie.hex"),
       "module Runtime.VectorTrie\n\n" + "let size(node: Node(Int)): Int = 0\n",
     );
-    const privileged = await scan(path);
-    // The `Node` report is gone and the emitter's two-sided contract is what is
-    // left — the stub declares none of the trie's operations. That report is
-    // this assertion's whole value: it says the file's reports **reach** the
-    // session, so the absence of the `Node` one is a fact about privilege
-    // rather than about a file nobody is publishing. It asserted `[]` until
-    // #829's review round 5, and passed because a project file adopted into a
-    // runtime seat is not in the emitted closure the analysis indexed by, so
-    // every report in it — type errors included — was dropped on the floor.
+    const named = await scan(path);
+    // The language server never grants standard-library replacement authority.
+    // A declared runtime-member name and matching basename therefore remain
+    // ordinary source, and the hidden `Node` type stays unavailable.
     expect(
-      privileged.workspace.session.allDiagnostics().get(
-        privileged.workspace.session.paths[0]!,
+      named.workspace.session.allDiagnostics().get(
+        named.workspace.session.paths[0]!,
       )?.map(({ message }) => message),
-    ).toEqual([
-      "this module is `Runtime.VectorTrie` but declares no `empty`, `get`, " +
-      "`set`, `append`, `prepend`, `slice`, `window`, `concat`, `nodeRun`",
-    ]);
+    ).toEqual(["unknown generic type `Node`"]);
     // Analysed, not merely quiet: a file dropped from the session reports
     // nothing either, and that would pass the line above for the wrong reason.
-    expect(privileged.workspace.session.paths.map((each) => each.split("/").at(-1)))
+    expect(named.workspace.session.paths.map((each) => each.split("/").at(-1)))
       .toEqual(["VectorTrie.hex"]);
   });
 
@@ -1355,10 +1347,10 @@ describe("the workspace walk", () => {
    * privilege was matched by exact path equality, a manifest naming the file's
    * own path lost it entirely and `unknown generic type `Node`` came back with
    * nothing to explain it — which is why four tests stood here pinning the
-   * grant under each name a file can be reached by. A declared name is the same
-   * under every spelling, so the whole class has one case now.
+   * grant under each name a file can be reached by. The ordinary workspace host
+   * now grants neither path nor declared name.
    */
-  test("a runtime member is privileged under whatever name the walk chose", async () => {
+  test("a runtime member remains ordinary under a symlinked spelling", async () => {
     const base = await makeRoot();
     const path = join(base, "project");
     await mkdir(join(base, "external", "runtime"), { recursive: true });
@@ -1372,14 +1364,10 @@ describe("the workspace walk", () => {
     const { workspace } = await scan(path);
     expect(workspace.session.paths.map((each) => each.split("/").at(-1)))
       .toEqual(["VectorTrie.hex"]);
-    // No `Node` report: the privilege followed the declared name under the only
-    // spelling this file has. The stub's incomplete wiring is the one report
-    // left, and it is what says the file is being analysed at all.
+    // The symlink changes neither trust nor identity: the ordinary host supplies
+    // no grant, so `Node` remains unavailable.
     expect([...workspace.session.allDiagnostics().values()].flat().map(({ message }) => message))
-      .toEqual([
-        "this module is `Runtime.VectorTrie` but declares no `empty`, `get`, " +
-        "`set`, `append`, `prepend`, `slice`, `window`, `concat`, `nodeRun`",
-      ]);
+      .toEqual(["unknown generic type `Node`"]);
   });
 
   test("opening an excluded file by its symlinked name does not add it", async () => {

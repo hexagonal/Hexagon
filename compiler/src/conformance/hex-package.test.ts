@@ -154,7 +154,7 @@ describe("bare scope is the prelude's, and the library adds nothing to it", () =
   });
 });
 
-describe("the runtime modules are members of `Hex`, privileged by name", () => {
+describe("the runtime modules are registered members of `Hex`", () => {
   /**
    * Ruling D — **no carve**. `Runtime.VectorTrie` is an ordinary member of the
    * package as far as *import* resolution is concerned: the head binds an
@@ -189,19 +189,17 @@ describe("the runtime modules are members of `Hex`, privileged by name", () => {
   });
 
   /**
-   * Both privileges follow the **name**, and this is the pin that they do:
-   * `Node(a)` resolves only in a runtime module, and a project file declaring
-   * `module Runtime.VectorTrie` is adopted at that member's seat wherever the
-   * file sits — which is the stdlib-developing-itself path, and is why the
-   * shipped-sources sweep needs no grant.
+   * `Node(a)` resolves only in a registered runtime member. The explicit host
+   * grant seats this supplied declaration as that member independently of its
+   * source path.
    */
   test("a project file declaring a runtime member's name is compiled as one", () => {
     const privileged = compileFiles([[
       "/deep/down/VectorTrie.hex",
       "module Runtime.VectorTrie\n\nlet size(node: Node(Int)): Int = 0\n",
-    ]]);
-    // `Node(Int)` resolved: the privilege arrived with the name, from a file
-    // under a path nothing in the compiler mentions. The one report left is the
+    ]], { trustedStandardLibraryModules: new Set(["Runtime.VectorTrie"]) });
+    // `Node(Int)` resolved because the host granted the registered member's
+    // identity. The source path is immaterial. The one report left is the
     // emitter's own two-sided contract — this stub declares none of the trie's
     // operations — which is `vector-trie-wiring.test.ts`'s seat and is what
     // makes the absence of the `Node` report meaningful rather than vacuous.

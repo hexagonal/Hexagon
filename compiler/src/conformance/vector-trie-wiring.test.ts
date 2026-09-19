@@ -134,16 +134,15 @@ describe("the runtime module's two-sided contract", () => {
    * A module claiming a runtime module's **name** that is not the trie is
    * reported, not emitted broken.
    *
-   * Since #829 the claim is made by the header — `module Runtime.VectorTrie` —
-   * and not by a file's place: the compiler adopts a project's own file at that
-   * name, which is the stdlib-developing-itself path, and what it must not do is
+   * The fixture explicitly grants the registered `Runtime.VectorTrie` identity;
+   * its source path is immaterial. What the compiler must not do is
    * write the trie's export list over a module that declares none of it.
    */
   test("a foreign module at a runtime module's name is refused rather than mis-exported", () => {
     const project = compileFiles([
       ["/main.hex", "module Main\n\n" + "export let v: Vector(Int) = [1]\n"],
       ["/VectorTrie.hex", "module Runtime.VectorTrie\n\n" + "let unrelated: Int = 1\n"],
-    ]);
+    ], { trustedStandardLibraryModules: new Set(["Runtime.VectorTrie"]) });
     // The message names the module since #370 generalized the wiring: two
     // runtime modules share this check, so "the vector runtime" no longer
     // identifies which seat is wrong.
@@ -651,12 +650,9 @@ describe("§5.3 the `Vector(+a)` claim, verified against the representation", ()
    * this is a verification and not a comparison of two written things.
    */
   /**
-   * The probe route: the project's **own** `VectorTrie.hex` declaring
-   * `module Runtime.VectorTrie`, which is adopted as the member and compiled in
-   * its real role (#829). There is no other route — the host grant that used to
-   * privilege a path went with the ruling — so the probe reads the file's own
-   * text at the member's own basename, beside a `/main.hex` whose vector is what
-   * reaches it.
+   * The probe route explicitly grants the registered `Runtime.VectorTrie`
+   * identity to this supplied declaration. The path is only a fixture label;
+   * a `/main.hex` vector reaches the trusted runtime member.
    */
   const PROBE_PATH = "/VectorTrie.hex";
   const TOUCH: readonly [string, string] = [
@@ -675,7 +671,12 @@ describe("§5.3 the `Vector(+a)` claim, verified against the representation", ()
     files: readonly (readonly [string, string])[],
     path: string,
   ): TrieVariance {
-    const project = compileFiles(files);
+    const project = compileFiles(
+      files,
+      path === PROBE_PATH
+        ? { trustedStandardLibraryModules: new Set(["Runtime.VectorTrie"]) }
+        : {},
+    );
     const module = project.modules.find(({ source }) => source.path === path);
     if (module === undefined) throw new Error(`${path} was not compiled`);
     const record = module.typed.records.find(({ name }) => name === "TrieVector");
@@ -729,8 +730,8 @@ describe("§5.3 the `Vector(+a)` claim, verified against the representation", ()
   /**
    * The control, and the whole reason the two tests above are not decoration:
    * an edit to `VectorTrie.hex` that puts `a` in argument position must turn
-   * them red. Both halves go through the same probe route — the file's own text
-   * adopted as the runtime member — so the only difference between the readings
+   * them red. Both halves go through the same explicitly granted probe route,
+   * so the only difference between the readings
    * is the one field.
    *
    * The sabotage also breaks the module outright, which is the machinery

@@ -28,8 +28,9 @@
  * asserting it never drifts from the canonical file. **Both privileges are
  * keyed by membership in this list**, never by a path: the folder under
  * `stdlib/` is our filing convention and the language reads no path (Modules
- * §9.2). A project supplying its own file that declares one of these names wins,
- * which is what lets the shipped-sources sweep compile them in their real role.
+ * §9.2). A host may explicitly trust one supplied declaration to replace a
+ * registered member, which is how the shipped-sources sweep compiles these files
+ * in their real role.
  */
 
 import { STDLIB_SOURCES } from "./stdlib-sources.js";
@@ -41,7 +42,7 @@ export interface RuntimeModule {
    * `Hex/Runtime/VectorTrie.js` (Packages §2.3, §6).
    */
   readonly name: string;
-  /** Embedded fallback source, used only when the project supplies its own file. */
+  /** Embedded fallback source, used unless the host grants a supplied replacement. */
   readonly source: string;
   /**
    * The prelude member this module takes its seat before, in the one injected

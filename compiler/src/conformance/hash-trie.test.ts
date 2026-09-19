@@ -24,13 +24,10 @@ import trieSource from "../../../stdlib/Runtime/HashTrie.hex?raw";
  *
  * ## How the probe becomes a runtime module
  *
- * There is one route and no other (#829): a project's own file at the member's
- * **basename** declaring the member's **name** is adopted as that member, and
- * with the seat come both privileges — `Node(a)` and the intrinsic door. So the
- * probe is `/HashTrie.hex` carrying `module Runtime.HashTrie` verbatim, and it
- * really is the runtime every `Map(k, v)` in this program is built on. The host
- * grant that used to compile a probe under a path of its own choosing is gone;
- * a path names nothing here. `vector-trie.test.ts`'s arrangement, for its
+ * The specialized harness explicitly grants the registered
+ * `Runtime.HashTrie` identity to this supplied declaration. The member seat
+ * carries both privileges — `Node(a)` and the intrinsic door — independently
+ * of the fixture path. `vector-trie.test.ts` uses the same arrangement, for its
  * reasons — including `TOUCH`, the one ordinary module whose map reaches the
  * trie, without which a runtime module serving nothing is never emitted.
  *
@@ -43,19 +40,19 @@ import trieSource from "../../../stdlib/Runtime/HashTrie.hex?raw";
  * one trie value against *itself*.
  */
 const PROBE_PATH = "/HashTrie.hex";
+const TRUST_RUNTIME = { trustedStandardLibraryModules: new Set(["Runtime.HashTrie"]) } as const;
 
 /**
  * The shipped trie, verbatim — header included.
  *
- * `stdlib/Runtime/HashTrie.hex` declares `module Runtime.HashTrie` (#829), and
- * that header is exactly what the adoption test reads: the same two halves, the
- * basename and the declared name, that let the standard library be developed in
- * Hexagon at all. Nothing is respelled; the probes are appended below.
+ * `stdlib/Runtime/HashTrie.hex` declares `module Runtime.HashTrie`; the explicit
+ * grant names that registered identity. Nothing is respelled; the probes are
+ * appended below.
  */
 const probeSource = trieSource;
 
 /**
- * One ordinary module with one map in it, so the adopted trie is reached and
+ * One ordinary module with one map in it, so the trusted trie is reached and
  * emitted. Nothing here is under test; it exists to be an importer.
  */
 const TOUCH: readonly [string, string] = [
@@ -66,7 +63,7 @@ const TOUCH: readonly [string, string] = [
 async function runTrie(probes: string): Promise<Record<string, unknown>> {
   return runProject(
     [[PROBE_PATH, `${probeSource}\n${probes}`], TOUCH],
-    { entry: PROBE_PATH },
+    { ...TRUST_RUNTIME, entry: PROBE_PATH },
   );
 }
 
@@ -87,6 +84,7 @@ async function runTrieWithIdentity(
   return runProject(
     [[PROBE_PATH, `${probeSource}\n${probes}`], TOUCH],
     {
+      ...TRUST_RUNTIME,
       entry: PROBE_PATH,
       transform: (path, javascript) =>
         path === PROBE_PATH ? `${javascript}\n${identities.join("\n")}\n` : javascript,
@@ -1139,6 +1137,7 @@ describe("HashTrie placement mix (Effects §6.2 species (b))", () => {
   test("the emitted module creates the seed once, outside the mixing function", () => {
     const project = compileFiles(
       [[PROBE_PATH, `${probeSource}\nexport let mixed: Int = mix(1)\n`], TOUCH],
+      TRUST_RUNTIME,
     );
     expect(project.diagnostics).toEqual([]);
     const emitted = project.modules.find(({ source }) => source.path === PROBE_PATH);
@@ -1173,6 +1172,7 @@ describe("the emitted module's import surface", () => {
         "let sample: HashTrie(Int, Int) = set(empty, 1, 2)\n" +
         "export let probe: Int = size(sample) + Seq.length(entries(sample))\n",
       ], TOUCH],
+      TRUST_RUNTIME,
     );
     expect(project.diagnostics).toEqual([]);
     const emitted = project.modules.find(({ source }) => source.path === PROBE_PATH);
@@ -1200,10 +1200,9 @@ describe("the emitted module's import surface", () => {
 /**
  * The privilege widening #365 took: a module compiled as a runtime module holds
  * the intrinsic door as well as the `Node` fallback (`spec/intrinsics.md` §5.2's
- * runtime bullet). Since #829 there is exactly **one** route into that role and
- * it is not a path: membership in the list the compiler holds, which a project's
- * own file takes by sitting at the member's basename *and* declaring the
- * member's name. Both halves are pinned below, together with the refusal that
+ * runtime bullet). A supplied source enters that role only through an explicit
+ * host grant naming its registered module identity; paths and text do not infer
+ * the grant. The boundary is pinned below, together with the refusal that
  * still stands for every other module — the widening is a grant to a
  * compilation role, not a hole in the gate.
  */
@@ -1222,7 +1221,7 @@ describe("runtime modules hold the intrinsic door (§5.2)", () => {
     "block naming your module";
 
   test("an adopted runtime member may declare a door block", () => {
-    const project = compileFiles([[PROBE_PATH, `${probeSource}\n${DOOR}`], TOUCH]);
+    const project = compileFiles([[PROBE_PATH, `${probeSource}\n${DOOR}`], TOUCH], TRUST_RUNTIME);
     expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
   });
 
@@ -1249,18 +1248,23 @@ describe("runtime modules hold the intrinsic door (§5.2)", () => {
    * with a host free to name any path, this file was one line of configuration
    * away from privileged, and nothing in the language decided it.
    */
-  test("the same text at another basename is not adopted, and its door is refused", () => {
-    const adopted = compileFiles([["/HashTrie.hex", `${probeSource}\n${DOOR}`], TOUCH]);
+  test("the explicit grant is independent of the source basename", () => {
+    const adopted = compileFiles([["/HashTrie.hex", `${probeSource}\n${DOOR}`], TOUCH], TRUST_RUNTIME);
     expect(adopted.diagnostics.map(({ message }) => message)).toEqual([]);
-    // Same header, same body, one directory entry apart.
-    const elsewhere = compileFiles([["/Elsewhere.hex", `${probeSource}\n${DOOR}`], TOUCH]);
-    const messages = elsewhere.diagnostics.map(({ message }) => message);
+    const trustedElsewhere = compileFiles(
+      [["/Elsewhere.hex", `${probeSource}\n${DOOR}`], TOUCH],
+      TRUST_RUNTIME,
+    );
+    expect(trustedElsewhere.diagnostics.map(({ message }) => message)).toEqual([]);
+    // The same source without the host grant remains ordinary project source.
+    const untrusted = compileFiles([["/Elsewhere.hex", `${probeSource}\n${DOOR}`], TOUCH]);
+    const messages = untrusted.diagnostics.map(({ message }) => message);
     expect(messages).toContain(RESERVED);
     // Unprivileged in the other direction too: `Node` is an ordinary unknown.
     expect(messages).toContain("unknown generic type `Node`");
     // And the program still has its own trie — the embedded copy kept the seat,
     // so `TOUCH`'s map compiles against the shipped member rather than this file.
-    expect(elsewhere.modules.map(({ path }) => path)).toContain("/Hex/Runtime/HashTrie.hex");
+    expect(untrusted.modules.map(({ path }) => path)).toContain("/Hex/Runtime/HashTrie.hex");
   });
 
   /**
@@ -1269,12 +1273,10 @@ describe("runtime modules hold the intrinsic door (§5.2)", () => {
    * declaring `module Mine` — is an ordinary project module too, and draws the
    * same two refusals.
    *
-   * This half is what keeps the one above from being a path grant by another
-   * name. After `runtimePaths` the basename is the only path-shaped thing left
-   * in the adoption predicate, and on its own it decides nothing: a file takes
-   * the seat by *being the member*, which is a claim its header makes.
+   * This half pins that a path grants nothing. Without the explicit host grant,
+   * neither basename nor declared text can take the registered member's seat.
    */
-  test("the same text at the basename under another name is not adopted either", () => {
+  test("the same text at the basename under another name remains ordinary", () => {
     const renamed = probeSource.replace("module Runtime.HashTrie", "module Mine");
     const project = compileFiles([[PROBE_PATH, `${renamed}\n${DOOR}`], TOUCH]);
     const messages = project.diagnostics.map(({ message }) => message);
@@ -1313,7 +1315,7 @@ describe("runtime modules hold the intrinsic door (§5.2)", () => {
       compileFiles([["/Ordinary.hex", "module Ordinary\n\n" + declaration]]).diagnostics.map(({ message }) => message),
     ).toEqual(["constraint `Integral` is pre-registered and cannot be redeclared"]);
     expect(
-      compileFiles([[PROBE_PATH, `${probeSource}\n${declaration}`], TOUCH])
+      compileFiles([[PROBE_PATH, `${probeSource}\n${declaration}`], TOUCH], TRUST_RUNTIME)
         .diagnostics.map(({ message }) => message),
     ).toEqual([]);
   });
@@ -1326,6 +1328,7 @@ describe("runtime modules hold the intrinsic door (§5.2)", () => {
   test("a foreign extern still cannot name Node, adopted or not", () => {
     const project = compileFiles(
       [[PROBE_PATH, `${probeSource}\n` + 'extern from "./host.js"\n    fun host(value: Int) ->! Node(Int)\n'], TOUCH],
+      TRUST_RUNTIME,
     );
     expect(project.diagnostics.map(({ message }) => message)).toContain(
       "extern declaration `host` names the hidden `Node` intrinsic, " +

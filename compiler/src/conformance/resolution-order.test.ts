@@ -49,8 +49,8 @@ function diagnostics(
  * only place the hidden `Node` spelling answers, and so the only place its
  * ordering against the companion fallback is observable.
  *
- * A file is that member by sitting at its basename and declaring its name
- * (#829); no host grant privileges a path any more. The body is written out
+ * The specialized harness explicitly grants the declared runtime-member
+ * identity; no source path or basename confers the role. The body is written out
  * here rather than read from `stdlib/Runtime/VectorTrie.hex` because the
  * specimen aliases something *as* `Node`, and the shipped trie's own text is
  * `Node.empty()`/`Node.get` throughout — the alias would take every one of
@@ -92,6 +92,7 @@ const HASH_TRIE_OPERATIONS = "let empty: Int = 0\n" +
 function memberDiagnostics(
   source: string,
   extras: readonly (readonly [string, string])[] = [],
+  trustedExtras: readonly string[] = [],
 ): readonly string[] {
   const files = [
     ["/VectorTrie.hex", `module Runtime.VectorTrie\n${source}`] as const,
@@ -99,6 +100,7 @@ function memberDiagnostics(
   ];
   return compileProject(
     files.map(([path, text], index) => new Source.File(Source.fileId(index), path, text)),
+    { trustedStandardLibraryModules: new Set(["Runtime.VectorTrie", ...trustedExtras]) },
   ).diagnostics.map((diagnostic) => diagnostic.message);
 }
 
@@ -398,8 +400,8 @@ describe("the companion fallback outranks the boundary intrinsics", () => {
    *
    * The retired host grant reached this by putting a *project* module's exported
    * `Node` behind the alias, and it needed that project module to hold the
-   * runtime privilege. Adoption reaches it with no project module at all,
-   * because a project may supply an **earlier runtime member's** file too: a
+   * runtime privilege. An explicit trusted replacement reaches it with no
+   * ordinary project module at all, because a project may supply an **earlier runtime member's** file too: a
    * member sees the injected modules seated before it (Modules §5.5), and
    * `Runtime.VectorTrie` is one of them. `Runtime.HashTrie`'s seat before `Map`
    * is later, so the pair is reconstructed inside the two members rather than
@@ -420,6 +422,7 @@ describe("the companion fallback outranks the boundary intrinsics", () => {
     expect(memberDiagnostics(
       "\nexport record Node(a) = { item: a }\n" + RUNTIME_OPERATIONS,
       [aliasing],
+      ["Runtime.HashTrie"],
     )).toEqual([]);
     // The discriminating control: the same pair with nothing named `Node`
     // behind the alias. Now the hidden intrinsic answers the annotation, and
@@ -427,6 +430,7 @@ describe("the companion fallback outranks the boundary intrinsics", () => {
     expect(memberDiagnostics(
       "\nexport fun count(): Int = 1\n" + RUNTIME_OPERATIONS,
       [aliasing],
+      ["Runtime.HashTrie"],
     )).toEqual(["type mismatch: expected Node(Int), found {item: a, ...}"]);
   });
 

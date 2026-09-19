@@ -724,6 +724,21 @@ describe("AnalysisSession", () => {
     expect(session.version).toBe(settled);
   });
 
+  test("standard-library trust grants participate in the session cache key as a set", () => {
+    const session = new AnalysisSession();
+    session.setFile("/main.hex", "module Main\n\nlet value: Int = 1\n");
+    const settled = session.version;
+
+    session.configure({ trustedStandardLibraryModules: new Set(["Option", "Rat"]) });
+    expect(session.version).toBeGreaterThan(settled);
+    const configured = session.version;
+
+    session.configure({ trustedStandardLibraryModules: new Set(["Rat", "Option"]) });
+    expect(session.version).toBe(configured);
+    session.configure({ trustedStandardLibraryModules: new Set(["Option"]) });
+    expect(session.version).toBeGreaterThan(configured);
+  });
+
   test("paths arriving in Windows spelling are the same file", () => {
     const session = new AnalysisSession();
     session.setFile("\\main.hex", "let value: Int = 1\n");

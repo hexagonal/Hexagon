@@ -26,13 +26,10 @@ import trieSource from "../../../stdlib/Runtime/VectorTrie.hex?raw";
  *
  * ## How the probe becomes a runtime module
  *
- * There is one route and no other (#829): a project's own file at the member's
- * **basename** declaring the member's **name** is adopted as that member, and
- * with the seat come both privileges — `Node(a)` and the intrinsic door. So the
- * probe is `/VectorTrie.hex` carrying `module Runtime.VectorTrie` verbatim, and
- * it really is the runtime every `Vector(a)` in this program is built on. The
- * host grant that used to compile a probe under a path of its own choosing is
- * gone; a path names nothing here.
+ * The specialized harness explicitly grants the registered
+ * `Runtime.VectorTrie` identity to this supplied declaration. The member seat
+ * carries both privileges — `Node(a)` and the intrinsic door — independently
+ * of the fixture path.
  *
  * That has one consequence the harness has to pay for. A runtime module is
  * emitted only where the program reaches it, and a trie that serves no vector
@@ -41,6 +38,7 @@ import trieSource from "../../../stdlib/Runtime/VectorTrie.hex?raw";
  * The probes' exports are still read off the trie module itself.
  */
 const PROBE_PATH = "/VectorTrie.hex";
+const TRUST_RUNTIME = { trustedStandardLibraryModules: new Set(["Runtime.VectorTrie"]) } as const;
 
 /**
  * One ordinary module with one vector in it, so the adopted trie is reached and
@@ -52,12 +50,12 @@ const TOUCH: readonly [string, string] = [
 ];
 
 async function runTrie(probes: string): Promise<Record<string, unknown>> {
-  // Through the whole project, with this file adopted as the runtime module: the
+  // Through the whole project, with this file trusted as the runtime module: the
   // trie's own `isEmpty` returns `Bool`, and since #147 that names a prelude
   // declaration, so a prelude-free compilation of this module no longer typechecks.
   return runProject(
     [[PROBE_PATH, `${trieSource}\n${probes}`], TOUCH],
-    { entry: PROBE_PATH },
+    { ...TRUST_RUNTIME, entry: PROBE_PATH },
   );
 }
 

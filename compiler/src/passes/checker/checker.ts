@@ -52,6 +52,12 @@ import { preludeExportSymbol } from "../../support/prelude-symbol.js";
 import * as Typed from "../../syntax/typed/index.js";
 
 export interface CheckOptions {
+  /**
+   * Whether the host seated this source as a registered standard-library
+   * member. This is provenance for the narrow hand-written `Hash` exception;
+   * it is deliberately separate from resolver intrinsic privileges.
+   */
+  readonly trustedStandardLibrary?: boolean;
   readonly importedSchemes?: ReadonlyMap<Resolved.SymbolId, Typed.Scheme>;
   /**
    * How `import <written>` would resolve for this module — Modules §5.1 rule
@@ -3054,6 +3060,11 @@ class Checker {
    * sets the field.
    */
   #companionPrimitive: Resolved.PrimitiveName | undefined;
+  /** Host-authenticated standard-library provenance; never inferred from text. */
+  readonly #trustedStandardLibrary: boolean;
+  /** Nominal declarations owned by the module currently being checked. */
+  readonly #ownUnions = new Set<Resolved.UnionId>();
+  readonly #ownRecords = new Set<Resolved.RecordId>();
   /**
    * Per intrinsic declaration, the variables its annotations introduced. Shared
    * between scheme construction and materialization so both name the same
@@ -3590,6 +3601,7 @@ class Checker {
     this.#ownDefaultAlias = options.ownDefaultAlias;
     this.#repairs = options.repairs;
     this.#patternExports = options.patternExports ?? new Map();
+    this.#trustedStandardLibrary = options.trustedStandardLibrary ?? false;
   }
 
   check(module: Resolved.Module): Typed.Module {
@@ -3602,6 +3614,8 @@ class Checker {
       if (item.kind === "PatternDeclaration" || item.kind === "PatternAlias") {
         this.#patternRepairNames.add(item.name);
       }
+      if (item.kind === "Union") this.#ownUnions.add(item.union);
+      if (item.kind === "RecordDeclaration") this.#ownRecords.add(item.record);
     }
     for (const symbol of module.symbols) this.#symbolKinds.set(symbol.id, symbol.kind);
     // See `#declaredUnions`: an annotation elaborated before the registration
@@ -5812,6 +5826,12 @@ class Checker {
     return subject.kind === "Primitive" && subject.name === this.#companionPrimitive;
   }
 
+  /** Whether this module's source declares the nominal named by an instance head. */
+  #ownsNominal(subject: Resolved.TypeAnnotation): boolean {
+    return (subject.kind === "Union" && this.#ownUnions.has(subject.union)) ||
+      (subject.kind === "RecordDeclaration" && this.#ownRecords.has(subject.record));
+  }
+
   #checkInstanceHead(
     item: Resolved.HonorItem,
     moduleItems: readonly Resolved.Item[],
@@ -6456,7 +6476,8 @@ class Checker {
         // identity; now the constraint is too.
         if (
           !item.derived && item.constraintIdentity === HASH_IDENTITY &&
-          !this.#companionsPrimitive(item.subject)
+          !this.#companionsPrimitive(item.subject) &&
+          !(this.#trustedStandardLibrary && this.#ownsNominal(item.subject))
         ) {
           const message = this.#handWrittenHashRefusal(item);
           if (message !== undefined) {

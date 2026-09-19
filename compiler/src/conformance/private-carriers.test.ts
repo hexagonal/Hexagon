@@ -826,10 +826,11 @@ describe("no shipped exported constraint draws the new refusal", () => {
     .filter(([, source]) => /^export constraint /mu.test(source))
     .map(([globPath, source]) => {
       const basename = globPath.slice(globPath.lastIndexOf("/") + 1);
-      // The privileges a runtime module holds come from its declared name now
-      // (`runtime-modules.ts`), so supplying the file at its basename is the
-      // whole of the setup — the compiler adopts it into the role.
-      return [globPath.slice(globPath.indexOf("/stdlib/") + 1), { basename, source }] as const;
+      // The harness explicitly grants this exact registered module identity;
+      // the basename remains only a readable fixture path.
+      const moduleName = source.match(/^module\s+([^\s]+)/u)?.[1];
+      if (moduleName === undefined) throw new Error(`${globPath} has no module declaration`);
+      return [globPath.slice(globPath.indexOf("/stdlib/") + 1), { basename, source, moduleName }] as const;
     })
     .sort(([left], [right]) => left.localeCompare(right));
 
@@ -843,7 +844,9 @@ describe("no shipped exported constraint draws the new refusal", () => {
   });
 
   test.each(SUBJECTS)("%s exposes no private type", (_label, subject) => {
-    const compiled = compileFiles([[`/${subject.basename}`, subject.source]]);
+    const compiled = compileFiles([[`/${subject.basename}`, subject.source]], {
+      trustedStandardLibraryModules: new Set([subject.moduleName]),
+    });
     expect(compiled.diagnostics
       .map(({ message }) => message)
       .filter((message) => message.includes("exposes private type"))).toEqual([]);

@@ -789,9 +789,9 @@ describe("§3.4 — ground structural dictionaries hoist by their shape", () => 
    * `const __Ord_Bool = { Eq: __Eq_Bool_1, … }` above the `const __Eq_Bool_1`
    * it names: a `ReferenceError` on the first import of the module.
    *
-   * Compiling the stdlib itself is the one way to reach `Bool.hex`'s emitted
-   * text (`injectPrelude` prefers a project file at the injection path), which
-   * is what `bool-union.test.ts` uses to prove its integrity check runs.
+   * An explicit host grant is the way to reach a replacement `Bool` member's
+   * emitted text, which is what `bool-union.test.ts` uses to prove its integrity
+   * check runs.
    */
   test("an eagerly-read base-constraint slot keeps its literal", () => {
     const files = [
@@ -807,9 +807,13 @@ describe("§3.4 — ground structural dictionaries hoist by their shape", () => 
         "module Main\n\n" + 'import Bool as Boolean\nlet eagerSlot = 0\nexport let flag: Bool = True\n',
       ],
     ] as const;
-    const project = compileFiles(files);
+    const project = compileFiles(files, {
+      trustedStandardLibraryModules: new Set(["Bool"]),
+    });
     expect(project.diagnostics).toEqual([]);
-    const text = emittedFrom(files, "/Bool.hex");
+    const member = project.modules.find(({ source }) => source.path === "/Bool.hex");
+    if (member === undefined) throw new Error("/Bool.hex was not emitted");
+    const text = member.javascript.text;
 
     expect(text).toContain(
       "const __Ord_Bool = { Eq: ({ equals: (__left, __right) => __left === __right,",

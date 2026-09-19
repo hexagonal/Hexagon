@@ -27,8 +27,7 @@ import { projectDiagnostics, runMain } from "../support/test-project.js";
  * a program already using it: "adding a name to the prelude cannot break a
  * program through a binder collision."
  *
- * Two harnesses. The first substitutes its own prelude member (a project file at
- * `Result.hex` wins over the embedded copy), which is how the module-level rule
+ * Two harnesses. The first explicitly trusts its own `Result` replacement, which is how the module-level rule
  * was pinned before the shipped prelude exported any lowercase name; it is also
  * the only way to compile *prelude source* and so to reach §5.4's prefix
  * reading. The second compiles against the real shipped prelude, where `show`,
@@ -39,7 +38,7 @@ import { projectDiagnostics, runMain } from "../support/test-project.js";
  * name", so any divergence from the control is the defect.
  */
 
-/** `Result.hex` supplied by the project — the injected fallback then stands down. */
+/** `Result.hex` supplied by the project and explicitly granted its registered seat. */
 const RESULT_WITH_VALUE = [
   "/Result.hex",
   "module Result\n\n" + "export union Result(a, e) = Ok(value: a) | Err(error: e)\n" +
@@ -47,11 +46,15 @@ const RESULT_WITH_VALUE = [
   "export let tally: Int = 0\n",
 ] as const;
 
-function diagnostics(entry: string, result: string = RESULT_WITH_VALUE[1]): readonly string[] {
+function diagnostics(
+  entry: string,
+  result: string = RESULT_WITH_VALUE[1],
+  trustedMember = "Result",
+): readonly string[] {
   return compileProject([
     new Source.File(Source.fileId(1), RESULT_WITH_VALUE[0], result),
     new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + entry),
-  ]).diagnostics.map((diagnostic) => diagnostic.message);
+  ], { trustedStandardLibraryModules: new Set([trustedMember]) }).diagnostics.map((diagnostic) => diagnostic.message);
 }
 
 /**
@@ -608,6 +611,7 @@ describe("in prelude source, the prelude layer is the §5.5 visible prefix", () 
       "export let labelled(n: Int): String =\n" +
       "    let show = \"prefix shadow\"\n" +
       "    show\n",
+      "Debug",
     )).toEqual([]);
   });
 
@@ -619,6 +623,7 @@ describe("in prelude source, the prelude layer is the §5.5 visible prefix", () 
       "    let early = show(n)\n" +
       "    let show = \"prefix shadow\"\n" +
       "    early ++ show\n",
+      "Debug",
     )).toEqual([
       "`show` is declared later in this block; declarations are read top-down — " +
         "move its declaration above this use",

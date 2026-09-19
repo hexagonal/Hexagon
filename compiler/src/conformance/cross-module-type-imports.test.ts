@@ -22,9 +22,13 @@ import { typeScriptErrors } from "../support/typescript-check.js";
  */
 
 /** One compiled project, with its diagnostics asserted empty. */
-function project(files: readonly (readonly [string, string])[]) {
+function project(
+  files: readonly (readonly [string, string])[],
+  trustedStandardLibraryModules: ReadonlySet<string> = new Set(),
+) {
   const compiled = compileProject(
     files.map(([path, text], index) => new Source.File(Source.fileId(index), path, text)),
+    { trustedStandardLibraryModules },
   );
   expect(compiled.diagnostics).toEqual([]);
   return compiled;
@@ -88,8 +92,8 @@ describe("prelude-supplied types are imported by the faces that reach them", () 
     // Today's prelude exports exactly three importable types, all unions —
     // `Seq` is a record but faces as `Iterable` (§2.3), so nothing else would
     // reach the other two arms of §2.4's inventory. A project may supply its own
-    // file at a prelude injection path, which is what makes them testable at
-    // all; the member's real source is extended rather than replaced, so this
+    // declaration trusted as a registered prelude replacement, which is what
+    // makes them testable at all; the member's real source is extended, so this
     // pins the rule and not a transcription of `Prelude.hex`.
     const compiled = project([
       ["/main.hex", "module Main\n\n" + "export let pick(p: Pair, h: Handle): Handle = h\n"],
@@ -99,7 +103,7 @@ describe("prelude-supplied types are imported by the faces that reach them", () 
           "opaque record Pair = {left: Int, right: Int}\n" +
           'extern from "./shapes.js"\n    export type Handle\n',
       ],
-    ]);
+    ], new Set(["Prelude"]));
     const text = emitted(compiled, "/main.hex").declarations.text;
 
     // One statement per type, not per module — two types from one member is two

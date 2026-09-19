@@ -629,8 +629,8 @@ export interface Module {
    * one (Method Syntax §4.1's table, Constraints §5.3 — #344).
    *
    * A primitive has no declaration, so nothing in a module's *text* can say it
-   * is that primitive's home. The fact is a compilation one — the module is a
-   * prelude member injected at the primitive's own basename — which is the same
+   * is that primitive's home. The fact is a compilation one — the module holds
+   * the registered prelude member's seat — which is the same
    * shape the intrinsic door's privilege takes (`spec/intrinsics.md` §5.2), and
    * it is settled in `project.ts` for the same reason: privilege attaches to how
    * a module is compiled, never to what it says about itself.

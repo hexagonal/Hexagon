@@ -148,16 +148,12 @@ export interface CompiledProject {
 /**
  * What a host may tell the compiler about a project.
  *
- * Four of the five are the *language's* — what a manifest says (Packages §2.1,
- * §2.5) and the closure a host resolved from it (§4.1); the fifth,
- * `firstFileId`, is bookkeeping for a host that mints file identities of its
- * own. Nothing here grants a privilege. A **runtime** module —
- * the one that may spell `Node(a)` and open `spec/intrinsics.md` §5.2's
- * intrinsic door — is a member of the list `runtime-modules.ts` holds, keyed by
- * declared name; a project takes that role by supplying a file at the member's
- * basename declaring the member's name, and by no other route. There was once a
- * `runtimePaths` field here that opened both doors for any path a host cared to
- * name (#829): the privilege is the module's, not the file's place, so it went.
+ * Four are the *language's* — what a manifest says (Packages §2.1, §2.5) and
+ * the closure a host resolved from it (§4.1) — while `firstFileId` is
+ * bookkeeping for a host that mints file identities of its own. The remaining
+ * option is a host trust decision: which supplied declarations replace members
+ * of the compiler's embedded standard library. Source text, path, and manifest
+ * metadata never infer that trust (#843).
  */
 export interface ProjectOptions {
   /**
@@ -193,6 +189,18 @@ export interface ProjectOptions {
    * is why the record travels beside the files rather than a name alone.
    */
   readonly packages?: readonly ProjectPackage[];
+  /**
+   * Declared module identities whose supplied root-project sources the host
+   * trusts to replace the compiler's embedded `Hex` members.
+   *
+   * A requested name must be in the embedded inventory and have exactly one
+   * matching supplied declaration. The replacement inherits that registered
+   * member's existing prelude, runtime, or library role; this option creates no
+   * role or privilege of its own. Hosts should leave it absent for ordinary
+   * projects. Its sole current customer is the standard library compiling its
+   * own sources.
+   */
+  readonly trustedStandardLibraryModules?: ReadonlySet<string>;
   /**
    * The lowest file identity this compile may mint for an **injected** module,
    * where the caller hands out identities of its own.
@@ -279,6 +287,8 @@ export function compileProject(
     dependencyPackages,
     injectedModules,
     options.firstFileId ?? 0,
+    options.trustedStandardLibraryModules ?? new Set(),
+    diagnostics,
   );
   const injectedUnits = units.filter(({ injected }) => injected !== undefined)
     .sort((left, right) => left.seat! - right.seat!);
@@ -646,9 +656,8 @@ export function compileProject(
       // Standard-library privilege — the intrinsic door's gate
       // (`spec/intrinsics.md` §5.2). It follows **membership**, never a path:
       // this module is a member of the injected list, either because the
-      // compiler supplied it or because a project supplied the file that *is*
-      // it (the adoption rule above — the stdlib-developing-itself route, and
-      // the one route by which a project's own text takes the door).
+      // compiler supplied it or because the host explicitly trusted a supplied
+      // declaration to replace that registered member.
       //
       // Two seats hold it. Prelude membership is the first. The **runtime
       // module set** is the second (§5.2's runtime bullet, #365): a runtime
@@ -707,6 +716,7 @@ export function compileProject(
       programOperations,
       sourceText: source.text,
       patternExports,
+      trustedStandardLibrary: isInjected,
       // The same fact `resolve` reads, for the same one purpose: the constraint
       // alias's realias line (Packages §3.3).
       ...(unit.packageName === undefined ? {} : { packageName: unit.packageName }),
@@ -1144,8 +1154,8 @@ function runtimeDeclarationsBasename(units: readonly Unit[]): string {
  *   — the injected prelude module's seat — and, pushed after the injected units,
  *   took it: the whole standard library collapsed behind one report the author
  *   could act on, and the user's file inherited `isPrelude`, and with it the
- *   `privileged` intrinsic door, by a route `gatherModules`' two-halves adoption
- *   test was written to close.
+   *   `privileged` intrinsic door, by colliding with a registered member's
+   *   output address. Explicit host provenance is the only replacement route.
  *
  * Seating the first is what `moduleIndexOf` already decided, so the `continue`
  * there now means what it says.
@@ -1220,27 +1230,13 @@ function packageOf(
  * Parses every source file into the modules it declares and seats the injected
  * `Hex` modules among them (Modules §2.2; Packages §2.2, §2.4).
  *
- * A project file **supplying** an injected module wins, as it always has — the
- * stdlib-developing-itself path. The test is both halves at once: the file sits
- * at the injected basename *and* declares the injected name. Each half rules
- * out one adoption the other would allow — a user's `module Option` on a file
- * called anything, and `Hex.Option`'s seat handed to an `Option.hex` that
- * declares something else.
- *
- * **It does not close the hole, and the second half does not make it narrow.**
- * A user's own `/src/Option.hex` declaring `module Option` satisfies both
- * halves and takes the seat: `stdlib/Option.hex` is replaced by two lines the
- * author wrote for themselves, and their module — sitting at a prelude seat —
- * takes `isPrelude` and with it `privileged`, the intrinsic door. The adoption
- * test is now the **only** file-name-keyed module identity in the compiler —
- * `isInjectedModule`, which classified by basename for the Playground alone,
- * went when the Playground stopped making files of its own (#829 PR B) — which
- * is a fault in the very design #829 states — "a source file's own name and place appear
- * nowhere". It is kept for now because the basename is also what lets the
- * standard library be developed in Hexagon at all: with the name half alone,
- * any `module Option` anywhere would claim the seat, which is strictly worse.
- * Replacing it is design work, filed as **#843**, and this comment says what
- * the code does rather than what it was hoped to do.
+ * A project source replaces an embedded member only through the host's explicit
+ * `trustedStandardLibraryModules` grant. The grant names the module identity;
+ * the source path and basename are immaterial. A name alone is not enough: the
+ * compiler also requires exactly one supplied root-project declaration of that
+ * name. Missing, ambiguous, and unknown requests are diagnosed and the embedded
+ * member remains in place. An ungranted same-named module remains ordinary
+ * project source and participates in normal package occlusion (#843).
  *
  * **Only `.hex` sources are modules** (Packages §2.2). A host hands the compiler
  * every file it has, and a `.js` beside them is a foreign target an
@@ -1257,6 +1253,8 @@ function gatherModules(
   packages: readonly ProjectPackage[],
   injectedModules: readonly InjectedModule[],
   firstFileId: number,
+  trustedStandardLibraryModules: ReadonlySet<string>,
+  diagnostics: Diagnostics.Bag,
 ): readonly Unit[] {
   const seat = (
     source: Source.File,
@@ -1295,11 +1293,6 @@ function gatherModules(
       packageName: record.name,
     }))
   );
-  // A project with no modules injects nothing: its (empty) module list needs no
-  // prelude, and the compile stays what a compilation of nothing was. A
-  // dependency's sources do not answer for it — a program whose *project* has no
-  // module compiles nothing whatever its `node_modules` holds.
-  if (moduleFiles.length === 0) return [];
   const supplied = moduleFiles.flatMap((source) =>
     parseFile(applyLayout(lex(source)), source.path).map((parsed) => ({ source, parsed }))
   );
@@ -1314,33 +1307,60 @@ function gatherModules(
   const allFiles = [...sourceFiles, ...packages.flatMap(({ files }) => files)];
   let nextFileId = Math.max(firstFileId, ...allFiles.map((file) => Number(file.id) + 1));
   const mintFileId = (): Source.FileId => Source.fileId(nextFileId++);
+  const injectedNames = new Set(injectedModules.map(({ name }) => name));
+  const fallbackSpan = supplied[0]?.parsed.name.span ?? sourceFiles[0]?.span(0, 0) ?? {
+    fileId: Source.fileId(firstFileId),
+    start: { offset: 0, line: 0, column: 0 },
+    end: { offset: 0, line: 0, column: 0 },
+  };
+  for (const requested of trustedStandardLibraryModules) {
+    if (injectedNames.has(requested)) continue;
+    diagnostics.add({
+      severity: "error",
+      message: `cannot replace unknown standard-library module \`${requested}\``,
+      primary: fallbackSpan,
+    });
+  }
+  // A project with no modules injects nothing: its (empty) module list needs no
+  // prelude, and the compile stays what a compilation of nothing was. A
+  // dependency's sources do not answer for it — a program whose *project* has no
+  // module compiles nothing whatever its `node_modules` holds. Invalid trust
+  // requests above are still host configuration errors and remain diagnosed.
+  if (moduleFiles.length === 0) {
+    for (const requested of trustedStandardLibraryModules) {
+      if (!injectedNames.has(requested)) continue;
+      diagnostics.add({
+        severity: "error",
+        message: `trusted replacement for standard-library module \`${requested}\` has no supplied declaration`,
+        primary: fallbackSpan,
+      });
+    }
+    return [];
+  }
   for (const [index, member] of injectedModules.entries()) {
-    // The file the module would be filed under, were it filed: its declared
-    // name's last segment. `Runtime.VectorTrie` is `VectorTrie.hex`, which is
-    // where `stdlib/Runtime/` really keeps it and where a project developing
-    // the standard library keeps its own copy.
-    const basename = `${member.name.split(".").at(-1)!}.hex`;
-    // **Adoption is the prelude's and the runtime's, and not the library's.**
-    //
-    // A prelude member and a runtime module are compiled with privileges no
-    // module's text can ask for — bare scope at a normative seat, the `Node(a)`
-    // spelling, the intrinsic door — so a project developing the standard
-    // library has to be able to supply the file that *is* that member; there is
-    // no other way to compile `stdlib/Option.hex` in the role it holds.
-    //
-    // A library module has no such privilege: it is an ordinary module of an
-    // ordinary package. So a project's own `module Rat` is its own, and
-    // **occludes** `Hex.Rat` rather than replacing it — the resolving package's
-    // module wins for `import Rat`, `import Hex.Rat` still reaches the
-    // library's, and both are compiled (Packages §3.2, Modules §2.3). Adopting
-    // it instead would make a name a project has always been free to use
-    // silently take the standard library's seat, which is the opposite of what
-    // occlusion promises.
-    const own = member.kind === "library" ? undefined : supplied.find(({ source, parsed }) =>
-      !adopted.has(parsed) &&
-      source.path.slice(source.path.lastIndexOf("/") + 1) === basename &&
-      parsed.name.text === member.name
-    );
+    const candidates = trustedStandardLibraryModules.has(member.name)
+      ? supplied.filter(({ parsed }) => !adopted.has(parsed) && parsed.name.text === member.name)
+      : [];
+    const own = candidates.length === 1 ? candidates[0] : undefined;
+    if (trustedStandardLibraryModules.has(member.name) && candidates.length !== 1) {
+      const primary = candidates[1]?.parsed.name.span ?? candidates[0]?.parsed.name.span ?? fallbackSpan;
+      diagnostics.add({
+        severity: "error",
+        message: candidates.length === 0
+          ? `trusted replacement for standard-library module \`${member.name}\` has no supplied declaration`
+          : `trusted replacement for standard-library module \`${member.name}\` is ambiguous; ` +
+            `${candidates.length} supplied declarations match`,
+        primary,
+        ...(candidates.length > 1
+          ? {
+            labels: [{
+              span: candidates[0]!.parsed.name.span,
+              message: "another matching declaration is here",
+            }],
+          }
+          : {}),
+      });
+    }
     if (own !== undefined) {
       adopted.add(own.parsed);
       units.push(seat(own.source, own.parsed, STANDARD_LIBRARY, member.kind, index));

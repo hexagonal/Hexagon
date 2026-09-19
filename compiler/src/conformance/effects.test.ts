@@ -22,8 +22,9 @@ import { compileFiles } from "../support/test-project.js";
 /** Diagnostics of a compiled project. */
 function effectDiagnostics(
   files: readonly (readonly [string, string])[],
+  trustedStandardLibraryModules: ReadonlySet<string> = new Set(),
 ): readonly string[] {
-  return compileFiles(files).diagnostics.map(({ message }) => message);
+  return compileFiles(files, { trustedStandardLibraryModules }).diagnostics.map(({ message }) => message);
 }
 
 /**
@@ -37,8 +38,9 @@ function withSeq(main: string): readonly string[] {
 /** Every fix replacement a project offered, so a test can pin the fixit text. */
 function effectFixes(
   files: readonly (readonly [string, string])[],
+  trustedStandardLibraryModules: ReadonlySet<string> = new Set(),
 ): readonly string[] {
-  return compileFiles(files).diagnostics.flatMap((diagnostic) =>
+  return compileFiles(files, { trustedStandardLibraryModules }).diagnostics.flatMap((diagnostic) =>
     (diagnostic.fixes ?? []).flatMap((fix) =>
       fix.edits.map((edit) => `${fix.message}: ${JSON.stringify(edit.replacement)}`)
     )
@@ -155,8 +157,8 @@ describe("the discipline, unconditional", () => {
 describe("#355 fold's body — the designated specimen, six directions", () => {
   /**
    * `stdlib/Seq.hex` with one mark in `fold`'s body mutated, seated as the
-   * prelude member: a project file with a prelude basename wins over the
-   * injected copy, which is how the migrated source itself is put under test.
+   * prelude member through an explicit host grant, which is how the migrated
+   * source itself is put under test.
    */
   function foldWith(next: string, combine: string): readonly string[] {
     const foldBody = seqSource.slice(seqSource.indexOf("export let fold("));
@@ -167,7 +169,10 @@ describe("#355 fold's body — the designated specimen, six directions", () => {
     // no-mutation case may leave the body untouched.
     expect(mutatedBody === foldBody).toBe(next === "" && combine === "?");
     const mutated = seqSource.slice(0, seqSource.indexOf("export let fold(")) + mutatedBody;
-    return effectDiagnostics([["/Seq.hex", mutated], ["/main.hex", "module Main\n\n" + "export let x: Int = 1\n"]]);
+    return effectDiagnostics(
+      [["/Seq.hex", mutated], ["/main.hex", "module Main\n\n" + "export let x: Int = 1\n"]],
+      new Set(["Seq"]),
+    );
   }
 
   it("wants no mark on `next` and `?` on `combine`", () => {
@@ -224,7 +229,10 @@ export let run(document: String): Unit = save?(document)
   it("offers exactly one token as the fix, in each direction", () => {
     const mutated = seqSource.replace("combine?(accumulator, value)", "combine!(accumulator, value)");
     expect(
-      effectFixes([["/Seq.hex", mutated], ["/main.hex", "module Main\n\n" + "export let x: Int = 1\n"]]),
+      effectFixes(
+        [["/Seq.hex", mutated], ["/main.hex", "module Main\n\n" + "export let x: Int = 1\n"]],
+        new Set(["Seq"]),
+      ),
     ).toEqual(['mark the call `?`: "?"']);
   });
 });

@@ -25,7 +25,7 @@ describe("String owns its Iterable instance in source", () => {
     const project = compileFiles([
       ["/String.hex", withoutStringInstance()],
       ["/main.hex", "module Main\n\nexport let view: Seq(String) = Iterable.toSeq(\"abc\")\n"],
-    ]);
+    ], { trustedStandardLibraryModules: new Set(["String"]) });
     expect(project.diagnostics.map(({ message }) => message).join("\n"))
       .toContain("type `String` has no `Iterable` instance");
   });
@@ -110,7 +110,7 @@ describe("String owns its Iterable instance in source", () => {
         "    total",
         "",
       ].join("\n")],
-    ]);
+    ], { trustedStandardLibraryModules: new Set(["Iterable", "String"]) });
     expect(project.diagnostics).toEqual([]);
     const javascript = project.modules.find(({ source }) => source.path === "/main.hex")!
       .javascript.text;
