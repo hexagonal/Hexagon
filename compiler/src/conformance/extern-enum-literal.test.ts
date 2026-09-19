@@ -488,6 +488,8 @@ describe("nullish members (§2.4, §9 test 14)", () => {
    * nullish-absorbing type, so `Nullable(T) ≡ T` — a foreign `T | null |
    * undefined` is received as `T` with no conversion. The collapse is
    * definitional, so the wrapped and unwrapped spellings are one type.
+   * `nullable-companion.test.ts` executes `toOption` and `fromOption` at this
+   * absorbed type; this block pins the enum declaration and type equation.
    */
   test("an enum naming both nullish values absorbs `Nullable`", () => {
     expect(projectDiagnostics(

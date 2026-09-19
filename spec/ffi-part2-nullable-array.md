@@ -42,6 +42,16 @@ Nullable(T)           ≡ T        -- T a literal extern enum naming both null a
 
 The first equation applies through type aliases and generic substitution: there is no distinct doubly-nullable type for the zero-wrapper representation to misrepresent. Part 11 designates `JsValue` as a nullish-absorbing type because it already contains both `null` and `undefined`; Foreign Enums §2.4 designates a literal `extern enum` naming both `null` and `undefined`, because its own value set already holds both forms wrapping would add; an enum naming only one of the two is not designated, but `Nullable(T)` is legal and adds the missing nullish value without collapsing to `T` (Foreign Enums §2.4, #786). This applies through aliases, generic substitution, and inference as well as directly written types. At an absorbing `a` the §4 surface stays callable at `Nullable(a) ≡ a` and acts as the ordinary projection: `toOption` sends the type's own nullish values to `None`, and `fromOption(None)` yields `undefined`, a value of the type. The designation list is explicit and closed; the checker performs no general structural “contains nullish” analysis over arbitrary unions or opaque foreign types.
 
+**Variance (#786).** `Nullable` is covariant in its parameter, carried by the
+trusted compiler claim `Nullable(+a)` because the boundary type has no source
+declaration. Its representation carries `a` or a nullish value and offers no
+writable slot. The ordinary relaxed generalization rule therefore permits the
+§2.2 constants to be defined by zero-argument intrinsic calls and independently
+instantiated at different element types. The representation warrant and intrinsic
+obligation are Generalization §5.3 and §7
+(`decisions-ml-dialect-generalization-2026-08.md`); no constant-specific typing
+exception or implicit conversion is introduced.
+
 ### 2.2 The qualified nullish values
 
 ```hexagon
@@ -92,7 +102,7 @@ union NullableCase(a) =
 Nullable.toCase : Nullable(a) -> NullableCase(a)
 ```
 
-`toCase` preserves the `null`/`undefined` distinction and supports exhaustive ordinary `match`; the `Value(value)` arm extracts an `a`. `NullableCase` is a plain prelude union with no special typing — it follows Unions §6 for representation (mixed union: tagged POJOs, shared nullary constants) and Unions §4 for matching. Nothing about it is boundary magic; only `toCase` itself touches the foreign representation.
+`toCase` preserves the `null`/`undefined` distinction and supports exhaustive ordinary `match`; the `Value(value)` arm extracts an `a`. `NullableCase` is a plain transparent prelude union, covariant by ordinary inference from its `Value(value: a)` payload, with no special typing — it follows Unions §6 for representation (mixed union: tagged POJOs, shared nullary constants) and Unions §4 for matching. Nothing about it is boundary magic; only `toCase` itself touches the foreign representation.
 
 All three constructors are qualified-only in the prelude inventory: `NullableCase.Undefined`, `NullableCase.Null`, and `NullableCase.Value(value)` in expressions and patterns. They are not auto-imported as bare prelude terms — the prelude's default for every union but the three open ones (Modules §5.5); `ffi.md` §12 records the first case. This is ordinary companion qualification and does not change their runtime representations (Part 12 §12).
 
@@ -329,6 +339,7 @@ None. The three blockers this draft originally recorded were resolved by James a
 |---|---|
 | Two explicit foreign doors; no ambient nullability or mutation; no unqualified nullish literals | §1 |
 | `Nullable(a)` = zero-wrapper `a \| null \| undefined`; carrying preserves the null/undefined distinction | §2.1 |
+| `Nullable(+a)` has trusted covariance; its constants use ordinary relaxed generalization (#786) | §2.1; Generalization §5.3 |
 | `Nullable.null` / `Nullable.undefined` — qualified, typed, `Nullable(a)`-only | §2.2 |
 | `isNullish`/`isNull`/`isUndefined` return `Bool`; no flow narrowing; narrowing reserved for a type-system deep dive with `toCase` as the comparison datum | §2.3, §2.5 |
 | `NullableCase(a) = Undefined \| Null \| Value(value: a)`; `toCase` is the exact exhaustive reading | §3 |

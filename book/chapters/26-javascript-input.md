@@ -159,6 +159,18 @@ There are no ambient `null` or `undefined` literals that can silently enter an o
 Hexagon type. Predicates such as `Nullable.isNull` return `Bool`; they do not introduce
 TypeScript-style flow narrowing. Use `toOption` or `toCase` to extract the value.
 
+The nullish constants work at each element type independently:
+
+```hexagon
+let age: Nullable(Int) = Nullable.null
+let name: Nullable(String) = Nullable.null
+```
+
+Neither value contains an integer or a string. `Nullable` is covariant, so these
+constants can generalize by the same rule that lets the result of an empty-sequence
+function be used at different element types. A nullable value already fixed at
+`String` does not thereby become a nullable `Int`.
+
 Extern functions retain fixed arity. When a JavaScript API treats an omitted argument
 as `undefined`, declare that position as `Nullable(a)` and pass
 `Nullable.undefined` explicitly. The boundary does not add a second optional-argument

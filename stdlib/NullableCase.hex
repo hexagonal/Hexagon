@@ -1,0 +1,16 @@
+module NullableCase
+
+// The exact three-way reading of a `Nullable(a)` (FFI Part 2 section 3). This
+// union has its own module because all three constructors are qualified-only:
+// a caller writes `NullableCase.Undefined`, `NullableCase.Null`, or
+// `NullableCase.Value(value)` in expressions and patterns.
+
+(** The exact state of a nullable value, preserving the distinction between
+    JavaScript's two absence values and carrying a present `value` unchanged. *)
+export union NullableCase(a) =
+    (** JavaScript `undefined`. *)
+    | Undefined
+    (** JavaScript `null`. *)
+    | Null
+    (** A present `value`. *)
+    | Value(value: a)

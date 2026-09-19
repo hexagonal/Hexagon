@@ -1896,7 +1896,7 @@ function unionCompanionKey(union: Resolved.UnionId): string {
 
 /**
  * The compiler-built-in heads that have a companion module rather than a
- * declaration: `Vector`, `Map`, `Set`. §4.1 gives them "the fixed prelude
+ * declaration: `Vector`, `Map`, `Set`, and the boundary companions below. §4.1 gives them "the fixed prelude
  * companion module of the same name", and Collections Part 3 §7 says which
  * module that is at any moment — the one addressable under the name here, which
  * is how `stdlib/Vector.hex` occludes the compiler's own core inventory today.
@@ -1926,6 +1926,12 @@ const BUILTIN_COMPANIONS: ReadonlyMap<string, string> = new Map([
   // is the module addressable under the name. Part 2 §13.1 turns on it — the
   // fused call form "stopped being an error entirely" only where this tie exists.
   ["Array", "builtin:Array"],
+  // `Nullable(a)` is representation-direct but otherwise the same companion
+  // case as `Array(a)`: the compiler owns the type and `stdlib/Nullable.hex`
+  // supplies the module addressable under its name. Absorbing spellings are
+  // pruned before this table is read, so `Nullable(JsValue)` keeps `JsValue`'s
+  // companion and a both-nullish enum keeps its declaration's companion.
+  ["Nullable", "builtin:Nullable"],
   // The two borrowed collection views (FFI Part 10 §3) join last and on the same
   // footing (#792): neither type has a declaration site, so `stdlib/JsMap.hex`
   // and `stdlib/JsSet.hex` are their companions by being the modules addressable
@@ -2236,7 +2242,7 @@ function companionHeadName(type: Mono): string | undefined {
   if (type.kind === "NominalRecord" || type.kind === "Union") return type.name;
   if (
     type.kind === "Vector" || type.kind === "Set" || type.kind === "Map" ||
-    type.kind === "JsValue" || type.kind === "Array" ||
+    type.kind === "JsValue" || type.kind === "Array" || type.kind === "Nullable" ||
     type.kind === "JsMap" || type.kind === "JsSet"
   ) return type.kind;
   if (type.kind === "Constructor") return type.name;
@@ -4852,12 +4858,14 @@ class Checker {
       // "the call form stopped being an error entirely" is a fact about this
       // line.
       actual.kind === "Array" ||
+      // `Nullable` joins under #786. The receiver is pruned before this point,
+      // so an absorbed spelling continues to use the absorbing type's own
+      // companion rather than gaining nullable operations by force.
+      actual.kind === "Nullable" ||
       // The two borrowed collection views join for the same reason (#792,
       // FFI Part 10 §3): `stdlib/JsMap.hex` and `stdlib/JsSet.hex` are the
       // modules addressable under the names, so `m.size()`, `m.get(k)` and
-      // `s.contains(x)` are ordinary companion dispatch. `Nullable` remains
-      // absent because no module answers for it, and an empty set here would
-      // only produce the row diagnostic below.
+      // `s.contains(x)` are ordinary companion dispatch.
       actual.kind === "JsMap" ||
       actual.kind === "JsSet";
     // Primitives join the table for the member clause alone (§3.4's Primitive

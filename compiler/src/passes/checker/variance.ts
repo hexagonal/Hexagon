@@ -64,16 +64,15 @@ export interface Occurrence {
  *     row upgrades to **verified** at the emitter-wiring milestone, at which
  *     point a future `a`-in-argument-position field in `VectorTrie.hex` breaks
  *     at the row rather than silently.
- * - **Invariant, because a claim may not rest on a contract** — the borrowed
- *   foreign views. `Array` is a view of a genuinely mutable foreign object whose
- *   stability is a boundary contract (FFI Part 1 §3.1, Part 2 §6.2), not a
- *   language guarantee. `JsMap` and `JsSet` are the same case one part further
- *   on: views of native JS `Map`/`Set` whose entries, elements and size are
- *   stable only by the borrow contract (FFI Part 10 §2), so the closure doc
- *   §5.3 table gives them `Array`'s row on `Array`'s grounds. `Nullable` is
- *   representation-direct and holds nothing mutable, but has no declaration site
- *   and no ruling: invariant is the conservative default here, not a mutability
- *   verdict. A claim for any of them needs its own ruling.
+ * - `Array`, `JsMap`, and `JsSet` remain **invariant**. All three are captured
+ *   foreign collections now, but no ruling has replaced their existing claim
+ *   rows; invariant remains the conservative default rather than a statement
+ *   about their current representations.
+ * - `Nullable(+a)` is **trusted covariant**. It is representation-direct and
+ *   holds no mutable storage. The trusted representation and its primitive
+ *   implementations satisfy the same intrinsic-parametricity obligation as the
+ *   other trusted rows. The row is what lets its two zero-arity nullish producers
+ *   generalize under the relaxed value restriction.
  *
  * `Map`'s row is **verified** as of the Map step (#370), and it is `co, co`.
  * §11.4 sequenced the real claim after the milestone, and the milestone has
@@ -101,13 +100,6 @@ export interface Occurrence {
  * with a sabotage control, which is all "verified" means; §11.1 (ix)'s
  * recomputation clause obliges it to run on every edit to that same file.
  *
- * The constructor with no row and no need of one is now `NullableCase` alone. It
- * is not nameable in a type annotation, so no representation can put a parameter
- * under it and `#classify` never reaches it — the default it would fall to is
- * not load-bearing, it is unreachable. `JsMap` and `JsSet` stood in that
- * category only while they had no representation at all (#396); they are
- * annotation syntax now, so they carry their §5.3 rows above.
- *
  * `Seq` is **not** here. It has a declaration site, and the ruling's transitional
  * `Seq(+a)` row was retired by writing the sigil into `stdlib/Seq.hex` — a
  * written sigil supersedes a row, and after the sweep exactly one claim source
@@ -118,7 +110,7 @@ export const COMPILER_CLAIMS: ReadonlyMap<string, readonly Variance[]> = new Map
   ["Vector", ["co"]],
   ["Node", ["co"]],
   ["Array", ["inv"]],
-  ["Nullable", ["inv"]],
+  ["Nullable", ["co"]],
   ["Map", ["co", "co"]],
   ["Set", ["co"]],
   ["JsMap", ["inv", "inv"]],

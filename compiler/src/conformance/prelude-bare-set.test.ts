@@ -650,13 +650,13 @@ describe("the constructor channel: the open unions only", () => {
   });
 
   /**
-   * The four boundary utility unions fall out of the default with no list entry
+   * The five boundary utility unions fall out of the default with no list entry
    * (`spec/ffi.md` §12 reduced to a note), and they draw §5.5's refusal rather
    * than the bare `unknown constructor` they drew before.
    */
   test("the boundary unions' constructors draw the refusal in expression position; the door reaches them in a pattern", () => {
     expect(projectDiagnostics("module Main\n\n" + "export let k: JsKind = Null\n"))
-      .toEqual(["no bare `Null`; write `JsKind.Null`"]);
+      .toEqual(["no bare `Null`; write `NullableCase.Null` or `JsKind.Null`"]);
     // #763's door reaches a prelude qualified-only constructor the same way it
     // reaches a project one — `JsKind.Null` bare over a `JsKind` is the
     // brief's own example.

@@ -143,6 +143,9 @@ const PROGRAM = "// The two spellings Modules section 5.5 leaves a prelude funct
   "export let holeyAt(values: Vector(Nullable(Int)), index: Int): Nullable(Int) =\n" +
   "    values[index]\n" +
   "\n" +
+  "export let holeIsUndefined(values: Vector(Nullable(Int)), index: Int): Bool =\n" +
+  "    Nullable.isUndefined(values[index])\n" +
+  "\n" +
   "// A vector built on this side, so the round trip has a source that never was\n" +
   "// an array.\n" +
   "export let built(count: Int): Vector(Int) =\n" +
@@ -415,16 +418,10 @@ describe("total: there is no failure mode (§9)", () => {
 
 describe("sparse arrays: a hole observes as `undefined` (§6.4)", () => {
   /**
-   * **How this is asked, and why.** §6.4's own vocabulary is `Nullable.undefined`,
-   * and Part 2 §2.3's inspection surface is not shipped — there is no
-   * `stdlib/Nullable.hex` and no `Nullable.` member anywhere in the tree, so the
-   * value cannot be *named* in Hexagon today. What can be done is what §6.4
-   * actually claims: `Nullable(Int)` is the raw `Int | null | undefined`
-   * representation (§2.1), so a bracket read of a `Vector(Nullable(Int))` hands
-   * the representation straight back across the boundary, and the test asks
-   * JavaScript whether what arrived is `undefined`. Issue **#786** tracks the
-   * `Nullable` companion; when it ships, this is the pin to restate in its
-   * vocabulary.
+   * §6.4's own vocabulary is now executable: `Nullable.isUndefined` observes
+   * the hole inside Hexagon, while the raw bracket result still crosses back as
+   * JavaScript `undefined`. The two checks pin the companion and representation
+   * halves to the same value.
    */
   const holey = (source: readonly unknown[]): unknown =>
     (exports_["convertHoley"] as (values: readonly unknown[]) => unknown)(source);
@@ -434,6 +431,9 @@ describe("sparse arrays: a hole observes as `undefined` (§6.4)", () => {
 
   const sizeHoley = (values: unknown): number =>
     (exports_["sizeHoley"] as (values: unknown) => number)(values);
+
+  const holeIsUndefined = (values: unknown, index: number): boolean =>
+    (exports_["holeIsUndefined"] as (values: unknown, index: number) => boolean)(values, index);
 
   /**
    * The array's `length` — not its count of present elements — is the vector's
@@ -455,6 +455,7 @@ describe("sparse arrays: a hole observes as `undefined` (§6.4)", () => {
     const values = holey([1, , 3]);
     expect(holeyAt(values, 1)).toBe(1);
     expect(holeyAt(values, 2)).toBeUndefined();
+    expect(holeIsUndefined(values, 2)).toBe(true);
     expect(holeyAt(values, 3)).toBe(3);
   });
 

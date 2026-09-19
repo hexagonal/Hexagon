@@ -10313,6 +10313,21 @@ class JavaScriptEmitter {
       // module-level `const` holding the one shared set.
       case "setEmpty":
         return `() => ${this.#useHashTrieRuntime("emptySet")}`;
+      // `stdlib/Nullable.hex`'s six rows (FFI Part 2 §§2–4). The two values
+      // produce JavaScript's otherwise-unspellable nullish forms; the two
+      // predicates compare them exactly; and the guarded extraction plus the
+      // private present-value injection are representation-honest identities.
+      case "nullableUndefined":
+        return `() => ${this.#spell("undefined")}`;
+      case "nullableNull":
+        return "() => null";
+      case "nullableIsNull":
+        return "__a => __a === null";
+      case "nullableIsUndefined":
+        return `__a => __a === ${this.#spell("undefined")}`;
+      case "nullableAsValueUnchecked":
+      case "nullableFromValue":
+        return "__a => __a";
       // `stdlib/Debug.hex`'s one row (#407), and the helper it reaches is the
       // whole of the ruling: `spec/effects.md` §6.2 admits the probe as species
       // (a) *on condition* that the sink is captured, which is a property of

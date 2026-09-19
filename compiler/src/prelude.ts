@@ -153,7 +153,17 @@ export interface PreludeModule {
  * `Stream`, and nothing can — the type is `Seq`'s impure sibling and no pure
  * module has business with one.
  *
- * `Array.hex` opens the FFI block (#511). It is FFI Part 2's companion, not
+ * `NullableCase.hex` and `Nullable.hex` open the FFI block (#786), in that
+ * order. The first declares the ordinary union returned by `Nullable.toCase`;
+ * it needs its own module because all three constructors are qualified-only,
+ * so their home must be addressable as `NullableCase`. `Nullable.hex` follows
+ * it and `Option.hex`, the two modules named by its signatures and bodies. It
+ * is the companion of the compiler-owned `Nullable(a)` type, whose six door
+ * rows produce, inspect, or cross JavaScript's two nullish representations;
+ * the case and option conversions above those rows are ordinary Hexagon.
+ * Neither module seeds a bare term name.
+ *
+ * `Array.hex` follows them in the FFI block (#511). It is FFI Part 2's companion, not
  * Part 11's, and it needs exactly one thing: `get` answers with an `Option`, so
  * it sits after `Option.hex`. Everything else about the seat is deliberate
  * rather than forced. It is **late** because its two exports are `length` and
@@ -263,6 +273,8 @@ export const PRELUDE_MODULES: readonly PreludeModule[] = [
   "Map",
   "Set",
   "Stream",
+  "NullableCase",
+  "Nullable",
   "Array",
   "JsMap",
   "JsSet",
