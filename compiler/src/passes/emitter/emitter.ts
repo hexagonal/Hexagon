@@ -436,8 +436,9 @@ function moduleLevelBindings(
    */
   namespaceAliases = true,
 ): readonly string[] {
+  const unsafeLocals = unsafeModuleLocalPlan(module);
   const identifier = (binding: Core.Binding | Core.Constructor): string =>
-    isSafeIdentifier(binding.name) ? binding.name : `__binding${Number(binding.symbol)}`;
+    emittedBindingName(binding.symbol, binding.name, unsafeLocals);
   return module.items.flatMap((item): readonly string[] => {
     switch (item.kind) {
       case "Let":
@@ -464,17 +465,138 @@ function moduleLevelBindings(
         ]);
       case "ExternBlock":
         return item.declarations.flatMap((declaration) =>
-          declaration.kind === "ExternType" ? [] : [declaration.localName]
+          declaration.kind === "ExternType"
+            ? []
+            : [emittedBindingName(
+              declaration.binding.symbol,
+              declaration.localName,
+              unsafeLocals,
+            )]
         );
       case "Import":
         if (item.synthesized) return [];
         return item.form.kind === "Namespace"
           ? (namespaceAliases ? [item.form.alias] : [])
-          : item.form.names.map(({ local }) => local);
+          : item.form.names.map(({ local, symbol }) =>
+            symbol === undefined ? local : emittedBindingName(symbol, local, unsafeLocals)
+          );
       default:
         return [];
     }
   });
+}
+
+/**
+ * The stable local aliases for unsafe module-level value bindings (Lexer §3.2,
+ * FFI Part 7 §1.2 rule 4).
+ *
+ * The plan is shared in shape by the JavaScript and declaration emitters: an
+ * unsafe source name prefers `__<sourceName>`, and only a complete identifier
+ * already occupied by a fixed/generated module seat moves it to `_1`, `_2`, … .
+ * Resolver symbol numbers deliberately do not participate. Nested bindings do
+ * not enter this module-level contest; their source scopes already decide which
+ * references they shadow, and the descriptive spelling preserves that shape.
+ */
+function unsafeModuleLocalPlan(module: Core.Module): ReadonlyMap<Resolved.SymbolId, string> {
+  const inputs = ownInternalNameInputs(module);
+  const internalNames = internalNamePlan(inputs);
+  const occupiedInternalNames = module.items.flatMap((item): readonly string[] => {
+    if (item.kind === "ConstraintDeclaration" && item.exported) {
+      return item.members.map(({ binding }) => internalNames.get(binding.name)!);
+    }
+    if ((item.kind === "Let" || item.kind === "Fun") && item.exported &&
+      item.binding.scheme.constraints.length > 0) {
+      return [internalNames.get(item.binding.name)!];
+    }
+    if (item.kind === "ExternBlock") {
+      return item.declarations.flatMap((declaration) =>
+        declaration.kind !== "ExternType" && declaration.exported &&
+          declaration.binding.scheme.constraints.length > 0
+          ? [internalNames.get(declaration.localName)!]
+          : []
+      );
+    }
+    return [];
+  });
+  const taken = new Set<string>([
+    ...RESERVED_CAPTURES.map(reservedCapture),
+    ...occupiedInternalNames,
+    ...inputs.fixed,
+    ...module.items.flatMap((item) =>
+      item.kind === "Honor"
+        ? [item.dictionary, ...item.memberSeats.map(({ seat }) => seat)]
+        : item.kind === "Import"
+        ? item.instances.map(({ localDictionary }) => localDictionary)
+        : []
+    ),
+    ...module.preludeInstances.map(({ localDictionary }) => localDictionary),
+  ]);
+  const plan = new Map<Resolved.SymbolId, string>();
+  const allocate = (symbol: Resolved.SymbolId, sourceName: string): void => {
+    if (isSafeIdentifier(sourceName) || plan.has(symbol)) return;
+    const base = `__${sourceName}`;
+    let local = base;
+    let suffix = 1;
+    while (taken.has(local)) local = `${base}_${suffix++}`;
+    taken.add(local);
+    plan.set(symbol, local);
+  };
+  for (const item of module.items) {
+    switch (item.kind) {
+      case "Let":
+      case "Fun":
+      case "Var":
+        allocate(item.binding.symbol, item.binding.name);
+        break;
+      case "LetPattern":
+        for (const binding of patternBindings(item.pattern)) {
+          allocate(binding.symbol, binding.name);
+        }
+        break;
+      case "Union":
+        for (const constructor of item.constructors) {
+          allocate(constructor.symbol, constructor.name);
+        }
+        break;
+      case "RecordDeclaration":
+        allocate(item.constructor.symbol, item.constructor.name);
+        break;
+      case "Exception":
+        allocate(item.binding.symbol, item.binding.name);
+        break;
+      case "ConstraintDeclaration":
+        for (const member of item.members) {
+          allocate(member.binding.symbol, member.binding.name);
+        }
+        break;
+      case "ExternBlock":
+        for (const declaration of item.declarations) {
+          if (declaration.kind !== "ExternType") {
+            allocate(declaration.binding.symbol, declaration.localName);
+          }
+        }
+        break;
+      case "Import":
+        if (item.form.kind === "Named") {
+          for (const name of item.form.names) {
+            if (name.symbol !== undefined) allocate(name.symbol, name.local);
+          }
+        }
+        break;
+      default:
+        break;
+    }
+  }
+  return plan;
+}
+
+function emittedBindingName(
+  symbol: Resolved.SymbolId,
+  sourceName: string,
+  modulePlan?: ReadonlyMap<Resolved.SymbolId, string>,
+): string {
+  if (isSafeIdentifier(sourceName)) return sourceName;
+  return modulePlan?.get(symbol) ?? `__${sourceName}`;
 }
 
 /**
@@ -2748,8 +2870,9 @@ function declarationAliasPlan(
  * Three classes stay out, each on a prefix, suffix or case argument that still
  * holds against every spelling this file can mint:
  *
- * - A **`__bindingN` local** is under Lexer §3.2's reserved prefix, which no
- *   `Hex` spelling and no Hexagon type name can be.
+ * - A **descriptive unsafe-value local** (`__null`, `__await`, …) is under
+ *   Lexer §3.2's reserved prefix, which no `Hex` spelling and no Hexagon type
+ *   name can be.
  * - A **specialization edition** is `${sourceName}${FundamentalType}`, hence
  *   always suffixed `Nat`/`Int`/`Float`/`BigInt`/`Bool`/`String`/`Unit`. A
  *   generated-name scheme that ever drops that shape has to revisit this — and
@@ -2977,9 +3100,13 @@ class JavaScriptEmitter {
    * module with no such collision, which is every module the corpus ships.
    */
   readonly #namespaceAliases: ReadonlyMap<string, string>;
+  /** Stable descriptive aliases for unsafe module-level source bindings. */
+  readonly #unsafeModuleLocals: ReadonlyMap<Resolved.SymbolId, string>;
   readonly #generatedNames: GeneratedNames;
   /** Local each imported symbol is bound under, by the module's own imports. */
   readonly #importLocals = new Map<Resolved.SymbolId, string>();
+  /** One allocation per minted hazardous import local; imports and references share it. */
+  readonly #mintedHazardLocals = new Map<Resolved.SymbolId, string>();
   /** The prelude identities emission is permitted to know; see `PreludeIds`. */
   readonly #prelude: PreludeIds;
   /**
@@ -3278,6 +3405,7 @@ class JavaScriptEmitter {
       DEFAULT_RUNTIME_GLOBALS_SPECIFIER;
     const inputs = ownInternalNameInputs(module);
     this.#internalNames = internalNamePlan(inputs);
+    this.#unsafeModuleLocals = unsafeModuleLocalPlan(module);
     this.#defaultHelpers = new Set(
       inputs.members
         .filter(({ defaulted }) => defaulted)
@@ -3290,6 +3418,18 @@ class JavaScriptEmitter {
     // fixed rather than probed, so it is seeded rather than minted.
     this.#generatedNames = new GeneratedNames([
       ...module.symbols.map(({ name }) => name),
+      // A generated module local is visible inside every nested scope. Reserve
+      // each unsafe source binder's emitted spelling before minting one, or a
+      // parameter such as `null` can silently capture an imported/generated
+      // `__null` that the body still references by symbol. Imported/prelude
+      // symbols share this table, so keep the same file gate as the member-seat
+      // planner below; only bindings this module actually declares occupy one
+      // of its JavaScript scopes.
+      ...module.symbols.flatMap(({ id, name, bindingSpan }) =>
+        bindingSpan.fileId === module.fileId && !isSafeIdentifier(name)
+          ? [emittedBindingName(id, name, this.#unsafeModuleLocals)]
+          : []
+      ),
       ...this.#defaultHelpers,
       ...module.items.flatMap((item) =>
         item.kind === "PatternDeclaration" ? [patternExportName(item.name)] : []
@@ -3305,6 +3445,7 @@ class JavaScriptEmitter {
           : []
       ),
       ...module.preludeInstances.map(({ localDictionary }) => localDictionary),
+      ...this.#unsafeModuleLocals.values(),
     ]);
     for (const item of module.items) {
       if (item.kind !== "PatternDeclaration") continue;
@@ -8956,7 +9097,7 @@ class JavaScriptEmitter {
   }
 
   #identifier(symbol: Resolved.SymbolId, sourceName: string): string {
-    return isSafeIdentifier(sourceName) ? sourceName : `__binding${Number(symbol)}`;
+    return emittedBindingName(symbol, sourceName, this.#unsafeModuleLocals);
   }
 
   /**
@@ -8991,7 +9132,15 @@ class JavaScriptEmitter {
    * `eval` the module does not parse at all. Both measured.
    */
   #importedLocal(symbol: Resolved.SymbolId, local: string, minted: boolean): string {
-    if (minted && MINTED_LOCAL_HAZARDS.has(local)) return `__binding${Number(symbol)}`;
+    if (minted && MINTED_LOCAL_HAZARDS.has(local)) {
+      const planned = this.#unsafeModuleLocals.get(symbol);
+      if (planned !== undefined) return planned;
+      const existing = this.#mintedHazardLocals.get(symbol);
+      if (existing !== undefined) return existing;
+      const allocated = this.#generatedNames.claimPublic(local);
+      this.#mintedHazardLocals.set(symbol, allocated);
+      return allocated;
+    }
     return this.#identifier(symbol, local);
   }
 
@@ -10796,9 +10945,12 @@ class DeclarationEmitter {
   readonly #docs: DocIndex;
   /** Where the program's runtime declaration module sits, from here. */
   readonly #runtimeSpecifier: string;
+  /** The same unsafe module-local allocation used by emitted JavaScript. */
+  readonly #unsafeModuleLocals: ReadonlyMap<Resolved.SymbolId, string>;
 
   constructor(module: Core.Module, options: DeclarationEmissionOptions) {
     this.#module = module;
+    this.#unsafeModuleLocals = unsafeModuleLocalPlan(module);
     this.#opaqueBrands = opaqueBrandNames(module);
     // Hoisted above the alias set because that set has to know which constrained
     // exports render a face at all, and this is what decides it. A pure function
@@ -10924,12 +11076,30 @@ class DeclarationEmitter {
                 true,
               ),
             );
-            declarations.push(...renderExternFunctionDeclaration(declaration, true, this.#faces));
+            declarations.push(...renderExternFunctionDeclaration(
+              declaration,
+              true,
+              this.#faces,
+              emittedBindingName(
+                declaration.binding.symbol,
+                declaration.localName,
+                this.#unsafeModuleLocals,
+              ),
+            ));
           } else {
             declarations.push(...doc);
-            declarations.push(
-              `export declare const ${declaration.localName}: ${renderType(declaration.type, new Map(), this.#faces, false)};`,
+            const local = emittedBindingName(
+              declaration.binding.symbol,
+              declaration.localName,
+              this.#unsafeModuleLocals,
             );
+            const type = renderType(declaration.type, new Map(), this.#faces, false);
+            if (isSafeIdentifier(declaration.localName)) {
+              declarations.push(`export declare const ${local}: ${type};`);
+            } else {
+              declarations.push(`declare const ${local}: ${type};`);
+              declarations.push(`export { ${local} as ${declaration.localName} };`);
+            }
           }
           isExternalModule = true;
         }
@@ -11150,9 +11320,11 @@ class DeclarationEmitter {
         ...this.#docs.lines(item.span, "", hexagonFaceDoc(item.binding.scheme), true),
       );
       const safeName = isSafeIdentifier(item.binding.name);
-      const local = safeName
-        ? item.binding.name
-        : `__binding${Number(item.binding.symbol)}`;
+      const local = emittedBindingName(
+        item.binding.symbol,
+        item.binding.name,
+        this.#unsafeModuleLocals,
+      );
       if (item.kind === "Fun") {
         declarations.push(
           renderFunctionDeclaration(local, item.binding.scheme, item.value, safeName, this.#faces),
@@ -11305,9 +11477,11 @@ class TypeScriptPreviewEmitter {
   /** The prelude identities and runtime faces this preview renders through. */
   readonly #faces: DeclarationFaces;
   readonly #docs: DocIndex;
+  readonly #unsafeModuleLocals: ReadonlyMap<Resolved.SymbolId, string>;
 
   constructor(module: Core.Module, fundamentalInstances?: FundamentalInstances) {
     this.#module = module;
+    this.#unsafeModuleLocals = unsafeModuleLocalPlan(module);
     this.#opaqueBrands = opaqueBrandNames(module);
     // The preview writes every namespace alias line unconditionally and is out
     // of §2.4's gated-alias scope, so its universe carries them all — the
@@ -11379,12 +11553,32 @@ class TypeScriptPreviewEmitter {
             // had no face either.
             if (declaration.binding.scheme.constraints.length > 0) continue;
             declarations.push(...doc);
-            declarations.push(...renderExternFunctionDeclaration(declaration, declaration.exported, this.#faces));
+            declarations.push(...renderExternFunctionDeclaration(
+              declaration,
+              declaration.exported,
+              this.#faces,
+              emittedBindingName(
+                declaration.binding.symbol,
+                declaration.localName,
+                this.#unsafeModuleLocals,
+              ),
+            ));
           } else {
             declarations.push(...doc);
-            declarations.push(
-              `${prefix}declare const ${declaration.localName}: ${renderType(declaration.type, new Map(), this.#faces, false)};`,
+            const local = emittedBindingName(
+              declaration.binding.symbol,
+              declaration.localName,
+              this.#unsafeModuleLocals,
             );
+            const type = renderType(declaration.type, new Map(), this.#faces, false);
+            if (isSafeIdentifier(declaration.localName)) {
+              declarations.push(`${prefix}declare const ${local}: ${type};`);
+            } else {
+              declarations.push(`declare const ${local}: ${type};`);
+            }
+            if (declaration.exported && !isSafeIdentifier(declaration.localName)) {
+              declarations.push(`export { ${local} as ${declaration.localName} };`);
+            }
           }
           isExternalModule ||= declaration.exported;
         }
@@ -11500,9 +11694,11 @@ class TypeScriptPreviewEmitter {
       }
       if (item.kind === "LetPattern") {
         for (const binding of patternBindings(item.pattern)) {
-          const name = isSafeIdentifier(binding.name)
-            ? binding.name
-            : `__binding${Number(binding.symbol)}`;
+          const name = emittedBindingName(
+            binding.symbol,
+            binding.name,
+            this.#unsafeModuleLocals,
+          );
           declarations.push(
             `declare const ${name}: ${renderScheme(binding.scheme, this.#faces)};`,
           );
@@ -11539,9 +11735,11 @@ class TypeScriptPreviewEmitter {
         continue;
       }
 
-      const name = isSafeIdentifier(item.binding.name)
-        ? item.binding.name
-        : `__binding${Number(item.binding.symbol)}`;
+      const name = emittedBindingName(
+        item.binding.symbol,
+        item.binding.name,
+        this.#unsafeModuleLocals,
+      );
       declarations.push(...this.#docs.lines(item.span, "", [], item.exported));
       if (item.exported) {
         if (item.kind === "Fun") {
@@ -14396,6 +14594,7 @@ function renderExternFunctionDeclaration(
   declaration: Core.ExternBlockItem["declarations"][number] & { readonly kind: "ExternFun" },
   exported: boolean,
   faces: DeclarationFaces,
+  local: string = emittedBindingName(declaration.binding.symbol, declaration.localName),
 ): readonly string[] {
   const names = declarationParameterNames(
     declaration.parameters,
@@ -14413,9 +14612,6 @@ function renderExternFunctionDeclaration(
   );
   const result = renderType(declaration.result, variables, faces, true);
   const safe = isSafeIdentifier(declaration.localName);
-  const local = safe
-    ? declaration.localName
-    : `__binding${Number(declaration.binding.symbol)}`;
   if (safe) {
     return [
       `${exported ? "export " : ""}declare function ${local}${generics}(${parameters.join(", ")}): ${result};`,
@@ -14686,9 +14882,7 @@ function declarationParameterNames(
       written.push(undefined);
       continue;
     }
-    const name = isSafeIdentifier(binding.name)
-      ? binding.name
-      : `__binding${Number(binding.symbol)}`;
+    const name = emittedBindingName(binding.symbol, binding.name);
     written.push(name);
     taken.add(name);
   }
@@ -15085,8 +15279,8 @@ function indent(depth: number): string {
 
 /**
  * The spellings JavaScript refuses as a binding name, which the emitter renames
- * around (FFI Part 7 §1.2 rule 4): a `__binding`-prefixed local, with the source
- * name restored at the export seat.
+ * around (FFI Part 7 §1.2 rule 4): a descriptive `__<sourceName>` local, with
+ * the source name restored at the export seat.
  *
  * `arguments` and `eval` are not keywords — they are the two names strict mode
  * refuses to bind, and an emitted module is always strict. They are as fatal as
@@ -15095,7 +15289,7 @@ function indent(depth: number): string {
  * The rename is lawful at these seats and nowhere else, on a stated ground: an
  * internal alias leaks into a consumer's diagnostics exactly when it names a
  * *type* (measured, §14.7), every entry here is lowercase, and a Hexagon type
- * name is parser-gated uppercase — so a `__binding` alias can carry a value's
+ * name is parser-gated uppercase — so a descriptive alias can carry a value's
  * export seat but never a type's. An addition to this set must preserve that; it
  * is the lowercase gate, not the seat, doing the protecting.
  */

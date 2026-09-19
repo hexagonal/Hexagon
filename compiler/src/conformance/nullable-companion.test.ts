@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import { compileFiles, projectDiagnostics, runMain } from "../support/test-project.js";
+import { typeScriptErrors } from "../support/typescript-check.js";
 
 /**
  * Executable conformance for the `Nullable` companion (FFI Part 2 §§2–4), its
@@ -153,6 +154,33 @@ describe("Option conversions (FFI Part 2 §4)", () => {
 });
 
 describe("variance, faces, and emission", () => {
+  test("the reserved `null` export keeps one stable JavaScript and TypeScript linkage", async () => {
+    const project = compileFiles([["/main.hex", "module Main\n\n" +
+      "export let absent: Nullable(Int) = Nullable.null\n"]]);
+    expect(project.diagnostics).toEqual([]);
+    const nullable = project.modules.find(({ source }) => source.path.endsWith("Nullable.hex"));
+    if (nullable === undefined) throw new Error("the stdlib `Nullable` module was not emitted");
+
+    expect(nullable.javascript.text).toContain("const __null = nullValue();");
+    expect(nullable.javascript.text).toContain("export { __null as null };");
+    expect(nullable.javascript.text).not.toMatch(/__null_\d+/u);
+    expect(nullable.declarations.text).toContain("declare const __null:");
+    expect(nullable.declarations.text).toContain("export { __null as null };");
+    expect(nullable.declarations.text).not.toMatch(/__null_\d+/u);
+
+    const nullableSpecifier = `.${nullable.path.replace(/\.hex$/u, ".js")}`;
+    const files: Record<string, string> = {
+      "consumer.ts":
+        `import { null as nullableNull } from ${JSON.stringify(nullableSpecifier)};\n` +
+        "export const absent: null | undefined = nullableNull;\n",
+    };
+    for (const module of project.modules) {
+      files[module.path.replace(/^\//u, "").replace(/\.hex$/u, ".d.ts")] =
+        module.declarations.text;
+    }
+    expect(await typeScriptErrors(files)).toEqual([]);
+  });
+
   test("Nullable values generalize on the same control as an expansive empty Seq", () => {
     expect(projectDiagnostics(
       "module Main\n\n" +
