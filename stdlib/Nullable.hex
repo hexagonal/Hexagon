@@ -1,0 +1,75 @@
+module Nullable
+
+// The public companion of `Nullable(a)`, FFI Part 2 sections 2–4.
+//
+// `Nullable(a)` is compiler-owned and representation-direct: a present `a` is
+// that value itself, and its two absence values are JavaScript's `null` and
+// `undefined`. The six rows below are exactly the host capabilities ordinary
+// Hexagon cannot express: producing or comparing those two values, plus two
+// reviewed identity crossings. Everything else is ordinary Hexagon source.
+extern from "hex:intrinsic"
+    fun nullableUndefined as undefinedValue() -> Nullable(a)
+
+    fun nullableNull as nullValue() -> Nullable(a)
+
+    (** Whether `value` is JavaScript `null`. This is a predicate only; it does
+        not refine the type of `value`. *)
+    export fun nullableIsNull as isNull(value: Nullable(a)) -> Bool
+
+    (** Whether `value` is JavaScript `undefined`. This is a predicate only; it
+        does not refine the type of `value`. *)
+    export fun nullableIsUndefined as isUndefined(value: Nullable(a)) -> Bool
+
+    // Guarded by `isNull` and `isUndefined` before every use below.
+    fun nullableAsValueUnchecked as asValueUnchecked(value: Nullable(a)) -> a
+
+    // The representation-honest injection used only for `Some` branches. It is
+    // private: Hexagon gains no implicit nullable coercion.
+    fun nullableFromValue as fromValue(value: a) -> Nullable(a)
+
+(** JavaScript `undefined`, typed as a nullable value. Use `null` when an API
+    distinguishes explicit null from omission. *)
+export let undefined: Nullable(a) = undefinedValue()
+
+(** JavaScript `null`, typed as a nullable value. Use `undefined` for the
+    ordinary omitted or defaulted JavaScript case. *)
+export let null: Nullable(a) = nullValue()
+
+(** Whether `value` is either JavaScript `null` or `undefined`. This is a
+    predicate only; use `toCase` or `toOption` to extract a present value. *)
+export let isNullish(value: Nullable(a)): Bool =
+    isNull(value) or isUndefined(value)
+
+(** The exact state of `value`, preserving `null` and `undefined` as separate
+    cases and carrying a present value unchanged. *)
+export let toCase(value: Nullable(a)): NullableCase(a) =
+    if isNull(value) then
+        NullableCase.Null
+    else if isUndefined(value) then
+        NullableCase.Undefined
+    else
+        NullableCase.Value(asValueUnchecked(value))
+
+(** `None` for either nullish form, or `Some` carrying the present value. Use
+    `toCase` when the distinction between `null` and `undefined` matters. *)
+export let toOption(value: Nullable(a)): Option(a) =
+    if isNullish(value) then
+        None
+    else
+        Some(asValueUnchecked(value))
+
+(** `option` as a nullable value, mapping `None` to JavaScript `undefined` and
+    carrying a `Some` value unchanged. Use `fromOptionOrNull` when an API asks
+    for explicit `null`. *)
+export let fromOption(option: Option(a)): Nullable(a) =
+    match option
+        None => undefined
+        Some(value) => fromValue(value)
+
+(** `option` as a nullable value, mapping `None` to JavaScript `null` and
+    carrying a `Some` value unchanged. Use `fromOption` for the ordinary
+    omitted or defaulted JavaScript case. *)
+export let fromOptionOrNull(option: Option(a)): Nullable(a) =
+    match option
+        None => null
+        Some(value) => fromValue(value)

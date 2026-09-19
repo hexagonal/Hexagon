@@ -61,7 +61,7 @@ describe("the module", () => {
    * could drift arbitrarily from the language it is written in. Membership is
    * the coverage: every project in this suite now compiles it.
    */
-  test("`Debug.hex` is the last prelude member, `Stream.hex` the one before it", () => {
+  test("`Debug.hex` is the last prelude member", () => {
     expect(PRELUDE_MODULES.map(({ name }) => name)).toEqual([
       "Show",
       "Num",
@@ -115,7 +115,11 @@ describe("the module", () => {
       // before it can name a `Stream`, because no pure module has business with
       // the impure sibling.
       "Stream",
-      // #511: FFI Part 2's companion of the borrowed `Array(a)`, opening the
+      // #786: the exact-case union needs its own qualified constructor home;
+      // the Nullable companion follows it and Option, which its surface names.
+      "NullableCase",
+      "Nullable",
+      // #511: FFI Part 2's captured `Array(a)` companion follows them in the
       // boundary block. One edge is forced — `get` answers with an `Option` —
       // and the lateness is deliberate: its two exports are `length` and `get`,
       // and from here they are visible to no prelude module that spells either

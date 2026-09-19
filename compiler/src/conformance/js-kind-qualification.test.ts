@@ -104,8 +104,11 @@ describe("the ten constructors are not bare prelude terms (ffi.md §12)", () => 
    * it said nothing about the union standing one qualifier away.
    */
   test.each(KINDS)("bare `%s` in an expression names its qualified spelling", (constructor) => {
+    const spellings = constructor === "Null" || constructor === "Undefined"
+      ? `\`NullableCase.${constructor}\` or \`JsKind.${constructor}\``
+      : `\`JsKind.${constructor}\``;
     expect(projectDiagnostics("module Main\n\n" + `export let k: JsKind = ${constructor}\n`))
-      .toEqual([`no bare \`${constructor}\`; write \`JsKind.${constructor}\``]);
+      .toEqual([`no bare \`${constructor}\`; write ${spellings}`]);
   });
 
   /**
