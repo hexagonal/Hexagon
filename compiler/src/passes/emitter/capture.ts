@@ -34,13 +34,12 @@
  * and is therefore one function here rather than a predicate beside a
  * generator that could disagree with it.
  *
- * The two agree on every type that compiles, and they must: a position naming a
- * captured collection the *checker* can see either reaches the copier or was
- * refused. The difference is confined to types the checker refuses — a captured
- * collection under one of item 1's five containers, inside an opaque
- * representation — where the checker says "names one, and is refused" and this
- * walk says "identity", never reaching the position because the program does
- * not compile.
+ * The two agree at every position this pass emits at **but one**, named below.
+ * Where they differ harmlessly they differ because the checker followed a path
+ * in order to refuse it — a captured collection under one of item 1's five
+ * containers, inside an opaque representation — and this walk answers
+ * "identity" for a position the program never reaches, because the program
+ * does not compile.
  *
  * **Where a record's row is concerned, the two are held together at three
  * named places rather than by one construction.** A row is the only node at
@@ -67,13 +66,33 @@
  *    only because a construction closed a row does not exist for this walk to
  *    compile a plan from (#961 review 3).
  *
- * Two differences remain and neither can reach a seat. `Node`, the hidden trie
- * node, is identity here and followed there; it has no annotation syntax. And
- * the budget is asymmetric — the checker's walk passes `#walkBudget` into
- * `#normalizeRecord` and the pass boundary passes none — which runs in the safe
- * direction, because a chain the checker abandons is a position it refuses.
- * `capture-walk.test.ts` pins each of the three places above; the header claims
- * nothing the file does not pin.
+ * **Three differences remain, and the third reaches a seat.**
+ *
+ * Two cannot. `Node`, the hidden trie node, is identity here and followed
+ * there; it has no annotation syntax, so no declaration can put it at a
+ * position. And the budget is asymmetric — the checker's walk passes
+ * `#walkBudget` into `#normalizeRecord` and the pass boundary passes none —
+ * which runs in the safe direction, because a chain the checker abandons is a
+ * position it refuses.
+ *
+ * The third is **a nominal's field row at a `foreign` seat**, and it is a
+ * disagreement about *content* rather than about openness, so place 3 above
+ * does not reach it: that seat keeps its open rows (§5.4 item 7's "every other
+ * position") and so takes one reading, the live one. With `record Holder = {r:
+ * {n: Int, ...}}` and a construction somewhere in the program putting an
+ * `Array(Int)` into `r`, an extern **result** of type `Holder` has the checker
+ * seeing `r: {n: Int, v: Array(Int)}` — legal, and therefore copied — while the
+ * row published to this walk still carries an unsolved tail and names nothing.
+ * No plan is compiled, and the `Array(Int)` Hexagon ends up holding is the
+ * foreign array itself (#961 review 4's residue). It is the inbound mirror of
+ * the supplied-seat case place 3 closes, it is `origin/main`'s typing rather
+ * than this pass's doing, and the rider that refuses an open row in a nominal
+ * record or union payload **declaration** kills it at the declaration, which
+ * is where it has to be killed: the disagreement is one record declaration's
+ * row being two rows, and no reading here can make it one.
+ *
+ * `capture-walk.test.ts` pins each of the three places above. The header claims
+ * nothing the file does not pin, and denies nothing the file cannot prevent.
  */
 
 import type * as Typed from "../../syntax/typed/index.js";

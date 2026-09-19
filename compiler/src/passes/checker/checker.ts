@@ -22796,13 +22796,17 @@ class Checker {
    * The two cannot disagree in the direction that matters. Freezing only ever
    * *adds* open rows, so every position the live reading refuses for item 7 the
    * declared reading refuses too, and the extra ones are refusals — never
-   * acceptances. **The emitter therefore never compiles a plan for a type the
-   * checker accepted only because a construction closed a nominal's field**:
-   * that position is refused here, whichever field the construction closed.
+   * acceptances. **At these seats the emitter therefore never compiles a plan
+   * for a type the checker accepted only because a construction closed a
+   * nominal's field**: that position is refused here, whichever field the
+   * construction closed.
    *
    * Only a seat that can report item 7 pays for the second walk; a `foreign`
    * seat keeps its open rows (§5.4 item 7's "every other position") and asks
-   * once.
+   * once. **That seat is therefore outside the sentence above**, and a nominal
+   * field row a construction closed does still read two ways there — the
+   * inbound mirror, recorded in `capture.ts`'s header and owned by the rider
+   * that refuses an open row in a nominal declaration.
    */
   #captureFindingsAt(type: Mono, seat: OpenRowSeat): CaptureFindings {
     const live = this.#findCapturedCollection(type);
