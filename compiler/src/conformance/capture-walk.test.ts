@@ -1042,8 +1042,19 @@ describe("`JsValue.from` is the release seat (Part 11 §2)", () => {
       /const release = (__\w+) => __capture\(__capturePlans, \d+, \1\);/u,
     );
     // The seat that names no captured collection binds the stdlib row itself,
-    // exactly as it always did — no wrapper, no plan.
+    // exactly as it always did — no wrapper, no plan, and the import that
+    // binds it.
     expect(emitted).toContain("const plain = from;");
+    expect(emitted).toContain("import { from }");
+
+    // And a module whose *only* reference became a wrapper spells `from`
+    // nowhere, so it imports nothing: a wrapper is not a reference to the row.
+    const wrapperOnly = javascript(
+      "let release: (Array(Int)) -> JsValue = JsValue.from\n" +
+        "export fun out(xs: Array(Int)): JsValue = release(xs)\n",
+    );
+    expect(wrapperOnly).toContain("__capture(");
+    expect(wrapperOnly).not.toContain("import { from }");
   });
 
   /**
@@ -1280,13 +1291,107 @@ describe("an extern declaration's open row is its own (§5.4 item 7)", () => {
     expect(captured.rows).toEqual([1, 2]);
     // The field the declaration never named is still there, by identity.
     expect(captured.extra).toBe(fixtures.extra);
-    // And the plan says so, which is what the walk is directed by.
-    expect(javascript(
-      'extern from "./open.js"\n' +
-        "    fun sheet() ->! {rows: Array(Int), ...}\n" +
+    // And the plan says so, which is what the walk is directed by — including
+    // where a Hexagon *annotation* has closed the shared tail, because the
+    // wrapper is compiled against the **declaration**, not against a caller.
+    for (const program of [
+      "export fun probe(): {rows: Array(Int), ...} = sheet!()\n",
+      "export fun probe(): Int =\n" +
+        "    let r: {rows: Array(Int), extra: Int} = sheet!()\n" +
+        "    Array.length(r.rows)\n",
+    ]) {
+      expect(javascript(
+        'extern from "./open.js"\n' +
+          "    fun sheet() ->! {rows: Array(Int), ...}\n" +
+          "\n" + program,
+      )).toContain('{ k: "record", fields: [["rows", 1]], open: true }');
+    }
+  });
+
+  /**
+   * **And the open row is not a row a consumer may widen.** §5.4 item 7 leaves
+   * a `foreign` seat's row open on one ground — "Hexagon, **which can neither
+   * name nor add the fields it did not declare**, holds them exactly as it
+   * holds a value at a type variable: safe by parametricity" — beside "an
+   * exported function's open result tail is always one of its parameters'
+   * tails". A published tail on a parameterless export is neither: another
+   * module instantiates it, names a field the declaration never carried, and
+   * reads whatever the foreign object has there — including an `Array(Int)` it
+   * would then hold **by identity**, across a declared position no walk ever
+   * saw (#961 review 2).
+   *
+   * The refusal is the prelude's ordinary one, and it is the same sentence a
+   * pure-Hexagon record gets, which is the point: the extern path opens nothing
+   * the language does not already open.
+   */
+  test("a consumer module cannot name a field into an exported open result", () => {
+    const shapes = "module Shapes\n\n" +
+      'extern from "s"\n' +
+      "    fun sheet() ->! {rows: Vector(Int), ...}\n" +
+      "\n" +
+      "export fun probe(): {rows: Vector(Int), ...} = sheet!()\n";
+    const consumer = (body: string): readonly string[] =>
+      compileFiles([
+        ["/Shapes.hex", shapes],
+        ["/main.hex", "module Main\n\nimport Shapes\n\n" + body],
+      ]).diagnostics.map(({ message }) => message);
+
+    expect(consumer("export fun missing(): Int = Shapes.probe!().missing\n"))
+      .toEqual(["record has fields `rows`, not `missing`"]);
+    // The one that makes it a §2.2 break rather than a type hole: the field
+    // named is a captured collection, so a widening consumer would hold the
+    // foreign array itself.
+    expect(consumer("export fun cells(): Int = Array.length(Shapes.probe!().cells)\n"))
+      .toEqual(["record has fields `rows`, not `cells`"]);
+    // The same sentence a record with no extern anywhere near it draws.
+    expect(projectDiagnostics(
+      "module Main\n\n" +
+        "export fun probe(): {rows: Vector(Int), ...} = {rows = []}\n" +
+        "export fun missing(): Int = probe().missing\n",
+    )).toEqual(["record has fields `rows`, not `missing`"]);
+  });
+
+  /**
+   * The published face of that export, byte for byte. A `.d.ts` is a Part 7
+   * surface and this is a capture PR, so what it must say is *what it said
+   * before*: a closed row, no quantifier, nothing a TypeScript consumer can
+   * instantiate in return position.
+   */
+  test("the face of an exported open result is the closed row it always was", () => {
+    const project = compileFiles([["/main.hex",
+      "module Main\n\n" +
+        'extern from "./s.js"\n' +
+        "    fun sheet() ->! {rows: Vector(Int), ...}\n" +
         "\n" +
-        "export fun probe(): {rows: Array(Int), ...} = sheet!()\n",
-    )).toContain('{ k: "record", fields: [["rows", 1]], open: true }');
+        "export fun probe(): {rows: Vector(Int), ...} = sheet!()\n",
+    ]]);
+    expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
+    expect(project.modules.find(({ source }) => source.path === "/main.hex")!.declarations.text)
+      .toContain("export declare function probe(): { rows: Hex.Vector<number> };");
+  });
+
+  /**
+   * What `#publicType`'s **field** normalization is for, pinned where it is
+   * observable and away from the code-action row that used to be its only
+   * witness: a branch join binds one row's tail to the *other record*, so a raw
+   * read publishes each parameter with the fields its own annotation wrote and
+   * drops the ones the join brought in. The value carries both.
+   *
+   * The tail is a separate question and is read one link, which is what keeps
+   * the row above closed; only the fields are merged.
+   */
+  test("a join publishes the fields the join brought in", () => {
+    const project = compileFiles([["/main.hex",
+      "module Main\n\n" +
+        "export fun pick(b: Bool, x: {n: Int, ...}, y: {m: Int, ...}): {n: Int, ...} =\n" +
+        "    if b then x else y\n",
+    ]]);
+    expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
+    expect(project.modules.find(({ source }) => source.path === "/main.hex")!.declarations.text)
+      .toContain(
+        "export declare function pick<a>(b: boolean, x: { n: number; m: number }, " +
+          "y: { m: number; n: number }): { n: number; m: number };",
+      );
   });
 
   /**

@@ -3078,6 +3078,29 @@ class Checker {
    * quantify one `a` while returning another.
    */
   readonly #intrinsicTypeParameters = new WeakMap<Resolved.ExternFunDeclaration, Map<string, Mono>>();
+  /**
+   * Each foreign extern declaration's signature **as written** — the type its
+   * annotations built, with every row tail it opened replaced by a variable
+   * nothing will ever unify with.
+   *
+   * FFI Part 1 §5.4 item 7 is judged on this and not on the live scheme,
+   * because §5.4 says the classification is "**static, by position**" and item
+   * 7's own mechanism paragraph says an extern declaration's tail is "solved
+   * afresh at each Hexagon call site, invisibly to a wrapper compiled against
+   * the open declaration". The declaration's tail is one variable shared with
+   * every caller, and the position checks run after the bodies are inferred —
+   * so without this snapshot the first Hexagon call site that passes a closed
+   * record has already solved the tail by the time item 7 looks, and a
+   * declaration the compiler refuses on its own compiles the moment somebody
+   * calls it. That is an ordering fault in the *check*, not in the type system:
+   * the fix is to look at the row the author wrote, which is what this holds.
+   *
+   * Only the extern's **own** written tails are frozen. A tail inside a nominal
+   * record's declared field is that record's, shared as it always was, and
+   * nothing here changes it.
+   */
+  readonly #externDeclaredSignatures = new Map<Resolved.SymbolId, Mono>();
+
   readonly #externTypes = new Map<Resolved.ExternTypeId, Resolved.ExternTypeDeclaration>();
   readonly #recordParameters = new Map<Resolved.RecordId, ReadonlyMap<string, Variable>>();
   readonly #recordFields = new Map<Resolved.RecordId, ReadonlyMap<string, Mono>>();
@@ -4219,10 +4242,6 @@ class Checker {
                 type.kind === "Variable" ? [type] : []
               ),
               ...(intrinsicLinked && intrinsicFace !== undefined ? [intrinsicFace.effect] : []),
-              // An intrinsic row is not a crossing, but a shared tail is the
-              // same module-global variable the comment above names, so it
-              // takes the same treatment rather than an exception.
-              ...this.#externRowTails([...parameters, result]),
             ],
             type: {
               kind: "Function",
@@ -4255,9 +4274,13 @@ class Checker {
           );
           this.#suppressLinkedArrowReports = enclosingSuppression;
           this.#schemes.set(declaration.binding.symbol, {
-            variables: [...this.#externRowTails([externLetType])],
+            variables: [],
             type: externLetType,
           });
+          this.#externDeclaredSignatures.set(
+            declaration.binding.symbol,
+            this.#frozenRowTails(externLetType),
+          );
           continue;
         }
         // An extern row is a signature like any other (Effects §2.2.1): a
@@ -4309,21 +4332,22 @@ class Checker {
         const externEffect = this.#writtenEffect(declaration.effect, declaration.arrowSpan);
         this.#atExternRow = enclosingExternRow;
         this.#closeSignature(enclosingSignature);
-        // The declaration's own open rows are quantified beside its colour, so
-        // no call site can close one (`#externRowTails`, FFI Part 1 §5.4 item
-        // 7's mechanism paragraph).
+        const externSignature: Mono = {
+          kind: "Function",
+          ...(externEffect === undefined ? {} : { effect: externEffect }),
+          parameters,
+          result: externResult,
+        };
         this.#schemes.set(declaration.binding.symbol, {
-          variables: [
-            ...(externLinked && externFace !== undefined ? [externFace.effect] : []),
-            ...this.#externRowTails([...parameters, externResult]),
-          ],
-          type: {
-            kind: "Function",
-            ...(externEffect === undefined ? {} : { effect: externEffect }),
-            parameters,
-            result: externResult,
-          },
+          variables: externLinked && externFace !== undefined ? [externFace.effect] : [],
+          type: externSignature,
         });
+        // Frozen here, where the annotations have just been interned and no
+        // call site has run (`#externDeclaredSignatures`).
+        this.#externDeclaredSignatures.set(
+          declaration.binding.symbol,
+          this.#frozenRowTails(externSignature),
+        );
       }
     }
     for (const record of module.records) {
@@ -23274,7 +23298,16 @@ class Checker {
           // that export — this row, and `export let rows: Array(Int) = raw`
           // beside it — therefore draw one refusal, as they must.
           if (declaration.kind === "ExternType") continue;
-          const signature = this.#prune(this.#scheme(declaration.binding.symbol).type);
+          // **The row as written**, not as a caller left it
+          // (`#externDeclaredSignatures`). §5.4's classification is static by
+          // position, and these checks run after the bodies: read live, a
+          // declaration item 7 refuses on its own goes quiet the moment a
+          // Hexagon call site passes a closed record, because the two share one
+          // tail variable. Items 1 and 2 read the same snapshot — nothing about
+          // a captured collection differs between the two, and one seat reading
+          // one type is what keeps them from drifting.
+          const signature = this.#externDeclaredSignatures.get(declaration.binding.symbol) ??
+            this.#prune(this.#scheme(declaration.binding.symbol).type);
           if (declaration.kind === "ExternLet") {
             const exported = declaration.localName;
             // The row's own type is filled by the **foreign** side, so item 7
@@ -23394,7 +23427,7 @@ class Checker {
       // #649 abolished.
       const invisible = new Set([
         ...this.#effectVariables(type),
-        ...this.#rowTailVariables(type).keys(),
+        ...this.#rowTailVariables(type),
       ]);
       const survivors = this.#collectVariables(type)
         .filter((variable) => !invisible.has(variable.id));
@@ -23870,18 +23903,30 @@ class Checker {
       };
     }
     if (actual.kind === "Record") {
-      // **Normalized, exactly as the capture walk normalizes it.** Unification
-      // does not always merge two rows into one record — a branch join binds
-      // one tail to the *other* record — so a raw read publishes `{n: Int}`
-      // where the value carries `{n: Int, m: Int}`, and the tail it drops takes
-      // those fields with it. `#findCapturedCollection` normalizes for that
-      // reason ("the normalization is **load-bearing**"), and this is the same
-      // row read at the pass boundary: a later pass directed by the declared
-      // type has to be directed by the row the checker judged, or the two
-      // disagree at a position that compiles (#961 review 1, finding 2 — the
-      // emitter's copy walk rebuilt the syntactic fields and dropped the rest).
+      // **The fields are normalized; the tail is not followed.** The two halves
+      // answer two different readers and only one of them may move.
+      //
+      // *Fields.* Unification does not always merge two rows into one record —
+      // a branch join binds one tail to the *other* record — so a raw read
+      // publishes `{n: Int}` where the value carries `{n: Int, m: Int}`, and
+      // the tail it drops takes those fields with it. `#findCapturedCollection`
+      // normalizes for that reason ("the normalization is **load-bearing**"),
+      // and a later pass directed by the declared type has to be directed by
+      // the row the checker judged (#961 review 1, finding 2).
+      //
+      // *Tail.* It is read **one link**, never chased to the end of the chain.
+      // A published tail is a row a *consumer* can instantiate, and FFI Part 1
+      // §5.4 item 7's whole justification for leaving a `foreign` seat's row
+      // open is that Hexagon "can neither name nor add the fields it did not
+      // declare" — beside "an exported function's open result tail is always
+      // one of its parameters' tails". Chasing the chain published an open
+      // result on a parameterless export, and a consumer module then named
+      // `probe().missing : Int` and read it — including a foreign `Array` it
+      // got by identity across a declared position (#961 review 2). One link
+      // is the reading this corpus already had, and it is the one that keeps
+      // a rigid tail rigid.
       const row = this.#normalizeRecord(actual);
-      const tail = row.tail === undefined ? undefined : this.#prune(row.tail);
+      const tail = actual.tail === undefined ? undefined : this.#prune(actual.tail);
       return {
         kind: "Record",
         fields: [...row.fields].map(([name, field]) => ({
@@ -24365,7 +24410,19 @@ class Checker {
           // row is entitled to write. The parameters are already published from
           // their registered schemes for the same reason; the result is the one
           // type in the row that no symbol of its own hands back.
-          const registered = this.#scheme(declaration.binding.symbol).type;
+          // **Published from the row as written** where one was frozen
+          // (`#externDeclaredSignatures`), so the wrapper emission compiles
+          // against is "a wrapper compiled against the open declaration" —
+          // FFI Part 1 §5.4 item 7's own phrase for what a call site's
+          // solution is invisible to. An extern's tail is one variable shared
+          // with its callers, so reading it live hands the emitter whichever
+          // row the last call site left, and the copy is then directed by a
+          // caller rather than by the declaration.
+          const declared = this.#externDeclaredSignatures.get(declaration.binding.symbol);
+          const registered = declared ?? this.#scheme(declaration.binding.symbol).type;
+          const declaredParameters = declared?.kind === "Function"
+            ? declared.parameters
+            : undefined;
           return {
             kind: "ExternFun",
             exported: declaration.exported,
@@ -24373,9 +24430,11 @@ class Checker {
             ...(declaration.foreignName === undefined ? {} : { foreignName: declaration.foreignName }),
             localName: declaration.localName,
             binding,
-            parameters: declaration.parameters.map((parameter) => ({
+            parameters: declaration.parameters.map((parameter, index) => ({
               ...parameter,
-              scheme: this.#publicScheme(this.#scheme(parameter.symbol)),
+              scheme: declaredParameters?.[index] === undefined
+                ? this.#publicScheme(this.#scheme(parameter.symbol))
+                : { variables: [], constraints: [], type: this.#publicType(declaredParameters[index]) },
             })),
             result: this.#publicType(
               registered.kind === "Function"
@@ -25456,37 +25515,57 @@ class Checker {
    * parameters and the result.
    */
   /**
-   * The row-tail variables an **extern declaration's own signature** opens,
-   * quantified as it collects them.
+   * `type` with every row tail replaced by a fresh variable of its own — the
+   * declaration's row frozen as written (`#externDeclaredSignatures`).
    *
-   * FFI Part 1 §5.4 item 7's mechanism paragraph is normative and this is the
-   * sentence it turns on: "an extern declaration's tail is instead solved
-   * afresh at each Hexagon call site, **invisibly to a wrapper compiled against
-   * the open declaration**" — beside "the classification is static, by
-   * position". Neither is true of a tail the declaration shares with its
-   * callers. Left free, the tail is one module-global variable, and the first
-   * Hexagon call site that passes a closed record solves it *for the
-   * declaration*: item 7's refusal at a `supplied` seat silently retracts, and
-   * a `foreign` seat's row goes from open to closed, so the wrapper compiled
-   * against it rebuilds the fields the declaration named and drops the tail the
-   * foreign side filled. Both were measured (#961 review 1, finding 2).
-   *
-   * Quantifying is the whole repair, and it is the repair the two neighbouring
-   * variables already have: a signature's colour variable is quantified "so
-   * each caller instantiates it afresh", and an intrinsic row's type parameters
-   * are quantified so that "a module-global unification variable shared by
-   * every consumer" cannot be pinned by the first call site. `#instantiate`
-   * already copies a record's tail through `replacements`, so a quantified tail
-   * freshens at each reference with no further change.
-   *
-   * `#quantified` besides, for the same reason the intrinsic binders take it:
-   * a quantified variable is not one the defaulting step may settle.
+   * A structural copy: nominal occurrences are carried through as they are,
+   * because their components are read from the declaration tables at check
+   * time and their own rows are not this declaration's to freeze. An extern
+   * signature carries no type variables to worry about — a generic extern row
+   * is refused — so the tails are the whole of what has to move.
    */
-  #externRowTails(types: readonly Mono[]): readonly Variable[] {
-    const found = new Map<number, Variable>();
-    for (const type of types) this.#rowTailVariables(type, found);
-    for (const variable of found.values()) this.#quantified.add(variable.id);
-    return [...found.values()];
+  #frozenRowTails(type: Mono): Mono {
+    const copy = (inner: Mono): Mono => {
+      const actual = this.#prune(inner);
+      switch (actual.kind) {
+        case "Record":
+          return {
+            kind: "Record",
+            fields: new Map([...actual.fields].map(([name, field]) => [name, copy(field)])),
+            ...(actual.tail === undefined ? {} : { tail: this.#fresh(0, false) }),
+          };
+        case "Tuple":
+          return { kind: "Tuple", elements: actual.elements.map(copy) };
+        case "Function":
+          return {
+            kind: "Function",
+            parameters: actual.parameters.map(copy),
+            result: copy(actual.result),
+            ...(actual.effect === undefined ? {} : { effect: actual.effect }),
+          };
+        case "Vector":
+          return { kind: "Vector", element: copy(actual.element) };
+        case "Set":
+          return { kind: "Set", element: copy(actual.element) };
+        case "Array":
+          return { kind: "Array", element: copy(actual.element) };
+        case "JsSet":
+          return { kind: "JsSet", element: copy(actual.element) };
+        case "Node":
+          return { kind: "Node", element: copy(actual.element) };
+        case "Nullable":
+          return { kind: "Nullable", value: copy(actual.value) };
+        case "Map":
+        case "JsMap":
+          return { kind: actual.kind, key: copy(actual.key), value: copy(actual.value) };
+        case "Union":
+        case "NominalRecord":
+          return { ...actual, arguments: actual.arguments.map(copy) };
+        default:
+          return actual;
+      }
+    };
+    return copy(type);
   }
 
   /**
@@ -25497,21 +25576,14 @@ class Checker {
    * reader can see, and `#render` prints a tail as `...` (§#649). An open row
    * is one variable in the solver and no variable at all in the type as it is
    * written back.
-   *
-   * It answers with the **variables**, not their ids, because its second reader
-   * needs the nodes: an extern declaration quantifies its own tails
-   * (`#externRowTails`), and a scheme quantifies variables.
    */
-  #rowTailVariables(
-    type: Mono,
-    found = new Map<number, Variable>(),
-  ): ReadonlyMap<number, Variable> {
+  #rowTailVariables(type: Mono, found = new Set<number>()): ReadonlySet<number> {
     const actual = this.#prune(type);
     if (actual.kind === "Record") {
       for (const field of actual.fields.values()) this.#rowTailVariables(field, found);
       if (actual.tail !== undefined) {
         const tail = this.#prune(actual.tail);
-        if (tail.kind === "Variable") found.set(tail.id, tail);
+        if (tail.kind === "Variable") found.add(tail.id);
         else this.#rowTailVariables(tail, found);
       }
     }

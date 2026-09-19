@@ -45,13 +45,25 @@
  * type can put the difference at a seat.
  *
  * **The agreement is by construction at the one node that could break it.** A
- * structural record's row is normalized *before* it crosses the pass boundary
- * (`#publicType`), so a tail unification solved is a tail this walk sees
- * through, exactly as `#findCapturedCollection` does — the two read one row.
- * That is the repair for #961 review 1's finding 2: read raw, the same record
- * was "closed and walkable" to the checker and "open and names nothing" here,
- * and the position that compiled crossed uncopied. `capture-walk.test.ts` pins
- * the agreement at the shapes where it could still drift.
+ * structural record's **fields** are normalized before they cross the pass
+ * boundary (`#publicType`), so a tail unification solved contributes the
+ * fields it carries, exactly as `#findCapturedCollection` sees them — the two
+ * read one row. That is the repair for #961 review 1's finding 2: read raw,
+ * the same record was "closed and walkable" to the checker and "open and names
+ * nothing" here, and the position that compiled crossed uncopied. The row's
+ * **tail** is a different question and is read one link, never chased: a
+ * published tail is a row a consumer could instantiate, and §5.4 item 7 leaves
+ * a foreign seat's row open precisely because Hexagon cannot name what it did
+ * not declare (#961 review 2).
+ *
+ * At an **extern** position this walk is directed by the declaration's own
+ * frozen row rather than by whatever a caller left in the shared tail —
+ * §5.4 item 7's "a wrapper compiled against the open declaration". The one
+ * asymmetry left is the budget: the checker's walk passes `#walkBudget` into
+ * `#normalizeRecord` and the pass boundary passes none, which runs in the safe
+ * direction — a chain the checker abandons is a position it refuses, so this
+ * walk never reaches it. `capture-walk.test.ts` pins the agreement at the
+ * shapes where it could still drift.
  */
 
 import type * as Typed from "../../syntax/typed/index.js";

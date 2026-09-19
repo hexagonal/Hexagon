@@ -973,40 +973,28 @@ describe("code actions: infer return type", () => {
       .toBe("module Main\n\n" + "export fun copy(r: {...a}): {...a} = {...r}\n");
   });
 
-  /**
-   * **This specimen no longer collapses, and it never did** *(#945 review 1)*.
-   *
-   * It was the pin for `#annotationWouldChange`'s third branch — "writing `…`
-   * would change the type of `m` from `…` to `…`" — on the reading that a
-   * lambda in a tuple component takes an inferred row, unifies with the written
-   * `{...a}` afterwards, and closes to `{}`. The closing was a **rendering
-   * artifact**: `#publicType` read a record's row raw, and a tail unification
-   * had solved to *another record* was dropped along with the fields it
-   * carried, so an open row published as a closed one. #945 normalizes the row
-   * at the pass boundary — the capture walk has to be directed by the row the
-   * checker judged — and the same edit repairs the `.d.ts` face, which said
-   * `(arg0: {  }) => {  }` for a scheme that quantifies `a` and now says
-   * `(arg0: ({  } & a)) => ({  } & a)`.
-   *
-   * So the action is **offered** here, and writing it changes nothing. What is
-   * pinned is that: the edit lands, and the annotated program's face is the one
-   * the unannotated program already had.
-   *
-   * **The guard's type-change branch is now without a specimen.** Its other two
-   * refusals (a break elsewhere, a new problem here) are reachable and
-   * unpinned as they were; this one has no input left in this file, and the
-   * shapes tried for a replacement — a lambda in a vector, in a nested tuple,
-   * two rows in one tuple, a branch join of two open rows, an empty vector —
-   * are all offered. Recorded rather than papered over: a pin that cannot fail
-   * is worse than a branch that says it is unpinned.
-   */
-  test("the annotation this once refused is written, and changes nothing", () => {
+  test("refuses an annotation that would silently change the type", () => {
+    // The one that justifies compiling before offering, and it is *not* reached
+    // through a bare parameter: the open row lives under an arrow rather than
+    // being the result, so this declaration has no parameters at all and
+    // nothing earlier has anything to say about it. Only writing the annotation
+    // and compiling it shows the row closing.
+    //
+    // *(#513.)* The lambda sits in a **tuple component**, which is what keeps
+    // the row closing: a tuple literal is not one of Functions §4.3's
+    // forwarding forms, so the written face never reaches the lambda and its
+    // parameter is inferred, then unified with `{...a}` afterwards — the
+    // pre-propagation order, and the collapse this guard exists to catch. The
+    // bare shape (`= (r) => {...r}`) is where the return annotation now
+    // *supplies*: the parameter takes the written row itself, the two faces
+    // agree, and the action is offered. Pinned as its own case below.
     const source = "module Main\n\n" + "export fun m() = ((r) => {...r}, 1)\n";
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "m("));
-    expect(action.disabled).toBe(undefined);
-    expect(applied(source, action)).toBe(
-      "module Main\n\n" + "export fun m(): ({...a} -> {...a}, Int) = ((r) => {...r}, 1)\n",
+    expect(action.edits).toEqual([]);
+    expect(action.disabled).toBe(
+      "writing `: ({...a} -> {...a}, Int)` would change the type of `m` " +
+        "from `() -> ({...a} -> {...a}, Int)` to `() -> ({} -> {}, Int)`",
     );
   });
 

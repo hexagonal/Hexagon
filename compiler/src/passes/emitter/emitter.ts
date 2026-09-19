@@ -4883,7 +4883,6 @@ class JavaScriptEmitter {
   ): string {
     switch (expression.kind) {
       case "Name": {
-        this.#referencedSymbols.add(expression.symbol);
         // FFI Part 11 §2's release seat, reached **unapplied**. `JsValue.from`
         // is a seat rather than an ordinary function, and §2 puts the walk "on
         // its argument at the seat's concrete type" without asking whether the
@@ -4899,8 +4898,12 @@ class JavaScriptEmitter {
         // occasion 4's) are elsewhere. A seat whose argument names no captured
         // collection stays the erased identity — the stdlib row itself — and
         // emits exactly what it always did.
+        // Ahead of `#referencedSymbols`, which is what decides whether this
+        // module imports the name: a reference that became a wrapper never
+        // spells `from`, so recording it would emit an import nothing reads.
         const released = this.#releasedReference(expression);
         if (released !== undefined) return released;
+        this.#referencedSymbols.add(expression.symbol);
         // The pin at the reference site (#147, decisions doc §3.2): `True` emits
         // `true`. Ahead of every other spelling rule, because the constructor
         // never needs a binding, a local, or an import to be named by.
