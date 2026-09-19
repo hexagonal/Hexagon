@@ -47,7 +47,10 @@ function schemeOf(
 ): Typed.Scheme {
   const typed = compiled.modules.find((module) => module.source.path === path)!.typed;
   const symbol = typed.symbols.find(
-    (candidate) => candidate.name === name && candidate.kind !== "parameter",
+    (candidate) =>
+      candidate.name === name &&
+      candidate.kind !== "parameter" &&
+      candidate.bindingSpan.fileId === typed.fileId,
   );
   if (symbol === undefined) throw new Error(`no symbol \`${name}\` in ${path}`);
   return symbol.scheme;

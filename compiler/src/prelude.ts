@@ -107,6 +107,12 @@ export interface PreludeModule {
  * from `Seq.hex` onward sees all three, which is what lets
  * `stdlib/Runtime/VectorTrie.hex`'s index arithmetic reach `Integral<Int>`.
  *
+ * `Math.hex` follows `Float.hex`, the only prelude declaration its complete
+ * concrete surface names. Its seat supplies the `Math` fallback alias to every
+ * later module and to user modules; Modules §5.5's closed bare set means none
+ * of its constants or functions enters bare scope. The module is not Float's
+ * companion, so its subject-first functions do not become Float dot calls.
+ *
  * `BigInt.hex` is the fourth, and it needs the most of the five. It sits after
  * every constraint declaration because it honors eight of them, after
  * `Option.hex` because `toInt` answers with one, and after `Float.hex` because
@@ -264,6 +270,7 @@ export const PRELUDE_MODULES: readonly PreludeModule[] = [
   "Int",
   "Nat",
   "Float",
+  "Math",
   "BigInt",
   "Seq",
   "Iterable",

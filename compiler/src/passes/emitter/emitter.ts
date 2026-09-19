@@ -10334,6 +10334,38 @@ class JavaScriptEmitter {
       // the emitted code and of nothing else.
       case "debugLog":
         return this.#useHelper("debugLog");
+      // `stdlib/Math.hex`'s concrete Float operations (`spec/math.md` §5).
+      // Direct native calls are the contract: replacing any one with an
+      // algebraic identity can change rounding, overflow, domain results, or
+      // signed zero. `ln` maps to JavaScript's `log`; power is absent by design.
+      case "mathSqrt":
+        return `__a => ${this.#spell("Math")}.sqrt(__a)`;
+      case "mathSin":
+        return `__a => ${this.#spell("Math")}.sin(__a)`;
+      case "mathCos":
+        return `__a => ${this.#spell("Math")}.cos(__a)`;
+      case "mathTan":
+        return `__a => ${this.#spell("Math")}.tan(__a)`;
+      case "mathAsin":
+        return `__a => ${this.#spell("Math")}.asin(__a)`;
+      case "mathAcos":
+        return `__a => ${this.#spell("Math")}.acos(__a)`;
+      case "mathAtan":
+        return `__a => ${this.#spell("Math")}.atan(__a)`;
+      case "mathAtan2":
+        return `(__y, __x) => ${this.#spell("Math")}.atan2(__y, __x)`;
+      case "mathExp":
+        return `__a => ${this.#spell("Math")}.exp(__a)`;
+      case "mathLn":
+        return `__a => ${this.#spell("Math")}.log(__a)`;
+      case "mathLog10":
+        return `__a => ${this.#spell("Math")}.log10(__a)`;
+      case "mathSinh":
+        return `__a => ${this.#spell("Math")}.sinh(__a)`;
+      case "mathCosh":
+        return `__a => ${this.#spell("Math")}.cosh(__a)`;
+      case "mathTanh":
+        return `__a => ${this.#spell("Math")}.tanh(__a)`;
       // `stdlib/JsValue.hex`'s eight (FFI Part 11). `kind` is the only one with
       // any JavaScript to it — a `typeof` ladder and one guarded probe, which is
       // statements and therefore a helper. The other seven are one expression
