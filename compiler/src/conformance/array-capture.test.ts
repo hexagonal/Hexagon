@@ -3,10 +3,26 @@ import { beforeAll, describe, expect, test } from "vitest";
 import { compileMain, projectDiagnostics, runMain } from "../support/test-project.js";
 
 /**
- * Conformance for the **borrowed `Array(a)`'s minimal decode loop** — FFI Part 2
+ * Conformance for the **captured `Array(a)`'s minimal decode loop** — FFI Part 2
  * §6.3's `Array.length`, the 1-based asserting read `xs[i]`, and `Array.get`,
  * plus §6.3/§13.1's specialized bare-`.length` diagnostic and §10's checklist
  * row for it (issue #511).
+ *
+ * **The borrowed view is retired** (#876, #875): `Array(a)` is a *captured*
+ * foreign collection, a snapshot Hexagon owns from the crossing onwards (Part 1
+ * §2.2, Part 2 §6.2), and `spec/ffi.md`'s vocabulary table carries the old
+ * category as retired. What that changed for this file is one word in one
+ * diagnostic and the file's own name; every pin below is a property of the
+ * accessor surface, which the ruling left exactly where it was. The *crossing*
+ * — what the copy is, where it runs, what it costs — is `capture-walk.test.ts`'s
+ * (#945).
+ *
+ * Nothing here crosses a foreign boundary. The runtime program's arrays arrive
+ * through **exported** Hexagon function parameters, which FFI Part 7 §7 occasion
+ * 4's stable export wrapper will walk in a later PR of the capture arc; until
+ * then a JavaScript caller hands these functions its own array and every pin
+ * below reads that array directly, which is what makes the zero-scan and
+ * access-pattern rows measurable here at all.
  *
  * Everything the door promises is a property of the *emitted* code or of the
  * *running* one, so almost every assertion here is one or the other. A bounds
@@ -33,9 +49,9 @@ import { compileMain, projectDiagnostics, runMain } from "../support/test-projec
 /**
  * The one compiled program the runtime tests drive.
  *
- * Every borrowed array arrives as a *parameter*, which is the honest shape: a
- * `Array(a)` has no Hexagon literal and never will — foreign code owns the
- * array, and §6.2's stability contract begins where it crosses.
+ * Every array arrives as a *parameter*, which is the honest shape: an `Array(a)`
+ * has no Hexagon literal and never will — the value comes from outside, and
+ * §6.2's capture is what makes it Hexagon's.
  */
 const PROGRAM = "export let size(xs: Array(Int)): Int = Array.length(xs)\n" +
   "export let sizeDot(xs: Array(Int)): Int = xs.length()\n" +
@@ -264,8 +280,8 @@ describe("the dot form is companion dispatch, and the bare read is not (§13.1)"
     const messages = projectDiagnostics("module Main\n\n" + "export let n(xs: Array(Int)): Int = xs.length\n",
     );
     expect(messages).toEqual([
-      "`Array(a)` is a borrowed foreign view, not a record: it has no fields, and " +
-      "a property read does not cross the boundary — the companion call is the " +
+      "`Array(a)` is a captured foreign collection, not a record: it has no " +
+      "fields, and a property read does not cross the boundary — the companion call is the " +
       "read. Write `Array.length(xs)`, or `xs.length()` for the smallest edit.",
     ]);
   });
@@ -311,8 +327,8 @@ describe("the dot form is companion dispatch, and the bare read is not (§13.1)"
     const messages = projectDiagnostics("module Main\n\n" + "export let n(xs: Vector(Int), xss: Array(Array(Int))): Int = xss[1].length\n",
     );
     expect(messages).toEqual([
-      "`Array(a)` is a borrowed foreign view, not a record: it has no fields, and " +
-      "a property read does not cross the boundary — the companion call is the " +
+      "`Array(a)` is a captured foreign collection, not a record: it has no " +
+      "fields, and a property read does not cross the boundary — the companion call is the " +
       "read. Write `Array.length(…)`, or `….length()` for the smallest edit.",
     ]);
     // The measured failure, asserted directly: no rewrite in this message names
@@ -333,7 +349,7 @@ describe("the dot form is companion dispatch, and the bare read is not (§13.1)"
     const messages = projectDiagnostics("module Main\n\n" + "export let n(xs: Array(Int)): Int = xs.count\n",
     );
     expect(messages).not.toEqual([]);
-    expect(messages.join("\n")).not.toContain("borrowed foreign view");
+    expect(messages.join("\n")).not.toContain("captured foreign collection");
   });
 });
 

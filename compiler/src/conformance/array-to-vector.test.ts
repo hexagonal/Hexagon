@@ -628,10 +628,9 @@ describe("the `.d.ts` face is `ReadonlyArray<a>` in, `Hex.Vector<a>` out", () =>
     expect(array).toBeDefined();
     expect(array!.declarations.text).toContain(
       "/**\n" +
-        " * The elements of `values` collected into a vector: the snapshot that\n" +
-        " * outlives the borrow, so later changes to the array never reach it. The\n" +
-        " * vector is built at once, and the crossing is shallow — an element that is\n" +
-        " * itself a vector or a record arrives as that same value.\n" +
+        " * The elements of `values` collected into a vector, built at once. The\n" +
+        " * conversion is shallow — an element that is itself a vector or a record\n" +
+        " * arrives as that same value.\n" +
         " */\n" +
         "export declare const toVector: <a>(values: ReadonlyArray<a>) => Hex.Vector<a>;",
     );
