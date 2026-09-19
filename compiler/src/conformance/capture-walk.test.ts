@@ -695,33 +695,34 @@ describe("what the walk carries by identity, and what it rebuilds (§5.4)", () =
    * the positions where the foreign side instantiates the tail, so the row is
    * legal there; the fields the declaration did not name are held "exactly as
    * it holds a value at a type variable: safe by parametricity", which means
-   * the rebuilt POJO carries them. Only the declared field that names a
-   * captured collection is walked.
+   * the rebuilt POJO carries them. The plan records the row as open and the
+   * walk starts that copy from a spread of the source, overwriting only the
+   * fields the declaration named.
+   *
+   * Pinned on the plan and the walk rather than at runtime, because Hexagon
+   * cannot name a field it did not declare: the only observer of the surviving
+   * tail is a JavaScript consumer, which reaches the value through an
+   * **export** — and PR 3's export wrapper is what carries it there. A closed
+   * row stands beside it so the flag is measured rather than assumed.
    */
-  test("an open row's undeclared fields ride along, and the declared one is copied", async () => {
-    const { main, foreign } = await run(
-      'extern from "open"\n' +
+  test("an open row is rebuilt from a spread; a closed row from its fields", () => {
+    const open = javascript(
+      'extern from "./open.js"\n' +
         "    fun sheet() ->! {rows: Array(Int), ...}\n" +
         "\n" +
-        "export fun probe(): {rows: Array(Int), ...} = sheet!()\n",
-      {
-        open: "export const rows = [1, 2];\n" +
-          "export const extra = { id: 1 };\n" +
-          "export const sheet_ = { rows, extra };\n" +
-          "export function sheet() { return sheet_; }\n",
-      },
+        "export fun probe(): Int = Array.length(sheet!().rows)\n",
     );
-    const captured = (main["probe"] as () => { rows: number[]; extra: unknown })();
-    const fixtures = await foreign("open") as {
-      rows: number[];
-      extra: unknown;
-      sheet_: unknown;
-    };
-    expect(captured).not.toBe(fixtures.sheet_);
-    expect(captured.rows).not.toBe(fixtures.rows);
-    expect(captured.rows).toEqual([1, 2]);
-    // The tail the declaration never named is still there, by identity.
-    expect(captured.extra).toBe(fixtures.extra);
+    expect(open).toContain('{ k: "record", fields: [["rows", 1]], open: true }');
+    expect(open).toContain("__copy = __node.open ? { ...__from } : {};");
+    const closed = javascript(
+      'extern from "./closed.js"\n' +
+        "    fun sheet() ->! {rows: Array(Int), label: String}\n" +
+        "\n" +
+        "export fun probe(): Int = Array.length(sheet!().rows)\n",
+    );
+    expect(closed).toContain(
+      '{ k: "record", fields: [["rows", 1], ["label", null]], open: false }',
+    );
   });
 
   /**
