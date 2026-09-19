@@ -579,12 +579,9 @@ describe("§5.3 the compiler-side claim table", () => {
     }
   });
 
-  test("the borrowed foreign views are invariant in v1", () => {
+  test("the captured foreign collections remain invariant, while Nullable is covariant", () => {
     expect(COMPILER_CLAIMS.get("Array")).toEqual(["inv"]);
-    expect(COMPILER_CLAIMS.get("Nullable")).toEqual(["inv"]);
-    // FFI Part 10's two views take `Array`'s row on `Array`'s grounds: the
-    // entries, elements and size of a native `Map`/`Set` are stable only by the
-    // borrow contract (Part 10 §2), and a claim may not rest on a contract.
+    expect(COMPILER_CLAIMS.get("Nullable")).toEqual(["co"]);
     expect(COMPILER_CLAIMS.get("JsMap")).toEqual(["inv", "inv"]);
     expect(COMPILER_CLAIMS.get("JsSet")).toEqual(["inv"]);
   });
@@ -592,24 +589,23 @@ describe("§5.3 the compiler-side claim table", () => {
   test("every row is consulted, and says what the table says", () => {
     // §6.3's verification reads a row through the same `multiply` that Step 2's
     // covariance test does, so a declaration site is where a row's effect can be
-    // asserted for *every* row at once — including `Array` and `Nullable`, which
-    // no source form can produce a value of in v1 and which therefore cannot be
-    // observed at a generalization site at all.
+    // asserted for every row at once.
     //
     // `Node` is absent deliberately: it is not nameable in a type annotation
     // (`unknown generic type \`Node\``), which is what makes its row's warrant
     // `intrinsics.md` §4.2 rather than anything a user could write.
     expect(projectDiagnostics("module Main\n\n" + "opaque record W(+a) = { v: Vector(a) }\n")).toEqual([]);
     // `Map` moved sides at #370 and `Set` at #373: their rows are verified
-    // (`co, co` and `co`) now, so both belong with `Vector` above rather than in
-    // the invariant list below, which is down to the two borrowed foreign views.
+    // (`co, co` and `co`) now, so both belong with `Vector` above. `Nullable`
+    // joins that side under #786; only the three captured foreign collections
+    // remain in the invariant list below.
     expect(projectDiagnostics("module Main\n\n" + "opaque record W(+a) = { v: Map(String, a) }\n")).toEqual([]);
     expect(projectDiagnostics("module Main\n\n" + "opaque record W(+a) = { v: Map(a, String) }\n")).toEqual([]);
     expect(projectDiagnostics("module Main\n\n" + "opaque record W(+a) = { v: Set(a) }\n")).toEqual([]);
+    expect(projectDiagnostics("module Main\n\n" + "opaque record W(+a) = { v: Nullable(a) }\n")).toEqual([]);
     for (
       const field of [
         "Array(a)",
-        "Nullable(a)",
         "JsSet(a)",
         "JsMap(String, a)",
         "JsMap(a, String)",

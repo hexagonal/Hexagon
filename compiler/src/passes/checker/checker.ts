@@ -1886,7 +1886,7 @@ function unionCompanionKey(union: Resolved.UnionId): string {
 
 /**
  * The compiler-built-in heads that have a companion module rather than a
- * declaration: `Vector`, `Map`, `Set`. §4.1 gives them "the fixed prelude
+ * declaration: `Vector`, `Map`, `Set`, and the boundary companions below. §4.1 gives them "the fixed prelude
  * companion module of the same name", and Collections Part 3 §7 says which
  * module that is at any moment — the one addressable under the name here, which
  * is how `stdlib/Vector.hex` occludes the compiler's own core inventory today.
@@ -1916,6 +1916,12 @@ const BUILTIN_COMPANIONS: ReadonlyMap<string, string> = new Map([
   // is the module addressable under the name. Part 2 §13.1 turns on it — the
   // fused call form "stopped being an error entirely" only where this tie exists.
   ["Array", "builtin:Array"],
+  // `Nullable(a)` is representation-direct but otherwise the same companion
+  // case as `Array(a)`: the compiler owns the type and `stdlib/Nullable.hex`
+  // supplies the module addressable under its name. Absorbing spellings are
+  // pruned before this table is read, so `Nullable(JsValue)` keeps `JsValue`'s
+  // companion and a both-nullish enum keeps its declaration's companion.
+  ["Nullable", "builtin:Nullable"],
   // The two borrowed collection views (FFI Part 10 §3) join last and on the same
   // footing (#792): neither type has a declaration site, so `stdlib/JsMap.hex`
   // and `stdlib/JsSet.hex` are their companions by being the modules addressable
@@ -2226,7 +2232,7 @@ function companionHeadName(type: Mono): string | undefined {
   if (type.kind === "NominalRecord" || type.kind === "Union") return type.name;
   if (
     type.kind === "Vector" || type.kind === "Set" || type.kind === "Map" ||
-    type.kind === "JsValue" || type.kind === "Array" ||
+    type.kind === "JsValue" || type.kind === "Array" || type.kind === "Nullable" ||
     type.kind === "JsMap" || type.kind === "JsSet"
   ) return type.kind;
   if (type.kind === "Constructor") return type.name;
@@ -2735,23 +2741,11 @@ class Checker {
    * `#unions` above is the registration's own map and is not filled until the
    * type parameters and constructor schemes are built, which happens *after* the
    * extern blocks are typed. A question that has to be answered from an
-   * annotation — "is this union a literal `extern enum` naming one nullish
-   * value?" — cannot wait for that, so it reads this instead. Nothing here mints
+   * annotation — "is this union a literal `extern enum` naming both nullish
+   * values?" — cannot wait for that, so it reads this instead. Nothing here mints
    * a variable or a scheme; it is the declarations, by identity.
    */
   readonly #declaredUnions = new Map<Resolved.UnionId, Resolved.Union>();
-  /**
-   * The seats that have already drawn Foreign Enums §2.4's one-nullish refusal,
-   * keyed by the wrapper's own span and the enum under it.
-   *
-   * Keyed by the **seat**, so a module that writes `Nullable(Tri)` in five
-   * places is told about all five: each is a wrapper the author has to remove,
-   * and reporting one would leave four silent seats to be found one compile at a
-   * time. The span is in the key rather than the enum alone because one *written*
-   * wrapper is more than one elaboration — an annotation is read for its face
-   * and again for its check — and one fault is still one report.
-   */
-  readonly #refusedNullishWrappers = new Set<string>();
   readonly #constructorUnions = new Map<Resolved.SymbolId, Resolved.UnionId>();
   readonly #unionParameters = new Map<Resolved.UnionId, ReadonlyMap<string, Variable>>();
   /**
@@ -4855,12 +4849,14 @@ class Checker {
       // "the call form stopped being an error entirely" is a fact about this
       // line.
       actual.kind === "Array" ||
+      // `Nullable` joins under #786. The receiver is pruned before this point,
+      // so an absorbed spelling continues to use the absorbing type's own
+      // companion rather than gaining nullable operations by force.
+      actual.kind === "Nullable" ||
       // The two borrowed collection views join for the same reason (#792,
       // FFI Part 10 §3): `stdlib/JsMap.hex` and `stdlib/JsSet.hex` are the
       // modules addressable under the names, so `m.size()`, `m.get(k)` and
-      // `s.contains(x)` are ordinary companion dispatch. `Nullable` remains
-      // absent because no module answers for it, and an empty set here would
-      // only produce the row diagnostic below.
+      // `s.contains(x)` are ordinary companion dispatch.
       actual.kind === "JsMap" ||
       actual.kind === "JsSet";
     // Primitives join the table for the member clause alone (§3.4's Primitive
@@ -16949,87 +16945,27 @@ class Checker {
    * because its declaration *writes* both forms, which is a fact about the
    * declaration and not about the type's shape.
    *
-   * An enum naming exactly one of the two is **not** designated: the wrapper
-   * would collapse both nullish forms to `None`, so the form the enum declares
-   * would be indistinguishable from absence. `Nullable` over it is refused
-   * (`#refuseOneNullishWrapper`) rather than collapsed.
+   * An enum naming exactly one of the two is **not** designated: `Nullable`
+   * remains a distinct wrapper over it, just as it does over an enum naming
+   * neither form.
    */
   #absorbsNullish(type: Mono): boolean {
     return type.kind === "Nullable" || type.kind === "JsValue" ||
-      this.#enumNullish(type)?.designated === true;
+      this.#isBothNullishEnum(type);
   }
 
   /**
-   * What a literal `extern enum` declares of JavaScript's two nullish values
-   * (Foreign Enums §2.4), or `undefined` for every type that is not one.
-   *
-   * Three answers matter and they are the section's three: **both** forms named
-   * — the designated absorbing shape, `Nullable(T) ≡ T`; **one** form named —
-   * the refused shape, which the report needs the named member and the missing
-   * form to phrase; and **neither**, which is an ordinary union in every respect
-   * and answers `undefined` here so no caller has a fourth case to write.
+   * Whether a literal `extern enum` names both JavaScript nullish values
+   * (Foreign Enums §2.4), making it the enum member of the designated absorbing
+   * set. Naming one nullish value is deliberately insufficient.
    */
-  #enumNullish(type: Mono): {
-    readonly declaration: Resolved.Union;
-    readonly designated: boolean;
-    /** The member naming `null`, if the declaration names one. */
-    readonly nullMember?: Resolved.Constructor;
-    /** The member naming `undefined`, likewise. */
-    readonly undefinedMember?: Resolved.Constructor;
-  } | undefined {
-    if (type.kind !== "Union") return undefined;
+  #isBothNullishEnum(type: Mono): boolean {
+    if (type.kind !== "Union") return false;
     const declaration = this.#declaredUnions.get(type.union) ??
       this.#unions.get(type.union) ?? this.#programUnion(type.union);
-    if (declaration?.externEnum !== true) return undefined;
-    const nullMember = declaration.constructors
-      .find(({ literal }) => literal?.kind === "Null");
-    const undefinedMember = declaration.constructors
-      .find(({ literal }) => literal?.kind === "Undefined");
-    if (nullMember === undefined && undefinedMember === undefined) return undefined;
-    return {
-      declaration,
-      designated: nullMember !== undefined && undefinedMember !== undefined,
-      ...(nullMember === undefined ? {} : { nullMember }),
-      ...(undefinedMember === undefined ? {} : { undefinedMember }),
-    };
-  }
-
-  /**
-   * Foreign Enums §2.4's refusal of `Nullable(T)` over a literal `extern enum`
-   * naming exactly **one** nullish value, on the section's two symmetric
-   * grounds: the wrapper collapses both nullish forms to `None`, so whichever
-   * form the enum declares becomes indistinguishable from absence; and
-   * `fromOption`'s `None` image is a nullish value the enum need not declare.
-   *
-   * The message is the section's template over the declared member and the
-   * missing form, so the `null`-only and `undefined`-only shapes each name their
-   * own. Reported once per written seat (`#refusedNullishWrappers`).
-   *
-   * Called from `#annotationType`'s `Nullable` arm, which is the single
-   * construction site every **written** wrapper passes through — a binding's
-   * annotation, an extern `fun`/`let` signature, a record field, a union
-   * constructor slot, an ascription, and a type alias body, applied or not.
-   */
-  #refuseOneNullishWrapper(value: Mono, span: Source.Span): void {
-    const inner = this.#prune(value);
-    const nullish = this.#enumNullish(inner);
-    if (nullish === undefined || nullish.designated) return;
-    const seat = `${span.start.offset}:${span.end.offset}:${Number(nullish.declaration.id)}`;
-    if (this.#refusedNullishWrappers.has(seat)) return;
-    this.#refusedNullishWrappers.add(seat);
-    const name = nullish.declaration.name;
-    const named = nullish.nullMember ?? nullish.undefinedMember!;
-    const form = nullish.nullMember === undefined ? "undefined" : "null";
-    const missing = nullish.nullMember === undefined
-      ? "null as Absent"
-      : "undefined as Missing";
-    this.#diagnostics.add({
-      severity: "error",
-      message: `\`${name}\` already names \`${form}\`; \`Nullable(${name})\` cannot ` +
-        `tell absence from \`${named.binding.name}\` — name both nullish values ` +
-        `(\`${missing}\`) or neither`,
-      primary: span,
-    });
+    return declaration?.externEnum === true &&
+      declaration.constructors.some(({ literal }) => literal?.kind === "Null") &&
+      declaration.constructors.some(({ literal }) => literal?.kind === "Undefined");
   }
 
   /**
@@ -20733,11 +20669,6 @@ class Checker {
     if (annotation.kind === "Node") return { kind: "Node", element: this.#annotationType(annotation.element, level, namedTails, typeParameters, impliedTypes, holes) };
     if (annotation.kind === "Nullable") {
       const value = this.#annotationType(annotation.value, level, namedTails, typeParameters, impliedTypes, holes);
-      // Foreign Enums §2.4's refusal at the **written** seat. One construction
-      // site serves every one of them — a `let`'s or `fun`'s annotation, an
-      // extern `fun`/`let` signature, a record field, a union constructor slot,
-      // an ascription, and an alias body all elaborate through here.
-      this.#refuseOneNullishWrapper(value, annotation.span);
       return { kind: "Nullable", value };
     }
     if (annotation.kind === "Map" || annotation.kind === "JsMap") {

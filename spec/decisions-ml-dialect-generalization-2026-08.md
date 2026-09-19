@@ -135,6 +135,27 @@ Clause (a) is not in Garrigue's rule because OCaml has nothing for it to say: no
 - `let m = memoize(e)` where `e : Seq(a)` generalized — `Seq(+a)` (transitionally by table row, then by `Seq.hex`'s written sigil — §5.3, §11.4), `seqMemoize` parametric (§7): **generalizes**. The memoized spine shared across instantiations can hold only values pulled from a source that, by parametricity, never produced any.
 - The multi-item block (Functions §8.2's `lookup` example, with the signatures the argument depends on: `load : () -> Table(k, v)` and `find : (Table(k, v), k) -> v`, `Table` a transparent record) — still not a value (blocks of more than one item are not read through, unchanged), so item 7 governs: with `lookup : ?k -> ?v`, the argument variable `?k` occurs contravariantly and is **declined** (first use pins it); `?v` occurs covariantly, is unconstrained, and **generalizes** — soundly, because the once-loaded table, typed with no known element type, can contain no elements (leg 1). Had `find` instead demanded `<k: Hash>`, `?k` would be declined by clause (a) rather than clause (b) — the example's answer depends on the signatures, which is why they are written. Partial generalization is the intended reading of "per-variable" (§4.5). The host example changes accordingly (ledger, §10).
 
+The #786 motivating comparison exercises the same rule in two representations:
+
+```hexagon
+let getEmpty() = Seq.empty
+let e = getEmpty()
+let xs = e.prepend(42)
+let ys = e.prepend(42n)
+
+let getNull() = Nullable.null
+let n = getNull()
+let age: Nullable(Int) = n
+let name: Nullable(String) = n
+```
+
+Both call results generalize. `Nullable`'s warrant is its representation and
+trusted claim (§5.3, §7), not the resemblance to `Seq`; the example makes the
+consequence concrete. Instantiating the generalized `n` at `Nullable(Int)` as
+its element type also obeys Part 2 §2.1: `Nullable(Nullable(Int))` collapses to
+`Nullable(Int)`. Extern declarations remain monomorphic and `var` reads retain
+their expansive classification; the other generalization conditions still apply.
+
 ### 4.5 Per-variable, not all-or-nothing
 
 A binding may end up with a scheme quantifying some variables while others sit unsolved awaiting their first use. This is the behavior OCaml users already live with, and it is the reason #206 (display of quantified vs unsolved variables) graduates from annoyance to teachability requirement — recorded there, not solved here.
@@ -176,18 +197,47 @@ The only source of `−` is function-argument position, because Statements §6.4
 | parameterized `opaque` with a declaration site (`Seq`, and every user type) | the **declared claim** (§6) — used uniformly by every module, the home module included (`Seq` transitionally excepted — see the claim table below) |
 | extern types | v1: monomorphic (FFI Part 4 §12.4) — no parameters, no question. Forward rule, recorded now: if parameterized extern types are ever admitted, they are opaque by construction and take declared claims, bare meaning invariant |
 | **compiler-known parameterized types the compiler implements and owns outright** (`Vector` — no declaration of the *name* exists; `Vector.hex` is a companion over the compiler's representation core — and `Node`, the hidden fixed-32 slot intrinsic under it, `stdlib/Runtime/VectorTrie.hex`; `intrinsics.md` §3.3, #223; scheduled to leave the table at `Node`'s migration into the door's `type` form, #927) | a row in the **compiler-side claim table** (below) |
-| **compiler-known parameterized types that are foreign collections or foreign doors** (`Array` — FFI Part 2; `JsMap`, `JsSet` — FFI Part 10; captured since #876/#875 — with `Nullable` and `NullableCase`, FFI Part 2) | **invariant in v1.** For `Array`/`JsMap`/`JsSet`: this row's original ground — that their stability was a boundary contract (FFI Part 1 §3.1), not a language guarantee, and a variance claim may not rest on a contract — is gone since #876 and #875 made their stability the capture's (FFI Part 1 §2.2, Part 2 §6.2, Part 10 §2); the ground's removal supplies no claim, and `Array(+a)` or `JsSet(+a)` would need its own ruling, which is not made here. For `Nullable`/`NullableCase`, representation-direct and holding nothing mutable: no declaration site and no ruling yet — invariant is the conservative default, not a mutability verdict. A claim for any of them needs its own ruling |
+| **compiler-known foreign collections** (`Array` — FFI Part 2; `JsMap`, `JsSet` — FFI Part 10; captured since #876/#875) | **invariant in v1.** Their original ground — stability supplied by a boundary contract rather than a language guarantee — is gone since capture, but its removal supplies no variance claim. A claim for these collections needs its own ruling. |
+| **compiler-known `Nullable(a)`** (FFI Part 2 §2.1, #786) | **covariant**, a trusted `Nullable(+a)` row; the representation carries `a` or a nullish value and provides no mutable slot. The warrant and generalization consequence are below. |
+| **`NullableCase(a)`** (FFI Part 2 §3, #786) | Ordinary transparent source union; variance is inferred from `Undefined`, `Null`, and `Value(value: a)`, hence covariant. No compiler claim row. |
 
 **The compiler-side claim table** *(this ruling establishes it)*: compiler-owned parameterized types with no Hexagon declaration site take their claims from a compiler-owned table. Rows come in two grades, and the difference is the warrant:
 
 - **Verified rows** — the representation *is* Hexagon-visible, in a privileged runtime module, and §6.3's machinery checks the row against it exactly as it would a written sigil, re-verifying on every representation edit. Variance is computed from the **representation** — the type declarations — never from the module's operations (`append(trie, value: a)` puts `a` in argument position, as any consumer of any covariant type does; operations are not occurrences).
-- **Trusted rows** — no Hexagon-visible representation exists (or none the emitter yet targets), and §7's parametricity obligation is the row's entire warrant (the implementer is the compiler; the trust argument is `intrinsics.md` §3.4's). **`Node(+a)` is a trusted row**: a fixed-32 immutable slot type, read-only from Hexagon, its disposition owned by #223 (the reopener for this row) *(reopener repointed 2026-08-02 — #126 closed without moving `intrinsics.md` §3.3, which keeps `Node` out of the door)*. *(#927.)* **Disposition scheduled:** `intrinsics.md` §3.3 now admits `type` rows, and `Node` migrates into one after the Regex arc — its `+` a written sigil in `Hex.Runtime.VectorTrie` and `Hex.Runtime.HashTrie`, held under §7's obligation as this row is today. The row dies at that landing and the table closes.
+- **Trusted rows** — no Hexagon-visible representation exists (or none the emitter yet targets), and §7's parametricity obligation is the row's entire warrant (the implementer is the compiler; the trust argument is `intrinsics.md` §3.4's). **`Node(+a)` is a trusted row**: a fixed-32 immutable slot type, read-only from Hexagon, its disposition owned by #223 (the reopener for this row) *(reopener repointed 2026-08-02 — #126 closed without moving `intrinsics.md` §3.3, which keeps `Node` out of the door)*. *(#927.)* **Disposition scheduled:** `intrinsics.md` §3.3 now admits `type` rows, and `Node` migrates into one after the Regex arc — its `+` a written sigil in `Hex.Runtime.VectorTrie` and `Hex.Runtime.HashTrie`, held under §7's obligation as this row is today. The `Node` row dies at that landing; the `Nullable` row introduced by #786 remains.
+
+
+**`Nullable(+a)` is trusted (#786, James, 2026-09-19).** Its zero-wrapper
+representation is `a | null | undefined`: the only occurrence of `a` carries a
+value, and there is no writable slot through which a differently typed value
+can be installed. The compiler owns that representation, so the warrant is
+this representation argument and §7's intrinsic obligation, not verification
+against a source record. The companion's primitives produce the two nullish
+constants, compare against them, or carry the same value across the representation
+boundary; they store no values between instantiations. Nullish classification
+may discard provenance as FFI Part 2 §4 specifies; it never manufactures an `a`.
+
+The existing relaxed rule therefore generalizes an unconstrained `a` in
+`let n: Nullable(a) = nullValue()`, just as it generalizes the result of
+`let getEmpty() = Seq.empty; let e = getEmpty()`. Uses of `n` at `Nullable(Int)`
+and `Nullable(String)` are independent instantiations. The rule does not
+reinterpret a fixed `Nullable(String)` as `Nullable(Int)`, add an implicit
+injection from `a`, or change the designated absorption set. Negative positions
+still reverse the variance and remain ineligible under §4.1; this is a claim
+for one type constructor, not an exception to generalization. A future operation
+that shares writable storage across instantiations would violate the warrant.
+
+The former invariant default is replaced deliberately. Keeping it would require
+a different mechanism for the specified polymorphic constants; a special-case
+exception for those constants is unnecessary because the representation supports
+the ordinary covariance rule already used for immutable values. `NullableCase`
+now has its ordinary source declaration and uses the transparent-union row above.
 
 **`Vector(+a)` is verified.** The emitter targets `stdlib/Runtime/VectorTrie.hex`'s Hexagon representation (the wiring milestone), and §6.3's check is the derivation this row carried while it was trusted: given `Node(+a)`, `a` under `Node(a)` is `+`; `Tree(a) = Leaf(values: Node(a)) | Branch(children: Node(Tree(a)))` reaches `+` at the fixpoint; both of `TrieVector`'s `a`-bearing fields (`root`, `tail`) sit at `+` with no arrow-argument position anywhere. The check is live, not prose: a conformance test reads the checker's own computed variance for `TrieVector(a)` from the injected module — held byte-identical to `stdlib/Runtime/VectorTrie.hex` by a drift guard in the same file — so the row recomputes on every `VectorTrie.hex` edit (§11.1 item ix) and a future `a`-in-argument-position field breaks at the row, not silently. `Node(+a)` remains the trusted leaf beneath it (#223).
 
 **`Map(+k, +v)` is verified** *(#370, the Map milestone)*. The emitter targets `stdlib/Runtime/HashTrie.hex`, and the check is the Vector paragraph's shape at two parameters: given `Node(+a)`, `k` and `v` occur in the trie's `Tree(k, v)` only as `Entry`'s `key`/`value` fields, as tuple components under `Collision`'s `Node((k, v))`, and under `Branch`'s `Node(Tree(k, v))` recursion — all `+` at the fixpoint; the root union above it (including the unplaced-singleton arm's bare `key`/`value` fields, #370) keeps both at `+`, and no representation field puts either under an arrow — the walkers' `(k, k) -> Bool` parameters are *operations*, and operations are not occurrences (this section's own carve-out, restated because `HashTrie` is where a reader will first want it). The same conformance treatment holds the row: the checker's computed variance for `HashTrie(k, v)` is read from the injected module, drift-guarded byte-identical to `stdlib/Runtime/HashTrie.hex`, so the row recomputes on every edit (§11.1 item ix, as extended by #370) and `["co", "co"]` breaks at the row the day a representation field disagrees. **`Set(+a)` is verified** *(#373, the Set milestone)*. The representation is the wrapper record the Set step ruled — `HashSet(a)` holding one field of type `HashTrie(a, Unit)` — so the derivation is one composition step over this paragraph's: `a` reaches the trie through its key slot, verified `+` above; `Unit` fills the value slot, so `a` has no occurrence there at all; and the wrapper adds no field that puts `a` under an arrow. The same conformance treatment holds the row: the checker's computed variance for `HashSet(a)` is read from the same injected module, so the row recomputes on every `stdlib/Runtime/HashTrie.hex` edit (§11.1 item ix, as extended by #373) and `["co"]` breaks at the row the day the representation disagrees. The explicit invariant row this replaces did its job as designed — it was *edited*, deliberately, at the one milestone that finally had a representation to verify against.
 
-This is not a reversal of `intrinsics.md` §4.2's "types are normative in the declaration, not in any compiler-side table": that clause governs constructors that *have* a declaration to be normative in. The table is the placeholder for a declaration that does not exist yet, holds only what no declaration can hold today, and empties at the same `intrinsics.md` §9 self-declaration milestones — when a companion gains a real declaration, its claim moves into the source as a written sigil and the row is deleted. **The `Node(+a)` row is the exception, and outlives them all** *(corrected 2026-08-02, #223 — this passage previously had the table dying entire at those milestones)*: `Node` is a deliberate non-declared boundary type kept out of the intrinsic door by `intrinsics.md` §3.3, so no milestone gives it a declaration to move its claim into. The table therefore narrows to that one row rather than closing, on the same reasoning that leaves `intrinsics.md` §9.2's `CollectionOperation` family standing with `Node` as its sole member — *(#927)* until `Node`'s scheduled migration into the door's `type` form, at which the row dies and the table closes (`intrinsics.md` §3.3, §9.2).
+This is not a reversal of `intrinsics.md` §4.2's "types are normative in the declaration, not in any compiler-side table": that clause governs constructors that *have* a declaration to be normative in. The table holds claims with no declaration site today. When a companion gains a real declaration, its claim moves into source and its row is deleted. `Node` remains until its scheduled migration into an intrinsic `type` row (#927); `Nullable` remains a deliberately compiler-owned boundary type (FFI Part 2 §2.1, #786), so its trusted covariance row survives that migration. The `CollectionOperation` family's retirement at `Node`'s migration is a separate matter and is unchanged.
 
 **The transitional `Seq` row, stated as the exception it is:** `Seq` *has* a declaration site, and §6.2 makes its bare parameter a written claim of invariant — so the table carries **`Seq(+a)` transitionally, and `Seq` is, by this row alone and until §11.4's sweep writes the sigil into `Seq.hex`, the corpus's single constructor whose bare parameter does not mean invariant.** Dated, deliberate, and retired by the sweep. Precedence, defined once: a written **sigil** supersedes a table row for the same constructor; after the sweep, exactly one claim source per constructor is an invariant — a constructor holding both a table row and a written sigil is a build-time assertion failure, never a silent precedence question (conformance item, §11.1).
 
@@ -265,9 +315,18 @@ Host: `intrinsics.md` §4.2's verification list gains a fourth commitment (ledge
 
 > **Parametricity is part of the contract.** A generic intrinsic's implementation may move, store, and return values at its type parameters; it must never fabricate them, coerce them, or inspect them by type. Consequence: the variance of the declared scheme is semantically true of the implementation — the third leg of the relaxed rule's soundness (Functions §8.7).
 
-Why it must be written: §5's analysis reads the Hexagon-visible definition, and intrinsics are exactly the values the checker trusts *beyond* that definition (`intrinsics.md` §3.4 grants them the genericity §12.4 denies the foreign boundary). A stateful generic intrinsic that stored values at one instantiation and surfaced them at another would make a `+` claim a lie no analysis could catch. The obligation extends to the compiler-side claim table's **trusted rows** (§5.3) — a row with no Hexagon-visible representation to verify against, or none the emitter yet targets (`Node(+a)`; `Vector(+a)` before its wiring milestone graduated it), rests on this obligation alone. **Verified rows** do not: their representations are checked per §6.3, and the obligation covers only the trusted leaves beneath them (`Node` beneath `Vector`, from the upgrade on).
+Why it must be written: §5's analysis reads the Hexagon-visible definition, and intrinsics are exactly the values the checker trusts *beyond* that definition (`intrinsics.md` §3.4 grants them the genericity §12.4 denies the foreign boundary). A stateful generic intrinsic that stored values at one instantiation and surfaced them at another would make a `+` claim a lie no analysis could catch. The obligation extends to the compiler-side claim table's **trusted rows** (§5.3) — a row with no Hexagon-visible representation to verify against, or none the emitter yet targets (`Node(+a)`, `Nullable(+a)`; `Vector(+a)` before its wiring milestone graduated it), rests on this obligation alone. **Verified rows** do not: their representations are checked per §6.3, and the obligation covers only the trusted leaves beneath them (`Node` beneath `Vector`, from the upgrade on).
 
-**Scope of the obligation today, stated honestly:** the v1 intrinsic inventory holds exactly one entry, `seqMemoize` — the sharpest possible case (stateful, generic, covariant result). Whether its lowering satisfies parametricity — that the spine stores only values pulled from the source sequence, fabricating and inspecting none — is an assertion about implementation behavior, and this document routes those to the conformance suite (§11.1) rather than asserting them. The collection-companion operations are **not yet in the inventory** (they still ride the doors `intrinsics.md` §9 deprecates); each accepts this obligation as it arrives, alongside key and arity verification.
+**Scope of the obligation.** Every generic intrinsic accepts this obligation
+alongside key and arity verification; the inventory in Intrinsics §3.2 includes
+`seqMemoize`, the migrated collection companions, and #786's nullable primitives.
+`seqMemoize` is a stateful example: its spine must store only values pulled from
+the source sequence. The nullable constants must produce only `null` or
+`undefined`; injection carries its argument unchanged; extraction carries its
+argument unchanged only under the source companion's preceding non-nullish guard.
+The predicates inspect nullishness at the `Nullable` representation, not the
+unknown payload's type. These claims belong in conformance tests (§11.1).
+The former one-entry inventory statement described the original landing only.
 
 ---
 
@@ -356,12 +415,13 @@ Declare claims on the parameterized opaque exports that **have declaration sites
 | Relaxed rule: expansive bindings generalize unconstrained, covariant-only, level-admitted variables, per-variable | §4.1 |
 | The unconstrained clause is load-bearing and Hexagon's own; constrained variables never generalize at expansive bindings | §4.3 |
 | Soundness legs: parametricity, monomorphic foreign externs, intrinsic parametricity | §4.2, §7 |
-| Variance: four-point lattice, sign multiplication, fixpoint; `−` only from argument position among Hexagon-owned constructors (foreign collections and doors carved out as invariant) | §5 |
+| Variance: four-point lattice, sign multiplication, fixpoint; `−` only from argument position among Hexagon-owned constructors (foreign collections remain invariant; `Nullable` has the explicit covariant claim in §5.3) | §5 |
 | Transparent types infer; opaque types declare; claims used uniformly, home module included | §5.3, §6.4 |
 | Sigils `+a`/`-a` legal only on parameterized `opaque`; bare = invariant = the empty claim (the `derives` doctrine); not mandatory, not defaulted | §6.1–§6.2, §9.2–§9.3 |
 | Over-claim: declaration-site hard error naming a witness occurrence; under-claim: legal, LSP code action, no warning tier | §6.3, §8.2 |
 | What crosses an opaque boundary must be declared, not inferred | §6.2 |
-| Compiler-owned parameterized types without declaration sites: compiler-side claim table in two grades — verified rows checked against visible representations per §6.3, trusted rows on §7's obligation alone (`Node(+a)`, reopener #223, scheduled to become a written sigil at its migration into the door's `type` form, #927; `Vector(+a)` verified since the emitter-wiring milestone and `Map(+k, +v)` at `["co", "co"]` since the Map milestone (#370) and `Set(+a)` at `["co"]` since the Set milestone (#373), each derivation the live check) — plus the dated transitional `Seq(+a)` exception; foreign collections and doors invariant in v1 (`Array` captured since #876, its original ground removed without a claim being supplied); a written sigil supersedes a row; post-sweep, one claim source per constructor is a build-time invariant | §5.3 |
+| Compiler-owned parameterized types without declaration sites: compiler-side claim table in two grades — verified rows checked against visible representations per §6.3, trusted rows on §7's obligation alone (`Node(+a)`, reopener #223, scheduled to become a written sigil at its migration into the door's `type` form, #927; `Vector(+a)` verified since the emitter-wiring milestone and `Map(+k, +v)` at `["co", "co"]` since the Map milestone (#370) and `Set(+a)` at `["co"]` since the Set milestone (#373), each derivation the live check) — plus the dated transitional `Seq(+a)` exception; foreign collections `Array`/`JsMap`/`JsSet` invariant in v1 (capture removed their original ground without supplying a claim); `Nullable(+a)` trusted covariant since #786; a written sigil supersedes a row; post-sweep, one claim source per constructor is a build-time invariant | §5.3 |
+| `Nullable(+a)` (#786) | Trusted covariance from the zero-wrapper representation; constants generalize under the ordinary relaxed rule; `NullableCase` uses inferred transparent-union variance (§5.3) |
 | Verification's SCC rule: inside-SCC occurrences contribute the computed fixpoint, outside-SCC the declared claim | §6.3 |
 | Clause-(a)-declined variables are not "otherwise quantified": defaulting does not fire on item 7's account | §4.4 |
 | Annotated expansive bindings: rigid variables face the same three clauses; a declined one is a declaration-site error (exports inherit it via mandatory signatures) | §4.1 |

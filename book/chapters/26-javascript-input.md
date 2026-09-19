@@ -159,6 +159,18 @@ There are no ambient `null` or `undefined` literals that can silently enter an o
 Hexagon type. Predicates such as `Nullable.isNull` return `Bool`; they do not introduce
 TypeScript-style flow narrowing. Use `toOption` or `toCase` to extract the value.
 
+The nullish constants work at each element type independently:
+
+```hexagon
+let age: Nullable(Int) = Nullable.null
+let name: Nullable(String) = Nullable.null
+```
+
+Neither value contains an integer or a string. `Nullable` is covariant, so these
+constants can generalize by the same rule that lets the result of an empty-sequence
+function be used at different element types. A nullable value already fixed at
+`String` does not thereby become a nullable `Int`.
+
 Extern functions retain fixed arity. When a JavaScript API treats an omitted argument
 as `undefined`, declare that position as `Nullable(a)` and pass
 `Nullable.undefined` explicitly. The boundary does not add a second optional-argument
@@ -434,11 +446,20 @@ The value is always written out, so `"Up" as Up` is a coincidence of one API, no
 rule. Strings, integers, booleans, `null` and `undefined` may mix freely, as long as the
 values are distinct. A `null` or `undefined` member is a member of the set, not an
 absence. `Tri` names `null` and not `undefined`, so an `undefined` arriving at a
-`Tri`-typed slot is out of set, exactly as `"maybe"` would be, and `Nullable(Tri)` is
-refused, because the wrapper could not tell absence from `Unknown`. An API that means
-absence by `undefined` beside a `null` member says so with a fourth line,
-`| undefined as Missing`; an enum naming both nullish values needs no wrapper, and
-`Nullable(Tri)` is then simply `Tri`.
+`Tri`-typed slot is out of set, exactly as `"maybe"` would be. `Nullable(Tri)` adds
+that missing `undefined` and remains a different type from `Tri`.
+
+The nullable conversions inspect the runtime value: `toOption` sends `Unknown`'s
+`null` to `None`, and `toCase` sends it to `NullableCase.Null`. They do not remember
+whether a nullish value came from an enum member or represented absence. Passing
+`Some(Unknown)` through `fromOption` and back through `toOption` therefore gives
+`None`.
+
+If the API names `undefined` as another member, add `| undefined as Missing`.
+An enum naming both nullish values needs no wrapper: `Nullable(Tri)` is then
+simply `Tri`, whose members can be matched directly. With either declaration,
+wrapping twice adds nothing beyond wrapping once:
+`Nullable(Nullable(Tri))` is `Nullable(Tri)`.
 
 An ordinary `extern class` remains opaque. Describing static singleton instances with
 `extern enum` is an explicit stronger promise that the listed instances form a closed

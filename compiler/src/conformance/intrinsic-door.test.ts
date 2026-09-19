@@ -203,7 +203,9 @@ describe("verification replaces trust (§4.2)", () => {
       "`hashTrieNodeInsertAt`, `hashTrieNodeRemoveAt`, `mapEmpty`, " +
       "`mapSingleton`, `mapSize`, `mapGet`, `mapSet`, `mapRemove`, " +
       "`mapEntries`, `setEmpty`, `setSingleton`, `setSize`, `setContains`, " +
-      "`setAdd`, `setRemove`, `setElements`, `setLookup`, `debugLog`, " +
+      "`setAdd`, `setRemove`, `setElements`, `setLookup`, `nullableUndefined`, " +
+      "`nullableNull`, `nullableIsNull`, `nullableIsUndefined`, " +
+      "`nullableAsValueUnchecked`, `nullableFromValue`, `debugLog`, " +
       "`jsValueKind`, `jsValueFrom`, `jsValueIsSafeInteger`, " +
       "`jsValueAsIntUnchecked`, `jsValueAsFloatUnchecked`, " +
       "`jsValueAsBigIntUnchecked`, `jsValueAsBoolUnchecked`, " +

@@ -25,8 +25,8 @@ import { compileFiles, projectDiagnostics, runMain, runProject } from "../suppor
  *   kind of member a declaration may write.
  * - **Nullish members are legal here** (§2.4), because nothing is read. An enum
  *   naming *both* `null` and `undefined` is a designated nullish-absorbing type
- *   — `Nullable(T) ≡ T` (Part 2 §2.1, Part 11 §8) — and one naming exactly one
- *   of them is refused under `Nullable`, with the section's own rewrite.
+ *   — `Nullable(T) ≡ T` (Part 2 §2.1, Part 11 §8). One naming exactly one
+ *   remains legal under `Nullable`, but does not absorb the wrapper.
  * - **The face is the literal union** (§7.2), with no brand: the values are
  *   known exactly, so the brand's opacity has nothing to cover.
  *
@@ -488,6 +488,8 @@ describe("nullish members (§2.4, §9 test 14)", () => {
    * nullish-absorbing type, so `Nullable(T) ≡ T` — a foreign `T | null |
    * undefined` is received as `T` with no conversion. The collapse is
    * definitional, so the wrapped and unwrapped spellings are one type.
+   * `nullable-companion.test.ts` executes `toOption` and `fromOption` at this
+   * absorbed type; this block pins the enum declaration and type equation.
    */
   test("an enum naming both nullish values absorbs `Nullable`", () => {
     expect(projectDiagnostics(
@@ -534,91 +536,46 @@ describe("nullish members (§2.4, §9 test 14)", () => {
     expect(ask(undefined)).toBe("Missing");
   });
 
-  /**
-   * §2.4's refusal, `null`-only shape: the message names the declared form, the
-   * member that names it, and the missing form's exemplar.
-   */
-  test("`Nullable` over a `null`-only enum is refused", () => {
-    expect(projectDiagnostics("module Main\n\n" + "export extern enum Tri = true as Yes | false as No | null as Unknown\n" +
-        "export let f(x: Nullable(Tri)): Bool = Yes == Yes\n",
-    )).toContain(
-      "`Tri` already names `null`; `Nullable(Tri)` cannot tell absence from " +
-        "`Unknown` — name both nullish values (`undefined as Missing`) or neither",
-    );
-  });
-
-  /** The mirror shape, `undefined`-only: the same message names its own form. */
-  test("`Nullable` over an `undefined`-only enum is refused", () => {
-    expect(projectDiagnostics("module Main\n\n" + "export extern enum Slot = \"ready\" as Ready | undefined as Missing\n" +
-        "export let f(x: Nullable(Slot)): Bool = Ready == Ready\n",
-    )).toContain(
-      "`Slot` already names `undefined`; `Nullable(Slot)` cannot tell absence " +
-        "from `Missing` — name both nullish values (`null as Absent`) or neither",
-    );
+  /** A one-nullish enum may be wrapped on either side of the pair. */
+  test("`Nullable` accepts null-only and undefined-only enums", () => {
+    expect(projectDiagnostics("module Main\n\n" +
+      "export extern enum NullSlot = true as Yes | null as Unknown\n" +
+      "export extern enum UndefinedSlot = \"ready\" as Ready | undefined as Missing\n" +
+      "extern from \"./x.js\"\n" +
+      "    fun readNull() ->! Nullable(NullSlot)\n" +
+      "    fun readUndefined() ->! Nullable(UndefinedSlot)\n" +
+      "record Box(a) = { slot: Nullable(a) }\n" +
+      "union Holder = Holds(Nullable(UndefinedSlot))\n" +
+      "let keep(box: Box(NullSlot)): Box(NullSlot) = box\n" +
+      "let nested(x: Vector(Nullable(NullSlot))): Vector(Nullable(NullSlot)) = x\n"
+    )).toEqual([]);
   });
 
   /**
-   * The refusal's seat is `Nullable`'s **one construction site**, which every
-   * written wrapper passes through. The three groups below are that claim,
-   * spelled out: a signature, a declaration's slot, and the two routes that put
-   * the enum under the wrapper without writing the pair adjacently.
+   * Acceptance does not make a one-nullish enum absorbing. Both direct and
+   * generic-alias routes retain the `Nullable` layer.
    */
-  const ONE_NULLISH = "export extern enum Tri = true as Yes | null as Unknown\n";
-  const REFUSAL =
-    "`Tri` already names `null`; `Nullable(Tri)` cannot tell absence from " +
-    "`Unknown` — name both nullish values (`undefined as Missing`) or neither";
-
-  test("the refusal covers a binding's annotation and a signature", () => {
-    expect(projectDiagnostics("module Main\n\n" + `${ONE_NULLISH}let a: Nullable(Tri) = Yes\n`))
-      .toContain(REFUSAL);
-    expect(projectDiagnostics("module Main\n\n" + `${ONE_NULLISH}let b(x: Nullable(Tri)): Bool = Yes == Yes\n`))
-      .toContain(REFUSAL);
-    expect(projectDiagnostics("module Main\n\n" + `${ONE_NULLISH}let c(): Nullable(Tri) = Yes\n`))
-      .toContain(REFUSAL);
-  });
-
-  test("the refusal covers an extern signature and a declaration's slot", () => {
-    expect(projectDiagnostics("module Main\n\n" + `${ONE_NULLISH}extern from "./x.js"\n    fun d(v: Nullable(Tri)) ->! Int\n`,
-    )).toContain(REFUSAL);
-    expect(projectDiagnostics("module Main\n\n" + `${ONE_NULLISH}record Box = { slot: Nullable(Tri) }\n`))
-      .toContain(REFUSAL);
-    expect(projectDiagnostics("module Main\n\n" + `${ONE_NULLISH}union Holder = Holds(Nullable(Tri))\n`))
-      .toContain(REFUSAL);
+  test("a one-nullish enum does not absorb `Nullable`", () => {
+    const source = "module Main\n\n" +
+      "export extern enum Tri = true as Yes | null as Unknown\n" +
+      "export extern enum Slot = \"ready\" as Ready | undefined as Missing\n" +
+      "type Maybe(a) = Nullable(a)\n" +
+      "record Box(a) = { slot: Nullable(a) }\n";
+    expect(projectDiagnostics(source + "let direct(x: Nullable(Tri)): Tri = x\n"))
+      .toEqual(["type mismatch: expected Tri, found Nullable(Tri)"]);
+    expect(projectDiagnostics(source + "let mirror(x: Nullable(Slot)): Slot = x\n"))
+      .toEqual(["type mismatch: expected Slot, found Nullable(Slot)"]);
+    expect(projectDiagnostics(source + "let aliased(x: Maybe(Tri)): Tri = x\n"))
+      .toEqual(["type mismatch: expected Tri, found Nullable(Tri)"]);
+    expect(projectDiagnostics(source + "let boxed(box: Box(Tri)): Tri = box.slot\n"))
+      .toEqual(["type mismatch: expected Tri, found Nullable(Tri)"]);
   });
 
   /**
-   * One report per **written seat**, not one per enum: each wrapper is a
-   * separate thing the author has to remove, and reporting only the first would
-   * leave the rest to be found one compile at a time. A seat is a span, so an
-   * annotation elaborated twice — once for its face, once for its check — still
-   * reports once.
+   * A one-nullish enum still recognizes exactly its declared values. Its
+   * admission beneath `Nullable` does not add the missing form to the enum.
    */
-  test("every wrapped seat is reported, and each of them once", () => {
-    expect(projectDiagnostics("module Main\n\n" + `${ONE_NULLISH}let a: Nullable(Tri) = Yes\n` +
-        "let b(x: Nullable(Tri)): Int = 1\n" +
-        "let c(): Nullable(Tri) = Yes\n",
-    ).filter((message) => message.startsWith("`Tri` already names"))).toHaveLength(3);
-  });
-
-  test("the refusal covers an alias, an ascription and a nested position", () => {
-    // A **generic** alias applied at the enum is the substitution route: the
-    // wrapper and its argument are never written adjacently, so a rewrite of the
-    // spelling alone could not reach it.
-    expect(projectDiagnostics("module Main\n\n" + `${ONE_NULLISH}type Maybe(a) = Nullable(a)\nlet g(x: Maybe(Tri)): Int = 1\n`,
-    )).toContain(REFUSAL);
-    expect(projectDiagnostics("module Main\n\n" + `${ONE_NULLISH}let h = (Yes: Nullable(Tri))\n`))
-      .toContain(REFUSAL);
-    expect(projectDiagnostics("module Main\n\n" + `${ONE_NULLISH}let f(x: Vector(Nullable(Tri))): Int = 1\n`))
-      .toContain(REFUSAL);
-  });
-
-  /**
-   * §2.4: "Receiving a foreign `T | null` as `T` needs no wrapper: `null` is a
-   * member, and an arriving `undefined` is out of set like any undeclared
-   * value." An enum naming only one nullish form is an ordinary enum in every
-   * other respect — it is only `Nullable` over it that is refused.
-   */
-  test("a one-nullish enum is ordinary except under `Nullable`", async () => {
+  test("a one-nullish enum still has exactly its declared members", async () => {
     const exports = await runMain("module Main\n\n" + "export extern enum Sign = \"pos\" as Pos | null as Zero\n" +
         "export let read(v: JsValue): String =\n" +
         "    match fromJsSign(v)\n" +
