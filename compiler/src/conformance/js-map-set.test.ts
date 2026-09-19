@@ -1049,8 +1049,8 @@ describe("the faces and the emitted text the new surfaces produce", () => {
    * FFI Part 7 §1.2's runtime vocabulary (#666), at the two seats this arc
    * added. `new Map(…)` and `new Set(…)` are written into the *prelude*
    * companions' own emitted modules, and the hazard is real there rather than
-   * hypothetical: a project may supply its own copy of either file at the
-   * injection path — which is how the standard library is developed — and that
+   * hypothetical: a host may explicitly trust its own copy of either registered
+   * member — which is how the standard library is developed — and that
    * copy may bind `Map` or `Set` at module level. A bare `new Map(…)` under such
    * a binding would construct the user's value.
    *
@@ -1073,7 +1073,7 @@ describe("the faces and the emitted text the new surfaces produce", () => {
       ],
       ["/JsMap.hex", contested("JsMap")],
       ["/JsSet.hex", contested("JsSet")],
-    ]);
+    ], { trustedStandardLibraryModules: new Set(["JsMap", "JsSet"]) });
     expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
     const text = (path: string): string =>
       project.modules.find(({ source }) => source.path === path)!.javascript.text;
@@ -1096,7 +1096,7 @@ describe("the faces and the emitted text the new surfaces produce", () => {
       ],
       ["/JsMap.hex", STDLIB_SOURCES["JsMap"]!],
       ["/JsSet.hex", STDLIB_SOURCES["JsSet"]!],
-    ]);
+    ], { trustedStandardLibraryModules: new Set(["JsMap", "JsSet"]) });
     expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
     const text = (path: string): string =>
       project.modules.find(({ source }) => source.path === path)!.javascript.text;
@@ -1124,7 +1124,7 @@ describe("the faces and the emitted text the new surfaces produce", () => {
           '    JsMap.get(m, "a")\n',
       ],
       ["/JsMap.hex", STDLIB_SOURCES["JsMap"]!],
-    ]);
+    ], { trustedStandardLibraryModules: new Set(["JsMap"]) });
     expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
     const text = project.modules
       .find(({ source }) => source.path === "/JsMap.hex")!.javascript.text;

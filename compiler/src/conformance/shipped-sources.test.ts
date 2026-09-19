@@ -36,11 +36,8 @@ import * as Source from "../support/source.js";
  * Every one of these files is embedded in the compiler as a `Hex` module, and a
  * prelude module sees the members before it and never itself — so compiling one
  * as an *ordinary* project module would report diagnostics that say nothing
- * about the file. This test never has to know which role a file holds, because
- * the compiler prefers a project's own file over the embedded fallback *by
- * basename and declared name, wherever that file sits* (pinned by
- * `prelude-mechanism.test.ts`, "a project file at a prelude basename replaces
- * the embedded member"). Supplying `Bool.hex` therefore compiles it in its real
+ * about the file. This test reads each file's declared identity and explicitly
+ * grants that one registered replacement. Supplying `Bool.hex` therefore compiles it in its real
  * prelude role, `Rat.hex` as the ordinary `Hex` module it is, and
  * `VectorTrie.hex` declaring `module Runtime.VectorTrie` in its privileged
  * runtime role — each in whatever role the compiler assigns the name, with the
@@ -50,15 +47,13 @@ import * as Source from "../support/source.js";
  * (`CompiledProject.modules` holds only what the project would write), so these
  * projects are measured by their diagnostics, never by their module list.
  *
- * ## Runtime privilege comes from the name, not from a grant
+ * ## Runtime privilege follows explicitly granted membership
  *
  * `stdlib/Runtime/*.hex` compiles clean only as a privileged runtime module —
  * the `Node(a)` spelling is gated on `resolve`'s `runtime` flag, and an
- * unprivileged `VectorTrie.hex` reports 38 diagnostics. Since #829 the sweep
- * needs no grant to get it: the file declares `module Runtime.VectorTrie`, the
- * compiler adopts it at that member's seat, and both privileges follow from
- * membership in the `Hex` runtime list (`runtime-modules.ts`). This case is
- * therefore also the pin that the adoption route really does carry them.
+ * unprivileged `VectorTrie.hex` reports 38 diagnostics. The sweep grants its
+ * registered declared identity, and both privileges follow from membership in
+ * the `Hex` runtime list (`runtime-modules.ts`), independently of the fixture path.
  */
 
 const SHIPPED_SOURCES = import.meta.glob("../../../stdlib/**/*.hex", {
@@ -70,22 +65,26 @@ const SHIPPED_SOURCES = import.meta.glob("../../../stdlib/**/*.hex", {
 interface Subject {
   /** Repository-relative path — the test's name, and what a failure points at. */
   readonly label: string;
-  /** Path inside the compiled project: the basename at the root, which is where
-   *  a `Hex` member's own file has to sit to replace the embedded copy. */
+  /** Readable fixture path; replacement authority comes from the explicit grant. */
   readonly path: string;
   readonly source: string;
+  readonly moduleName: string;
 }
 
 const SUBJECTS: readonly Subject[] = Object.entries(SHIPPED_SOURCES)
   .map(([globPath, source]) => {
     const basename = globPath.slice(globPath.lastIndexOf("/") + 1);
     const label = globPath.slice(globPath.indexOf("/stdlib/") + 1);
-    return { label, path: `/${basename}`, source };
+    const moduleName = source.match(/^module\s+([^\s]+)/u)?.[1];
+    if (moduleName === undefined) throw new Error(`${label} has no module declaration`);
+    return { label, path: `/${basename}`, source, moduleName };
   })
   .sort((left, right) => left.label.localeCompare(right.label));
 
 function compile(subject: Subject, source: string): ReturnType<typeof compileFiles> {
-  return compileFiles([[subject.path, source]]);
+  return compileFiles([[subject.path, source]], {
+    trustedStandardLibraryModules: new Set([subject.moduleName]),
+  });
 }
 
 /**

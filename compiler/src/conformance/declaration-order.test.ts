@@ -36,8 +36,11 @@ const BOX = "module Main\n\n" + "export record Box = {value: Int}\n";
 const TWICE_LET = "export let twice(b: Box): Int = b.value * 2\n";
 const TWICE_FUN = "export fun twice(b: Box): Int = b.value * 2\n";
 
-function diagnostics(files: readonly (readonly [string, string])[]): readonly string[] {
-  return compileFiles(files).diagnostics.map(({ message }) => message);
+function diagnostics(
+  files: readonly (readonly [string, string])[],
+  trustedStandardLibraryModules: ReadonlySet<string> = new Set(),
+): readonly string[] {
+  return compileFiles(files, { trustedStandardLibraryModules }).diagnostics.map(({ message }) => message);
 }
 
 describe("a lexical reference reads top-down", () => {
@@ -675,12 +678,12 @@ describe("an import straddles the reading laws it imports (Modules §3, #465, #7
         ["/main.hex",
           "module Main\n\n" + "export let n: Int = Vector.toSeq([1, 2]).length()\n" +
           "import Vector\n"],
-      ])).toEqual([MOVE_IMPORT("Vector.toSeq")]);
+      ], new Set(["Vector"]))).toEqual([MOVE_IMPORT("Vector.toSeq")]);
     });
 
     test("...at the seven aliases a row is seated at, and nowhere else", () => {
-      // A seated file is not a row. Any project file whose basename matches a
-      // prelude module takes that module's seat, so `Int` and `Debug` are
+      // A seated file is not a row. These fixtures are explicitly granted their
+      // registered prelude seats, so `Int` and `Debug` are
       // addressable the same way `Vector` is — and neither carries a row, so
       // `Int.toSeq` is bound by no line and the item-shaped repair would be the
       // §3 lie again, one surface further in.
@@ -688,14 +691,15 @@ describe("an import straddles the reading laws it imports (Modules §3, #465, #7
         [`/${alias}.hex`, STDLIB_SOURCES[alias]!] as const;
 
       for (const alias of ["Int", "Debug"]) {
+        const trust = new Set([alias]);
         const above = diagnostics([seated(alias), ["/main.hex",
           "module Main\n\n" + `export let n: Int = ${alias}.toSeq(1)\n` +
-          `import ${alias}\n`]]);
+          `import ${alias}\n`]], trust);
 
         expect(above).toEqual([NOT_EXPORTED(alias, "toSeq")]);
         expect(diagnostics([seated(alias), ["/main.hex",
           "module Main\n\n" + `import ${alias}\n` +
-          `export let n: Int = ${alias}.toSeq(1)\n`]])).toEqual(above);
+          `export let n: Int = ${alias}.toSeq(1)\n`]], trust)).toEqual(above);
       }
 
       // Driven by the set the resolver reads, so an alias added to it without a
@@ -704,11 +708,12 @@ describe("an import straddles the reading laws it imports (Modules §3, #465, #7
         const use = `export let n: Int = ${alias}.toSeq(subject).length()\n`;
         const item = `import ${alias}\n`;
 
-        expect(diagnostics([seated(alias), ["/main.hex", use + item]]))
+        const trust = new Set([alias]);
+        expect(diagnostics([seated(alias), ["/main.hex", use + item]], trust))
           .toContain(MOVE_IMPORT(`${alias}.toSeq`));
         // `subject` is unbound, so the moved source is in error either way; what
         // it may not say is that the member the repair promised is not there.
-        expect(diagnostics([seated(alias), ["/main.hex", item + use]]))
+        expect(diagnostics([seated(alias), ["/main.hex", item + use]], trust))
           .not.toContain(NOT_EXPORTED(alias, "toSeq"));
       }
     }, 20000);

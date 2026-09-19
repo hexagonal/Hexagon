@@ -45,9 +45,13 @@ function link(
 }
 
 /** Compiles a project and executes it, returning `/main.hex`'s exports. */
-async function run(files: readonly (readonly [string, string])[]): Promise<Record<string, unknown>> {
+async function run(
+  files: readonly (readonly [string, string])[],
+  trustedStandardLibraryModules: ReadonlySet<string> = new Set(),
+): Promise<Record<string, unknown>> {
   const project = compileProject(
     files.map(([path, text], index) => new Source.File(Source.fileId(index), path, text)),
+    { trustedStandardLibraryModules },
   );
   expect(project.diagnostics).toEqual([]);
   const moduleUrls = new Map<string, string>();
@@ -100,7 +104,12 @@ function diagnostics(source: string): readonly string[] {
  * from its basename the way the headerless-file fixit derives one (Modules
  * §2.1): `mine.hex` declares `module Mine`.
  */
-function withModule(path: string, text: string, entry: string): readonly string[] {
+function withModule(
+  path: string,
+  text: string,
+  entry: string,
+  trustedStandardLibraryModules: ReadonlySet<string> = new Set(),
+): readonly string[] {
   const basename = path.slice(path.lastIndexOf("/") + 1).replace(/\.hex$/u, "");
   const name = basename
     .split(/[-_.]/u)
@@ -109,7 +118,7 @@ function withModule(path: string, text: string, entry: string): readonly string[
   return compileProject([
     new Source.File(Source.fileId(1), path, `module ${name}\n\n${text}`),
     new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + entry),
-  ]).diagnostics.map((diagnostic) => diagnostic.message);
+  ], { trustedStandardLibraryModules }).diagnostics.map((diagnostic) => diagnostic.message);
 }
 
 describe("a prelude member is reachable by name", () => {
@@ -161,6 +170,7 @@ describe("qualified access is what makes occlusion survivable (§5.4 + §6.4)", 
       "export let tally: String = \"mine\"\n" +
       "export let local: String = tally\n" +
       "export let prelude: Int = Result.tally\n",
+      new Set(["Result"]),
     )).toEqual([]);
   });
 });
@@ -239,7 +249,7 @@ describe("the qualified spelling runs (PR #90 finding F1)", () => {
         "module Main\n\n" + "export let tally: Int = 1\n" +
         "export let mine: Int = tally\n" +
         "export let theirs: Int = Result.tally\n"],
-    ]);
+    ], new Set(["Result"]));
     expect(module["mine"]).toBe(1);
     expect(module["theirs"]).toBe(7);
   });

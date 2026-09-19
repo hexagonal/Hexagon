@@ -45,6 +45,14 @@ the rest of the modules in scope without an import — is the part of `Hex` the 
 chapter already described; its modules' full names are `Hex.Option` and `Hex.Vector`.
 No other package may be named `Hex`.
 
+Your module may use the same name as a standard-library module. For example, your
+`module Option` wins the bare module name for your importers, while `Hex.Option`
+still names the standard library's module. Adding a module to a future version of
+`Hex` therefore does not take that name away from your project. This does not make
+your module trusted standard-library code: neither the module name nor a filename
+such as `Option.hex` grants compiler privileges. Building the standard library
+itself uses a separate, explicit compiler-host facility.
+
 ## The project is a package with no name
 
 The package the compiler is asked to build is the **project**. Its manifest may carry

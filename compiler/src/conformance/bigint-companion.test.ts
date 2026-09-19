@@ -582,8 +582,8 @@ describe("the orphan rule reads for a primitive as it does for a nominal (§5.3)
 
   /**
    * Constraints §4.5's carve-out, and its exact boundary: `Hash` stays
-   * derivable-only everywhere the compilation did not seat the module at a
-   * primitive's own injection path. The *rule* for user source is unchanged;
+   * derivable-only everywhere the compilation did not seat the module as the
+   * primitive's registered companion. The *rule* for user source is unchanged;
    * what it says is Collections Part 2 §9's **fourth** row (#647), a primitive
    * having no declaration a `derives` clause could sit on.
    *

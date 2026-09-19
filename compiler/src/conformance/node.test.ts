@@ -27,10 +27,9 @@ import { emitJavaScript, emitTypeScriptPreview } from "../passes/emitter/emitter
 /**
  * ## How a specimen becomes a privileged runtime module
  *
- * By being one — there is no other route since #829, and in particular no path
- * a host can name. A project's own file at a runtime member's **basename**
- * declaring the member's **name** is adopted as that member; everything else is
- * an ordinary module. So a `Node` specimen here is `stdlib/Runtime/VectorTrie.hex`'s
+ * The specialized harness explicitly grants the registered
+ * `Runtime.VectorTrie` identity to the supplied declaration; everything else is
+ * an ordinary module. A `Node` specimen here is `stdlib/Runtime/VectorTrie.hex`'s
  * own text with the specimen appended, filed at `/VectorTrie.hex`: the trie is
  * the module `Runtime.VectorTrie` *is*, and the specimen rides in it.
  *
@@ -41,9 +40,10 @@ import { emitJavaScript, emitTypeScriptPreview } from "../passes/emitter/emitter
  * nothing to do with `Node`.
  */
 const RUNTIME_PATH = "/VectorTrie.hex";
+const TRUST_RUNTIME = { trustedStandardLibraryModules: new Set(["Runtime.VectorTrie"]) } as const;
 
 /**
- * One ordinary module with one vector in it, so the adopted trie is reached and
+ * One ordinary module with one vector in it, so the trusted trie is reached and
  * emitted (a runtime module serving nothing is emitted nowhere). Nothing here is
  * under test; it exists to be an importer.
  */
@@ -60,13 +60,13 @@ const TOUCH: readonly [string, string] = [
 async function runRuntime(source: string): Promise<Record<string, unknown>> {
   return runProject(
     [[RUNTIME_PATH, `${trieSource}\n${source}`], TOUCH],
-    { entry: RUNTIME_PATH },
+    { ...TRUST_RUNTIME, entry: RUNTIME_PATH },
   );
 }
 
 /**
  * The diagnostic messages a source produces. `runtime: true` puts the specimen
- * inside the adopted runtime member; without it the specimen is an ordinary
+ * inside the trusted runtime member; without it the specimen is an ordinary
  * module of the project, which is the whole of the visibility gate.
  */
 function diagnose(source: string, options: { readonly runtime?: boolean } = {}): readonly string[] {
@@ -74,6 +74,7 @@ function diagnose(source: string, options: { readonly runtime?: boolean } = {}):
     options.runtime === true
       ? [[RUNTIME_PATH, `${trieSource}\n${source}`]]
       : [["/Ordinary.hex", "module Ordinary\n\n" + source]],
+    options.runtime === true ? TRUST_RUNTIME : {},
   ).diagnostics.map(({ message }) => message);
 }
 
@@ -131,7 +132,7 @@ describe("Node intrinsic conformance", () => {
       [RUNTIME_PATH, `${trieSource}\n` +
         "export let one: Int = Node.get(Node.copy(Node.set(Node.empty(), 0, 1)), 0)\n"],
       TOUCH,
-    ]);
+    ], TRUST_RUNTIME);
     expect(project.diagnostics).toEqual([]);
     const text = project.modules
       .find(({ source }) => source.path === RUNTIME_PATH)!.javascript.text;
@@ -283,7 +284,7 @@ describe("the `Node(a)` face is the mutable `Array<a>` (FFI Part 7 §14.1)", () 
         "let intSlots: Node(Int) = Node.set(anySlots, 0, 7)\n" +
         "export let firstSlot: Int = Node.get(intSlots, 0)\n"],
       TOUCH,
-    ]);
+    ], TRUST_RUNTIME);
     expect(compiled.diagnostics).toEqual([]);
     const module = compiled.modules.find(({ source }) => source.path === RUNTIME_PATH);
     if (module === undefined) throw new Error(`no ${RUNTIME_PATH} in the compiled project`);

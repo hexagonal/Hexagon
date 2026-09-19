@@ -1486,9 +1486,8 @@ interface PreludeIds {
  * where the two drifted apart and every foreign throw went uncaught).
  *
  * The one module that brands `Hex.JsError` without being the embedded
- * `stdlib/JsError.hex` is a project file that *is* it: `gatherModules` seats a
- * project file at an injected module's seat when it carries that **basename**
- * and declares that **name**, wherever the file sits. That is the
+ * `stdlib/JsError.hex` is a host-trusted replacement for that registered member.
+ * `gatherModules` validates the explicit grant and declaration identity. That is the
  * stdlib-developing-itself path and the same seat, so the predicate is right
  * either way; the capture rule is stated exactly because it is wider than it
  * reads (the #745 class).
@@ -1857,7 +1856,7 @@ const UNIT_IMMUNE_SPELLING = "void 0";
  * `new Set(…)` are what `jsMapFromSeq` and `jsSetFromSeq` lower to (FFI Part 10
  * §6.5). Those lowerings are written into `stdlib/JsMap.hex`'s and
  * `stdlib/JsSet.hex`'s own emitted modules, which bind neither spelling — but a
- * project may supply its own copy of either file at the prelude injection path,
+ * a host may explicitly trust its own copy of either registered member,
  * and the rule is about what a module *binds*, so the seats are qualified like
  * every other.
  *
@@ -10891,9 +10890,9 @@ class JavaScriptEmitter {
    * emitted module's own export list, written here.
    *
    * An operation the module does not declare is reported rather than exported.
-   * Injection prefers a project's own file at the basename declaring the member's name (the rule the
-   * shipped-source sweep compiles `stdlib/Runtime/VectorTrie.hex` in its real role
-   * by), so a project can put an unrelated file in this seat; without the check
+   * A host may explicitly trust a supplied declaration to replace this registered
+   * member (the route the shipped-source sweep uses), so the replacement can omit
+   * required operations; without the check
    * the result is a `SyntaxError` in generated JavaScript with no diagnostic
    * anywhere, which is the worst way to learn it.
    */

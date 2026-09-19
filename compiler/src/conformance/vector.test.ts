@@ -52,12 +52,13 @@ function link(
 async function run(
   source: string,
   extras: readonly (readonly [string, string])[] = [],
+  trustedStandardLibraryModules: ReadonlySet<string> = new Set(),
 ): Promise<Record<string, unknown>> {
   const files = [
     ...extras.map(([path, text], index) => new Source.File(Source.fileId(index + 1), path, text)),
     new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + source),
   ];
-  const project = compileProject(files);
+  const project = compileProject(files, { trustedStandardLibraryModules });
   expect(project.diagnostics).toEqual([]);
   const main = project.modules.find(({ name }) => name === "Main")!;
   expect(main.typed.diagnostics).toEqual([]);
@@ -280,7 +281,11 @@ const COMPANION_MAIN =
 
 describe("Vector companion conformance (stdlib/Vector.hex)", () => {
   test("§7 Option-returning and end-dropping companions", async () => {
-    const m = await run(COMPANION_MAIN, [["/Vector.hex", vectorSource]]);
+    const m = await run(
+      COMPANION_MAIN,
+      [["/Vector.hex", vectorSource]],
+      new Set(["Vector"]),
+    );
     expect(m.firstFull).toBe(1);
     expect(m.firstEmpty).toBe(-1);
     expect(m.lastFull).toBe(3);

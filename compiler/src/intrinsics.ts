@@ -291,7 +291,7 @@ export function isIntrinsicScheme(specifier: string): boolean {
  *   freshness §6.5 promises is the constructor's own.
  * - **`Map` and `Set` are spelled through the emitter's runtime vocabulary**
  *   (#666, FFI Part 7 §1.2), which is what the two words joined it for: a
- *   project supplying its own copy of either file at the prelude injection path
+ *   host explicitly trusting its own copy of either registered member
  *   may bind either spelling at module level, and a captured `Map` would make
  *   `fromSeq` construct the user's value.
  *

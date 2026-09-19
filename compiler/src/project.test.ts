@@ -8,6 +8,84 @@ import {
   type ProgramModule,
 } from "./packages.js";
 
+describe("trusted standard-library replacements", () => {
+  const option = (id: number, path: string, suffix = "") =>
+    new Source.File(
+      Source.fileId(id),
+      path,
+      "module Option\n\nexport union Option(a) = Some(value: a) | None\n" + suffix,
+    );
+  const main = (id: number) =>
+    new Source.File(
+      Source.fileId(id),
+      "/main.hex",
+      "module Main\n\nexport let value: Option(Int) = None\n",
+    );
+
+  test("a same-named source at the historical basename remains ordinary without a grant", () => {
+    const project = compileProject([option(0, "/Option.hex", "export let marker: Int = 1\n"), main(1)]);
+    expect(messagesOf(project)).toEqual([]);
+    expect(project.modules.map(({ path }) => path)).toContain("/Option.hex");
+    expect(project.modules.map(({ path }) => path)).toContain("/Hex/Option.hex");
+    expect(project.modules.some(({ source, path }) =>
+      source.path === "/Option.hex" && path === "/Option.hex"
+    )).toBe(true);
+    expect(project.modules.some(({ source, path }) =>
+      source.path === "/Hex/Option.hex" && path === "/Hex/Option.hex"
+    )).toBe(true);
+  });
+
+  test("an explicit grant replaces the registered member independently of filename", () => {
+    const project = compileProject([option(0, "/elsewhere.hex"), main(1)], {
+      trustedStandardLibraryModules: new Set(["Option"]),
+    });
+    expect(messagesOf(project)).toEqual([]);
+    expect(project.modules.some(({ source, path }) =>
+      source.path === "/elsewhere.hex" && path === "/Hex/Option.hex"
+    )).toBe(true);
+  });
+
+  test("unknown, missing, and ambiguous grants are diagnosed", () => {
+    expect(messagesOf(compileProject([main(0)], {
+      trustedStandardLibraryModules: new Set(["NoSuchMember"]),
+    }))).toContain("cannot replace unknown standard-library module `NoSuchMember`");
+    expect(messagesOf(compileProject([main(0)], {
+      trustedStandardLibraryModules: new Set(["Option"]),
+    }))).toContain("trusted replacement for standard-library module `Option` has no supplied declaration");
+    expect(messagesOf(compileProject([option(0, "/a.hex"), option(1, "/b.hex"), main(2)], {
+      trustedStandardLibraryModules: new Set(["Option"]),
+    }))).toContain("trusted replacement for standard-library module `Option` is ambiguous; 2 supplied declarations match");
+  });
+
+  test("a missing grant is diagnosed even when the project has no modules", () => {
+    expect(messagesOf(compileProject([], {
+      trustedStandardLibraryModules: new Set(["Option"]),
+    }))).toEqual([
+      "trusted replacement for standard-library module `Option` has no supplied declaration",
+    ]);
+  });
+
+  test("a dependency declaration cannot satisfy a trusted root replacement grant", () => {
+    const dependencyOption = option(1, "/deps/option.hex");
+    const project = compileProject([main(0)], {
+      trustedStandardLibraryModules: new Set(["Option"]),
+      packages: [{
+        record: { name: "Acme", dependencies: [], installed: new Set() },
+        files: [dependencyOption],
+      }],
+    });
+    expect(messagesOf(project)).toContain(
+      "trusted replacement for standard-library module `Option` has no supplied declaration",
+    );
+    expect(project.modules.some(({ source, path }) =>
+      source.path === dependencyOption.path && path === "/Acme/Option.hex"
+    )).toBe(true);
+    expect(project.modules.some(({ source, path }) =>
+      source.path === "/Hex/Option.hex" && path === "/Hex/Option.hex"
+    )).toBe(true);
+  });
+});
+
 test("compiles a relative module import, alongside a bystander import", () => {
   // #762: there is one import form now — a module alias — so this no longer
   // has a named/aliased/namespace/effect quartet to cover. What is left to

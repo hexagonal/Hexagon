@@ -1283,8 +1283,8 @@ describe("#954 — the intrinsic door, and two refusals at one seat", () => {
    * (Intrinsics §3), so nothing there copies and nothing there is refused.
    *
    * The privilege is prelude membership rather than text (Intrinsics §5.2), so
-   * the block rides a prelude injection path — the route `intrinsic-door.test`
-   * takes, and `Debug.hex` for its reason: it is last in the prelude order, so
+   * the host explicitly grants this source the registered `Debug` role — the
+   * route `intrinsic-door.test` takes, and `Debug.hex` for its reason: it is last in the prelude order, so
    * replacing it takes nothing out from under a later member. The declaration's
    * *types* are not checked against a table (Intrinsics §4.2, "the
    * declaration's annotation is normative"), which is what lets a real key
@@ -1296,7 +1296,7 @@ describe("#954 — the intrinsic door, and two refusals at one seat", () => {
       ["/Debug.hex", "module Debug\n\n" +
         'extern from "hex:intrinsic"\n' +
         "    fun vectorToArray as pin(rows: Vector(Array(Int))) -> Array(Int)\n"],
-    ]).diagnostics.map(({ message }) => message)).toEqual([]);
+    ], { trustedStandardLibraryModules: new Set(["Debug"]) }).diagnostics.map(({ message }) => message)).toEqual([]);
     // The same row through an ordinary foreign specifier is refused, which is
     // what makes the line above a statement about the door rather than about
     // the type.

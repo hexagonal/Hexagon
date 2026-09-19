@@ -27,9 +27,8 @@ import seqSource from "../../../stdlib/Seq.hex?raw";
  * The prelude is exemplary code and must not carry a workaround for a fixed bug,
  * nor — item 4's lesson — for one that was never there.
  *
- * The module is still mounted explicitly at `/Seq.hex` and imported by name.
- * That is not redundant with the prelude: a project file at a prelude basename
- * *is* the member (the embedded fallback stands down), so this also pins that an
+ * The module is still mounted explicitly at `/Seq.hex`, granted as the registered
+ * `Seq` replacement, and imported by name. This also pins that an
  * explicit `import Seq` of a prelude module still works — the qualified
  * path Modules §5.4 depends on, exercised against a real one.
  */
@@ -38,7 +37,7 @@ function compileSeq(entry: string): ReturnType<typeof compileProject> {
   return compileProject([
     new Source.File(Source.fileId(1), "/Seq.hex", seqSource),
     new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + entry),
-  ]);
+  ], { trustedStandardLibraryModules: new Set(["Seq"]) });
 }
 
 function diagnostics(entry: string): readonly string[] {

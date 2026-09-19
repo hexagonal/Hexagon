@@ -338,12 +338,9 @@ describe("the seven door lowerings", () => {
  */
 describe("§5.3 the `Map(k, v)` claim, verified against the representation", () => {
   /**
-   * The probe route: the project's **own** `HashTrie.hex` declaring
-   * `module Runtime.HashTrie`, which is adopted as the member and compiled in
-   * its real role (#829). There is no other route — the host grant that used to
-   * privilege a path went with the ruling — so the probe reads the file's own
-   * text at the member's own basename, beside a `/main.hex` whose map is what
-   * reaches it.
+   * The probe route explicitly grants the registered `Runtime.HashTrie`
+   * identity to this supplied declaration. The path is only a fixture label;
+   * a `/main.hex` map reaches the trusted runtime member.
    */
   const PROBE_PATH = "/HashTrie.hex";
   const TOUCH: readonly [string, string] = ["/main.hex", "module Main\n\n" + ONE_MAP];
@@ -359,7 +356,12 @@ describe("§5.3 the `Map(k, v)` claim, verified against the representation", () 
     files: readonly (readonly [string, string])[],
     path: string,
   ): TrieVariance {
-    const project = compileFiles(files);
+    const project = compileFiles(
+      files,
+      path === PROBE_PATH
+        ? { trustedStandardLibraryModules: new Set(["Runtime.HashTrie"]) }
+        : {},
+    );
     const module = project.modules.find(({ source }) => source.path === path);
     if (module === undefined) throw new Error(`${path} was not compiled`);
     const record = module.typed.records.find(({ name }) => name === "HashTrie");
@@ -408,8 +410,8 @@ describe("§5.3 the `Map(k, v)` claim, verified against the representation", () 
   /**
    * The control, and the whole reason the two tests above are not decoration: an
    * edit to `HashTrie.hex` that puts a parameter in argument position must turn
-   * them red. Both halves go through the same probe route — the file's own text
-   * adopted as the runtime member — so the only difference between the readings
+   * them red. Both halves go through the same explicitly granted probe route,
+   * so the only difference between the readings
    * is the one field.
    *
    * The sabotage also breaks the module outright, which is the machinery biting
@@ -474,7 +476,12 @@ describe("§5.3 the `Set(a)` claim, verified against the representation", () => 
     files: readonly (readonly [string, string])[],
     path: string,
   ): { readonly diagnostics: readonly string[]; readonly hashSet: readonly Typed.ParameterVariance[] } {
-    const project = compileFiles(files);
+    const project = compileFiles(
+      files,
+      path === PROBE_PATH
+        ? { trustedStandardLibraryModules: new Set(["Runtime.HashTrie"]) }
+        : {},
+    );
     const module = project.modules.find(({ source }) => source.path === path);
     if (module === undefined) throw new Error(`${path} was not compiled`);
     const record = module.typed.records.find(({ name }) => name === "HashSet");

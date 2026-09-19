@@ -18,26 +18,37 @@ import vectorTrieSource from "../../../stdlib/Runtime/VectorTrie.hex?raw";
 
 function diagnostics(
   files: readonly (readonly [string, string])[],
+  trustedStandardLibraryModules: ReadonlySet<string> = new Set(),
 ): readonly string[] {
   return compileProject(
     files.map(([path, text], index) => new Source.File(Source.fileId(index), path, text)),
+    { trustedStandardLibraryModules },
   ).diagnostics.map((diagnostic) => diagnostic.message);
+}
+
+const TRUST_DEBUG = new Set(["Debug"]);
+
+/** A supplied declaration explicitly seated as the registered final prelude member. */
+function debugDiagnostics(files: readonly (readonly [string, string])[]): readonly string[] {
+  return diagnostics(files, TRUST_DEBUG);
 }
 
 /**
  * A specimen compiled inside a **runtime module**, which is the only place
  * `Node(a)` can be spelled.
  *
- * The role is not a host's to hand out (#829): a file is a runtime member by
- * sitting at the member's basename and declaring the member's name, so the
- * specimen rides in `stdlib/Runtime/VectorTrie.hex`'s own text at
- * `/VectorTrie.hex`. The trie's text comes along because the emitter writes this
+ * The specialized harness explicitly grants the registered
+ * `Runtime.VectorTrie` identity to this supplied declaration. The specimen rides
+ * in `stdlib/Runtime/VectorTrie.hex`'s own text. The trie's text comes along because the emitter writes this
  * module's export list from a fixed inventory and reports the operations a file
  * in this seat fails to declare — a bare specimen would draw a diagnostic about
  * the wiring rather than about the door.
  */
 function inRuntimeModule(source: string): readonly string[] {
-  return diagnostics([["/VectorTrie.hex", `${vectorTrieSource}\n${source}`]]);
+  return diagnostics(
+    [["/VectorTrie.hex", `${vectorTrieSource}\n${source}`]],
+    new Set(["Runtime.VectorTrie"]),
+  );
 }
 
 /** One user module. The prelude is injected around it. */
@@ -67,9 +78,8 @@ describe("the gate (§5)", () => {
   /**
    * §5.2, and the sharpest form of §5.3's claim: **the privilege attaches to how
    * the module is compiled, not to its text.** The very same block that is an
-   * error above compiles here, because the file sits at a prelude injection path
-   * — the loader already lets a project-supplied file win over the embedded copy,
-   * and that is the stdlib-developing-itself path.
+   * error above compiles here because the host explicitly grants this supplied
+   * declaration the registered `Debug` member's role.
    *
    * `Debug.hex` is used because it is **last** in the prelude order: `Seq(a)`
    * is in scope in it (Modules §5.5), and replacing it with a door-only module
@@ -77,8 +87,8 @@ describe("the gate (§5)", () => {
    * `JsValue.hex` seated after it and started answering with a `Result`
    * (FFI Part 11 §4.1).
    */
-  test("the same text at a prelude injection path is legal", () => {
-    expect(diagnostics([
+  test("the same text in an explicitly trusted prelude replacement is legal", () => {
+    expect(debugDiagnostics([
       ["/main.hex", "module Main\n\n" + "export let ok: Int = 1\n"],
       ["/Debug.hex", "module Debug\n\n" + DOOR],
     ])).toEqual([]);
@@ -116,7 +126,7 @@ describe("the gate (§5)", () => {
 
   /** §5.1: `"hex:intrinsic"` is the scheme's only v1 member. */
   test("another `hex:` member is refused even in privileged source", () => {
-    expect(diagnostics([
+    expect(debugDiagnostics([
       ["/main.hex", "module Main\n\n" + "export let ok: Int = 1\n"],
       ["/Debug.hex",
         "module Debug\n\n" + 'extern from "hex:magic"\n' +
@@ -139,7 +149,7 @@ describe("the gate (§5)", () => {
       "to run your own JavaScript module for its effects, use an ordinary " +
       "`extern import` naming your module",
     ]);
-    expect(diagnostics([
+    expect(debugDiagnostics([
       ["/main.hex", "module Main\n\n" + "export let ok: Int = 1\n"],
       ["/Debug.hex", "module Debug\n\n" + 'extern import "hex:intrinsic"\n'],
     ])).toEqual([
@@ -152,7 +162,7 @@ describe("the gate (§5)", () => {
 describe("verification replaces trust (§4.2)", () => {
   /** Privileged source, so the gate passes and verification is what speaks. */
   function privileged(block: string): readonly string[] {
-    return diagnostics([
+    return debugDiagnostics([
       ["/main.hex", "module Main\n\n" + "export let ok: Int = 1\n"],
       ["/Debug.hex", "module Debug\n\n" + block],
     ]);
@@ -260,7 +270,7 @@ describe("an intrinsic row writes its arrow (§4.2, #869)", () => {
    * are verified and a row may be declared at whatever scheme a test needs.
    */
   function privileged(block: string): readonly string[] {
-    return diagnostics([
+    return debugDiagnostics([
       ["/main.hex", "module Main\n\n" + "export let ok: Int = 1\n"],
       ["/Debug.hex", "module Debug\n\n" + block],
     ]);
@@ -316,7 +326,7 @@ describe("an intrinsic row writes its arrow (§4.2, #869)", () => {
 
 describe("what the block admits (§3.3)", () => {
   function privileged(block: string): readonly string[] {
-    return diagnostics([
+    return debugDiagnostics([
       ["/main.hex", "module Main\n\n" + "export let ok: Int = 1\n"],
       ["/Debug.hex", "module Debug\n\n" + block],
     ]);
@@ -411,7 +421,7 @@ describe("genericity is granted inside the boundary only (§3.4)", () => {
   });
 
   test("an intrinsic declaration may be generic", () => {
-    expect(diagnostics([
+    expect(debugDiagnostics([
       ["/main.hex", "module Main\n\n" + "export let ok: Int = 1\n"],
       ["/Debug.hex", "module Debug\n\n" + DOOR],
     ])).toEqual([]);
@@ -450,7 +460,7 @@ describe("genericity is granted inside the boundary only (§3.4)", () => {
    * producers (`empty<a>(): Vector(a)`) that are exactly this shape.
    */
   test("a result-only type variable generalizes, so consumers instantiate it independently", () => {
-    expect(diagnostics([
+    expect(debugDiagnostics([
       ["/main.hex",
         "module Main\n\n" + "export let asInt: Int = Debug.produce(1)\n" +
         "export let asText: String = Debug.produce(2)\n"],

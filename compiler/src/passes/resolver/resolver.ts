@@ -688,10 +688,9 @@ export interface ResolveOptions {
    * Whether this module is compiled as **standard-library source**, the privilege
    * the intrinsic door is gated on (`spec/intrinsics.md` §5.2). Two seats hold it
    * in v1: the prelude set, and the injected runtime-module set (§5.2's runtime
-   * bullet, #365) — each including a project's own file adopted into that
-   * membership, at the member's basename and under the member's declared name,
-   * which is the stdlib-developing-itself path and the one route by which a
-   * project's own text takes the door.
+   * bullet, #365). A host may explicitly grant a supplied source the registered
+   * member's seat when compiling the standard library itself; names and paths
+   * never infer that grant.
    *
    * The privilege attaches to *how the module is compiled*, never to its text, and
    * unlike `runtime` it puts no name into scope: the door is a declaration form,
@@ -703,7 +702,7 @@ export interface ResolveOptions {
   /**
    * The primitive this module is the fixed prelude companion of, when it is one
    * (`Resolved.Module.companionPrimitive` — #344). Settled by the caller from
-   * the injection path and never from the module's text, because a primitive has
+   * registered membership and never from the module's text, because a primitive has
    * no declaration for text to point at.
    */
   readonly companionPrimitive?: Resolved.PrimitiveName;
@@ -1979,7 +1978,7 @@ class Resolver {
    * a binding either way: claim a name no surface offers and the message is back
    * to promising a repair that fixes nothing, which is the whole point of asking.
    * `PROVIDED_ROW_ALIASES` is where that line ran once — the seating alone
-   * admits every prelude basename a project file may take, and only six of
+   * admits every registered prelude alias, and only six of
    * them carry a row.
    */
   #aliasOffers(
@@ -1997,7 +1996,7 @@ class Resolver {
     // project's own `import Mine as Vector` is not the companion, and
     // the same file reached two ways yields two interfaces, so the comparison is
     // by `fileId`. The alias filter above it is what keeps this from claiming
-    // `Int.toSeq` — every prelude basename a project file may take is seated,
+    // `Int.toSeq` — every registered prelude alias is seated,
     // and only six of them carry a row.
     const companion = this.#preludeModuleAliases.get(alias);
     return companion !== undefined && companion.module.fileId === iface.module.fileId;
@@ -2237,7 +2236,7 @@ class Resolver {
         // same string `#preludeModuleAliases` was keyed by just above, so the
         // diagnostic's suggestion is a spelling that resolves rather than a guess
         // at one; the specifier stands in only if a member has no basename to be
-        // named by, which no injection path produces.
+        // named by, which no registered injected member produces.
         this.#preludeHomesByName.set(name, [
           ...this.#preludeHomesByName.get(name) ?? [],
           moduleName === "" ? specifier : moduleName,
@@ -7733,7 +7732,7 @@ function isResolvedTypeAlias(
  * "move the import above this use" for a member moving it does not reach, which
  * is the promise Modules §3 scopes to what an import *binds*.
  *
- * Every prelude basename a project file may take (`injectEmbedded`) is an alias
+ * Every registered prelude member contributes an alias
  * this question can be asked at — `Int`, `Debug`, and the rest are seated files
  * too — so the guard cannot be the seating alone.
  */

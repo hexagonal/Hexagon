@@ -1648,8 +1648,8 @@ class Analysis {
     //   refused the program;
     // - `modules` is the **emitted** closure, so a prelude or runtime module is
     //   in it only where something reaches it — and a project developing the
-    //   standard library supplies those files itself (`gatherModules`'
-    //   adoption). Its own `Runtime/VectorTrie.hex` reported nothing at all,
+    //   standard library supplies explicitly trusted replacements
+    //   (`gatherModules`). Its own `Runtime/VectorTrie.hex` reported nothing at all,
     //   type errors included, until some module in the project used a `Vector`.
     //
     // A file that compiled nothing overwrites nothing here: the module loop
@@ -2197,7 +2197,14 @@ function diagnosticTally(
  */
 function sameOptions(left: SessionOptions, right: SessionOptions): boolean {
   const compared = (
-    { packageName, dependencies, installed, packages, ...rest }: SessionOptions,
+    {
+      packageName,
+      dependencies,
+      installed,
+      packages,
+      trustedStandardLibraryModules,
+      ...rest
+    }: SessionOptions,
   ): readonly string[] => {
     const exhaustive: Record<string, never> = rest;
     void exhaustive;
@@ -2206,6 +2213,7 @@ function sameOptions(left: SessionOptions, right: SessionOptions): boolean {
       ...[...(dependencies ?? [])].sort().map((name) => `dependency:${name}`),
       // A set, like `dependencies`: what a lookup answers with has no order.
       ...[...(installed ?? [])].sort().map((name) => `installed:${name}`),
+      ...[...(trustedStandardLibraryModules ?? [])].sort().map((name) => `trusted-stdlib:${name}`),
       // The closure's order *is* meaningful — `validatePackageSet` fixes it —
       // so it is compared as written, and every field of every record with it:
       // a package whose `dependencies` changed compiles differently under the

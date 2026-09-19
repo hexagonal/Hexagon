@@ -145,10 +145,17 @@ by allowing user `Hash` instances only through derivation:
 record ProductCode derives (Eq, Hash) = {department: Int, item: Int}
 ```
 
-`Hash` requires `Eq`, and that equality must itself be derived. A hand-written `Eq`
+Deriving `Hash` requires `Eq`, and that equality must itself be derived. A hand-written `Eq`
 instance may express a non-structural meaning that a structural hash cannot safely
-guess. Hexagon therefore rejects both a hand-written `Hash` member block and
+guess. In user code, Hexagon therefore rejects both a hand-written `Hash` member block and
 `derives Hash` beside hand-written equality.
+
+Hexagon's own trusted standard-library modules may implement equality and hashing
+together for types they own. Their authors must ensure that equal values have equal
+hashes, including when equality does not compare every stored field. That permission
+comes from the compiler's source provenance; naming your module after a standard-library
+module does not grant it. Even trusted code cannot derive a structural hash beside
+hand-written equality.
 
 For records, the generated hash combines the field hashes. For unions, it combines the
 constructor and payload hashes. The exact combining algorithm is an implementation

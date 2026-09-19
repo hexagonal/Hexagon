@@ -20,15 +20,15 @@ import { runProject } from "../support/test-project.js";
  * before the fix too, for the wrong reason. The discriminating pair is that a
  * *backward* reference must now compile while a *forward* one must not.
  *
- * `injectPrelude` prefers a project file that already supplies a prelude
- * basename over the embedded fallback, which is how these tests substitute their
- * own members; the first test pins that mechanism, since everything below rests
- * on it.
+ * These tests explicitly grant supplied declarations as replacements for the
+ * named prelude members; the first test pins that mechanism, since everything
+ * below rests on it.
  */
 
-function project(files: readonly (readonly [string, string])[]) {
+function project(files: readonly (readonly [string, string])[], trusted: readonly string[]) {
   return compileProject(
     files.map(([path, text], index) => new Source.File(Source.fileId(index), path, text)),
+    { trustedStandardLibraryModules: new Set(trusted) },
   );
 }
 
@@ -48,8 +48,11 @@ function project(files: readonly (readonly [string, string])[]) {
  * the order `project` creates them, and every injected module is seated above
  * them.
  */
-function diagnostics(files: readonly (readonly [string, string])[]): readonly string[] {
-  return project(files).diagnostics
+function diagnostics(
+  files: readonly (readonly [string, string])[],
+  trusted: readonly string[],
+): readonly string[] {
+  return project(files, trusted).diagnostics
     .filter(({ primary }) => Number(primary.fileId) < files.length)
     .map((diagnostic) => diagnostic.message);
 }
@@ -97,18 +100,19 @@ const RESULT_USING_OPTION = [
 ] as const;
 
 describe("ordered intra-prelude visibility", () => {
-  test("a project file at a prelude basename replaces the embedded member", () => {
+  test("an explicitly trusted declaration replaces the embedded member", () => {
     // The substitution every test below depends on. `Ordering` is declared only
     // by the embedded `Prelude.hex`; supplying our own without it must make the
     // name unavailable, proving the embedded copy is genuinely out of play.
     expect(diagnostics([
       ["/Ordering.hex", "module Ordering\n\n" + "export union Direction = Up | Down\n"],
       ["/main.hex", "module Main\n\n" + "export fun compare(): Ordering = Ordering.Less\n"],
-    ])).not.toEqual([]);
+    ], ["Ordering"])).not.toEqual([]);
   });
 
   test("a later member sees an earlier one, with no import line", () => {
-    expect(diagnostics([ORDERING, OPTION, RESULT_USING_OPTION, ENTRY])).toEqual([]);
+    expect(diagnostics([ORDERING, OPTION, RESULT_USING_OPTION, ENTRY], ["Ordering", "Option", "Result"]))
+      .toEqual([]);
   });
 
   test("an earlier member does NOT see a later one", () => {
@@ -127,7 +131,7 @@ describe("ordered intra-prelude visibility", () => {
         "        None => Err(\"none\")\n"],
       RESULT,
       ENTRY,
-    ])).toEqual([
+    ], ["Ordering", "Option", "Result"])).toEqual([
       "unknown generic type `Result`",
       "unknown name `Ok`",
       "unknown name `Err`",
@@ -142,7 +146,7 @@ describe("ordered intra-prelude visibility", () => {
       OPTION,
       RESULT,
       ENTRY,
-    ])).toEqual([
+    ], ["Prelude", "Option", "Result"])).toEqual([
       "unknown generic type `Option`",
       "unknown name `Some`",
     ]);
@@ -163,7 +167,7 @@ describe("ordered intra-prelude visibility", () => {
       ["/Prelude.hex",
         "module Prelude\n\n" + "export union Ordering = Less | Equal | Greater\n"],
       ENTRY,
-    ]);
+    ], ["Prelude"]);
     const abroad = compiled.diagnostics.filter(({ primary }) => Number(primary.fileId) >= 2);
     expect(abroad.map(({ message }) => message))
       .toEqual(["type mismatch: expected Ordering, found Ordering"]);
@@ -182,7 +186,7 @@ describe("ordered intra-prelude visibility", () => {
         "export fun peek(result: Result(Int, Int), fallback: Int): Int = fallback\n"],
       RESULT_USING_OPTION,
       ENTRY,
-    ])).toEqual(["unknown generic type `Result`"]);
+    ], ["Ordering", "Option", "Result"])).toEqual(["unknown generic type `Result`"]);
   });
 
   test("consumers still see every member, in any order", () => {
@@ -192,7 +196,7 @@ describe("ordered intra-prelude visibility", () => {
         "module Main\n\n" + "export fun a(): Ordering = Ordering.Less\n" +
         "export fun b(): Option(Int) = Some(1)\n" +
         "export fun c(): Result(Int, Int) = Ok(1)\n"],
-    ])).toEqual([]);
+    ], ["Ordering", "Option", "Result"])).toEqual([]);
   });
 });
 
@@ -231,7 +235,10 @@ describe("emission follows the new dependency edge", () => {
     // module reachable only through another prelude module leaves the emitted
     // JavaScript importing a file that was never written — and the project
     // compiles clean, so the failure is silent. Reachability, not one hop.
-    const compiled = project([ORDERING, OPTION, RESULT_USING_OPTION, USES_RESULT]);
+    const compiled = project(
+      [ORDERING, OPTION, RESULT_USING_OPTION, USES_RESULT],
+      ["Ordering", "Option", "Result"],
+    );
     expect(compiled.diagnostics).toEqual([]);
     const paths = compiled.modules.map(({ source }) => source.path);
     expect(paths).toContain("/Option.hex");
@@ -243,12 +250,15 @@ describe("emission follows the new dependency edge", () => {
   test("every import in the emitted output names an emitted module", () => {
     // The general form of the bug above, stated as an invariant over the whole
     // project rather than one path.
-    expect(danglingImports(project([ORDERING, OPTION, RESULT_USING_OPTION, USES_RESULT])))
+    expect(danglingImports(project(
+      [ORDERING, OPTION, RESULT_USING_OPTION, USES_RESULT],
+      ["Ordering", "Option", "Result"],
+    )))
       .toEqual([]);
   });
 
   test("a project touching no prelude member emits none of them", () => {
-    const compiled = project([ORDERING, OPTION, RESULT, ENTRY]);
+    const compiled = project([ORDERING, OPTION, RESULT, ENTRY], ["Ordering", "Option", "Result"]);
     expect(compiled.diagnostics).toEqual([]);
     expect(compiled.modules.map(({ source }) => source.path)).toEqual(["/main.hex"]);
   });
@@ -257,13 +267,19 @@ describe("emission follows the new dependency edge", () => {
     // On `main` this compiled clean, emitted ["/Result.hex", "/main.hex"], and
     // wrote `import ... from "./Hex/Option.js"` into Result.js — unloadable output
     // reported as success, with no Phase 3 machinery involved.
-    const compiled = project([ORDERING, OPTION, RESULT_IMPORTING_OPTION, USES_RESULT]);
+    const compiled = project(
+      [ORDERING, OPTION, RESULT_IMPORTING_OPTION, USES_RESULT],
+      ["Ordering", "Option", "Result"],
+    );
     expect(compiled.diagnostics).toEqual([]);
     expect(compiled.modules.map(({ source }) => source.path)).toContain("/Option.hex");
   });
 
   test("the invariant holds on the explicit channel too", () => {
-    const compiled = project([ORDERING, OPTION, RESULT_IMPORTING_OPTION, USES_RESULT]);
+    const compiled = project(
+      [ORDERING, OPTION, RESULT_IMPORTING_OPTION, USES_RESULT],
+      ["Ordering", "Option", "Result"],
+    );
     expect(danglingImports(compiled)).toEqual([]);
   });
 });

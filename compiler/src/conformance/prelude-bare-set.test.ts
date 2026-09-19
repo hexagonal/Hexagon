@@ -407,7 +407,9 @@ describe("the function channel: none, and `ignore`", () => {
       "    hash(value: a) -> Int\n",
     ];
     const messages = (main: string) =>
-      compileFiles([["/main.hex", "module Main\n\n" + main], second]).diagnostics.map(({ message }) => message);
+      compileFiles([["/main.hex", "module Main\n\n" + main], second], {
+        trustedStandardLibraryModules: new Set(["Result"]),
+      }).diagnostics.map(({ message }) => message);
 
     // The supplied member is reachable and the module compiles, so the second
     // route genuinely exists rather than being quietly dropped.
@@ -744,9 +746,9 @@ describe("the member channel: `show` only", () => {
    * second exporter of the one bare member.
    *
    * The second declaration has to be a prelude member's for the question to
-   * arise at all, so `Result.hex` is supplied by the project with one appended:
-   * the idiom the injection path already carries, its real source extended
-   * rather than replaced.
+   * arise at all, so `Result.hex` is supplied with one appended and explicitly
+   * trusted as the registered member; its real source is extended rather than
+   * replaced.
    */
   test("a second prelude constraint spelling `show` seeds nothing", () => {
     const compiled = compileFiles([
@@ -757,7 +759,7 @@ describe("the member channel: `show` only", () => {
         "export constraint Loud<a> =\n" +
         "    show(value: a) -> String\n",
       ],
-    ]);
+    ], { trustedStandardLibraryModules: new Set(["Result"]) });
 
     // No ambiguity refusal: bare `show` still has exactly one seat, `Show.hex`'s
     // declaration, because the second is a different identity.

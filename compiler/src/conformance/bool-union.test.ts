@@ -234,14 +234,13 @@ describe("the declaration's shape is verified, not trusted (#147 §3.5/§7)", ()
     expect(shapeError("export let flag: Bool = True\n")).toBeUndefined();
   });
 
-  test("a project supplying a wrong `Bool.hex` at the injection path is refused", () => {
-    // Compiling the stdlib itself is the one way to substitute a prelude module
-    // (`injectPrelude` prefers a project file at the injection path), so it is
-    // also the way to prove the check runs.
+  test("an explicitly trusted wrong `Bool` replacement is refused", () => {
+    // The explicit host grant substitutes this declaration for the registered
+    // prelude member, which is also how this test proves the integrity check runs.
     const reversed = compileFiles([
       ["/Bool.hex", "module Bool\n\n" + "export union Bool derives (Eq, Ord, Show, Hash) =\n    | True\n    | False\n"],
       ["/main.hex", "module Main\n\n" + "export let flag: Bool = True\n"],
-    ]);
+    ], { trustedStandardLibraryModules: new Set(["Bool"]) });
 
     expect(reversed.diagnostics.map(({ message }) => message).join("\n")).toContain(
       "in that constructor order",
@@ -252,7 +251,7 @@ describe("the declaration's shape is verified, not trusted (#147 §3.5/§7)", ()
     const extra = compileFiles([
       ["/Bool.hex", "module Bool\n\n" + "export union Bool derives (Eq, Ord, Show, Hash) =\n    | False\n    | True\n    | Maybe\n"],
       ["/main.hex", "module Main\n\n" + "export let flag: Bool = True\n"],
-    ]);
+    ], { trustedStandardLibraryModules: new Set(["Bool"]) });
 
     expect(extra.diagnostics.map(({ message }) => message).join("\n")).toContain(
       "compiler integrity: the prelude `Bool`",

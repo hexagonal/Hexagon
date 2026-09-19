@@ -3,9 +3,9 @@
  *
  * Each member's `source` is an exact copy of the canonical, human-facing file in
  * `stdlib/`. The copies are embedded so that `compileProject` stays
- * filesystem-free; when a project supplies its own file at the injection path
- * (e.g. compiling the stdlib itself) that copy wins and the embedded fallback is
- * unused.
+ * filesystem-free. A host compiling the standard library itself may explicitly
+ * trust one supplied declaration to replace a registered member; otherwise the
+ * embedded copy is used regardless of source path or declared name.
  *
  * The text lives in the generated `prelude-sources.ts` — `npm run
  * generate:prelude` — rather than being transcribed here, and a conformance test
@@ -18,7 +18,7 @@ import { RUNTIME_MODULES } from "./runtime-modules.js";
 export interface PreludeModule {
   /** The module's **declared name** (Modules §1) — `Option`, `JsValue`. */
   readonly name: string;
-  /** Embedded fallback source, used only when the project supplies its own file. */
+  /** Embedded fallback source, used unless the host grants a supplied replacement. */
   readonly source: string;
 }
 
