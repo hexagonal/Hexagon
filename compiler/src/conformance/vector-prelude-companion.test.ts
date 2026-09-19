@@ -87,6 +87,10 @@ describe("the module", () => {
       "Int",
       "Nat",
       "Float",
+      // `Math.hex` names only `Float`, so its earliest valid seat is directly
+      // after `Float.hex`. The seat supplies the qualified `Math` fallback
+      // alias; Modules §5.5's closed bare set admits none of its exports.
+      "Math",
       // #533 moved `BigInt.hex` past `Float.hex`: `BigInt.toFloat`'s guard
       // throws `Float.hex`'s `FloatRangeError`, and a module seats after what
       // it uses. Nothing before it names a `BigInt`, so the move costs the

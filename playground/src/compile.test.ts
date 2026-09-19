@@ -22,6 +22,43 @@ import type { GeneratedSection } from "./protocol";
 const MAIN = "module Main\n\n";
 
 describe("compileSource", () => {
+  test("executes the automatically qualified shipped Math module", async () => {
+    const response = compileSource(
+      4,
+      MAIN +
+        "export let result: (Float, Float, Float, Float) = (\n" +
+        "    Math.pi,\n" +
+        "    Math.sqrt(2.0),\n" +
+        "    Math.atan2(-0.0, -1.0),\n" +
+        "    Float.pow(2.0, 0.5)\n" +
+        ")\n",
+    );
+
+    expect(response.kind).toBe("compile-success");
+    if (response.kind !== "compile-success") return;
+    expect(response.javascript).toContain('from "./Hex/Math.js";');
+    const math = response.executionModules.find(({ path }) => path === "/Hex/Math.hex");
+    expect(math).toBeDefined();
+    expect(math?.javascript).toContain("Math.sqrt");
+    expect(math?.javascript).not.toContain("export { pow }");
+
+    const moduleUrls = new Map<string, string>();
+    for (const module of response.executionModules) {
+      const linked = linkModule(module.javascript, module.path, moduleUrls);
+      moduleUrls.set(
+        module.path,
+        `data:text/javascript;charset=utf-8,${encodeURIComponent(linked)}`,
+      );
+    }
+    const entry = await import(
+      /* @vite-ignore */ moduleUrls.get(response.entryPath)!
+    ) as { readonly result: readonly number[] };
+    expect(entry.result[0]).toBe(Math.PI);
+    expect(entry.result[1]).toBe(Math.sqrt(2));
+    expect(entry.result[2]).toBe(-Math.PI);
+    expect(entry.result[3]).toBe(Math.sqrt(2));
+  });
+
   test("compiles the canonical Vector module surface", () => {
     const response = compileSource(5, vectors.source);
 

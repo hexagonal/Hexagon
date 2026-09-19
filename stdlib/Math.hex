@@ -1,0 +1,63 @@
+module Math
+
+// Concrete Float mathematics. The public surface follows Standard ML's Math
+// module, without `pow`; `Pow`, `**`, and `Float.pow` remain the language's
+// power operations. Native operations are declared through the intrinsic door
+// because their rounding, overflow, domain, NaN, infinity, and signed-zero
+// behaviour is the capability this module exposes rather than behaviour that
+// can be reconstructed faithfully from simpler Hexagon expressions.
+
+(** The nearest binary64 value of pi. *)
+export let pi: Float = 3.141592653589793
+
+(** The nearest binary64 value of Euler's number. *)
+export let e: Float = 2.718281828459045
+
+extern from "hex:intrinsic"
+    (** The square root of `value`. Negative values produce `NaN`; signed zero
+        is preserved. *)
+    export fun mathSqrt as sqrt(value: Float) -> Float
+
+    (** The sine of `angle`, in radians. *)
+    export fun mathSin as sin(angle: Float) -> Float
+
+    (** The cosine of `angle`, in radians. *)
+    export fun mathCos as cos(angle: Float) -> Float
+
+    (** The tangent of `angle`, in radians. *)
+    export fun mathTan as tan(angle: Float) -> Float
+
+    (** The inverse sine of `value`, in radians. Values outside `[-1, 1]`
+        produce `NaN`. *)
+    export fun mathAsin as asin(value: Float) -> Float
+
+    (** The inverse cosine of `value`, in radians. Values outside `[-1, 1]`
+        produce `NaN`. *)
+    export fun mathAcos as acos(value: Float) -> Float
+
+    (** The inverse tangent of `value`, in radians. *)
+    export fun mathAtan as atan(value: Float) -> Float
+
+    (** The angle of `(x, y)`, in radians, using both signs to choose the
+        quadrant. *)
+    export fun mathAtan2 as atan2(y: Float, x: Float) -> Float
+
+    (** Euler's number raised to `value`. *)
+    export fun mathExp as exp(value: Float) -> Float
+
+    (** The natural logarithm of `value`. Zero produces `-Infinity`; negative
+        values produce `NaN`. *)
+    export fun mathLn as ln(value: Float) -> Float
+
+    (** The base-ten logarithm of `value`. Zero produces `-Infinity`; negative
+        values produce `NaN`. *)
+    export fun mathLog10 as log10(value: Float) -> Float
+
+    (** The hyperbolic sine of `value`. *)
+    export fun mathSinh as sinh(value: Float) -> Float
+
+    (** The hyperbolic cosine of `value`. *)
+    export fun mathCosh as cosh(value: Float) -> Float
+
+    (** The hyperbolic tangent of `value`. *)
+    export fun mathTanh as tanh(value: Float) -> Float

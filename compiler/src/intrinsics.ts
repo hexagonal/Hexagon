@@ -210,6 +210,12 @@ export function isIntrinsicScheme(specifier: string): boolean {
  * probe back through. `trace` takes no key: it is ordinary Hexagon over this
  * row, interpolating its label and value and answering the value.
  *
+ * The `math*` family is `stdlib/Math.hex`'s complete function surface
+ * (`spec/math.md` §5). Each key is a direct alias of the corresponding native
+ * `Math` operation; `mathLn` alone changes the public spelling (`ln`) to the
+ * native spelling (`log`). The constants are ordinary Float literals in source,
+ * and power is deliberately absent: it remains owned by `Pow` and `Float.pow`.
+ *
  * The `jsValue*` family is `stdlib/JsValue.hex`'s (FFI Part 11), in the same
  * primop shape the primitive companions took: the door carries what the
  * language cannot say, and every guard above it is ordinary Hexagon in that
@@ -458,6 +464,20 @@ export const INTRINSIC_INVENTORY: ReadonlyMap<string, number> = new Map([
   ["nullableAsValueUnchecked", 1],
   ["nullableFromValue", 1],
   ["debugLog", 1],
+  ["mathSqrt", 1],
+  ["mathSin", 1],
+  ["mathCos", 1],
+  ["mathTan", 1],
+  ["mathAsin", 1],
+  ["mathAcos", 1],
+  ["mathAtan", 1],
+  ["mathAtan2", 2],
+  ["mathExp", 1],
+  ["mathLn", 1],
+  ["mathLog10", 1],
+  ["mathSinh", 1],
+  ["mathCosh", 1],
+  ["mathTanh", 1],
   ["jsValueKind", 1],
   ["jsValueFrom", 1],
   ["jsValueIsSafeInteger", 1],

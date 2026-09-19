@@ -206,6 +206,9 @@ describe("verification replaces trust (§4.2)", () => {
       "`setAdd`, `setRemove`, `setElements`, `setLookup`, `nullableUndefined`, " +
       "`nullableNull`, `nullableIsNull`, `nullableIsUndefined`, " +
       "`nullableAsValueUnchecked`, `nullableFromValue`, `debugLog`, " +
+      "`mathSqrt`, `mathSin`, `mathCos`, `mathTan`, `mathAsin`, `mathAcos`, " +
+      "`mathAtan`, `mathAtan2`, `mathExp`, `mathLn`, `mathLog10`, `mathSinh`, " +
+      "`mathCosh`, `mathTanh`, " +
       "`jsValueKind`, `jsValueFrom`, `jsValueIsSafeInteger`, " +
       "`jsValueAsIntUnchecked`, `jsValueAsFloatUnchecked`, " +
       "`jsValueAsBigIntUnchecked`, `jsValueAsBoolUnchecked`, " +
