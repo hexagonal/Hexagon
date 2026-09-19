@@ -22400,8 +22400,8 @@ class Checker {
     // message naming the offending type with one naming none. So the partial
     // findings travel with `exhausted` set and **the seat decides**, because
     // what counts as a decision is the seat's own question: an `open` row
-    // refuses a `supplied` or `release` seat and means nothing at a `foreign`
-    // one. A walk that ran out holding a guarded finding may have missed an
+    // refuses a `declaration` or `release` seat and means nothing at an
+    // `exempt` one. A walk that ran out holding a guarded finding may have missed an
     // open row further along, so such a position is refused for the finding it
     // has rather than for item 7; both are true of the type, and the position
     // is refused either way.
@@ -22510,16 +22510,15 @@ class Checker {
           // is the case — `Tree` reached directly names a collection the walk
           // copies, and `Tree` reached through `kids` hides one it cannot reach.
           //
-          // *Within a function*: the same shape for item 7's direction rule
-          // (#952). `record Holder = { r: {n: Int, ...} }` at `fun make() ->!
-          // {a: Holder, f: () -> Holder}` reaches `Holder` first at `a`, where
-          // its open row is the foreign side's and legal, and again at `f`,
-          // where it is Hexagon's and refused — and a key without this bit cut
-          // the second, so the `extern let` and the extern result went clean
-          // while their structural twins were refused, and swapping the two
-          // fields changed the verdict.
+          // The key carried a second bit while item 7 was directional — whether
+          // a function type stood on the path — because one nominal was then a
+          // different question on each side of one. #962 retired the direction
+          // and #962's declaration check retired the shape that needed it: a
+          // nominal's field row can no longer be open at all (Products §4), so
+          // there is no open row inside a nominal for two readings to disagree
+          // about.
           //
-          // Four classes, so at most four times the visits.
+          // Two classes, so at most twice the visits.
           const pathGuarded = step.container !== undefined || step.opaque !== undefined;
           const key = `${this.#typeKey(actual, budget)}|${pathGuarded ? "g" : "u"}`;
           if (budget.steps > Checker.#walkBudget) return bounded();
@@ -22622,24 +22621,27 @@ class Checker {
   }
 
   /**
-   * FFI Part 1 §5.4 **item 7** (#952): an open structural record where *Hexagon*
-   * supplies the record, as a message or nothing.
+   * FFI Part 1 §5.4 **item 7** (#952, rewritten by #962): an open structural
+   * record at a position that may not carry one, as a message or nothing.
    *
    * The walk is directed by the declared type, and an open row declares only
-   * *some* of its components. Where a Hexagon caller instantiates the tail it
-   * may widen `{n: Int, ...}` with a `v: Vector(Array(Int))` the declaration
-   * never named, and that component then crosses unseen — neither copied nor
+   * *some* of its components — so at a declaration the walk has nothing to be
+   * directed by for the rest. Which side fills the row does not rescue it.
+   * Where a Hexagon caller instantiates the tail it may widen `{n: Int, ...}`
+   * with a `v: Vector(Array(Int))` the declaration never named; where the
+   * foreign side fills it the tail is an ordinary inference variable in the
+   * declaring module, so `get!().cells` names a field the declaration never
+   * wrote. Either way the component crosses unseen — neither copied nor
    * refused, since neither the walk nor the refusals can see a field the
-   * declaration does not spell. A declaration **Hexagon calls** must therefore
-   * be closed to be walked.
+   * declaration does not spell.
    *
-   * **Every other position keeps its open rows**, and that is the whole of the
-   * direction ruling: there the foreign side instantiates the tail, and
-   * Hexagon, which can neither name nor add the fields it did not declare
-   * (Products §4 has no record extension), holds them exactly as it holds a
-   * value at a type variable — safe by parametricity, as `first(xs: Array(a)):
-   * a` is. `OpenRowSeat` is that classification, and it is static and per
-   * position.
+   * **What keeps its open rows** is an exported Hexagon *function*'s
+   * parameters and result, and it keeps them on a ground no declaration has:
+   * its face is the **solved** row, the row after the body is checked, so
+   * every field any expression named is on it and a field the face omits is
+   * one no expression named. An unexported constraint's members keep theirs
+   * by never crossing. `OpenRowSeat` is that classification, and it is static
+   * and per position.
    *
    * The vocabulary is Products §4's, which is **binding**: "this record may
    * have more fields", never "row" and never "row variable". The record quoted
@@ -22647,12 +22649,11 @@ class Checker {
    * and the tail prints as `...` — the reader is never shown a variable the
    * rendered type does not spell (#649).
    *
-   * The seat chooses the finding and the rewrite. A `supplied` seat reads every
-   * open row, a `within` seat only the ones a function type stands above, a
-   * `foreign` seat none. At the **release seat** the rewrite is the one §5.4
-   * names there — inject at a closed type — and item 5 is not also reported,
-   * which is why this message is built before that seat's survivors are
-   * consulted.
+   * The seat chooses the rewrite, not the finding: a `declaration` or
+   * `release` seat reads the walk's open row and an `exempt` seat reads none.
+   * At the **release seat** the rewrite is the one §5.4 names there — inject
+   * at a closed type — and item 5 is not also reported, which is why this
+   * message is built before that seat's survivors are consulted.
    */
   #openRowRefusal(found: CaptureFindings, seat: OpenRowSeat): string | undefined {
     const row = seat === "exempt" ? undefined : found.open;
@@ -22743,8 +22744,8 @@ class Checker {
    * of the above produced a message, and only then: the seat asks its own
    * questions of the partial findings first, and says the check gave up only if
    * it has nothing else to say. That is what stops a partial answer holding an
-   * `open` row — a decision at a `supplied` seat, nothing at a `foreign` one —
-   * from letting a `foreign` seat through in silence.
+   * `open` row — a decision at a `declaration` seat, nothing at an `exempt`
+   * one — from letting an `exempt` seat through in silence.
    */
   #capturedRefusalMessage(
     type: Mono,
@@ -22765,13 +22766,15 @@ class Checker {
    * The same, reported at a seat's span.
    *
    * **One walk at the door**, and one budget with it: the seat asks its
-   * question once and reads all four of the walk's answers off the one finding.
+   * question once and reads every one of the walk's answers off the one
+   * finding.
    *
-   * `seat` has **no default**, deliberately. Item 7's permissive answer is the
-   * `foreign` one, and a seat that inherited it by omission would be silently
-   * exempt — which is exactly what Part 5's `method`, `set` and `new` must not
-   * be when their tree nodes arrive (#952: they take `supplied`, with an extern
-   * `fun`'s parameters). Every seat states its side.
+   * `seat` has **no default**, deliberately. Item 7's permissive answer is
+   * `exempt`, and a seat that inherited it by omission would be silently
+   * exempt — which is exactly what Part 5's `method`, `get`, `set` and `new`
+   * must not be when their tree nodes arrive: every slot of theirs takes
+   * `declaration`, with an extern `fun`'s parameters and result. Every seat
+   * states which it is.
    */
   #refuseCapturedPosition(
     type: Mono,
@@ -22954,9 +22957,13 @@ class Checker {
       // is shared by JavaScript and by every Hexagon importer, so no copy can
       // protect it.
       //
-      // Item 7 reaches none of these seats (#952): the caller is JavaScript, so
-      // it instantiates any open tail, and an exported function's open result
-      // tail is always one of its parameters' tails. Parametricity covers both.
+      // Item 7 reaches none of these seats, and since #962 for the one ground
+      // that survived the ruling: an exported Hexagon **function** has a body,
+      // so its face is the **solved** row — the row after the body is checked,
+      // never the annotation as written. Every field any expression named is
+      // on the face and a JavaScript caller supplies it; a field the face
+      // omits is one no expression named. That is why `export fun` keeps its
+      // open rows where every *declaration* loses them.
       if ((item.kind === "Let" || item.kind === "Fun") && item.exported) {
         const signature = this.#prune(this.#scheme(item.binding.symbol).type);
         const name = item.binding.name;
@@ -23085,10 +23092,11 @@ class Checker {
         // nothing here for the same reason their fields do: the constructor's
         // positions are already read wherever the record reaches a boundary.
         //
-        // Item 7 is not among them either (#952): a constructor is called from
-        // the foreign side, which instantiates any open tail, and Hexagon holds
-        // the fields it did not declare exactly as it holds a value at a type
-        // variable.
+        // Item 7 is not among them either, and since #962 because the question
+        // is settled a step earlier: Products §4 refuses `...` anywhere in a
+        // union payload's type, at the declaration, so no payload reaching
+        // this seat can carry an open row (`#rejectOpenRowsInDeclarations`).
+        // The seat stays `exempt` because it still asks items 1 to 4 here.
         for (const slot of slots) {
           if (slot.type !== undefined) {
             this.#refuseCapturedPosition(slot.type, slot.span, undefined, "exempt");
@@ -23320,12 +23328,13 @@ class Checker {
             this.#prune(this.#scheme(declaration.binding.symbol).type);
           if (declaration.kind === "ExternLet") {
             const exported = declaration.localName;
-            // The row's own type is filled by the **foreign** side, so item 7
-            // keeps its open rows here (#952) — except inside a function type,
-            // where Hexagon is the caller in one direction or the other: an
-            // `extern let onEach: ({n: Int, ...}) -> Unit` is a foreign
-            // function Hexagon calls, and a Hexagon caller instantiates the
-            // tail.
+            // An `extern let` is a declaration like the `fun` below it, and
+            // takes the same seat (#962): its type is what its author wrote,
+            // there is no body to derive a face from, and the tail is an
+            // ordinary inference variable in the declaring module — so
+            // `cfg.anything` names a field the row never wrote. Item 7 refuses
+            // every open row in it, at any depth, inside a function type or
+            // not.
             this.#refuseCapturedPosition(
               signature,
               declaration.annotation.span,
@@ -23406,10 +23415,10 @@ class Checker {
       // and alone, when the argument type is or contains an open structural
       // record", and §5.4 item 7's "item 5 is not also reported". The rewrite
       // is to inject at a closed type rather than to name a variable the reader
-      // cannot see. The seat is `release` and not `foreign` because Hexagon
-      // supplies the value by definition here: this is the one seat where the
-      // *Hexagon* side hands the record over, which is the whole of #952's
-      // direction rule.
+      // cannot see. The seat is `release` and not `declaration` for the
+      // rewrite alone: `JsValue.from` is the one seat where Hexagon hands the
+      // value over and there is nothing to redeclare, so the sentence ends
+      // "inject at a closed type" where a declaration's names three edits.
       //
       // **Nothing else may pre-empt it.** §2 licenses the rest of §5.4 at this
       // seat with one word — "a **ground** argument type still obeys Part 1

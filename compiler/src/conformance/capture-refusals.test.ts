@@ -1233,10 +1233,13 @@ describe("#953 — an exported constraint's member parameters and result", () =>
    * Each parameter and the result is a seat of its own, as on the extern and
    * export halves — §5.4's table makes each a position, not the signature.
    *
-   * **Item 7 is not among the refusals**, as Part 9 §3.4 says in the same
-   * sentence: the handle's foreign caller instantiates any open tail, and
-   * parametricity covers it. A member's open rows are pinned with the rest of
-   * the foreign side's, in item 7's block above.
+   * **Item 7 is among them since #962**, and Part 9 §3.4 now says so in the
+   * same sentence: a member's face is the constraint's declaration while its
+   * body is an `honor` checked against that declared row, so an open row
+   * there lets an honor body read a field no face lists. The member's own
+   * open-row rows are pinned in item 7's block above; what this row pins is
+   * the *granularity* — each parameter and the result is its own seat — which
+   * items 1 and 2 show here without needing an open row.
    */
   test("each parameter and the result is its own seat", () => {
     expect(diagnose(
