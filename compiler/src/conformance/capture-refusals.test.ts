@@ -27,9 +27,9 @@ import { compileFiles, compileMain, projectDiagnostics } from "../support/test-p
  * Hexagon function's parameters and result, an exported value binding, an
  * exported constraint's member parameters and result (#953), and the release
  * seat `JsValue.from`. Part 5's receiver members (`get`/`method`/`set`/`new`)
- * are not in the language yet and are not pinned here; they inherit the same
- * seats when they arrive, `method`/`set`/`new` taking item 7's `supplied` side
- * with an extern `fun`'s parameters.
+ * are not in the language yet and are not pinned here; every one of their
+ * slots inherits an extern `fun`'s seat when they arrive, because since #962
+ * there is only one to inherit.
  *
  * **Item 7 is no longer directional** (#962, which retired #952's direction
  * rule). It refuses an open structural record at **every position of an extern
@@ -45,9 +45,9 @@ import { compileFiles, compileMain, projectDiagnostics } from "../support/test-p
  * Hexagon function's** parameters and result keep theirs because their face is
  * the *solved* row after the body is checked, so every field any expression
  * named is on it. An **unexported** constraint's members keep theirs because
- * they never cross. And a nominal `record`'s field types and a union payload's
- * are refused earlier and elsewhere — Products §4 owns them, at the
- * declaration, whether or not anything crosses.
+ * they never cross. And a nominal `record`'s field types, a union payload's
+ * and an `exception`'s are refused earlier and elsewhere — Products §4 owns
+ * them, at the declaration, whether or not anything crosses.
  *
  * **Nothing about emission is here.** This part ships the refusals only; the
  * copying wrappers of Part 4 §4.3, Part 6 §5.5 and Part 7 §7 occasion 4 are a
@@ -994,10 +994,12 @@ describe("item 7 — an open structural record at a declaration or the release s
   });
 
   /**
-   * **Every position the foreign side fills keeps its open rows**, which is the
-   * other half of the ruling and the half with a language-visible cost if it
-   * went the other way: the row-polymorphic function stays exportable, and the
-   * declaration file renders its shared tail as before.
+   * **What keeps its open rows**, which is the other half of the ruling and
+   * the half with a language-visible cost if it went the other way: the
+   * row-polymorphic function stays exportable, and the declaration file
+   * renders its solved row as the body left it. Three positions, three
+   * grounds — a face derived from a body, a binding that never leaves the
+   * module, and a constraint that never crosses.
    */
   test.each([
     [
@@ -1056,13 +1058,14 @@ describe("item 7 — an open structural record at a declaration or the release s
   });
 
   /**
-   * **The mechanism that separates the two sides**, pinned as the one pair that
-   * shows it: a written tail is **rigid** inside the definition Hexagon
-   * compiles (Functions §4.1), so nothing Hexagon holds can enter it and an
-   * exported function's own callback parameter keeps its open row; an extern
-   * declaration's tail is instead solved afresh at each Hexagon call site,
-   * invisibly to a wrapper compiled against the open declaration, and the same
-   * function type there is refused.
+   * **What separates the two sides**, pinned as the one pair that shows it:
+   * an exported function has a **body**, so its face is the solved row and a
+   * written tail is rigid inside the definition Hexagon compiles (Functions
+   * §4.1) — its own callback parameter keeps its open row. An extern has no
+   * body, so its face is the annotation and the same function type there is
+   * refused. (#962 considered giving an extern a rigid per-call-site tail
+   * instead and rejected it; §5.4's decisions row lists it among the
+   * alternatives, for no capability a closed row lacks.)
    */
   test("the same callback type is exempt at an export and refused at an extern", () => {
     expect(diagnose("export fun each(f: ({n: Int, ...}) -> Unit): Unit = f({n = 1})\n"))
@@ -1079,9 +1082,10 @@ describe("item 7 — an open structural record at a declaration or the release s
    * the closed spelling beside it is legal because the *type* is closed, not
    * because a `...` is absent from the source.
    *
-   * An extern declaration has no body, so nothing can solve its tail: that is
-   * §5.4's "solved afresh at each Hexagon call site", and it is why this seat
-   * is always the annotation's answer while the release seat below is not.
+   * An extern declaration has no body, so nothing *of its own* can solve its
+   * tail — a Hexagon call site still can, which is why the seat reads the row
+   * as written (`#externDeclaredSignatures`) and is always the annotation's
+   * answer, while the release seat below reads an expression's solved type.
    */
   test("the tail's spelling decides nothing at an extern parameter", () => {
     expect(diagnose('extern from "./m.js"\n    fun send(r: {n: Int, ...q}) ->! Unit\n'))

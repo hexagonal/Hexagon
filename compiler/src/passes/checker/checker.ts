@@ -22377,7 +22377,8 @@ class Checker {
     const pending: CaptureStep[] = [{ type }];
     const seen = new Set<string>();
     let first: CaptureFinding | undefined;
-    // Item 7's two findings (#952), recorded by the same walk at the same nodes.
+    // Item 7's finding (#952, one since #962), recorded by the same walk at
+    // the same nodes.
     let open: RecordMono | undefined;
     let guarded: CaptureFinding | undefined;
     // **Nothing ends the walk early**, and the budget is what bounds it.
@@ -22476,9 +22477,12 @@ class Checker {
           push([actual.element]);
           break;
         case "Function":
-          // Item 7's direction rule (#952): a function type is where the two
-          // sides swap, so everything under one is a place Hexagon may be the
-          // caller. The flag is set for the whole subtree and never cleared.
+          // Entered like any other constructor, and no longer marked: a
+          // function type was where item 7's two sides swapped, and #962
+          // retired the direction, so the path through one carries nothing
+          // this walk reads. §5.4 item 7 still names "any function type
+          // anywhere in the declaration", which it now is by being a path to
+          // the row rather than by a flag on it.
           push([...actual.parameters, actual.result]);
           break;
         case "Vector":
@@ -23344,14 +23348,17 @@ class Checker {
               span: parameter.annotation?.span ?? declaration.span,
             }))
             : [];
-          // Item 7's direction rule (#952). An extern `fun`'s **parameters**
-          // are the positions Hexagon fills: the caller writes the record, so
-          // an open row there is one a Hexagon caller may widen past the
-          // declaration, and every open row at any depth is refused. The
-          // **result** is filled by the foreign side and keeps its open rows,
-          // save inside a function type — a callback Hexagon implements, whose
-          // result Hexagon produces. Part 5's `method`/`set`/`new` take
-          // `supplied` for the parameters' reason when those forms arrive.
+          // **Every position of the row, on one rule** (#962). Item 7 once
+          // refused an open row only where Hexagon supplied the record, and
+          // dropped the distinction when its ground failed: an extern has no
+          // body, so its face is what its author wrote whichever side fills
+          // the row, and where the foreign side fills it the tail is an
+          // ordinary inference variable in the declaring module — which is how
+          // `get!().cells` named a field the declaration never wrote. So the
+          // parameters and the result are one seat kind, `declaration`, and
+          // Part 5's `method`/`get`/`set`/`new` take it too when those forms
+          // arrive. Each is still its own seat at its own annotation, so a row
+          // with two offending positions draws two reports.
           for (const seat of seats) {
             this.#refuseCapturedPosition(seat.type, seat.span, undefined, "declaration");
           }
