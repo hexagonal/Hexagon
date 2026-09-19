@@ -6238,7 +6238,7 @@ class Resolver {
       replacements,
     );
     this.#resolvingAliases.pop();
-    return withTypeSpan(result, span);
+    return markOpenRowsThroughAlias(withTypeSpan(result, span), name);
   }
 
   /**
@@ -6304,7 +6304,10 @@ class Resolver {
       parameter,
       arguments_[index] ?? { kind: "ErrorType" as const, span },
     ]));
-    return substituteResolvedType(alias.annotation, replacements, span);
+    return markOpenRowsThroughAlias(
+      substituteResolvedType(alias.annotation, replacements, span),
+      alias.name,
+    );
   }
 
   #resolvedNominalType(
@@ -7931,6 +7934,58 @@ function parsedAnnotationTypeVariables(annotation: Parsed.TypeAnnotation): Reado
   };
   visit(annotation);
   return names;
+}
+
+/**
+ * Every **open** row inside one alias expansion, stamped with the alias it came
+ * through (`Resolved.RecordTypeAnnotation.throughAlias`, #962).
+ *
+ * Products §4 refuses `...` inside a nominal declaration "at any depth, and
+ * through any alias", and reports "naming the alias when one carried the tail".
+ * The expansion is what destroys that name — it inlines the alias body and
+ * re-points it at the use site — so the name is recorded here, at the one place
+ * that still has it. Nothing else reads it, and nothing downstream treats an
+ * alias as a type: a face still carries the expansion (FFI Part 7 §1).
+ *
+ * The **outermost** expansion wins, by overwriting: `type A = {n: Int, ...}`
+ * and `type B = A` reach a field as `B`, which is the name the reader wrote
+ * there and the one an edit has to change.
+ */
+function markOpenRowsThroughAlias(
+  type: Resolved.TypeAnnotation,
+  alias: string,
+): Resolved.TypeAnnotation {
+  const mark = (inner: Resolved.TypeAnnotation): Resolved.TypeAnnotation => {
+    switch (inner.kind) {
+      case "Record":
+        return {
+          ...inner,
+          fields: inner.fields.map((field) => ({ ...field, annotation: mark(field.annotation) })),
+          ...(inner.open ? { throughAlias: alias } : {}),
+        };
+      case "Tuple":
+        return { ...inner, elements: inner.elements.map(mark) };
+      case "Function":
+        return { ...inner, parameters: inner.parameters.map(mark), result: mark(inner.result) };
+      case "Vector":
+      case "Set":
+      case "Array":
+      case "JsSet":
+      case "Node":
+        return { ...inner, element: mark(inner.element) };
+      case "Nullable":
+        return { ...inner, value: mark(inner.value) };
+      case "Map":
+      case "JsMap":
+        return { ...inner, key: mark(inner.key), value: mark(inner.value) };
+      case "RecordDeclaration":
+      case "Union":
+        return { ...inner, arguments: inner.arguments.map(mark) };
+      default:
+        return inner;
+    }
+  };
+  return mark(type);
 }
 
 function withTypeSpan(type: Resolved.TypeAnnotation, span: Source.Span): Resolved.TypeAnnotation {

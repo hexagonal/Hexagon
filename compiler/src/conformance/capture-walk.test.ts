@@ -691,38 +691,26 @@ describe("what the walk carries by identity, and what it rebuilds (§5.4)", () =
   });
 
   /**
-   * **An open row keeps its tail** (§5.4 item 7). An extern *result* is one of
-   * the positions where the foreign side instantiates the tail, so the row is
-   * legal there; the fields the declaration did not name are held "exactly as
-   * it holds a value at a type variable: safe by parametricity", which means
-   * the rebuilt POJO carries them. The plan records the row as open and the
-   * walk starts that copy from a spread of the source, overwriting only the
-   * fields the declaration named.
+   * **The open-row plan has no vehicle left, and is deleted rather than
+   * faked** (#962). The plan node still carries an `open` flag and the
+   * interpreter still spreads on it — a closed row is rebuilt from its fields
+   * and an open one from a spread of the source — but after the ruling no
+   * position this PR emits at can produce an open row: every extern position
+   * refuses one, and so does an exported constraint member and the release
+   * seat. The only producer left is an **exported Hexagon function's**
+   * parameters and result, whose face is the solved row and whose wrapper is
+   * PR 3's (Part 7 §7 occasion 4). PR 3 re-adds this row at that wrapper.
    *
-   * Pinned on the plan and the walk rather than at runtime, because Hexagon
-   * cannot name a field it did not declare: the only observer of the surviving
-   * tail is a JavaScript consumer, which reaches the value through an
-   * **export** — and PR 3's export wrapper is what carries it there. A closed
-   * row stands beside it so the flag is measured rather than assumed.
+   * What stays is the closed half, which is what every extern position gets
+   * now: the fields the declaration named, rebuilt one read each.
    */
-  test("an open row is rebuilt from a spread; a closed row from its fields", () => {
-    const open = javascript(
-      'extern from "./open.js"\n' +
-        "    fun sheet() ->! {rows: Array(Int), ...}\n" +
-        "\n" +
-        "export fun probe(): Int = Array.length(sheet!().rows)\n",
-    );
-    expect(open).toContain('{ k: "record", fields: [["rows", 1]], open: true }');
-    expect(open).toContain("__copy = __node.open ? { ...__from } : {};");
-    const closed = javascript(
+  test("a closed row is rebuilt from its fields", () => {
+    expect(javascript(
       'extern from "./closed.js"\n' +
         "    fun sheet() ->! {rows: Array(Int), label: String}\n" +
         "\n" +
         "export fun probe(): Int = Array.length(sheet!().rows)\n",
-    );
-    expect(closed).toContain(
-      '{ k: "record", fields: [["rows", 1], ["label", null]], open: false }',
-    );
+    )).toContain('{ k: "record", fields: [["rows", 1], ["label", null]], open: false }');
   });
 
   /**
@@ -1226,159 +1214,89 @@ describe("no node leaves the source in its parent's slot (§5.4, Part 10 §2)", 
   });
 });
 
-describe("an extern declaration's open row is its own (§5.4 item 7)", () => {
+describe("an extern declaration writes no open row at all (§5.4 item 7)", () => {
+  const refusal = (rendered: string): string =>
+    `this record may have more fields (\`${rendered}\`), so it cannot cross the foreign ` +
+    "boundary at this position: a field the declaration does not name would cross unseen, " +
+    "neither copied nor refused (FFI Part 1 §5.4) — name every field the crossing carries, " +
+    "declare `JsValue` where the foreign side genuinely accepts or supplies anything, or " +
+    "bind an opaque extern `type`";
+
   /**
-   * §5.4 item 7's mechanism paragraph, made true: "an extern declaration's tail
-   * is instead solved afresh at each Hexagon call site, **invisibly to a
-   * wrapper compiled against the open declaration**", and "the classification
-   * is static, by position".
+   * **Every position, and no call site decides it** (#962). Item 7 refused an
+   * open row only where Hexagon supplied the record while the exemption rested
+   * on parametricity — "Hexagon can neither name nor add the fields it did not
+   * declare" — and in the declaring module that is false: an extern's tail is
+   * an ordinary inference variable there.
    *
-   * The declaration alone was already refused. What this pins is that a **call
-   * site cannot retract the refusal** by passing a closed record: the tail is
-   * quantified in the declaration's scheme, so the caller instantiates its own.
-   * Before the repair the two programs below disagreed, and the second one
-   * emitted `const send = r => { __sendForeign(r); }` — a declared position
-   * crossing a Hexagon `Array` uncopied, which is the one thing §5.4 says
-   * cannot happen.
+   * What survives from #961 is the half about *when* the question is asked.
+   * A declaration's tail is one variable shared with every caller, so a
+   * Hexagon call site that passes a closed record solves it; the check reads
+   * the row as written (`#externDeclaredSignatures`), so the verdict does not
+   * depend on whether somebody called the row.
    */
   test("a closing call site does not retract the refusal", () => {
-    const refusal = "this record may have more fields (`{n: Int, ...}`), so it cannot cross " +
-      "the foreign boundary at this position: Hexagon supplies the record here, and a field " +
-      "the declaration does not name would cross uncopied (FFI Part 1 §5.4) — name every " +
-      "field the crossing carries, or declare `JsValue` where the foreign side genuinely " +
-      "accepts anything";
     const declaration = 'extern from "./sink.js"\n' +
       "    fun send(r: {n: Int, ...}) ->! Unit\n";
-    // The declaration on its own.
-    expect(projectDiagnostics("module Main\n\n" + declaration)).toEqual([refusal]);
-    // And with a Hexagon caller that passes a closed record carrying an
-    // `Array(Int)` the declaration never named.
+    expect(projectDiagnostics("module Main\n\n" + declaration))
+      .toEqual([refusal("{n: Int, ...}")]);
     expect(projectDiagnostics(
       "module Main\n\n" + declaration +
         "\nexport fun forward(r: {n: Int, v: Array(Int)}): Unit = send!(r)\n",
-    )).toEqual([refusal]);
+    )).toEqual([refusal("{n: Int, ...}")]);
   });
 
   /**
-   * The other half, at the position item 7 **keeps** open — an extern result,
-   * where the foreign side instantiates the tail. A Hexagon annotation that
-   * writes the same open row must not close the declaration's, because the
-   * walk compiled against it would then rebuild the declared fields alone and
-   * drop what the foreign side filled. Measured through the value, which PR 2
-   * lets a JavaScript caller read directly.
+   * The inbound half, which #961 left open and this rider closes: the extern
+   * *result* and the `extern let` are refused too, so the residue programs
+   * PR #961's body recorded — `get!().cells` returning the live foreign array,
+   * and the `Holder3` inbound mirror — no longer compile.
    */
-  test("an annotated export leaves the inbound row open, and the tail rides through", async () => {
-    const { main, foreign } = await run(
-      'extern from "open"\n' +
-        "    fun sheet() ->! {rows: Array(Int), ...}\n" +
-        "\n" +
-        "export fun probe(): {rows: Array(Int), ...} = sheet!()\n",
-      {
-        open: "export const rows = [1, 2];\n" +
-          "export const extra = { id: 7 };\n" +
-          "export const source = { rows, extra };\n" +
-          "export function sheet() { return source; }\n",
-      },
-    );
-    const captured = (main["probe"] as () => { rows: number[]; extra: unknown })();
-    const fixtures = await foreign("open") as {
-      rows: number[];
-      extra: unknown;
-      source: unknown;
-    };
-    expect(captured).not.toBe(fixtures.source);
-    expect(captured.rows).not.toBe(fixtures.rows);
-    expect(captured.rows).toEqual([1, 2]);
-    // The field the declaration never named is still there, by identity.
-    expect(captured.extra).toBe(fixtures.extra);
-    // And the plan says so, which is what the walk is directed by — including
-    // where a Hexagon *annotation* has closed the shared tail, because the
-    // wrapper is compiled against the **declaration**, not against a caller.
-    for (const program of [
-      "export fun probe(): {rows: Array(Int), ...} = sheet!()\n",
-      "export fun probe(): Int =\n" +
-        "    let r: {rows: Array(Int), extra: Int} = sheet!()\n" +
-        "    Array.length(r.rows)\n",
-    ]) {
-      expect(javascript(
-        'extern from "./open.js"\n' +
-          "    fun sheet() ->! {rows: Array(Int), ...}\n" +
-          "\n" + program,
-      )).toContain('{ k: "record", fields: [["rows", 1]], open: true }');
-    }
-  });
-
-  /**
-   * **And the open row is not a row a consumer may widen.** §5.4 item 7 leaves
-   * a `foreign` seat's row open on one ground — "Hexagon, **which can neither
-   * name nor add the fields it did not declare**, holds them exactly as it
-   * holds a value at a type variable: safe by parametricity" — beside "an
-   * exported function's open result tail is always one of its parameters'
-   * tails". A published tail on a parameterless export is neither: another
-   * module instantiates it, names a field the declaration never carried, and
-   * reads whatever the foreign object has there — including an `Array(Int)` it
-   * would then hold **by identity**, across a declared position no walk ever
-   * saw (#961 review 2).
-   *
-   * The refusal is the prelude's ordinary one, and it is the same sentence a
-   * pure-Hexagon record gets, which is the point: the extern path opens nothing
-   * the language does not already open.
-   */
-  test("a consumer module cannot name a field into an exported open result", () => {
-    const shapes = "module Shapes\n\n" +
-      'extern from "s"\n' +
-      "    fun sheet() ->! {rows: Vector(Int), ...}\n" +
-      "\n" +
-      "export fun probe(): {rows: Vector(Int), ...} = sheet!()\n";
-    const consumer = (body: string): readonly string[] =>
-      compileFiles([
-        ["/Shapes.hex", shapes],
-        ["/main.hex", "module Main\n\nimport Shapes\n\n" + body],
-      ]).diagnostics.map(({ message }) => message);
-
-    expect(consumer("export fun missing(): Int = Shapes.probe!().missing\n"))
-      .toEqual(["record has fields `rows`, not `missing`"]);
-    // The one that makes it a §2.2 break rather than a type hole: the field
-    // named is a captured collection, so a widening consumer would hold the
-    // foreign array itself.
-    expect(consumer("export fun cells(): Int = Array.length(Shapes.probe!().cells)\n"))
-      .toEqual(["record has fields `rows`, not `cells`"]);
-    // The same sentence a record with no extern anywhere near it draws.
+  test("the result and the `extern let` are refused, and the residues are gone", () => {
     expect(projectDiagnostics(
       "module Main\n\n" +
-        "export fun probe(): {rows: Vector(Int), ...} = {rows = []}\n" +
-        "export fun missing(): Int = probe().missing\n",
-    )).toEqual(["record has fields `rows`, not `missing`"]);
-  });
+        'extern from "./src.js"\n    fun get() ->! {xs: Array(Int), ...}\n' +
+        "\nexport fun cells(): Array(Int) = get!().cells\n",
+    )).toEqual([refusal("{xs: Array(Int), ...}")]);
 
-  /**
-   * The published face of that export, byte for byte. A `.d.ts` is a Part 7
-   * surface and this is a capture PR, so what it must say is *what it said
-   * before*: a closed row, no quantifier, nothing a TypeScript consumer can
-   * instantiate in return position.
-   */
-  test("the face of an exported open result is the closed row it always was", () => {
-    const project = compileFiles([["/main.hex",
+    expect(projectDiagnostics(
+      "module Main\n\n" + 'extern from "./src.js"\n    let cfg: {n: Int, ...}\n',
+    )).toEqual([refusal("{n: Int, ...}")]);
+
+    // The `Holder3` mirror: the record can no longer be written, so Products
+    // §4 speaks first and the extern position speaks beside it.
+    expect(projectDiagnostics(
       "module Main\n\n" +
-        'extern from "./s.js"\n' +
-        "    fun sheet() ->! {rows: Vector(Int), ...}\n" +
-        "\n" +
-        "export fun probe(): {rows: Vector(Int), ...} = sheet!()\n",
-    ]]);
-    expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
-    expect(project.modules.find(({ source }) => source.path === "/main.hex")!.declarations.text)
-      .toContain("export declare function probe(): { rows: Hex.Vector<number> };");
+        "export record Holder3 = { r: {n: Int, ...} }\n\n" +
+        'extern from "./src.js"\n    fun get() ->! Holder3\n' +
+        "\nexport fun take(): Holder3 = get!()\n",
+    )).toEqual([
+      "a `record` names every field of its values; `r`'s type says the record may have " +
+      "more fields — name them, or give the field the type `JsValue`",
+      refusal("{n: Int, ...}"),
+    ]);
   });
 
   /**
-   * What `#publicType`'s **field** normalization is for, pinned where it is
-   * observable and away from the code-action row that used to be its only
-   * witness: a branch join binds one row's tail to the *other record*, so a raw
-   * read publishes each parameter with the fields its own annotation wrote and
-   * drops the ones the join brought in. The value carries both.
-   *
-   * The tail is a separate question and is read one link, which is what keeps
-   * the row above closed; only the fields are merged.
+   * And a **closed** row crosses as it always did, with the plan its fields
+   * ask for — so the refusal above is the row's openness and nothing else.
+   */
+  test("a closed row crosses, and gets its plan", () => {
+    const source = 'extern from "./closed.js"\n' +
+      "    fun sheet() ->! {rows: Array(Int), label: String}\n" +
+      "\nexport fun probe(): Int = Array.length(sheet!().rows)\n";
+    expect(projectDiagnostics("module Main\n\n" + source)).toEqual([]);
+    expect(javascript(source))
+      .toContain('{ k: "record", fields: [["rows", 1], ["label", null]], open: false }');
+  });
+
+  /**
+   * What `#publicType`'s **field** normalization is for, kept from #961 and
+   * still observable: a branch join binds one row's tail to the *other*
+   * record, so a raw read publishes each parameter with the fields its own
+   * annotation wrote and drops the ones the join brought in. An exported
+   * function is the position that still writes open rows, so it is where this
+   * is measured.
    */
   test("a join publishes the fields the join brought in", () => {
     const project = compileFiles([["/main.hex",
@@ -1393,144 +1311,100 @@ describe("an extern declaration's open row is its own (§5.4 item 7)", () => {
           "y: { m: number; n: number }): { n: number; m: number };",
       );
   });
-
-  /**
-   * A closed row is still closed, and is still rebuilt from its fields alone —
-   * so the flag above is measured rather than assumed — and each walked field
-   * is read exactly **once**, off the spread rather than off the source a
-   * second time.
-   */
-  test("a closed row is rebuilt from its fields; an open row reads each once", async () => {
-    expect(javascript(
-      'extern from "./closed.js"\n' +
-        "    fun sheet() ->! {rows: Array(Int), label: String}\n" +
-        "\n" +
-        "export fun probe(): Int = Array.length(sheet!().rows)\n",
-    )).toContain('{ k: "record", fields: [["rows", 1], ["label", null]], open: false }');
-
-    const { main, foreign } = await run(
-      'extern from "watched"\n' +
-        "    fun sheet() ->! {rows: Array(Int), ...}\n" +
-        "\n" +
-        "export fun probe(): Int = Array.length(sheet!().rows)\n",
-      {
-        watched: "export const reads = [];\n" +
-          "const inner = { rows: [1], other: 2 };\n" +
-          "const watched = new Proxy(inner, {\n" +
-          "  get(target, property) {\n" +
-          "    reads.push(String(property));\n" +
-          "    return Reflect.get(target, property, target);\n" +
-          "  },\n" +
-          "});\n" +
-          "export function sheet() { return watched; }\n",
-      },
-    );
-    expect((main["probe"] as () => number)()).toBe(1);
-    const { reads } = await foreign("watched") as { reads: string[] };
-    // The spread reads both fields once; nothing reads `rows` a second time.
-    expect(reads.filter((read) => read === "rows")).toHaveLength(1);
-  });
 });
 
-describe("a nominal's field row is judged as declared (§5.4 item 7)", () => {
-  const REFUSAL = "this record may have more fields (`{n: Int, ...}`), so it cannot cross " +
-    "the foreign boundary at this position: Hexagon supplies the record here, and a field " +
-    "the declaration does not name would cross uncopied (FFI Part 1 §5.4) — name every " +
-    "field the crossing carries, or declare `JsValue` where the foreign side genuinely " +
-    "accepts anything";
+describe("a nominal declaration writes no open row either (Products §4)", () => {
+  const field = (name: string, alias?: string): string =>
+    "a `record` names every field of its values; " +
+    `\`${name}\`'s type ${alias === undefined ? "says" : `— \`${alias}\` — says`} ` +
+    "the record may have more fields — name them, or give the field the type `JsValue`";
+  const slot = (alias?: string): string =>
+    "a constructor's payload names every field of its values; " +
+    `this slot's type ${alias === undefined ? "says" : `— \`${alias}\` — says`} ` +
+    "the record may have more fields — name them, or give the slot the type `JsValue`";
 
   /**
-   * §5.4 item 7 refuses an open row at a supplied position "at any depth,
-   * **through a nominal record's field**". A record declaration's field row is
-   * one variable shared by every construction in the program — that is
-   * `origin/main`'s behaviour and this arc does not change it — so read live,
-   * the row stops being open the moment somebody writes
-   * `Holder({r = {n = 1, v = xs}})` anywhere in the module, and the position
-   * item 7 refuses on its own compiles. Executed before the repair, foreign
-   * code received `h.r.v === xs`: a Hexagon `Array` reachable from JavaScript
-   * across a declared position, with no plan and no copy (#961 review 3).
+   * Products §4's "Where `...` may be written", which is a **declaration**
+   * check and not a boundary one: it fires on a private record no `extern`
+   * ever names. Its ground is not item 7's — "a declaration's row is one row
+   * for every value of the type, so a construction that widened it would widen
+   * every value of the type at once, a foreign one at a boundary included".
    *
-   * The declaration is what item 7 is judged on, so the verdict does not
-   * depend on what some other line of the module constructed.
+   * The reach is the field's own written type tree, at any depth.
    */
-  test("a construction cannot lift the refusal on a nominal's open field", () => {
-    const holder = "export record Holder = {r: {n: Int, ...}}\n";
-    const sink = 'extern from "./sink.js"\n' + "    fun send(h: Holder) ->! Unit\n";
-    // Without a construction anywhere — the position on its own.
-    expect(projectDiagnostics(
-      "module Main\n\n" + holder + "\n" + sink + "\nexport fun p(h: Holder): Unit = send!(h)\n",
-    )).toEqual([REFUSAL]);
-    // And with the construction that used to close the row.
-    expect(projectDiagnostics(
-      "module Main\n\n" + holder + "\n" + sink +
-        "\nexport fun p(xs: Array(Int)): Unit = send!(Holder({r = {n = 1, v = xs}}))\n",
-    )).toEqual([REFUSAL]);
-  });
-
-  /** The declaration order does not decide it either, nor does the module. */
-  test("the record may be declared after the extern block, or in another module", () => {
-    expect(projectDiagnostics(
-      "module Main\n\n" +
-        'extern from "./sink.js"\n' + "    fun send(h: Holder) ->! Unit\n" +
-        "\nexport record Holder = {r: {n: Int, ...}}\n" +
-        "\nexport fun p(xs: Array(Int)): Unit = send!(Holder({r = {n = 1, v = xs}}))\n",
-    )).toEqual([REFUSAL]);
-
-    expect(compileFiles([
-      ["/Shapes.hex", "module Shapes\n\nexport record Holder = {r: {n: Int, ...}}\n"],
-      ["/main.hex", "module Main\n\nimport Shapes\n\n" +
-        'extern from "./sink.js"\n' + "    fun send(h: Shapes.Holder) ->! Unit\n" +
-        "\nexport fun p(xs: Array(Int)): Unit =\n" +
-        "    send!(Shapes.Holder({r = {n = 1, v = xs}}))\n"],
-    ]).diagnostics.map(({ message }) => message)).toEqual([REFUSAL]);
-  });
-
-  /** A union arm carrying the open row is the same position and the same row. */
-  test("a union arm's open payload is refused too", () => {
-    expect(projectDiagnostics(
-      "module Main\n\n" +
-        "export union Wrap = Held({n: Int, ...}) | Empty\n" +
-        "\n" +
-        'extern from "./sink.js"\n' + "    fun send(w: Wrap) ->! Unit\n" +
-        "\nexport fun p(xs: Array(Int)): Unit = send!(Held({n = 1, v = xs}))\n",
-    )).toEqual([REFUSAL]);
+  test.each([
+    ["the field's own type", "{ r: {n: Int, ...} }", "r"],
+    ["a tuple", "{ r: (Int, {n: Int, ...}) }", "r"],
+    ["an `Option`", "{ r: Option({n: Int, ...}) }", "r"],
+    ["a nested record", "{ r: {m: {n: Int, ...}} }", "r"],
+    ["a function type", "{ f: ({n: Int, ...}) -> Int }", "f"],
+    ["a named tail", "{ r: {n: Int, ...t} }", "r"],
+  ])("a record's open row is refused at the field — %s", (_what, written, name) => {
+    expect(projectDiagnostics(`module Main\n\nexport record H = ${written}\n`))
+      .toEqual([field(name)]);
   });
 
   /**
-   * And the declared reading is item 7's alone. Items 1 and 2 keep reading the
-   * components a nominal's declaration has **now**, because the collection
-   * they look for may be the very thing a construction put there: the same
-   * field, closed with a `Vector(Array(Int))`, draws item 1 as well.
+   * Through an alias, applied or not, and however many aliases deep — the
+   * alias is expanded and the report names it, because that is the word the
+   * reader's edit has to change.
    */
-  test("items 1 and 2 still read what a construction put in the field", () => {
+  test.each([
+    ["a plain alias", "type Row = {n: Int, ...}\n", "Row", "Row"],
+    ["an applied alias", "type Wrap(a) = {n: a, ...}\n", "Wrap(Int)", "Wrap"],
+    ["an alias of an alias", "type A = {n: Int, ...}\ntype B = A\n", "B", "B"],
+  ])("a record's open row is refused through %s", (_what, preamble, written, alias) => {
+    expect(projectDiagnostics(`module Main\n\n${preamble}\nexport record H = { r: ${written} }\n`))
+      .toEqual([field("r", alias)]);
+  });
+
+  /** A union constructor's payload takes the same rule and its own sentence. */
+  test.each([
+    ["the slot's own type", "", "{n: Int, ...}", undefined],
+    ["a tuple with a named tail", "", "(Int, {n: Int, ...t})", undefined],
+    ["an alias", "type Row = {n: Int, ...}\n", "Row", "Row"],
+  ])("a payload's open row is refused at the slot — %s", (_what, preamble, written, alias) => {
     expect(projectDiagnostics(
-      "module Main\n\n" +
-        "export record Holder = {r: {n: Int, ...}}\n" +
-        "\n" +
-        'extern from "./sink.js"\n' + "    fun send(h: Holder) ->! Unit\n" +
-        "\nexport fun p(v: Vector(Array(Int))): Unit = send!(Holder({r = {n = 1, v = v}}))\n",
-    )).toEqual([
-      REFUSAL,
-      "captured collection `Array(Int)` beneath `Vector` cannot cross the foreign boundary; " +
-      "convert each element with `Array.toVector` before the crossing, perform the " +
-      "conversion at a controlled boundary, or bind through a foreign shim or an opaque " +
-      "foreign handle",
-    ]);
+      `module Main\n\n${preamble}\nexport union Box = Held(${written}) | Empty\n`,
+    )).toEqual([slot(alias)]);
   });
 
   /**
-   * A nominal whose field row is **closed as declared** crosses as it always
-   * did, with the plan its fields ask for — so the refusal above is the row's
-   * openness and not the nominal.
+   * And what stays legal, which is the other half of "Where `...` may be
+   * written": the alias itself, a definition Hexagon compiles, and a closed
+   * field, which still gets its capture plan.
    */
-  test("a closed field row crosses, and gets its plan", () => {
-    const source = "export record Box = {r: {n: Int}, xs: Array(Int)}\n" +
+  test("the alias, an exported function and a closed field are untouched", () => {
+    expect(projectDiagnostics(
+      "module Main\n\ntype Row = {n: Int, ...}\n\nexport let f(r: Row): Int = r.n\n",
+    )).toEqual([]);
+    expect(projectDiagnostics(
+      "module Main\n\nexport let f(r: {n: Int, ...}): Int = r.n + r.m\n",
+    )).toEqual([]);
+    expect(projectDiagnostics("module Main\n\nlet getX(r) = r.x\nexport let n(): Int = getX({x = 1})\n"))
+      .toEqual([]);
+
+    const closed = "export record Box = {r: {n: Int}, xs: Array(Int)}\n" +
       "\n" +
       'extern from "./sink.js"\n' + "    fun send(b: Box) ->! Unit\n" +
       "\nexport fun p(b: Box): Unit = send!(b)\n";
-    expect(projectDiagnostics("module Main\n\n" + source)).toEqual([]);
-    expect(javascript(source))
+    expect(projectDiagnostics("module Main\n\n" + closed)).toEqual([]);
+    expect(javascript(closed))
       .toContain('{ k: "record", fields: [["r", null], ["xs", 1]], open: false }');
+  });
+
+  /**
+   * The face an exported function's open row publishes is the **solved** row,
+   * which is the whole of why that position keeps its `...`: every field any
+   * expression named is on it.
+   */
+  test("an exported function's open row publishes the fields its body named", () => {
+    const project = compileFiles([["/main.hex",
+      "module Main\n\nexport let f(r: {n: Int, ...}): Int = r.n + r.m\n",
+    ]]);
+    expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
+    expect(project.modules.find(({ source }) => source.path === "/main.hex")!.declarations.text)
+      .toContain("export declare const f: <a>(r: { n: number; m: number }) => number;");
   });
 });
 
