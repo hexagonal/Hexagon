@@ -1,16 +1,17 @@
 module JsMap
 
-// The public companion of the borrowed foreign `JsMap(k, v)` (FFI Part 10).
+// The public companion of the captured foreign `JsMap(k, v)` (FFI Part 10).
 //
 // `JsMap(k, v)` is compiler-owned: no `.hex` file declares it, because a value
-// that crosses by identity has no Hexagon declaration site, exactly as
-// `Array(a)` has none and `JsValue` has none. This module is its companion by
+// made at the boundary has no Hexagon declaration site, exactly as `Array(a)`
+// has none and `JsValue` has none. This module is its companion by
 // being the module addressable under the name (Method Syntax section 4.1), the
 // same way `Array.hex` is `Array`'s.
 //
-// Everything here reads a native `Map` that foreign code owns, or builds one
-// fresh from a sequence (section 6.5). There is no mutation surface and there
-// will not be one: the borrow is readonly from Hexagon, full stop (section 1).
+// Everything here reads a native `Map` that Hexagon holds as its own copy, made
+// as the foreign map crossed (section 2), or builds one fresh from a sequence
+// (section 6.5). There is no mutation surface and there will not be one: the
+// collection is readonly from Hexagon, full stop (section 1).
 //
 // **No `Hash` appears anywhere in this file, and that is the point**
 // (section 4.3). A lookup here is the native map's own equality —
@@ -20,14 +21,15 @@ module JsMap
 // do not. The foreign door does not consult `Hash`, so it demands none.
 
 extern from "hex:intrinsic"
-    (** How many entries `map` holds. Read fresh from the native `size` at every
-        call, never cached and never hoisted: foreign code owns the map, so two
-        observations may honestly disagree (FFI Part 5 section 3.1). *)
+    (** How many entries `map` holds: the captured map's own `size`, which is
+        the source's size at the moment of capture and never changes. A read of
+        a value, which the compiler may share or hoist freely (section 2). *)
     export fun jsMapSize as size(map: JsMap(k, v)) -> Int
 
-    (** Whether `map` binds `key`, by the native `has` and its equality. A
-        hostile or proxied `has` that throws is an ordinary foreign throw and
-        arrives as `JsError`, never as an answer (section 4.4). *)
+    (** Whether `map` binds `key`, by the native `has` and its equality. The
+        map is a genuine native `Map` that Hexagon holds, so the read cannot
+        throw: a hostile or proxied source throws at the crossing that captured
+        it, an ordinary foreign throw arriving as `JsError` (section 4.4). *)
     export fun jsMapHas as containsKey(map: JsMap(k, v), key: k) -> Bool
 
     // Unexported, beneath `get` below: the bare native `get`, which answers
@@ -63,8 +65,9 @@ export let get(map: JsMap(k, v), key: k): Option(v) =
     else
         None
 
-(** Every key/value pair of `map`, lazily, in the native insertion order the
-    foreign object itself defines (section 6.2).
+(** Every key/value pair of `map`, lazily, in the captured map's native
+    insertion order — the order the source yielded at the crossing
+    (section 6.2).
 
     This is `toSeq` under a second name and nothing else — the same walk, not a
     second traversal (section 6.3). It exists because the persistent `Map` has
@@ -75,7 +78,7 @@ export let get(map: JsMap(k, v), key: k): Option(v) =
     rebinding error. The suite spelling reaches the same walk through the
     member, as the dot call `map.toSeq()` or qualified as `JsMap.toSeq(map)`.
 
-    The sequence is lazy and zero-copy over the borrowed map, so holding one
-    extends the borrow: foreign code must keep the map's entries stable while
-    any position of it may still be forced (section 2). *)
+    The sequence is lazy over the captured map and allocates no second copy.
+    It may be forced at any time and observes the same entries, because the
+    map cannot change (section 6.3). *)
 export let entries(map: JsMap(k, v)): Seq((k, v)) = Iterable.toSeq(map)

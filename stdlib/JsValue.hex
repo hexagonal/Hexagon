@@ -99,10 +99,12 @@ extern from "hex:intrinsic"
     // `toArray` below.
     fun jsValueIsArray as isArray(value: JsValue) -> Bool
 
-    // The sixth crossing, and the same identity as the five above it: a
-    // JavaScript array *is* an `Array(JsValue)`, whose elements are the same
-    // uncertain values they were. Zero-copy means exactly this — the borrowed
-    // view is the array, not a copy of it (section 4.2).
+    // The sixth crossing, and the one that is not an identity: a JavaScript
+    // array becomes an `Array(JsValue)` by being copied — FFI Part 1 section
+    // 5.4's walk at `Array(JsValue)`, each index read once in order, each
+    // element carried as the uncertain `JsValue` it is — so the result is
+    // Hexagon's own dense copy, and the foreign array is not looked at again
+    // (section 4.2).
     fun jsValueAsArrayUnchecked as asArrayUnchecked(value: JsValue) -> Array(JsValue)
 
 (** `value` as a `Float`, or `Err` with reason `Shape` when it is not a
@@ -145,18 +147,20 @@ export let toString(value: JsValue): Result(String, JsConversionError) = match k
     JsKind.String => Ok(asStringUnchecked(value))
     _ => Err(shapeFailure)
 
-(** `value` as a borrowed `Array` of the values it holds, or `Err` with reason
-    `Shape` when it is not a JavaScript array. The one structural decoder, and
-    the cheapest one: it copies nothing, reads no property and inspects no
-    element, so the result is a **borrowed view of the same array** and FFI
-    Part 2's stability contract governs it from here on. The elements stay
-    honestly uncertain — each is a `JsValue`, decoded one at a time by whoever
-    wants one.
+(** `value` as a captured `Array` of the values it holds, or `Err` with reason
+    `Shape` when it is not a JavaScript array. The one structural decoder: it
+    copies the array once — each index read in order, no element inspected —
+    so the result is **Hexagon's own value**, stable from the moment of
+    success, and the foreign array is not looked at again (FFI Part 2
+    section 6.2). A hole in the source is an `undefined` element. The elements
+    stay honestly uncertain — each is a `JsValue`, decoded one at a time by
+    whoever wants one.
 
     An array-like is not an array: `arguments`, a `NodeList` and a
     `{ length: 2 }` object all fail. A hostile value whose `Array.isArray` probe
     *throws* — a revoked proxy is the one that does — is not converted into a
-    failure here; the throw is foreign control flow and travels as such. *)
+    failure here; the throw is foreign control flow and travels as such, and so
+    does a getter or trap that throws while the copy reads. *)
 export let toArray(value: JsValue): Result(Array(JsValue), JsConversionError) =
     if isArray(value) then
         Ok(asArrayUnchecked(value))

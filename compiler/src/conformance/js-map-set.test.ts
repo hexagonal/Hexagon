@@ -7,8 +7,14 @@ import { compileFiles, projectDiagnostics } from "../support/test-project.js";
 import { typeScriptErrors } from "../support/typescript-check.js";
 
 /**
- * Conformance for FFI Part 10's borrowed foreign views, `JsMap(k, v)` and
- * `JsSet(a)` (#396).
+ * Conformance for FFI Part 10's captured foreign collections, `JsMap(k, v)`
+ * and `JsSet(a)` (#396).
+ *
+ * The category's name changed under #875: what these types were when this file
+ * was written is retired, and `spec/ffi.md` carries the borrowed foreign view
+ * as a retired row. What that ruling changed about the *surfaces* below is
+ * nothing — they are the same reads of the same native shapes — and what it
+ * changed about the *crossing* is `capture-walk.test.ts`'s (#945).
  *
  * The types had no representation in the type system at all until this arc — no
  * `Mono`, no annotation kind — which is why Collections Part 5 §4's nine-row
@@ -169,15 +175,16 @@ describe("iteration over the real thing (Part 10 §6)", () => {
 
   /**
    * §6.3: the derived `Seq` obeys full `Seq` persistence — positions are
-   * persistent and forcing memoizes — *over a borrowed view*. That is not free:
+   * persistent and forcing memoizes — *over a captured collection*. That is not free:
    * the implementation may hold one native iterator behind a memoizing spine,
    * and a non-memoizing adapter answers `3 + 0` here rather than `3 + 60`,
    * because a `Set`'s iterator is single-shot once acquired.
    *
-   * Under a valid borrow (§2) live and snapshot observation coincide, which is
-   * what makes the memoizing choice unobservable and therefore lawful.
+   * The captured collection cannot change (§2), so when the iterator is driven
+   * is unobservable — which is what makes the memoizing choice lawful, and §6.3
+   * says so outright.
    */
-  test("a `Seq` derived from a borrowed view is re-traversable", async () => {
+  test("a `Seq` derived from a captured collection is re-traversable", async () => {
     const exports = await run(
       'extern from "scores"\n' +
         "    fun scores() ->! JsSet(Int)\n" +
@@ -191,7 +198,7 @@ describe("iteration over the real thing (Part 10 §6)", () => {
   });
 
   /** The same, at `JsMap`, where the items are pairs rather than scalars. */
-  test("a `Seq` of a borrowed map's entries replays as pairs", async () => {
+  test("a `Seq` of a captured map's entries replays as pairs", async () => {
     const exports = await run(
       'extern from "prices"\n' +
         "    fun prices() ->! JsMap(String, Int)\n" +
@@ -212,12 +219,12 @@ describe("iteration over the real thing (Part 10 §6)", () => {
   });
 
   /**
-   * §6.4's emission license, read off the text: a loop over a borrowed view is
+   * §6.4's emission license, read off the text: a loop over a captured collection is
    * a native `for…of` over the foreign object, with no evidence fetched and no
    * `toSeq` call. This is #353's ruling 2 — the row is the semantics and static
    * dispatch is its *erasure* — reaching the newest two rows unchanged.
    */
-  test("a loop over a borrowed view emits native `for…of`, asking for no evidence", () => {
+  test("a loop over a captured collection emits native `for…of`, asking for no evidence", () => {
     const text = javascript(
       'extern from "./stock.js"\n' +
         "    fun stock() ->! JsSet(Int)\n" +
@@ -238,7 +245,7 @@ describe("the `.d.ts` faces (Part 10 §1)", () => {
    * The faces are TypeScript's own readonly interfaces, not `Hex.` types: a
    * `JsMap` *is* the caller's own `Map`, so a brand would be a lie, and the
    * readonly spelling says the only thing the boundary has to say — Hexagon
-   * exposes no mutation on a borrowed view (§1).
+   * exposes no mutation on a captured collection (§1).
    */
   const FACES = 'extern from "./stores.js"\n' +
     "    fun store() ->! JsMap(String, Int)\n" +
@@ -288,7 +295,7 @@ describe("the `.d.ts` faces (Part 10 §1)", () => {
   /**
    * The spelling is the cheap half; what the row is *for* is what `tsc` does
    * with it. Reads and iteration compile, and the four writes Part 10 §1 denies
-   * do not — which is the whole content of "borrowed, read-only".
+   * do not — which is the whole content of "captured, read-only".
    */
   test("the emitted declarations compile, and the mutators are refused, by `tsc`", async () => {
     const face = declarations(FACES);
@@ -326,10 +333,10 @@ describe("the `.d.ts` faces (Part 10 §1)", () => {
 describe("boundary legality of the parameters (Part 10 §8)", () => {
   /**
    * §8 cites Part 1 §5.3 rather than extending it: an adapter-requiring type is
-   * rejected *inside* a borrowed container, exactly as it is inside `Array`.
+   * rejected *inside* a captured container, exactly as it is inside `Array`.
    * The rule is about where the bridge could be attached — a `Seq` at the top
    * of a declaration is wrapped, and buried in a container there is nothing to
-   * wrap — and a borrowed view is a container like any other.
+   * wrap — and a captured collection is a container like any other.
    */
   test("`JsMap(String, Seq(Int))` is the nested-adapter hard error", () => {
     expect(projectDiagnostics("module Main\n\n" + 'extern from "./feed.js"\n    fun feed() ->! JsMap(String, Seq(Int))\n',
@@ -357,10 +364,10 @@ describe("boundary legality of the parameters (Part 10 §8)", () => {
   });
 
   /**
-   * The other half of §8: representation-direct and borrowed types nest freely,
+   * The other half of §8: representation-direct and captured types nest freely,
    * so the restriction is about adaptation and not about nesting.
    */
-  test("borrowed and representation-direct types nest freely", () => {
+  test("captured and representation-direct types nest freely", () => {
     expect(projectDiagnostics("module Main\n\n" + 'extern from "./mixed.js"\n' +
         "    fun mixed() ->! JsMap(String, Array(Int))\n" +
         "    fun sets() ->! JsSet(Vector(Float))\n",
@@ -528,21 +535,41 @@ describe("`JsMap.get` and the two-step lowering (Part 10 §4.2)", () => {
   });
 });
 
-/*
- * The `size` reads were pinned here as **fresh** reads — two of them in one
- * body, a foreign mutation between, answering `(1, 2)` — which is the borrow
- * contract `JsMap`/`JsSet` carried before #875. That contract is retired: a
- * boundary collection is **captured at acquisition** (FFI Part 10 §2), so its
- * contents cannot vary while Hexagon holds it, and `size` is a read of a value
- * — Effects §6.2 species (c), which is why the rows write `->` (#869).
- *
- * The capture *lowering* is not implemented yet; it is issue #945, and the
- * observation this block used to pin is the one that arc will pin inverted —
- * two reads of a captured map answer `(1, 1)` however the source moves. The
- * tests are gone rather than inverted because nothing today performs the copy,
- * and a test asserting the arc's answer before the arc lands is a test that
- * cannot pass.
- */
+describe("the capture is what every read observes (Part 10 §2)", () => {
+  /**
+   * The `size` reads were once pinned here as **fresh** reads — two of them in
+   * one body, a foreign mutation between, answering `(1, 2)` — which was the
+   * borrow contract `JsMap`/`JsSet` carried before #875. That contract is
+   * retired: a boundary collection is **captured at acquisition** (§2), so its
+   * contents cannot vary while Hexagon holds it, and `size` is a read of a
+   * value — Effects §6.2 species (c), which is why the rows write `->` (#869).
+   *
+   * #945 landed the lowering, so the observation is pinned **inverted**: two
+   * reads of a captured map answer `(1, 1)` however the source moves. The
+   * crossing's own contract — what the copy is, where it runs, what it costs —
+   * is `capture-walk.test.ts`'s; what this row keeps is the seat where the
+   * retired pin stood.
+   */
+  test("two `size` reads around a foreign mutation answer the same", async () => {
+    const exports = await run(
+      'extern from "live"\n' +
+        "    fun table() ->! JsMap(String, Int)\n" +
+        "    fun grow() ->! Unit\n" +
+        "\n" +
+        "export fun counted(): (Int, Int) =\n" +
+        "    let m = table!()\n" +
+        "    let before = JsMap.size(m)\n" +
+        "    grow!()\n" +
+        "    (before, JsMap.size(m))\n",
+      {
+        live: 'const shared = new Map([["a", 1]]);\n' +
+          "export function table() { return shared; }\n" +
+          'export function grow() { shared.set("b", 2); }\n',
+      },
+    );
+    expect((exports["counted"] as () => [number, number])()).toEqual([1, 1]);
+  });
+});
 
 describe("native equality, not structural (Part 10 §4.3)", () => {
   /**
@@ -552,7 +579,7 @@ describe("native equality, not structural (Part 10 §4.3)", () => {
    * representation), so the row is about the two regimes agreeing, and the
    * values come from the foreign side because Hexagon writes no `NaN` literal.
    */
-  test("`NaN` finds `NaN` and `-0` finds `+0` in a borrowed map", async () => {
+  test("`NaN` finds `NaN` and `-0` finds `+0` in a captured map", async () => {
     const exports = await run(
       'extern from "odd"\n' +
         "    fun table() ->! JsMap(Float, Int)\n" +
@@ -574,7 +601,7 @@ describe("native equality, not structural (Part 10 §4.3)", () => {
       .toEqual([true, true, false]);
   });
 
-  /** The same at a borrowed set, whose one Boolean read is `contains` (§5). */
+  /** The same at a captured set, whose one Boolean read is `contains` (§5). */
   test("`JsSet.contains` finds `NaN` too", async () => {
     const exports = await run(
       'extern from "marks"\n' +
@@ -771,14 +798,15 @@ describe("eager construction from a `Seq` (Part 10 §6.5)", () => {
 
 describe("the two failure doors (Part 10 §4.4)", () => {
   /**
-   * A hostile `has` throws, and the throw is an ordinary foreign throw: it
-   * arrives at a `JsError(e)` arm carrying the very error JavaScript threw. It
-   * is never turned into `KeyError` — the honest-absence door — and it is never
-   * swallowed into `None`, which is the failure a `try` around a total accessor
-   * would otherwise invite. The `KeyError` arm sits *above* the `JsError` one,
-   * so a synthesized `KeyError` would win and be seen.
+   * **A hostile source throws during the capture, not at a read** — §4.4's "on
+   * this part's read surfaces it can happen in exactly one place: during the
+   * capture". So a source whose *iteration protocol* throws lands on `JsError`
+   * carrying the very error JavaScript threw: it is never turned into
+   * `KeyError`, the honest-absence door, and never swallowed into `None`. The
+   * `KeyError` arm sits *above* the `JsError` one, so a synthesized `KeyError`
+   * would win and be seen.
    */
-  test("a `Proxy` whose `has` throws lands on `JsError`, never `KeyError` or `None`", async () => {
+  test("a source whose iteration throws lands on `JsError`, never `KeyError` or `None`", async () => {
     const exports = await run(
       'extern from "hostile"\n' +
         "    fun hostile() ->! JsMap(String, Int)\n" +
@@ -796,8 +824,8 @@ describe("the two failure doors (Part 10 §4.4)", () => {
           '  const inner = new Map([["a", 1]]);\n' +
           "  return new Proxy(inner, {\n" +
           "    get(target, property) {\n" +
-          '      if (property === "has") {\n' +
-          '        return () => { throw new TypeError("hostile has"); };\n' +
+          "      if (property === Symbol.iterator) {\n" +
+          '        return () => { throw new TypeError("hostile entries"); };\n' +
           "      }\n" +
           "      const value = Reflect.get(target, property, target);\n" +
           '      return typeof value === "function" ? value.bind(target) : value;\n' +
@@ -806,11 +834,21 @@ describe("the two failure doors (Part 10 §4.4)", () => {
           "}\n",
       },
     );
-    expect((exports["probe"] as () => string)()).toBe("JsError: hostile has");
+    expect((exports["probe"] as () => string)()).toBe("JsError: hostile entries");
   });
 
-  /** The same door for a throwing `size`, and for a borrowed set's `has`. */
-  test("a throwing `size` and a throwing set `has` take the same door", async () => {
+  /**
+   * The other half of §4.4, and the half the capture *created*: "once captured,
+   * the value is a genuine native `Map` whose `has`/`get`/`size` are the
+   * platform's own and do not throw". A source whose only hostility is `size`
+   * or a set's `has` is never asked either question — the copy drives the
+   * iteration protocol — so it captures cleanly and reads cleanly.
+   *
+   * These two were pinned as throws before #945, at a time when Hexagon's reads
+   * went straight to the foreign object. The throw did not move to another
+   * door; the door stopped being reached.
+   */
+  test("a throwing `size` and a throwing set `has` are never asked", async () => {
     const exports = await run(
       'extern from "hostile"\n' +
         "    fun table() ->! JsMap(String, Int)\n" +
@@ -828,7 +866,7 @@ describe("the two failure doors (Part 10 §4.4)", () => {
         "        JsError(e) => JsError.message!(e)\n",
       {
         hostile: "export function table() {\n" +
-          "  return new Proxy(new Map(), {\n" +
+          '  return new Proxy(new Map([["a", 1]]), {\n' +
           "    get(target, property) {\n" +
           '      if (property === "size") throw new TypeError("hostile size");\n' +
           "      const value = Reflect.get(target, property, target);\n" +
@@ -837,7 +875,7 @@ describe("the two failure doors (Part 10 §4.4)", () => {
           "  });\n" +
           "}\n" +
           "export function members() {\n" +
-          "  return new Proxy(new Set(), {\n" +
+          "  return new Proxy(new Set([1]), {\n" +
           "    get(target, property) {\n" +
           '      if (property === "has") {\n' +
           '        return () => { throw new TypeError("hostile set has"); };\n' +
@@ -849,8 +887,8 @@ describe("the two failure doors (Part 10 §4.4)", () => {
           "}\n",
       },
     );
-    expect((exports["counted"] as () => string)()).toBe("hostile size");
-    expect((exports["member"] as () => string)()).toBe("hostile set has");
+    expect((exports["counted"] as () => string)()).toBe("1");
+    expect((exports["member"] as () => string)()).toBe("True");
   });
 });
 
@@ -948,7 +986,7 @@ describe("the qualified and dot spellings (Part 10 §3, §6.1)", () => {
     ]);
   });
 
-  test("...and the same at a borrowed set", () => {
+  test("...and the same at a captured set", () => {
     expect(projectDiagnostics("module Main\n\n" + 'extern from "./t.js"\n' +
         "    fun t() ->! JsSet(Int)\n" +
         "let peek(v) = v.contains(1)\n" +

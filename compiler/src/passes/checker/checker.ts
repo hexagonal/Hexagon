@@ -3078,6 +3078,33 @@ class Checker {
    * quantify one `a` while returning another.
    */
   readonly #intrinsicTypeParameters = new WeakMap<Resolved.ExternFunDeclaration, Map<string, Mono>>();
+  /**
+   * Each foreign extern declaration's signature **as written** — the type its
+   * annotations built, with every row tail it opened replaced by a variable
+   * nothing will ever unify with.
+   *
+   * FFI Part 1 §5.4 item 7 is judged on this and not on the live scheme,
+   * because §5.4 says the classification is "**static, by position**" and item
+   * 7's own mechanism paragraph says an extern declaration's tail is "solved
+   * afresh at each Hexagon call site, invisibly to a wrapper compiled against
+   * the open declaration". The declaration's tail is one variable shared with
+   * every caller, and the position checks run after the bodies are inferred —
+   * so without this snapshot the first Hexagon call site that passes a closed
+   * record has already solved the tail by the time item 7 looks, and a
+   * declaration the compiler refuses on its own compiles the moment somebody
+   * calls it. That is an ordering fault in the *check*, not in the type system:
+   * the fix is to look at the row the author wrote, which is what this holds.
+   *
+   * Only the extern's **own** written tails are frozen here. A tail inside a
+   * nominal record's declared field is that record's, shared by every
+   * construction in the program as it always was — and that sharing is exactly
+   * as able to retract item 7 as this one was, one field deeper. It is frozen
+   * too, at the occurrence rather than here, because items 1 and 2 need the
+   * solved field and item 7 needs the written one: `#captureFindingsAt` reads
+   * both and says why.
+   */
+  readonly #externDeclaredSignatures = new Map<Resolved.SymbolId, Mono>();
+
   readonly #externTypes = new Map<Resolved.ExternTypeId, Resolved.ExternTypeDeclaration>();
   readonly #recordParameters = new Map<Resolved.RecordId, ReadonlyMap<string, Variable>>();
   readonly #recordFields = new Map<Resolved.RecordId, ReadonlyMap<string, Mono>>();
@@ -4254,6 +4281,10 @@ class Checker {
             variables: [],
             type: externLetType,
           });
+          this.#externDeclaredSignatures.set(
+            declaration.binding.symbol,
+            this.#frozenRowTails(externLetType),
+          );
           continue;
         }
         // An extern row is a signature like any other (Effects §2.2.1): a
@@ -4305,15 +4336,22 @@ class Checker {
         const externEffect = this.#writtenEffect(declaration.effect, declaration.arrowSpan);
         this.#atExternRow = enclosingExternRow;
         this.#closeSignature(enclosingSignature);
+        const externSignature: Mono = {
+          kind: "Function",
+          ...(externEffect === undefined ? {} : { effect: externEffect }),
+          parameters,
+          result: externResult,
+        };
         this.#schemes.set(declaration.binding.symbol, {
           variables: externLinked && externFace !== undefined ? [externFace.effect] : [],
-          type: {
-            kind: "Function",
-            ...(externEffect === undefined ? {} : { effect: externEffect }),
-            parameters,
-            result: externResult,
-          },
+          type: externSignature,
         });
+        // Frozen here, where the annotations have just been interned and no
+        // call site has run (`#externDeclaredSignatures`).
+        this.#externDeclaredSignatures.set(
+          declaration.binding.symbol,
+          this.#frozenRowTails(externSignature),
+        );
       }
     }
     for (const record of module.records) {
@@ -22344,6 +22382,15 @@ class Checker {
   #findCapturedCollection(
     type: Mono,
     budget: { steps: number } = { steps: 0 },
+    /**
+     * Read a nominal's declared components with their **row tails frozen** —
+     * the row the declaration wrote, not the row a construction left.
+     *
+     * Item 7 alone asks for this, and items 1 and 2 must not have it: see
+     * `#captureFindingsAt`, which runs the two readings and says why each
+     * needs its own.
+     */
+    asDeclared = false,
   ): CaptureFindings {
     const pending: CaptureStep[] = [{ type }];
     const seen = new Set<string>();
@@ -22499,7 +22546,11 @@ class Checker {
           for (const component of this.#nominalComponents(actual)) {
             pending.push({
               ...step,
-              type: component.type,
+              // A declaration's field row is one variable shared by every
+              // construction of it, so under `asDeclared` it is frozen here,
+              // at the occurrence — the record's own fields, its own tail
+              // replaced by a variable nothing will unify (`#frozenRowTails`).
+              type: asDeclared ? this.#frozenRowTails(component.type) : component.type,
               ...(opaqueHere
                 ? { opaque: { name: actual.name, component: component.key } }
                 : {}),
@@ -22724,6 +22775,53 @@ class Checker {
   }
 
   /**
+   * FFI Part 1 §5.4's findings at one seat, read the **two ways the section
+   * asks for** and merged.
+   *
+   * Items 1 and 2 ask what the value can carry, so they read the components a
+   * nominal's declaration has *now*: `record Holder = { r: {n: Int, ...} }`
+   * whose row some construction closed with a `Vector(Array(Int))` really does
+   * carry that container, and item 1 refuses the position for it. Reading the
+   * row as written there would lose the finding.
+   *
+   * Item 7 asks the opposite question — what the *declaration* admits — and
+   * §5.4 answers it "at any depth, **through a nominal record's field**", with
+   * "the classification is **static, by position**". A record declaration's
+   * field row is one variable shared by every construction in the program, so
+   * read live it stops being open the moment somebody writes
+   * `Holder({r = {n = 1, v = xs}})` somewhere — and the position that item 7
+   * refuses on its own then compiles, crossing that `xs` uncopied (#961 review
+   * 3). So item 7 reads the components with their tails frozen.
+   *
+   * The two cannot disagree in the direction that matters. Freezing only ever
+   * *adds* open rows, so every position the live reading refuses for item 7 the
+   * declared reading refuses too, and the extra ones are refusals — never
+   * acceptances. **At these seats the emitter therefore never compiles a plan
+   * for a type the checker accepted only because a construction closed a
+   * nominal's field**: that position is refused here, whichever field the
+   * construction closed.
+   *
+   * Only a seat that can report item 7 pays for the second walk; a `foreign`
+   * seat keeps its open rows (§5.4 item 7's "every other position") and asks
+   * once. **That seat is therefore outside the sentence above**, and a nominal
+   * field row a construction closed does still read two ways there — the
+   * inbound mirror, recorded in `capture.ts`'s header and owned by the rider
+   * that refuses an open row in a nominal declaration.
+   */
+  #captureFindingsAt(type: Mono, seat: OpenRowSeat): CaptureFindings {
+    const live = this.#findCapturedCollection(type);
+    if (seat === "foreign") return live;
+    const declared = this.#findCapturedCollection(type, { steps: 0 }, true);
+    return {
+      first: live.first,
+      guarded: live.guarded,
+      open: declared.open,
+      openInFunction: declared.openInFunction,
+      exhausted: live.exhausted || declared.exhausted,
+    };
+  }
+
+  /**
    * The same, reported at a seat's span.
    *
    * **One walk at the door**, and one budget with it: the seat asks its
@@ -22743,7 +22841,7 @@ class Checker {
   ): void {
     const message = this.#capturedRefusalMessage(
       type,
-      this.#findCapturedCollection(type),
+      this.#captureFindingsAt(type, seat),
       positionOnly,
       seat,
     );
@@ -23264,7 +23362,16 @@ class Checker {
           // that export — this row, and `export let rows: Array(Int) = raw`
           // beside it — therefore draw one refusal, as they must.
           if (declaration.kind === "ExternType") continue;
-          const signature = this.#prune(this.#scheme(declaration.binding.symbol).type);
+          // **The row as written**, not as a caller left it
+          // (`#externDeclaredSignatures`). §5.4's classification is static by
+          // position, and these checks run after the bodies: read live, a
+          // declaration item 7 refuses on its own goes quiet the moment a
+          // Hexagon call site passes a closed record, because the two share one
+          // tail variable. Items 1 and 2 read the same snapshot — nothing about
+          // a captured collection differs between the two, and one seat reading
+          // one type is what keeps them from drifting.
+          const signature = this.#externDeclaredSignatures.get(declaration.binding.symbol) ??
+            this.#prune(this.#scheme(declaration.binding.symbol).type);
           if (declaration.kind === "ExternLet") {
             const exported = declaration.localName;
             // The row's own type is filled by the **foreign** side, so item 7
@@ -23344,8 +23451,10 @@ class Checker {
   #checkReleaseSeats(): void {
     for (const { type, span, node } of this.#releaseSeats) {
       if (node !== undefined && this.#releaseCallees.has(node)) continue;
-      // One walk, read three times in Part 11 §2's own order.
-      const found = this.#findCapturedCollection(type);
+      // Read three times in Part 11 §2's own order, off the two readings the
+      // seat is owed (`#captureFindingsAt`): item 7 on the rows as declared,
+      // items 1 and 2 on what the value carries.
+      const found = this.#captureFindingsAt(type, "release");
       // **Item 7 first, and it alone pre-empts item 5** — §2's "refused first,
       // and alone, when the argument type is or contains an open structural
       // record", and §5.4 item 7's "item 5 is not also reported". The rewrite
@@ -23860,10 +23969,33 @@ class Checker {
       };
     }
     if (actual.kind === "Record") {
+      // **The fields are normalized; the tail is not followed.** The two halves
+      // answer two different readers and only one of them may move.
+      //
+      // *Fields.* Unification does not always merge two rows into one record —
+      // a branch join binds one tail to the *other* record — so a raw read
+      // publishes `{n: Int}` where the value carries `{n: Int, m: Int}`, and
+      // the tail it drops takes those fields with it. `#findCapturedCollection`
+      // normalizes for that reason ("the normalization is **load-bearing**"),
+      // and a later pass directed by the declared type has to be directed by
+      // the row the checker judged (#961 review 1, finding 2).
+      //
+      // *Tail.* It is read **one link**, never chased to the end of the chain.
+      // A published tail is a row a *consumer* can instantiate, and FFI Part 1
+      // §5.4 item 7's whole justification for leaving a `foreign` seat's row
+      // open is that Hexagon "can neither name nor add the fields it did not
+      // declare" — beside "an exported function's open result tail is always
+      // one of its parameters' tails". Chasing the chain published an open
+      // result on a parameterless export, and a consumer module then named
+      // `probe().missing : Int` and read it — including a foreign `Array` it
+      // got by identity across a declared position (#961 review 2). One link
+      // is the reading this corpus already had, and it is the one that keeps
+      // a rigid tail rigid.
+      const row = this.#normalizeRecord(actual);
       const tail = actual.tail === undefined ? undefined : this.#prune(actual.tail);
       return {
         kind: "Record",
-        fields: [...actual.fields].map(([name, field]) => ({
+        fields: [...row.fields].map(([name, field]) => ({
           name,
           type: this.#publicType(field, seen),
         })),
@@ -24344,7 +24476,19 @@ class Checker {
           // row is entitled to write. The parameters are already published from
           // their registered schemes for the same reason; the result is the one
           // type in the row that no symbol of its own hands back.
-          const registered = this.#scheme(declaration.binding.symbol).type;
+          // **Published from the row as written** where one was frozen
+          // (`#externDeclaredSignatures`), so the wrapper emission compiles
+          // against is "a wrapper compiled against the open declaration" —
+          // FFI Part 1 §5.4 item 7's own phrase for what a call site's
+          // solution is invisible to. An extern's tail is one variable shared
+          // with its callers, so reading it live hands the emitter whichever
+          // row the last call site left, and the copy is then directed by a
+          // caller rather than by the declaration.
+          const declared = this.#externDeclaredSignatures.get(declaration.binding.symbol);
+          const registered = declared ?? this.#scheme(declaration.binding.symbol).type;
+          const declaredParameters = declared?.kind === "Function"
+            ? declared.parameters
+            : undefined;
           return {
             kind: "ExternFun",
             exported: declaration.exported,
@@ -24352,9 +24496,11 @@ class Checker {
             ...(declaration.foreignName === undefined ? {} : { foreignName: declaration.foreignName }),
             localName: declaration.localName,
             binding,
-            parameters: declaration.parameters.map((parameter) => ({
+            parameters: declaration.parameters.map((parameter, index) => ({
               ...parameter,
-              scheme: this.#publicScheme(this.#scheme(parameter.symbol)),
+              scheme: declaredParameters?.[index] === undefined
+                ? this.#publicScheme(this.#scheme(parameter.symbol))
+                : { variables: [], constraints: [], type: this.#publicType(declaredParameters[index]) },
             })),
             result: this.#publicType(
               registered.kind === "Function"
@@ -25435,6 +25581,60 @@ class Checker {
    * parameters and the result.
    */
   /**
+   * `type` with every row tail replaced by a fresh variable of its own — the
+   * declaration's row frozen as written (`#externDeclaredSignatures`).
+   *
+   * A structural copy: nominal occurrences are carried through as they are,
+   * because their components are read from the declaration tables at check
+   * time and their own rows are not this declaration's to freeze. An extern
+   * signature carries no type variables to worry about — a generic extern row
+   * is refused — so the tails are the whole of what has to move.
+   */
+  #frozenRowTails(type: Mono): Mono {
+    const copy = (inner: Mono): Mono => {
+      const actual = this.#prune(inner);
+      switch (actual.kind) {
+        case "Record":
+          return {
+            kind: "Record",
+            fields: new Map([...actual.fields].map(([name, field]) => [name, copy(field)])),
+            ...(actual.tail === undefined ? {} : { tail: this.#fresh(0, false) }),
+          };
+        case "Tuple":
+          return { kind: "Tuple", elements: actual.elements.map(copy) };
+        case "Function":
+          return {
+            kind: "Function",
+            parameters: actual.parameters.map(copy),
+            result: copy(actual.result),
+            ...(actual.effect === undefined ? {} : { effect: actual.effect }),
+          };
+        case "Vector":
+          return { kind: "Vector", element: copy(actual.element) };
+        case "Set":
+          return { kind: "Set", element: copy(actual.element) };
+        case "Array":
+          return { kind: "Array", element: copy(actual.element) };
+        case "JsSet":
+          return { kind: "JsSet", element: copy(actual.element) };
+        case "Node":
+          return { kind: "Node", element: copy(actual.element) };
+        case "Nullable":
+          return { kind: "Nullable", value: copy(actual.value) };
+        case "Map":
+        case "JsMap":
+          return { kind: actual.kind, key: copy(actual.key), value: copy(actual.value) };
+        case "Union":
+        case "NominalRecord":
+          return { ...actual, arguments: actual.arguments.map(copy) };
+        default:
+          return actual;
+      }
+    };
+    return copy(type);
+  }
+
+  /**
    * Every **row-tail** variable in a type — the `q` of `{n: Int, ...q}`.
    *
    * The dual of `#effectVariables`, and it exists for that function's reason: a
@@ -26338,13 +26538,18 @@ function receiverSpelling(receiver: Resolved.Expr): string {
 
 /**
  * FFI Part 2 §6.3's specialized hard error: the bare property read `xs.length`
- * on a borrowed `Array(a)`. It is the door's **one** new diagnostic (§10), kept
+ * on a captured `Array(a)`. It is the door's **one** new diagnostic (§10), kept
  * specialized because `.length` is the single most-typed reflex the door meets.
+ *
+ * The category word is the spec's own: #876 retired the **borrowed foreign
+ * view** and `spec/ffi.md`'s vocabulary table carries it as retired, so the
+ * sentence names the **captured foreign collection** `Array(a)` now is. Nothing
+ * else about the message moves — the subject was never the category.
  *
  * **The subject is grammar, not vocabulary** (§13.1's re-charactering, after the
  * `Array.size` → `Array.length` rename). The word the author typed is the right
  * word; what is wrong is that they spelled a *field read* against a nominal
- * foreign view, which has no field surface and across which no property read
+ * foreign type, which has no field surface and across which no property read
  * travels. So the message says the type is not a record and that the companion
  * call is the read, and it never suggests the name is wrong — the author who
  * typed `length` typed the name the library uses.
@@ -26366,7 +26571,7 @@ function receiverSpelling(receiver: Resolved.Expr): string {
  * where the receiver has a name and neutral where it has none.
  */
 function arrayLengthReadMessage(receiver: string): string {
-  return "`Array(a)` is a borrowed foreign view, not a record: it has no fields, " +
+  return "`Array(a)` is a captured foreign collection, not a record: it has no fields, " +
     "and a property read does not cross the boundary — the companion call is the " +
     `read. Write \`Array.length(${receiver})\`, or \`${receiver}.length()\` for the ` +
     "smallest edit.";

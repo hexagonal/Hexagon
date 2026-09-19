@@ -444,10 +444,17 @@ describe("crossing and matching (§4, §5.1, §9 tests 5–6)", () => {
    * §5.1: "An enum value crosses unchanged in both directions… It does not
    * trigger the nested-adapter restrictions that apply to `Seq(a)`." Read off
    * the emitted text, because the claim is the *absence* of code: no encoder,
-   * decoder, wrapper, copy or traversal at a parameter, a result, a callback or
-   * an `Array(Direction)`.
+   * decoder, wrapper, copy or traversal at a parameter, a result or a callback.
+   *
+   * **The `Array(Direction)` row is the one qualification**, and it is not this
+   * section's: an `Array(a)` is a captured foreign collection whatever its
+   * elements are (FFI Part 1 §2.2), so since #945 the row takes Part 4 §4.3's
+   * copying wrapper and the array is copied at the crossing. What §5.1 claims
+   * about the *enum* holds exactly as before and is what the element plan says:
+   * `null`, the walk's spelling of "carried by identity". Nothing converts a
+   * member, in either direction.
    */
-  test("parameters, results, callbacks and arrays cross with no wrapper", () => {
+  test("parameters, results and callbacks cross with no wrapper", () => {
     const emitted = javascript(
       'extern from "d"\n' +
         "    export enum Direction = Up | Down\n" +
@@ -459,10 +466,13 @@ describe("crossing and matching (§4, §5.1, §9 tests 5–6)", () => {
         "export let go(): Unit = move!(Up)\n" +
         "export let now(): Direction = current!()\n",
     );
-    // A result and an `Array(Direction)` result are imported bare: nothing is
-    // interposed on the way in.
+    // A `Direction` result is imported bare: nothing is interposed on the way
+    // in.
     expect(emitted).toContain('import { current } from "d";');
-    expect(emitted).toContain('import { all } from "d";');
+    // The `Array(Direction)` result takes the capture wrapper, and its element
+    // plan is `null` — the members themselves are carried by identity.
+    expect(emitted).toContain("const all = () => __capture(__capturePlans, 0, __allForeign());");
+    expect(emitted).toContain('{ k: "array", e: null }');
     // `move` and `onChange` take the ordinary `Unit`-result wrapper every extern
     // returning `Unit` takes — a statement body, not a conversion.
     expect(emitted).toContain("const move = direction => { __moveForeign(direction); };");

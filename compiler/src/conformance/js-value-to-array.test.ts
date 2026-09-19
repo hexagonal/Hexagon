@@ -10,11 +10,13 @@ import { typeScriptErrors } from "../support/typescript-check.js";
  * Three claims carry the section, and each is only observable by running the
  * emitted code:
  *
- * 1. **Success is a zero-copy borrowed view over the same array.** Not a copy
- *    that happens to be equal — the same object, so a foreign mutation is
- *    visible through the borrow and §6.2's stability contract has something to
- *    be about. An implementation that copied would pass every equality test and
- *    fail the identity ones here.
+ * 1. **Success is a captured `Array(JsValue)`** *(amended #876, lowered #945)*:
+ *    Hexagon's own copy of the array, made by FFI Part 1 §5.4's walk — each
+ *    index read once in order, the copy dense, each element carried by identity
+ *    as the uncertain `JsValue` it is. Not the same object, which is what makes
+ *    the result "stable from the moment of success"; the crossing's own
+ *    contract is `capture-walk.test.ts`'s, and what is asserted here is that
+ *    this decoder performs it.
  * 2. **The elements stay honestly uncertain.** Each is a `JsValue` and is
  *    decoded individually, by the same strict decoders as anything else. There
  *    is no element scan and no element check — a mixed array succeeds.
@@ -50,9 +52,8 @@ const PROGRAM = "export let asArray(v: JsValue): Result(Array(JsValue), JsConver
   "        JsError(e) => e\n" +
   "\n" +
   "// The captured array, held as a value: these take it itself, so a test can\n" +
-  "// keep one and ask it again (FFI Part 2 section 6.2; the capture lowering\n" +
-  "// is issue 945).\n" +
-  "export let borrowedLength(xs: Array(JsValue)): Int = Array.length(xs)\n" +
+  "// keep one and ask it again (FFI Part 2 section 6.2).\n" +
+  "export let capturedLength(xs: Array(JsValue)): Int = Array.length(xs)\n" +
   "\n" +
   "export let elementAsInt(xs: Array(JsValue), index: Int): Result(Int, JsConversionError) =\n" +
   "    JsValue.toInt(xs[index])\n" +
@@ -87,13 +88,14 @@ function pathLength(value: unknown): number {
 }
 
 /**
- * The borrowed view on success; throws if `toArray` refused.
+ * The captured array on success; throws if `toArray` refused.
  *
  * Unwrapping in JavaScript is `js-value-decoding.test.ts`'s own `decoded`
- * shape, and it is what an identity assertion needs: the whole question is
- * whether the object inside the `Ok` *is* the array that went in.
+ * shape, and it is what the identity assertions need: whether the object inside
+ * the `Ok` is the array that went in, and whether its elements are the ones
+ * that were there.
  */
-function borrowed(value: unknown): unknown {
+function captured(value: unknown): unknown {
   const result = (exports_["asArray"] as (v: unknown) => { tag: string; value?: unknown })(value);
   if (result.tag !== "Ok") throw new Error("toArray refused the value");
   return result.value;
@@ -108,7 +110,7 @@ beforeAll(async () => {
   exports_ = await runMain("module Main\n\n" + PROGRAM);
 });
 
-describe("success is the same array, borrowed (§4.2)", () => {
+describe("success is a captured copy of the array (§4.2)", () => {
   test("a real array succeeds", () => {
     expect(outcome([])).toBe("Ok");
     expect(outcome([1, 2, 3])).toBe("Ok");
@@ -116,33 +118,36 @@ describe("success is the same array, borrowed (§4.2)", () => {
   });
 
   /**
-   * **Zero-copy, asserted as identity.** `===` against the array that was
-   * handed in is the only assertion that separates a borrow from a copy, and
-   * §4.2's "the same array" is exactly this.
+   * **The copy, asserted as identity.** `!==` against the array that was handed
+   * in is the only assertion that separates a copy from the source, and
+   * `===` on the elements is the other half of §4.2's sentence: "each element
+   * carried by identity as the uncertain `JsValue` it is".
    */
-  test("the success value is the very array that went in", () => {
+  test("the success value is a copy, holding the very elements", () => {
     const source = [1, 2, 3];
-    expect(borrowed(source)).toBe(source);
-    const nested = [[1], [2]];
-    expect(borrowed(nested)).toBe(nested);
+    expect(captured(source)).not.toBe(source);
+    expect(captured(source)).toEqual([1, 2, 3]);
+    const inner = [1];
+    const nested = [inner, [2]];
+    const copy = captured(nested) as unknown[];
+    expect(copy).not.toBe(nested);
+    // An element is a `JsValue` at this seat whatever it happens to be, so the
+    // walk carries it by identity — a nested array is *not* re-entered.
+    expect(copy[0]).toBe(inner);
   });
 
-  /*
-   * A held view reporting a foreign mutation's *new* length was pinned here —
-   * the borrow contract `Array(a)` carried before #876, which put a stability
-   * obligation on foreign code rather than on the compiler. That contract is
-   * retired: a boundary collection is **captured at acquisition** (FFI Part 2
-   * §6.2; FFI Part 1 §5.4), so its contents cannot vary while Hexagon holds it,
-   * and `length` is a read of a value — Effects §6.2 species (c), which is why
-   * the rows write `->` (#869).
-   *
-   * The capture *lowering* is not implemented yet; it is issue #945, and the
-   * observation this test used to pin is the one that arc will pin inverted — a
-   * held `Array` answers the length it was captured with however its source
-   * moves. It is gone rather than inverted because nothing today performs the
-   * copy, and a test asserting the arc's answer before the arc lands is a test
-   * that cannot pass.
+  /**
+   * The capture is what makes §4.2's "the result is stable from the moment of
+   * success, and the foreign array is not looked at again" true: a foreign
+   * mutation afterwards does not reach the value Hexagon holds.
    */
+  test("a foreign mutation after success is invisible", () => {
+    const source = [1, 2, 3];
+    const copy = captured(source);
+    source.push(4);
+    source[0] = 999;
+    expect(copy).toEqual([1, 2, 3]);
+  });
 
   /**
    * §4.2: the elements "remain uncertain, and each is decoded individually by
@@ -154,7 +159,7 @@ describe("success is the same array, borrowed (§4.2)", () => {
       xs: unknown,
       i: number,
     ) => { tag: string; value?: unknown };
-    const view = borrowed([7, "not a number", 1.5]);
+    const view = captured([7, "not a number", 1.5]);
     expect(asInt(view, 1)).toMatchObject({ tag: "Ok", value: 7 });
     // Not a number at all: `Shape`. A number `Int` cannot hold: `Range`. The
     // split is `toInt`'s, and `toArray` did nothing to either element.
@@ -163,24 +168,41 @@ describe("success is the same array, borrowed (§4.2)", () => {
   });
 
   /**
-   * The zero-scan rule survives the crossing: `toArray` inspects the *value*,
-   * never its contents. An array of poisoned getters decodes without a single
-   * one firing.
+   * **Each element is read exactly once, and only during the copy** — §4.2's
+   * "it is no longer property-free the way `kind` is". The zero-scan rule the
+   * borrowed view carried here is retired with it: the copy reads the
+   * data, which is precisely the cost §4.2 states, and it reads it once.
    */
-  test("no element is read on the way through", () => {
-    let reads = 0;
-    const poisoned: unknown[] = [];
+  test("each element is read exactly once, in index order", () => {
+    const reads: number[] = [];
+    const watched: unknown[] = [];
     for (const index of [0, 1, 2]) {
-      Object.defineProperty(poisoned, index, {
+      Object.defineProperty(watched, index, {
         enumerable: true,
         get: () => {
-          reads += 1;
-          throw new Error("element getter");
+          reads.push(index);
+          return index + 1;
         },
       });
     }
-    expect(outcome(poisoned)).toBe("Ok");
-    expect(reads).toBe(0);
+    expect(outcome(watched)).toBe("Ok");
+    expect(reads).toEqual([0, 1, 2]);
+  });
+
+  /**
+   * And a hostile element getter "follows the `JsError` channel like the probe"
+   * (§4.2), rather than becoming an `Err`: honest wrongness is data, a throw is
+   * control (§4.3).
+   */
+  test("a throwing element getter throws rather than answering `Err`", () => {
+    const poisoned: unknown[] = [];
+    Object.defineProperty(poisoned, 0, {
+      enumerable: true,
+      get: () => {
+        throw new Error("element getter");
+      },
+    });
+    expect(() => outcome(poisoned)).toThrow("element getter");
   });
 });
 
@@ -373,13 +395,13 @@ describe("the boundary face composes (`Array(JsValue)`)", () => {
         "Result<ReadonlyArray<unknown>, JsConversionError>;",
     );
     expect(main!.declarations.text).toContain(
-      "export declare const borrowedLength: (xs: ReadonlyArray<unknown>) => number;",
+      "export declare const capturedLength: (xs: ReadonlyArray<unknown>) => number;",
     );
   });
 
   /**
    * And `tsc`'s opinion of it, because a pinned spelling inside an invalid file
-   * is worth nothing (#132). The consumer reads through the borrow and is
+   * is worth nothing (#132). The consumer reads through the face and is
    * refused when it writes — the readonly face doing its job at the one type
    * where the elements are `unknown`.
    */
@@ -399,14 +421,14 @@ describe("the boundary face composes (`Array(JsValue)`)", () => {
     const errors = await typeScriptErrors({
       ...files,
       "consumer.ts":
-        'import { asArray, borrowedLength } from "./main.js";\n' +
+        'import { asArray, capturedLength } from "./main.js";\n' +
         "const decoded = asArray([1, 2, 3]);\n" +
         'if (decoded.tag === "Ok") {\n' +
-        "  const view: ReadonlyArray<unknown> = decoded.value;\n" +
-        "  const n: number = borrowedLength(view);\n" +
+        "  const held: ReadonlyArray<unknown> = decoded.value;\n" +
+        "  const n: number = capturedLength(held);\n" +
         "  void n;\n" +
-        "  // @ts-expect-error a borrowed array is readonly from TypeScript too\n" +
-        "  view[0] = 9;\n" +
+        "  // @ts-expect-error a captured array is readonly from TypeScript too\n" +
+        "  held[0] = 9;\n" +
         "}\n",
     });
     expect(errors).toEqual([]);
