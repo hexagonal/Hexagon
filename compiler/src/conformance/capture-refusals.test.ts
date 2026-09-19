@@ -916,6 +916,7 @@ describe("item 7 — an open structural record at a declaration or the release s
       'extern from "./m.js"\n    let cfg: {n: Int, ...q}\n',
       "export record H = { r: {n: Int, ...t} }\n",
       "export union B = Held({n: Int, ...q}) | E\n",
+      "exception Bad(r: {n: Int, ...t})\nexport let go(): Int = 1\n",
       "let w(x: {n: a, ...q}): JsValue = JsValue.from(x)\nexport let go(): Int = 1\n",
       "export constraint C<a> =\n    m(x: {n: Int, ...t}) -> Int\n",
     ];
@@ -1479,13 +1480,16 @@ describe("the fixpoint terminates, and answers each occurrence on its own", () =
    * The **type** carrying the open row is the position's own since #962: a
    * nominal can no longer hold one (Products §4), so the non-regular record
    * that spends the budget is closed and the open row rides beside it in a
-   * tuple. Two rows left the table with that change — an exported
-   * constructor's payload, which Products §4 now refuses at the declaration,
-   * and an exported value binding, whose initializer closes the tail before
-   * any seat sees it — and three joined the seats that read the answer.
+   * tuple. Three rows left the table with that change — an exported
+   * constructor's payload and an exception payload, which Products §4 and
+   * Exceptions §2 now refuse at the declaration, and an exported value
+   * binding, whose initializer closes the tail before any seat sees it — and
+   * three joined the seats that read the answer. What is left is the one
+   * exempt seat that can still be handed an open row at all: an exported
+   * Hexagon function's parameter, whose face is the solved row.
    *
-   * Without this every exempt seat below went **clean**, which is the silent
-   * acceptance §5.4's bound exists to prevent.
+   * Without this it went **clean**, which is the silent acceptance §5.4's
+   * bound exists to prevent.
    */
   const partial = "export record R(a) = { x: Option(R(Map(a, a))), n: Int }\n\n";
   const carried = "(R(Int), {n: Int, ...})";
@@ -1494,11 +1498,22 @@ describe("the fixpoint terminates, and answers each occurrence on its own", () =
     "foreign collection, and no declared position crosses undecided (FFI Part 1 §5.4); " +
     "declare a position whose type does not nest without bound, or bind through an opaque " +
     "foreign handle";
-  test.each([
-    ["an exception payload", `exception Bad(r: ${carried})\n`],
-    ["an exported function's parameter", `export fun f(v: ${carried}): Int = 1\n`],
-  ])("a seat that cannot read the partial answer takes the bound — %s", (_what, source) => {
-    expect(diagnose(partial + source)).toEqual([bound]);
+  test("a seat that cannot read the partial answer takes the bound", () => {
+    expect(diagnose(`${partial}export fun f(v: ${carried}): Int = 1\n`)).toEqual([bound]);
+  });
+
+  /**
+   * And an **exception payload**, which used to be this table's first row, now
+   * draws the declaration's refusal beside the bound: its slot can no longer
+   * carry an open row at all (Exceptions §2), and the seat still cannot read
+   * the partial answer, so both sentences are true of it and both are said.
+   */
+  test("an exception payload draws its declaration refusal and the bound", () => {
+    expect(diagnose(`${partial}exception Bad(r: ${carried})\n`)).toEqual([
+      "an exception's payload names every field of its values; this slot's type says the " +
+      "record may have more fields — name them, or give the slot the type `JsValue`",
+      bound,
+    ]);
   });
 
   test.each([

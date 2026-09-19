@@ -1369,6 +1369,44 @@ describe("a nominal declaration writes no open row either (Products §4)", () =>
     )).toEqual([slot(alias)]);
   });
 
+  const payload = (alias?: string): string =>
+    "an exception's payload names every field of its values; " +
+    `this slot's type ${alias === undefined ? "says" : `— \`${alias}\` — says`} ` +
+    "the record may have more fields — name them, or give the slot the type `JsValue`";
+
+  /**
+   * An **`exception`'s payload** is the third declaration (Exceptions §2, on
+   * Products §4's ground plus one of its own: an exception crosses wherever a
+   * throw travels, so nothing at a crossing could read a widened row). Its own
+   * noun, the same walk — the slot's written type at any depth, through any
+   * alias, named tails included — and it fires whether the exception is
+   * exported or not, because the reason is the declaration's row and not a
+   * face.
+   */
+  test.each([
+    ["a named slot", "exception Bad(r: {n: Int, ...})\n", undefined],
+    ["an unnamed slot", "exception Bad({n: Int, ...})\n", undefined],
+    ["a tuple", "exception Bad(r: (Int, {n: Int, ...}))\n", undefined],
+    ["an `Option`", "exception Bad(r: Option({n: Int, ...}))\n", undefined],
+    ["a nested record", "exception Bad(r: {m: {n: Int, ...}})\n", undefined],
+    ["a function type", "exception Bad(f: ({n: Int, ...}) -> Int)\n", undefined],
+    ["a named tail", "exception Bad(r: {n: Int, ...t})\n", undefined],
+    ["an exported exception", "export exception Bad(r: {n: Int, ...})\n", undefined],
+    ["an alias", "type Row = {n: Int, ...}\n\nexception Bad(r: Row)\n", "Row"],
+    ["an applied alias", "type Wrap(a) = {n: a, ...}\n\nexception Bad(r: Wrap(Int))\n", "Wrap"],
+    ["an alias of an alias", "type A = {n: Int, ...}\ntype B = A\n\nexception Bad(r: B)\n", "B"],
+  ])("an exception's open payload is refused at the slot — %s", (_what, source, alias) => {
+    expect(projectDiagnostics(`module Main\n\n${source}export let go(): Int = 1\n`))
+      .toEqual([payload(alias)]);
+  });
+
+  /** A closed payload is untouched, so the refusal is the row and not the form. */
+  test("a closed exception payload is legal", () => {
+    expect(projectDiagnostics(
+      "module Main\n\nexception Bad(r: {n: Int})\nexport let go(): Int = 1\n",
+    )).toEqual([]);
+  });
+
   /**
    * And what stays legal, which is the other half of "Where `...` may be
    * written": the alias itself, a definition Hexagon compiles, and a closed

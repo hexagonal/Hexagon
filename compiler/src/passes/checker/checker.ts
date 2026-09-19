@@ -1065,10 +1065,16 @@ interface CaptureFindings {
  * item 5 there: Part 11 §2 says the seat is "refused first, and alone" for an
  * open row, and licenses the rest of §5.4 at a **ground** argument only — so a
  * type still carrying a type variable is item 5's, and items 1, 2 and the
- * bound are asked after the survivors (`#checkReleaseSeats`). `exempt` is everything item 7 leaves open: an exported Hexagon
- * function's parameters and result, whose face is the **solved** row after the
- * body is checked, and the payload positions Products §4 refuses at the
- * declaration instead.
+ * bound are asked after the survivors (`#checkReleaseSeats`).
+ *
+ * `exempt` is everything item 7 leaves open, and it survives for **one** live
+ * reason and two dead ones. The live one is an exported Hexagon function's
+ * parameters and result, whose face is the **solved** row after the body is
+ * checked, so every field any expression named is on it. The dead ones are the
+ * payload seats — an exported constructor's, an exception's — which keep the
+ * value because their positions still ask the other refusals here, while the
+ * open row they could once carry is refused earlier and elsewhere, at the
+ * declaration (Products §4, Exceptions §2).
  *
  * The seat has no default at any call site, deliberately: a position that
  * inherited `exempt` by omission would be silently exempt, which is how item
@@ -23507,6 +23513,16 @@ class Checker {
    * and the fields the tail was widened to would cross unseen (FFI Part 1 §5.4
    * item 7).
    *
+   * **Three declarations, one rule.** A nominal `record`'s field types, a union
+   * constructor's payload types, and an `exception`'s payload types (Exceptions
+   * §2, which relays Products §4 and adds its own reason: an exception crosses
+   * wherever a throw travels, so nothing at a crossing could read a widened
+   * row). Each reports at its own field or slot, in its own sentence, because
+   * the noun the reader has to change differs; the walk and the ground are the
+   * same. Item 3's captured-collection check also stands at the exception
+   * declaration and is a different question about the same slot — that one is
+   * about what the payload *names*, this one about what its row *admits*.
+   *
    * It is a **declaration check and not a boundary one**: it fires on a private
    * record no `extern` ever names. That is the whole difference from item 7 —
    * one row per type is a property of the declaration, so the refusal stands
@@ -23529,6 +23545,18 @@ class Checker {
             severity: "error",
             message: openRowInRecordMessage(field.name, open.throughAlias),
             primary: field.span,
+          });
+        }
+        continue;
+      }
+      if (item.kind === "Exception") {
+        for (const slot of item.slots) {
+          const open = openRowInAnnotation(slot.annotation);
+          if (open === undefined) continue;
+          this.#diagnostics.add({
+            severity: "error",
+            message: openRowInExceptionMessage(open.throughAlias),
+            primary: slot.span,
           });
         }
         continue;
@@ -26322,6 +26350,20 @@ function openRowInRecordMessage(field: string, alias: string | undefined): strin
   return "a `record` names every field of its values; " +
     `\`${field}\`'s type ${alias === undefined ? "says" : `— \`${alias}\` — says`} ` +
     "the record may have more fields — name them, or give the field the type `JsValue`";
+}
+
+/**
+ * The same at an `exception`'s payload slot (Exceptions §2, §9).
+ *
+ * Its own noun, and its own additional reason: a `record` or a union payload is
+ * refused because a declaration's row is one row for every value of the type,
+ * and an exception is refused for that *and* because it "crosses wherever a
+ * throw travels", so there is no crossing at which a widened row could be read.
+ */
+function openRowInExceptionMessage(alias: string | undefined): string {
+  return "an exception's payload names every field of its values; " +
+    `this slot's type ${alias === undefined ? "says" : `— \`${alias}\` — says`} ` +
+    "the record may have more fields — name them, or give the slot the type `JsValue`";
 }
 
 /** The same at a union constructor's slot (Unions §2.1). */
