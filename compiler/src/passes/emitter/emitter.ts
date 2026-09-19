@@ -20,6 +20,11 @@ import type * as Source from "../../support/source.js";
 import { isSyntheticParameterName } from "../../support/synthetic.js";
 import { foreignLiteralJs } from "../../support/foreign-literal.js";
 import { patternExportName } from "../../support/generated-names.js";
+import {
+  type CaptureArm,
+  type CaptureComponent,
+  CapturePlans,
+} from "./capture.js";
 import type * as Core from "../../syntax/core/index.js";
 import type * as Emitted from "../../emission/index.js";
 import type * as Resolved from "../../syntax/resolved/index.js";
@@ -2995,6 +3000,16 @@ class JavaScriptEmitter {
    * §3.2's `__` reservation so no source spelling can collide.
    */
   readonly #taggedConstants = new Map<string, string>();
+  /**
+   * FFI Part 1 §5.4's capture plans for this module (`capture.ts`), built on
+   * demand at the crossings this pass owns and hoisted beside the helpers.
+   *
+   * Seeded in construction rather than lazily, because the nominal lookups it
+   * closes over are this module's own record and union tables.
+   */
+  readonly #capturePlans: CapturePlans;
+  /** The name `#capturePlans`' table is bound under, minted on first use. */
+  #capturePlanTable: string | undefined;
   readonly #exports: string[] = [];
   readonly #exportedEvidence = new Set<string>();
   /**
@@ -3251,6 +3266,10 @@ class JavaScriptEmitter {
     this.#docs = new DocIndex(module.docs);
     this.#prelude = preludeIds(module);
     this.#instanceDictionaryHeads = fundamentalInstanceDictionaries(module, this.#prelude.bool);
+    this.#capturePlans = new CapturePlans({
+      recordFields: (type) => this.#capturedRecordFields(type),
+      unionArms: (type) => this.#capturedUnionArms(type),
+    });
     this.#exportInstanceEvidence = options.exportInstanceEvidence ?? false;
     this.#runtimes = options.runtimes ?? new Map();
     this.#runtimeVocabulary = runtimeVocabularyTrigger(module);
@@ -3537,6 +3556,12 @@ class JavaScriptEmitter {
     // is a TDZ hazard either way — every seat that reads one sits inside a
     // function body — but the declaration order is the readable one.
     const taggedConstants = this.#taggedConstantLines();
+    // The capture plans (FFI Part 1 §5.4), on the tagged constants' footing
+    // exactly: rendering is what discovers which crossings copy, and the table
+    // is a `const` the emitted seats read. It goes out **above** the bodies
+    // because an `extern let`'s capture is a module-level initializer (Part 4
+    // §4.4) and would otherwise read the table in its temporal dead zone.
+    const capturePlans = this.#capturePlanLines();
 
     // After rendering, because rendering is what discovers which prelude
     // dictionaries the body names (#153) and which prelude terms it names
@@ -3695,7 +3720,7 @@ class JavaScriptEmitter {
       };`,
       "",
     ];
-    const hoisted = [...taggedConstants, ...helpers];
+    const hoisted = [...taggedConstants, ...capturePlans, ...helpers];
     const lines = [
       ...runtimeGlobalsImport,
       ...(hoisted.length === 0 ? body : [...hoisted, "", ...body]),
@@ -3984,9 +4009,31 @@ class JavaScriptEmitter {
         const inboundResult = declaration.kind === "ExternFun"
           ? inbound(declaration.result)
           : inbound(declaration.type);
+        // FFI Part 1 §5.4's capture positions for an extern binding: the
+        // parameters on the way out, the result on the way in (Part 4 §4),
+        // and an `extern let`'s value once at module initialization (§4.4).
+        //
+        // The wrapper the plumbing already builds **is** Part 4 §4.3's stable
+        // module-level copying wrapper — "the local extern binding denotes one
+        // stable module-level copying wrapper … every reference observes that
+        // one wrapper; the raw import is never the Hexagon value" — so a
+        // signature that names a captured collection joins the wrapper's
+        // existing conditions rather than growing a second mechanism beside it.
+        // A signature that names none keeps the raw import, byte for byte.
+        //
+        // The two bridges never compose: a `Seq`/`Stream` result naming a
+        // captured collection is §5.4 item 1's refusal (`Seq(Array(Int))`), so
+        // no position is both.
+        const capturedParameters = declaration.kind === "ExternFun"
+          ? declaration.parameters.map(({ scheme }) => this.#copies(scheme.type))
+          : [];
+        const capturedResult = declaration.kind === "ExternFun"
+          ? this.#copies(declaration.result)
+          : this.#copies(declaration.type);
         const wrapper = declaration.kind === "ExternFun"
-          ? inboundResult !== undefined || isUnit(declaration.result)
-          : inboundResult !== undefined;
+          ? inboundResult !== undefined || isUnit(declaration.result) ||
+            capturedResult || capturedParameters.some(Boolean)
+          : inboundResult !== undefined || capturedResult;
         if (!wrapper) {
           if (declaration.default) {
             lines.push(`${prefix}import ${local} from ${specifier};`);
@@ -4006,19 +4053,26 @@ class JavaScriptEmitter {
           );
           const door = inboundResult === "stream" ? "streamInbound" : "seqInbound";
           if (declaration.kind === "ExternLet") {
-            lines.push(
-              `${prefix}const ${local} = ${this.#useHelper(door)}(${imported});`,
-            );
+            // §4.4: the value is captured **once**, here, during ordinary ESM
+            // initialization, and the binding is Hexagon's snapshot from then
+            // on. Nothing re-reads the foreign binding afterwards.
+            const bound = inboundResult !== undefined
+              ? `${this.#useHelper(door)}(${imported})`
+              : this.#captured(declaration.type, imported);
+            lines.push(`${prefix}const ${local} = ${bound};`);
           } else {
             const parameters = declaration.parameters.map((parameter) =>
               this.#identifier(parameter.symbol, parameter.name)
             );
-            const call = `${imported}(${parameters.join(", ")})`;
+            const passed = parameters.map((parameter, index) =>
+              this.#captured(declaration.parameters[index]!.scheme.type, parameter)
+            );
+            const call = `${imported}(${passed.join(", ")})`;
             const value = inboundResult !== undefined
               ? `${this.#useHelper(door)}(${call})`
               : isUnit(declaration.result)
               ? `{ ${call}; }`
-              : call;
+              : this.#captured(declaration.result, call);
             lines.push(`${prefix}const ${local} = ${arrowParameters(parameters)} => ${value};`);
           }
         }
@@ -4829,6 +4883,26 @@ class JavaScriptEmitter {
   ): string {
     switch (expression.kind) {
       case "Name": {
+        // FFI Part 11 §2's release seat, reached **unapplied**. `JsValue.from`
+        // is a seat rather than an ordinary function, and §2 puts the walk "on
+        // its argument at the seat's concrete type" without asking whether the
+        // seat was written applied: `let g: (Array(Int)) -> JsValue =
+        // JsValue.from` is the same release as `JsValue.from(xs)` one call
+        // later. Item 5 is what makes this decidable here — an unapplied seat
+        // whose argument type is not ground is already refused — so a reference
+        // that compiles has a concrete argument type to walk at.
+        //
+        // The wrapper is per reference and allocated where the reference is,
+        // which is all §2 needs: it names no identity contract for the seat,
+        // and the *binding* wrappers §5.4 lists (Part 4 §4.3's, Part 7 §7
+        // occasion 4's) are elsewhere. A seat whose argument names no captured
+        // collection stays the erased identity — the stdlib row itself — and
+        // emits exactly what it always did.
+        // Ahead of `#referencedSymbols`, which is what decides whether this
+        // module imports the name: a reference that became a wrapper never
+        // spells `from`, so recording it would emit an import nothing reads.
+        const released = this.#releasedReference(expression);
+        if (released !== undefined) return released;
         this.#referencedSymbols.add(expression.symbol);
         // The pin at the reference site (#147, decisions doc §3.2): `True` emits
         // `true`. Ahead of every other spelling rule, because the constructor
@@ -5041,11 +5115,24 @@ class JavaScriptEmitter {
       case "Try":
         return this.#emitTry(expression, depth, evidenceNames);
       case "Call": {
-        // FFI Part 11 §2's erased injection, before anything else looks at the
-        // call: `JsValue.from(x)` *is* `x`, so there is no wrapper and no call
-        // in the output.
+        // FFI Part 11 §2's injection, before anything else looks at the call.
+        // It is the **release seat**: a value naming no captured collection is
+        // "the representation-honest identity, erased in emission, exactly as
+        // before", and one that names a captured collection takes FFI Part 1
+        // §5.4's walk at the seat's concrete argument type, "so that the
+        // `JsValue` handed onward never aliases storage a Hexagon `Array` value
+        // denotes". The type is the operand's own solved type, which item 5
+        // guarantees is ground at every seat that compiles.
         const injected = this.#jsValueFromOperand(expression);
-        if (injected !== undefined) return this.#emitExpr(injected, depth, evidenceNames);
+        if (injected !== undefined) {
+          // The erased case emits the operand bare, as it always did — no call,
+          // and no parentheses either: the walked case is an argument list,
+          // which needs none.
+          return this.#captured(
+            injected.type,
+            this.#emitExpr(injected, depth, evidenceNames),
+          );
+        }
         // Unions §6.4's erasure, on the same footing as the record one below
         // (#770): a payload constructor applied directly *is* its object
         // literal, at every seat.
@@ -5316,7 +5403,15 @@ class JavaScriptEmitter {
    */
   #emittedPrecedence(expression: Core.Expr): Precedence {
     const injected = this.#jsValueFromOperand(expression);
-    if (injected !== undefined) return this.#emittedPrecedence(injected);
+    // A release seat that **copies** (FFI Part 11 §2) emits a helper call, so
+    // it takes a call's precedence rather than its operand's; only the erased
+    // seat inherits.
+    if (injected !== undefined) {
+      return this.#copies(injected.type) ? Precedence.Call : this.#emittedPrecedence(injected);
+    }
+    // An unapplied release seat that copies emits an arrow, not a name
+    // (`#releasedReference`), and an arrow binds loosest of all.
+    if (this.#releasesUnapplied(expression)) return Precedence.Arrow;
     return this.#ignoreOperand(expression) === undefined
       ? expressionPrecedence(expression)
       : Precedence.Unary;
@@ -9470,6 +9565,137 @@ class JavaScriptEmitter {
   }
 
   /**
+   * FFI Part 1 §5.4's walk at `type`, wrapped around an emitted expression —
+   * or that expression **unchanged**, where the declared type names no captured
+   * collection and the value crosses by identity with nothing emitted.
+   *
+   * The one seat that decides whether a crossing copies. Every position asks
+   * here, so no two of them can drift about what a type means, and a plan is
+   * built once per type however many positions name it.
+   */
+  #captured(type: Typed.Type, value: string): string {
+    const plan = this.#capturePlans.planFor(type);
+    if (plan === undefined) return value;
+    return `${this.#useHelper("capture")}(${this.#capturePlanName()}, ${plan}, ${value})`;
+  }
+
+  /**
+   * Whether the walk at `type` copies anything — `#captured`'s question, asked
+   * ahead of the expression, by a seat that has to decide its *shape* first: a
+   * wrapper condition, a precedence. It builds the plan `#captured` will then
+   * find already built, and a plan nothing goes on to name is simply an unread
+   * row of the table, which is rendered only once a seat mints its name.
+   */
+  #copies(type: Typed.Type): boolean {
+    return this.#capturePlans.planFor(type) !== undefined;
+  }
+
+  /**
+   * An **unapplied** reference to `JsValue.from` whose argument type names a
+   * captured collection, as the per-reference release wrapper FFI Part 11 §2
+   * asks for — or nothing, which leaves every other reference, and the erased
+   * seat, exactly as they were.
+   *
+   * The gate is `#jsValueFromOperand`'s one symbol: the callee resolves to the
+   * binding `preludeIds` pinned, so an occluding module's own `from` is an
+   * ordinary name here. An applied call never reaches this seat — `case "Call"`
+   * takes it first — so the two cannot both fire, and they walk at the same
+   * type: the operand's for the call, the reference's own parameter for this.
+   */
+  #releasedReference(expression: Core.Expr): string | undefined {
+    if (!this.#releasesUnapplied(expression)) return undefined;
+    const signature = expression.type as Typed.FunctionType;
+    const plan = this.#capturePlans.planFor(signature.parameters[0]!)!;
+    const released = this.#generatedNames.fresh("released");
+    return `${released} => ${
+      this.#useHelper("capture")
+    }(${this.#capturePlanName()}, ${plan}, ${released})`;
+  }
+
+  /**
+   * Whether this expression is an unapplied `JsValue.from` whose argument type
+   * the walk copies — asked apart from the emission because the precedence
+   * table has to know the shape before the text exists.
+   */
+  #releasesUnapplied(expression: Core.Expr): boolean {
+    if (this.#prelude.jsValueFrom === undefined || expression.kind !== "Name") return false;
+    if (expression.symbol !== this.#prelude.jsValueFrom) return false;
+    const signature = expression.type;
+    if (signature.kind !== "Function" || signature.parameters.length !== 1) return false;
+    return this.#copies(signature.parameters[0]!);
+  }
+
+  /** The module-level capture-plan table's name, minted on first use. */
+  #capturePlanName(): string {
+    return this.#capturePlanTable ??= this.#generatedNames.fixed("capturePlans");
+  }
+
+  /**
+   * The hoisted plan table, or nothing where this module copies at no crossing.
+   *
+   * It is a `const` above every body **and above the `extern let` initializers**,
+   * which run at module evaluation: Part 4 §4.4's capture happens once, there.
+   */
+  #capturePlanLines(): readonly string[] {
+    return this.#capturePlanTable === undefined
+      ? []
+      : this.#capturePlans.lines(this.#capturePlanTable);
+  }
+
+  /**
+   * The declared fields of a nominal record occurrence, under its own
+   * arguments — the capture walk's door into a `record`.
+   *
+   * **Nothing for an opaque record**, which crosses as its erased runtime value
+   * by identity (FFI Part 7 §5): that identity is its boundary contract, so
+   * §5.4 item 2 refuses a position whose opaque representation names a captured
+   * collection rather than rebuilding the value. `Seq` and `Stream` are opaque
+   * prelude records and are withheld by the same clause, which is also item 1's
+   * answer for them.
+   */
+  #capturedRecordFields(
+    type: Typed.NominalRecordType,
+  ): readonly CaptureComponent[] | undefined {
+    const record = this.#module.records.find(({ id }) => id === type.record);
+    if (record === undefined || record.opaque) return undefined;
+    const replacements = new Map(record.parameters.map((parameter, index) => [
+      parameter,
+      type.arguments[index] ?? { kind: "Error" as const },
+    ]));
+    return record.fields.map((field) => ({
+      name: field.name,
+      type: substituteType(field.type, replacements),
+    }));
+  }
+
+  /**
+   * The constructors of a union occurrence with their slot types, under that
+   * occurrence's arguments — the capture walk's door into a `union`, and so
+   * into `Option`, which is one.
+   *
+   * Nothing for an opaque union, for `#capturedRecordFields`' reason, and
+   * nothing for an `extern enum`, whose members are foreign literals with no
+   * payload and no tag to rebuild (Foreign Enums §4). The pinned `Bool` needs no
+   * clause: its constructors are nullary, so the walk finds nothing to copy and
+   * never reaches its representation.
+   */
+  #capturedUnionArms(type: Typed.UnionType): readonly CaptureArm[] | undefined {
+    const union = this.#module.unions.find(({ id }) => id === type.union);
+    if (union === undefined || union.opaque || union.externEnum === true) return undefined;
+    const replacements = new Map(union.parameters.map((parameter, index) => [
+      parameter,
+      type.arguments[index] ?? { kind: "Error" as const },
+    ]));
+    return union.constructors.map((constructor) => ({
+      name: constructor.name,
+      slots: constructor.slots.map((slot) => ({
+        name: slot.field,
+        type: substituteType(slot.type, replacements),
+      })),
+    }));
+  }
+
+  /**
    * The boundary traversal method a construction of `type` carries, or nothing.
    *
    * A runtime module's representation record is recognized **by name inside
@@ -10113,11 +10339,23 @@ class JavaScriptEmitter {
       case "jsValueAsBigIntUnchecked":
       case "jsValueAsBoolUnchecked":
       case "jsValueAsStringUnchecked":
-      // The sixth unexported identity (§4.2): the borrowed view *is* the array. A
-      // lowering that copied would be a different operation with a different
-      // cost, and would break the aliasing the zero-copy clause promises.
-      case "jsValueAsArrayUnchecked":
         return "__a => __a";
+      // The one row of `stdlib/JsValue.hex` that is **not** an identity (§4.2,
+      // amended #876): `toArray`'s success value is a **captured** `Array(JsValue)`
+      // — Hexagon's own copy, made by FFI Part 1 §5.4's walk at that type, each
+      // index read once in order, dense, each element carried by identity as the
+      // uncertain `JsValue` it is. It is one of the two named operations that run
+      // the walk without being declared positions (§5.4), so it reaches the same
+      // helper and the same plan table every crossing does rather than a copy of
+      // its own. `Array.isArray`, the probe below, is untouched and still
+      // unguarded.
+      case "jsValueAsArrayUnchecked":
+        return `__a => ${
+          this.#captured(
+            { kind: "Array", element: { kind: "JsValue" } },
+            "__a",
+          )
+        }`;
       // `Array.isArray`, **unguarded** — §4.2 against §3. `jsValueKind`'s helper
       // wraps its own probe in a `try` so the classification is total; this one
       // must not, because `toArray` promises a verdict about the data and a
@@ -10138,11 +10376,13 @@ class JavaScriptEmitter {
       // carries: no row takes evidence, because §4.3 makes lookup the native
       // collection's SameValueZero rather than Hexagon's `Hash`.
       //
-      // The `size` rows are property reads rather than cached values on
-      // purpose — FFI Part 5 §3.1's fresh-read discipline ("must not cache,
-      // hoist, or common-subexpression-eliminate"), which for a borrowed view
-      // is the whole of the honesty: foreign code owns the collection and may
-      // have changed it since the last look.
+      // The `size` rows are native property reads, and since #875 they are
+      // reads **of a value**: the collection was captured at the crossing (Part
+      // 10 §2), so it is a genuine native `Map`/`Set` nobody else can reach,
+      // its `size`/`has`/`get` are the platform's own and cannot throw (§4.4),
+      // and the compiler may share or hoist any of them freely. The fresh-read
+      // discipline these rows once carried was the borrowed view's, and it went
+      // with it.
       case "jsMapSize":
         return "__a => __a.size";
       case "jsMapHas":
@@ -11820,6 +12060,7 @@ type Helper =
   | "seqToIterable"
   | "streamFromSeq"
   | "streamInbound"
+  | "capture"
   | "debugLog"
   | "jsValueKind"
   | "jsErrorRead"
@@ -11879,6 +12120,9 @@ const HELPER_DEPENDENCIES: Readonly<Record<Helper, readonly Helper[]>> = {
   // Owes nothing. The whole of §14.1 is that the shim composes with no spine:
   // no adapter, no memo, no driver — one foreign step per pull.
   streamInbound: [],
+  // Owes nothing either, and that is the design: FFI Part 1 §5.4's walk is one
+  // interpreter over a plan table, so no second helper composes with it.
+  capture: [],
   debugLog: [],
   jsValueKind: [],
   jsErrorRead: [],
@@ -12412,6 +12656,140 @@ function renderHelper(
     // `IndexError(index, size)` anywhere catches this throw too. `size` is the
     // array's length at the fault, which is what the reader of the message
     // needs and what a `Vector` fault reports.
+    // FFI Part 1 §5.4's capture walk, interpreted over one module's plan table
+    // (`capture.ts`). Three obligations shape the body, and each is the reason
+    // for a clause a shorter one would not have:
+    //
+    // **The walk is iterative** — §5.4's "the walk over a long acyclic structure
+    // is an *iterative* traversal that does not depend on recursion depth". So
+    // there is one worklist and no recursive call: a task produces the *shell*
+    // of its copy, assigns it into its parent's slot, and pushes a task for each
+    // component that needs walking. A chain of a hundred thousand records costs
+    // a hundred thousand entries and one frame. The list is walked by an
+    // advancing index rather than popped, which makes the order breadth-first:
+    // the order across collections is unobservable, and the order *within* one
+    // is settled before a task ends.
+    //
+    // **An array's access pattern is the contract** — "reads each index exactly
+    // once in index order through native array access; an exotic array object
+    // observes exactly that access pattern and nothing else". One `length` read,
+    // then `__from[__index]` ascending, and nothing else touches the source.
+    // That rules out `slice` (which preserves holes) and `Array.from`/spread
+    // (which drive the iterator protocol). **The copy is dense**: every index of
+    // the fresh array is assigned, by this task or by the task it pushed, so a
+    // source hole becomes a stored `undefined`.
+    //
+    // **A keyed copy is built from the source's own iteration protocol**, in its
+    // own order, each entry read once (Part 10 §2). The entries are read into
+    // cells here and inserted by a `fill` task, which the breadth-first order
+    // puts after every walk this task pushed — so a key or value that is itself
+    // a captured collection is inserted as the object it will be, and the
+    // interior it is still filling is reached through that same object.
+    case "capture":
+      return [
+        `function ${name}(__plans, __plan, __value) {`,
+        "  const __root = [__value];",
+        "  const __work = [{ plan: __plan, from: __value, into: __root, at: 0 }];",
+        "  for (let __step = 0; __step < __work.length; __step += 1) {",
+        "    const __task = __work[__step];",
+        "    if (__task.fill !== undefined) {",
+        "      for (const __cell of __task.cells) {",
+        "        if (__task.keyed) __task.fill.set(__cell[0], __cell[1]);",
+        "        else __task.fill.add(__cell[0]);",
+        "      }",
+        "      continue;",
+        "    }",
+        "    const __from = __task.from;",
+        "    let __node = __plans[__task.plan];",
+        "    let __copy = __from;",
+        // **`Nullable` is resolved here and never deferred.** It is the one node
+        // with no cell of its own (§5.4: "for `Nullable`, which has no cell, the
+        // walk at `a` itself"), so it has nothing to put in its parent's slot
+        // ahead of the copy — and a node that pushed its work instead would
+        // leave the *source* in that slot for whatever reads it next. A `fill`
+        // task is exactly such a reader: it runs after the tasks the map pushed
+        // and inserts what the cells hold, so a deferred `Nullable` under a
+        // `JsMap`/`JsSet` inserted the foreign object and the copy landed in a
+        // cell nobody read again (review 1, finding 1 — `JsMap(String,
+        // Nullable(Array(Int)))` handed back the foreign array by identity).
+        // Unwrapping in this task keeps the invariant every other node already
+        // had: **a task settles its own slot before it ends.**
+        `    while (__node.k === "nullable") {`,
+        "      __node = __from === null || __from === undefined ? undefined : __plans[__node.e];",
+        "      if (__node === undefined) break;",
+        "    }",
+        "    if (__node === undefined) {",
+        "      // A nullish value under a `Nullable` is itself.",
+        `    } else if (__node.k === "array") {`,
+        // A hole in the source becomes a stored `undefined` here, which is what
+        // Part 2 §6.4 says a hole observes as. Where the element type is *not*
+        // `Nullable` and the element plan is a walk, that `undefined` reaches
+        // the next task and throws: a hole at a non-nullable element type is
+        // Part 1 §3.1's representation violation, whose observations are
+        // unspecified, and a throw out of the crossing frame is one of them.
+        "      const __size = __from.length;",
+        `      __copy = new ${spell("Array")}(__size);`,
+        "      for (let __index = 0; __index < __size; __index += 1) {",
+        "        const __element = __from[__index];",
+        "        if (__node.e === null) __copy[__index] = __element;",
+        "        else __work.push({ plan: __node.e, from: __element, into: __copy, at: __index });",
+        "      }",
+        `    } else if (__node.k === "map") {`,
+        `      __copy = new ${spell("Map")}();`,
+        "      const __cells = [];",
+        "      for (const __entry of __from) {",
+        "        const __cell = [__entry[0], __entry[1]];",
+        "        __cells.push(__cell);",
+        "        if (__node.key !== null) __work.push({ plan: __node.key, from: __cell[0], into: __cell, at: 0 });",
+        "        if (__node.value !== null) __work.push({ plan: __node.value, from: __cell[1], into: __cell, at: 1 });",
+        "      }",
+        "      __work.push({ fill: __copy, cells: __cells, keyed: true });",
+        `    } else if (__node.k === "set") {`,
+        `      __copy = new ${spell("Set")}();`,
+        "      const __cells = [];",
+        "      for (const __element of __from) {",
+        "        const __cell = [__element];",
+        "        __cells.push(__cell);",
+        "        if (__node.e !== null) __work.push({ plan: __node.e, from: __element, into: __cell, at: 0 });",
+        "      }",
+        "      __work.push({ fill: __copy, cells: __cells, keyed: false });",
+        `    } else if (__node.k === "tuple") {`,
+        "      __copy = [];",
+        "      for (let __index = 0; __index < __node.e.length; __index += 1) {",
+        "        const __element = __from[__index];",
+        "        if (__node.e[__index] === null) __copy[__index] = __element;",
+        "        else __work.push({ plan: __node.e[__index], from: __element, into: __copy, at: __index });",
+        "      }",
+        `    } else if (__node.k === "record") {`,
+        // An **open** row starts from a spread, which carries the fields the
+        // declaration never named (§5.4 item 7); a closed one is rebuilt from
+        // its fields alone. Either way each field is read **once**: the walked
+        // ones are taken off `__copy`, where the spread has already put them,
+        // rather than off the source a second time.
+        "      __copy = __node.open ? { ...__from } : {};",
+        "      for (const __field of __node.fields) {",
+        "        const __held = __node.open ? __copy[__field[0]] : __from[__field[0]];",
+        "        if (__field[1] === null) __copy[__field[0]] = __held;",
+        "        else __work.push({ plan: __field[1], from: __held, into: __copy, at: __field[0] });",
+        "      }",
+        `    } else if (__node.k === "union") {`,
+        "      const __tag = __from.tag;",
+        "      for (const __arm of __node.arms) {",
+        "        if (__arm[0] !== __tag) continue;",
+        "        __copy = { tag: __tag };",
+        "        for (const __slot of __arm[1]) {",
+        "          const __held = __from[__slot[0]];",
+        "          if (__slot[1] === null) __copy[__slot[0]] = __held;",
+        "          else __work.push({ plan: __slot[1], from: __held, into: __copy, at: __slot[0] });",
+        "        }",
+        "        break;",
+        "      }",
+        "    }",
+        "    __task.into[__task.at] = __copy;",
+        "  }",
+        "  return __root[0];",
+        "}",
+      ];
     case "arrayIndex":
       return [
         `function ${name}(__values, __index) {`,

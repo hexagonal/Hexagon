@@ -198,20 +198,32 @@ describe("the covariance hole is closed at the immutable spelling", () => {
 });
 
 describe("nothing but declaration text changes", () => {
-  test("the emitted JavaScript is the same program, and names no face", () => {
+  /**
+   * #228's own claim: the face is a `.d.ts` matter and the emitted JavaScript
+   * does not know about it. The program's own lines are therefore pinned
+   * exactly, and the pin is that **no face spelling appears in them**.
+   *
+   * The whole file was once pinned byte for byte. It is not any more, because
+   * the capture arc (#945) added a line #228 did not write: `rows`' result is a
+   * captured collection, so the extern binding is Part 4 §4.3's stable copying
+   * wrapper and the module carries the walk's plan table. That is a different
+   * ruling's business, so what is asserted here is #228's own — every line of
+   * the program, and the absence of the face — rather than the presence or
+   * absence of another arc's machinery.
+   */
+  test("the emitted program is unchanged, and names no face", () => {
     const javascript = module(BORROWED).javascript.text;
-    expect(javascript).toBe(
-      'import { rows } from "./rows.js";\n' +
-        "const first = () => rows();\n" +
-        "const head = xs => xs;\n" +
-        "function pass(xs) {\n" +
-        "  return xs;\n" +
-        "}\n" +
-        "export { first };\n" +
-        "export { head };\n" +
-        "export { pass };\n",
-    );
+    expect(javascript).toContain('import { rows as __rowsForeign } from "./rows.js";');
+    expect(javascript).toContain("const first = () => rows();");
+    expect(javascript).toContain("const head = xs => xs;");
+    expect(javascript).toContain("function pass(xs) {\n  return xs;\n}");
+    expect(javascript).toContain("export { first };");
+    expect(javascript).toContain("export { head };");
+    expect(javascript).toContain("export { pass };");
     expect(javascript).not.toContain("ReadonlyArray");
+    // `head` and `pass` are Hexagon-to-Hexagon at every seat in this module, so
+    // the walk reaches neither: only the extern row copies.
+    expect(javascript.match(/__capture\(__capturePlans/gu)).toHaveLength(1);
   });
 });
 
