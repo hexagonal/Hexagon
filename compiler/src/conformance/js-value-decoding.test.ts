@@ -546,7 +546,7 @@ describe("the bare namespace this slice narrows (Modules §5.5)", () => {
       "no bare `toInt`; write `b.toInt()`, `BigInt.toInt(b)`, or `JsValue.toInt(b)`",
     ]);
     expect(projectDiagnostics("module Main\n\n" + "export let f(b: BigInt): Float = toFloat(b)\n")).toEqual([
-      "no bare `toFloat`; write `b.toFloat()`, `BigInt.toFloat(b)`, " +
+      "no bare `toFloat`; write `b.toFloat()`, `BigInt.toFloat(b)`, `Dec.toFloat(b)`, " +
       "or `JsValue.toFloat(b)`",
     ]);
   });

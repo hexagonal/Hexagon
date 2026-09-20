@@ -44,6 +44,10 @@ honor Signed<BigInt> =
         `BigInt`. *)
     fromInt(value) = nativeFromInt(value)
 
+honor FromBigInt<BigInt> =
+    (** A `BigInt` already is an arbitrary-size integer. *)
+    fromBigInt(value) = value
+
 honor Eq<BigInt> =
     (** Whether `left` and `right` are the same integer. *)
     equals(left, right) = nativeEquals(left, right)

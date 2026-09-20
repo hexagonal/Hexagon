@@ -4753,6 +4753,8 @@ class JavaScriptEmitter {
         // literal, which every emitted module refuses. Pattern Matching §7.2
         // keys a literal's identity on the value for the same reason.
         return `${canonicalIntegerLiteral(pattern.decimal)}${pattern.bigint === true ? "n" : ""}`;
+      case "Dec":
+        return "";
       case "Float":
         return canonicalFloatLiteral(pattern.spelling);
       case "String":
@@ -5113,6 +5115,8 @@ class JavaScriptEmitter {
       case "BigInt":
         // `007n` is not even a legacy octal: it is an outright SyntaxError.
         return `${canonicalIntegerLiteral(expression.decimal)}n`;
+      case "Dec":
+        return `({ coefficient: ${canonicalIntegerLiteral(expression.coefficient)}n, places: ${expression.decimalPlaces} })`;
       case "Float":
         // The spelling the reader wrote, with #897's one repair: a leading zero
         // before the point is legal Hexagon (Lexer §5) and a SyntaxError in
@@ -5124,6 +5128,8 @@ class JavaScriptEmitter {
         return this.#emitWidenNat(expression, depth, evidenceNames);
       case "WidenInt":
         return this.#emitWidenInt(expression, depth, evidenceNames);
+      case "WidenBigInt":
+        return this.#emitWidenBigInt(expression, depth, evidenceNames);
       case "String":
         return this.#emitString(expression, depth, evidenceNames);
       case "Tuple":
@@ -6806,6 +6812,15 @@ class JavaScriptEmitter {
         // literal, and this module carries that report.
         const literal = this.#emitExpr(pattern.literal, 0, evidenceNames);
         const type = pattern.literal.type;
+        if (pattern.equalityEvidence !== undefined) {
+          const dictionary = this.#emitEvidence(
+            pattern.equalityEvidence,
+            "Eq",
+            pattern.span,
+            evidenceNames,
+          );
+          return { tests: [`${dictionary}.equals(${value}, ${literal})`], bindings: [] };
+        }
         return {
           tests: [
             type.kind === "Primitive" && type.name === "Float"
@@ -6814,6 +6829,16 @@ class JavaScriptEmitter {
           ],
           bindings: [],
         };
+      }
+      case "Dec": {
+        const dictionary = this.#emitEvidence(
+          pattern.evidence,
+          "Eq",
+          pattern.span,
+          evidenceNames,
+        );
+        const literal = `({ coefficient: ${canonicalIntegerLiteral(pattern.coefficient)}n, places: ${pattern.decimalPlaces} })`;
+        return { tests: [`${dictionary}.equals(${value}, ${literal})`], bindings: [] };
       }
       case "Float":
         // §2.5: `Eq<Float>` is SameValueZero, so the arm test is what
@@ -7141,6 +7166,36 @@ class JavaScriptEmitter {
         expression.evidence,
         "Signed",
         "fromInt",
+        [value],
+        expression.span,
+        evidenceNames,
+      );
+    }
+    return this.#unit;
+  }
+
+  #emitWidenBigInt(
+    expression: Core.WidenBigIntExpr,
+    depth: number,
+    evidenceNames: EvidenceNames,
+  ): string {
+    const value = this.#emitExpr(expression.value, depth, evidenceNames);
+    if (primitiveInstance(expression.evidence) === "BigInt") return value;
+    if (expression.evidence.kind === "Dictionary") {
+      const dictionary = this.#dictionary(
+        expression.evidence.variable,
+        dictionarySeat(expression.evidence, "FromBigInt"),
+        expression.span,
+        evidenceNames,
+        expression.evidence.path,
+      );
+      return `${dictionary}.fromBigInt(${value})`;
+    }
+    if (expression.evidence.kind === "Instance" || expression.evidence.kind === "Structural") {
+      return this.#emitMemberCall(
+        expression.evidence,
+        "FromBigInt",
+        "fromBigInt",
         [value],
         expression.span,
         evidenceNames,
@@ -12078,6 +12133,7 @@ function isSimplePayloadBindingPattern(pattern: Core.Pattern): boolean {
         isSimplePayloadBindingPattern(field.pattern)
       );
     case "Integer":
+    case "Dec":
     case "Float":
     case "String":
     case "Constructor":
@@ -12512,9 +12568,11 @@ function expressionPrecedence(expression: Core.Expr): Precedence {
     case "Block":
       return Precedence.Call;
     case "WidenNat":
-    case "WidenInt": {
+    case "WidenInt":
+    case "WidenBigInt": {
       const widened = primitiveInstance(expression.evidence);
-      return widened !== undefined && widened !== "BigInt"
+      return widened !== undefined &&
+          (expression.kind === "WidenBigInt" || widened !== "BigInt")
         ? expressionPrecedence(expression.value)
         : Precedence.Call;
     }
@@ -12523,6 +12581,7 @@ function expressionPrecedence(expression: Core.Expr): Precedence {
     case "Unit":
     case "Number":
     case "BigInt":
+    case "Dec":
     case "Float":
     case "Tuple":
     case "Vector":
@@ -15051,6 +15110,7 @@ function patternBindings(pattern: Core.Pattern): Core.Binding[] {
     case "Wildcard":
     case "Unit":
     case "Integer":
+    case "Dec":
     case "Float":
     case "String":
       return [];
@@ -15123,6 +15183,7 @@ function withoutUnboundVectors(pattern: Core.Pattern): Core.Pattern {
     case "Wildcard":
     case "Unit":
     case "Integer":
+    case "Dec":
     case "Float":
     case "String":
       return pattern;
@@ -15147,6 +15208,7 @@ function containsVectorPattern(pattern: Core.Pattern): boolean {
     case "Wildcard":
     case "Unit":
     case "Integer":
+    case "Dec":
     case "Float":
     case "String":
       return false;
@@ -15186,6 +15248,7 @@ function containsDeclaredPattern(pattern: Core.Pattern): boolean {
     case "Wildcard":
     case "Unit":
     case "Integer":
+    case "Dec":
     case "Float":
     case "String":
       return false;

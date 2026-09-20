@@ -76,7 +76,7 @@ A bare `{x, y}` pattern would describe a structural record, not the nominal `Poi
 
 ## Literals match particular values
 
-Bare integer, `BigInt`, `Float`, and `String` literals may appear in patterns:
+Bare integer, `BigInt`, `Float`, `Dec`, and `String` literals may appear in patterns:
 
 ```hexagon
 let describeCount(count: Int): String =
@@ -87,7 +87,7 @@ let describeCount(count: Int): String =
 ```
 
 `_` is the wildcard: it matches anything and binds nothing. Infinite sets such as
-`Int`, `Nat`, `BigInt`, `Float`, and `String` always need a wildcard or variable
+`Int`, `Nat`, `BigInt`, `Float`, `Dec`, and `String` always need a wildcard or variable
 catch-all because a finite list of literals cannot cover every possible value.
 
 The `n` suffix means `BigInt` in a pattern too. It lets you match an exact integer
@@ -106,6 +106,12 @@ Here bare `0` takes its type from `count`, so it means the same case as `0n`.
 Writing both as separate arms would make the second unreachable. The suffix fixes
 the literal's type: `0n` cannot match an `Int` position, and a pattern never widens
 the value it examines. The same rule holds inside a constructor or tuple pattern.
+
+A Dec literal pattern compares numerical values too. `5d` matches `5.00d`, and
+writing both as consecutive arms makes the second unreachable. A bare integer
+pattern such as `5` also works at a Dec position. Retained places affect display,
+not matching; use a guard checking `decimalPlaces()` when that count matters.
+The `d` suffix fixes the pattern's type to Dec, so it cannot match a Float position.
 
 A `Float` literal matches by the same equality that `==` uses, and no more loosely:
 a computed value matches a written one only when `==` would say they are equal. The
@@ -539,7 +545,7 @@ dialects.
 - constructor, tuple, record, and declared patterns can nest;
 - a declared pattern exposes a pure view and optionally supplies construction;
 - record patterns are open and support punning and renaming;
-- bare integer, `BigInt`, `Float`, and `String` literals may be patterns, matching
+- bare integer, `BigInt`, `Float`, `Dec`, and `String` literals may be patterns, matching
   by the same equality as `==`, and `()` is the `Unit` pattern; `True` and `False` are constructor patterns,
   not literals;
 - the named special `Float` values are values, not literals, and are tested in guards;

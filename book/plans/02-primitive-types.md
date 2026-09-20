@@ -2,8 +2,8 @@
 
 ## Purpose
 
-Give readers a practical model of Hexagon's seven primitive types and show that their
-JavaScript-native representations are a deliberate part of the language design. Spend
+Give readers a practical model of Hexagon's fundamental prelude types and show how their
+representations support their semantics, including Dec's opaque record. Spend
 the most teaching time on numeric distinctions, interpolation, and Unicode behavior;
 avoid turning the chapter into a catalogue of primitive-module functions.
 
@@ -11,8 +11,8 @@ avoid turning the chapter into a catalogue of primitive-module functions.
 
 After this chapter, the reader should be able to:
 
-- choose among `Int`, `Float`, and `BigInt`;
-- recognize the literal syntax of all seven primitive types;
+- choose among `Int`, `Float`, `Dec`, and `BigInt`;
+- recognize the literal syntax of the fundamental types;
 - understand integer safe-range and floating-point limitations;
 - use numeric separators;
 - rely on `Bool` without JavaScript truthiness;
@@ -24,6 +24,7 @@ After this chapter, the reader should be able to:
 
 - `spec/primitive-types.md`
 - `spec/numeric-literals.md`
+- `spec/dec.md`
 - `spec/division-remainder.md` only for the boundary between number kinds
 - `spec/operators-logic-precedence.md` only where primitive operator use is visible
 
@@ -40,13 +41,14 @@ Preview, but defer full treatment of:
 ## Technical skeleton
 
 1. Return to the order example and inspect its concrete values.
-2. The seven primitive types and their JS/TS representations.
+2. The fundamental prelude types and their JS/TS representations.
 3. `Int`: default whole numbers, safe range, and silent overflow boundary.
-4. `Float`: decimal/exponent literals and IEEE 754 honesty.
+4. `Float`: unsuffixed decimal/exponent literals and IEEE 754 honesty;
+   `Dec`: exact `d` literals, retained places, numerical equality, and explicit rounding.
 5. `Bool`: no truthiness.
 6. `String`: one literal form, interpolation through display, multiline text, escapes.
 7. Unicode codepoints, no `Char`, and one-based positions.
-8. `BigInt`: specialist arbitrary precision and no mixed arithmetic.
+8. `BigInt`: arbitrary precision, exact integer widening, and explicit lossy exits.
 9. `Unit` as the returning concept from the preceding chapter.
 10. A compact boundary comparison and working summary.
 
@@ -60,9 +62,54 @@ Preview, but defer full treatment of:
 
 ## Audit notes
 
+### `Dec` teaching contract
+
+`spec/dec.md` records the settled first-release contract. The chapter now incorporates
+this contract; implementation validation is tracked in the specification:
+
+- Introduce `Dec` as a fundamental prelude type alongside the other number types.
+  Replace the seven-type count and the claim that chapter membership requires a
+  JavaScript primitive representation. `Dec` is an opaque nominal record; it
+  does not become a compiler primitive.
+- Teach exact finite decimals, retained decimal places (`1.50`), and the
+  difference from significant-digit precision and `Float`.
+- Explain that there is no conversion from `Float` to `Dec`, just as there is
+  none from `Float` to `Rat`: converting an approximate input cannot recover
+  its intended exact value. Begin with exact inputs instead; converting the
+  stored binary approximation exactly would not recover the intended decimal.
+- Present `show` as the preferred way to inspect or display a `Dec` in ordinary
+  use: `5.00d.show()` returns `"5.00"`. Introduce `decimalPlaces` for code needing
+  the count, and `value` for extensions and adapters needing the unscaled integer:
+  `5.00d.decimalPlaces()` returns `2`, while `5.00d.value()` returns `500n`.
+  Make clear that `value` does not return the numerical amount as a whole number.
+- Explain that multiplication adds decimal places: `1.50 * 2.00` displays as
+  `3.0000`, while multiplying by a zero-place integer preserves two places.
+- Show numerical equality despite different retained places, and explicit
+  rounding through `multiplyTo`, `divideTo`, and `withDecimalPlaces`, with their
+  respective `Even` variants. `roundEven` names nearest rounding with ties to even,
+  not rounding every value to an even number. Division has no `/` operator.
+- Teach exact `d` literals (`5d`, `5.00d`, `0.050d`), preserved fractional digits,
+  separators excluded from the digit count, digits on both sides of a written
+  decimal point (`0.5d`, not `.5d` or `5.d`), and no exponent notation. Rewrite
+  the mathematical examples above with `d` suffixes when used as executable code.
+- Explain the potentially surprising consequence of numerical equality: `5d`
+  and `5.00d` denote the same map key and match the same values. A `5.00d` match
+  arm after `5d` is unreachable; retained places are not part of literal matching.
+- Runtime text parsing is deferred until other numeric types establish its
+  conventions. Use literals and `Dec.create` in this chapter. No `(x, y)dec`
+  deconstruction pattern is provided.
+- Once `spec/integer-widening.md` is implemented, teach that established Nat,
+  Int, and BigInt values can enter Dec exactly at zero decimal places. Explain
+  the shared BigInt route briefly; leave the `FromBigInt` capability and its
+  instance obligations to the constraints chapter. No implicit Float input or
+  Rat/Dec cross-conversion follows from integer friendliness.
+- Keep currency identity and formatting outside the core introduction.
+
+### Current chapter checks
+
 - Bare integer literals are polymorphic during inference but default to `Int`; do not
   falsely teach that their type is fixed lexically.
-- A decimal point or exponent makes a literal monomorphic `Float`.
+- An unsuffixed decimal point or exponent makes a literal monomorphic `Float`; `d` selects Dec.
 - `Int` and `Float` both emit as JS/TS `number`; `BigInt` emits as `bigint`.
 - `Unit` emits as `undefined` and appears as `void` only in TS return position.
 - Interpolation requires `Show`; it is not universal JavaScript coercion.

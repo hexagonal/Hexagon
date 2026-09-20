@@ -267,6 +267,7 @@ export type Pattern =
   | WildcardPattern
   | UnitPattern
   | IntegerPattern
+  | DecPattern
   | FloatPattern
   | StringPattern
   | VectorPattern
@@ -322,9 +323,9 @@ export interface OrPattern {
  * `literal` is the literal **built at that type** — an `n`-suffixed pattern is a
  * direct `BigInt` expression, while a bare pattern is the elaborated `FromNat`, so
  * `0` at `Float` is the `Number` expression `0.0` and at `BigInt` the `BigInt`
- * expression `0n`. §2.5's permitted-primitive restriction leaves only the four, so
- * the test is always the equality the compiler computes (`===`, or the
- * SameValueZero shape at `Float`) and no evidence rides along.
+ * expression `0n`. The four primitive subjects use compiler-computed equality
+ * (`===`, or the SameValueZero shape at `Float`); canonical `Dec` carries
+ * `equalityEvidence` for its numerical equality.
  *
  * `decimal` stays the spelling the reader wrote; nothing emits it directly
  * (#897 — the emitted integer is `literal`'s canonical printing).
@@ -335,6 +336,15 @@ export interface IntegerPattern {
   /** Present for the monomorphic `n`-suffixed form. */
   readonly bigint?: true;
   readonly literal: Expr;
+  readonly equalityEvidence?: Evidence;
+  readonly span: Source.Span;
+}
+
+export interface DecPattern {
+  readonly kind: "Dec";
+  readonly coefficient: string;
+  readonly decimalPlaces: number;
+  readonly evidence: Evidence;
   readonly span: Source.Span;
 }
 
@@ -546,6 +556,7 @@ export type Expr =
   | UnitExpr
   | NumberExpr
   | BigIntExpr
+  | DecExpr
   | FloatExpr
   | StringExpr
   | VectorExpr
@@ -559,6 +570,7 @@ export type Expr =
   | ConvertNatExpr
   | WidenNatExpr
   | WidenIntExpr
+  | WidenBigIntExpr
   | BlockExpr
   | LambdaExpr
   | IfExpr
@@ -606,6 +618,12 @@ export interface NumberExpr extends ExpressionFields {
 export interface BigIntExpr extends ExpressionFields {
   readonly kind: "BigInt";
   readonly decimal: string;
+}
+
+export interface DecExpr extends ExpressionFields {
+  readonly kind: "Dec";
+  readonly coefficient: string;
+  readonly decimalPlaces: number;
 }
 
 export interface FloatExpr extends ExpressionFields {
@@ -711,6 +729,13 @@ export interface WidenNatExpr extends ExpressionFields {
 /** An explicit contextual `Signed.fromInt(value)` selected during checking. */
 export interface WidenIntExpr extends ExpressionFields {
   readonly kind: "WidenInt";
+  readonly value: Expr;
+  readonly evidence: Evidence;
+}
+
+/** An explicit contextual `FromBigInt.fromBigInt(value)` selected during checking. */
+export interface WidenBigIntExpr extends ExpressionFields {
+  readonly kind: "WidenBigInt";
   readonly value: Expr;
   readonly evidence: Evidence;
 }

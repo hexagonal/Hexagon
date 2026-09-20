@@ -2610,6 +2610,8 @@ class Checker {
   readonly #natWidenings = new WeakMap<Resolved.Expr, Requirement>();
   /** Exact Int expressions that checking injects into an independently known Signed target. */
   readonly #intWidenings = new WeakMap<Resolved.Expr, Requirement>();
+  /** Exact BigInt expressions injected into an independently known FromBigInt target. */
+  readonly #bigIntWidenings = new WeakMap<Resolved.Expr, Requirement>();
   /**
    * Numeric Literals §6's **stand-down note** *(#808)*: at an operation whose
    * lift stood down, which operand declined the face and what algebra the
@@ -2786,6 +2788,8 @@ class Checker {
    * members, and `Seq.hex` itself.
    */
   #seqRecord: Resolved.RecordId | undefined;
+  /** The canonical prelude `Dec` record, used by monomorphic `d` literals. */
+  #decRecord: Resolved.RecordId | undefined;
   /**
    * The prelude `Stream` record, read off the same occlusion-proof channel as
    * `#seqRecord` above and for one question only: FFI Part 1 §5.4 item 1's
@@ -2900,7 +2904,7 @@ class Checker {
    */
   readonly #integerPatterns = new WeakMap<
     Resolved.IntegerPattern,
-    { readonly type: Mono; readonly num?: Requirement }
+    { readonly type: Mono; readonly num?: Requirement; readonly eq?: Requirement }
   >();
   /**
    * The whole pattern each walk began at, for one report: §2.5's
@@ -3633,6 +3637,7 @@ class Checker {
       this.#programNominals,
     );
     this.#seqRecord = module.preludeRecords.get("Seq");
+    this.#decRecord = module.preludeRecords.get("Dec");
     this.#streamRecord = module.preludeRecords.get("Stream");
     this.#jsValueFromSymbol = preludeExportSymbol(
       module.items.filter((item) => item.kind === "Import"),
@@ -4729,11 +4734,11 @@ class Checker {
 
   /**
    * Method Syntax §4.2's **ownership clause** *(#808)*: the tower member a
-   * `Nat` or `Int` receiver owns under this spelling without honoring its rung,
+   * `Nat`, `Int`, or `BigInt` receiver owns under this spelling without honoring its rung,
    * or `undefined` everywhere else.
    *
    * `Nat` gains `Signed`'s `subtract` and `negate` and `Frac`'s `divide`; `Int`
-   * gains `divide`. Nothing else, and no other type: the two source types of
+   * gains `divide`; `BigInt` gains `divide`. Nothing else, and no other type: the source types of
    * §5.1's exact conversions cannot honor those rungs — subtraction leaves
    * `Nat`, division leaves `Int` — and their homes are closed, so without
    * ownership a lifted `n.subtract(m)` would have no dot spelling at all. A rung
@@ -4744,7 +4749,7 @@ class Checker {
     const actual = this.#prune(type);
     if (
       actual.kind !== "Constructor" ||
-      (actual.name !== "Nat" && actual.name !== "Int")
+      (actual.name !== "Nat" && actual.name !== "Int" && actual.name !== "BigInt")
     ) return undefined;
     if (!TOWER_MEMBER_NAMES.has(name)) return undefined;
     const honored = new Set(this.#instancesBySubject.get(this.#subjectKey(actual)) ?? []);
@@ -5053,7 +5058,7 @@ class Checker {
     // each of them is this one body's restriction. Same-spelled members with no
     // `widens` over them remain genuine rivals, count their full number, and
     // are refused exactly as before.
-    // §4.2's **ownership clause** *(#808)*. A `Nat` or `Int` receiver owns,
+    // §4.2's **ownership clause** *(#808)*. A `Nat`, `Int`, or `BigInt` receiver owns,
     // beyond the members of the constraints honored at its type, the
     // subject-first members of the tower rungs it does **not** honor. The two
     // sources are disjoint by construction — a rung is honored or it is not — so
@@ -7473,6 +7478,8 @@ class Checker {
       members.set("subtract", binary);
       members.set("negate", { parameters: [subject], result: subject });
       members.set("fromInt", { parameters: [primitive("Int")], result: subject });
+    } else if (item.constraint === "FromBigInt") {
+      members.set("fromBigInt", { parameters: [primitive("BigInt")], result: subject });
     } else if (item.constraint === "Frac") {
       members.set("divide", binary);
     } else if (item.constraint === "Concat") {
@@ -7930,6 +7937,11 @@ class Checker {
       }
       case "BigInt":
         type = primitive("BigInt");
+        break;
+      case "Dec":
+        type = this.#decRecord === undefined
+          ? ERROR
+          : { kind: "NominalRecord", record: this.#decRecord, name: "Dec", arguments: [] };
         break;
       case "Float":
         type = primitive("Float");
@@ -9180,7 +9192,15 @@ class Checker {
         const operands = expression.operands.map((operand) =>
           this.#inferExpr(operand, level),
         );
+        // A FromBigInt destination outranks BigInt as the common comparison
+        // type even when the BigInt operand is written first. This is a direct
+        // source-to-established-target rule, not a searched conversion chain.
         let targetIndex = operands.findIndex((operand) => {
+          const actual = this.#prune(operand);
+          return !(actual.kind === "Constructor" && actual.name === "BigInt") &&
+            this.#supportsTarget(actual, "FromBigInt", true);
+        });
+        if (targetIndex < 0) targetIndex = operands.findIndex((operand) => {
           const actual = this.#prune(operand);
           return !(actual.kind === "Constructor" && ["Nat", "Int"].includes(actual.name)) &&
             this.#supportsNumericTarget(actual, true);
@@ -10266,6 +10286,14 @@ class Checker {
       this.#unifyPattern(pattern, expected, primitive("Float"));
       return;
     }
+    if (pattern.kind === "Dec") {
+      const type: Mono = this.#decRecord === undefined
+        ? ERROR
+        : { kind: "NominalRecord", record: this.#decRecord, name: "Dec", arguments: [] };
+      this.#unifyPattern(pattern, expected, type);
+      this.#requirements.set(pattern, [this.#require("Eq", type, pattern.span)]);
+      return;
+    }
     if (pattern.kind === "Error") {
       this.#reportTermSpelling(pattern, expected);
       this.#brokenPatterns.add(pattern);
@@ -10360,13 +10388,14 @@ class Checker {
    *    `Some(0)` and `x == 0` both advise `<a: (Eq, Num)>` and `Some(-1)` and
    *    `x == -1` both advise `<a: (Eq, Signed)>`.
    * 2. **The constraints hold but the resolved type is not a permitted
-   *    primitive.** `Int`, `Nat`, `BigInt` and `Float` are the four; a resolution
+   *    literal subject.** `Int`, `Nat`, `BigInt`, `Float`, and the canonical
+   *    `Dec` record are the five; a resolution
    *    to a `Num`-honoring type outside them — `Rat`, a user's `Money`, a declared
    *    variable under `<a: (Num, Eq)>` — is refused at the literal, naming the
    *    guard that does work. A failure to type, so §7.3's fourth tier reads the
    *    arm as `_`.
-   * 3. **Both hold.** The literal is `fromNat` of its payload at that primitive,
-   *    and the arm tests it with the equality the compiler computes there (§8).
+   * 3. **Both hold.** The literal is `fromNat` of its payload at that subject,
+   *    and the arm tests primitive equality or, for `Dec`, its `Eq` evidence (§8).
    *
    * The restriction is judged **on the resolved type**. A position already
    * resolved — concrete, or a declared variable, which is rigid by declaration —
@@ -10392,7 +10421,7 @@ class Checker {
       : undefined;
     this.#literalPatternSeat = false;
     const actual = this.#prune(expected);
-    this.#integerPatterns.set(pattern, { type: actual, num });
+    this.#integerPatterns.set(pattern, { type: actual, num, eq });
     if (this.#diagnostics.count > before || actual.kind === "Error") {
       // §7.3's fourth tier: a literal the position's type cannot carry failed to
       // type, so it widens no witness and shadows no arm below it.
@@ -10737,12 +10766,12 @@ class Checker {
   }
 
   /**
-   * §2.5's permitted-primitive restriction, on a type that has resolved.
+   * §2.5's permitted-literal-subject restriction, on a type that has resolved.
    *
-   * The four primitives are the ones whose value and whose equality the compiler
-   * computes — which is also why §7.2's identity law and §8's "patterns never
-   * invoke user code" can both be stated without a carve-out. Everything else a
-   * literal could have resolved to is refused **with the guard that works**, which
+   * The four primitives have compiler-computed value and equality. Canonical
+   * `Dec` is also admitted and carries its `Eq<Dec>` evidence into the emitted
+   * match. Everything else a literal could have resolved to is refused **with
+   * the guard that works**, which
    * is the Rewrite Rule's obligation: at the top of an arm the guard binds the
    * scrutinee, and beneath it the enclosing pattern keeps its shape with a binder
    * where the literal stood.
@@ -10765,6 +10794,7 @@ class Checker {
     if (type.kind === "Constructor" && PERMITTED_LITERAL_PRIMITIVES.has(type.name)) {
       return;
     }
+    if (type.kind === "NominalRecord" && type.record === this.#decRecord) return;
     // §2.5's two phases, **in order**, which §12's row states unconditionally: "the
     // constraint fails before the restriction is reached". The refusal below is for
     // "a resolution to a type honoring `Num` and `Eq` outside them … the constraints
@@ -11037,6 +11067,14 @@ class Checker {
     }
     if (pattern.kind === "Float") {
       this.#unifyPattern(pattern, expected, primitive("Float"));
+      return;
+    }
+    if (pattern.kind === "Dec") {
+      const type: Mono = this.#decRecord === undefined
+        ? ERROR
+        : { kind: "NominalRecord", record: this.#decRecord, name: "Dec", arguments: [] };
+      this.#unifyPattern(pattern, expected, type);
+      this.#requirements.set(pattern, [this.#require("Eq", type, pattern.span)]);
       return;
     }
     if (pattern.kind === "Error") {
@@ -11513,7 +11551,7 @@ class Checker {
    * The tiers, in order:
    *
    * 1. **Bare** — a name in scope denoting this declaration: its own word, or
-   *    the word a renaming import bound (Modules §3.2). The eleven
+   *    the word a renaming import bound (Modules §3.2). The thirteen
    *    pre-registered identities always land here; they seed the map.
    * 2. **Qualified** — `Alias.Name` through a module alias in scope, which the
    *    resolver enters into the same map under that exact spelling (§3.3).
@@ -11739,19 +11777,23 @@ class Checker {
     // domain's `split` sending a literal to `distinctHead` — a key on its *span*,
     // under which no two literals are ever one.
     const actual = this.#prune(type);
-    const primitive = actual.kind === "Constructor" ? actual.name : undefined;
+    const literalType = actual.kind === "Constructor"
+      ? actual.name
+      : actual.kind === "NominalRecord" && actual.record === this.#decRecord
+        ? "Dec"
+        : undefined;
     return {
       ...(column.signature === undefined ? {} : { signature: column.signature }),
       ...(column.signatures === undefined ? {} : { signatures: column.signatures }),
       split: (pattern) => {
         if (broken && this.#brokenPatterns.has(pattern)) return undefined;
         if (
-          pattern.kind === "Integer" || pattern.kind === "Float" ||
+          pattern.kind === "Integer" || pattern.kind === "Dec" || pattern.kind === "Float" ||
           pattern.kind === "String"
         ) {
           return oneHead(
             {
-              key: `literal:${renderLiteralPatternKey(pattern, primitive)}`,
+              key: `literal:${renderLiteralPatternKey(pattern, literalType)}`,
               slots: [],
               print: () => "_",
             },
@@ -11767,11 +11809,17 @@ class Checker {
     type: Mono,
     patterns: readonly Resolved.Pattern[],
   ): CoverageColumn {
+    const actual = this.#prune(type);
+    // `Dec` is opaque but numerically infinite. Its private record constructor
+    // must never form a finite signature or appear in a missing-case witness;
+    // the wrapper in `#coverageColumn` still gives its literals exact heads.
+    if (actual.kind === "NominalRecord" && actual.record === this.#decRecord) {
+      return this.#openColumn();
+    }
     const declared = patterns.filter(
       (pattern): pattern is Resolved.DeclaredPattern => pattern.kind === "Declared",
     );
     if (declared.length > 0) return this.#declaredPatternColumn(type, patterns, declared);
-    const actual = this.#prune(type);
     switch (actual.kind) {
       case "Union":
         return this.#unionColumn(actual, patterns);
@@ -13364,6 +13412,7 @@ class Checker {
     if (source.kind !== "Constructor") return false;
     if (source.name === "Nat") return this.#supportsNumericTarget(target);
     if (source.name === "Int") return this.#supportsSignedTarget(target);
+    if (source.name === "BigInt") return this.#supportsTarget(target, "FromBigInt");
     return false;
   }
 
@@ -13746,6 +13795,9 @@ class Checker {
     if (actual.kind !== "Constructor") return false;
     if (actual.name === "Nat") return this.#supportsNumericTarget(destination);
     if (actual.name === "Int") return this.#supportsSignedTarget(destination);
+    if (actual.name === "BigInt") {
+      return this.#supportsTarget(destination, "FromBigInt");
+    }
     return false;
   }
 
@@ -13775,7 +13827,7 @@ class Checker {
     span: Source.Span,
     powerSeat?: PowerSeat,
   ): ArgumentPass {
-    // A later argument may establish the shared type of an earlier Nat/Int argument
+    // A later argument may establish the shared type of an earlier Nat/Int/BigInt argument
     // (`plus(count, 1.5)`). Bare literals and fresh variables establish nothing,
     // so defer both classes until concrete/already-constrained arguments settle.
     const deferredNumericArguments: number[] = [];
@@ -13792,6 +13844,113 @@ class Checker {
     let stoodDownFace: Mono | undefined;
     const lifted: { readonly expression: Resolved.Expr; readonly actual: Mono }[] = [];
 
+    /**
+     * Finds independently established targets occupying `subject`'s seats in
+     * two already-elaborated, structurally aligned types. This mirrors the
+     * invariant structure ordinary unification equates. Record tails are not
+     * inspected; only same-named explicit fields carry aligned provenance.
+     */
+    const alignedTargets = (
+      parameter: Mono,
+      actual: Mono,
+      subject: number,
+      walking = new Map<Mono, Set<Mono>>(),
+    ): readonly Mono[] => {
+      const expected = this.#prune(parameter);
+      const found = this.#prune(actual);
+      let rights = walking.get(expected);
+      if (rights?.has(found) === true) return [];
+      if (rights === undefined) {
+        rights = new Set();
+        walking.set(expected, rights);
+      }
+      rights.add(found);
+
+      if (expected.kind === "Variable") {
+        if (expected.id !== subject) return [];
+        const fixed = found.kind === "Constructor" &&
+          (found.name === "Nat" || found.name === "Int" || found.name === "BigInt");
+        if (fixed || found.kind === "Error" ||
+          found.kind === "Variable" && found.id === subject ||
+          !this.#supportsTarget(found, "FromBigInt", true)) return [];
+        return [found];
+      }
+      const descend = (pairs: readonly (readonly [Mono, Mono])[]): readonly Mono[] =>
+        pairs.flatMap(([left, right]) => alignedTargets(left, right, subject, walking));
+      if (expected.kind === "Vector" && found.kind === "Vector") {
+        return descend([[expected.element, found.element]]);
+      }
+      if (expected.kind === "Set" && found.kind === "Set") {
+        return descend([[expected.element, found.element]]);
+      }
+      if (expected.kind === "Array" && found.kind === "Array") {
+        return descend([[expected.element, found.element]]);
+      }
+      if (expected.kind === "JsSet" && found.kind === "JsSet") {
+        return descend([[expected.element, found.element]]);
+      }
+      if (expected.kind === "Node" && found.kind === "Node") {
+        return descend([[expected.element, found.element]]);
+      }
+      if (expected.kind === "Nullable" && found.kind === "Nullable") {
+        return descend([[expected.value, found.value]]);
+      }
+      if (expected.kind === "Map" && found.kind === "Map" ||
+        expected.kind === "JsMap" && found.kind === "JsMap") {
+        return descend([[expected.key, found.key], [expected.value, found.value]]);
+      }
+      if (expected.kind === "Tuple" && found.kind === "Tuple" &&
+        expected.elements.length === found.elements.length) {
+        return descend(expected.elements.map((element, index) =>
+          [element, found.elements[index]!] as const));
+      }
+      if (expected.kind === "Function" && found.kind === "Function" &&
+        expected.parameters.length === found.parameters.length) {
+        const pairs: (readonly [Mono, Mono])[] = expected.parameters.map((parameter, index) =>
+          [parameter, found.parameters[index]!] as const);
+        pairs.push([expected.result, found.result]);
+        return descend(pairs);
+      }
+      if (expected.kind === "Record" && found.kind === "Record") {
+        // Row tails carry no positional information. Same-named explicit
+        // fields do, exactly as record unification does, so they can establish
+        // a subject while unknown tail contents cannot.
+        return descend([...expected.fields].flatMap(([name, field]) => {
+          const other = found.fields.get(name);
+          return other === undefined ? [] : [[field, other] as const];
+        }));
+      }
+      if (expected.kind === "Union" && found.kind === "Union" &&
+        expected.union === found.union && expected.arguments.length === found.arguments.length) {
+        return descend(expected.arguments.map((argument, index) =>
+          [argument, found.arguments[index]!] as const));
+      }
+      if (expected.kind === "NominalRecord" && found.kind === "NominalRecord" &&
+        expected.record === found.record &&
+        expected.arguments.length === found.arguments.length) {
+        return descend(expected.arguments.map((argument, index) =>
+          [argument, found.arguments[index]!] as const));
+      }
+      return [];
+    };
+
+    const structurallyLicensed = (index: number, subject: number): boolean =>
+      actuals.some((candidateActual, candidateIndex) => {
+        if (candidateIndex === index || defersAsLambda(expressions[candidateIndex]!)) return false;
+        const candidateParameter = parameters[candidateIndex] ?? ERROR;
+        const candidate = this.#prune(candidateActual);
+        const fixed = candidate.kind === "Constructor" &&
+          (candidate.name === "Nat" || candidate.name === "Int" ||
+            candidate.name === "BigInt");
+        if (candidate.kind === "Error" || fixed) return false;
+        const direct = this.#prune(candidateParameter);
+        if (direct.kind === "Variable" && direct.id === subject) {
+          return !(candidate.kind === "Variable" && candidate.id === subject) &&
+            this.#supportsTarget(candidate, "FromBigInt", true);
+        }
+        return alignedTargets(candidateParameter, candidateActual, subject).length > 0;
+      });
+
     // Which deferred class an argument belongs to, or `undefined` for one the
     // sweep unifies on the spot. Classification is a *question*, asked without
     // filing anything: `establishFirstPass` needs the answer to decide whether
@@ -13799,13 +13958,33 @@ class Checker {
     // undispositioned — asked again there, at the moment the unsplit sweep would
     // have asked, since a destination it saw as a variable may have been solved
     // in between.
-    const deferral = (index: number): "literal" | "numeric" | undefined => {
+    const deferral = (
+      index: number,
+    ): "literal" | "numeric" | "exact-bigint" | undefined => {
       const source = this.#prune(actuals[index] ?? ERROR);
       const destination = this.#prune(parameters[index] ?? ERROR);
       if (destination.kind !== "Variable") return undefined;
       if (source.kind === "Variable" && source.literalOnly) return "literal";
-      if (source.kind === "Constructor" && ["Nat", "Int"].includes(source.name)) {
+      if (
+        source.kind === "Constructor" &&
+        (source.name === "Nat" || source.name === "Int")
+      ) {
         return "numeric";
+      }
+      if (source.kind === "Constructor" && source.name === "BigInt") {
+        // BigInt keeps its old eager, fixed-source role unless a sibling in
+        // this exact shared subject already supplies an independently known
+        // destination licensed by canonical FromBigInt evidence. The callee's
+        // fresh subject constraint is not evidence on an actual argument, and
+        // callbacks cannot establish the first pass from their expectations.
+        // A caller-owned rigid destination is already established and takes
+        // the ordinary contextual conversion path. A licensed sibling defers
+        // this source until that sibling has unified. With neither provenance,
+        // BigInt is the exact fixed home; it must never consume the fresh
+        // callee parameter's own FromBigInt bound as evidence for itself.
+        if ((destination.rigidName !== undefined || establishedVariables.has(destination.id)) &&
+          this.#supportsTarget(destination, "FromBigInt", true)) return undefined;
+        return structurallyLicensed(index, destination.id) ? "numeric" : "exact-bigint";
       }
       return undefined;
     };
@@ -13849,9 +14028,30 @@ class Checker {
         }
         return;
       }
+      if (filed === "exact-bigint") {
+        this.#unify(expected, actual, span);
+        return;
+      }
       const independentlyEstablished = source.kind !== "Variable" ||
         this.#supportsNumericTarget(source, true);
+      const expectedBefore = this.#prune(expected);
+      const structuralTargets = expectedBefore.kind === "Variable"
+        ? []
+        : [...new Set(parameters.flatMap((parameter, parameterIndex) => {
+          const candidateSource = this.#prune(actuals[parameterIndex] ?? ERROR);
+          const candidateDestination = this.#prune(parameter);
+          return candidateSource.kind === "Constructor" && candidateSource.name === "BigInt" &&
+              candidateDestination.kind === "Variable"
+            ? alignedTargets(expectedBefore, actual, candidateDestination.id)
+            : [];
+        }))];
+      const diagnosticsBefore = this.#diagnostics.count;
       this.#unifyExpected(expected, actual, expression, span, true);
+      if (this.#diagnostics.count === diagnosticsBefore) {
+        for (const target of structuralTargets) {
+          if (target.kind === "Variable") establishedVariables.add(target.id);
+        }
+      }
       const established = this.#prune(expected);
       if (independentlyEstablished && established.kind === "Variable") {
         establishedVariables.add(established.id);
@@ -13877,7 +14077,8 @@ class Checker {
           // A deferred numeric or literal argument is left where it stands,
           // unfiled: it establishes nothing for the callback either, and its
           // destination may still be solved before `finish` asks again.
-          if (deferral(index) !== undefined) continue;
+          const filed = deferral(index);
+          if (filed === "literal" || filed === "numeric") continue;
           eager(index);
         }
       },
@@ -18023,6 +18224,24 @@ class Checker {
     return true;
   }
 
+  #tryWidenBigInt(
+    expression: Resolved.Expr,
+    actual: Mono,
+    target: Mono,
+    span: Source.Span,
+    allowVariableTarget = false,
+  ): boolean {
+    const source = this.#prune(actual);
+    const destination = this.#prune(target);
+    if (source.kind !== "Constructor" || source.name !== "BigInt") return false;
+    if (destination.kind === "Constructor" && destination.name === "BigInt") return false;
+    if (!this.#supportsTarget(destination, "FromBigInt", allowVariableTarget)) return false;
+
+    const requirement = this.#require("FromBigInt", destination, span);
+    this.#bigIntWidenings.set(expression, requirement);
+    return true;
+  }
+
   #tryWidenNumeric(
     expression: Resolved.Expr,
     actual: Mono,
@@ -18031,11 +18250,13 @@ class Checker {
     allowVariableTarget = false,
   ): boolean {
     return this.#tryWidenInt(expression, actual, target, span, allowVariableTarget) ||
-      this.#tryWidenNat(expression, actual, target, span, allowVariableTarget);
+      this.#tryWidenNat(expression, actual, target, span, allowVariableTarget) ||
+      this.#tryWidenBigInt(expression, actual, target, span, allowVariableTarget);
   }
 
   #hasNumericWidening(expression: Resolved.Expr): boolean {
-    return this.#natWidenings.has(expression) || this.#intWidenings.has(expression);
+    return this.#natWidenings.has(expression) || this.#intWidenings.has(expression) ||
+      this.#bigIntWidenings.has(expression);
   }
 
   #supportsTarget(
@@ -18493,7 +18714,7 @@ class Checker {
    * register): nothing of the spelling is in scope, which is the arrival state
    * of an author who has read §5.3 and not yet written the import, and the two
    * routes that reach a constraint are the import line and the named import.
-   * The arm is unreachable at the twelve pre-registered spellings, which always
+   * The arm is unreachable at the thirteen pre-registered spellings, which always
    * resolve (Constraints §5.1.1) — no case is carved for them, because a carve
    * would be a claim about a branch nothing can enter. It is the **bare**
    * spelling's, though, and only that: a qualified head (`honor D.NotThere<T>`,
@@ -18867,7 +19088,7 @@ class Checker {
     //
     // The canonical words the picks *spell* (`#require("Hash", …)`) are the
     // compiler's own choice and stay names: `#constraintIdentities` seeds the
-    // pre-registered eleven and no import may rebind one. The structural walk is
+    // pre-registered thirteen and no import may rebind one. The structural walk is
     // the exception, forwarding the identity it was given because it asks the
     // *same* constraint of each component — hardening rather than a repair, and
     // the currency an imported scheme's unspellable requirement would need.
@@ -19434,7 +19655,7 @@ class Checker {
    *
    * The nameability half is asked of identities and answered from
    * `#constraintIdentities` — this module's name → identity map, seeded with the
-   * pre-registered eleven and extended by its own declarations and its imports.
+   * pre-registered thirteen and extended by its own declarations and its imports.
    * A requirement copied out of an imported scheme carries the *defining*
    * module's identity, and the map is deliberately not total over those. It is
    * derived from what the module could write, never from what the program
@@ -19460,11 +19681,11 @@ class Checker {
    *
    * `path` is present only where the home is **offerable**: a pre-registered
    * constraint's declaration lives in the prelude (Constraints §5.1.1's third
-   * bullet, and all twelve have prelude source), where no user may write an
+   * bullet, and all thirteen have prelude source), where no user may write an
    * honor, so its path is withheld and `statedHome` carries it instead. The test
    * is the `hex:` identity space rather than the name, which is what makes it
    * occlusion-proof: a module's own `constraint Ord` would be a different
-   * identity (and is refused outright), and the twelve are the whole of the
+   * identity (and is refused outright), and the thirteen are the whole of the
    * prelude's constraint inventory.
    */
   #constraintHome(identity: string): LegalHome | undefined {
@@ -22026,6 +22247,7 @@ class Checker {
     if (source.kind !== "Constructor") return false;
     if (source.name === "Nat") return this.#supportsNumericTarget(to);
     if (source.name === "Int") return this.#supportsSignedTarget(to);
+    if (source.name === "BigInt") return this.#supportsTarget(to, "FromBigInt");
     return false;
   }
 
@@ -23857,6 +24079,7 @@ class Checker {
       case "Unit":
       case "Integer":
       case "BigInt":
+      case "Dec":
       case "Float":
       case "Lambda":
         return true;
@@ -24795,7 +25018,21 @@ class Checker {
         ...(resolved?.num === undefined
           ? {}
           : { requirement: this.#publicRequirement(resolved.num) }),
+        ...(resolved?.eq === undefined || resolved.type.kind !== "NominalRecord" ||
+            resolved.type.record !== this.#decRecord
+          ? {}
+          : { equalityRequirement: this.#publicRequirement(resolved.eq) }),
         span: pattern.span,
+      };
+    }
+    if (pattern.kind === "Dec") {
+      const type: Mono = this.#decRecord === undefined
+        ? ERROR
+        : { kind: "NominalRecord", record: this.#decRecord, name: "Dec", arguments: [] };
+      return {
+        ...pattern,
+        type: this.#publicType(type),
+        requirement: this.#publicRequirement(this.#requirements.get(pattern)![0]!),
       };
     }
     if (pattern.kind === "Error") {
@@ -25030,10 +25267,21 @@ class Checker {
       };
     }
     const widening = this.#intWidenings.get(expression);
-    if (widening === undefined) return value;
-    const requirement = this.#publicRequirement(widening);
+    if (widening !== undefined) {
+      const requirement = this.#publicRequirement(widening);
+      return {
+        kind: "WidenInt",
+        value,
+        requirement,
+        type: requirement.type,
+        span: expression.span,
+      };
+    }
+    const bigIntWidening = this.#bigIntWidenings.get(expression);
+    if (bigIntWidening === undefined) return value;
+    const requirement = this.#publicRequirement(bigIntWidening);
     return {
-      kind: "WidenInt",
+      kind: "WidenBigInt",
       value,
       requirement,
       type: requirement.type,
@@ -25068,6 +25316,7 @@ class Checker {
       case "CollectionOperation":
       case "Unit":
       case "BigInt":
+      case "Dec":
       case "Float":
       case "ErrorExpr":
         return expression.kind === "CollectionOperation"
@@ -25972,23 +26221,37 @@ function typeShape(
  * `#coverageColumn` reads it as `_` before any key is asked for.
  */
 function renderLiteralPatternKey(
-  pattern: Resolved.IntegerPattern | Resolved.FloatPattern | Resolved.StringPattern,
-  primitive?: Typed.PrimitiveName,
+  pattern: Resolved.IntegerPattern | Resolved.DecPattern | Resolved.FloatPattern | Resolved.StringPattern,
+  literalType?: Typed.PrimitiveName | "Dec",
 ): string {
   switch (pattern.kind) {
     case "Integer":
-      if (primitive === "Float") return `Float:${floatLiteralKey(Number(cleanDigits(pattern.decimal)))}`;
-      if (primitive === "Int" || primitive === "Nat" || primitive === "BigInt") {
-        return `${primitive}:${integerLiteralKey(pattern.decimal)}`;
+      if (literalType === "Dec") return `Dec:${decLiteralKey(pattern.decimal, 0)}`;
+      if (literalType === "Float") return `Float:${floatLiteralKey(Number(cleanDigits(pattern.decimal)))}`;
+      if (literalType === "Int" || literalType === "Nat" || literalType === "BigInt") {
+        return `${literalType}:${integerLiteralKey(pattern.decimal)}`;
       }
       return `spelling:${cleanDigits(pattern.decimal)}`;
     case "Float":
       // A `Float` literal stands only at a `Float` scrutinee; anywhere else it is
       // the ordinary mismatch (§2.5) and the pattern never reaches a key.
       return `Float:${floatLiteralKey(pattern.value)}`;
+    case "Dec":
+      return `Dec:${decLiteralKey(pattern.coefficient, pattern.decimalPlaces)}`;
     case "String":
       return `String:${pattern.value}`;
   }
+}
+
+function decLiteralKey(coefficient: string, decimalPlaces: number): string {
+  let value = BigInt(coefficient);
+  let places = decimalPlaces;
+  if (value === 0n) return "0:0";
+  while (places > 0 && value % 10n === 0n) {
+    value /= 10n;
+    places -= 1;
+  }
+  return `${value}:${places}`;
 }
 
 /**
@@ -26508,6 +26771,7 @@ function resolvedPatternNodes(
     case "Wildcard":
     case "Unit":
     case "Integer":
+    case "Dec":
     case "Float":
     case "Error":
     case "String":
@@ -26547,6 +26811,7 @@ function resolvedPatternBindings(
     case "Wildcard":
     case "Unit":
     case "Integer":
+    case "Dec":
     case "Float":
     case "Error":
     case "String":
@@ -26760,6 +27025,15 @@ function renderPattern(
       return "()";
     case "Integer":
       return `${pattern.decimal}${pattern.bigint === true ? "n" : ""}`;
+    case "Dec": {
+      const negative = pattern.coefficient.startsWith("-");
+      const magnitude = (negative ? pattern.coefficient.slice(1) : pattern.coefficient)
+        .padStart(pattern.decimalPlaces + 1, "0");
+      const spelling = pattern.decimalPlaces === 0
+        ? `${magnitude}d`
+        : `${magnitude.slice(0, -pattern.decimalPlaces)}.${magnitude.slice(-pattern.decimalPlaces)}d`;
+      return negative ? `-${spelling}` : spelling;
+    }
     case "Float":
       return pattern.spelling;
     case "Error":

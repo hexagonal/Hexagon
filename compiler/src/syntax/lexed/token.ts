@@ -119,6 +119,14 @@ export interface BigIntToken {
   readonly span: Source.Span;
 }
 
+export interface DecToken {
+  readonly kind: "Dec";
+  /** Separator-free unscaled non-negative coefficient. */
+  readonly coefficient: string;
+  readonly decimalPlaces: number;
+  readonly span: Source.Span;
+}
+
 export interface FloatToken {
   readonly kind: "Float";
   readonly spelling: string;
@@ -171,6 +179,7 @@ export type Token =
   | NameToken
   | IntegerToken
   | BigIntToken
+  | DecToken
   | FloatToken
   | StringToken
   | EofToken;

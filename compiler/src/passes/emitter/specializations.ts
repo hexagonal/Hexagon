@@ -983,6 +983,7 @@ function patternBindingNames(pattern: Core.Pattern): readonly string[] {
     case "Wildcard":
     case "Unit":
     case "Integer":
+    case "Dec":
     case "Float":
     case "String":
       return [];

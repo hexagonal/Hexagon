@@ -246,9 +246,9 @@ describe("pre-registered constraints have one identity, held by the compiler", (
   });
 
   test("every pre-registered name is refused alike", () => {
-    // Eleven sequential compiles; the default 5s budget is occasionally too
+    // Thirteen sequential compiles; the default 5s budget is occasionally too
     // tight for the whole loop even though each compile alone is quick.
-    // All eleven, and the list is the whole inventory rather than a subset of
+    // All thirteen, and the list is the whole inventory rather than a subset of
     // it. `Integral` (#335) and `Iterable` (#353) were held out while the
     // compiler pre-registered their *names* and held no declaration for
     // either — banning a redeclaration then would not have refused a twin, it

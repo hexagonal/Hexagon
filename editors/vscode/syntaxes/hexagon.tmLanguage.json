@@ -1142,7 +1142,7 @@
     },
 
     "numbers": {
-      "//": "spec/lexer.md §5. Decimal only; `_` needs a digit on both sides; `n` is BigInt.",
+      "//": "spec/lexer.md §5. Decimal only; `_` needs a digit on both sides; `n` is BigInt and `d` is Dec.",
       "patterns": [
         {
           "//": "`0x`/`0o`/`0b` are errors, not literals: Hexagon v1 has decimal literals only.",
@@ -1152,6 +1152,10 @@
         {
           "name": "constant.numeric.bigint.hexagon",
           "match": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])\\d(?:_?\\d)*n(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])"
+        },
+        {
+          "name": "constant.numeric.dec.hexagon",
+          "match": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])\\d(?:_?\\d)*(?:\\.\\d(?:_?\\d)*)?d(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])"
         },
         {
           "name": "constant.numeric.float.hexagon",

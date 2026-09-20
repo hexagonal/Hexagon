@@ -287,6 +287,12 @@ describe("what Playground gains by inheriting the grammar (#145)", () => {
     expect(await tokenOf("let b = 42n", "42n")).toBe("constant.numeric.bigint.hexagon");
   });
 
+  test("a Dec suffix and retained places are one literal", async () => {
+    expect(await tokenOf("let d = 1_000.50d", "1_000.50d")).toBe(
+      "constant.numeric.dec.hexagon",
+    );
+  });
+
   test("an interpolation hole is lexed as code, not as string content", async () => {
     const source = 'let greeting = "hi ${name} there"';
     expect(await tokenOf(source, "${")).toBe("punctuation.section.interpolation.begin.hexagon");

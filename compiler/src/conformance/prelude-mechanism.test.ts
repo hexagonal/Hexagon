@@ -170,7 +170,10 @@ describe("ordered intra-prelude visibility", () => {
     ], ["Prelude"]);
     const abroad = compiled.diagnostics.filter(({ primary }) => Number(primary.fileId) >= 2);
     expect(abroad.map(({ message }) => message))
-      .toEqual(["type mismatch: expected Ordering, found Ordering"]);
+      .toEqual([
+        "type mismatch: expected Ordering, found Ordering",
+        "type mismatch: expected Ordering, found Ordering",
+      ]);
   });
 
   test("visibility is strictly backward, so a cycle cannot be written", () => {

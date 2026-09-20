@@ -82,6 +82,7 @@ export const hexagonFamilies: Readonly<Record<string, HexagonFamily>> = {
       "constant.numeric.integer.hexagon",
       "constant.numeric.float.hexagon",
       "constant.numeric.bigint.hexagon",
+      "constant.numeric.dec.hexagon",
       "string.quoted.double.hexagon",
     ],
   },

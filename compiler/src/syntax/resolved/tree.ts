@@ -1178,6 +1178,7 @@ export type Pattern =
   | WildcardPattern
   | UnitPattern
   | IntegerPattern
+  | DecPattern
   | FloatPattern
   | ErrorPattern
   | StringPattern
@@ -1237,6 +1238,13 @@ export interface IntegerPattern {
   readonly decimal: string;
   /** Present for the monomorphic `n`-suffixed form. */
   readonly bigint?: true;
+  readonly span: Source.Span;
+}
+
+export interface DecPattern {
+  readonly kind: "Dec";
+  readonly coefficient: string;
+  readonly decimalPlaces: number;
   readonly span: Source.Span;
 }
 
@@ -1742,6 +1750,7 @@ export type Expr =
   | UnitExpr
   | IntegerExpr
   | BigIntExpr
+  | DecExpr
   | FloatExpr
   | StringExpr
   | VectorExpr
@@ -1842,6 +1851,13 @@ export interface IntegerExpr {
 export interface BigIntExpr {
   readonly kind: "BigInt";
   readonly decimal: string;
+  readonly span: Source.Span;
+}
+
+export interface DecExpr {
+  readonly kind: "Dec";
+  readonly coefficient: string;
+  readonly decimalPlaces: number;
   readonly span: Source.Span;
 }
 

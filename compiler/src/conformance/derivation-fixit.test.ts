@@ -361,7 +361,7 @@ describe("the gate: what draws no fixit at all", () => {
     // A user constraint has no `derives` form at all, so nothing is owed here
     // however the subject is declared. The *rival-spelling* case the identity
     // gate is really aimed at cannot be built from source — §5.1.1 makes all
-    // twelve pre-registered names non-redeclarable, so no module can declare a
+    // thirteen pre-registered names non-redeclarable, so no module can declare a
     // second `Show` for a name-keyed test to confuse the first with. The gate
     // is written by identity because that ban is the only thing standing
     // between the two readings, not because a program can tell them apart.

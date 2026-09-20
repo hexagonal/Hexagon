@@ -8,34 +8,32 @@ export let orderTotal(subtotal: Int, delivery: Int): Int =
     total
 ```
 
-`Int` is one of the **seven primitive types** — the small values from which larger
-programs are assembled. Hexagon's primitive types are the types whose values are
-already JavaScript primitive values: nothing is wrapped, nothing is boxed, and nothing
-is paid at the boundary.
+`Int` is one of the fundamental types introduced in this chapter. These are the
+small values from which larger programs are assembled. Most use JavaScript primitive
+values directly; `Dec` carries the extra information needed for exact decimals.
 
 | Hexagon type | Example value | JavaScript / TypeScript |
 |---|---|---|
 | `Nat` | `42` | `number` |
 | `Int` | `42` | `number` |
 | `Float` | `3.14` | `number` |
+| `Dec` | `3.140d` | opaque record |
 | `Bool` | `True` | `boolean` |
 | `String` | `"ready"` | `string` |
 | `BigInt` | `42n` | `bigint` |
 | `Unit` | `()` | `undefined` / `void` return |
 
-An `Int` becomes an ordinary JavaScript number, a `String` an ordinary JavaScript
-string, and so on. The differences Hexagon adds are checked before the program runs:
-an integer cannot be silently mixed with a `BigInt`, a string cannot wander into a
-condition, and interpolation cannot stringify a value that has no meaningful display
-form.
+An `Int` becomes an ordinary JavaScript number and a `String` an ordinary JavaScript
+string. Hexagon checks distinctions before the program runs: integer mixtures use
+permitted exact conversions, a string cannot wander into a condition, and
+interpolation requires a meaningful display form.
 
-Two of the rows have their definitions elsewhere, and that is the group's one
-subtlety. `Bool` is an ordinary two-constructor union that the prelude declares, met
-properly in [Unions](10-unions.md); `Unit` is the empty tuple, whose family
-[Tuples](07-tuples.md) introduces. Both hold their places here by representation — a
-`Bool` is a JavaScript `boolean`, and `()` is `undefined` — which is exactly what
-membership in this chapter means. Conditions need a `Bool` long before unions arrive,
-so this chapter introduces the rule that governs them.
+The chapter title uses "primitive" in the everyday sense of fundamental building
+blocks. These types need no import, but they do not all have the same kind of
+definition. `Bool` is a prelude union, met properly in [Unions](10-unions.md);
+`Unit` is the empty tuple, whose family [Tuples](07-tuples.md) introduces. `Dec`
+is an opaque record: its public operations control construction and arithmetic.
+[Records](09-records.md) explains that protection later.
 
 ## `Nat`: non-negative by construction
 
@@ -112,7 +110,7 @@ literal already outside the safe range is caught earlier and suggests the `n` su
 
 ## `Float`: fractional and scientific values
 
-A numeric literal containing a decimal point or exponent is a `Float`:
+An unsuffixed numeric literal containing a decimal point or exponent is a `Float`:
 
 ```hexagon
 let temperature = 21.5
@@ -133,9 +131,8 @@ let surprising = 0.1 + 0.2
 ```
 
 The value of `surprising` is the same approximation JavaScript produces, commonly
-displayed as `0.30000000000000004`. Hexagon does not hide that fact behind decimal
-wrappers or special arithmetic. When exact decimal behavior matters, use an appropriate
-library type rather than mistaking binary floating point for decimal arithmetic.
+displayed as `0.30000000000000004`. When exact decimal behavior matters, choose `Dec` and write the `d` suffix.
+The choice of type determines which arithmetic the program performs.
 
 `Int` and `Float` are distinct Hexagon types even though both become `number` at the
 JavaScript boundary. The distinction lets Hexagon reject fractional values where whole
@@ -150,12 +147,12 @@ is handled:
 (-3.7).ceil()     // -3: toward positive infinity
 (-3.7).trunc()    // -3: toward zero
 2.5.round()       // 3: nearest, halfway values away from zero
-2.5.bankRound()   // 2: nearest, halfway values to the even integer
-3.5.bankRound()   // 4
+2.5.roundEven()   // 2: nearest, halfway values to the even integer
+3.5.roundEven()   // 4
 ```
 
 `round` is the symmetric rule often taught at school: `(-2.5).round()` is `-3`, not the
-`-2` JavaScript's asymmetric `Math.round` produces. `bankRound` differs only for exact
+`-2` JavaScript's asymmetric `Math.round` produces. `roundEven` differs only for exact
 halfway values; choosing the even neighbour can reduce systematic tie bias when rounded
 values are distributed across even and odd neighbours.
 
@@ -163,6 +160,97 @@ All five functions return `Int`, so they check the result against its safe range
 `NaN`, an infinity, or a rounded result beyond that range throws `IntRangeError`. A zero
 result is ordinary `Int` zero even when the source was negative: an IEEE negative-zero
 sign does not cross into the integer world.
+
+## `Dec`: exact decimals with retained places
+
+Suppose an order uses decimal prices. Start with exact decimal inputs:
+
+```hexagon
+let price = 1.50d
+let quantity = 3
+let total = price * quantity
+let receipt = "Total: ${total}"  // "Total: 4.50"
+```
+
+The `d` suffix chooses `Dec`. Its digits are read exactly, and it remembers how
+many digits were written after the point, including zeros. `1.50d` retains two
+**decimal places**. This counts fractional digits, not the total significant digits
+in the number. `0.050d` retains three places; `5d` retains zero.
+
+Separators do not count as digits: `1_000.00d` retains two places. A written point
+needs digits on both sides, so use `0.5d`, not `.5d` or `5.d`. Dec literals use
+ordinary notation; `5e2d` is not permitted.
+
+Addition and subtraction retain the larger operand's decimal-place count:
+
+```hexagon
+1.50d + 2.005d  // 3.505
+1.50d - 1.50d   // 0.00
+0.1d + 0.2d    // 0.3, exactly
+```
+
+Multiplication adds the counts. Internally, a Dec stores an arbitrary-precision
+integer coefficient and a decimal-place count: `1.50d` is `150` divided by `100`,
+and `2.00d` is `200` divided by `100`. Multiplying the coefficients gives `30000`;
+multiplying the denominators gives `10000`. The result therefore has four places:
+
+```hexagon
+1.50d * 2.00d  // 3.0000
+1.50d * 2     // 3.00
+```
+
+An established `Nat`, `Int`, or `BigInt` can enter Dec exactly at zero decimal
+places. That explains why multiplying by the integer `2` preserves two places.
+There is no conversion from `Float` to `Dec`: an approximate input cannot recover
+its intended decimal digits. Begin with exact inputs instead.
+
+Retained places affect display, while equality and ordering compare numbers:
+
+```hexagon
+1.50d == 1.500d          // True
+1.50d.show()             // "1.50"
+1.500d.show()            // "1.500"
+```
+
+Consequently, `5d` and `5.00d` also denote the same map key and match the same
+values in a pattern. A `5.00d` arm after a `5d` arm is unreachable. Later chapters
+return to collections and matching; neither treats the displayed zeros as a new
+numerical value.
+
+Division requires a rounding choice because a quotient such as one third has no
+finite exact decimal expansion. Dec has no `/` operator. Choose the result's
+places explicitly:
+
+```hexagon
+1d.divideTo(3d, 2)             // 0.33
+1d.divideTo(8d, 2)             // 0.13
+1d.divideToEven(8d, 2)         // 0.12
+4.50d.multiplyTo(0.15d, 2)    // 0.68
+1.245d.withDecimalPlaces(2)   // 1.25
+```
+
+These operations round once from the exact answer and retain exactly the requested
+places. Their default rule is nearest, with ties away from zero. Each has an
+`Even` variant choosing the even final digit at a tie: `withDecimalPlacesEven`
+and `multiplyToEven` follow the same rule as `divideToEven`. They differ only at
+ties; they do not round every answer to an even number. Increasing the places
+appends zeros without changing the number.
+
+As with Float, `round`, `roundEven`, `floor`, `ceil`, and `trunc` round to whole
+numbers. For Dec they return `BigInt`, so large whole-number results stay exact:
+`(-2.5d).round()` returns `-3n`, while `(-2.5d).roundEven()` returns `-2n`.
+
+Use `show` for everyday inspection. For an adapter needing the stored parts,
+`5.00d.value()` returns the unscaled integer `500n`, and
+`5.00d.decimalPlaces()` returns `2`. `Dec.create(500n, 2)` constructs that same
+value. The accessor called `value` does not return five as a whole number.
+
+Dec has no NaN, infinity, or negative zero. Its coefficient is limited by available
+resources; its decimal-place count uses Nat's full range. Exact multiplication
+and powers throw `DecimalPlacesOverflowError` if the retained count exceeds that
+range. Large permitted counts can still demand more memory than a machine has.
+Dec supplies decimal arithmetic and display; currency identity and currency
+formatting belong to the application's domain.
 
 ## `Bool`: a condition, not a truthiness convention
 
@@ -336,17 +424,28 @@ the surrounding program has already made.
 The suffix is a visible decision. `BigInt` is valuable, but it is not a drop-in
 replacement for JavaScript's ordinary numbers: many web APIs expect `number`, JSON
 serialization does not accept `bigint` by default, and JavaScript itself rejects mixed
-`number`/`bigint` arithmetic. Hexagon catches that mixture statically:
+`number`/`bigint` arithmetic. Hexagon can supply the exact integer conversion:
 
 ```hexagon
 let small = 3
 let large = 3n
-let invalid = small + large
+let total = small + large  // 6n: small enters BigInt exactly
 ```
 
-The final line is a type error. Convert deliberately in the direction appropriate to
-the program. Converting `Int` to `BigInt` is exact; converting a `BigInt` back to `Int`
-can fail when the value is outside the safe range.
+An established `Rat` destination can likewise accept a BigInt without losing any
+integer digits:
+
+```hexagon
+import Rat
+let count = 9_007_199_254_740_993n
+let exact: Rat = count
+let half = count * Rat.create(1, 2)
+```
+
+This friendliness has a boundary. BigInt does not implicitly enter Float, and
+converting it back to Int can fail outside the safe range. Those operations remain
+explicit. A BigInt literal still has its own type; the surrounding destination
+licenses any exact conversion.
 
 ## `Unit`: one value, no interesting result
 
@@ -375,14 +474,13 @@ static meaning while retaining the JavaScript value that naturally represents it
 
 ## Summary
 
-Hexagon's primitive types are the types whose values are already JavaScript values —
-intentionally close to the platform without being ruled by JavaScript's implicit
-conversions:
+These fundamental types give ordinary values distinct meanings:
 
 - `Nat` records a non-negative safe-range whole number without changing its JS representation;
 - `Int` is the ordinary signed safe-range whole number and usually the type of a bare integer
   literal;
-- `Float` is IEEE 754 binary64 and is selected by a decimal point or exponent;
+- `Float` is IEEE 754 binary64 and is selected by an unsuffixed decimal point or exponent;
+- `Dec` uses the `d` suffix for exact decimal arithmetic and retained decimal places;
 - `Bool` is the condition type, with constructors `True` and `False` and no truthiness
   conversions;
 - `String` has one interpolating, multiline literal form and codepoint-based text
@@ -391,13 +489,10 @@ conversions:
 - `Unit` is the one-value type — the empty tuple — used when an expression has no
   interesting result.
 
-All seven use native JavaScript representations. Types make their distinctions visible to
-Hexagon even where JavaScript or generated TypeScript erases one—most notably the
-distinction between `Int` and `Float`.
-
-`Bool` and `Unit` earn their rows the same way: each is defined elsewhere — `Bool` as a
-prelude union, `Unit` as the empty tuple — and each keeps the primitive bargain, a
-JavaScript `boolean` and `undefined` at the boundary with nothing paid to cross.
+Most of these types use JavaScript primitive representations. Dec uses an opaque
+record to retain its exact coefficient and decimal places. Types make distinctions
+visible to Hexagon even where JavaScript or generated TypeScript erases them,
+notably the distinction between `Int` and `Float`.
 
 Later chapters will explain how operators choose behavior for these types, how bare
 integer literals participate in inference, how `Show` powers interpolation, and how

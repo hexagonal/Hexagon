@@ -228,6 +228,7 @@ function elaborateExpr(expression: Typed.Expr): Core.Expr {
     }
     case "Unit":
     case "BigInt":
+    case "Dec":
     case "Float":
     case "ErrorExpr":
       return expression;
@@ -248,6 +249,14 @@ function elaborateExpr(expression: Typed.Expr): Core.Expr {
     case "WidenInt":
       return {
         kind: "WidenInt",
+        value: elaborateExpr(expression.value),
+        evidence: evidence(expression.requirement),
+        type: expression.type,
+        span: expression.span,
+      };
+    case "WidenBigInt":
+      return {
+        kind: "WidenBigInt",
         value: elaborateExpr(expression.value),
         evidence: evidence(expression.requirement),
         type: expression.type,
@@ -462,6 +471,8 @@ function elaboratePattern(pattern: Typed.Pattern): Core.Pattern {
     case "Float":
     case "String":
       return { ...pattern };
+    case "Dec":
+      return { ...pattern, evidence: evidence(pattern.requirement) };
     case "Integer":
       // Pattern Matching §2.5, §8: the literal is built **at the type of its
       // position**, so the same elaboration the expression `0` takes there builds
@@ -490,6 +501,9 @@ function elaboratePattern(pattern: Typed.Pattern): Core.Pattern {
               type: pattern.type,
               span: pattern.span,
             }),
+        ...(pattern.equalityRequirement === undefined
+          ? {}
+          : { equalityEvidence: evidence(pattern.equalityRequirement) }),
         span: pattern.span,
       };
     case "As":

@@ -1306,6 +1306,9 @@ describe("numeric literals (spec/lexer.md §5)", () => {
     expect(await scope("let x = 0.10", "0.10")).toBe("constant.numeric.float.hexagon");
     expect(await scope("let x = 1.5e-10", "1.5e-10")).toBe("constant.numeric.float.hexagon");
     expect(await scope("let x = 42n", "42n")).toBe("constant.numeric.bigint.hexagon");
+    expect(await scope("let x = 1_000.50d", "1_000.50d")).toBe(
+      "constant.numeric.dec.hexagon",
+    );
   });
 
   it("reads `1..2` as integer, range, integer — never a malformed float", async () => {

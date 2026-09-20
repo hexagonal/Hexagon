@@ -541,6 +541,7 @@ export type Pattern =
   | WildcardPattern
   | UnitPattern
   | IntegerPattern
+  | DecPattern
   | FloatPattern
   | StringPattern
   | VectorPattern
@@ -593,10 +594,10 @@ export interface OrPattern {
  * An integer literal pattern, checked **at the type of its position** (Pattern
  * Matching §2.5, #894 / #519).
  *
- * `type` is that position's resolved type, which §2.5's permitted-primitive
- * restriction has already narrowed to `Int`, `Nat`, `BigInt` or `Float` — the four
- * whose value and whose equality the compiler computes, so no `Eq` evidence
- * travels and §8's "patterns never invoke user code" needs no carve-out.
+ * `type` is that position's resolved type, which §2.5 has already narrowed to
+ * `Int`, `Nat`, `BigInt`, `Float`, or canonical `Dec`. The four primitives use
+ * compiler-computed equality; `Dec` carries `equalityRequirement` so its public
+ * numerical equality defines the arm test.
  * `requirement` is the `Num` evidence that builds a bare literal there, the same
  * constraint a `FromNat` expression carries. It is absent for the monomorphic
  * `n`-suffixed form and on an error program where the type never resolved.
@@ -608,6 +609,16 @@ export interface IntegerPattern {
   readonly bigint?: true;
   readonly type: Type;
   readonly requirement?: Constraint;
+  readonly equalityRequirement?: Constraint;
+  readonly span: Source.Span;
+}
+
+export interface DecPattern {
+  readonly kind: "Dec";
+  readonly coefficient: string;
+  readonly decimalPlaces: number;
+  readonly type: Type;
+  readonly requirement: Constraint;
   readonly span: Source.Span;
 }
 
@@ -994,7 +1005,9 @@ export type Expr =
   | FromNatExpr
   | WidenNatExpr
   | WidenIntExpr
+  | WidenBigIntExpr
   | BigIntExpr
+  | DecExpr
   | FloatExpr
   | StringExpr
   | VectorExpr
@@ -1068,9 +1081,22 @@ export interface WidenIntExpr extends ExpressionFields {
   readonly requirement: Constraint;
 }
 
+/** A contextual, exact `BigInt -> a` injection through established `FromBigInt<a>` evidence. */
+export interface WidenBigIntExpr extends ExpressionFields {
+  readonly kind: "WidenBigInt";
+  readonly value: Expr;
+  readonly requirement: Constraint;
+}
+
 export interface BigIntExpr extends ExpressionFields {
   readonly kind: "BigInt";
   readonly decimal: string;
+}
+
+export interface DecExpr extends ExpressionFields {
+  readonly kind: "Dec";
+  readonly coefficient: string;
+  readonly decimalPlaces: number;
 }
 
 export interface FloatExpr extends ExpressionFields {

@@ -332,8 +332,8 @@ describe("the Hexagon language server", () => {
     const source = [
       "module Main",
       "",
-      "let qualified: Int = Float.bankRound(2.5)",
-      "let dotted: Int = 2.5.bankRound()",
+      "let qualified: Int = Float.roundEven(2.5)",
+      "let dotted: Int = 2.5.roundEven()",
       "",
     ].join("\n");
     const solo = await harness({ "main.hex": source });
@@ -349,21 +349,64 @@ describe("the Hexagon language server", () => {
 
       const qualified = await solo.client.sendRequest("textDocument/hover", {
         textDocument: { uri: solo.uriOf("main.hex") },
-        position: positionOf(source, "bankRound"),
+        position: positionOf(source, "roundEven"),
       }) as Hover | null;
       const dotted = await solo.client.sendRequest("textDocument/hover", {
         textDocument: { uri: solo.uriOf("main.hex") },
-        position: positionOf(source, "bankRound", 2),
+        position: positionOf(source, "roundEven", 2),
       }) as Hover | null;
 
       expect((qualified?.contents as { value: string }).value).toMatch(
-        /^value `bankRound: Float -> Int`/,
+        /^value `roundEven: Float -> Int`/,
       );
       expect(dotted?.contents).toEqual(qualified?.contents);
       expect(dotted?.range).toEqual({
         start: { line: 3, character: 22 },
         end: { line: 3, character: 31 },
       });
+    } finally {
+      await solo.dispose();
+    }
+  });
+
+  test("Dec literals and rounded companion operations reach editor services", async () => {
+    const source = "module Main\n\nlet amount = 1.50d\nlet rounded = amount.withDecimalPlacesEven(1)\n";
+    const solo = await harness({ "main.hex": source });
+    try {
+      await solo.client.sendNotification(DidOpenTextDocumentNotification.type, {
+        textDocument: {
+          uri: solo.uriOf("main.hex"),
+          languageId: "hexagon",
+          version: 1,
+          text: source,
+        },
+      });
+      const literalBinding = await solo.client.sendRequest("textDocument/hover", {
+        textDocument: { uri: solo.uriOf("main.hex") },
+        position: positionOf(source, "amount"),
+      }) as Hover | null;
+      expect((literalBinding?.contents as { value: string }).value).toMatch(
+        /^value `amount: Dec`/,
+      );
+      const operation = await solo.client.sendRequest("textDocument/hover", {
+        textDocument: { uri: solo.uriOf("main.hex") },
+        position: positionOf(source, "withDecimalPlacesEven"),
+      }) as Hover | null;
+      expect((operation?.contents as { value: string }).value).toMatch(
+        /^value `withDecimalPlacesEven: \(Dec, Nat\) -> Dec`/,
+      );
+
+      const probing = `${source}let probe = Dec.\n`;
+      await solo.client.sendNotification(DidChangeTextDocumentNotification.type, {
+        textDocument: { uri: solo.uriOf("main.hex"), version: 2 },
+        contentChanges: [{ text: probing }],
+      });
+      const start = positionOf(probing, "Dec.");
+      const offered = await solo.client.sendRequest("textDocument/completion", {
+        textDocument: { uri: solo.uriOf("main.hex") },
+        position: { line: start.line, character: start.character + 4 },
+      }) as CompletionItem[];
+      expect(offered.some(({ label }) => label === "divideToEven")).toBe(true);
     } finally {
       await solo.dispose();
     }

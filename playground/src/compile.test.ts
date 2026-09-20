@@ -22,6 +22,34 @@ import type { GeneratedSection } from "./protocol";
 const MAIN = "module Main\n\n";
 
 describe("compileSource", () => {
+  test("accepts Dec literals and exposes their opaque public type", async () => {
+    const response = compileSource(
+      45,
+      MAIN +
+        "export let amount: Dec = 1.50d\n" +
+        "export let shown: String = amount.withDecimalPlacesEven(1).show()\n",
+    );
+
+    expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
+    if (response.kind !== "compile-success") return;
+    expect(response.javascript).toContain("coefficient: 150n, places: 2");
+    expect(response.typeScriptPreview).toContain("Dec");
+    expect(response.executionModules.some(({ path }) => path === "/Hex/Dec.hex")).toBe(true);
+
+    const moduleUrls = new Map<string, string>();
+    for (const module of response.executionModules) {
+      const linked = linkModule(module.javascript, module.path, moduleUrls);
+      moduleUrls.set(
+        module.path,
+        `data:text/javascript;charset=utf-8,${encodeURIComponent(linked)}`,
+      );
+    }
+    const entry = await import(
+      /* @vite-ignore */ moduleUrls.get(response.entryPath)!
+    ) as { readonly shown: string };
+    expect(entry.shown).toBe("1.5");
+  });
+
   test("executes the automatically qualified shipped Math module", async () => {
     const response = compileSource(
       4,

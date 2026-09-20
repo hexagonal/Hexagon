@@ -2656,7 +2656,7 @@ class Resolver {
    * nothing for resolves to the constraint `Name` exported by a visible module
    * alias `Name`: a binder's list and an `honor` head alike, wherever the bare
    * spelling is read. There is no compiler-owned constraint analogue of the
-   * boundary types to order against — the twelve pre-registered names are simply
+   * boundary types to order against — the thirteen pre-registered names are simply
    * always present (Constraints §5.1.1), so the fallback never reaches them.
    *
    * Run **after** every import has predeclared, which is what makes "answers,
@@ -3931,6 +3931,7 @@ class Resolver {
       case "Unit":
       case "Integer":
       case "BigInt":
+      case "Dec":
       case "Float":
       case "ErrorExpr":
         return expression;
@@ -4551,6 +4552,7 @@ class Resolver {
       pattern.kind === "Wildcard" ||
       pattern.kind === "Unit" ||
       pattern.kind === "Integer" ||
+      pattern.kind === "Dec" ||
       pattern.kind === "Float" ||
       pattern.kind === "String"
     ) return pattern;

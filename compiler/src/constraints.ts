@@ -34,6 +34,7 @@
 export const PRE_REGISTERED_CONSTRAINTS: readonly string[] = [
   "Num",
   "Signed",
+  "FromBigInt",
   "Frac",
   "Pow",
   "Concat",
@@ -90,7 +91,7 @@ export const NON_REDECLARABLE_CONSTRAINTS: readonly string[] =
  * The table is total over the inventory since #353. `Iterable` was the one
  * absence, and it was absent for the reason it was absent from the ban: no
  * declaration existed to read. `stdlib/Iterable.hex` is that declaration now,
- * so the name claims `toSeq` here exactly as the other eleven claim theirs.
+ * so the name claims `toSeq` here exactly as the other twelve claim theirs.
  * `Iterable` is deliberately *not* given a `#checkPreludeHonor` signature arm:
  * its provided rows have no source form (Collections Part 5 §4), and the real
  * declaration is visible in every compile that has a prelude at all.
@@ -100,6 +101,7 @@ export const PRE_REGISTERED_CONSTRAINT_MEMBERS: Readonly<
 > = {
   Num: ["add", "multiply", "fromNat"],
   Signed: ["subtract", "negate", "fromInt"],
+  FromBigInt: ["fromBigInt"],
   Frac: ["divide"],
   Pow: ["pow"],
   Concat: ["concat"],
@@ -155,6 +157,7 @@ export const PRE_REGISTERED_BASE_CONSTRAINTS: Readonly<
 > = {
   "hex:Ord": ["Eq"],
   "hex:Signed": ["Num"],
+  "hex:FromBigInt": ["Signed"],
   "hex:Frac": ["Signed"],
   "hex:Pow": ["Num"],
   "hex:Hash": ["Eq"],
