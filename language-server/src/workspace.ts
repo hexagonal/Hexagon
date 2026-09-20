@@ -28,10 +28,13 @@
  * which text each program's session holds.
  */
 
+import { statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { isAbsolute } from "node:path";
 import type { TextDocument } from "vscode-languageserver-textdocument";
 import {
   AnalysisSession,
+  STANDARD_LIBRARY_MODULE_NAMES,
   Source,
   type Diagnostics,
   type ProgramPackage,
@@ -66,6 +69,14 @@ export interface ProgramView {
   owns(path: string): boolean;
   /** Whether this program holds `path` at all, a dependency's source included. */
   holds(path: string): boolean;
+}
+
+export interface WorkspaceOptions {
+  /**
+   * Existing project roots the editor user has explicitly authorized to
+   * replace the compiler's registered standard-library sources.
+   */
+  readonly trustedStandardLibraryProjects?: readonly string[];
 }
 
 /**
@@ -268,6 +279,22 @@ export class Workspace {
   #queue: Promise<void> = Promise.resolve();
   /** The answer for a workspace with no program: a session holding nothing. */
   readonly #empty = new AnalysisSession();
+  /** Canonical project identities explicitly authorized by the editor user. */
+  readonly #trustedStandardLibraryProjects: ReadonlySet<string>;
+
+  constructor(options: WorkspaceOptions = {}) {
+    this.#trustedStandardLibraryProjects = new Set(
+      (options.trustedStandardLibraryProjects ?? []).flatMap((directory) => {
+        if (!isAbsolute(directory)) return [];
+        try {
+          if (!statSync(directory).isDirectory()) return [];
+        } catch {
+          return [];
+        }
+        return [normalizePath(settledPathSync(directory))];
+      }),
+    );
+  }
 
   /**
    * The one program's session.
@@ -541,6 +568,11 @@ export class Workspace {
           ? {}
           : { dependencies: found.manifest.dependencies }),
         ...(found.installed.size === 0 ? {} : { installed: found.installed }),
+        ...(this.#trustedStandardLibraryProjects.has(
+            normalizePath(settledPathSync(found.directory)),
+          )
+          ? { trustedStandardLibraryModules: new Set(STANDARD_LIBRARY_MODULE_NAMES) }
+          : {}),
       };
       session.configure({
         ...options,

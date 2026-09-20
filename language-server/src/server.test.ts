@@ -47,6 +47,7 @@ import {
 import { createConnection } from "vscode-languageserver/node.js";
 import { startServer } from "./server.js";
 import { removeTemporaryRoots, temporaryRoot } from "../../host/src/test-roots.js";
+import { STDLIB_SOURCES } from "../../compiler/src/stdlib-sources.js";
 
 const HELPER = [
   "module Helper",
@@ -166,6 +167,7 @@ interface Harness {
 async function harness(
   files: Record<string, string>,
   capabilities: InitializeParams["capabilities"] = {},
+  initializationOptions?: Record<string, unknown> | ((root: string) => unknown),
 ): Promise<Harness> {
   const root = await temporaryRoot("hexagon-lsp-");
   for (const [name, text] of Object.entries(files)) {
@@ -208,6 +210,13 @@ async function harness(
     rootUri: pathToFileURL(root).toString(),
     capabilities,
     workspaceFolders: [{ uri: pathToFileURL(root).toString(), name: "test" }],
+    ...(initializationOptions === undefined
+      ? {}
+      : {
+        initializationOptions: typeof initializationOptions === "function"
+          ? initializationOptions(root)
+          : initializationOptions,
+      }),
   }) as InitializeResult;
   await client.sendNotification(InitializedNotification.type, {});
 
@@ -278,6 +287,47 @@ describe("the Hexagon language server", () => {
 
   afterAll(async () => {
     await hex.dispose();
+  });
+
+  test("an explicit project-root initialization grant adopts the registered standard library", async () => {
+    const files = Object.fromEntries(Object.entries(STDLIB_SOURCES).map(([name, source]) => [
+      `stdlib/${name.replaceAll(".", "/")}.hex`,
+      source,
+    ]));
+    files["broken.hex"] = "module Broken\n\nlet value: Int = nope\n";
+    const trusted = await harness(files, {}, (root) => ({
+      trustedStandardLibraryProjects: [root],
+    }));
+    try {
+      const diagnostics = await trusted.diagnosticsUntil(
+        trusted.uriOf("broken.hex"),
+        (reported) => reported.length > 0,
+        "the deliberate project error to be reported",
+      );
+      expect(diagnostics.map(({ message }) => message)).toEqual(["unknown name `nope`"]);
+      for (const name of Object.keys(STDLIB_SOURCES)) {
+        expect(trusted.publishedFor(trusted.uriOf(
+          `stdlib/${name.replaceAll(".", "/")}.hex`,
+        ))).toBeUndefined();
+      }
+    } finally {
+      await trusted.dispose();
+    }
+  });
+
+  test("a client cannot grant module authority without an approved project root", async () => {
+    const ordinary = await harness({
+      "VectorTrie.hex": "module Runtime.VectorTrie\n\nlet size(node: Node(Int)): Int = 0\n",
+    }, {}, {
+      trustedStandardLibraryModules: ["Runtime.VectorTrie"],
+      trustedStandardLibraryProjects: ["relative/project"],
+    });
+    try {
+      expect((await ordinary.diagnosticsFor(ordinary.uriOf("VectorTrie.hex")))
+        .map(({ message }) => message)).toEqual(["unknown generic type `Node`"]);
+    } finally {
+      await ordinary.dispose();
+    }
   });
 
   test("announces exactly the capabilities this slice implements", async () => {

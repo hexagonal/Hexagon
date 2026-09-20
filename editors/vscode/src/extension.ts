@@ -19,6 +19,7 @@ import {
   type LanguageClientOptions,
   type ServerOptions,
 } from "vscode-languageclient/node";
+import { trustedStandardLibraryProjects } from "./settings.js";
 
 const LANGUAGE_ID = "hexagon";
 /** The manifest's name, spelled here as the server spells it. */
@@ -83,6 +84,9 @@ async function startClient(context: vscode.ExtensionContext): Promise<void> {
   };
 
   const clientOptions: LanguageClientOptions = {
+    initializationOptions: {
+      trustedStandardLibraryProjects: trustedStandardLibraryProjects(configuration),
+    },
     documentSelector: [
       { scheme: "file", language: LANGUAGE_ID },
       // `hexagon.json` too, for one reason: the server's not-a-dependency quick

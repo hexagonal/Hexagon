@@ -52,6 +52,15 @@
           "default": "",
           "description": "Absolute path to a hexagon-language-server build to run instead of the one bundled with this extension. Intended for developing the server itself."
         },
+        "hexagon.languageServer.trustedStandardLibraryProjects": {
+          "type": "array",
+          "scope": "machine",
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "description": "Absolute project roots explicitly authorized to compile their sources as registered Hex standard-library members. Intended only for developing the standard library."
+        },
         "hexagon.trace.server": {
           "type": "string",
           "enum": [

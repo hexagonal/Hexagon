@@ -33,8 +33,8 @@ extension ships its own copy of the server rather than resolving one from the
 machine, so the version that answers is always the version that was tested with
 this grammar.
 
-A project describes itself in `hexagon.json` at the workspace root — which modules
-carry runtime privilege, and which files are not part of the project. That is
+A project describes itself in `hexagon.json` at the workspace root — its package
+identity, dependencies, and which files are not part of the project. That is
 editor-agnostic and lives with the code; see `language-server/README.md`. The
 settings below are about *this editor* rather than the language, which is why
 none of them describes the project:
@@ -43,13 +43,29 @@ none of them describes the project:
 | :--- | :--- |
 | `hexagon.languageServer.enabled` | Turn the server off to keep highlighting alone. |
 | `hexagon.languageServer.path` | Run a different server build — for developing the server itself, where reinstalling the extension each iteration is the whole cost. |
+| `hexagon.languageServer.trustedStandardLibraryProjects` | Explicitly allow listed absolute project roots to develop the standard library. Defaults to an empty list; only the user setting is read. |
 | `hexagon.trace.server` | Log the traffic between extension and server. |
 
-Changing either `languageServer` setting restarts the server immediately; there
+Changing a `languageServer` setting restarts the server immediately; there
 is also **Hexagon: Restart Language Server** for when it has wedged. A server
 that fails to start says so in a notification rather than falling back quietly to
 highlighting, because a silent fallback looks exactly like a feature that was
 never implemented.
+
+When working on Hexagon's standard library itself, add the checkout's absolute
+project root to `hexagon.languageServer.trustedStandardLibraryProjects` in
+**User** settings. This machine-scoped list is an explicit development grant,
+not a project convention: workspace and folder settings cannot enable it.
+Only an exact canonical project-root match receives the grant; opening a symlink
+to that same root works, but neighbouring or nested projects do not inherit it.
+Ordinary Hexagon projects should leave the list empty. Remove a root when it no
+longer needs to supply trusted standard-library source.
+
+For a listed project, the language server asks the compiler to adopt the supplied
+sources for its registered standard-library members. The compiler still checks
+that each replacement is present and unambiguous, and assigns its registered
+prelude, library, or runtime role. Neither a module name nor `hexagon.json`
+establishes that authority.
 
 ## Installing it locally
 
