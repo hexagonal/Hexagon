@@ -110,7 +110,7 @@ the value it examines. The same rule holds inside a constructor or tuple pattern
 A Dec literal pattern compares numerical values too. `5d` matches `5.00d`, and
 writing both as consecutive arms makes the second unreachable. A bare integer
 pattern such as `5` also works at a Dec position. Retained places affect display,
-not matching; use a guard checking `decimalPlaces()` when that count matters.
+not matching; use a guard checking `places()` when that count matters.
 The `d` suffix fixes the pattern's type to Dec, so it cannot match a Float position.
 
 A `Float` literal matches by the same equality that `==` uses, and no more loosely:

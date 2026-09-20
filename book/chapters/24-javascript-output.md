@@ -23,8 +23,8 @@ primitive representations:
 | `String` | `string` |
 | `Unit` | `undefined` |
 
-Dec uses an ordinary opaque record containing its exact coefficient and retained
-decimal places. Its operations follow the record and constraint machinery described
+Dec uses an ordinary opaque record with inspectable JavaScript fields `unscaled`
+and `places`, containing its exact integer representation and retained decimal places. Its operations follow the record and constraint machinery described
 later in this chapter.
 
 `Bool`'s row rests on a promise rather than on coincidence: it is the prelude union

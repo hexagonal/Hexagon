@@ -19,16 +19,40 @@ describe("Dec literals and exact decimal arithmetic", () => {
     const exports = await runMain(
       HEADER +
         "let amount = 1_000.050d\n" +
-        "export let coefficient: BigInt = amount.value()\n" +
-        "export let places: Nat = amount.decimalPlaces()\n" +
+        "export let unscaled: BigInt = amount.unscaled()\n" +
+        "export let places: Int = amount.places()\n" +
+        "export let placeDifference: Int = 1.2d.places() - 1.234d.places()\n" +
         "export let shown: String = amount.show()\n" +
         "export let boundary: String = 1.50d.show()\n",
     );
     expect(exports).toMatchObject({
-      coefficient: 1000050n,
+      unscaled: 1000050n,
       places: 3,
+      placeDifference: -2,
       shown: "1000.050",
       boundary: "1.50",
+    });
+  });
+
+  test("distinguishes stored representation from numerical equality", async () => {
+    const exports = await runMain(
+      HEADER +
+        "let first = Dec.create(200n, 2)\n" +
+        "let second = Dec.create(200n, 2)\n" +
+        "export let numerical: Bool = 2.0d == 2.00d\n" +
+        "export let retainedPlacesDiffer: Bool = 2.0d.same(2.00d)\n" +
+        "export let separateRecords: Bool = Dec.same(first, second)\n" +
+        "export let valuesDiffer: Bool = Dec.same(2.00d, 3.00d)\n" +
+        "export let signsDiffer: Bool = Dec.same(-2.00d, 2.00d)\n" +
+        "export let zerosDiffer: Bool = Dec.same(0d, 0.00d)\n",
+    );
+    expect(exports).toMatchObject({
+      numerical: true,
+      retainedPlacesDiffer: false,
+      separateRecords: true,
+      valuesDiffer: false,
+      signsDiffer: false,
+      zerosDiffer: false,
     });
   });
 
@@ -40,10 +64,10 @@ describe("Dec literals and exact decimal arithmetic", () => {
         "export let widenedLeft: String = (3n * 1.50d).show()\n" +
         "export let widenedRight: String = (1.50d * 3).show()\n" +
         "export let power: String = (1.50d ** 2).show()\n" +
-        "export let school: String = 1.245d.withDecimalPlaces(2).show()\n" +
-        "export let even: String = 1.245d.withDecimalPlacesEven(2).show()\n" +
-        "export let quotient: String = 1d.divideTo(8d, 2).show()\n" +
-        "export let quotientEven: String = 1d.divideToEven(8d, 2).show()\n" +
+        "export let school: String = 1.245d.withPlaces(2).show()\n" +
+        "export let even: String = 1.245d.withPlacesEven(2).show()\n" +
+        "export let quotient: String = 1d.divide(8d, 2).show()\n" +
+        "export let quotientEven: String = 1d.divideEven(8d, 2).show()\n" +
         "export let rounded: BigInt = (-1.5d).round()\n" +
         "export let floored: BigInt = (-1.1d).floor()\n" +
         "export let ceiled: BigInt = (-1.1d).ceil()\n" +
@@ -69,18 +93,18 @@ describe("Dec literals and exact decimal arithmetic", () => {
   test("rounds signed ties, neighbours, carries, and exact results once", async () => {
     const exports = await runMain(
       HEADER +
-        "export let schoolPositive: String = 1.25d.withDecimalPlaces(1).show()\n" +
-        "export let schoolNegative: String = (-1.25d).withDecimalPlaces(1).show()\n" +
-        "export let evenDown: String = 1.25d.withDecimalPlacesEven(1).show()\n" +
-        "export let evenUp: String = 1.35d.withDecimalPlacesEven(1).show()\n" +
-        "export let evenNegative: String = (-1.25d).withDecimalPlacesEven(1).show()\n" +
-        "export let belowTie: String = 1.24d.withDecimalPlaces(1).show()\n" +
-        "export let carry: String = 9.95d.withDecimalPlaces(1).show()\n" +
-        "export let negativeZero: String = (-0.04d).withDecimalPlaces(1).show()\n" +
-        "export let direct: String = 1.249d.withDecimalPlaces(1).show()\n" +
-        "export let increased: String = 1.2d.withDecimalPlaces(4).show()\n" +
-        "export let productSchool: String = 0.25d.multiplyTo(0.1d, 2).show()\n" +
-        "export let productEven: String = 0.25d.multiplyToEven(0.1d, 2).show()\n",
+        "export let schoolPositive: String = 1.25d.withPlaces(1).show()\n" +
+        "export let schoolNegative: String = (-1.25d).withPlaces(1).show()\n" +
+        "export let evenDown: String = 1.25d.withPlacesEven(1).show()\n" +
+        "export let evenUp: String = 1.35d.withPlacesEven(1).show()\n" +
+        "export let evenNegative: String = (-1.25d).withPlacesEven(1).show()\n" +
+        "export let belowTie: String = 1.24d.withPlaces(1).show()\n" +
+        "export let carry: String = 9.95d.withPlaces(1).show()\n" +
+        "export let negativeZero: String = (-0.04d).withPlaces(1).show()\n" +
+        "export let direct: String = 1.249d.withPlaces(1).show()\n" +
+        "export let increased: String = 1.2d.withPlaces(4).show()\n" +
+        "export let productSchool: String = (0.25d * 0.1d).withPlaces(2).show()\n" +
+        "export let productEven: String = (0.25d * 0.1d).withPlacesEven(2).show()\n",
     );
     expect(exports).toMatchObject({
       schoolPositive: "1.3",
@@ -101,15 +125,15 @@ describe("Dec literals and exact decimal arithmetic", () => {
   test("rounds repeating division for every sign and rejects every zero divisor", async () => {
     const exports = await runMain(
       HEADER +
-        "export let pp: String = 1d.divideTo(6d, 3).show()\n" +
-        "export let np: String = (-1d).divideTo(6d, 3).show()\n" +
-        "export let pn: String = 1d.divideTo(-6d, 3).show()\n" +
-        "export let nn: String = (-1d).divideTo(-6d, 3).show()\n" +
-        "export let schoolTie: String = 1d.divideTo(8d, 2).show()\n" +
-        "export let evenTie: String = 1d.divideToEven(8d, 2).show()\n" +
-        "export let zeroAtTwo: String = 0d.divideTo(7d, 2).show()\n" +
-        "export let zeroScale(): Dec = 1d.divideTo(Dec.create(0n, 0), 2)\n" +
-        "export let zeroScaled(): Dec = 1d.divideToEven(Dec.create(0n, 40), 2)\n",
+        "export let pp: String = 1d.divide(6d, 3).show()\n" +
+        "export let np: String = (-1d).divide(6d, 3).show()\n" +
+        "export let pn: String = 1d.divide(-6d, 3).show()\n" +
+        "export let nn: String = (-1d).divide(-6d, 3).show()\n" +
+        "export let schoolTie: String = 1d.divide(8d, 2).show()\n" +
+        "export let evenTie: String = 1d.divideEven(8d, 2).show()\n" +
+        "export let zeroAtTwo: String = 0d.divide(7d, 2).show()\n" +
+        "export let zeroScale(): Dec = 1d.divide(Dec.create(0n, 0), 2)\n" +
+        "export let zeroScaled(): Dec = 1d.divideEven(Dec.create(0n, 40), 2)\n",
     );
     expect(exports).toMatchObject({
       pp: "0.167",
@@ -124,6 +148,35 @@ describe("Dec literals and exact decimal arithmetic", () => {
       expect(threw(exports[name] as () => unknown)).toMatchObject({
         name: "DivideByZeroError",
         $hex: "Hex.Integral",
+      });
+    }
+  });
+
+  test("rejects negative places before zero fast paths and zero-divisor checks", async () => {
+    const exports = await runMain(
+      HEADER +
+        "import Rat\n\n" +
+        "export let createNegative(): Dec = Dec.create(0n, -1)\n" +
+        "export let changeNegative(): Dec = 0d.withPlaces(-1)\n" +
+        "export let changeEvenNegative(): Dec = 0d.withPlacesEven(-1)\n" +
+        "export let divideNegative(): Dec = 0d.divide(1d, -1)\n" +
+        "export let divideEvenBeforeZero(): Dec = 1d.divideEven(0d, -1)\n" +
+        "export let ratNegative(): Dec = Rat.toDec(Rat.create(0n, 1n), -1)\n" +
+        "export let ratEvenNegative(): Dec = Rat.toDecEven(Rat.create(0n, 1n), -1)\n",
+    );
+    for (const [name, operation] of [
+      ["createNegative", "Dec.create"],
+      ["changeNegative", "Dec.withPlaces"],
+      ["changeEvenNegative", "Dec.withPlacesEven"],
+      ["divideNegative", "Dec.divide"],
+      ["divideEvenBeforeZero", "Dec.divideEven"],
+      ["ratNegative", "Rat.toDec"],
+      ["ratEvenNegative", "Rat.toDecEven"],
+    ] as const) {
+      expect(threw(exports[name] as () => unknown)).toMatchObject({
+        name: "NegativeDecimalPlacesError",
+        message: `${operation}: decimal places cannot be negative`,
+        $hex: "Hex.Dec",
       });
     }
   });
@@ -156,11 +209,10 @@ describe("Dec literals and exact decimal arithmetic", () => {
   test("handles enormous zero scales without constructing powers of ten", async () => {
     const exports = await runMain(
       HEADER +
-        "let maximum: Nat = 9_007_199_254_740_991\n" +
+        "let maximum: Int = 9_007_199_254_740_991\n" +
         "let zero = Dec.create(0n, maximum)\n" +
-        "export let changed: Nat = zero.withDecimalPlaces(0).decimalPlaces()\n" +
-        "export let multiplied: Nat = zero.multiplyTo(1d, maximum).decimalPlaces()\n" +
-        "export let divided: Nat = zero.divideTo(1d, maximum).decimalPlaces()\n" +
+        "export let changed: Int = zero.withPlaces(0).places()\n" +
+        "export let divided: Int = zero.divide(1d, maximum).places()\n" +
         "export let rounded: BigInt = zero.round()\n" +
         "export let roundedEven: BigInt = zero.roundEven()\n" +
         "export let floored: BigInt = zero.floor()\n" +
@@ -174,7 +226,6 @@ describe("Dec literals and exact decimal arithmetic", () => {
     );
     expect(exports).toMatchObject({
       changed: 0,
-      multiplied: 9_007_199_254_740_991,
       divided: 9_007_199_254_740_991,
       rounded: 0n,
       roundedEven: 0n,
@@ -192,7 +243,7 @@ describe("Dec literals and exact decimal arithmetic", () => {
   test("checks exact retained-place overflow even for zero coefficients", async () => {
     const exports = await runMain(
       HEADER +
-        "let maximum: Nat = 9_007_199_254_740_991\n" +
+        "let maximum: Int = 9_007_199_254_740_991\n" +
         "export let multiplyOverflow(): Dec = Dec.create(0n, maximum) * 0.0d\n" +
         "export let powOverflow(): Dec = Dec.create(0n, maximum) ** 2\n" +
         "export let identity: String = (Dec.create(0n, maximum) ** 0).show()\n" +
@@ -217,7 +268,7 @@ describe("Dec literals and exact decimal arithmetic", () => {
   test("keeps numerical Eq, Ord, Hash, and collection representatives coherent", async () => {
     const exports = await runMain(
       HEADER +
-        "let keyPlaces(total: Nat, key: Dec): Nat = key.decimalPlaces()\n" +
+        "let keyPlaces(total: Int, key: Dec): Int = key.places()\n" +
         "let map = Map.fromVector([(1.50d, 1), (1.500d, 2)])\n" +
         "let set = Set.fromVector([0.00d, 0d])\n" +
         "export let equal: Bool = 1.50d == 1.500d\n" +
@@ -226,9 +277,9 @@ describe("Dec literals and exact decimal arithmetic", () => {
         "export let hashes: Bool = 1.50d.hash() == 1.500d.hash() and 0d.hash() == 0.00d.hash()\n" +
         "export let mapSize: Int = map.size()\n" +
         "export let replacement: Option(Int) = map.get(1.5d)\n" +
-        "export let mapRepresentativePlaces: Nat = map.keys().fold(0, keyPlaces)\n" +
+        "export let mapRepresentativePlaces: Int = map.keys().fold(0, keyPlaces)\n" +
         "export let setSize: Int = set.size()\n" +
-        "export let setRepresentativePlaces: Nat = set.toSeq().fold(0, keyPlaces)\n",
+        "export let setRepresentativePlaces: Int = set.toSeq().fold(0, keyPlaces)\n",
     );
     expect(exports).toMatchObject({
       equal: true,
@@ -354,9 +405,19 @@ describe("Dec literals and exact decimal arithmetic", () => {
     expect(project.diagnostics).toEqual([]);
     const main = project.modules.find(({ name }) => name === "Main")!;
     expect(main.declarations.text).toContain("Dec");
+    expect(main.javascript.text).toContain("({ unscaled: 150n, places: 2 })");
+    expect(main.javascript.text).not.toContain("coefficient:");
     const dec = project.modules.find(({ name }) => name === "Hex.Dec")!;
     expect(dec.declarations.text).toContain("export type Dec = {");
-    expect(dec.declarations.text).not.toContain("coefficient:");
+    expect(dec.declarations.text).not.toContain("readonly unscaled:");
+    expect(dec.declarations.text).not.toContain("readonly places:");
+    for (const name of ["value", "decimalPlaces", "withDecimalPlaces", "withDecimalPlacesEven",
+      "divideTo", "divideToEven", "multiplyTo", "multiplyToEven"]) {
+      expect(dec.declarations.text).not.toContain(`export declare const ${name}`);
+    }
+    for (const name of ["unscaled", "places", "same", "withPlaces", "withPlacesEven", "divide", "divideEven"]) {
+      expect(dec.declarations.text).toContain(`export declare const ${name}`);
+    }
   });
 
   test("converts decimal ties, subnormals, and range failures to Float", async () => {
@@ -404,11 +465,11 @@ describe("Rat and Dec conversions", () => {
     const exports = await runMain(
       HEADER +
         "import Rat\n\n" +
-        "let maximum: Nat = 9_007_199_254_740_991\n" +
+        "let maximum: Int = 9_007_199_254_740_991\n" +
         "let zero = Rat.fromDec(Dec.create(0n, maximum))\n" +
         "export let zeroTop: BigInt = zero.top()\n" +
         "export let zeroBottom: BigInt = zero.bottom()\n" +
-        "export let zeroPlaces: Nat = Rat.toDec(zero, maximum).decimalPlaces()\n" +
+        "export let zeroPlaces: Int = Rat.toDec(zero, maximum).places()\n" +
         "export let negativeSchool: String = Rat.toDec(Rat.create(-1n, 8n), 2).show()\n" +
         "export let negativeEven: String = Rat.toDecEven(Rat.create(-1n, 8n), 2).show()\n" +
         "export let carry: String = Rat.toDec(Rat.create(199n, 20n), 1).show()\n",

@@ -78,15 +78,15 @@ this contract; implementation validation is tracked in the specification:
   its intended exact value. Begin with exact inputs instead; converting the
   stored binary approximation exactly would not recover the intended decimal.
 - Present `show` as the preferred way to inspect or display a `Dec` in ordinary
-  use: `5.00d.show()` returns `"5.00"`. Introduce `decimalPlaces` for code needing
-  the count, and `value` for extensions and adapters needing the unscaled integer:
-  `5.00d.decimalPlaces()` returns `2`, while `5.00d.value()` returns `500n`.
-  Make clear that `value` does not return the numerical amount as a whole number.
+  use: `5.00d.show()` returns `"5.00"`. Introduce `places` for code needing
+  the count, and `unscaled` for extensions and adapters needing the unscaled integer:
+  `5.00d.places()` returns `2`, while `5.00d.unscaled()` returns `500n`.
+  Places use `Int`, with negative arguments rejected.
 - Explain that multiplication adds decimal places: `1.50 * 2.00` displays as
   `3.0000`, while multiplying by a zero-place integer preserves two places.
 - Show numerical equality despite different retained places, and explicit
-  rounding through `multiplyTo`, `divideTo`, and `withDecimalPlaces`, with their
-  respective `Even` variants. `roundEven` names nearest rounding with ties to even,
+  rounding through `divide` and `withPlaces`, with their respective `Even`
+  variants. Round products by adjusting the exact multiplication result. `roundEven` names nearest rounding with ties to even,
   not rounding every value to an even number. Division has no `/` operator.
 - Teach exact `d` literals (`5d`, `5.00d`, `0.050d`), preserved fractional digits,
   separators excluded from the digit count, digits on both sides of a written

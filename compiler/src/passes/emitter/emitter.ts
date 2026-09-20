@@ -5116,7 +5116,7 @@ class JavaScriptEmitter {
         // `007n` is not even a legacy octal: it is an outright SyntaxError.
         return `${canonicalIntegerLiteral(expression.decimal)}n`;
       case "Dec":
-        return `({ coefficient: ${canonicalIntegerLiteral(expression.coefficient)}n, places: ${expression.decimalPlaces} })`;
+        return `({ unscaled: ${canonicalIntegerLiteral(expression.coefficient)}n, places: ${expression.decimalPlaces} })`;
       case "Float":
         // The spelling the reader wrote, with #897's one repair: a leading zero
         // before the point is legal Hexagon (Lexer §5) and a SyntaxError in
@@ -6837,7 +6837,7 @@ class JavaScriptEmitter {
           pattern.span,
           evidenceNames,
         );
-        const literal = `({ coefficient: ${canonicalIntegerLiteral(pattern.coefficient)}n, places: ${pattern.decimalPlaces} })`;
+        const literal = `({ unscaled: ${canonicalIntegerLiteral(pattern.coefficient)}n, places: ${pattern.decimalPlaces} })`;
         return { tests: [`${dictionary}.equals(${value}, ${literal})`], bindings: [] };
       }
       case "Float":

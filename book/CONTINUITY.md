@@ -60,7 +60,11 @@ Drafting order is not final reading order.
   Dec directly; unsuffixed point/exponent forms select Float. Addition retains the
   larger place count, multiplication adds counts, and explicit rounded operations
   retain the requested count. There is no Dec `/` operator or Float-to-Dec
-  conversion. Ordinary inspection uses `show`; `value` returns the unscaled BigInt.
+  conversion. Ordinary inspection uses `show`; `unscaled` returns the stored BigInt.
+  `same` compares both stored parts, including retained places, without changing
+  numerical equality, ordering, or hashing; it is not object identity.
+  Places parameters and the `places` accessor use `Int`; negative places are rejected.
+  Rounded products use exact multiplication followed by `withPlaces` or `withPlacesEven`.
 - The specification is normative; the book is explanatory.
 - For planning and drafting, assume the specification is complete. If it changes,
   update affected book material at that time.

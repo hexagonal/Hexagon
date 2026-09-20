@@ -50,7 +50,7 @@ If both values are `Float`, this is IEEE 754 division and follows the same infin
 `NaN` behavior as JavaScript. Rat division is exact and throws `DivideByZeroError` for
 a zero divisor. `Int` and `BigInt` deliberately do not support `/`: whole-number
 division must say which rounding and remainder convention it intends. Dec also has
-no `/` operator: use `divideTo` or `divideToEven` with the required decimal places.
+no `/` operator: use `divide` or `divideEven` with the required decimal places.
 
 Exponentiation uses `**`, not `^`, and associates to the right:
 

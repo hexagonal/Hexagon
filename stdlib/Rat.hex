@@ -135,16 +135,18 @@ honor Real<Rat> =
 (** The exact numerical value of `decimal` as a reduced rational. Retained
     decimal places are presentation and do not survive this conversion. *)
 export let fromDec(decimal: Dec): Rat =
-    if decimal.value() == 0 then
+    if decimal.unscaled() == 0 then
         create(0n, 1n)
     else
-        create(decimal.value(), 10n ** Int.fromNat(decimal.decimalPlaces()))
+        create(decimal.unscaled(), 10n ** decimal.places())
 
-let roundedDecimal(value: Rat, decimalPlaces: Nat, even: Bool): Dec =
-    if value.top == 0 then
-        Dec.create(0n, decimalPlaces)
+let roundedDecimal(value: Rat, requested: Int, even: Bool, operation: String): Dec =
+    if requested < 0 then
+        throw(Dec.NegativeDecimalPlacesError("${operation}: decimal places cannot be negative"))
+    else if value.top == 0 then
+        Dec.create(0n, requested)
     else
-        let numerator = value.top * (10n ** Int.fromNat(decimalPlaces))
+        let numerator = value.top * (10n ** requested)
         let magnitude = numerator.abs()
         let quotient = magnitude.quot(value.bottom)
         let twiceRemainder = magnitude.rem(value.bottom) * 2
@@ -157,15 +159,15 @@ let roundedDecimal(value: Rat, decimalPlaces: Nat, even: Bool): Dec =
                 quotient
             else
                 quotient + 1
-        Dec.create(if numerator < 0 then -rounded else rounded, decimalPlaces)
+        Dec.create(if numerator < 0 then -rounded else rounded, requested)
 
-(** `value` rounded once to exactly `decimalPlaces`, ties away from zero. *)
-export let toDec(value: Rat, decimalPlaces: Nat): Dec =
-    roundedDecimal(value, decimalPlaces, False)
+(** `value` rounded once to exactly `places`, ties away from zero. *)
+export let toDec(value: Rat, places: Int): Dec =
+    roundedDecimal(value, places, False, "Rat.toDec")
 
-(** `value` rounded once to exactly `decimalPlaces`, ties to even. *)
-export let toDecEven(value: Rat, decimalPlaces: Nat): Dec =
-    roundedDecimal(value, decimalPlaces, True)
+(** `value` rounded once to exactly `places`, ties to even. *)
+export let toDecEven(value: Rat, places: Int): Dec =
+    roundedDecimal(value, places, True, "Rat.toDecEven")
 
 // -- `toFloat`, and the exact integer arithmetic the single rounding needs. --
 //

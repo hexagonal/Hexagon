@@ -212,8 +212,12 @@ Retained places affect display, while equality and ordering compare numbers:
 1.500d.show()            // "1.500"
 ```
 
-Consequently, `5d` and `5.00d` also denote the same map key and match the same
-values in a pattern. A `5.00d` arm after a `5d` arm is unreachable. Later chapters
+When retained places matter too, use `same`: `1.50d.same(1.500d)` is `False`,
+while `1.50d.same(Dec.create(150n, 2))` is `True`. It compares the stored integer
+and place count, not object identity.
+
+Numerical equality means `5d` and `5.00d` also denote the same map key and match
+the same values in a pattern. A `5.00d` arm after a `5d` arm is unreachable. Later chapters
 return to collections and matching; neither treats the displayed zeros as a new
 numerical value.
 
@@ -222,17 +226,17 @@ finite exact decimal expansion. Dec has no `/` operator. Choose the result's
 places explicitly:
 
 ```hexagon
-1d.divideTo(3d, 2)             // 0.33
-1d.divideTo(8d, 2)             // 0.13
-1d.divideToEven(8d, 2)         // 0.12
-4.50d.multiplyTo(0.15d, 2)    // 0.68
-1.245d.withDecimalPlaces(2)   // 1.25
+1d.divide(3d, 2)                 // 0.33
+1d.divide(8d, 2)                 // 0.13
+1d.divideEven(8d, 2)             // 0.12
+(4.50d * 0.15d).withPlaces(2)    // 0.68
+1.245d.withPlaces(2)              // 1.25
 ```
 
 These operations round once from the exact answer and retain exactly the requested
 places. Their default rule is nearest, with ties away from zero. Each has an
-`Even` variant choosing the even final digit at a tie: `withDecimalPlacesEven`
-and `multiplyToEven` follow the same rule as `divideToEven`. They differ only at
+`Even` variant choosing the even final digit at a tie: `withPlacesEven`
+follows the same rule as `divideEven`. They differ only at
 ties; they do not round every answer to an even number. Increasing the places
 appends zeros without changing the number.
 
@@ -241,12 +245,14 @@ numbers. For Dec they return `BigInt`, so large whole-number results stay exact:
 `(-2.5d).round()` returns `-3n`, while `(-2.5d).roundEven()` returns `-2n`.
 
 Use `show` for everyday inspection. For an adapter needing the stored parts,
-`5.00d.value()` returns the unscaled integer `500n`, and
-`5.00d.decimalPlaces()` returns `2`. `Dec.create(500n, 2)` constructs that same
-value. The accessor called `value` does not return five as a whole number.
+`5.00d.unscaled()` returns the unscaled integer `500n`, and
+`5.00d.places()` returns `2`. `Dec.create(500n, 2)` constructs that same
+value. Places parameters and the `places` accessor use `Int`, so a binding such
+as `let places = 2` works directly, and observed counts can be subtracted.
+Negative places throw `NegativeDecimalPlacesError`.
 
 Dec has no NaN, infinity, or negative zero. Its coefficient is limited by available
-resources; its decimal-place count uses Nat's full range. Exact multiplication
+resources; its decimal-place count uses the nonnegative Int range. Exact multiplication
 and powers throw `DecimalPlacesOverflowError` if the retained count exceeds that
 range. Large permitted counts can still demand more memory than a machine has.
 Dec supplies decimal arithmetic and display; currency identity and currency

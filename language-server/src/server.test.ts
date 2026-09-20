@@ -420,7 +420,7 @@ describe("the Hexagon language server", () => {
   });
 
   test("Dec literals and rounded companion operations reach editor services", async () => {
-    const source = "module Main\n\nlet amount = 1.50d\nlet rounded = amount.withDecimalPlacesEven(1)\n";
+    const source = "module Main\n\nlet amount = 1.50d\nlet rounded = amount.withPlacesEven(1)\nlet same = amount.same(Dec.create(150n, 2))\n";
     const solo = await harness({ "main.hex": source });
     try {
       await solo.client.sendNotification(DidOpenTextDocumentNotification.type, {
@@ -440,10 +440,17 @@ describe("the Hexagon language server", () => {
       );
       const operation = await solo.client.sendRequest("textDocument/hover", {
         textDocument: { uri: solo.uriOf("main.hex") },
-        position: positionOf(source, "withDecimalPlacesEven"),
+        position: positionOf(source, "withPlacesEven"),
       }) as Hover | null;
       expect((operation?.contents as { value: string }).value).toMatch(
-        /^value `withDecimalPlacesEven: \(Dec, Nat\) -> Dec`/,
+        /^value `withPlacesEven: \(Dec, Int\) -> Dec`/,
+      );
+      const representation = await solo.client.sendRequest("textDocument/hover", {
+        textDocument: { uri: solo.uriOf("main.hex") },
+        position: positionOf(source, "same", 2),
+      }) as Hover | null;
+      expect((representation?.contents as { value: string }).value).toMatch(
+        /^value `same: \(Dec, Dec\) -> Bool`/,
       );
 
       const probing = `${source}let probe = Dec.\n`;
@@ -456,7 +463,8 @@ describe("the Hexagon language server", () => {
         textDocument: { uri: solo.uriOf("main.hex") },
         position: { line: start.line, character: start.character + 4 },
       }) as CompletionItem[];
-      expect(offered.some(({ label }) => label === "divideToEven")).toBe(true);
+      expect(offered.some(({ label }) => label === "divideEven")).toBe(true);
+      expect(offered.some(({ label }) => label === "same")).toBe(true);
     } finally {
       await solo.dispose();
     }

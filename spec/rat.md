@@ -221,16 +221,17 @@ Rat.toFloat(Rat.create(1, 2 ** 1100))         -- FloatRangeError (nonzero would 
 The compiler conformance suite must execute the emitted JavaScript for normalization
 and arithmetic; checking inferred types or snapshots alone is insufficient.
 
-## 10. Dec conversions (implemented locally)
+## 10. Dec conversions
 
 Rat owns all conversions between the two types; validation status is recorded in `dec.md`:
 
 ```text
 Rat.fromDec(value: Dec): Rat
-Rat.toDec(value: Rat, decimalPlaces: Nat): Dec
-Rat.toDecEven(value: Rat, decimalPlaces: Nat): Dec
+Rat.toDec(value: Rat, places: Int): Dec
+Rat.toDecEven(value: Rat, places: Int): Dec
 ```
 
 `dec.md` §4 owns their exact conversion and rounding contracts. Rat can use
 prelude Dec's public constructor and accessors; Dec does not depend on Rat.
-These are not claims of currently shipped exports. Rat remains an imported module.
+Places use `Int`; negative arguments throw `Dec.NegativeDecimalPlacesError`
+before arithmetic, as specified in `dec.md` §3. Rat remains an imported module.

@@ -15,7 +15,7 @@ import {
  *
  * The prelude used to seed every export into every module's bare term scope.
  * §5.5 now seeds **nothing** there by default, and four channel rules put
- * nineteen names back: the eleven exception constructors, the six constructors of
+ * twenty names back: the twelve exception constructors, the six constructors of
  * the open unions `Bool`/`Option`/`Result`, `ignore`, and `show`. Everything
  * else is reached by the dot or the qualified spelling, and a bare reference to
  * it draws §10's refusal with its routes named.
@@ -61,7 +61,7 @@ function moduleNames(source: string): readonly string[] {
  * design ruling argued against §5.5, never an edit.
  */
 const BARE_SET = [
-  // The eleven exception constructors — a category, not a list (§5.5).
+  // The twelve exception constructors — a category, not a list (§5.5).
   "DecimalPlacesOverflowError",
   "DivideByZeroError",
   "FloatRangeError",
@@ -70,6 +70,7 @@ const BARE_SET = [
   "JsError",
   "KeyError",
   "NegativeExponentError",
+  "NegativeDecimalPlacesError",
   "ReentrancyError",
   "SliceError",
   "UndefinedSignError",
@@ -85,13 +86,13 @@ const BARE_SET = [
   "show",
 ].sort();
 
-describe("the bare set is exactly nineteen names, and closed", () => {
+describe("the bare set is exactly twenty names, and closed", () => {
   test("the prelude layer binds the set and nothing else", () => {
     expect(bareNames()).toEqual(BARE_SET);
   });
 
-  test("nineteen is the count the section states", () => {
-    expect(BARE_SET.length).toBe(19);
+  test("twenty is the count the section states", () => {
+    expect(BARE_SET.length).toBe(20);
   });
 
   /**
@@ -697,6 +698,7 @@ describe("the exception channel: all of them, as a category", () => {
    */
   test.each([
     ["DecimalPlacesOverflowError", "Dec", "(m)"],
+    ["NegativeDecimalPlacesError", "Dec", "(m)"],
     ["NegativeExponentError", "Pow", "(m)"],
     ["DivideByZeroError", "Integral", "(m)"],
     ["FloatRangeError", "Float", "(m)"],
