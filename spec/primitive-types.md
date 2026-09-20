@@ -21,6 +21,12 @@ This document is written for a future implementation session and assumes the exi
 | `BigInt` | `bigint` | `9_007_199_254_740_993n` | Whole numbers of arbitrary size. |
 | `Unit` | `undefined` | `()` | *Reclassified:* the empty tuple (§9, #159). Row retained for the representation fact. |
 
+`Dec` (`dec.md`, implemented locally; validation status recorded there) is also a fundamental
+prelude type, introduced in the book’s Primitive Types chapter. It is an opaque
+nominal record, not a compiler or JavaScript primitive, so it does not extend
+the compiler-primitive inventory here. Its `d` literals and exact display are
+owned by that focused specification.
+
 **Correction to older documentation:** earlier drafts listed `Int → bigint`. This is wrong and was explicitly reversed. `Int` compiles to JS `number`.
 
 ### Nat: the non-negative refinement
@@ -61,7 +67,7 @@ type name from a type variable and enables implicit generalisation without `fora
 
 **Why not BigInt** (decided, do not re-litigate without new information): ambient BigInt taxes every index and loop counter (~10× on small values in V8, no small-int fast path), `JSON.stringify` throws on bigint, `Math.*` rejects it, mixed `number`/`bigint` arithmetic throws, Immutable.js uses number indexes internally (coercion on every List op), and the emitted `.d.ts` would force `bigint` on every JS consumer. Precedents: Dart 2 retreated from arbitrary-precision int to fixed-width largely because of the web target; PureScript/Elm/ReScript/Gleam all chose `number`. Users who need arbitrary precision opt in via `BigInt` (§6).
 
-**Literals:** decimal digits, optional `_` separators (§8), no decimal point, no exponent, no `n` suffix. Per the Numeric Literals spec: a bare integer literal is *polymorphic* — it elaborates to `fromNat(k) : α` with constraint `Num α`, defaulting to `Int` at generalisation. The lexer range-checks the payload against 2^53 − 1 and errors with an "add `n`" fixit beyond that. **This doc does not restate that machinery; the Numeric Literals spec is authoritative for elaboration, defaulting, and codegen erasure.**
+**Literals:** decimal digits, optional `_` separators (§8), no decimal point, no exponent, no `n` or `d` suffix. Per the Numeric Literals spec: a bare integer literal is *polymorphic* — it elaborates to `fromNat(k) : α` with constraint `Num α`, defaulting to `Int` at generalisation. The lexer range-checks the payload against 2^53 − 1 and errors with an "add `n`" fixit beyond that. **This doc does not restate that machinery; the Numeric Literals spec is authoritative for elaboration, defaulting, and codegen erasure.**
 
 **Division:** `Int` honors `Num` and `Signed` (add/multiply plus subtract/negate/fromInt) but **not** `Frac` — there is no generic `divide` at Int (decided when `divide` was evicted from `Signed`). Integer division/modulo are `Integral<Int>`'s `div`/`mod`, **Euclidean**, per the Division & Remainder spec — the owning doc; `Int.div`/`Int.mod` are those members qualified *(#344 — this sentence previously said "monomorphic" and "(floored)": it predated both the `Integral` constraint and the Euclidean ruling, and the members now live as source `honor` blocks in `stdlib/Int.hex`)*.
 
@@ -108,15 +114,15 @@ Float.floor(value: Float): Int
 Float.ceil(value: Float): Int
 Float.trunc(value: Float): Int
 Float.round(value: Float): Int
-Float.bankRound(value: Float): Int
+Float.roundEven(value: Float): Int
 ```
 
 `floor` returns the greatest integer no greater than `value`; `ceil` returns the
 least integer no less than it; `trunc` rounds toward zero. `round` returns the
-nearest integer and sends an exact halfway value away from zero. `bankRound`
+nearest integer and sends an exact halfway value away from zero. `roundEven`
 also returns the nearest integer, but sends an exact halfway value to the even
 integer. Thus `Float.round(2.5) == 3`, `Float.round(-2.5) == -3`, while
-`Float.bankRound(2.5) == 2`, `Float.bankRound(3.5) == 4`, and the negative cases mirror
+`Float.roundEven(2.5) == 2`, `Float.roundEven(3.5) == 4`, and the negative cases mirror
 them. The two nearest rules differ only at an exact half; neither uses
 JavaScript `Math.round`'s asymmetric ties-toward-positive-infinity convention.
 
@@ -140,7 +146,7 @@ this kind of named exit from the approximate world.
 
 **`Float.pow(value: Float, exponent: Float): Float`** is the analytic power — `exp(y·ln x)`, total, honestly IEEE with every `NaN` edge, `Float.pow(2.0, 0.5)` the nearest double to `√2`. It is the `widens` declaration over `Pow<Float>`'s member (Operators §6.3.1; Constraints §4.7; Modules §5.3's generalisation law): the operator `**` takes the member's `Int` exponent, the qualified spelling and the dot call take this door, and the member is the door's derived restriction to integer exponents, accounted for in the honor block as `pow = widened`. A fractional exponent at `**` draws the mandatory fixit pointing here.
 
-**Literals:** monomorphic, always `Float` — a literal is a Float literal iff it contains a `.` or an exponent (`1.5`, `0.0`, `1e9`, `2.5e-3`). `_` separators allowed per §8. Decimal literals do **not** participate in the polymorphic literal scheme in v1 (deferred — see Numeric Literals spec §7, #525). The deferred piece is the polymorphism, not a conversion: a `Rat` `fromFloat` exists in no spelling, ever (friendly-numerics tenet 7), so a future design must carry the written digits — `0.1` meaning `1/10` — rather than the parsed double, whose exact binary value is not what the writer meant.
+**Literals:** monomorphic, always `Float` — an unsuffixed numeric literal is a Float literal iff it contains a `.` or an exponent (`1.5`, `0.0`, `1e9`, `2.5e-3`). `_` separators allowed per §8. Unsuffixed decimal literals do **not** participate in the polymorphic literal scheme in v1 (deferred — see Numeric Literals spec §7, #525). The deferred piece is the polymorphism, not a conversion: a `Rat` `fromFloat` exists in no spelling, ever (friendly-numerics tenet 7), so a future design must carry the written digits — `0.1` meaning `1/10` — rather than the parsed double, whose exact binary value is not what the writer meant.
 
 **Standard constraints:** `Real` (Constraints §7), `Num`, `Signed`, `Frac` (generic `divide`, lawful up to rounding), `Eq`, `Ord`, `Show`, `Pow` (Operators §6.3), `Hash` (Collections Part 2 §2.5). Never `Integral` — permanently, so that `gcd(1.5, 2.0)` fails with the right message (Integral §3) *(corrected 2026-07-28, #137 — record in §11)*.
 
@@ -265,6 +271,12 @@ normalization.
 
 **Literals:** decimal digits + `n` suffix: `42n`, `9_007_199_254_740_993n`. **Monomorphic, always `BigInt`** — the `n` suffix *is* the type annotation, exactly as in JS, and BigInt literals do **not** participate in the polymorphic `Num`-literal scheme (decided, with reasons recorded in Numeric Literals spec §7: a polymorphic `1n` would hollow out the suffix and force a lossy or partial `fromBigInt` into `Num`). Payload is arbitrary precision; the lexer/AST must store it losslessly (string or JS bigint), never through an f64.
 
+**Exact destination capability:** `BigInt` honors `FromBigInt` with identity
+conversion. A BigInt expression may enter an independently established target
+such as Rat through that target's `FromBigInt` evidence (Numeric Literals §5.1;
+`integer-widening.md`). This does not make the `n` literal polymorphic or permit
+implicit conversion to Float, Int, or Nat. Literal patterns still require BigInt.
+
 **Style:** use `n` when no surrounding context pins the type (`let y = 1n`) and whenever the payload exceeds the bare-literal range. In an already BigInt-typed position, bare digits are preferred: `Rat.create(1, 3)` emits `Rat.create(1n, 3n)`.
 
 **Conversions:** Numeric Literals §5.1 applies from established `Nat` and `Int` expressions into `BigInt`, through `Num.fromNat` and `Signed.fromInt` respectively; emission is `BigInt(value)` and is exact. There is no conversion in the other direction and no implicit conversion between `BigInt` and `Float`. Explicit stdlib conversions are provided by `stdlib/BigInt.hex` *(#344 — this sentence previously said "remain", with nothing built)*: `BigInt.fromInt : Int -> BigInt` (total — it **is** `Signed<BigInt>`'s member, reached qualified per Modules §5.3; one implementation, two spellings), `BigInt.toInt : BigInt -> Option(Int)` (partial per the standard partiality story — Unions spec, the `Option` this always meant), and `BigInt.toFloat : BigInt -> Float` — the exact world's second sanctioned exit *(#533; friendly-numerics tenet 7 — `rat.md` §6 owns the first)*. It answers the **correctly rounded nearest double** — past 2^53 that double need not be the integer asked for, and no exception attends the rounding, because rounding error is what an approximation *is* — and where the correctly rounded answer would be ±Infinity it throws `FloatRangeError` (`Float.hex`'s declaration, §3, shared rather than re-minted) with `BigInt.toFloat: value does not fit in Float`, refusing to fabricate one. The shared guard's sentence — the result must be finite, and nonzero when the input is nonzero — has only its overflow end reachable here: a nonzero integer is at least `1n` in magnitude, so the erasure end is `Rat`'s alone. Throwing `Float.hex`'s exception is what seats this companion after `Float.hex` in the prelude order (Modules §5.5's ordered visibility — a module seats after what it uses). **`BigInt.pow(value: BigInt, exponent: BigInt): BigInt`** is the `widens` declaration over `Pow<BigInt>`'s member (Operators §6.3.1; Constraints §4.7): exact power at exponents beyond `Int`'s range — a domain the host defines, and thin (`0n`/`±1n` bases answer at any non-negative exponent; elsewhere implementation limits govern as they do all `BigInt` growth) — with `exponent < 0` throwing `NegativeExponentError` at either face, the guard living once in the one body. The qualified spelling and the dot call take the door; `**` takes the member — the door's derived restriction, accounted for as `pow = widened`, whose derivation converts its `Int` exponent explicitly, JS `**` never mixing `bigint` and `number`.
@@ -273,7 +285,7 @@ normalization.
 
 **FFI:** appears as `bigint` in emitted `.d.ts`. Known landmine, documented once in FFI docs: `JSON.stringify` throws on bigint — but only records that explicitly contain BigInt fields carry it, which is the point of keeping BigInt out of `Int`.
 
-**Standard constraints:** `Real` (Constraints §7), `Num`, `Signed`, `Eq`, `Ord`, `Show` (note `show 1n` is `"1"` — **no** `n` suffix; this is JS `String(1n)` behaviour and is display-correct), `Pow` (Operators §6.3), `Hash` (Collections Part 2 §2.5), `Integral` (Integral §3) *(corrected 2026-07-28, #137 — record in §11)*.
+**Standard constraints:** `FromBigInt` (`integer-widening.md`), `Real` (Constraints §7), `Num`, `Signed`, `Eq`, `Ord`, `Show` (note `show 1n` is `"1"` — **no** `n` suffix; this is JS `String(1n)` behaviour and is display-correct), `Pow` (Operators §6.3), `Hash` (Collections Part 2 §2.5), `Integral` (Integral §3) *(corrected 2026-07-28, #137 — record in §11)*.
 
 ---
 
@@ -305,10 +317,10 @@ The constraint system has its own spec; this section records only the decisions 
 
 ## 8. Numeric `_` separators
 
-Underscore separators are allowed in all numeric literals (Nat/Int-payload bare literals, `Float`, `BigInt`) under **the JS rule** (decided — not Python's, which differs in exactly one corner: Python allows `0x_FF`, JS doesn't; since we emit literals into JS source, JS's rule is the only safe one, and it's Python-minus-that-corner):
+Underscore separators are allowed in all numeric literals (Nat/Int-payload bare literals, `Float`, `BigInt`, and `Dec`) under **the JS rule** (decided — not Python's, which differs in exactly one corner: Python allows `0x_FF`, JS doesn't; since we emit literals into JS source, JS's rule is the only safe one, and it's Python-minus-that-corner):
 
 - `_` must have a digit on **both** sides.
-- Therefore: no leading (`_1`) or trailing (`1_`) underscore; no doubling (`1__0`); none adjacent to `.` (`1_.5`, `1._5`), to the exponent marker (`1_e5`, `1e_5`), or to the `n` suffix (`1_n`).
+- Therefore: no leading (`_1`) or trailing (`1_`) underscore; no doubling (`1__0`); none adjacent to `.` (`1_.5`, `1._5`), to the exponent marker (`1_e5`, `1e_5`), or to the `n`/`d` suffix (`1_n`, `1_d`).
 - Separators are for readability only: erased from the numeric value; grouping is unenforced (`1_00_00` is legal).
 - Emission: literals may be emitted with or without their separators (both are valid JS); preserving them where the source had them is nicer for readable-JS but not required.
 
@@ -341,7 +353,7 @@ Unchanged and still worth its ink here: **`Unit`'s `undefined` must not be confu
 | `Int` = f64-integer-invariant `number`, not bigint | this doc §2; Numeric Literals spec |
 | Bare int literals use a `Nat` payload and are polymorphic via `Num.fromNat`, default `Int` | Numeric Literals spec (authoritative) |
 | `1n` monomorphic BigInt; suffix = annotation | Numeric Literals spec §7; this doc §6 |
-| Decimal literals monomorphic Float in v1 | Numeric Literals spec; this doc §3 |
+| Unsuffixed decimal literals monomorphic Float in v1; `d` selects Dec | Numeric Literals spec; this doc §3 |
 | One string form `"..."`: interpolating, multi-line, no backticks, no tags | this doc §5.2 |
 | `${e}` → `show(e)`; Show is display-semantics; not universal | this doc §5.3, §7 |
 | Escapes `\$` and `\#`; bare `#{` is a v1 lex error (reserved for v2 Debug) | this doc §5.2, §5.4 |
@@ -349,7 +361,7 @@ Unchanged and still worth its ink here: **`Unit`'s `undefined` must not be confu
 | `_` separators: JS rule, all numeric literals; decimal-only bases in v1 | this doc §8 |
 | `Unit` = `()` = JS `undefined` | this doc §9 |
 | `Float.nan` / `Float.infinity` constants and `Float.isNan` / `Float.isFinite` detectors; no special-value literals; `x != x` is uniformly `False` | this doc §3 |
-| `Float.floor`/`ceil`/`trunc`/`round`/`bankRound` return `Int`; `round` uses ties away from zero, `bankRound` ties to even; unsafe results throw target-owned `IntRangeError`; zero is canonical | this doc §3; #919 |
+| `Float.floor`/`ceil`/`trunc`/`round`/`roundEven` return `Int`; `round` uses ties away from zero, `roundEven` ties to even; unsafe results throw target-owned `IntRangeError`; zero is canonical | this doc §3; #919 |
 | Int overflow: silent past ±2^53, plain-JS operators; checked stdlib variants; `--checked-int` reserved; int32/`\|0` rejected | this doc §2.1 |
 | `Ord String` = codepoint lexicographic, permanent regardless of grapheme indexing; collation is stdlib, never Ord | this doc §5 |
 | Types uppercase-start; type variables non-uppercase-start (`a b c` by convention) | this doc §1; Lexer §3 |

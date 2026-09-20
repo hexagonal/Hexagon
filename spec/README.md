@@ -35,8 +35,10 @@ Every normative owner appears exactly once. The explicitly marked router and gui
 | Types | `products.md` | tuples (incl. `Unit`, the empty tuple — #159), structural/nominal records, rows, field access |
 | Types | `unions.md` | `union` declarations, `match` surface, representations |
 | Types | `integral-constraint.md` | the `Integral` constraint |
+| Types | `integer-widening.md` | `FromBigInt`, exact-integer construction laws, and prerequisite integration; contextual widening is owned by `numeric-literals.md` |
 | Types | `math.md` | the `Math` module: Float mathematical functions, edge cases, and approximation contract |
 | Types | `rat.md` | exact `BigInt`-backed rational values |
+| Types | `dec.md` | exact retained-place decimals, canonical `d` literals, rounding and conversion APIs; local validation recorded in §12 |
 | Types | `friendly-numerics.md` | the friendly-numerics doctrine (#517): the seven tenets, the two-worlds membrane, the comparative position — principles only; every rule stays with its owning spec |
 | Types | `constraints.md` | constraints, `honor` instances, coherence, dictionaries, defaults |
 | Control | `operators-logic-precedence.md` | operator inventory, precedence, pipe, `if/then/else`, bracket grammar |
