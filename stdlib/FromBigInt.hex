@@ -1,0 +1,8 @@
+module FromBigInt
+
+(** Exact construction from an arbitrary-size integer. Honoring `FromBigInt`
+    promises that every `BigInt` is accepted without rounding, clamping,
+    wrapping, or a destination-specific range failure. *)
+export constraint FromBigInt<a: Signed> =
+    (** The integer `value` at this type, preserving its mathematical value. *)
+    fromBigInt(value: BigInt) -> a

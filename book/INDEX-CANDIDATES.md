@@ -76,7 +76,8 @@ Related forms and likely lookup terms should point to one another.
 | pattern | Chapter 11, opening definition | Chapter 11 throughout |
 | persistent collection | Chapter 22, opening definition | `Vector`, `Map`, and `Set` |
 | polymorphism | Chapter 6, “A `let`-bound function can be reused at several types” | Chapter 6, monomorphic parameters and recursive calls |
-| primitive types | Chapter 2, opening definition — types whose values are already JavaScript primitive values | Chapter 24, native values; Chapter 25, TypeScript faces; see **Bool** and **Unit** for the rows defined elsewhere |
+| decimal places | Chapter 2, “`Dec`: exact decimals with retained places” | Fractional digit count, retained zeros, numerical equality; see **primitive types** |
+| primitive types | Chapter 2, opening definition — fundamental prelude values, including opaque Dec | Chapter 24, native values; Chapter 25, TypeScript faces; see **Bool** and **Unit** for the rows defined elsewhere |
 | polymorphic recursion | Chapter 6, “Recursive calls keep one type” | — |
 | range | Chapter 17, “Ranges are inclusive integer progressions” | `..`, `range`, and `rangeDown` |
 | record | Chapter 9, opening definition | See **record, structural** and **record, nominal** |

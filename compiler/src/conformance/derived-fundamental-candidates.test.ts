@@ -133,7 +133,7 @@ describe("the judgment over the pre-registered constraints", () => {
       ["Nat", preRegistered("Num", "Eq", "Ord", "Show", "Pow", "Integral", "Hash", "Real")],
       ["Int", preRegistered("Num", "Signed", "Eq", "Ord", "Show", "Pow", "Integral", "Hash", "Real")],
       ["Float", preRegistered("Num", "Signed", "Frac", "Eq", "Ord", "Show", "Pow", "Hash", "Real")],
-      ["BigInt", preRegistered("Num", "Signed", "Eq", "Ord", "Show", "Pow", "Integral", "Hash", "Real")],
+      ["BigInt", preRegistered("Num", "Signed", "FromBigInt", "Eq", "Ord", "Show", "Pow", "Integral", "Hash", "Real")],
       ["String", preRegistered("Eq", "Ord", "Show", "Concat", "Hash", "Iterable")],
       // The two enumeration-membered fundamentals answer from the #147/#159 pin
       // — the four the compiler can derive — because that is exactly what an
@@ -206,8 +206,8 @@ describe("the program table is what makes a prelude module's plan the consumer's
     ]);
     // String's newly source-owned `Iterable` row is one more program-visible
     // candidate that neither earlier numeric companion can see locally.
-    expect(shortfalls.find(({ path }) => path === "/Hex/Int.hex")?.missing).toBe(32);
-    expect(shortfalls.find(({ path }) => path === "/Hex/Nat.hex")?.missing).toBe(24);
+    expect(shortfalls.find(({ path }) => path === "/Hex/Int.hex")?.missing).toBe(33);
+    expect(shortfalls.find(({ path }) => path === "/Hex/Nat.hex")?.missing).toBe(25);
   });
 
   test("emission plans from the table it is handed, not from the module", () => {

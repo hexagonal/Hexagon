@@ -141,7 +141,7 @@ describe("bare scope is the prelude's, and the library adds nothing to it", () =
       'module Main\n\nDebug.log("${create(1, 2)}")\n',
     ]]);
     expect(project.diagnostics.map(({ message }) => message))
-      .toContain("unknown name `create`");
+      .toContain("no bare `create`; write `Dec.create(1, 2)`");
   });
 
   test("a library module's type is not in scope unimported", () => {

@@ -159,7 +159,7 @@ describe("lex", () => {
   });
 
   test("classifies every numeric form and keeps dot calls separate", () => {
-    const result = lexSource("0 1_000 42n 1.5 1e9 1..10 3.show");
+    const result = lexSource("0 1_000 42n 5d 1_000.050d 1.5 1e9 1..10 3.show");
 
     expect(kinds(result.tokens)).toEqual([
       "NonUpperName",
@@ -167,6 +167,8 @@ describe("lex", () => {
       "Integer",
       "Integer",
       "BigInt",
+      "Dec",
+      "Dec",
       "Float",
       "Float",
       "Integer",
@@ -179,7 +181,33 @@ describe("lex", () => {
     ]);
     expect(result.tokens[3]).toMatchObject({ decimal: "1000" });
     expect(result.tokens[4]).toMatchObject({ decimal: "42" });
-    expect(result.tokens[5]).toMatchObject({ spelling: "1.5", value: 1.5 });
+    expect(result.tokens[5]).toMatchObject({ coefficient: "5", decimalPlaces: 0 });
+    expect(result.tokens[6]).toMatchObject({ coefficient: "1000050", decimalPlaces: 3 });
+    expect(result.tokens[7]).toMatchObject({ spelling: "1.5", value: 1.5 });
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  test("reports malformed Dec forms as whole constructs with repairs", () => {
+    const result = lexSource(".5d 5.d 5e2d 5.00e2d 5D 5_d");
+    expect(result.diagnostics.map(({ message }) => message)).toEqual([
+      "a Dec literal needs a digit before `.`",
+      "a Dec literal needs a digit after `.`",
+      "invalid numeric literal suffix in `5e2d`",
+      "invalid numeric literal suffix in `5.00e2d`",
+      "invalid numeric literal suffix in `5D`",
+      "`_` in a number must have a digit on both sides",
+    ]);
+    expect(kinds(result.tokens)).toEqual(["NonUpperName", "UpperName", "Eof"]);
+    expect(result.diagnostics[0]?.fixes?.[0]?.edits[0]?.replacement).toBe("0.5d");
+    expect(result.diagnostics[1]?.fixes?.[0]?.edits[0]?.replacement).toBe("5.0d");
+  });
+
+  test("keeps an integer dot call whose member begins with d", () => {
+    const result = lexSource("5.div(2)");
+    expect(kinds(result.tokens)).toEqual([
+      "NonUpperName", "UpperName", "Integer", "Dot", "NonUpperName",
+      "LeftParen", "Integer", "RightParen", "Eof",
+    ]);
     expect(result.diagnostics).toEqual([]);
   });
 

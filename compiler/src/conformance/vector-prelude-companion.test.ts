@@ -66,6 +66,7 @@ describe("the module", () => {
       "Show",
       "Num",
       "Signed",
+      "FromBigInt",
       "Frac",
       "Pow",
       "Concat",
@@ -97,8 +98,8 @@ describe("the module", () => {
       // three companions above it nothing.
       "BigInt",
       "Seq",
-      // #353 seats `Iterable`, now the twelfth constraint declaration, and the
-      // only one that cannot sit with the other eleven: `toSeq(xs: c): Seq(Item)`
+      // #353 seats `Iterable`, now the thirteenth constraint declaration, and the
+      // only one that cannot sit with the other twelve: `toSeq(xs: c): Seq(Item)`
       // names `Seq`, and honoring the reverse order is a genuine cycle — which
       // is why Collections Part 5 §4's rows have no source form.
       "Iterable",
@@ -107,6 +108,9 @@ describe("the module", () => {
       // #924's text surface consumes `Iterable.toSeq` and builds eager vectors,
       // so its source companion follows both declaring modules.
       "String",
+      // Exact decimal display uses String's companion operations; Dec therefore
+      // follows String while remaining available before the keyed collections.
+      "Dec",
       // #370 displaced `Vector.hex` from the last seat: `Map.hex` needs `Hash`,
       // `Option`, `Seq` and `Vector` itself, and nothing after it names a `Map`.
       "Map",

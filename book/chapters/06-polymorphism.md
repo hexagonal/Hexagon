@@ -206,8 +206,8 @@ When no context chooses a type, Hexagon defaults the literal to `Int`:
 let retries = 3 // Int
 ```
 
-There is one default, not a negotiation among several numeric types. A decimal point or
-exponent still selects `Float` directly, while the `n` suffix selects `BigInt` directly.
+There is one default, not a negotiation among several numeric types. An unsuffixed decimal point or
+exponent selects `Float` directly, while `n` selects `BigInt` and `d` selects `Dec`.
 
 ## Annotations are for clarity and boundaries
 

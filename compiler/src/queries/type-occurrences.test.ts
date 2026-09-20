@@ -20,8 +20,8 @@ describe("collectTypeOccurrences", () => {
       "let answer = identity(ada).age\n" +
       "let numbers: Seq(Int) = Seq.iterate(1, number => number + 1)\n" +
       "let selected = numbers.map(number => number + 1)\n" +
-      "let qualifiedRound = Float.bankRound(2.5)\n" +
-      "let dottedRound = 2.5.bankRound()\n" +
+      "let qualifiedRound = Float.roundEven(2.5)\n" +
+      "let dottedRound = 2.5.roundEven()\n" +
       "for item in selected\n" +
       "    Debug.log(\"${item}\")\n";
     // Through `compileProject`, because `Seq(a)` is a prelude declaration now
@@ -55,8 +55,8 @@ describe("collectTypeOccurrences", () => {
     expect(at("map", text.indexOf("map"))?.displayedType).toBe(
       "(Seq(a), a -> b) -> Seq(b)",
     );
-    const qualifiedRound = at("bankRound", text.indexOf("bankRound"));
-    const dottedRound = at("bankRound", text.lastIndexOf("bankRound"));
+    const qualifiedRound = at("roundEven", text.indexOf("roundEven"));
+    const dottedRound = at("roundEven", text.lastIndexOf("roundEven"));
     expect(qualifiedRound?.displayedType).toBe("Float -> Int");
     expect(dottedRound?.displayedType).toBe("Float -> Int");
     expect(dottedRound?.symbol).toBe(qualifiedRound?.symbol);

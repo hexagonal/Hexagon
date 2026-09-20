@@ -202,7 +202,7 @@ export let round(value: Float): Int =
 (** The nearest integer to `value`, with exact halfway values rounded to the
     even integer. Throws `IntRangeError` when the result does not fit in
     `Int`. *)
-export let bankRound(value: Float): Int =
+export let roundEven(value: Float): Int =
     let truncated = nativeTrunc(value)
     let fraction = value - truncated
     let rounded =
@@ -216,7 +216,7 @@ export let bankRound(value: Float): Int =
             if rem(truncated, 2) == 0 then truncated else truncated - 1
         else
             truncated
-    checkedRoundedInt("Float.bankRound: result does not fit in Int", rounded)
+    checkedRoundedInt("Float.roundEven: result does not fit in Int", rounded)
 
 export exception UndefinedSignError(message: String)
 

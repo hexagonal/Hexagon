@@ -12,7 +12,8 @@ ordinary behavior behind unnecessary machinery.
 
 ## Native values stay native
 
-Hexagon's primitive values are already JavaScript values:
+Most of the fundamental values introduced in Primitive Types use JavaScript
+primitive representations:
 
 | Hexagon | JavaScript |
 | --- | --- |
@@ -21,6 +22,10 @@ Hexagon's primitive values are already JavaScript values:
 | `Bool` | `boolean` |
 | `String` | `string` |
 | `Unit` | `undefined` |
+
+Dec uses an ordinary opaque record containing its exact coefficient and retained
+decimal places. Its operations follow the record and constraint machinery described
+later in this chapter.
 
 `Bool`'s row rests on a promise rather than on coincidence: it is the prelude union
 `False | True`, and its representation is pinned to the JavaScript `boolean` precisely

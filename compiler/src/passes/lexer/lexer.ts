@@ -453,7 +453,10 @@ class Scanner {
       this.#offset += 1;
       this.#consumeDigitsAndUnderscores();
       this.#consumeNumericTail();
-      this.#error(start, this.#offset, "a Float literal needs a digit before `.`", {
+      const decimal = this.#source.text[this.#offset - 1] === "d";
+      this.#error(start, this.#offset, decimal
+        ? "a Dec literal needs a digit before `.`"
+        : "a Float literal needs a digit before `.`", {
         message: "add a leading zero",
         replacement: `0${this.#source.text.slice(start, this.#offset)}`,
       });
@@ -598,7 +601,23 @@ class Scanner {
       };
     }
 
+    if (this.#source.text[this.#offset] === "d") {
+      this.#offset += 1;
+      if (this.#continuesIdentifierAt(this.#offset)) {
+        this.#consumeNumericTail();
+        this.#invalidNumericSuffix(start);
+        return undefined;
+      }
+      return {
+        kind: "Dec",
+        coefficient: integerDigits.replaceAll("_", ""),
+        decimalPlaces: 0,
+        span: this.#source.span(start, this.#offset),
+      };
+    }
+
     let isFloat = false;
+    let fractionDigits: string | undefined;
     if (this.#source.text[this.#offset] === ".") {
       if (this.#source.text[this.#offset + 1] === ".") {
         return this.#finishInteger(start, integerDigits);
@@ -607,8 +626,8 @@ class Scanner {
       if (isAsciiDigit(this.#peekCodeUnit(1))) {
         isFloat = true;
         this.#offset += 1;
-        const fraction = this.#consumeDigitsAndUnderscores();
-        if (!validDigitSeparators(fraction)) {
+        fractionDigits = this.#consumeDigitsAndUnderscores();
+        if (!validDigitSeparators(fractionDigits)) {
           this.#consumeNumericTail();
           this.#error(
             start,
@@ -626,6 +645,16 @@ class Scanner {
           "`_` in a number must have a digit on both sides",
         );
         return undefined;
+      } else if (
+        this.#source.text[this.#offset + 1] === "d" &&
+        !this.#continuesIdentifierAt(this.#offset + 2)
+      ) {
+        this.#offset += 2;
+        this.#error(start, this.#offset, "a Dec literal needs a digit after `.`", {
+          message: "add a trailing zero",
+          replacement: `${this.#source.text.slice(start, this.#offset - 1)}0d`,
+        });
+        return undefined;
       } else if (!this.#continuesIdentifierAt(this.#offset + 1)) {
         this.#offset += 1;
         this.#error(start, this.#offset, "a Float literal needs a digit after `.`", {
@@ -634,6 +663,22 @@ class Scanner {
         });
         return undefined;
       }
+    }
+
+
+    if (this.#source.text[this.#offset] === "d" && fractionDigits !== undefined) {
+      this.#offset += 1;
+      if (this.#continuesIdentifierAt(this.#offset)) {
+        this.#consumeNumericTail();
+        this.#invalidNumericSuffix(start);
+        return undefined;
+      }
+      return {
+        kind: "Dec",
+        coefficient: `${integerDigits}${fractionDigits}`.replaceAll("_", ""),
+        decimalPlaces: fractionDigits.replaceAll("_", "").length,
+        span: this.#source.span(start, this.#offset),
+      };
     }
 
     if (["e", "E"].includes(this.#source.text[this.#offset] ?? "")) {

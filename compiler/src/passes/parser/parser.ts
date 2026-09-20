@@ -4915,6 +4915,25 @@ class Parser {
         span: spanFrom(minus.span, integer.span),
       };
     }
+    if (token.kind === "Dec") {
+      this.#advance();
+      return {
+        kind: "Dec",
+        coefficient: token.coefficient,
+        decimalPlaces: token.decimalPlaces,
+        span: token.span,
+      };
+    }
+    if (token.kind === "Minus" && this.#peek(1).kind === "Dec") {
+      const minus = this.#advance();
+      const decimal = this.#advance() as Lexed.DecToken;
+      return {
+        kind: "Dec",
+        coefficient: `-${decimal.coefficient}`,
+        decimalPlaces: decimal.decimalPlaces,
+        span: spanFrom(minus.span, decimal.span),
+      };
+    }
     // Pattern Matching §2.5, #894: the permanent ban is lifted. A `Float`
     // literal is a pattern wherever a literal pattern may stand, and the token
     // carries both halves Lexer §5 stores — the correctly rounded binary64,
@@ -5371,6 +5390,14 @@ class Parser {
       case "BigInt":
         this.#advance();
         return { kind: "BigInt", decimal: token.decimal, span: token.span };
+      case "Dec":
+        this.#advance();
+        return {
+          kind: "Dec",
+          coefficient: token.coefficient,
+          decimalPlaces: token.decimalPlaces,
+          span: token.span,
+        };
       case "Float":
         this.#advance();
         // Lexer §9's recovery form is "never part of the public successful token

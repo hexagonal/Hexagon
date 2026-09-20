@@ -256,6 +256,7 @@ export function collectTypeOccurrences(module: Typed.Module): readonly TypeOccur
         return;
       case "WidenNat":
       case "WidenInt":
+      case "WidenBigInt":
         visitExpr(expression.value);
         return;
       case "Assignment":

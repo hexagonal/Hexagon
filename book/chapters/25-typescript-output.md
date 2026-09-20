@@ -41,7 +41,7 @@ Hexagon exports themselves.
 
 ## Primitive types use familiar TypeScript faces
 
-The seven primitive types cross directly:
+The seven types with JavaScript primitive representations cross directly:
 
 | Hexagon | TypeScript |
 | --- | --- |
@@ -53,6 +53,9 @@ The seven primitive types cross directly:
 | `String` | `string` |
 | `Unit` value | `undefined` |
 | `Unit` function result | `void` |
+
+Dec, also introduced in Primitive Types, instead uses the ordinary opaque-record
+TypeScript face. It is not represented as a TypeScript `number` or `bigint`.
 
 `Int` and `Float` intentionally share the `number` representation. TypeScript cannot
 recover their different arithmetic rules from that representation, so a declaration

@@ -74,7 +74,7 @@ honor Num<Rat> =
         create(left.top * right.top, left.bottom * right.bottom)
     (** The natural number `value` as a `Rat` — `value` over `1`. Total and
         exact. *)
-    fromNat(value) = create(value, 1)
+    fromNat(value) = FromBigInt.fromBigInt(BigInt.fromNat(value))
 
 honor Signed<Rat> =
     (** The difference of `left` and `right`, exactly. *)
@@ -86,7 +86,11 @@ honor Signed<Rat> =
     (** The additive inverse of `value`. *)
     negate(value) = Rat({top = -value.top, bottom = value.bottom})
     (** The integer `value` as a `Rat` — `value` over `1`. Total and exact. *)
-    fromInt(value) = create(value, 1)
+    fromInt(value) = FromBigInt.fromBigInt(BigInt.fromInt(value))
+
+honor FromBigInt<Rat> =
+    (** The integer `value` as a rational over one. *)
+    fromBigInt(value) = create(value, 1n)
 
 honor Frac<Rat> =
     (** The quotient of `left` and `right`, exactly. Throws `DivideByZeroError`
@@ -127,6 +131,41 @@ honor Real<Rat> =
             Sign.Negative
         else
             Sign.Positive
+
+(** The exact numerical value of `decimal` as a reduced rational. Retained
+    decimal places are presentation and do not survive this conversion. *)
+export let fromDec(decimal: Dec): Rat =
+    if decimal.value() == 0 then
+        create(0n, 1n)
+    else
+        create(decimal.value(), 10n ** Int.fromNat(decimal.decimalPlaces()))
+
+let roundedDecimal(value: Rat, decimalPlaces: Nat, even: Bool): Dec =
+    if value.top == 0 then
+        Dec.create(0n, decimalPlaces)
+    else
+        let numerator = value.top * (10n ** Int.fromNat(decimalPlaces))
+        let magnitude = numerator.abs()
+        let quotient = magnitude.quot(value.bottom)
+        let twiceRemainder = magnitude.rem(value.bottom) * 2
+        let rounded =
+            if twiceRemainder > value.bottom then
+                quotient + 1
+            else if twiceRemainder < value.bottom then
+                quotient
+            else if even and quotient.rem(2) == 0 then
+                quotient
+            else
+                quotient + 1
+        Dec.create(if numerator < 0 then -rounded else rounded, decimalPlaces)
+
+(** `value` rounded once to exactly `decimalPlaces`, ties away from zero. *)
+export let toDec(value: Rat, decimalPlaces: Nat): Dec =
+    roundedDecimal(value, decimalPlaces, False)
+
+(** `value` rounded once to exactly `decimalPlaces`, ties to even. *)
+export let toDecEven(value: Rat, decimalPlaces: Nat): Dec =
+    roundedDecimal(value, decimalPlaces, True)
 
 // -- `toFloat`, and the exact integer arithmetic the single rounding needs. --
 //

@@ -48,17 +48,19 @@ Drafting order is not final reading order.
   JavaScript-specific fact behind it (zero-cost representation at the boundary, n-ary
   parameter passing, literal emission into JavaScript source). Phrases of the form
   "what a TypeScript author would hand-write" are retired as justifications.
-- **The book's "primitive types" are defined by JavaScript representation** (#158,
-  ruled 2026-07-30; the ruling is issue #158's comment 5127946331). In the book,
-  *primitive types* means Hexagon types whose values compile to JavaScript primitive
-  values: `Nat`, `Int`, `Float`, `Bool`, `String`, `BigInt`, `Unit`. The definition
-  appears at first use in Primitive Types, and the book never uses "primitive" in the
-  spec's type-system sense — where the classification difference matters, a chapter
-  points at the owning chapter instead of asserting it in its own voice (`Bool` →
-  Unions, `Unit` → Tuples). `Exn` is out: an `Error` object is not a JS primitive, and
-  Exceptions owns it. This deliberately diverges from `spec/primitive-types.md`, whose
-  term of art now covers five types (#147, #159); the divergence is recorded here,
-  once, and nowhere else.
+- **Primitive Types introduces fundamental prelude values.** The Dec design
+  (20 September 2026, `spec/dec.md`) extends the chapter's earlier representation-based
+  scope: `Nat`, `Int`, `Float`, `Dec`, `Bool`, `String`, `BigInt`, and `Unit`.
+  Most have JavaScript primitive representations; Dec is an opaque nominal record
+  carrying an exact BigInt coefficient and retained decimal places. This teaching
+  scope does not expand compiler primitive classification or the fixed JavaScript
+  specialization-wrapper set. `Bool` remains a prelude union and `Unit` the empty
+  tuple. Exceptions owns `Exn`.
+- **Dec equality is numerical; display retains places.** The `d` suffix selects
+  Dec directly; unsuffixed point/exponent forms select Float. Addition retains the
+  larger place count, multiplication adds counts, and explicit rounded operations
+  retain the requested count. There is no Dec `/` operator or Float-to-Dec
+  conversion. Ordinary inspection uses `show`; `value` returns the unscaled BigInt.
 - The specification is normative; the book is explanatory.
 - For planning and drafting, assume the specification is complete. If it changes,
   update affected book material at that time.
@@ -156,12 +158,12 @@ late pedagogy pass, not a commitment to the current order.
   `Unit`.
 - Lightly previews conditions, comparisons, numeric constraints, interpolation through
   `Show`, conversion, string indexing, and companion-module operations.
-- Establishes the seven primitive types under the book's boundary definition (#158),
-  their literal distinctions, and their native JavaScript/TypeScript faces for use
-  throughout the book. `Bool` and `Unit` hold their rows by representation, each with
-  a classification pointer: `Bool` is the prelude union met properly in Unions and
-  introduced here only as far as conditions require; `Unit` is the empty tuple, met
-  properly in Tuples.
+- Establishes eight fundamental prelude types and their literal distinctions.
+  Seven use native JavaScript primitive representations; Dec uses an opaque record
+  for an exact coefficient and retained decimal places. Dec arithmetic, numerical
+  equality, display, and explicit rounding supply the decimal model used later.
+  `Bool` is the prelude union met properly in Unions and introduced here as far as
+  conditions require; `Unit` is the empty tuple, met properly in Tuples.
 - Prepares operator semantics, type inference, constraints, FFI, and collections.
 
 ### Functions
@@ -535,8 +537,8 @@ late pedagogy pass, not a commitment to the current order.
   `Bool` → `boolean` (by the Unions representation pin), `String` → `string`,
   `BigInt` → `bigint`, and `Unit` → `undefined` (`void` in TS return position; the
   empty tuple, #159).
-- Bare integer literals normally default to `Int`; decimal-point and exponent literals
-  are `Float`; the `n` suffix selects `BigInt`.
+- Bare integer literals normally default to `Int`; unsuffixed decimal-point and
+  exponent literals are `Float`; `n` selects `BigInt` and `d` selects `Dec`.
 - `Int` is exact only in JavaScript's safe-integer range and direct arithmetic may
   silently round beyond it.
 - `Bool` has no truthiness conversion.

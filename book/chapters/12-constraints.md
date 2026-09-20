@@ -239,12 +239,34 @@ constraint Frac<a: Signed> =
     divide(left: a, right: a) -> a
 ```
 
-Nat honors Num but not Signed. Int, Float, BigInt, and Rat honor both. A function that
+Nat honors Num but not Signed. Int, Float, BigInt, Rat, and Dec honor both. A function that
 only adds or multiplies is consequently as general as it honestly can be, while a
 Signed dictionary carries its Num dictionary in one parent slot rather than requiring
 two independent dictionary parameters. Float and Rat additionally honor Frac: Float
 division follows IEEE 754, while Rat division is exact. Int and BigInt keep their named
-division families because their quotient conventions need to remain explicit.
+division families because their quotient conventions need to remain explicit. Dec
+also omits Frac: its division requires a requested decimal-place count.
+
+`FromBigInt` adds a different promise: the type can represent every integer
+exactly, subject to available resources.
+
+```hexagon
+constraint FromBigInt<a: Signed> =
+    fromBigInt(value: BigInt) -> a
+```
+
+BigInt, Rat, and Dec honor it; Int and Float do not. An independently established
+destination with this capability can receive BigInt values automatically:
+
+```hexagon
+let scale<a: FromBigInt>(count: BigInt, value: a): a = count * value
+```
+
+The bound supplies both exact integer conversion and Signed's arithmetic. A
+Signed bound alone would not suffice: it only promises conversion from Int.
+Rat and Dec delegate their Nat and Int conversion entries through BigInt to each
+type's exact constructor. Declaring an ordinary function named `fromBigInt` does not opt a
+type into automatic conversion; the constraint instance carries that promise.
 
 `Ordering` is the union:
 
@@ -290,6 +312,7 @@ The important organizing ideas are more useful than a catalogue of member functi
 | `Ord` | total ordering, with `Eq` |
 | `Show` | human-readable display |
 | `Num`, `Signed`, `Frac`, `Integral` | numeric operations at different levels |
+| `FromBigInt` | exact construction from arbitrary integers, with `Signed` |
 | `Concat`, `Pow` | concatenation and exponentiation |
 | `Hash` | hashing consistent with equality for hashed collections |
 | `Iterable` | producing values for iteration |

@@ -454,12 +454,14 @@ function visitExpr(expression: Core.Expr, visit: (expression: Core.Expr) => void
       return visitExpr(expression.value, visit);
     case "WidenNat":
     case "WidenInt":
+    case "WidenBigInt":
       return visitExpr(expression.value, visit);
     // Leaves: no subexpression to reach.
     case "Name":
     case "Unit":
     case "Number":
     case "BigInt":
+    case "Dec":
     case "Float":
     case "CollectionOperation":
     case "ConvertNat":

@@ -49,7 +49,8 @@ apart.
 If both values are `Float`, this is IEEE 754 division and follows the same infinity and
 `NaN` behavior as JavaScript. Rat division is exact and throws `DivideByZeroError` for
 a zero divisor. `Int` and `BigInt` deliberately do not support `/`: whole-number
-division must say which rounding and remainder convention it intends.
+division must say which rounding and remainder convention it intends. Dec also has
+no `/` operator: use `divideTo` or `divideToEven` with the required decimal places.
 
 Exponentiation uses `**`, not `^`, and associates to the right:
 
@@ -62,7 +63,8 @@ multiplication, and its inverse where the type has reciprocals — so it is exac
 wherever the type is, and the whole right-hand spine of a tower runs at `Int`
 whatever the base is. Negative exponents are meaningful for `Float` and `Rat`;
 at `Nat`, `Int`, and `BigInt` they throw `NegativeExponentError`, because the
-fractional result cannot inhabit the type.
+fractional result cannot inhabit the type. Dec also rejects every negative exponent,
+including a reciprocal that could be written as a finite decimal.
 
 The other power — the analyst's `exp(y · ln x)`, with a fractional exponent — is
 a named function rather than an operator, because it belongs only where

@@ -39,7 +39,7 @@ describe("the declaration lands, and the twin is refused", () => {
    * declaration, so banning the redeclaration would not have refused a twin —
    * it would have deleted the only spelling the feature had. With
    * `stdlib/Iterable.hex` a prelude member, the ban is the ordinary one all
-   * eleven names now carry (Constraints §5.1.1).
+   * thirteen names now carry (Constraints §5.1.1).
    */
   test("a source `constraint Iterable` is refused like every other pre-registered name", () => {
     expect(projectDiagnostics("module Main\n\n" + "constraint Iterable<c> =\n" +
