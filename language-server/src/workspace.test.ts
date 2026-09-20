@@ -8,9 +8,9 @@
  * only exercises the protocol.
  */
 
-import { chmod, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, describe, expect, test } from "vitest";
 import { MANIFEST_NAME, normalizePath, settledPathSync } from "../../host/src/index.js";
 import { removeTemporaryRoots, temporaryRoot } from "../../host/src/test-roots.js";
@@ -24,6 +24,7 @@ let root = "";
  * say what they are measuring from rather than carrying its length as a digit.
  */
 const HEADER = "module Main\n\n";
+const REPOSITORY = fileURLToPath(new URL("../..", import.meta.url));
 
 async function makeRoot(): Promise<string> {
   root = await temporaryRoot("hexagon-workspace-");
@@ -45,6 +46,87 @@ async function scan(path: string): Promise<{ added: number; workspace: Workspace
 }
 
 describe("the workspace walk", () => {
+  test("grants only an explicitly listed canonical standard-library project", async () => {
+    const trusted = await makeRoot();
+    await cp(join(REPOSITORY, "stdlib"), join(trusted, "stdlib"), { recursive: true });
+    await writeFile(join(trusted, "hexagon.json"), JSON.stringify({ dependencies: ["Acme"] }));
+    const dependency = join(trusted, "node_modules", "acme");
+    await mkdir(dependency, { recursive: true });
+    await writeFile(join(dependency, "hexagon.json"), JSON.stringify({ name: "Acme" }));
+    await writeFile(join(dependency, "base.hex"), "module Base\n\nexport let value: Int = 1\n");
+    const linkHome = await temporaryRoot("hexagon-workspace-link-");
+    const linked = join(linkHome, "trusted-link");
+    await symlink(trusted, linked, "dir");
+
+    const ordinary = await temporaryRoot("hexagon-workspace-ordinary-");
+    await writeFile(
+      join(ordinary, "VectorTrie.hex"),
+      "module Runtime.VectorTrie\n\nlet size(node: Node(Int)): Int = 0\n",
+    );
+
+    const workspace = new Workspace({ trustedStandardLibraryProjects: [trusted] });
+    const errors: string[] = [];
+    await workspace.setRoots([linked, ordinary], (message) => errors.push(message));
+    expect(errors).toEqual([]);
+    expect(workspace.programs).toHaveLength(2);
+
+    const trustedProgram = workspace.programs.find(({ directory }) =>
+      directory === settledPathSync(trusted)
+    );
+    const ordinaryProgram = workspace.programs.find(({ directory }) =>
+      directory === settledPathSync(ordinary)
+    );
+    expect(trustedProgram).toBeDefined();
+    expect(ordinaryProgram).toBeDefined();
+    expect([...trustedProgram!.session.allDiagnostics().values()].flat()).toEqual([]);
+    expect([...ordinaryProgram!.session.allDiagnostics().values()].flat().map(({ message }) => message))
+      .toEqual(["unknown generic type `Node`"]);
+
+    // Adding a dependency source takes `#reconfigure`, which must replay the
+    // whole option set including the trust grant rather than dropping it.
+    const addedDependency = join(dependency, "added.hex");
+    await writeFile(addedDependency, "module Added\n\nexport let value: Int = 2\n");
+    await workspace.openDocument({
+      uri: workspace.uris.toUri(addedDependency),
+      getText: () => "module Added\n\nexport let value: Int = 2\n",
+    } as never);
+    expect([...trustedProgram!.session.allDiagnostics().values()].flat()).toEqual([]);
+
+    // Rediscovery rebuilds each program and its complete SessionOptions. The
+    // explicit authority must survive that lifecycle rather than applying only
+    // to the first session configuration.
+    await workspace.setRoots([linked, ordinary], (message) => errors.push(message));
+    expect(errors).toEqual([]);
+    const rediscovered = workspace.programs.find(({ directory }) =>
+      directory === settledPathSync(trusted)
+    );
+    expect([...rediscovered!.session.allDiagnostics().values()].flat()).toEqual([]);
+  });
+
+  test("invalid project grants cannot become relative-to-cwd authority", async () => {
+    const path = await makeRoot();
+    await writeFile(
+      join(path, "VectorTrie.hex"),
+      "module Runtime.VectorTrie\n\nlet size(node: Node(Int)): Int = 0\n",
+    );
+    const file = join(path, "not-a-directory");
+    await writeFile(file, "not a directory\n");
+    const workspace = new Workspace({
+      trustedStandardLibraryProjects: [".", join(path, "missing"), file],
+    });
+    await workspace.setRoots([path], () => {});
+    expect([...workspace.session.allDiagnostics().values()].flat().map(({ message }) => message))
+      .toEqual(["unknown generic type `Node`"]);
+  });
+
+  test("the explicitly trusted Hexagon checkout has no standard-library source diagnostics", async () => {
+    const workspace = new Workspace({ trustedStandardLibraryProjects: [REPOSITORY] });
+    const errors: string[] = [];
+    await workspace.setRoots([REPOSITORY], (message) => errors.push(message));
+    expect(errors).toEqual([]);
+    expect([...workspace.session.allDiagnostics().values()].flat()).toEqual([]);
+  });
+
   test("finds Hexagon files and ignores everything else", async () => {
     const path = await makeRoot();
     await writeFile(join(path, "main.hex"), "module Main\n\n" + "let value: Int = 1\n");

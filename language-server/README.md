@@ -501,11 +501,25 @@ A fourth field, **`runtimePaths`**, stood here until #829: the modules compiled
 with runtime privilege, the ones allowed to name `Node(a)`, the hidden fixed-32
 trie node — without which opening this repository greeted a user with 38 errors
 reading ``unknown generic type `Node` ``, none of them real. The standard
-library is now the package `Hex` in full and the two runtime modules are members
-of it (`stdlib/Runtime/VectorTrie.hex` declaring `module Runtime.VectorTrie`),
-so the privilege follows the name the header declares — under every spelling a
-file can be reached by, which is what the grant could never manage — and no host
-grants it. A manifest still carrying the key draws the unknown-key report.
+library is now the package `Hex` in full and the runtime modules are registered
+members of it (`stdlib/Runtime/VectorTrie.hex` declaring `module Runtime.VectorTrie`).
+Privilege follows compiler-established source provenance, not a module's name,
+filename, or directory. Ordinary projects use the compiler's embedded sources;
+a same-named project module does not gain their authority. A manifest still
+carrying `runtimePaths` draws the unknown-key report.
+
+Developing the standard library itself requires an explicit editor-host grant.
+VS Code supplies it through the user-only
+`hexagon.languageServer.trustedStandardLibraryProjects` setting, a default-empty
+list of absolute project roots. Only an exact canonical root match receives the
+compiler's registered replacement inventory; nested and neighbouring projects
+remain ordinary, and opening the same root through a symlink preserves the grant.
+Editor hosts pass this list in `initializationOptions.trustedStandardLibraryProjects`
+as absolute filesystem paths, not file URIs. Relative paths, missing directories,
+and malformed entries do not grant authority.
+The compiler checks missing, ambiguous, or mismatched replacements rather than
+guessing. Workspace settings and manifests cannot enable the grant. Project
+rediscovery and session reconfiguration preserve the host's explicit choice.
 
 A missing manifest is the ordinary case and is silent. A *malformed* one is
 reported as a diagnostic against `hexagon.json` itself, including an unknown key

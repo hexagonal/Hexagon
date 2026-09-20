@@ -80,7 +80,7 @@ const DIAGNOSTIC_DELAY_MS = 150;
 
 export function startServer(connection: Connection): void {
   const documents = new TextDocuments(TextDocument);
-  const workspace = new Workspace();
+  let workspace = new Workspace();
   /** URIs currently showing diagnostics, so they can be cleared when they stop. */
   const published = new Set<string>();
   let publishTimer: ReturnType<typeof setTimeout> | undefined;
@@ -113,6 +113,11 @@ export function startServer(connection: Connection): void {
   const reportError = (message: string): void => connection.console.error(`[hexagon] ${message}`);
 
   connection.onInitialize(async (params: InitializeParams): Promise<InitializeResult> => {
+    workspace = new Workspace({
+      trustedStandardLibraryProjects: trustedStandardLibraryProjectsOf(
+        params.initializationOptions,
+      ),
+    });
     roots = rootPathsOf(params);
     const { added } = await workspace.setRoots(roots, reportError);
     log(
@@ -395,6 +400,20 @@ export function startServer(connection: Connection): void {
       publishDiagnostics(connection, workspace, published, sourceDocuments());
     }, DIAGNOSTIC_DELAY_MS);
   }
+}
+
+/**
+ * The editor may explicitly authorize project roots for standard-library
+ * development. Module identities stay server-owned; a client can name roots,
+ * never privileges or registered members.
+ */
+function trustedStandardLibraryProjectsOf(options: unknown): readonly string[] {
+  if (typeof options !== "object" || options === null) return [];
+  const projects = (options as { trustedStandardLibraryProjects?: unknown })
+    .trustedStandardLibraryProjects;
+  return Array.isArray(projects)
+    ? projects.filter((project): project is string => typeof project === "string")
+    : [];
 }
 
 /**

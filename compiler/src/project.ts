@@ -222,6 +222,19 @@ export interface ProjectOptions {
   readonly firstFileId?: number;
 }
 
+/**
+ * Every registered member of the compiler's embedded standard library.
+ *
+ * A host compiling the standard library's own sources uses these identities
+ * for `trustedStandardLibraryModules`; keeping the inventory here means a host
+ * can grant the registered set without maintaining a second list that drifts.
+ */
+export const STANDARD_LIBRARY_MODULE_NAMES: readonly string[] = Object.freeze([
+  ...PRELUDE_MODULES,
+  ...RUNTIME_MODULES,
+  ...LIBRARY_MODULES,
+].map(({ name }) => name));
+
 /** One package of the closure, as a host hands it in. */
 export interface ProjectPackage {
   readonly record: ProgramPackage;
