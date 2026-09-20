@@ -1,5 +1,6 @@
 import { helloWorld, type PlaygroundExample } from "./hello-world";
 import { constraints } from "./constraints";
+import { decimals } from "./decimals";
 import { exceptions } from "./exceptions";
 import { internationalIdentifiers } from "./international-identifiers";
 import { modules } from "./modules";
@@ -23,6 +24,7 @@ export const playgroundExamples: readonly PlaygroundExample[] = [
   constraints,
   polymorphism,
   temperatures,
+  decimals,
   rat,
   vectors,
   sequences,
