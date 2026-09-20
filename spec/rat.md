@@ -15,7 +15,7 @@ tests.
 `BigInt`s. Construction always reduces the fraction and keeps the bottom
 positive, so equality and hashing can use the canonical pair directly.
 
-Decimal literals remain `Float`; v1 does not infer `Rat` from `0.5`. Exactness is
+Unsuffixed decimal literals remain `Float`; v1 does not infer `Rat` from `0.5`. Exactness is
 requested visibly through `Rat.create(1, 2)` or an operation returning `Rat`.
 
 ## 2. Representation and invariant
@@ -78,7 +78,9 @@ the provenance-tagged message `Rat.divide: divisor is zero`. `reciprocal(0)`
 throws the same exception through the smart construction boundary. Addition and
 multiplication never round. `Num<Rat>` owns those operations and defines
 `fromNat(n)` as `n / 1`; `Signed<Rat>` adds subtraction, negation, and
-`fromInt(n)` as `n / 1`; `Frac<Rat>` owns exact division. Unlike `Frac<Float>`,
+`fromInt(n)` as `n / 1`. `FromBigInt<Rat>` supplies `fromBigInt(n)` as
+`Rat.create(n, 1)`; the Nat/Int entries delegate to it through
+`BigInt.fromNat` / `BigInt.fromInt`. `Frac<Rat>` owns exact division. Unlike `Frac<Float>`,
 it never rounds and has no IEEE infinity or `NaN` result: a zero divisor throws
 `DivideByZeroError`.
 
@@ -111,6 +113,8 @@ the `BigInt.pow` door; nothing converts to `Float`, even internally.
   fractional exponent is a type error at the seat, never a runtime throw.
 - `Real<Rat>` provides exact same-type absolute value and `Sign` classification
   by comparison with zero (Constraints §7); neither operation converts to `Float`.
+- `FromBigInt<Rat>` accepts arbitrary integers exactly; its ordinary evidence
+  permits contextual BigInt-source widening under Numeric Literals §5.1.
 - `Integral<Rat>` is not provided: a rational is not an integer.
 
 ## 6. Surface
@@ -119,6 +123,9 @@ The minimum v1 companion inventory is:
 
 ```hexagon
 Rat.create
+Rat.fromNat
+Rat.fromInt
+Rat.fromBigInt
 Rat.top
 Rat.bottom
 rat            -- the pattern (§3): (n, d)rat under import Rat; a pattern, not an operation, so never r.rat
@@ -213,3 +220,17 @@ Rat.toFloat(Rat.create(1, 2 ** 1100))         -- FloatRangeError (nonzero would 
 
 The compiler conformance suite must execute the emitted JavaScript for normalization
 and arithmetic; checking inferred types or snapshots alone is insufficient.
+
+## 10. Dec conversions (implemented locally)
+
+Rat owns all conversions between the two types; validation status is recorded in `dec.md`:
+
+```text
+Rat.fromDec(value: Dec): Rat
+Rat.toDec(value: Rat, decimalPlaces: Nat): Dec
+Rat.toDecEven(value: Rat, decimalPlaces: Nat): Dec
+```
+
+`dec.md` §4 owns their exact conversion and rounding contracts. Rat can use
+prelude Dec's public constructor and accessors; Dec does not depend on Rat.
+These are not claims of currently shipped exports. Rat remains an imported module.

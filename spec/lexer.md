@@ -349,6 +349,7 @@ Exponent = ("e" | "E") ("+" | "-")? Digits
 
 Integer  = Digits
 BigInt   = Digits "n"
+Dec      = Digits ("." Digits)? "d"
 Float    = Digits "." Digits Exponent?
          | Digits Exponent
 ```
@@ -356,12 +357,16 @@ Float    = Digits "." Digits Exponent?
 Consequences:
 
 - Decimal is the only base in v1. `0x`, `0o`, and `0b` forms are errors.
-- A decimal point belongs to a Float only when a digit follows it, and then requires
+- A decimal point belongs to a Float or Dec literal only when a digit follows it, and then requires
   digits on both sides. Write `1.0`, not a standalone `1.`, and `0.5`, not `.5`.
   The postfix form `1.show()` remains an Integer followed by `.` and a name.
 - `_` must have an ASCII digit on both sides. It cannot touch `.`, `e`/`E`, a sign,
-  or the `n` suffix. Group size is not regulated.
+  or the `n` or `d` suffix. Group size is not regulated.
 - `n` is lowercase and belongs only to `BigInt`. `1N` is invalid.
+- `d` is lowercase and belongs only to Dec. `5D`, `.5d`, and `5.d` are not Dec
+  literals; write `5d`, `0.5d`, and `5.0d` respectively. Exponents are forbidden
+  on Dec literals: diagnose `5e2d` or `5.00e2d` as a malformed numeric literal,
+  not an accepted Float followed by a separate identifier.
 - A leading sign is never part of the physical token. `-3` is `-` followed by an
   integer token; the parser forms a negative literal pattern in pattern position.
 - Leading zeroes are legal and decimal: `00`, `01`, and `00.5` have no octal meaning.
@@ -376,6 +381,13 @@ members also receive the range error without a repair: their grammar admits neit
 BigInt nor conversions (Foreign Enums §2.4). Recovery never turns an invalid integer
 into a rounded valid value. A BigInt payload is arbitrary precision and remains a decimal
 string until a later phase deliberately chooses another representation.
+
+A Dec token retains its separator-free digits and fractional-digit count exactly.
+It has an arbitrary-precision coefficient, never a parsed Float or a safe-Int
+payload. Removing the point gives the coefficient and counting digits after the
+point gives decimal places; underscores do not count. `5d.show()` retains the
+ordinary literal-then-postfix token boundary. Canonical type identity, lowering,
+and retained display are specified in `dec.md`; implementation is pending.
 
 A Float token stores both its source spelling and the correctly-rounded IEEE-754
 binary64 value. Conversion overflow is a lexical error directing the user to
@@ -557,7 +569,7 @@ The physical lexer returns a `Lexed.File` containing:
 The code-token kinds are exactly:
 
 1. `NonUpperName`, `UpperName`, and the hard-keyword kinds from §4.1;
-2. `Integer`, `BigInt`, `Float`, and composite `String`;
+2. `Integer`, `BigInt`, `Float`, `Dec`, and composite `String`;
 3. every punctuation/operator/wildcard kind from §8.1; and
 4. `Eof`.
 
@@ -586,6 +598,8 @@ token inventory and the lexer must not report the same source code unit twice.
 | `true`/`false` in value position | "`true` is reserved; Bool's constructors are `True` and `False` — write `True`" (resp. `False`); one-token fixit *(#147, §4.1; selection is parser work, same note as above)* |
 | Malformed `_` in a number | "`_` in a number must have a digit on both sides" |
 | `.5` / `1.` | suggest `0.5` / `1.0` |
+| `.5d` / `5.d` intended as a Dec literal | one diagnostic for the malformed joined form; suggest `0.5d` / `5.0d`, preserving the suffix |
+| Exponent notation with `d` (`5e2d`, `5.00e2d`) | one diagnostic: Dec literals do not allow exponent notation; do not accept a Float plus identifier |
 | Non-decimal base prefix | "Hexagon v1 has decimal literals only" |
 | Bare integer over safe range | Numeric Literals message + `n` fix-it in expressions; in patterns retain recovery syntax and select the repair by the position's type (Pattern Matching §2.5); literal extern enum members get the range error without a repair (Foreign Enums §2.4) |
 | Float overflow | "Float literal is too large; use `Float.infinity`" |
