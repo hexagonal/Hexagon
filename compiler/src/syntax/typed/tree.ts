@@ -1259,6 +1259,10 @@ export interface IndexExpr extends ExpressionFields {
     | "StringElement"
     | "StringSlice"
     | "MapElement"
+    // FFI Part 10 §4's bracket on a captured `JsMap`, separate from
+    // `MapElement` because it carries no `Hash` requirement (§4.3) and lowers
+    // to a native `has`/`get` pair rather than to the trie (§4.2).
+    | "JsMapElement"
     | "ArrayElement";
   readonly requirements?: readonly Constraint[];
 }

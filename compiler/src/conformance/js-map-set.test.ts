@@ -34,8 +34,9 @@ import { typeScriptErrors } from "../support/typescript-check.js";
  * this file. Every pin below executes against genuine native values for the
  * reason the iteration pins do: the claims are about the *foreign* object's
  * equality, its `size`, its constructor and its throws, none of which a reading
- * of emitted text is evidence about. What is still absent is still absent —
- * the `jsMap[key]` bracket (#793), the `jsSet[x]` refusal (#794), and the four
+ * of emitted text is evidence about. The `jsMap[key]` bracket of §4 landed next
+ * (#793) and has a file of its own, `js-map-bracket.test.ts`; what is still
+ * absent is still absent — the `jsSet[x]` refusal (#794) and the four
  * conversions (#795, #796) — and FFI Part 2 §9.1's doctrine is absence until
  * implementable, never a stub.
  */

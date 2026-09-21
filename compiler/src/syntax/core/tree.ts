@@ -691,6 +691,10 @@ export interface IndexExpr extends ExpressionFields {
     | "StringElement"
     | "StringSlice"
     | "MapElement"
+    // FFI Part 10 §4's bracket on a captured `JsMap`. It never carries
+    // `hashEvidence`: the lookup is the native collection's SameValueZero, and
+    // no `Hash` obligation exists to discharge (§4.3).
+    | "JsMapElement"
     | "ArrayElement";
   readonly hashEvidence?: Evidence;
 }
