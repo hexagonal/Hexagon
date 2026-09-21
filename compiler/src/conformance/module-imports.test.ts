@@ -686,6 +686,12 @@ describe("§13 (n) — the refused heads, each with its rewrite", () => {
     );
   });
 
+  // Six heads, so six whole compiles, prelude included: the same shape as the
+  // path-form test above, and the same budget from the same constant. What a
+  // compile costs here swings with how warm the worker is — this test was
+  // measured between 2.5s and over 12s on one machine, and the path-form
+  // neighbour between 3.0s and 11.4s — so the 5s default is not a budget
+  // either of them can be held to. It is the run that starts cold that fails.
   test("the miscased head's rewrite is the applied edit, both seats at once", () => {
     for (
       const [written, repaired] of [
@@ -700,7 +706,7 @@ describe("§13 (n) — the refused heads, each with its rewrite", () => {
     ) {
       expect(soleFixApplied(written)).toBe(repaired);
     }
-  });
+  }, PIPELINE_TIMEOUT);
 
   test("a refused miscased head binds no alias, and one below it collides with nothing", () => {
     // §5.2's neutral value: a refused head is not an import, so uses below it
