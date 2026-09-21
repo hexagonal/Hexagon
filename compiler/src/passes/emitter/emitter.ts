@@ -3041,13 +3041,36 @@ class JavaScriptEmitter {
    */
   readonly #declaredConstructors = new Set<Resolved.SymbolId>();
   readonly #exportedConstructors = new Set<Resolved.SymbolId>();
-  readonly #constrainedImports = new Map<Resolved.SymbolId, string>();
+  /**
+   * Every union and record constructor whose declaration this module can see —
+   * its own and the ones it reached through another module's signature, which
+   * is the same list the capture walk's nominal doors read.
+   *
+   * Read by `#capturesAcrossExport` alone, to tell the one kind of exported
+   * function whose result is not a boundary position from every other
+   * (§5.4 item 4). A constructor whose union this module never reached is
+   * absent, and answers the same way for a different reason: the walk cannot
+   * enter that union either, so its result names nothing captured here.
+   */
+  readonly #constructorSymbols = new Set<Resolved.SymbolId>();
+  /**
+   * The local each imported term whose exporter publishes an **internal
+   * edition** is reached by, rather than the published name.
+   *
+   * Two rules put a term here and the map keeps neither: a constrained export,
+   * whose published face is its specializations and whose trailing-evidence
+   * edition is Hexagon-to-Hexagon plumbing (Part 8); and a captured one, whose
+   * published name binds FFI Part 7 §7 occasion 4's stable export wrapper and
+   * whose edition beside it is the unwalked function (Part 1 §5.4). See the
+   * constructor for why the two are one fact here.
+   */
+  readonly #internalEditionImports = new Map<Resolved.SymbolId, string>();
   /**
    * The import item each imported constrained term arrived on, so a call site
    * that reaches for that term's fundamental edition (#440) knows which module
    * to import the edition from and which enumeration to check it against.
    */
-  readonly #constrainedImportItems = new Map<Resolved.SymbolId, Core.ImportItem>();
+  readonly #internalEditionImportItems = new Map<Resolved.SymbolId, Core.ImportItem>();
   readonly #exceptions = new Map<Resolved.SymbolId, Core.ExceptionItem>();
   readonly #constraints = new Map<string, Core.ConstraintItem>();
   readonly #nullaryExceptions = new Set<Resolved.SymbolId>();
@@ -3086,13 +3109,13 @@ class JavaScriptEmitter {
    */
   readonly #defaultHelperLocals = new Map<Resolved.SymbolId, string>();
   /**
-   * The local a namespace import binds an internal constrained export under.
-   * Namespace imports name no local of their own, and the same reason applies:
+   * The local a namespace import binds an internal edition under. Namespace
+   * imports name no local of their own, and the same reason applies:
    * `Loud.volume` and `Soft.volume` both arrive preferring `__volume`.
    */
-  readonly #namespaceConstrainedLocals = new Map<Resolved.SymbolId, string>();
-  /** Internal-export locals an emitted `import` line already bound. */
-  readonly #boundConstrainedImports = new Set<string>();
+  readonly #namespaceInternalEditionLocals = new Map<Resolved.SymbolId, string>();
+  /** Internal-edition locals an emitted `import` line already bound. */
+  readonly #boundInternalEditionImports = new Set<string>();
   /**
    * The emitted local of every namespace alias this module's own bindings
    * contest, by its source spelling; see `namespaceAliasPlan`. Empty for a
@@ -3396,6 +3419,14 @@ class JavaScriptEmitter {
       recordFields: (type) => this.#capturedRecordFields(type),
       unionArms: (type) => this.#capturedUnionArms(type),
     });
+    for (const union of module.unions) {
+      for (const constructor of union.constructors) {
+        this.#constructorSymbols.add(constructor.symbol);
+      }
+    }
+    for (const record of module.records) {
+      this.#constructorSymbols.add(record.constructor.symbol);
+    }
     this.#exportInstanceEvidence = options.exportInstanceEvidence ?? false;
     this.#runtimes = options.runtimes ?? new Map();
     this.#runtimeVocabulary = runtimeVocabularyTrigger(module);
@@ -3566,15 +3597,39 @@ class JavaScriptEmitter {
       for (const name of item.form.names) {
         if (name.symbol === undefined) continue;
         const symbol = this.#symbols.get(name.symbol);
-        if ((symbol?.scheme.constraints.length ?? 0) > 0) {
-          this.#constrainedImports.set(
-            name.symbol,
-            item.form.kind === "Namespace"
-              ? this.#namespaceConstrainedLocal(name.symbol, name.imported)
-              : this.#importedLocal(name.symbol, name.local, mintedImportName(item, name)),
-          );
-          this.#constrainedImportItems.set(name.symbol, item);
+        // The two reasons another module's export has an internal edition this
+        // one binds instead of the published name.
+        //
+        // A **constrained** export's face is its specializations, and the
+        // trailing-evidence edition is Hexagon-to-Hexagon plumbing (Part 8).
+        // A **captured** export's face is Part 7 §7 occasion 4's stable export
+        // wrapper, and the edition beside it is the unwalked function: "a
+        // cross-module Hexagon call is an ordinary Hexagon-to-Hexagon call and
+        // never copies" (Part 1 §5.4). Both arrive here as one fact — this
+        // module reaches that module's `__` spelling — because everything
+        // downstream of this map is about the spelling and not about why.
+        //
+        // Occasion 1 is deliberately **not** a reason. A `Seq` parameter's
+        // door is the identity pass-through for a Hexagon caller, so the
+        // published wrapper is semantically invisible to importers and moving
+        // them off it would buy one recognition check at the cost of a second
+        // linkage rule (§7 occasion 1).
+        const scheme = symbol?.scheme;
+        if (scheme === undefined) continue;
+        const constrained = scheme.constraints.length > 0;
+        if (!constrained && !this.#capturesAcrossExport(name.symbol, scheme.type)) {
+          continue;
         }
+        this.#internalEditionImports.set(
+          name.symbol,
+          item.form.kind === "Namespace"
+            ? this.#namespaceInternalEditionLocal(name.symbol, name.imported)
+            : this.#importedLocal(name.symbol, name.local, mintedImportName(item, name)),
+        );
+        // Editions are Part 8's, and only a constrained term has any: this map
+        // answers "which module do I import the edition from", so a captured
+        // unconstrained import has no business in it.
+        if (constrained) this.#internalEditionImportItems.set(name.symbol, item);
       }
     }
     for (const item of module.items) {
@@ -3639,8 +3694,9 @@ class JavaScriptEmitter {
     //
     // Reordering is safe because the two directions are not symmetric. A body
     // never reads anything import rendering writes: the local every imported
-    // name is spelled by is seated in construction (`#constrainedImports`,
-    // `#importLocals`, `#namespaceConstrainedLocals`), not here, and the rest of
+    // name is spelled by is seated in construction
+    // (`#internalEditionImports`, `#importLocals`,
+    // `#namespaceInternalEditionLocals`), not here, and the rest of
     // what this arm writes — the held-back synthesized and constraint items, the
     // bound-once dictionary and constrained-local sets — is read only by the
     // deferred channels and by itself.
@@ -3973,21 +4029,23 @@ class JavaScriptEmitter {
         // One binding per local, for the reason the instance list above gives:
         // two aliases over one module reach the same symbol, and two `import`
         // lines binding one identifier is a `SyntaxError` at load.
-        const constrained = item.form.names.flatMap(({ imported, symbol, constraintMember }) => {
-          if (symbol === undefined || !this.#constrainedImports.has(symbol)) return [];
+        const editions = item.form.names.flatMap(({ imported, symbol, constraintMember }) => {
+          if (symbol === undefined || !this.#internalEditionImports.has(symbol)) return [];
           if (constraintMember === true) return [];
-          const local = this.#constrainedImports.get(symbol)!;
-          if (this.#boundConstrainedImports.has(local)) return [];
-          this.#boundConstrainedImports.add(local);
+          const local = this.#internalEditionImports.get(symbol)!;
+          if (this.#boundInternalEditionImports.has(local)) return [];
+          this.#boundInternalEditionImports.add(local);
           const source = this.#importedInternalName(imported, item);
           return [source === local ? source : `${source} as ${local}`];
         });
         // A namespace alias can never reach an edition as `Math.plusInt` — the
         // editions are not on the exporter's Hexagon interface, so the resolver
         // binds no member for them — which is exactly why this form already has
-        // a second, named line for the internal constrained exports. The
-        // editions join that line rather than opening a third.
-        const bindings = [...constrained, ...this.#specializationBindings(item)];
+        // a second, named line for the internal editions — the constrained
+        // ones since #370, and since #945 the captured ones too, which a
+        // namespace alias could no more reach as `Rows.__hold`. The
+        // specializations join that line rather than opening a third.
+        const bindings = [...editions, ...this.#specializationBindings(item)];
         return [
           `${prefix}import * as ${this.#namespaceLocal(item.form.alias)} from ${specifier};`,
           ...(bindings.length === 0
@@ -4004,7 +4062,7 @@ class JavaScriptEmitter {
         // import also owes (§6.5).
         .filter(({ constraintMember }) => constraintMember !== true)
         .filter(({ typeOnly }) => typeOnly !== true).map(({ imported, local, symbol }) => {
-        const source = symbol !== undefined && this.#constrainedImports.has(symbol)
+        const source = symbol !== undefined && this.#internalEditionImports.has(symbol)
           ? this.#importedInternalName(imported, item)
           : imported;
         // The binding side takes rule 4's rename, matching what the references
@@ -4046,6 +4104,15 @@ class JavaScriptEmitter {
           declaration.binding.symbol,
           declaration.localName,
         );
+        // The row's declared type, which every export seat below reads: the
+        // wrapper conditions, and occasion 4's internal edition.
+        const declaredType: Typed.Type = declaration.kind === "ExternFun"
+          ? {
+            kind: "Function",
+            parameters: declaration.parameters.map(({ scheme }) => scheme.type),
+            result: declaration.result,
+          }
+          : declaration.type;
         lines.push(
           ...this.#docs.lines(declaration.span, prefix, [], declaration.exported),
         );
@@ -4072,6 +4139,12 @@ class JavaScriptEmitter {
               local === declaration.localName
                 ? `export { ${local} };`
                 : `export { ${local} as ${declaration.localName} };`,
+            );
+            this.#externInternalEdition(
+              declaration.binding.symbol,
+              declaration.localName,
+              local,
+              declaredType,
             );
           }
           continue;
@@ -4112,20 +4185,22 @@ class JavaScriptEmitter {
             // that drives `pull`, so it is not merely dishonest but broken if a
             // JavaScript caller hands it the `Iterable<a>` its published face
             // invites. `Seq.memoize` is the whole of today's inventory.
-            const exported = this.#boundaryExportName(
-              local,
-              declaration.kind === "ExternFun"
-                ? {
-                  kind: "Function",
-                  parameters: declaration.parameters.map(({ scheme }) => scheme.type),
-                  result: declaration.result,
-                }
-                : declaration.type,
-            );
+            // Occasion 4 applies here for the same reason occasion 1 does: the
+            // lowering is a Hexagon function with a published face, and a
+            // JavaScript caller handing it an array must not hand it one the
+            // module goes on to hold. `Array.length` and `Array.toVector` are
+            // today's inventory.
+            const exported = this.#boundaryExportName(local, declaredType);
             this.#exports.push(
               exported === declaration.localName
                 ? `export { ${exported} };`
                 : `export { ${exported} as ${declaration.localName} };`,
+            );
+            this.#externInternalEdition(
+              declaration.binding.symbol,
+              declaration.localName,
+              local,
+              declaredType,
             );
           }
           continue;
@@ -4221,6 +4296,12 @@ class JavaScriptEmitter {
             local === declaration.localName
               ? `export { ${local} };`
               : `export { ${local} as ${declaration.localName} };`,
+          );
+          this.#externInternalEdition(
+            declaration.binding.symbol,
+            declaration.localName,
+            local,
+            declaredType,
           );
         }
       }
@@ -4576,11 +4657,7 @@ class JavaScriptEmitter {
         // in the constructor, never off what rendering emitted.
         const name = this.#identifier(constructor.symbol, constructor.name);
         if (exportedHere) {
-          this.#exports.push(
-            name === constructor.name
-              ? `export { ${name} };`
-              : `export { ${name} as ${constructor.name} };`,
-          );
+          this.#recordConstructorExport(constructor.symbol, name, constructor.name);
         }
         // Constructor documentation rides the materialized constructor (§7.1).
         const doc = this.#docs.lines(constructor.span, prefix, [], item.exported);
@@ -4632,9 +4709,7 @@ class JavaScriptEmitter {
       const name = this.#identifier(item.constructor.symbol, item.constructor.name);
       const exportedHere = item.exported && !item.opaque && depth === 0;
       if (exportedHere) {
-        this.#exports.push(
-          name === item.name ? `export { ${name} };` : `export { ${name} as ${item.name} };`,
-        );
+        this.#recordConstructorExport(item.constructor.symbol, name, item.name);
       }
       // Products §5.4's **on-demand** materialisation, the union rule's other
       // half (#770). A record whose constructor is only ever applied directly
@@ -4883,6 +4958,85 @@ class JavaScriptEmitter {
         ? `export { ${exported} };`
         : `export { ${exported} as ${item.binding.name} };`,
     );
+    // Part 7 §7 occasion 4: "the public name binds the wrapper; the internal
+    // edition … is exported under that internal name, appearing in no `.d.ts`,
+    // and Hexagon importers bind it". The internal edition is the emitted
+    // function itself, unwalked — compiler linkage outside the published
+    // foreign contract (Part 1 §5.4), which is why the reserved `__` spelling
+    // carries it (Lexer §3.2) and why a JavaScript module importing it anyway
+    // is a boundary-contract violation rather than a supported route.
+    //
+    // The constrained branch above already publishes one, and for the same
+    // reason under a different name: its face is the specializations, and the
+    // trailing-evidence edition Hexagon importers bind takes no wrapper.
+    if (this.#capturesAcrossExport(item.binding.symbol, item.binding.scheme.type)) {
+      this.#exports.push(
+        `export { ${name} as ${this.#ownInternalName(item.binding.name)} };`,
+      );
+    }
+  }
+
+  /**
+   * The ESM export of one union or record **constructor**, which FFI Part 1
+   * §5.4 item 4 makes a function for occasion 4's purposes: "a union or record
+   * constructor whose payload names a captured collection walks it on entry".
+   *
+   * Everything about the shape is `#recordExport`'s, read one clause shorter —
+   * the payload is the walk's only position here, so the wrapper is built with
+   * `walkResult` off, and a nullary constructor is a shared constant whose type
+   * is not a function and never reaches a wrapper at all.
+   *
+   * The internal edition rides the **shared fallback** rather than a minted
+   * spelling: a constructor is uppercase-start, so `internalNamePlan` counts it
+   * on neither side — it "can contest none" — and both sides' fallback is the
+   * preferred `__<name>`, which is the same answer computed twice rather than
+   * two answers that could drift.
+   */
+  #recordConstructorExport(
+    symbol: Resolved.SymbolId,
+    local: string,
+    sourceName: string,
+  ): void {
+    const type = this.#symbols.get(symbol)?.scheme.type;
+    const exported = type === undefined
+      ? local
+      : this.#boundaryExportName(local, type, false);
+    this.#exports.push(
+      exported === sourceName
+        ? `export { ${exported} };`
+        : `export { ${exported} as ${sourceName} };`,
+    );
+    if (type !== undefined && this.#capturesAcrossExport(symbol, type)) {
+      this.#exports.push(`export { ${local} as ${this.#ownInternalName(sourceName)} };`);
+    }
+  }
+
+  /**
+   * Occasion 4's internal edition for an exported **extern** row, where the
+   * binding is not a `.hex` function and the rule still has to hold.
+   *
+   * An importer decides which edition to bind from the declared type alone
+   * (`#capturesAcrossExport`); it has no way to know, and no business knowing,
+   * which kind of declaration published the name. So every seat that exports a
+   * term answers the same question, and here the answer is a plain alias:
+   *
+   * - An **intrinsic** row is an ordinary binding of this module's output whose
+   *   body is the compiler's lowering (Intrinsics §8.3), so it is a `.hex`
+   *   function for every purpose of §7 — the public name binds the wrapper its
+   *   seat minted, and this alias is the unwalked lowering beside it.
+   * - A **foreign** row's local already *is* Part 4 §4.3's stable copying
+   *   wrapper, "every reference observes that one wrapper", so the two editions
+   *   coincide and the alias is what says so at the ESM surface rather than
+   *   leaving an importer to guess.
+   */
+  #externInternalEdition(
+    symbol: Resolved.SymbolId,
+    localName: string,
+    local: string,
+    type: Typed.Type,
+  ): void {
+    if (!this.#capturesAcrossExport(symbol, type)) return;
+    this.#exports.push(`export { ${local} as ${this.#ownInternalName(localName)} };`);
   }
 
   /**
@@ -4904,22 +5058,49 @@ class JavaScriptEmitter {
    * per `Seq`-typed argument per cross-module call. Same-module calls bind the
    * internal name and pay nothing.
    *
-   * Returns the name to export under — the internal one when no `Seq` parameter
-   * is present, which is the overwhelmingly common case.
+   * **Occasion 4 rides the same wrapper** *(#876, #945)*. An exported function
+   * whose signature names a captured foreign collection takes §5.4's walk over
+   * each such parameter on entry and over the result on exit, "so a JavaScript
+   * caller's array becomes Hexagon's copy and Hexagon's array leaves as a copy"
+   * (§7). It joins the conditions above rather than growing a second wrapper
+   * beside them: where the two occasions meet on one signature —
+   * `f(xs: Seq(Int), ys: Array(Int))` — one wrapper carries the door on the
+   * `Seq` parameter and the walk on the captured one.
+   *
+   * The linkage the two occasions ask for differs, and that difference is
+   * `#capturesAcrossExport`'s, not this seat's: occasion 1 leaves Hexagon
+   * importers on the public binding, because the door's identity pass-through
+   * makes it invisible to them; occasion 4 moves them to the internal edition,
+   * because the walk is a copy and a Hexagon-to-Hexagon call is not a crossing.
+   *
+   * `walkResult` is false at exactly one caller, an exported **constructor**:
+   * §5.4 item 4 puts the walk on the payload "on entry", and the aggregate the
+   * constructor then builds out of walked components is not a second position.
+   *
+   * Returns the name to export under — the internal one when neither occasion
+   * fires, which is the overwhelmingly common case.
    */
-  #boundaryExportName(name: string, type: Typed.Type): string {
+  #boundaryExportName(name: string, type: Typed.Type, walkResult = true): string {
     if (type.kind !== "Function") return name;
     const sequences = type.parameters.map((parameter) => this.#isSequence(parameter));
-    if (!sequences.includes(true)) return name;
-    const door = this.#useHelper("seqInbound");
+    const captured = type.parameters.map((parameter) => this.#copies(parameter));
+    const result = walkResult && this.#copies(type.result);
+    if (!sequences.includes(true) && !captured.includes(true) && !result) return name;
     const parameters = sequences.map((_, index) => `__argument${index}`);
     const wrapper = this.#generatedNames.fresh(`${name}Boundary`);
+    const call = `${name}(${
+      parameters.map((parameter, index) =>
+        sequences[index] === true
+          ? `${this.#useHelper("seqInbound")}(${parameter})`
+          : captured[index] === true
+          ? this.#captured(type.parameters[index]!, parameter)
+          : parameter
+      ).join(", ")
+    })`;
     this.#exports.push(
-      `const ${wrapper} = ${arrowParameters(parameters)} => ${name}(${
-        parameters.map((parameter, index) =>
-          sequences[index] === true ? `${door}(${parameter})` : parameter
-        ).join(", ")
-      });`,
+      `const ${wrapper} = ${arrowParameters(parameters)} => ${
+        result ? this.#captured(type.result, call) : call
+      };`,
     );
     return wrapper;
   }
@@ -5060,10 +5241,14 @@ class JavaScriptEmitter {
             ? companion
             : this.#emitConstrainedValue(expression, companion, evidenceNames, bindingRhs);
         }
-        if (this.#constrainedImports.has(expression.symbol)) {
-          const imported = this.#constrainedImports.get(expression.symbol)!;
+        if (this.#internalEditionImports.has(expression.symbol)) {
+          const imported = this.#internalEditionImports.get(expression.symbol)!;
           // An imported constrained binding has the same trailing-evidence ABI
           // as a local one, so a value reference to it needs the same wrapper.
+          // A **captured** edition (§7 occasion 4) carries no evidence at all
+          // and takes the first arm: the reference is the edition, which is
+          // exactly the point — it is the unwalked function, reached without a
+          // copy and without an adapter standing between the two modules.
           return (expression.evidence?.length ?? 0) === 0
             ? imported
             : this.#emitConstrainedValue(expression, imported, evidenceNames, bindingRhs);
@@ -6067,7 +6252,7 @@ class JavaScriptEmitter {
     for (const item of [...this.#synthesizedImports, ...this.#constraintImports]) {
       for (const { imported, local, symbol } of item.form.names) {
         if (symbol === undefined || !this.#referencedSymbols.has(symbol)) continue;
-        contested.add(this.#constrainedImports.get(symbol) ?? local ?? imported);
+        contested.add(this.#internalEditionImports.get(symbol) ?? local ?? imported);
       }
     }
     const wanted = new Map<string, number>();
@@ -6195,7 +6380,7 @@ class JavaScriptEmitter {
    */
   #specializedCallee(expression: Core.CallExpr): string | undefined {
     if (expression.callee.kind !== "Name") return undefined;
-    const imported = this.#constrainedImportItems.get(expression.callee.symbol);
+    const imported = this.#internalEditionImportItems.get(expression.callee.symbol);
     const candidates = imported === undefined
       ? this.#specializationsFor(expression.callee.symbol)
       : this.#importedSpecializationsFor(expression.callee.symbol, imported);
@@ -9274,7 +9459,7 @@ class JavaScriptEmitter {
         for (const { imported, symbol, constraintMember } of item.form.names) {
           if (constraintMember !== true || symbol === undefined) continue;
           if (!this.#referencedSymbols.has(symbol)) continue;
-          const local = this.#constrainedImports.get(symbol) ??
+          const local = this.#internalEditionImports.get(symbol) ??
             this.#importedLocal(symbol, imported, true);
           const source = this.#importedInternalName(imported, item);
           names.add(source === local ? source : `${source} as ${local}`);
@@ -9354,7 +9539,7 @@ class JavaScriptEmitter {
         // The local, never the imported name: a module that binds `map` itself
         // reaches the prelude's under a distinguished local (Modules §6.4), and
         // spelling the imported name here would redeclare its binding.
-        const source = this.#constrainedImports.has(symbol)
+        const source = this.#internalEditionImports.has(symbol)
           ? this.#importedInternalName(imported, item)
           : imported;
         // The line the emitter decided, so its local takes rule 1's probe: a
@@ -9454,7 +9639,7 @@ class JavaScriptEmitter {
   }
 
   /**
-   * The local a namespace import binds one internal constrained export under.
+   * The local a namespace import binds one internal edition under.
    *
    * Minted rather than taken from the exporter, because the exported spelling is
    * a function of the member's *name*: `import Loud` and `import Soft`
@@ -9466,11 +9651,11 @@ class JavaScriptEmitter {
    * §5). Claimed in construction order, because a reference is rendered before
    * the import line that binds it as often as after.
    */
-  #namespaceConstrainedLocal(symbol: Resolved.SymbolId, imported: string): string {
-    const existing = this.#namespaceConstrainedLocals.get(symbol);
+  #namespaceInternalEditionLocal(symbol: Resolved.SymbolId, imported: string): string {
+    const existing = this.#namespaceInternalEditionLocals.get(symbol);
     if (existing !== undefined) return existing;
     const local = this.#generatedNames.fresh(imported);
-    this.#namespaceConstrainedLocals.set(symbol, local);
+    this.#namespaceInternalEditionLocals.set(symbol, local);
     return local;
   }
 
@@ -9785,12 +9970,49 @@ class JavaScriptEmitter {
   /**
    * Whether the walk at `type` copies anything — `#captured`'s question, asked
    * ahead of the expression, by a seat that has to decide its *shape* first: a
-   * wrapper condition, a precedence. It builds the plan `#captured` will then
-   * find already built, and a plan nothing goes on to name is simply an unread
-   * row of the table, which is rendered only once a seat mints its name.
+   * wrapper condition, a precedence.
+   *
+   * It allocates nothing (`CapturePlans.copies`), because one of its callers is
+   * a *linkage* decision rather than a crossing: an importer asking which
+   * edition of another module's export to bind (§7 occasion 4) asks about types
+   * this module copies at no position of its own, and a row allocated there
+   * would render a plan table no emitted line reads. `#captured` allocates,
+   * where the copy is actually emitted.
    */
   #copies(type: Typed.Type): boolean {
-    return this.#capturePlans.planFor(type) !== undefined;
+    return this.#capturePlans.copies(type);
+  }
+
+  /**
+   * FFI Part 7 §7 **occasion 4**'s trigger, read off a binding's declared type:
+   * does §5.4's walk reach a parameter or the result of an exported function.
+   *
+   * It decides two things that must agree, which is why it is one predicate.
+   * At the exporter it decides that the public name binds a stable export
+   * wrapper and that the internal edition is exported beside it; at an importer
+   * it decides that the reference binds that internal edition — "a cross-module
+   * Hexagon call is an ordinary Hexagon-to-Hexagon call and never copies"
+   * (Part 1 §5.4). Were the two read apart, an importer could bind an edition
+   * the exporter never published, or copy at a crossing that is not one.
+   *
+   * Only a function type answers yes: an exported *value* binding naming a
+   * captured collection is §5.4 refusal 4, refused at the export site, and a
+   * nullary constructor is a shared constant with nothing to walk.
+   *
+   * A **constructor** is read entry-only. §5.4 item 4 puts the walk on the
+   * payload "on entry", and the aggregate the constructor then builds out of
+   * already-walked components is not a second position — so a sibling arm with
+   * no captured payload (`Empty(n: Int)` beside `Wrap(xs: Array(Int))`) answers
+   * no, although its *result* type names one through the sibling.
+   */
+  #capturesAcrossExport(
+    symbol: Resolved.SymbolId | undefined,
+    type: Typed.Type,
+  ): boolean {
+    if (type.kind !== "Function") return false;
+    if (type.parameters.some((parameter) => this.#copies(parameter))) return true;
+    if (symbol !== undefined && this.#constructorSymbols.has(symbol)) return false;
+    return this.#copies(type.result);
   }
 
   /**

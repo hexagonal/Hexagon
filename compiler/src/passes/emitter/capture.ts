@@ -193,8 +193,43 @@ export class CapturePlans {
    * collection is not walked at all".
    */
   planFor(type: Typed.Type): number | undefined {
-    if (!this.#namesCaptured(type)) return undefined;
+    if (!this.copies(type)) return undefined;
     return this.#allocate(type);
+  }
+
+  /**
+   * Whether the walk at `type` copies anything — `planFor`'s own gate, asked
+   * **without allocating a row**.
+   *
+   * `planFor(τ) !== undefined` answers the same question, and at a seat that
+   * goes on to emit the copy it is the one to ask. This exists for the seats
+   * that decide a *shape* and may emit nothing at all: an importer choosing
+   * which edition of another module's export to bind (FFI Part 7 §7 occasion 4)
+   * asks about types this module copies at no position of its own, and a row
+   * allocated for such a question would render a plan table no emitted line
+   * reads.
+   *
+   * One membership function either way — this is the predicate `planFor` gates
+   * on, not a second reading of §5.4 standing beside it.
+   *
+   * **It spends no budget.** The counter below bounds the *plan table*, so that
+   * an errored module's best-effort emission cannot hang; a question that
+   * allocates no row has no business drawing it down, and the linkage question
+   * is asked once per imported name, at every import, in every module. Were it
+   * to accumulate, a module with enough imports would exhaust the bound before
+   * emitting anything, `#key` would start truncating, and two unrelated types
+   * would silently share one plan — a wrong copy from an exhausted counter
+   * rather than from anything either type says. The walk itself stays bounded,
+   * because the counter still rises inside the call and only the total is put
+   * back.
+   */
+  copies(type: Typed.Type): boolean {
+    const spent = this.#steps;
+    try {
+      return this.#namesCaptured(type);
+    } finally {
+      this.#steps = spent;
+    }
   }
 
   /**
