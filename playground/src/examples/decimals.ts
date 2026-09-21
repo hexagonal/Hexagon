@@ -3,7 +3,7 @@ import type { PlaygroundExample } from "./hello-world";
 export const decimals: PlaygroundExample = {
   id: "decimals",
   title: "Decimals",
-  description: "Use Dec for exact decimal arithmetic and explicit decimal places.",
+  description: "Exact Money with Dec",
   source: `module Decimals
 
 let log = Debug.log
@@ -22,11 +22,20 @@ log("You can buy 3 bananas that are $2.50 each")
 log("\${3} * \${2.50d} = \${3 * 2.50d}")
 log("")
 
-log("You can divide two dollars among three people")
-log("But you have to specify how many decimal places")
+log("You can divide $2 among 3 people,")
+log("but we have to say how many decimal places")
 let places = 2
+log("If we choose \${places} places,")
 let person = 2.00d.divide(3, places)
-log("We'll use \${places}, and end up with $\${person} per person")
+log("we end up with \${person} cents per person")
+log("")
+
+log("42.00 is equal to 42")
+log("\${42.00d} == \${42} => \${42.00d == 42}")
+log("But 42.00 is not the same as 42")
+log("\${42.00d}.same(\${42}) => \${42.00d.same(42)}")
+log("42.00 is only the same as 42.00")
+log("\${42.00d}.same(\${42.00d}) => \${42.00d.same(42.00d)}")
 `,
   specificationReferences: ["spec/dec.md"],
 };

@@ -31,8 +31,7 @@ export let create(unscaled: BigInt, places: Int): Dec =
 export let unscaled(decimal: Dec): BigInt = decimal.unscaled
 
 (** Whether `left` and `right` store the same exact unscaled integer and retain
-    the same number of decimal places. This compares representations, not object
-    identity; numerical equality remains independent of retained places. *)
+    the same number of decimal places.*)
 export let same(left: Dec, right: Dec): Bool =
     left.unscaled == right.unscaled and left.places == right.places
 
