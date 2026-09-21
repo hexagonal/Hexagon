@@ -10,6 +10,7 @@ import {
   type CompiledProject,
 } from "./project.js";
 import { LIBRARY_MODULES, PRELUDE_MODULES } from "./prelude.js";
+import { moduleInterface } from "./passes/resolver/resolver.js";
 
 /**
  * The standard-library cache (#987): `compileProject` checks and emits the
@@ -142,6 +143,7 @@ describe("one standard library per process", () => {
       seats: SEATS,
       seatsChecked: SEATS,
       seatsReused: 2 * SEATS,
+      seatsParsed: SEATS,
       seatsEmitted: SEATS,
       emissionsReused: 2 * SEATS,
     });
@@ -272,6 +274,10 @@ describe("a trusted replacement invalidates from its own seat", () => {
     );
     const first = compileFiles([body]);
     expect(messagesOf(first)).toEqual([]);
+    // Every member lexed and parsed exactly once, the chain having been empty.
+    // Counted rather than read off `project.modules`, which holds the members
+    // this program *reached* — five of the forty-five for this body.
+    expect(standardLibraryCacheStatistics().seatsParsed).toBe(SEATS);
 
     const member = PRELUDE_MODULES[0]!;
     const rebuilt = compileFiles(
@@ -279,6 +285,10 @@ describe("a trusted replacement invalidates from its own seat", () => {
       { trustedStandardLibraryModules: new Set([member.name]) },
     );
     expect(messagesOf(rebuilt)).toEqual([]);
+    // And not one of them a second time: the replaced member is a file of the
+    // project's own, and the forty-four seats re-checked behind it read their
+    // trees off the chain.
+    expect(standardLibraryCacheStatistics().seatsParsed).toBe(SEATS);
 
     const trees = (project: CompiledProject) =>
       new Map(project.modules
@@ -286,6 +296,8 @@ describe("a trusted replacement invalidates from its own seat", () => {
         .map(({ path, parsed }) => [path, parsed] as const));
     const [before, after] = [trees(first), trees(rebuilt)];
     const shared = [...before.keys()].filter((path) => after.has(path));
+    // Every member the second compile surfaced, not merely some of them.
+    expect(new Set(shared)).toEqual(new Set(after.keys()));
     expect(shared.length).toBeGreaterThan(0);
     for (const path of shared) expect(after.get(path)).toBe(before.get(path));
   });
@@ -310,6 +322,34 @@ describe("a trusted replacement invalidates from its own seat", () => {
     expect(messagesOf(compile(member.source)).length).toBeGreaterThan(0);
     expect(messagesOf(compile(`${member.source}\nexport let addedByThisTest: Int = 7\n`)))
       .toEqual([]);
+  });
+
+  test("a verbatim replacement at the member's own address is still the host's file", () => {
+    // The seat's key holds its **file identity** as well as its text and its
+    // two addresses, and this is the one compile where the other three cannot
+    // answer: a host developing the standard library hands the member's own
+    // source, unedited, at the very path the embedded one is read from. Only
+    // the identity differs — the host's, from its own allocator — and taking
+    // the seat would hand the program the *embedded* module under the host's
+    // file, so every span the replacement owns would resolve to the wrong one.
+    resetStandardLibraryCache();
+    const member = LIBRARY_MODULES.at(-1)!;
+    const body = main(`import ${member.name}\n\nexport let x: Int = 1\n`);
+    const embedded = compileFiles([body]).modules
+      .find(({ name }) => name === `Hex.${member.name}`)!;
+    // The address the replacement is about to be supplied at, read from the
+    // compiler rather than spelled here, and an identity out of the reserved
+    // range because that is what the chain holds.
+    expect(Number(embedded.source.id)).toBeGreaterThanOrEqual(1_000_000);
+
+    const replaced = compileFiles(
+      [[embedded.source.path, member.source], body],
+      { trustedStandardLibraryModules: new Set([member.name]) },
+    );
+    expect(messagesOf(replaced)).toEqual([]);
+    expect(Number(
+      replaced.modules.find(({ name }) => name === `Hex.${member.name}`)!.source.id,
+    )).toBe(0);
   });
 });
 
@@ -469,6 +509,35 @@ describe("nothing downstream writes to the cached prefix", () => {
       expect(Object.isFrozen(member.javascript)).toBe(true);
       expect(() => (member.runtimes as Map<string, unknown>).set("Anything", "self"))
         .toThrow(TypeError);
+      // The `ModuleInterface` beside them, which is not reached through the
+      // seat at all: it is the resolver's memo, keyed by the tree the chain
+      // keeps alive, and handed to **every** importer of this member in every
+      // compile after. `newStandardLibrarySeat` seals it where it seals the
+      // tree, and nothing else would.
+      expect(() =>
+        (moduleInterface(member.resolved).terms as Map<string, unknown>).set("anything", 0)
+      ).toThrow(TypeError);
+
+      // Neither the corpus nor the refusals replaces a member, and a trusted
+      // replacement is the one route that hands a **cached** tree back to
+      // resolve, check and elaborate: the seats after the replaced one are
+      // built again, each over the frozen file and tree `gatherModules` reads
+      // off the chain for it.
+      const warm = standardLibraryCacheStatistics();
+      const option = PRELUDE_MODULES.find(({ name }) => name === "Option")!;
+      expect(messagesOf(replacing(option))).toEqual([]);
+      const fromOption = standardLibraryCacheStatistics().seatsChecked - warm.seatsChecked;
+      // `Option`'s own seat and every seat after it, and none before.
+      expect(fromOption).toBeGreaterThan(1);
+      expect(fromOption).toBeLessThan(SEATS);
+
+      // And seat zero's, which re-checks the whole list over frozen trees.
+      expect(messagesOf(replacing(PRELUDE_MODULES[0]!))).toEqual([]);
+      const after = standardLibraryCacheStatistics();
+      expect(after.seatsChecked - warm.seatsChecked - fromOption).toBe(SEATS);
+      // One member re-read across both: the `Option` seat the compile before
+      // left holding a supplied file. The other forty-four came off the chain.
+      expect(after.seatsParsed - warm.seatsParsed).toBe(1);
     } finally {
       resetStandardLibraryCache();
     }

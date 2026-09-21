@@ -357,6 +357,7 @@ const statistics = {
   compiles: 0,
   seatsChecked: 0,
   seatsReused: 0,
+  seatsParsed: 0,
   seatsEmitted: 0,
   emissionsReused: 0,
 };
@@ -370,10 +371,20 @@ export interface StandardLibraryCacheStatistics {
    * is a fact about the fixes, not about what the host asked for.
    */
   readonly compiles: number;
-  /** Seats resolved, checked and elaborated, over this process's compiles. */
+  /**
+   * Seats resolved, checked and elaborated.
+   *
+   * This counter and the four below it are over **passes across the injected
+   * list**, which is a denominator `compiles` deliberately does not share: the
+   * `validatePatternFixes` re-entries that field excludes are counted here,
+   * because what these answer is how much work the chain saved, and a
+   * re-entry's work is work.
+   */
   readonly seatsChecked: number;
   /** Seats taken from the chain instead. */
   readonly seatsReused: number;
+  /** Embedded members lexed and parsed; one whose tree the chain holds is not. */
+  readonly seatsParsed: number;
   readonly seatsEmitted: number;
   readonly emissionsReused: number;
   /** How many seats the chain holds now. */
@@ -408,6 +419,7 @@ export function resetStandardLibraryCache(
   statistics.compiles = 0;
   statistics.seatsChecked = 0;
   statistics.seatsReused = 0;
+  statistics.seatsParsed = 0;
   statistics.seatsEmitted = 0;
   statistics.emissionsReused = 0;
 }
@@ -503,9 +515,11 @@ function rememberStandardLibrary(
       runtimeBasename,
       keep({ javascript: module.javascript, declarations: module.declarations }),
     );
-    // Oldest first, `Map` iteration order being insertion order — and a stem
-    // re-set keeps its place, so the bound is over stems this seat has ever
-    // emitted for rather than over the last `EMISSION_STEMS` compiles.
+    // Oldest first, `Map` iteration order being insertion order. Which one goes
+    // is not the caveat worth stating — an LRU of two over three keys misses
+    // exactly as often — the **bound** is: a host rotating three distinct stems
+    // finds no seat's emission for the stem it asks for, and re-emits the whole
+    // injected list on every compile.
     while (seat.emission.size > EMISSION_STEMS) {
       seat.emission.delete(seat.emission.keys().next().value!);
     }
@@ -1813,6 +1827,7 @@ function gatherModules(
     }
     const source = new Source.File(mintFileId(index), sourcePath, member.source);
     const parsed = parseFile(applyLayout(lex(source)), source.path)[0]!;
+    statistics.seatsParsed += 1;
     units.push(seat(source, parsed, STANDARD_LIBRARY, member.kind, index));
   }
   for (const { source, parsed } of supplied) {
