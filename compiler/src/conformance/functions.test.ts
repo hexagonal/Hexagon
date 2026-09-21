@@ -102,8 +102,14 @@ function checkSource(text: string): Typed.Module {
 
 const run = runMain;
 
+// A checked project module also carries prelude symbols. Match the declaration
+// owned by this source so a prelude operation with the same name cannot win.
 function symbol(module: Typed.Module, name: string): Typed.Symbol {
-  const found = module.symbols.find((candidate) => candidate.name === name);
+  const found = module.symbols.find(
+    (candidate) =>
+      candidate.name === name &&
+      candidate.bindingSpan.fileId === module.fileId,
+  );
   if (found === undefined) throw new Error(`expected symbol ${name}`);
   return found;
 }
