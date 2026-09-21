@@ -138,10 +138,11 @@ describe("§16 (a) construction, generalization, and the absent `Hash`", () => {
 describe("§16 (d) no brackets, and `contains` is the only Boolean read", () => {
   /**
    * §12.2: a `Set` has no bracket, permanently. The bracket is an *expression
-   * form* the emitter lowers for `Vector`, `String`, `Map` and — since #511 —
-   * the borrowed `Array`; a set has no index and no key distinct from its
-   * element, so there is nothing for one to mean. The refusal is the ordinary
-   * one — no bespoke message is owed (§9).
+   * form* the emitter lowers for `Vector`, `String`, `Map`, the captured
+   * `Array` (#511) and the captured `JsMap` (#793); a set has no index and no
+   * key distinct from its element, so there is nothing for one to mean. The
+   * refusal is the ordinary one — no bespoke message is owed (§9), and its
+   * enumeration grows as receivers are added.
    */
   test("`s[x]` is a type error", () => {
     const messages = projectDiagnostics("module Main\n\n" + "let s: Set(Int) = Set.fromVector([1, 2])\n" +
@@ -149,7 +150,7 @@ describe("§16 (d) no brackets, and `contains` is the only Boolean read", () => 
     );
     expect(messages).not.toEqual([]);
     expect(messages.join("\n")).toContain(
-      "indexing requires a Vector, String, Map, or Array",
+      "indexing requires a Vector, String, Map, JsMap, or Array",
     );
   });
 

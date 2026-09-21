@@ -5407,6 +5407,15 @@ class JavaScriptEmitter {
           // surface and never the bracket.
           : expression.operation === "ArrayElement"
           ? "arrayIndex"
+          // FFI Part 10 §4.2's two-step lowering over a captured `JsMap`. It
+          // joins this list rather than the `MapElement` branch above because
+          // it takes no evidence argument at all: the lookup is the native
+          // collection's own equality, so there is no `Hash` dictionary to
+          // thread (§4.3). Receiver-then-index is the evaluation order §4.2
+          // item 1 demands, and the two argument positions are what deliver it
+          // — each expression is emitted once and evaluated once, map first.
+          : expression.operation === "JsMapElement"
+          ? "jsMapIndex"
           : "stringSlice";
         return `${this.#useHelper(helper)}(${receiver}, ${index})`;
       }
@@ -12622,6 +12631,7 @@ type Helper =
   | "hashTrieIterate"
   | "hashSetIterate"
   | "mapIndex"
+  | "jsMapIndex"
   | "mapEquals"
   | "mapHash"
   | "setEquals"
@@ -12690,6 +12700,7 @@ const HELPER_DEPENDENCIES: Readonly<Record<Helper, readonly Helper[]>> = {
   // driver, and owes the same helper (#373).
   hashSetIterate: ["seqToIterable"],
   mapIndex: [],
+  jsMapIndex: [],
   mapEquals: [],
   mapHash: ["mixHash"],
   setEquals: [],
@@ -12869,6 +12880,36 @@ function unicodeMappingHelper(
   return [
     `const ${table} = new ${spell("Map")}(${asciiJson(entries)});`,
     `function ${name}(__point) { return ${table}.get(__point.codePointAt(0)) ?? __point; }`,
+  ];
+}
+
+/**
+ * The absence throw both brackets end in: `mapIndex`'s, over the persistent
+ * trie (Collections Part 4 §4.1), and `jsMapIndex`'s, over a captured native
+ * `Map` (FFI Part 10 §4.1). One function because the *shape* is the contract:
+ * Part 10 §4.1 reuses Part 4 §4.3's `KeyError` rather than redeclaring one, so
+ * the two throws carry the same `(owner, name)` pair — `$hex` the declaring
+ * module `Hex.Map`, `name` `"KeyError"` — and a single `catch KeyError` arm,
+ * written anywhere including another module, catches both. Two copies of these
+ * four lines would be two shapes that merely happened to agree today.
+ *
+ * `KeyError` is **nullary** by ruling: a polymorphic key cannot be a payload
+ * slot (Exceptions §2), so nothing is set beyond the two fields every Hexagon
+ * exception carries. The key does reach the *message*, which Part 4 §4.3
+ * licenses as a non-normative best-effort rendering — programs must not parse
+ * it — and `String(key)` is what a rendering with no `Show` evidence in hand
+ * can honestly do.
+ *
+ * The brand is the declaring module's, never the emitting one's (Exceptions
+ * §7.1, #488), for the reason spelled out at the vector family above.
+ */
+function keyErrorThrow(spell: (name: RuntimeSpelling) => string): string[] {
+  return [
+    `  const __error = new ${spell("Error")}` + "(`no value for key ${" + spell("String") +
+    "(__key)}`);",
+    '  __error.name = "KeyError";',
+    `  __error.$hex = ${JSON.stringify(HEX_MAP)};`,
+    "  throw __error;",
   ];
 }
 
@@ -13519,23 +13560,50 @@ function renderHelper(
       // directly rather than constructing `stdlib/Map.hex`'s exception, exactly
       // as the vector family builds `IndexError`'s. The trailing parameter is
       // the key's `Hash` evidence, which the trie's `get` takes because its
-      // declaration is `<k: Hash>`.
-      //
-      // `KeyError` is **nullary** by ruling: a polymorphic key cannot be a
-      // payload slot (Exceptions §2), so no field is set beyond the two every
-      // Hexagon exception carries. The key does reach the *message*, which §4.3
-      // licenses as a non-normative best-effort rendering — programs must not
-      // parse it — and `String(key)` is what a rendering with no `Show`
-      // evidence in hand can honestly do.
+      // declaration is `<k: Hash>`. The throw itself is `keyErrorThrow`'s,
+      // shared with the `JsMap` bracket below so the two shapes are one.
       return [
         `function ${name}(__map, __key, __hash) {`,
         `  const __found = ${hashTrieName("get")}(__map, __key, __hash);`,
         '  if (__found.tag === "Some") return __found.value;',
-        `  const __error = new ${spell("Error")}` + "(`no value for key ${" + spell("String") +
-        "(__key)}`);",
-        '  __error.name = "KeyError";',
-        `  __error.$hex = ${JSON.stringify(HEX_MAP)};`,
-        "  throw __error;",
+        ...keyErrorThrow(spell),
+        "}",
+      ];
+    case "jsMapIndex":
+      // FFI Part 10 §4's bracket on a captured `JsMap`, and §4.2's lowering is
+      // *normative*, so the body is the spec's three lines and nothing else:
+      //
+      //   1. The map and key reach here already evaluated, exactly once each
+      //      and map first — the argument positions of an ordinary call are
+      //      what buy that, which is why this is a helper taking two arguments
+      //      rather than an inline conditional that would mention `__map`
+      //      twice.
+      //   2. **`has` before `get`.** False → `KeyError`; true → the `get`
+      //      supplies the result.
+      //   3. A present `undefined` stays distinguishable from absence, which
+      //      is step 2's entire reason: native `get` alone answers `undefined`
+      //      for both, and `v` may lawfully contain `undefined`
+      //      (`Nullable(a)`, `Unit`, an opaque extern type).
+      //   4. **This must not be fused into one `get` plus an `undefined`
+      //      test**, even where `v`'s type appears unable to contain
+      //      `undefined`. One lowering, no type-directed variants (§4.2 item
+      //      4) — the uniformity is the contract, and an opaque type makes the
+      //      "appears unable" judgment untrustworthy anyway.
+      //
+      // Nothing can change the map between the two calls: the receiver is a
+      // captured collection only Hexagon can reach, with no mutation surface
+      // (§4.2 item 5), so the two steps raise no atomicity question.
+      //
+      // No `Hash` parameter, in deliberate contrast to `mapIndex` above: this
+      // lookup is the native collection's SameValueZero (§4.3). The absence
+      // payload is `mapIndex`'s own — same `$hex`, same `name`, same nullary
+      // shape, built by the same code — so **one `catch KeyError` arm covers
+      // both brackets** (§4.1, which reuses Collections Part 4 §4.3's
+      // declaration rather than redeclaring it).
+      return [
+        `function ${name}(__map, __key) {`,
+        "  if (__map.has(__key)) return __map.get(__key);",
+        ...keyErrorThrow(spell),
         "}",
       ];
     case "mapEquals":

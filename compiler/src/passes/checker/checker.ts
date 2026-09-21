@@ -9437,6 +9437,26 @@ class Checker {
           this.#requirements.set(expression, requirements);
           type = receiver.value;
           this.#indexOperations.set(expression, "MapElement");
+        } else if (receiver.kind === "JsMap") {
+          // FFI Part 10 §4.1: the same postfix bracket, read-only, yielding the
+          // value type, throwing the prelude `KeyError` on absence. The one
+          // visible difference from the `Map` arm above is the absence of
+          // `#require("Hash", …)`, and that absence *is* the design (§4.3): a
+          // captured `JsMap` looks a key up by the native collection's own
+          // SameValueZero, never by Hexagon's structural `Hash`/`equals`, so no
+          // `Hash` obligation appears anywhere on this part's surfaces — which
+          // is also what makes `JsMap(Range, v)` satisfiable where
+          // `Map(Range, v)` is not (Collections Part 4 §4.4).
+          //
+          // There is deliberately **no `Range` arm** here. `JsMap` has no
+          // slicing (§4.5), so a `Range`-typed element is an ordinary key
+          // lookup when `k` is `Range` and the ordinary element-type mismatch
+          // otherwise — both of which fall straight out of this one
+          // unification. A `Range` branch would be writing the competing
+          // slice reading §4.3 says does not exist here.
+          this.#unify(index, receiver.key, expression.index.span);
+          type = receiver.value;
+          this.#indexOperations.set(expression, "JsMapElement");
         } else if (receiver.kind === "Array") {
           // FFI Part 2 §6.3's asserting read, and only the element read: the
           // slice `xs[lo..hi]` is decided surface that has not shipped (#511
@@ -9462,7 +9482,7 @@ class Checker {
         } else {
           type = this.#unsupported(
             expression.receiver.span,
-            "indexing requires a Vector, String, Map, or Array value",
+            "indexing requires a Vector, String, Map, JsMap, or Array value",
           );
         }
         break;
