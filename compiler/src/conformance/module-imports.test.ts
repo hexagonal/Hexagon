@@ -686,20 +686,16 @@ describe("§13 (n) — the refused heads, each with its rewrite", () => {
     );
   });
 
-  test("the miscased head's rewrite is the applied edit, both seats at once", () => {
-    for (
-      const [written, repaired] of [
-        ["import geometry", "import Geometry"],
-        ["import render.geometry", "import Render.Geometry"],
-        ["import Render.geometry", "import Render.Geometry"],
-        ["import geometry as Geo", "import Geometry as Geo"],
-        ["import geometry as geo", "import Geometry as Geo"],
-        // The upper-cased alias is the default one, so the clause goes whole.
-        ["import geometry as geometry", "import Geometry"],
-      ] as const
-    ) {
-      expect(soleFixApplied(written)).toBe(repaired);
-    }
+  test.each([
+    ["import geometry", "import Geometry"],
+    ["import render.geometry", "import Render.Geometry"],
+    ["import Render.geometry", "import Render.Geometry"],
+    ["import geometry as Geo", "import Geometry as Geo"],
+    ["import geometry as geo", "import Geometry as Geo"],
+    // The upper-cased alias is the default one, so the clause goes whole.
+    ["import geometry as geometry", "import Geometry"],
+  ] as const)("the miscased head `%s` rewrites both seats at once", (written, repaired) => {
+    expect(soleFixApplied(written)).toBe(repaired);
   });
 
   test("a refused miscased head binds no alias, and one below it collides with nothing", () => {

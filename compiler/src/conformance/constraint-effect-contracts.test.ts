@@ -64,16 +64,16 @@ function labels(source: string): readonly (readonly string[])[] {
 }
 
 /**
- * All three views off **one** compile. Every family below wants the sentence,
- * the primary and the related locations of the same program, and asking for
- * them through the three helpers above compiles it three times — which is what
- * put the heaviest blocks of this file over vitest's per-test budget the moment
- * the merge table grew.
+ * All four views off **one** compile. Every family below wants the sentence,
+ * primary, related locations, and fixes of the same program. Asking for those
+ * through the separate helpers compiles it repeatedly, which puts the heaviest
+ * blocks of this file over Vitest's per-test budget under full-suite load.
  */
 function seen(source: string): {
   readonly messages: readonly string[];
   readonly primaries: readonly string[];
   readonly labels: readonly (readonly string[])[];
+  readonly fixes: readonly string[];
 } {
   const text = "module Main\n\n" + source;
   const diagnostics = compileFiles([["/main.hex", text], ["/io.js", ""]]).diagnostics;
@@ -84,6 +84,11 @@ function seen(source: string): {
     primaries: diagnostics.map(({ primary }) => at(primary)),
     labels: diagnostics.map(({ labels: related }) =>
       (related ?? []).map(({ message, span }) => `${message}: ${JSON.stringify(at(span))}`)
+    ),
+    fixes: diagnostics.flatMap((diagnostic) =>
+      (diagnostic.fixes ?? []).flatMap((fix) =>
+        fix.edits.map((edit) => `${fix.message}: ${JSON.stringify(edit.replacement)}`)
+      )
     ),
   };
 }
@@ -2248,45 +2253,46 @@ describe("Effects §13.2: a failed seat's suppression, and the conflict's two ti
     expect(primaries(source)).toEqual(["b!()"]);
   });
 
-  test("and the marks the reach suppresses survive a `fun` knot's compression", () => {
-    // *(Review round 4, MAJOR 1.)* The knot is what defeats a suppression set
-    // read off the colours afterwards: `ping`'s colour is bound into `pong`'s,
-    // so the reach holds `pong`'s node alone — and once §3.4's defaulting binds
-    // `pong` to the pure constant, `#prune`'s **path compression** rewrites
-    // `ping`'s chain straight to that constant and cuts `pong` out of it. Three
-    // diagnostics stood here, two of them affirmatively false about the program
-    // and each offering to delete a `!` from a genuinely impure call.
-    //
-    // The bare spelling above sidesteps the shape entirely, because a mark that
-    // is already right is never reported. These are the same programs with the
-    // marks the writer would have written.
-    const KNOT = (head: string, args: string, first: string, second: string) =>
-      head +
-      "record R = { id: Int }\n" +
-      "honor C<R> =\n" +
-      `    go(${args}) =\n` +
-      "        fun\n" +
-      `            ping(n: Int): Unit = if n == 0 then ${first} else ${second}\n` +
-      "            pong(n: Int): Unit = ping!(n)\n" +
-      "        ping!(2)\n";
-    for (const source of [
-      KNOT(PURE_HEAD, "runner, b", "b!()", "pong!(n - 1)"),
-      KNOT(PURE_HEAD, "runner, b", "pong!(n - 1)", "b!()"),
-    ]) {
-      expect(messages(source)).toEqual([pureConflict("go", "b")]);
-      expect(primaries(source)).toEqual(["b!()"]);
+  // *(Review round 4, MAJOR 1.)* The knot is what defeats a suppression set
+  // read off the colours afterwards: `ping`'s colour is bound into `pong`'s,
+  // so the reach holds `pong`'s node alone — and once §3.4's defaulting binds
+  // `pong` to the pure constant, `#prune`'s **path compression** rewrites
+  // `ping`'s chain straight to that constant and cuts `pong` out of it. Three
+  // diagnostics stood here, two of them affirmatively false about the program
+  // and each offering to delete a `!` from a genuinely impure call.
+  //
+  // The bare spelling above sidesteps the shape entirely, because a mark that
+  // is already right is never reported. These are the same programs with the
+  // marks the writer would have written.
+  const KNOT = (head: string, args: string, first: string, second: string) =>
+    head +
+    "record R = { id: Int }\n" +
+    "honor C<R> =\n" +
+    `    go(${args}) =\n` +
+    "        fun\n" +
+    `            ping(n: Int): Unit = if n == 0 then ${first} else ${second}\n` +
+    "            pong(n: Int): Unit = ping!(n)\n" +
+    "        ping!(2)\n";
+
+  test.each([
+    ["pure, callback first", KNOT(PURE_HEAD, "runner, b", "b!()", "pong!(n - 1)"),
+      pureConflict("go", "b")],
+    ["pure, callback second", KNOT(PURE_HEAD, "runner, b", "pong!(n - 1)", "b!()"),
+      pureConflict("go", "b")],
+    ["linked, callback first", KNOT(LINKED_HEAD, "runner, a, b", "b!()", "pong!(n - 1)"),
+      linkedConflict("go", "b")],
+    ["linked, callback second", KNOT(LINKED_HEAD, "runner, a, b", "pong!(n - 1)", "b!()"),
+      linkedConflict("go", "b")],
+  ] as const)(
+    "and the marks the reach suppresses survive a `fun` knot's compression: %s",
+    (_case, source, conflict) => {
+      const seat = seen(source);
+      expect(seat.messages).toEqual([conflict]);
+      expect(seat.primaries).toEqual(["b!()"]);
       // The whole of the damage: no deletion offered against `ping!` or `pong!`.
-      expect(fixes(source)).toEqual([]);
-    }
-    for (const source of [
-      KNOT(LINKED_HEAD, "runner, a, b", "b!()", "pong!(n - 1)"),
-      KNOT(LINKED_HEAD, "runner, a, b", "pong!(n - 1)", "b!()"),
-    ]) {
-      expect(messages(source)).toEqual([linkedConflict("go", "b")]);
-      expect(primaries(source)).toEqual(["b!()"]);
-      expect(fixes(source)).toEqual([]);
-    }
-  });
+      expect(seat.fixes).toEqual([]);
+    },
+  );
 
   test("and the reach carries past a conductor a pin has already solved", () => {
     // *(Review round 6, MEDIUM 1.)* The suppression was fixed for a conductor
@@ -3407,59 +3413,58 @@ describe("Effects §13.2: a `var`'s re-assignment is the merge, past the table",
     "record R = { id: Int }\nlet c: Bool = True\nlet spare(): Unit = ()\n" +
     "honor C<R> =\n    go(runner, b) =\n";
 
-  test("where no call carries the colour, the assignment IS the primary", () => {
-    // §13.2: "Where the merged colour meets no pure upper arrow … the
-    // narrower-acceptance row … reports in its merge form, the merge its pin".
-    // Under a `->!` header nothing the body calls is refused, so the merge
-    // alone narrows the slot — and for a `var` the merge is the assignment.
-    // The `if` form is written beside each one: same row, same sentence, same
-    // single related location, and only the span of the merge differs.
-    for (
-      const [pure, bind] of [
-        ["spare", ""],
-        ["g", "        let g = () => ()\n"],
-      ] as const
-    ) {
-      for (const slotFirst of [true, false]) {
-        const [first, second] = slotFirst ? ["b", pure] : [pure, "b"];
-        const shapes = [
-          {
-            merge: `z := { cb = ${second} }`,
-            source: `        var z = { cb = ${first} }\n        z := { cb = ${second} }\n` +
-              "        ignore(z)\n",
-          },
-          {
-            merge: `v := [${second}]`,
-            source: `        var v = [${first}]\n        v := [${second}]\n        ignore(v)\n`,
-          },
-        ];
+  // §13.2: "Where the merged colour meets no pure upper arrow … the
+  // narrower-acceptance row … reports in its merge form, the merge its pin".
+  // Under a `->!` header nothing the body calls is refused, so the merge alone
+  // narrows the slot — and for a `var` the merge is the assignment. The `if`
+  // form is written beside each one: same row, sentence, and related location;
+  // only the span of the merge differs.
+  const NO_CALL_CASES = ([
+    ["spare", ""],
+    ["g", "        let g = () => ()\n"],
+  ] as const).flatMap(([pure, bind]) =>
+    [true, false].flatMap((slotFirst) => {
+      const [first, second] = slotFirst ? ["b", pure] : [pure, "b"];
+      const joined = `if c then { cb = ${first} } else { cb = ${second} }`;
+      return [
+        [
+          `${pure}, slot ${slotFirst ? "first" : "second"}, record assignment`,
+          `z := { cb = ${second} }`,
+          `        var z = { cb = ${first} }\n        z := { cb = ${second} }\n` +
+            "        ignore(z)\n",
+        ],
+        [
+          `${pure}, slot ${slotFirst ? "first" : "second"}, vector assignment`,
+          `v := [${second}]`,
+          `        var v = [${first}]\n        v := [${second}]\n        ignore(v)\n`,
+        ],
         // The `if` counterpart is the third shape, measured beside the two.
-        const joined = `if c then { cb = ${first} } else { cb = ${second} }`;
-        shapes.push({
-          merge: joined,
-          source: `        let z = ${joined}\n        ignore(z)\n`,
-        });
-        for (const { merge, source } of shapes) {
-          const seat = seen(IMPURE + bind + source);
-          expect([merge, seat.messages])
-            .toEqual([merge, [mergeNarrower("go", "b", true)]]);
-          expect([merge, seat.primaries]).toEqual([merge, [merge]]);
-          // One related location — the contract's own arrow — and no second
-          // one, because the merge is the primary rather than a label beside
-          // a call.
-          expect([merge, seat.labels])
-            .toEqual([merge, [['the contract\'s failing arrow: "->!"']]]);
-          // No demand limb: the program writes no annotation and hands the
-          // callback to no `->` position, so advice naming one is a repair for
-          // a defect nobody committed. The merge form's advice is "do not
-          // merge `b` with a pure function here" and stops there.
-          for (const message of seat.messages) {
-            expect([merge, message.includes("to a `->` demand")]).toEqual([merge, false]);
-          }
-        }
+        [
+          `${pure}, slot ${slotFirst ? "first" : "second"}, if`,
+          joined,
+          `        let z = ${joined}\n        ignore(z)\n`,
+        ],
+      ].map(([name, merge, source]) => [name, merge, IMPURE + bind + source] as const);
+    })
+  );
+
+  test.each(NO_CALL_CASES)(
+    "where no call carries the colour, the assignment IS the primary: %s",
+    (_case, merge, source) => {
+      const seat = seen(source);
+      expect([merge, seat.messages]).toEqual([merge, [mergeNarrower("go", "b", true)]]);
+      expect([merge, seat.primaries]).toEqual([merge, [merge]]);
+      // One related location — the contract's own arrow — and no second one,
+      // because the merge is the primary rather than a label beside a call.
+      expect([merge, seat.labels])
+        .toEqual([merge, [['the contract\'s failing arrow: "->!"']]]);
+      // No demand limb: no annotation or `->` position was written, so the
+      // merge form's advice stops at "do not merge `b` with a pure function".
+      for (const message of seat.messages) {
+        expect([merge, message.includes("to a `->` demand")]).toEqual([merge, false]);
       }
-    }
-  });
+    },
+  );
 
   test("and the inline lambda's retained acceptance difference is the `if`'s, exactly", () => {
     // §13.2's "inherited inference behaviour": a named function's colour was
