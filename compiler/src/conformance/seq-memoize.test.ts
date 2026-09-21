@@ -368,7 +368,11 @@ describe("the door's emission (spec/intrinsics.md §8)", () => {
     const { javascript } = seqModule();
     expect(javascript).toContain("const memoize = __seqMemoize;");
     expect(javascript).toMatch(
-      /const (\w+) = __argument0 => memoize\(__seqInbound\(__argument0\)\);\nexport \{ \1 as memoize \};/u,
+      // The face repair sits between the two, which is where it belongs: the
+      // wrapper is minted, given the public name it faces JavaScript under
+      // (FFI Part 6 §1; Lexer §3.2 keeps the `__` local off that surface), and
+      // then exported.
+      /const (\w+) = __argument0 => memoize\(__seqInbound\(__argument0\)\);\nObject\.defineProperty\(\1, "name", \{ value: "memoize", configurable: true \}\);\nexport \{ \1 as memoize \};/u,
     );
   });
 
