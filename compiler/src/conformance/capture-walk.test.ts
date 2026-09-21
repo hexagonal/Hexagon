@@ -1118,6 +1118,15 @@ describe("a crossing that copies nothing is unchanged (§5.4)", () => {
     // its only `__capture` is its own export wrapper's entry walk.
     expect(main?.javascript.text).toContain('import { __length as length } from "./Hex/Array.js";');
     expect(main?.javascript.text).toContain("return length(xs) + length(toArray(v));");
+    // `Vector`'s own published face carries exactly one walk, and it is not
+    // this row's: `toArray`'s result is an `Array(a)` leaving through an
+    // export, so occasion 4 copies it on the way out. Nothing in the module
+    // copies on the way in, which is what "not a crossing" means here.
+    const vector = project.modules.find(({ source }) => source.path.endsWith("/Vector.hex"));
+    expect(vector?.javascript.text.match(/__capture\(__capturePlans/gu)).toHaveLength(1);
+    expect(vector?.javascript.text).toContain(
+      "const __toArrayBoundary = __argument0 => __capture(__capturePlans, 0, toArray(__argument0));",
+    );
   });
 
   /**

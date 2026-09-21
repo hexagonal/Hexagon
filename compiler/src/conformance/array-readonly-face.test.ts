@@ -224,6 +224,11 @@ describe("nothing but declaration text changes", () => {
     expect(javascript).toContain("export { __headBoundary as head };");
     expect(javascript).toContain("export { __passBoundary as pass };");
     expect(javascript).not.toContain("ReadonlyArray");
+    // The count is kept rather than dropped, at the number the two rulings now
+    // make: one for the extern row's copying wrapper, one for `first`'s
+    // outbound walk, and two each for `head` and `pass`, whose signatures name
+    // `Array` at a parameter *and* at the result.
+    expect(javascript.match(/__capture\(__capturePlans/gu)).toHaveLength(6);
   });
 });
 
