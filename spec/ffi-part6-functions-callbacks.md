@@ -9,7 +9,7 @@
 
 ## 1. Doctrine: the calling convention is the identity
 
-Hexagon's visible source argument order is preserved in emitted JavaScript, and Hexagon's n-ary functions **are** n-ary JavaScript functions (Functions §9). For representation-direct signatures — the common case, and the only callback case in v1 — the boundary calling convention is therefore the identity:
+Hexagon's visible source argument order is preserved in emitted JavaScript, and Hexagon's n-ary functions **are** n-ary JavaScript functions (Functions §9). For representation-direct signatures — the common case; §5.5 names the one other shape — the boundary calling convention is therefore the identity:
 
 - **No currying and no uncurrying exist anywhere.** Hexagon has no currying (Functions §1) and the boundary introduces none: a two-parameter Hexagon function is a two-parameter JS function, called as `f(x, y)` on both sides. There is no arguments-object packing, no tuple lowering, no spread.
 - **Subject-first APIs and pipe-to-first rewriting remain intact at the boundary.** The pipe is resolved before emission (Operators §8); what crosses is the ordinary call.
@@ -97,7 +97,7 @@ A Hexagon callback that throws propagates a JS throw through the foreign caller 
 
 ---
 
-## 5. Callbacks: the v1 representation-direct subset
+## 5. Callbacks: the two v1 shapes
 
 ### 5.1 The rule and the mechanism
 
@@ -119,7 +119,7 @@ extern from "event-source"
     ) ->! Unit
 ```
 
-`Event` is an opaque representation-direct foreign value and `Unit` is JavaScript `undefined`; no wrapper is required. Passing the same Hexagon function to `addListener` and then `removeListener` passes the same JS function identity naturally — the listener actually deregisters. **No weak wrapper cache exists in v1 because no supported callback signature needs a wrapper**; identity preservation is a consequence of the representation, not a caching feature.
+`Event` is an opaque representation-direct foreign value and `Unit` is JavaScript `undefined`; no wrapper is required. Passing the same Hexagon function to `addListener` and then `removeListener` passes the same JS function identity naturally — the listener actually deregisters. **No wrapper cache exists in v1.** For these signatures identity preservation is a consequence of the representation, not a caching feature; for the one shape that does take a wrapper (§5.5) the cache is the deferred surface of §8 item 2, and v1 answers the identity question there with a foreign shim instead.
 
 ### 5.2 What qualifies
 
@@ -160,7 +160,7 @@ The same rejection applies to any adapter-requiring type anywhere in a callback 
 
 ### 5.5 Captured-collection signatures: the conversion wrapper, with no identity promise *(#876)*
 
-The second supported shape. A callback signature that names a captured foreign collection anywhere — `Array(Int) -> Unit`, `(Nullable(IoError), Array(Row)) -> Unit`, `Int -> Array(String)` — cannot cross as the same function object, because a captured collection is copied at every crossing (Part 1 §2.2, §5.4) and each invocation of the callback *is* a crossing. Such a callback crosses as a **conversion wrapper**: a fresh function, created where the callback value crosses, that at each invocation runs Part 1 §5.4's walk over every argument and the result at their declared types — copying the captured collections, carrying everything else by identity — and calls the original. A Hexagon callback handed to JavaScript is wrapped so that the arrays JavaScript passes in become Hexagon's own copies and the arrays Hexagon returns leave as copies; a foreign function value entering Hexagon (§5.3) is wrapped the other way round. Nothing else about the callback changes: arity is the declared arity (§2), `Unit` discards (§3.2), throws follow §4, foreign `this` is ignored (§6).
+The second supported shape. A callback signature that names a captured foreign collection anywhere — `Array(Int) -> Unit`, `(Nullable(IoError), Array(Row)) -> Unit`, `Int -> Array(String)` — cannot cross as the same function object, because a captured collection is copied at every crossing (Part 1 §2.2, §5.4) and each invocation of the callback *is* a crossing. Such a callback crosses as a **conversion wrapper**: a fresh function, created where the callback value crosses, that at each invocation runs Part 1 §5.4's walk over every argument and the result at their declared types — copying the captured collections, carrying everything else by identity — and calls the original. A Hexagon callback handed to JavaScript is wrapped so that the arrays JavaScript passes in become Hexagon's own copies and the arrays Hexagon returns leave as copies; a foreign function value entering Hexagon (§5.3) is wrapped the other way round. Nothing else about the callback changes: arity is the declared arity (§2), `Unit` discards (§3.2), throws follow §4, foreign `this` is ignored (§6). **The wrapper faces as an ordinary n-ary JavaScript function in §1's sense**: its `length` is that arity and its `name` is empty — it is anonymous, as an arrow written in argument position is — and both properties carry the descriptors an ordinary function's carry. The wrapper contributes no spelling of its own, in particular no reserved `__` local (Lexer §3.2), and it reads nothing off the function it wraps, because the walk probes nothing (Part 1 §5.4).
 
 **No identity promise.** The wrapper is created per crossing and is never cached: passing the same Hexagon function to a foreign API twice produces two wrapper objects, and a foreign API that registers and deregisters callbacks *by identity* — `addListener`/`removeListener` — will not match them. This is the recorded departure from §5.1's identity guarantee, of the same kind Part 3 §14.2 records for `Stream`, and it is confined to signatures that name a captured collection: a callback over events, primitives, records, and runtime collections keeps the same-object guarantee exactly as before. The recommended shape for a registration API whose payload is an array is a small **foreign shim that retains the wrapper and returns a disposal handle** — `subscribe(target, cb)` returning an unsubscribe function — so that removal never needs the identity the wrapper cannot supply; the alternatives are declaring the payload `JsValue` and decoding it with `JsValue.toArray` inside the callback, which makes the copy an explicit named step and leaves the callback representation-direct, or binding through an opaque foreign handle (Part 1 §2.2). An identity cache keyed by function and signature is the deferred upgrade (§8 item 2), now with a concrete customer; it is not part of v1.
 
@@ -274,13 +274,13 @@ The decision record for this part was complete, and §12 records the review reso
 | Decision | Where |
 |---|---|
 | Calling convention is the identity: visible order preserved; n-ary ↔ n-ary; no currying/uncurrying, packing, or spread; pipes resolved before emission; evidence trailing (Parts 8–9) | §1 |
-| Exhaustive v1 boundary-function-wrapper occasions (adapted-position export wrapper, receiver-member wrapper, constrained-export ABI wrapper when needed); each wrapper is module-level and stable, distinct from fresh per-value adapters; matching constrained ABIs export directly; no callback wrappers exist | §1, §5.1 |
+| Exhaustive v1 boundary-function-wrapper occasions (adapted-position export wrapper, receiver-member wrapper, constrained-export ABI wrapper when needed); each wrapper is module-level and stable, distinct from fresh per-value adapters; matching constrained ABIs export directly; the only callback wrapper is §5.5's per-crossing conversion wrapper | §1, §5.1, §5.5 |
 | Hexagon calls boundary callables at exact declared arity (compile-checked); no padding or reordering | §2.1 |
 | JS callers governed by `.d.ts` contract: extras naturally ignored (representation fact), missing/invalid = contract violation; **no runtime arity validation** | §2.2–2.3 |
 | Function-typed extern `let` is a hard error → `fun` (confirmed at review) | §2.4, §12.2 |
 | `Unit`: `void`/`undefined` faces; **declared `Unit` result is discarding, not trusting** (confirmed at review); exported Hexagon `Unit` genuinely returns `undefined`; nullary functions pass no unit | §3, §12.1 |
 | Exceptions need no boundary mechanism: branded Hexagon exceptions remain domestic on re-entry; other inbound throws → `JsError` (virtual wrapping, two-stage discrimination); outbound Hexagon throws are branded `Error`s; no delivery promise through foreign control flow | §4 |
-| V1 callbacks = representation-direct signatures, recursive under Part 1 §5.3, as the same JS function object both directions, identity by representation, not caching, no weak wrapper cache; **plus** *(#876)* signatures naming a captured collection, through a per-crossing conversion wrapper that copies captured arguments and results at each invocation, **no identity promise** (foreign shim with a disposal handle as the workaround; identity cache deferred) | §5.1–5.2, §5.5 |
+| V1 callbacks = representation-direct signatures, recursive under Part 1 §5.3, as the same JS function object both directions, identity by representation, not caching, no wrapper cache of any kind; **plus** *(#876)* signatures naming a captured collection, through a per-crossing conversion wrapper that copies captured arguments and results at each invocation, **no identity promise** (foreign shim with a disposal handle as the workaround; identity cache deferred) | §5.1–5.2, §5.5 |
 | Inbound foreign function values are the raw function object as the Hexagon value, symmetric on re-crossing; wrapped instead when the signature names a captured collection (§5.5) | §5.3 |
 | Raw inbound function values assert receiver independence; a function requiring foreign `this` uses extern `method` or a JS shim | §5.3, §6 |
 | Adapter-requiring callback signatures: hard error at declaration with three named rewrites; discharges Part 3 §9.3/§11; top-level `Seq` crossing unaffected | §5.4 |
