@@ -206,3 +206,9 @@ The nine compiler properties had run unseeded since they were written, against �
 The defect that surfaced this was not the seeding, though. The elaborator property's list of forbidden node kinds named two kinds Core legitimately has, so any input reaching an indexing expression failed the property on a tree the elaborator got right; `""[0]` does it with no diagnostics. Its walker also recursed into eleven of Core's thirty-five expression kinds and two of its fifteen item kinds, leaving anything nested inside a `Fun`, `Match`, `Vector`, or `Try` unreachable. Both are now derived from the trees and checked by `tsc`.
 
 The seeding was still worth doing, but it is not what closed the defect — a written regression example is, because the generated inputs never reach an `Index` node at all.
+
+### #985 — the test budget is what the work costs
+
+The suite ran under Vitest's default 5000 ms `testTimeout` from the start. Its conformance tests compile whole projects, and on a two-core continuous-integration runner under full parallel load many of them finish within a second of that budget. Every red run on `main` the default produced was a timeout on one of those tests, never a failed assertion, and the same test passed alone. Raising one test's budget at a time only chose which test would go red next.
+
+`vitest.config.ts` now sets the budget to 30 s for the whole compiler suite. §8's prohibition on wall-clock thresholds inside tests stands: this threshold lives in the runner's configuration, not in a test, and it is a termination guard of the deliberately generous kind §8 allows. Budgets written at a call site remain and still apply where they are larger. A genuinely hung test now takes 30 s to fail rather than 5, which is the accepted price. The other packages' suites keep the default until one of them shows the same pattern.
