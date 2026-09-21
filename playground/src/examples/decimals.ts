@@ -2,8 +2,8 @@ import type { PlaygroundExample } from "./hello-world";
 
 export const decimals: PlaygroundExample = {
   id: "decimals",
-  title: "Decimals",
-  description: "Exact Money with Dec",
+  title: "Exact Money with Dec",
+  description: "Use Dec for exact decimal arithmetic and explicit decimal places.",
   source: `module Decimals
 
 let log = Debug.log
