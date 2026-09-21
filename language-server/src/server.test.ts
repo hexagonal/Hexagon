@@ -2205,9 +2205,11 @@ describe("packages and programs", () => {
    * allocators, which must not hand out one number twice. They did: the first
    * woven member landed on exactly the last manifest's id, `pathOfFile`
    * preferred the analysis, and the editor was handed a related-information
-   * link to a `/Hex/Show.hex` that is nowhere on disk. Any generic over a
-   * prelude constraint fires it, which is why the fixture above — whose
-   * `main.hex` compiles no injected module — cannot see it.
+   * link to a `/Hex/Show.hex` that is nowhere on disk. Since #987 the woven
+   * members take their identities from a range reserved above every host's, so
+   * the two allocators cannot meet at all; this pins the behaviour either way.
+   * Any generic over a prelude constraint fires it, which is why the fixture
+   * above — whose `main.hex` compiles no injected module — cannot see it.
    */
   test("the manifest keeps its identity in a program that compiles `Hex` members", async () => {
     const workspace = await harness({

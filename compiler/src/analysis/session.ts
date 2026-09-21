@@ -25,12 +25,16 @@
  * no longer describes the text the user is looking at.
  *
  * Whole-project recompilation is the deliberate starting point rather than a
- * placeholder. Reanalyzing this repository's own `stdlib/` and `runtime/` after
- * an edit measures a median of about 40ms, well inside the delay diagnostics are
- * debounced by, so incremental reuse would buy nothing yet and would have to
- * guess at what is worth keeping before any query exists to say. When a real
- * workspace makes that false, the seam is here: only `#analyze` decides what to
- * rebuild.
+ * placeholder, and most of what it used to cost is gone. Every compile carries
+ * all of `Hex` (#829), which was the bulk of the work; `compileProject` keeps
+ * that checked prefix for the life of the process (#987), so an edit re-checks
+ * the workspace's own modules and — in a workspace that *is* the standard
+ * library — the member it edited and the seats after it.
+ *
+ * Reusing the workspace's own modules is the next step and not this one: it
+ * would have to guess at what is worth keeping before any query exists to say.
+ * When a real workspace makes that false, the seam is here: only `#analyze`
+ * decides what to rebuild.
  */
 
 import * as Diagnostics from "../support/diagnostics.js";
@@ -232,14 +236,8 @@ export interface SessionPackage {
   readonly paths: readonly string[];
 }
 
-/**
- * `firstFileId` is deliberately **not** among these. A session owns file
- * identity — every path it holds and every `referenceFile` it registers is
- * numbered here — so the floor the compile mints injected modules above is this
- * session's own counter, and never a host's to set. Two callers naming the
- * floor is exactly the disagreement the field exists to end.
- */
-export interface SessionOptions extends Omit<ProjectOptions, "packages" | "firstFileId"> {
+/** `ProjectOptions` as a session takes them — its packages by path, above. */
+export interface SessionOptions extends Omit<ProjectOptions, "packages"> {
   readonly packages?: readonly SessionPackage[];
 }
 
@@ -356,7 +354,6 @@ export class AnalysisSession {
   referenceFile(path: string, text: string): Source.File {
     const normalized = normalizePath(path);
     let id = this.#fileIds.get(normalized);
-    const fresh = id === undefined;
     if (id === undefined) {
       id = Source.fileId(this.#nextFileId);
       this.#fileIds.set(normalized, id);
@@ -364,12 +361,12 @@ export class AnalysisSession {
     }
     const file = new Source.File(id, normalized, text);
     this.#references.set(Number(id), file);
-    // Re-registering an existing path invalidates nothing: nothing here is
+    // Registering a path invalidates nothing, new or not: nothing here is
     // compiled, and a span into it reaches the compiler as an *option*, whose
-    // own change is what invalidates. A **new** identity is different — it
-    // raises the floor the compile mints injected modules above (`firstFileId`),
-    // and an analysis already standing minted one of them on this very number.
-    if (fresh) this.#invalidate();
+    // own change is what invalidates. A fresh identity used to be different —
+    // it raised the floor the compile minted injected modules above — and since
+    // #987 the members of `Hex` take their file identities from a reserved
+    // range instead, so the two allocators cannot meet.
     return file;
   }
 
@@ -1569,17 +1566,8 @@ export class AnalysisSession {
         return { record, files: own };
       });
       const project = [...files].flatMap(([path, file]) => claimed.has(path) ? [] : [file]);
-      // Every identity this session has handed out — its files' and its
-      // reference files' alike — is below `#nextFileId`, so that is the floor
-      // an injected module may be minted above. Without it `compileProject`
-      // would see only the files it was passed, and a manifest registered by
-      // `referenceFile` (which is never passed) would share a number with the
-      // first woven member of `Hex`.
       this.#analysis = new Analysis(
-        compileProject(project, {
-          ...(packages.length === 0 ? rest : { ...rest, packages }),
-          firstFileId: this.#nextFileId,
-        }),
+        compileProject(project, packages.length === 0 ? rest : { ...rest, packages }),
         files,
       );
     }

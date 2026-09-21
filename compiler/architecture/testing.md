@@ -207,6 +207,16 @@ The defect that surfaced this was not the seeding, though. The elaborator proper
 
 The seeding was still worth doing, but it is not what closed the defect — a written regression example is, because the generated inputs never reach an `Index` node at all.
 
+### #987 — the cache's pins are a freeze and a counter
+
+`compileProject` keeps the checked standard library between compiles (#987), which makes two things testable that had not been.
+
+The first is that nothing downstream writes to what is now shared. `support/deep-freeze.ts` freezes a value and everything under it, replacing the `Map` and `Set` mutators `Object.freeze` leaves working with ones that throw, and `resetStandardLibraryCache({ freezeEntries: true })` puts every cached seat through it. A corpus of programs then compiles against the frozen prefix, so a write anywhere in the checker, the elaborator or the emitter fails at the write rather than as a wrong answer three compiles later. The freeze is a test hook rather than the shipped behaviour: freezing the whole standard library on each chain build costs more than the chain saves, and the pin needs it once.
+
+The second is that the cache is used at all. `standardLibraryCacheStatistics()` reports seats checked against seats reused, so "the standard library is checked once per process" is a count. §8's prohibition is why: the claim is about repeated work, and a duration would be a worse measurement of it as well as a forbidden one.
+
+Both are test-only exports of `project.ts` rather than a test double. A double would have to reimplement the chain to say anything about it, and the chain is the thing under test.
+
 ### #985 — the test budget is what the work costs
 
 The suite ran under Vitest's default 5000 ms `testTimeout` from the start. Its conformance tests compile whole projects, and on a two-core continuous-integration runner under full parallel load many of them finish within a second of that budget. Every red run on `main` the default produced was a timeout on one of those tests, never a failed assertion, and the same test passed alone. Raising one test's budget at a time only chose which test would go red next.

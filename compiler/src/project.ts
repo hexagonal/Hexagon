@@ -57,6 +57,7 @@ import type { ModuleImport, PreludeImport } from "./passes/resolver/resolver.js"
 import type { RuntimeLocations } from "./passes/emitter/emitter.js";
 import { LIBRARY_MODULES, PRELUDE_MODULES, PRIMITIVE_COMPANION_MODULES } from "./prelude.js";
 import { RUNTIME_MODULES } from "./runtime-modules.js";
+import { deepFreeze } from "./support/deep-freeze.js";
 
 export interface CompiledModule {
   readonly source: Source.File;
@@ -149,11 +150,15 @@ export interface CompiledProject {
  * What a host may tell the compiler about a project.
  *
  * Four are the *language's* — what a manifest says (Packages §2.1, §2.5) and
- * the closure a host resolved from it (§4.1) — while `firstFileId` is
- * bookkeeping for a host that mints file identities of its own. The remaining
- * option is a host trust decision: which supplied declarations replace members
- * of the compiler's embedded standard library. Source text, path, and manifest
- * metadata never infer that trust (#843).
+ * the closure a host resolved from it (§4.1). The fifth is a host trust
+ * decision: which supplied declarations replace members of the compiler's
+ * embedded standard library. Source text, path, and manifest metadata never
+ * infer that trust (#843).
+ *
+ * File identity is **not** among them. A host numbers its own files from zero
+ * and the members of `Hex` this compile weaves in take theirs from a reserved
+ * range above every such number (`PRELUDE_ID_BASE`), so the two allocators
+ * cannot meet and neither has to know about the other.
  */
 export interface ProjectOptions {
   /**
@@ -201,25 +206,6 @@ export interface ProjectOptions {
    * own sources.
    */
   readonly trustedStandardLibraryModules?: ReadonlySet<string>;
-  /**
-   * The lowest file identity this compile may mint for an **injected** module,
-   * where the caller hands out identities of its own.
-   *
-   * A `Source.File` is identified by a number and a span carries that number
-   * rather than a path, so two files wearing one number are one file to
-   * everything downstream and the later silently shadows the earlier. This
-   * compile mints identities for the members of `Hex` it weaves in, above every
-   * id it was handed — but a host that also mints them, for files it never
-   * passes here, has to say so or the two allocators collide. Not hypothetical:
-   * `AnalysisSession.referenceFile` gives a `hexagon.json` an identity without
-   * compiling it, and the first woven member landed on exactly the last
-   * manifest's number, so a report's related information sent the editor to a
-   * `/Hex/Show.hex` that is nowhere on disk.
-   *
-   * Absent — the ordinary case, and the Playground's — means nothing outside
-   * this call holds an identity, and the floor is the supplied files' own.
-   */
-  readonly firstFileId?: number;
 }
 
 /**
@@ -255,6 +241,320 @@ interface Unit {
   readonly seat: number | undefined;
 }
 
+/**
+ * The checked and emitted standard library, kept between compiles for the life
+ * of the process — the compiler's **one piece of process state**. (One thing
+ * rides on it: the resolver's `moduleInterface` memo is keyed by a resolved
+ * tree, so a cached seat's interface outlives the compile that built it too.)
+ *
+ * Every program is compiled with all of `Hex` (#829), and nothing about those
+ * members depends on the program: they are seated in a normative order, each
+ * sees only the seats before it (Modules §5.5), and their identities — symbols,
+ * unions, records, extern types, and the files they are read from — are minted
+ * in a reserved range above anything a project can spend, so a project's own
+ * ids and spans are what a compile with no standard library would have given
+ * it. Re-parsing and re-checking them for every compile was therefore the same
+ * work producing the same answer, and most of what a compile cost.
+ *
+ * The memo is here rather than in something a host passes because it is not a
+ * decision a host has to make: it changes no answer, so nothing about it
+ * belongs in `ProjectOptions`. `compileProject` stays **observably pure** —
+ * same inputs, same diagnostics, same emitted text byte for byte — and that is
+ * a claim with a test rather than an argument: `standard-library-cache.test.ts`
+ * deep-freezes every cached structure, `Map` and `Set` mutators included, and
+ * compiles a corpus of programs against the frozen prefix.
+ *
+ * ## One chain, never a set of alternatives
+ *
+ * Seat *i* is reusable while the injected list's **file and text** at every
+ * seat 0..*i* are the ones the entry was built from. That is exactly what a
+ * trusted replacement (#969) changes, and it changes it where the language
+ * already says: the replacement re-seats its own member and everything after
+ * it. A host alternating between two trusted sets rebuilds the tail each time,
+ * which is the accepted price of a single chain — there is no second cached
+ * world to get out of step with the first.
+ *
+ * ## Clean seats only
+ *
+ * A seat that produced a diagnostic is not kept, and neither is anything after
+ * it. Diagnostics are *mutated* after a compile — `validatePatternFixes` prunes
+ * the fixes it could not prove — so a shared one is precisely the sharing this
+ * memo must not do. The shipped standard library compiles clean, which is what
+ * makes the rule free; a pin says so, because on the day that stops being true
+ * the cache would otherwise turn itself off in silence.
+ */
+interface StandardLibrarySeat {
+  /**
+   * What this seat was built from. The **text** is the seat's content and the
+   * file is its identity: a trusted replacement whose text matched the embedded
+   * member's would still carry every span into the host's own file, so both are
+   * compared. The layout address goes with them because it is a function of the
+   * project's package name, which a later compile may not share.
+   */
+  readonly fileId: number;
+  readonly sourcePath: string;
+  readonly text: string;
+  readonly path: string;
+  /**
+   * Everything through elaboration, minus the one field that is not a fact
+   * about this module: `runtimeGlobalsSpecifier` is spelled against the stem
+   * §8.3's probe settled for *the program*, so it is recomputed per compile.
+   */
+  readonly checked: Omit<CheckedModule, "runtimeGlobalsSpecifier">;
+  /** The four injected id allocators as they stood after this seat. */
+  readonly bases: InjectedIdBases;
+  /**
+   * This seat's emission, by the runtime declaration stem — the one input to an
+   * injected module's emission that the program decides (FFI Part 1 §8.3).
+   * Everything else emission is handed here is prelude-derived: `runtimes` are
+   * the injected modules' own addresses, `nominalHomes` can only be asked about
+   * a nominal this module can name, and `fundamentalInstances` is read off the
+   * prelude — which is why an entry's emission is reused only when the *whole*
+   * injected prefix was, that table being a fact about all of it.
+   */
+  readonly emission: Map<string, EmittedSeat>;
+}
+
+interface EmittedSeat {
+  readonly javascript: Emitted.JavaScript;
+  readonly declarations: Emitted.Declarations;
+}
+
+/** The reserved-range allocators, carried across compiles with their seat. */
+interface InjectedIdBases {
+  readonly symbol: number;
+  readonly union: number;
+  readonly record: number;
+  readonly externType: number;
+}
+
+/**
+ * The project package name the chain was built under, and the chain.
+ *
+ * The name is part of the key because it decides where an injected module
+ * *lies*: a project named `Hex` elides that segment (Packages §6), so the same
+ * source text lands at a different address and every specifier and
+ * `declaringPath` in its tree differs.
+ */
+let cachedPackageName: string | undefined;
+let cachedSeats: readonly StandardLibrarySeat[] = [];
+/** Whether cached structures are frozen on the way in — the pin's hook. */
+let freezingCachedSeats = false;
+
+const statistics = {
+  compiles: 0,
+  seatsChecked: 0,
+  seatsReused: 0,
+  seatsEmitted: 0,
+  emissionsReused: 0,
+};
+
+/** What `standardLibraryCacheStatistics` answers. */
+export interface StandardLibraryCacheStatistics {
+  /** Compiles that had an injected list to look the chain up with. */
+  readonly compiles: number;
+  /** Seats resolved, checked and elaborated, over this process's compiles. */
+  readonly seatsChecked: number;
+  /** Seats taken from the chain instead. */
+  readonly seatsReused: number;
+  readonly seatsEmitted: number;
+  readonly emissionsReused: number;
+  /** How many seats the chain holds now. */
+  readonly seats: number;
+}
+
+/**
+ * The cache's counters, for the tests alone (`architecture/testing.md` §11).
+ *
+ * "The standard library is checked once per process" is a **count**, not a
+ * duration: §8 forbids wall-clock thresholds in correctness tests, and a
+ * counter says the thing the timing was standing in for.
+ */
+export function standardLibraryCacheStatistics(): StandardLibraryCacheStatistics {
+  return { ...statistics, seats: cachedSeats.length };
+}
+
+/**
+ * Empties the chain, for the tests alone.
+ *
+ * `freezeEntries` makes every structure the cache keeps — trees, interfaces,
+ * emitted artefacts, `Map` and `Set` contents — refuse mutation, which is how
+ * the purity claim above is pinned rather than asserted. It is off in every
+ * shipped configuration: freezing the standard library on each chain build
+ * costs more than the chain saves, and the pin only needs it once.
+ */
+export function resetStandardLibraryCache(
+  options: { readonly freezeEntries?: boolean } = {},
+): void {
+  cachedPackageName = undefined;
+  cachedSeats = [];
+  freezingCachedSeats = options.freezeEntries === true;
+  statistics.compiles = 0;
+  statistics.seatsChecked = 0;
+  statistics.seatsReused = 0;
+  statistics.seatsEmitted = 0;
+  statistics.emissionsReused = 0;
+}
+
+/** The leading seats this compile may take as they stand. */
+function reusableStandardLibrary(
+  packageName: string | undefined,
+  injected: readonly Unit[],
+): readonly StandardLibrarySeat[] {
+  if (packageName !== cachedPackageName) return [];
+  let count = 0;
+  while (count < cachedSeats.length && count < injected.length) {
+    const seat = cachedSeats[count]!;
+    const unit = injected[count]!;
+    if (
+      Number(unit.source.id) !== seat.fileId || unit.source.path !== seat.sourcePath ||
+      unit.source.text !== seat.text || unit.path !== seat.path
+    ) break;
+    count += 1;
+  }
+  return cachedSeats.slice(0, count);
+}
+
+/**
+ * Replaces the chain with this compile's injected prefix, stopping at the first
+ * seat that reported anything.
+ *
+ * Reused seats are carried over rather than rebuilt, so a seat's tree is the
+ * one object for as long as its text is — which is what the frozen-prefix pin
+ * is freezing, and what keeps the `moduleInterface` memo alive across compiles.
+ */
+function rememberStandardLibrary(
+  packageName: string | undefined,
+  injected: readonly Unit[],
+  compiled: ReadonlyMap<string, CompiledModule>,
+  bases: readonly (InjectedIdBases | undefined)[],
+  runtimeBasename: string,
+  reused: readonly StandardLibrarySeat[],
+): void {
+  const seats: StandardLibrarySeat[] = [];
+  for (const unit of injected) {
+    const index = unit.seat!;
+    const module = compiled.get(unit.path);
+    const basis = bases[index];
+    if (module === undefined || basis === undefined) break;
+    if (
+      module.typed.diagnostics.length > 0 || module.javascript.diagnostics.length > 0 ||
+      module.declarations.diagnostics.length > 0
+    ) break;
+    const seat = reused[index] ?? newStandardLibrarySeat(unit, module, basis);
+    seat.emission.set(
+      runtimeBasename,
+      keep({ javascript: module.javascript, declarations: module.declarations }),
+    );
+    seats.push(seat);
+  }
+  cachedPackageName = packageName;
+  cachedSeats = seats;
+}
+
+/** A compiled injected module read back as the seat the chain keeps of it. */
+function newStandardLibrarySeat(
+  unit: Unit,
+  module: CompiledModule,
+  bases: InjectedIdBases,
+): StandardLibrarySeat {
+  return {
+    fileId: Number(unit.source.id),
+    sourcePath: unit.source.path,
+    text: unit.source.text,
+    path: unit.path,
+    // The interface is what consumers are actually handed, and the
+    // `moduleInterface` memo makes it one object for every compile that reuses
+    // this seat — so it is sealed here with the tree it reads.
+    checked: (keep(moduleInterface(module.resolved)), keep({
+      source: module.source,
+      name: module.name,
+      path: module.path,
+      parsed: module.parsed,
+      resolved: module.resolved,
+      typed: module.typed,
+      core: module.core,
+      runtimes: module.runtimes,
+    })),
+    bases,
+    emission: new Map<string, EmittedSeat>(),
+  };
+}
+
+/** The one door everything the cache keeps goes through; see `freezeEntries`. */
+function keep<T>(value: T): T {
+  return freezingCachedSeats ? deepFreeze(value) : value;
+}
+
+/**
+ * FFI Part 7 §2.4 rung 5's table, filled from one module's own items.
+ *
+ * Read from the module's **items**, never from `resolved.unions` and its
+ * siblings: those carry the imported copies too, so every module that named a
+ * type would claim to be its home.
+ *
+ * One writer, because a seat taken from the cache has to fill the program's
+ * tables exactly as checking it would have. Two copies of this walk is how the
+ * two routes come to disagree.
+ */
+function recordNominalHomes(
+  resolved: Resolved.Module,
+  path: string,
+  nominalHomes: Map<string, NominalHome>,
+): void {
+  for (const item of resolved.items) {
+    if (item.kind === "Union" && item.exported) {
+      nominalHomes.set(nominalHomeKey("union", Number(item.union)), { name: item.name, path });
+    } else if (item.kind === "RecordDeclaration" && item.exported) {
+      nominalHomes.set(nominalHomeKey("record", Number(item.record)), { name: item.name, path });
+    } else if (item.kind === "ExternBlock") {
+      for (const declaration of item.declarations) {
+        if (declaration.kind !== "ExternType" || !declaration.exported) continue;
+        nominalHomes.set(
+          nominalHomeKey("externType", Number(declaration.externType)),
+          { name: declaration.localName, path },
+        );
+      }
+    }
+  }
+}
+
+/**
+ * Method Syntax §4.2's companion operations this module contributes (#585).
+ *
+ * The schemes are the module's published ones, taken beside the symbols rather
+ * than left for a consumer to look up: the operations that need the table most
+ * are the ones no consumer imported, so no consumer holds their schemes either.
+ *
+ * `recordNominalHomes`' sibling, and one writer for the same reason.
+ */
+function recordCompanionOperations(
+  resolved: Resolved.Module,
+  typed: Typed.Module,
+  path: string,
+  programOperations: Map<string, Map<string, ProgramOperation>>,
+): void {
+  const ownOperations = homeCompanionOperations(resolved);
+  // Computed once, and only where there is something to name: §8.2's added
+  // import is written from the exporter's own spellings, and this is the
+  // enumeration every written import already travels with.
+  if (ownOperations.size === 0) return;
+  const publishedSchemes = new Map(typed.symbols.map(({ id, scheme }) => [id, scheme]));
+  const ownInternalNames = internalNameInputs(moduleInterface(resolved));
+  for (const [subject, operations] of ownOperations) {
+    let seats = programOperations.get(subject);
+    if (seats === undefined) {
+      seats = new Map();
+      programOperations.set(subject, seats);
+    }
+    for (const [name, symbol] of operations) {
+      const scheme = publishedSchemes.get(symbol.id);
+      if (scheme === undefined) continue;
+      seats.set(name, { symbol, scheme, path, internalNames: ownInternalNames });
+    }
+  }
+}
+
 /** Compiles every supplied file in dependency-first order without filesystem access. */
 export function compileProject(
   files: readonly Source.File[],
@@ -275,6 +575,20 @@ export function compileProject(
     record,
     files: given.map(normalize),
   }));
+  // The reserved range is the compiler's, and a host that spent from it would
+  // put one of its files on an injected module's number — one file to
+  // everything downstream, the later silently shadowing the earlier. That is
+  // host misuse rather than a program error, so it is refused the way
+  // `Source.fileId` refuses a negative one, and not as a diagnostic about a
+  // program that may be perfectly good.
+  for (const file of [...sourceFiles, ...dependencyPackages.flatMap(({ files: own }) => own)]) {
+    if (Number(file.id) < PRELUDE_ID_BASE) continue;
+    throw new RangeError(
+      `\`${file.path}\` was handed the file identity ${Number(file.id)}; a host's ` +
+        `file identities must be below ${PRELUDE_ID_BASE}, which is where the ` +
+        "members of `Hex` this compile weaves in take theirs",
+    );
+  }
   /**
    * Every package a module can resolve in, by name (Packages §3.1). `Hex` sees
    * itself and nothing else — its intra-set visibility is Modules §5.5's
@@ -299,7 +613,6 @@ export function compileProject(
     projectPackage,
     dependencyPackages,
     injectedModules,
-    options.firstFileId ?? 0,
     options.trustedStandardLibraryModules ?? new Set(),
     diagnostics,
   );
@@ -342,6 +655,26 @@ export function compileProject(
   // The runtime declaration module's stem, settled before any module is emitted
   // because every importer has to spell the same one (FFI Part 1 §8.3).
   const runtimeBasename = runtimeDeclarationsBasename(units);
+  /**
+   * The leading injected seats this compile takes from the chain rather than
+   * building (see `StandardLibrarySeat`). Read once, because the chain is
+   * replaced at the end of this call and `validatePatternFixes` compiles again
+   * from inside it.
+   */
+  const reusableSeats = injectedUnits.length === 0
+    ? []
+    : reusableStandardLibrary(projectPackage.name, injectedUnits);
+  /**
+   * Whether an injected module's **emission** is reusable too, which the whole
+   * prefix decides rather than a seat: `fundamentalInstances` is read off every
+   * prelude module (#679), so one recomputed seat can change what any of them
+   * plans.
+   */
+  const reusableEmission = injectedUnits.length > 0 &&
+    reusableSeats.length === injectedUnits.length;
+  if (injectedUnits.length > 0) statistics.compiles += 1;
+  /** Each injected seat's id allocators, for the chain this compile leaves. */
+  const seatBases: (InjectedIdBases | undefined)[] = [];
 
   const sourcePaths = new Set(
     [...sourceFiles, ...dependencyPackages.flatMap(({ files: given }) => given)]
@@ -571,6 +904,46 @@ export function compileProject(
     const isInjected = isPrelude || isRuntimeModule || libraryModuleSet.has(path);
     const source = sources.get(path)!;
     const parsedModule = parsed.get(path)!;
+    // Consumers see every prelude module; an *injected* module sees the members
+    // before its own seat, and only those (Modules §5.5). Ordering the set this
+    // way is what makes cycles impossible by construction, and it is why the
+    // list order is normative rather than incidental. An injected module never
+    // sees itself or anything later, so the first member sees nothing — and a
+    // runtime module is bound by the same rule, which is what keeps
+    // `VectorTrie.hex` from naming the `Vector` its own emission serves.
+    const seat = injectedSeats.get(path);
+    // Source-form, like every other specifier emission is handed: the runtime
+    // module sits at the **output root** under §8.3's probed stem, and a module
+    // a directory down — a dotted name's, or a package's — spells it `../hex`
+    // (FFI Part 7 §1.2; Packages §6). Spelled here rather than beside the
+    // emission because a seat taken from the chain owes it too, and it is the
+    // one field of a checked module the *program* decides.
+    const runtimeGlobalsSpecifier = relativeSpecifier(path, `/${runtimeBasename}.hex`);
+    const reusedSeat = seat === undefined ? undefined : reusableSeats[seat];
+    if (reusedSeat !== undefined) {
+      // Everything the seat contributed to the program's shared tables, replayed
+      // in the order a fresh compile filled them — the allocators it advanced,
+      // the nominals the variance analysis reads, the homes a `.d.ts` mints an
+      // import from, and §4.2's companion set.
+      preludeSymbolBase = reusedSeat.bases.symbol;
+      preludeUnionBase = reusedSeat.bases.union;
+      preludeRecordBase = reusedSeat.bases.record;
+      preludeExternTypeBase = reusedSeat.bases.externType;
+      seatBases[seat!] = reusedSeat.bases;
+      programNominals.unions.push(...reusedSeat.checked.resolved.unions);
+      programNominals.records.push(...reusedSeat.checked.resolved.records);
+      recordNominalHomes(reusedSeat.checked.resolved, path, nominalHomes);
+      recordCompanionOperations(
+        reusedSeat.checked.resolved,
+        reusedSeat.checked.typed,
+        path,
+        programOperations,
+      );
+      checked.set(path, { ...reusedSeat.checked, runtimeGlobalsSpecifier });
+      statistics.seatsReused += 1;
+      continue;
+    }
+    if (isInjected) statistics.seatsChecked += 1;
     // Keyed by the **written spelling** (Modules §2.3), carrying the specifier
     // the emitter writes — computed from the two modules' full names and their
     // package directories (§11.2, Packages §6), because the source wrote none.
@@ -588,14 +961,6 @@ export function compileProject(
         importedSchemes.set(symbol.id, symbol.scheme);
       }
     }
-    // Consumers see every prelude module; an *injected* module sees the members
-    // before its own seat, and only those (Modules §5.5). Ordering the set this
-    // way is what makes cycles impossible by construction, and it is why the
-    // list order is normative rather than incidental. An injected module never
-    // sees itself or anything later, so the first member sees nothing — and a
-    // runtime module is bound by the same rule, which is what keeps
-    // `VectorTrie.hex` from naming the `Vector` its own emission serves.
-    const seat = injectedSeats.get(path);
     const preludeVisible = seat === undefined
       ? preludePaths
       : preludePaths.filter((preludePath) => injectedSeats.get(preludePath)! < seat);
@@ -707,6 +1072,12 @@ export function compileProject(
         resolved.externTypes.map(({ externType }) => Number(externType)),
         preludeExternTypeBase,
       );
+      seatBases[seat!] = {
+        symbol: preludeSymbolBase,
+        union: preludeUnionBase,
+        record: preludeRecordBase,
+        externType: preludeExternTypeBase,
+      };
     } else {
       // Prelude identities are reserved above PRELUDE_ID_BASE; excluding them keeps
       // each consumer's own id range identical to a prelude-free compilation.
@@ -736,57 +1107,12 @@ export function compileProject(
     });
     programNominals.unions.push(...resolved.unions);
     programNominals.records.push(...resolved.records);
-    // Read from the module's own **items**, never from `resolved.unions` and its
-    // siblings: those carry the imported copies too, so every module that named
-    // a type would claim to be its home.
-    for (const item of resolved.items) {
-      if (item.kind === "Union" && item.exported) {
-        nominalHomes.set(nominalHomeKey("union", Number(item.union)), { name: item.name, path });
-      } else if (item.kind === "RecordDeclaration" && item.exported) {
-        nominalHomes.set(nominalHomeKey("record", Number(item.record)), { name: item.name, path });
-      } else if (item.kind === "ExternBlock") {
-        for (const declaration of item.declarations) {
-          if (declaration.kind !== "ExternType" || !declaration.exported) continue;
-          nominalHomes.set(
-            nominalHomeKey("externType", Number(declaration.externType)),
-            { name: declaration.localName, path },
-          );
-        }
-      }
-    }
-    // The schemes are this module's published ones, taken beside the symbols
-    // rather than left for a consumer to look up: the operations that need the
-    // table most are the ones no consumer imported, so no consumer holds their
-    // schemes either.
-    const publishedSchemes = new Map(typed.symbols.map(({ id, scheme }) => [id, scheme]));
-    const ownOperations = homeCompanionOperations(resolved);
-    // Computed once, and only where there is something to name: §8.2's added
-    // import is written from the exporter's own spellings, and this is the
-    // enumeration every written import already travels with.
-    const ownInternalNames = ownOperations.size === 0
-      ? { fixed: [], members: [], terms: [] }
-      : internalNameInputs(moduleInterface(resolved));
-    for (const [subject, operations] of ownOperations) {
-      let seats = programOperations.get(subject);
-      if (seats === undefined) {
-        seats = new Map();
-        programOperations.set(subject, seats);
-      }
-      for (const [name, symbol] of operations) {
-        const scheme = publishedSchemes.get(symbol.id);
-        if (scheme === undefined) continue;
-        seats.set(name, { symbol, scheme, path, internalNames: ownInternalNames });
-      }
-    }
+    recordNominalHomes(resolved, path, nominalHomes);
+    recordCompanionOperations(resolved, typed, path, programOperations);
     // The source travels with the tree so the post-elaboration judgments can
     // quote what was written (Exceptions §5.4's cannot-throw message).
     const core = elaborate(typed, source);
     const runtimes = runtimesFor(path, runtimeModulePathsByName);
-    // Source-form, like every other specifier emission is handed: the runtime
-    // module sits at the **output root** under §8.3's probed stem, and a module
-    // a directory down — a dotted name's, or a package's — spells it `../hex`
-    // (FFI Part 7 §1.2; Packages §6).
-    const runtimeGlobalsSpecifier = relativeSpecifier(path, `/${runtimeBasename}.hex`);
     checked.set(path, {
       source,
       name: unit.fullName,
@@ -822,6 +1148,28 @@ export function compileProject(
     if (module === undefined) continue;
     const { source, parsed: parsedModule, resolved, typed, core, runtimes } = module;
     const { runtimeGlobalsSpecifier } = module;
+    const seat = injectedSeats.get(path);
+    const reusedEmission = reusableEmission && seat !== undefined
+      ? reusableSeats[seat]?.emission.get(runtimeBasename)
+      : undefined;
+    if (seat !== undefined) {
+      if (reusedEmission === undefined) statistics.seatsEmitted += 1;
+      else statistics.emissionsReused += 1;
+    }
+    const javascript = reusedEmission?.javascript ?? emitJavaScript(core, {
+      exportInstanceEvidence: true,
+      runtimes,
+      runtimeGlobalsSpecifier,
+      fundamentalInstances,
+    });
+    const declarations = reusedEmission?.declarations ?? emitDeclarations(core, {
+      runtimeSpecifier: emittedModuleSpecifier(
+        relativeSpecifier(path, `/${runtimeBasename}.hex`),
+      ),
+      nominalHomes,
+      modulePath: path,
+      fundamentalInstances,
+    });
     compiled.set(path, {
       source,
       name: module.name,
@@ -832,20 +1180,8 @@ export function compileProject(
       core,
       runtimes,
       runtimeGlobalsSpecifier,
-      javascript: emitJavaScript(core, {
-        exportInstanceEvidence: true,
-        runtimes,
-        runtimeGlobalsSpecifier,
-        fundamentalInstances,
-      }),
-      declarations: emitDeclarations(core, {
-        runtimeSpecifier: emittedModuleSpecifier(
-          relativeSpecifier(path, `/${runtimeBasename}.hex`),
-        ),
-        nominalHomes,
-        modulePath: path,
-        fundamentalInstances,
-      }),
+      javascript,
+      declarations,
     });
   }
 
@@ -987,6 +1323,19 @@ export function compileProject(
     const module = compiled.get(path);
     return module === undefined ? [] : [module];
   });
+
+  // The chain this compile leaves behind, before `validatePatternFixes` can
+  // compile again from inside this call.
+  if (injectedUnits.length > 0) {
+    rememberStandardLibrary(
+      projectPackage.name,
+      injectedUnits,
+      compiled,
+      seatBases,
+      runtimeBasename,
+      reusableSeats,
+    );
+  }
 
   const finalDiagnostics = validatingPatternFixes > 0
     ? diagnostics.toArray()
@@ -1265,7 +1614,6 @@ function gatherModules(
   project: ProgramPackage,
   packages: readonly ProjectPackage[],
   injectedModules: readonly InjectedModule[],
-  firstFileId: number,
   trustedStandardLibraryModules: ReadonlySet<string>,
   diagnostics: Diagnostics.Bag,
 ): readonly Unit[] {
@@ -1311,18 +1659,20 @@ function gatherModules(
   );
   const adopted = new Set<Parsed.Module>();
   const units: Unit[] = [];
-  // **One allocator**, above every identity anyone holds: the files this compile
-  // was handed, and — through `firstFileId` — the ones the caller minted and did
-  // not hand over. Recomputing a maximum per member would be the same answer
-  // for the first two and blind to the third, and the collision it left was
-  // silent: two files, one number, the later shadowing the earlier wherever a
-  // span is resolved back to a path.
-  const allFiles = [...sourceFiles, ...packages.flatMap(({ files }) => files)];
-  let nextFileId = Math.max(firstFileId, ...allFiles.map((file) => Number(file.id) + 1));
-  const mintFileId = (): Source.FileId => Source.fileId(nextFileId++);
+  // **Two allocators that cannot meet**, rather than one shared with the host.
+  // A woven member's identity is its seat in the reserved range, which makes it
+  // a fact about the member rather than about the program it was woven into —
+  // the same argument `PRELUDE_ID_BASE` already makes for symbols, unions,
+  // records and extern types, and what lets a checked seat and its spans be
+  // reused by the next compile. Taking the floor from the supplied files
+  // instead left a collision whenever a host minted an identity for a file it
+  // did not pass — `AnalysisSession.referenceFile` gives a `hexagon.json` one —
+  // and the collision was silent: two files, one number, the later shadowing
+  // the earlier wherever a span is resolved back to a path.
+  const mintFileId = (seat: number): Source.FileId => Source.fileId(PRELUDE_ID_BASE + seat);
   const injectedNames = new Set(injectedModules.map(({ name }) => name));
   const fallbackSpan = supplied[0]?.parsed.name.span ?? sourceFiles[0]?.span(0, 0) ?? {
-    fileId: Source.fileId(firstFileId),
+    fileId: Source.fileId(0),
     start: { offset: 0, line: 0, column: 0 },
     end: { offset: 0, line: 0, column: 0 },
   };
@@ -1380,7 +1730,7 @@ function gatherModules(
       continue;
     }
     const source = new Source.File(
-      mintFileId(),
+      mintFileId(index),
       `/${STANDARD_LIBRARY}/${member.name.replaceAll(".", "/")}.hex`,
       member.source,
     );
@@ -1573,7 +1923,18 @@ function joinWithOr(items: readonly string[]): string {
     : `${items.slice(0, -1).join(", ")} or ${items.at(-1)}`;
 }
 
-/** Reserved id floor for prelude identities, above any realistic per-project count. */
+/**
+ * The reserved floor for every **injected** identity: the symbols, unions,
+ * records and extern types the members of `Hex` declare, and the files they are
+ * read from.
+ *
+ * Above any realistic per-project count, which is what lets the two ranges be
+ * compared rather than allocated against each other. A project's own ids are
+ * then what a compile with no standard library would have given it, and an
+ * injected module's identities and spans are a fact about that module rather
+ * than about the program it was woven into — which is what makes a checked seat
+ * reusable by the next compile at all (see `StandardLibrarySeat`).
+ */
 const PRELUDE_ID_BASE = 1_000_000;
 
 function nextId(ids: readonly number[], fallback: number): number {
