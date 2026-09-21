@@ -91,10 +91,10 @@ function compile(subject: Subject, source: string): ReturnType<typeof compileFil
  * Diagnostics rendered with file and position. A bare message is unreadable
  * here: the project holds the injected prelude too, so which file failed is half
  * the information. The subject is the project's only supplied file, so it holds
- * file id 0 (`compileFiles` numbers what it is handed from zero, and
- * `injectPrelude` allocates above the highest supplied id); the rest of the map
- * comes from the emitted modules, and anything left over is a prelude member the
- * project did not emit.
+ * file id 0 (`compileFiles` numbers what it is handed from zero, and the woven
+ * members take their identities from a reserved range far above it); the rest of
+ * the map comes from the emitted modules, and anything left over is a prelude
+ * member the project did not emit.
  */
 function report(project: ReturnType<typeof compileFiles>, subject: Subject): readonly string[] {
   const paths = new Map<Source.FileId, string>([

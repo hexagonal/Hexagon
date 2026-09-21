@@ -998,7 +998,32 @@ export function nameDictionaries(
   };
 }
 
+/**
+ * One interface per resolved module, for the life of that module's tree.
+ *
+ * A module's interface is a pure function of its resolved tree, and
+ * `compileProject` asks for it once **per edge**: every module of a program sees
+ * every prelude module, so a 45-member standard library was rebuilt 45 times for
+ * each module compiled after it. The answer is the same every time, so the memo
+ * is the whole fix — and it is a `WeakMap` rather than a field on the tree
+ * because a `Resolved.Module` is a pass's output rather than a place to keep
+ * derived state, and because the entry has to go when the tree does.
+ *
+ * Consumers must treat the answer as **shared**: it is handed to every importer
+ * of the module, and inside the cached standard-library prefix it outlives the
+ * compile that built it.
+ */
+const moduleInterfaces = new WeakMap<Resolved.Module, ModuleInterface>();
+
 export function moduleInterface(module: Resolved.Module): ModuleInterface {
+  const memoized = moduleInterfaces.get(module);
+  if (memoized !== undefined) return memoized;
+  const computed = computeModuleInterface(module);
+  moduleInterfaces.set(module, computed);
+  return computed;
+}
+
+function computeModuleInterface(module: Resolved.Module): ModuleInterface {
   const symbols = new Map(module.symbols.map((symbol) => [symbol.id, symbol]));
   const terms = new Map<string, Resolved.Symbol>();
   const patterns = new Map<string, Resolved.PatternReference>();
