@@ -4190,7 +4190,11 @@ class JavaScriptEmitter {
             // JavaScript caller handing it an array must not hand it one the
             // module goes on to hold. `Array.length` and `Array.toVector` are
             // today's inventory.
-            const exported = this.#boundaryExportName(local, declaredType);
+            const exported = this.#boundaryExportName(
+              local,
+              declaredType,
+              declaration.localName,
+            );
             this.#exports.push(
               exported === declaration.localName
                 ? `export { ${exported} };`
@@ -4943,6 +4947,7 @@ class JavaScriptEmitter {
         const exported = this.#boundaryExportName(
           specialization.name,
           specialization.scheme.type,
+          specialization.name,
         );
         this.#exports.push(
           exported === specialization.name
@@ -4952,7 +4957,11 @@ class JavaScriptEmitter {
       }
       return;
     }
-    const exported = this.#boundaryExportName(name, item.binding.scheme.type);
+    const exported = this.#boundaryExportName(
+      name,
+      item.binding.scheme.type,
+      item.binding.name,
+    );
     this.#exports.push(
       exported === item.binding.name
         ? `export { ${exported} };`
@@ -5000,7 +5009,7 @@ class JavaScriptEmitter {
     const type = this.#symbols.get(symbol)?.scheme.type;
     const exported = type === undefined
       ? local
-      : this.#boundaryExportName(local, type, false);
+      : this.#boundaryExportName(local, type, sourceName, false);
     this.#exports.push(
       exported === sourceName
         ? `export { ${exported} };`
@@ -5080,7 +5089,12 @@ class JavaScriptEmitter {
    * Returns the name to export under — the internal one when neither occasion
    * fires, which is the overwhelmingly common case.
    */
-  #boundaryExportName(name: string, type: Typed.Type, walkResult = true): string {
+  #boundaryExportName(
+    name: string,
+    type: Typed.Type,
+    publicName: string,
+    walkResult = true,
+  ): string {
     if (type.kind !== "Function") return name;
     const sequences = type.parameters.map((parameter) => this.#isSequence(parameter));
     const captured = type.parameters.map((parameter) => this.#copies(parameter));
@@ -5101,6 +5115,20 @@ class JavaScriptEmitter {
       `const ${wrapper} = ${arrowParameters(parameters)} => ${
         result ? this.#captured(type.result, call) : call
       };`,
+      // **The wrapper stands in for the function, so its observable face is the
+      // function's** (FFI Part 6 §1), and a reserved `__` spelling never reaches
+      // the published surface (Lexer §3.2). The name it takes is the **public**
+      // one — what the `.d.ts` declares and what the ESM binding is reached by
+      // — not the internal identifier the body happens to have, and not this
+      // wrapper's own minted spelling. Arity needs no such line here, because
+      // the wrapper is emitted with the declared parameters (§2).
+      //
+      // `configurable: true` is written rather than inherited, for the reason
+      // the conversion wrapper's pair is: a `defineProperty` on a property that
+      // turned out to be fresh would default it to `false`, and the descriptor
+      // must be an ordinary function's whichever shape this seat emits.
+      `${this.#spell("Object")}.defineProperty(${wrapper}, "name", ` +
+      `{ value: ${JSON.stringify(publicName)}, configurable: true });`,
     );
     return wrapper;
   }
@@ -12643,7 +12671,9 @@ const HELPER_DEPENDENCIES: Readonly<Record<Helper, readonly Helper[]>> = {
   // no adapter, no memo, no driver — one foreign step per pull.
   streamInbound: [],
   // Owes nothing either, and that is the design: FFI Part 1 §5.4's walk is one
-  // interpreter over a plan table, so no second helper composes with it.
+  // interpreter over a plan table, so no second helper composes with it. The
+  // conversion wrapper a function node makes (Part 6 §5.5) re-enters *this*
+  // helper at each invocation, which is a self-call and not a dependency.
   capture: [],
   debugLog: [],
   jsValueKind: [],
@@ -13182,18 +13212,20 @@ function renderHelper(
     // array's length at the fault, which is what the reader of the message
     // needs and what a `Vector` fault reports.
     // FFI Part 1 §5.4's capture walk, interpreted over one module's plan table
-    // (`capture.ts`). Three obligations shape the body, and each is the reason
+    // (`capture.ts`). Four obligations shape the body, and each is the reason
     // for a clause a shorter one would not have:
     //
     // **The walk is iterative** — §5.4's "the walk over a long acyclic structure
     // is an *iterative* traversal that does not depend on recursion depth". So
-    // there is one worklist and no recursive call: a task produces the *shell*
-    // of its copy, assigns it into its parent's slot, and pushes a task for each
-    // component that needs walking. A chain of a hundred thousand records costs
-    // a hundred thousand entries and one frame. The list is walked by an
-    // advancing index rather than popped, which makes the order breadth-first:
-    // the order across collections is unobservable, and the order *within* one
-    // is settled before a task ends.
+    // there is one worklist and no recursive call *over a value*: a task
+    // produces the *shell* of its copy, assigns it into its parent's slot, and
+    // pushes a task for each component that needs walking. A chain of a hundred
+    // thousand records costs a hundred thousand entries and one frame. The
+    // fourth obligation's wrapper re-enters this function, which is not a walk
+    // over a value at all — it is a fresh walk per invocation. The list is
+    // walked by an advancing index rather than popped, which makes the order
+    // breadth-first: the order across collections is unobservable, and the
+    // order *within* one is settled before a task ends.
     //
     // **An array's access pattern is the contract** — "reads each index exactly
     // once in index order through native array access; an exotic array object
@@ -13210,6 +13242,12 @@ function renderHelper(
     // puts after every walk this task pushed — so a key or value that is itself
     // a captured collection is inserted as the object it will be, and the
     // interior it is still filling is reached through that same object.
+    //
+    // **A function value becomes a wrapper, not a copy** — §5.4's function
+    // clause and Part 6 §5.5. The one place the body re-enters itself: the
+    // wrapper it makes here walks its arguments and its result at *invocation*
+    // time, in the frame the foreign caller supplies, which is the only frame
+    // that exists to run a walk in. The `function` clause says the rest.
     case "capture":
       return [
         `function ${name}(__plans, __plan, __value) {`,
@@ -13297,6 +13335,77 @@ function renderHelper(
         "        if (__field[1] === null) __copy[__field[0]] = __held;",
         "        else __work.push({ plan: __field[1], from: __held, into: __copy, at: __field[0] });",
         "      }",
+        `    } else if (__node.k === "function") {`,
+        // FFI Part 6 §5.5's **conversion wrapper**: "a fresh function, created
+        // where the callback value crosses, that at each invocation runs Part 1
+        // §5.4's walk over every argument and the result at their declared
+        // types … and calls the original". Everything it is obliged to be is a
+        // line here:
+        //
+        // **Fresh, and never cached.** It is made by the crossing that reached
+        // this node, so two crossings of one function are two wrappers and a
+        // registration API cannot match them — §5.5's recorded departure from
+        // §5.1's identity guarantee. There is no table keyed by function and
+        // signature: that is Part 6 §8 item 2's deferred upgrade, and this is
+        // the clause that defers it.
+        //
+        // **The declared arity** (§2). The slots are the declared parameters,
+        // so a JS caller's extras reach none and are dropped, and `length` is
+        // set to that count because a Hexagon function *is* an n-ary JS
+        // function (§1) and this wrapper stands in one's place: an API that
+        // branches on a callback's arity must see the arity declared.
+        //
+        // **An arrow** (§6): a Hexagon callback cannot observe `this`, so the
+        // wrapper neither binds one nor forwards one.
+        //
+        // **It never catches** (§4). A Hexagon callback's throw leaves branded
+        // through this frame, and a foreign one's arrives for §4.1's ordinary
+        // discrimination; a `try` here would be a third thing in between.
+        //
+        // The walk it runs is this same function re-entered, so a callback
+        // taking a callback wraps again at each invocation, and a deep argument
+        // is still the iterative traversal above.
+        // `__node` is the one binding the closure copies out, because it is
+        // the one the `nullable` loop above may reassign; `__from` is already
+        // a `const` of this iteration.
+        "      const __signature = __node;",
+        "      __copy = (...__arguments) => {",
+        "        const __passed = [];",
+        "        for (let __index = 0; __index < __signature.p.length; __index += 1) {",
+        "          const __slot = __signature.p[__index];",
+        "          const __argument = __arguments[__index];",
+        `          __passed.push(__slot === null ? __argument : ${name}(__plans, __slot, __argument));`,
+        "        }",
+        "        const __answer = __from(...__passed);",
+        `        return __signature.r === null ? __answer : ${name}(__plans, __signature.r, __answer);`,
+        "      };",
+        // The declared arity as an observable face (§2).
+        //
+        // **`configurable: true` is written, not inherited.** Both properties
+        // happen to be own properties the arrow already has — `__copy = (…) =>
+        // …` is a named evaluation, so it owns `name` too — and redefining
+        // `value` alone would keep what they carry. But that is a rule about
+        // the *shape this body happens to have*, and a `defineProperty` on a
+        // property that turned out to be fresh defaults to `configurable:
+        // false`, which would leave foreign code holding something it cannot
+        // re-describe where the original could. Writing it makes the descriptor
+        // the same either way: an ordinary function's.
+        //
+        // **The wrapper is anonymous**, which is what an arrow in argument
+        // position is: it contributes no spelling of its own — in particular no
+        // reserved `__` local, which Lexer §3.2 keeps off the published surface
+        // and which is what `__copy` would otherwise put there — and it reads
+        // nothing off the value it wraps, because §5.4's walk probes nothing.
+        // Both are why the name is the static `""` rather than the original's:
+        // reading `__from.name` is a foreign property read in §5.3's inbound
+        // direction, observable to a `Proxy` `get` trap and able to throw
+        // before the wrapper exists, and a Hexagon original may carry a
+        // reserved spelling of its own (`let delete(xs) = …` emits `function
+        // __delete`), so copying would leak one anyway.
+        `      ${spell("Object")}.defineProperty(__copy, "length", ` +
+        "{ value: __signature.p.length, configurable: true });",
+        `      ${spell("Object")}.defineProperty(__copy, "name", ` +
+        '{ value: "", configurable: true });',
         `    } else if (__node.k === "union") {`,
         "      const __tag = __from.tag;",
         "      for (const __arm of __node.arms) {",
