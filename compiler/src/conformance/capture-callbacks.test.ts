@@ -466,6 +466,87 @@ describe("outbound: a Hexagon callback handed to JavaScript (§5.5)", () => {
   });
 
   /**
+   * Both properties are pinned as **descriptors**, against an ordinary
+   * function's, not merely as values: the wrapper stands where an n-ary
+   * JavaScript function stood (§1), so "both properties carry the descriptors
+   * an ordinary function's carry" — a `configurable: false` slipping in would
+   * leave foreign code holding something it cannot re-describe where the
+   * original could.
+   *
+   * **The wrapper is anonymous**, which is what an arrow in argument position
+   * is: it contributes no spelling of its own — in particular not the helper's
+   * own `__copy`, a reserved `__` local Lexer §3.2 keeps off the published
+   * surface — and it does not take the original's, because reading one is a
+   * foreign property read §5.4's walk may not perform and a Hexagon original
+   * may itself carry a reserved spelling. The export wrapper's `name` is a
+   * different question with a different answer, and is
+   * `capture-export-wrappers.test.ts`'s.
+   */
+  test("the wrapper is anonymous and its `length` is an ordinary one", async () => {
+    const { main, foreign } = await run(
+      'extern from "faces"\n' +
+        "    fun inspect(cb: Array(Int) -> Int) ->! Int\n" +
+        "\n" +
+        "let onRows(xs: Array(Int)): Int = Array.length(xs)\n" +
+        "\n" +
+        "export fun probe(): Int = inspect!(onRows)\n",
+      {
+        faces: "export const seen = {};\n" +
+          "export function inspect(cb) {\n" +
+          "  seen.name = cb.name;\n" +
+          '  seen.lengthDescriptor = Object.getOwnPropertyDescriptor(cb, "length");\n' +
+          '  seen.nameDescriptor = Object.getOwnPropertyDescriptor(cb, "name");\n' +
+          // The two references the descriptors must match: an ordinary
+          // one-parameter function's `length`, and an anonymous arrow's `name`
+          // — the arrow is passed through a call so that nothing names it.
+          '  seen.nativeLength = Object.getOwnPropertyDescriptor(function (a) {}, "length");\n' +
+          "  const anonymous = ((f) => f)((a) => a);\n" +
+          '  seen.nativeName = Object.getOwnPropertyDescriptor(anonymous, "name");\n' +
+          "  return cb([1, 2]);\n" +
+          "}\n",
+      },
+    );
+    expect((main["probe"] as () => number)()).toBe(2);
+    const { seen } = await foreign("faces") as {
+      seen: {
+        name: string;
+        lengthDescriptor: PropertyDescriptor;
+        nameDescriptor: PropertyDescriptor;
+        nativeLength: PropertyDescriptor;
+        nativeName: PropertyDescriptor;
+      };
+    };
+    expect(seen.name).toBe("");
+    expect(seen.lengthDescriptor).toEqual(seen.nativeLength);
+    expect(seen.lengthDescriptor.value).toBe(1);
+    expect(seen.nameDescriptor).toEqual(seen.nativeName);
+    expect(seen.nameDescriptor.configurable).toBe(true);
+  });
+
+  /**
+   * The same in the **other direction**, which is where the wrapper's own
+   * spelling would otherwise be most visible: a JavaScript caller's named
+   * function becomes Hexagon's wrapper on entry (§5.3) and a second wrapper on
+   * the way back out, and neither carries the caller's name nor the helper's
+   * local. The name it does *not* have is worth naming: `__copy`.
+   */
+  test("neither direction's wrapper carries a name", async () => {
+    const { main } = await run(
+      "export fun echo(f: Array(Int) -> Int): Array(Int) -> Int = f\n",
+      {},
+    );
+    const echo = main["echo"] as (
+      f: (xs: readonly number[]) => number,
+    ) => (xs: readonly number[]) => number;
+    const back = echo(function counted(xs) {
+      return xs.length;
+    });
+    expect(back.name).toBe("");
+    expect(back.name).not.toBe("__copy");
+    expect(back([1, 2, 3])).toBe(3);
+  });
+
+  /**
    * §3.1/§3.2: `Unit`'s representation is `undefined` and "a `Unit`-returning
    * Hexagon function or callback returns JavaScript `undefined` naturally;
    * nothing is manufactured at the boundary". The wrapper passes that through

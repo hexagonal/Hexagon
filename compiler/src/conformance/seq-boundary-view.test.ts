@@ -733,13 +733,18 @@ describe("occasion 1's wrapper is transparent to Hexagon importers (§9.4)", () 
     expect(project.diagnostics).toEqual([]);
     const compiled = project.modules.find((module) => module.source.path === "/main.hex")!;
     const javascript = compiled.javascript.text;
-    // Every specialization the face publishes is wrapped, and named as itself.
+    // Every specialization the face publishes is wrapped, and named as itself
+    // — in the `.d.ts`, in the export statement, and on the wrapper object,
+    // whose `name` is the public one rather than the `__`-reserved local it is
+    // declared under (FFI Part 6 §1; Lexer §3.2).
     for (const instance of ["totalNat", "totalInt", "totalFloat", "totalBigInt"]) {
       expect(compiled.declarations.text).toContain(`export declare function ${instance}(`);
       expect(javascript).toMatch(
         new RegExp(
           `const (\\w+) = \\(__argument0, __argument1\\) => ` +
             `${instance}\\(__seqInbound\\(__argument0\\), __argument1\\);\\n` +
+            `Object\\.defineProperty\\(\\1, "name", ` +
+            `\\{ value: "${instance}", configurable: true \\}\\);\\n` +
             `export \\{ \\1 as ${instance} \\};`,
           "u",
         ),
@@ -777,9 +782,12 @@ describe("occasion 1's wrapper is transparent to Hexagon importers (§9.4)", () 
     // `total` binds the internal name — so exactly two wrappers, not three.
     expect(declarations).toHaveLength(2);
     expect(new Set(declarations.map(([, name]) => name)).size).toBe(2);
-    // And each is named exactly once more, by its export statement.
+    // And each is named exactly twice more, at the two seats that belong to the
+    // binding itself: the `name` repair that gives it its public face and the
+    // export statement. Three in total, whatever the program's call sites do —
+    // a per-reference wrapper would scale with them.
     for (const [, name] of declarations) {
-      expect(javascript.split(name!).length - 1).toBe(2);
+      expect(javascript.split(name!).length - 1).toBe(3);
     }
     const exports = await main(source);
     expect((exports["total"] as (values: Iterable<number>) => number)([1, 2, 3])).toBe(6);

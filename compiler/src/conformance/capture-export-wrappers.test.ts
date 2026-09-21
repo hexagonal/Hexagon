@@ -170,6 +170,39 @@ describe("the public name binds the wrapper and the internal edition rides besid
     expect(text).toContain("export { hold as __hold };");
   });
 
+  /**
+   * **The wrapper stands in for the function, so its observable face is the
+   * function's** (FFI Part 6 §1), and a reserved `__` spelling never reaches
+   * the published surface (Lexer §3.2). The name it takes is the **public**
+   * one — what the `.d.ts` declares and what the ESM binding is reached by —
+   * so a JavaScript consumer logging, keying on, or reporting the function it
+   * imported reads what it imported and not a compiler local.
+   *
+   * Arity needs no such repair at this seat: the wrapper is emitted with the
+   * declared parameters, so it already has the declared `length`.
+   */
+  test("the wrapper faces JavaScript under the public name", async () => {
+    const SOURCE = "export fun withArray(xs: Array(Int)): Int = xs[1]\n";
+    expect(javascript(SOURCE)).toContain(
+      'Object.defineProperty(__withArrayBoundary, "name", ' +
+        '{ value: "withArray", configurable: true });',
+    );
+    const { main } = await run(SOURCE, {});
+    const withArray = main["withArray"] as (xs: readonly number[]) => number;
+    expect(withArray.name).toBe("withArray");
+    expect(withArray.name).not.toMatch(/^__/u);
+    // A descriptor, not just a value: "both properties carry the descriptors an
+    // ordinary function's carry", and `configurable: true` is written into the
+    // emission rather than inherited from the arrow, so the shape this seat
+    // happens to emit cannot decide it.
+    expect(Object.getOwnPropertyDescriptor(withArray, "name"))
+      .toEqual(Object.getOwnPropertyDescriptor(function withArray(_xs: unknown) {}, "name"));
+    // Arity needs no repair at this seat and takes none: the wrapper is emitted
+    // with the declared parameters, so its `length` is the published face's.
+    expect(withArray.length).toBe(1);
+    expect(withArray([7, 8])).toBe(7);
+  });
+
   /** And on exit, at the result: "Hexagon's array leaves as a copy". */
   test("a captured result is walked on exit", () => {
     const text = javascript("export fun make(v: Vector(Int)): Array(Int) = Vector.toArray(v)\n");
@@ -801,17 +834,22 @@ describe("an extern binding's copying wrapper is already one object (Part 4 §4.
    * section names copies", and an elimination is a proof nobody has specified.
    */
   test("the re-export is one object; a first-class hand-out is a fresh wrapper", async () => {
-    const { main } = await run(
-      'extern from "rows"\n' +
-        "    export fun rows() ->! Array(Int)\n" +
-        "\n" +
-        "export fun viaRef(): () ->! Array(Int) = rows\n",
-      {
-        rows: "export const source = [1, 2];\nexport function rows() { return source; }\n",
-      },
-    );
+    const SOURCE = 'extern from "rows"\n' +
+      "    export fun rows() ->! Array(Int)\n" +
+      "\n" +
+      "export fun viaRef(): () ->! Array(Int) = rows\n";
+    // The re-export's witness is the emitted text, because a runtime identity
+    // comparison of one binding against itself cannot fail: what says occasion
+    // 4 added nothing is that the extern binding *is* what leaves, with no
+    // wrapper minted for it and no walk on the way out.
+    const text = javascript(SOURCE);
+    expect(text).toContain("const rows = () => __capture(__capturePlans, 0, __rowsForeign());");
+    expect(text).toContain("export { rows };");
+    expect(text).not.toContain("rowsBoundary");
+    const { main } = await run(SOURCE, {
+      rows: "export const source = [1, 2];\nexport function rows() { return source; }\n",
+    });
     const viaRef = main["viaRef"] as () => () => readonly number[];
-    expect(main["rows"]).toBe(main["rows"]);
     expect(viaRef()).not.toBe(main["rows"]);
     expect(viaRef()).not.toBe(viaRef());
     // What it hands out is still the extern binding's answer, and still a value

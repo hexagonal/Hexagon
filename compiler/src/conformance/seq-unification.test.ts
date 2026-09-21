@@ -349,7 +349,10 @@ describe("the boundary face (FFI Part 3)", () => {
     // The `Seq` parameter is routed through the door; the `Seq` result is not
     // wrapped at all, because the value already carries its face.
     expect(compiled.javascript.text).toMatch(
-      /const (\w+) = __argument0 => total\(__seqInbound\(__argument0\)\);\nexport \{ \1 as total \};/u,
+      // The face repair sits between the wrapper and its export: it is minted,
+      // given the public name it faces JavaScript under (FFI Part 6 §1; Lexer
+      // §3.2 keeps the `__` local off that surface), and then exported.
+      /const (\w+) = __argument0 => total\(__seqInbound\(__argument0\)\);\nObject\.defineProperty\(\1, "name", \{ value: "total", configurable: true \}\);\nexport \{ \1 as total \};/u,
     );
     expect(compiled.javascript.text).toContain("export { upTo };");
   });
