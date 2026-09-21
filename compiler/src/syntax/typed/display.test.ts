@@ -124,6 +124,44 @@ describe("displayScheme", () => {
     ).toBe("Unit -> Bool");
   });
 
+  /**
+   * An open record's tail, quantified and not (#959, under #649's rule that no
+   * user-facing rendering shows a numbered inference variable).
+   *
+   * The tail is the one slot where a variable can reach the display without a
+   * letter: a monomorphic binding's open record is never generalized, so its
+   * row is unquantified and the letter map — which names the scheme's
+   * quantified variables — has nothing for it. It renders as the bare `...`
+   * the checker's diagnostics already write, which says exactly what is known:
+   * there may be more fields, and nothing names how many.
+   */
+  test("renders an unquantified row tail as the bare `...`, never a number", () => {
+    const tail = typeVariableId(487);
+    const row = (quantified: boolean): string =>
+      displayScheme({
+        variables: quantified ? [tail] : [],
+        constraints: [],
+        type: {
+          kind: "Vector",
+          element: {
+            kind: "Function",
+            parameters: [{
+              kind: "Record",
+              fields: [{ name: "n", type: { kind: "Primitive", name: "Int" } }],
+              tail,
+            }],
+            result: { kind: "Tuple", elements: [] },
+          },
+        },
+      });
+
+    expect(row(false)).toBe("Vector({n: Int, ...} -> Unit)");
+    expect(row(false)).not.toMatch(/t\d/);
+    // A quantified tail is a variable the signature *does* name, and it keeps
+    // its letter: the bare form is for the row nothing quantified.
+    expect(row(true)).toBe("Vector({n: Int, ...a} -> Unit)");
+  });
+
   test("renders nominal union names", () => {
     expect(
       displayScheme({

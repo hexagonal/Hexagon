@@ -225,6 +225,54 @@ describe("AnalysisSession", () => {
     expect(hover?.displayedType).toBe("Colour -> Colour");
   });
 
+  /**
+   * Hover obeys #649 in the one place it used to escape it: an open record's
+   * row tail (#959).
+   *
+   * A monomorphic binding's open record leaves an *unquantified* row, and the
+   * display's letters name the quantified variables, so the tail used to fall
+   * to an internal number — `{n: Int, ...t487}` — in the one channel a user
+   * reads most. It renders as the bare `...` the checker's diagnostics write.
+   * The three programs are the three ways the row arrives: an extern
+   * declaration (the issue's own, refused at the foreign boundary — hover
+   * answers over broken code, which is when it matters most), an ordinary
+   * exported binding that compiles clean, and a generic function whose tail is
+   * quantified and keeps its letter.
+   */
+  test("hover renders an unquantified row tail as `...`, never a number", () => {
+    const externed = "module Main\n\n" + [
+      'extern from "./m.js"',
+      "    let handlers: Vector(({n: Int, ...}) -> Unit)",
+      "",
+    ].join("\n");
+    const { session: externSession } = sessionOf({ "/main.hex": externed });
+    const externHover = externSession.hover("/main.hex", at(externed, "handlers"));
+    expect(externHover?.displayedType).toBe("Vector({n: Int, ...} -> Unit)");
+
+    const bound = "module Main\n\n" + [
+      "export let handlers: Vector(({n: Int, ...}) -> Unit) = []",
+      "",
+    ].join("\n");
+    const { session: boundSession } = sessionOf({ "/main.hex": bound });
+    expect(boundSession.diagnostics("/main.hex")).toEqual([]);
+    const boundHover = boundSession.hover("/main.hex", at(bound, "handlers"));
+    expect(boundHover?.displayedType).toBe("Vector({n: Int, ...} -> Unit)");
+
+    const generic = "module Main\n\n" + [
+      "let each(rows: Vector({n: Int, ...})) = rows",
+      "",
+    ].join("\n");
+    const { session: genericSession } = sessionOf({ "/main.hex": generic });
+    expect(genericSession.diagnostics("/main.hex")).toEqual([]);
+    const genericHover = genericSession.hover("/main.hex", at(generic, "each"));
+    expect(genericHover?.displayedType)
+      .toBe("Vector({n: Int, ...a}) -> Vector({n: Int, ...a})");
+
+    for (const rendered of [externHover, boundHover, genericHover]) {
+      expect(rendered?.displayedType).not.toMatch(/t\d/);
+    }
+  });
+
   test("hover on a type names the type without inventing one", () => {
     const { session } = sessionOf({ "/helper.hex": HELPER, "/main.hex": MAIN });
     const hover = session.hover("/main.hex", at(MAIN, "Colour"));
