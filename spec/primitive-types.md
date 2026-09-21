@@ -114,17 +114,24 @@ Float.floor(value: Float): Int
 Float.ceil(value: Float): Int
 Float.trunc(value: Float): Int
 Float.round(value: Float): Int
-Float.roundEven(value: Float): Int
+Float.roundAway(value: Float): Int
 ```
 
 `floor` returns the greatest integer no greater than `value`; `ceil` returns the
 least integer no less than it; `trunc` rounds toward zero. `round` returns the
-nearest integer and sends an exact halfway value away from zero. `roundEven`
-also returns the nearest integer, but sends an exact halfway value to the even
-integer. Thus `Float.round(2.5) == 3`, `Float.round(-2.5) == -3`, while
-`Float.roundEven(2.5) == 2`, `Float.roundEven(3.5) == 4`, and the negative cases mirror
-them. The two nearest rules differ only at an exact half; neither uses
-JavaScript `Math.round`'s asymmetric ties-toward-positive-infinity convention.
+nearest integer and sends an exact halfway value to the even integer. `roundAway`
+also returns the nearest integer, but sends an exact halfway value away from zero.
+Thus `Float.round(2.5) == 2`, `Float.round(3.5) == 4`, and
+`Float.round(-2.5) == -2`, while `Float.roundAway(2.5) == 3` and
+`Float.roundAway(-2.5) == -3`. The two nearest rules differ only at an exact half:
+`Float.roundAway(2.1) == 2`, because it does not always round away from zero.
+Neither uses JavaScript `Math.round`'s asymmetric ties-toward-positive-infinity
+convention. Float and Dec intentionally give their shortest explicit rounding
+name different tie rules: `Dec.round` uses ties away and `Dec.roundEven` uses ties
+to even. This is not an ambient rounding mode and does not change Float
+arithmetic, conversions, or Math functions. `Float.roundEven` is removed without
+an alias; existing callers must select `round` or `roundAway` by their intended
+tie rule (#974).
 
 Each operation first determines its integer-valued `Float`. If that result is
 not a safe integer — exactly the host predicate `Number.isSafeInteger`, which
@@ -361,7 +368,7 @@ Unchanged and still worth its ink here: **`Unit`'s `undefined` must not be confu
 | `_` separators: JS rule, all numeric literals; decimal-only bases in v1 | this doc §8 |
 | `Unit` = `()` = JS `undefined` | this doc §9 |
 | `Float.nan` / `Float.infinity` constants and `Float.isNan` / `Float.isFinite` detectors; no special-value literals; `x != x` is uniformly `False` | this doc §3 |
-| `Float.floor`/`ceil`/`trunc`/`round`/`roundEven` return `Int`; `round` uses ties away from zero, `roundEven` ties to even; unsafe results throw target-owned `IntRangeError`; zero is canonical | this doc §3; #919 |
+| `Float.floor`/`ceil`/`trunc`/`round`/`roundAway` return `Int`; `round` uses ties to even, `roundAway` ties away from zero; unsafe results throw target-owned `IntRangeError`; zero is canonical | this doc §3; #919, #974 |
 | Int overflow: silent past ±2^53, plain-JS operators; checked stdlib variants; `--checked-int` reserved; int32/`\|0` rejected | this doc §2.1 |
 | `Ord String` = codepoint lexicographic, permanent regardless of grapheme indexing; collation is stdlib, never Ord | this doc §5 |
 | Types uppercase-start; type variables non-uppercase-start (`a b c` by convention) | this doc §1; Lexer §3 |

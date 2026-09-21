@@ -185,24 +185,13 @@ export let ceil(value: Float): Int =
 export let trunc(value: Float): Int =
     checkedRoundedInt("Float.trunc: result does not fit in Int", nativeTrunc(value))
 
-(** The nearest integer to `value`, with exact halfway values rounded away
-    from zero. Throws `IntRangeError` when the result does not fit in `Int`. *)
-export let round(value: Float): Int =
-    let truncated = nativeTrunc(value)
-    let fraction = value - truncated
-    let rounded =
-        if fraction >= 0.5 then
-            truncated + 1
-        else if fraction <= -0.5 then
-            truncated - 1
-        else
-            truncated
-    checkedRoundedInt("Float.round: result does not fit in Int", rounded)
-
 (** The nearest integer to `value`, with exact halfway values rounded to the
-    even integer. Throws `IntRangeError` when the result does not fit in
-    `Int`. *)
-export let roundEven(value: Float): Int =
+    even integer: `round(2.5) == 2`, `round(3.5) == 4`, and
+    `round(-2.5) == -2`. Only exact halfway values distinguish this from
+    `roundAway`. This tie rule intentionally differs from `Dec.round`, which
+    rounds ties away from zero. Throws `IntRangeError` when the result does not
+    fit in `Int`. *)
+export let round(value: Float): Int =
     let truncated = nativeTrunc(value)
     let fraction = value - truncated
     let rounded =
@@ -216,7 +205,24 @@ export let roundEven(value: Float): Int =
             if rem(truncated, 2) == 0 then truncated else truncated - 1
         else
             truncated
-    checkedRoundedInt("Float.roundEven: result does not fit in Int", rounded)
+    checkedRoundedInt("Float.round: result does not fit in Int", rounded)
+
+(** The nearest integer to `value`, with exact halfway values rounded away
+    from zero: `roundAway(2.5) == 3` and `roundAway(-2.5) == -3`. The name
+    describes the tie rule, not a direction for every value: for example,
+    `roundAway(2.1) == 2`. Only exact halfway values distinguish this from
+    `round`. Throws `IntRangeError` when the result does not fit in `Int`. *)
+export let roundAway(value: Float): Int =
+    let truncated = nativeTrunc(value)
+    let fraction = value - truncated
+    let rounded =
+        if fraction >= 0.5 then
+            truncated + 1
+        else if fraction <= -0.5 then
+            truncated - 1
+        else
+            truncated
+    checkedRoundedInt("Float.roundAway: result does not fit in Int", rounded)
 
 export exception UndefinedSignError(message: String)
 
