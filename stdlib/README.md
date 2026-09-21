@@ -102,10 +102,10 @@ emitted one (Packages §6).
   array, so `new Map(seq)` already builds a fresh collection in traversal order
   with the native duplicate rules. There is no mutation surface, no `keys` or
   `values`, and no set algebra. Neither companion owns a bracket: `jsSet[x]` is
-  refused permanently and with its four rejected spellings recorded (§5), and
-  `jsMap[k]` is specified (§4.1) but unimplemented — it is an expression form
-  rather than an export of either file, so it lands with the emitter's own
-  lowering and not here.
+  refused permanently and with its four rejected spellings recorded (§5) by a
+  checker arm that names `JsSet.contains` (#794), and `jsMap[k]` reads (§4.1)
+  through the emitter's own lowering (#793) — both are expression forms rather
+  than exports of either file, so neither lands here.
 - `JsKind.hex`, `JsPathSegment.hex`, `JsConversionReason.hex`, and
   `JsValue.hex` are FFI Part 11's four. `JsValue.hex` is the companion of the
   boundary type `JsValue` — the type of a JavaScript value about which Hexagon
