@@ -130,7 +130,9 @@ rounding with ties to even, not rounding every result to an even number.
 These names replace the first-release names without aliases. `multiplyTo` and
 `multiplyToEven` are removed: use exact multiplication followed by `withPlaces`
 or `withPlacesEven`. The intermediate exact product must fit the retained-place
-range, even if a later adjustment would reduce it. `Float.roundEven` follows the same rounding-name convention.
+range, even if a later adjustment would reduce it. Float intentionally uses a
+different naming convention: `Float.round` chooses ties to even, and
+`Float.roundAway` chooses ties away from zero.
 
 ### Construction and observation
 
@@ -311,8 +313,8 @@ overflow check.
 ## 5. Rounding rules
 
 **School rounding** means nearest, with exact ties **away from zero**, matching
-Hexagon's `Float.round`. **Banker's rounding** means nearest, with exact ties to
-the result whose final retained digit is even, matching `Float.roundEven`.
+Hexagon's `Float.roundAway`. **Banker's rounding** means nearest, with exact ties to
+the result whose final retained digit is even, matching `Float.round`.
 They differ only at exact ties.
 
 For an exact numerical answer `x` and requested places `s`, round the exact

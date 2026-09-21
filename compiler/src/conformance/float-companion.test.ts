@@ -638,8 +638,8 @@ describe("Primitive Types §3's checked Float-to-Int rounding exits (#919)", () 
       "export let truncNegative: Int = (-3.7).trunc()",
       "export let roundPositive: Int = (3.6).round()",
       "export let roundNegative: Int = Float.round(-3.6)",
-      "export let evenPositive: Int = Float.roundEven(3.6)",
-      "export let evenNegative: Int = (-3.6).roundEven()",
+      "export let awayPositive: Int = Float.roundAway(3.6)",
+      "export let awayNegative: Int = (-3.6).roundAway()",
       "",
     ].join("\n"));
 
@@ -652,28 +652,30 @@ describe("Primitive Types §3's checked Float-to-Int rounding exits (#919)", () 
       truncNegative: -3,
       roundPositive: 4,
       roundNegative: -4,
-      evenPositive: 4,
-      evenNegative: -4,
+      awayPositive: 4,
+      awayNegative: -4,
     });
   });
 
-  test("`round` sends exact halves away from zero and `roundEven` to even", async () => {
+  test("`round` sends exact halves to even and `roundAway` away from zero", async () => {
     const exports = await runMain("module Main\n\n" + [
-      "export let school: Vector(Int) = [",
-      "    Float.round(1.5), Float.round(2.5),",
-      "    Float.round(-1.5), Float.round(-2.5)]",
       "export let bankers: Vector(Int) = [",
-      "    Float.roundEven(1.5), Float.roundEven(2.5), Float.roundEven(3.5),",
-      "    Float.roundEven(-1.5), Float.roundEven(-2.5), Float.roundEven(-3.5)]",
+      "    Float.round(1.5), Float.round(2.5), Float.round(3.5),",
+      "    Float.round(-1.5), Float.round(-2.5), Float.round(-3.5)]",
+      "export let away: Vector(Int) = [",
+      "    Float.roundAway(1.5), Float.roundAway(2.5),",
+      "    Float.roundAway(-1.5), Float.roundAway(-2.5)]",
       "export let around: Vector(Int) = [",
       "    Float.round(2.4999999999999996), Float.round(2.5000000000000004),",
-      "    Float.roundEven(-2.4999999999999996), Float.roundEven(-2.5000000000000004)]",
+      "    Float.roundAway(-2.4999999999999996), Float.roundAway(-2.5000000000000004)]",
+      "export let integral: Vector(Int) = [Float.round(3.0), Float.roundAway(-3.0)]",
       "",
     ].join("\n"));
 
-    expect([...(exports["school"] as Iterable<unknown>)]).toEqual([2, 3, -2, -3]);
     expect([...(exports["bankers"] as Iterable<unknown>)]).toEqual([2, 2, 4, -2, -2, -4]);
+    expect([...(exports["away"] as Iterable<unknown>)]).toEqual([2, 3, -2, -3]);
     expect([...(exports["around"] as Iterable<unknown>)]).toEqual([2, 3, -2, -3]);
+    expect([...(exports["integral"] as Iterable<unknown>)]).toEqual([3, -3]);
   });
 
   test("every zero result is canonical positive zero", async () => {
@@ -682,12 +684,12 @@ describe("Primitive Types §3's checked Float-to-Int rounding exits (#919)", () 
       "export let ceilZero: Int = Float.ceil(-0.25)",
       "export let truncZero: Int = Float.trunc(-0.25)",
       "export let roundZero: Int = Float.round(-0.25)",
-      "export let evenZero: Int = Float.roundEven(-0.25)",
+      "export let awayZero: Int = Float.roundAway(-0.25)",
       "export let widenedZero: Float = Float.round(-0.25)",
       "",
     ].join("\n"));
 
-    for (const name of ["floorZero", "ceilZero", "truncZero", "roundZero", "evenZero"]) {
+    for (const name of ["floorZero", "ceilZero", "truncZero", "roundZero", "awayZero"]) {
       expect(Object.is(exports[name], 0), name).toBe(true);
     }
     expect(Object.is(exports["widenedZero"], 0)).toBe(true);
@@ -698,9 +700,9 @@ describe("Primitive Types §3's checked Float-to-Int rounding exits (#919)", () 
       "let maximum: Float = 9_007_199_254_740_991.0",
       "let minimum: Float = -9_007_199_254_740_991.0",
       "export let positive: Vector(Int) = [maximum.floor(), maximum.ceil(),",
-      "    maximum.trunc(), maximum.round(), maximum.roundEven()]",
+      "    maximum.trunc(), maximum.round(), maximum.roundAway()]",
       "export let negative: Vector(Int) = [minimum.floor(), minimum.ceil(),",
-      "    minimum.trunc(), minimum.round(), minimum.roundEven()]",
+      "    minimum.trunc(), minimum.round(), minimum.roundAway()]",
       "",
     ].join("\n"));
 
@@ -716,7 +718,7 @@ describe("Primitive Types §3's checked Float-to-Int rounding exits (#919)", () 
       "export fun ceilIt(value: Float): Int = value.ceil()",
       "export fun truncIt(value: Float): Int = value.trunc()",
       "export fun roundIt(value: Float): Int = value.round()",
-      "export fun roundEvenIt(value: Float): Int = value.roundEven()",
+      "export fun roundAwayIt(value: Float): Int = value.roundAway()",
       "",
     ].join("\n"));
     const operations = [
@@ -724,7 +726,7 @@ describe("Primitive Types §3's checked Float-to-Int rounding exits (#919)", () 
       ["ceilIt", "Float.ceil"],
       ["truncIt", "Float.trunc"],
       ["roundIt", "Float.round"],
-      ["roundEvenIt", "Float.roundEven"],
+      ["roundAwayIt", "Float.roundAway"],
     ] as const;
 
     for (const [binding, operation] of operations) {
@@ -742,11 +744,12 @@ describe("Primitive Types §3's checked Float-to-Int rounding exits (#919)", () 
   });
 
   test("the public declarations return number and expose the throwing contract", () => {
-    const declarations = floatDeclarations("export let r: Int = Float.roundEven(2.5)\n");
+    const declarations = floatDeclarations("export let r: Int = Float.roundAway(2.5)\n");
 
-    for (const name of ["floor", "ceil", "trunc", "round", "roundEven"]) {
+    for (const name of ["floor", "ceil", "trunc", "round", "roundAway"]) {
       expect(declarations).toContain(`export declare const ${name}: (value: number) => number;`);
     }
+    expect(declarations).not.toContain("roundEven");
     expect(declarations.match(/@throws \{IntRangeError\}/gu)).toHaveLength(5);
   });
 });

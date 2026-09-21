@@ -22,6 +22,32 @@ import type { GeneratedSection } from "./protocol";
 const MAIN = "module Main\n\n";
 
 describe("compileSource", () => {
+  test("executes both canonical Float nearest-rounding tie rules", async () => {
+    const response = compileSource(
+      46,
+      MAIN +
+        "export let rounded: Vector(Int) = [\n" +
+        "    Float.round(2.5), Float.round(3.5), Float.round(-2.5),\n" +
+        "    Float.roundAway(2.5), Float.roundAway(-2.5), Float.roundAway(2.1)\n" +
+        "]\n",
+    );
+
+    expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
+    if (response.kind !== "compile-success") return;
+    const moduleUrls = new Map<string, string>();
+    for (const module of response.executionModules) {
+      const linked = linkModule(module.javascript, module.path, moduleUrls);
+      moduleUrls.set(
+        module.path,
+        `data:text/javascript;charset=utf-8,${encodeURIComponent(linked)}`,
+      );
+    }
+    const entry = await import(
+      /* @vite-ignore */ moduleUrls.get(response.entryPath)!
+    ) as { readonly rounded: Iterable<number> };
+    expect([...entry.rounded]).toEqual([2, 4, -2, 3, -3, 2]);
+  });
+
   test("accepts Dec literals and exposes their opaque public type", async () => {
     const response = compileSource(
       45,

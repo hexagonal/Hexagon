@@ -378,12 +378,14 @@ describe("the Hexagon language server", () => {
     });
   });
 
-  test("dot-call hover reports the operation's complete declaration signature", async () => {
+  test("Float rounding hover reports the complete signatures and tie rules", async () => {
     const source = [
       "module Main",
       "",
-      "let qualified: Int = Float.roundEven(2.5)",
-      "let dotted: Int = 2.5.roundEven()",
+      "let qualifiedRound: Int = Float.round(2.5)",
+      "let dottedRound: Int = 2.5.round()",
+      "let qualifiedAway: Int = Float.roundAway(2.5)",
+      "let dottedAway: Int = 2.5.roundAway()",
       "",
     ].join("\n");
     const solo = await harness({ "main.hex": source });
@@ -397,22 +399,40 @@ describe("the Hexagon language server", () => {
         },
       });
 
-      const qualified = await solo.client.sendRequest("textDocument/hover", {
+      const qualifiedRound = await solo.client.sendRequest("textDocument/hover", {
         textDocument: { uri: solo.uriOf("main.hex") },
-        position: positionOf(source, "roundEven"),
+        position: positionOf(source, "round"),
       }) as Hover | null;
-      const dotted = await solo.client.sendRequest("textDocument/hover", {
+      const dottedRound = await solo.client.sendRequest("textDocument/hover", {
         textDocument: { uri: solo.uriOf("main.hex") },
-        position: positionOf(source, "roundEven", 2),
+        position: positionOf(source, "round", 2),
+      }) as Hover | null;
+      const qualifiedAway = await solo.client.sendRequest("textDocument/hover", {
+        textDocument: { uri: solo.uriOf("main.hex") },
+        position: positionOf(source, "roundAway"),
+      }) as Hover | null;
+      const dottedAway = await solo.client.sendRequest("textDocument/hover", {
+        textDocument: { uri: solo.uriOf("main.hex") },
+        position: positionOf(source, "roundAway", 2),
       }) as Hover | null;
 
-      expect((qualified?.contents as { value: string }).value).toMatch(
-        /^value `roundEven: Float -> Int`/,
+      expect((qualifiedRound?.contents as { value: string }).value).toMatch(
+        /^value `round: Float -> Int`/,
       );
-      expect(dotted?.contents).toEqual(qualified?.contents);
-      expect(dotted?.range).toEqual({
-        start: { line: 3, character: 22 },
-        end: { line: 3, character: 31 },
+      expect((qualifiedRound?.contents as { value: string }).value).toMatch(
+        /exact halfway values rounded to the\s+even integer/u,
+      );
+      expect(dottedRound?.contents).toEqual(qualifiedRound?.contents);
+      expect((qualifiedAway?.contents as { value: string }).value).toMatch(
+        /^value `roundAway: Float -> Int`/,
+      );
+      expect((qualifiedAway?.contents as { value: string }).value).toMatch(
+        /The name\s+describes the tie rule, not a direction for every value/u,
+      );
+      expect(dottedAway?.contents).toEqual(qualifiedAway?.contents);
+      expect(dottedAway?.range).toEqual({
+        start: { line: 5, character: 26 },
+        end: { line: 5, character: 35 },
       });
     } finally {
       await solo.dispose();

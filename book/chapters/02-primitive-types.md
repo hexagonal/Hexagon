@@ -139,27 +139,16 @@ JavaScript boundary. The distinction lets Hexagon reject fractional values where
 numbers are required and give arithmetic the appropriate semantics. The generated
 TypeScript type cannot preserve that distinction; both appear as `number`.
 
-When you deliberately want an `Int`, the operation's name says how the fractional part
-is handled:
+When you deliberately want a whole-number `Int`, use a named rounding operation:
 
 ```hexagon
-3.7.floor()       // 3: toward negative infinity
-(-3.7).ceil()     // -3: toward positive infinity
-(-3.7).trunc()    // -3: toward zero
-2.5.round()       // 3: nearest, halfway values away from zero
-2.5.roundEven()   // 2: nearest, halfway values to the even integer
-3.5.roundEven()   // 4
+3.7.floor()       // 3
+2.5.round()       // 2: an exact halfway value goes to the even integer
+3.5.round()       // 4
 ```
 
-`round` is the symmetric rule often taught at school: `(-2.5).round()` is `-3`, not the
-`-2` JavaScript's asymmetric `Math.round` produces. `roundEven` differs only for exact
-halfway values; choosing the even neighbour can reduce systematic tie bias when rounded
-values are distributed across even and odd neighbours.
-
-All five functions return `Int`, so they check the result against its safe range. A
-`NaN`, an infinity, or a rounded result beyond that range throws `IntRangeError`. A zero
-result is ordinary `Int` zero even when the source was negative: an IEEE negative-zero
-sign does not cross into the integer world.
+The result must fit in `Int`'s safe range; otherwise the operation throws
+`IntRangeError`.
 
 ## `Dec`: exact decimals with retained places
 
@@ -240,9 +229,17 @@ follows the same rule as `divideEven`. They differ only at
 ties; they do not round every answer to an even number. Increasing the places
 appends zeros without changing the number.
 
-As with Float, `round`, `roundEven`, `floor`, `ceil`, and `trunc` round to whole
-numbers. For Dec they return `BigInt`, so large whole-number results stay exact:
-`(-2.5d).round()` returns `-3n`, while `(-2.5d).roundEven()` returns `-2n`.
+Float and Dec intentionally choose different default tie rules. Float's `round`
+chooses the even integer at an exact halfway value; Dec's `round` chooses away
+from zero, reflecting Dec's intended use in financial calculations:
+
+```hexagon
+2.5.round()       // 2
+2.5d.round()      // 3n
+```
+
+Dec returns a `BigInt`, so large whole-number results stay exact. When a calculation
+calls for the other tie rule, use `Float.roundAway` or `Dec.roundEven`.
 
 Use `show` for everyday inspection. For an adapter needing the stored parts,
 `5.00d.unscaled()` returns the unscaled integer `500n`, and
