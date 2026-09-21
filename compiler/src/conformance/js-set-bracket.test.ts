@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import { compileProject, Source } from "../index";
-import { projectDiagnostics } from "../support/test-project.js";
+import { compileFiles, projectDiagnostics } from "../support/test-project.js";
 
 /**
  * Conformance for FFI Part 10 §5 and §11's row `bracket on `JsSet``: the
@@ -143,6 +143,28 @@ describe("the bracket on a `JsSet` is refused by name (§5, §11)", () => {
   });
 
   /**
+   * The caret, measured rather than inferred. It covers the **whole `s[x]`** —
+   * the text `JsSet.contains(s, x)` replaces — and not the receiver, which is
+   * where the generic enumeration this arm displaces points. That choice is
+   * load-bearing and would otherwise be invisible: the author is not wrong
+   * about `s`, they are wrong about the form, and a caret under `s` alone
+   * underlines the one part of the expression that survives the rewrite.
+   *
+   * Pinned directly because nothing else here can see it. A span mutation
+   * changes no message text at all; it surfaces only as a *re-ordering* of a
+   * multi-diagnostic list, which is an accident of how the write-position pin
+   * happens to sort, not a claim anyone wrote down.
+   */
+  test("the caret covers the whole bracket expression", () => {
+    const source = named + "export let bad: Int = s[x]\n";
+    const reported = compileFiles([["/main.hex", source]]).diagnostics;
+    expect(reported).toHaveLength(1);
+    expect(reported[0]!.severity).toBe("error");
+    expect(source.slice(reported[0]!.primary.start.offset, reported[0]!.primary.end.offset))
+      .toBe("s[x]");
+  });
+
+  /**
    * The same, at an annotation the rewrite could not satisfy either. `Bool` is
    * what `JsSet.contains` actually returns and `Int` is what the test above
    * asks for: neither produces a second message, which is the claim — the
@@ -192,6 +214,69 @@ describe("the bracket on a `JsSet` is refused by name (§5, §11)", () => {
         "export let bad: Int = set()[x]\n",
     )).toEqual([
       "a set has no payload to retrieve; membership is `JsSet.contains(…, x)`",
+    ]);
+  });
+
+  /**
+   * A **qualified** reference keeps its qualifier, at either operand, and the
+   * strongest evidence in this file that the spelling is the *source text the
+   * author wrote* rather than a name recovered from the binding. `Other.x`
+   * resolves to a symbol whose declared name is `x`; an implementation that
+   * reached for that name, or for the emitted one, would advise
+   * `JsSet.contains(s, x)` — which does not resolve in this module at all, and
+   * is exactly the pasteable-looking wrong rewrite #744 is about.
+   *
+   * The receiver half is measured on the next test rather than here, because a
+   * qualified `JsSet` receiver cannot appear in a clean program.
+   */
+  test("a qualified element keeps its qualifier", () => {
+    // Two modules, so `compileFiles` rather than `projectDiagnostics`: a
+    // qualifier needs something to qualify.
+    const source = "module Main\n\n" +
+      "import Other\n" +
+      "let s: JsSet(Int) = JsSet.fromSeq(Vector.toSeq([1, 2]))\n" +
+      "export let bad: Int = s[Other.x]\n";
+    expect(
+      compileFiles([
+        ["/other.hex", "module Other\n\nexport let x: Int = 1\n"],
+        ["/main.hex", source],
+      ]).diagnostics.map(({ message }) => message),
+    ).toEqual([
+      "a set has no payload to retrieve; membership is `JsSet.contains(s, Other.x)`",
+    ]);
+  });
+
+  /**
+   * The receiver half of the same claim, and the reason it needs its own
+   * fixture: a module-qualified `JsSet` *receiver* cannot occur in a program
+   * that compiles, because FFI Part 1 §5.4 refuses an exported value binding of
+   * a captured collection outright — one ESM binding shared by every importer
+   * is exactly what a capture cannot survive. So the qualified spelling is real
+   * source a reader can type and a refusal they can meet, but never alone; the
+   * export refusal is filtered out rather than smoothed away, and the second
+   * half pins the alias, which is the spelling *this module* would have to
+   * paste.
+   */
+  test("a qualified receiver keeps its qualifier, alias included", () => {
+    const other = ["/other.hex",
+      "module Other\n\n" +
+        "export let s: JsSet(Int) = JsSet.fromSeq(Vector.toSeq([1, 2]))\n"] as const;
+    const refusals = (importLine: string, receiver: string): readonly string[] =>
+      compileFiles([
+        other,
+        ["/main.hex",
+          "module Main\n\n" +
+            `${importLine}\n` +
+            "let x: Int = 1\n" +
+            `export let bad: Int = ${receiver}[x]\n`],
+      ]).diagnostics
+        .map(({ message }) => message)
+        .filter((message) => message.startsWith("a set has no payload"));
+    expect(refusals("import Other", "Other.s")).toEqual([
+      "a set has no payload to retrieve; membership is `JsSet.contains(Other.s, x)`",
+    ]);
+    expect(refusals("import Other as O", "O.s")).toEqual([
+      "a set has no payload to retrieve; membership is `JsSet.contains(O.s, x)`",
     ]);
   });
 

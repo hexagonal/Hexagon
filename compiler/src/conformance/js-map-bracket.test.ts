@@ -500,17 +500,19 @@ describe("what the bracket is not (§4.3, §4.5, §11)", () => {
   });
 
   /**
-   * The enumeration §11 says gains `JsMap`. The receiver below is a persistent
-   * `Set`, which is the honest probe now that #794 has landed: `JsSet` has a
-   * rewrite-naming refusal of its own (§5), and it took this sentence's place
-   * *at that receiver* without changing the sentence — Collections Part 4 keeps
-   * its "no special diagnostic owed" row for `Set`, so `Set` is what still
-   * falls here. `js-set-bracket.test.ts` owns the contrast.
+   * The enumeration §11 says gains `JsMap`. The receiver is a `Bool`, which is
+   * the probe that stays honest: this test used a `JsSet` until #794 gave that
+   * receiver a rewrite-naming refusal of its own (§5), which took this
+   * sentence's place *at that receiver* without changing the sentence. A
+   * persistent `Set` would only move the problem — #794 flagged a sibling
+   * message naming `Set.contains` as a rider for James to rule on — whereas a
+   * `Bool` has no bracket meaning anyone has ever proposed. The `JsSet`/`Set`
+   * contrast is `js-set-bracket.test.ts`'s to own.
    */
   test("the generic refusal's enumeration names `JsMap`", () => {
     expect(
       projectDiagnostics(
-        "module Main\n\n" + "export let read(s: Set(Int), x: Int): Int = s[x]\n",
+        "module Main\n\n" + "export let read(b: Bool, x: Int): Int = b[x]\n",
       ),
     ).toEqual(["indexing requires a Vector, String, Map, JsMap, or Array value"]);
   });
