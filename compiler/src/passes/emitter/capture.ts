@@ -159,11 +159,19 @@ export interface CaptureNominals {
  * How much of a type graph one module's plans may read before the walk gives
  * up and answers identity.
  *
- * The checker's bound is the load-bearing one: a position whose type outruns it
- * is **refused** (`#captureBoundRefusal`), so a program that reaches emission
- * has already been decided. This bound exists so that a best-effort emission of
- * an errored module cannot hang, and it is deliberately the same order of
- * magnitude — three orders above any declaration graph a program writes.
+ * **This is the emitter's own guard, and it is the only one at some positions.**
+ * The checker's bound (`#captureBoundRefusal`) covers the positions it can
+ * *refuse* — an extern row, an opaque representation, an exported value binding
+ * — so at those a type that outruns it never reaches emission. An exported
+ * Hexagon function's signature is not such a position: FFI Part 1 §5.4 item 7
+ * exempts it, there is nothing to refuse, and no bounded checker walk runs over
+ * it. A deep enough nested type there compiles clean and exhausts this budget
+ * instead, and exhaustion is **silent and not safe**: `#key` truncates to `"…"`,
+ * which conflates distinct occurrences, so two unrelated types can share one
+ * plan and one of them is copied at the other's shape. The bound is three
+ * orders above any declaration graph a program writes, which is why nothing has
+ * met it; it is not a diagnostic, and a position that needs one does not get
+ * one here.
  */
 const WALK_BUDGET = 50_000;
 
@@ -193,8 +201,43 @@ export class CapturePlans {
    * collection is not walked at all".
    */
   planFor(type: Typed.Type): number | undefined {
-    if (!this.#namesCaptured(type)) return undefined;
+    if (!this.copies(type)) return undefined;
     return this.#allocate(type);
+  }
+
+  /**
+   * Whether the walk at `type` copies anything — `planFor`'s own gate, asked
+   * **without allocating a row**.
+   *
+   * `planFor(τ) !== undefined` answers the same question, and at a seat that
+   * goes on to emit the copy it is the one to ask. This exists for the seats
+   * that decide a *shape* and may emit nothing at all: an importer choosing
+   * which edition of another module's export to bind (FFI Part 7 §7 occasion 4)
+   * asks about types this module copies at no position of its own, and a row
+   * allocated for such a question would render a plan table no emitted line
+   * reads.
+   *
+   * One membership function either way — this is the predicate `planFor` gates
+   * on, not a second reading of §5.4 standing beside it.
+   *
+   * **It spends no budget.** The counter below bounds the *plan table*, so that
+   * an errored module's best-effort emission cannot hang; a question that
+   * allocates no row has no business drawing it down, and the linkage question
+   * is asked once per imported name, at every import, in every module. Were it
+   * to accumulate, a module with enough imports would exhaust the bound before
+   * emitting anything, `#key` would start truncating, and two unrelated types
+   * would silently share one plan — a wrong copy from an exhausted counter
+   * rather than from anything either type says. The walk itself stays bounded,
+   * because the counter still rises inside the call and only the total is put
+   * back.
+   */
+  copies(type: Typed.Type): boolean {
+    const spent = this.#steps;
+    try {
+      return this.#namesCaptured(type);
+    } finally {
+      this.#steps = spent;
+    }
   }
 
   /**

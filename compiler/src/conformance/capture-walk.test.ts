@@ -1095,6 +1095,14 @@ describe("a crossing that copies nothing is unchanged (§5.4)", () => {
    * §5.4's three non-crossings, and the one this file can measure directly: "an
    * `extern from \"hex:intrinsic\"` row names a compiler lowering over Hexagon's
    * own values (Intrinsics §3), so `Array.length(xs)` copies nothing".
+   *
+   * The claim is about the **call**, and the call is what is measured: the
+   * lowering is a native `.length` read and the Hexagon caller reaches it
+   * through the companion's internal edition, copying nothing on the way. What
+   * the companion also carries since PR 3 is its own *published* face — its
+   * exports are exported Hexagon functions over `Array(a)`, so they take FFI
+   * Part 7 §7 occasion 4's wrapper like any other, which is a different
+   * ruling's business and is `capture-export-wrappers.test.ts`'s.
    */
   test("`hex:intrinsic` rows are not crossings", () => {
     const project = compileFiles([[
@@ -1105,20 +1113,34 @@ describe("a crossing that copies nothing is unchanged (§5.4)", () => {
     expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
     const array = project.modules.find(({ source }) => source.path.endsWith("/Array.hex"));
     expect(array?.javascript.text).toContain("const length = __a => __a.length;");
-    expect(array?.javascript.text).not.toContain("__capture(");
+    const main = project.modules.find(({ source }) => source.path === "/main.hex");
+    // The caller binds the internal edition and performs no walk of its own;
+    // its only `__capture` is its own export wrapper's entry walk.
+    expect(main?.javascript.text).toContain('import { __length as length } from "./Hex/Array.js";');
+    expect(main?.javascript.text).toContain("return length(xs) + length(toArray(v));");
+    // `Vector`'s own published face carries exactly one walk, and it is not
+    // this row's: `toArray`'s result is an `Array(a)` leaving through an
+    // export, so occasion 4 copies it on the way out. Nothing in the module
+    // copies on the way in, which is what "not a crossing" means here.
     const vector = project.modules.find(({ source }) => source.path.endsWith("/Vector.hex"));
-    expect(vector?.javascript.text).not.toContain("__capture(");
+    expect(vector?.javascript.text.match(/__capture\(__capturePlans/gu)).toHaveLength(1);
+    expect(vector?.javascript.text).toContain(
+      "const __toArrayBoundary = __argument0 => __capture(__capturePlans, 0, toArray(__argument0));",
+    );
   });
 
   /**
    * A Hexagon-to-Hexagon call never copies (§2.2), and the cheapest evidence is
-   * that a module full of `Array(Int)` signatures with no extern row in it asks
-   * for no plan table at all.
+   * that a module full of `Array(Int)` signatures asks for no plan table at all
+   * — which it does as long as none of them is *published*. An export is the
+   * one seat where a signature over a captured collection meets a foreign
+   * caller, and that seat is occasion 4's.
    */
   test("Hexagon-to-Hexagon signatures ask for no plan", () => {
     const emitted = javascript(
       "let pass(xs: Array(Int)): Array(Int) = xs\n" +
-        "export fun probe(xs: Array(Int)): Int = Array.length(pass(xs))\n",
+        "let probe(xs: Array(Int)): Int = Array.length(pass(xs))\n" +
+        "export fun sizes(v: Vector(Int)): Int = probe(Vector.toArray(v))\n",
     );
     expect(emitted).not.toContain("capturePlans");
   });

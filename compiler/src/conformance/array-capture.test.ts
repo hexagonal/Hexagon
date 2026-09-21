@@ -19,10 +19,12 @@ import { compileMain, projectDiagnostics, runMain } from "../support/test-projec
  *
  * Nothing here crosses a foreign boundary. The runtime program's arrays arrive
  * through **exported** Hexagon function parameters, which FFI Part 7 §7 occasion
- * 4's stable export wrapper will walk in a later PR of the capture arc; until
- * then a JavaScript caller hands these functions its own array and every pin
- * below reads that array directly, which is what makes the zero-scan and
- * access-pattern rows measurable here at all.
+ * 4's stable export wrapper now walks on entry (#945, PR 3): what the bodies
+ * below index is Hexagon's own dense copy of what the test handed in, so the
+ * answers are unchanged and the *access pattern* of an exotic array is no
+ * longer visible from here. It is pinned at the wrapper, in
+ * `capture-export-wrappers.test.ts`, and the one row here that used to measure
+ * it reads the bracket's lowering instead.
  *
  * Everything the door promises is a property of the *emitted* code or of the
  * *running* one, so almost every assertion here is one or the other. A bounds
@@ -187,23 +189,33 @@ describe("`xs[i]` is 1-based, asserting, and native underneath (§6.3)", () => {
 
   /**
    * §6.4's zero-scan rule at the bracket: reading one element touches that
-   * element and nothing else. A getter on every *other* index proves it, and
-   * proves it in the only way that can — by executing.
+   * element and nothing else.
+   *
+   * **This pin is emitted text, not a run, and the capture arc is why** (#945).
+   * It used to hand an exported function a getter-laden array and count the
+   * accessors that fired. Since FFI Part 7 §7 occasion 4 every exported
+   * function over `Array(a)` walks its parameter on entry, and the walk "reads
+   * each index exactly once in index order" (Part 1 §5.4) — so a foreign array
+   * no longer reaches a Hexagon bracket at all, and no executing route to this
+   * claim exists or should: what the body indexes is Hexagon's own dense copy.
+   * The access pattern of the entry walk is pinned where it now lives,
+   * `capture-export-wrappers.test.ts`. The claim here is the lowering's, and
+   * the lowering is a single native read at the index the caller asked for —
+   * one `__values[__index - 1]`, with no loop, no scan and no probe of any
+   * other index anywhere in the helper the bracket compiles to.
    */
-  test("reading one element touches no other element", () => {
-    const touched: number[] = [];
-    const watched: number[] = [];
-    for (const index of [0, 1, 2]) {
-      Object.defineProperty(watched, index, {
-        enumerable: true,
-        get: () => {
-          touched.push(index);
-          return (index + 1) * 10;
-        },
-      });
-    }
-    expect(read(watched, 2)).toBe(20);
-    expect(touched).toEqual([1]);
+  test("the bracket's lowering reads one index and no other", () => {
+    const helper = mainJavaScript(
+      "export let read(xs: Array(Int), index: Int): Int = xs[index]\n",
+    );
+    const body = /function __arrayIndex\(__values, __index\) \{\n([\s\S]*?)\n\}/u
+      .exec(helper);
+    expect(body).not.toBeNull();
+    expect(body![1]).toContain("return __values[__index - 1];");
+    // The whole helper indexes `__values` exactly once, and reads `.length`
+    // for the bounds check — there is nothing else in it to touch an element.
+    expect(body![1]!.match(/__values\[/gu)).toHaveLength(1);
+    expect(body![1]).not.toMatch(/for\s*\(|while\s*\(|\.forEach|\bin\b\s+__values/u);
   });
 });
 
