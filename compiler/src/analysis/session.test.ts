@@ -226,17 +226,24 @@ describe("AnalysisSession", () => {
   });
 
   /**
-   * Hover obeys #649 in the one place it used to escape it: an open record's
-   * row tail (#959).
+   * An open record's row tail, hovered (#959, under #649's rule that no
+   * user-facing rendering shows a numbered inference variable).
    *
-   * A monomorphic binding's open record leaves an *unquantified* row, and the
-   * display's letters name the quantified variables, so the tail used to fall
-   * to an internal number — `{n: Int, ...t487}` — in the one channel a user
-   * reads most. It renders as the bare `...` the checker's diagnostics write.
-   * The three programs are the three ways the row arrives: an extern
+   * A tail the display's letter map misses is unquantified, and it used to
+   * fall to an internal number — `{n: Int, ...t487}` — in the channel a user
+   * reads most; it renders as the bare `...` instead. Which tails the map
+   * misses is narrower than "the unquantified ones": the map takes the
+   * scheme's quantified variables *and* every variable the display's own walk
+   * reaches, and that walk does not descend into the container kinds
+   * (`Vector`, `Set`, `Map`, `Array`, `JsMap`, `JsSet`, `JsValue`, `Node`,
+   * `Nullable`), which is why both bare-`...` programs here put the row inside
+   * a `Vector`. That gap is pre-existing and filed separately;
+   * `syntax/typed/display.test.ts` pins both sides of it directly.
+   *
+   * The three programs are three ways the row arrives at hover: an extern
    * declaration (the issue's own, refused at the foreign boundary — hover
    * answers over broken code, which is when it matters most), an ordinary
-   * exported binding that compiles clean, and a generic function whose tail is
+   * exported binding that compiles clean, and a function whose tail is
    * quantified and keeps its letter.
    */
   test("hover renders an unquantified row tail as `...`, never a number", () => {
