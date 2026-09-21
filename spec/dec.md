@@ -420,8 +420,7 @@ same. It does not normalize, round, or change either value.
 
 This operation does not supply a constraint instance or operator. `equals`,
 `compare`, and `hash` remain numerical; map/set key equivalence and pattern
-matching are unchanged. Documentation comments must name the two compared parts
-and distinguish this operation from numerical equality and object identity.
+matching are unchanged. Documentation comments must name the two compared parts.
 
 `Ord<Dec>` gives a total numerical order agreeing with `Eq`, comparing exactly
 across decimal places. It returns `Ordering.Equal` exactly for numerically equal
