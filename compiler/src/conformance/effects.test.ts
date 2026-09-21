@@ -2446,6 +2446,21 @@ export let pair(value: a): (a, a) = (value, value)
 `;
     expect(hoveredType(pure, "twice")).toBe("(Int -> Int, Int) -> Int");
   });
+
+  it("writes an unquantified row tail into the `.d.ts` face as `...` (#959)", () => {
+    // The face doc renders through the same display hover does, so #649's rule
+    // reaches the *published* artifact too: a monomorphic binding's open record
+    // leaves an unquantified row, and its internal number would otherwise ship
+    // in the declaration file a consumer reads. The face exists here at all
+    // because the element's arrow is the impure constant — a wholly pure face
+    // carries no block (§1).
+    const source = "module Main\n\n" +
+      "export let handlers: Vector(({n: Int, ...}) ->! Unit) = []\n";
+    expect(effectDiagnostics([["/main.hex", source]])).toEqual([]);
+    const declarations = declarationsOf([["/main.hex", source]]);
+    expect(declarations).toContain("/** Hexagon: `Vector({n: Int, ...} ->! Unit)` */");
+    expect(declarations).not.toMatch(/\.\.\.t\d/);
+  });
 });
 
 describe("#355 the pure demand", () => {

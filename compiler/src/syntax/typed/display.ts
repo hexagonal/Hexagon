@@ -147,7 +147,13 @@ function displayType(
         `${name}: ${displayType(field, variables, numbering)}`
       );
       if (type.tail !== undefined) {
-        fields.push(`...${variables.get(type.tail) ?? `t${Number(type.tail)}`}`);
+        // A tail the letters do not name is an unquantified row, and it renders
+        // as the bare `...` the checker's own diagnostics write. Its internal
+        // number is not a name — #649: no user-facing rendering shows a
+        // numbered inference variable — and inventing a letter for it would
+        // claim a quantifier that is not there. A quantified tail keeps its
+        // letter, `...a`.
+        fields.push(`...${variables.get(type.tail) ?? ""}`);
       }
       return `{${fields.join(", ")}}`;
     }
