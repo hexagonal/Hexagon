@@ -23,10 +23,10 @@ log("\${3} * \${2.50d} = \${3 * 2.50d}")
 log("")
 
 log("You can divide two dollars among three people")
-log("But you have specify how many decimal places")
-let places: Nat = 2
-let person = 2.00d.divideTo(3, places)
-log("We'll use \${places}, and end up with \${person} cents per person")
+log("But you have to specify how many decimal places")
+let places = 2
+let person = 2.00d.divide(3, places)
+log("We'll use \${places}, and end up with $\${person} per person")
 `,
   specificationReferences: ["spec/dec.md"],
 };

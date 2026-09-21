@@ -27,12 +27,12 @@ describe("compileSource", () => {
       45,
       MAIN +
         "export let amount: Dec = 1.50d\n" +
-        "export let shown: String = amount.withDecimalPlacesEven(1).show()\n",
+        "export let shown: String = amount.withPlacesEven(1).show()\n",
     );
 
     expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
     if (response.kind !== "compile-success") return;
-    expect(response.javascript).toContain("coefficient: 150n, places: 2");
+    expect(response.javascript).toContain("unscaled: 150n, places: 2");
     expect(response.typeScriptPreview).toContain("Dec");
     expect(response.executionModules.some(({ path }) => path === "/Hex/Dec.hex")).toBe(true);
 

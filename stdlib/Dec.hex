@@ -1,36 +1,43 @@
 module Dec
 
+(** Raised when a decimal operation is asked to retain negative decimal places. *)
+export exception NegativeDecimalPlacesError(message: String)
+
 (** Raised when an exact decimal operation would retain more decimal places
-    than `Nat` can represent. *)
+    than `Int` can represent. *)
 export exception DecimalPlacesOverflowError(message: String)
 
 (** A finite decimal number, represented exactly by an integer coefficient and
     a retained count of decimal places. *)
 opaque record Dec = {
-    coefficient: BigInt,
-    places: Nat,
+    unscaled: BigInt,
+    places: Int,
 }
 
-let natAsInt(value: Nat): Int = Int.fromNat(value)
-let intAsNat(value: Int): Nat = match Nat.fromInt(value)
-    Some(natural) => natural
-    None => 0
-let tenToInt(value: Int): BigInt = 10n ** value
-let tenTo(value: Nat): BigInt = tenToInt(natAsInt(value))
+let tenTo(value: Int): BigInt = 10n ** value
 
-(** Constructs the exact decimal whose unscaled integer is `value` and which
-    retains `decimalPlaces` digits after the decimal point. *)
-export let create(value: BigInt, decimalPlaces: Nat): Dec =
-    Dec({coefficient = value, places = decimalPlaces})
+let requirePlaces(places: Int, operation: String): Int =
+    if places < 0 then
+        throw(NegativeDecimalPlacesError("${operation}: decimal places cannot be negative"))
+    else
+        places
+
+(** Constructs the exact decimal whose unscaled integer is `unscaled` and which
+    retains `places` digits after the decimal point. *)
+export let create(unscaled: BigInt, places: Int): Dec =
+    Dec({unscaled, places = requirePlaces(places, "Dec.create")})
 
 (** The unscaled integer stored by `decimal`. *)
-export let value(decimal: Dec): BigInt = decimal.coefficient
+export let unscaled(decimal: Dec): BigInt = decimal.unscaled
 
-(** The number of decimal places retained by `decimal`. *)
-export let decimalPlaces(decimal: Dec): Nat = decimal.places
+(** Whether `left` and `right` store the same exact unscaled integer and retain
+    the same number of decimal places. This compares representations, not object
+    identity; numerical equality remains independent of retained places. *)
+export let same(left: Dec, right: Dec): Bool =
+    left.unscaled == right.unscaled and left.places == right.places
 
-let align(value: Dec, places: Nat): BigInt =
-    value.coefficient * tenToInt(natAsInt(places) - natAsInt(value.places))
+let align(value: Dec, retained: Int): BigInt =
+    value.unscaled * tenTo(retained - value.places)
 
 let roundedMagnitude(numerator: BigInt, denominator: BigInt, even: Bool): BigInt =
     let quotient = numerator.quot(denominator)
@@ -52,144 +59,117 @@ let roundedRatio(numerator: BigInt, denominator: BigInt, even: Bool): BigInt =
     let rounded = roundedMagnitude(top, bottom, even)
     if negative then -rounded else rounded
 
-let changedPlaces(decimal: Dec, requested: Nat, even: Bool): Dec =
-    if decimal.coefficient == 0 then
-        create(0n, requested)
-    else if requested >= decimal.places then
+let changedPlaces(decimal: Dec, requested: Int, even: Bool, operation: String): Dec =
+    let checked = requirePlaces(requested, operation)
+    if decimal.unscaled == 0 then
+        create(0n, checked)
+    else if checked >= decimal.places then
         create(
-            decimal.coefficient * tenToInt(natAsInt(requested) - natAsInt(decimal.places)),
-            requested
+            decimal.unscaled * tenTo(checked - decimal.places),
+            checked
         )
     else
         create(
             roundedRatio(
-                decimal.coefficient,
-                tenToInt(natAsInt(decimal.places) - natAsInt(requested)),
+                decimal.unscaled,
+                tenTo(decimal.places - checked),
                 even
             ),
-            requested
+            checked
         )
 
-(** Returns `decimal` with exactly `requested` decimal places, rounding nearest
+(** Returns `decimal` with exactly `places` decimal places, rounding nearest
     with ties away from zero when places are removed. *)
-export let withDecimalPlaces(decimal: Dec, requested: Nat): Dec =
-    changedPlaces(decimal, requested, False)
+export let withPlaces(decimal: Dec, places: Int): Dec =
+    changedPlaces(decimal, places, False, "Dec.withPlaces")
 
-(** Returns `decimal` with exactly `requested` decimal places, rounding nearest
+(** Returns `decimal` with exactly `places` decimal places, rounding nearest
     with ties to even when places are removed. *)
-export let withDecimalPlacesEven(decimal: Dec, requested: Nat): Dec =
-    changedPlaces(decimal, requested, True)
+export let withPlacesEven(decimal: Dec, places: Int): Dec =
+    changedPlaces(decimal, places, True, "Dec.withPlacesEven")
 
-let multipliedTo(left: Dec, right: Dec, requested: Nat, even: Bool): Dec =
-    let product = left.coefficient * right.coefficient
-    // Cancel the requested places before constructing a power. Every exponent
-    // stays in Nat even when the hypothetical exact result's place sum would
-    // exceed Nat.
-    if product == 0 then
-        create(0n, requested)
-    else if requested >= left.places then
-        let remaining = natAsInt(requested) - natAsInt(left.places)
-        if remaining >= natAsInt(right.places) then
-            create(product * tenToInt(remaining - natAsInt(right.places)), requested)
-        else
-            create(roundedRatio(product, tenToInt(natAsInt(right.places) - remaining), even), requested)
-    else
-        let divisor = tenToInt(natAsInt(left.places) - natAsInt(requested)) * tenTo(right.places)
-        create(roundedRatio(product, divisor, even), requested)
-
-(** The exact product rounded to `requested` places, ties away from zero. *)
-export let multiplyTo(left: Dec, right: Dec, requested: Nat): Dec =
-    multipliedTo(left, right, requested, False)
-
-(** The exact product rounded to `requested` places, ties to even. *)
-export let multiplyToEven(left: Dec, right: Dec, requested: Nat): Dec =
-    multipliedTo(left, right, requested, True)
-
-let dividedTo(left: Dec, right: Dec, requested: Nat, even: Bool, operation: String): Dec =
-    if right.coefficient == 0 then
+let divided(left: Dec, right: Dec, requested: Int, even: Bool, operation: String): Dec =
+    let checked = requirePlaces(requested, operation)
+    if right.unscaled == 0 then
         throw(DivideByZeroError("${operation}: divisor is zero"))
-    else if left.coefficient == 0 then
-        create(0n, requested)
+    else if left.unscaled == 0 then
+        create(0n, checked)
     else
         // Cancel the operands' places first. Applying the requested result
         // scale as a separate exact factor avoids an overflowing scale sum.
         if right.places >= left.places then
-            let numerator = left.coefficient *
-                tenToInt(natAsInt(right.places) - natAsInt(left.places)) * tenTo(requested)
-            create(roundedRatio(numerator, right.coefficient, even), requested)
+            let numerator = left.unscaled * tenTo(right.places - left.places) * tenTo(checked)
+            create(roundedRatio(numerator, right.unscaled, even), checked)
         else
-            let numerator = left.coefficient * tenTo(requested)
-            let denominator = right.coefficient *
-                tenToInt(natAsInt(left.places) - natAsInt(right.places))
-            create(roundedRatio(numerator, denominator, even), requested)
+            let numerator = left.unscaled * tenTo(checked)
+            let denominator = right.unscaled * tenTo(left.places - right.places)
+            create(roundedRatio(numerator, denominator, even), checked)
 
-(** The exact quotient rounded to `requested` places, ties away from zero. *)
-export let divideTo(left: Dec, right: Dec, requested: Nat): Dec =
-    dividedTo(left, right, requested, False, "Dec.divideTo")
+(** The exact quotient rounded to `places` places, ties away from zero. *)
+export let divide(left: Dec, right: Dec, places: Int): Dec =
+    divided(left, right, places, False, "Dec.divide")
 
-(** The exact quotient rounded to `requested` places, ties to even. *)
-export let divideToEven(left: Dec, right: Dec, requested: Nat): Dec =
-    dividedTo(left, right, requested, True, "Dec.divideToEven")
+(** The exact quotient rounded to `places` places, ties to even. *)
+export let divideEven(left: Dec, right: Dec, places: Int): Dec =
+    divided(left, right, places, True, "Dec.divideEven")
 
 (** `decimal` rounded to an integer, nearest with ties away from zero. *)
 export let round(decimal: Dec): BigInt =
-    if decimal.coefficient == 0 then 0n
-    else roundedRatio(decimal.coefficient, tenTo(decimal.places), False)
+    if decimal.unscaled == 0 then 0n
+    else roundedRatio(decimal.unscaled, tenTo(decimal.places), False)
 
 (** `decimal` rounded to an integer, nearest with ties to even. *)
 export let roundEven(decimal: Dec): BigInt =
-    if decimal.coefficient == 0 then 0n
-    else roundedRatio(decimal.coefficient, tenTo(decimal.places), True)
+    if decimal.unscaled == 0 then 0n
+    else roundedRatio(decimal.unscaled, tenTo(decimal.places), True)
 
 (** `decimal` rounded toward zero. *)
 export let trunc(decimal: Dec): BigInt =
-    if decimal.coefficient == 0 then 0n
-    else decimal.coefficient.quot(tenTo(decimal.places))
+    if decimal.unscaled == 0 then 0n
+    else decimal.unscaled.quot(tenTo(decimal.places))
 
 (** The greatest integer no greater than `decimal`. *)
 export let floor(decimal: Dec): BigInt =
-    if decimal.coefficient == 0 then 0n
+    if decimal.unscaled == 0 then 0n
     else
         let divisor = tenTo(decimal.places)
-        let truncated = decimal.coefficient.quot(divisor)
-        if decimal.coefficient < 0 and decimal.coefficient.rem(divisor) != 0 then
+        let truncated = decimal.unscaled.quot(divisor)
+        if decimal.unscaled < 0 and decimal.unscaled.rem(divisor) != 0 then
             truncated - 1
         else
             truncated
 
 (** The least integer no less than `decimal`. *)
 export let ceil(decimal: Dec): BigInt =
-    if decimal.coefficient == 0 then 0n
+    if decimal.unscaled == 0 then 0n
     else
         let divisor = tenTo(decimal.places)
-        let truncated = decimal.coefficient.quot(divisor)
-        if decimal.coefficient > 0 and decimal.coefficient.rem(divisor) != 0 then
+        let truncated = decimal.unscaled.quot(divisor)
+        if decimal.unscaled > 0 and decimal.unscaled.rem(divisor) != 0 then
             truncated + 1
         else
             truncated
 
 honor Num<Dec> =
     add(left, right) =
-        let places = if left.places > right.places then left.places else right.places
-        create(align(left, places) + align(right, places), places)
+        let retained = if left.places > right.places then left.places else right.places
+        create(align(left, retained) + align(right, retained), retained)
 
     multiply(left, right) =
         let limit: Int = 9_007_199_254_740_991
-        let leftPlaces = natAsInt(left.places)
-        let rightPlaces = natAsInt(right.places)
-        if leftPlaces > limit - rightPlaces then
+        if left.places > limit - right.places then
             throw(DecimalPlacesOverflowError("Dec.multiply: decimal places overflow"))
         else
-            create(left.coefficient * right.coefficient, intAsNat(leftPlaces + rightPlaces))
+            create(left.unscaled * right.unscaled, left.places + right.places)
 
     fromNat(value) = FromBigInt.fromBigInt(BigInt.fromNat(value))
 
 honor Signed<Dec> =
     subtract(left, right) =
-        let places = if left.places > right.places then left.places else right.places
-        create(align(left, places) - align(right, places), places)
+        let retained = if left.places > right.places then left.places else right.places
+        create(align(left, retained) - align(right, retained), retained)
 
-    negate(decimal) = create(-decimal.coefficient, decimal.places)
+    negate(decimal) = create(-decimal.unscaled, decimal.places)
     fromInt(value) = FromBigInt.fromBigInt(BigInt.fromInt(value))
 
 honor FromBigInt<Dec> =
@@ -197,33 +177,31 @@ honor FromBigInt<Dec> =
 
 honor Eq<Dec> =
     equals(left, right) =
-        if left.coefficient == 0 then
-            right.coefficient == 0
-        else if right.coefficient == 0 then
+        if left.unscaled == 0 then
+            right.unscaled == 0
+        else if right.unscaled == 0 then
             False
         else if left.places >= right.places then
-            left.coefficient == right.coefficient *
-                tenToInt(natAsInt(left.places) - natAsInt(right.places))
+            left.unscaled == right.unscaled * tenTo(left.places - right.places)
         else
-            left.coefficient * tenToInt(natAsInt(right.places) - natAsInt(left.places)) ==
-                right.coefficient
+            left.unscaled * tenTo(right.places - left.places) == right.unscaled
 
 honor Ord<Dec> =
     compare(left, right) =
-        if left.coefficient == 0 and right.coefficient == 0 then
+        if left.unscaled == 0 and right.unscaled == 0 then
             Ordering.Equal
-        else if left.coefficient == 0 then
-            if right.coefficient < 0 then Ordering.Greater else Ordering.Less
-        else if right.coefficient == 0 then
-            if left.coefficient < 0 then Ordering.Less else Ordering.Greater
-        else if left.coefficient < 0 and right.coefficient > 0 then
+        else if left.unscaled == 0 then
+            if right.unscaled < 0 then Ordering.Greater else Ordering.Less
+        else if right.unscaled == 0 then
+            if left.unscaled < 0 then Ordering.Less else Ordering.Greater
+        else if left.unscaled < 0 and right.unscaled > 0 then
             Ordering.Less
-        else if left.coefficient > 0 and right.coefficient < 0 then
+        else if left.unscaled > 0 and right.unscaled < 0 then
             Ordering.Greater
         else
-            let places = if left.places > right.places then left.places else right.places
-            let leftValue = align(left, places)
-            let rightValue = align(right, places)
+            let retained = if left.places > right.places then left.places else right.places
+            let leftValue = align(left, retained)
+            let rightValue = align(right, retained)
             if leftValue < rightValue then
                 Ordering.Less
             else if leftValue > rightValue then
@@ -232,13 +210,13 @@ honor Ord<Dec> =
                 Ordering.Equal
 
 let canonicalCoefficient(decimal: Dec): BigInt =
-    if decimal.coefficient == 0 then 0n
+    if decimal.unscaled == 0 then 0n
     else
-        var coefficient = decimal.coefficient
-        var places = decimal.places
-        while places > 0 and coefficient.rem(10) == 0
+        var coefficient = decimal.unscaled
+        var remainingPlaces = decimal.places
+        while remainingPlaces > 0 and coefficient.rem(10) == 0
             coefficient := coefficient.quot(10)
-            places := intAsNat(natAsInt(places) - 1)
+            remainingPlaces := remainingPlaces - 1
         coefficient
 
 // A coefficient-only hash deliberately permits collisions between unequal
@@ -247,12 +225,12 @@ honor Hash<Dec> =
     hash(decimal) = canonicalCoefficient(decimal).hash()
 
 honor Real<Dec> =
-    abs(decimal) = if decimal.coefficient < 0 then -decimal else decimal
+    abs(decimal) = if decimal.unscaled < 0 then -decimal else decimal
 
     sign(decimal) =
-        if decimal.coefficient == 0 then
+        if decimal.unscaled == 0 then
             Sign.Zero
-        else if decimal.coefficient < 0 then
+        else if decimal.unscaled < 0 then
             Sign.Negative
         else
             Sign.Positive
@@ -265,31 +243,31 @@ honor Pow<Dec> =
             create(1n, 0)
         else
             let limit: Int = 9_007_199_254_740_991
-            let places = natAsInt(decimal.places)
-            if places > 0 and exponent > limit.quot(places) then
+            let retained = decimal.places
+            if retained > 0 and exponent > limit.quot(retained) then
                 throw(DecimalPlacesOverflowError("Dec.pow: decimal places overflow"))
             else
-                create(decimal.coefficient ** exponent, intAsNat(places * exponent))
+                create(decimal.unscaled ** exponent, retained * exponent)
 
 honor Show<Dec> =
     show(decimal) =
-        let negative = decimal.coefficient < 0
-        let digits = decimal.coefficient.abs().show()
-        let places = natAsInt(decimal.places)
+        let negative = decimal.unscaled < 0
+        let digits = decimal.unscaled.abs().show()
+        let retained = decimal.places
         let digitCount = digits.length()
         let rendered =
-            if places == 0 then
+            if retained == 0 then
                 digits
-            else if digitCount > places then
-                "${digits.dropLastN(places)}.${digits.dropFirstN(digitCount - places)}"
+            else if digitCount > retained then
+                "${digits.dropLastN(retained)}.${digits.dropFirstN(digitCount - retained)}"
             else
                 var zeroes = ""
-                var count = places - digitCount
+                var count = retained - digitCount
                 while count > 0
                     zeroes := "${zeroes}0"
                     count := count - 1
                 "0.${zeroes}${digits}"
-        if negative and decimal.coefficient != 0 then "-${rendered}" else rendered
+        if negative and decimal.unscaled != 0 then "-${rendered}" else rendered
 
 // The exact binary64 conversion is shared in shape with `Rat.toFloat`: compute
 // the correctly rounded significand using integers, then assemble one Float.
@@ -333,11 +311,11 @@ let assemble(significand: BigInt, scale: Int): Float =
 
 (** `decimal` as the nearest `Float`, rounded once with ties to even. *)
 export let toFloat(decimal: Dec): Float =
-    if decimal.coefficient == 0 then
+    if decimal.unscaled == 0 then
         0.0
     else
-        let negative = decimal.coefficient < 0
-        let numerator = decimal.coefficient.abs()
+        let negative = decimal.unscaled < 0
+        let numerator = decimal.unscaled.abs()
         let denominator = tenTo(decimal.places)
         let aligned = alignedScale(numerator, denominator)
         let scale = if aligned > 1074 then 1074 else aligned
@@ -350,3 +328,6 @@ export let toFloat(decimal: Dec): Float =
         else
             let result = assemble(bits, exponent)
             if negative then -result else result
+
+(** The number of decimal places retained by `decimal`. *)
+export let places(decimal: Dec): Int = decimal.places

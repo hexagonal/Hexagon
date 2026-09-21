@@ -1,8 +1,9 @@
 # Hexagon Spec: `Dec`
 
-**Status:** Decided and reviewed by Sol Medium (20 September 2026). This specifies
-the agreed first release; Dec implementation and local integration validation are complete. The exact-integer
-widening prerequisite is implemented and validated locally.
+**Status:** Revised API agreed and implemented on 21 September 2026; specification,
+book, and code reviewed by Sol Medium. Focused and full compiler/language-server
+validation passed; package builds also passed after resuming with isolated,
+bounded-worker runs. Validation history is recorded in §12.
 **Scope:** A fundamental prelude decimal type, exact arithmetic, explicit rounding,
 numerical comparison and hashing, retained decimal places, and display.
 **Companions:** `numeric-literals.md`, `constraints.md`,
@@ -32,12 +33,12 @@ The semantic representation is:
 
 ```hexagon
 opaque record Dec = {
-    coefficient: BigInt,
-    decimalPlaces: Nat,
+    unscaled: BigInt,
+    places: Int,
 }
 ```
 
-For coefficient `c` and decimal places `s`, the numerical value is `c × 10^(-s)`.
+For unscaled integer (coefficient) `c` and decimal places `s`, the numerical value is `c × 10^(-s)`.
 This notation describes the internal representation; it is not a public
 constructor or new literal syntax.
 
@@ -57,13 +58,13 @@ Trailing zeros are preserved in the stored representation. Normalization for
 comparison or hashing does not remove them from the original value. The
 coefficient has arbitrary integer precision within implementation resources;
 decimal places range from `0` to `9_007_199_254_740_991` (`2^53 - 1`), inclusive,
-the full `Nat` range and the maximum positive `Int`. No smaller decimal-specific
+the nonnegative `Int` range. No smaller decimal-specific
 limit is imposed. This bounds the representation, not the memory or time needed
 for arithmetic or display. Exact multiplication and powers check their retained
 decimal-place sums/products before overflow and throw
 `DecimalPlacesOverflowError(message: String)`, declared by
 `Dec.hex`. The message identifies the operation. This error describes exceeding
-the `Nat` bound; it does not promise recovery from memory exhaustion or other
+the positive `Int` bound; it does not promise recovery from memory exhaustion or other
 host resource limits.
 
 This representation has no NaN, infinity, or negative zero. A rounded negative
@@ -79,7 +80,7 @@ numerical `Eq`, `Ord`, and matching `Hash` are also explicitly implemented.
 `FromBigInt` follows the prerequisite contract in `integer-widening.md`.
 
 `Dec` does **not** honor `Frac`, and has no `/` operator. No division function
-omitting `decimalPlaces` is introduced, even for a quotient that happens to have
+omitting `places` is introduced, even for a quotient that happens to have
 a terminating decimal expansion. Further constraint instances are not implied by
 this list; see §12.
 
@@ -92,9 +93,10 @@ to `Dec`.
 
 | Operation | Parameters | Result |
 |---|---|---|
-| `Dec.create` | `value: BigInt, decimalPlaces: Nat` | `Dec`, exact |
-| `Dec.value` | `Dec` | `BigInt`, unscaled integer |
-| `Dec.decimalPlaces` | `Dec` | `Nat`, retained decimal-place count |
+| `Dec.create` | `unscaled: BigInt, places: Int` | `Dec`, exact |
+| `Dec.unscaled` | `Dec` | `BigInt`, unscaled integer |
+| `Dec.places` | `Dec` | `Int`, retained decimal-place count |
+| `Dec.same` | `Dec, Dec` | `Bool`, same unscaled integer and retained places |
 | `Dec.add` / `+` | `Dec, Dec` | `Dec`, exact |
 | `Dec.subtract` / binary `-` | `Dec, Dec` | `Dec`, exact |
 | `Dec.negate` / unary `-` | `Dec` | `Dec`, exact |
@@ -105,40 +107,55 @@ to `Dec`.
 | `Dec.abs` | `Dec` | `Dec`, exact, retaining decimal places |
 | `Dec.sign` | `Dec` | `Sign` |
 | `Dec.pow` / `**` | `Dec, exponent: Int` | `Dec`, exact; negative exponents rejected |
-| `Dec.multiplyTo` | `Dec, Dec, decimalPlaces: Nat` | `Dec`, school rounding |
-| `Dec.multiplyToEven` | `Dec, Dec, decimalPlaces: Nat` | `Dec`, ties to even |
-| `Dec.divideTo` | `Dec, Dec, decimalPlaces: Nat` | `Dec`, school rounding |
-| `Dec.divideToEven` | `Dec, Dec, decimalPlaces: Nat` | `Dec`, ties to even |
-| `Dec.withDecimalPlaces` | `Dec, decimalPlaces: Nat` | `Dec`, school rounding |
-| `Dec.withDecimalPlacesEven` | `Dec, decimalPlaces: Nat` | `Dec`, ties to even |
+| `Dec.divide` | `Dec, Dec, places: Int` | `Dec`, school rounding |
+| `Dec.divideEven` | `Dec, Dec, places: Int` | `Dec`, ties to even |
+| `Dec.withPlaces` | `Dec, places: Int` | `Dec`, school rounding |
+| `Dec.withPlacesEven` | `Dec, places: Int` | `Dec`, ties to even |
 | `Dec.round` | `Dec` | `BigInt`, school rounding |
 | `Dec.roundEven` | `Dec` | `BigInt`, ties to even |
 | `Dec.floor` | `Dec` | `BigInt`, toward negative infinity |
 | `Dec.ceil` | `Dec` | `BigInt`, toward positive infinity |
 | `Dec.trunc` | `Dec` | `BigInt`, toward zero |
 | `Rat.fromDec` | `Dec` | `Rat`, exact |
-| `Rat.toDec` | `Rat, decimalPlaces: Nat` | `Dec`, school rounding |
-| `Rat.toDecEven` | `Rat, decimalPlaces: Nat` | `Dec`, ties to even |
+| `Rat.toDec` | `Rat, places: Int` | `Dec`, school rounding |
+| `Rat.toDecEven` | `Rat, places: Int` | `Dec`, ties to even |
 | `Dec.toFloat` | `Dec` | `Float`, correctly rounded, ties to even |
 
-The rounded operations taking a final `decimalPlaces` parameter return a `Dec`
+The rounded operations taking a final `places` parameter return a `Dec`
 retaining **exactly** that many places. They have no operator spellings.
-`multiplyTo` / `divideTo` name arithmetic to requested places;
-`withDecimalPlaces` names a returned value with the requested places; `Rat.toDec`
+`divide` names division to requested places;
+`withPlaces` names a returned value with the requested places; `Rat.toDec`
 names conversion to a destination type. Their `Even` variants use nearest
 rounding with ties to even, not rounding every result to an even number.
-These names replace the earlier rescaling and `bank`-prefixed proposals without
-aliases. `Float.roundEven` follows the same rounding-name convention.
+These names replace the first-release names without aliases. `multiplyTo` and
+`multiplyToEven` are removed: use exact multiplication followed by `withPlaces`
+or `withPlacesEven`. The intermediate exact product must fit the retained-place
+range, even if a later adjustment would reduce it. `Float.roundEven` follows the same rounding-name convention.
 
 ### Construction and observation
 
-`Dec.create(value, decimalPlaces)` stores the unscaled integer and retained
+`Dec.create(unscaled, places)` stores the unscaled integer and retained
 decimal-place count exactly: `Dec.create(500n, 2)` represents `5.00`.
-`Dec.value` returns that unscaled integer (`500n`); `Dec.decimalPlaces` returns
+`Dec.unscaled` returns that unscaled integer (`500n`); `Dec.places` returns
 the count (`2`). These accessors support extensions and adapters. For everyday
 inspection and display, prefer `show`, which returns `"5.00"` for this value.
-Opacity prevents direct field deconstruction outside the module. No `(x, y)dec`
+Opacity prevents direct field deconstruction outside the module in Hexagon. The
+ordinary JavaScript record remains inspectable, with fields `unscaled` and `places`. No `(x, y)dec`
 construction/deconstruction pattern is introduced in this release.
+
+### Places arguments and validation
+
+Every public places parameter and the `places` accessor use `Int`, including
+`Rat.toDec` and `Rat.toDecEven`. An ordinary `let places = 2` can therefore be
+passed directly; differences between observed place counts use ordinary Int
+subtraction. The stored `places: Int` field always remains nonnegative.
+
+Every operation accepting places rejects a negative argument with
+`Dec.NegativeDecimalPlacesError(message: String)`, declared by `Dec.hex`.
+The message identifies the public operation. Validate before arithmetic and
+zero fast paths; for division this check precedes the zero-divisor check.
+Negative places do not mean rounding to tens or hundreds. Valid counts keep
+the existing range in §2; no clamping or silent narrowing is permitted.
 
 ### Decimal literals and literal patterns
 
@@ -249,8 +266,8 @@ public constructor and accessors. `Dec` does not depend on or import `Rat`.
 
 ### Conversion from `Rat` to requested decimal places
 
-`Rat.toDec(value: Rat, decimalPlaces: Nat): Dec` uses school rounding;
-`Rat.toDecEven(value: Rat, decimalPlaces: Nat): Dec` uses ties to even.
+`Rat.toDec(value: Rat, places: Int): Dec` uses school rounding;
+`Rat.toDecEven(value: Rat, places: Int): Dec` uses ties to even.
 Both round once from the exact rational using §5 and retain exactly the requested
 decimal places. Neither uses a `Float` intermediate or implicit conversion.
 Decimal places are required even for a terminating rational.
@@ -276,14 +293,14 @@ decimal places are not preserved by the result.
 
 `Pow<Dec>` supplies `Dec.pow(value: Dec, exponent: Int): Dec` and `**`.
 For a non-negative exponent `n`, the result has coefficient `c^n` and
-`decimalPlaces = s * n`. Exponent zero returns the multiplicative identity at
+`places = s * n`. Exponent zero returns the multiplicative identity at
 zero decimal places, including for a zero base. No rounding occurs.
 
 Every negative exponent throws the existing `NegativeExponentError` from
 `Pow.hex`, including where a particular reciprocal would terminate exactly.
 Its documentation must be broadened from integer types to include this instance.
 Before computing the coefficient power, check the decimal-place product exactly;
-if it exceeds the `Nat` range, throw rather than wrap, round, or reduce retained
+if it exceeds the positive `Int` range, throw rather than wrap, round, or reduce retained
 places. Throw the same `DecimalPlacesOverflowError` used by exact multiplication.
 Ordinary computation and memory limits still apply.
 
@@ -323,51 +340,47 @@ intermediate `Float` conversion or earlier rounding step.
 
 ## 6. Multiplication and division to decimal places
 
-`multiplyTo` and `multiplyToEven` round the exact product to the requested places.
-They may compute the exact product then round, or use an equivalent exact integer
-algorithm; observable numerical results and retained places must agree.
-They must not throw `DecimalPlacesOverflowError` merely because the scale sum
-of a hypothetical unmaterialized exact product exceeds Nat: their retained result
-places are the caller's valid Nat argument. Exact internal bookkeeping must not
-overflow or round that sum. This principle also applies to the intermediate
-place calculations of division, place adjustment, and Rat-to-Dec conversion.
-Ordinary resource limitations remain separate. Computing an intermediate Dec
-through `multiply` is only a valid implementation when its extra range check
-cannot change the rounded operation's result or failure behaviour.
+Multiplication is exact; round its result separately with `withPlaces` or
+`withPlacesEven`. There is no combined rounded-multiplication operation.
 
-`divideTo` and `divideToEven` round the exact rational quotient directly to the
+Division, place adjustment, and Rat-to-Dec conversion must keep internal place
+bookkeeping exact. A valid final place count must not fail merely because an
+unmaterialized intermediate sum exceeds Int's range. Cancel place differences
+or use exact integer bookkeeping as needed. Ordinary resource limits remain.
+
+`divide` and `divideEven` round the exact rational quotient directly to the
 requested places. They must handle both terminating and repeating quotients
 without first selecting an intermediate decimal precision.
 
 ```text
-multiplyTo(4.50, 0.15, 2) = 0.68
-multiplyTo(4.50, 0.15, 3) = 0.675
-divideTo(1, 8, 2) = 0.13
-divideToEven(1, 8, 2) = 0.12
-divideTo(1, 3, 2) = 0.33
-divideTo(3, 2, 2) = 1.50
-divideTo(-1, 8, 2) = -0.13
-divideToEven(-1, 8, 2) = -0.12
-divideTo(1, -8, 2) = -0.13
-divideToEven(-1, -8, 2) = 0.12
+withPlaces(4.50 * 0.15, 2) = 0.68
+withPlaces(4.50 * 0.15, 3) = 0.675
+divide(1, 8, 2) = 0.13
+divideEven(1, 8, 2) = 0.12
+divide(1, 3, 2) = 0.33
+divide(3, 2, 2) = 1.50
+divide(-1, 8, 2) = -0.13
+divideEven(-1, 8, 2) = -0.12
+divide(1, -8, 2) = -0.13
+divideEven(-1, -8, 2) = 0.12
 ```
 
 Division checks for a zero divisor by numerical value, independent of its places,
 and throws the existing `DivideByZeroError` declared by `Integral.hex`. Messages
-identify the operation (`Dec.divideTo: divisor is zero` or
-`Dec.divideToEven: divisor is zero`). No Java exception type is introduced.
+identify the operation (`Dec.divide: divisor is zero` or
+`Dec.divideEven: divisor is zero`). No Java exception type is introduced.
 
 ## 7. Changing places and rounding to an integer
 
-`withDecimalPlaces` and `withDecimalPlacesEven` apply §5 to an existing value. Reducing
+`withPlaces` and `withPlacesEven` apply §5 to an existing value. Reducing
 places can change its number; increasing places appends zeros without changing
 its number. Requesting its existing places preserves both its number and places.
 
 ```text
-withDecimalPlaces(1.256, 2) = 1.26
-withDecimalPlacesEven(1.245, 2) = 1.24
-withDecimalPlaces(1.5, 2) = 1.50
-withDecimalPlaces(0, 2) = 0.00
+withPlaces(1.256, 2) = 1.26
+withPlacesEven(1.245, 2) = 1.24
+withPlaces(1.5, 2) = 1.50
+withPlaces(0, 2) = 0.00
 ```
 
 `round` and `roundEven` select the nearest integer using the same two rules and
@@ -391,6 +404,24 @@ example, rounding a `0.675` discount to two places before subtracting it from
 
 `Eq<Dec>` compares numerical values: `1.50 == 1.500` and `0.00 == 0` are true.
 `notEquals` is its negation. A difference in decimal places does not throw.
+
+`Dec.same(left: Dec, right: Dec): Bool` is a separate ordinary companion
+operation. It returns true exactly when both stored `unscaled` integers and both
+stored `places` counts are equal. It compares representation, not JavaScript
+object identity: separately constructed values with the same two parts are the
+same. It does not normalize, round, or change either value.
+
+```hexagon
+2.0d == 2.00d                  // True
+2.0d.same(2.00d)               // False
+2.00d.same(Dec.create(200n, 2)) // True
+0d.same(0.00d)                 // False
+```
+
+This operation does not supply a constraint instance or operator. `equals`,
+`compare`, and `hash` remain numerical; map/set key equivalence and pattern
+matching are unchanged. Documentation comments must name the two compared parts
+and distinguish this operation from numerical equality and object identity.
 
 `Ord<Dec>` gives a total numerical order agreeing with `Eq`, comparing exactly
 across decimal places. It returns `Ordering.Equal` exactly for numerically equal
@@ -464,13 +495,18 @@ the book review. The compiler's primitive-type classification is unchanged.
   cancellation to zero, and multiplication with integer operands on either side.
 - Test positive and negative ties, even and odd tie neighbours, non-ties,
   rounding carry into a new integer digit, and a negative value rounding to zero.
-- Every operation accepting `decimalPlaces` returns exactly the requested places, including zero and increasing
-  the places of an already exact answer. Its parameter is `Nat`.
+- Every operation accepting `places` returns exactly the requested places, including zero and increasing
+  the places of an already exact answer. Its parameter is `Int`; negative arguments throw before zero fast paths.
+  Cover inferred `let places = 2`, accessor subtraction, and negative places on
+  construction, both adjustment/division variants, and both Rat conversions.
 - Repeating division rounds correctly for every combination of operand signs;
   every zero-divisor representation throws
   the existing `DivideByZeroError`. No `/` or `Frac<Dec>` is available.
 - Detect double rounding: rounding `1.249` directly to one place yields `1.2`,
   not the `1.3` obtained by first rounding to two places.
+- `same` distinguishes equal numerical values with different places, including
+  zero; accepts independently constructed matching representations; and rejects
+  different unscaled integers at the same places, including opposite signs.
 - Numerical equality and order agree across decimal places. Hashes agree for nonzero
   trailing-zero variants and all zero variants. Map/set lookup and representative
   retention must be exercised, not only direct hash calls.
@@ -487,7 +523,7 @@ the book review. The compiler's primitive-type classification is unchanged.
   coefficients, and numerical matching/redundancy across different spellings.
 - Multiplication and powers detect decimal-place overflow without allocating
   enormous values; include zero coefficients, exponent zero, and negative powers.
-- Rounded operations do not inherit a hypothetical exact intermediate's retained-
+- Division, place adjustment, and Rat conversion do not inherit a hypothetical exact intermediate's retained-
   place overflow; include zero-coefficient cases that can finish without allocating
   enormous powers of ten. Literal identity is canonical under module/type shadowing.
 - `abs` preserves places; `sign` is numerical. All five integer-rounding methods
@@ -500,7 +536,27 @@ below; finite test coverage does not establish every possible input case.
 
 ## 12. Implementation status and deferred work
 
-The first-release design is settled. The prerequisite exact-integer widening in
+The first release is deployed. The revised API in §§2–7 has passed independent
+Sol Medium specification, book, and code review. Focused checks passed: 123 compiler
+Dec/prelude tests, 41 Playground compilation tests, and the language-server Dec
+hover/completion test. The Dec suite also passed after adding accessor subtraction
+coverage. Playground check and all 237 tests passed; language-server check passed.
+An initial broad run under parallel package load encountered language-server
+and compiler timing failures and was paused at the user-requested failure limit.
+After user review, isolated runs with two workers and normal timeouts passed on
+21 September 2026: all 189 compiler files (5,816 tests passed, one expected
+failure), and all 170 tests in each ordinary and linked language-server suite.
+No implementation changes were needed for these reruns. Compiler, Playground,
+and language-server TypeScript checks passed; their builds also passed, run
+sequentially. These results support load sensitivity in the earlier failures.
+The subsequent `same` addition passed independent Sol Medium specification, book,
+and code review, all 18 Dec tests, a focused dot-call runtime case, the editor
+hover/completion test, and all 41 Playground compilation tests. Compiler check
+and build and language-server check also passed. Full aggregate results above
+precede this small addition; GitHub integration/deployment gates are tracked
+separately.
+
+The following records first-release validation. The prerequisite exact-integer widening in
 `integer-widening.md` is implemented and validated locally with BigInt and Rat.
 Dec's module, literals, pattern support, Rat-owned
 conversions, and ordinary `FromBigInt<Dec>` instance are implemented locally,
@@ -523,7 +579,7 @@ Hexagon's parsing conventions. No parser name, grammar, result type, or exceptio
 is adopted here, and parsing does not block this release. The source-literal
 rules are independent of a future runtime text parser.
 
-The full `Nat` decimal-place range and `DecimalPlacesOverflowError` are settled
+The nonnegative `Int` decimal-place range and `DecimalPlacesOverflowError` are settled
 (§2). Host resource limits do not imply a smaller decimal-specific cap. No
 construction/deconstruction pattern is included. Conversion from `Float` to
 `Dec` is excluded (§4), not deferred.
