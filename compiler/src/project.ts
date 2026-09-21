@@ -288,8 +288,15 @@ interface StandardLibrarySeat {
    * What this seat was built from. The **text** is the seat's content and the
    * file is its identity: a trusted replacement whose text matched the embedded
    * member's would still carry every span into the host's own file, so both are
-   * compared. The layout address goes with them because it is a function of the
-   * project's package name, which a later compile may not share.
+   * compared. The layout **address** goes with them, and it is the whole of what
+   * a project's package name changes for an injected module: a project named
+   * `Hex` elides that segment (Packages §6), so the same source text lands at a
+   * different address and every specifier and `declaringPath` in its tree
+   * differs. Keyed by the address rather than by the name, one chain serves
+   * every project a process compiles — which matters because a language server
+   * opens an `AnalysisSession` per project directory, and a multi-root
+   * workspace whose projects are differently named would otherwise discard the
+   * whole chain on every switch between them.
    */
   readonly fileId: number;
   readonly sourcePath: string;
@@ -311,9 +318,22 @@ interface StandardLibrarySeat {
    * a nominal this module can name, and `fundamentalInstances` is read off the
    * prelude — which is why an entry's emission is reused only when the *whole*
    * injected prefix was, that table being a fact about all of it.
+   *
+   * Bounded at `EMISSION_STEMS`, oldest first: a stem is a fact about the
+   * program, so this map would otherwise grow once per distinct stem a process
+   * ever compiles, for every seat, and an emitted member is not small. Two is
+   * the realistic maximum — a host that compiles a project owning a root
+   * `Hex.hex` alongside ones that do not alternates `hex` and `hex1` — and a
+   * third stem costs the recomputation the cache was never promising to avoid.
    */
   readonly emission: Map<string, EmittedSeat>;
 }
+
+/**
+ * How many runtime-declaration stems one seat keeps emissions for; see
+ * `StandardLibrarySeat.emission`.
+ */
+const EMISSION_STEMS = 2;
 
 interface EmittedSeat {
   readonly javascript: Emitted.JavaScript;
@@ -328,15 +348,7 @@ interface InjectedIdBases {
   readonly externType: number;
 }
 
-/**
- * The project package name the chain was built under, and the chain.
- *
- * The name is part of the key because it decides where an injected module
- * *lies*: a project named `Hex` elides that segment (Packages §6), so the same
- * source text lands at a different address and every specifier and
- * `declaringPath` in its tree differs.
- */
-let cachedPackageName: string | undefined;
+/** The chain, keyed seat by seat; see `StandardLibrarySeat`. */
 let cachedSeats: readonly StandardLibrarySeat[] = [];
 /** Whether cached structures are frozen on the way in — the pin's hook. */
 let freezingCachedSeats = false;
@@ -351,7 +363,12 @@ const statistics = {
 
 /** What `standardLibraryCacheStatistics` answers. */
 export interface StandardLibraryCacheStatistics {
-  /** Compiles that had an injected list to look the chain up with. */
+  /**
+   * Host-requested compiles that had an injected list to look the chain up
+   * with. `validatePatternFixes` compiles again from inside one of these, and
+   * those re-entries are not counted: how many of them a refusal's fixes need
+   * is a fact about the fixes, not about what the host asked for.
+   */
   readonly compiles: number;
   /** Seats resolved, checked and elaborated, over this process's compiles. */
   readonly seatsChecked: number;
@@ -386,7 +403,6 @@ export function standardLibraryCacheStatistics(): StandardLibraryCacheStatistics
 export function resetStandardLibraryCache(
   options: { readonly freezeEntries?: boolean } = {},
 ): void {
-  cachedPackageName = undefined;
   cachedSeats = [];
   freezingCachedSeats = options.freezeEntries === true;
   statistics.compiles = 0;
@@ -397,22 +413,64 @@ export function resetStandardLibraryCache(
 }
 
 /** The leading seats this compile may take as they stand. */
-function reusableStandardLibrary(
-  packageName: string | undefined,
-  injected: readonly Unit[],
-): readonly StandardLibrarySeat[] {
-  if (packageName !== cachedPackageName) return [];
+function reusableStandardLibrary(injected: readonly Unit[]): readonly StandardLibrarySeat[] {
   let count = 0;
   while (count < cachedSeats.length && count < injected.length) {
-    const seat = cachedSeats[count]!;
     const unit = injected[count]!;
     if (
-      Number(unit.source.id) !== seat.fileId || unit.source.path !== seat.sourcePath ||
-      unit.source.text !== seat.text || unit.path !== seat.path
+      !standardLibrarySeatHolds(
+        cachedSeats[count]!,
+        Number(unit.source.id),
+        unit.source.path,
+        unit.source.text,
+        unit.path,
+      )
     ) break;
     count += 1;
   }
   return cachedSeats.slice(0, count);
+}
+
+/**
+ * Whether a seat was built from exactly this file at exactly this address —
+ * `StandardLibrarySeat`'s key, with one writer.
+ *
+ * Read from the four fields rather than from a `Unit`, because `gatherModules`
+ * asks it before it has built either the `Source.File` or the tree.
+ */
+function standardLibrarySeatHolds(
+  seat: StandardLibrarySeat,
+  fileId: number,
+  sourcePath: string,
+  text: string,
+  path: string,
+): boolean {
+  return fileId === seat.fileId && sourcePath === seat.sourcePath && text === seat.text &&
+    path === seat.path;
+}
+
+/**
+ * The file and tree the chain already holds for an embedded member at this
+ * seat, when it is the same file at the same address.
+ *
+ * Parsing is a function of the file alone, so this is read per seat rather than
+ * along the reusable prefix: a member after a rebuilt one is re-checked, but it
+ * is not re-lexed and re-parsed. Only the **embedded** members are asked —
+ * a trusted replacement's file is one of the project's own, parsed for the
+ * project's sake whatever the chain says.
+ */
+function cachedInjectedMember(
+  index: number,
+  fileId: number,
+  sourcePath: string,
+  text: string,
+  path: string,
+): { readonly source: Source.File; readonly parsed: Parsed.Module } | undefined {
+  const seat = cachedSeats[index];
+  if (seat === undefined || !standardLibrarySeatHolds(seat, fileId, sourcePath, text, path)) {
+    return undefined;
+  }
+  return { source: seat.checked.source, parsed: seat.checked.parsed };
 }
 
 /**
@@ -424,7 +482,6 @@ function reusableStandardLibrary(
  * is freezing, and what keeps the `moduleInterface` memo alive across compiles.
  */
 function rememberStandardLibrary(
-  packageName: string | undefined,
   injected: readonly Unit[],
   compiled: ReadonlyMap<string, CompiledModule>,
   bases: readonly (InjectedIdBases | undefined)[],
@@ -446,9 +503,14 @@ function rememberStandardLibrary(
       runtimeBasename,
       keep({ javascript: module.javascript, declarations: module.declarations }),
     );
+    // Oldest first, `Map` iteration order being insertion order — and a stem
+    // re-set keeps its place, so the bound is over stems this seat has ever
+    // emitted for rather than over the last `EMISSION_STEMS` compiles.
+    while (seat.emission.size > EMISSION_STEMS) {
+      seat.emission.delete(seat.emission.keys().next().value!);
+    }
     seats.push(seat);
   }
-  cachedPackageName = packageName;
   cachedSeats = seats;
 }
 
@@ -458,15 +520,16 @@ function newStandardLibrarySeat(
   module: CompiledModule,
   bases: InjectedIdBases,
 ): StandardLibrarySeat {
+  // The interface is what consumers are actually handed, and the
+  // `moduleInterface` memo makes it one object for every compile that reuses
+  // this seat — so it is sealed here, with the tree it reads below.
+  keep(moduleInterface(module.resolved));
   return {
     fileId: Number(unit.source.id),
     sourcePath: unit.source.path,
     text: unit.source.text,
     path: unit.path,
-    // The interface is what consumers are actually handed, and the
-    // `moduleInterface` memo makes it one object for every compile that reuses
-    // this seat — so it is sealed here with the tree it reads.
-    checked: (keep(moduleInterface(module.resolved)), keep({
+    checked: keep({
       source: module.source,
       name: module.name,
       path: module.path,
@@ -475,7 +538,7 @@ function newStandardLibrarySeat(
       typed: module.typed,
       core: module.core,
       runtimes: module.runtimes,
-    })),
+    }),
     bases,
     emission: new Map<string, EmittedSeat>(),
   };
@@ -663,7 +726,7 @@ export function compileProject(
    */
   const reusableSeats = injectedUnits.length === 0
     ? []
-    : reusableStandardLibrary(projectPackage.name, injectedUnits);
+    : reusableStandardLibrary(injectedUnits);
   /**
    * Whether an injected module's **emission** is reusable too, which the whole
    * prefix decides rather than a seat: `fundamentalInstances` is read off every
@@ -672,7 +735,7 @@ export function compileProject(
    */
   const reusableEmission = injectedUnits.length > 0 &&
     reusableSeats.length === injectedUnits.length;
-  if (injectedUnits.length > 0) statistics.compiles += 1;
+  if (injectedUnits.length > 0 && validatingPatternFixes === 0) statistics.compiles += 1;
   /** Each injected seat's id allocators, for the chain this compile leaves. */
   const seatBases: (InjectedIdBases | undefined)[] = [];
 
@@ -1328,7 +1391,6 @@ export function compileProject(
   // compile again from inside this call.
   if (injectedUnits.length > 0) {
     rememberStandardLibrary(
-      projectPackage.name,
       injectedUnits,
       compiled,
       seatBases,
@@ -1617,6 +1679,13 @@ function gatherModules(
   trustedStandardLibraryModules: ReadonlySet<string>,
   diagnostics: Diagnostics.Bag,
 ): readonly Unit[] {
+  // Packages §6: the project's own modules lie at the output root under their
+  // declared names, its package segment elided — the layout's one asymmetry,
+  // and the reason a project that gains a `name` moves no file. One writer,
+  // because the injected members' addresses are asked for twice: once to seat
+  // them, and once to ask the chain whether it already holds this one.
+  const layoutPathOf = (packageName: string | undefined, declaredName: string): string =>
+    moduleLayoutPath(fullModuleName(packageName, declaredName), project.name);
   const seat = (
     source: Source.File,
     parsed: Parsed.Module,
@@ -1631,10 +1700,7 @@ function gatherModules(
       packageName,
       declaredName: parsed.name.text,
       fullName,
-      // Packages §6: the project's own modules lie at the output root under
-      // their declared names, its package segment elided — the layout's one
-      // asymmetry, and the reason a project that gains a `name` moves no file.
-      path: moduleLayoutPath(fullName, project.name),
+      path: layoutPathOf(packageName, parsed.name.text),
       injected,
       seat: index,
     };
@@ -1729,11 +1795,23 @@ function gatherModules(
       units.push(seat(own.source, own.parsed, STANDARD_LIBRARY, member.kind, index));
       continue;
     }
-    const source = new Source.File(
-      mintFileId(index),
-      `/${STANDARD_LIBRARY}/${member.name.replaceAll(".", "/")}.hex`,
+    // An embedded member the chain already holds is neither re-read nor
+    // re-parsed: its file and tree are the ones the seat was built from, which
+    // is also what makes `unit.parsed` and the compiled module's tree the same
+    // object again where a reused seat is surfaced.
+    const sourcePath = `/${STANDARD_LIBRARY}/${member.name.replaceAll(".", "/")}.hex`;
+    const held = cachedInjectedMember(
+      index,
+      Number(mintFileId(index)),
+      sourcePath,
       member.source,
+      layoutPathOf(STANDARD_LIBRARY, member.name),
     );
+    if (held !== undefined) {
+      units.push(seat(held.source, held.parsed, STANDARD_LIBRARY, member.kind, index));
+      continue;
+    }
+    const source = new Source.File(mintFileId(index), sourcePath, member.source);
     const parsed = parseFile(applyLayout(lex(source)), source.path)[0]!;
     units.push(seat(source, parsed, STANDARD_LIBRARY, member.kind, index));
   }

@@ -12,6 +12,17 @@
  * cached prefix is handed to every later compile, so nothing downstream may
  * write to it, and the way to know that is to make a write throw while the suite
  * runs.
+ *
+ * ## What the walk cannot reach
+ *
+ * The recursion is over `Object.values`, so a class instance's `#private`
+ * fields are invisible to it: `Object.freeze` still seals the instance, but a
+ * structure held only in a private field is neither walked nor frozen, and a
+ * write to one would go unreported. The one class in the cached graph is
+ * `Source.File`, whose `#lineStarts` is computed eagerly at construction and
+ * read-only after, so there is nothing there to catch. This is a limit of the
+ * pin rather than a claim about the compiler: a cached structure that grows a
+ * private field with state in it needs its own answer, not this walk.
  */
 
 const MAP_MUTATORS = ["set", "delete", "clear"] as const;

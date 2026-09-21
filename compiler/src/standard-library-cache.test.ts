@@ -49,6 +49,28 @@ function replacing(
   });
 }
 
+/** A module exporting a pattern called `boxed`, for the collision below. */
+function boxing(name: string): readonly [string, string] {
+  return [
+    `/${name.toLowerCase()}.hex`,
+    `module ${name}\n\nexport record ${name} = {value: Int}\n` +
+    `export pattern boxed(value: Int): ${name}\n` +
+    `    view(b) = b.value\n` +
+    `    build(value) = ${name}({value = value})\n`,
+  ];
+}
+
+/**
+ * Two doors of one pattern name, which refuses with a "choose `…`" fix — the
+ * one fix `validatePatternFixes` proves by compiling the whole program again,
+ * from inside the compile that raised it.
+ */
+const COLLIDING_PATTERNS: readonly (readonly [string, string])[] = [
+  boxing("Alpha"),
+  boxing("Beta"),
+  main("import Alpha\nimport Beta\n\nexport let value: Int = (1)boxed\n"),
+];
+
 describe("one standard library per process", () => {
   test("two projects are handed the same members, emitted byte for byte", () => {
     resetStandardLibraryCache();
@@ -125,6 +147,20 @@ describe("one standard library per process", () => {
     });
   });
 
+  test("`compiles` counts the host's compiles, not the fix validation inside one", () => {
+    // A refusal carrying fixes makes `validatePatternFixes` compile the whole
+    // program again from inside this call, with the same injected list — and
+    // how many of those a refusal needs is a fact about its fixes.
+    resetStandardLibraryCache();
+    expect(messagesOf(compileFiles(COLLIDING_PATTERNS))).toEqual([
+      "pattern `boxed` is exported by `Alpha` and `Beta`; declare a private pattern alias to choose one",
+    ]);
+    const after = standardLibraryCacheStatistics();
+    // The re-entries happened — or the count above would say nothing.
+    expect(after.seatsReused).toBeGreaterThan(0);
+    expect(after.compiles).toBe(1);
+  });
+
   test("the shipped standard library compiles clean, so every seat is kept", () => {
     // The cache keeps clean seats only, so a member that started reporting
     // would switch the cache off from its seat onward and nothing else would
@@ -132,6 +168,50 @@ describe("one standard library per process", () => {
     resetStandardLibraryCache();
     expect(messagesOf(compileFiles([main("export let n: Int = 1\n")]))).toEqual([]);
     expect(standardLibraryCacheStatistics().seats).toBe(SEATS);
+  });
+});
+
+describe("one chain, whatever the project is called", () => {
+  test("alternating package names reuse every seat", () => {
+    // A seat is keyed by its layout address, and the package name decides
+    // nothing else about an injected module — so a host that opens one session
+    // per project directory keeps the chain across every switch between them.
+    resetStandardLibraryCache();
+    const first = compileFiles([main("export let n: Int = 1\n")], { packageName: "Alpha" });
+    expect(messagesOf(first)).toEqual([]);
+    const warm = standardLibraryCacheStatistics();
+    expect(warm.seatsChecked).toBe(SEATS);
+
+    // The unnamed project is one of the alternatives: a host that names none
+    // of its projects and one that names them all share the chain too.
+    for (const packageName of ["Beta", undefined, "Alpha", "Beta"]) {
+      const project = compileFiles(
+        [main("export let n: Int = 1\n")],
+        packageName === undefined ? {} : { packageName },
+      );
+      expect(messagesOf(project)).toEqual([]);
+    }
+    const after = standardLibraryCacheStatistics();
+    expect(after.seatsChecked - warm.seatsChecked).toBe(0);
+    expect(after.seatsReused - warm.seatsReused).toBe(4 * SEATS);
+    expect(after.emissionsReused - warm.emissionsReused).toBe(4 * SEATS);
+  });
+
+  test("a project named `Hex` moves every member, and re-seats the chain", () => {
+    // The one thing the name does decide: `Hex` elides its own segment, so the
+    // members lie at `/Option.hex` rather than `/Hex/Option.hex` (Packages §6)
+    // and no cached seat is at the address this compile asks for.
+    resetStandardLibraryCache();
+    const body = main("export let some: Option(Int) = Some(3)\n");
+    expect(messagesOf(compileFiles([body]))).toEqual([]);
+    const warm = standardLibraryCacheStatistics();
+
+    const named = compileFiles([body], { packageName: "Hex" });
+    expect(messagesOf(named)).toEqual([]);
+    expect(named.modules.map(({ path }) => path)).toContain("/Option.hex");
+    const after = standardLibraryCacheStatistics();
+    expect(after.seatsChecked - warm.seatsChecked).toBe(SEATS);
+    expect(after.seatsReused - warm.seatsReused).toBe(0);
   });
 });
 
@@ -177,6 +257,93 @@ describe("a trusted replacement invalidates from its own seat", () => {
     ], { trustedStandardLibraryModules: new Set([last.name]) });
     expect(messagesOf(broken).length).toBeGreaterThan(0);
     expect(standardLibraryCacheStatistics().seats).toBe(SEATS - 1);
+  });
+
+  test("a rebuilt seat is re-checked, never re-read and re-parsed", () => {
+    // Parsing is a function of the file alone, so it does not follow the
+    // reusable prefix: replacing the *first* member re-checks every seat after
+    // it, and not one of them is lexed again — the chain hands each its file
+    // and its tree, which is also what makes a reused seat's `parsed` the very
+    // tree the compiled module carries.
+    resetStandardLibraryCache();
+    const body = main(
+      "export let some: Option(Int) = Some(3)\n" +
+      "export let shown: String = show(1)\n",
+    );
+    const first = compileFiles([body]);
+    expect(messagesOf(first)).toEqual([]);
+
+    const member = PRELUDE_MODULES[0]!;
+    const rebuilt = compileFiles(
+      [supplied(member), body],
+      { trustedStandardLibraryModules: new Set([member.name]) },
+    );
+    expect(messagesOf(rebuilt)).toEqual([]);
+
+    const trees = (project: CompiledProject) =>
+      new Map(project.modules
+        .filter(({ name }) => name.startsWith("Hex.") && name !== `Hex.${member.name}`)
+        .map(({ path, parsed }) => [path, parsed] as const));
+    const [before, after] = [trees(first), trees(rebuilt)];
+    const shared = [...before.keys()].filter((path) => after.has(path));
+    expect(shared.length).toBeGreaterThan(0);
+    for (const path of shared) expect(after.get(path)).toBe(before.get(path));
+  });
+
+  test("an edited replacement re-seats its member, at the file the last one came from", () => {
+    // The seat's key holds its **text**, not only its file: a host that edits a
+    // standard-library source and compiles again hands the same file identity
+    // at the same path, and the seat built from the previous text answers for
+    // nothing. Written as a visible export rather than as a counter, so the
+    // pin is what the second compile can *see*.
+    resetStandardLibraryCache();
+    const member = LIBRARY_MODULES.at(-1)!;
+    const compile = (source: string) =>
+      compileFiles([
+        [supplied(member)[0], source],
+        main(
+          `import ${member.name}\n\n` +
+          `export let added: Int = ${member.name}.addedByThisTest\n`,
+        ),
+      ], { trustedStandardLibraryModules: new Set([member.name]) });
+
+    expect(messagesOf(compile(member.source)).length).toBeGreaterThan(0);
+    expect(messagesOf(compile(`${member.source}\nexport let addedByThisTest: Int = 7\n`)))
+      .toEqual([]);
+  });
+});
+
+describe("a seat's emission is bounded by the stems it is asked for", () => {
+  /**
+   * A root module named `Hex` claims the `hex` stem, so §8.3's probe settles on
+   * `hex1`; adding one named `Hex1` pushes it to `hex2`. Three distinct stems
+   * is one more than a seat keeps.
+   */
+  const CLAIMS_HEX = ["/one.hex", "module Hex\n\nexport let z: Int = 0\n"] as const;
+  const CLAIMS_HEX1 = ["/two.hex", "module Hex1\n\nexport let z: Int = 0\n"] as const;
+  const BODY = main("export let n: Int = 1\n");
+
+  test("a third stem evicts the oldest, and the other two are still there", () => {
+    resetStandardLibraryCache();
+    let last = standardLibraryCacheStatistics();
+    /** Whether this compile emitted the injected seats or reused them. */
+    const emitted = (files: readonly (readonly [string, string])[]): boolean => {
+      expect(messagesOf(compileFiles(files))).toEqual([]);
+      const now = standardLibraryCacheStatistics();
+      const built = now.seatsEmitted - last.seatsEmitted;
+      const reused = now.emissionsReused - last.emissionsReused;
+      last = now;
+      expect(built + reused).toBe(SEATS);
+      return built === SEATS;
+    };
+
+    expect(emitted([BODY])).toBe(true);
+    expect(emitted([CLAIMS_HEX, BODY])).toBe(true);
+    expect(emitted([CLAIMS_HEX, CLAIMS_HEX1, BODY])).toBe(true);
+    // `hex1` and `hex2` are the two the seats hold …
+    expect(emitted([CLAIMS_HEX, BODY])).toBe(false);
+    // … and `hex`, the oldest, was evicted when the third arrived.
+    expect(emitted([BODY])).toBe(true);
   });
 });
 
@@ -247,18 +414,50 @@ describe("nothing downstream writes to the cached prefix", () => {
     )],
   ];
 
+  /**
+   * Programs that **refuse**, with the message each one owes.
+   *
+   * A refusal reads inputs a clean compile never asks for, and both of these
+   * walk the shared module set: the first asks whether `import Rat` would
+   * resolve here (Modules §5.1 rule 1's repair clause), the second asks which
+   * modules export a pattern of this name and which of those the program could
+   * import. The third refuses with a "choose `…`" fix, which
+   * `validatePatternFixes` proves by compiling the whole program again from
+   * inside this compile — against the same frozen chain.
+   */
+  const REFUSALS: readonly (readonly [
+    readonly (readonly [string, string])[],
+    readonly string[],
+  ])[] = [
+    [[main("export let n: Int = Rat.zero\n")], ["no module alias `Rat`; `import Rat`"]],
+    [[
+      ["/box.hex",
+        "module Box\n\n" +
+        "export record Box = {value: Int}\n" +
+        "export pattern boxed(value: Int): Box\n" +
+        "    view(box) = box.value\n" +
+        "    build(value) = Box({value = value})\n"],
+      main("export let value: Int = (1)boxed\n"),
+    ], ["no `boxed` here; `import Box`"]],
+    [COLLIDING_PATTERNS, [
+      "pattern `boxed` is exported by `Alpha` and `Beta`; declare a private pattern alias to choose one",
+    ]],
+  ];
+
   test("a frozen prefix survives the corpus", () => {
     // Every structure the cache keeps refuses mutation from here on, `Map` and
     // `Set` contents included, so a write anywhere downstream fails at the
     // write rather than as a wrong answer three compiles later.
     resetStandardLibraryCache({ freezeEntries: true });
     try {
-      for (const files of CORPUS) {
-        expect(messagesOf(compileFiles(files))).toEqual([]);
-      }
-      // A second pass over the same programs, now that every seat is frozen.
-      for (const files of CORPUS) {
-        expect(messagesOf(compileFiles(files))).toEqual([]);
+      // Twice: the second pass is the one every seat is already frozen for.
+      for (let pass = 0; pass < 2; pass += 1) {
+        for (const files of CORPUS) {
+          expect(messagesOf(compileFiles(files))).toEqual([]);
+        }
+        for (const [files, messages] of REFUSALS) {
+          expect(messagesOf(compileFiles(files))).toEqual(messages);
+        }
       }
       expect(standardLibraryCacheStatistics().seatsChecked).toBe(SEATS);
 
