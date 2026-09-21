@@ -784,10 +784,23 @@ describe("an extern binding's copying wrapper is already one object (Part 4 §4.
   /**
    * The interaction §7 sends here: "exported extern bindings re-export per Part
    * 4 §7". The local extern binding *is* the stable module-level copying
-   * wrapper, so re-exporting it and taking it first-class both reach that one
-   * wrapper — occasion 4 adds nothing, and this pin is what says so.
+   * wrapper, so the re-export reaches that one wrapper and occasion 4 adds
+   * nothing to it — every reference to the name, here and abroad, is one
+   * object.
+   *
+   * **Handing it out at a function-typed result is a different act**, and the
+   * pin says both halves because the two are easy to read as one. `viaRef`'s
+   * declared result is `() ->! Array(Int)`, a function type naming a captured
+   * collection, so the position takes §5.4's function clause and Part 6 §5.5's
+   * **per-crossing conversion wrapper** — "created per crossing and … never
+   * cached", so two calls hand out two objects and neither is the extern
+   * binding. §5.4 is directed by the declared type and probes nothing, so the
+   * position cannot know that the value flowing through it is already a stable
+   * wrapper; and the cost of that is the outer wrapper copying a result the
+   * inner one already copied, which §5.4 leaves standing — "every wrapper this
+   * section names copies", and an elimination is a proof nobody has specified.
    */
-  test("the re-export and a first-class reference are the same function", async () => {
+  test("the re-export is one object; a first-class hand-out is a fresh wrapper", async () => {
     const { main } = await run(
       'extern from "rows"\n' +
         "    export fun rows() ->! Array(Int)\n" +
@@ -797,7 +810,14 @@ describe("an extern binding's copying wrapper is already one object (Part 4 §4.
         rows: "export const source = [1, 2];\nexport function rows() { return source; }\n",
       },
     );
-    expect(main["rows"]).toBe((main["viaRef"] as () => unknown)());
+    const viaRef = main["viaRef"] as () => () => readonly number[];
+    expect(main["rows"]).toBe(main["rows"]);
+    expect(viaRef()).not.toBe(main["rows"]);
+    expect(viaRef()).not.toBe(viaRef());
+    // What it hands out is still the extern binding's answer, and still a value
+    // of Hexagon's own: the same contents, and not the foreign array.
+    expect(viaRef()()).toEqual([1, 2]);
+    expect(viaRef()()).not.toBe(viaRef()());
   });
 
   /** And two acquisitions are two values, with the foreign source unreachable. */

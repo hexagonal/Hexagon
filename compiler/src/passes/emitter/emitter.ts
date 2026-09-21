@@ -12643,7 +12643,9 @@ const HELPER_DEPENDENCIES: Readonly<Record<Helper, readonly Helper[]>> = {
   // no adapter, no memo, no driver — one foreign step per pull.
   streamInbound: [],
   // Owes nothing either, and that is the design: FFI Part 1 §5.4's walk is one
-  // interpreter over a plan table, so no second helper composes with it.
+  // interpreter over a plan table, so no second helper composes with it. The
+  // conversion wrapper a function node makes (Part 6 §5.5) re-enters *this*
+  // helper at each invocation, which is a self-call and not a dependency.
   capture: [],
   debugLog: [],
   jsValueKind: [],
@@ -13182,18 +13184,20 @@ function renderHelper(
     // array's length at the fault, which is what the reader of the message
     // needs and what a `Vector` fault reports.
     // FFI Part 1 §5.4's capture walk, interpreted over one module's plan table
-    // (`capture.ts`). Three obligations shape the body, and each is the reason
+    // (`capture.ts`). Four obligations shape the body, and each is the reason
     // for a clause a shorter one would not have:
     //
     // **The walk is iterative** — §5.4's "the walk over a long acyclic structure
     // is an *iterative* traversal that does not depend on recursion depth". So
-    // there is one worklist and no recursive call: a task produces the *shell*
-    // of its copy, assigns it into its parent's slot, and pushes a task for each
-    // component that needs walking. A chain of a hundred thousand records costs
-    // a hundred thousand entries and one frame. The list is walked by an
-    // advancing index rather than popped, which makes the order breadth-first:
-    // the order across collections is unobservable, and the order *within* one
-    // is settled before a task ends.
+    // there is one worklist and no recursive call *over a value*: a task
+    // produces the *shell* of its copy, assigns it into its parent's slot, and
+    // pushes a task for each component that needs walking. A chain of a hundred
+    // thousand records costs a hundred thousand entries and one frame. The
+    // fourth obligation's wrapper re-enters this function, which is not a walk
+    // over a value at all — it is a fresh walk per invocation. The list is
+    // walked by an advancing index rather than popped, which makes the order
+    // breadth-first: the order across collections is unobservable, and the
+    // order *within* one is settled before a task ends.
     //
     // **An array's access pattern is the contract** — "reads each index exactly
     // once in index order through native array access; an exotic array object
@@ -13210,6 +13214,12 @@ function renderHelper(
     // puts after every walk this task pushed — so a key or value that is itself
     // a captured collection is inserted as the object it will be, and the
     // interior it is still filling is reached through that same object.
+    //
+    // **A function value becomes a wrapper, not a copy** — §5.4's function
+    // clause and Part 6 §5.5. The one place the body re-enters itself: the
+    // wrapper it makes here walks its arguments and its result at *invocation*
+    // time, in the frame the foreign caller supplies, which is the only frame
+    // that exists to run a walk in. The `function` clause says the rest.
     case "capture":
       return [
         `function ${name}(__plans, __plan, __value) {`,
@@ -13297,6 +13307,53 @@ function renderHelper(
         "        if (__field[1] === null) __copy[__field[0]] = __held;",
         "        else __work.push({ plan: __field[1], from: __held, into: __copy, at: __field[0] });",
         "      }",
+        `    } else if (__node.k === "function") {`,
+        // FFI Part 6 §5.5's **conversion wrapper**: "a fresh function, created
+        // where the callback value crosses, that at each invocation runs Part 1
+        // §5.4's walk over every argument and the result at their declared
+        // types … and calls the original". Everything it is obliged to be is a
+        // line here:
+        //
+        // **Fresh, and never cached.** It is made by the crossing that reached
+        // this node, so two crossings of one function are two wrappers and a
+        // registration API cannot match them — §5.5's recorded departure from
+        // §5.1's identity guarantee. There is no table keyed by function and
+        // signature: that is Part 6 §8 item 2's deferred upgrade, and this is
+        // the clause that defers it.
+        //
+        // **The declared arity** (§2). The slots are the declared parameters,
+        // so a JS caller's extras reach none and are dropped, and `length` is
+        // set to that count because a Hexagon function *is* an n-ary JS
+        // function (§1) and this wrapper stands in one's place: an API that
+        // branches on a callback's arity must see the arity declared.
+        //
+        // **An arrow** (§6): a Hexagon callback cannot observe `this`, so the
+        // wrapper neither binds one nor forwards one.
+        //
+        // **It never catches** (§4). A Hexagon callback's throw leaves branded
+        // through this frame, and a foreign one's arrives for §4.1's ordinary
+        // discrimination; a `try` here would be a third thing in between.
+        //
+        // The walk it runs is this same function re-entered, so a callback
+        // taking a callback wraps again at each invocation, and a deep argument
+        // is still the iterative traversal above.
+        // `__node` is the one binding the closure copies out, because it is
+        // the one the `nullable` loop above may reassign; `__from` is already
+        // a `const` of this iteration.
+        "      const __signature = __node;",
+        "      __copy = (...__arguments) => {",
+        "        const __passed = [];",
+        "        for (let __index = 0; __index < __signature.p.length; __index += 1) {",
+        "          const __slot = __signature.p[__index];",
+        "          const __argument = __arguments[__index];",
+        `          __passed.push(__slot === null ? __argument : ${name}(__plans, __slot, __argument));`,
+        "        }",
+        "        const __answer = __from(...__passed);",
+        `        return __signature.r === null ? __answer : ${name}(__plans, __signature.r, __answer);`,
+        "      };",
+        `      ${
+          spell("Object")
+        }.defineProperty(__copy, "length", { value: __signature.p.length });`,
         `    } else if (__node.k === "union") {`,
         "      const __tag = __from.tag;",
         "      for (const __arm of __node.arms) {",

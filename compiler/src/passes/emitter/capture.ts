@@ -123,7 +123,27 @@ export type CapturePlan =
     readonly k: "union";
     readonly arms: readonly (readonly [tag: string, slots: readonly CaptureSlot[]])[];
   }
-  | { readonly k: "nullable"; readonly e: number };
+  | { readonly k: "nullable"; readonly e: number }
+  | {
+    /**
+     * FFI Part 6 §5.5's **per-crossing conversion wrapper**, and §5.4's
+     * function clause: "the value becomes a per-crossing conversion wrapper …
+     * which walks each captured argument and result at each invocation".
+     *
+     * One node serves both directions, because the wrapper is symmetric — §5.5
+     * wraps a Hexagon callback so that JavaScript's arrays arrive as Hexagon's
+     * copies and Hexagon's leave as copies, and §5.3 wraps a foreign function
+     * value "the other way round" with the same walk at the same slots. What a
+     * slot's plan copies does not depend on which side supplied the value.
+     *
+     * `p` is the **declared** parameter list, so its length is the declared
+     * arity (Part 6 §2): a JS caller's extra arguments reach no slot here and
+     * are dropped. `null` in either position is identity, as everywhere else.
+     */
+    readonly k: "function";
+    readonly p: readonly (number | null)[];
+    readonly r: number | null;
+  };
 
 /** One declared field or constructor slot, under the occurrence's arguments. */
 export interface CaptureComponent {
@@ -289,6 +309,12 @@ export class CapturePlans {
         return { k: "set", e: inner(type.element) };
       case "Tuple":
         return { k: "tuple", e: type.elements.map(inner) };
+      case "Function":
+        // §5.4's function clause. Both slots are read, never only the captured
+        // ones: the wrapper is one function and its arity is the declared one
+        // (Part 6 §2), so a parameter that crosses by identity still occupies
+        // a slot — as `null`, which is what the interpreter passes through.
+        return { k: "function", p: type.parameters.map(inner), r: inner(type.result) };
       case "Nullable": {
         const value = this.planFor(type.value);
         // `Nullable(a)` names one only through `a`, so this is never identity.
@@ -349,13 +375,15 @@ export class CapturePlans {
    * reachability — a queue over the constructors the copier enters, with a
    * `seen` set of occurrence keys that is never unwound.
    *
-   * The constructors it enters are exactly the ones `#build` rebuilds. A
+   * The constructors it enters are exactly the ones `#build` rebuilds — a
+   * **function type included**, because §5.4 gives one a per-crossing
+   * conversion wrapper (Part 6 §5.5) rather than identity, so the path runs
+   * through its parameters and its result exactly as the checker's does. A
    * runtime container (`Vector`, `Map`, `Set`, and the `Seq`/`Stream` records
-   * `#nominals` withholds), an opaque representation, a function type and a
-   * type variable all end a path here, where the checker's walk follows them
-   * and reports a refusal instead. Every such type is refused at every position
-   * this pass emits at, so the two verdicts differ only where no code is
-   * emitted at all.
+   * `#nominals` withholds), an opaque representation, and a type variable end
+   * a path here, where the checker's walk follows them and reports a refusal
+   * instead. Every such type is refused at every position this pass emits at,
+   * so the two verdicts differ only where no code is emitted at all.
    */
   #namesCaptured(type: Typed.Type): boolean {
     const key = this.#key(type);
@@ -382,6 +410,13 @@ export class CapturePlans {
           break;
         case "Nullable":
           pending.push(actual.value);
+          break;
+        case "Function":
+          // §5.4's trigger is "τ is a function type that **names a captured
+          // collection anywhere in its signature**", so the path runs through
+          // both slots — which is also what the checker's walk does, and the
+          // two are the same question.
+          pending.push(...actual.parameters, actual.result);
           break;
         case "NominalRecord": {
           const occurrence = this.#key(actual);
@@ -496,5 +531,12 @@ function renderPlan(plan: CapturePlan | undefined): string {
       }] }`;
     case "nullable":
       return `{ k: "nullable", e: ${plan.e} }`;
+    case "function":
+      // `String` per slot for the `tuple` row's reason: a `null` parameter plan
+      // rendered by `join` would emit a hole, which the interpreter reads as
+      // `undefined` and would walk at plan zero.
+      return `{ k: "function", p: [${
+        plan.p.map((slot) => String(slot)).join(", ")
+      }], r: ${plan.r} }`;
   }
 }
