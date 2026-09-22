@@ -1,0 +1,19 @@
+module Experimental.File
+
+import Experimental.Node.File as NodeFile
+
+(** Read the whole file synchronously as UTF-8, consuming exactly one initial
+    U+FEFF encoding signature. Preserve all other text, including line endings.
+    Host file and permission errors propagate. *)
+export let readText(path: String): String =
+    let text = NodeFile.readText!(path)
+    if String.startsWith(text, "\u{FEFF}") then
+        text.dropFirst()
+    else
+        text
+
+(** Write the whole text synchronously as UTF-8, creating or overwriting the
+    file. Add no BOM or newline; preserve any supplied U+FEFF. Parent directories
+    must exist. This is not an atomic replacement. Host errors propagate. *)
+export let writeText(path: String, text: String): Unit =
+    NodeFile.writeText!(path, text)

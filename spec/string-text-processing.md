@@ -299,27 +299,12 @@ matches or removes it. It participates in length, positions, equality, and
 ordering. `words` and trimming follow Unicode whitespace, which excludes it.
 No dedicated `String.stripBom` function was adopted.
 
-The agreed direction is for the usual text-file reader to consume an initial
-encoding signature. Raw byte reading preserves bytes. The discussed Node wrapper
-reads UTF-8 and removes exactly one initial U+FEFF; it does not detect UTF-16 or
-UTF-32. F#'s usual .NET reader provides precedent for consuming the signature,
-while Rust's `read_to_string` preserves it.
-
-Illustration using this String API; the Node module itself is not landed:
-
-```hexagon
-module Hex.Experimental.Node.File
-
-extern from "node:fs"
-    fun readFileSync(path: String, encoding: String) ->! String
-
-export let readText(path: String): String =
-    let text = readFileSync!(path, "utf8")
-    if text.startsWith("\u{FEFF}") then
-        text.dropFirst()
-    else
-        text
-```
+The experimental text-file reader `Hex.Experimental.File.readText` consumes
+exactly one initial U+FEFF after UTF-8 decoding. Its underlying
+`Hex.Experimental.Node.File.readText` adapter preserves that character.
+Neither detects UTF-16 or UTF-32. The module split and full contract live in
+[Experimental synchronous text files](experimental-file.md). BOM policy belongs
+to file input; ordinary String processing continues to preserve U+FEFF.
 
 ## 11. Integration and implementation requirements
 

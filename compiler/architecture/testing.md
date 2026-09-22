@@ -224,3 +224,21 @@ The corpus holds **refusing** programs as well as clean ones. A refusal reads wh
 The second is that the cache is used at all. `standardLibraryCacheStatistics()` reports seats checked against seats reused, so "the standard library is checked once per process" is a count. §8's prohibition is why: the claim is about repeated work, and a duration would be a worse measurement of it as well as a forbidden one. Its `compiles` counts what the host asked for; the re-entries `validatePatternFixes` makes are a fact about a refusal's fixes, not about the host, and are left out.
 
 Both are test-only exports of `project.ts` rather than a test double. A double would have to reimplement the chain to say anything about it, and the chain is the thing under test.
+
+### Standard-library dependencies preserve the cache contract
+
+Packages §2.4 requires dependency ordering for ordinary library modules after
+the fixed prelude/runtime sequence. The resulting sequence is shared by checking
+and the cache; reordering only checking underneath a cache keyed by another
+sequence is invalid. An unchanged standard library must still reuse its complete
+chain across programs, without reparsing or rechecking it.
+
+Regression coverage must include an ordinary library module importing another
+whose name sorts later, and a trusted replacement that changes import edges and
+therefore changes the required order. Reuse ends at the first incompatible seat;
+the remainder is rebuilt using the new order, with correct allocator state.
+Cold and warm compiles must agree on diagnostics and emitted output, including
+after restoring the original sources. A cycle must remain diagnosed across
+repeated compiles rather than becoming a reusable, apparently clean dependency
+chain. These checks accompany the existing frozen-structure and reuse-counter
+tests; the fix must preserve the cache's avoided work as well as its answers.

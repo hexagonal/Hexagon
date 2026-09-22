@@ -1,0 +1,17 @@
+module Experimental.Node.File
+
+extern from "node:fs"
+    fun readFileSync(path: String, encoding: String) ->! String
+    fun writeFileSync(path: String, text: String, encoding: String) ->! Unit
+
+(** Read the whole file synchronously using node:fs UTF-8 decoding. Preserve
+    an initial BOM and line endings; malformed UTF-8 uses replacement decoding.
+    Host file and permission errors propagate. *)
+export let readText(path: String): String =
+    readFileSync!(path, "utf8")
+
+(** Write UTF-8 synchronously through node:fs, creating or overwriting the
+    file. Add no BOM or newline. Parent directories must exist. This is not an
+    atomic replacement. Host file and permission errors propagate. *)
+export let writeText(path: String, text: String): Unit =
+    writeFileSync!(path, text, "utf8")
