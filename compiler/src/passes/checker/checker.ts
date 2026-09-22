@@ -9457,6 +9457,23 @@ class Checker {
           this.#unify(index, receiver.key, expression.index.span);
           type = receiver.value;
           this.#indexOperations.set(expression, "JsMapElement");
+        } else if (receiver.kind === "JsSet") {
+          // FFI Part 10 §5/§11: the bracket on a `JsSet` is refused by a
+          // sentence of its own, and the sentence names the rewrite. The
+          // receiver's own span is not the subject — the author is not wrong
+          // about `s`, they are wrong about the *form* — so the refusal carries
+          // the whole `s[x]`, which is exactly the text `JsSet.contains(s, x)`
+          // replaces.
+          //
+          // `#unsupported` yields `ERROR`, so the seat this expression fills
+          // reports nothing further: one bracket, one diagnostic.
+          type = this.#unsupported(
+            expression.span,
+            jsSetBracketMessage(
+              receiverSpelling(expression.receiver),
+              receiverSpelling(expression.index),
+            ),
+          );
         } else if (receiver.kind === "Array") {
           // FFI Part 2 §6.3's asserting read, and only the element read: the
           // slice `xs[lo..hi]` is decided surface that has not shipped (#511
@@ -26899,6 +26916,11 @@ function find<T extends { readonly id: Id }, Id>(
  *
  * A `Name` receiver keeps its own text, which is what makes the ordinary case
  * pasteable and is the half the Rewrite Rule is served by.
+ *
+ * The rule is about an **operand**, not about the receiver seat: `jsSet[x]`'s
+ * refusal spells its element through this function too (#794), because a
+ * manufactured element name is wrong in exactly the way a manufactured receiver
+ * name is. One function, so the two halves of a pasted rewrite cannot drift.
  */
 function receiverSpelling(receiver: Resolved.Expr): string {
   return receiver.kind === "Name" ? receiver.text : "…";
@@ -26943,6 +26965,33 @@ function arrayLengthReadMessage(receiver: string): string {
     "and a property read does not cross the boundary — the companion call is the " +
     `read. Write \`Array.length(${receiver})\`, or \`${receiver}.length()\` for the ` +
     "smallest edit.";
+}
+
+/**
+ * FFI Part 10 §5's refusal of `jsSet[x]`, worded as §11's checklist row (#794).
+ *
+ * §5 records four rejected bracket readings and their defects — the Boolean
+ * predicate, the query echoed back, the O(n) stored representative, the O(n)
+ * positional index — but a diagnostic is not the place to re-argue any of them.
+ * What the author needs is the one fact that kills all four at once (**a set has
+ * membership but no associated payload**) and the spelling that answers the
+ * question they were asking. So the message is §11's row verbatim in shape: the
+ * reason, a semicolon, the rewrite.
+ *
+ * Both operands are spelled by `receiverSpelling`'s rule, the *element* for the
+ * same reason as the receiver (#744): the rewrite is meant to be pasted, and a
+ * manufactured name that happens to resolve to some other binding is a working
+ * program answering a different question. A bare reference keeps its own text;
+ * anything else takes the neutral placeholder, which does not resolve, so the
+ * reader edits it.
+ *
+ * `JsSet.contains` is the advised spelling because it is the declaration meant
+ * (#715/#716): `stdlib/JsSet.hex` exports `contains` over the intrinsic door
+ * (#792), so the advice compiles and runs as written.
+ */
+function jsSetBracketMessage(receiver: string, element: string): string {
+  return "a set has no payload to retrieve; membership is " +
+    `\`JsSet.contains(${receiver}, ${element})\``;
 }
 
 /**
