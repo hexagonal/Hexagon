@@ -80,6 +80,9 @@ function compileWorkspace(
   const outputs = project.modules.map((module) => ({
     module,
     javascript: emitJavaScript(module.core, {
+      ...(module.dataSpecifiers === undefined
+        ? {}
+        : { dataSpecifiers: module.dataSpecifiers }),
       previewPrivateSpecializations: true,
       // Every module but the root, which nothing imports: the JS pane shows the
       // root's emission, and the reserved evidence handles exist for importers.
@@ -164,6 +167,10 @@ function compileWorkspace(
         path: project.runtimeGlobals.path.replace(/\.js$/u, ".hex"),
         javascript: project.runtimeGlobals.text,
       }]),
+      ...project.dataUnits.map((unit) => ({
+        path: unit.path,
+        javascript: unit.javascript.text,
+      })),
       // Keyed by the module's **layout** path (Packages §6) and not by the file
       // the buffer supplied it under: since #829 the emitted specifiers are
       // computed from the two modules' full names, so `linkModule` resolves

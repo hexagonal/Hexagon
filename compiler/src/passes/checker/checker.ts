@@ -110,6 +110,20 @@ export interface CheckOptions {
    */
   readonly programOperations?: ProgramOperations;
   /**
+   * Resolved instance heads declared by full modules in this program. This is
+   * recognition metadata only: the checker consults it solely when the head's
+   * provider is forbidden by a bare import. It never admits evidence.
+   */
+  readonly programInstanceProviders?: readonly ProgramInstanceProvider[];
+  /**
+   * Full provider modules which this consumer explicitly imported through a
+   * data-only view. Their companion operations remain known to the program,
+   * but are not candidates in this consumer: admitting one here would turn a
+   * dot call into a synthesized full-module import and defeat the data edge.
+   */
+  readonly forbiddenProviderPaths?: ReadonlySet<string>;
+  readonly forbiddenProviderCycles?: ReadonlyMap<string, string>;
+  /**
    * This module's own source text *(#821)*, for the one thing a diagnostic
    * cannot reconstruct: **what the reader wrote**.
    *
@@ -1189,6 +1203,10 @@ type EvidenceSelection =
   | { readonly kind: "components"; readonly obligations: readonly EvidenceObligation[] }
   | { readonly kind: "bool" }
   | { readonly kind: "instance"; readonly instance: Resolved.HonorItem }
+  | {
+    readonly kind: "forbidden";
+    readonly provider: string;
+  }
   | { readonly kind: "missing" };
 
 interface Scheme {
@@ -2079,7 +2097,8 @@ export function homeCompanionOperations(
  */
 export interface ProgramOperation {
   readonly symbol: Resolved.Symbol;
-  readonly scheme: Typed.Scheme;
+  /** Present after the provider's body has been checked. */
+  readonly scheme?: Typed.Scheme;
   /**
    * The home module's project-normalized path, and the internal export
    * spellings it published — what §8.2's added import is written from when a
@@ -2092,6 +2111,17 @@ export interface ProgramOperation {
 
 /** Every nominal's companion operation set, by companion key then by name. */
 export type ProgramOperations = ReadonlyMap<string, ReadonlyMap<string, ProgramOperation>>;
+
+/** A resolved full-provider instance head, kept separate from evidence activation. */
+export interface ProgramInstanceProvider {
+  readonly identity: string;
+  readonly constraint: string;
+  readonly constraintIdentity: string;
+  readonly typeParameters: readonly Resolved.TypeParameter[];
+  readonly subject: Resolved.TypeAnnotation;
+  readonly path: string;
+  readonly span: Source.Span;
+}
 
 /**
  * The first parameter's annotation of a module-level function declaration.
@@ -3520,6 +3550,9 @@ class Checker {
   readonly #importedSchemes: ReadonlyMap<Resolved.SymbolId, Typed.Scheme>;
   readonly #programNominals: VarianceDeclarations;
   readonly #programOperations: ProgramOperations;
+  readonly #programInstanceProviders: readonly ProgramInstanceProvider[];
+  readonly #forbiddenProviderPaths: ReadonlySet<string>;
+  readonly #forbiddenProviderCycles: ReadonlyMap<string, string>;
   /**
    * The companion operations this module's dot calls reached with no import to
    * name them by (Method Syntax §8.2), by symbol — the input to
@@ -3532,6 +3565,7 @@ class Checker {
   readonly #companionImports = new Map<Resolved.SymbolId, Typed.CompanionImport>();
   /** Where each operation in the program table came from, by symbol. */
   readonly #operationHomes = new Map<Resolved.SymbolId, ProgramOperation>();
+  readonly #forbiddenInstances = new Map<string, string>();
   /** This module's file id, held for constraint identity; set by `check`. */
   #fileId = 0;
   #moduleHeader: Source.Span | undefined;
@@ -3599,6 +3633,9 @@ class Checker {
     this.#importedSchemes = options.importedSchemes ?? new Map();
     this.#programNominals = options.programNominals ?? { unions: [], records: [] };
     this.#programOperations = options.programOperations ?? new Map();
+    this.#programInstanceProviders = options.programInstanceProviders ?? [];
+    this.#forbiddenProviderPaths = options.forbiddenProviderPaths ?? new Set();
+    this.#forbiddenProviderCycles = options.forbiddenProviderCycles ?? new Map();
     this.#sourceText = options.sourceText;
     this.#packageName = options.packageName;
     this.#importRepair = options.importRepair;
@@ -3757,6 +3794,11 @@ class Checker {
     for (const item of module.items) {
       if (item.kind !== "Import") continue;
       for (const imported of item.instances) this.#seedImportedInstance(imported);
+    }
+    for (const provider of this.#programInstanceProviders) {
+      if (this.#forbiddenProviderPaths.has(provider.path)) {
+        this.#indexForbiddenInstanceProvider(provider);
+      }
     }
     // Collections Part 5 §4's provided rows, in the same evidence universe as
     // every other instance and seeded from the same place. They arrive after
@@ -4571,7 +4613,7 @@ class Checker {
         // nothing already holds one: a transitively reached operation is exactly
         // the one `importedSchemes` never saw, and a candidate with no scheme
         // reads downstream as a self-reference (`#dispatchCompanionOperation`).
-        if (!this.#schemes.has(symbol.id)) {
+        if (scheme !== undefined && !this.#schemes.has(symbol.id)) {
           this.#schemes.set(symbol.id, this.#importScheme(scheme));
         }
         this.#operationHomes.set(symbol.id, operation);
@@ -4915,6 +4957,18 @@ class Checker {
     const { field, operation, scheme, unreachable, claimed, members } = this
       .#dotClaimants(actual, name, callee, expression.arguments);
     const recordHasField = field !== undefined;
+    const operationHome = operation === undefined ? undefined : this.#operationHomes.get(operation.id);
+    if (operationHome !== undefined && this.#forbiddenProviderPaths.has(operationHome.path)) {
+      this.#dotCallArguments(expression, level, cachedArguments);
+      const provider = this.#moduleName(operationHome.path) ?? operationHome.path;
+      const cycle = this.#forbiddenProviderCycles.get(operationHome.path);
+      return this.#unsupported(
+        callee.field.span,
+        `\`${name}\` requires the full provider \`${provider}\`, which this module imports bare; ` +
+          `replace the bare selections from \`${provider}\` with \`import ${provider}\`` +
+          (cycle === undefined ? "" : `; that full edge would close ${cycle}`),
+      );
+    }
     if (members.length > 0) {
       const claimants = [
         ...(recordHasField ? [`a field \`${name}\``] : []),
@@ -5151,7 +5205,7 @@ class Checker {
     const home = this.#operationHomes.get(operation.id);
     // No home on record is the lone-`check` compilation, which has no module
     // graph and so no second file to import from either.
-    if (home === undefined || this.#modulePath === undefined) return;
+    if (home?.scheme === undefined || this.#modulePath === undefined) return;
     this.#companionImports.set(operation.id, {
       symbol: operation.id,
       imported: operation.name,
@@ -10671,6 +10725,7 @@ class Checker {
     }
     const selection = this.#selectEvidence(type, identity, "Eq");
     if (selection.kind === "missing") return false;
+    if (selection.kind === "forbidden") return false;
     if (selection.kind === "bool") return true;
     if (selection.kind === "components") {
       return selection.obligations.every((obligation) =>
@@ -10781,6 +10836,10 @@ class Checker {
     const instance = key === undefined
       ? undefined
       : this.#instances.get(`${identity}:${key}`);
+    const provider = key === undefined
+      ? undefined
+      : this.#forbiddenInstances.get(`${identity}:${key}`);
+    if (provider !== undefined) return { kind: "forbidden", provider };
     return instance === undefined ? { kind: "missing" } : { kind: "instance", instance };
   }
 
@@ -19174,6 +19233,20 @@ class Checker {
       requirement.structural = true;
       return;
     }
+    if (selection.kind === "forbidden") {
+      requirement.reported = true;
+      const provider = this.#moduleName(selection.provider) ?? selection.provider;
+      const cycle = this.#forbiddenProviderCycles.get(selection.provider);
+      this.#diagnostics.add({
+        severity: "error",
+        message: `\`${requirement.name}<${this.#display(type)}>\` requires the full provider ` +
+          `\`${provider}\`, which this module imports bare; replace the bare selections from ` +
+          `\`${provider}\` with \`import ${provider}\`` +
+          (cycle === undefined ? "" : `; that full edge would close ${cycle}`),
+        primary: requirement.span,
+      });
+      return;
+    }
     if (selection.kind === "instance") {
       const instance = selection.instance;
       this.#pinInstanceSubject(instance, type, requirement.span);
@@ -21260,6 +21333,12 @@ class Checker {
     }
     this.#storeInstanceImpliedTypes(instance, typeParameters, false);
     const key = this.#instanceKey(imported.constraintIdentity, subject);
+    if (
+      imported.declaringPath !== undefined &&
+      this.#forbiddenProviderPaths.has(imported.declaringPath)
+    ) {
+      this.#forbiddenInstances.set(key, imported.declaringPath);
+    }
     const existingIdentity = this.#instanceIdentities.get(key);
     if (existingIdentity === imported.identity) return;
     if (existingIdentity !== undefined || this.#instances.has(key)) {
@@ -21276,6 +21355,25 @@ class Checker {
     }
     this.#admitInstance(key, imported.constraintIdentity, subject, instance);
     this.#instanceIdentities.set(key, imported.identity);
+  }
+
+  /**
+   * Records the coherence slot of a resolved provider without admitting its
+   * dictionary, members, implied types, or any other evidence surface.
+   */
+  #indexForbiddenInstanceProvider(provider: ProgramInstanceProvider): void {
+    const typeParameters = new Map(
+      provider.typeParameters.map(({ name }) => [name, this.#fresh(0, false)] as const),
+    );
+    for (const name of headBinderNames(provider.subject)) {
+      if (typeParameters.has(name)) continue;
+      typeParameters.set(name, this.#fresh(0, false, name));
+    }
+    const subject = this.#annotationType(provider.subject, 0, new Map(), typeParameters);
+    this.#forbiddenInstances.set(
+      this.#instanceKey(provider.constraintIdentity, subject),
+      provider.path,
+    );
   }
 
   /**

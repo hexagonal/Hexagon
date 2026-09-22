@@ -84,7 +84,6 @@ describe("the module", () => {
       "Sign",
       "Real",
       "Integral",
-      "Option",
       "Int",
       "Nat",
       "Float",
@@ -98,6 +97,7 @@ describe("the module", () => {
       // three companions above it nothing.
       "BigInt",
       "Seq",
+      "Option",
       // #353 seats `Iterable`, now the thirteenth constraint declaration, and the
       // only one that cannot sit with the other twelve: `toSeq(xs: c): Seq(Item)`
       // names `Seq`, and honoring the reverse order is a genuine cycle — which
@@ -351,10 +351,10 @@ describe("membership drags nothing in", () => {
     // The trie brings its own dependencies since #344: its index arithmetic is
     // `Integral<Int>`'s members at `stdlib/Int.hex`, which in turn names
     // `Pow.hex`'s and `Integral.hex`'s exceptions, `Sign.hex` for Int's `Real`
-    // instance, and `Option.hex`'s answer for the checked family. `Vector.hex`
+    // instance, with Option's data shell available separately. `Vector.hex`
     // is what must stay out, and does.
     expect(emittedPaths(files)).toEqual([
-      "/Hex/Pow.hex", "/Hex/Sign.hex", "/Hex/Integral.hex", "/Hex/Option.hex", "/Hex/Int.hex", "/Hex/Runtime/VectorTrie.hex", "/main.hex",
+      "/Hex/Pow.hex", "/Hex/Sign.hex", "/Hex/Integral.hex", "/Hex/Int.hex", "/Hex/Runtime/VectorTrie.hex", "/main.hex",
     ]);
   });
 

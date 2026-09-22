@@ -35,7 +35,7 @@ function link(
   moduleUrls: ReadonlyMap<string, string>,
 ): string {
   return javascript.replace(
-    /^(\s*import(?:[^;\n]*?\sfrom)?\s+)(["'])([^"']+)\2;/gmu,
+    /^(\s*(?:import|export)(?:[^;\n]*?\sfrom)?\s+)(["'])([^"']+)\2;/gmu,
     (statement, prefix: string, _quote: string, specifier: string) => {
       const target = resolveModulePath(importerPath, specifier);
       const url = target === undefined ? undefined : moduleUrls.get(target);
@@ -58,6 +58,13 @@ async function run(
   // Keyed and linked by the module's **address** — its full name laid out as a
   // path (Packages §6) — since that, not the source file's own path, is what
   // every emitted specifier is computed from (Modules §11.2, #829).
+  for (const data of project.dataUnits) {
+    const linked = link(data.javascript.text, data.path, moduleUrls);
+    moduleUrls.set(
+      data.path,
+      `data:text/javascript;charset=utf-8,${encodeURIComponent(linked)}`,
+    );
+  }
   for (const module of project.modules) {
     const linked = link(module.javascript.text, module.path, moduleUrls);
     moduleUrls.set(

@@ -79,7 +79,10 @@ function danglingImports(
   files: readonly (readonly [string, string])[],
 ): readonly string[] {
   const project = compileFiles(files);
-  const paths = new Set(project.modules.map(({ path }) => path));
+  const paths = new Set([
+    ...project.dataUnits.map(({ path }) => path),
+    ...project.modules.map(({ path }) => path),
+  ]);
   return project.modules.flatMap((module) =>
     [...module.javascript.text.matchAll(/from\s+"(\.[^"]+)"/gu)].flatMap((match) => {
       const specifier = match[1];

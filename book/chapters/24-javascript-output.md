@@ -289,7 +289,8 @@ scrutinee evaluates once; a pipe does not duplicate its subject.
 
 ## The module graph remains ESM
 
-One Hexagon module becomes one ESM module named by the module. Named exports remain
+Each Hexagon module keeps a public ESM entry point named by the module; bare
+data imports may add generated data support files. Named exports remain
 named exports, private bindings remain local, and import dependencies remain visible:
 
 ```hexagon

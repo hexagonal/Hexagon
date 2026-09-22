@@ -30,6 +30,9 @@ ${exports}
     writeFileSync(destination, content);
   }
   save("package.json", '{"type":"module"}');
+  for (const data of project.dataUnits) {
+    save(data.path.replace(/^\//u, "").replace(/\.hex$/u, ".js"), data.javascript.text);
+  }
   for (const module of project.modules) {
     save(module.path.replace(/^\//u, "").replace(/\.hex$/u, ".js"), module.javascript.text);
   }

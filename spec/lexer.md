@@ -159,7 +159,7 @@ I元素      E无效年龄  M数据库           -- cultural role prefixes, ordi
   name probes numeric suffixes deterministically, starting at 1: `__Eq_Rat_1`,
   then `__Eq_Rat_2`. Within the dictionary family the resolver-assigned ranks
   are stricter — a contest among them suffixes *every* such contestant, none
-  keeps the bare name — while the emitter's hoisted rank takes this probe as
+  keeps the unqualified name — while the emitter's hoisted rank takes this probe as
   written, the newcomer numbering and the occupant keeping its spelling
   (Dictionary Sharing §5's two phases) — the numbering the same either way,
   from 1.
@@ -296,9 +296,10 @@ listed positions:
 
 | Spelling | Context |
 |---|---|
+| `bare` | immediately after `import` in `import bare TypeName from ModuleName` (Bare Imports §1); ordinary identifier elsewhere |
 | `as` | the import alias `import Geometry as Geo` (Modules §3.1), foreign aliases, and the pattern `p as name` |
 | `derives` | a `record`, `union`, or foreign-enum header before `=` |
-| `from` | an `extern from` declaration (the Hexagon `import` carries no `from` since #829 — Modules §3; the path form is refused with its rewrite there) |
+| `from` | an `extern from` declaration, or the separator between selected type and source module in a bare data import (Bare Imports §1); ordinary full imports carry no `from`, and the old path form keeps its refusal |
 | `opaque` | the visibility head on a `record` or `union` declaration at module top level, in `export`'s own slot (Modules §4, #590) — the `union` precedent: head-position-only, never reserved, elsewhere an ordinary name (`let opaque = 3` binds). Recognition includes the refused seats: immediately after `export` (Modules §4.2's required rewrite), and a declaration head whose follower is `type`, `let`, `fun`, `constraint`, or `exception` (the Modules §10 redirects — no term can juxtapose the two spellings, so the seat is no expression) |
 | `when` | between an arm pattern and `=>` |
 | `with` | between a record-update head and its overrides (Products §3.3) |

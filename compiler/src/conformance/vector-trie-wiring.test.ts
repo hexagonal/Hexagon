@@ -172,11 +172,11 @@ describe("the import surface", () => {
     // The trie brings its own dependencies with it since #344: its index
     // arithmetic is `Integral<Int>`'s members at `stdlib/Int.hex`, and that
     // companion in turn names `Pow.hex`'s and `Integral.hex`'s exceptions,
-    // `Sign.hex` for its `Real` instance, and `Option.hex`'s answer for the
-    // checked family. `Vector.hex` is still absent, which is what this case is
+    // `Sign.hex` for its `Real` instance, with Option's data shell available
+    // separately. `Vector.hex` is still absent, which is what this case is
     // about.
     expect(emittedPaths(files)).toEqual([
-      "/Hex/Pow.hex", "/Hex/Sign.hex", "/Hex/Integral.hex", "/Hex/Option.hex", "/Hex/Int.hex", "/Hex/Runtime/VectorTrie.hex", "/main.hex",
+      "/Hex/Pow.hex", "/Hex/Sign.hex", "/Hex/Integral.hex", "/Hex/Int.hex", "/Hex/Runtime/VectorTrie.hex", "/main.hex",
     ]);
     const javascript = emitted(files, "/main.hex");
     expect(javascript).toContain(

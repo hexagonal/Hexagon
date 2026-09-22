@@ -1,11 +1,11 @@
-/** Rewrites compiler-owned relative ESM imports to already-created Blob URLs. */
+/** Rewrites compiler-owned relative ESM imports and re-exports to Blob URLs. */
 export function linkModule(
   javascript: string,
   importerPath: string,
   moduleUrls: ReadonlyMap<string, string>,
 ): string {
   return javascript.replace(
-    /^(\s*import(?:[^;\n]*?\sfrom)?\s+)(["'])([^"']+)\2;/gmu,
+    /^(\s*(?:import|export)(?:[^;\n]*?\sfrom)?\s+)(["'])([^"']+)\2;/gmu,
     (statement, prefix: string, _quote: string, specifier: string) => {
       const target = resolveModulePath(importerPath, specifier);
       const url = target === undefined ? undefined : moduleUrls.get(target);

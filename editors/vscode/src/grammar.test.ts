@@ -1206,6 +1206,17 @@ describe("`widens` and `widened` are contextual (#546)", () => {
  * name, and `module` is painted only where a header stands.
  */
 describe("the import head paints its keywords and nothing else (#762, #829)", () => {
+  it("paints bare data selection and its source module", async () => {
+    expect(await scopePairs("import bare Shape from Geometry")).toEqual([
+      ["import", "keyword.control.import.hexagon"],
+      ["bare", "storage.modifier.hexagon"],
+      ["Shape", "entity.name.type.hexagon"],
+      ["from", "keyword.other.from.hexagon"],
+      ["Geometry", "entity.name.type.hexagon"],
+    ]);
+    expect(await scope("let bare = 1", "bare")).toBe("variable.other.definition.hexagon");
+  });
+
   it("paints the whole head", async () => {
     expect(await scopePairs("import Geometry as Geo")).toEqual([
       ["import", "keyword.control.import.hexagon"],

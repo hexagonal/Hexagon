@@ -94,7 +94,7 @@ function link(
   moduleUrls: ReadonlyMap<string, string>,
 ): string {
   return javascript.replace(
-    /^(\s*import(?:[^;\n]*?\sfrom)?\s+)(["'])([^"']+)\2;/gmu,
+    /^(\s*(?:import|export)(?:[^;\n]*?\sfrom)?\s+)(["'])([^"']+)\2;/gmu,
     (statement, prefix: string, _quote: string, specifier: string) => {
       const target = resolveModulePath(importerPath, specifier);
       const url = target === undefined ? undefined : moduleUrls.get(target);
@@ -128,6 +128,9 @@ async function run(
   const moduleUrls = new Map<string, string>();
   for (const [specifier, source] of Object.entries(foreign)) {
     moduleUrls.set(specifier, url(source));
+  }
+  for (const data of project.dataUnits) {
+    moduleUrls.set(data.path, url(link(data.javascript.text, data.path, moduleUrls)));
   }
   for (const module of project.modules) {
     // Keyed and linked by the module's **address** — its full name laid out as
