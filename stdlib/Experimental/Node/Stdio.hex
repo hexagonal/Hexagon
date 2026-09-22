@@ -1,0 +1,20 @@
+module Experimental.Node.Stdio
+
+extern from "node:fs"
+    fun writeFileSync(fd: Int, text: String, encoding: String) ->! Unit
+
+(** Write UTF-8 text synchronously to file descriptor 1. *)
+export let write(text: String): Unit =
+    writeFileSync!(1, text, "utf8")
+
+(** Write UTF-8 text and one LF synchronously to file descriptor 1. *)
+export let writeLine(text: String): Unit =
+    writeFileSync!(1, "${text}\n", "utf8")
+
+(** Write UTF-8 text synchronously to file descriptor 2. *)
+export let writeError(text: String): Unit =
+    writeFileSync!(2, text, "utf8")
+
+(** Write UTF-8 text and one LF synchronously to file descriptor 2. *)
+export let writeErrorLine(text: String): Unit =
+    writeFileSync!(2, "${text}\n", "utf8")

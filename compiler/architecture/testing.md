@@ -104,6 +104,24 @@ End-to-end fixtures compile Hexagon source, inspect its public artefacts where r
 
 These tests prove that separately correct passes compose. They are deliberately fewer and broader than unit and conformance tests so the normal development loop remains fast.
 
+### 3.6 Experimental host I/O
+
+Experimental file and standard-output facilities require emitted-program runtime
+tests in addition to compiler conformance. Their harnesses compile the actual
+library modules and check observable host behaviour. After `npm run build` in
+`compiler/`, run `node scripts/test-experimental-file.mjs <runtime>` and
+`node scripts/test-experimental-stdio.mjs <runtime>`, where `<runtime>` is
+`node`, `deno`, or `bun` on PATH. File tests require Deno 2.4.0 or later.
+The Stdio harness also requires Python 3 and POSIX pseudo-terminal support;
+it does not establish Windows terminal compatibility.
+
+Stdio checks must distinguish stdout from stderr, verify exact UTF-8 bytes and
+LF insertion, and exercise repeated writes, redirected files, actively drained
+pipes, and host failures. Terminal checks must distinguish the module's output
+from terminal-driver newline transformations. Record tested runtime versions
+and platform coverage; passing one runtime does not establish compatibility
+with the others. An unavailable runtime is not a passing test.
+
 ## 4. Test host
 
 Compiler tests use the deterministic in-memory test host described by `environment.md`. Tests should not depend on the developer's current directory, locale, timezone, filesystem ordering, terminal width, or unrelated environment variables.

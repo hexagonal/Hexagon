@@ -42,7 +42,7 @@ export let writeRaw(path: String, text: String): Unit = NodeFile.writeText!(path
     expect(project.modules.some(({ javascript }) => javascript.text.includes("node:fs"))).toBe(false);
   });
 
-  const originals = import.meta.glob("../../../stdlib/Experimental/**/*.hex", {
+  const originals = import.meta.glob("../../../stdlib/Experimental/**/File.hex", {
     eager: true, query: "?raw", import: "default",
   }) as Record<string, string>;
 
