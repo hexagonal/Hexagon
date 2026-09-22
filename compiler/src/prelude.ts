@@ -315,9 +315,9 @@ export const PRELUDE_MODULES: readonly PreludeModule[] = [
  * (`RUNTIME_MODULES`) — and everything else is an ordinary module.
  *
  * The seats come after every prelude member, which is the only constraint on
- * them: a `Hex` module sees the whole prelude and no other module of this list,
- * because nothing here is in anybody's scope without an import, and an import
- * is an edge the module graph already orders.
+ * them: a `Hex` module sees the whole prelude and only explicitly imported
+ * modules of this list. Nothing here is in scope without an import, and that
+ * import is an edge the module graph orders.
  */
 export const LIBRARY_MODULES: readonly PreludeModule[] = Object.keys(STDLIB_SOURCES)
   .filter((name) =>

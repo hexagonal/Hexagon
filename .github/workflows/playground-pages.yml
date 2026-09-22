@@ -64,6 +64,12 @@ jobs:
         run: npm run check
         working-directory: compiler
 
+      - name: Test emitted file I/O on Node
+        run: |
+          npm run build
+          node scripts/test-experimental-file.mjs node
+        working-directory: compiler
+
       # The host adapter is the language server's and a future CLI's shared
       # answer to what a program is on disk, so it is gated with the compiler
       # rather than with either tool.

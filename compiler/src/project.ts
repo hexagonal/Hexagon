@@ -248,8 +248,9 @@ interface Unit {
  * tree, so a cached seat's interface outlives the compile that built it too.)
  *
  * Every program is compiled with all of `Hex` (#829), and nothing about those
- * members depends on the program: they are seated in a normative order, each
- * sees only the seats before it (Modules §5.5), and their identities — symbols,
+ * members depends on the program: prelude and runtime modules have fixed
+ * visibility seats, while ordinary library members follow their explicit
+ * import dependencies. Their identities — symbols,
  * unions, records, extern types, and the files they are read from — are minted
  * in a reserved range above anything a project can spend, so a project's own
  * ids and spans are what a compile with no standard library would have given
@@ -478,8 +479,16 @@ function cachedInjectedMember(
   text: string,
   path: string,
 ): { readonly source: Source.File; readonly parsed: Parsed.Module } | undefined {
-  const seat = cachedSeats[index];
-  if (seat === undefined || !standardLibrarySeatHolds(seat, fileId, sourcePath, text, path)) {
+  // Parsing depends on the source, not on its place in the dependency order.
+  // An edited trusted library import can move an embedded member to another
+  // cache seat without requiring its source to be parsed again.
+  const seat = cachedSeats[index] !== undefined &&
+      standardLibrarySeatHolds(cachedSeats[index]!, fileId, sourcePath, text, path)
+    ? cachedSeats[index]
+    : cachedSeats.find((candidate) =>
+      standardLibrarySeatHolds(candidate, fileId, sourcePath, text, path)
+    );
+  if (seat === undefined) {
     return undefined;
   }
   return { source: seat.checked.source, parsed: seat.checked.parsed };
@@ -668,7 +677,7 @@ export function compileProject(
   }
   /**
    * Every package a module can resolve in, by name (Packages §3.1). `Hex` sees
-   * itself and nothing else — its intra-set visibility is Modules §5.5's
+   * itself and nothing else — its prelude visibility is Modules §5.5's
    * ordered prefix, applied where the module is compiled — and a package the
    * host named but did not describe answers with the empty set rather than with
    * the project's, which would let a dependency import what the project lists.
@@ -693,7 +702,7 @@ export function compileProject(
     options.trustedStandardLibraryModules ?? new Set(),
     diagnostics,
   );
-  const injectedUnits = units.filter(({ injected }) => injected !== undefined)
+  let injectedUnits = units.filter(({ injected }) => injected !== undefined)
     .sort((left, right) => left.seat! - right.seat!);
   const preludeUnits = injectedUnits.filter(({ injected }) => injected === "prelude");
   const preludePaths = preludeUnits.map(({ path }) => path);
@@ -714,8 +723,6 @@ export function compileProject(
   const libraryModuleSet = new Set(
     injectedUnits.filter(({ injected }) => injected === "library").map(({ path }) => path),
   );
-  /** Each injected path's seat, for the "sees only what precedes it" slice. */
-  const injectedSeats = new Map(injectedUnits.map(({ path, seat }) => [path, seat!]));
   /**
    * Where each wired runtime module was seated, by declared name. A wiring whose
    * module is absent from the project — which is only an empty project — has no
@@ -732,27 +739,6 @@ export function compileProject(
   // The runtime declaration module's stem, settled before any module is emitted
   // because every importer has to spell the same one (FFI Part 1 §8.3).
   const runtimeBasename = runtimeDeclarationsBasename(units);
-  /**
-   * The leading injected seats this compile takes from the chain rather than
-   * building (see `StandardLibrarySeat`). Read once, because the chain is
-   * replaced at the end of this call and `validatePatternFixes` compiles again
-   * from inside it.
-   */
-  const reusableSeats = injectedUnits.length === 0
-    ? []
-    : reusableStandardLibrary(injectedUnits);
-  /**
-   * Whether an injected module's **emission** is reusable too, which the whole
-   * prefix decides rather than a seat: `fundamentalInstances` is read off every
-   * prelude module (#679), so one recomputed seat can change what any of them
-   * plans.
-   */
-  const reusableEmission = injectedUnits.length > 0 &&
-    reusableSeats.length === injectedUnits.length;
-  if (injectedUnits.length > 0 && validatingPatternFixes === 0) statistics.compiles += 1;
-  /** Each injected seat's id allocators, for the chain this compile leaves. */
-  const seatBases: (InjectedIdBases | undefined)[] = [];
-
   const sourcePaths = new Set(
     [...sourceFiles, ...dependencyPackages.flatMap(({ files: given }) => given)]
       .map(({ path }) => path),
@@ -830,10 +816,14 @@ export function compileProject(
   const ordered: string[] = [];
   const visiting: string[] = [];
   const visited = new Set<string>();
+  let injectedImportCycle = false;
   const visit = (path: string): void => {
     if (visited.has(path)) return;
     const cycleStart = visiting.indexOf(path);
     if (cycleStart >= 0) {
+      if (visiting.slice(cycleStart).some((member) => byPath.get(member)?.injected !== undefined)) {
+        injectedImportCycle = true;
+      }
       const module = byPath.get(path);
       if (module !== undefined) {
         diagnostics.add({
@@ -864,6 +854,30 @@ export function compileProject(
     ordered.push(path);
   };
   for (const unit of seated) visit(unit.path);
+  // Prelude and runtime placement is fixed by `weaveInjected`. Ordinary
+  // library members have no bare-scope prefix of their own, but an explicit
+  // import must be checked before its consumer. Give them their topological
+  // order here, before consulting the cache or assigning visibility seats.
+  // The original discovery order determines ties, through the DFS above.
+  const injectedByPath = new Map(injectedUnits.map((unit) => [unit.path, unit]));
+  const fixedInjected = injectedUnits.filter(({ injected }) => injected !== "library");
+  const orderedLibrary = ordered.flatMap((path) => {
+    const unit = injectedByPath.get(path);
+    return unit?.injected === "library" ? [unit] : [];
+  });
+  injectedUnits = [...fixedInjected, ...orderedLibrary].map((unit, seat) => ({ ...unit, seat }));
+  /** Each injected path's seat, for the "sees only what precedes it" slice. */
+  const injectedSeats = new Map(injectedUnits.map(({ path, seat }) => [path, seat!]));
+  /** The leading injected seats this compile takes from the cache chain. */
+  const reusableSeats = injectedUnits.length === 0 || injectedImportCycle
+    ? []
+    : reusableStandardLibrary(injectedUnits);
+  // An emitted seat depends on the whole injected prefix's fundamental rows.
+  const reusableEmission = injectedUnits.length > 0 &&
+    reusableSeats.length === injectedUnits.length;
+  if (injectedUnits.length > 0 && validatingPatternFixes === 0) statistics.compiles += 1;
+  /** Each injected seat's id allocators, for the chain this compile leaves. */
+  const seatBases: (InjectedIdBases | undefined)[] = [];
   // Prelude modules compile before their consumers, and their identities live in a
   // reserved high range so consumer ids stay stable whether or not a prelude is present.
   // The runtime modules sit among them on both counts, for the same reasons: a
@@ -1403,7 +1417,9 @@ export function compileProject(
 
   // The chain this compile leaves behind, before `validatePatternFixes` can
   // compile again from inside this call.
-  if (injectedUnits.length > 0) {
+  if (injectedImportCycle) {
+    cachedSeats = [];
+  } else if (injectedUnits.length > 0) {
     rememberStandardLibrary(
       injectedUnits,
       compiled,
