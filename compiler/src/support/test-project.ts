@@ -36,7 +36,7 @@ function link(
   moduleUrls: ReadonlyMap<string, string>,
 ): string {
   return javascript.replace(
-    /^(\s*import(?:[^;\n]*?\sfrom)?\s+)(["'])([^"']+)\2;/gmu,
+    /^(\s*(?:import|export)(?:[^;\n]*?\sfrom)?\s+)(["'])([^"']+)\2;/gmu,
     (statement, prefix: string, _quote: string, specifier: string) => {
       const target = resolveModulePath(importerPath, specifier);
       const url = target === undefined ? undefined : moduleUrls.get(target);
@@ -109,6 +109,16 @@ export async function runProject(
     moduleUrls.set(
       runtimeGlobals.path.replace(/\.js$/u, ".hex"),
       `data:text/javascript;charset=utf-8,${encodeURIComponent(runtimeGlobals.text)}`,
+    );
+  }
+  for (const data of project.dataUnits) {
+    const text = options.transform === undefined
+      ? data.javascript.text
+      : options.transform(data.path, data.javascript.text);
+    const linked = link(text, data.path, moduleUrls);
+    moduleUrls.set(
+      data.path,
+      `data:text/javascript;charset=utf-8,${encodeURIComponent(linked)}`,
     );
   }
   for (const module of project.modules) {

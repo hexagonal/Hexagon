@@ -297,8 +297,8 @@ describe("an explicit import of a prelude module carries no evidence", () => {
     // `stdlib/Int.hex`'s source. The point of the case is the `Option.js` pair:
     // one dictionary binding, not two.
     expect(importLines(javascript)).toEqual([
-      'import { __Eq_Option } from "./Hex/Option.js";',
       'import { __Eq_Int } from "./Hex/Int.js";',
+      'import { __Eq_Option } from "./Hex/Option.js";',
       'import * as Option from "./Hex/Option.js";',
     ]);
     expect(exportLines(javascript)).toEqual(["export { same };", "export { mk };"]);

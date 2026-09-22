@@ -97,7 +97,10 @@ function danglingImports(
   files: readonly (readonly [string, string])[],
 ): readonly string[] {
   const project = compileFiles(files);
-  const paths = new Set(project.modules.map(({ path }) => path));
+  const paths = new Set([
+    ...project.dataUnits.map(({ path }) => path),
+    ...project.modules.map(({ path }) => path),
+  ]);
   const dangling: string[] = [];
   for (const module of project.modules) {
     for (const match of module.javascript.text.matchAll(/from\s+"(\.[^"]+)"/gu)) {
@@ -157,10 +160,10 @@ describe("a type-only prelude mention has its instances", () => {
     const source = "export fun f(a: Option(Int), b: Option(Int)): Bool = a == b\n";
     expect(diagnostics([["/main.hex", "module Main\n\n" + source]])).toEqual([]);
     expect(importLines(emitted([["/main.hex", "module Main\n\n" + source]], "/main.hex"))).toEqual([
-      'import { __Eq_Option } from "./Hex/Option.js";',
+      'import { __Eq_Int } from "./Hex/Int.js";',
       // The component instance `Eq<Option(Int)>` selects (#278), an import
       // since #344 because `Int`'s instances are `stdlib/Int.hex`'s source.
-      'import { __Eq_Int } from "./Hex/Int.js";',
+      'import { __Eq_Option } from "./Hex/Option.js";',
     ]);
     expect(danglingImports([["/main.hex", "module Main\n\n" + source]])).toEqual([]);
 
@@ -244,10 +247,10 @@ describe("transit shapes keep working and shrink", () => {
 
     const b = emitted(files, "/b.hex");
     expect(importLines(b)).toEqual([
-      'import { __Eq_Option } from "./Hex/Option.js";',
+      'import { __Eq_Int } from "./Hex/Int.js";',
       // The component instance `Eq<Option(Int)>` selects (#278), an import
       // since #344 because `Int`'s instances are `stdlib/Int.hex`'s source.
-      'import { __Eq_Int } from "./Hex/Int.js";',
+      'import { __Eq_Option } from "./Hex/Option.js";',
       'import * as A from "./A.js";',
     ]);
     // The point of the fix: no evidence re-export anywhere on the path.
@@ -280,10 +283,10 @@ describe("transit shapes keep working and shrink", () => {
     ] as const;
     expect(diagnostics(files)).toEqual([]);
     expect(importLines(emitted(files, "/b.hex"))).toEqual([
-      'import { __Eq_Option } from "./Hex/Option.js";',
+      'import { __Eq_Int } from "./Hex/Int.js";',
       // The component instance `Eq<Option(Int)>` selects (#278), an import
       // since #344 because `Int`'s instances are `stdlib/Int.hex`'s source.
-      'import { __Eq_Int } from "./Hex/Int.js";',
+      'import { __Eq_Option } from "./Hex/Option.js";',
       'import * as A from "./A.js";',
     ]);
     expect(exportLines(emitted(files, "/a.hex"))).toEqual(["export { mk };"]);
@@ -302,10 +305,10 @@ describe("transit shapes keep working and shrink", () => {
     ] as const;
     expect(diagnostics(files)).toEqual([]);
     expect(importLines(emitted(files, "/c.hex"))).toEqual([
-      'import { __Eq_Option } from "./Hex/Option.js";',
+      'import { __Eq_Int } from "./Hex/Int.js";',
       // The component instance `Eq<Option(Int)>` selects (#278), an import
       // since #344 because `Int`'s instances are `stdlib/Int.hex`'s source.
-      'import { __Eq_Int } from "./Hex/Int.js";',
+      'import { __Eq_Option } from "./Hex/Option.js";',
       'import * as B from "./B.js";',
     ]);
     expect(exportLines(emitted(files, "/b.hex"))).toEqual(["export { h };"]);
@@ -330,10 +333,10 @@ describe("transit shapes keep working and shrink", () => {
     expect(diagnostics(files)).toEqual([]);
     const javascript = emitted(files, "/main.hex");
     expect(importLines(javascript)).toEqual([
-      'import { __Eq_Option } from "./Hex/Option.js";',
+      'import { __Eq_Int } from "./Hex/Int.js";',
       // The component instance `Eq<Option(Int)>` selects (#278), an import
       // since #344 because `Int`'s instances are `stdlib/Int.hex`'s source.
-      'import { __Eq_Int } from "./Hex/Int.js";',
+      'import { __Eq_Option } from "./Hex/Option.js";',
     ]);
     expect(javascript).not.toContain("Seq.js");
     expect(exportLines(javascript)).toEqual([

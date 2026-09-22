@@ -186,7 +186,14 @@ Public evidence is determined by **nameability, not current consumption**. A han
 1. the constraint is public;
 2. the instance head's outer type constructor is public;
 3. every type and evidence component appearing in the handle or factory signature is public;
-4. the lawful instance is present in the compiled program graph.
+4. the lawful instance's full provider is active in the compiled program graph.
+
+A [bare data import](bare-imports.md) activates no instance, including a derived
+one. Data-only output therefore contains no public evidence handle or factory.
+When full output is active, this closure still publishes its required evidence
+independently of current calls; the handle/factory belongs to the full entry
+point, never the data support unit. Checking dormant producer source does not
+by itself activate that provider or force its evidence into data-only output.
 
 A dictionary type naming a captured foreign collection changes nothing here: the handle or factory appears, with §3.4's wrapped members *(#876)*. When these hold, the handle/factory appears **even if no exported generic function currently consumes it** — public capability is stable under refactoring, supports separately compiled packages, and supplies composable inputs for factories needed elsewhere. This closure is exactly what Part 8 §4.1 consumes as "publicly obtainable": a public handle, or a public factory applied to recursively publicly obtainable inputs.
 

@@ -46,6 +46,9 @@ function declarationSet(source: string): Record<string, string> {
   ]);
   expect(project.diagnostics).toEqual([]);
   const files: Record<string, string> = {};
+  for (const data of project.dataUnits) {
+    files[data.path.replace(/^\//u, "").replace(/\.hex$/u, ".d.ts")] = data.declarations.text;
+  }
   for (const module of project.modules) {
     files[module.source.path.replace(/^\//u, "").replace(/\.hex$/u, ".d.ts")] =
       module.declarations.text;

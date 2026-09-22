@@ -3688,6 +3688,8 @@ export const STDLIB_SOURCES: Readonly<Record<string, string>> = {
   "Seq":
     "module Seq\n"
     + "\n"
+    + "import bare Option from Option\n"
+    + "\n"
     + "(** Raised when a sequence position is forced while it is already being\n"
     + "    forced (FFI Part 3 section 7.3-7.4). *)\n"
     + "export exception ReentrancyError\n"

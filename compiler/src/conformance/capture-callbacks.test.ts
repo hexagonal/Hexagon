@@ -59,7 +59,7 @@ function link(
   moduleUrls: ReadonlyMap<string, string>,
 ): string {
   return javascript.replace(
-    /^(\s*import(?:[^;\n]*?\sfrom)?\s+)(["'])([^"']+)\2;/gmu,
+    /^(\s*(?:import|export)(?:[^;\n]*?\sfrom)?\s+)(["'])([^"']+)\2;/gmu,
     (statement, prefix: string, _quote: string, specifier: string) => {
       const target = resolveModulePath(importerPath, specifier);
       const url = target === undefined ? undefined : moduleUrls.get(target);
@@ -103,10 +103,14 @@ async function run(
   for (const [specifier, text] of Object.entries(foreign)) {
     moduleUrls.set(specifier, url(text));
   }
+  for (const data of project.dataUnits) {
+    const linked = link(data.javascript.text, data.path, moduleUrls);
+    moduleUrls.set(data.path, url(linked));
+  }
   for (const module of project.modules) {
     const linked = link(module.javascript.text, module.source.path, moduleUrls)
       .replace(
-        /^(\s*import(?:[^;\n]*?\sfrom)?\s+)(["'])([^"']+)\2;/gmu,
+        /^(\s*(?:import|export)(?:[^;\n]*?\sfrom)?\s+)(["'])([^"']+)\2;/gmu,
         (statement, prefix: string, _quote: string, specifier: string) => {
           const target = moduleUrls.get(specifier);
           return target === undefined ? statement : `${prefix}${JSON.stringify(target)};`;

@@ -63,7 +63,10 @@ function diagnostics(
  * channels serve. Empty is the only acceptable value.
  */
 function danglingImports(compiled: ReturnType<typeof project>): readonly string[] {
-  const emitted = new Set(compiled.modules.map(({ source }) => source.path));
+  const emitted = new Set([
+    ...compiled.dataUnits.map(({ path }) => path),
+    ...compiled.modules.flatMap(({ path, source }) => [path, source.path]),
+  ]);
   const dangling: string[] = [];
   for (const module of compiled.modules) {
     for (const match of module.javascript.text.matchAll(/from\s+"(\.[^"]+)"/gu)) {
@@ -113,6 +116,17 @@ describe("ordered intra-prelude visibility", () => {
   test("a later member sees an earlier one, with no import line", () => {
     expect(diagnostics([ORDERING, OPTION, RESULT_USING_OPTION, ENTRY], ["Ordering", "Option", "Result"]))
       .toEqual([]);
+  });
+
+  test("the ambient Option data seat does not expose Option's later full instances", () => {
+    const messages = diagnostics([[
+      "/Int.hex",
+      "module Int\nexport let same: Bool = Some(true) == Some(true)\n",
+    ]], ["Int"]);
+    expect(messages.some((message) =>
+      message.includes("Eq<Option") && message.includes("full provider `Option`") &&
+      message.includes("replace the bare selections")
+    )).toBe(true);
   });
 
   test("an earlier member does NOT see a later one", () => {

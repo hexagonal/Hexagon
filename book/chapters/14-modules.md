@@ -104,8 +104,9 @@ binding.
 
 ## Imports bind modules
 
-An import names a module and brings it into scope. That is the whole of it: there is
-no form that imports a single function, type, or constructor by name.
+An ordinary import names a module and brings it into scope. It does not select
+individual functions or constructors. A restricted data import for breaking
+dependencies appears below.
 
 ```hexagon
 import Geometry
@@ -150,10 +151,10 @@ package names: `extern from "tiny-json"` reads a JavaScript module, which is a
 declaration of foreign names and not an import, as the JavaScript Input chapter
 explains.
 
-## A bare name is a declaration
+## A plain name is a declaration
 
 When a qualified spelling is more than a module wants to write, the module declares
-the bare name itself. A module-level `let` binds a function or a value and keeps its
+the unqualified name itself. A module-level `let` binds a function or a value and keeps its
 polymorphism; a `type` alias names a type:
 
 ```hexagon
@@ -166,7 +167,7 @@ type Point = Geo.Point
 Each of these is an ordinary declaration, so it obeys the ordinary rules: it is private
 unless exported, and it collides with other declarations the way any binding does. An
 import cannot introduce a name that silently shadows one of yours, because an import
-introduces no bare names at all.
+introduces no unqualified names at all.
 
 Constructors have two doors of their own, neither needing a declaration. The first is
 the companion idiom below: an alias spelled like an exported type also answers for that
@@ -189,7 +190,7 @@ The pattern side reads the constructor off the type the compiler already knows t
 scrutinee to have, so `North` in an arm means `Direction.North` unless this module
 declares a `North` of its own. The expression side has no such anchor, which is why the
 arm bodies spell the constructor qualified. A constructor you declared in this module
-wins the bare spelling in both places; the door only opens where the name would
+wins the unqualified spelling in both places; the door only opens where the name would
 otherwise be unknown.
 
 ## Modules are imported for their names
@@ -198,9 +199,9 @@ There is no import that loads a module for its effects alone. A pure Hexagon mod
 holds no state, so it cannot register anything at load time; the idiom for a setup
 effect is an exported function the importer calls, `Telemetry.init()`, where the reader
 can see when it runs. A module that exists to be run is a root module, covered below,
-not something another module imports. Instances need no loading step either: naming a
-type brings its home module, and with it the instances declared there, into the
-program.
+not something another module imports. Ordinary full imports also bring the
+module's instances into the program without a separate instance-import step.
+The bare data import below deliberately leaves those implementations out.
 
 ## Companion modules give operations a home
 
@@ -436,9 +437,9 @@ constructors `True`, `False`, `Some`, `None`, `Ok`, `Err`, the exceptions, `igno
 other prelude term is reached by the dot or by its module name — `Seq.map`, `Int.compare`,
 `Debug.log` — so the words you want for your own program stay yours. The prelude's
 modules belong to the standard library's package, `Hex`, and a project that declares a
-`module Vector` of its own simply wins the bare name; the library's stays reachable as
+`module Vector` of its own simply wins the unqualified name; the library's stays reachable as
 `Hex.Vector`. The Packages chapter explains that arrangement. A module-level
-declaration may deliberately use one of the bare names and becomes the unqualified meaning
+declaration may deliberately use one of the unqualified names and becomes the unqualified meaning
 throughout that module; the prelude operation remains available through its qualified
 home. Function-local bindings remain stricter and cannot silently replace an existing
 name.
@@ -449,7 +450,8 @@ inside a function.
 
 ## Imports form an acyclic graph
 
-Hexagon rejects every import cycle, including cycles used only for types:
+Hexagon rejects cycles in the required dependencies, including cycles among data
+definitions in different modules:
 
 ```text
 import cycle: A → B → A
@@ -459,7 +461,22 @@ Mutually recursive declarations belong in one module. The acyclic rule gives pro
 a deterministic initialization order and avoids JavaScript's partially initialized
 cycle behavior.
 
-A module's imports load depth-first in source order, each module exactly once, before
+Sometimes one side needs only the other's data definition. A bare import makes
+that smaller dependency explicit:
+
+```hexagon
+import bare Shape from Geometry
+```
+
+This brings in `Shape` and its public constructors, without Geometry's companion
+functions or instances, including derived instances. Ordinary construction and
+matching rules remain unchanged. The producer needs no special declaration.
+The compiler can therefore make the data available without loading the full
+implementation. A module may select several bare types from Geometry, but it
+cannot also import full Geometry. Bare imports break a dependency on unnecessary
+implementation; they do not make genuinely recursive modules legal.
+
+A module's imports load depth-first in source order, each required generated unit once, before
 that module's own top level runs. Within one module, executable top-level items run in
 source order.
 
@@ -501,7 +518,9 @@ is an interoperation concern, not module-level Hexagon mutation.
 
 ## Modules emit as modules
 
-One Hexagon module emits as one ESM file, named by the module. The source:
+A module's public ESM file is named by the module. Bare data imports can require
+additional generated support files; ordinary full imports keep their public
+paths. The source:
 
 ```hexagon
 module Origin
@@ -521,8 +540,8 @@ export const origin = {x: 0.0, y: 0.0};
 const label = "origin";
 ```
 
-A file holding two modules emits two files, and the source file's own name appears
-nowhere in the output. A dotted module name becomes a directory: `Render.Geometry`
+A file holding two modules has two public module files, and the source file's own
+name appears nowhere in the output. A dotted module name becomes a directory: `Render.Geometry`
 emits `Render/Geometry.js`.
 
 Private declarations remain ordinary private ESM bindings. The module import lowers to
@@ -541,7 +560,7 @@ The next chapter uses that fact to explain the convenient dot-call spelling.
 - declarations are private unless prefixed with `export`;
 - `import Geometry` binds one module by its name, under that name or an `as` alias,
   and nothing else; a module is imported for its names, never loaded for its effects;
-- a bare name is a declaration of your own, a companion fallback, or a constructor in
+- an unqualified name is a declaration of your own, a companion fallback, or a constructor in
   a `match` arm;
 - module aliases are namespaces, not first-class values;
 - companion modules give subject-first operations a predictable qualified home;

@@ -210,6 +210,8 @@ export interface ImportItem {
   readonly kind: "Import";
   readonly module: ModuleName;
   readonly alias: Name;
+  /** A data-only selection from the named module, bound under its own name. */
+  readonly bare?: Name;
   readonly span: Source.Span;
 }
 
