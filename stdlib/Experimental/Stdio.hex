@@ -1,0 +1,23 @@
+module Experimental.Stdio
+
+import Experimental.Node.Stdio as NodeStdio
+
+(** Write UTF-8 text to standard output without adding a newline.
+    Host write errors propagate. *)
+export let write(text: String): Unit =
+    NodeStdio.write!(text)
+
+(** Write UTF-8 text followed by exactly one LF to standard output.
+    Host write errors propagate. *)
+export let writeLine(text: String): Unit =
+    NodeStdio.writeLine!(text)
+
+(** Write UTF-8 text to standard error without adding a newline.
+    Host write errors propagate. *)
+export let writeError(text: String): Unit =
+    NodeStdio.writeError!(text)
+
+(** Write UTF-8 text followed by exactly one LF to standard error.
+    Host write errors propagate. *)
+export let writeErrorLine(text: String): Unit =
+    NodeStdio.writeErrorLine!(text)
