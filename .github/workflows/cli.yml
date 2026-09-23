@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
     paths:
+      - ".gitattributes"
       - "cli/**"
       - "compiler/**"
       - "host/**"
@@ -11,6 +12,7 @@ on:
       - ".github/workflows/cli.yml"
   pull_request:
     paths:
+      - ".gitattributes"
       - "cli/**"
       - "compiler/**"
       - "host/**"

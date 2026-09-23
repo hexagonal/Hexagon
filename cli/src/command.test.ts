@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, test } from "vitest";
 import { normalizePath } from "../../host/src/index.js";
-import { runCommand } from "./command.js";
+import { fileHasIdentity, runCommand } from "./command.js";
 import type { writeOutput } from "./output.js";
 
 const temporary: string[] = [];
@@ -39,6 +39,13 @@ function capture(root: string, write?: typeof writeOutput) {
 }
 
 describe("CLI project integration", () => {
+  test("matches a Windows-native discovered path to a canonical root identity", () => {
+    expect(fileHasIdentity({
+      path: "C:\\work\\project\\Main.hex",
+      realPath: "C:\\work\\project\\Main.hex",
+    }, "C:/work/project/Main.hex")).toBe(true);
+  });
+
   test("check selects a manifestless root, ignores an unrelated body error, and writes nothing", async () => {
     const root = await workspace({
       "Main.hex": "module Main\n\nexport let answer: Int = 42\n",
@@ -46,7 +53,7 @@ describe("CLI project integration", () => {
     });
     let writes = 0;
     const io = capture(root, async () => { writes += 1; });
-    expect(await runCommand(["check", "Main.hex"], io.context)).toBe(0);
+    expect(await runCommand(["check", "Main.hex"], io.context), io.stderr()).toBe(0);
     expect(writes).toBe(0);
     expect(io.stderr()).toBe("");
   });
@@ -58,7 +65,7 @@ describe("CLI project integration", () => {
     });
     let request: Parameters<typeof writeOutput>[0] | undefined;
     const io = capture(root, async (given) => { request = given; });
-    expect(await runCommand(["build", "src/Main.hex"], io.context)).toBe(0);
+    expect(await runCommand(["build", "src/Main.hex"], io.context), io.stderr()).toBe(0);
     const canonicalRoot = normalizePath(await realpath(root));
     expect(request?.projectDirectory).toBe(canonicalRoot);
     expect(request?.outputDirectory).toBe(join(canonicalRoot, "dist"));

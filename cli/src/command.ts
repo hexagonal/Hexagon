@@ -164,9 +164,12 @@ async function validateRoots(arguments_: readonly string[], cwd: string): Promis
 }
 
 function ownerOf(root: string, programs: readonly Program[]): Program | undefined {
-  return programs.find((program) =>
-    program.files.some(({ path, realPath }) => path === root || realPath === root)
-  );
+  return programs.find((program) => program.files.some((file) => fileHasIdentity(file, root)));
+}
+
+/** Matches the host walk's native filesystem spellings to a canonical CLI root. */
+export function fileHasIdentity(file: FoundFile, identity: string): boolean {
+  return normalizePath(file.path) === identity || normalizePath(file.realPath) === identity;
 }
 
 interface LoadedProgram {
@@ -189,10 +192,14 @@ async function loadProgram(program: Program, roots: readonly string[]): Promise<
     } catch (error) {
       throw new ProjectError(`cannot read source ${found.path}: ${messageOf(error)}`);
     }
-    const source = new Source.File(id, found.path, text);
+    // Discovery reads through native filesystem paths. The compiler and the
+    // CLI's canonical root identities use the host's slash-separated spelling,
+    // so normalize both names at this boundary (notably on Windows).
+    const sourcePath = normalizePath(found.path);
+    const source = new Source.File(id, sourcePath, text);
     sources.set(Number(source.id), source);
-    idsByRealPath.set(found.realPath, source.id);
-    idsByRealPath.set(found.path, source.id);
+    idsByRealPath.set(normalizePath(found.realPath), source.id);
+    idsByRealPath.set(sourcePath, source.id);
     return source;
   };
   const files = await Promise.all(program.files.map(load));
