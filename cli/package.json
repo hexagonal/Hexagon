@@ -1,0 +1,31 @@
+{
+  "name": "hexagon-cli-workspace",
+  "version": "0.1.0-alpha.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "hexc": "./dist/hexc.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=24.18.0 <25"
+  },
+  "scripts": {
+    "build": "node ../compiler/scripts/generate-prelude.mjs && esbuild src/hexc.ts --bundle --platform=node --format=esm --target=node24 --outfile=dist/hexc.js --banner:js=\"#!/usr/bin/env node\"",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "prepack": "npm run build",
+    "test": "vitest run",
+    "test:package": "node scripts/test-package.mjs",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.1",
+    "esbuild": "0.25.10",
+    "typescript": "7.0.2",
+    "vitest": "4.1.10"
+  }
+}

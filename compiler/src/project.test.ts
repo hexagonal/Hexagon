@@ -86,6 +86,214 @@ describe("trusted standard-library replacements", () => {
   });
 });
 
+describe("explicit compilation roots", () => {
+  const source = (id: number, path: string, text: string) =>
+    new Source.File(Source.fileId(id), path, text);
+
+  test("emits the selected files and their full dependencies, with root metadata", () => {
+    const files = [
+      source(0, "/support.hex", "module Support\nexport let answer: Int = 42\n"),
+      source(1, "/main.hex", "module Main\nimport Support\nexport let answer: Int = Support.answer\n"),
+      source(2, "/unused.hex", 'module Unused\nexport let broken: Int = "no"\n'),
+    ];
+    const selected = compileProject(files, { roots: [Source.fileId(1), Source.fileId(1)] });
+    expect(messagesOf(selected)).toEqual([]);
+    expect(selected.modules.map(({ name }) => name)).toEqual(expect.arrayContaining([
+      "Support",
+      "Main",
+    ]));
+    expect(selected.modules.map(({ name }) => name)).not.toContain("Unused");
+    expect(selected.roots).toEqual([{
+      fileId: Source.fileId(1),
+      sourcePath: "/main.hex",
+      modules: [{ name: "Main", path: "/Main.hex" }],
+    }]);
+
+    const whole = compileProject(files);
+    expect(whole.modules.map(({ name }) => name)).toContain("Unused");
+    expect(messagesOf(whole).some((message) => message.includes("String") && message.includes("Int")))
+      .toBe(true);
+    expect(whole.roots).toEqual([]);
+  });
+
+  test("rejects empty, unknown, and dependency root identities", () => {
+    const main = source(0, "/main.hex", "module Main\nexport let value = 1\n");
+    expect(() => compileProject([main], { roots: [] })).toThrow(/at least one/u);
+    expect(() => compileProject([main], { roots: [Source.fileId(7)] })).toThrow(/unknown root/u);
+    expect(() => compileProject([main], {
+      roots: [Source.fileId(1)],
+      packages: [{
+        record: { name: "Dep", dependencies: [], installed: new Set() },
+        files: [source(1, "/dep.hex", "module Lib\nexport let value = 1\n")],
+      }],
+    })).toThrow(/first argument/u);
+  });
+
+  test("every module declared by a selected file is a root", () => {
+    const file = source(
+      0,
+      "/both.hex",
+      "module First\nexport let first: Int = 1\nend module First\n" +
+        "module Second\nexport let second: Int = 2\n",
+    );
+    const project = compileProject([file], { roots: [file.id] });
+    expect(messagesOf(project)).toEqual([]);
+    expect(project.roots[0]?.modules).toEqual([
+      { name: "First", path: "/First.hex" },
+      { name: "Second", path: "/Second.hex" },
+    ]);
+    expect(project.modules.map(({ name }) => name)).toEqual(expect.arrayContaining([
+      "First",
+      "Second",
+    ]));
+  });
+
+  test("retains syntax and duplicate-module diagnostics outside the selected body graph", () => {
+    const project = compileProject([
+      source(0, "/main.hex", "module Main\nexport let value = 1\n"),
+      source(1, "/bad.hex", "module Bad\nexport let =\n"),
+      source(2, "/duplicate-a.hex", "module Duplicate\nexport let a = 1\n"),
+      source(3, "/duplicate-b.hex", "module Duplicate\nexport let b = 2\n"),
+    ], { roots: [Source.fileId(0)] });
+    const messages = messagesOf(project);
+    expect(messages.length).toBeGreaterThan(0);
+    expect(messages.some((message) => message.includes("Duplicate"))).toBe(true);
+    expect(project.diagnostics.some(({ primary }) => Number(primary.fileId) === 1)).toBe(true);
+  });
+
+  test("ignores unused unresolved imports but reports a reached cycle", () => {
+    const unused = compileProject([
+      source(0, "/main.hex", "module Main\nexport let value = 1\n"),
+      source(1, "/unused.hex", "module Unused\nimport Missing\nexport let value = 2\n"),
+    ], { roots: [Source.fileId(0)] });
+    expect(messagesOf(unused).some((message) => message.includes("Missing"))).toBe(false);
+
+    const reached = compileProject([
+      source(0, "/main.hex", "module Main\nimport A\nexport let value = A.value\n"),
+      source(1, "/a.hex", "module A\nimport B\nexport let value = B.value\n"),
+      source(2, "/b.hex", "module B\nimport A\nexport let value = A.value\n"),
+    ], { roots: [Source.fileId(0)] });
+    expect(messagesOf(reached).some((message) => message.includes("import cycle"))).toBe(true);
+  });
+
+  test("ignores an unused cycle and reports an imported bad body", () => {
+    const files = [
+      source(0, "/main.hex", "module Main\nexport let value: Int = 1\n"),
+      source(1, "/a.hex", "module A\nimport B\nexport let value: Int = B.value\n"),
+      source(2, "/b.hex", "module B\nimport A\nexport let value: Int = A.value\n"),
+      source(3, "/bad.hex", 'module Bad\nexport let value: Int = "no"\n'),
+    ];
+    const unused = compileProject(files, { roots: [Source.fileId(0)] });
+    expect(messagesOf(unused).some((message) => message.includes("import cycle"))).toBe(false);
+    expect(unused.diagnostics.some(({ primary }) => Number(primary.fileId) === 3)).toBe(false);
+
+    const imported = compileProject([
+      source(0, "/main.hex", "module Main\nimport Bad\nexport let value: Int = 1\n"),
+      files[3]!,
+    ], { roots: [Source.fileId(0)] });
+    expect(imported.diagnostics.some(({ primary }) => Number(primary.fileId) === 3)).toBe(true);
+  });
+
+  test("reports a semantic error in selected bare data", () => {
+    const project = compileProject([
+      source(0, "/types.hex", "module Types\nexport type Broken = Missing\n"),
+      source(1, "/main.hex", "module Main\nimport bare Broken from Types\n" +
+        "export fun keep(value: Broken): Broken = value\n"),
+    ], { roots: [Source.fileId(1)] });
+    expect(project.diagnostics.some(({ primary }) => Number(primary.fileId) === 0)).toBe(true);
+  });
+
+  test("includes runtime globals required only by an emitted data unit", () => {
+    const project = compileProject([
+      source(0, "/types.hex", "module Types\nexport record Set = { value: Int }\n" +
+        "export type Wrapper = Set\n"),
+      source(1, "/main.hex", "module Main\nimport bare Wrapper from Types\n" +
+        "export fun id(value: Wrapper): Wrapper = value\n"),
+    ], { roots: [Source.fileId(1)] });
+    expect(messagesOf(project)).toEqual([]);
+    expect(project.modules.map(({ name }) => name)).not.toContain("Types");
+    const data = project.dataUnits.find(({ selectedNames }) => selectedNames.includes("Set"));
+    expect(data?.javascript.importsRuntimeGlobals).toBe(true);
+    expect(data?.javascript.text).toContain('from "../../hex.js"');
+    expect(project.runtimeGlobals?.path).toBe("/hex.js");
+  });
+
+  test("reports import-mode conflicts required by a selected data alias", () => {
+    const project = compileProject([
+      source(0, "/dep.hex", "module Dep\nexport record Token = { value: Int }\n"),
+      source(1, "/types.hex", "module Types\nimport bare Token from Dep\nimport Dep\n" +
+        "import Missing\nexport type Wrapper = Dep.Token\n"),
+      source(2, "/main.hex", "module Main\nimport bare Wrapper from Types\n" +
+        "export fun id(value: Wrapper): Wrapper = value\n"),
+    ], { roots: [Source.fileId(2)] });
+    const messages = messagesOf(project);
+    expect(messages).toContain(
+      "cannot combine bare and full imports of Dep; replace the bare selections with a full import to use its implementation",
+    );
+    expect(messages.some((message) => message.includes("Missing"))).toBe(false);
+    expect(project.modules.map(({ name }) => name)).not.toContain("Types");
+    expect(project.modules.map(({ name }) => name)).not.toContain("Dep");
+  });
+
+  test("recognizes an unavailable bare companion without activating its body", () => {
+    const project = compileProject([
+      source(0, "/a.hex", "module A\nimport B\nexport record Token = { number: () -> Int }\n" +
+        "type TokenAlias = Token\nexport fun number(token: TokenAlias): Int = missing\n"),
+      source(1, "/b.hex", "module B\nimport bare Token from A\n" +
+        "let token = Token({ number = () => 2 })\nexport let value: Int = token.number()\n"),
+    ], { roots: [Source.fileId(1)] });
+    const messages = messagesOf(project);
+    expect(messages.some((message) =>
+      message.includes("requires the full provider `A`") &&
+      message.includes("replace the bare selections")
+    )).toBe(true);
+    expect(messages.some((message) => message.includes("unbound name `missing`"))).toBe(false);
+    expect(project.modules.map(({ name }) => name)).not.toContain("A");
+    expect(project.dataUnits.some(({ sourcePath }) => sourcePath === "/A.hex")).toBe(true);
+  });
+
+  test("keeps full transitive companion output and cold/warm results stable", () => {
+    const files = [
+      source(0, "/types.hex", "module Types\nexport record Token = { value: Int }\n" +
+        "export fun number(token: Token): Int = token.value\n"),
+      source(1, "/factory.hex", "module Factory\nimport Types\n" +
+        "export fun make(): Types.Token = Types.Token({ value = 7 })\n"),
+      source(2, "/main.hex", "module Main\nimport Factory\nlet token = Factory.make()\n" +
+        "export let value: Int = token.number()\n"),
+      source(3, "/unused.hex", 'module Unused\nexport let bad: Int = "no"\n'),
+    ];
+    const snapshot = (project: ReturnType<typeof compileProject>) => ({
+      diagnostics: project.diagnostics.map(({ severity, message, primary }) => ({
+        severity,
+        message,
+        fileId: Number(primary.fileId),
+      })),
+      modules: project.modules.map(({ name, path, javascript, declarations }) => ({
+        name,
+        path,
+        javascript: javascript.text,
+        declarations: declarations.text,
+      })),
+      data: project.dataUnits.map(({ path, javascript, declarations }) => ({
+        path,
+        javascript: javascript.text,
+        declarations: declarations.text,
+      })),
+    });
+    const cold = compileProject(files, { roots: [Source.fileId(2)] });
+    const warm = compileProject(files, { roots: [Source.fileId(2)] });
+    expect(messagesOf(cold)).toEqual([]);
+    expect(cold.modules.map(({ name }) => name)).toEqual(expect.arrayContaining([
+      "Types",
+      "Factory",
+      "Main",
+    ]));
+    expect(cold.modules.map(({ name }) => name)).not.toContain("Unused");
+    expect(snapshot(warm)).toEqual(snapshot(cold));
+  });
+
+});
+
 test("compiles a relative module import, alongside a bystander import", () => {
   // #762: there is one import form now — a module alias — so this no longer
   // has a named/aliased/namespace/effect quartet to cover. What is left to
