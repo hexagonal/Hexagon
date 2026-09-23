@@ -70,6 +70,22 @@ The book uses representative operations such as `map`, `filter`, and `take` to e
 the idea. Their complete family belongs in library reference documentation, not in a
 language chapter.
 
+## A possible value can become a short sequence
+
+`Option.toSeq` connects possible absence to sequence processing. `Some(value)`
+becomes a one-element sequence, and `None` becomes an empty one:
+
+```hexagon
+let chosen: Option(Int) = Some(7)
+let doubled = chosen |> Option.toSeq |> Seq.map(number => number * 2)
+```
+
+Traversing `doubled` yields `14` once. Starting with `None` yields no elements, so the
+mapping function has nothing to do. The conversion preserves the supplied value;
+traversing the resulting sequence again observes the same zero or one elements.
+The explicit conversion marks the point where an optional value enters a sequence
+pipeline.
+
 ## `next` exposes a functional cursor
 
 The fundamental operation has this type:

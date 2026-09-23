@@ -3,13 +3,13 @@
 Hexagon's subject-first convention makes a useful transformation easy to recognize:
 
 ```hexagon
-Option.getOrElse(possibleName, "Guest")
+Option.defaultValue(possibleName, "Guest")
 ```
 
 When the receiver's type is known, the same operation has a **dot call**:
 
 ```hexagon
-possibleName.getOrElse("Guest")
+possibleName.defaultValue("Guest")
 ```
 
 These are the same call. Hexagon rewrites the second form to the first during type
@@ -20,12 +20,12 @@ checking. The value does not acquire a JavaScript method, and no runtime lookup 
 A subject-first companion operation commonly has three useful spellings:
 
 ```hexagon
-Option.getOrElse(possibleName, "Guest")
-possibleName |> Option.getOrElse("Guest")
-possibleName.getOrElse("Guest")
+Option.defaultValue(possibleName, "Guest")
+possibleName |> Option.defaultValue("Guest")
+possibleName.defaultValue("Guest")
 ```
 
-All three mean `Option.getOrElse(possibleName, "Guest")`.
+All three mean `Option.defaultValue(possibleName, "Guest")`.
 
 - The qualified form is explicit and canonical.
 - The pipe emphasizes a value flowing through transformations.
@@ -49,6 +49,62 @@ let selected =
 The leading dots continue the postfix expression. This alignment puts the receiver and
 each operation on the same visual axis, matching the established layout for a multiline
 pipe.
+
+## Transforming a value that may be absent
+
+`Option` operations let a pipeline keep absence explicit while working on a present
+value:
+
+```hexagon
+let guest: Option(String) = Some("Mira")
+let greeting =
+    guest
+    |> Option.map(name => "Hello, ${name}!")
+    |> Option.defaultValue("Guest not found")
+```
+
+`map` calls the function for `Some` and wraps its answer in `Some`; `None` passes
+through without calling it. The final fallback turns the optional greeting into a
+`String`.
+
+When the next step already returns an `Option`, use `flatMap` to keep one layer of
+possible absence:
+
+```hexagon
+let findGuest(id: Int): Option(String) =
+    if id == 42 then Some("Mira") else None
+
+let requestedId: Option(Int) = Some(42)
+let guestName = requestedId |> Option.flatMap(findGuest)
+```
+
+Using `map` here would produce `Option(Option(String))`: the outer layer would say
+whether an ID was supplied, and the inner layer whether it found a guest. `flatMap`
+combines those two steps into one `Option(String)`.
+
+`Result` supports the same pattern on success: `map` transforms an `Ok` payload and
+`flatMap` chains a step that can return another `Result` with the same error type.
+An `Err` passes through either operation without invoking the callback. When a
+boundary needs a different description of failure, `mapError` transforms the error
+while preserving any success.
+
+## Choosing when to compute a fallback
+
+`defaultValue` receives an ordinary argument, so the fallback expression is evaluated
+before the call, even when the source contains a value. `defaultWith` receives a
+function and invokes it only when a fallback is needed:
+
+```hexagon
+let makeGuestName(): String = "Guest"
+let eager = guest |> Option.defaultValue(makeGuestName())
+let conditional = guest |> Option.defaultWith(() => makeGuestName())
+```
+
+The first line computing a fallback calls `makeGuestName` regardless of `guest`.
+The second calls it only for `None`. For `Result.defaultWith`, the callback receives
+the error, so recovery can depend on what went wrong. Both forms finish their work
+during the call; the fallback is not postponed until some later use of the answer.
+The Effects chapter explains the call marks needed when a callback performs effects.
 
 ## Companion operations belong with a type
 
@@ -266,13 +322,13 @@ names they answer to without honoring — `subtract` at `Nat` among them.
 The resolved dot-call node does not survive into emitted code:
 
 ```hexagon
-let name = possibleName.getOrElse("Guest")
+let name = possibleName.defaultValue("Guest")
 ```
 
 may emit as the ordinary imported function call:
 
 ```js
-const name = getOrElse(possibleName, "Guest");
+const name = defaultValue(possibleName, "Guest");
 ```
 
 Field calls remain honest JavaScript property calls. No prototypes are changed, no

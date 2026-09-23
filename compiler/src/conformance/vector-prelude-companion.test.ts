@@ -444,6 +444,8 @@ describe("two prelude members exporting one bare name", () => {
       "`Map.isEmpty(b)`, or `Set.isEmpty(b)`",
       "no bare `map`; write `Seq.empty.map((x: Int): Int => x)`, " +
       "`Seq.map(Seq.empty, (x: Int): Int => x)`, " +
+      "`Option.map(Seq.empty, (x: Int): Int => x)`, " +
+      "`Result.map(Seq.empty, (x: Int): Int => x)`, " +
       "or `Stream.map(Seq.empty, (x: Int): Int => x)`",
       "no bare `last`; write `b.last()` or `Vector.last(b)`",
     ]);

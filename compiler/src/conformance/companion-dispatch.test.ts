@@ -207,18 +207,11 @@ describe("a built-in receiver reaches the module addressable under its name", ()
     ]);
   });
 
-  /**
-   * The union flavour of the same leak. `Option` is a prelude union declared in
-   * `stdlib/Option.hex`, which exports no operations at all, so `map` is not its
-   * — and the identity keying is what keeps `Seq.map` from answering for it.
-   */
-  test("a prelude union receiver does not reach the `Seq` companion", () => {
+  test("a prelude union receiver reaches its own companion operation", () => {
     expect(
       projectDiagnostics("module Main\n\n" + "export fun probe(o: Option(Int)): Option(Int) = o.map(x => x + 1)\n",
       ),
-    ).toEqual([
-      "`Option(Int)` has no field `map`, its companion exports no operation `map`, and no constraint honored at `Option(Int)` has a subject-first member `map`; call an available subject-first function explicitly",
-    ]);
+    ).toEqual([]);
   });
 });
 

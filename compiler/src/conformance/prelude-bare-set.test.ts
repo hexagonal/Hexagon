@@ -170,7 +170,7 @@ describe("the function channel: none, and `ignore`", () => {
     expect(projectDiagnostics("module Main\n\n" + "export let f(things: Seq(Int), g: Int -> Int): Seq(Int) = map(things, g)\n",
     )).toEqual([
       "no bare `map`; write `things.map(g)`, `Seq.map(things, g)`, " +
-      "or `Stream.map(things, g)`",
+      "`Option.map(things, g)`, `Result.map(things, g)`, or `Stream.map(things, g)`",
     ]);
   });
 
@@ -323,7 +323,8 @@ describe("the function channel: none, and `ignore`", () => {
       "no bare `length`; write `([1, 2]).length()`, `Seq.length([1, 2])`, " +
       "`Vector.length([1, 2])`, `String.length([1, 2])`, or `Array.length([1, 2])`"],
     ["`Iterable`'s member", "export let s: Seq(Int) = toSeq([1, 2])\n",
-      "no bare `toSeq`; write `([1, 2]).toSeq()` or `Iterable.toSeq([1, 2])`"],
+      "no bare `toSeq`; write `([1, 2]).toSeq()`, `Option.toSeq([1, 2])`, " +
+      "or `Iterable.toSeq([1, 2])`"],
   ])("a vector literal keeps the dot form for %s", (_seat, source, message) => {
     expect(projectDiagnostics("module Main\n\n" + source)).toEqual([message]);
   });
@@ -477,12 +478,12 @@ describe("the function channel: none, and `ignore`", () => {
   test.each([
     ["a stage with an argument",
       "export let s(xs: Seq(Int), f: Int -> Int): Seq(Int) = xs |> map(f)\n",
-      ["no bare `map`; write `Seq.map` or `Stream.map`"]],
+      ["no bare `map`; write `Seq.map`, `Option.map`, `Result.map`, or `Stream.map`"]],
     ["a stage at a literal", "export let n: Int = 2 |> pow(10)\n",
       ["no bare `pow`; write `Pow.pow`"]],
     ["two stages",
       "export let n(xs: Seq(Int), f: Int -> Int): Int = xs |> map(f) |> length()\n",
-      ["no bare `map`; write `Seq.map` or `Stream.map`",
+      ["no bare `map`; write `Seq.map`, `Option.map`, `Result.map`, or `Stream.map`",
         "no bare `length`; write `Seq.length`, `Vector.length`, `String.length`, or `Array.length`"]],
     ["a bare stage", "export let n(xs: Seq(Int)): Int = xs |> length\n",
       ["no bare `length`; write `Seq.length`, `Vector.length`, `String.length`, or `Array.length`"]],
@@ -543,7 +544,7 @@ describe("§5.5 and §10's exemplars, character for character", () => {
     ["§5.5, §10: a multi-homed dot-callable function",
       "export let f(things: Seq(Int), f: Int -> Int): Seq(Int) = map(things, f)\n",
       "no bare `map`; write `things.map(f)`, `Seq.map(things, f)`, " +
-      "or `Stream.map(things, f)`"],
+      "`Option.map(things, f)`, `Result.map(things, f)`, or `Stream.map(things, f)`"],
     ["§10: single-homed and dot-callable",
       "export let b(reading: Float): Bool = isNan(reading)\n",
       "no bare `isNan`; write `reading.isNan()` or `Float.isNan(reading)`"],
