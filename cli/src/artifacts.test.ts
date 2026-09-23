@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { resolve } from "node:path";
 import { compileProject, Source } from "../../compiler/src/index.js";
 import { artifactsOf, emittedRootPaths } from "./artifacts.js";
 
@@ -20,6 +21,7 @@ describe("compiler artifact mapping", () => {
       "hex.d.ts",
       "package.json",
     ]));
-    expect(emittedRootPaths(compiled, "/tmp/out")).toEqual(["/tmp/out/Main.js"]);
+    const output = resolve("out");
+    expect(emittedRootPaths(compiled, output)).toEqual([resolve(output, "Main.js")]);
   });
 });

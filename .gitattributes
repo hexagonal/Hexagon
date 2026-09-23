@@ -1,0 +1,3 @@
+/stdlib/*.hex text eol=lf
+/stdlib/**/*.hex text eol=lf
+/compiler/src/stdlib-sources.ts text eol=lf

@@ -2,6 +2,7 @@ import { mkdtemp, mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, test } from "vitest";
+import { normalizePath } from "../../host/src/index.js";
 import { runCommand } from "./command.js";
 import type { writeOutput } from "./output.js";
 
@@ -58,11 +59,11 @@ describe("CLI project integration", () => {
     let request: Parameters<typeof writeOutput>[0] | undefined;
     const io = capture(root, async (given) => { request = given; });
     expect(await runCommand(["build", "src/Main.hex"], io.context)).toBe(0);
-    const canonicalRoot = await realpath(root);
+    const canonicalRoot = normalizePath(await realpath(root));
     expect(request?.projectDirectory).toBe(canonicalRoot);
     expect(request?.outputDirectory).toBe(join(canonicalRoot, "dist"));
     expect([...request!.artifacts.keys()]).toEqual(expect.arrayContaining(["Main.js", "Main.d.ts", "package.json"]));
-    expect(request?.roots).toEqual([join(canonicalRoot, "src/Main.hex")]);
+    expect(request?.roots).toEqual([normalizePath(join(canonicalRoot, "src/Main.hex"))]);
     expect(io.stdout()).toContain(join(canonicalRoot, "dist/Main.js"));
   });
 

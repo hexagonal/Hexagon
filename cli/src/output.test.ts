@@ -237,7 +237,7 @@ describe("writeOutput", () => {
     await mkdir(fixture.output);
     const outside = join(fixture.holder, "outside");
     await mkdir(outside);
-    await symlink(outside, join(fixture.output, "linked"));
+    await symlink(outside, join(fixture.output, "linked"), "junction");
     await expect(write(fixture, new Map([["linked/Main.js", "main"]]))).rejects.toThrow(
       /traverses symbolic link/u,
     );
