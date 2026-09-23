@@ -139,13 +139,16 @@ richer foreign classes and members, later FFI validation, the conditional generi
 and public dictionary ABI, source maps, runtime integration, conformance fixtures, and
 the finalized portable-JavaScript profile.
 
-There is currently no release, package, command-line tool, or supported installation
-process. The browser Playground is the public way to try the implementation today.
+A local Node compiler alpha provides `hexc check` and `hexc build`; see the
+[installation guide](cli/README.md). It has not been published to npm, and its
+cross-platform release checks are still pending. The browser Playground remains
+the public hosted way to try the implementation.
 
 ## Repository map
 
 - [`spec/`](spec/) contains the normative language specifications and design notes.
 - [`compiler/`](compiler/) contains the TypeScript compiler workspace, tests, roadmap, and architecture decisions.
+- [`cli/`](cli/) contains the Node compiler command, local package instructions, and installation tests.
 - [`book/`](book/) contains the 25-chapter first draft, working plans, and review records.
 - [`language-server/`](language-server/) establishes the boundary and roadmap for LSP support.
 - [`playground/`](playground/) contains the deployed browser Playground and its architecture.

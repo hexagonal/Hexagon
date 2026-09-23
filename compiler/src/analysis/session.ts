@@ -237,7 +237,7 @@ export interface SessionPackage {
 }
 
 /** `ProjectOptions` as a session takes them — its packages by path, above. */
-export interface SessionOptions extends Omit<ProjectOptions, "packages"> {
+export interface SessionOptions extends Omit<ProjectOptions, "packages" | "roots"> {
   readonly packages?: readonly SessionPackage[];
 }
 

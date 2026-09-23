@@ -2,8 +2,8 @@
 
 What a program is **on disk**: the project directory, the files beneath it, and
 the directories its dependencies are found in. One package, shared by every
-Node-hosted tool — the language server today, the command-line compiler when
-there is one — rather than each tool answering for itself.
+Node-hosted tool, including the language server and command-line compiler,
+rather than each tool answering for itself.
 
 The compiler core is platform-neutral and stays so: it receives packages as
 **records** and never spells `node_modules`

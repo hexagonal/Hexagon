@@ -148,6 +148,20 @@ module contract. Constrained bindings remain in the typed analysis without expos
 their generic dictionary surface; lawful fundamental editions appear as ordinary
 non-exported preview declarations.
 
+The compiler API supports explicit source-file roots through
+`compileProject(files, { roots: [file.id] })`. It checks the selected modules and
+their required dependencies, while discovery, syntax and module-identity
+diagnostics still cover the supplied project sources. Selecting a file selects
+all modules declared in it. Omit `roots` to retain whole-project compilation;
+interactive analysis sessions continue to use that mode.
+
+`CompiledProject.roots` maps explicit root file identities and source paths to
+declared module names and output layout addresses. Writers must handle ordinary
+modules, `dataUnits`, `runtimeDeclarations` and `runtimeGlobals`. The executable
+and declaration smoke test is `node scripts/test-root-selection.mjs` after a
+compiler build. The [Node CLI](../cli/README.md) uses this API to provide the
+`hexc check` and `hexc build` commands.
+
 Development commands, run from this folder:
 
 ```text

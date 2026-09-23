@@ -40,7 +40,13 @@ export type {
   ResolvedEdge,
   UnreadableManifest,
 } from "./packages.js";
-export type { CompiledModule, CompiledProject, ProjectOptions, ProjectPackage } from "./project.js";
+export type {
+  CompiledModule,
+  CompiledProject,
+  CompiledRoot,
+  ProjectOptions,
+  ProjectPackage,
+} from "./project.js";
 export type { RuntimeLocation, RuntimeLocations } from "./passes/emitter/emitter.js";
 export {
   collectTypeOccurrences,

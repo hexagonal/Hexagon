@@ -64,9 +64,10 @@ jobs:
         run: npm run check
         working-directory: compiler
 
-      - name: Test emitted file and standard I/O on Node
+      - name: Test emitted root selection, file and standard I/O on Node
         run: |
           npm run build
+          node scripts/test-root-selection.mjs
           node scripts/test-experimental-file.mjs node
           node scripts/test-experimental-stdio.mjs node
         working-directory: compiler

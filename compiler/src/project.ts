@@ -115,6 +115,13 @@ export interface CompiledDataUnit {
   readonly declarations: Emitted.Declarations;
 }
 
+/** One explicitly selected source file and the modules it contributes. */
+export interface CompiledRoot {
+  readonly fileId: Source.FileId;
+  readonly sourcePath: string;
+  readonly modules: readonly Pick<CompiledModule, "name" | "path">[];
+}
+
 /**
  * One module through elaboration, before emission — `CompiledModule` minus the
  * two emitted artefacts. See `checked` in `compileProject` for why the compile
@@ -133,6 +140,66 @@ function dataUnitPath(modulePath: string, declaration: string): string {
 }
 
 type ParsedDataDeclaration = Parsed.UnionItem | Parsed.RecordItem | Parsed.TypeAliasItem;
+
+/**
+ * The declaration surface needed to recognize providers without traversing an
+ * unactivated implementation body. Headers and declaration order stay intact
+ * so identities and signatures are the resolver's own; executable expressions
+ * are replaced by recovery nodes that introduce no references.
+ */
+function recognitionProjection(module: Parsed.Module): Parsed.Module {
+  const emptyBody = (value: Parsed.LambdaExpr): Parsed.LambdaExpr => ({
+    ...value,
+    body: { kind: "ErrorExpr", span: value.body.span },
+  });
+  const items = module.items.flatMap((item): Parsed.Item[] => {
+    switch (item.kind) {
+      case "Fun":
+        return [{ ...item, value: emptyBody(item.value) }];
+      case "Let":
+      case "Var":
+        return [{
+          ...item,
+          value: item.value.kind === "Lambda"
+            ? emptyBody(item.value)
+            : { kind: "ErrorExpr", span: item.value.span },
+        }];
+      case "ConstraintDeclaration":
+        return [{
+          ...item,
+          members: item.members.map((member) => ({
+            ...member,
+            ...(member.defaultValue === undefined
+              ? {}
+              : { defaultValue: emptyBody(member.defaultValue) }),
+          })),
+        }];
+      case "Honor":
+        return [{
+          ...item,
+          members: item.members.map((member) => ({
+            ...member,
+            ...(member.value === undefined ? {} : { value: emptyBody(member.value) }),
+          })),
+        }];
+      case "PatternDeclaration":
+        return [{
+          ...item,
+          members: item.members.map((member) => ({
+            ...member,
+            ...(member.value === undefined ? {} : { value: emptyBody(member.value) }),
+          })),
+        }];
+      case "ExprItem":
+      case "LetPattern":
+      case "ErrorItem":
+        return [];
+      default:
+        return [item];
+    }
+  });
+  return { ...module, items };
+}
 
 /** Type-position references only; executable bodies and derives are excluded. */
 function dataTypeReferences(
@@ -178,6 +245,8 @@ function dataTypeReferences(
 export interface CompiledProject {
   readonly modules: readonly CompiledModule[];
   readonly dataUnits: readonly CompiledDataUnit[];
+  /** Explicit roots, in request order; empty for the legacy whole-project request. */
+  readonly roots: readonly CompiledRoot[];
   /**
    * The program's runtime declaration module (FFI Part 1 §8.3), or `undefined`
    * when no generated `.d.ts` mentions a `Hex.*` face.
@@ -229,6 +298,11 @@ export interface CompiledProject {
  * cannot meet and neither has to know about the other.
  */
 export interface ProjectOptions {
+  /**
+   * Root-project source files whose declared modules seed compilation. Omission
+   * preserves whole-project compilation. An explicit list must be non-empty.
+   */
+  readonly roots?: readonly Source.FileId[];
   /**
    * The project's manifest `name` (Packages §2.5), where it has one. A project
    * that is never published needs none: its own modules are addressed by their
@@ -765,6 +839,20 @@ export function compileProject(
     record,
     files: given.map(normalize),
   }));
+  const requestedRootIds = options.roots === undefined
+    ? undefined
+    : [...new Set(options.roots.map(Number))];
+  if (requestedRootIds?.length === 0) {
+    throw new RangeError("`ProjectOptions.roots` must contain at least one source file identity");
+  }
+  const sourceIds = new Set(sourceFiles.map(({ id }) => Number(id)));
+  for (const id of requestedRootIds ?? []) {
+    if (sourceIds.has(id)) continue;
+    throw new RangeError(
+      `\`ProjectOptions.roots\` contains unknown root file identity ${id}; ` +
+        "roots must identify files in compileProject's first argument",
+    );
+  }
   // The reserved range is the compiler's, and a host that spent from it would
   // put one of its files on an injected module's number — one file to
   // everything downstream, the later silently shadowing the earlier. That is
@@ -878,6 +966,12 @@ export function compileProject(
   const importEdges = new Map<string, Map<string, string>>();
   const fullImportEdges = new Map<string, Set<string>>();
   const dataSelections = new Map<string, Set<string>>();
+  const importDiagnostics = new Map<string, Diagnostics.Diagnostic[]>();
+  const addImportDiagnostic = (path: string, diagnostic: Diagnostics.Diagnostic): void => {
+    const own = importDiagnostics.get(path) ?? [];
+    own.push(diagnostic);
+    importDiagnostics.set(path, own);
+  };
   for (const unit of seated) {
     const edges = new Map<string, string>();
     const fullEdges = new Set<string>();
@@ -890,7 +984,7 @@ export function compileProject(
         (item.specifier.startsWith("./") || item.specifier.startsWith("../")) &&
         sourcePaths.has(resolveSpecifier(unit.source.path, item.specifier))
       ) {
-        diagnostics.add({
+        addImportDiagnostic(unit.path, {
           severity: "error",
           message: "use `import` for Hexagon modules; `extern from` is for foreign JavaScript",
           primary: item.span,
@@ -909,7 +1003,7 @@ export function compileProject(
         if (mode === "full") fullEdges.add(resolution.module.path);
         const previousMode = importModes.get(resolution.module.path);
         if (previousMode !== undefined && previousMode !== mode) {
-          diagnostics.add({
+          addImportDiagnostic(unit.path, {
             severity: "error",
             message: `cannot combine bare and full imports of ${item.module.text}; replace the bare selections with a full import to use its implementation`,
             primary: item.span,
@@ -925,7 +1019,7 @@ export function compileProject(
       // specifier's basename names may well not exist. Reporting it unresolved
       // would answer a question the author never asked.
       if (!item.module.declared) continue;
-      diagnostics.add({
+      addImportDiagnostic(unit.path, {
         severity: "error",
         message: unresolvedModuleMessage(item.module.text, resolution),
         primary: item.span,
@@ -938,6 +1032,93 @@ export function compileProject(
       });
     }
   }
+
+  const requestedRoots = requestedRootIds === undefined
+    ? []
+    : requestedRootIds.map((id) => {
+      const source = sourceFiles.find(({ id: candidate }) => Number(candidate) === id)!;
+      return {
+        fileId: source.id,
+        sourcePath: source.path,
+        units: seated.filter((unit) =>
+          unit.packageName === projectPackage.name && Number(unit.source.id) === id
+        ),
+      };
+    });
+  const explicitRootPaths = requestedRoots.flatMap(({ units: own }) => own.map(({ path }) => path));
+  const ordered: string[] = [];
+  const visiting: string[] = [];
+  const visited = new Set<string>();
+  let injectedImportCycle = false;
+  const visit = (path: string): void => {
+    if (visited.has(path)) return;
+    const cycleStart = visiting.indexOf(path);
+    if (cycleStart >= 0) {
+      if (visiting.slice(cycleStart).some((member) => byPath.get(member)?.injected !== undefined)) {
+        injectedImportCycle = true;
+      }
+      const module = byPath.get(path);
+      if (module !== undefined) {
+        diagnostics.add({
+          severity: "error",
+          message: `import cycle: ${
+            [...visiting.slice(cycleStart), path]
+              .map((member) =>
+                displayModuleName(byPath.get(member)?.fullName ?? member, module.packageName)
+              )
+              .join(" -> ")
+          }`,
+          primary: module.parsed.span,
+        });
+      }
+      return;
+    }
+    const module = byPath.get(path);
+    if (module === undefined) return;
+    visiting.push(path);
+    for (const target of fullImportEdges.get(path) ?? []) visit(target);
+    visiting.pop();
+    visited.add(path);
+    ordered.push(path);
+  };
+  const activationSeeds = requestedRootIds === undefined
+    ? seated.map(({ path }) => path)
+    : [...injectedUnits.map(({ path }) => path), ...explicitRootPaths];
+  for (const path of activationSeeds) visit(path);
+  const activePaths = new Set(ordered);
+
+  // Import validity and bare-data requests are semantic obligations of the
+  // activated graph. Discovery and parsing above still covered every source.
+  dataSelections.clear();
+  for (const path of activePaths) {
+    const unit = byPath.get(path);
+    if (unit === undefined) continue;
+    for (const item of unit.parsed.items) {
+      if (item.kind !== "Import" || item.bare === undefined) continue;
+      const target = importEdges.get(path)?.get(item.module.text);
+      if (target === undefined) continue;
+      const names = dataSelections.get(target) ?? new Set<string>();
+      names.add(item.bare.text);
+      dataSelections.set(target, names);
+    }
+  }
+
+  // Recognition visits the remaining declarations after the activated graph.
+  // Its diagnostics are deliberately not surfaced unless a selected data
+  // projection below requires them.
+  const recognitionOrdered = [...ordered];
+  const recognitionVisited = new Set(recognitionOrdered);
+  const recognitionVisiting = new Set<string>();
+  const visitRecognition = (path: string): void => {
+    if (recognitionVisited.has(path) || recognitionVisiting.has(path)) return;
+    if (!byPath.has(path)) return;
+    recognitionVisiting.add(path);
+    for (const target of fullImportEdges.get(path) ?? []) visitRecognition(target);
+    recognitionVisiting.delete(path);
+    recognitionVisited.add(path);
+    recognitionOrdered.push(path);
+  };
+  for (const unit of seated) visitRecognition(unit.path);
 
   const dataDeclarations = new Map<string, Map<string, ParsedDataDeclaration>>();
   const dataExternTypes = new Map<string, Map<string, Parsed.ExternTypeDeclaration>>();
@@ -973,6 +1154,12 @@ export function compileProject(
       if (!preludeDataHomes.has(name)) preludeDataHomes.set(name, path);
     }
   }
+  const dataImportNeeds = new Map<string, Set<string>>();
+  const requireDataImport = (path: string, written: string): void => {
+    const names = dataImportNeeds.get(path) ?? new Set<string>();
+    names.add(written);
+    dataImportNeeds.set(path, names);
+  };
   const referenceHome = (
     path: string,
     reference: { readonly qualifier?: string; readonly name: string },
@@ -982,6 +1169,7 @@ export function compileProject(
       const imported = unit.parsed.items.find((item) =>
         item.kind === "Import" && item.alias.text === reference.qualifier
       );
+      if (imported?.kind === "Import") requireDataImport(path, imported.module.text);
       return imported?.kind === "Import"
         ? importEdges.get(path)?.get(imported.module.text)
         : undefined;
@@ -991,7 +1179,10 @@ export function compileProject(
     const imported = unit.parsed.items.find((item) =>
       item.kind === "Import" && item.alias.text === reference.name
     );
-    if (imported?.kind === "Import") return importEdges.get(path)?.get(imported.module.text);
+    if (imported?.kind === "Import") {
+      requireDataImport(path, imported.module.text);
+      return importEdges.get(path)?.get(imported.module.text);
+    }
     return preludeDataHomes.get(reference.name);
   };
   const dataDependencies = new Map<string, Set<string>>();
@@ -1104,47 +1295,6 @@ export function compileProject(
   const ownerPath = (modulePath: string, name: string): string =>
     dataUnitPath(modulePath, dataOwner.get(dataNode(modulePath, name)) ?? name);
 
-  const ordered: string[] = [];
-  const visiting: string[] = [];
-  const visited = new Set<string>();
-  let injectedImportCycle = false;
-  const visit = (path: string): void => {
-    if (visited.has(path)) return;
-    const cycleStart = visiting.indexOf(path);
-    if (cycleStart >= 0) {
-      if (visiting.slice(cycleStart).some((member) => byPath.get(member)?.injected !== undefined)) {
-        injectedImportCycle = true;
-      }
-      const module = byPath.get(path);
-      if (module !== undefined) {
-        diagnostics.add({
-          severity: "error",
-          // Modules §8.1: the cycle is named by its modules, never by files —
-          // and by the spelling their own reader writes, the seat module's
-          // package segment elided (Packages §3.3). One package is enough for
-          // every member: the `dependencies` closure is acyclic (§4.1), so no
-          // import cycle crosses a package boundary.
-          message: `import cycle: ${
-            [...visiting.slice(cycleStart), path]
-              .map((member) =>
-                displayModuleName(byPath.get(member)?.fullName ?? member, module.packageName)
-              )
-              .join(" -> ")
-          }`,
-          primary: module.parsed.span,
-        });
-      }
-      return;
-    }
-    const module = byPath.get(path);
-    if (module === undefined) return;
-    visiting.push(path);
-    for (const target of fullImportEdges.get(path) ?? []) visit(target);
-    visiting.pop();
-    visited.add(path);
-    ordered.push(path);
-  };
-  for (const unit of seated) visit(unit.path);
   // Prelude and runtime placement is fixed by `weaveInjected`. Ordinary
   // library members have no bare-scope prefix of their own, but an explicit
   // import must be checked before its consumer. Give them their topological
@@ -1179,8 +1329,11 @@ export function compileProject(
   for (const path of injectedPaths) {
     const index = ordered.indexOf(path);
     if (index >= 0) ordered.splice(index, 1);
+    const recognitionIndex = recognitionOrdered.indexOf(path);
+    if (recognitionIndex >= 0) recognitionOrdered.splice(recognitionIndex, 1);
   }
   ordered.unshift(...injectedPaths);
+  recognitionOrdered.unshift(...injectedPaths);
 
   const compiled = new Map<string, CompiledModule>();
   /**
@@ -1276,6 +1429,9 @@ export function compileProject(
   const checkedData = new Map<string, Map<string, {
     readonly resolved: Resolved.Module;
     readonly typed: Typed.Module;
+    readonly core: Core.Module;
+    readonly runtimes: RuntimeLocations;
+    readonly runtimeGlobalsSpecifier: string;
   }>>();
   const reservedDataIds = new Map<string, {
     symbols: Map<number, Resolved.SymbolId>;
@@ -1295,6 +1451,9 @@ export function compileProject(
   const ensureData = (target: string, name: string): {
     readonly resolved: Resolved.Module;
     readonly typed: Typed.Module;
+    readonly core: Core.Module;
+    readonly runtimes: RuntimeLocations;
+    readonly runtimeGlobalsSpecifier: string;
   } | undefined => {
     const existing = checkedData.get(target)?.get(name);
     if (existing !== undefined) return existing;
@@ -1392,9 +1551,17 @@ export function compileProject(
       sourceText: unit.source.text,
       trustedStandardLibrary: injected,
     });
+    const core = elaborate(dataTyped, unit.source);
+    const dataModule = {
+      resolved: dataResolved,
+      typed: dataTyped,
+      core,
+      runtimes: runtimesFor(target, runtimeModulePathsByName),
+      runtimeGlobalsSpecifier: relativeSpecifier(target, `/${runtimeBasename}.hex`),
+    };
     const byName = checkedData.get(target) ?? new Map();
     for (const ownName of [...neededNames, ...neededExternTypes]) {
-      byName.set(ownName, { resolved: dataResolved, typed: dataTyped });
+      byName.set(ownName, dataModule);
     }
     checkedData.set(target, byName);
     ensuringData.delete(target);
@@ -1450,7 +1617,7 @@ export function compileProject(
     programNominals.unions.push(...dataResolved.unions);
     programNominals.records.push(...dataResolved.records);
     recordNominalHomes(dataResolved, target, nominalHomes);
-    return { resolved: dataResolved, typed: dataTyped };
+    return dataModule;
   };
   const optionPreludePath = preludeUnits.find(({ declaredName }) => declaredName === "Option")?.path;
   const optionData = optionPreludePath === undefined
@@ -1460,7 +1627,7 @@ export function compileProject(
     ? undefined
     : injectedSeats.get(optionPreludePath);
   const optionDataSeat = preludeUnits.find(({ declaredName }) => declaredName === "Int")?.seat;
-  for (const path of ordered) {
+  for (const path of recognitionOrdered) {
     const isPrelude = preludeSet.has(path);
     const isRuntimeModule = runtimeModuleSet.has(path);
     // All three injected sets take their identities from the reserved range, so
@@ -1476,6 +1643,9 @@ export function compileProject(
     const isInjected = isPrelude || isRuntimeModule || libraryModuleSet.has(path);
     const source = sources.get(path)!;
     const parsedModule = parsed.get(path)!;
+    const resolvedInput = activePaths.has(path)
+      ? parsedModule
+      : recognitionProjection(parsedModule);
     // Consumers see every prelude module; an *injected* module sees the members
     // before its own seat, and only those (Modules §5.5). Ordering the set this
     // way is what makes cycles impossible by construction, and it is why the
@@ -1599,7 +1769,7 @@ export function compileProject(
     // term, type and pattern seats and the checker at the constraint seats, and
     // a module that draws the report at two of them offers one import line.
     const repairs = new ImportRepairs(parsedModule, source.text, path);
-    const resolved = resolve(parsedModule, {
+    const resolved = resolve(resolvedInput, {
       // This module's **address** — its full name laid out as a path (Packages
       // §6), which is the only source of `Resolved.Module.path` and of the
       // `declaringPath` every nominal declared here is stamped with. Those
@@ -1704,7 +1874,7 @@ export function compileProject(
   // side effect of body order. Build their recognition tables only after every
   // full source has resolved, then check bodies in the existing dependency
   // order. Instance heads remain in their separate recognition channel.
-  for (const path of ordered) {
+  for (const path of recognitionOrdered) {
     const resolved = resolvedModules.get(path);
     if (resolved === undefined) continue;
     programNominals.unions.push(...resolved.unions);
@@ -1861,6 +2031,13 @@ export function compileProject(
     preludeCores.map(preludeBoolUnion).find((id) => id !== undefined),
   );
 
+  const dataNominalHomes = new Map([...nominalHomes].map(([key, home]) => [
+    key,
+    dataOwner.has(dataNode(home.path, home.name))
+      ? { ...home, path: ownerPath(home.path, home.name) }
+      : home,
+  ] as const));
+
   for (const path of ordered) {
     const module = checked.get(path);
     if (module === undefined) continue;
@@ -1906,7 +2083,7 @@ export function compileProject(
       runtimeSpecifier: emittedModuleSpecifier(
         relativeSpecifier(path, `/${runtimeBasename}.hex`),
       ),
-      nominalHomes,
+      nominalHomes: dataNominalHomes,
       modulePath: path,
       fundamentalInstances,
     });
@@ -1926,30 +2103,29 @@ export function compileProject(
     });
   }
 
-  const dataNominalHomes = new Map([...nominalHomes].map(([key, home]) => [
-    key,
-    dataOwner.has(dataNode(home.path, home.name))
-      ? { ...home, path: ownerPath(home.path, home.name) }
-      : home,
-  ] as const));
   const dataUnits: CompiledDataUnit[] = [];
   for (const { modulePath, owner, names, externTypes } of dataGroups.values()) {
     const module = checked.get(modulePath);
-    if (module === undefined) continue;
+    const projected = checkedData.get(modulePath)?.values().next().value;
+    const core = module?.core ?? projected?.core;
+    const runtimes = module?.runtimes ?? projected?.runtimes;
+    const runtimeGlobalsSpecifier = module?.runtimeGlobalsSpecifier ??
+      projected?.runtimeGlobalsSpecifier;
+    if (core === undefined || runtimes === undefined || runtimeGlobalsSpecifier === undefined) continue;
     const path = dataUnitPath(modulePath, owner);
     const selectedNames = names;
     dataUnits.push({
       path,
       sourcePath: modulePath,
       selectedNames,
-      javascript: emitDataJavaScript(module.core, {
+      javascript: emitDataJavaScript(core, {
         selectedNames,
         supportExternTypes: externTypes,
-        runtimes: module.runtimes,
+        runtimes,
         runtimeGlobalsSpecifier: relativeSpecifier(path, `/${runtimeBasename}.hex`),
         fundamentalInstances,
       }),
-      declarations: emitDataDeclarations(module.core, {
+      declarations: emitDataDeclarations(core, {
         selectedNames,
         supportExternTypes: externTypes,
         runtimeSpecifier: emittedModuleSpecifier(
@@ -1973,17 +2149,6 @@ export function compileProject(
   // *identity*, so a seen-set collapses the repeats without suppressing genuinely
   // distinct diagnostics that happen to read alike.
   const surfaced = new Set<Diagnostics.Diagnostic>();
-  for (const path of ordered) {
-    const module = compiled.get(path);
-    if (module === undefined) continue;
-    for (const stage of [module.typed, module.javascript, module.declarations]) {
-      for (const diagnostic of stage.diagnostics) {
-        if (surfaced.has(diagnostic)) continue;
-        surfaced.add(diagnostic);
-        diagnostics.add(diagnostic);
-      }
-    }
-  }
 
   // Two modules of one name in one package (Modules §2.2) share one layout
   // address, so only one of them is compiled — and the other's reports would go
@@ -2092,7 +2257,7 @@ export function compileProject(
     ];
   };
   const emitted = new Set(
-    ordered.filter((path) =>
+    (requestedRootIds === undefined ? recognitionOrdered : explicitRootPaths).filter((path) =>
       !preludeSet.has(path) && !runtimeModuleSet.has(path) && !libraryModuleSet.has(path)
     ),
   );
@@ -2105,7 +2270,53 @@ export function compileProject(
     }
   }
 
-  const modules = ordered.flatMap((path) => {
+  // Semantic diagnostics belong to the final required output closure. The
+  // recognition pass may inspect other declarations, but unrelated bodies do
+  // not make a selected-root request fail.
+  const semanticPaths = requestedRootIds === undefined ? recognitionOrdered : emitted;
+  for (const path of semanticPaths) {
+    for (const diagnostic of importDiagnostics.get(path) ?? []) {
+      if (surfaced.has(diagnostic)) continue;
+      surfaced.add(diagnostic);
+      diagnostics.add(diagnostic);
+    }
+    const module = compiled.get(path);
+    if (module === undefined) continue;
+    for (const stage of [module.typed, module.javascript, module.declarations]) {
+      for (const diagnostic of stage.diagnostics) {
+        if (surfaced.has(diagnostic)) continue;
+        surfaced.add(diagnostic);
+        diagnostics.add(diagnostic);
+      }
+    }
+  }
+  for (const [path, names] of checkedData) {
+    const neededImports = dataImportNeeds.get(path) ?? new Set<string>();
+    const unit = byPath.get(path);
+    for (const diagnostic of importDiagnostics.get(path) ?? []) {
+      const item = unit?.parsed.items.find((candidate) =>
+        candidate.kind === "Import" &&
+        Number(candidate.span.fileId) === Number(diagnostic.primary.fileId) &&
+        candidate.span.start.offset === diagnostic.primary.start.offset &&
+        candidate.span.end.offset === diagnostic.primary.end.offset
+      );
+      if (item?.kind !== "Import" || !neededImports.has(item.module.text)) continue;
+      if (surfaced.has(diagnostic)) continue;
+      surfaced.add(diagnostic);
+      diagnostics.add(diagnostic);
+    }
+    for (const data of new Set(names.values())) {
+      for (const stage of [data.resolved, data.typed]) {
+        for (const diagnostic of stage.diagnostics) {
+          if (surfaced.has(diagnostic)) continue;
+          surfaced.add(diagnostic);
+          diagnostics.add(diagnostic);
+        }
+      }
+    }
+  }
+
+  const modules = recognitionOrdered.flatMap((path) => {
     if (!emitted.has(path)) return [];
     const module = compiled.get(path);
     return module === undefined ? [] : [module];
@@ -2132,6 +2343,11 @@ export function compileProject(
   return {
     modules,
     dataUnits: emittedDataUnits,
+    roots: requestedRoots.map(({ fileId, sourcePath, units: own }) => ({
+      fileId,
+      sourcePath,
+      modules: own.map(({ fullName: name, path }) => ({ name, path })),
+    })),
     // Present exactly when some emitted `.d.ts` imports it (FFI Part 1 §8.3
     // obligation 3). A module that was compiled but not emitted writes no file,
     // so its faces are not an importer — which is why this reads the emitted
@@ -2149,7 +2365,8 @@ export function compileProject(
     // the same way — over the *emitted* list, because an unemitted module writes
     // no file and so imports nothing — and, unlike it, load-bearing at run time:
     // a host's execution set must carry this one.
-    runtimeGlobals: modules.some(({ javascript }) => javascript.importsRuntimeGlobals)
+    runtimeGlobals: [...modules, ...emittedDataUnits]
+      .some(({ javascript }) => javascript.importsRuntimeGlobals)
       ? {
           kind: "RuntimeGlobals",
           path: `/${runtimeBasename}.js`,
