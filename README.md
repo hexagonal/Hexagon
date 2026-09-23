@@ -140,8 +140,8 @@ and public dictionary ABI, source maps, runtime integration, conformance fixture
 the finalized portable-JavaScript profile.
 
 A local Node compiler alpha provides `hexc check` and `hexc build`; see the
-[installation guide](cli/README.md). It has not been published to npm, and its
-cross-platform release checks are still pending. The browser Playground remains
+[installation guide](cli/README.md). Installed-package checks pass on Windows,
+Linux and macOS with Node 24. It has not been published to npm. The browser Playground remains
 the public hosted way to try the implementation.
 
 ## Repository map

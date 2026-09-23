@@ -177,7 +177,7 @@ repeat the essential smoke cases after publication.
 - [x] Step 2 prerequisite: Implement and validate compiler root selection.
 - [x] Step 2: Implement the CLI.
 - [x] Step 3: Implement reliable build output.
-- [ ] Step 4: Complete the installed-package platform matrix (local macOS test passes).
+- [x] Step 4: Verify installed packages on Windows, Linux and macOS with Node 24.
 - [ ] Step 5: Document, authorize, publish and verify the alpha.
 
 ## 8. Approved command and root behaviour
@@ -624,15 +624,19 @@ occurred. Build preparation regenerates the embedded standard library.
 
 `cli/scripts/test-package.mjs` packs and installs the tool in a temporary project
 outside the checkout and exercises its installed executable. The local tested
-host is Node v24.18.0 on macOS. `.github/workflows/cli.yml` prepares installation
+host is Node v24.18.0 on macOS. `.github/workflows/cli.yml` runs installation
 checks for Node 24.18.0 and the latest Node 24 update on macOS, Linux and Windows.
-That remote matrix has not run; broader platform support remains unverified.
+All six jobs passed for commit `1a2bc4c` in
+[the platform run](https://github.com/hexagonal/Hexagon/actions/runs/35871205022).
+The minimum-version jobs ran v24.18.0 on all three systems; the `24` selector ran
+v24.21.0 on Linux and v24.20.0 on macOS and Windows. Subsequent jobs explicitly
+check for the latest update rather than relying on cached runner versions.
 
 Local validation:
 
 - CLI typecheck passed, including an isolated source tree with only the CLI's
   development dependencies available.
-- CLI and writer suite: 5 files, 28 passing tests.
+- CLI and writer suite: 5 files, 29 passing tests.
 - Installed-tarball checks passed: command help/version and failures, checking
   without output, compilation and execution, Hexagon/npm dependencies, bare data,
   strict TypeScript declaration consumption, multiple roots and modules, custom
@@ -658,10 +662,19 @@ and refusal to disturb unrelated helpers. The installed-tarball test also builds
 renames, rebuilds and executes this exact module example, checking the actual
 directory spelling. All 28 CLI/writer tests and the installed-package checks pass
 on local Node v24.18.0/macOS. Independent focused review found no remaining
-blocker in the nested rename or rollback fixes. Local tarballs remain development candidates pending
-the platform matrix and publication gates.
+blocker in the nested rename or rollback fixes. This was followed by the Windows
+portability fixes and platform validation below.
 
-Next release work is to run the installed-package matrix, resolve any platform
-failures, choose the public npm name and publishing identity, obtain publication
+### Platform validation and publication preparation
+
+[PR #1011](https://github.com/hexagonal/Hexagon/pull/1011) contains this work.
+Windows CI exposed checkout line-ending drift and a native-path versus normalized
+root comparison. Scoped Git attributes now keep canonical stdlib inputs and their
+generated embedding LF-only. The CLI normalizes discovered paths for ownership,
+source identities and root lookup. The 29-test suite and installed-package checks
+pass; independent review accepted both fixes. Normalized paths retain drive and
+UNC identities, and native paths remain usable for filesystem reads.
+
+Next release work is to choose the public npm name and publishing identity, obtain publication
 authorization, then verify a registry installation. The local installation guide
 is `cli/README.md`.

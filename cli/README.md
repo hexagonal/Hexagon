@@ -5,8 +5,9 @@ experimental local package; it has not been published to npm. Language and
 generated interfaces may change between alpha releases.
 
 Use Node 24 LTS. The initial package targets Node 24.18.0 or later in the Node 24
-family. Cross-platform release support requires the installation matrix to pass;
-the repository's `spec/node-compiler-alpha.md` records validation results.
+family. Installed-package checks pass on Windows, Linux and macOS with the minimum
+version and the Node 24 update selected by CI. The repository's
+`spec/node-compiler-alpha.md` records validation results.
 
 ## Install a local alpha package
 
