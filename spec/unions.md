@@ -119,7 +119,7 @@ The general algorithm — Maranget-style usefulness over the full grammar, witne
 ## 5. No eliminator but `match`
 
 - **Bare dot access on a union-typed receiver is a compile error** — including `s.tag` and `s.itemN`: "union values are inspected with `match`". The representation's field names are not part of the language surface. (The FFI exposes the representation contract to *JS-side* consumers — Unions §6.5, FFI Part 7 §4; Hexagon-side code never touches it.)
-- A **fused dot call** `opt.getOrElse(0)` may resolve to an ordinary **companion operation** under Method Syntax (§3.4 there — nominal unions are its cleanest receivers, having no field surface to collide with). This is companion dispatch, a static rewrite to `Option.getOrElse(opt, 0)`; **it exposes no fields and inspects no representation** — `match` remains the only way to look inside a union value.
+- A **fused dot call** `opt.defaultValue(0)` may resolve to an ordinary **companion operation** under Method Syntax (§3.4 there — nominal unions are its cleanest receivers, having no field surface to collide with). This is companion dispatch, a static rewrite to `Option.defaultValue(opt, 0)`; **it exposes no fields and inspects no representation** — `match` remains the only way to look inside a union value.
 - No generated `isCircle` predicates, no `Shape.circle?`, nothing.
 - Single-constructor unions are legal but are **not** the newtype idiom — `record` covers "nominal wrapper over one payload" (Products §5) with lighter access. A future lint may suggest as much; not required.
 

@@ -5,6 +5,36 @@ export union Result(a, e) =
     | Ok(value: a)
     | Err(error: e)
 
+(** Transforms a successful value. `Err` stays unchanged. *)
+export let map(source: Result(a, e), transform: a ->? b): Result(b, e) =
+    match source
+        Ok(value) => Ok(transform?(value))
+        Err(error) => Err(error)
+
+(** Transforms a successful value without adding another `Result` layer. *)
+export let flatMap(source: Result(a, e), transform: a ->? Result(b, e)): Result(b, e) =
+    match source
+        Ok(value) => transform?(value)
+        Err(error) => Err(error)
+
+(** Transforms an error value. `Ok` stays unchanged. *)
+export let mapError(source: Result(a, e), transform: e ->? f): Result(a, f) =
+    match source
+        Ok(value) => Ok(value)
+        Err(error) => Err(transform?(error))
+
+(** Returns the successful value, or the already-evaluated `fallback`. *)
+export let defaultValue(source: Result(a, e), fallback: a): a =
+    match source
+        Ok(value) => value
+        Err(_) => fallback
+
+(** Returns the successful value, or transforms the actual error into one. *)
+export let defaultWith(source: Result(a, e), fallback: e ->? a): a =
+    match source
+        Ok(value) => value
+        Err(error) => fallback?(error)
+
 (** Runs `action` and answers with what happened: `Ok(value)` when it returned,
     `Err(thrown)` when it threw. This is the bridge from the exception world
     back to the data world (`spec/exceptions.md` section 8.2), and it catches

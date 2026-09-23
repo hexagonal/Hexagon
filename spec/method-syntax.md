@@ -260,7 +260,7 @@ Diagnostics: an operation that exists in the companion but sits below the call s
 **Eligible receivers (companion dispatch can fire):**
 
 - nominal records — including `opaque`;
-- nominal unions — no field access exists on union values, so no collision surface; the cleanest receivers the feature has (`option.getOrElse(default)`, `result.map(f)` — still static companion calls, not object methods);
+- nominal unions — no field access exists on union values, so no collision surface; the cleanest receivers the feature has (`option.defaultValue(default)`, `result.map(f)` — still static companion calls, not object methods);
 - extern nominal types and extern class types — their binding module is the companion, and their opaque values expose no Hexagon fields (FFI Part 5 §9);
 - prelude nominal collection and utility types (`Vector`, `Map`, `Set`, `Option`, `Result`, `Seq`, …) — `Range` is head-known but has no companion module today, so no dot fires on it and its conversion is spelled `Iterable.toSeq(range)` (§4.1's authoritative inventory is the stdlib listing's);
 - primitives, through the fixed prelude companions (`"a,b".split(",")`, `n.toFloat()` — inventory per stdlib listing) and their constraint instances — all source since the migration completed, #344 (`42n.show()`, `n.div(2)` — §3.4's primitive row);
@@ -335,7 +335,7 @@ Resolved companion dispatch is an ordinary qualified call before lowering; **the
 
 ```
 v.at(3)          -- emits: at(v, 3)         (named import per Modules §11)
-opt.getOrElse(0) -- emits: getOrElse(opt, 0), or its established inlining
+opt.defaultValue(0) -- emits: defaultValue(opt, 0), or its established inlining
 r.callback(3)    -- (field call) emits: r.callback(3)   — the honest POJO read
 ```
 
@@ -562,7 +562,7 @@ g.volume()                         -- ERROR (row 6): both `Loud`'s member and `S
 
 -- (k) Nominal union receiver (no field surface, no collision possible)
 let o: Option(Int) = Some(3)
-o.getOrElse(0)                     -- OK : Int   (companion: Option.getOrElse)
+o.defaultValue(0)                     -- OK : Int   (companion: Option.defaultValue)
 
 -- (l) Transparent alias inherits companion
 type Name = String

@@ -191,11 +191,11 @@ dry(wash(rinse(dishes)));
 Dot calls resolve to companion functions before JavaScript emission:
 
 ```hexagon
-possibleName.getOrElse("Guest")
+possibleName.defaultValue("Guest")
 ```
 
 ```js
-getOrElse(possibleName, "Guest");
+defaultValue(possibleName, "Guest");
 ```
 
 Neither form introduces a runtime pipeline or method lookup. JavaScript receives the
