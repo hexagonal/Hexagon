@@ -3787,3 +3787,33 @@ honor C<R> =
     ]);
   });
 });
+
+/**
+ * **A knot inside a seat compares its demands at its close too** *(#947)*:
+ * its members settle on the seat's path, but the demand a sibling met while
+ * the knot was open is still compared — a source against a `->` refused.
+ */
+describe("Effects §3.4 at a seat: a knot's recorded demands are compared", () => {
+  test("a source sibling at a `->` demand is §4.3's refusal", () => {
+    expect(messages(`extern from "./io.js"
+    export fun save(document: String) ->! Unit
+
+constraint C<r> =
+    go(runner: r, b: () ->! Unit) ->! Unit
+record R = { id: Int }
+honor C<R> =
+    go(runner, k) =
+        fun
+            a(): Unit =
+                let p: () -> Unit = b
+                ()
+            b(): Unit =
+                let unused = a
+                save!("x")
+        k!()
+`)).toEqual([
+      "a `->` arrow promises purity, and this function performs effects — the " +
+      "demand is written `->`, the function's face `->?` or `->!`",
+    ]);
+  });
+});

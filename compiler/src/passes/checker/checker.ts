@@ -2308,7 +2308,19 @@ interface Knot {
    * (Effects §3.4) — so a sibling the source arm claims keeps `->!` and the
    * demand is what the report names.
    */
-  readonly demands: { readonly demand: Mono; readonly colour: Mono; readonly span: Source.Span }[];
+  readonly demands: {
+    readonly demand: Mono;
+    readonly colour: Mono;
+    readonly span: Source.Span;
+    /** Whether the colour stood on the left of the unification, to keep its orientation. */
+    readonly colourFirst: boolean;
+  }[];
+  /**
+   * The lambdas the knot holds, which it treats as members *(#947)*: their
+   * colours and their calls' are decided at its close, and what they meet
+   * before then is recorded and compared there.
+   */
+  readonly held: Set<EffectFrame>;
 }
 
 /** The module a receiver head's companion is addressed under (§4.1's table). */
@@ -7350,6 +7362,7 @@ class Checker {
         frames: [],
         level: level + 1,
         demands: [],
+        held: new Set(),
       };
       this.#knots.push(knot);
       for (const symbol of ordered) {
@@ -8550,16 +8563,14 @@ class Checker {
           if (holding === undefined) {
             this.#settleFrame(effectFrame);
           } else {
-            // Only the join with the sibling waits. The body's constants are
-            // its own now, and every call colour that is no dependency is
-            // decided here, before any binding around it generalizes — a
-            // lambda's colour is still its body's (§2.6); what the knot holds
-            // is only what the sibling's colour will make of it.
-            this.#sourceArm(effectFrame);
-            this.#defaultCallColours(effectFrame);
+            // Held as a member is (§3.4's knot bullet, #947): its colour and
+            // its calls' are decided at the knot's close, and what they meet
+            // before then is recorded and compared there, never choosing them.
+            // Sunk to the knot's level, nothing around it generalizes them.
             this.#lowerLevels(effectFrame.own, holding.level);
             for (const { effect } of effectFrame.absorbed) this.#lowerLevels(effect, holding.level);
             holding.frames.push(effectFrame);
+            holding.held.add(effectFrame);
           }
         }
         this.#closeSignature(enclosingSignature);
@@ -15055,6 +15066,9 @@ class Checker {
     const pruned = this.#prune(colour);
     if (pruned.kind !== "Variable") return false;
     if (knot.frames.some((frame) => this.#prune(frame.own) === pruned)) return true;
+    for (const frame of knot.held) {
+      if (frame.absorbed.some(({ effect }) => this.#prune(effect) === pruned)) return true;
+    }
     return knot.members.some((member) => {
       const type = knot.types.get(member.symbol);
       const face = type === undefined ? undefined : this.#prune(type);
@@ -15230,7 +15244,6 @@ class Checker {
    */
   #settleKnot(knot: Knot): void {
     const frames = knot.frames;
-    if (frames.length === 0) return;
     const siblings = frames.map((frame) => frame.own);
     const isSibling = (colour: Mono): boolean => {
       const pruned = this.#prune(colour);
@@ -15263,13 +15276,18 @@ class Checker {
         }
       }
     }
-    // The demands the knot recorded meet the colours the arms settled: a
-    // source against a `->` is §4.3's refusal at the demand, a pure colour is
-    // what it asked for, and one still unconstrained takes the demand.
-    for (const { demand, colour, span } of knot.demands) this.#unify(demand, colour, span);
     for (const frame of frames) {
       this.#defaultFrameColour(frame);
       this.#defaultCallColours(frame);
+    }
+    // Only now do the demands the knot recorded meet the colours: decided by
+    // the bodies and defaulted, never chosen by a demand (§2.6). A source
+    // against a `->` is §4.3's refusal at the demand, a pure colour against a
+    // `->!` its reverse. A knot inside a seat holds no frames here, and its
+    // demands are compared all the same.
+    for (const { demand, colour, span, colourFirst } of knot.demands) {
+      if (colourFirst) this.#unify(colour, demand, span);
+      else this.#unify(demand, colour, span);
     }
   }
 
@@ -18034,7 +18052,7 @@ class Checker {
       return;
     }
     if (actualRight.kind === "Variable") {
-      this.#bind(actualRight, actualLeft, span);
+      this.#bind(actualRight, actualLeft, span, true);
       return;
     }
     if (this.#absorbNullishVariable(actualLeft, actualRight, span)) return;
@@ -18387,7 +18405,7 @@ class Checker {
     return undefined;
   }
 
-  #bind(variable: Variable, type: Mono, span: Source.Span): void {
+  #bind(variable: Variable, type: Mono, span: Source.Span, variableOnRight = false): void {
     if (variable.rigidName !== undefined) {
       if (type.kind === "Variable" && type.rigidName === undefined) {
         this.#bind(type, variable, span);
@@ -18528,20 +18546,21 @@ class Checker {
       if (type.kind === "Effect" && !isRecovered(type)) {
         const knot = this.#knots.find((open) => this.#knotColour(open, variable));
         if (knot !== undefined) {
-          knot.demands.push({ demand: type, colour: variable, span });
+          knot.demands.push({ demand: type, colour: variable, span, colourFirst: !variableOnRight });
           return;
         }
       }
+      const effect = type.kind === "Function" ? this.#prune(type.effect ?? PURE) : undefined;
       if (
         type.kind === "Function" && this.#knotTypeVariables.has(variable) &&
-        (type.effect === undefined || type.effect.kind === "Effect")
+        effect?.kind === "Effect" && !isRecovered(effect)
       ) {
         const knot = this.#knots.find((open) =>
           open.members.some((member) => open.types.get(member.symbol) === variable)
         );
         if (knot !== undefined) {
           const colour = this.#fresh(knot.level, false);
-          knot.demands.push({ demand: type.effect ?? PURE, colour, span });
+          knot.demands.push({ demand: effect, colour, span, colourFirst: !variableOnRight });
           variable.instance = { ...type, effect: colour };
           return;
         }

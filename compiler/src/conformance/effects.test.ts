@@ -2758,6 +2758,46 @@ export let total(value: Int, cb: () ->? Unit): Int =
       }
     });
 
+    it("compares a `->!` demand with a pure sibling after the defaulting — the demand never chooses", () => {
+      const box = "    a(): Unit =\n        let s = Box({ step = b })\n        ()\n";
+      const branch = "    a(): Unit =\n        let k = if True then b else () => save!(\"x\")\n        ()\n";
+      const quiet = "    b(): Unit =\n        let unused = a\n        ()\n";
+      const reverse = "this position's arrow is the impure constant — its colour is fixed where the " +
+        "type is declared, and this function's face is the pure `->`; the demand cannot " +
+        "weaken — change the position's declared arrow, or supply the effectful function " +
+        "the position promises";
+      // The branch joins a pure sibling with an impure lambda: the same report
+      // the lone-binding program draws, at the `if`, in either order.
+      const forward = "a `->` arrow promises purity, and this function performs effects — the " +
+        "demand is written `->`, the function's face `->?` or `->!`";
+      for (const [caller, report] of [[box, reverse], [branch, forward]] as const) {
+        for (const members of [[caller, quiet], [quiet, caller]]) {
+          const knot = "export record Box = { step: () ->! Unit }\nfun\n" + members.join("");
+          expect(check(knot)).toEqual([report]);
+          expect(hover(knot, "b()")).toBe("() -> Unit");
+        }
+      }
+    });
+
+    it("holds a lambda that calls a pure sibling as a member, so the call changes nothing", () => {
+      const inside = `export let outer(cb: () ->? Unit): Unit =
+    fun
+        a(): Unit =
+            let g = (h) =>
+                cb?()
+                let u = b()
+                h?()
+            g?(cb)
+        b(): Unit =
+            let u = a
+            ()
+    a?()
+`;
+      expect(check(inside)).toEqual([]);
+      expect(check(inside.replace("                let u = b()\n", ""))).toEqual([]);
+      expect(hover(inside, "g =")).toBe(hover(inside.replace("                let u = b()\n", ""), "g ="));
+    });
+
     it("captures an enclosing signature's colour in a nested knot", () => {
       const source = `export let outer(action: () ->? Unit): Int =
     fun
