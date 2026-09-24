@@ -28,6 +28,7 @@ import { dropQualifierFix, ImportRepairs } from "../../support/import-placement.
 import { patternExportName } from "../../support/generated-names.js";
 import * as Parsed from "../../syntax/parsed/index.js";
 import * as Resolved from "../../syntax/resolved/index.js";
+import { hardKeywordSpellings } from "../../syntax/lexed/token.js";
 
 export interface ModuleInterface {
   readonly module: Resolved.Module;
@@ -5361,6 +5362,17 @@ class Resolver {
    * keeps its own fact").
    */
   #reportSelfQualification(seat: AliasSeat, fact: string): void {
+    // A keyword-named binding's bare spelling is the keyword (Lexer §4.4), so no
+    // rewrite drops to it: the module reaches it through a dot on its home type.
+    if (hardKeywordSpellings.has(seat.bare)) {
+      this.#diagnostics.add({
+        severity: "error",
+        message: `${fact}; \`${seat.bare}\` is reserved, and this module reaches its \`${seat.bare}\` ` +
+          `through a dot — \`x.${seat.bare}(…)\` on its home type`,
+        primary: seat.qualifier.span,
+      });
+      return;
+    }
     const rewrite = this.#selfQualifiedRewrite(seat);
     this.#diagnostics.add({
       severity: "error",

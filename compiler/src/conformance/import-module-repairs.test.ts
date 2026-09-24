@@ -143,6 +143,27 @@ describe("the type seat (Modules §5.1 rule 1)", () => {
     ])).toEqual(["`Shape` is a type, not a module"]);
   });
 
+  /**
+   * Unless the bare spelling is a hard keyword (Lexer §4.4, #1023): dropping the
+   * qualifier would write the keyword, so the sentence names the dotted route
+   * and carries no edit — through a type of the module's, and through the
+   * module's own name alike.
+   */
+  test("a keyword-named binding takes the dotted route, never a bare rewrite", () => {
+    const row = 'extern from "task-lib"\n    export type Task\n' +
+      "    export method then(task: Task, next: String -> Task) ->! Task\n\n" +
+      "export let h: (Task, String -> Task) ->! Task = Task.then\n";
+    const route = "`then` is reserved, and this module reaches its `then` through a dot — " +
+      "`x.then(…)` on its home type";
+    const [throughType, ...moreType] = compileFiles([["/lib.hex", `module Lib\n\n${row}`]]).diagnostics;
+    expect(throughType?.message).toBe(`\`Task\` is a type, not a module; ${route}`);
+    expect(throughType?.fixes ?? []).toEqual([]);
+    expect(moreType).toEqual([]);
+    const [throughModule] = compileFiles([["/task.hex", `module Task\n\n${row}`]]).diagnostics;
+    expect(throughModule?.message).toBe(`a module does not qualify through itself; ${route}`);
+    expect(throughModule?.fixes ?? []).toEqual([]);
+  });
+
   /** And with a binding of the name, the qualifier is dropped as the edit. */
   test("the qualifier is dropped where the module's own layer holds the spelling", () => {
     const text = "module Main\n\n" + "union Shape = Circle(Float)\n" +
