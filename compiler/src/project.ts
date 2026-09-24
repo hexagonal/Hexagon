@@ -438,6 +438,12 @@ interface InjectedIdBases {
 
 /** The chain, keyed seat by seat; see `StandardLibrarySeat`. */
 let cachedSeats: readonly StandardLibrarySeat[] = [];
+/**
+ * Each data-seat member's source text as the chain was built against it
+ * (Modules §5.5). Its union is checked ahead of every seat, so the identities
+ * the whole chain is numbered from are a function of this text.
+ */
+let cachedDataSeatTexts: ReadonlyMap<string, string> = new Map();
 /** Whether cached structures are frozen on the way in — the pin's hook. */
 let freezingCachedSeats = false;
 
@@ -503,6 +509,7 @@ export function resetStandardLibraryCache(
   options: { readonly freezeEntries?: boolean } = {},
 ): void {
   cachedSeats = [];
+  cachedDataSeatTexts = new Map();
   freezingCachedSeats = options.freezeEntries === true;
   statistics.compiles = 0;
   statistics.seatsChecked = 0;
@@ -528,14 +535,21 @@ function reusableStandardLibrary(injected: readonly Unit[]): readonly StandardLi
     ) break;
     count += 1;
   }
-  // A data seat (Modules §5.5) is read by the seats between it and its member's
-  // full seat, so a member whose source changed invalidates them too, not only
-  // the seats from its own onward.
+  // A data seat's union (Modules §5.5) is checked ahead of every seat. The
+  // identities it spends are the base every seat's own start from, so a member
+  // whose text changed invalidates the whole chain; and the seats between the
+  // data seat and the member's own read the union's declaration, so a member
+  // supplied from another file invalidates them too.
   for (const { name, before } of PRELUDE_DATA_SEATS) {
     const full = injected.findIndex(({ declaredName }) => declaredName === name);
     const early = injected.findIndex(({ declaredName }) => declaredName === before);
-    if (full < 0 || early < 0 || count <= early || count > full) continue;
+    if (full < 0 || early < 0 || count === 0) continue;
     const unit = injected[full]!;
+    if (cachedDataSeatTexts.get(name) !== unit.source.text) {
+      count = 0;
+      continue;
+    }
+    if (count <= early || count > full) continue;
     const cached = cachedSeats[full];
     if (
       cached === undefined ||
@@ -642,6 +656,10 @@ function rememberStandardLibrary(
     seats.push(seat);
   }
   cachedSeats = seats;
+  cachedDataSeatTexts = new Map(PRELUDE_DATA_SEATS.flatMap(({ name }) => {
+    const member = injected.find(({ declaredName }) => declaredName === name);
+    return member === undefined ? [] : [[name, member.source.text] as const];
+  }));
 }
 
 /** A compiled injected module read back as the seat the chain keeps of it. */
@@ -1853,6 +1871,7 @@ export function compileProject(
   // compile again from inside this call.
   if (injectedImportCycle) {
     cachedSeats = [];
+    cachedDataSeatTexts = new Map();
   } else if (injectedUnits.length > 0) {
     rememberStandardLibrary(
       injectedUnits,
