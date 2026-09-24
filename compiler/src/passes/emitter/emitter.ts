@@ -3754,10 +3754,11 @@ class JavaScriptEmitter {
         const scheme = symbol?.scheme;
         if (scheme === undefined) continue;
         const constrained = scheme.constraints.length > 0;
-        if (
-          !constrained && name.imported !== WITHHELD_EXPORT &&
-          !this.#capturesAcrossExport(name.symbol, scheme.type)
-        ) {
+        // A withheld `then` is reached through its `__then` edition — except a
+        // receiver member's, whose calls are all inline and bind nothing (FFI
+        // Part 5 §2.2); its one first-class spelling is `#withheldMember`'s.
+        const withheld = name.imported === WITHHELD_EXPORT && symbol?.receiver === undefined;
+        if (!constrained && !withheld && !this.#capturesAcrossExport(name.symbol, scheme.type)) {
           continue;
         }
         this.#internalEditionImports.set(
@@ -5479,7 +5480,7 @@ class JavaScriptEmitter {
         // §5.1 rule 3's fallback, whose bare word is the alias's namespace
         // binding here (§11.2: "never called as though the namespace object
         // were the export").
-        const spelled = expression.emitted ?? expression.text;
+        const spelled = this.#withheldMember(expression.symbol, expression.emitted ?? expression.text);
         const patternMember = this.#patternMemberLocals.get(expression.symbol);
         if (patternMember !== undefined) return patternMember;
         if (spelled.includes(".")) return this.#qualifiedSpelling(spelled);
@@ -9822,6 +9823,23 @@ class JavaScriptEmitter {
   /** The local a namespace alias is bound under here; see `namespaceAliasPlan`. */
   #namespaceLocal(alias: string): string {
     return this.#namespaceAliases.get(alias) ?? alias;
+  }
+
+  /**
+   * A first-class reference to another module's receiver member named `then`,
+   * respelled onto the `__then` its module publishes instead (FFI Part 7 §7):
+   * `Task.then` reads `Task.__then` off the namespace. Its calls never get here —
+   * they are emitted inline — so this is the member's one import-free route.
+   *
+   * `__then` is the exporter's `#ownInternalName("then")` for as long as no
+   * constraint member can be named `then` — the one sibling its plan would probe
+   * past, and one Lexer §4.4 refuses.
+   */
+  #withheldMember(symbol: Resolved.SymbolId, spelled: string): string {
+    if (
+      !spelled.endsWith(`.${WITHHELD_EXPORT}`) || this.#symbols.get(symbol)?.receiver === undefined
+    ) return spelled;
+    return `${spelled.slice(0, -WITHHELD_EXPORT.length)}${WITHHELD_EDITION}`;
   }
 
   /**
@@ -16246,6 +16264,7 @@ function indent(depth: number): string {
  * which Hexagon importers bind as they bind any; the `.d.ts` declares no `then`.
  */
 const WITHHELD_EXPORT = "then";
+const WITHHELD_EDITION = `__${WITHHELD_EXPORT}`;
 
 /**
  * The spellings JavaScript refuses as a binding name, which the emitter renames

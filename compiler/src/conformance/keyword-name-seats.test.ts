@@ -108,10 +108,15 @@ describe("the seats, one construct at a time", () => {
     expect(main("export let f(as: Bool, b: Bool): Bool = as and b\n")).toEqual([]);
   });
 
-  test("an update pun names the written-out field", () => {
-    expect(main("let r = {type = 1}\nexport let u: {type: Int} = {r with type}\n")).toContain(
-      "`type` is reserved; write the field out: `{type = …}`",
-    );
+  test.each(KEYWORDS)("a `%s` pun is the one report, in a literal, an update, and a pattern (#1021)", (word) => {
+    const pun = `\`${word}\` is reserved; write the field out: \`{${word} = …}\``;
+    expect(main(`let r = {${word} = 1}\nexport let u: {${word}: Int} = {r with ${word}}\n`)).toEqual([pun]);
+    expect(main(`export let r: {${word}: Int, x: Int} = {${word}, x = 1}\n`)).toEqual([pun]);
+    expect(main(`let r = {${word} = 1}\nexport let v: Int = match r\n    {${word}} => 1\n`)).toEqual([pun]);
+  });
+
+  test("a keyword in a type's braces is a missing annotation, as `{x}` is", () => {
+    expect(main("record R = {type}\n")).toEqual(main("record R = {x}\n"));
   });
 
   test("`true` and `false` are foreign names on any extern row, never the local", () => {
@@ -215,6 +220,21 @@ describe("no module publishes a JavaScript export named `then` (FFI Part 7 §7)"
       ["/main.hex", "module Main\n\nimport Lib\n\nexport let v: Int = Lib.then(1, 2)\n"],
     ]);
     expect(v).toBe(3);
+  });
+
+  test("an importer reaches a member `then` inline, and a first-class one as `__then`, importing nothing (#1021)", () => {
+    const project = compileFiles([
+      ["/task.hex", 'module Task\n\nextern from "task-lib"\n    export type Task\n' +
+        "    export method then(task: Task, next: String -> Task) ->! Task\n"],
+      ["/main.hex", "module Main\n\nimport Task\n\n" +
+        "export let g(t: Task.Task, f: String -> Task.Task): Task.Task = t.then!(f)\n" +
+        "export let h: (Task.Task, String -> Task.Task) ->! Task.Task = Task.then\n"],
+    ]);
+    expect(project.diagnostics).toEqual([]);
+    const text = project.modules.find(({ path }) => path === "/Main.hex")!.javascript.text;
+    expect(text).toContain("const g = (t, f) => t.then(f);");
+    expect(text).toContain("const h = Task.__then;");
+    expect(text).not.toContain("import { __then }");
   });
 
   test("an extern member named `then` is emitted inline and published as `__then` only", () => {
