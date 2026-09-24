@@ -5363,12 +5363,12 @@ class Resolver {
    */
   #reportSelfQualification(seat: AliasSeat, fact: string): void {
     // A keyword-named binding's bare spelling is the keyword (Lexer §4.4), so no
-    // rewrite drops to it: the module reaches it through a dot on its home type.
-    if (hardKeywordSpellings.has(seat.bare)) {
+    // rewrite drops to it; the sentence names the one route, in §10's words.
+    if (hardKeywordSpellings.has(seat.bare) && this.#bareNamesOwnBinding(seat)) {
       this.#diagnostics.add({
         severity: "error",
-        message: `${fact}; \`${seat.bare}\` is reserved, and this module reaches its \`${seat.bare}\` ` +
-          `through a dot — \`x.${seat.bare}(…)\` on its home type`,
+        message: `${fact}; \`${seat.bare}\` is reserved; a declaration named \`${seat.bare}\` ` +
+          "is reached only through a dot, from an importer or on its home type",
         primary: seat.qualifier.span,
       });
       return;

@@ -153,8 +153,8 @@ describe("the type seat (Modules §5.1 rule 1)", () => {
     const row = 'extern from "task-lib"\n    export type Task\n' +
       "    export method then(task: Task, next: String -> Task) ->! Task\n\n" +
       "export let h: (Task, String -> Task) ->! Task = Task.then\n";
-    const route = "`then` is reserved, and this module reaches its `then` through a dot — " +
-      "`x.then(…)` on its home type";
+    const route = "`then` is reserved; a declaration named `then` is reached only through a dot, " +
+      "from an importer or on its home type";
     const [throughType, ...moreType] = compileFiles([["/lib.hex", `module Lib\n\n${row}`]]).diagnostics;
     expect(throughType?.message).toBe(`\`Task\` is a type, not a module; ${route}`);
     expect(throughType?.fixes ?? []).toEqual([]);
@@ -162,6 +162,11 @@ describe("the type seat (Modules §5.1 rule 1)", () => {
     const [throughModule] = compileFiles([["/task.hex", `module Task\n\n${row}`]]).diagnostics;
     expect(throughModule?.message).toBe(`a module does not qualify through itself; ${route}`);
     expect(throughModule?.fixes ?? []).toEqual([]);
+    // Only where the module declares the name: otherwise the plain fact.
+    const [undeclared] = compileFiles([["/main.hex",
+      "module Main\n\nexport let h: Int = Main.then\n"]]).diagnostics;
+    expect(undeclared?.message).toBe("a module does not qualify through itself");
+    expect(undeclared?.fixes ?? []).toEqual([]);
   });
 
   /** And with a binding of the name, the qualifier is dropped as the edit. */
