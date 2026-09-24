@@ -668,7 +668,7 @@ token inventory and the lexer must not report the same source code unit twice.
 | Hard keyword naming a local or parameter-like name in a name seat (§4.4) | "`type` is reserved; a local or parameter name is only ever written bare — choose another name" |
 | Unexported module-level declaration named with a hard keyword (§4.4) | "`match` is reserved; a declaration named `match` is reached only through a dot, from an importer or on its home type — export it, or choose another name" |
 | Hard keyword as a pun (§4.4) | "`type` is reserved; write the field out: `{type = …}`" |
-| Bare keyword whose spelling the module declares as a term (§4.4) | the seat's parse error adds a note: "this module's `match` is reached through a dot — `x.match(…)` on its home type, or `Module.match` from an importer" |
+| Bare keyword whose spelling the module declares as a term (§4.4) | the seat's parse error adds a note: "this module's `match` is reached only through a dot, from an importer or on its home type" |
 | `true`/`false` in value position | "`true` is reserved; Bool's constructors are `True` and `False` — write `True`" (resp. `False`); one-token fixit *(#147, §4.1; selection is parser work, same note as above)* |
 | Malformed `_` in a number | "`_` in a number must have a digit on both sides" |
 | `.5` / `1.` | suggest `0.5` / `1.0` |

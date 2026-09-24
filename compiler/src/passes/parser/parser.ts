@@ -7602,8 +7602,7 @@ class Parser {
       this.#diagnostics.noteErrors(
         ({ primary }) =>
           primary.start.line === token.span.start.line && primary.start.offset >= token.span.start.offset,
-        `this module's \`${word}\` is reached through a dot — \`x.${word}(…)\` on its home type, ` +
-          `or \`Module.${word}\` from an importer`,
+        `this module's \`${word}\` is reached only through a dot, from an importer or on its home type`,
       );
     }
   }
