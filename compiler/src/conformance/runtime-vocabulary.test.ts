@@ -1004,7 +1004,9 @@ describe("what joining the vocabulary costs a module that merely binds the word"
   });
 
   // The one family that can still spell a capture: an exported term named
-  // `global_Error` publishes its internal edition as `__global_Error` (§7).
+  // `global_Error` with an internal edition — here its `Array` parameter's
+  // capture boundary; a constrained term has one too — publishes that edition
+  // as `__global_Error` (§7).
   // In an importer that contests `Error`, the capture keeps its spelling and
   // the edition's minted local takes the collision probe — because the
   // captures seed every module's generated names.
