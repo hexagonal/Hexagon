@@ -343,6 +343,9 @@ position; the lexer does not emit contextual-keyword token kinds. And `null` is 
 functions, some name rejected or deferred forms, and some have no meaning at all.
 Library membership never turns a name into a keyword.
 
+`export default` outside `extern`, `break`, and similar near misses
+may receive targeted parser diagnostics without acquiring lexical privilege. (`module` held a §4.2 context as the `import module` head from #565 to #762, and since #829 holds one as the module header — Modules §2.1 — with `end module` as the closer; outside those head positions both words remain ordinary names, and `module Geometry` is no longer a near miss but the header itself.)
+
 ### 4.4 Keywords reserve bare seats only
 
 A hard keyword is reserved where it could be syntax: the **bare seat**, any term,
@@ -356,7 +359,7 @@ need no workaround spelling:
 |---|---|---|
 | **Dotted** | the token straight after a `.`: field access, a dot call, a module- or type-qualified name (Method Syntax §1) | `ev.type`, `task.then(f)`, `Regex.match(re, text)`, `Symbol.for("app")` |
 | **Label** | a name straight before `:` or `=`: record types and literals, the `with` update's overrides, record patterns, a union constructor's or exception's named slots (Products §3.1, Pattern Matching §2.4, Unions §2.1) | `{type: String}`, `{type = "click"}`, `{ev with type = t}`, `{type = t} =>`, `Click(type: String)` |
-| **Declaration name** | straight after `let`, `var`, or `fun`, and straight after an extern row's `fun`, `let`, `method`, `get`, or `set` or its `as` (FFI Part 4 §3.2, Part 5 §2.4) | `export fun match(pattern: String) -> Matcher`, `export let or(a: Flag, b: Flag): Flag = …`, `method then(…)` |
+| **Declaration name** | straight after `let`, `var`, or `fun` on the same line — a bare `fun` ending its line heads a member block instead, whose items are not name seats — and on an extern row: straight after its `method`, `get`, or `set`, a foreign name straight before `as` (`type match as Match`), and the local name straight after it (FFI Part 4 §3.2, Part 5 §2.4) | `export fun match(pattern: String) -> Matcher`, `export let or(a: Flag, b: Flag): Flag = …`, `method then(…)` |
 
 The table is exhaustive. In particular a member-block item's head is not a name seat:
 a line beginning `or(a, b) = …` in a `constraint`, `honor`, or `fun` block would read,
@@ -372,7 +375,8 @@ decidable from neighbouring tokens alone.
   itself (Modules §3.1). A module-level keyword-named declaration without `export`
   could never be reached, and is refused: "`match` is reserved; a declaration named
   `match` is reached only through a dot, from an importer or on its home type —
-  export it, or choose another name". For the same reason such a function cannot
+  export it, or choose another name" (for a member of an unexported `extern class`,
+  "export the class", FFI Part 5 §7). For the same reason such a function cannot
   call itself by name; recursion takes another name.
 - **A parameter-like or local name refuses a keyword.** Parameters — a body's or
   a bodiless row's — pattern-head components (Pattern Declarations §2.1), type
@@ -391,7 +395,9 @@ decidable from neighbouring tokens alone.
   head, so a keyword there takes the ordinary hard-keyword refusal.
 - **`true` and `false` never name a declaration** (§4.1's redirect); they are names
   in the dotted and label seats and on an FFI row's foreign side.
-- **The seat is decided by neighbouring tokens alone, before layout.** A keyword in
+- **The seat is decided by neighbouring tokens alone, before layout** — `true` and
+  `false` excepted where the seat is a declaration's, or a literal `extern enum`
+  member's value before `as` (§4.1). A keyword in
   a name seat is a name to the layout pass and the parser alike, and never a block
   head or a continuation operator (Lexer & Layout §2.1, §2.3): `let kind = ev.match`
   ending its line opens nothing.
