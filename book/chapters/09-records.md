@@ -253,7 +253,8 @@ let kind = click.type
 ```
 
 Punning is the one exception. `{type}` means `{type = type}`, which needs a variable
-named `type`, and no variable can have that name. Write the field out instead:
+written bare as `type`, and a bare `type` is always the keyword. Write the field out
+instead:
 
 ```hexagon
 let {type = kind} = click

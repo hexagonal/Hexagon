@@ -106,10 +106,10 @@ Local member names obey ordinary Hexagon naming rules (Part 4 §3.2); a foreign 
 
 ```hexagon
 extern from "task-lib"
-    export type Task(a)
+    export type Task
     export type Event
-    export method then(task: Task(a), next: a -> Task(b)) ->! Task(b)
-    export method catch(task: Task(a), recover: JsError -> Task(a)) ->! Task(a)
+    export method then(task: Task, next: String -> Task) ->! Task
+    export method catch(task: Task, recover: JsError -> Task) ->! Task
     export get type(event: Event) ->! String
 ```
 

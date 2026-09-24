@@ -322,15 +322,15 @@ member follows a dot, and after a dot a keyword is an ordinary name:
 
 ```hexagon
 extern from "task-lib"
-    export type Task(a)
-    export method then(task: Task(a), next: a -> Task(b)) ->! Task(b)
+    export type Task
+    export method then(task: Task, next: String -> Task) ->! Task
 ```
 
 ```hexagon
 task.then!(load)
 ```
 
-An extern function works the same way: `fun match(pattern: String) -> Matcher` is
+An exported extern function works the same way: `export fun match(pattern: String) -> Matcher` is
 `PathToRegexp.match("/user/:id")` in the modules that import it. One name is held back
 from JavaScript. A module that exports a function named `then` publishes it to
 Hexagon importers only, because JavaScript treats any object with a callable `then`,
