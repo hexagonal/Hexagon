@@ -191,6 +191,41 @@ describe("bounded BigInt argument deferral prototype", () => {
     expect([...(exports["values"] as Iterable<unknown>)]).toEqual([7n, 7n, 3n, 3n, 10n]);
   });
 
+  test("a leading Nat never pins: Nat and Int meet at Int in every spelling and order (#1033)", async () => {
+    const calls = [
+      "combine(natural, integer)", "combine(integer, natural)",
+      "Num.add(natural, integer)", "Num.add(integer, natural)",
+      "natural.add(integer)", "integer.add(natural)",
+      "Integral.gcd(natural, integer)", "natural.gcd(integer)",
+      "mix(natural, integer)", "mix(integer, natural)",
+    ];
+    const source = "module Main\n\n" +
+      "let combine<a: Num>(left: a, right: a): a = left + right\n" +
+      "constraint Mix<a> =\n" +
+      "    mix(left: a, right: a) -> a\n" +
+      "honor Mix<Int> =\n" +
+      "    mix(left, right) = left - right\n" +
+      "let natural: Nat = 6\n" +
+      "let integer: Int = -4\n" +
+      calls.map((call, index) => `let v${index} = ${call}\n`).join("") +
+      "let ordered = Ord.compare(natural, integer)\n" +
+      "let reversed = natural.compare(integer)\n" +
+      "export let values: Vector(Int) = [" +
+      calls.map((_, index) => `v${index}`).join(", ") + "]\n" +
+      "export let orders: Vector(String) = [ordered.show(), reversed.show()]\n";
+    const project = compileMain(source);
+    expect(project.diagnostics).toEqual([]);
+    const main = project.modules.find(({ source }) => source.path === "/main.hex")!;
+    for (let index = 0; index < calls.length; index += 1) {
+      expect(main.typed.symbols.find(({ name }) => name === `v${index}`)?.scheme.type)
+        .toMatchObject({ kind: "Primitive", name: "Int" });
+    }
+    const exports = await runProject([["/main.hex", source]]);
+    expect([...(exports["values"] as Iterable<unknown>)])
+      .toEqual([2, 2, 2, 2, 2, 2, 2, 2, 10, -10]);
+    expect([...(exports["orders"] as Iterable<unknown>)]).toEqual(["Greater", "Greater"]);
+  });
+
   test("Signed-only targets refuse BigInt in both orders", () => {
     const combine = "let combine<a: Num>(left: a, right: a): a = left + right\n";
     for (const body of ["combine(big, value)", "combine(value, big)"]) {
