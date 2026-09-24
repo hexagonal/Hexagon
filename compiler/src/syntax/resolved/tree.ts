@@ -382,6 +382,26 @@ export interface Symbol {
    * items, so the fact has to cross the module boundary with the binding.
    */
   readonly generated?: string;
+  /**
+   * An FFI Part 5 receiver member's linkage (#982): its calling convention and
+   * the foreign property it reaches. Present on the binding a `method`, `get`,
+   * or `set` row introduces, and nothing else.
+   *
+   * It rides the *symbol* for `widens`' reason: a direct call emits the
+   * receiver call inline in every module (Part 5 §2.2), so an importer, which
+   * holds symbols rather than items, has to know it too.
+   */
+  readonly receiver?: ReceiverLinkage;
+}
+
+/** FFI Part 5 §1's receiver member forms (#982). */
+export type ReceiverConvention = "method" | "get" | "set";
+
+/** See `Symbol.receiver`. */
+export interface ReceiverLinkage {
+  readonly convention: ReceiverConvention;
+  /** The JavaScript property name, spelled as the foreign side of the row. */
+  readonly foreignName: string;
 }
 
 export interface Binding {
@@ -719,6 +739,8 @@ interface ExternDeclarationFields {
 export interface ExternFunDeclaration extends ExternDeclarationFields {
   readonly kind: "ExternFun";
   readonly binding: Binding;
+  /** FFI Part 5's receiver convention (#982); see the parsed tree's field. */
+  readonly convention?: ReceiverConvention;
   /** The declared binders and their bounds (#370); see the parsed tree's field. */
   readonly typeParameters?: readonly TypeParameter[];
   readonly parameters: readonly Parameter[];

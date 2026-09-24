@@ -297,6 +297,8 @@ export interface Symbol {
   readonly scheme: Scheme;
   /** See `Resolved.Symbol.generated` — the declaration this was derived from. */
   readonly generated?: string;
+  /** See `Resolved.Symbol.receiver` — an FFI Part 5 member's linkage (#982). */
+  readonly receiver?: Resolved.ReceiverLinkage;
 }
 
 export interface Binding {
@@ -467,6 +469,8 @@ interface ExternDeclarationFields {
 export interface ExternFunDeclaration extends ExternDeclarationFields {
   readonly kind: "ExternFun";
   readonly binding: Binding;
+  /** FFI Part 5's receiver convention (#982); see the parsed tree's field. */
+  readonly convention?: Resolved.ReceiverConvention;
   readonly parameters: readonly Binding[];
   readonly result: Type;
 }
