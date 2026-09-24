@@ -554,11 +554,10 @@ an unrelated implementation body was checked.
    invalid-root API tests.
 2. Separate discovery/recognition diagnostics from required-body work. Test one
    unused type error, the same file with a syntax error, and duplicate names.
-3. Implement required full/data traversal. Test multiple roots, multiple modules
+3. Implement required traversal. Test multiple roots, multiple modules
    in one root file, unused unresolved imports and unreachable versus reachable
    cycles.
-4. Verify bare/full provider recognition, activation, coherence and data sharing
-   using the existing bare-import conformance cases in both request modes.
+4. Verify provider recognition, activation and coherence in both request modes.
 5. Verify complete JavaScript/declaration output closure and cold/warm cache
    equivalence. Execute emitted graphs on Node, then run affected compiler and
    editor suites before the CLI consumes the new API.
@@ -572,10 +571,7 @@ specific decision to the user before proceeding.
 
 The first implementation change adds compiler root selection and root metadata,
 keeps interactive analysis sessions in whole-project mode, and adds declaration
-recognition for inactive implementations. Data-only sources can produce their
-own artifacts without compiling the full body. Ordinary declaration output now
-uses the data unit's nominal home where applicable, avoiding accidental full
-implementation dependencies from a bare consumer's `.d.ts` file.
+recognition for inactive implementations.
 
 `compiler/scripts/test-root-selection.mjs` writes all artifact categories into a
 temporary directory outside the checkout, executes the selected roots with Node,

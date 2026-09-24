@@ -175,7 +175,7 @@ describe("the import surface", () => {
     // `Sign.hex` for its `Real` instance, and `Option.hex`'s type for the
     // checked family — a `.d.ts` edge, so `Option.hex` is written with
     // `Seq.hex`, which its full implementation imports, though nothing here
-    // loads either (Bare Imports §8). `Vector.hex` is still absent, which is
+    // loads either (Modules §11.1). `Vector.hex` is still absent, which is
     // what this case is about.
     expect(emittedPaths(files)).toEqual([
       "/Hex/Pow.hex", "/Hex/Sign.hex", "/Hex/Integral.hex", "/Hex/Int.hex", "/Hex/Seq.hex", "/Hex/Option.hex", "/Hex/Runtime/VectorTrie.hex", "/main.hex",

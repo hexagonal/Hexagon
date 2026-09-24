@@ -29,12 +29,19 @@ describe("Option's data seat", () => {
       "/main.hex",
       "module Main\n" +
         "export let sum: Option(Int) = Int.checkedAdd(1, 2)\n" +
+        "export let natural: Option(Nat) = Nat.fromInt(3)\n" +
+        "export let small: Option(Int) = BigInt.toInt(BigInt.fromInt(5))\n" +
+        "export let whole: Int = Float.floor(Math.pi)\n" +
         "export let head: Option((Int, Seq(Int))) = Seq.next(Option.toSeq(Some(4)))\n",
     ] as const];
     const compiled = compileFiles(files);
     expect(compiled.diagnostics.map(({ message }) => message)).toEqual([]);
-    for (const name of ["Hex.Int", "Hex.Seq"]) {
+    // Every module between the seats, whatever it builds: none imports Option.
+    const between = ["Hex.Int", "Hex.Nat", "Hex.Float", "Hex.Math", "Hex.BigInt", "Hex.Seq"];
+    for (const name of between) {
       expect(moduleNamed(compiled, name).javascript.text).not.toContain("Option.js");
+    }
+    for (const name of ["Hex.Int", "Hex.Nat", "Hex.BigInt", "Hex.Seq"]) {
       expect(moduleNamed(compiled, name).declarations.text)
         .toContain('import type { Option } from "./Option.js";');
     }
@@ -45,6 +52,9 @@ describe("Option's data seat", () => {
     expect(await typeScriptErrors(declarationFiles(compiled))).toEqual([]);
     const main = await runProject(files);
     expect(main.sum).toEqual({ tag: "Some", value: 3 });
+    expect(main.natural).toEqual({ tag: "Some", value: 3 });
+    expect(main.small).toEqual({ tag: "Some", value: 5 });
+    expect(main.whole).toBe(3);
     expect(main.head).toMatchObject({ tag: "Some" });
   });
 

@@ -353,8 +353,8 @@ describe("membership drags nothing in", () => {
     // `Pow.hex`'s and `Integral.hex`'s exceptions, `Sign.hex` for Int's `Real`
     // instance, and `Option.hex`'s type for the checked family — a `.d.ts`
     // edge, so `Option.hex` is written with `Seq.hex`, which its full
-    // implementation imports, though nothing here loads either (Bare Imports
-    // §8). `Vector.hex` is what must stay out, and does.
+    // implementation imports, though nothing here loads either (Modules
+    // §11.1). `Vector.hex` is what must stay out, and does.
     expect(emittedPaths(files)).toEqual([
       "/Hex/Pow.hex", "/Hex/Sign.hex", "/Hex/Integral.hex", "/Hex/Int.hex", "/Hex/Seq.hex", "/Hex/Option.hex", "/Hex/Runtime/VectorTrie.hex", "/main.hex",
     ]);

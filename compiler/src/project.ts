@@ -528,6 +528,26 @@ function reusableStandardLibrary(injected: readonly Unit[]): readonly StandardLi
     ) break;
     count += 1;
   }
+  // A data seat (Modules §5.5) is read by the seats between it and its member's
+  // full seat, so a member whose source changed invalidates them too, not only
+  // the seats from its own onward.
+  for (const { name, before } of PRELUDE_DATA_SEATS) {
+    const full = injected.findIndex(({ declaredName }) => declaredName === name);
+    const early = injected.findIndex(({ declaredName }) => declaredName === before);
+    if (full < 0 || early < 0 || count <= early || count > full) continue;
+    const unit = injected[full]!;
+    const cached = cachedSeats[full];
+    if (
+      cached === undefined ||
+      !standardLibrarySeatHolds(
+        cached,
+        Number(unit.source.id),
+        unit.source.path,
+        unit.source.text,
+        unit.path,
+      )
+    ) count = early;
+  }
   return cachedSeats.slice(0, count);
 }
 
@@ -1289,6 +1309,9 @@ export function compileProject(
     const dataSeat = preludeUnits.find(({ declaredName }) => declaredName === before)?.seat;
     const fullSeat = path === undefined ? undefined : injectedSeats.get(path);
     const data = path === undefined ? undefined : ensureData(path, name);
+    // No seat where the member is missing or no longer declares its union: a
+    // host's trusted replacement may do either, and the program then reports
+    // through the ordinary diagnostics rather than through this inventory.
     return path === undefined || dataSeat === undefined || fullSeat === undefined ||
         data === undefined
       ? []

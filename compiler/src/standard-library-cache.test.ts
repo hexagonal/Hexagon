@@ -360,6 +360,27 @@ describe("a trusted replacement invalidates from its own seat", () => {
     expect(first).toBeGreaterThan(last);
   });
 
+  test("a changed data-seat member rebuilds from its data seat, not its own", () => {
+    // Modules §5.5: `Option`'s union is read from just before `Int`, so every
+    // seat from there to `Option`'s own depends on `Option`'s source too.
+    const option = PRELUDE_MODULES.find(({ name }) => name === "Option")!;
+    const edited = { name: option.name, source: `${option.source}\n// edited\n` };
+    resetStandardLibraryCache();
+    const cold = replacing(edited);
+    resetStandardLibraryCache();
+    compileFiles([main("export let n: Int = 1\n")]);
+    const warm = standardLibraryCacheStatistics();
+    const rebuilt = replacing(edited);
+    expect(messagesOf(rebuilt)).toEqual([]);
+    const early = PRELUDE_MODULES.findIndex(({ name }) => name === "Int");
+    expect(standardLibraryCacheStatistics().seatsChecked - warm.seatsChecked).toBe(SEATS - early);
+    const emitted = (project: CompiledProject) =>
+      project.modules.map(({ path, javascript, declarations }) =>
+        [path, javascript.text, declarations.text]
+      );
+    expect(emitted(rebuilt)).toEqual(emitted(cold));
+  });
+
   test("a replacement that reports is not kept, and neither is anything after it", () => {
     resetStandardLibraryCache();
     compileFiles([main("export let n: Int = 1\n")]);
