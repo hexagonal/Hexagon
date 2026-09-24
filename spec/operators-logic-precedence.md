@@ -24,6 +24,8 @@ Hexagon has **no user-defined operators and no operator overloading**, permanent
 | `==` | `equals` | `Eq` |
 | `!=` | `notEquals` | `Eq` |
 | `<` `>` `<=` `>=` | `compare` | `Ord` |
+| `band` `bor` `bxor` | `bitAnd`, `bitOr`, `bitXor` | `Bitwise` (`bitwise.md`) |
+| `bnot` | `bitNot` | `Bitwise` |
 
 Everything else in the operator inventory is a **structural form** owned by the language, not by any type: `not`/`and`/`or`/`implies`/`iff` (primitive on `Bool`, §4), `..` (builds a `Range`, Loops spec), `|>` (pre-inference syntactic rewrite, §8), `=>` (lambda), `:=` (assignment statement-expression), `.` (field access), `()` (call), `[]` (index/slice), `if/then/else` (§11). None of these consult an instance table and none can be redefined.
 
@@ -33,7 +35,7 @@ Consequence for the implementer: after elaboration, the type checker sees only o
 
 ### 1.2 Words for logic, symbols for algebra
 
-Logical operators are **English words only**: `not`, `and`, `or`, `implies`, `iff`. The symbolic forms `!`, `&&`, `||` do not exist as operators — `&&` and `||` are not tokens, and `!` is not negation *(amended for #355: `!` is now a token, the impure call mark — Effects §3, Lexer §8.1; a `!` in prefix-expression position still gets the fixit "Hexagon spells logical negation `not`", selected by the parser)*. Arithmetic and comparison stay symbolic, matching mathematics.
+Logical operators are **English words only**: `not`, `and`, `or`, `implies`, `iff`. Bitwise operators are words too — `band`, `bor`, `bxor`, `bnot` (`bitwise.md` §3) — so the two families never share a symbol, and no spelling changes meaning by operand type. The symbolic forms `!`, `&&`, `||` do not exist as operators — `&&` and `||` are not tokens, and `!` is not negation *(amended for #355: `!` is now a token, the impure call mark — Effects §3, Lexer §8.1; a `!` in prefix-expression position still gets the fixit "Hexagon spells logical negation `not`", selected by the parser)*. Arithmetic and comparison stay symbolic, matching mathematics.
 
 Lineage: Python and Lua spell logic with words as their *only* form; Pascal, Ada, and SQL established the tradition. Ruby is the cautionary precedent — it offers both `&&` and `and` *with different precedences*, a well-known bug factory. Hexagon avoids the trap by having exactly one spelling.
 
@@ -50,11 +52,11 @@ Levels are numbered **1 = tightest** with no gaps and no reserved slots. Since o
 
 ## 2. Operator inventory (complete, v1)
 
-**Value-level (constraint-backed):** `+` `-` `*` `/` `**` `++` `==` `!=` `<` `>` `<=` `>=` unary `-`.
+**Value-level (constraint-backed):** `+` `-` `*` `/` `**` `++` `==` `!=` `<` `>` `<=` `>=` unary `-`; the bitwise words `band` `bor` `bxor` `bnot` (`bitwise.md`).
 **Logical:** `not` `and` `or` `implies` `iff`.
 **Structural:** `.` `()` `[]` `..` `|>` `:=` `=>` `if/then/else` (`match` joins from the pattern-matching spec).
 
-Deliberately absent (see §13 for reasoning): `%`, `^`, `&&`, `||`, `!` (bare), bitwise operators, compound assignment (`+=` etc.), any Elvis/coalescing operator, any user-definable operator.
+Deliberately absent (see §13 for reasoning): `%`, `^`, `&&`, `||`, `!` (bare), symbolic bitwise operators and shift operators, compound assignment (`+=` etc.), any Elvis/coalescing operator, any user-definable operator.
 
 ---
 
@@ -63,22 +65,26 @@ Deliberately absent (see §13 for reasoning): `%`, `^`, `&&`, `||`, `!` (bare), 
 | Level | Operators | Associativity | Category |
 |---|---|---|---|
 | **1** (tightest) | `.`  `f(...)`  `xs[...]` | left | Postfix |
-| **2** | `**` | right | Exponentiation |
-| **3** | `-` (unary) | prefix | Numeric negation |
-| **4** | `*`  `/` | left | Multiplicative |
-| **5** | `+`  `-`  `++` | left | Additive / concatenation |
-| **6** | `..` | none (non-associative, non-chaining) | Range |
-| **7** | `==` `!=` `<` `>` `<=` `>=` | chaining (§5) | Comparison |
-| **8** | `not` | prefix | Logical negation |
-| **9** | `and` | left | Conjunction |
-| **10** | `or` | left | Disjunction |
-| **11** | `implies` | right | Implication |
-| **12** (loosest infix) | `iff` | left | Biconditional |
-| **13** | `\|>` | left | Pipe |
+| **2** | `bnot` | prefix | Bitwise complement |
+| **3** | `**` | right | Exponentiation |
+| **4** | `-` (unary) | prefix | Numeric negation |
+| **5** | `*`  `/` | left | Multiplicative |
+| **6** | `+`  `-`  `++` | left | Additive / concatenation |
+| **7** | `band` | left | Bitwise conjunction |
+| **8** | `bxor` | left | Bitwise exclusive or |
+| **9** | `bor` | left | Bitwise disjunction |
+| **10** | `..` | none (non-associative, non-chaining) | Range |
+| **11** | `==` `!=` `<` `>` `<=` `>=` | chaining (§5) | Comparison |
+| **12** | `not` | prefix | Logical negation |
+| **13** | `and` | left | Conjunction |
+| **14** | `or` | left | Disjunction |
+| **15** | `implies` | right | Implication |
+| **16** (loosest infix) | `iff` | left | Biconditional |
+| **17** | `\|>` | left | Pipe |
 | — | `=>`, `if/then/else`, `match` | eats-to-the-right (§3.2) | Prefix expression forms |
 | — | `:=` | non-associative, statement-level | Assignment (§12) |
 
-The logic tail (7–12) mirrors Lean 4's ordering exactly: comparisons above `¬` above `∧` above `∨` above `→` (right-associative) above `↔`. `implies` right-associativity is the logic convention (`a → b → c` ≡ `a → (b → c)`); `iff` left-associativity matches Lean's `↔`.
+The bitwise levels (2, 7–9) take Lean 4's `~~~`, `&&&`, `^^^`, `|||` positions (`bitwise.md` §3.2). The logic tail (11–16) mirrors Lean 4's ordering exactly: comparisons above `¬` above `∧` above `∨` above `→` (right-associative) above `↔`. `implies` right-associativity is the logic convention (`a → b → c` ≡ `a → (b → c)`); `iff` left-associativity matches Lean's `↔`.
 
 ### 3.1 The `not` position (change from the early draft — do not resurrect)
 
@@ -197,7 +203,7 @@ Types without the instance simply cannot use the operator: `==` on functions is 
 
 ### 5.2 Chaining
 
-A run of comparison operators at level 7 is parsed as a **chain**, desugaring to a conjunction of pairwise comparisons with shared middle operands bound once (§5.4):
+A run of comparison operators at level 11 is parsed as a **chain**, desugaring to a conjunction of pairwise comparisons with shared middle operands bound once (§5.4):
 
 ```
 a < b < c          -- a < b and b < c
@@ -242,10 +248,10 @@ named division families state the quotient and remainder convention explicitly.
 
 ### 6.2 Unary minus
 
-Level 3, elaborates to `negate`. Interactions, all decided:
+Level 4, elaborates to `negate`. Interactions, all decided:
 
 - `**` binds tighter on its left: `-2 ** 2` is `-(2 ** 2)` = `-4` — the mathematical reading of −2². JS refuses to parse this (`SyntaxError`, demanding parens); Hexagon follows math, not JS, per §1.3. **Emission must therefore parenthesize:** `-(2 ** 2)`, which is legal JS.
-- The *right* operand of `**` may begin with unary minus: `2 ** -3` is `2 ** (-3)` (Python's rule; the right operand of a right-associative level-2 operator parses at a level that admits prefixes).
+- The *right* operand of `**` may begin with unary minus: `2 ** -3` is `2 ** (-3)` (Python's rule; the right operand of a right-associative level-3 operator parses at a level that admits prefixes).
 - Adjacent to a numeric literal, `-42` is still negation applied to the literal `42` — there are no negative literals; `negate(fromNat(42))` folds at compile time for the monomorphic cases, emitting `-42`.
 
 ### 6.3 `**` — exponentiation and the `Pow` constraint
@@ -293,7 +299,7 @@ The qualified spellings `Float.pow`/`BigInt.pow` and the dot calls `x.pow(y)` de
 
 ## 7. `++` — concatenation and the `Concat` constraint
 
-Binary, level 5 (additive), left-associative. Elaborates to a new prelude constraint (edit note to Constraints §7):
+Binary, level 6 (additive), left-associative. Elaborates to a new prelude constraint (edit note to Constraints §7):
 
 ```
 constraint Concat<a> =
@@ -337,9 +343,9 @@ xs |> Seq.map(x => x + 1) |> Seq.filter(p) |> Seq.take(3)
 
 The Loops spec deferred `..`'s precedence here with recorded intent; that intent is now **decided as recorded**:
 
-- **Level 6: looser than arithmetic, tighter than comparison.** `1..n+1` is `1..(n+1)`; `a*2..b*2` is `(a*2)..(b*2)`.
+- **Level 10: looser than arithmetic and the bitwise operators, tighter than comparison.** `1..n+1` is `1..(n+1)`; `a*2..b*2` is `(a*2)..(b*2)`; `0..n band mask` is `0..(n band mask)` (`bitwise.md` §3.2).
 - **Non-associative and non-chaining:** `1..2..3` is a parse error — final phrasing (owed to Loops §10.2): "`..` does not chain; a range has exactly two endpoints."
-- Comparisons apply to a `Range` value only via whatever instances `Range` has (`Ord` it has not — Loops §3.6), so the level-6/level-7 boundary almost never matters; it exists so `x in 1..10` reads unambiguously in any future syntax that combines them.
+- Comparisons apply to a `Range` value only via whatever instances `Range` has (`Ord` it has not — Loops §3.6), so the level-10/level-11 boundary almost never matters; it exists so `x in 1..10` reads unambiguously in any future syntax that combines them.
 
 Everything else about ranges — inclusivity, emptiness, `Int`-onlyness, laziness, `range`/`rangeDown` — lives in the Loops spec and is not restated.
 
@@ -481,7 +487,7 @@ Semantics live in Statements/Blocks/Mutability (`var`-only target, `Unit`-typed,
 | `pow` as a `Num` member | Would obligate every `Num` instance forever; separate `Pow` constraint (§6.3). |
 | Homogeneous `pow(x: a, y: a)` (the original member shape) | Retired for the `Int` exponent seat (§6.3). One signature straddled two operations — algebraic power (ℤ exponent, every type) and analytic power (ℝ exponent, `Float` only) — and every runtime guard `Pow` ever carried patched that seam; at `Rat` the seam demanded a `FractionalExponentError` for exponents the algebra almost never serves. The ML family splits the two unanimously (Haskell `^`/`^^` vs `**`, F# `pown`, Lean `zpow` vs `rpow`); the heterogeneous member makes the fractional-exponent refusal *typing* and leaves the analytic power to the `Float.pow` door. |
 | Perfect-power extraction for rational power (succeed when an exact root exists) | Rejected permanently, in any spelling — the operator's typing now forecloses the fractional exponent, and the rejection equally forecloses any **named** door (`Rat`-exponent `pow`, `root`, `sqrt` over `Rat`). Success would be a number-theoretic property of the base's prime factorization, so meaning-preserving rewrites would move the throw boundary: a perfect-power product succeeds where its refactored factors throw twice. Algebra must commute with definedness (friendly-numerics tenet 5); an exponent's integrality is a statable operand predicate — now a type — a factorization is not (§6.3). |
-| Bitwise operators | No v1 use case at the language level; stdlib functions if ever needed. Symbols stay free. |
+| Symbolic bitwise and shift operators (`&`, `\|`, `^`, `~`, `<<`, `>>`, `>>>`) | The bitwise operations are the words of `bitwise.md` §3; shifts are named calls; `^` stays unused and `\|` stays with unions and patterns (`bitwise.md` §10). |
 | Comparison operators as four primitive members | Superseded by single `Ord.compare` (§5.1): one obligation, derived totality, no double evaluation. |
 
 *(A certain two-character coalescing operator from the early draft was also considered and does not exist.)*
@@ -532,6 +538,7 @@ The floored convention recorded as decided in Primitive Types §2 is **downgrade
 | `x := y := z` | "`:=` does not chain; assignment produces `Unit`" |
 | `**` at `Nat`/`Int`/`BigInt` with negative exponent (and `BigInt.pow` likewise) | runtime `NegativeExponentError` |
 | non-`Int` exponent at `**` (`x ** 0.5`, `2n ** 3n`) — and at the member's other spellings (`i.pow(2n)`, `Pow.pow(i, 2n)`; #808) | type error, mandatory fixit branched on the exponent's type — `Float.pow` for a `Float` exponent, `BigInt.pow` for a `BigInt` one, the plain seat error otherwise (§6.3) |
+| Bitwise and logic spellings crossed (`p band q` at `Bool`, `x and y` at `Int`); JavaScript's `&`, `\|`, `^`, `~`, `<<`, `>>`, `>>>` | `bitwise.md` §9 owns the rows: each refusal offers the other family's spelling or the named shift |
 
 ---
 
@@ -551,16 +558,17 @@ The floored convention recorded as decided in Primitive Types §2 is **downgrade
 | `==` elaborates to `Eq.equals`; `!=` elaborates to defaultable `Eq.notEquals` | §1.1, §5.1 |
 | Chains: directionally consistent families {`<`,`<=`,`==`} / {`>`,`>=`,`==`}; `!=` never chains | §5.3 |
 | Single-evaluation rule: duplicated operands bound once, left-to-right, invisible temporaries | §5.4 |
-| `**` level 2, right-assoc (math); tighter than unary minus on its left, admits it on its right; JS's `-2**2` SyntaxError not adopted, emission parenthesizes | §6.2–6.3 |
+| `**` level 3, right-assoc (math); tighter than unary minus on its left, admits it on its right; JS's `-2**2` SyntaxError not adopted, emission parenthesizes | §6.2–6.3 |
 | `Pow<a: Num>` member is `pow(value: a, exponent: Int)` — the algebraic power; `Nat`/`Int`/`BigInt`/`Dec` throw `NegativeExponentError` on a negative exponent, `Float` is total over it, `Rat` exact at either sign (a zero base with a negative exponent excepted — `DivideByZeroError`, `rat.md` §4); a fractional exponent is a type error; analytic power = the `Float.pow` door, `BigInt` exponents = the `BigInt.pow` door (both `widens` declarations, their members the derived restrictions, qualifiable-not-bare — Constraints §4.7) | §6.3, §6.3.1 |
-| `++` = `Concat.concat`; level 5 with `+`; `String` in v1, `List` owed; `+` on strings rejected with fixit | §7 |
+| `++` = `Concat.concat`; level 6 with `+`; `String` in v1, `List` owed; `+` on strings rejected with fixit | §7 |
 | Pipe: F# token, ReScript first-arg semantics, pre-inference rewrite; bare `a \|> f` = `f(a)`; subject-first stdlib convention normative | §8 |
-| `..` level 6 (looser than arithmetic, tighter than comparison), non-assoc, non-chaining | §9 |
+| `..` level 10 (looser than arithmetic and the bitwise operators, tighter than comparison), non-assoc, non-chaining | §9 |
 | Postfix `.`/call/`[]` level 1; indexing/slicing semantics deferred to collections spec | §10 |
 | Every `if` requires `then`; else-less `if` = sugar for `else ()` (forces `Unit` `then` branch; F# rule, adopted July 2026 reversing the original strict decision); canonical for effect conditionals; canonical multiline form keeps `then` on the condition line and indents branches; condition = bare `Bool` expr, inherited by `while` by reference | §11 |
 | `:=` loosest, non-associative, does not chain | §12 |
 | `Bool` is a prelude union (#147): §4's operands are union values, `True`/`False` the only spellings; the native logic/condition emissions are licensed by the Unions §6.2 representation pin; `Bool` is the sole exception to Unions §1's match-only elimination | §4.5, §11.1 |
 | *(#808)* At a primitive representation every spelling of an operator-backed member emits the operator's lowering verbatim; `**` at the guarded instances and `compare` keep the call | §1.1, §5.1; Constraints §6.1 |
+| Bitwise words `band`/`bor`/`bxor` (contextual) and `bnot` (hard) elaborate to `Bitwise`; Lean levels — `bnot` 2 above `**`, `band` 7 > `bxor` 8 > `bor` 9 between additive and `..`; the table is 17 levels | §1.1, §3; `bitwise.md` |
 
 ---
 
@@ -627,4 +635,9 @@ fun clamp(x, lo, hi) =
 -- (l) := grammar
 total := if c then a else b    -- fine; RHS is the eats-right if
 x := y := z                    -- ERROR: `:=` does not chain
+
+-- (m) Bitwise levels (bitwise.md §11 carries the full set)
+flags band mask == 0           -- (flags band mask) == 0
+a bor b bxor c band d          -- a bor (b bxor (c band d))
+bnot x ** 2                    -- (bnot x) ** 2;  -x ** 2 stays -(x ** 2)
 ```

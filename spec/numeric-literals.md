@@ -417,6 +417,8 @@ Two regimes, determined entirely by whether `α` is resolved to a concrete type 
 - `α = Rat` → emit the canonical-form constructor call with constant arguments, e.g. `Rat.fromNat(k)` or the direct `{top: kn, bottom: 1n}` fast-path constructor — the literal's `Rat` form, a type fact as in the `BigInt` row, not a folding of a value. Either is acceptable; the fast path is a nice-to-have.
 - Any other instance type → emit `TheType.fromNat(k)` monomorphically (direct call, no dictionary).
 
+**Non-decimal spellings.** A hexadecimal, octal, or binary literal (`bitwise.md` §8) takes the same regime and is written in its source base wherever the rows above write `k`: `0xFF` at `Int`, `0xFFn` at `BigInt`, `dict.fromNat(0xFF)` below. At `Float` it keeps its source base without the `.0` spelling, which JavaScript has no hexadecimal form of.
+
 **Unresolved-because-polymorphic** (literal inside a function generalised over `Num a`): the dictionary parameter is already in scope under the existing `honor` compilation story; `fromNat` is one more slot in the `Num` dictionary record. Emit `dict.fromNat(k)`. No new mechanism.
 
 This preserves the readable-JS goal: monomorphic code — nearly all code — contains direct `1`, `1.0`, and `1n` literals, with the spelling retaining the resolved fundamental type where JavaScript's representation otherwise cannot. Only genuinely generic functions show dictionary plumbing, and they already did for `add`.

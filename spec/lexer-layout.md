@@ -158,6 +158,13 @@ leading `<` begins a new item. A continuation wanting comparison takes the same
 two repairs as subtraction. `>` stays in the set — it closes a binder list but
 never opens one.
 
+**`band`, `bor`, and `bxor` are excluded for the same reason**: each is the
+bitwise operator only directly after a complete operand and an ordinary name
+everywhere else (Lexer §4.2), so a line beginning with one can begin an
+expression — `band.play()` is a new item. A continuation wanting one takes the
+same two repairs. `bnot` is a prefix operator and begins an expression, like
+`not`.
+
 The rule is uniform across every block, **including the module's own**: at column
 0, `let a = 1` followed by a line beginning `+ 2` continues the binding rather
 than starting a declaration, so `a` is `3`. This is the rule applied consistently,
