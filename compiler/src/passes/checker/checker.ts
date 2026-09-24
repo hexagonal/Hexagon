@@ -3590,6 +3590,12 @@ class Checker {
    * operation of every nominal the program declares.
    */
   readonly #companionImports = new Map<Resolved.SymbolId, Typed.CompanionImport>();
+  /**
+   * The FFI Part 5 receiver members a dot call reached with no import of their
+   * binding module (#982) — see `#recordCompanionImport`. They ride out in the
+   * module's symbol table, where the emitter reads a member's linkage.
+   */
+  readonly #reachedReceiverMembers = new Map<Resolved.SymbolId, Resolved.Symbol>();
   /** Where each operation in the program table came from, by symbol. */
   readonly #operationHomes = new Map<Resolved.SymbolId, ProgramOperation>();
   readonly #forbiddenInstances = new Map<string, string>();
@@ -4548,7 +4554,11 @@ class Checker {
     this.#checkPublicSignatures(module.items);
     this.#refuseExportedMemberSpellings(module.items);
 
-    const symbols = module.symbols.map((symbol) => ({
+    const listed = new Set(module.symbols.map(({ id }) => id));
+    const symbols = [
+      ...module.symbols,
+      ...[...this.#reachedReceiverMembers.values()].filter(({ id }) => !listed.has(id)),
+    ].map((symbol) => ({
       ...symbol,
       scheme: this.#publicScheme(this.#scheme(symbol.id)),
     }));
@@ -5256,6 +5266,14 @@ class Checker {
     if (this.#operationSpellings.has(operation.id)) return;
     if (Number(operation.bindingSpan.fileId) === this.#fileId) return;
     if (this.#companionImports.has(operation.id)) return;
+    // An FFI Part 5 receiver member owes no import (Part 5 §2.2; Method Syntax
+    // §8.2): its call is emitted inline, and what emission needs is the member's
+    // linkage, which rides its symbol — so the symbol joins this module's table
+    // instead (#982).
+    if (operation.receiver !== undefined) {
+      this.#reachedReceiverMembers.set(operation.id, operation);
+      return;
+    }
     const home = this.#operationHomes.get(operation.id);
     // No home on record is the lone-`check` compilation, which has no module
     // graph and so no second file to import from either.

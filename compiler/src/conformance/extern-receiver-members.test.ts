@@ -229,7 +229,50 @@ describe("the receiver call (§2.2, §3.1, §4.1)", () => {
     expect(javascript).toContain("  const n = box.bump(1);\n");
     expect(javascript).toContain("  return box.value;\n");
     // The namespace import the source wrote, and nothing bound for the member.
-    expect(javascript).not.toMatch(/import \{[^}]*\b(push|bump|value|setValue)\b/u);
+    expect(javascript).not.toMatch(
+      /import \{[^}]*\b(push|bump|value|setValue|snapshot|load)\b/u,
+    );
+  });
+
+  test("a captured member reached from an importer binds no internal edition", () => {
+    // A receiver member has no unwalked edition: every call crosses into
+    // JavaScript, so the importer inlines the copies and imports nothing.
+    const javascript = emitted([
+      ["/boxes.hex", BOXES],
+      ["/main.hex",
+        "module Main\n\nimport Boxes\n\n" +
+          "export fun go(box: Boxes.Box): Int =\n" +
+          "    let xs = box.snapshot!()\n" +
+          "    box.load!(xs)\n" +
+          "    xs.length()\n"],
+    ], "/main.hex");
+    expect(javascript).not.toContain("__snapshot");
+    expect(javascript).not.toContain("__load");
+    expect(javascript).toMatch(/const xs = __capture\(__capturePlans, \d+, box\.snapshot\(\)\);/u);
+  });
+
+  test("a dot call in the binding module itself dispatches to the member", () => {
+    const javascript = emitted([["/boxes.hex", BOXES + `
+export fun bumpTwice(box: Box): Int =
+    let n = box.bump!(1)
+    box.bump!(n)
+`]], "/boxes.hex");
+    expect(javascript).toContain("const n = box.bump(1);\n");
+    expect(javascript).toContain("return box.bump(n);\n");
+  });
+
+  test("a dot call reached through a module that was never imported still emits inline", () => {
+    // Method Syntax §4.2's import-insensitivity: `Main` imports only `Mid`, and
+    // the receiver's type arrives through `Mid`'s result. The member owes no
+    // import (§8.2) — its linkage rides its symbol.
+    const files = [
+      ["/boxes.hex", BOXES],
+      ["/mid.hex", "module Mid\n\nimport Boxes\n\nexport fun fresh(): Boxes.Box = Boxes.make!(1)\n"],
+      ["/main.hex", "module Main\n\nimport Mid\n\nexport fun go(): Int = Mid.fresh!().bump!(2)\n"],
+    ] as const;
+    const javascript = emitted(files, "/main.hex");
+    expect(javascript).toContain("Mid.fresh().bump(2)");
+    expect(javascript).not.toContain("Boxes.js");
   });
 
   test("an integer-literal receiver is parenthesized, a string receiver needs nothing", () => {
@@ -279,6 +322,37 @@ describe("the stable convention-preserving wrapper (§2.3)", () => {
     // Only the factory `fun` imports anything from the foreign module.
     expect(javascript).toContain('import { make } from "boxes";');
     expect(javascript).not.toMatch(/import \{[^}]*\b(bump|then|push|value)\b/u);
+  });
+});
+
+describe("extern rows as companion operations (Method Syntax §4.1, §4.2)", () => {
+  test("a plain extern `fun` over its home module's types dot-calls like any export", async () => {
+    // §4.2's rule is the home module's exported subject-first functions, whatever
+    // supplies the body: an extern `fun` over an extern type, or over a record
+    // declared beside the block.
+    const loaded = await run(
+      [["/geometry.hex", `module Geometry
+
+export record Point = {x: Int, y: Int}
+
+extern from "geometry"
+    export type Shape
+    export fun norm(p: Point) ->! Int
+    export fun unit() ->! Shape
+    export fun sides(s: Shape) ->! Int
+`], ["/main.hex", `module Main
+
+import Geometry
+
+export fun go(): Int = Geometry.Point({x = 3, y = 4}).norm!() * 10 + Geometry.unit!().sides!()
+`]],
+      {
+        geometry: "export const norm = (p) => p.x + p.y;\n" +
+          "export const unit = () => ({ n: 4 });\n" +
+          "export const sides = (s) => s.n;\n",
+      },
+    );
+    expect((loaded["Main"]!.go as () => number)()).toBe(74);
   });
 });
 
@@ -434,6 +508,17 @@ extern from "world"
 
   test("a getter and a setter of one name collide, and the rewrite aliases the setter (§4.2)", () => {
     expect(diagnostics("    get timeout(t: T) ->! Int\n    set timeout(t: T, v: Int) ->! Unit\n"))
+      .toEqual([
+        "`timeout` is already bound (line 5); a getter and a setter are two bindings — " +
+        "alias the setter: `set timeout as setTimeout(...)`",
+      ]);
+    // The rewrite names the setter's own property, whichever row came first.
+    expect(diagnostics("    get tm as timeout(t: T) ->! Int\n    set timeout(t: T, v: Int) ->! Unit\n"))
+      .toEqual([
+        "`timeout` is already bound (line 5); a getter and a setter are two bindings — " +
+        "alias the setter: `set timeout as setTimeout(...)`",
+      ]);
+    expect(diagnostics("    set timeout(t: T, v: Int) ->! Unit\n    get tm as timeout(t: T) ->! Int\n"))
       .toEqual([
         "`timeout` is already bound (line 5); a getter and a setter are two bindings — " +
         "alias the setter: `set timeout as setTimeout(...)`",

@@ -2815,7 +2815,11 @@ class Resolver {
             (convention === "set" && other === "get") ||
             (convention === "get" && other === "set")
           ) {
-            this.#reportAccessorCollision(declaration.localName, existing);
+            // The rewrite names the *setter's* property, whichever row came first.
+            const setter = convention === "set"
+              ? declaration.foreignName?.text ?? declaration.localName.text
+              : this.#symbol(existing).receiver!.foreignName;
+            this.#reportAccessorCollision(declaration.localName, existing, setter);
           } else {
             this.#reportRebinding(declaration.localName, existing);
           }
@@ -7835,10 +7839,13 @@ class Resolver {
    * The ordinary rebinding report, with the rewrite §11 names — the setter takes
    * the alias, whichever of the two came first.
    */
-  #reportAccessorCollision(name: Parsed.Name, existing: Resolved.SymbolId): void {
+  #reportAccessorCollision(
+    name: Parsed.Name,
+    existing: Resolved.SymbolId,
+    foreign: string,
+  ): void {
     const previous = this.#symbol(existing);
     const line = previous.bindingSpan.start.line + 1;
-    const foreign = previous.receiver?.foreignName ?? name.text;
     this.#diagnostics.add({
       severity: "error",
       message:

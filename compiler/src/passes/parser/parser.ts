@@ -2701,7 +2701,7 @@ class Parser {
       foreignText = this.#text.slice(nameToken.span.start.offset, nameToken.span.end.offset);
       keywordForeign = nameToken.kind !== "Wildcard";
     } else {
-      this.#error(`an extern \`${member}\` requires the name of the foreign member it reads`);
+      this.#error(`an extern \`${member}\` names the foreign member it reaches; write its name after the keyword`);
       this.#synchronize(new Set(["VSep", "VClose", "Eof"]));
       return undefined;
     }
