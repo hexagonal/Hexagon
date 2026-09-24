@@ -70,11 +70,15 @@ refuses it before a `fun` block head (Functions §7.3; layout stays agnostic).
 | An `extern class` head — `class` and its name, alias or modifiers, ending its logical item (FFI Part 5 §6.1). **Optional:** a head followed by no deeper-indented line is a class with no members and complete, never "expected an indented block" | Member block |
 | Term binding ending in `=` (`let x =`, `var x =`, `let f(...) =`, `fun f(...) =`, or a member header — a `fun` block's member lines included) | Binding body block |
 
-A control word standing in an FFI Part 5 member row's foreign-name seat —
-straight after `method`, `get`, or `set` at the head of the item, past only
-`export`, `static`, `default`, and the retired `pure`/`conduit` — is the name of
-a JavaScript property there (FFI Part 5 §2.4), not a head: `method match as
-matches(text: String, pattern: RegExp) ->! Bool` opens nothing *(#982)*.
+A hard keyword standing in a name seat (Lexer §4.4) is a name, not a head, and not
+§2.3's continuation operator: straight after a `.` (`let kind = ev.match` ending its
+line opens nothing), straight before a label's `:` or `=`, or as a declaration's
+name — straight after `let`, `var`, or `fun`, or in an FFI row's name seats, straight
+after `method`, `get`, or `set` at the head of the item, past only `export`,
+`static`, `default`, and the retired `pure`/`conduit` (`method match(text: String,
+pattern: RegExp) ->! Bool` opens nothing) *(#982, #1014)*. A member-block item's head
+is not a name seat, and a label seat lies inside a bracket pair, so `or` or `and`
+beginning a line keeps §2.3's continuation reading.
 
 *(#700 terminology.)* The right column sorts into three kinds, and the head
 decides which: **expression blocks** — bodies and binding blocks, item

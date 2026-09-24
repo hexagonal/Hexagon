@@ -83,9 +83,17 @@ The unaliased or right-hand name is the local Hexagon binding. This is the same 
 ### 3.2 Local names are ordinary names
 
 The foreign JavaScript name and local Hexagon name are checked independently. The
-foreign side must be an ECMAScript identifier and retains its exact export spelling;
+foreign side is an ESM export name in its IdentifierName form — JavaScript's reserved
+words and Hexagon's hard keywords included, since `import { match as m }` and
+`import { delete as remove }` are ordinary ESM — and retains its exact export spelling;
 the local side obeys ordinary Hexagon role rules: term bindings are
 non-uppercase-start and type bindings uppercase-start (Lexer §3; the module alias's own rule is Modules §3.1's).
+An extern row's name is a module-level declaration-name seat (Lexer §4.4), so a
+keyword-named export binds unaliased and is reached through a dot:
+`export fun match(pattern: String) -> Matcher` is `PathToRegexp.match("/user/:id")`
+in an importer. A keyword-named row is exported (Lexer §4.4: an unexported one could
+never be reached). An `as` alias remains the author's way to choose a different name,
+or a name the module can write bare.
 Duplicate local bindings collide under the ordinary module-level rules.
 
 A consequence worth stating: a foreign export whose name violates Hexagon's local start-class rules **or Lexer §3.2's reserved `__` prefix** requires an alias. `let VERSION: String` alone would introduce an uppercase-start term and is rejected with the named rewrite:
@@ -98,8 +106,8 @@ The same rule works in the other direction: a caseless foreign type name needs a
 uppercase-start local alias, for example `type 用户 as T用户`. These are Rewrite-Rule
 diagnostics; neither repair changes the foreign export spelling.
 
-The foreign side of `as` is exempt from Hexagon *role* classification, but not from
-ECMAScript identifier validity. It is likewise exempt from Lexer §3.2's reserved
+The foreign side of `as` is exempt from Hexagon *role* classification and from the
+keyword reservation, but must be an IdentifierName. It is likewise exempt from Lexer §3.2's reserved
 `__` prefix: a foreign export named `__foo` — the double-underscore convention is
 common in JavaScript library internals — stays bindable under an ordinary local
 alias, and the reservation error is selected only in Hexagon's own name seats

@@ -244,7 +244,8 @@ bits remain deterministic.
 
 ### 4.1 Hard keywords
 
-Hard keywords receive dedicated token kinds and may never be used as names:
+Hard keywords receive dedicated token kinds. A hard keyword is syntax in a **bare seat** —
+anywhere a construct can begin — and an ordinary name in §4.4's three name seats:
 
 ```text
 and         catch       constraint  derive      else       exception
@@ -276,15 +277,13 @@ not reserved; in a declaration-shaped position it should receive a migration hin
 write `honor`.
 
 **The `true`/`false` redirect (2026-07-29, #147).** Both spellings remain hard
-keywords — they may never be used as names, which forecloses `let true = ...`
-permanently — but they no longer produce values, with one exception. As the member value of a
+keywords — never a declared name, which forecloses `let true = ...`
+permanently, even where §4.4 admits the other keywords — but they no longer produce values, with one exception. As the member value of a
 literal `extern enum` (Foreign Enums §2.4), `true as Yes`, the parser reads the
-keyword as the JavaScript boolean the member names, and no redirect fires. (One
-other seat reads a hard-keyword token for what it spells: the foreign side of an
-FFI Part 5 member row, before `as`, where the parser reads any name token, the `_`
-token, or a hard keyword as the JavaScript property name it spells — FFI Part 5
-§2.4; the local side stays a name seat, and an unaliased keyword takes Part 5
-§11's alias refusal, selected by position as below.) The diagnostic is
+keyword as the JavaScript boolean the member names, and no redirect fires. (Other
+seats read a hard-keyword token for what it spells: §4.4's dotted and label seats,
+where `ev.true` and `{true: Int}` name a JavaScript property, and the foreign side of
+an FFI row, before `as` — FFI Part 4 §3.2, Part 5 §2.4.) The diagnostic is
 **position-aware, and position is the parser's to know** — the same division §4.2
 already fixes for contextual keywords: the lexer emits the hard-keyword token and
 the reserved-word fact; **the parser selects the message by position** (the §10
@@ -346,6 +345,69 @@ Library membership never turns a name into a keyword.
 
 `export default` outside `extern`, `break`, and similar near misses
 may receive targeted parser diagnostics without acquiring lexical privilege. (`module` held a §4.2 context as the `import module` head from #565 to #762, and since #829 holds one as the module header — Modules §2.1 — with `end module` as the closer; outside those head positions both words remain ordinary names, and `module Geometry` is no longer a near miss but the header itself.)
+
+### 4.4 Keywords reserve bare seats only
+
+A hard keyword is reserved where it could be syntax: the **bare seat**, any term,
+pattern, type, or statement position where a construct can begin. Elsewhere a name
+must stand however it is spelled, and the neighbouring tokens already say so. In
+those **name seats** a hard keyword is an ordinary name — JavaScript's own rule for
+property names, and the reason `ev.type`, `task.then(f)`, and `{type = "click"}`
+need no workaround spelling:
+
+| Name seat | Recognized by | Examples |
+|---|---|---|
+| **Dotted** | the token straight after a `.`: field access, a dot call, a module- or type-qualified name (Method Syntax §1) | `ev.type`, `task.then(f)`, `Regex.match(re, text)`, `Symbol.for("app")` |
+| **Label** | a name straight before `:` or `=` inside a bracket pair — at the top level of a block, `let = 1` is a half-typed declaration, not a label: record types and literals, the `with` update's overrides, record patterns, a union constructor's or exception's named slots (Products §3.1, Pattern Matching §2.4, Unions §2.1) | `{type: String}`, `{type = "click"}`, `{ev with type = t}`, `{type = t} =>`, `Click(type: String)` |
+| **Declaration name** | straight after `let`, `var`, or `fun` on the same line — a bare `fun` ending its line heads a member block instead, whose items are not name seats — and on an extern row: straight after its `method`, `get`, or `set`, a foreign name straight before `as` (`type match as Match`), and the local name straight after it (FFI Part 4 §3.2, Part 5 §2.4) | `export fun match(pattern: String) -> Matcher`, `export let or(a: Flag, b: Flag): Flag = …`, `method then(…)` |
+
+The table is exhaustive. In particular a member-block item's head is not a name seat:
+a line beginning `or(a, b) = …` in a `constraint`, `honor`, or `fun` block would read,
+under Lexer & Layout §2.3's operator continuation, as `… or (a, b)` on the previous
+item, and only the block's kind could tell the two apart. Constraint members, `honor`
+members, and `fun`-block members therefore keep non-keyword names, and the rule stays
+decidable from neighbouring tokens alone.
+
+- **A keyword-named declaration is exported, and reached through a dot.** Its bare
+  spelling is the keyword, so an importer reaches it as `Module.name` (Modules §3)
+  and the declaring module reaches it only by a dot call on its home type (Method
+  Syntax §4.2 — which admits exported functions only), never qualified through
+  itself (Modules §3.1). A module-level keyword-named declaration without `export`
+  could never be reached, and is refused: "`match` is reserved; a declaration named
+  `match` is reached only through a dot, from an importer or on its home type —
+  export it, or choose another name" (for a member of an unexported `extern class`,
+  "export the class", FFI Part 5 §7). For the same reason such a function cannot
+  call itself by name; recursion takes another name.
+- **A parameter-like or local name refuses a keyword.** Parameters — a body's or
+  a bodiless row's — pattern-head components (Pattern Declarations §2.1), type
+  variable binders (`<type: Eq>`), and local `let`, `var`, and `fun` bindings are
+  names written bare, or published as parameter names, so a keyword there is
+  refused. Where the token stands in a name seat by its neighbours — `f(type:
+  String)`, `let type = …` inside a body — the report is "`type` is reserved; a
+  local or parameter name is only ever written bare — choose another name", never a
+  parse error. A lambda, tuple, constructor, `for`, or `catch` binder is not in a
+  name seat and takes the ordinary hard-keyword report (§10).
+- **A pun is a bare name.** `{type}` in a literal, an update (`{ev with type}`), or
+  a pattern reads or binds `type` bare, so a keyword field is written out: "`type`
+  is reserved; write the field out: `{type = …}`".
+- **A pattern declaration's name stays bare.** It is written against its
+  parenthesis (Pattern Declarations §3.1), where `(c)then` is a conditional's
+  head, so a keyword there takes the ordinary hard-keyword refusal.
+- **`true` and `false` never name a declaration** (§4.1's redirect); they are names
+  in the dotted and label seats and on an FFI row's foreign side.
+- **The seat is decided by neighbouring tokens alone, before layout** — `true` and
+  `false` excepted where the seat is a declaration's, or a literal `extern enum`
+  member's value before `as` (§4.1). A keyword in
+  a name seat is a name to the layout pass and the parser alike, and never a block
+  head or a continuation operator (Lexer & Layout §2.1, §2.3): `let kind = ev.match`
+  ending its line opens nothing.
+- **Emission.** A name JavaScript reserves — a keyword such as `catch`, `in`, or
+  `for`, or an ordinary Hexagon name such as `delete` — is written verbatim as a property (`task.catch(h)`,
+  `{in: 1}`) and takes FFI Part 7 §1.2 rule 4's `__<name>` spelling wherever it
+  would otherwise be a JavaScript binding or a `.d.ts` parameter name — a union
+  constructor's slot parameter included (`Click(in: Int)` emits `(__in) => ({ tag:
+  "Click", in: __in })`). A module-level term named `then` is withheld from its
+  module's JavaScript exports (FFI Part 7 §7).
 
 ## 5. Numeric literals
 
@@ -603,7 +665,11 @@ token inventory and the lexer must not report the same source code unit twice.
 | Continuation-only or otherwise invalid name initial | state that the character cannot begin an identifier |
 | Reserved `__` prefix | "names beginning `__` are reserved for compiler-generated code" + rename fix-it *(position-dependent: the foreign side of an FFI `as` alias is exempt, and an extern declaration's unaliased name seat takes FFI Part 4 §3.2's alias rewrite instead of the rename — the lexer emits the token, the parser selects the message, §4.1/§4.2's division)* |
 | Literal bidirectional control | reject it; in a string suggest an explicit Unicode escape |
-| Hard keyword in name position | "`WORD` is reserved and cannot be used as a name" — including `true`/`false`; **no constructor fixit in this position** (`let True = ...` would be a refutable pattern, a second error) *(#147; position-dependent rows: the lexer emits the token, the **parser** selects the message — §4.1/§4.2's division)* |
+| Hard keyword in a bare name position — a lambda, tuple, constructor, `for`, or `catch` binder, a pattern declaration's name, a member-block item's name, a declared `true`/`false` (§4.4) | "`WORD` is reserved and cannot be used as a name" — including `true`/`false`; **no constructor fixit in this position** (`let True = ...` would be a refutable pattern, a second error) *(#147; position-dependent rows: the lexer emits the token, the **parser** selects the message — §4.1/§4.2's division)* |
+| Hard keyword naming a local or parameter-like name in a name seat (§4.4) | "`type` is reserved; a local or parameter name is only ever written bare — choose another name" |
+| Unexported module-level declaration named with a hard keyword (§4.4) | "`match` is reserved; a declaration named `match` is reached only through a dot, from an importer or on its home type — export it, or choose another name" |
+| Hard keyword as a pun (§4.4) | "`type` is reserved; write the field out: `{type = …}`" |
+| Bare keyword whose spelling the module declares as a term (§4.4) | the seat's parse error adds a note: "this module's `match` is reached through a dot — `x.match(…)` on its home type, or `Module.match` from an importer" |
 | `true`/`false` in value position | "`true` is reserved; Bool's constructors are `True` and `False` — write `True`" (resp. `False`); one-token fixit *(#147, §4.1; selection is parser work, same note as above)* |
 | Malformed `_` in a number | "`_` in a number must have a digit on both sides" |
 | `.5` / `1.` | suggest `0.5` / `1.0` |
@@ -668,6 +734,7 @@ a && b              -- write `a and b`
 | Uppercase-start/non-uppercase-start classification; exact spelling equality | §3.1 |
 | Bare `_` wildcard; leading `__` reserved *(widened from `__hex_`, #425)*; escapes/apostrophes excluded; bidi controls rejected | §3.2 |
 | Complete hard/contextual/not-keyword tables; `finally` reserved | §4 |
+| *(#1014)* Keywords reserve bare seats only: a hard keyword is an ordinary name in the dotted, label, and declaration-name seats (an exhaustive table, decided by neighbouring tokens before layout); a keyword-named module-level declaration must be exported; parameter-like and local names, puns, member-block items, and pattern-declaration names refuse it; `true`/`false` never name a declaration | §4.4 |
 | `true`/`false`: hard keywords, redirect-only (no values); position-aware diagnostic — constructor fixit in value position, none in name position; `True`/`False` are ordinary `UpperName`s | §4.1, §10 (#147) |
 | Decimal numeric grammar, required digits around `.`, exact suffix rules | §5 |
 | Composite string token; interpolation recursively lexed but layout-suppressed | §6.1 |

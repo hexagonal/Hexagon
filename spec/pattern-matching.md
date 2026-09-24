@@ -87,7 +87,7 @@ Arity must equal the tuple's arity (Products §2.1 report shape). `(p)` is **gro
 {customer = {name}, total}       -- nested, punned at two depths
 ```
 
-- **`{f = p}` — the field slot holds a full sub-pattern.** When the sub-pattern is a bare non-uppercase-start name equal to the field name, the `= name` may be dropped: **`{f}` ≡ `{f = f}`.** That's the entire punning rule.
+- **`{f = p}` — the field slot holds a full sub-pattern.** When the sub-pattern is a bare non-uppercase-start name equal to the field name, the `= name` may be dropped: **`{f}` ≡ `{f = f}`.** That's the entire punning rule. A keyword-named field (Lexer §4.4) has no pun — the binder would be the keyword — so it is written out, `{type = t}`.
 - **Open by default, always, with no opt-out syntax.** A record pattern mentions any subset of the scrutinee's fields; unmentioned fields are neither bound nor constrained. There is no `...` in patterns and no closed-record pattern form in v1. This deliberately points the opposite way from *type annotations* (closed by default, Products §4): a pattern destructures a known-typed value; an annotation constrains an unknown one. The asymmetry is principled and must be documented, not smoothed over.
 - Duplicate field names in one record pattern: error. A field the scrutinee's type lacks: the standard missing-field error naming the known fields (Products §3.2 family).
 - Record patterns work on structural records and — through row polymorphism — on unannotated parameters, constraining them exactly as field access does (`fun getX({x}) = x` infers the row-polymorphic type; see §6.5).

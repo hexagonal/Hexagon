@@ -47,7 +47,7 @@ Point                          -- nullary: no parens at all
 ```
 
 - Unnamed slots take the tuple vocabulary at the representation level: they emit as `item1 … itemN` fields (§6). This is emission-facing only — there is **no** `s.itemN` access on a union value (§5).
-- Named slots must be non-uppercase-start (term-level names). A slot named **`tag` is a hard compile error** — that key belongs to the representation (§6): "`tag` is reserved as the union's discriminant field; rename this field."
+- Named slots must be non-uppercase-start (term-level names); a hard keyword is one, the slot name being a label seat (Lexer §4.4) — `Click(type: String)` emits a `type` field. A slot named **`tag` is a hard compile error** — that key belongs to the representation (§6): "`tag` is reserved as the union's discriminant field; rename this field."
 - Duplicate slot names within one constructor: error.
 - A slot's type names every field of the records it carries: `...`, bare or named, anywhere in a payload type — `Box({n: Int, ...})`, `Box((Int, {n: Int, ...t}))`, `Box(Row)` with `type Row = {n: Int, ...}` — is refused at the slot, for Products §4's reason (a declaration's row is one row for every value of the type). Diagnostic: "a constructor's payload names every field of its values; this slot's type says the record may have more fields — name them, or give the slot the type `JsValue`".
 - `C()` — empty parens — is a parse error: a nullary constructor is written bare, `Point`, mirroring how it is used (§2.2). (Hint: "remove the `()`; nullary constructors take no argument list.")

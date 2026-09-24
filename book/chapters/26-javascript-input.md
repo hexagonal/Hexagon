@@ -317,6 +317,25 @@ data a contract holds still. A `set` declaration grants an explicit write capabi
 returns `Unit`, and always writes `->!`: a write to foreign state is an effect.
 Merely declaring a getter does not make the property writable from Hexagon.
 
+A member whose JavaScript name is a Hexagon keyword needs no alias. Every use of a
+member follows a dot, and after a dot a keyword is an ordinary name:
+
+```hexagon
+extern from "task-lib"
+    export type Task
+    export method then(task: Task, next: String -> Task) ->! Task
+```
+
+```hexagon
+task.then!(load)
+```
+
+An exported extern function works the same way: `export fun match(pattern: String) -> Matcher` is
+`PathToRegexp.match("/user/:id")` in the modules that import it. One name is held back
+from JavaScript. A module that exports a function named `then` publishes it to
+Hexagon importers only, because JavaScript treats any object with a callable `then`,
+a loaded module included, as a promise.
+
 ## Foreign classes remain foreign
 
 An extern class describes a JavaScript class as one opaque foreign type plus companion
