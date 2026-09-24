@@ -139,8 +139,9 @@ I元素      E无效年龄  M数据库           -- cultural role prefixes, ordi
   reading — a double leading underscore means the compiler wrote the name — so
   generated names use descriptive names, with a short category where it identifies
   a meaningful family: `__<category>_<name>`. The category vocabulary is `patt`
-  for patterns, `dict` for dictionaries, and `global` for captured JavaScript
-  globals. It need not name a source-language namespace. There is no generic
+  for patterns, `dict` for dictionaries, `global` for captured JavaScript
+  globals, and `class` for a binding module's re-export of a foreign class
+  (FFI Part 5 §7). It need not name a source-language namespace. There is no generic
   `helper` category: a direct name such as `__matchFail` or `__value` suffices.
   Pattern Declarations §6 applies `__patt_<name>` now. Existing families retain
   their individually specified spellings until separately revised; this
