@@ -395,13 +395,35 @@ export interface Symbol {
 }
 
 /** FFI Part 5 §1's receiver member forms (#982). */
-export type ReceiverConvention = "method" | "get" | "set";
+export type ReceiverConvention = "method" | "get" | "set" | "new";
 
 /** See `Symbol.receiver`. */
 export interface ReceiverLinkage {
   readonly convention: ReceiverConvention;
-  /** The JavaScript property name, spelled as the foreign side of the row. */
+  /**
+   * The JavaScript property name, spelled as the foreign side of the row; empty
+   * for `new`, which names an operation rather than a property.
+   */
   readonly foreignName: string;
+  /** A `static` member (FFI Part 5 §6.3): the receiver is the constructor object. */
+  readonly static?: true;
+  /**
+   * The class whose constructor object a `new` or `static` member reaches — in
+   * its binding module under a minted import of the foreign class, and in every
+   * other module through the binding module's `__class_<Type>` re-export
+   * (Part 5 §7).
+   */
+  readonly foreignClass?: ForeignClassLinkage;
+}
+
+/** See `ReceiverLinkage.foreignClass`. */
+export interface ForeignClassLinkage {
+  /** The class's local type name — the `<Type>` of `__class_<Type>`. */
+  readonly type: string;
+  /** The foreign class name a minted local mirrors; the type name for a `default class`. */
+  readonly foreign: string;
+  /** The binding module's address, which an importer's specifier is computed from. */
+  readonly path?: string;
 }
 
 export interface Binding {
@@ -741,6 +763,10 @@ export interface ExternFunDeclaration extends ExternDeclarationFields {
   readonly binding: Binding;
   /** FFI Part 5's receiver convention (#982); see the parsed tree's field. */
   readonly convention?: ReceiverConvention;
+  /** A `static` class member; see the parsed tree's field. */
+  readonly static?: true;
+  /** The `extern class` a member belongs to, by its type's identity (§6). */
+  readonly ownerClass?: ExternTypeId;
   /** The declared binders and their bounds (#370); see the parsed tree's field. */
   readonly typeParameters?: readonly TypeParameter[];
   readonly parameters: readonly Parameter[];
@@ -760,6 +786,8 @@ export interface ExternLetDeclaration extends ExternDeclarationFields {
 export interface ExternTypeDeclaration extends ExternDeclarationFields {
   readonly kind: "ExternType";
   readonly default: false;
+  /** An `extern class` header (FFI Part 5 §6.1); see the parsed tree's field. */
+  readonly foreignClass?: { readonly default: boolean };
   readonly externType: ExternTypeId;
   /** The nominal type's home module, carried for expected-type doors. */
   readonly declaringPath?: string;

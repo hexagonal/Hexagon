@@ -1614,6 +1614,8 @@ class Resolver {
   readonly #visibleExceptions = new Map<Resolved.SymbolId, Resolved.ExceptionItem>();
   readonly #impliedTypeOwners = new Map<string, Set<string>>();
   readonly #pending: { readonly name: Parsed.Name; readonly kind: "let" | "var" }[] = [];
+  /** Each `extern class` member's class, by local type name (FFI Part 5 §8). */
+  readonly #classMemberOwners = new Map<Resolved.SymbolId, string>();
   readonly #predeclaredBindings = new WeakMap<Parsed.FunItem | Parsed.ExternFunDeclaration | Parsed.ExternLetDeclaration, Resolved.Binding>();
   readonly #blockDeclarations: BlockDeclarations[] = [];
   readonly #currentFunctions: Resolved.SymbolId[] = [];
@@ -2811,7 +2813,17 @@ class Resolver {
           // shared name is the ordinary collision — with the one rewrite §11
           // names, which is always the setter's alias.
           const other = this.#symbol(existing).receiver?.convention;
+          const ownerClass = declaration.kind === "ExternFun" ? declaration.owner : undefined;
+          const otherClass = this.#classMemberOwners.get(existing);
           if (
+            declaration.kind === "ExternFun" && ownerClass !== undefined &&
+            otherClass !== undefined && otherClass !== ownerClass.localName.text
+          ) {
+            // §8: members are flat module-level bindings, so two classes of one
+            // module sharing a member name collide like any two bindings — and
+            // the fix is one of the two §11 names.
+            this.#reportClassMemberCollision(declaration.localName, existing, declaration);
+          } else if (
             (convention === "set" && other === "get") ||
             (convention === "get" && other === "set")
           ) {
@@ -2825,10 +2837,26 @@ class Resolver {
           }
         }
         const binding = this.#declare(declaration.localName, kind);
-        if (convention !== undefined && declaration.foreignName !== undefined) {
+        if (declaration.kind === "ExternFun" && declaration.owner !== undefined) {
+          this.#classMemberOwners.set(binding.symbol, declaration.owner.localName.text);
+        }
+        if (convention !== undefined && declaration.kind === "ExternFun") {
+          const owner = declaration.owner;
+          const reachesClass = convention === "new" || declaration.static === true;
           this.#symbols.set(binding.symbol, {
             ...this.#symbol(binding.symbol),
-            receiver: { convention, foreignName: declaration.foreignName.text },
+            receiver: {
+              convention,
+              foreignName: declaration.foreignName?.text ?? "",
+              ...(declaration.static === true ? { static: true as const } : {}),
+              ...(owner === undefined || !reachesClass ? {} : {
+                foreignClass: {
+                  type: owner.localName.text,
+                  foreign: owner.foreignName?.text ?? owner.localName.text,
+                  ...(this.#path === undefined ? {} : { path: this.#path }),
+                },
+              }),
+            },
           });
         }
         this.#predeclaredBindings.set(declaration, binding);
@@ -3440,6 +3468,7 @@ class Resolver {
               default: false,
               ...(declaration.foreignName === undefined ? {} : { foreignName: declaration.foreignName.text }),
               localName: declaration.localName.text,
+              ...(declaration.foreignClass === undefined ? {} : { foreignClass: declaration.foreignClass }),
               externType: this.#externTypeDeclarations.get(declaration) ?? Resolved.externTypeId(this.#nextExternType++),
               ...(this.#path === undefined ? {} : { declaringPath: this.#path }),
               span: declaration.span,
@@ -3474,6 +3503,11 @@ class Resolver {
             kind: "ExternFun",
             ...common,
             ...(declaration.convention === undefined ? {} : { convention: declaration.convention }),
+            ...(declaration.static === true ? { static: true as const } : {}),
+            ...(declaration.owner === undefined ? {} : (() => {
+              const ownerClass = this.#externTypeDeclarations.get(declaration.owner);
+              return ownerClass === undefined ? {} : { ownerClass };
+            })()),
             // #370: an intrinsic row's constraint brackets ride the §3.4 grant.
             // The parser records them only inside the reserved boundary, so
             // nothing here has to re-derive the gate's answer.
@@ -7856,6 +7890,34 @@ class Resolver {
     });
   }
 
+  /**
+   * FFI Part 5 §8's collision: two `extern class` blocks of one module whose
+   * members share a name. Ordinary rebinding, with §11's two rewrites.
+   */
+  #reportClassMemberCollision(
+    name: Parsed.Name,
+    existing: Resolved.SymbolId,
+    declaration: Parsed.ExternFunDeclaration,
+  ): void {
+    const previous = this.#symbol(existing);
+    const line = previous.bindingSpan.start.line + 1;
+    const keyword = declaration.convention === "new"
+      ? "new"
+      : `${declaration.static === true ? "static " : ""}${declaration.convention ?? "method"}`;
+    const foreign = declaration.foreignName?.text ?? "";
+    const owner = declaration.owner?.localName.text ?? "";
+    const alias = `${lowerFirst(owner)}${upperFirst(name.text)}`;
+    this.#diagnostics.add({
+      severity: "error",
+      message:
+        `\`${name.text}\` is already bound (line ${line}); members of the classes in one module are ` +
+        `one module's bindings — alias one of them (\`${keyword}${foreign === "" ? "" : ` ${foreign}`} as ` +
+        `${alias}(...)\`), or declare each class in its own binding module`,
+      primary: name.span,
+      labels: [{ span: previous.bindingSpan, message: "previous binding" }],
+    });
+  }
+
   #symbol(id: Resolved.SymbolId): Resolved.Symbol {
     const symbol = this.#symbols.get(id) ?? this.#importedSymbols.get(id);
     if (symbol === undefined) throw new Error(`unknown internal symbol ${id}`);
@@ -8227,4 +8289,9 @@ function contextualPatternSpacingMessage(name: string): string | undefined {
 /** A name with its first character uppercased, for a rewrite that prefixes it. */
 function upperFirst(name: string): string {
   return name.slice(0, 1).toLocaleUpperCase() + name.slice(1);
+}
+
+/** A name with its first character lowercased, for a rewrite that prefixes it. */
+function lowerFirst(name: string): string {
+  return name.slice(0, 1).toLocaleLowerCase() + name.slice(1);
 }

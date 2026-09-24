@@ -3120,6 +3120,17 @@ class JavaScriptEmitter {
     Resolved.SymbolId,
     { readonly local: string; readonly imported: string; readonly specifier: string }
   >();
+  /**
+   * The foreign classes whose constructor object this module reaches through
+   * another module's `__class_<Type>` re-export, and the import line each owes
+   * (FFI Part 5 §7); see `#classLocal`. Written with the enum member imports.
+   */
+  readonly #classImports = new Map<
+    string,
+    { readonly local: string; readonly imported: string; readonly specifier: string }
+  >();
+  /** The minted local each class this module binds is imported under; see `#classLocal`. */
+  readonly #ownClassLocals = new Map<string, string>();
   readonly #recordConstructors = new Set<Resolved.SymbolId>();
   /**
    * The constructors this pass materialises a function for, or `undefined` on
@@ -4216,7 +4227,12 @@ class JavaScriptEmitter {
       for (const declaration of item.declarations) {
         // A foreign `type` introduces no `.js` binding, so it has no seat here
         // and its documentation stays in the `.d.ts` (§7.1).
-        if (declaration.kind === "ExternType") continue;
+        if (declaration.kind === "ExternType") {
+          if (declaration.foreignClass !== undefined) {
+            lines.push(...this.#classImportLines(item, declaration, prefix));
+          }
+          continue;
+        }
         const local = this.#identifier(
           declaration.binding.symbol,
           declaration.localName,
@@ -4354,7 +4370,8 @@ class JavaScriptEmitter {
             this.#identifier(parameter.symbol, parameter.name)
           );
           const body = this.#receiverOperation(
-            { convention: declaration.convention, foreignName: declaration.foreignName ?? declaration.localName },
+            this.#symbols.get(declaration.binding.symbol)?.receiver ??
+              { convention: declaration.convention, foreignName: declaration.foreignName ?? declaration.localName },
             parameters,
             declaration.parameters.map(({ scheme }) => scheme.type),
             declaration.result,
@@ -6245,12 +6262,81 @@ class JavaScriptEmitter {
     if (type.kind !== "Function" || expression.arguments.length !== type.parameters.length) {
       return undefined;
     }
+    // Only an instance member's first argument is a receiver; a constructor's
+    // and a static member's arguments are all ordinary (§6.2, §6.3).
+    const instance = linkage.foreignClass === undefined;
     const arguments_ = expression.arguments.map((argument, index) =>
-      index === 0
+      index === 0 && instance
         ? this.#receiverOperand(argument, type.parameters[0]!, depth, evidenceNames)
         : this.#emitExpr(argument, depth, evidenceNames)
     );
     return this.#receiverOperation(linkage, arguments_, type.parameters, type.result);
+  }
+
+  /**
+   * The local this module reaches a foreign class's constructor object by
+   * (FFI Part 5 §7, #982), claimed on first use.
+   *
+   * In the binding module it is the minted import of the class itself, which
+   * the class's own row writes (`#classImportLine`); in any other module it is
+   * the binding module's `__class_<Type>` re-export — never the foreign module
+   * again, whose relative specifier resolves only from the binding module's
+   * place (Part 4 §2.1). Either way the local is a **minted import local**
+   * mirroring the foreign class name (Part 7 §1.2 rule 1): bare where nothing
+   * here holds it, and the reserved probe where the runtime vocabulary, a
+   * reserved word or a binding of this module does — so `class Map as
+   * MapboxMap` never captures a `new Map(...)` the compiler wrote.
+   */
+  #classLocal(linkage: Resolved.ForeignClassLinkage): string {
+    const own = linkage.path === undefined || linkage.path === this.#module.modulePath;
+    const key = `${linkage.path ?? ""}\u0000${linkage.type}`;
+    const existing = own ? this.#ownClassLocals.get(key) : this.#classImports.get(key)?.local;
+    if (existing !== undefined) return existing;
+    const local = this.#generatedNames.claimPublic(linkage.foreign);
+    if (own || this.#module.modulePath === undefined) {
+      this.#ownClassLocals.set(key, local);
+    } else {
+      this.#classImports.set(key, {
+        local,
+        imported: classExportName(linkage.type),
+        specifier: relativeSpecifier(this.#module.modulePath, linkage.path!),
+      });
+    }
+    return local;
+  }
+
+  /**
+   * An `extern class` row's JavaScript (FFI Part 5 §6–§7): the import of the
+   * foreign class, where a `new` or `static` member reaches its constructor
+   * object, and — for an exported class — the `__class_<Type>` re-export every
+   * other module reaches it through. A class of instance members alone imports
+   * nothing: its receivers are its members' arguments.
+   */
+  #classImportLines(
+    item: Core.ExternBlockItem,
+    declaration: Typed.ExternTypeDeclaration,
+    prefix: string,
+  ): string[] {
+    const reached = item.declarations.some((member) =>
+      member.kind === "ExternFun" && member.ownerClass === declaration.externType &&
+      (member.convention === "new" || member.static === true)
+    );
+    if (!reached) return [];
+    const local = this.#classLocal({
+      type: declaration.localName,
+      foreign: declaration.foreignName ?? declaration.localName,
+      ...(this.#module.modulePath === undefined ? {} : { path: this.#module.modulePath }),
+    });
+    const specifier = JSON.stringify(item.specifier);
+    const foreign = declaration.foreignName ?? declaration.localName;
+    if (declaration.exported) {
+      this.#exports.push(`export { ${local} as ${classExportName(declaration.localName)} };`);
+    }
+    return [
+      declaration.foreignClass?.default === true
+        ? `${prefix}import ${local} from ${specifier};`
+        : `${prefix}import { ${foreign === local ? foreign : `${foreign} as ${local}`} } from ${specifier};`,
+    ];
   }
 
   /**
@@ -6286,7 +6372,21 @@ class JavaScriptEmitter {
   ): { readonly text: string; readonly statement: boolean } {
     // A copied receiver is a helper call, which already binds as a primary.
     const passed = operands.map((operand, index) => this.#captured(parameters[index]!, operand));
-    const [receiver = this.#unit, ...rest] = passed;
+    // §6.2–§6.3: a constructor and a static member reach the foreign
+    // constructor object, which is the receiver of the latter; every visible
+    // argument is an argument.
+    const constructorObject = linkage.foreignClass === undefined
+      ? undefined
+      : this.#classLocal(linkage.foreignClass);
+    if (linkage.convention === "new") {
+      return {
+        text: this.#captured(result, `new ${constructorObject ?? this.#unit}(${passed.join(", ")})`),
+        statement: false,
+      };
+    }
+    const [receiver = this.#unit, ...rest] = constructorObject === undefined
+      ? passed
+      : [constructorObject, ...passed];
     const property = `${receiver}.${linkage.foreignName}`;
     if (linkage.convention === "set") {
       return { text: `${property} = ${rest[0] ?? this.#unit}`, statement: true };
@@ -10137,7 +10237,12 @@ class JavaScriptEmitter {
     readonly specifier: string;
   }[] {
     const bySpecifier = new Map<string, string[]>();
-    for (const { local, imported, specifier } of this.#enumMemberImports.values()) {
+    for (
+      const { local, imported, specifier } of [
+        ...this.#enumMemberImports.values(),
+        ...this.#classImports.values(),
+      ]
+    ) {
       const names = bySpecifier.get(specifier) ?? [];
       names.push(imported === local ? imported : `${imported} as ${local}`);
       bySpecifier.set(specifier, names);
@@ -12838,6 +12943,15 @@ function blankLinesBetween(previous: Source.Span, next: Source.Span): number {
 }
 
 /** Emits the canonical zero/one/many JavaScript arrow-parameter shape. */
+/**
+ * FFI Part 5 §7's fixed spelling for a binding module's re-export of a foreign
+ * class's constructor object: `__class_<Type>`, `<Type>` the class's local type
+ * name. Fixed, never suffixed — an importer computes it from the type name.
+ */
+function classExportName(type: string): string {
+  return `__class_${type}`;
+}
+
 /** The receiver convention a symbol's binding carries, if any (FFI Part 5, #982). */
 function symbolConvention(symbol: Core.Symbol | undefined): Resolved.ReceiverConvention | undefined {
   return symbol?.receiver?.convention;

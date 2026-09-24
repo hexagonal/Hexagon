@@ -563,3 +563,272 @@ export fun f(t: T): Int = t.hidden!()
     ]);
   });
 });
+
+/**
+ * FFI Part 5 §6–§8: `extern class` — an opaque foreign type plus companion
+ * functions, `new as` constructors, `static` members over the constructor
+ * object, `default class`, all-or-nothing visibility, and the binding module's
+ * `__class_<Type>` re-export every other module reaches the class through.
+ */
+const COUNTERS_JS = `
+export class Counter {
+  static created = 0;
+  static get total() { return Counter.created; }
+  static set total(v) { Counter.created = v; }
+  static of(n) { return new this(n); }
+  constructor(n, step = 1) { this.n = n; this.step = step; Counter.created += 1; }
+  next() { this.n += this.step; return this.n; }
+  get value() { return this.n; }
+}
+`;
+const CLIENTS_JS = `
+export default class Client { constructor(name) { this.name = name; } get who() { return this.name; } }
+`;
+const MAPS_JS = `
+export class Map { constructor(zoom) { this.kind = "mapbox"; this.zoom = zoom; } }
+export const table = () => new globalThis.Map([["a", 1], ["b", 2]]);
+`;
+
+const COUNTERS = `module Counters
+
+extern from "counters"
+    export class Counter
+        new as create(n: Int) ->! Counter
+        new as createWithStep(n: Int, step: Int) ->! Counter
+        static method of(n: Int) ->! Counter
+        static get total() ->! Int
+        static set total as setTotal(v: Int) ->! Unit
+        method next(c: Counter) ->! Int
+        get value(c: Counter) ->! Int
+
+extern from "clients"
+    export default class Client
+        new as connect(name: String) ->! Client
+        get who(c: Client) ->! String
+`;
+
+async function runCounters(main: string): Promise<Record<string, Record<string, unknown>>> {
+  return await run(
+    [["/counters.hex", COUNTERS], ["/main.hex", `module Main\n\nimport Counters\n\n${main}`]],
+    { counters: COUNTERS_JS, clients: CLIENTS_JS },
+  );
+}
+
+describe("`extern class` (§6)", () => {
+  test("constructors, static members, and instance members run from an importer", async () => {
+    const { Main: main } = await runCounters(
+      "export fun stepped(): Int = Counters.createWithStep!(1, 5).next!()\n" +
+        "export fun ofThis(): Int = Counters.of!(4).value!()\n" +
+        "export fun totals(): Int =\n" +
+        "    Counters.setTotal!(10)\n" +
+        "    let c = Counters.create!(1)\n" +
+        "    Counters.total!()\n" +
+        "export fun who(): String = Counters.connect!(\"ada\").who!()\n",
+    );
+    expect((main!.stepped as () => number)()).toBe(6);
+    // §6.3: a static method keeps receiver-call emission, so `this` is the class.
+    expect((main!.ofThis as () => number)()).toBe(4);
+    // §6.3: `static set` writes the constructor object's property; `static get`
+    // reads it fresh after the constructor incremented it.
+    expect((main!.totals as () => number)()).toBe(11);
+    expect((main!.who as () => string)()).toBe("ada");
+  });
+
+  test("the binding module imports the class once, and re-exports it for importers (§7)", () => {
+    const javascript = emitted([["/counters.hex", COUNTERS]], "/counters.hex");
+    expect(javascript).toContain('import { Counter } from "counters";');
+    expect(javascript).toContain('import Client from "clients";');
+    expect(javascript).toContain("const create = n => new Counter(n);\n");
+    expect(javascript).toContain("const of = n => Counter.of(n);\n");
+    expect(javascript).toContain("const total = () => Counter.total;\n");
+    expect(javascript).toContain("const setTotal = v => { Counter.total = v; };\n");
+    expect(javascript).toContain("export { Counter as __class_Counter };");
+    expect(javascript).toContain("export { Client as __class_Client };");
+  });
+
+  test("an importer reaches the class through `__class_<Type>`, never the foreign module", () => {
+    const javascript = emitted([
+      ["/counters.hex", COUNTERS],
+      ["/main.hex", "module Main\n\nimport Counters\n\n" +
+        "export fun go(): Int =\n" +
+        "    Counters.setTotal!(Counters.total!() + 1)\n" +
+        "    Counters.create!(1).next!()\n"],
+    ], "/main.hex");
+    expect(javascript).toContain(
+      'import { __class_Counter as Counter } from "./Counters.js";',
+    );
+    expect(javascript).toContain("  Counter.total = Counter.total + 1;\n");
+    expect(javascript).toContain("  return new Counter(1).next();\n");
+    expect(javascript).not.toContain('"counters"');
+  });
+
+  test("a first-class constructor or static member is the one stable wrapper (§6.2, §6.3)", async () => {
+    const loaded = await runCounters(
+      "export let make: Int ->! Counters.Counter = Counters.create\n" +
+        "export let again: Int ->! Counters.Counter = Counters.create\n" +
+        "export let read: () ->! Int = Counters.total\n",
+    );
+    expect(loaded["Main"]!.make).toBe(loaded["Main"]!.again);
+    expect(loaded["Main"]!.make).toBe(loaded["Counters"]!.create);
+    const counter = (loaded["Main"]!.make as (n: number) => { n: number })(3);
+    expect(counter.n).toBe(3);
+    expect(typeof (loaded["Main"]!.read as () => number)()).toBe("number");
+  });
+
+  test("a class spelled like a runtime global never captures the compiler's own text", async () => {
+    // Part 7 §1.2 rule 1: the minted import local steps aside, so the capture
+    // copy's `new Map()` still builds a JavaScript `Map`, in the binding module
+    // and in an importer alike.
+    const maps = `module Maps
+
+extern from "maps"
+    export class Map as MapboxMap
+        new as open(zoom: Int) ->! MapboxMap
+    export fun table() ->! JsMap(String, Int)
+
+export fun both(): Int =
+    let m = open!(3)
+    table!().size()
+`;
+    const main = "module Main\n\nimport Maps\n\n" +
+      "export fun again(): Int =\n" +
+      "    let m = Maps.open!(4)\n" +
+      "    Maps.table!().size()\n";
+    const files = [["/maps.hex", maps], ["/main.hex", main]] as const;
+    const binding = emitted(files, "/maps.hex");
+    expect(binding).toMatch(/import \{ Map as (__Map_\d+) \} from "maps";/u);
+    expect(binding).not.toMatch(/import \{ Map \}/u);
+    expect(emitted(files, "/main.hex")).toMatch(
+      /import \{ __class_MapboxMap as __Map_\d+ \} from "\.\/Maps\.js";/u,
+    );
+    const loaded = await run(files, { maps: MAPS_JS });
+    expect((loaded["Maps"]!.both as () => number)()).toBe(2);
+    expect((loaded["Main"]!.again as () => number)()).toBe(2);
+  });
+
+  test("a private class re-exports nothing, and a class of instance members imports nothing", () => {
+    const javascript = emitted([["/main.hex", `module Main
+
+extern from "counters"
+    class Counter
+        new as create(n: Int) ->! Counter
+    export class Handle
+        method close(h: Handle) ->! Unit
+    class Empty
+
+export fun make(): Int =
+    let c = create!(1)
+    0
+`]], "/main.hex");
+    expect(javascript).toContain('import { Counter } from "counters";');
+    expect(javascript).not.toContain("__class_");
+    expect(javascript).not.toMatch(/import \{ Handle \}/u);
+    expect(javascript).not.toContain("Empty");
+  });
+
+  test("the `.d.ts` faces the class as a brand and its members as functions, and no `__class_`", async () => {
+    const face = emitted([["/counters.hex", COUNTERS]], "/counters.hex", "declarations");
+    expect(face).toContain("export type Counter = { readonly [CounterBrand]: never };");
+    expect(face).toContain("export declare function create(n: number): Counter;");
+    expect(face).toContain("export declare function total(): number;");
+    expect(face).toContain("export declare function setTotal(v: number): void;");
+    expect(face).not.toContain("__class_");
+    expect(
+      await typeScriptErrors({
+        "counters.d.ts": face,
+        "consumer.ts": 'import { create, next, total } from "./counters.js";\n' +
+          "export const n: number = next(create(1)) + total();\n",
+      }),
+    ).toEqual([]);
+  });
+
+  test("dot calls reach a class's instance members (§9)", () => {
+    const javascript = emitted([
+      ["/counters.hex", COUNTERS],
+      ["/main.hex", "module Main\n\nimport Counters\n\n" +
+        "export fun go(c: Counters.Counter): Int = c.next!() + c.value!()\n"],
+    ], "/main.hex");
+    expect(javascript).toContain("return c.next() + c.value;");
+  });
+});
+
+describe("`extern class` diagnostics (§11)", () => {
+  const classDiagnostics = (rows: string, header = "    class URL as Url\n"): readonly string[] =>
+    diagnostics(header + rows, "    type T\n");
+
+  test("an instance member's subject is the class's own type (§5)", () => {
+    expect(classDiagnostics("        method m(t: T) ->! Int\n")).toEqual([
+      "instance members of `class URL as Url` take `Url` as their first parameter; " +
+      "declare this member at block level if it targets another type",
+    ]);
+  });
+
+  test("`new` names its constructor, writes its arrow, and builds the class (§6.2)", () => {
+    expect(classDiagnostics("        new(text: String) ->! Url\n")).toEqual([
+      "name the companion constructor: `new as create(...) -> Url`",
+    ]);
+    expect(classDiagnostics("        new as create(text: String) ->! T\n")).toEqual([
+      "`new` constructs `Url`; write `new as create(…) ->! Url` (`->` only where construction touches nothing)",
+    ]);
+    expect(classDiagnostics("        new as create(text: String)\n")).toEqual([
+      "`new` constructs `Url`; write `new as create(…) ->! Url` (`->` only where construction touches nothing)",
+    ]);
+    expect(classDiagnostics("        static new as create(text: String) ->! Url\n")).toEqual([
+      "a constructor is already the class's own operation; drop `static`: `new as create(...) -> Url`",
+    ]);
+  });
+
+  test("static property forms fix their arity (§6.3)", () => {
+    expect(classDiagnostics("        static get port(u: Url) ->! Int\n")).toEqual([
+      "a static property read takes no parameters; write `static get port() ->! Int`",
+    ]);
+    expect(classDiagnostics("        static set port(u: Url, v: Int) ->! Unit\n")).toEqual([
+      "a static property write takes exactly the assigned value; write `static set port(value: Value) ->! Unit`",
+    ]);
+    expect(classDiagnostics("        static set port(v: Int) -> Unit\n")).toEqual([
+      "an extern `set` grants write capability, and a write to foreign state is an effect — " +
+      "its arrow is `->!`; write `static set port(…) ->! Unit`",
+    ]);
+  });
+
+  test("a class block holds members only, exported with the class (§6.1, §7)", () => {
+    expect(classDiagnostics("        fun f(x: Int) ->! Int\n")).toEqual([
+      "extern class members are `new`, `method`, `get`, `set`, and their `static` forms; declare this at block level",
+    ]);
+    expect(classDiagnostics("        export method m(u: Url) ->! Int\n")).toEqual([
+      "`export class` exports every declared member; export the class, or declare the member at block level",
+    ]);
+    expect(classDiagnostics("        default method m(u: Url) ->! Int\n")).toEqual([
+      "`default` selects a foreign module's default export, and a member is not an export; drop `default`; " +
+      "to make the class the default export, write `default class`",
+    ]);
+  });
+
+  test("the header: no inheritance, no alias on a default class, an uppercase local type", () => {
+    expect(classDiagnostics("", "    class Dog extends Animal\n")).toEqual([
+      "Hexagon does not model foreign inheritance; declare the subclass as its own `extern class`",
+    ]);
+    expect(classDiagnostics("", "    default class Client as Local\n")).toEqual([
+      "`as` aliases a foreign export name; a `default class` has none — name the class directly: " +
+      "`default class Local`",
+    ]);
+    expect(classDiagnostics("", "    class url\n")).toEqual([
+      "foreign class `url` needs an uppercase-start local alias; write `class url as Url`",
+    ]);
+    expect(classDiagnostics("", "    class Box<a>\n")).toEqual([
+      "generic extern declarations are not part of Hexagon v1",
+    ]);
+  });
+
+  test("two classes of one module sharing a member name collide, with both rewrites (§8)", () => {
+    expect(diagnostics(
+      "    class URL as Url\n        method toString(u: Url) ->! String\n" +
+        "    class Path\n        method toString(p: Path) ->! String\n",
+      "",
+    )).toEqual([
+      "`toString` is already bound (line 5); members of the classes in one module are one module's " +
+      "bindings — alias one of them (`method toString as pathToString(...)`), or declare each class " +
+      "in its own binding module",
+    ]);
+  });
+});

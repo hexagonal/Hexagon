@@ -369,6 +369,21 @@ const PARAMETER_PLACEHOLDERS = ["x", "y", "z"] as const;
 const RECEIVER_MEMBER_KEYWORDS = ["method", "get", "set"] as const;
 type ReceiverMemberKeyword = (typeof RECEIVER_MEMBER_KEYWORDS)[number];
 
+/** An `extern class` block's context for one member row (FFI Part 5 §6, #982). */
+interface ExternClassContext {
+  readonly owner: Parsed.ExternTypeDeclaration;
+  readonly isStatic: boolean;
+  /** The header as written, for the diagnostics that quote it. */
+  readonly className: string;
+}
+
+/** An `extern class` lowered to its rows (§6.1): the type, then its members. */
+interface ExternClassRows {
+  readonly kind: "ExternClassRows";
+  readonly header: Parsed.ExternTypeDeclaration;
+  readonly members: readonly Parsed.ExternFunDeclaration[];
+}
+
 const RETIRED_SEAT_FOLLOWERS = new Set([
   "enum",
   "class",
@@ -2216,7 +2231,12 @@ class Parser {
       // documentable (§4.2). A form that failed to parse claims and drops its
       // block, like an `ErrorItem` does.
       if (declaration === undefined) this.#docs.discard(declarationStart);
-      else if (declaration.kind === "Union") {
+      else if (declaration.kind === "ExternClassRows") {
+        // FFI Part 5 §6.1: the class is its type row and its members' rows, flat
+        // in the block (§8); the members' documentation attached as they parsed.
+        declarations.push(declaration.header, ...declaration.members);
+        this.#docs.attach(declarationStart, declaration.header.span, [declaration.header.localName.span]);
+      } else if (declaration.kind === "Union") {
         // Foreign Enums §2.1's object-reading form is **hoisted out of the
         // block**: inside Hexagon it is an ordinary nominal union (§1, §4), and
         // the block's contribution to it — the specifier — is carried on
@@ -2263,7 +2283,7 @@ class Parser {
   #parseExternDeclaration(
     intrinsic: boolean,
     specifier: string,
-  ): Parsed.ExternDeclaration | Parsed.UnionItem | undefined {
+  ): Parsed.ExternDeclaration | Parsed.UnionItem | ExternClassRows | undefined {
     const start = this.#current();
     // The seat is anywhere in the head ahead of the keyword (§4.5): before or
     // after each leading modifier, and beside the other word. Scanned at each
@@ -2340,6 +2360,7 @@ class Parser {
     if (member !== undefined) {
       return this.#parseExternMember(member, start, exported, defaultBinding, retired);
     }
+    if (part5Class) return this.#parseExternClass(start, exported, defaultBinding);
     // `class` — FFI Part 5's opaque foreign class — keeps the refusal below, as
     // does every other word.
     if (kind !== "Fun" && kind !== "Let" && kind !== "Type" && !foreignEnum) {
@@ -2678,15 +2699,18 @@ class Parser {
     exported: boolean,
     defaultBinding: boolean,
     retired: RetiredExternClaim[],
+    inClass?: ExternClassContext,
   ): Parsed.ExternFunDeclaration | undefined {
     if (defaultBinding) {
       // §11: `default` names a module's default export, and a member is a
       // property of a receiver, not an export. Read on as the member it is.
       this.#errorAt(
         start.span,
-        "`default` selects a foreign module's default export, and a member is not an export; drop `default`",
+        "`default` selects a foreign module's default export, and a member is not an export; drop `default`" +
+          (inClass === undefined ? "" : "; to make the class the default export, write `default class`"),
       );
     }
+    const isStatic = inClass?.isStatic === true;
     this.#advance();
     // §2.4: the foreign side is a JavaScript property name, so a hard keyword
     // (`then`, `catch`, `match`) or the `_` token stands there as the name it
@@ -2751,10 +2775,26 @@ class Parser {
     const signature = this.#parseExternSignature(retired, localName, member);
     let { effect } = signature;
     const { parameters, arrowSpan, returnAnnotation } = signature;
-    const head = `${member} ${foreignText}${aliased ? ` as ${localName.text}` : ""}`;
+    const head = `${isStatic ? "static " : ""}${member} ${foreignText}${
+      aliased ? ` as ${localName.text}` : ""
+    }`;
     const result = this.#writtenAnnotation(returnAnnotation) ?? "Result";
-    // §5: the subject is explicit and first; Hexagon has no receiver to supply.
-    if (parameters.length === 0) {
+    if (isStatic) {
+      // §6.3: a static member's receiver is the constructor object, fixed, so
+      // the subject parameter is dropped; the property forms keep their arity.
+      if (member === "get" && parameters.length > 0) {
+        this.#errorAt(
+          parameters[0]!.span,
+          `a static property read takes no parameters; write \`${head}() ->! ${result}\``,
+        );
+      } else if (member === "set" && parameters.length !== 1) {
+        this.#errorAt(
+          (parameters[1] ?? { span: localName.span }).span,
+          `a static property write takes exactly the assigned value; write \`${head}(value: Value) ->! Unit\``,
+        );
+      }
+    } else if (parameters.length === 0) {
+      // §5: the subject is explicit and first; Hexagon has no receiver to supply.
       this.#errorAt(
         localName.span,
         `an extern \`${member}\` takes its receiver as an explicit first parameter; write \`${head}(${
@@ -2802,11 +2842,240 @@ class Parser {
       foreignName,
       localName,
       convention: member,
+      ...(isStatic ? { static: true as const } : {}),
+      ...(inClass === undefined ? {} : { owner: inClass.owner }),
       parameters,
       ...(effect === undefined ? {} : { effect }),
       ...(arrowSpan === undefined ? {} : { arrowSpan }),
       returnAnnotation,
       span: spanFrom(start.span, returnAnnotation.span),
+    };
+  }
+
+  /**
+   * FFI Part 5 §6's `extern class` (#982): a header naming an opaque foreign
+   * type, and an optional block of that class's members. Lowered here, as the
+   * spec lowers it — "an opaque foreign type plus ordinary companion functions"
+   * (§6.1) — into a `type` row carrying the class's linkage and one callable
+   * row per member, flat in the block: members are module-level bindings
+   * (§8), exported with the class and only with it (§7).
+   */
+  #parseExternClass(
+    start: LaidOut.Token,
+    exported: boolean,
+    defaultBinding: boolean,
+  ): ExternClassRows | undefined {
+    this.#advance();
+    const nameIndex = this.#index;
+    const nameToken = this.#takeAnyName("an extern `class` requires the foreign class's name");
+    if (nameToken === undefined) {
+      this.#synchronize(new Set(["VSep", "VClose", "Eof"]));
+      return undefined;
+    }
+    const first = parsedName(nameToken);
+    let foreignName: Parsed.Name | undefined = defaultBinding ? undefined : first;
+    let localName = first;
+    let aliased = false;
+    if (this.#atContextual("as")) {
+      const asToken = this.#advance();
+      const aliasToken = this.#takeAnyName("expected a local name after `as`");
+      if (defaultBinding) {
+        // §6.4, Part 4 §6's rule: a default export has no foreign name to alias.
+        this.#errorAt(
+          asToken.span,
+          "`as` aliases a foreign export name; a `default class` has none — name the class directly: " +
+            `\`default class ${aliasToken?.text ?? first.text}\``,
+        );
+        if (aliasToken !== undefined) localName = parsedName(aliasToken);
+      } else if (aliasToken !== undefined) {
+        localName = parsedName(aliasToken);
+        aliased = true;
+      }
+    }
+    if (!defaultBinding && first.text.startsWith("__")) {
+      this.#reservedNameExemptions.add(nameIndex);
+      if (!aliased) {
+        this.#errorAt(
+          first.span,
+          `foreign class \`${first.text}\` uses the reserved \`__\` prefix; bind it with an alias: ` +
+            `\`class ${first.text} as ${upperInitial(first.text.replace(/^_+/, ""))}\``,
+        );
+      }
+    } else if (localName.startClass !== "upper") {
+      this.#errorAt(
+        localName.span,
+        `foreign class \`${foreignName?.text ?? localName.text}\` needs an uppercase-start local alias; ` +
+          `write \`class ${foreignName?.text ?? localName.text} as ${upperInitial(localName.text)}\``,
+      );
+    }
+    if (this.#at("Less") || this.#at("LeftParen")) {
+      this.#errorAt(this.#current().span, "generic extern declarations are not part of Hexagon v1");
+      this.#synchronize(new Set(["VOpen", "VSep", "VClose", "Eof"]));
+    }
+    if (this.#atContextual("extends")) {
+      // §10: foreign inheritance is flattened by the binding author.
+      this.#errorAt(
+        this.#current().span,
+        "Hexagon does not model foreign inheritance; declare the subclass as its own `extern class`",
+      );
+      this.#synchronize(new Set(["VOpen", "VSep", "VClose", "Eof"]));
+    }
+    const header: Parsed.ExternTypeDeclaration = {
+      kind: "ExternType",
+      exported,
+      default: false,
+      ...(foreignName === undefined ? {} : { foreignName }),
+      localName,
+      foreignClass: { default: defaultBinding },
+      span: spanFrom(start.span, this.#previous().span),
+    };
+    const members: Parsed.ExternFunDeclaration[] = [];
+    if (!this.#at("VOpen")) return { kind: "ExternClassRows", header, members };
+    this.#advance();
+    this.#skipSeparators();
+    const className = foreignName === undefined || !aliased
+      ? `class ${localName.text}`
+      : `class ${foreignName.text} as ${localName.text}`;
+    while (!this.#at("VClose") && !this.#at("Eof")) {
+      const rowStart = this.#current();
+      const member = this.#parseExternClassMember(header, className, exported);
+      if (member === undefined) this.#docs.discard(rowStart.span.start.offset);
+      else {
+        members.push(member);
+        this.#docs.attach(rowStart.span.start.offset, member.span, [member.localName.span]);
+      }
+      if (this.#at("VSep") || this.#at("Semicolon")) this.#skipSeparators();
+      else if (!this.#at("VClose") && !this.#at("Eof")) {
+        this.#error("expected a newline or `;` between extern class members");
+        this.#synchronize(new Set(["VSep", "VClose", "Eof"]));
+        this.#skipSeparators();
+      }
+    }
+    this.#expect("VClose", "expected the extern class block to close");
+    return { kind: "ExternClassRows", header, members };
+  }
+
+  /** One row of an `extern class` block (§6): `new`, or a member, `static` or not. */
+  #parseExternClassMember(
+    owner: Parsed.ExternTypeDeclaration,
+    className: string,
+    exported: boolean,
+  ): Parsed.ExternFunDeclaration | undefined {
+    const start = this.#current();
+    const retired: RetiredExternClaim[] = [];
+    this.#scanRetiredExternClaims(retired);
+    if (this.#at("Export")) {
+      // §7: visibility is all-or-nothing per class.
+      this.#errorAt(
+        this.#current().span,
+        "`export class` exports every declared member; export the class, or declare the member at block level",
+      );
+      this.#advance();
+      this.#scanRetiredExternClaims(retired);
+    }
+    const defaultBinding = this.#atContextual("default");
+    if (defaultBinding) {
+      this.#advance();
+      this.#scanRetiredExternClaims(retired);
+    }
+    let isStatic = false;
+    if (this.#atContextual("static")) {
+      isStatic = true;
+      const staticToken = this.#advance();
+      this.#scanRetiredExternClaims(retired);
+      if (this.#atContextual("new")) {
+        // §6.2: the constructor is already the class's own operation.
+        this.#errorAt(
+          staticToken.span,
+          `a constructor is already the class's own operation; drop \`static\`: \`new as create(...) -> ${owner.localName.text}\``,
+        );
+        isStatic = false;
+      }
+    }
+    if (this.#atContextual("new")) {
+      if (defaultBinding) {
+        this.#errorAt(
+          start.span,
+          "`default` selects a foreign module's default export, and a member is not an export; drop `default`; " +
+            "to make the class the default export, write `default class`",
+        );
+      }
+      return this.#parseExternConstructor(owner, exported, retired);
+    }
+    const member = RECEIVER_MEMBER_KEYWORDS.find((word) => this.#atContextual(word));
+    if (member !== undefined) {
+      return this.#parseExternMember(member, start, exported, defaultBinding, retired, {
+        owner,
+        isStatic,
+        className,
+      });
+    }
+    this.#reportRetiredExternClaims(retired, "callable", "unstated");
+    this.#errorAt(
+      this.#current().span,
+      "extern class members are `new`, `method`, `get`, `set`, and their `static` forms; declare this at block level",
+    );
+    this.#synchronize(new Set(["VSep", "VClose", "Eof"]));
+    return undefined;
+  }
+
+  /**
+   * §6.2's `new as create(...) -> Url`: the constructor, bound under the local
+   * name `as` gives it — `new` itself names an operation, not a binding.
+   */
+  #parseExternConstructor(
+    owner: Parsed.ExternTypeDeclaration,
+    exported: boolean,
+    retired: RetiredExternClaim[],
+  ): Parsed.ExternFunDeclaration | undefined {
+    const start = this.#advance();
+    const type = owner.localName.text;
+    let localName: Parsed.Name;
+    if (this.#atContextual("as")) {
+      this.#advance();
+      const aliasToken = this.#takeAnyName("expected the constructor's local name after `as`");
+      if (aliasToken === undefined) {
+        this.#synchronize(new Set(["VSep", "VClose", "Eof"]));
+        return undefined;
+      }
+      localName = parsedName(aliasToken);
+      if (localName.startClass !== "non-upper") {
+        this.#errorAt(
+          localName.span,
+          `\`${localName.text}\` is not a legal Hexagon term name; write \`new as ${lowerInitial(localName.text)}(...)\``,
+        );
+      }
+    } else {
+      this.#errorAt(
+        start.span,
+        `name the companion constructor: \`new as create(...) -> ${type}\``,
+      );
+      localName = { text: "create", startClass: "non-upper", span: start.span };
+    }
+    if (this.#at("Less")) {
+      this.#errorAt(this.#current().span, "generic extern declarations are not part of Hexagon v1");
+      this.#parseTypeParameters();
+    }
+    const signature = this.#parseExternSignature(
+      retired,
+      localName,
+      "new",
+      `\`new\` constructs \`${type}\`; write \`new as ${localName.text}(…) ->! ${type}\` ` +
+        "(`->` only where construction touches nothing)",
+    );
+    this.#rejectExternBody();
+    return {
+      kind: "ExternFun",
+      exported,
+      default: false,
+      localName,
+      convention: "new",
+      owner,
+      parameters: signature.parameters,
+      ...(signature.effect === undefined ? {} : { effect: signature.effect }),
+      ...(signature.arrowSpan === undefined ? {} : { arrowSpan: signature.arrowSpan }),
+      returnAnnotation: signature.returnAnnotation,
+      span: spanFrom(start.span, signature.returnAnnotation.span),
     };
   }
 
@@ -2819,7 +3088,9 @@ class Parser {
   #parseExternSignature(
     retired: readonly RetiredExternClaim[],
     localName: Parsed.Name,
-    member?: ReceiverMemberKeyword,
+    member?: ReceiverMemberKeyword | "new",
+    // A row with its own sentence for a missing arrow: §6.2's `new`.
+    missingResult?: string,
   ): {
     readonly parameters: readonly Parsed.Parameter[];
     readonly missingParameterList: boolean;
@@ -2905,7 +3176,7 @@ class Parser {
         arrowSpan = redirected.span;
         if (redirected.effect === "linked") effect = "linked";
       } else {
-        this.#errorAt(separator.span, EXTERN_MISSING_RESULT);
+        this.#errorAt(separator.span, missingResult ?? EXTERN_MISSING_RESULT);
         missingArrow = true;
       }
     } else {

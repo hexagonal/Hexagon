@@ -4393,6 +4393,40 @@ class Checker {
           return type;
         });
         const externResult = this.#annotationType(declaration.returnAnnotation);
+        // FFI Part 5 §5 and §6.2: inside an `extern class`, an instance member's
+        // subject is the class's own type, and a constructor builds exactly it.
+        // Compared as types, so a transparent alias of the class is the class.
+        if (declaration.ownerClass !== undefined) {
+          const owner = module.externTypes.find(({ externType }) => externType === declaration.ownerClass);
+          const type = owner?.localName ?? "the class";
+          const isClass = (mono: Mono | undefined): boolean => {
+            const pruned = mono === undefined ? undefined : this.#prune(mono);
+            return pruned === undefined || pruned.kind === "Error" ||
+              (pruned.kind === "ExternType" && pruned.externType === declaration.ownerClass);
+          };
+          if (declaration.convention === "new") {
+            if (!isClass(externResult)) {
+              this.#diagnostics.add({
+                severity: "error",
+                message: `\`new\` constructs \`${type}\`; write \`new as ${declaration.localName}(…) ->! ${type}\` ` +
+                  "(`->` only where construction touches nothing)",
+                primary: declaration.returnAnnotation.span,
+              });
+            }
+          } else if (declaration.static !== true && parameters.length > 0 && !isClass(parameters[0])) {
+            const header = owner === undefined
+              ? `class ${type}`
+              : owner.foreignName === undefined || owner.foreignName === owner.localName
+              ? `class ${owner.localName}`
+              : `class ${owner.foreignName} as ${owner.localName}`;
+            this.#diagnostics.add({
+              severity: "error",
+              message: `instance members of \`${header}\` take \`${type}\` as their first parameter; ` +
+                "declare this member at block level if it targets another type",
+              primary: declaration.parameters[0]!.annotation?.span ?? declaration.span,
+            });
+          }
+        }
         // FFI Part 5 §4.1: a `set` returns `Unit`, whatever the JavaScript
         // assignment expression yields — the honest-`Unit` doctrine. Compared as
         // a type, so a transparent alias of `Unit` is `Unit`.
@@ -24913,6 +24947,8 @@ class Checker {
             ...(declaration.foreignName === undefined ? {} : { foreignName: declaration.foreignName }),
             localName: declaration.localName,
             ...(declaration.convention === undefined ? {} : { convention: declaration.convention }),
+            ...(declaration.static === true ? { static: true as const } : {}),
+            ...(declaration.ownerClass === undefined ? {} : { ownerClass: declaration.ownerClass }),
             binding,
             parameters: declaration.parameters.map((parameter, index) => ({
               ...parameter,

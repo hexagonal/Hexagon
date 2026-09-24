@@ -1117,12 +1117,13 @@ describe("diagnostics (§2.1, §2.2, §9 test 11)", () => {
   });
 
   /**
-   * FFI Part 5's `extern class` is not this issue's, and its refusal stands
-   * unchanged: `enum` is the only word the gate learned.
+   * `enum` and `class` are both foreign-description words the gate reads, and
+   * they stay apart: FFI Part 5's `extern class` (#982) is an opaque type with
+   * members, never an enum, and a memberless one is complete.
    */
-  test("`class` keeps its refusal", () => {
+  test("`class` is Part 5's form, not an enum", () => {
     expect(projectDiagnostics("module Main\n\n" + 'extern from "d"\n    class Widget\n'))
-      .toEqual(["extern `class` declarations belong to a later FFI slice"]);
+      .toEqual([]);
   });
 
   /**
