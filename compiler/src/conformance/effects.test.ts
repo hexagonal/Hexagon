@@ -549,12 +549,11 @@ export let impureUse(): Int = Maker.mk()!((n) =>
   });
 
   it("emits the face into the declaration file", () => {
-    // Two variables, numbered: the signature's own (the spine's) and `mk`'s
-    // outer colour, which the header form does not spell and which an
-    // inlet-bearing body does not default (§3.4). The same shape `store`'s face
-    // has displayed since #364.
+    // One variable, the spine's: `mk`'s own outer colour is unconstrained, and
+    // it defaults pure whatever the inlets (§3.4, #868) — so nothing is
+    // numbered and the face writes back as it reads.
     expect(declarationsOf([["/main.hex", "module Main\n\n" + mk]])).toContain(
-      "Hexagon: `() ->?¹ (Int ->?² Int) ->?² Int`",
+      "Hexagon: `() -> (Int ->? Int) ->? Int`",
     );
   });
 
@@ -876,24 +875,33 @@ export let z: Int = 1
     ]);
   });
 
-  it("suppresses the constantified-face report when a recovery pins the colour", () => {
-    // The fourth: a recovered arrow travelling into a linked parameter unifies
-    // the *signature's* variable with the recovery, and §4.2 would then condemn
-    // a face for a colour the writer never wrote. (The `?` on `mkBad` is an
-    // ordinary conservative mark, §3.4's, and stands on its own.)
+  it("reports no constantified face for the recovery, only the pin the body made", () => {
+    // The fourth: a recovered arrow binds nothing it meets (§4.4), so it cannot
+    // be what reaches `g`'s linked parameter. What does reach it is the
+    // returned lambda's own colour — pure, because a function's colour is what
+    // its body does (§2.6, #947) — and handing a pure function where the
+    // monomorphic `->?` stands is §4.2's pure-direction pin. That report owes
+    // nothing to the recovery: the control below draws it with no refused
+    // annotation anywhere. `mkBad()` itself is bare (§3.4, #868).
+    const pin = "this signature's `->?` promises a colour the caller chooses, but the " +
+      "body solves it to the pure constant — the honest face is `->`";
     expect(
       effectDiagnostics([["/main.hex", "module Main\n\n" + `export let f(g: (() ->? String) -> String): String =
     let mkBad = (): (() ->? String) => (): String => "x"
     g(mkBad())
 `]]),
     ).toEqual([
+      pin,
       "`->?` is the caller's colour, and this position has no caller to choose it — " +
       "nothing a caller of this signature supplies carries `->?`, so nothing " +
       "instantiates it; " +
       "write `->!` for a function that pulls the world, or `->` for one that does not",
-      "this call is as effectful as the enclosing instantiation makes it, so " +
-      "`mkBad` wants `?`, not no mark",
     ]);
+    expect(
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `export let f(g: (() ->? String) -> String): String =
+    g((): String => "x")
+`]]),
+    ).toEqual([pin]);
   });
 });
 
@@ -2105,17 +2113,27 @@ let store(callback: () ->? String): Int = 1
 let stored = pick(store)
 `;
 
-  it("generalizes a computed binding's own colour", () => {
-    // `stored`'s right-hand side is an application, so the value restriction
-    // applies and item 7 decides. Its own outer colour occurs only at the root —
-    // covariant-only — so the two faces below are two instantiations, not a
-    // contradiction.
+  it("finds no own colour left to generalize: `store`'s is pure before `pick` sees it", () => {
+    // Before #868 `store`'s outer colour stayed a variable, occurring only at
+    // the root, and item 7 generalized it at `stored` — two faces, two
+    // instantiations. §3.4 now defaults it pure before `store` generalizes, so
+    // there is no variable to generalize: the pure face is accepted and the
+    // `->!` one is the reverse demand's refusal (§4.3).
     expect(
       effectDiagnostics([["/main.hex", "module Main\n\n" + `${inletFace}
 export let asPure: ((() -> String) -> Int) = stored
-export let asImpure: ((() -> String) ->! Int) = stored
 `]]),
     ).toEqual([]);
+    expect(
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `${inletFace}
+export let asImpure: ((() -> String) ->! Int) = stored
+`]]),
+    ).toEqual([
+      "this position's arrow is the impure constant — its colour is fixed where the " +
+      "type is declared, and this function's face is the pure `->`; the demand cannot " +
+      "weaken — change the position's declared arrow, or supply the effectful function " +
+      "the position promises",
+    ]);
   });
 
   it("still refuses to weaken the callback's colour, which is not covariant-only", () => {
@@ -2241,13 +2259,28 @@ export let withTransaction: ((String ->? String) ->! String) = (run: String ->? 
 export let clean(document: String): String = trim(document)
 `;
 
-  it("numbers the headline probe's distinct colours", () => {
-    // §10's own specimen. `compose`'s parameters share one variable and its own
-    // colour is a second, unconstrained one (§3.4's third arm) — so the face is
-    // *not* the one the written `(String ->? String, String ->? String) => …`
-    // would mean, and the numbers are what say so.
+  /** Two colours no written signature spells — module-private, as it must be. */
+  const stagedSource = `let staged(first: String ->? String) =
+    (second: String ->? String): String => second?("x")
+`;
+
+  it("leaves `compose` with one colour, undecorated (#868)", () => {
+    // The headline probe before #868: `compose`'s own colour was a second,
+    // unconstrained variable and the face was numbered. Its body is neither a
+    // source nor a conduit, so that colour now defaults pure (§3.4's third arm),
+    // and the one variable left displays plainly.
     expect(hoveredType(composeSource, "compose")).toBe(
-      "(String ->?¹ String, String ->?¹ String) ->?² String ->?¹ String",
+      "(String ->? String, String ->? String) -> String ->? String",
+    );
+  });
+
+  it("numbers a face that genuinely carries two colours", () => {
+    // `staged` takes a callback it never calls — its own variable, generalized
+    // — and returns a lambda that owns a second through its own inlet (§2.2.2)
+    // and conducts it. Two variables no one written signature can spell, so the
+    // display numbers them (§10).
+    expect(hoveredType(stagedSource, "staged")).toBe(
+      "(String ->?¹ String) -> (String ->?² String) ->?² String",
     );
   });
 
@@ -2331,7 +2364,7 @@ export let hold(f: (() -> String) ->? Int): Int = f?(make)
 export let hold(step: () ->? Int, value: a): a = value
 `;
     expect(hoveredType(source, "hold")).toBe(
-      "(() ->?¹ Int, a) ->?² a",
+      "(() ->? Int, a) -> a",
     );
   });
 
@@ -2347,7 +2380,7 @@ export let compose(first: String ->? String, second: String ->? String): (String
 `]],
     );
     expect(emitted).toContain(
-      " * Hexagon: `(String ->?¹ String, String ->?¹ String) ->?² String ->?¹ String`",
+      " * Hexagon: `(String ->? String, String ->? String) -> String ->? String`",
     );
     expect(emitted).toContain(" * Runs both, in order.");
     // The colours erase (§8), so they take no TypeScript quantifier with them:
@@ -2371,12 +2404,12 @@ export let compose(first: String ->? String, second: String ->? String): (String
     // the type, and an unnumbered face in a report would be the same ambiguity
     // in the one place a reader is already confused.
     expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `${composeSource}
-export let wrong: Int = compose
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `${stagedSource}
+export let wrong: Int = staged
 `]]),
     ).toEqual([
       "type mismatch: expected Int, found " +
-      "((String) ->?¹ String, (String) ->?¹ String) ->?² (String) ->?¹ String",
+      "((String) ->?¹ String) -> ((String) ->?² String) ->?² String",
     ]);
   });
 
@@ -2524,5 +2557,159 @@ export let bad: Seq(String) = Seq.unfold("x", (seed) =>
       "a `->` arrow promises purity, and this function performs effects — the " +
       "demand is written `->`, the function's face `->?` or `->!`",
     ]);
+  });
+});
+
+/**
+ * **#868, implemented by #947** — an unconstrained own colour defaults pure
+ * before generalization whatever the inlets, knot colours and obligations
+ * settle at the knot's close, and a function's colour is what its body does
+ * (Effects §2.6, §3.3, §3.4, §4.1, §4.2, §11).
+ */
+describe("#947 closure construction stays pure, and knots settle at their close", () => {
+  const check = (source: string): readonly string[] =>
+    effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + world + source]]);
+  const hover = (source: string, needle: string): string | undefined =>
+    hoveredType("module Main\n\n" + world + source, needle);
+  const wantsQuestion = (callee: string): string =>
+    `this call is as effectful as the enclosing instantiation makes it, so \`${callee}\` wants \`?\`, not no mark`;
+  const wantsBare = (callee: string, mark: string): string =>
+    `this call is pure, so \`${callee}\` wants no mark, not \`${mark}\``;
+
+  it("defaults `store`'s outer colour pure and keeps the parameter's variable", () => {
+    const source = "let store(callback: () ->? String): Int = 1\n" +
+      "export let keep(callback: () ->? String): Int = store(callback)\n";
+    expect(hover(source, "store(")).toBe("(() ->? String) -> Int");
+    expect(check(source)).toEqual([]);
+  });
+
+  it("builds `defer`'s closure purely, with or without a written return", () => {
+    for (const header of ["let defer(action: () ->? Unit)", "let defer(action: () ->? Unit): (() ->? Unit)"]) {
+      const source = `${header} = () => action?()
+export let useDefer(action: () ->? Unit): (() ->? Unit) = defer(action)
+`;
+      expect(hover(source, "defer(")).toBe("(() ->? Unit) -> () ->? Unit");
+      expect(check(source)).toEqual([]);
+      expect(check(source.replace("= defer(action)", "= defer?(action)"))).toEqual([wantsBare("defer", "?")]);
+    }
+  });
+
+  it("takes a pure local's call bare in an inlet-bearing body (#890)", () => {
+    const source = `export let outer(a: () ->? Unit, b: () -> Unit): Unit =
+    let f = () => b()
+    let g = (x: Int) => x + 1
+    let n = g(1)
+    f()
+    a?()
+`;
+    expect(check(source)).toEqual([]);
+    expect(hover(source, "g =")).toBe("Int -> Int");
+    expect(hover(source, "outer")).toBe("(() ->? Unit, () -> Unit) ->? Unit");
+  });
+
+  it("leaves a pure lambda handed to a conduit pure beside the enclosing callback", () => {
+    // `applyTo` is a conduit; the lambda it is handed is pure by its body, so
+    // the call is bare even beside `cb?()` — the conservative-conduct rule
+    // would have read it as conducting `cb`'s colour (§11).
+    const source = `let applyTo(value: Int, step: Int ->? Int): Int = step?(value)
+export let total(value: Int, cb: () ->? Unit): Int =
+    cb?()
+    applyTo(value, (n) => n + 1)
+`;
+    expect(check(source)).toEqual([]);
+  });
+
+  describe("a `fun` knot settles at its close", () => {
+    const twoMember = `fun
+    a(cb: () ->? Unit): Int = b(cb)
+    b(cb: () ->? Unit): Int = if True then 1 else a(cb)
+`;
+
+    it("gives two siblings that perform nothing two bare calls and two pure faces", () => {
+      expect(check(twoMember)).toEqual([]);
+      expect(hover(twoMember, "a(cb")).toBe("(() ->? Unit) -> Int");
+      expect(hover(twoMember, "b(cb")).toBe("(() ->? Unit) -> Int");
+      expect(check(twoMember.replace("= b(cb)", "= b?(cb)"))).toEqual([wantsBare("b", "?")]);
+    });
+
+    it("conducts through `even`/`odd`, and through a member that only calls the sibling that does", () => {
+      const evenOdd = `fun
+    even(n: Int, cb: () ->? Unit): Unit = if n == 0 then cb?() else odd?(n - 1, cb)
+    odd(n: Int, cb: () ->? Unit): Unit = if n == 0 then () else even?(n - 1, cb)
+`;
+      expect(check(evenOdd)).toEqual([]);
+      expect(hover(evenOdd, "odd(n")).toBe("(Int, () ->? Unit) ->? Unit");
+      expect(check(evenOdd.replace("else even?(", "else even("))).toEqual([wantsQuestion("even")]);
+    });
+
+    it("makes every caller of a source a source, whichever member closes first", () => {
+      for (const members of [
+        ["    a(cb: () ->? Unit): Unit =\n        cb?()\n        b!()\n",
+          "    b(): Unit =\n        let unused = a\n        save!(\"x\")\n"],
+        ["    b(): Unit =\n        let unused = a\n        save!(\"x\")\n",
+          "    a(cb: () ->? Unit): Unit =\n        cb?()\n        b!()\n"],
+      ]) {
+        const knot = `fun\n${members.join("")}`;
+        expect(check(knot)).toEqual([]);
+        expect(hover(knot, "a(cb")).toBe("(() ->? Unit) ->! Unit");
+        expect(hover(knot, "b()")).toBe("() ->! Unit");
+        expect(check(knot.replace("b!()", "b()"))).toEqual([
+          "this call runs effects, so `b` wants `!`, not no mark",
+        ]);
+      }
+    });
+
+    it("captures an enclosing signature's colour in a nested knot", () => {
+      const source = `export let outer(action: () ->? Unit): Int =
+    fun
+        b(n: Int): Int =
+            action?()
+            n
+        a(n: Int): Int = if n == 0 then b?(0) else a?(n - 1)
+    a?(3)
+`;
+      expect(check(source)).toEqual([]);
+      expect(hover(source, "a(n")).toBe("Int ->? Int");
+    });
+  });
+
+  describe("a function's colour is what its body does (§2.6)", () => {
+    it("pins a monomorphic `->?` with a pure lambda, and takes the written face as the repair", () => {
+      const both = "let both(first: () ->? Unit, second: () ->? Unit): Int = 1\n";
+      expect(check(`${both}export let useBoth(cb: () ->? Unit): Int = both(cb, () => ())\n`)).toEqual([
+        "this signature's `->?` promises a colour the caller chooses, but the body " +
+        "solves it to the pure constant — the honest face is `->`",
+      ]);
+      expect(check(`${both}export let useBoth(cb: () ->? Unit): Int =
+    let noop: () ->? Unit = () => ()
+    both(cb, noop)
+`)).toEqual([]);
+      const orNoop = `export let orNoop(flag: Bool, cb: () ->? Unit): (() ->? Unit) =
+    let noop: () ->? Unit = () => ()
+    if flag then cb else noop
+`;
+      expect(check(orNoop)).toEqual([]);
+      expect(hover(orNoop, "orNoop")).toBe("(Bool, () ->? Unit) -> () ->? Unit");
+    });
+
+    it("refuses a pure lambda where a `->!` field is demanded", () => {
+      expect(check(`export record Source = { step: () ->! String }
+export let quiet: Source = Source({ step = () => "x" })
+`)).toEqual([
+        "this position's arrow is the impure constant — its colour is fixed where the " +
+        "type is declared, and this function's face is the pure `->`; the demand cannot " +
+        "weaken — change the position's declared arrow, or supply the effectful function " +
+        "the position promises",
+      ]);
+    });
+
+    it("advises `->` for a `->!` face over a body that performs nothing (§4.2)", () => {
+      const source = "let f: (() ->! Int) = () => 1\n";
+      expect(check(source)).toEqual([
+        "this face is the impure constant `->!`, but the body performs no effect — its face is `->`",
+      ]);
+      expect(effectFixes([["/world.js", ""], ["/main.hex", "module Main\n\n" + world + source]]))
+        .toEqual(['write `->`: "->"']);
+    });
   });
 });

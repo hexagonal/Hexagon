@@ -2490,39 +2490,31 @@ describe("Effects §13.2: a failed seat's suppression, and the conflict's two ti
   });
 
   test("and under a linked header the seat's answer is the answer outside one", () => {
-    // The same two locals under a `->?` outer arrow. The seat accepts them, and
-    // the mark the inlet demands of `spare()` is **#890**'s — a pre-existing
-    // #868 gap that reproduces with no constraint in sight, so the pin here is
-    // the equivalence: inside a seat, a named local function is answered
-    // exactly as it is outside one.
+    // The same two locals under a `->?` outer arrow. `spare` is neither a
+    // source nor a conduit, so its colour defaults pure whatever the inlets
+    // (§3.4, #868 — #890's repro): its call is bare, inside the seat exactly as
+    // outside one, and a `?` on it is a mark on a pure call.
     const LINKED_ONLY = "constraint C<r> =\n    go(runner: r, a: () ->? Unit) ->? Unit\n";
-    expect(messages(BODY(LINKED_ONLY, "runner, a", [
-      "let spare(): Unit = ()",
-      "spare?()",
-      "a?()",
-    ]))).toEqual([]);
-    expect(messages(BODY(LINKED_ONLY, "runner, a", [
-      "fun spare(): Unit = ()",
-      "spare?()",
-      "a?()",
-    ]))).toEqual([]);
-    // Bare, the seat says what the constraint-free program says, word for word.
+    for (const keyword of ["let", "fun"]) {
+      expect(messages(BODY(LINKED_ONLY, "runner, a", [
+        `${keyword} spare(): Unit = ()`,
+        "spare()",
+        "a?()",
+      ]))).toEqual([]);
+    }
     const inSeat = messages(BODY(LINKED_ONLY, "runner, a", [
       "let spare(): Unit = ()",
-      "spare()",
+      "spare?()",
       "a?()",
     ]));
     const outside = messages(
       "let outer(a: () ->? Unit): Unit =\n" +
       "    let spare(): Unit = ()\n" +
-      "    spare()\n" +
+      "    spare?()\n" +
       "    a?()\n",
     );
     expect(inSeat).toEqual(outside);
-    expect(inSeat).toEqual([
-      "this call is as effectful as the enclosing instantiation makes it, so " +
-      "`spare` wants `?`, not no mark",
-    ]);
+    expect(inSeat).toEqual(["this call is pure, so `spare` wants no mark, not `?`"]);
   });
 });
 

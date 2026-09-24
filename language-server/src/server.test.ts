@@ -1584,6 +1584,9 @@ describe("hover renders the arrow trio", () => {
     "",
     "export let twice(step: Int -> Int, value: Int): Int = step(step(value))",
     "",
+    "let staged(first: String ->? String) =",
+    "    (second: String ->? String): String => second?(\"x\")",
+    "",
     "extern from \"./world.js\"",
     "    export fun runner(step: () ->? String) ->? Int",
     "",
@@ -1629,15 +1632,20 @@ describe("hover renders the arrow trio", () => {
   });
 
   test("a face with two colours arrives numbered", async () => {
-    // Effects §10's own specimen, and the one case that is still numbered
-    // after #405: `compose`'s parameters share one variable and its own colour
-    // is a second, unconstrained one. Two distinct colours is what the written
-    // grammar cannot spell — it links every `->?` in a signature into one — so
-    // the numbers are what say so. They are display-only: pasted back into
-    // source they fail at the lexer, which is the point of numbering rather
-    // than normalizing.
+    // `staged` keeps a callback it never calls — its own variable — and returns
+    // a lambda that owns a second through its own inlet. Two distinct colours
+    // is what the written grammar cannot spell — it links every `->?` in a
+    // signature into one — so the numbers are what say so (Effects §10). They
+    // are display-only: pasted back into source they fail at the lexer, which
+    // is the point of numbering rather than normalizing.
+    expect(await hovered("staged")).toBe(
+      "value `staged: (String ->?¹ String) -> (String ->?² String) ->?² String`",
+    );
+  });
+
+  test("a closure builder's own arrow is pure, its one colour plain (#868)", async () => {
     expect(await hovered("compose")).toBe(
-      "value `compose: (String ->?¹ String, String ->?¹ String) ->?² String ->?¹ String`",
+      "value `compose: (String ->? String, String ->? String) -> String ->? String`",
     );
   });
 

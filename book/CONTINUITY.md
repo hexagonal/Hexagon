@@ -941,6 +941,10 @@ late pedagogy pass, not a commitment to the current order.
   at that call. Marks are written glued.
 - Every `->?` in one signature is one linked effect variable; a `->?` needs an inlet
   and is an error where nothing can link to it — never a silent re-reading.
+- A function's colour is what its body does, lambdas included, decided before
+  anything it meets: a closure builder such as `defer` is pure (`->`) and its call
+  bare; a pure lambda at a `->!` field is refused; a do-nothing function meant to
+  carry the caller's colour writes a `->?` face (`let noop: () ->? Unit = () => ()`).
 - Colour scope is lexical: a helper nested in a body (a `fun`, a local `let`, a lambda,
   a nested `fun` block) conducts a captured callback's colour with `?` and never
   generalizes it; pinning the helper pins the enclosing callback, reported at the pin.
