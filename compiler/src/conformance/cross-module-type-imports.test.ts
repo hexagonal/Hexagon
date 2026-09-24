@@ -45,9 +45,6 @@ function declarationSet(
   compiled: ReturnType<typeof project>,
 ): Record<string, string> {
   const files: Record<string, string> = {};
-  for (const data of compiled.dataUnits) {
-    files[data.path.replace(/^\//u, "").replace(/\.hex$/u, ".d.ts")] = data.declarations.text;
-  }
   for (const module of compiled.modules) {
     const name = module.path.replace(/^\//u, "").replace(/\.hex$/u, ".d.ts");
     files[name] = module.declarations.text;
@@ -67,9 +64,7 @@ describe("prelude-supplied types are imported by the faces that reach them", () 
     const compiled = project([["/main.hex", "module Main\n\n" + "export let e: Seq(Int) = Seq.empty\n"]]);
     const files = declarationSet(compiled);
 
-    expect(files["Hex/Seq.d.ts"]).toContain(
-      'import type { Option } from "../.hex-data/Hex/Option/Option.4f-70-74-69-6f-6e.js";',
-    );
+    expect(files["Hex/Seq.d.ts"]).toContain('import type { Option } from "./Option.js";');
     expect(await typeScriptErrors(files)).toEqual([]);
   });
 

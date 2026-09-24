@@ -1,24 +1,23 @@
-# Bitwise logic keywords and named shifts — proposal
+# Bitwise operations and non-decimal literals — proposal
 
-**Status:** Proposed, non-normative; 2026-09-23. This note records James's
-agreed hybrid design: the six-member `Bitwise` constraint, `AND`/`OR`/`XOR`/`NOT`
-keywords, named shifts, and widened BigInt shift implementations. This revision
-supersedes the earlier seven-keyword candidate. It remains in `spec/notes` for
-further review, including feedback from other AIs; it does not authorize
-implementation or amend the normative operator inventory.
+**Status:** Accepted design. Promotion into the normative specs waits only on
+the constraint-effects implementation (the dependency below); until then this note
+does not amend the operator inventory, lexer, or primitive types. §8 lists what
+promotion changes.
 
 **Dependency:** Complete and verify the constraint-effects work before promoting
 this proposal, to avoid designing against drifting contracts. Constraint members
-state their effects explicitly; instance and `widens` bodies infer their effects
-and must satisfy the member contracts. See the
-[effect-contract proposal](constraint-effects-proposal-fable-2026-09.md) and its
-promotion record, and [Effects §13](../effects.md). Normative adoption of that
-work is not by itself evidence that its implementation is complete.
+state their effects explicitly; instance bodies infer their effects and must
+satisfy the member contracts. See the
+[effect-contract proposal](constraint-effects-proposal-fable-2026-09.md) and
+[Effects §13](../effects.md). Normative adoption of that work is not by itself
+evidence that its implementation is complete.
 
-## 1. Intended surface
+**Lineage, in one line:** Erlang's words, Lean's precedence, Gleam's semantics.
 
-Provide the basic bitwise operations for `Int` and `BigInt`, with behaviour
-targeted at their JavaScript representations. Six operations share a constraint:
+## 1. Surface
+
+Six operations share one constraint:
 
 ```hex
 constraint Bitwise<a> =
@@ -30,293 +29,334 @@ constraint Bitwise<a> =
     shiftRight(value: a, count: Int) -> a
 ```
 
-The arrows express pure contracts. This is the supplied design with `: a`
-member result headers updated to the explicit constraint-effect syntax. It
-adds no superclass requirement: arithmetic, ordering, and hashing are not
-prerequisites for using these operations.
+The arrows are pure contracts. There is no superclass: arithmetic, ordering, and
+hashing are not prerequisites.
 
-The proposed standard instance inventory is exactly `Int` and `BigInt`.
-There is no `Nat`, `Float`, `Bool`, or collection instance. Whether to prohibit
-third-party instances is a separate adoption question (§7): limiting the
-standard inventory does not automatically seal an ordinary constraint.
+The instance inventory is exactly `Int` and `BigInt`, and the constraint is
+**sealed** (§6.2). There is no `Nat` instance — `bitNot` of a natural number is
+negative, so `Nat` cannot honor the constraint whole — and no `Float`, `Bool`, or
+collection instance.
 
-The proposed operator family has exactly four spellings:
+Four operator spellings elaborate to the members, per
+[Operators §1.1](../operators-logic-precedence.md):
 
-| Spelling | Form | Meaning |
+| Spelling | Form | Elaborates to |
 |---|---|---|
-| `AND` | binary infix | `Bitwise.bitAnd(left, right)` |
-| `OR` | binary infix | `Bitwise.bitOr(left, right)` |
-| `XOR` | binary infix | `Bitwise.bitXor(left, right)` |
-| `NOT` | unary prefix | `Bitwise.bitNot(value)` |
+| `band` | binary infix | `Bitwise.bitAnd(left, right)` |
+| `bor` | binary infix | `Bitwise.bitOr(left, right)` |
+| `bxor` | binary infix | `Bitwise.bitXor(left, right)` |
+| `bnot` | unary prefix | `Bitwise.bitNot(value)` |
 
-Operators elaborate to their named constraint members. These are equivalent
-spellings selecting the same instance:
+These spellings select the same instance and must agree in behaviour:
 
 ```hex
-left AND right
+left band right
 Bitwise.bitAnd(left, right)
 left.bitAnd(right)
 ```
 
-`OR`, `XOR`, and prefix `NOT` have the corresponding member-call equivalence.
-The member defines the operation; operator syntax provides a spelling for it.
-This follows [Operators §1.1](../operators-logic-precedence.md), without adding
-user-defined operators or reusing lowercase Bool operators by operand type.
+Shifts are named operations only — `value.shiftLeft(count)`,
+`value.shiftRight(count)`, and the qualified `Int.shiftLeft` / `BigInt.shiftRight`
+forms. There are no shift keywords (Erlang's `bsl`/`bsr` are not adopted) and no
+unsigned right shift: "unsigned" means something only at a fixed width, and §3.3
+names that width where a program wants it.
 
-Shifts use named operations only:
+Rotations, population count, leading/trailing-zero counts, bit testing, and 32-bit
+multiplication (JavaScript's `Math.imul`) are outside this proposal.
 
 ```hex
-value.shiftLeft(count)
-value.shiftRight(count)
-value.unsignedShiftRight(count)   // Int only
+let selected = flags band mask
+let combined = selected bor extra
+let changed = original bxor updated
+let cleared = flags band bnot mask
+let mixed = (value bxor salt).shiftLeft(3)
 ```
 
-Qualified forms remain available, including `Int.shiftLeft`,
-`BigInt.shiftRight`, and `Int.unsignedShiftRight`.
-`Int.unsignedShiftRight(value: Int, count: Int): Int` is a separate ordinary
-companion operation with an inferred pure body. There are no `SHL`, `SHR`, or
-`USHR` keywords and no symbolic bitwise operators in this proposal.
-Unsigned right shift is not a seventh member of `Bitwise`: JavaScript has no
-BigInt unsigned right shift, and a partial BigInt instance that throws for it
-would misrepresent the shared capability.
+## 2. Implementations
 
-Rotations, population count, leading/trailing-zero counts, and bit testing can
-be separate library operations. They are outside this foundational constraint.
-
-## 2. Source implementations and widened shifts
-
-The proposed BigInt instance is the supplied source structure:
+The members are declared in the canonical companions, each over an unexported,
+explicitly typed intrinsic-door declaration:
 
 ```hex
-honor Bitwise<BigInt> =
+honor Bitwise<Int> =
     bitAnd(left, right) = nativeBitAnd(left, right)
     bitOr(left, right) = nativeBitOr(left, right)
     bitXor(left, right) = nativeBitXor(left, right)
     bitNot(value) = nativeBitNot(value)
-    shiftLeft = widened
-    shiftRight = widened
-
-widens Bitwise.shiftLeft(value: BigInt, count: BigInt): BigInt =
-    nativeShiftLeft(value, count)
-
-widens Bitwise.shiftRight(value: BigInt, count: BigInt): BigInt =
-    nativeShiftRight(value, count)
+    shiftLeft(value, count) = nativeShiftLeft(value, count)
+    shiftRight(value, count) = nativeShiftRight(value, count)
 ```
 
-These declarations belong in the canonical `BigInt` companion. The `widens`
-result annotations remain `: BigInt`: these are implementations with inferred
-effects, not constraint headers. Each native is an unexported, explicitly typed
-intrinsic-door declaration. Binary bit natives accept two `BigInt`s, the unary
-native accepts one, and both native shifts accept a BigInt value and count.
-The native names above are local aliases, not newly registered intrinsic keys.
+`honor Bitwise<BigInt>` has the same shape over BigInt natives whose shift count is
+an `Int`. The native names are local aliases; registering their intrinsic keys is
+promotion work. Neither companion implements a member by using its own operator —
+that would recursively select the member being defined
+([Constraints §6](../constraints.md)).
 
-The public constraint requires an `Int` count. The wider implementation accepts
-`BigInt`; the existing `widens` mechanism derives the required member by exact
-Int-to-BigInt conversion of the count. This follows the existing
-[`BigInt` power implementation](../../stdlib/BigInt.hex) and
-[Constraints §4.7](../constraints.md). There is one implementation per shift,
-not independent Int-count and BigInt-count algorithms.
+## 3. Semantics
 
-The distinction between the member's contract face and the companion's wider
-face follows the existing `widens` rules. A generic `Bitwise<a>` consumer uses
-an `Int` count. The BigInt companion's wider operation accepts a BigInt count.
-Qualified and dot-call access to that wider face follows the existing `widens`
-rules, with no shift-operator elaboration or new overload-resolution rule.
-Verify both member-contract and wider-companion calls at adoption.
+### 3.1 One semantics at both instances
 
-The `Int` companion directly implements the six members through typed native
-operations with Int operands and Int counts. Its separate unsigned shift uses
-the Number unsigned-right-shift native. Neither companion implements a member
-by using its own operator: that would recursively select the member being
-defined. [Constraints §6](../constraints.md) owns this source-authority rule.
-
-## 3. Representation semantics
-
-The semantic reference is ECMAScript's
-[Number operations](https://tc39.es/ecma262/2024/#sec-numeric-types-number) and
-[BigInt operations](https://tc39.es/ecma262/2024/#sec-numeric-types-bigint).
-These are representation-specific operations, not a promise of one common
-fixed-width integer algebra across both instances.
-
-### 3.1 Int
-
-`Int` retains its ordinary Number representation and arithmetic semantics.
-Bitwise operations use the 32-bit projection; they do not operate on all of an
-Int's potentially 53 significant integer bits.
-
-`AND`, `OR`, `XOR`, and `NOT` use signed 32-bit operands and results. `shiftLeft`
-and `shiftRight` also produce signed 32-bit results; `shiftRight` extends the
-sign. Shift counts use the JavaScript unsigned conversion and reduction modulo
-32. `unsignedShiftRight` uses
-zero extension and returns an Int in the range 0 through 4294967295.
-
-No new overflow checks or negative-count rejection are proposed. In particular,
-a negative Int shift count is reduced modulo 32, not interpreted as reversal.
-
-Examples, using candidate syntax:
+Both instances compute **the true integer answer**: two's complement over the
+unbounded integers, the semantics JavaScript gives BigInt. There is no 32-bit
+projection anywhere in the constraint. The same value gives the same answer
+whichever type holds it:
 
 ```hex
-4294967296 AND -1   // 0: high bits do not survive the 32-bit projection
-Int.shiftLeft(1, 32)             // 1: count reduces to zero
-Int.shiftLeft(1, -1)             // -2147483648: count reduces to 31
-Int.shiftRight(-1, 1)            // -1
-Int.unsignedShiftRight(-1, 0)    // 4294967295
+BigInt.fromInt(x band y) == BigInt.fromInt(x) band BigInt.fromInt(y)
 ```
 
-Let `P(x)` denote the signed 32-bit projection. Laws must acknowledge it:
-`x AND x = P(x)` and `NOT (NOT x) = P(x)`, not necessarily `x`. The constraint
-must not promise Boolean-algebra identities over the full Int domain that its
-native projection does not satisfy. This is consistent with the forward warning
-in [Primitive Types](../primitive-types.md) about any future bitwise feature.
+- `bitNot(x)` is `-x - 1`.
+- `shiftLeft(x, n)` is ⌊x · 2ⁿ⌋ and `shiftRight(x, n)` is ⌊x · 2⁻ⁿ⌋, for every
+  `Int` count. A negative count shifts the other way; a right shift rounds toward
+  negative infinity, so a long enough right shift reaches `0` or `-1`. The
+  operations are total: no count is refused and no exception is thrown.
 
-### 3.2 BigInt
+The laws are the ordinary ones, over the whole domain: `x band x == x`,
+`bnot (bnot x) == x`, De Morgan, and — for non-negative counts — shifts compose:
+`x.shiftLeft(a).shiftLeft(b) == x.shiftLeft(a + b)`, likewise `shiftRight`.
 
-BigInt bitwise operations use unbounded signed two's-complement semantics.
-Complement is `-x - 1`. Counts are not reduced modulo 32. Negative counts reverse
-the shift direction; right shift rounds toward negative infinity. No unsigned
-right shift is supplied. Host limits on enormous BigInt results remain applicable.
+### 3.2 Int
 
-Examples of native-equivalent results:
+`Int` keeps its `number` representation; nothing about the type changes. The
+members compute the true answer on plain numbers:
 
-```hex
-BigInt.shiftLeft(8n, -1n)    // 4n
-BigInt.shiftRight(-3n, 1n)   // -2n
-BigInt.shiftLeft(1n, 32n)    // 4294967296n
-```
+- `bitAnd`, `bitOr`, `bitXor`: when both operands lie in the signed 32-bit range,
+  JavaScript's native operator is already exact and is used. Otherwise each operand
+  splits into a high part (⌊x / 2³²⌋, at most 21 bits) and a low 32-bit part; the
+  operation acts on each part and the halves recombine.
+- `bitNot`: `-x - 1`.
+- `shiftLeft` / `shiftRight`: multiplication or floored division by a power of two,
+  with the large-count ends answered directly (so a negative value never reaches
+  `-0`).
 
-Thus Int and BigInt agree on the named operations' broad purpose but differ
-in width, count handling, and truncation. Documentation must show these
-differences beside the operations, rather than implying that changing the
-operand type preserves every result.
+Two edges follow `Int`'s ordinary overflow contract ([Primitive Types
+§2.1](../primitive-types.md)) rather than adding a new one: `shiftLeft` past ±2⁵³
+behaves as `x * 2 ** n` does, and a bitwise result on in-range operands can land
+exactly on −2⁵³ (`bnot` of 2⁵³ − 1, for one).
 
-This draft adds no custom exception wrapper for native allocation or size
-limits. Promotion must state their treatment consistently with existing BigInt
-intrinsics; a pure effect contract does not promise totality or bounded memory.
+This agrees with JavaScript wherever JavaScript's answer is the true integer: the
+four bitwise operations when every operand fits in signed 32 bits, and shifts with a
+count from 0 to 31 whose result fits in signed 32 bits. It differs only where
+JavaScript truncated first — `1 << 31` is `-2147483648` in JavaScript and
+`2147483648` here. Gleam's JavaScript target takes the same route, with the same
+32-bit fast path.
+
+### 3.3 The named 32-bit door
+
+Code that wants JavaScript's 32-bit view says so, with two ordinary `Int`
+companion functions — named lossy conversions, per friendly-numerics tenet 1:
+
+| Function | Result | Emission |
+|---|---|---|
+| `Int.toInt32(x)` | the value in [−2³¹, 2³¹) congruent to `x` modulo 2³² | `x \| 0` |
+| `Int.toUint32(x)` | the value in [0, 2³²) congruent to `x` modulo 2³² | `x >>> 0` |
+
+Porting 32-bit JavaScript: `e | 0` becomes `e.toInt32()`; `e >>> 0` becomes
+`e.toUint32()`; `x >>> n` becomes `x.toUint32().shiftRight(n)`; `x >> n` on 32-bit
+data becomes `x.toInt32().shiftRight(n)`. `band`, `bor`, `bxor`, `+`, `-`, `*`, and
+`shiftLeft` all commute with reduction modulo 2³², so a single reduction where the
+JavaScript reduced gives the JavaScript answer while intermediates stay inside
+±2⁵³. Right shifts do not commute with reduction; the absence of an unsigned right
+shift puts the explicit conversion exactly where the 32-bit meaning lives.
+
+### 3.4 BigInt
+
+The semantics of §3.1 is BigInt's native semantics, so every member lowers to its
+native operator; the `Int` count converts exactly (`BigInt(count)`), since
+JavaScript never mixes `bigint` and `number`. Host limits on enormous BigInt results
+remain applicable; this draft adds no exception wrapper, and promotion states their
+treatment consistently with existing BigInt intrinsics.
 
 ## 4. Typing, evaluation, and effects
 
-Binary bit operations require a common operand type `a` honoring `Bitwise`.
-There is no automatic mixed Int/BigInt arithmetic introduced here. Existing
-numeric-literal rules determine how literals acquire the required type.
-Shift values determine the instance; counts follow the contract or lawful
-wider face described in §2. `Int.unsignedShiftRight` requires an Int value
-and an Int count; a BigInt value is a static error, not a generated JavaScript
-TypeError. BigInt has no `unsignedShiftRight` companion operation.
+Binary operations require a common operand type honoring `Bitwise`; there is no
+mixed `Int`/`BigInt` arithmetic, and existing numeric-literal rules give literals
+their type. Shift values determine the instance; the count is always `Int`.
 
-Operators are eager: evaluate operands once in the ordinary call evaluation
-order. `AND` and `OR` do not short-circuit. Existing lowercase `and`, `or`, and
-`not` retain their Bool semantics and parsing. Capitalization must never make
-the same token change meaning according to operand type.
+Operators are eager: operands are evaluated once, in ordinary call order. `band`
+and `bor` do not short-circuit. Lowercase `and`, `or`, and `not` keep their `Bool`
+semantics and parsing, and no spelling changes meaning by operand type. Because
+`Bool` has no instance, reaching for the wrong family is a type error: `p band q`
+on `Bool` and `x and y` on `Int` both refuse, and each refusal offers the other
+spelling.
 
-All six constraint contracts are pure. Instance and wider-body effects are
-inferred and checked against those contracts under the completed effects work.
-An effectful implementation is rejected. Effectful expressions producing
-operands still require their normal call marking; operator syntax hides no
-operand effects.
+All six contracts are pure; instance effects are inferred and checked against them.
+Effectful operand expressions keep their normal call marking — operator syntax
+hides no operand effects.
 
-Source member calls, operator calls, and qualified/dot calls must agree in
-behaviour. Canonical primitive operations should retain readable native
-JavaScript emission under the existing operator/member emission doctrine.
-Generic calls use ordinary constraint evidence. No runtime dispatch based on
-JavaScript operand values substitutes for static instance selection.
+Emission follows the operator/member doctrine of Operators §1.1. At `BigInt` every
+spelling emits the native operator (`&`, `|`, `^`, `~`, `<<`, `>>`). At `Int` every
+spelling keeps the call, as `**` does at its guarded instances. Generic calls use
+ordinary constraint evidence; no runtime dispatch on JavaScript operand values
+substitutes for static instance selection.
 
-## 5. Candidate lexical and precedence design
+## 5. Lexical design and precedence
 
-This section is a concrete review candidate, not an adopted grammar.
+### 5.1 Keywords
 
-The four uppercase spellings would be case-sensitive hard operator keywords,
-recognized only as complete tokens. `AND` would differ from `and` and `And`;
-`ANDROID` would remain an identifier. They would no longer be available as
-ordinary uppercase identifiers, including constructor and module names.
-There is no case-insensitive matching or user-defined operator facility.
+`bnot` is a **hard keyword** (Lexer §4.1, word operators). It reserves bare seats
+only; §4.4's name seats still admit it.
 
-A candidate precedence order, tightest first, is:
-
-1. Existing postfix forms and exponentiation.
-2. Prefix `NOT`, alongside unary numeric negation.
-3. Existing multiplication and addition levels, unchanged relative to each other.
-4. `AND`, then `XOR`, then `OR`, at three left-associative levels.
-5. Existing range and comparison levels, followed by the unchanged lowercase
-   logical operators and pipe.
-
-This makes `flags AND mask == 0` mean `(flags AND mask) == 0`. Shifts have
-ordinary function-call precedence: `value.shiftLeft(n + 1)` needs no new
-operator level. Prefix `NOT` binds more tightly than
-comparison, unlike lowercase logical `not`. Parentheses remain the preferred
-way to clarify dense mixed bit expressions. Exact unary/exponent parsing and
-range interactions must be reviewed against the full existing grammar before
-promotion; the above does not silently amend its numbered table.
-
-The cost of this candidate is three new infix precedence levels, four reserved
-words, and an uppercase operator category. Review must assess those costs along
-with the readability of isolated examples.
-
-## 6. Hybrid rationale and review scope
-
-The selected proposal separates bitwise logic from movement of bits. `AND`,
-`OR`, `XOR`, and `NOT` form a recognizable vocabulary; `shiftLeft`, `shiftRight`,
-and `unsignedShiftRight` use readable operation names rather than abbreviations.
+`band`, `bor`, and `bxor` are **contextual keywords** (Lexer §4.2): each is the
+operator in the seat directly after a complete operand, and an ordinary name
+everywhere else. Hexagon has no juxtaposition application, so a name directly after
+a complete operand is otherwise always an error — the argument `union`, `widens`,
+and `module` already rest on, and the infix position `when`, `with`, and `as`
+already occupy. `band` is an English word, and a local named `band` stays usable:
 
 ```hex
-let selected = flags AND mask
-let combined = selected OR extra
-let changed = original XOR updated
-let cleared = flags AND NOT mask
-let mixed = (value XOR salt).shiftLeft(3)
+let x = flags band mask      // operator: follows an operand
+let band = Band("Pixies")    // name
+play(band)                   // name
+
+let y =
+    flags band               // operator at line end: y continues
+        mask
+let z = flags
+band.play()                  // new item: a leading band never continues
 ```
 
-Lowercase Bool `and` and `or` remain short-circuiting structural forms. The
-uppercase operators are eager constraint-member calls. They are distinct
-spellings with fixed meanings, not one spelling overloaded between mechanisms.
-Named bit operations remain available alongside the four operators.
+Because a contextual `band`, `bor`, or `bxor` can begin an expression, none joins
+[Lexer & Layout §2.3](../lexer-layout.md)'s continuation set — the rule `-` and `<`
+already follow. A continuation wanting one indents deeper or ends the previous line
+with the operator.
 
-The hybrid removes the earlier shift mnemonics, their precedence level, and
-any need for an Int-only operator exception: unsigned shift is simply an Int
-companion operation. Symbolic alternatives were considered, but the chosen
-proposal uses words for these operations. They are not alternate spellings
-included in this design.
+Constraint members keep non-keyword names (Lexer §4.4), which is why the members
+are `bitAnd` and its siblings.
 
-Capitalization remains a deliberate new convention. Uppercase starts currently
-signal type, constraint, constructor, and module roles in the
-[lexer](../lexer.md); these four reserved tokens would be explicit exceptions.
-Review should assess confusion between `and` and `AND`, the different prefix
-precedence of `not` and `NOT`, and visual prominence in realistic code.
+### 5.2 Precedence
 
-The hybrid is the agreed basis of this spec-worthy note. Keeping it proposed
-allows external feedback and review of the exact grammar and semantic details;
-it does not leave seven-keyword, symbolic, and hybrid surfaces simultaneously
-specified as alternatives. Any change of direction should revise this note
-explicitly before promotion.
+[Operators §1.3](../operators-logic-precedence.md) takes Lean 4's core precedences,
+and this proposal adopts them in full. Lean ranks `&&&` 60, `^^^` 58, `|||` 55 —
+three levels between addition (65) and comparison (50), in that order — and the
+prefix `~~~` at 100, above power (75). Boolean algebra agrees: conjunction binds
+tighter than disjunction. The table becomes, tightest first:
 
-## 7. Adoption questions and acceptance evidence
+| Level | Operators | Associativity |
+|---|---|---|
+| 1 | `.` `f(...)` `xs[...]` | left |
+| 2 | `bnot` | prefix |
+| 3 | `**` | right |
+| 4 | `-` (unary) | prefix |
+| 5 | `*` `/` | left |
+| 6 | `+` `-` `++` | left |
+| 7 | `band` | left |
+| 8 | `bxor` | left |
+| 9 | `bor` | left |
+| 10 | `..` | none |
+| 11 | `==` `!=` `<` `>` `<=` `>=` | chaining |
+| 12 | `not` | prefix |
+| 13 | `and` | left |
+| 14 | `or` | left |
+| 15 | `implies` | right |
+| 16 | `iff` | left |
+| 17 | `\|>` | left |
 
-Resolve these design questions before promotion:
+Consequences: `flags band mask == 0` is `(flags band mask) == 0`;
+`a + b band c` is `(a + b) band c`; `bnot x ** 2` is `(bnot x) ** 2` while
+`-x ** 2` stays `-(x ** 2)`. Lean has no range operator, so the placement above
+`..` is Hexagon's own: range endpoints are numbers, and `0..n band mask` is
+`0..(n band mask)`. Shifts are named calls at level 1, tighter than Lean's 75.
+Existing levels 2–5 move down one (to 3–6) and levels 6–13 move down four (to
+10–17); every diagnostic that quotes a level number changes with them.
 
-1. Review the agreed four-keyword hybrid for fit with Hexagon, especially
-   capitalization and readability. Confirm token reservation and full precedence
-   before adopting the grammar.
-2. Does “only Int and BigInt” mean the standard inventory or a sealed constraint?
-   A sealed constraint requires an explicit exception to ordinary instance
-   extensibility and ownership rules; do not introduce that restriction by
-   an undocumented compiler whitelist.
-3. Confirm native Int count wrapping and negative BigInt count reversal as
-   the intended public behaviour, and document the precise wider-face access
-   for BigInt-count shifts under existing `widens` rules.
+## 6. Rationale
 
-After the effects dependency and these decisions, promotion must update the
-operator inventory and lexer, primitive instance inventories, constraint
-registration/module exposure, literal and `widens` interactions, and intrinsic
-ownership together. Current specifications explicitly exclude bitwise operators;
-this note does not override them.
+### 6.1 Why now
 
-Implementation acceptance must include all six operations on both instances,
-Int projection beyond 32 bits, sign-bit and unsigned results, zero/31/32/negative
-counts, BigInt sign extension and count reversal, and the wider/native route.
-Test direct members, all four operators, named shifts, aliases, generic evidence, exact
-count conversion, pure-contract rejection, and emitted JavaScript. Parsing
-checks must cover Bool/bitwise mixtures, complete-token keyword recognition,
-precedence, and once-only eager evaluation. Verify no accidental BigInt unsigned shift,
-Nat/Float/Bool instance, mixed-representation native call, or recursive
-operator-defined primitive body is admitted.
+[Operators §13](../operators-logic-precedence.md) recorded "no v1 use case at the
+language level; stdlib functions if ever needed." That changes because bitwise
+operations are wanted in the language. The uses: hash mixing and checksums written
+in Hexagon; the `Hex.Runtime.HashTrie` bit algebra that sits behind intrinsic doors
+today because Hexagon had no bitwise operators ([Intrinsics](../intrinsics.md));
+FFI flag masks; colour and field packing; binary encodings.
 
-This note does not request implementation, publication, or normative promotion.
+### 6.2 Sealing
+
+The constraint is sealed at `Int` and `BigInt`. The tower rungs are already closed
+for the same reason — the language's own tools stay out of reach of conflicting
+instances — and here a user `honor Bitwise<Bool>` would reopen the trap Operators
+§1.2 names: two spellings of logic, with different evaluation and precedence.
+Promotion states the sealing as a documented rule, never an undocumented compiler
+whitelist.
+
+### 6.3 Words, not symbols
+
+Operators §1.2 spells logic in words. The symbolic alternatives are out on grounds
+of Hexagon's style: `^` is permanently unused (§13) and `|` belongs to unions and
+patterns. Erlang's `band`/`bor`/`bxor`/`bnot` keep the lowercase word-operator
+family intact and leave the uppercase-start roles of
+[Lexer §3.1](../lexer.md) untouched.
+
+## 7. Non-decimal integer literals
+
+Bitwise code needs masks written in their own base, so this proposal adds
+hexadecimal, binary, and octal integer literals.
+
+```text
+HexInteger = "0x" HexDigit ("_"? HexDigit)*      HexDigit = [0-9a-fA-F]
+OctInteger = "0o" [0-7] ("_"? [0-7])*
+BinInteger = "0b" [01] ("_"? [01])*
+
+Integer = Digits | HexInteger | OctInteger | BinInteger
+BigInt  = (Digits | HexInteger | OctInteger | BinInteger) "n"
+```
+
+- **Compatibility.** These forms are lexical errors today (Lexer §5), so no valid
+  program changes meaning. A leading `0` followed by digits stays decimal: `007` is
+  `7`. A leading `0` followed by `x`, `o`, or `b` is a base prefix.
+- **Case.** The prefix is lowercase only; `0X`, `0O`, and `0B` are diagnosed with a
+  lowercase fix-it, as `1N` is. Hex digits may be either case and are emitted as
+  written.
+- **Underscores.** The JavaScript rule already decided in [Primitive Types
+  §8](../primitive-types.md): a digit on both sides, so `0xFF_FF` is legal and
+  `0x_FF`, `0xFF_`, and `0xFF_n` are not.
+- **Suffixes and forms.** `n` makes a BigInt (`0xFFn`). There is no Dec or Float
+  form in these bases: `d` and `e` are hex digits, so `0xFFd` is the integer 4093
+  and `0x1e5` is 485. A fractional or exponent form (`0x1.5`, `0b1e3`) is one
+  malformed numeric literal. A digit outside the base (`0b102`, `0o8`) and a prefix
+  with no digits (`0x`) are malformed literals, not a valid literal followed by a
+  name.
+- **Meaning.** A literal denotes the plain number: `0xFFFFFFFF` is 4294967295,
+  never −1. A negative value is unary minus applied to a literal. The type rules,
+  the bare range limit of 2⁵³ − 1 with its `n` fix-it, and the literal-pattern rules
+  are exactly those of decimal integer literals.
+- **Emission.** A literal is emitted in its source base and spelling; JavaScript
+  accepts all three bases, underscores, and the `n` suffix.
+
+`Show` stays decimal. Formatting in another base (`Int.toHex`, `Int.toBinary`, or a
+radix form) is a separate follow-up.
+
+## 8. Promotion and acceptance
+
+Promotion updates together: Operators §1.1 (elaboration table), §2 (inventory), §3
+(precedence table and renumbering), and §13 (the bitwise row); Lexer §4.1 (`bnot`),
+§4.2 (`band`, `bor`, `bxor`), and §5 (literal grammar); Lexer & Layout §2.3 (the
+exclusion); Primitive Types §2 (the bitwise forward note, replaced by §3 here) and
+§8 (bases); the constraint's prelude registration and seat order — `Bitwise.hex`
+seats before the `Int` and `BigInt` companions; the `Int` and `BigInt` instance
+inventories; intrinsic keys; the syntax-highlighting grammar (which can only
+approximate §5.1's contextual rule; the language server is exact).
+
+Acceptance evidence:
+
+- All six operations at both instances, checked against BigInt as the oracle over
+  random `Int` pairs across the full safe range, and at the 32-bit boundaries,
+  bit 31, 2³², and −2⁵³.
+- Shift counts of 0, 31, 32, 53, very large, and negative, at both instances;
+  right shifts of negative values reaching `-1`, never `-0`.
+- `toInt32` and `toUint32` at the boundaries, and a ported 32-bit hash matching its
+  JavaScript original.
+- Direct members, all four operators, qualified and dot calls, generic evidence,
+  pure-contract rejection, and emitted JavaScript at both instances.
+- Parsing: precedence at every new level, Bool/bitwise mixtures and their
+  cross-spelling fix-its, once-only eager evaluation, `band` as a name in every
+  seat, a leading `band` starting a new item, and `bnot` reserved in bare seats.
+- Literals: every row of §7, including `007`, `0xFFd`, `0x1e5`, the uppercase
+  prefix fix-it, and emission in the source base.
+- No `Nat`, `Float`, or `Bool` instance, no user instance of the sealed constraint,
+  no unsigned right shift, and no recursive operator-defined primitive body.
+
+Promotion and implementation begin once the constraint-effects implementation has
+landed and been verified.

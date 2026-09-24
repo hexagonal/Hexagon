@@ -765,7 +765,7 @@ describe("the foreign branch, where `JsError` sits (§6, §7.4)", () => {
     moduleUrls: ReadonlyMap<string, string>,
   ): string {
     return javascript.replace(
-      /^(\s*(?:import|export)(?:[^;\n]*?\sfrom)?\s+)(["'])([^"']+)\2;/gmu,
+      /^(\s*import(?:[^;\n]*?\sfrom)?\s+)(["'])([^"']+)\2;/gmu,
       (statement, prefix: string, _quote: string, specifier: string) => {
         const target = resolveModulePath(importerPath, specifier) ?? specifier;
         const url = moduleUrls.get(target) ?? moduleUrls.get(specifier);
@@ -791,11 +791,7 @@ describe("the foreign branch, where `JsError` sits (§6, §7.4)", () => {
       `data:text/javascript;charset=utf-8,${encodeURIComponent(text)}#foreign${runTag}`;
     const moduleUrls = new Map<string, string>();
     for (const [specifier, text] of Object.entries(foreign)) moduleUrls.set(specifier, url(text));
-    for (const data of project.dataUnits) {
-    const linked = link(data.javascript.text, data.path, moduleUrls);
-    moduleUrls.set(data.path, url(linked));
-  }
-  for (const module of project.modules) {
+    for (const module of project.modules) {
       moduleUrls.set(
         module.source.path,
         url(link(module.javascript.text, module.source.path, moduleUrls)),

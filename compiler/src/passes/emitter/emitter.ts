@@ -285,12 +285,20 @@ const VECTOR_WIRING = RUNTIME_WIRINGS[0]!;
 const HASH_TRIE_WIRING = RUNTIME_WIRINGS[1]!;
 
 export interface JavaScriptEmissionOptions {
-  /** Own data declarations emitted in shared units, including private support. */
-  readonly dataSpecifiers?: ReadonlyMap<string, string>;
   /** Includes private editions for inspection tools; ordinary builds omit them. */
   readonly previewPrivateSpecializations?: boolean;
   /** Exposes reserved evidence handles needed by dependent Hexagon modules. */
   readonly exportInstanceEvidence?: boolean;
+  /**
+   * The modules this one reaches as **data only**, by module address: each
+   * prelude member whose data seat this module's seat follows and whose full
+   * seat it precedes (Modules §5.5, §11). Such an edge is no load edge — the
+   * member's full module may itself import this one — so no JavaScript import
+   * is written for it, and a constructor it reaches and uses as a value is
+   * materialised here (Unions §6.4). Direct applications erase as they do everywhere, and a
+   * pattern reads the tag, so neither needs the home module at all.
+   */
+  readonly dataOnlyHomes?: ReadonlySet<string>;
   /**
    * Where this module's emission finds each runtime module. Only
    * `compileProject` knows the program's paths, so only it can compute the
@@ -409,74 +417,6 @@ export function emitJavaScript(
     ...(memberSeatLocals === undefined ? {} : { memberSeatLocals }),
     ...(materializedConstructors === undefined ? {} : { materializedConstructors }),
   }).emit();
-}
-
-/**
- * Render one selected data declaration (or one recursive data group)
- * from the producer's checked Core. A data unit has no executable source items,
- * imports, instances, or foreign value bindings from the full module.
- */
-export function emitDataJavaScript(
-  module: Core.Module,
-  options: JavaScriptEmissionOptions & {
-    readonly selectedNames: readonly string[];
-    /** Foreign type metadata reached by selected signatures; never a selectable view export. */
-    readonly supportExternTypes?: readonly string[];
-  },
-): Emitted.JavaScript {
-  const {
-    selectedNames,
-    supportExternTypes,
-    dataSpecifiers: _dataSpecifiers,
-    ...normalOptions
-  } = options;
-  const data = dataModule(module, selectedNames, supportExternTypes ?? []);
-  // An opaque selection carries its public type shell. Its hidden constructor
-  // remains in the full implementation, where calls to it can still bind.
-  return emitJavaScript({
-    ...data,
-    items: data.items.filter((item) =>
-      (item.kind !== "Union" && item.kind !== "RecordDeclaration") || !item.opaque
-    ),
-  }, normalOptions);
-}
-
-function dataModule(
-  module: Core.Module,
-  selectedNames: readonly string[],
-  supportExternTypes: readonly string[],
-): Core.Module {
-  const selected = new Set(selectedNames);
-  const dataItems = module.items.filter((item): item is
-    Core.UnionItem | Core.RecordItem | Core.TypeAliasItem =>
-    (item.kind === "Union" || item.kind === "RecordDeclaration" || item.kind === "TypeAlias") &&
-    selected.has(item.name)
-  ).map((item) => ({ ...item, exported: true }));
-  if (dataItems.length !== selected.size) {
-    throw new Error("Data emission requires selected data declarations");
-  }
-  if (dataItems.some((item) => item.kind === "Union" &&
-    (item.foreign !== undefined || item.externEnum === true))) {
-    throw new Error("Foreign enum members cannot be emitted in a bare data unit");
-  }
-  const support = new Set(supportExternTypes);
-  const externItems: Core.ExternBlockItem[] = module.items.flatMap((item) => {
-    if (item.kind !== "ExternBlock") return [];
-    const declarations = item.declarations.filter((declaration) =>
-      declaration.kind === "ExternType" && support.has(declaration.localName)
-    ).map((declaration) => ({ ...declaration, exported: true }));
-    return declarations.length === 0 ? [] : [{ ...item, declarations }];
-  });
-  if (externItems.reduce((count, item) => count + item.declarations.length, 0) !== support.size) {
-    throw new Error("Data emission requires existing foreign type metadata");
-  }
-  return {
-    ...module,
-    items: [...dataItems, ...externItems],
-    comments: [],
-    preludeInstances: [],
-    companionImports: [],
-  };
 }
 
 /** One routed seat's identity across the two passes: the module it lives in, and its name there. */
@@ -861,8 +801,6 @@ function typeOnlyImportLocals(module: Core.Module): readonly string[] {
 
 
 export interface DeclarationEmissionOptions {
-  /** Own data declarations emitted in shared units, including private support. */
-  readonly dataSpecifiers?: ReadonlyMap<string, string>;
   /**
    * The specifier this module's `.d.ts` spells for the program's runtime
    * declaration module (FFI Part 1 §8.3), path-adjusted from this module's own
@@ -932,28 +870,6 @@ export function emitDeclarations(
   options: DeclarationEmissionOptions = {},
 ): Emitted.Declarations {
   return new DeclarationEmitter(module, options).emit();
-}
-
-/** Declaration half of `emitDataJavaScript`, using the same checked Core. */
-export function emitDataDeclarations(
-  module: Core.Module,
-  options: DeclarationEmissionOptions & {
-    readonly selectedNames: readonly string[];
-    /** Foreign type metadata reached by selected signatures; never a selectable view export. */
-    readonly supportExternTypes?: readonly string[];
-  },
-): Emitted.Declarations {
-  const {
-    selectedNames,
-    supportExternTypes,
-    dataSpecifiers: _dataSpecifiers,
-    ...normalOptions
-  } = options;
-  const data = dataModule(module, selectedNames, supportExternTypes ?? []);
-  // These entries were resolved relative to the producer's full source path.
-  // A data unit sits at a different path, and the project supplies its data
-  // owners through `nominalHomes`; let that map route every nominal reference.
-  return emitDeclarations({ ...data, preludeTypeImports: [] }, normalOptions);
 }
 
 /** Emits a module-local TypeScript view of top-level bindings for interactive tools. */
@@ -3255,6 +3171,22 @@ class JavaScriptEmitter {
    */
   readonly #taggedConstants = new Map<string, string>();
   /**
+   * The union constructors this module reaches through a **data-only** edge
+   * (Modules §11), by symbol. Filled once from `dataOnlyHomes`.
+   */
+  readonly #dataOnlyConstructors = new Map<Resolved.SymbolId, Core.Constructor>();
+  /** The specifiers of the data-only edges, as `Import` items carry them. */
+  readonly #dataOnlySpecifiers = new Set<string>();
+  /**
+   * The function-valued constructors this module materialises for a data-only
+   * edge, by symbol, each with its local and its declaration line. The nullary
+   * ones need no entry: they are `#taggedValue`'s constants.
+   */
+  readonly #dataConstructorFunctions = new Map<
+    Resolved.SymbolId,
+    { readonly name: string; readonly line: string }
+  >();
+  /**
    * FFI Part 1 §5.4's capture plans for this module (`capture.ts`), built on
    * demand at the crossings this pass owns and hoisted beside the helpers.
    *
@@ -3357,7 +3289,6 @@ class JavaScriptEmitter {
    */
   readonly #boundImportedDictionaries = new Set<string>();
   readonly #module: Core.Module;
-  readonly #dataSpecifiers: ReadonlyMap<string, string>;
   readonly #docs: DocIndex;
   readonly #exportInstanceEvidence: boolean;
   readonly #runtimes: RuntimeLocations;
@@ -3518,7 +3449,6 @@ class JavaScriptEmitter {
 
   constructor(module: Core.Module, options: JavaScriptEmissionOptions) {
     this.#module = module;
-    this.#dataSpecifiers = options.dataSpecifiers ?? new Map();
     this.#docs = new DocIndex(module.docs);
     this.#prelude = preludeIds(module);
     this.#instanceDictionaryHeads = fundamentalInstanceDictionaries(module, this.#prelude.bool);
@@ -3535,6 +3465,20 @@ class JavaScriptEmitter {
       this.#constructorSymbols.add(record.constructor.symbol);
     }
     this.#exportInstanceEvidence = options.exportInstanceEvidence ?? false;
+    const dataOnlyHomes = options.dataOnlyHomes ?? new Set<string>();
+    if (module.modulePath !== undefined) {
+      for (const home of dataOnlyHomes) {
+        if (home === module.modulePath) continue;
+        this.#dataOnlySpecifiers.add(relativeSpecifier(module.modulePath, home));
+      }
+    }
+    for (const union of module.unions) {
+      if (union.declaringPath === undefined || union.declaringPath === module.modulePath) continue;
+      if (!dataOnlyHomes.has(union.declaringPath)) continue;
+      for (const constructor of union.constructors) {
+        this.#dataOnlyConstructors.set(constructor.symbol, constructor);
+      }
+    }
     this.#runtimes = options.runtimes ?? new Map();
     this.#runtimeVocabulary = runtimeVocabularyTrigger(module);
     this.#unit = this.#runtimeVocabulary.spell(UNIT_SPELLING);
@@ -4057,7 +4001,8 @@ class JavaScriptEmitter {
       };`,
       "",
     ];
-    const hoisted = [...taggedConstants, ...capturePlans, ...helpers];
+    const dataConstructors = [...this.#dataConstructorFunctions.values()].map(({ line }) => line);
+    const hoisted = [...taggedConstants, ...dataConstructors, ...capturePlans, ...helpers];
     const lines = [
       ...runtimeGlobalsImport,
       ...(hoisted.length === 0 ? body : [...hoisted, "", ...body]),
@@ -4100,27 +4045,6 @@ class JavaScriptEmitter {
     returnFinal: boolean,
   ): string[] {
     const prefix = indent(depth);
-    if (depth === 0 && (item.kind === "Union" || item.kind === "RecordDeclaration") &&
-      !item.opaque &&
-      this.#dataSpecifiers.has(item.name)) {
-      const specifier = JSON.stringify(emittedModuleSpecifier(this.#dataSpecifiers.get(item.name)!));
-      const constructors = item.kind === "Union" ? item.constructors : [item.constructor];
-      const imports = constructors.map((constructor) => {
-        const name = this.#identifier(constructor.symbol, constructor.name);
-        const type = this.#symbols.get(constructor.symbol)?.scheme.type;
-        const internal = type !== undefined &&
-          this.#capturesAcrossExport(constructor.symbol, type);
-        const source = internal ? this.#ownInternalName(constructor.name) : constructor.name;
-        if (item.exported) {
-          this.#exports.push(`export { ${constructor.name} } from ${specifier};`);
-          if (internal) this.#exports.push(`export { ${source} } from ${specifier};`);
-        }
-        return source === name ? source : `${source} as ${name}`;
-      });
-      return imports.length === 0 ? [] : [
-        `${prefix}import { ${imports.join(", ")} } from ${specifier};`,
-      ];
-    }
     if (item.kind === "ErrorItem") return [`${prefix}${this.#unit};`];
     if (item.kind === "TypeAlias") return [];
     if (item.kind === "PatternAlias") return [];
@@ -4152,6 +4076,9 @@ class JavaScriptEmitter {
       ];
     }
     if (item.kind === "Import") {
+      // Modules §11: a data-only edge is no load edge, so it writes no line
+      // at all — not the namespace binding, not a named one.
+      if (this.#dataOnlySpecifiers.has(item.specifier)) return [];
       // A synthesized prelude import is rendered after every item, because its
       // name list is what the rendered body references and nothing else (#263).
       // Its `instances` are empty by construction (#153), so holding it back
@@ -5455,6 +5382,10 @@ class JavaScriptEmitter {
         // never needs a binding, a local, or an import to be named by.
         const pinned = this.#pinnedBoolLiteral(expression.symbol);
         if (pinned !== undefined) return pinned;
+        // Modules §11: a constructor whose home this module reaches as data
+        // only is made here, never imported.
+        const dataOnly = this.#dataOnlyConstructorValue(expression.symbol);
+        if (dataOnly !== undefined) return dataOnly;
         // §8.2's added import, ahead of the ordinary import rules: this symbol
         // is in no import item and in no local scope, so every spelling rule
         // below would answer with a name nothing binds (#585).
@@ -10054,7 +9985,7 @@ class JavaScriptEmitter {
     readonly specifier: string;
   }[] {
     return this.#module.items.flatMap((item) => {
-      if (item.kind !== "Import") return [];
+      if (item.kind !== "Import" || this.#dataOnlySpecifiers.has(item.specifier)) return [];
       const bindings = this.#specializationBindings(item);
       if (bindings.length === 0) return [];
       return [{
@@ -11525,6 +11456,34 @@ class JavaScriptEmitter {
   }
 
   /**
+   * The value a constructor reached through a **data-only** edge is spelled by
+   * here, or `undefined` where the symbol is not one (Modules §11).
+   *
+   * The home module is never imported on such an edge, so the value is made in
+   * this module, on Unions §6.4's demand rule: a nullary constructor is the
+   * module's shared constant for its tag (`#taggedValue`, whose identity note
+   * is exactly why this is sound), and a payload constructor the same function
+   * its home materialises.
+   */
+  #dataOnlyConstructorValue(symbol: Resolved.SymbolId): string | undefined {
+    const constructor = this.#dataOnlyConstructors.get(symbol);
+    if (constructor === undefined) return undefined;
+    const existing = this.#dataConstructorFunctions.get(symbol);
+    if (existing !== undefined) return existing.name;
+    const slots = constructor.slots ?? [];
+    if (slots.length === 0) return this.#taggedValue(constructor.name);
+    const name = this.#generatedNames.fixed(constructor.name);
+    const parameters = slots.map(({ field }) => slotParameter(field));
+    const fields = slots.map(({ field }) => objectProperty(field, slotParameter(field)));
+    this.#dataConstructorFunctions.set(symbol, {
+      name,
+      line: `const ${name} = ${arrowParameters(parameters)} => ` +
+        `({ tag: ${JSON.stringify(constructor.name)}, ${fields.join(", ")} });`,
+    });
+    return name;
+  }
+
+  /**
    * The hoisted constants, in the order they were first reached — which is the
    * order the emitted seats read them in, and deterministic for the reason
    * every other generated name is: one pass over one Core module.
@@ -11667,7 +11626,6 @@ class JavaScriptEmitter {
 class DeclarationEmitter {
   readonly #diagnostics = new Diagnostics.Bag();
   readonly #module: Core.Module;
-  readonly #dataSpecifiers: ReadonlyMap<string, string>;
   readonly #specializations: readonly FundamentalSpecialization[];
   /**
    * Each edition **face** as it was rendered, for §10's byte accounting — the
@@ -11691,7 +11649,6 @@ class DeclarationEmitter {
 
   constructor(module: Core.Module, options: DeclarationEmissionOptions) {
     this.#module = module;
-    this.#dataSpecifiers = options.dataSpecifiers ?? new Map();
     this.#unsafeModuleLocals = unsafeModuleLocalPlan(module);
     this.#opaqueBrands = opaqueBrandNames(module);
     // Hoisted above the alias set because that set has to know which constrained
@@ -11790,47 +11747,12 @@ class DeclarationEmitter {
     const declarations: (string | Core.ImportItem)[] = [];
     let isExternalModule = false;
     for (const item of this.#module.items) {
-      if ((item.kind === "Union" || item.kind === "RecordDeclaration" ||
-        item.kind === "TypeAlias") && this.#dataSpecifiers.has(item.name)) {
-        const specifier = JSON.stringify(emittedModuleSpecifier(this.#dataSpecifiers.get(item.name)!));
-        declarations.push(`import type { ${item.name} } from ${specifier};`);
-        const constructors = item.kind === "Union"
-          ? item.opaque ? [] : item.constructors.map(({ name }) => name)
-          : item.kind === "RecordDeclaration" && !item.opaque ? [item.name] : [];
-        if (item.exported) {
-          // A same-named record/union constructor occupies the value namespace
-          // and its ordinary export specifier also carries the merged type
-          // namespace. Listing `type Name, Name` is TS2300.
-          const exports = constructors.includes(item.name)
-            ? constructors
-            : [`type ${item.name}`, ...constructors];
-          declarations.push(
-            `export { ${exports.join(", ")} } from ${specifier};`,
-          );
-        }
-        isExternalModule = true;
-        continue;
-      }
       if (item.kind === "Import") {
         declarations.push(item);
         continue;
       }
       if (item.kind === "ExternBlock") {
         for (const declaration of item.declarations) {
-          if (declaration.kind === "ExternType" &&
-            this.#dataSpecifiers.has(declaration.localName)) {
-            const specifier = JSON.stringify(emittedModuleSpecifier(
-              this.#dataSpecifiers.get(declaration.localName)!,
-            ));
-            declarations.push(`import type { ${declaration.localName} } from ${specifier};`);
-            if (declaration.exported) {
-              declarations.push(
-                `export { type ${declaration.localName} } from ${specifier};`,
-              );
-            }
-            isExternalModule = true;
-            continue;
-          }
           if (!declaration.exported || declaration.localName === WITHHELD_EXPORT) continue;
           // The brand line goes before the documentation: JSDoc binds to the
           // declaration that immediately follows it.

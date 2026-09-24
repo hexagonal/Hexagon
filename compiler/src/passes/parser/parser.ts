@@ -1765,34 +1765,6 @@ class Parser {
    */
   #parseImport(): Parsed.ImportItem | Parsed.ErrorItem {
     const start = this.#advance();
-    if (this.#atContextual("bare")) {
-      this.#advance();
-      if (!this.#at("UpperName")) {
-        this.#error("expected an uppercase data type after `import bare`");
-        return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
-      }
-      const selected = parsedName(this.#advance() as Lexed.NameToken);
-      if (!this.#atContextual("from")) {
-        this.#error("expected `from` after the bare data type");
-        return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
-      }
-      this.#advance();
-      if (!this.#atName()) {
-        this.#error("expected a module name after `from`");
-        return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
-      }
-      const module = this.#parseModuleNameReference();
-      if (!uppercaseStartName(module)) {
-        this.#errorAt(module.span, "a module name is uppercase-start");
-      }
-      return {
-        kind: "Import",
-        module,
-        alias: selected,
-        bare: selected,
-        span: spanFrom(start.span, this.#previous().span),
-      };
-    }
     if (this.#at("String")) {
       const specifier = this.#parseImportSpecifier();
       const span = spanFrom(start.span, specifier.span);

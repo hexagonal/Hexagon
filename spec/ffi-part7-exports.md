@@ -7,14 +7,6 @@
 
 ---
 
-**Bare-import emission amendment:** [Bare Imports §8/§10](bare-imports.md) permits
-internal data units while retaining the module's full public entry point.
-Selected constructors and types have one owner and are re-exported where
-necessary; opaque brands are declared once. Bare declaration references target
-data units directly and cannot force the full facade or its instance exports
-into the runtime graph. All existing face, opacity, and reachability obligations
-continue to apply to the corresponding public outputs.
-
 ## 1. Doctrine: export correspondence
 
 **Hexagon's existing `export` is the sole foreign-export permission.** Every exported declaration becomes an ordinary **named** ESM export where it has a runtime term, and appears in the generated `.d.ts` where it has a public type face. There is no second `export ffi` system, no per-declaration foreign-visibility annotation, and **no automatic default export** — the compiled facade is named-exports-only, in both emitted JS and `.d.ts`.

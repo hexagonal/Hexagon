@@ -63,10 +63,7 @@ function diagnostics(
  * channels serve. Empty is the only acceptable value.
  */
 function danglingImports(compiled: ReturnType<typeof project>): readonly string[] {
-  const emitted = new Set([
-    ...compiled.dataUnits.map(({ path }) => path),
-    ...compiled.modules.flatMap(({ path, source }) => [path, source.path]),
-  ]);
+  const emitted = new Set(compiled.modules.map(({ source }) => source.path));
   const dangling: string[] = [];
   for (const module of compiled.modules) {
     for (const match of module.javascript.text.matchAll(/from\s+"(\.[^"]+)"/gu)) {
@@ -118,15 +115,48 @@ describe("ordered intra-prelude visibility", () => {
       .toEqual([]);
   });
 
-  test("the ambient Option data seat does not expose Option's later full instances", () => {
+  // Modules §5.5: a module between Option's data seat and its full seat sees
+  // Option's data — its type and constructors — and nothing of its
+  // implementation.
+  test("Option's data seat does not expose Option's later full instances", () => {
     const messages = diagnostics([[
       "/Int.hex",
-      "module Int\nexport let same: Bool = Some(true) == Some(true)\n",
+      "module Int\nexport let same: Bool = Some(True) == Some(True)\n",
     ]], ["Int"]);
     expect(messages.some((message) =>
-      message.includes("Eq<Option") && message.includes("full provider `Option`") &&
-      message.includes("replace the bare selections")
+      message.includes("Eq<Option") && message.includes("Option`'s full implementation") &&
+      message.includes("seated after this module")
     )).toBe(true);
+  });
+
+  test("Option's data seat does not expose Option's later companion operations", () => {
+    const messages = diagnostics([[
+      "/Int.hex",
+      "module Int\nexport let later: Option(Bool) = Some(True).map((flag) => flag)\n",
+    ]], ["Int"]);
+    expect(messages.some((message) =>
+      message.startsWith("`map` needs") && message.includes("seated after this module")
+    )).toBe(true);
+  });
+
+  test("Option's data seat supplies its type and constructors, made where they are used", () => {
+    const compiled = project([[
+      "/Int.hex",
+      "module Int\n" +
+        "export let wrap: Bool -> Option(Bool) = Some\n" +
+        "export let nothing: Option(Bool) = None\n" +
+        "export let direct: Option(Bool) = Some(True)\n",
+    ], [
+      // A prelude member is written only where something reaches it.
+      "/main.hex",
+      "module Main\nexport let reached: Option(Bool) = Int.nothing\n",
+    ]], ["Int"]);
+    expect(compiled.diagnostics.filter(({ primary }) => Number(primary.fileId) < 2)).toEqual([]);
+    const javascript = compiled.modules.find(({ name }) => name === "Hex.Int")!.javascript.text;
+    expect(javascript).not.toContain("Option.js");
+    expect(javascript).toContain('const __Some = value => ({ tag: "Some", value });');
+    expect(javascript).toContain('const __None = { tag: "None" };');
+    expect(javascript).toContain('{ tag: "Some", value: true }');
   });
 
   test("an earlier member does NOT see a later one", () => {

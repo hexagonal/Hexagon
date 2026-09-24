@@ -862,8 +862,6 @@ export interface InternalNameInputs {
 
 export interface ImportItem {
   readonly kind: "Import";
-  /** Restricted data selection written with `import bare`. */
-  readonly bareSelection?: string;
   readonly specifier: string;
   /**
    * The imported module's **full name** — `Geometry`, `Render.Geometry`,

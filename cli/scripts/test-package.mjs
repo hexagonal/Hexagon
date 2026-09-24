@@ -82,24 +82,23 @@ try {
   const main = `module Main
 import Demo.Lib
 import Hex.Experimental.Stdio as Stdio
-import bare Token from Types
+import Types
 extern from "alpha-helper"
     fun suffix() -> String
 export let answer: Int = Lib.answer
-export let token: Token = Token.One
+export let token: Types.Token = Types.One
 Stdio.writeLine!("Hello" ++ suffix())
 `;
   write(project, "Main.hex", main);
   write(project, "Types.hex", `module Types
 export union Token = One | Two
-export let unfinished: Int = "unused body"
 `);
   write(project, "Unused.hex", 'module Unused\nexport let broken: Int = "unused body"\n');
   hexc(["check", "Main.hex"]);
   assert.ok(!existsSync(join(project, "dist")), "check must write no output");
   hexc(["build", "Main.hex"]);
   assert.ok(existsSync(join(project, "dist", "Main.d.ts")));
-  assert.ok(!existsSync(join(project, "dist", "Types.js")));
+  assert.ok(existsSync(join(project, "dist", "Types.js")));
   assert.ok(!existsSync(join(project, "dist", "Unused.js")));
   assert.equal(command(process.execPath, ["dist/Main.js"], project).stdout, "Hello from npm\n");
 

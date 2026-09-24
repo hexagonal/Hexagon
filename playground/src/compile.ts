@@ -80,9 +80,6 @@ function compileWorkspace(
   const outputs = project.modules.map((module) => ({
     module,
     javascript: emitJavaScript(module.core, {
-      ...(module.dataSpecifiers === undefined
-        ? {}
-        : { dataSpecifiers: module.dataSpecifiers }),
       previewPrivateSpecializations: true,
       // Every module but the root, which nothing imports: the JS pane shows the
       // root's emission, and the reserved evidence handles exist for importers.
@@ -98,6 +95,9 @@ function compileWorkspace(
       // settled there, so a re-emission that guessed would give a contested
       // module an import of a path that is not there (FFI Part 7 §1.2).
       runtimeGlobalsSpecifier: module.runtimeGlobalsSpecifier,
+      // A fourth of the kind (Modules §11): which edges are data only, so the
+      // re-emission writes no import a prelude data seat never makes.
+      dataOnlyHomes: module.dataOnlyHomes,
       // Third of the same kind (#679): Algorithm S's candidate rows for the
       // pre-registered constraints are a fact about the *prelude*, and a prelude
       // module sees only the members before its own seat — so a re-emission
@@ -167,10 +167,6 @@ function compileWorkspace(
         path: project.runtimeGlobals.path.replace(/\.js$/u, ".hex"),
         javascript: project.runtimeGlobals.text,
       }]),
-      ...project.dataUnits.map((unit) => ({
-        path: unit.path,
-        javascript: unit.javascript.text,
-      })),
       // Keyed by the module's **layout** path (Packages §6) and not by the file
       // the buffer supplied it under: since #829 the emitted specifiers are
       // computed from the two modules' full names, so `linkModule` resolves

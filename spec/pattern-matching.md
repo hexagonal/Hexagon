@@ -18,13 +18,6 @@
 
 ---
 
-**Bare data imports preserve pattern lookup.** Selecting a union through
-`import bare Shape from Geometry` provides its public constructor patterns.
-The existing known-scrutinee lookup can still read `Circle(r)` in a match on
-Shape. It does not create expression-side constructor lookup or expose opaque
-constructors. User-declared `pattern` operations are not imported by this form;
-they remain full implementation operations. See [Bare Imports §2–§3](bare-imports.md).
-
 ## 2. The pattern grammar
 
 The complete v1 inventory:

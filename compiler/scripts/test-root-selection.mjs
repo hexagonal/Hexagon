@@ -11,12 +11,10 @@ import { compileProject, Source } from "../dist/index.js";
 const inputs = [
   ["/main.hex", `module Main
 import Support
-import bare Token from Types
-import bare Vectors from Types
-import bare Wrapper from Types
-export fun id(value: Wrapper): Wrapper = value
+import Types
+export fun id(value: Types.Wrapper): Types.Wrapper = value
 export let answer: Int = Support.answer
-export let token: Token = Token.One
+export let token: Types.Token = Types.One
 `],
   ["/other.hex", `module Other
 import Support
@@ -28,7 +26,6 @@ export union Token = One | Two
 export type Vectors(a) = Vector(a)
 export record Set = { value: Int }
 export type Wrapper = Set
-export let unfinished: Int = "not an Int"
 `],
   ["/unused.hex", "module Unused\nexport let unfinished: Int = \"not an Int\"\n"],
 ];
@@ -41,9 +38,9 @@ assert.deepEqual(project.roots, [
   { fileId: files[1].id, sourcePath: "/other.hex", modules: [{ name: "Other", path: "/Other.hex" }] },
 ]);
 assert.equal(project.modules.filter(({ name }) => name === "Support").length, 1);
-assert.ok(!project.modules.some(({ name }) => name === "Unused" || name === "Types"));
-assert.ok(project.dataUnits.length > 0, "bare imports must produce their data artifacts");
-assert.ok(project.runtimeGlobals, "the transitive Set data unit requires runtime globals");
+assert.ok(!project.modules.some(({ name }) => name === "Unused"));
+assert.ok(project.modules.some(({ name }) => name === "Types"));
+assert.ok(project.runtimeGlobals, "Types' record named Set requires runtime globals");
 assert.ok(project.runtimeDeclarations, "Vector faces require runtime declarations");
 
 const directory = mkdtempSync(join(tmpdir(), "hexagon-selected-roots-"));
@@ -54,7 +51,7 @@ try {
     writeFileSync(destination, text);
   }
   save("package.json", '{"type":"module"}\n');
-  for (const artifact of [...project.dataUnits, ...project.modules]) {
+  for (const artifact of project.modules) {
     save(artifact.path.replace(/\.hex$/u, ".js"), artifact.javascript.text);
     save(artifact.path.replace(/\.hex$/u, ".d.ts"), artifact.declarations.text);
   }

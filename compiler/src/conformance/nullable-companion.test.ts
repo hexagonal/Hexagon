@@ -174,9 +174,6 @@ describe("variance, faces, and emission", () => {
         `import { null as nullableNull } from ${JSON.stringify(nullableSpecifier)};\n` +
         "export const absent: null | undefined = nullableNull;\n",
     };
-    for (const data of project.dataUnits) {
-      files[data.path.replace(/^\//u, "").replace(/\.hex$/u, ".d.ts")] = data.declarations.text;
-    }
     for (const module of project.modules) {
       files[module.path.replace(/^\//u, "").replace(/\.hex$/u, ".d.ts")] =
         module.declarations.text;

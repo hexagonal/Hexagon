@@ -67,9 +67,6 @@ function declarationSet(compiled: CompiledProject): Record<string, string> {
   const files: Record<string, string> = {};
   const runtime = compiled.runtimeDeclarations;
   if (runtime !== undefined) files[runtime.path.replace(/^\//u, "")] = runtime.text;
-  for (const data of compiled.dataUnits) {
-    files[data.path.replace(/^\//u, "").replace(/\.hex$/u, ".d.ts")] = data.declarations.text;
-  }
   for (const module of compiled.modules) {
     // Keyed by the module's emitted **address** (Packages §6), not its source
     // path: since #829 that is what every cross-module specifier in
