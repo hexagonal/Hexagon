@@ -345,7 +345,7 @@ Field-resolved dot calls emit *as themselves* — a JS property access and call 
 
 ### 8.2 Imports
 
-If a call site's module never textually imported the companion, the emitter adds whatever dependency the resolved declaration's lowering requires — normally the companion's named import under Modules §11. An extern receiver member needs nothing for an instance call, which emits its receiver call inline in any module, and its binding module's `__class_<Type>` re-export for a static member or constructor (FFI Part 5 §2.2, §7) — never the foreign module's own import, whose relative specifier resolves only from the binding module's emitted place (FFI Part 4 §2.1). Emitted-name collisions are the emitter's ordinary renaming problem, not a semantics question.
+If a call site's module never textually imported the companion, the emitter adds whatever dependency the resolved declaration's lowering requires — normally the companion's named import under Modules §11. An extern receiver member needs nothing for an instance call, which emits its receiver call inline in any module, and its binding module's `__class_<Type>` re-export for a static member or constructor — reached only by a qualified call, since neither has a subject (FFI Part 5 §2.2, §7) — never the foreign module's own import, whose relative specifier resolves only from the binding module's emitted place (FFI Part 4 §2.1). Emitted-name collisions are the emitter's ordinary renaming problem, not a semantics question.
 
 ### 8.3 `.d.ts`
 

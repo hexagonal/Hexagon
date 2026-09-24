@@ -54,7 +54,7 @@ extern from "url-tools"
 
 **The arrow before the result is Part 4 §4.5's effect contract, mandatory on every member form** *(#869)*: `->!` here says that a lookup on foreign state may observe the world; `->` would be the trusted purity claim, and `->?` the declared conduit for a member that runs a callback it is handed. A `set` row is the one form whose arrow is fixed — `->!`, §4.1. This part's examples write `->!` wherever the honest answer is "unknown", which for foreign state is nearly everywhere, and `->` only where the row reads no foreign state at all (a static predicate over its argument, a constructor that only builds); the keyword says how JavaScript is invoked, and the arrow says what a caller accommodates.
 
-There is nothing method-typed about the binding; subject-first ordering means pipes (`params |> SearchParams.get("name")`) and dot calls (§9) work exactly as they do for any companion operation.
+There is nothing method-typed about the binding; subject-first ordering means pipes (`params |> SearchParams.get!("name")`) and dot calls (§9) work exactly as they do for any companion operation.
 
 ### 2.2 Emission
 
@@ -74,7 +74,7 @@ params.get("name")
 
 The first visible argument becomes the JavaScript receiver; the remaining arguments follow in order. Hexagon itself never sees a `this`.
 
-**An importing module emits the same receiver call** *(#982)*. A direct call to an instance member — `method`, `get`, or `set` — needs no foreign linkage at all, since its receiver is its first argument, so a module that imports the binding module emits `params.get("name")`, `response.status`, or `request.timeout = 5000` exactly as the binding module does, with FFI Part 1 §5.4's copies inline where the signature names a captured collection. Static members and constructors, which need the foreign constructor object, reach it through §7's class re-export. Only a first-class reference imports the member's ESM binding, the stable wrapper of §2.3 — the identity rule is the wrapper's in every module.
+**An importing module emits the same receiver call** *(#982)*. A direct call to an instance member — `method`, `get`, or `set` — needs no foreign linkage at all, since its receiver is its first argument, so every other module emits `params.get("name")`, `response.status`, or `request.timeout = 5000` exactly as the binding module does, performing inline every crossing its positions require — FFI Part 1 §5.4's copies where the signature names a captured collection, Part 3's adaptation at a `Seq` slot. Static members and constructors, which need the foreign constructor object, reach it through §7's class re-export. Only a first-class reference imports the member's ESM binding, the stable wrapper of §2.3 — the identity rule is the wrapper's in every module.
 
 ### 2.3 First-class references: the stable convention-preserving wrapper
 
@@ -102,11 +102,11 @@ method get as lookup(params: SearchParams, key: String) ->! Nullable(String)
 
 Local member names obey ordinary Hexagon naming rules (Part 4 §3.2); a foreign member name that violates them requires an alias, with the same rewrite-naming diagnostic.
 
-**The foreign side is a JavaScript property name** *(#982)*. A member is reached by property access, and JavaScript admits any IdentifierName there, its reserved words included — `map.delete(key)`, `promise.catch(handler)`. So the name before `as` on every row of this part — `method`, `get`, `set`, instance or static, and the `class` header's foreign name — may be any IdentifierName, **a Hexagon hard keyword included** (Lexer §4.1): `then`, `catch`, `finally`, and `match` are everyday JavaScript members. The local side is a Hexagon name seat, where a keyword can never stand, so a keyword-named member **requires an alias**, and the refusal names the rewrite:
+**The foreign side is a JavaScript property name** *(#982)*. A member is reached by property access, and JavaScript admits any IdentifierName there, its reserved words included — `map.delete(key)`, `promise.catch(handler)`. So the name before `as` on every member row of this part — `method`, `get`, `set`, instance or static — may be any IdentifierName, **a Hexagon hard keyword included** (Lexer §4.1; the parser also reads the `_` token there as the name it spells): `then`, `catch`, `finally`, and `match` are everyday JavaScript members. The local side is a Hexagon name seat, where a keyword can never stand, so a keyword-named member **requires an alias**, and the refusal names the rewrite, repeating the row's own keywords (`get then as …`, `static method catch as …`):
 
-> `then` is a Hexagon keyword and cannot name a binding; bind the member under an alias: `method then as andThen(...)`
+> `then` is a Hexagon hard keyword and cannot name a binding; bind the member under an alias: `method then as andThen(...)`
 
-The alias is the author's to choose: the diagnostic offers no applied fixit, and no generated local spelling exists — a name the author never wrote would be a name no reader can find declared. The alias also keeps the published ESM surface honest: a module export spelled `then` makes the module namespace object a thenable, which `await import(...)` would invoke.
+The alias is the author's to choose: the diagnostic offers no applied fixit, and no generated local spelling exists — a name the author never wrote would be a name no reader can find declared. The alias also keeps the published ESM surface honest: a module export spelled `then` makes the module namespace object a thenable, which `await import(...)` would invoke. The class header is not a member row: its foreign name is an ESM export name, Part 4 §3.2's position, and takes that part's rule.
 
 ---
 
@@ -273,6 +273,8 @@ Static member declarations use `static method`, `static get`, and `static set`. 
 - **`static get`** takes exactly zero parameters; `Url.defaultPort!()` performs a fresh read of `URL.defaultPort` under §3.1's `->!` rule. Its Hexagon type is `() ->! Int`.
 - **`static set`** takes exactly one parameter (the assigned value) and returns `Unit`, following §4.1 — and writes `->!`, only, on §4.1's ground *(#869)*.
 
+`static` and `new` rows exist only inside an `extern class` block: at block level there is no constructor object for either to target. `static new` is refused, `new` already being the class's own operation (§11).
+
 ### 6.4 Default-export classes
 
 Part 4 §6's `default` modifier applies to classes:
@@ -283,7 +285,7 @@ extern from "database-client"
         new as create(config: Config) ->! Client
 ```
 
-`default` selects the incoming JavaScript default export as the foreign class; everything else — the private-by-default binding, `export` producing a *named* Hexagon export, never a Hexagon or emitted-JS default export — is Part 4 §6 unchanged. A `default class` header names its local type directly (there is no foreign name), so `default class Foreign as Local` is ill-formed, mirroring Part 4's no-`as`-on-`default` rule.
+`default` selects the incoming JavaScript default export as the foreign class; everything else — the private-by-default binding, `export` producing a *named* Hexagon export, never a Hexagon or emitted-JS default export — is Part 4 §6 unchanged. A `default class` header names its local type directly (there is no foreign name), so `default class Foreign as Local` is ill-formed, mirroring Part 4's no-`as`-on-`default` rule. `default` applies to the `class` header only: a member is a property, not an export, and `default` before a member row is refused (§11).
 
 ---
 
@@ -301,7 +303,7 @@ This matches the existing rule that `export` exports everything a declaration in
 
 Exported members are re-exported from the compiled facade like any exported extern binding (Part 4 §7); since receiver members are always wrapper-backed (§2.3), **the ESM export of a receiver member is its stable wrapper** — there is no raw property function that could be exported instead.
 
-**The class re-export** *(#982)*. An importing module emits a static member or constructor call as the binding module does — `URL.canParse(text)`, `new URL(text)` (§2.2) — and for that it needs the foreign constructor object. It cannot import the foreign module itself: a relative specifier is emitted verbatim and resolves from the binding module's emitted place, not the importer's (Part 4 §2.1). So a binding module whose exported class declares a `new` or `static` member re-exports the constructor object under the reserved compiler name **`__class_<Type>`** (Lexer §3.2's `__<category>_<name>` family; `<Type>` the class's local type name), and an importer that calls such a member imports it under the foreign class name — the local type name for a `default class`, which has none (§6.4) — collision-only suffixed, Lexer §3.2's allocation:
+**The class re-export** *(#982)*. An importing module emits a static member or constructor call as the binding module does — `URL.canParse(text)`, `new URL(text)` (§6.2, §6.3) — and for that it needs the foreign constructor object. It cannot import the foreign module itself: a relative specifier is emitted verbatim and resolves from the binding module's emitted place, not the importer's (Part 4 §2.1). So a binding module whose exported class declares a `new` or `static` member re-exports the constructor object under the reserved compiler name **`__class_<Type>`** (Lexer §3.2's `__<category>_<name>` family; `<Type>` the class's local type name). The spelling is **fixed** — an importer computes it from the type name — so, like `__patt_<name>`, it is reserved before internal allocation and never suffixed. An importer that calls such a member binds it under a **minted import local** (FFI Part 7 §1.2 rule 1) mirroring the foreign class name — the local type name for a `default class`, whose foreign side is unnamed (§6.4). Where that spelling is in the runtime vocabulary or one JavaScript refuses as a binding (`Map`, `Error`, `delete`), the local takes rule 4's `__<name>` seat; otherwise it takes the collision-only suffix against the module's bindings (Lexer §3.2's allocation). The binding module's own import of the class is a minted local on the same terms — `class Map as MapboxMap` imports `{ Map as __Map }` — so no compiler-written `new Map(...)` in either module reaches the foreign class:
 
 ```js
 // module Url
@@ -375,9 +377,9 @@ Hard errors with named rewrites per the Rewrite Rule:
 | `new` row whose result is not the class's own type, or with no arrow | "`new` constructs `Url`; write `new as create(text: String) ->! Url` (`->` only where construction touches nothing)" | §6.2 |
 | member row with `:` before its result; `pure`/`conduit` before a member keyword or the `class` header | Part 4 §4.5's redirect — a member row declares a callable; the `class` header declares nothing invocable and takes the drop-the-word report (#869) | Part 4 §4.5 |
 | `set` (instance or static) with an arrow other than `->!` | "an extern `set` grants write capability, and a write to foreign state is an effect — its arrow is `->!`; write `set timeout as setTimeout(request: Request, value: Int) ->! Unit`" + fixit `->!` (#869) | §4.1, §6.3 |
-| Hexagon keyword as an unaliased member's foreign name | "`then` is a Hexagon keyword and cannot name a binding; bind the member under an alias: `method then as andThen(...)`" — no applied fixit (#982) | §2.4 |
+| Hexagon hard keyword as an unaliased member's foreign name | "`then` is a Hexagon hard keyword and cannot name a binding; bind the member under an alias: `method then as andThen(...)`" — the row's own keywords repeated; no applied fixit (#982) | §2.4 |
 | `static` or `new` at block level, outside a class block | "a `static` member targets the foreign class's constructor object; declare it inside the `extern class` it belongs to"; for `new`, "`new` constructs a foreign class; declare it inside that class's `extern class` block" (#982) | §6.2, §6.3 |
-| `default` before `method`/`get`/`set`/`new`/`static` | "`default` selects a foreign module's default export, and a member is not an export; drop `default`, or declare the class `default class`" (#982) | §6.4 |
+| `default` before `method`/`get`/`set`/`new`/`static` | "`default` selects a foreign module's default export, and a member is not an export; drop `default`" — inside a class block, adding "to make the class the default export, write `default class`" (#982) | §6.4 |
 | `static new` | "a constructor is already the class's own operation; drop `static`: `new as create(...) -> Url`" (#982) | §6.2 |
 | `fun`/`let`/`type` inside a class block | "extern class members are `new`, `method`, `get`, `set`, and their `static` forms; declare this at block level" | §6.1 |
 | `export` on an individual class member | "`export class` exports every declared member; export the class, or declare the member at block level" | §7 |
@@ -441,7 +443,7 @@ A binding author can declare the same foreign API either as an extern `type` plu
 | Members are flat module-level bindings — no namespace, no in-file submodule; one-class-per-binding-module is idiom, not rule; cross-class name collisions are ordinary collisions with named rewrites | §8 |
 | Dot calls reach extern members via ordinary companion dispatch; Method Syntax's coverage table includes extern nominal types; bare `e.name` stays field access, so property reads are spelled `url.hostname!()` | §9, §13.2 |
 | *(#982)* A member's foreign name is a JavaScript property name — any IdentifierName, Hexagon hard keywords included; a keyword there requires an author-written alias, never a generated one | §2.4 |
-| *(#982)* Importers emit instance-member calls inline as the binding module does; static members and constructors reach the foreign constructor object through the binding module's `__class_<Type>` re-export, imported under the foreign class name; first-class references import the stable wrapper; `__class_<Type>` is linkage, in no `.d.ts` | §2.2, §7 |
+| *(#982)* Importers emit instance-member calls inline as the binding module does; static members and constructors reach the foreign constructor object through the binding module's `__class_<Type>` re-export (fixed spelling), bound under a minted import local mirroring the foreign class name, runtime-vocabulary and reserved spellings aliased (Part 7 §1.2 rules 1, 4); first-class references import the stable wrapper; `__class_<Type>` is linkage, in no `.d.ts` | §2.2, §7 |
 | Exclusions: no `extends`, no Hexagon subclassing/overriding/`super`/`protected`/abstract, no `instanceof` surface (Part 11 owns uncertain-value classification); foreign inheritance is flattened in v1; any future upcast is explicit and trusted, never subtyping | §10, §13.1 |
 | Prefer `extern class` for class-shaped APIs and extern `type` plus standalone members for interface- or handle-shaped APIs; cultural guidance only | §6.1, §13.3 |
 | Symbol-keyed members, constructor objects, subclass-dependent APIs, selective visibility, generics deferred | §12 |
