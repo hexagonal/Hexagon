@@ -731,6 +731,25 @@ extern from "${specifier}"
     expect((loaded["Main"]!.go as () => number)()).toBe(10 + 102);
   });
 
+  test("a reserved-word or `__` foreign class name falls back to `__class_<Type>`", () => {
+    const javascript = emitted([["/main.hex", `module Main
+
+extern from "w"
+    class delete as Del
+        new as make() ->! Del
+    class __capture as Cap
+        new as cap() ->! Cap
+
+export fun go(): Int =
+    let d = make!()
+    let c = cap!()
+    0
+`]], "/main.hex");
+    expect(javascript).toContain('import { delete as __class_Del } from "w";');
+    expect(javascript).toContain("new __class_Del()");
+    expect(javascript).toContain('import { __capture as __class_Cap } from "w";');
+  });
+
   test("a private class re-exports nothing, and a class of instance members imports nothing", () => {
     const javascript = emitted([["/main.hex", `module Main
 

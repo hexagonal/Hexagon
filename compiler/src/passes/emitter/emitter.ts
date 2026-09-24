@@ -3595,6 +3595,26 @@ class JavaScriptEmitter {
       ...module.preludeInstances.map(({ localDictionary }) => localDictionary),
       ...this.#unsafeModuleLocals.values(),
     ]);
+    // FFI Part 5 §7: this module's own classes claim their locals before any
+    // other allocation, so a class's spelling here is the one its importers
+    // compute, whatever order the source reaches it in.
+    for (const item of module.items) {
+      if (item.kind !== "ExternBlock") continue;
+      for (const declaration of item.declarations) {
+        if (declaration.kind !== "ExternType" || declaration.foreignClass === undefined) continue;
+        if (
+          !item.declarations.some((member) =>
+            member.kind === "ExternFun" && member.ownerClass === declaration.externType &&
+            (member.convention === "new" || member.static === true)
+          )
+        ) continue;
+        this.#classLocal({
+          type: declaration.localName,
+          foreign: declaration.foreignName ?? declaration.localName,
+          ...(module.modulePath === undefined ? {} : { path: module.modulePath }),
+        });
+      }
+    }
     for (const item of module.items) {
       if (item.kind !== "PatternDeclaration") continue;
       const local = patternExportName(item.name);
@@ -14997,7 +15017,12 @@ class GeneratedNames {
    * minted local, whose fallback is its fixed `__class_<Type>` (FFI Part 5 §7).
    */
   claimBare(name: string): string | undefined {
-    if (this.#used.has(name) || MINTED_LOCAL_HAZARDS.has(name) || reservedWords.has(name)) {
+    // A foreign `__` spelling would sit inside the compiler's reserved family
+    // (Lexer §3.2), where it could take a helper's or another class's name.
+    if (
+      name.startsWith("__") || this.#used.has(name) || MINTED_LOCAL_HAZARDS.has(name) ||
+      reservedWords.has(name)
+    ) {
       return undefined;
     }
     this.#used.add(name);
