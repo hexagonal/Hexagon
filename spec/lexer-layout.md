@@ -77,8 +77,8 @@ name — straight after `let`, `var`, or `fun`, or in an FFI row's name seats, s
 after `method`, `get`, or `set` at the head of the item, past only `export`,
 `static`, `default`, and the retired `pure`/`conduit` (`method match(text: String,
 pattern: RegExp) ->! Bool` opens nothing) *(#982, #1014)*. A member-block item's head
-is not a name seat, so `or` or `and` beginning a line keeps §2.3's continuation
-reading unless a label's `:` or `=` follows it.
+is not a name seat, and a label seat lies inside a bracket pair, so `or` or `and`
+beginning a line keeps §2.3's continuation reading.
 
 *(#700 terminology.)* The right column sorts into three kinds, and the head
 decides which: **expression blocks** — bodies and binding blocks, item
