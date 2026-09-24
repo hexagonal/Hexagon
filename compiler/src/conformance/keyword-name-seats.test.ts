@@ -137,7 +137,7 @@ describe("the seats, one construct at a time", () => {
     const [report] = compileFiles([["/main.hex",
       "module Main\n\nexport let or(a: Int, b: Int): Int = a\nexport let v: Int = or(1, 2)\n"]]).diagnostics;
     const note =
-      "this module's `or` is reached through a dot — `x.or(…)` on its home type, or `Module.or` from an importer";
+      "this module's `or` is reached only through a dot, from an importer or on its home type";
     expect(report?.notes).toContain(note);
     // Once per report, however many bare uses share its line.
     const [twice] = compileFiles([["/main.hex",
