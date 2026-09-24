@@ -117,6 +117,8 @@ export interface Symbol {
   readonly kind: Resolved.SymbolKind;
   readonly bindingSpan: Source.Span;
   readonly scheme: Typed.Scheme;
+  /** See `Resolved.Symbol.receiver` — an FFI Part 5 member's linkage (#982). */
+  readonly receiver?: Resolved.ReceiverLinkage;
 }
 
 export interface Binding {

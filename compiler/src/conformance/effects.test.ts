@@ -1604,12 +1604,14 @@ export let t: String = trim("x")
   });
 
   it("reaches Part 5's keywords at the seat, and refuses the form separately", () => {
-    // §4.5's seat names the member and class vocabulary too. This parser refuses
-    // that family as a *form*, but the word standing in front of one is still
-    // the retired claim and owes §13's redirect — never "extern `pure`
-    // declarations belong to a later FFI slice", which describes no defect the
-    // author has. `class` introduces a type; the member keywords declare
-    // callables; `static` is a modifier, so what follows it is the callable.
+    // §4.5's seat names the member and class vocabulary too. Where this parser
+    // refuses a form, the word standing in front of one is still the retired
+    // claim and owes §13's redirect — never "extern `pure` declarations belong
+    // to a later FFI slice", which describes no defect the author has. `class`
+    // introduces a type; `static` is a modifier, so what follows it is the
+    // callable. The instance members are forms since #982, so the redirect is
+    // the row's one report, composed as a `fun`'s is — and a `set` row's arrow
+    // is `->!` whatever the word claimed (Part 5 §4.1).
     const slice = (keyword: string) =>
       `extern \`${keyword}\` declarations belong to a later FFI slice`;
     const head = (text: string) =>
@@ -1620,10 +1622,16 @@ export let t: String = trim("x")
       "`pure` is retired, and a type declares nothing invocable — drop the word",
       slice("class"),
     ]);
-    expect(head("pure method foo(x: Int): Int")).toEqual([RETIRED_PURE, slice("method")]);
-    expect(head("conduit get x(v: Int): Int")).toEqual([RETIRED_CONDUIT, slice("get")]);
-    expect(head("pure set x(v: Int): Unit")).toEqual([RETIRED_PURE, slice("set")]);
-    expect(head("pure static fun f(x: Int) -> Int")).toEqual([RETIRED_PURE, slice("static")]);
+    expect(head("pure method foo(x: Int): Int")).toEqual([RETIRED_PURE]);
+    expect(head("conduit get x(v: Int): Int")).toEqual([retiredWithoutInlet("conduit")]);
+    expect(head("pure set x(v: Int, w: Int): Unit")).toEqual([
+      "`pure` is retired, and a `set` row's arrow is `->!` — drop the word",
+    ]);
+    expect(head("pure static fun f(x: Int) -> Int")).toEqual([
+      RETIRED_PURE,
+      "a `static` member targets the foreign class's constructor object; " +
+        "declare it inside the `extern class` it belongs to",
+    ]);
   });
 
   it("drops the word and its own spacing, and nothing a reader wrote between", () => {

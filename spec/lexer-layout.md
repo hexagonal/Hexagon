@@ -69,6 +69,12 @@ refuses it before a `fun` block head (Functions §7.3; layout stays agnostic).
 | `extern from "specifier"` head (FFI Part 4 §2.2 — one item per line under ordinary layout; the row was owed from that part and is added with the kind taxonomy) | Member block |
 | Term binding ending in `=` (`let x =`, `var x =`, `let f(...) =`, `fun f(...) =`, or a member header — a `fun` block's member lines included) | Binding body block |
 
+A control word standing in an FFI Part 5 member row's foreign-name seat —
+straight after `method`, `get`, or `set` at the head of the item, past only
+`export`, `static`, `default`, and the retired `pure`/`conduit` — is the name of
+a JavaScript property there (FFI Part 5 §2.4), not a head: `method match as
+matches(text: String, pattern: RegExp) ->! Bool` opens nothing *(#982)*.
+
 *(#700 terminology.)* The right column sorts into three kinds, and the head
 decides which: **expression blocks** — bodies and binding blocks, item
 sequences whose final expression is the block's value (Statements §3) —

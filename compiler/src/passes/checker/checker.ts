@@ -1900,12 +1900,30 @@ function patternBindsGuardName(pattern: Resolved.Pattern): boolean {
  * can share a number. These two functions are the only place either becomes a
  * companion key, which is what keeps `record:3` and `union:3` apart.
  */
+/**
+ * The binder kinds a companion operation may have: an ordinary `fun` or `let`,
+ * and a foreign `extern` row (#982) — whose admission the callers still bound
+ * to subjects the binding module declares.
+ */
+function companionOperationKind(symbol: Resolved.Symbol): boolean {
+  return symbol.kind === "fun" || symbol.kind === "let" || symbol.kind === "extern";
+}
+
 function recordCompanionKey(record: Resolved.RecordId): string {
   return `record:${Number(record)}`;
 }
 
 function unionCompanionKey(union: Resolved.UnionId): string {
   return `union:${Number(union)}`;
+}
+
+/**
+ * An extern nominal type's companion identity (Method Syntax §4.1's extern row;
+ * FFI Part 5 §9): its binding module — the module whose text declares it — is
+ * its home, exactly as a record's or a union's (#982).
+ */
+function externTypeCompanionKey(externType: Resolved.ExternTypeId): string {
+  return `extern:${Number(externType)}`;
 }
 
 /**
@@ -1997,6 +2015,7 @@ function companionKeyOfAnnotation(
   if (annotation === undefined) return undefined;
   if (annotation.kind === "RecordDeclaration") return recordCompanionKey(annotation.record);
   if (annotation.kind === "Union") return unionCompanionKey(annotation.union);
+  if (annotation.kind === "ExternType") return externTypeCompanionKey(annotation.externType);
   if (annotation.kind === "Primitive") return PRIMITIVE_COMPANIONS.get(annotation.name);
   return BUILTIN_COMPANIONS.get(annotation.kind);
 }
@@ -2050,6 +2069,11 @@ export function homeCompanionOperations(
       home.add(unionCompanionKey(union.id));
     }
   }
+  for (const externType of module.externTypes) {
+    if (Number(externType.span.fileId) === Number(module.fileId)) {
+      home.add(externTypeCompanionKey(externType.externType));
+    }
+  }
   const found = new Map<string, Map<string, Resolved.Symbol>>();
   const admit = (
     binding: Resolved.Binding,
@@ -2061,8 +2085,11 @@ export function homeCompanionOperations(
     // Symbol kind, not declaration shape — the same test `admit` runs in the
     // checker, and for the same reason: an intrinsic `extern fun` binds as kind
     // `fun` so that it lands here (#134), while an ordinary foreign `extern`
-    // binds as kind `extern` and stays out (#266).
-    if (symbol === undefined || (symbol.kind !== "fun" && symbol.kind !== "let")) return;
+    // binds as kind `extern` and stays out (#266) — save at a subject this
+    // module declares, which is Method Syntax §4.1's extern row: a binding
+    // module's exported subject-first extern rows, FFI Part 5's receiver
+    // members first among them, are its types' companion operations (#982).
+    if (symbol === undefined || !companionOperationKind(symbol)) return;
     let operations = found.get(subject);
     if (operations === undefined) {
       operations = new Map();
@@ -3563,6 +3590,12 @@ class Checker {
    * operation of every nominal the program declares.
    */
   readonly #companionImports = new Map<Resolved.SymbolId, Typed.CompanionImport>();
+  /**
+   * The FFI Part 5 receiver members a dot call reached with no import of their
+   * binding module (#982) — see `#recordCompanionImport`. They ride out in the
+   * module's symbol table, where the emitter reads a member's linkage.
+   */
+  readonly #reachedReceiverMembers = new Map<Resolved.SymbolId, Resolved.Symbol>();
   /** Where each operation in the program table came from, by symbol. */
   readonly #operationHomes = new Map<Resolved.SymbolId, ProgramOperation>();
   readonly #forbiddenInstances = new Map<string, string>();
@@ -4360,6 +4393,22 @@ class Checker {
           return type;
         });
         const externResult = this.#annotationType(declaration.returnAnnotation);
+        // FFI Part 5 §4.1: a `set` returns `Unit`, whatever the JavaScript
+        // assignment expression yields — the honest-`Unit` doctrine. Compared as
+        // a type, so a transparent alias of `Unit` is `Unit`.
+        if (declaration.convention === "set") {
+          const pruned = this.#prune(externResult);
+          if (
+            pruned.kind !== "Error" &&
+            !(pruned.kind === "Tuple" && pruned.elements.length === 0)
+          ) {
+            this.#diagnostics.add({
+              severity: "error",
+              message: "an extern `set` returns `Unit`",
+              primary: declaration.returnAnnotation.span,
+            });
+          }
+        }
         // The face is **read from the row's arrow** *(#869)*, exactly as a
         // constraint member header's is: a boundary row is a contract with no
         // body to infer from (Effects §6.1). `->` is the trusted purity claim,
@@ -4505,7 +4554,11 @@ class Checker {
     this.#checkPublicSignatures(module.items);
     this.#refuseExportedMemberSpellings(module.items);
 
-    const symbols = module.symbols.map((symbol) => ({
+    const listed = new Set(module.symbols.map(({ id }) => id));
+    const symbols = [
+      ...module.symbols,
+      ...[...this.#reachedReceiverMembers.values()].filter(({ id }) => !listed.has(id)),
+    ].map((symbol) => ({
       ...symbol,
       scheme: this.#publicScheme(this.#scheme(symbol.id)),
     }));
@@ -4640,6 +4693,9 @@ class Checker {
     for (const union of module.unions) {
       home.set(unionCompanionKey(union.id), Number(union.span.fileId));
     }
+    for (const externType of module.externTypes) {
+      home.set(externTypeCompanionKey(externType.externType), Number(externType.span.fileId));
+    }
     // A built-in head's companion is the module addressable under its name
     // (`BUILTIN_COMPANIONS`), so membership is the alias's export list rather
     // than a file. An alias is the only evidence the checker has here, and it is
@@ -4659,8 +4715,10 @@ class Checker {
       // kind `fun` precisely so that it lands here (#134, `intrinsics.md` §8.1 —
       // `Seq.memoize` is the case), while an ordinary foreign `extern` binds as
       // kind `extern` and stays out, which is what makes a distinguished local
-      // dispatch to the prelude (#266).
-      if (symbol.kind !== "fun" && symbol.kind !== "let") return;
+      // dispatch to the prelude (#266). A foreign `extern` enters only a home
+      // module's set, below — never an alias-addressed built-in's (#982).
+      if (!companionOperationKind(symbol)) return;
+      if (symbol.kind === "extern" && addressed.has(subject)) return;
       // The home-module filter. Without it any module that merely *imports* `Box`
       // could add operations to it — the orphan-rule analogue §1 calls "one
       // companion, no search". A built-in head answers through its alias
@@ -4811,6 +4869,7 @@ class Checker {
     const actual = this.#prune(type);
     if (actual.kind === "NominalRecord") return recordCompanionKey(actual.record);
     if (actual.kind === "Union") return unionCompanionKey(actual.union);
+    if (actual.kind === "ExternType") return externTypeCompanionKey(actual.externType);
     if (actual.kind === "Constructor") return PRIMITIVE_COMPANIONS.get(actual.name);
     return BUILTIN_COMPANIONS.get(actual.kind);
   }
@@ -4919,7 +4978,12 @@ class Checker {
       // modules addressable under the names, so `m.size()`, `m.get(k)` and
       // `s.contains(x)` are ordinary companion dispatch.
       actual.kind === "JsMap" ||
-      actual.kind === "JsSet";
+      actual.kind === "JsSet" ||
+      // An extern nominal type joins with its binding module as companion
+      // (Method Syntax §4.1's extern row; FFI Part 5 §9, #982): `url.hostname()`
+      // is `Url.hostname(url)`, and an opaque foreign value has no fields for a
+      // row fallback to find.
+      actual.kind === "ExternType";
     // Primitives join the table for the member clause alone (§3.4's Primitive
     // row): they have no fields and no companion module, so the wired instances
     // are their whole dot surface — `42n.show()` is `Show`'s member at `BigInt`.
@@ -5202,6 +5266,14 @@ class Checker {
     if (this.#operationSpellings.has(operation.id)) return;
     if (Number(operation.bindingSpan.fileId) === this.#fileId) return;
     if (this.#companionImports.has(operation.id)) return;
+    // An FFI Part 5 receiver member owes no import (Part 5 §2.2; Method Syntax
+    // §8.2): its call is emitted inline, and what emission needs is the member's
+    // linkage, which rides its symbol — so the symbol joins this module's table
+    // instead (#982).
+    if (operation.receiver !== undefined) {
+      this.#reachedReceiverMembers.set(operation.id, operation);
+      return;
+    }
     const home = this.#operationHomes.get(operation.id);
     // No home on record is the lone-`check` compilation, which has no module
     // graph and so no second file to import from either.
@@ -24840,6 +24912,7 @@ class Checker {
             default: declaration.default,
             ...(declaration.foreignName === undefined ? {} : { foreignName: declaration.foreignName }),
             localName: declaration.localName,
+            ...(declaration.convention === undefined ? {} : { convention: declaration.convention }),
             binding,
             parameters: declaration.parameters.map((parameter, index) => ({
               ...parameter,

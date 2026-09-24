@@ -104,6 +104,9 @@ export interface ExternImportItem {
   readonly span: Source.Span;
 }
 
+/** FFI Part 5 §1's receiver member forms (#982). */
+export type ReceiverConvention = "method" | "get" | "set";
+
 export type ExternDeclaration =
   | ExternFunDeclaration
   | ExternLetDeclaration
@@ -119,6 +122,13 @@ interface ExternDeclarationFields {
 
 export interface ExternFunDeclaration extends ExternDeclarationFields {
   readonly kind: "ExternFun";
+  /**
+   * FFI Part 5's receiver calling convention (#982), present on a `method`,
+   * `get`, or `set` row and absent on a `fun`. The row is otherwise a callable
+   * extern row of the `fun` shape — typed, checked and exported alike — whose
+   * first parameter the emitter makes the JavaScript receiver.
+   */
+  readonly convention?: ReceiverConvention;
   /**
    * The declared binders, present only inside the reserved boundary (#370,
    * `spec/intrinsics.md` §3.4): an intrinsic row may carry constraint brackets,

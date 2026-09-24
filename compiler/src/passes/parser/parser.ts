@@ -25,6 +25,7 @@ import {
 } from "../../support/foreign-literal.js";
 import type * as LaidOut from "../../syntax/laid-out/index.js";
 import type * as Lexed from "../../syntax/lexed/index.js";
+import { keywordKinds } from "../../syntax/lexed/token.js";
 import * as Parsed from "../../syntax/parsed/index.js";
 import { DocBlocks, widenedLineTakesNoDoc } from "./doc-blocks.js";
 
@@ -361,6 +362,13 @@ const PARAMETER_PLACEHOLDERS = ["x", "y", "z"] as const;
  * modifiers, and the other retired word. `fun`, `let` and `type` are hard
  * keywords and are tested by kind beside this set.
  */
+/**
+ * FFI Part 5's instance-member keywords (#982): each introduces a callable row
+ * whose first parameter is the JavaScript receiver.
+ */
+const RECEIVER_MEMBER_KEYWORDS = ["method", "get", "set"] as const;
+type ReceiverMemberKeyword = (typeof RECEIVER_MEMBER_KEYWORDS)[number];
+
 const RETIRED_SEAT_FOLLOWERS = new Set([
   "enum",
   "class",
@@ -2296,8 +2304,12 @@ class Parser {
     // and `static` is a leading modifier, so what follows it is the callable
     // the retired grammar put the word in front of. The row is refused straight
     // after, so no arrow is placed and none is claimed to be written.
-    const part5Callable = ["method", "get", "set", "new", "static"]
-      .some((word) => this.#atContextual(word));
+    //
+    // FFI Part 5's instance members — `method`, `get`, `set` (#982) — are read
+    // below as callable rows on the `fun` path, so their words wait for the
+    // arrow seat like a `fun`'s do. `new` and `static` stay refused here.
+    const member = RECEIVER_MEMBER_KEYWORDS.find((word) => this.#atContextual(word));
+    const part5Callable = ["new", "static"].some((word) => this.#atContextual(word));
     const part5Class = this.#atContextual("class");
     if (kind === "Type" || foreignEnum || part5Class) {
       this.#reportRetiredExternClaims(retired, "type", "written");
@@ -2309,6 +2321,24 @@ class Parser {
       this.#errorAt(label.span, intrinsicFormError(externDeclarationKeyword(label)));
       this.#synchronize(new Set(["VSep", "VClose", "Eof"]));
       return undefined;
+    }
+    // FFI Part 5 §11 (#982): `static` and `new` describe a foreign class's
+    // constructor object, which only an `extern class` block names. At block
+    // level there is no class for either to reach, whatever grammar follows.
+    if (this.#atContextual("static") || this.#atContextual("new")) {
+      const label = this.#current();
+      this.#errorAt(
+        label.span,
+        label.kind === "NonUpperName" && label.text === "new"
+          ? "`new` constructs a foreign class; declare it inside that class's `extern class` block"
+          : "a `static` member targets the foreign class's constructor object; " +
+            "declare it inside the `extern class` it belongs to",
+      );
+      this.#synchronize(new Set(["VSep", "VClose", "Eof"]));
+      return undefined;
+    }
+    if (member !== undefined) {
+      return this.#parseExternMember(member, start, exported, defaultBinding, retired);
     }
     // `class` — FFI Part 5's opaque foreign class — keeps the refusal below, as
     // does every other word.
@@ -2427,139 +2457,12 @@ class Parser {
       }
     }
     if (kind === "Fun") {
-      // §13's paramless row. The report waits for the annotation, so its rewrite
-      // can name the type the author wrote (`let version: String`) rather than a
-      // placeholder — and because that rewrite is a `let`, which keeps `:`, the
-      // arrow seat below stays silent on this path: this row's repair is the
-      // other keyword, not an arrow it would not have.
-      const missingParameterList = !this.#at("LeftParen");
-      const parameterOpen = missingParameterList ? undefined : this.#current().span;
-      const parsedParameters = missingParameterList
-        ? { parameters: [], destructurings: [] }
-        : this.#parseParameters();
-      const parameters = parsedParameters.parameters;
-      this.#rejectDestructurings(parsedParameters.destructurings, "extern functions");
-      for (const parameter of parameters) {
-        if (parameter.annotation === undefined) {
-          this.#errorAt(parameter.span, "extern function parameters require type annotations");
-        }
-      }
-      // *(#869.)* A callable extern row writes its **outer arrow** between its
-      // parameters and its result (FFI Part 4 §4.5) — a contract with no body
-      // to infer from, exactly as a constraint member header is, and that
-      // header's seat is the model this one follows. `:` is the retired form
-      // and takes §13's redirect; the conservative arrow is its fixit and its
-      // recovery, so a row written the old way keeps the face the old default
-      // gave it behind one report.
-      const arrow = this.#arrowAt();
-      // The `:` seat, recorded only where the author actually wrote one: it is
-      // what §13's rewrite replaces, and a row that wrote its own arrow (or
-      // neither) has nothing there to replace.
-      let colonSeat: Source.Span | undefined;
-      // What the row says at its arrow seat where it wrote no `:` — and the
-      // give-way answer has to be *true* of the row. A row that wrote no result
-      // separator at all, or whose `=>` was refused, writes no arrow to stand:
-      // it states none, so the words keep their own sentence while the
-      // missing-result or type-arrow report supplies the rest.
-      let statedArrow: "written" | "unstated" = "unstated";
-      // **Every failure at this seat recovers as `->!`** — §4.5's "never a
-      // silent claim in either direction". A row that did not validly write its
-      // arrow has claimed nothing, and the impure constant is the only reading
-      // that claims nothing back: it is the colon row's fixit, the
-      // missing-result row's advice, and the recovery here, one answer three
-      // times. Purity is reachable from a written `->` and from nowhere else.
-      let effect: Parsed.ArrowEffect | undefined = "constant";
-      let arrowSpan: Source.Span | undefined;
-      let missingArrow = false;
-      if (arrow === undefined) {
-        const separator = this.#current();
-        if (separator.kind === "Colon") {
-          // Two rows suppress this one, each because its own rewrite already
-          // spells the arrow *(§13)*: a retired `pure`/`conduit` claim, whose
-          // fixit names both edits, and the paramless row above, whose rewrite
-          // is a `let` — and a `let` keeps its `:`. Either way the row is one
-          // migration and owes one report.
-          if (retired.length === 0 && !missingParameterList) {
-            this.#diagnostics.add({
-              severity: "error",
-              message: EXTERN_COLON_SEPARATOR,
-              primary: separator.span,
-              fixes: [{
-                message: "write `->!`",
-                edits: [{ span: separator.span, replacement: "->!" }],
-              }],
-            });
-          }
-          arrowSpan = separator.span;
-          colonSeat = separator.span;
-          this.#advance();
-        } else if (separator.kind === "FatArrow") {
-          // Effects §9's type-arrow redirect (#410): a fat arrow at a row's
-          // arrow seat can have no other reading — an extern declaration has no
-          // body to begin. What it spells is retained only where the spelling
-          // is not a claim — `=>?` — because a refused arrow may not hand a row
-          // the purity it did not write.
-          const redirected = this.#redirectTypeArrow();
-          arrowSpan = redirected.span;
-          if (redirected.effect === "linked") effect = "linked";
-        } else {
-          this.#errorAt(separator.span, EXTERN_MISSING_RESULT);
-          missingArrow = true;
-        }
-      } else {
-        arrowSpan = this.#current().span;
-        effect = arrow === "pure" ? undefined : arrow;
-        statedArrow = "written";
-        this.#advance();
-      }
-      // One typo, one report — the member header's rule (#867): a row that ended
-      // at its parameter list has already been told it has no result, and is not
-      // asked for a type annotation a second time.
-      const ended = missingArrow &&
-        (this.#at("VSep") || this.#at("VClose") || this.#at("Eof"));
-      const returnAnnotation = (ended ? undefined : this.#parseTypeAnnotation(true)) ??
-        invalidType(localName);
-      // §13's redirect, once the whole row is in hand: the inlet test reads the
-      // parameters *and* the result, so the arrow the rewrite names is one the
-      // checker will not turn round and refuse.
-      //
-      // A `fun` **without** a parameter list declares no callable: its rewrite
-      // is a `let`, and a `let` has no arrow for the word to redirect to — the
-      // nothing-invocable row, which that rewrite's keyword selects.
-      const hasInlet = writtenSignatureInlet(
-        parameters.map((parameter) => parameter.annotation),
+      const {
+        parameters,
+        effect,
+        arrowSpan,
         returnAnnotation,
-      );
-      const redirect = this.#reportRetiredExternClaims(
-        retired,
-        missingParameterList ? "value" : "callable",
-        colonSeat === undefined ? statedArrow : { at: colonSeat },
-        hasInlet,
-      );
-      if (redirect !== undefined && !missingParameterList) {
-        // §4.5: the face the row recovers with is **the arrow the fixit names**
-        // — the rewritten one where the rewrite wrote it, and otherwise the
-        // arrow the row already writes, which stands. The one thing that never
-        // survives is an inlet-less `->?`: this redirect has been reported, and
-        // §13 does not report the inlet-less row on top of it.
-        if (redirect.rewritesArrow) {
-          effect = redirect.written === "->"
-            ? undefined
-            : redirect.written === "->?"
-            ? "linked"
-            : "constant";
-        } else if (effect === "linked" && !hasInlet) {
-          effect = "constant";
-        }
-      }
-      if (missingParameterList) {
-        this.#errorAt(
-          localName.span,
-          "extern `fun` declares a callable and requires a parameter list; for a " +
-            `foreign value, write \`let ${localName.text}: ` +
-            `${this.#writtenAnnotation(returnAnnotation) ?? "Type"}\``,
-        );
-      }
+      } = this.#parseExternSignature(retired, localName);
       this.#rejectExternBody();
       return {
         kind: "ExternFun",
@@ -2763,6 +2666,316 @@ class Parser {
   }
 
   /**
+   * FFI Part 5's instance member rows (#982): `method`, `get`, `set`, standalone
+   * in an `extern from` block. Each is a callable row of the `fun` shape — the
+   * signature is read by `#parseExternSignature` — whose first parameter is the
+   * JavaScript receiver; what the keyword adds is the calling convention the
+   * emitter reproduces and the arity each convention fixes.
+   */
+  #parseExternMember(
+    member: ReceiverMemberKeyword,
+    start: LaidOut.Token,
+    exported: boolean,
+    defaultBinding: boolean,
+    retired: RetiredExternClaim[],
+  ): Parsed.ExternFunDeclaration | undefined {
+    if (defaultBinding) {
+      // §11: `default` names a module's default export, and a member is a
+      // property of a receiver, not an export. Read on as the member it is.
+      this.#errorAt(
+        start.span,
+        "`default` selects a foreign module's default export, and a member is not an export; drop `default`",
+      );
+    }
+    this.#advance();
+    // §2.4: the foreign side is a JavaScript property name, so a hard keyword
+    // (`then`, `catch`, `match`) or the `_` token stands there as the name it
+    // spells. The local side stays a Hexagon name seat.
+    const nameIndex = this.#index;
+    const nameToken = this.#current();
+    let foreignText: string;
+    let keywordForeign = false;
+    if (nameToken.kind === "NonUpperName" || nameToken.kind === "UpperName") {
+      foreignText = nameToken.text;
+    } else if (nameToken.kind === "Wildcard" || isKeywordToken(nameToken)) {
+      foreignText = this.#text.slice(nameToken.span.start.offset, nameToken.span.end.offset);
+      keywordForeign = nameToken.kind !== "Wildcard";
+    } else {
+      this.#error(`an extern \`${member}\` names the foreign member it reaches; write its name after the keyword`);
+      this.#synchronize(new Set(["VSep", "VClose", "Eof"]));
+      return undefined;
+    }
+    this.#advance();
+    const foreignName: Parsed.Name = {
+      text: foreignText,
+      startClass: nameToken.kind === "UpperName" ? "upper" : "non-upper",
+      span: nameToken.span,
+    };
+    let localName = foreignName;
+    let aliased = false;
+    if (this.#atContextual("as")) {
+      this.#advance();
+      const aliasToken = this.#takeAnyName("expected a local name after `as`");
+      if (aliasToken !== undefined) {
+        localName = parsedName(aliasToken);
+        aliased = true;
+      }
+    }
+    if (foreignText.startsWith("__")) this.#reservedNameExemptions.add(nameIndex);
+    if (!aliased && (keywordForeign || nameToken.kind === "Wildcard")) {
+      // §2.4's refusal: the author chooses the alias, so no fixit applies one.
+      this.#errorAt(
+        nameToken.span,
+        `\`${foreignText}\` is a Hexagon ${keywordForeign ? "hard keyword" : "wildcard"} ` +
+          "and cannot name a binding; bind the member under an alias: " +
+          `\`${member} ${foreignText} as …\``,
+      );
+    } else if (!aliased && foreignText.startsWith("__")) {
+      const alias = lowerInitial(foreignText.replace(/^_+/, ""));
+      this.#errorAt(
+        nameToken.span,
+        `foreign member \`${foreignText}\` uses the reserved \`__\` prefix; bind it ` +
+          `with an alias: \`${member} ${foreignText} as ${alias}\``,
+      );
+    } else if (localName.startClass !== "non-upper") {
+      this.#errorAt(
+        localName.span,
+        `foreign member \`${foreignText}\` is not a legal Hexagon term name; bind it with an alias: ` +
+          `\`${member} ${foreignText} as ${lowerInitial(localName.text)}\``,
+      );
+    }
+    if (this.#at("Less")) {
+      this.#errorAt(this.#current().span, "generic extern declarations are not part of Hexagon v1");
+      this.#parseTypeParameters();
+    }
+    const signature = this.#parseExternSignature(retired, localName, member);
+    let { effect } = signature;
+    const { parameters, arrowSpan, returnAnnotation } = signature;
+    const head = `${member} ${foreignText}${aliased ? ` as ${localName.text}` : ""}`;
+    const result = this.#writtenAnnotation(returnAnnotation) ?? "Result";
+    // §5: the subject is explicit and first; Hexagon has no receiver to supply.
+    if (parameters.length === 0) {
+      this.#errorAt(
+        localName.span,
+        `an extern \`${member}\` takes its receiver as an explicit first parameter; write \`${head}(${
+          member === "set" ? "subject: Subject, value: Value" : "subject: Subject"
+        }) ->! ${member === "set" ? "Unit" : result}\``,
+      );
+    } else if (member === "get" && parameters.length > 1) {
+      // §3.1: a property read takes its subject and nothing else.
+      this.#errorAt(
+        parameters[1]!.span,
+        "a property read takes no arguments beyond its subject; for a receiver call, use `method`",
+      );
+    } else if (member === "set" && parameters.length !== 2) {
+      // §4.1: the subject first, the assigned value last.
+      const subject = this.#writtenText(parameters[0]!.span, parameters[0]!.span) ?? "subject: Subject";
+      this.#errorAt(
+        (parameters[2] ?? parameters[0]!).span,
+        `an extern \`set\` takes the subject and the assigned value: \`${head}(${subject}, value: Value) ->! Unit\``,
+      );
+    }
+    // §4.1: a `set` row's arrow is `->!` and only `->!` — the write capability
+    // the row grants, stated conservatively, never a claim slot. A retired word
+    // on the row has already said so in its own report.
+    if (member === "set" && effect !== "constant" && !signature.redirected) {
+      if (signature.statedArrow === "written" && arrowSpan !== undefined) {
+        this.#diagnostics.add({
+          severity: "error",
+          message:
+            "an extern `set` grants write capability, and a write to foreign state is an effect — " +
+            `its arrow is \`->!\`; write \`${head}(…) ->! Unit\``,
+          primary: arrowSpan,
+          fixes: [{
+            message: "write `->!`",
+            edits: [{ span: arrowSpan, replacement: "->!" }],
+          }],
+        });
+      }
+    }
+    if (member === "set") effect = "constant";
+    this.#rejectExternBody();
+    return {
+      kind: "ExternFun",
+      exported,
+      default: false,
+      foreignName,
+      localName,
+      convention: member,
+      parameters,
+      ...(effect === undefined ? {} : { effect }),
+      ...(arrowSpan === undefined ? {} : { arrowSpan }),
+      returnAnnotation,
+      span: spanFrom(start.span, returnAnnotation.span),
+    };
+  }
+
+  /**
+   * A callable extern row's signature — parameters, outer arrow, result — shared
+   * by `fun` and FFI Part 5's instance members (#982), which are callable rows
+   * of the same shape (Part 4 §4.5's partition). What differs is read by the
+   * caller: a member's arity, and a `set` row's fixed arrow.
+   */
+  #parseExternSignature(
+    retired: readonly RetiredExternClaim[],
+    localName: Parsed.Name,
+    member?: ReceiverMemberKeyword,
+  ): {
+    readonly parameters: readonly Parsed.Parameter[];
+    readonly missingParameterList: boolean;
+    readonly effect: Parsed.ArrowEffect | undefined;
+    readonly arrowSpan: Source.Span | undefined;
+    readonly statedArrow: "written" | "unstated";
+    readonly redirected: boolean;
+    readonly returnAnnotation: Parsed.TypeAnnotation;
+  } {
+    // §13's paramless row. The report waits for the annotation, so its rewrite
+    // can name the type the author wrote (`let version: String`) rather than a
+    // placeholder — and because that rewrite is a `let`, which keeps `:`, the
+    // arrow seat below stays silent on this path: this row's repair is the
+    // other keyword, not an arrow it would not have.
+    const missingParameterList = !this.#at("LeftParen");
+    const parameterOpen = missingParameterList ? undefined : this.#current().span;
+    const parsedParameters = missingParameterList
+      ? { parameters: [], destructurings: [] }
+      : this.#parseParameters();
+    const parameters = parsedParameters.parameters;
+    this.#rejectDestructurings(parsedParameters.destructurings, "extern functions");
+    for (const parameter of parameters) {
+      if (parameter.annotation === undefined) {
+        this.#errorAt(parameter.span, "extern function parameters require type annotations");
+      }
+    }
+    // *(#869.)* A callable extern row writes its **outer arrow** between its
+    // parameters and its result (FFI Part 4 §4.5) — a contract with no body
+    // to infer from, exactly as a constraint member header is, and that
+    // header's seat is the model this one follows. `:` is the retired form
+    // and takes §13's redirect; the conservative arrow is its fixit and its
+    // recovery, so a row written the old way keeps the face the old default
+    // gave it behind one report.
+    const arrow = this.#arrowAt();
+    // The `:` seat, recorded only where the author actually wrote one: it is
+    // what §13's rewrite replaces, and a row that wrote its own arrow (or
+    // neither) has nothing there to replace.
+    let colonSeat: Source.Span | undefined;
+    // What the row says at its arrow seat where it wrote no `:` — and the
+    // give-way answer has to be *true* of the row. A row that wrote no result
+    // separator at all, or whose `=>` was refused, writes no arrow to stand:
+    // it states none, so the words keep their own sentence while the
+    // missing-result or type-arrow report supplies the rest.
+    let statedArrow: "written" | "unstated" = "unstated";
+    // **Every failure at this seat recovers as `->!`** — §4.5's "never a
+    // silent claim in either direction". A row that did not validly write its
+    // arrow has claimed nothing, and the impure constant is the only reading
+    // that claims nothing back: it is the colon row's fixit, the
+    // missing-result row's advice, and the recovery here, one answer three
+    // times. Purity is reachable from a written `->` and from nowhere else.
+    let effect: Parsed.ArrowEffect | undefined = "constant";
+    let arrowSpan: Source.Span | undefined;
+    let missingArrow = false;
+    if (arrow === undefined) {
+      const separator = this.#current();
+      if (separator.kind === "Colon") {
+        // Two rows suppress this one, each because its own rewrite already
+        // spells the arrow *(§13)*: a retired `pure`/`conduit` claim, whose
+        // fixit names both edits, and the paramless row above, whose rewrite
+        // is a `let` — and a `let` keeps its `:`. Either way the row is one
+        // migration and owes one report.
+        if (retired.length === 0 && (member !== undefined || !missingParameterList)) {
+          this.#diagnostics.add({
+            severity: "error",
+            message: EXTERN_COLON_SEPARATOR,
+            primary: separator.span,
+            fixes: [{
+              message: "write `->!`",
+              edits: [{ span: separator.span, replacement: "->!" }],
+            }],
+          });
+        }
+        arrowSpan = separator.span;
+        colonSeat = separator.span;
+        this.#advance();
+      } else if (separator.kind === "FatArrow") {
+        // Effects §9's type-arrow redirect (#410): a fat arrow at a row's
+        // arrow seat can have no other reading — an extern declaration has no
+        // body to begin. What it spells is retained only where the spelling
+        // is not a claim — `=>?` — because a refused arrow may not hand a row
+        // the purity it did not write.
+        const redirected = this.#redirectTypeArrow();
+        arrowSpan = redirected.span;
+        if (redirected.effect === "linked") effect = "linked";
+      } else {
+        this.#errorAt(separator.span, EXTERN_MISSING_RESULT);
+        missingArrow = true;
+      }
+    } else {
+      arrowSpan = this.#current().span;
+      effect = arrow === "pure" ? undefined : arrow;
+      statedArrow = "written";
+      this.#advance();
+    }
+    // One typo, one report — the member header's rule (#867): a row that ended
+    // at its parameter list has already been told it has no result, and is not
+    // asked for a type annotation a second time.
+    const ended = missingArrow &&
+      (this.#at("VSep") || this.#at("VClose") || this.#at("Eof"));
+    const returnAnnotation = (ended ? undefined : this.#parseTypeAnnotation(true)) ??
+      invalidType(localName);
+    // §13's redirect, once the whole row is in hand: the inlet test reads the
+    // parameters *and* the result, so the arrow the rewrite names is one the
+    // checker will not turn round and refuse.
+    //
+    // A `fun` **without** a parameter list declares no callable: its rewrite
+    // is a `let`, and a `let` has no arrow for the word to redirect to — the
+    // nothing-invocable row, which that rewrite's keyword selects.
+    const hasInlet = writtenSignatureInlet(
+      parameters.map((parameter) => parameter.annotation),
+      returnAnnotation,
+    );
+    const valueRow = missingParameterList && member === undefined;
+    const redirect = this.#reportRetiredExternClaims(
+      retired,
+      valueRow ? "value" : "callable",
+      colonSeat === undefined ? statedArrow : { at: colonSeat },
+      hasInlet,
+      member === "set",
+    );
+    if (redirect !== undefined && !valueRow) {
+      // §4.5: the face the row recovers with is **the arrow the fixit names**
+      // — the rewritten one where the rewrite wrote it, and otherwise the
+      // arrow the row already writes, which stands. The one thing that never
+      // survives is an inlet-less `->?`: this redirect has been reported, and
+      // §13 does not report the inlet-less row on top of it.
+      if (redirect.rewritesArrow) {
+        effect = redirect.written === "->"
+          ? undefined
+          : redirect.written === "->?"
+          ? "linked"
+          : "constant";
+      } else if (effect === "linked" && !hasInlet) {
+        effect = "constant";
+      }
+    }
+    if (missingParameterList && member === undefined) {
+      this.#errorAt(
+        localName.span,
+        "extern `fun` declares a callable and requires a parameter list; for a " +
+          `foreign value, write \`let ${localName.text}: ` +
+          `${this.#writtenAnnotation(returnAnnotation) ?? "Type"}\``,
+      );
+    }
+    return {
+      parameters,
+      missingParameterList,
+      effect,
+      arrowSpan,
+      statedArrow,
+      redirected: redirect !== undefined,
+      returnAnnotation,
+    };
+  }
+
+  /**
    * FFI Part 4 §13's two retired-claim rows *(#869)*, each naming the arrow that
    * says what the old word said — and, on a **non-callable** row, saying instead
    * why there is no arrow to name.
@@ -2786,6 +2999,10 @@ class Parser {
     place: { readonly at: Source.Span; readonly extra?: readonly Diagnostics.Edit[] } |
       "written" | "unstated",
     hasInlet = false,
+    // A `set` row (FFI Part 5 §4.1): its arrow is `->!` whatever the words
+    // claimed and whatever the row writes, so the rewrite writes that and the
+    // report says so (Part 4 §4.5's rewrite clause).
+    setRow = false,
   ): RetiredRedirect | undefined {
     const first = claims[0];
     if (first === undefined) return undefined;
@@ -2804,8 +3021,8 @@ class Parser {
     // enough to place an arrow in is also one it has not read the parameters of,
     // so it makes no claim about what the row is handed: `"unstated"` takes the
     // plain arrow sentence.
-    const inletLess = conduit && !hasInlet && place !== "unstated";
-    const written = inletLess ? "->!" : claimed;
+    const inletLess = conduit && !hasInlet && place !== "unstated" && !setRow;
+    const written = inletLess || setRow ? "->!" : claimed;
     const because = row === "type"
       ? "a type declares nothing invocable"
       : "a value reference is colourless";
@@ -2817,6 +3034,8 @@ class Parser {
       severity: "error",
       message: row !== "callable"
         ? `\`${words}\` is retired, and ${because} — drop the word${plural}`
+        : setRow
+        ? `\`${words}\` is retired, and a \`set\` row's arrow is \`->!\` — drop the word${plural}`
         : place === "written"
         // **The report follows the rewrite**, and §4.5 composes the rewrite in
         // order: the written arrow stands — the row's own, or the one a
@@ -7185,6 +7404,11 @@ function intrinsicFormError(form: string): string {
   return `the intrinsic boundary provides operations only; declare \`fun\` here, ` +
     `and declare types as ordinary declarations in this module ` +
     `(typically \`opaque record\`) — \`${form}\` is not admitted`;
+}
+
+/** Whether a token is one of Lexer §4.1's hard keywords. */
+function isKeywordToken(token: LaidOut.Token): boolean {
+  return (keywordKinds as readonly string[]).includes(token.kind);
 }
 
 function lowerInitial(name: string): string {

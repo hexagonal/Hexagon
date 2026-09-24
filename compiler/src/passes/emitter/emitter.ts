@@ -4342,6 +4342,41 @@ class JavaScriptEmitter {
         // out to foreign code is the §14.2 outbound face, which is withheld.
         const inbound = (type: Typed.Type): "seq" | "stream" | undefined =>
           this.#isSequence(type) ? "seq" : this.#isStream(type) ? "stream" : undefined;
+        if (declaration.kind === "ExternFun" && declaration.convention !== undefined) {
+          // FFI Part 5 §2.3: a receiver member's binding is always its **stable
+          // convention-preserving wrapper** — one module-level arrow, allocated
+          // once, which every first-class reference and the ESM export denote.
+          // The raw property function is never the value, so nothing is
+          // imported: the receiver is the first argument, and a standalone
+          // member's foreign module supplies no binding at all. Direct calls do
+          // not come here; they emit the receiver call inline (§2.2).
+          const parameters = declaration.parameters.map((parameter) =>
+            this.#identifier(parameter.symbol, parameter.name)
+          );
+          const body = this.#receiverOperation(
+            { convention: declaration.convention, foreignName: declaration.foreignName ?? declaration.localName },
+            parameters,
+            declaration.parameters.map(({ scheme }) => scheme.type),
+            declaration.result,
+          );
+          lines.push(`${prefix}const ${local} = ${arrowParameters(parameters)} => ${
+            body.statement ? `{ ${body.text}; }` : arrowBody(body.text)
+          };`);
+          if (declaration.exported) {
+            this.#exports.push(
+              local === declaration.localName
+                ? `export { ${local} };`
+                : `export { ${local} as ${declaration.localName} };`,
+            );
+            this.#externInternalEdition(
+              declaration.binding.symbol,
+              declaration.localName,
+              local,
+              declaredType,
+            );
+          }
+          continue;
+        }
         const inboundResult = declaration.kind === "ExternFun"
           ? inbound(declaration.result)
           : inbound(declaration.type);
@@ -5897,6 +5932,15 @@ class JavaScriptEmitter {
     // An unapplied release seat that copies emits an arrow, not a name
     // (`#releasedReference`), and an arrow binds loosest of all.
     if (this.#releasesUnapplied(expression)) return Precedence.Arrow;
+    // A receiver member's `Unit` call emits under `void` in value position
+    // (`#emitCall`), which binds as a unary operator, not as a call.
+    if (
+      expression.kind === "Call" && expression.callee.kind === "Name" &&
+      this.#symbols.get(expression.callee.symbol)?.receiver !== undefined &&
+      expression.type !== undefined && isUnit(expression.type)
+    ) {
+      return Precedence.Unary;
+    }
     return this.#ignoreOperand(expression) === undefined
       ? expressionPrecedence(expression)
       : Precedence.Unary;
@@ -5937,6 +5981,12 @@ class JavaScriptEmitter {
         return [`${indent(depth)}${target} = ${value};`];
       }
       default: {
+        // FFI Part 5 §2.2's receiver call, in the discarding position where it
+        // reads as the statement a person writes: `request.timeout = 5000;`.
+        const receiver = expression.kind === "Call"
+          ? this.#receiverCall(expression, depth, evidenceNames)
+          : undefined;
+        if (receiver !== undefined) return [`${indent(depth)}${receiver.text};`];
         const emitted = this.#emitExpr(expression, depth, evidenceNames);
         // A record literal is the one emission that starts with `{`, where a
         // JavaScript statement begins a *block*: `{ name: value };` parses as a
@@ -6132,6 +6182,17 @@ class JavaScriptEmitter {
     }
     const member = this.#memberCall(expression, depth, evidenceNames);
     if (member !== undefined) return member;
+    const receiver = this.#receiverCall(expression, depth, evidenceNames);
+    if (receiver !== undefined) {
+      // Value position (Statements §3.3): a `Unit` row's value is `Unit`'s own
+      // representation, never whatever the JavaScript call or assignment
+      // expression yields — Part 6 §3.2's discard, which the wrapper's `{ … }`
+      // body performs and `void` performs here.
+      if (!receiver.statement) return receiver.text;
+      return symbolConvention(this.#symbols.get((expression.callee as Core.NameExpr).symbol)) === "set"
+        ? `void (${receiver.text})`
+        : `void ${receiver.text}`;
+    }
     const specialized = this.#specializedCallee(expression);
     const emittedCallee = specialized ??
       this.#emitExpr(expression.callee, depth, evidenceNames);
@@ -6153,6 +6214,94 @@ class JavaScriptEmitter {
       );
     }
     return `${callee}(${arguments_.join(", ")})`;
+  }
+
+  /**
+   * FFI Part 5 §2.2's receiver-sensitive call, or `undefined` where this call is
+   * not a direct call to an extern receiver member (#982).
+   *
+   * The member's linkage rides its symbol, so the answer is the same in the
+   * binding module and in every importer: the first argument becomes the
+   * JavaScript receiver, and the call emits as a person writes it —
+   * `params.get(key)`, `response.status`, `request.timeout = value` — never
+   * through the stable wrapper, which only a first-class reference observes.
+   * The crossings each position owes are performed inline (Part 1 §5.4's copy,
+   * Part 3's inbound door), exactly as the wrapper performs them.
+   *
+   * `statement` marks a text whose value is not the row's result: a `Unit` row,
+   * whose JavaScript value is discarded, and a `set`, whose text is an
+   * assignment. The caller decides the position.
+   */
+  #receiverCall(
+    expression: Core.CallExpr,
+    depth: number,
+    evidenceNames: EvidenceNames,
+  ): { readonly text: string; readonly statement: boolean } | undefined {
+    if (expression.callee.kind !== "Name") return undefined;
+    const symbol = this.#symbols.get(expression.callee.symbol);
+    const linkage = symbol?.receiver;
+    if (symbol === undefined || linkage === undefined) return undefined;
+    const type = symbol.scheme.type;
+    if (type.kind !== "Function" || expression.arguments.length !== type.parameters.length) {
+      return undefined;
+    }
+    const arguments_ = expression.arguments.map((argument, index) =>
+      index === 0
+        ? this.#receiverOperand(argument, type.parameters[0]!, depth, evidenceNames)
+        : this.#emitExpr(argument, depth, evidenceNames)
+    );
+    return this.#receiverOperation(linkage, arguments_, type.parameters, type.result);
+  }
+
+  /**
+   * The receiver as the left operand of a property access: a member access binds
+   * tighter than anything but a primary, and an integer literal's `.` would be
+   * read as its decimal point (`5.toString()` does not parse).
+   */
+  #receiverOperand(
+    argument: Core.Expr,
+    type: Typed.Type,
+    depth: number,
+    evidenceNames: EvidenceNames,
+  ): string {
+    if (this.#copies(type)) return this.#emitExpr(argument, depth, evidenceNames);
+    const emitted = argument.kind === "Record"
+      ? `(${this.#emitExpr(argument, depth, evidenceNames)})`
+      : this.#emitOperand(argument, Precedence.Call, depth, evidenceNames);
+    return /^\d+$/.test(emitted) ? `(${emitted})` : emitted;
+  }
+
+  /**
+   * The text of one receiver operation over already-emitted operands — shared by
+   * the inline call and the stable wrapper's body (§2.2, §2.3), so the two
+   * cannot drift. Captured positions copy on the way in and the result on the
+   * way out (Part 1 §5.4); a `Seq` or `Stream` result takes the inbound door
+   * (Part 3 §2.2, §14.1), as an extern `fun`'s does.
+   */
+  #receiverOperation(
+    linkage: Resolved.ReceiverLinkage,
+    operands: readonly string[],
+    parameters: readonly Typed.Type[],
+    result: Typed.Type,
+  ): { readonly text: string; readonly statement: boolean } {
+    // A copied receiver is a helper call, which already binds as a primary.
+    const passed = operands.map((operand, index) => this.#captured(parameters[index]!, operand));
+    const [receiver = this.#unit, ...rest] = passed;
+    const property = `${receiver}.${linkage.foreignName}`;
+    if (linkage.convention === "set") {
+      return { text: `${property} = ${rest[0] ?? this.#unit}`, statement: true };
+    }
+    const read = linkage.convention === "get" ? property : `${property}(${rest.join(", ")})`;
+    if (isUnit(result)) return { text: read, statement: true };
+    const door = this.#isSequence(result)
+      ? "seqInbound"
+      : this.#isStream(result)
+      ? "streamInbound"
+      : undefined;
+    return {
+      text: door === undefined ? this.#captured(result, read) : `${this.#useHelper(door)}(${read})`,
+      statement: false,
+    };
   }
 
   /**
@@ -10164,6 +10313,11 @@ class JavaScriptEmitter {
     type: Typed.Type,
   ): boolean {
     if (type.kind !== "Function") return false;
+    // An FFI Part 5 receiver member has no unwalked edition to publish: every
+    // call to it is a crossing into JavaScript, so its one binding — the stable
+    // wrapper (§2.3) — is what a Hexagon importer's first-class reference binds
+    // too, and its direct calls are inline and bind nothing (§2.2).
+    if (symbol !== undefined && this.#symbols.get(symbol)?.receiver !== undefined) return false;
     if (type.parameters.some((parameter) => this.#copies(parameter))) return true;
     if (symbol !== undefined && this.#constructorSymbols.has(symbol)) return false;
     return this.#copies(type.result);
@@ -12684,6 +12838,11 @@ function blankLinesBetween(previous: Source.Span, next: Source.Span): number {
 }
 
 /** Emits the canonical zero/one/many JavaScript arrow-parameter shape. */
+/** The receiver convention a symbol's binding carries, if any (FFI Part 5, #982). */
+function symbolConvention(symbol: Core.Symbol | undefined): Resolved.ReceiverConvention | undefined {
+  return symbol?.receiver?.convention;
+}
+
 function arrowParameters(parameters: readonly string[]): string {
   return parameters.length === 1
     ? parameters[0]!

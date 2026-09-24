@@ -2805,8 +2805,32 @@ class Resolver {
       for (const declaration of item.declarations) {
         if (declaration.kind === "ExternType") continue;
         const existing = scope.lookupLocal(declaration.localName.text);
-        if (existing !== undefined) this.#reportRebinding(declaration.localName, existing);
+        const convention = declaration.kind === "ExternFun" ? declaration.convention : undefined;
+        if (existing !== undefined) {
+          // FFI Part 5 §4.2: a getter and setter are two ordinary bindings, so a
+          // shared name is the ordinary collision — with the one rewrite §11
+          // names, which is always the setter's alias.
+          const other = this.#symbol(existing).receiver?.convention;
+          if (
+            (convention === "set" && other === "get") ||
+            (convention === "get" && other === "set")
+          ) {
+            // The rewrite names the *setter's* property, whichever row came first.
+            const setter = convention === "set"
+              ? declaration.foreignName?.text ?? declaration.localName.text
+              : this.#symbol(existing).receiver!.foreignName;
+            this.#reportAccessorCollision(declaration.localName, existing, setter);
+          } else {
+            this.#reportRebinding(declaration.localName, existing);
+          }
+        }
         const binding = this.#declare(declaration.localName, kind);
+        if (convention !== undefined && declaration.foreignName !== undefined) {
+          this.#symbols.set(binding.symbol, {
+            ...this.#symbol(binding.symbol),
+            receiver: { convention, foreignName: declaration.foreignName.text },
+          });
+        }
         this.#predeclaredBindings.set(declaration, binding);
         if (existing === undefined) scope.define(declaration.localName.text, binding.symbol);
       }
@@ -3449,6 +3473,7 @@ class Resolver {
           return {
             kind: "ExternFun",
             ...common,
+            ...(declaration.convention === undefined ? {} : { convention: declaration.convention }),
             // #370: an intrinsic row's constraint brackets ride the §3.4 grant.
             // The parser records them only inside the reserved boundary, so
             // nothing here has to re-derive the gate's answer.
@@ -7809,6 +7834,28 @@ class Resolver {
     });
   }
 
+  /**
+   * FFI Part 5 §4.2's collision: a `get` and a `set` introducing one term name.
+   * The ordinary rebinding report, with the rewrite §11 names — the setter takes
+   * the alias, whichever of the two came first.
+   */
+  #reportAccessorCollision(
+    name: Parsed.Name,
+    existing: Resolved.SymbolId,
+    foreign: string,
+  ): void {
+    const previous = this.#symbol(existing);
+    const line = previous.bindingSpan.start.line + 1;
+    this.#diagnostics.add({
+      severity: "error",
+      message:
+        `\`${name.text}\` is already bound (line ${line}); a getter and a setter are ` +
+        `two bindings — alias the setter: \`set ${foreign} as set${upperFirst(name.text)}(...)\``,
+      primary: name.span,
+      labels: [{ span: previous.bindingSpan, message: "previous binding" }],
+    });
+  }
+
   #symbol(id: Resolved.SymbolId): Resolved.Symbol {
     const symbol = this.#symbols.get(id) ?? this.#importedSymbols.get(id);
     if (symbol === undefined) throw new Error(`unknown internal symbol ${id}`);
@@ -8175,4 +8222,9 @@ function contextualPatternSpacingMessage(name: string): string | undefined {
     return "a declaration's `derives` stands off the parenthesis; write `(…) derives (…)`";
   }
   return undefined;
+}
+
+/** A name with its first character uppercased, for a rewrite that prefixes it. */
+function upperFirst(name: string): string {
+  return name.slice(0, 1).toLocaleUpperCase() + name.slice(1);
 }
