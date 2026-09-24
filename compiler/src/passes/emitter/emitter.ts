@@ -6292,17 +6292,22 @@ class JavaScriptEmitter {
    * the binding module's `__class_<Type>` re-export — never the foreign module
    * again, whose relative specifier resolves only from the binding module's
    * place (Part 4 §2.1). Either way the local is a **minted import local**
-   * mirroring the foreign class name (Part 7 §1.2 rule 1): bare where nothing
-   * here holds it, and the reserved probe where the runtime vocabulary, a
-   * reserved word or a binding of this module does — so `class Map as
-   * MapboxMap` never captures a `new Map(...)` the compiler wrote.
+   * (Part 7 §1.2 rule 1): the foreign class name where it is free, and the
+   * class's own fixed `__class_<Type>` where the runtime vocabulary, a reserved
+   * word or a binding of this module holds it — never a numeric probe (§7). So
+   * `class Map as MapboxMap` never captures a `new Map(...)` the compiler wrote,
+   * and reads as `__class_MapboxMap` wherever it cannot read as `Map`.
    */
   #classLocal(linkage: Resolved.ForeignClassLinkage): string {
     const own = linkage.path === undefined || linkage.path === this.#module.modulePath;
     const key = `${linkage.path ?? ""}\u0000${linkage.type}`;
     const existing = own ? this.#ownClassLocals.get(key) : this.#classImports.get(key)?.local;
     if (existing !== undefined) return existing;
-    const local = this.#generatedNames.claimPublic(linkage.foreign);
+    const local = this.#generatedNames.claimBare(linkage.foreign) ??
+      // Fixed and reserved, so bare in every module but an importer reaching
+      // two binding modules' classes of one type name — the one seat §7 lets
+      // the family's own probe suffix.
+      this.#generatedNames.claimGenerated(classExportName(linkage.type));
     if (own || this.#module.modulePath === undefined) {
       this.#ownClassLocals.set(key, local);
     } else {
@@ -6340,7 +6345,10 @@ class JavaScriptEmitter {
     const specifier = JSON.stringify(item.specifier);
     const foreign = declaration.foreignName ?? declaration.localName;
     if (declaration.exported) {
-      this.#exports.push(`export { ${local} as ${classExportName(declaration.localName)} };`);
+      const exported = classExportName(declaration.localName);
+      this.#exports.push(
+        local === exported ? `export { ${exported} };` : `export { ${local} as ${exported} };`,
+      );
     }
     return [
       declaration.foreignClass?.default === true
@@ -14982,6 +14990,20 @@ class GeneratedNames {
    * class where a source-written import local moves only for the second (rule 4)
    * and the module qualifies around the first (rule 2).
    */
+  /**
+   * A public spelling **only if it can be had bare** — free here, and neither
+   * runtime vocabulary nor a reserved word — else `undefined`, claiming
+   * nothing. For a seat with a better fallback than the probe: a foreign class's
+   * minted local, whose fallback is its fixed `__class_<Type>` (FFI Part 5 §7).
+   */
+  claimBare(name: string): string | undefined {
+    if (this.#used.has(name) || MINTED_LOCAL_HAZARDS.has(name) || reservedWords.has(name)) {
+      return undefined;
+    }
+    this.#used.add(name);
+    return name;
+  }
+
   claimPublic(name: string): string {
     if (this.#used.has(name) || MINTED_LOCAL_HAZARDS.has(name) || reservedWords.has(name)) {
       return this.#claim(name);

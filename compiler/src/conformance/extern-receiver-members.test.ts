@@ -696,14 +696,39 @@ export fun both(): Int =
       "    Maps.table!().size()\n";
     const files = [["/maps.hex", maps], ["/main.hex", main]] as const;
     const binding = emitted(files, "/maps.hex");
-    expect(binding).toMatch(/import \{ Map as (__Map_\d+) \} from "maps";/u);
-    expect(binding).not.toMatch(/import \{ Map \}/u);
-    expect(emitted(files, "/main.hex")).toMatch(
-      /import \{ __class_MapboxMap as __Map_\d+ \} from "\.\/Maps\.js";/u,
-    );
+    // §7: an unusable foreign spelling falls back to the class's own fixed
+    // `__class_<Type>`, never a numeric probe — in both modules alike.
+    expect(binding).toContain('import { Map as __class_MapboxMap } from "maps";');
+    expect(binding).toContain("new __class_MapboxMap(3)");
+    expect(binding).toContain("export { __class_MapboxMap };");
+    const importer = emitted(files, "/main.hex");
+    expect(importer).toContain('import { __class_MapboxMap } from "./Maps.js";');
+    expect(importer).toContain("new __class_MapboxMap(4)");
     const loaded = await run(files, { maps: MAPS_JS });
     expect((loaded["Maps"]!.both as () => number)()).toBe(2);
     expect((loaded["Main"]!.again as () => number)()).toBe(2);
+  });
+
+  test("two binding modules' classes of one type name take the family's probe in the importer only", async () => {
+    const module = (name: string, specifier: string) => `module ${name}
+
+extern from "${specifier}"
+    export class Map as MapboxMap
+        new as open(zoom: Int) ->! MapboxMap
+        get zoom(m: MapboxMap) ->! Int
+`;
+    const files = [
+      ["/east.hex", module("East", "maps")],
+      ["/west.hex", module("West", "maps-west")],
+      ["/main.hex", "module Main\n\nimport East\nimport West\n\n" +
+        "export fun go(): Int = East.open!(1).zoom!() * 10 + West.open!(2).zoom!()\n"],
+    ] as const;
+    const importer = emitted(files, "/main.hex");
+    expect(importer).toContain('import { __class_MapboxMap } from "./East.js";');
+    expect(importer).toContain('import { __class_MapboxMap as __class_MapboxMap_1 } from "./West.js";');
+    const west = "export class Map { constructor(zoom) { this.zoom = zoom + 100; } }\n";
+    const loaded = await run(files, { maps: MAPS_JS, "maps-west": west });
+    expect((loaded["Main"]!.go as () => number)()).toBe(10 + 102);
   });
 
   test("a private class re-exports nothing, and a class of instance members imports nothing", () => {
@@ -759,7 +784,8 @@ extern from "clients"
     ] as const;
     const javascript = emitted(files, "/main.hex");
     expect(javascript).toContain('import * as Client from "./Client.js";');
-    expect(javascript).toMatch(/import \{ __class_Client as (__Client(?:_\d+)?) \} from "\.\/Client\.js";/u);
+    expect(javascript).toContain('import { __class_Client } from "./Client.js";');
+    expect(javascript).toContain('new __class_Client("ada")');
     const loaded = await run(files, { clients: CLIENTS_JS });
     expect((loaded["Main"]!.go as () => string)()).toBe("ada");
   });
