@@ -108,11 +108,15 @@ describe("the seats, one construct at a time", () => {
     expect(main("export let f(as: Bool, b: Bool): Bool = as and b\n")).toEqual([]);
   });
 
-  test("a keyword pun is the one report, in a literal, an update, and a pattern (#1021)", () => {
-    const pun = "`type` is reserved; write the field out: `{type = …}`";
-    expect(main("let r = {type = 1}\nexport let u: {type: Int} = {r with type}\n")).toEqual([pun]);
-    expect(main("export let r: {type: Int, x: Int} = {type, x = 1}\n")).toEqual([pun]);
-    expect(main("let r = {type = 1}\nexport let v: Int = match r\n    {type} => 1\n")).toEqual([pun]);
+  test.each(KEYWORDS)("a `%s` pun is the one report, in a literal, an update, and a pattern (#1021)", (word) => {
+    const pun = `\`${word}\` is reserved; write the field out: \`{${word} = …}\``;
+    expect(main(`let r = {${word} = 1}\nexport let u: {${word}: Int} = {r with ${word}}\n`)).toEqual([pun]);
+    expect(main(`export let r: {${word}: Int, x: Int} = {${word}, x = 1}\n`)).toEqual([pun]);
+    expect(main(`let r = {${word} = 1}\nexport let v: Int = match r\n    {${word}} => 1\n`)).toEqual([pun]);
+  });
+
+  test("a keyword in a type's braces is a missing annotation, as `{x}` is", () => {
+    expect(main("record R = {type}\n")).toEqual(main("record R = {x}\n"));
   });
 
   test("`true` and `false` are foreign names on any extern row, never the local", () => {

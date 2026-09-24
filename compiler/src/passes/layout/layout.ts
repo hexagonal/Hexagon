@@ -431,6 +431,9 @@ function lastControlHead(
   const controls = new Set<Lexed.Token["kind"]>(["If", "For", "While", "Match", "Try"]);
   for (let index = item.length - 1; index >= 0; index -= 1) {
     const kind = item[index]?.kind;
+    // A control keyword before `,` or `}` is a refused field pun (`{match}`,
+    // Lexer §4.4), which heads nothing.
+    if (["Comma", "RightBrace"].includes(item[index + 1]?.kind ?? "")) continue;
     if (kind !== undefined && controls.has(kind)) {
       return { kind, index };
     }

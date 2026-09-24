@@ -7506,8 +7506,13 @@ class Parser {
    */
   #takeFieldLabel(message: string, puns = true): Lexed.NameToken | undefined {
     const token = this.#current();
-    if (puns && isKeywordToken(token) && ["Comma", "RightBrace"].includes(this.#peek(1).kind)) {
+    if (isKeywordToken(token) && ["Comma", "RightBrace"].includes(this.#peek(1).kind)) {
       const spelling = this.#text.slice(token.span.start.offset, token.span.end.offset);
+      if (!puns) {
+        // A type's `{type}` is `{x}`'s missing annotation: the caller says so.
+        this.#advance();
+        return { kind: "NonUpperName", text: spelling, span: token.span };
+      }
       this.#error(`\`${spelling}\` is reserved; write the field out: \`{${spelling} = …}\``);
       this.#advance();
       this.#refusedPuns.add(token.span.start.offset);

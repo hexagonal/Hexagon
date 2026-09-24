@@ -9826,6 +9826,23 @@ class JavaScriptEmitter {
   }
 
   /**
+   * A first-class reference to another module's receiver member named `then`,
+   * respelled onto the `__then` its module publishes instead (FFI Part 7 §7):
+   * `Task.then` reads `Task.__then` off the namespace. Its calls never get here —
+   * they are emitted inline — so this is the member's one import-free route.
+   *
+   * `__then` is the exporter's `#ownInternalName("then")` for as long as no
+   * constraint member can be named `then` — the one sibling its plan would probe
+   * past, and one Lexer §4.4 refuses.
+   */
+  #withheldMember(symbol: Resolved.SymbolId, spelled: string): string {
+    if (
+      !spelled.endsWith(`.${WITHHELD_EXPORT}`) || this.#symbols.get(symbol)?.receiver === undefined
+    ) return spelled;
+    return `${spelled.slice(0, -WITHHELD_EXPORT.length)}${WITHHELD_EDITION}`;
+  }
+
+  /**
    * A qualified spelling as the emitted file reads it (#569): `Alias.member`
    * under whatever local the alias's `import * as` line actually bound.
    *
@@ -9833,18 +9850,6 @@ class JavaScriptEmitter {
    * only the former can have moved — a companion is seeded rather than
    * imported, so it binds no local of this module's to contest.
    */
-  /**
-   * A first-class reference to another module's receiver member named `then`,
-   * respelled onto the `__then` its module publishes instead (FFI Part 7 §7):
-   * `Task.then` reads `Task.__then` off the namespace. Its calls never get here —
-   * they are emitted inline — so this is the member's one import-free route.
-   */
-  #withheldMember(symbol: Resolved.SymbolId, spelled: string): string {
-    const suffix = `.${WITHHELD_EXPORT}`;
-    if (!spelled.endsWith(suffix) || this.#symbols.get(symbol)?.receiver === undefined) return spelled;
-    return `${spelled.slice(0, -WITHHELD_EXPORT.length)}__${WITHHELD_EXPORT}`;
-  }
-
   #qualifiedSpelling(text: string): string {
     const head = text.slice(0, text.indexOf("."));
     const local = this.#namespaceAliases.get(head);
@@ -16259,6 +16264,7 @@ function indent(depth: number): string {
  * which Hexagon importers bind as they bind any; the `.d.ts` declares no `then`.
  */
 const WITHHELD_EXPORT = "then";
+const WITHHELD_EDITION = `__${WITHHELD_EXPORT}`;
 
 /**
  * The spellings JavaScript refuses as a binding name, which the emitter renames
