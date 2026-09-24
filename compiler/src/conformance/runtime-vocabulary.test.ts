@@ -1002,6 +1002,25 @@ describe("what joining the vocabulary costs a module that merely binds the word"
     expect(module.javascript.text).toContain("const Map = __record => __record;");
     expect(module.javascript.text.split("__global_Map").length - 1).toBe(1);
   });
+
+  // The one family that can still spell a capture: an exported term named
+  // `global_Error` publishes its internal edition as `__global_Error` (§7).
+  // In an importer that contests `Error`, the capture keeps its spelling and
+  // the edition's minted local takes the collision probe — because the
+  // captures seed every module's generated names.
+  test("an internal edition spelled like a capture takes the probe beside it", () => {
+    const project = compileFiles([
+      ["/Lib.hex", "module Lib\n\nexport fun global_Error(xs: Array(Int)): Int = xs[1]\n"],
+      ["/main.hex", "module Main\n\nimport Lib\n\n" + "export record Error = { code: Int }\n" +
+        "export fun f(xs: Array(Int)): Int = Lib.global_Error(xs)\n"],
+    ]);
+    expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
+    const text = project.modules.find(({ source }) => source.path === "/main.hex")!.javascript.text;
+
+    expect(text).toContain('import { __global_Error } from "./hex.js";');
+    expect(text).toContain('import { __global_Error as __global_Error_1 } from "./Lib.js";');
+    expect(text).toContain("return __global_Error_1(xs);");
+  });
 });
 
 describe("the runtime module takes Part 1 §8.3's reserved seat", () => {
