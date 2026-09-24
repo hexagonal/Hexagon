@@ -25,7 +25,7 @@ import {
 } from "../../support/foreign-literal.js";
 import type * as LaidOut from "../../syntax/laid-out/index.js";
 import type * as Lexed from "../../syntax/lexed/index.js";
-import { keywordKinds } from "../../syntax/lexed/token.js";
+import { hardKeywordSpellings, keywordKinds } from "../../syntax/lexed/token.js";
 import * as Parsed from "../../syntax/parsed/index.js";
 import { DocBlocks, widenedLineTakesNoDoc } from "./doc-blocks.js";
 
@@ -648,6 +648,14 @@ class Parser {
   readonly #reservedNameExemptions = new Set<number>();
 
   /**
+   * Token positions of field and slot labels (Lexer §4.4's label seat) — the
+   * one label-shaped seat that may hold a keyword, where a parameter's does not.
+   * Read by `#reportKeywordNames`, which refuses every other keyword-spelled
+   * name it is not told about.
+   */
+  readonly #keywordLabels = new Set<number>();
+
+  /**
    * Items an item head produced that are **not** it — today, exactly the
    * object-reading `extern enum`s an `extern from` block hoisted to module level
    * (Foreign Enums §2.1). Drained by `#parseItems` immediately after the head it
@@ -726,6 +734,7 @@ class Parser {
     const eof = this.#expect("Eof", "expected end of file");
     this.#reportMisplacedTypeParameterLambdas();
     this.#reportReservedNames();
+    this.#reportKeywordNames(items);
     const first = opening ?? items[0] ?? closing ?? eof ?? this.#current();
     const last = eof ?? closing ?? items.at(-1) ?? first;
     const fileSpan = spanFrom(first.span, last.span);
@@ -1071,6 +1080,7 @@ class Parser {
     // ordinary Hexagon seat — no extern declaration can appear here — so there
     // is nothing to exempt.
     this.#reportReservedNames();
+    this.#reportKeywordNames([]);
     return expression;
   }
 
@@ -2711,18 +2721,17 @@ class Parser {
     }
     const isStatic = inClass?.isStatic === true;
     this.#advance();
-    // §2.4: the foreign side is a JavaScript property name, so a hard keyword
-    // (`then`, `catch`, `match`) or the `_` token stands there as the name it
-    // spells. The local side stays a Hexagon name seat.
+    // §2.4: the foreign side is a JavaScript property name, so the `_` token
+    // stands there as the name it spells, and a hard keyword (`then`, `catch`,
+    // `match`) arrives already a name — the member seat is one of Lexer §4.4's,
+    // and a keyword-named member binds unaliased (#1014).
     const nameIndex = this.#index;
     const nameToken = this.#current();
     let foreignText: string;
-    let keywordForeign = false;
     if (nameToken.kind === "NonUpperName" || nameToken.kind === "UpperName") {
       foreignText = nameToken.text;
-    } else if (nameToken.kind === "Wildcard" || isKeywordToken(nameToken)) {
-      foreignText = this.#text.slice(nameToken.span.start.offset, nameToken.span.end.offset);
-      keywordForeign = nameToken.kind !== "Wildcard";
+    } else if (nameToken.kind === "Wildcard") {
+      foreignText = "_";
     } else {
       this.#error(`an extern \`${member}\` names the foreign member it reaches; write its name after the keyword`);
       this.#synchronize(new Set(["VSep", "VClose", "Eof"]));
@@ -2745,13 +2754,16 @@ class Parser {
       }
     }
     if (foreignText.startsWith("__")) this.#reservedNameExemptions.add(nameIndex);
-    if (!aliased && (keywordForeign || nameToken.kind === "Wildcard")) {
-      // §2.4's refusal: the author chooses the alias, so no fixit applies one.
+    if (!aliased && (nameToken.kind === "Wildcard" || foreignText === "true" || foreignText === "false")) {
+      // The author chooses the alias, so no fixit applies one. `true`/`false`
+      // never name a declaration (Lexer §4.1's redirect), though they name a
+      // JavaScript property on the foreign side.
       this.#errorAt(
         nameToken.span,
-        `\`${foreignText}\` is a Hexagon ${keywordForeign ? "hard keyword" : "wildcard"} ` +
-          "and cannot name a binding; bind the member under an alias: " +
-          `\`${member} ${foreignText} as …\``,
+        (nameToken.kind === "Wildcard"
+          ? "`_` is a Hexagon wildcard and cannot name a binding"
+          : `\`${foreignText}\` is reserved and cannot be used as a name`) +
+          `; bind the member under an alias: \`${member} ${foreignText} as …\``,
       );
     } else if (!aliased && foreignText.startsWith("__")) {
       const alias = lowerInitial(foreignText.replace(/^_+/, ""));
@@ -4458,6 +4470,7 @@ class Parser {
           const slotStart = this.#current();
           let slotName: Parsed.Name | undefined;
           if (slotStart.kind === "NonUpperName" && this.#peek(1).kind === "Colon") {
+            this.#keywordLabels.add(this.#index);
             this.#advance();
             this.#advance();
             slotName = parsedName(slotStart);
@@ -5036,7 +5049,7 @@ class Parser {
     const seen = new Set<string>();
     while (!this.#at("RightBrace") && !this.#at("Eof")) {
       const fieldStart = this.#current().span.start.offset;
-      const fieldToken = this.#takeName("NonUpperName", "record fields must be non-uppercase-start names");
+      const fieldToken = this.#takeFieldLabel("record fields must be non-uppercase-start names");
       if (fieldToken === undefined) break;
       this.#expect("Colon", "expected `:` after record field name");
       const annotation = this.#parseTypeAnnotation(true);
@@ -5082,6 +5095,7 @@ class Parser {
         const slotStart = this.#current();
         let slotName: Parsed.Name | undefined;
         if (slotStart.kind === "NonUpperName" && this.#peek(1).kind === "Colon") {
+          this.#keywordLabels.add(this.#index);
           this.#advance();
           this.#advance();
           slotName = parsedName(slotStart);
@@ -5607,7 +5621,7 @@ class Parser {
       const fields: Parsed.RecordPatternField[] = [];
       const seen = new Set<string>();
       while (!this.#at("RightBrace") && !this.#at("Eof")) {
-        const field = this.#takeName("NonUpperName", "record patterns contain non-uppercase-start field names");
+        const field = this.#takeFieldLabel("record patterns contain non-uppercase-start field names");
         if (field === undefined) return undefined;
         const name = parsedName(field);
         if (seen.has(name.text)) this.#errorAt(name.span, `duplicate record pattern field \`${name.text}\``);
@@ -6051,7 +6065,7 @@ class Parser {
         if (this.#at("Comma")) this.#advance();
         continue;
       }
-      const token = this.#takeName("NonUpperName", "record fields must be non-uppercase-start names");
+      const token = this.#takeFieldLabel("record fields must be non-uppercase-start names");
       if (token === undefined) break;
       const name = parsedName(token);
       const separator = this.#recordFieldSeparator(name.text, false);
@@ -7253,7 +7267,7 @@ class Parser {
           if (this.#at("Comma")) this.#error("`...` must be the final entry in a record type");
           break;
         }
-        const fieldToken = this.#takeName("NonUpperName", "record type fields must be non-uppercase-start names");
+        const fieldToken = this.#takeFieldLabel("record type fields must be non-uppercase-start names");
         if (fieldToken === undefined) return undefined;
         this.#expect("Colon", "expected `:` after record type field name");
         const annotation = this.#parseTypeAnnotation(true);
@@ -7474,6 +7488,25 @@ class Parser {
     };
   }
 
+  /**
+   * A field label — a record type's, literal's, update's, or pattern's (Lexer
+   * §4.4's label seat, where a keyword is a name). A keyword that reached here
+   * still a keyword is a **pun**, `{type}` or `{ev with type}`: its binding would
+   * be the keyword, so the field is written out.
+   */
+  #takeFieldLabel(message: string): Lexed.NameToken | undefined {
+    const token = this.#current();
+    if (isKeywordToken(token) && ["Comma", "RightBrace"].includes(this.#peek(1).kind)) {
+      const spelling = this.#text.slice(token.span.start.offset, token.span.end.offset);
+      this.#error(`\`${spelling}\` is reserved; write the field out: \`{${spelling} = …}\``);
+      return undefined;
+    }
+    const index = this.#index;
+    const name = this.#takeName("NonUpperName", message);
+    if (name !== undefined) this.#keywordLabels.add(index);
+    return name;
+  }
+
   #takeAnyName(message: string): Lexed.NameToken | undefined {
     const token = this.#current();
     if (token.kind !== "NonUpperName" && token.kind !== "UpperName") {
@@ -7514,6 +7547,76 @@ class Parser {
         }],
       });
     });
+  }
+
+  /**
+   * Lexer §4.4's refusals, reported once the positions are known.
+   *
+   * The lexer turned every keyword standing in a name seat into a name token, so
+   * a name spelled like a keyword is exactly one of those, and the sweep refuses
+   * each unless its seat may hold one: straight after a `.`; a field or slot
+   * label; or a module-level declaration's name, which must be exported, since
+   * its bare spelling is the keyword and only a dot reaches it. The default is
+   * the refusal, as `#reportReservedNames`'s is, so a seat added later is
+   * refused until it is shown to be one of these rather than admitted by
+   * omission. A parameter, a local binding, a type-variable binder — label- or
+   * declaration-shaped, but written bare — takes the local message; a name at
+   * the head of a line is a member-block item's, which is not a name seat.
+   */
+  #reportKeywordNames(items: readonly Parsed.Item[]): void {
+    const declared = new Map<number, "exported" | "unexported" | "unexported class">();
+    const declaredWords = new Set<string>();
+    for (const item of items) {
+      if ((item.kind === "Let" || item.kind === "Fun") && !(item.kind === "Fun" && item.block !== undefined)) {
+        declared.set(item.name.span.start.offset, item.exported ? "exported" : "unexported");
+        if (hardKeywordSpellings.has(item.name.text)) declaredWords.add(item.name.text);
+      } else if (item.kind === "ExternBlock") {
+        for (const declaration of item.declarations) {
+          if (declaration.foreignName !== undefined) {
+            declared.set(declaration.foreignName.span.start.offset, "exported");
+          }
+          const owner = declaration.kind === "ExternFun" ? declaration.owner : undefined;
+          const exported = owner?.exported ?? declaration.exported;
+          declared.set(
+            declaration.localName.span.start.offset,
+            exported ? "exported" : owner === undefined ? "unexported" : "unexported class",
+          );
+          if (hardKeywordSpellings.has(declaration.localName.text)) {
+            declaredWords.add(declaration.localName.text);
+          }
+        }
+      }
+    }
+    this.#tokens.forEach((token, index) => {
+      if (token.kind !== "NonUpperName" || !hardKeywordSpellings.has(token.text)) return;
+      const previous = this.#tokens[index - 1];
+      if (previous?.kind === "Dot" || this.#keywordLabels.has(index)) return;
+      const seat = declared.get(token.span.start.offset);
+      if (seat === "exported") return;
+      const word = token.text;
+      const message = seat === "unexported" || seat === "unexported class"
+        ? `\`${word}\` is reserved; a declaration named \`${word}\` is reached only through a dot, ` +
+          `from an importer or on its home type — ` +
+          (seat === "unexported" ? "export it, or choose another name" : "export the class, or choose another name")
+        : previous === undefined || ["VOpen", "VSep", "Semicolon"].includes(previous.kind)
+        ? `\`${word}\` is reserved and cannot be used as a name`
+        : `\`${word}\` is reserved; a local or parameter name is only ever written bare — choose another name`;
+      this.#diagnostics.add({ severity: "error", message, primary: token.span });
+    });
+    // A keyword the module declares as a term, written bare, is the keyword —
+    // and its parse error reads as nonsense unless it says where the name went.
+    if (declaredWords.size === 0) return;
+    for (const token of this.#tokens) {
+      if (!isKeywordToken(token)) continue;
+      const word = this.#text.slice(token.span.start.offset, token.span.end.offset);
+      if (!declaredWords.has(word)) continue;
+      this.#diagnostics.noteErrors(
+        ({ primary }) =>
+          primary.start.line === token.span.start.line && primary.start.offset >= token.span.start.offset,
+        `this module's \`${word}\` is reached through a dot — \`x.${word}(…)\` on its home type, ` +
+          `or \`Module.${word}\` from an importer`,
+      );
+    }
   }
 
   #skipSeparators(): void {

@@ -431,7 +431,7 @@ function lastControlHead(
   const controls = new Set<Lexed.Token["kind"]>(["If", "For", "While", "Match", "Try"]);
   for (let index = item.length - 1; index >= 0; index -= 1) {
     const kind = item[index]?.kind;
-    if (kind !== undefined && controls.has(kind) && !atMemberNameSeat(item, index)) {
+    if (kind !== undefined && controls.has(kind)) {
       return { kind, index };
     }
   }
@@ -461,34 +461,6 @@ function opensClassBlock(item: readonly Lexed.Token[]): boolean {
   const head = item[index];
   if (head?.kind !== "NonUpperName" || head.text !== "class") return false;
   return ["UpperName", "NonUpperName"].includes(item[index + 1]?.kind ?? "");
-}
-
-/**
- * Whether the token at `index` stands in an FFI Part 5 member row's foreign-name
- * seat — straight after `method`, `get`, or `set` at the head of the item (#982).
- *
- * The seat reads a hard keyword as the JavaScript property name it spells (Part
- * 5 §2.4): `method match as matches(…)` binds `String.prototype.match`, and the
- * `match` there heads no arm block. The member keyword must itself open the
- * item, past only the modifiers and retired words a row head admits, so the
- * exemption cannot reach a `match` anywhere an expression could hold one.
- */
-function atMemberNameSeat(item: readonly Lexed.Token[], index: number): boolean {
-  const member = item[index - 1];
-  if (
-    member?.kind !== "NonUpperName" ||
-    (member.text !== "method" && member.text !== "get" && member.text !== "set")
-  ) return false;
-  for (let before = index - 2; before >= 0; before -= 1) {
-    const token = item[before]!;
-    if (token.kind === "Export") continue;
-    if (
-      token.kind === "NonUpperName" &&
-      ["static", "default", "pure", "conduit"].includes(token.text)
-    ) continue;
-    return false;
-  }
-  return true;
 }
 
 function validateSemicolon(

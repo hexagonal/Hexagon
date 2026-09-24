@@ -43,6 +43,18 @@ export const keywordKinds = [
 
 export type KeywordKind = (typeof keywordKinds)[number];
 
+/**
+ * The source spellings of Lexer §4.1's hard keywords (each kind's lowercase).
+ *
+ * A name token carries one of these only where Lexer §4.4 read a keyword in a
+ * name seat as a name — the lexer re-reads it there, so everything downstream
+ * sees an ordinary `NonUpperName` and asks this set only to decide whether the
+ * seat was one that may hold it.
+ */
+export const hardKeywordSpellings: ReadonlySet<string> = new Set(
+  keywordKinds.map((kind) => kind.toLowerCase()),
+);
+
 export const punctuationKinds = [
   "LeftParen",
   "RightParen",
