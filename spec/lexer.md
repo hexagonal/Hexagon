@@ -139,10 +139,12 @@ I元素      E无效年龄  M数据库           -- cultural role prefixes, ordi
   reading — a double leading underscore means the compiler wrote the name — so
   generated names use descriptive names, with a short category where it identifies
   a meaningful family: `__<category>_<name>`. The category vocabulary is `patt`
-  for patterns, `dict` for dictionaries, and `global` for captured JavaScript
-  globals. It need not name a source-language namespace. There is no generic
+  for patterns, `dict` for dictionaries, `global` for captured JavaScript
+  globals, and `class` for a binding module's re-export of a foreign class
+  (FFI Part 5 §7). It need not name a source-language namespace. There is no generic
   `helper` category: a direct name such as `__matchFail` or `__value` suffices.
-  Pattern Declarations §6 applies `__patt_<name>` now. Existing families retain
+  Pattern Declarations §6 applies `__patt_<name>` now, and FFI Part 5 §7
+  applies `__class_<Type>`, likewise fixed. Existing families retain
   their individually specified spellings until separately revised; this
   convention alone does not rename dictionaries or global captures. Thus the
   existing examples remain `__Eq_Rat` (a dictionary, Dictionary Sharing §5), `__Show_a` (an
@@ -276,7 +278,12 @@ write `honor`.
 keywords — they may never be used as names, which forecloses `let true = ...`
 permanently — but they no longer produce values, with one exception. As the member value of a
 literal `extern enum` (Foreign Enums §2.4), `true as Yes`, the parser reads the
-keyword as the JavaScript boolean the member names, and no redirect fires. The diagnostic is
+keyword as the JavaScript boolean the member names, and no redirect fires. (One
+other seat reads a hard-keyword token for what it spells: the foreign side of an
+FFI Part 5 member row, before `as`, where the parser reads any name token, the `_`
+token, or a hard keyword as the JavaScript property name it spells — FFI Part 5
+§2.4; the local side stays a name seat, and an unaliased keyword takes Part 5
+§11's alias refusal, selected by position as below.) The diagnostic is
 **position-aware, and position is the parser's to know** — the same division §4.2
 already fixes for contextual keywords: the lexer emits the hard-keyword token and
 the reserved-word fact; **the parser selects the message by position** (the §10
