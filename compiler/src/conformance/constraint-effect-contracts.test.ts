@@ -2490,39 +2490,31 @@ describe("Effects §13.2: a failed seat's suppression, and the conflict's two ti
   });
 
   test("and under a linked header the seat's answer is the answer outside one", () => {
-    // The same two locals under a `->?` outer arrow. The seat accepts them, and
-    // the mark the inlet demands of `spare()` is **#890**'s — a pre-existing
-    // #868 gap that reproduces with no constraint in sight, so the pin here is
-    // the equivalence: inside a seat, a named local function is answered
-    // exactly as it is outside one.
+    // The same two locals under a `->?` outer arrow. `spare` is neither a
+    // source nor a conduit, so its colour defaults pure whatever the inlets
+    // (§3.4, #868 — #890's repro): its call is bare, inside the seat exactly as
+    // outside one, and a `?` on it is a mark on a pure call.
     const LINKED_ONLY = "constraint C<r> =\n    go(runner: r, a: () ->? Unit) ->? Unit\n";
-    expect(messages(BODY(LINKED_ONLY, "runner, a", [
-      "let spare(): Unit = ()",
-      "spare?()",
-      "a?()",
-    ]))).toEqual([]);
-    expect(messages(BODY(LINKED_ONLY, "runner, a", [
-      "fun spare(): Unit = ()",
-      "spare?()",
-      "a?()",
-    ]))).toEqual([]);
-    // Bare, the seat says what the constraint-free program says, word for word.
+    for (const keyword of ["let", "fun"]) {
+      expect(messages(BODY(LINKED_ONLY, "runner, a", [
+        `${keyword} spare(): Unit = ()`,
+        "spare()",
+        "a?()",
+      ]))).toEqual([]);
+    }
     const inSeat = messages(BODY(LINKED_ONLY, "runner, a", [
       "let spare(): Unit = ()",
-      "spare()",
+      "spare?()",
       "a?()",
     ]));
     const outside = messages(
       "let outer(a: () ->? Unit): Unit =\n" +
       "    let spare(): Unit = ()\n" +
-      "    spare()\n" +
+      "    spare?()\n" +
       "    a?()\n",
     );
     expect(inSeat).toEqual(outside);
-    expect(inSeat).toEqual([
-      "this call is as effectful as the enclosing instantiation makes it, so " +
-      "`spare` wants `?`, not no mark",
-    ]);
+    expect(inSeat).toEqual(["this call is pure, so `spare` wants no mark, not `?`"]);
   });
 });
 
@@ -3763,5 +3755,88 @@ describe("Effects §13.2: the publish walk moves a colour, never a type and neve
         `the merge that joined the handed callback in: ${JSON.stringify(merge(n))}`,
       ]]]);
     }
+  });
+});
+
+/**
+ * **§3.4's defaulting clause at calls reaches a named local inside a seat**
+ * *(#947)*: the local generalizes where it is bound, so its undetermined call
+ * colours are decided there — not left free and pinned after its callers
+ * instantiated them.
+ */
+describe("Effects §3.4 at a seat: a named local's call colours default before it generalizes", () => {
+  test("an impure argument meets the pure face the local's body gave its callback", () => {
+    expect(messages(`extern from "./io.js"
+    export fun save(document: String) ->! Unit
+
+constraint C<r> =
+    go(runner: r, b: () ->! Unit) ->! Unit
+record R = { id: Int }
+honor C<R> =
+    go(runner, b) =
+        let run = (f) =>
+            save!("x")
+            f(1)
+        let k = run!((n) =>
+            save!("y")
+            n)
+        b!()
+`)).toEqual([
+      "a `->` arrow promises purity, and this function performs effects — the " +
+      "demand is written `->`, the function's face `->?` or `->!`",
+    ]);
+  });
+});
+
+/**
+ * **A knot inside a seat compares its demands at its close too** *(#947)*:
+ * its members settle on the seat's path, but the demand a sibling met while
+ * the knot was open is still compared — a source against a `->` refused.
+ */
+describe("Effects §3.4 at a seat: a knot's recorded demands are compared", () => {
+  test("a source sibling at a `->` demand is §4.3's refusal", () => {
+    expect(messages(`extern from "./io.js"
+    export fun save(document: String) ->! Unit
+
+constraint C<r> =
+    go(runner: r, b: () ->! Unit) ->! Unit
+record R = { id: Int }
+honor C<R> =
+    go(runner, k) =
+        fun
+            a(): Unit =
+                let p: () -> Unit = b
+                ()
+            b(): Unit =
+                let unused = a
+                save!("x")
+        k!()
+`)).toEqual([
+      "a `->` arrow promises purity, and this function performs effects — the " +
+      "demand is written `->`, the function's face `->?` or `->!`",
+    ]);
+  });
+
+  test("a `->!` demand never chooses a pure sibling's colour at a seat either", () => {
+    expect(messages(`export record Box = { step: () ->! Int }
+constraint C<r> =
+    go(runner: r, k: () ->! Unit) ->! Unit
+record R = { id: Int }
+honor C<R> =
+    go(runner, k) =
+        fun
+            a(): Int =
+                let s = Box({ step = b })
+                1
+            b(): Int =
+                let unused = a
+                1
+        k!()
+`)).toEqual([
+      "this position's arrow is the impure constant — its colour is fixed where the " +
+      "type is declared, and this function's face is the pure `->`; the demand cannot " +
+      "weaken — change the position's declared arrow, or supply the effectful function " +
+      "the position promises",
+    ]);
   });
 });

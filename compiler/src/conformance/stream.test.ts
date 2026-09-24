@@ -208,19 +208,21 @@ describe("§4 the faces: wiring is silent, consumption is spelled", () => {
     )).toEqual([]);
   });
 
-  it("conducts the same call inside an inlet-bearing body", () => {
-    // Effects §3.3's qualification, restated at `stream.md` §4.2: the enclosing
-    // signature offers an inlet, so a call whose colour is still undetermined
-    // is a conduit rather than pure-pinned.
+  it("takes the same call bare inside an inlet-bearing body (#868)", () => {
+    // `stream.md` §4.2: `map`'s own colour defaults pure before it generalizes,
+    // so wiring is bare in every body — the inlet-bearing exception the
+    // conservative-conduct rule made is withdrawn (Effects §11), and a `?`
+    // there is a mark on a pure call.
     const body = (mark: string): string =>
       "module Main\n\n" +
       "export let wire(source: Stream(Int), step: Int ->? Int): Stream(Int) =\n" +
       `    Stream.map${mark}(source, step)\n`;
-    expect(projectDiagnostics(body(""))).toEqual([
-      "this call is as effectful as the enclosing instantiation makes it, so " +
-      "`map` wants `?`, not no mark",
+    expect(projectDiagnostics(body(""))).toEqual([]);
+    expect(projectDiagnostics(body("?"))).toEqual([
+      "this call is pure, so `map` wants no mark, not `?`",
     ]);
-    expect(projectDiagnostics(body("?"))).toEqual([]);
+    expect(hoveredType("export let held: Int = Stream.map\n", "map"))
+      .toBe("(Stream(a), a ->? b) -> Stream(b)");
   });
 
   it("demands `!` at every consumer, and takes nothing else", () => {

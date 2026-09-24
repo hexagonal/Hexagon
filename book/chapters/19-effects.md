@@ -142,6 +142,39 @@ But a *pure* callback is still accepted, and stays pure in the caller's accounti
 Rounding that inner arrow up too would refuse pure callbacks outright — purity-as-
 polymorphism works through variables, and `->!` is not one.
 
+### Building a closure is not running it
+
+A function that only *packages* a callback — returns a closure that will run it later —
+does nothing the world can see when you call it:
+
+```hexagon
+let defer(action: () ->? Unit) = () => action?()
+```
+
+Hover shows `defer : (() ->? Unit) -> () ->? Unit`. The returned closure conducts
+`action`, so its arrow is linked to the callback's. `defer`'s own arrow is plain `->`:
+its body neither performs an effect nor runs anything it was handed, and a colour that
+nothing claims is pure. So `defer(action)` is a bare call, even inside a body that has
+callbacks of its own. The `?` belongs where the closure is *invoked*.
+
+This is one rule, and it covers lambdas too: **a function's colour is what its body
+does.** The body decides when it closes, and nothing the function later meets can change
+that. A pure lambda is pure wherever you hand it. Put it in a record field declared
+`->!` and it is refused, because the field promises an effect the lambda does not have.
+Hand it where a callback's `->?` is shared with another parameter, and it pins that
+colour pure — which the checker reports as a `->?` that promises more than the body
+delivers. Where you mean a do-nothing function to stand in for the caller's colour,
+say so with a written face:
+
+```hexagon
+export let orNoop(flag: Bool, action: () ->? Unit): (() ->? Unit) =
+    let noop: () ->? Unit = () => ()
+    if flag then action else noop
+```
+
+Inside `orNoop`, `noop`'s `->?` has no parameter of its own, so it names `orNoop`'s
+colour, and a written `->?` is a claim the checker keeps.
+
 ### `->?` needs something to link to
 
 `->?` means *my caller chooses*, so it is only legal where there is a caller who can:
@@ -355,6 +388,8 @@ loophole.
   are both errors, which is what keeps silence meaningful;
 - `->?` denotes one effect variable per signature and is legal only where a parameter
   offers the caller a slot; elsewhere it is refused rather than re-read;
+- a function's colour is what its body does, lambdas included: building a closure is
+  pure, and nothing a function is handed to can change its colour afterwards;
 - a helper nested in a body conducts the colour it captures, with `?`, without taking
   the callback as a parameter — colour scope is lexical, and a captured colour is never
   the helper's to generalize;
