@@ -1994,7 +1994,7 @@ const RESERVED_CAPTURES: readonly Exclude<RuntimeSpelling, typeof UNIT_SPELLING>
 
 /** The reserved local one vocabulary member's capture is imported under. */
 function reservedCapture(name: string): string {
-  return `__${name}`;
+  return `__global_${name}`;
 }
 
 /** Every spelling a minted `.js` import local must probe past (§1.2 rule 1). */
@@ -2025,9 +2025,9 @@ const MINTED_LOCAL_HAZARDS: ReadonlySet<string> = new Set<string>(RUNTIME_VOCABU
  * emits `const globalThis = 1;` verbatim. So the capture is made in the one
  * namespace no user binding can enter — Lexer §3.2's reserved prefix — and
  * arrives as an import from a module the user's bindings cannot reach. It has to
- * be an import: `const` shadows its whole scope, so a leading `const __Error =
- * Error;` beside a later user `Error` binding reads the temporal dead zone and
- * the module dies at load.
+ * be an import: `const` shadows its whole scope, so a leading
+ * `const __global_Error = Error;` beside a later user `Error` binding reads the
+ * temporal dead zone and the module dies at load.
  *
  * `undefined` is the exception at both ends: its trigger also reads function
  * scope (it is the one lowercase member, so the one a `let` can bind), and its

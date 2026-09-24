@@ -457,11 +457,12 @@ describe("a manufactured value is one hoisted constant per module", () => {
     expect(Object.is(main["computed"], main["written"])).toBe(false);
   });
 
-  test("a hoisted name that a reserved capture already holds takes the `_1` probe", () => {
-    // `__Number`, `__String`, `__Array`, `__Object`, `__Symbol` and `__BigInt`
-    // are seeded in *every* module for FFI Part 7 §1.2's captures, contested or
-    // not, so six of the ten `JsKind` constants meet #425's probe. Pinned
-    // because it is the one place the hoist's spelling is not the plain one.
+  test("a hoisted name that shares a runtime-global's name keeps the plain spelling", () => {
+    // FFI Part 7 §1.2's captures are seeded in *every* module, contested or
+    // not, but they live at `__global_<Name>` (Lexer §3.2's `global`
+    // category), so `__Number`, `__String`, `__Array`, `__Object`, `__Symbol`
+    // and `__BigInt` are free and none of the ten `JsKind` constants meets
+    // #425's probe. Pinned because six of them share a vocabulary name.
     const project = compileFiles([["/main.hex",
       "module Main\n\n" + "export let classify(v: JsValue): JsKind = JsValue.kind(v)\n"]]);
     expect(project.diagnostics).toEqual([]);
@@ -469,8 +470,8 @@ describe("a manufactured value is one hoisted constant per module", () => {
       .find(({ name }) => name === "Hex.JsValue")!.javascript.text;
 
     expect(text).toContain('const __Null = { tag: "Null" };');
-    expect(text).toContain('const __Number_1 = { tag: "Number" };');
-    expect(text).toContain('const __Object_1 = { tag: "Object" };');
+    expect(text).toContain('const __Number = { tag: "Number" };');
+    expect(text).toContain('const __Object = { tag: "Object" };');
   });
 });
 
@@ -507,8 +508,8 @@ describe("`JsKind`", () => {
 
     expect(text).toContain('const __Null = { tag: "Null" };');
     expect(text).toContain("if (__value === null) return __Null;");
-    expect(text).toContain('if (__type === "bigint") return __BigInt_1;');
-    expect(text).toContain("    return __Object_1;");
+    expect(text).toContain('if (__type === "bigint") return __BigInt;');
+    expect(text).toContain("    return __Object;");
   });
 });
 

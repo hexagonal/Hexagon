@@ -99,9 +99,9 @@ describe("class 1 — `record Error` and `record Object` beside a raise", () => 
     // The import line is a manifest: exactly the two spellings this module
     // binds, and nothing else. `Symbol`, `String`, and the rest stay bare here
     // because the decision is per (module, spelling).
-    expect(text).toContain('import { __Error, __Object } from "./hex.js";');
+    expect(text).toContain('import { __global_Error, __global_Object } from "./hex.js";');
     expect(text).toContain(
-      "  return __Object.assign(new __Error(__message), " +
+      "  return __global_Object.assign(new __global_Error(__message), " +
         '{ $hex: "Main", name: __name }, __fields);',
     );
     // Part 1 §10 stands absolute at both seats: the user's constructors keep
@@ -151,8 +151,8 @@ describe("class 2 — `record Symbol` beside a `for` loop", () => {
   test("the range's iterator key qualifies", () => {
     const text = javascript([["/main.hex", "module Main\n\n" + PROGRAM]]);
 
-    expect(text).toContain('import { __Symbol } from "./hex.js";');
-    expect(text).toContain("    *[__Symbol.iterator]() {");
+    expect(text).toContain('import { __global_Symbol } from "./hex.js";');
+    expect(text).toContain("    *[__global_Symbol.iterator]() {");
   });
 
   test("executed: the loop runs", async () => {
@@ -273,8 +273,8 @@ describe("class 4 — `exception Boolean` beside a `Seq` boundary", () => {
   test("the inbound adapter's coercion qualifies", () => {
     const text = javascript([["/main.hex", "module Main\n\n" + PROGRAM]]);
 
-    expect(text).toContain('import { __Boolean } from "./hex.js";');
-    expect(text).toContain("            __step = __Boolean(__next.done)");
+    expect(text).toContain('import { __global_Boolean } from "./hex.js";');
+    expect(text).toContain("            __step = __global_Boolean(__next.done)");
     // Per spelling: the same helper's `TypeError`, `String`, `Object`, `Error`,
     // and `Symbol` are untouched, because this module binds none of them.
     expect(text).toContain('              throw new TypeError("Iterator result " + String(__next)');
@@ -366,8 +366,8 @@ describe("the trigger's cross-module leg", () => {
     ] as const;
     const text = javascript(FILES);
 
-    expect(text).toContain('import { __Error } from "./hex.js";');
-    expect(text).toContain("new __Error(__message)");
+    expect(text).toContain('import { __global_Error } from "./hex.js";');
+    expect(text).toContain("new __global_Error(__message)");
     expect(text).toContain('import * as Error from "./Lib.js";');
     expect(text).not.toContain("Error_1");
 
@@ -577,12 +577,13 @@ describe("the minted-local negative — the trigger reads source bindings only",
     // contains bare `console` either, and the importing module owes the
     // runtime module nothing.
     //
-    // Left in, the module would emit `import { __console } from "./hex.js";`
-    // and reference `__console` nowhere: an import line that is not the
-    // manifest §1.2 says it is, and an uncontested module that is no longer
-    // byte-identical. Measured, and the reach is `console` alone — a member is
-    // a term, so non-uppercase-start, and `undefined` is settled by the
-    // function-scope symbol check that a routed member never reaches.
+    // Left in, the module would emit
+    // `import { __global_console } from "./hex.js";` and reference
+    // `__global_console` nowhere: an import line that is not the manifest §1.2
+    // says it is, and an uncontested module that is no longer byte-identical.
+    // Measured, and the reach is `console` alone — a member is a term, so
+    // non-uppercase-start, and `undefined` is settled by the function-scope
+    // symbol check that a routed member never reaches.
     const FILES = [
       ["/lib.hex", "module Lib\n\n" + [
         "export constraint Boxy<a> =",
@@ -617,7 +618,7 @@ describe("the minted-local negative — the trigger reads source bindings only",
     // The *declaring* module still contests, and must: Constraints §6.5's
     // forwarder is a source-derived `const console = …` there, so anything in it
     // writing `console` bare would read the forwarder.
-    expect(javascript(FILES, "/lib.hex")).toContain('import { __console } from "./hex.js";');
+    expect(javascript(FILES, "/lib.hex")).toContain('import { __global_console } from "./hex.js";');
   });
 
   test("a routed member seat declines the member's spelling for the same two classes", async () => {
@@ -852,8 +853,9 @@ describe("completeness — the worst-contested module writes no bare global", ()
     // capture is load-bearing (`js-map-set.test.ts`), and on an ordinary module
     // that merely binds the word, where it is collateral (the describe below).
     expect(text).toContain(
-      "import { __Array, __BigInt, __Boolean, __console, __Error, __Math, __Number, " +
-        '__Object, __RangeError, __String, __Symbol, __TypeError, __WeakMap } from "./hex.js";',
+      "import { __global_Array, __global_BigInt, __global_Boolean, __global_console, " +
+        "__global_Error, __global_Math, __global_Number, __global_Object, __global_RangeError, " +
+        '__global_String, __global_Symbol, __global_TypeError, __global_WeakMap } from "./hex.js";',
     );
     // And the claim that matters, swept rather than spot-checked: **no
     // compiler-written line of this module spells any vocabulary member bare.**
@@ -867,8 +869,8 @@ describe("completeness — the worst-contested module writes no bare global", ()
     // question here, because the user's `const Error = …` binds the spelling, so
     // an unqualified `new Error(…)` in a helper would read as bound and the
     // assertion would pass vacuously. The lookarounds are what make this a
-    // reference check rather than a substring one — `__Error`, `IndexError`, and
-    // `"SliceError"` all leave the word alone.
+    // reference check rather than a substring one — `__global_Error`,
+    // `IndexError`, and `"SliceError"` all leave the word alone.
     const own = new Set<string>(RUNTIME_VOCABULARY);
     const emitterWritten = codeOnly(text).split("\n").filter((line) => {
       const declared = /^const ([A-Za-z_$][\w$]*) = /u.exec(line)?.[1] ??
@@ -881,16 +883,16 @@ describe("completeness — the worst-contested module writes no bare global", ()
     expect(text).toContain("const unit = () => void 0;");
     // The seats the sweep above is silent about because they are *inside*
     // qualified references, spot-checked so the families are on the record.
-    expect(text).toContain("new __Error(__message)");
-    expect(text).toContain("*[__Symbol.iterator]()");
-    expect(text).toContain("__Boolean(__next.done)");
-    expect(text).toContain("new __WeakMap()");
-    expect(text).toContain('throw new __RangeError("Unexpected pattern.");');
-    expect(text).toContain("__BigInt(x)");
-    expect(text).toContain("__Array.from(__text)");
-    expect(text).toContain("__Number.isNaN(__value)");
-    expect(text).toContain("__Math.imul(");
-    expect(text).toContain("new __TypeError(");
+    expect(text).toContain("new __global_Error(__message)");
+    expect(text).toContain("*[__global_Symbol.iterator]()");
+    expect(text).toContain("__global_Boolean(__next.done)");
+    expect(text).toContain("new __global_WeakMap()");
+    expect(text).toContain('throw new __global_RangeError("Unexpected pattern.");');
+    expect(text).toContain("__global_BigInt(x)");
+    expect(text).toContain("__global_Array.from(__text)");
+    expect(text).toContain("__global_Number.isNaN(__value)");
+    expect(text).toContain("__global_Math.imul(");
+    expect(text).toContain("new __global_TypeError(");
   });
 
   test("executed: the whole of it runs", async () => {
@@ -974,7 +976,7 @@ describe("what joining the vocabulary costs a module that merely binds the word"
     expect(project.runtimeGlobals).toBeDefined();
     expect(module.javascript.importsRuntimeGlobals).toBe(true);
     expect(module.javascript.text).toBe(
-      'import { __Set } from "./hex.js";\n' +
+      'import { __global_Set } from "./hex.js";\n' +
         "\n" +
         'import { length } from "./Hex/Vector.js";\n' +
         "const Set = __record => __record;\n" +
@@ -982,10 +984,10 @@ describe("what joining the vocabulary costs a module that merely binds the word"
         "export { Set };\n" +
         "export { n };\n",
     );
-    // The capture is the manifest and nothing else here: `__Set` is referenced
-    // by no other line of this module. Part 1 §10 stands at both user seats —
-    // the record keeps its spelling and its export name.
-    expect(module.javascript.text.split("__Set").length - 1).toBe(1);
+    // The capture is the manifest and nothing else here: `__global_Set` is
+    // referenced by no other line of this module. Part 1 §10 stands at both
+    // user seats — the record keeps its spelling and its export name.
+    expect(module.javascript.text.split("__global_Set").length - 1).toBe(1);
   });
 
   test("and binding `Map` does the same", () => {
@@ -996,9 +998,30 @@ describe("what joining the vocabulary costs a module that merely binds the word"
     const module = project.modules.find(({ source }) => source.path === "/main.hex")!;
 
     expect(project.runtimeGlobals).toBeDefined();
-    expect(module.javascript.text).toContain('import { __Map } from "./hex.js";');
+    expect(module.javascript.text).toContain('import { __global_Map } from "./hex.js";');
     expect(module.javascript.text).toContain("const Map = __record => __record;");
-    expect(module.javascript.text.split("__Map").length - 1).toBe(1);
+    expect(module.javascript.text.split("__global_Map").length - 1).toBe(1);
+  });
+
+  // The one family that can still spell a capture: an exported term named
+  // `global_Error` with an internal edition — here its `Array` parameter's
+  // capture boundary; a constrained term has one too — publishes that edition
+  // as `__global_Error` (§7).
+  // In an importer that contests `Error`, the capture keeps its spelling and
+  // the edition's minted local takes the collision probe — because the
+  // captures seed every module's generated names.
+  test("an internal edition spelled like a capture takes the probe beside it", () => {
+    const project = compileFiles([
+      ["/Lib.hex", "module Lib\n\nexport fun global_Error(xs: Array(Int)): Int = xs[1]\n"],
+      ["/main.hex", "module Main\n\nimport Lib\n\n" + "export record Error = { code: Int }\n" +
+        "export fun f(xs: Array(Int)): Int = Lib.global_Error(xs)\n"],
+    ]);
+    expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
+    const text = project.modules.find(({ source }) => source.path === "/main.hex")!.javascript.text;
+
+    expect(text).toContain('import { __global_Error } from "./hex.js";');
+    expect(text).toContain('import { __global_Error as __global_Error_1 } from "./Lib.js";');
+    expect(text).toContain("return __global_Error_1(xs);");
   });
 });
 
@@ -1018,25 +1041,26 @@ describe("the runtime module takes Part 1 §8.3's reserved seat", () => {
     // vocabulary always, so nothing about the file is a function of the caller.
     expect(second?.text).toBe(first?.text);
     expect(first?.text).toBe(
-      "const __Array = globalThis.Array,\n" +
-        "  __BigInt = globalThis.BigInt,\n" +
-        "  __Boolean = globalThis.Boolean,\n" +
-        "  __console = globalThis.console,\n" +
-        "  __Error = globalThis.Error,\n" +
-        "  __Map = globalThis.Map,\n" +
-        "  __Math = globalThis.Math,\n" +
-        "  __Number = globalThis.Number,\n" +
-        "  __Object = globalThis.Object,\n" +
-        "  __RangeError = globalThis.RangeError,\n" +
-        "  __RegExp = globalThis.RegExp,\n" +
-        "  __Set = globalThis.Set,\n" +
-        "  __String = globalThis.String,\n" +
-        "  __Symbol = globalThis.Symbol,\n" +
-        "  __TypeError = globalThis.TypeError,\n" +
-        "  __WeakMap = globalThis.WeakMap;\n" +
-        "export { __Array, __BigInt, __Boolean, __console, __Error, __Map, __Math, " +
-        "__Number, __Object, __RangeError, __RegExp, __Set, __String, __Symbol, __TypeError, " +
-        "__WeakMap };\n",
+      "const __global_Array = globalThis.Array,\n" +
+        "  __global_BigInt = globalThis.BigInt,\n" +
+        "  __global_Boolean = globalThis.Boolean,\n" +
+        "  __global_console = globalThis.console,\n" +
+        "  __global_Error = globalThis.Error,\n" +
+        "  __global_Map = globalThis.Map,\n" +
+        "  __global_Math = globalThis.Math,\n" +
+        "  __global_Number = globalThis.Number,\n" +
+        "  __global_Object = globalThis.Object,\n" +
+        "  __global_RangeError = globalThis.RangeError,\n" +
+        "  __global_RegExp = globalThis.RegExp,\n" +
+        "  __global_Set = globalThis.Set,\n" +
+        "  __global_String = globalThis.String,\n" +
+        "  __global_Symbol = globalThis.Symbol,\n" +
+        "  __global_TypeError = globalThis.TypeError,\n" +
+        "  __global_WeakMap = globalThis.WeakMap;\n" +
+        "export { __global_Array, __global_BigInt, __global_Boolean, __global_console, " +
+        "__global_Error, __global_Map, __global_Math, __global_Number, __global_Object, " +
+        "__global_RangeError, __global_RegExp, __global_Set, __global_String, __global_Symbol, " +
+        "__global_TypeError, __global_WeakMap };\n",
     );
   });
 
@@ -1059,7 +1083,7 @@ describe("the runtime module takes Part 1 §8.3's reserved seat", () => {
         "exception Boom(value: Int)\n" +
         "export let raise(): Int = throw(Boom(3))\n"]],
       "/src/main.hex",
-    )).toContain('import { __Error } from "./hex1.js";');
+    )).toContain('import { __global_Error } from "./hex1.js";');
 
     // The declaration module is untouched: no generated `.d.ts` imports the
     // runtime module's exports, and declaring them would surface reserved names
@@ -1076,7 +1100,7 @@ describe("the runtime module takes Part 1 §8.3's reserved seat", () => {
       ["/main.hex", "module Src.A.Main\n\n" + "export record Error = {code: Int}\n" +
         "exception Boom(value: Int)\n" +
         "export let raise(): Int = throw(Boom(3))\n"],
-    ], "/main.hex")).toContain('import { __Error } from "../../hex.js";');
+    ], "/main.hex")).toContain('import { __global_Error } from "../../hex.js";');
   });
 
   test("executed: a contested program loads through it", async () => {

@@ -507,15 +507,15 @@ describe("the companion is `stdlib/JsValue.hex` (Method Syntax §4.1)", () => {
     const companion = compiled.modules.find(({ name }) => name === "Hex.JsValue")!;
     const text = companion.javascript.text;
     // The ladder answers with the module's hoisted constants (#771 B1), whose
-    // names take Lexer §3.2's reservation and, where that collides with a
-    // reserved runtime capture (`__Array`, `__Object`), #425's `_1` probe.
+    // names take Lexer §3.2's reservation; the reserved runtime captures live
+    // at `__global_<Name>`, so `__Array` and `__Object` are free as they stand.
     expect(text).toContain('const __Undefined = { tag: "Undefined" };');
     expect(text).toContain("if (__value === undefined) return __Undefined;");
     expect(text).toContain("if (__value === null) return __Null;");
     expect(text).toContain('if (__type === "function") return __Function;');
     // The guard is the totality promise, and it is one `try` around one probe.
     expect(text).toContain("  try {");
-    expect(text).toContain(".isArray(__value) ? __Array_1 : __Object_1;");
+    expect(text).toContain(".isArray(__value) ? __Array : __Object;");
     expect(text).toContain("  } catch {");
     // The five crossings are the identity, and the predicate is the host's.
     expect(text).toContain("__a => __a");

@@ -143,10 +143,11 @@ I元素      E无效年龄  M数据库           -- cultural role prefixes, ordi
   globals, and `class` for a binding module's re-export of a foreign class
   (FFI Part 5 §7). It need not name a source-language namespace. There is no generic
   `helper` category: a direct name such as `__matchFail` or `__value` suffices.
-  Pattern Declarations §6 applies `__patt_<name>` now, and FFI Part 5 §7
-  applies `__class_<Type>`, likewise fixed. Existing families retain
-  their individually specified spellings until separately revised; this
-  convention alone does not rename dictionaries or global captures. Thus the
+  Pattern Declarations §6 applies `__patt_<name>` now, FFI Part 5 §7
+  applies `__class_<Type>`, likewise fixed, and FFI Part 7 §1.2 captures a
+  runtime global as `__global_<Name>` (`__global_Error`, `__global_Map`).
+  Existing families retain their individually specified spellings until
+  separately revised; this convention alone does not rename dictionaries. Thus the
   existing examples remain `__Eq_Rat` (a dictionary, Dictionary Sharing §5), `__Show_a` (an
   evidence parameter), `__value` (a helper binder). Public-surface spellings a
   generator also chooses — a `.d.ts` brand identifier (FFI Part 7 §5), FFI
