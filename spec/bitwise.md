@@ -468,7 +468,8 @@ BigInt.fromInt(x band y) == BigInt.fromInt(x) band BigInt.fromInt(y)   -- and bo
 4294967295.toInt32()             -- -1
 (-1).toUint32()                  -- 4294967295
 -- a ported 32-bit hash matches its JavaScript original: FNV-1a in its shift-add form,
--- h ^= c; h += (h<<1)+(h<<4)+(h<<7)+(h<<8)+(h<<24), each << ported per §4.3
+-- h ^= c; h += (h<<1)+(h<<4)+(h<<7)+(h<<8)+(h<<24), every reduction JavaScript
+-- makes (the ^=, each <<) ported per §4.3, so h stays inside ±2⁵³
 -- x << n → x.shiftLeft(n).toInt32();  bnot commutes with reduction mod 2³²
 
 -- (c) Spellings and emission
