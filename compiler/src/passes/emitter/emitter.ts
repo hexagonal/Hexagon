@@ -3553,8 +3553,19 @@ class JavaScriptEmitter {
     // symbols, so nothing else puts them in the taken set (#425). A default
     // helper is a module-level `const` on the same footing, and its spelling is
     // fixed rather than probed, so it is seeded rather than minted.
+    // Planned ahead of the name table so its locals can seed it: a namespace
+    // import binds a JavaScript identifier like any other, and a minted local
+    // that mirrors a spelling — a foreign class's, FFI Part 5 §7, whose binding
+    // module §8's idiom imports under the type's own name — must step around it.
+    this.#namespaceAliases = namespaceAliasPlan(module);
     this.#generatedNames = new GeneratedNames([
       ...module.symbols.map(({ name }) => name),
+      // Every namespace import's emitted local: its alias, or the plan's move.
+      ...module.items.flatMap((item) =>
+        item.kind === "Import" && !item.synthesized && item.form.kind === "Namespace"
+          ? [this.#namespaceAliases.get(item.form.alias) ?? item.form.alias]
+          : []
+      ),
       // A generated module local is visible inside every nested scope. Reserve
       // each unsafe source binder's emitted spelling before minting one, or a
       // parameter such as `null` can silently capture an imported/generated
@@ -3604,7 +3615,6 @@ class JavaScriptEmitter {
     this.#companionImports = new Map(
       module.companionImports.map((companion) => [companion.symbol, companion]),
     );
-    this.#namespaceAliases = namespaceAliasPlan(module);
     for (const name of moduleLevelBindings(module)) this.#moduleBindings.add(name);
     // The seat inventory, from the three channels an instance reaches a module
     // by. This module's own is seated first and never overwritten: an entry

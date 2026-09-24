@@ -2317,8 +2317,8 @@ class Parser {
     // parameter list can follow either. A `let` waits for its own seat below,
     // and a `fun` waits for its arrow seat, where the fixit can carry both
     // edits §13 names.
-    // Part 5's member and class vocabulary, which this parser refuses as a form
-    // (below) but whose *seat* the retired word still occupies. §4.5 partitions
+    // Part 5's member and class vocabulary, whose *seat* the retired word
+    // occupies like any other row's. §4.5 partitions
     // them like any other row: `class` introduces a type and declares nothing
     // invocable, while `method`, `get`, `set` and `new` declare callables —
     // and `static` is a leading modifier, so what follows it is the callable
@@ -2361,8 +2361,7 @@ class Parser {
       return this.#parseExternMember(member, start, exported, defaultBinding, retired);
     }
     if (part5Class) return this.#parseExternClass(start, exported, defaultBinding);
-    // `class` — FFI Part 5's opaque foreign class — keeps the refusal below, as
-    // does every other word.
+    // Every word that is none of the forms above keeps the refusal below.
     if (kind !== "Fun" && kind !== "Let" && kind !== "Type" && !foreignEnum) {
       const label = this.#current();
       const text = label.kind === "NonUpperName" || label.kind === "UpperName"
@@ -2782,7 +2781,16 @@ class Parser {
     if (isStatic) {
       // §6.3: a static member's receiver is the constructor object, fixed, so
       // the subject parameter is dropped; the property forms keep their arity.
-      if (member === "get" && parameters.length > 0) {
+      // Every callable row writes its parameter list, an empty one included
+      // (Part 4 §4.1): there is no subject whose absence would say so.
+      if (signature.missingParameterList) {
+        this.#errorAt(
+          localName.span,
+          `a static member takes a parameter list, even an empty one; write \`${head}(${
+            member === "set" ? "value: Value" : ""
+          }) ->! ${member === "set" ? "Unit" : result}\``,
+        );
+      } else if (member === "get" && parameters.length > 0) {
         this.#errorAt(
           parameters[0]!.span,
           `a static property read takes no parameters; write \`${head}() ->! ${result}\``,
@@ -2790,7 +2798,12 @@ class Parser {
       } else if (member === "set" && parameters.length !== 1) {
         this.#errorAt(
           (parameters[1] ?? { span: localName.span }).span,
-          `a static property write takes exactly the assigned value; write \`${head}(value: Value) ->! Unit\``,
+          `a static property write takes exactly the assigned value; write \`${head}(${
+            // The row's own value parameter, where it wrote one after the others.
+            (parameters.length > 1
+              ? this.#writtenText(parameters.at(-1)!.span, parameters.at(-1)!.span)
+              : undefined) ?? "value: Value"
+          }) ->! Unit\``,
         );
       }
     } else if (parameters.length === 0) {
@@ -2901,11 +2914,15 @@ class Parser {
             `\`class ${first.text} as ${upperInitial(first.text.replace(/^_+/, ""))}\``,
         );
       }
-    } else if (localName.startClass !== "upper") {
+    } else if (localName.startClass !== "upper" || localName.text.startsWith("__")) {
+      const wanted = upperInitial(localName.text.replace(/^_+/, ""));
       this.#errorAt(
         localName.span,
-        `foreign class \`${foreignName?.text ?? localName.text}\` needs an uppercase-start local alias; ` +
-          `write \`class ${foreignName?.text ?? localName.text} as ${upperInitial(localName.text)}\``,
+        defaultBinding
+          // §6.4: a default class names its local type directly.
+          ? `a class's local type name is uppercase-start; write \`default class ${wanted}\``
+          : `foreign class \`${foreignName?.text ?? localName.text}\` needs an uppercase-start local alias; ` +
+            `write \`class ${foreignName?.text ?? localName.text} as ${wanted}\``,
       );
     }
     if (this.#at("Less") || this.#at("LeftParen")) {
@@ -2989,7 +3006,6 @@ class Parser {
           staticToken.span,
           `a constructor is already the class's own operation; drop \`static\`: \`new as create(...) -> ${owner.localName.text}\``,
         );
-        isStatic = false;
       }
     }
     if (this.#atContextual("new")) {
@@ -3063,6 +3079,13 @@ class Parser {
       `\`new\` constructs \`${type}\`; write \`new as ${localName.text}(…) ->! ${type}\` ` +
         "(`->` only where construction touches nothing)",
     );
+    if (signature.missingParameterList) {
+      // Part 4 §4.1: a callable row writes its parameter list, empty or not.
+      this.#errorAt(
+        localName.span,
+        `\`new\` takes a parameter list, even an empty one; write \`new as ${localName.text}() ->! ${type}\``,
+      );
+    }
     this.#rejectExternBody();
     return {
       kind: "ExternFun",

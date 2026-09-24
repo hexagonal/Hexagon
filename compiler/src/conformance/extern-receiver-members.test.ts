@@ -742,6 +742,28 @@ export fun make(): Int =
     ).toEqual([]);
   });
 
+  test("§8's idiom — the binding module imported under the class's own name — still parses", async () => {
+    // §6.4's `default class Client` in module `Client`, imported as `Client`:
+    // the namespace import and the class's minted local would otherwise bind one
+    // identifier twice, and the importer would not load.
+    const files = [
+      ["/client.hex", `module Client
+
+extern from "clients"
+    export default class Client
+        new as connect(name: String) ->! Client
+        get who(c: Client) ->! String
+`],
+      ["/main.hex", "module Main\n\nimport Client\n\n" +
+        "export fun go(): String = Client.connect!(\"ada\").who!()\n"],
+    ] as const;
+    const javascript = emitted(files, "/main.hex");
+    expect(javascript).toContain('import * as Client from "./Client.js";');
+    expect(javascript).toMatch(/import \{ __class_Client as (__Client(?:_\d+)?) \} from "\.\/Client\.js";/u);
+    const loaded = await run(files, { clients: CLIENTS_JS });
+    expect((loaded["Main"]!.go as () => string)()).toBe("ada");
+  });
+
   test("dot calls reach a class's instance members (§9)", () => {
     const javascript = emitted([
       ["/counters.hex", COUNTERS],
@@ -749,6 +771,23 @@ export fun make(): Int =
         "export fun go(c: Counters.Counter): Int = c.next!() + c.value!()\n"],
     ], "/main.hex");
     expect(javascript).toContain("return c.next() + c.value;");
+  });
+});
+
+describe("`extern class` layout (Lexer Layout §2.1)", () => {
+  test("a memberless class is complete, and a `class` term never opens a block", () => {
+    expect(diagnostics("    class Empty\n    method m(t: T) ->! Int\n")).toEqual([]);
+    // `class` stays an ordinary name wherever no name follows it at an item's
+    // head, a function's name and a call inside a delimiter included.
+    expect(compileFiles([["/main.hex", `module Main
+
+let class(x: Int): Int =
+    x + 1
+
+export let y: Int =
+    class(
+        2)
+`]]).diagnostics.map(({ message }) => message)).toEqual([]);
   });
 });
 
@@ -778,12 +817,40 @@ describe("`extern class` diagnostics (§11)", () => {
     ]);
   });
 
+  test("`new` and `static` rows write their parameter list (Part 4 §4.1)", () => {
+    expect(classDiagnostics("        new as mk ->! Url\n")).toEqual([
+      "`new` takes a parameter list, even an empty one; write `new as mk() ->! Url`",
+    ]);
+    expect(classDiagnostics("        static get port ->! Int\n")).toEqual([
+      "a static member takes a parameter list, even an empty one; write `static get port() ->! Int`",
+    ]);
+    expect(classDiagnostics("        static method now ->! Int\n")).toEqual([
+      "a static member takes a parameter list, even an empty one; write `static method now() ->! Int`",
+    ]);
+  });
+
+  test("every class member slot refuses an open record (Part 1 §5.4 item 7, #962)", () => {
+    const refusal = /^this record may have more fields \(`\{n: Int, \.\.\.\}`\)/u;
+    for (
+      const row of [
+        "        new as create(r: {n: Int, ...}) ->! Url\n",
+        "        static method s() ->! {n: Int, ...}\n",
+        "        static set s(v: {n: Int, ...}) ->! Unit\n",
+        "        method m(u: Url, r: {n: Int, ...}) ->! Unit\n",
+      ]
+    ) {
+      const reports = classDiagnostics(row);
+      expect(reports).toHaveLength(1);
+      expect(reports[0]).toMatch(refusal);
+    }
+  });
+
   test("static property forms fix their arity (§6.3)", () => {
     expect(classDiagnostics("        static get port(u: Url) ->! Int\n")).toEqual([
       "a static property read takes no parameters; write `static get port() ->! Int`",
     ]);
     expect(classDiagnostics("        static set port(u: Url, v: Int) ->! Unit\n")).toEqual([
-      "a static property write takes exactly the assigned value; write `static set port(value: Value) ->! Unit`",
+      "a static property write takes exactly the assigned value; write `static set port(v: Int) ->! Unit`",
     ]);
     expect(classDiagnostics("        static set port(v: Int) -> Unit\n")).toEqual([
       "an extern `set` grants write capability, and a write to foreign state is an effect — " +
@@ -814,6 +881,10 @@ describe("`extern class` diagnostics (§11)", () => {
     ]);
     expect(classDiagnostics("", "    class url\n")).toEqual([
       "foreign class `url` needs an uppercase-start local alias; write `class url as Url`",
+    ]);
+    // §6.4: a default class has no alias to add; its rewrite names the type.
+    expect(classDiagnostics("", "    default class client\n")).toEqual([
+      "a class's local type name is uppercase-start; write `default class Client`",
     ]);
     expect(classDiagnostics("", "    class Box<a>\n")).toEqual([
       "generic extern declarations are not part of Hexagon v1",

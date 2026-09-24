@@ -460,8 +460,7 @@ function opensClassBlock(item: readonly Lexed.Token[]): boolean {
   }
   const head = item[index];
   if (head?.kind !== "NonUpperName" || head.text !== "class") return false;
-  if (!["UpperName", "NonUpperName"].includes(item[index + 1]?.kind ?? "")) return false;
-  return !item.some((token) => token.kind === "Equal" || token.kind === "LeftParen");
+  return ["UpperName", "NonUpperName"].includes(item[index + 1]?.kind ?? "");
 }
 
 /**
