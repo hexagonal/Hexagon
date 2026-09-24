@@ -1082,11 +1082,11 @@ describe("the faces and the emitted text the new surfaces produce", () => {
     const text = (path: string): string =>
       project.modules.find(({ source }) => source.path === path)!.javascript.text;
 
-    expect(text("/JsMap.hex")).toContain("__Map");
-    expect(text("/JsMap.hex")).toContain("new __Map(__a)");
+    expect(text("/JsMap.hex")).toContain("__global_Map");
+    expect(text("/JsMap.hex")).toContain("new __global_Map(__a)");
     expect(text("/JsMap.hex")).not.toMatch(/new Map\(/u);
-    expect(text("/JsSet.hex")).toContain("__Set");
-    expect(text("/JsSet.hex")).toContain("new __Set(__a)");
+    expect(text("/JsSet.hex")).toContain("__global_Set");
+    expect(text("/JsSet.hex")).toContain("new __global_Set(__a)");
     expect(text("/JsSet.hex")).not.toMatch(/new Set\(/u);
   });
 

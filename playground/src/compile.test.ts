@@ -1254,7 +1254,7 @@ describe("compileSource", () => {
 
     expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
     if (response.kind !== "compile-success") return;
-    expect(response.javascript).toContain('import { __Error } from "./hex.js";');
+    expect(response.javascript).toContain('import { __global_Error } from "./hex.js";');
     expect(response.executionModules.map(({ path }) => path)).toContain("/hex.hex");
 
     const moduleUrls = new Map<string, string>();

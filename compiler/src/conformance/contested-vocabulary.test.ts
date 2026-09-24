@@ -552,25 +552,26 @@ describe("the negatives — nothing else moves", () => {
     // program is the sharpest case — it binds `Error` in the emitted `.js` as
     // well — and its JavaScript is pinned whole.
     //
-    // **The `new __Error(...)` inside `__exception` is §1.2's repair, not
-    // this one's** (#666, correction record §14.7). This line previously pinned
-    // `new Error(__message)` verbatim and demanded a conscious edit before the
-    // emitted JavaScript's own name capture could move; §1.2 is that ruling and
-    // this is that edit. What the pin now holds is the *scope* claim: `Object`
-    // stays bare in the same helper on the same line, because this module binds
-    // `Error` and not `Object` and the decision is per (module, spelling), and
-    // no `globalThis` reaches the `.js` at any seat — value-position
-    // `globalThis` is an ordinary identifier and was never available here.
+    // **The `new __global_Error(...)` inside `__exception` is §1.2's repair,
+    // not this one's** (#666, correction record §14.7). This line previously
+    // pinned `new Error(__message)` verbatim and demanded a conscious edit
+    // before the emitted JavaScript's own name capture could move; §1.2 is that
+    // ruling and this is that edit. What the pin now holds is the *scope*
+    // claim: `Object` stays bare in the same helper on the same line, because
+    // this module binds `Error` and not `Object` and the decision is per
+    // (module, spelling), and no `globalThis` reaches the `.js` at any seat —
+    // value-position `globalThis` is an ordinary identifier and was never
+    // available here.
     const js = javascript(project({
       "/main.hex": "export record Error = {code: Int}\n" + "export exception Boom(value: Int)\n",
     }));
 
     expect(js).not.toContain("globalThis");
     expect(js).toBe(
-      'import { __Error } from "./hex.js";\n' +
+      'import { __global_Error } from "./hex.js";\n' +
         "\n" +
         "function __exception(__name, __message, __fields) {\n" +
-        '  return Object.assign(new __Error(__message), { $hex: "Main", name: __name }, __fields);\n' +
+        '  return Object.assign(new __global_Error(__message), { $hex: "Main", name: __name }, __fields);\n' +
         "}\n" +
         "\n" +
         "const Error = __record => __record;\n" +
