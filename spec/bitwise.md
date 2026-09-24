@@ -11,7 +11,8 @@ another base (`Int.toHex` or a radix form); typed flag sets (#1031).
 **Companions:** Operators §1.1, §2, §3 (elaboration, inventory, precedence); Lexer §4.1,
 §4.2, §5 (keywords and literal grammar); Lexer & Layout §2.3 (continuation set);
 Primitive Types §2, §6, §8; Constraints §5.1.1 (pre-registration), §5.3 (orphan rule),
-§7 (registry); Numeric Literals §4 (defaulting), §5.2 (literal emission); Intrinsics
+§7 (registry); Numeric Literals §4 (defaulting), §5.1 (the tower), §5.2 (literal emission);
+Method Syntax §4.2 (ownership), §7; Intrinsics
 §4.1 (keys); Foreign Enums §8.2 (flag masks).
 
 **Lineage, in one line:** Erlang's words, Lean's precedence, Gleam's semantics.
@@ -64,8 +65,9 @@ The standard instances are `Int` and `BigInt`, declared in their companions.
 orphan rule (Constraints §5.3), `honor Bitwise<T>` belongs in `Bitwise`'s module or
 `T`'s. For these types both homes are prelude source, so no project module can write
 the declaration. `Nat` is left out because `bitNot` of a natural number is negative,
-so `Nat` cannot honor the constraint whole. `Bool` is left out so that logic has one
-spelling (Operators §1.2).
+so `Nat` cannot honor the constraint whole; `Nat` values still take every operation,
+widening into `Int` (§5.1). `Bool` is left out so that logic has one spelling (Operators
+§1.2).
 
 A type a program declares may honor `Bitwise` in its own module, as a user `Decimal`
 joins the numeric tower (Friendly Numerics). The operators then elaborate to its members
@@ -260,10 +262,32 @@ applies to all BigInt growth (Operators §6.3.1). No Hexagon exception wraps tha
 
 ## 5. Typing, evaluation, and effects
 
-A binary operation needs one operand type that honors `Bitwise`. There is no mixed
-`Int`/`BigInt` operation, and no contextual widening joins the operands. The value of a
-shift decides the instance, and the count is checked at `Int` independently, as the
-exponent of `**` is (Operators §6.3).
+### 5.1 Integers meet at the wider home
+
+`Bitwise` is a rung of the numeric tower (Numeric Literals §5.1). Its six members are
+tower members, and every spelling of them (operator, bare, qualified, pipe stage, or
+dot) takes the tower's operand treatment. Because both instances compute one semantics
+(§4.1), widening an operand never changes an answer; it only chooses which type holds
+the result.
+
+- **Operands meet at the wider home.** `Nat`, `Int`, and `BigInt` operands join by
+  Numeric Literals §5.1's exact conversions, at its common-home order: BigInt, then
+  Int. `n band i` and `i band n` are both `Int`, and `i band b` and `b band i` are both
+  `BigInt`, emitting `BigInt(i) & b` and `b & BigInt(i)`.
+- **A written face runs the operation.** Where the operation's seat has a concrete
+  expected type that honors `Bitwise`, that type is the operation's home, and the
+  operands widen into it. `let x: Int = n band m` is `Int` conjunction of two `Nat`s,
+  and `let wide: BigInt = i.shiftLeft(60)` shifts at `BigInt`, so the result is exact
+  where `Int`'s would round.
+- **`Nat` owns the members without honoring them.** A `Nat` receiver owns the six
+  members through Method Syntax §4.2's ownership clause, as it owns `subtract`: `n.bitAnd(m)`
+  is the open member call. With no face and only `Nat` operands, the operation has no
+  instance, and it is refused with the route `n - m` is given: "a written `Int` face runs
+  the operation and admits the result (`let bits: Int = …`)". `Nat` has no instance of
+  its own (§2.1), so the refusal is the closed-pair report with that route.
+- **The shift count is not an operand.** It is the member's concrete `Int` parameter,
+  checked at `Int` independently, as the exponent of `**` is (Operators §6.3): a `Nat`
+  count widens into it, and neither the common home nor the face reaches it.
 
 A literal operand is typed by the ordinary literal rules. `Bitwise` joins the
 defaultable set through Numeric Literals §4's rule, since it is a pre-registered
@@ -277,7 +301,7 @@ Lowercase `and`, `or`, and `not` keep their `Bool` semantics and parsing, and no
 spelling changes meaning by operand type. Reaching for the wrong family is a type
 error, because `Bool` has no `Bitwise` instance and `Int` is not `Bool`: `p band q` on
 `Bool` and `x and y` on `Int` both refuse, and each refusal offers the other spelling
-(§8).
+(§9).
 
 All six contracts are pure. Instance effects are inferred and checked against them
 (Effects §13). Effectful operand expressions keep their normal call marks: operator
@@ -390,7 +414,7 @@ BigInt  = (Digits | HexInteger | OctInteger | BinInteger) "n"
 | `p band q`, `p bor q`, `p bxor q`, `bnot p` at `Bool` | the missing-instance report, whose pair is closed (Modules §7.6) + fixit naming the logic spelling: `and`, `or`, `!=`, or `not` respectively |
 | `x and y`, `x or y`, `not x` at a type honoring `Bitwise` | the ordinary `Bool` type error + fixit "for bitwise conjunction write `band`" (resp. `bor`, `bnot`) |
 | `honor Bitwise<Bool>` (or `Float`, `Nat`) in project source | the orphan-rule refusal at the declaration (Constraints §5.3): both homes are prelude source |
-| Mixed `Int`/`BigInt` operands | ordinary type mismatch; no widening offered |
+| `n band m`, `bnot n`, `n.shiftLeft(k)` with only `Nat` operands and no face | the closed-pair report + the written-face route: "a written `Int` face runs the operation and admits the result (`let bits: Int = …`)" (§5.1) |
 | Non-`Int` shift count | the seat's type error (the count is a concrete `Int` parameter, §5) |
 | `&`, `^`, `~` in source | invalid character, with a redirect: "Hexagon spells bitwise and `band`" (resp. `bxor`, with "for a power write `**`" at `^`; `bnot` at `~`) |
 | `\|` directly after a complete operand in expression position | parse error + "Hexagon spells bitwise or `bor`" |
@@ -410,6 +434,8 @@ BigInt  = (Digits | HexInteger | OctInteger | BinInteger) "n"
 | An unsigned right shift | "Unsigned" is meaningful only at a fixed width; `toUint32` names the width (§4.3). |
 | Sealing `Bitwise` at `Int` and `BigInt` | The orphan rule already refuses every prelude type. A seal would add a mechanism whose only further effect is refusing a program's own type. |
 | A `Nat` instance | `bitNot` leaves ℕ. |
+| Operands at ordinary call seats only, or no widening at all | `Bitwise` would then treat `Nat`, `Int`, and `BigInt` differently from `+` and `-`. As a tower rung, integers meet at the wider home, which is the closest Hexagon comes to Erlang's single integer type (§5.1). |
+| Splitting `bnot` into its own constraint so that `Nat` honors the other five | A second constraint for an uncommon type; the written face gives `Nat` every operation. |
 | A `d` suffix in non-decimal bases | `d` is a hex digit; §8. |
 
 ## 11. Acceptance tests
@@ -456,7 +482,17 @@ let band = 3                     -- binds; band(x), x.band, {band = 1} are names
 0b102  0o8  0x  0x1.5  0x_FF     -- one malformed literal each
 -- each literal emits in its source base; 0xFFFFFFFF is 4294967295
 
--- (f) Instances
+-- (f) Widening (§5.1)
+n band i        i band n                       -- Int, either order
+i band b        b band i                       -- BigInt; BigInt(i) & b, b & BigInt(i)
+let x: Int = n band m                          -- Int, the written face
+n band m                                       -- refused: a written Int face runs it
+n.bitAnd(m)                                    -- owned; refused without a face
+Bitwise.bitAnd(n, i)   n.bitAnd(i)             -- Int, as the operator
+let wide: BigInt = i.shiftLeft(60)             -- exact at BigInt
+x.shiftLeft(k)                                 -- k : Nat widens into the Int count
+
+-- (g) Instances
 -- no Nat, Float, or Bool instance can be written in project source;
 -- a program's own record may honor Bitwise in its module, and band on it
 -- elaborates to its member; no unsigned right shift exists
@@ -473,6 +509,9 @@ let band = 3                     -- binds; band(x), x.band, {band = 1} are names
   conversions; the former bitwise forward note replaced; §8 bases.
 - **Constraints:** §5.1.1 inventory (fourteen names); §7 registry.
 - **Modules:** the counts of pre-registered names.
-- **Numeric Literals §5.2:** non-decimal emission.
+- **Numeric Literals §5.1:** `Bitwise` joins the tower's rungs and its six members the
+  tower member spellings. **§5.2:** non-decimal emission.
+- **Method Syntax §4.2, §7:** `Nat` owns the six members; the dot list of tower members.
+- **Friendly Numerics:** the rung list.
 - **Intrinsics:** §3.2 key notes; §4.1 pointer.
 - **Foreign Enums §8.2:** flag masks bind as `Int` and use these operators.

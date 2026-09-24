@@ -568,7 +568,7 @@ The floored convention recorded as decided in Primitive Types §2 is **downgrade
 | `:=` loosest, non-associative, does not chain | §12 |
 | `Bool` is a prelude union (#147): §4's operands are union values, `True`/`False` the only spellings; the native logic/condition emissions are licensed by the Unions §6.2 representation pin; `Bool` is the sole exception to Unions §1's match-only elimination | §4.5, §11.1 |
 | *(#808)* At a primitive representation every spelling of an operator-backed member emits the operator's lowering verbatim; `**` at the guarded instances and `compare` keep the call | §1.1, §5.1; Constraints §6.1 |
-| Bitwise words `band`/`bor`/`bxor` (contextual) and `bnot` (hard) elaborate to `Bitwise`; Lean levels — `bnot` 2 above `**`, `band` 7 > `bxor` 8 > `bor` 9 between additive and `..`; the table is 17 levels | §1.1, §3; `bitwise.md` |
+| Bitwise words `band`/`bor`/`bxor` (contextual) and `bnot` (hard) elaborate to `Bitwise`; Lean levels — `bnot` 2 above `**`, `band` 7 > `bxor` 8 > `bor` 9 between additive and `..`; the table is 17 levels; `Bitwise` is a tower rung, so `Nat`/`Int`/`BigInt` operands meet at the wider home and a written face lifts (`bitwise.md` §5.1) | §1.1, §3; `bitwise.md` |
 
 ---
 

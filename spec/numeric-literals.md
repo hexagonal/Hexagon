@@ -195,8 +195,10 @@ Monomorphic BigInt literals can widen in expression seats, but literal patterns
 still require their exact type. See `integer-widening.md` §§4–6.
 
 **The tower** *(#808)*. The tower is the closed family of constraints whose members this
-section's conversions and lift serve: `Num`, `Signed`, `Frac`, `Pow`, and `Integral` — the
-prelude's rungs, and no others. `Num.fromNat` and `Signed.fromInt` own the smaller-integer conversions;
+section's conversions and lift serve: `Num`, `Signed`, `Frac`, `Pow`, `Integral`, and
+`Bitwise` — the prelude's rungs, and no others. `Bitwise` is the one rung not rooted in
+`Num` (`bitwise.md` §5.1): its members are integer algebra rather than arithmetic, and
+they join so that integers meet at the wider home under `band` exactly as under `+`. `Num.fromNat` and `Signed.fromInt` own the smaller-integer conversions;
 `FromBigInt.fromBigInt` supplies the third exact-source route as a conversion
 capability, not an additional tower rung. A type's widenings are exactly the
 capability slots it fills. `Frac` owns no conversion from `Rat` (`Float` honors `Frac`), which is friendly-numerics tenet
@@ -215,14 +217,17 @@ whatever spelling — operator, bare, qualified, pipe stage, or dot; the operato
 everyday spellings and elaborate to nothing else (Operators §1.1). The tower member
 **spellings** — the names that can spell such a call — are exactly `add` and `multiply`
 (`Num`), `subtract` and `negate` (`Signed`), `divide` (`Frac`), `pow` (`Pow`), and `div`,
-`mod`, `quot`, `rem`, and `gcd` (`Integral`); this list, and each spelling's rung, is what
+`mod`, `quot`, `rem`, and `gcd` (`Integral`), and `bitAnd`, `bitOr`, `bitXor`, `bitNot`,
+`shiftLeft`, and `shiftRight` (`Bitwise`); this list, and each spelling's rung, is what
 Method Syntax §2.2's receiver rule reads.
 
 **The expected-type lift — the written type is the arithmetic's home.** At a tower member
 call — the `Num`/`Signed`/`Frac`/`Pow` operators, unary negation included; the member
 spelled bare, qualified through its constraint, as a pipe stage, or by the dot (Method
 Syntax §1, §7), a companion-qualified spelling being a written face, below; `Integral`'s
-`div`, `mod`, `quot`, `rem`, and `gcd` included, though no operator spells them *(#808)* —
+`div`, `mod`, `quot`, `rem`, and `gcd` included, though no operator spells them *(#808)*;
+the `Bitwise` words and members included, a shift's count being its concrete `Int`
+parameter as `**`'s exponent is —
 whose expected type is **concrete** and carries the member's constraint instance, the
 expected type **is** the operation's common type: each operand reaches it by exact
 unification or by the three conversions above, and the operation's evidence is selected at
@@ -243,7 +248,9 @@ operand reached it and the lift would have fired. A `BigInt` result the face adm
 means the face owns `FromBigInt.fromBigInt`, and therefore also `Signed.fromInt`
 and `Num.fromNat`; every Nat/Int/BigInt operand would have reached it and the lift
 would have fired. An Int or BigInt result whose conversion the face does not admit
-is refused at the seat like any other. So a
+is refused at the seat like any other. A face honoring `Bitwise` alone — no `Num`-rooted
+rung, so no `Num.fromNat` — changes only the `Nat` step: `Nat` honors no `Bitwise`, so an
+all-`Nat` bitwise operation has no result to widen and is refused at the operation itself. So a
 stand-down's result is never the face, and the consuming seat refuses it. The dot's
 receiver is such a seat *(#821)*: the forwarded face is the receiver's expectation (Method
 Syntax §2.2's receiver rule), and a receiver that ran at its own type after a stand-down —
@@ -313,8 +320,11 @@ exactly as this section always read. The gate's remaining subjects are exactly s
 nominals: since `Rat` honors `Pow` (Operators §6.3), every tower face reachable by
 injection carries the constraint of every operator whose operand elaboration can land at
 `Nat` or `Int` — `+`, `-`, `*`, `**`, unary negation — so no in-tower written face is
-ever gated out: a tower face either lifts or (where the operand elaboration itself has no
-instance, as at `Int` division) refuses. Consequences:
+ever gated out of those operators: a tower face either lifts or (where the operand
+elaboration itself has no instance, as at `Int` division) refuses. The bitwise operators
+are the exception by design: only `Int`, `BigInt`, and a type a program honors `Bitwise`
+at carry the instance, so under a `Float`, `Rat`, or `Dec` face the operation runs at its
+operands' home and the finished value injects, as at any gate. Consequences:
 
 ```hexagon
 count + count       // Int; no written face, exact match, no widening

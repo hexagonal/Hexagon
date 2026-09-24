@@ -36,9 +36,10 @@ are integral and lie in `0 ... 2^53 - 1`; there is no runtime tag or wrapper. Na
 deliberately not the default for bare literals: `let count = 3` remains `Int`, while
 `let count: Nat = 3` pins the same bare literal to Nat.
 
-Nat honors `Num`, `Eq`, `Ord`, `Show`, `Hash`, `Pow`, `Integral`, and `Real`, but not `Signed`
-or `Frac`. Generic addition and multiplication therefore accept Nat; subtraction and
-negation do not. `Nat.fromInt : Int -> Option(Nat)` is the checked boundary conversion
+Nat honors `Num`, `Eq`, `Ord`, `Show`, `Hash`, `Pow`, `Integral`, and `Real`, but not `Signed`,
+`Frac`, or `Bitwise`. Generic addition and multiplication therefore accept Nat; subtraction,
+negation, and the bitwise operations do not, and run on Nat values under a written `Int`
+face (Numeric Literals §5.1; `bitwise.md` §5.1). `Nat.fromInt : Int -> Option(Nat)` is the checked boundary conversion
 *(#344: built — an ordinary export of `stdlib/Nat.hex`, a sign check in Hexagon over its
 unexported unchecked core. One consequence rode in with it: `fromInt` gained a second
 exporter beside `Signed.hex`'s member, so the bare spelling is refused per Modules §5.5
