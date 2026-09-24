@@ -360,6 +360,36 @@ describe("a trusted replacement invalidates from its own seat", () => {
     expect(first).toBeGreaterThan(last);
   });
 
+  test("a changed data-seat member rebuilds the whole chain", () => {
+    // Modules §5.5: `Option`'s union is checked ahead of every seat, so the
+    // identities every seat is numbered from depend on `Option`'s source. An
+    // extra constructor spends one more; a warm compile must number exactly as
+    // a cold one does. (The edit reports — its matches are no longer
+    // exhaustive — which is beside the point: identities are what is compared.)
+    const option = PRELUDE_MODULES.find(({ name }) => name === "Option")!;
+    const edited = {
+      name: option.name,
+      source: option.source.replace("    | None\n", "    | None\n    | Other\n"),
+    };
+    expect(edited.source).not.toBe(option.source);
+    const reaching = (): CompiledProject =>
+      compileFiles([supplied(edited), main("export let n: Option(Int) = Int.checkedAdd(1, 2)\n")], {
+        trustedStandardLibraryModules: new Set([edited.name]),
+      });
+    const identities = (project: CompiledProject) =>
+      project.modules.map(({ path, resolved }) =>
+        [path, resolved.symbols.map(({ id, name }) => [Number(id), name])]
+      );
+    resetStandardLibraryCache();
+    const cold = identities(reaching());
+    resetStandardLibraryCache();
+    compileFiles([main("export let n: Int = 1\n")]);
+    const warm = standardLibraryCacheStatistics();
+    const rebuilt = identities(reaching());
+    expect(rebuilt).toEqual(cold);
+    expect(standardLibraryCacheStatistics().seatsReused - warm.seatsReused).toBe(0);
+  });
+
   test("a replacement that reports is not kept, and neither is anything after it", () => {
     resetStandardLibraryCache();
     compileFiles([main("export let n: Int = 1\n")]);
@@ -638,7 +668,8 @@ describe("nothing downstream writes to the cached prefix", () => {
       const option = PRELUDE_MODULES.find(({ name }) => name === "Option")!;
       expect(messagesOf(replacing(option))).toEqual([]);
       const fromOption = standardLibraryCacheStatistics().seatsChecked - warm.seatsChecked;
-      // `Option`'s own seat and every seat after it, and none before.
+      // The seats from `Option`'s data seat on (Modules §5.5), and none before:
+      // the same text from another file numbers the chain the same way.
       expect(fromOption).toBeGreaterThan(1);
       expect(fromOption).toBeLessThan(SEATS);
 

@@ -160,23 +160,12 @@ describe("the step-7 reverts are in the source, not merely intended", () => {
     expect(seqSource).toContain("opaque record Seq(+a) = { pull: () -> Option((a, Seq(a))) }");
   });
 
-  test("Seq names its data-only Option dependency", () => {
+  test("no `import` lines — prelude source names earlier prelude members implicitly", () => {
     // Modules §5.5. The header comment that used to accompany this rule was
     // withdrawn 2026-08-01 and is asserted absent, not present: the rule is
     // about what the source may not contain, and never needed a note saying so.
-    expect(seqSource.match(/^import .*$/gmu)).toEqual(["import bare Option from Option"]);
+    expect(seqSource).not.toMatch(/^import /mu);
     expect(seqSource).not.toContain("implicitly in scope via the prelude");
-  });
-
-  test("Seq emits against Option's data unit while Option keeps its full facade", () => {
-    const compiled = compileSeq(IMPORT + "import Option\nexport let ok: Int = 1\n");
-    const seq = compiled.modules.find(({ path }) => path.endsWith("/Seq.hex"))!;
-    const option = compiled.modules.find(({ path }) => path.endsWith("/Option.hex"))!;
-    expect(seq.javascript.text).toContain("/.hex-data/Hex/Option/Option.4f-70-74-69-6f-6e.js");
-    expect(seq.javascript.text).not.toContain('from "./Option.js"');
-    expect(option.javascript.text).toContain("/.hex-data/Hex/Option/Option.4f-70-74-69-6f-6e.js");
-    expect(compiled.dataUnits.map(({ path }) => path))
-      .toContain("/.hex-data/Hex/Option/Option.4f-70-74-69-6f-6e.hex");
   });
 });
 

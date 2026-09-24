@@ -112,17 +112,18 @@ export interface CheckOptions {
   /**
    * Resolved instance heads declared by full modules in this program. This is
    * recognition metadata only: the checker consults it solely when the head's
-   * provider is forbidden by a bare import. It never admits evidence.
+   * provider is one this module sees as data only (`forbiddenProviderPaths`).
+   * It never admits evidence.
    */
   readonly programInstanceProviders?: readonly ProgramInstanceProvider[];
   /**
-   * Full provider modules which this consumer explicitly imported through a
-   * data-only view. Their companion operations remain known to the program,
-   * but are not candidates in this consumer: admitting one here would turn a
-   * dot call into a synthesized full-module import and defeat the data edge.
+   * The prelude members this module sees as **data only** — each one whose data
+   * seat precedes this module's seat and whose full seat follows it (Modules
+   * §5.5). Their companion operations and instances remain known to the
+   * program but are not candidates here: admitting one would turn a dot call
+   * or an instance use into an import of a module seated after this one.
    */
   readonly forbiddenProviderPaths?: ReadonlySet<string>;
-  readonly forbiddenProviderCycles?: ReadonlyMap<string, string>;
   /**
    * This module's own source text *(#821)*, for the one thing a diagnostic
    * cannot reconstruct: **what the reader wrote**.
@@ -3579,7 +3580,6 @@ class Checker {
   readonly #programOperations: ProgramOperations;
   readonly #programInstanceProviders: readonly ProgramInstanceProvider[];
   readonly #forbiddenProviderPaths: ReadonlySet<string>;
-  readonly #forbiddenProviderCycles: ReadonlyMap<string, string>;
   /**
    * The companion operations this module's dot calls reached with no import to
    * name them by (Method Syntax §8.2), by symbol — the input to
@@ -3668,7 +3668,6 @@ class Checker {
     this.#programOperations = options.programOperations ?? new Map();
     this.#programInstanceProviders = options.programInstanceProviders ?? [];
     this.#forbiddenProviderPaths = options.forbiddenProviderPaths ?? new Set();
-    this.#forbiddenProviderCycles = options.forbiddenProviderCycles ?? new Map();
     this.#sourceText = options.sourceText;
     this.#packageName = options.packageName;
     this.#importRepair = options.importRepair;
@@ -5059,12 +5058,9 @@ class Checker {
     if (operationHome !== undefined && this.#forbiddenProviderPaths.has(operationHome.path)) {
       this.#dotCallArguments(expression, level, cachedArguments);
       const provider = this.#moduleName(operationHome.path) ?? operationHome.path;
-      const cycle = this.#forbiddenProviderCycles.get(operationHome.path);
       return this.#unsupported(
         callee.field.span,
-        `\`${name}\` requires the full provider \`${provider}\`, which this module imports bare; ` +
-          `replace the bare selections from \`${provider}\` with \`import ${provider}\`` +
-          (cycle === undefined ? "" : `; that full edge would close ${cycle}`),
+        `\`${name}\` ${dataSeatRefusal(provider)}`,
       );
     }
     if (members.length > 0) {
@@ -19342,13 +19338,9 @@ class Checker {
     if (selection.kind === "forbidden") {
       requirement.reported = true;
       const provider = this.#moduleName(selection.provider) ?? selection.provider;
-      const cycle = this.#forbiddenProviderCycles.get(selection.provider);
       this.#diagnostics.add({
         severity: "error",
-        message: `\`${requirement.name}<${this.#display(type)}>\` requires the full provider ` +
-          `\`${provider}\`, which this module imports bare; replace the bare selections from ` +
-          `\`${provider}\` with \`import ${provider}\`` +
-          (cycle === undefined ? "" : `; that full edge would close ${cycle}`),
+        message: `\`${requirement.name}<${this.#display(type)}>\` ${dataSeatRefusal(provider)}`,
         primary: requirement.span,
       });
       return;
@@ -27538,4 +27530,15 @@ function impliedTypeBinderMessage(constraint: string, identity: string): string 
   return identity === preRegisteredConstraintIdentity("Iterable")
     ? `${reason}; take a \`Seq(a)\` parameter instead`
     : reason;
+}
+
+/**
+ * The refusal for a use of a prelude member's implementation from a module
+ * seated between that member's data seat and its full seat (Modules §5.5):
+ * only the member's data is visible there. Reachable from standard-library
+ * source alone, which is the only source with a seat.
+ */
+function dataSeatRefusal(provider: string): string {
+  return `needs \`${provider}\`'s full implementation, which is seated after this module; ` +
+    `only \`${provider}\`'s data is visible here (Modules §5.5)`;
 }

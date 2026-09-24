@@ -658,9 +658,6 @@ describe("the `.d.ts` face is `ReadonlyArray<a>` in, `Hex.Vector<a>` out", () =>
     const compiled = compileMain("module Main\n\n" + FACE);
     expect(compiled.diagnostics).toEqual([]);
     const files: Record<string, string> = {};
-    for (const data of compiled.dataUnits) {
-      files[data.path.replace(/^\//u, "").replace(/\.hex$/u, ".d.ts")] = data.declarations.text;
-    }
     for (const module of compiled.modules) {
       files[module.source.path.replace(/^\//u, "").replace(/\.hex$/u, ".d.ts")] =
         module.declarations.text;
@@ -689,9 +686,6 @@ describe("the `.d.ts` face is `ReadonlyArray<a>` in, `Hex.Vector<a>` out", () =>
     const compiled = compileMain("module Main\n\n" + FACE);
     expect(compiled.diagnostics).toEqual([]);
     const files: Record<string, string> = {};
-    for (const data of compiled.dataUnits) {
-      files[data.path.replace(/^\//u, "").replace(/\.hex$/u, ".d.ts")] = data.declarations.text;
-    }
     for (const module of compiled.modules) {
       files[module.source.path.replace(/^\//u, "").replace(/\.hex$/u, ".d.ts")] =
         module.declarations.text;

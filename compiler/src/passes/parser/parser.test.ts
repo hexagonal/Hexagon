@@ -1931,32 +1931,6 @@ describe("parse", () => {
       }]);
     });
 
-    test("a bare import selects one data name from a named module", () => {
-      const module = parseSource(
-        "import bare Shape from Geometry\n" +
-          "import bare Point from Render.Geometry\n",
-      );
-      expect(module.diagnostics).toEqual([]);
-      expect(module.items).toMatchObject([
-        {
-          kind: "Import",
-          bare: { text: "Shape" },
-          alias: { text: "Shape" },
-          module: { text: "Geometry" },
-        },
-        {
-          kind: "Import",
-          bare: { text: "Point" },
-          alias: { text: "Point" },
-          module: { text: "Render.Geometry" },
-        },
-      ]);
-    });
-
-    test("bare and from remain ordinary names outside an import head", () => {
-      expect(messages("let bare = 1\nlet from = bare\n")).toEqual([]);
-    });
-
     /**
      * A legal head is not a line — comments are trivia between its tokens and it
      * may break across them. The property survives the shrink, because the

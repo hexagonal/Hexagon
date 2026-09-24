@@ -1,8 +1,8 @@
 # Option and Result convenience functions
 
 **Status:** Reviewed API contract. The requested API names and reference
-implementations came from the user. Option.toSeq uses the
-[bare-import prerequisite](bare-imports.md), merged in PR #1008.
+implementations came from the user. Option.toSeq relies on Option's prelude data
+seat (Modules §5.5): Option's implementation is seated after Seq.
 
 **Homes:** `stdlib/Option.hex` and `stdlib/Result.hex`, ordinary prelude modules.
 The existing canonical unions, Option's derived Eq/Show instances, and
@@ -137,8 +137,8 @@ existing union representation contract.
 
 Implement these definitions in their canonical stdlib source modules and
 regenerate the embedded source snapshot. They need no new runtime intrinsic.
-Existing module/prelude qualification rules expose them; the bare data view
-exposes none of them.
+Existing module/prelude qualification rules expose them; Option's early data
+seat exposes none of them.
 
 The older getOrElse spelling appears in illustrative specification and book
 examples but is not an implemented Option export. Update active examples to

@@ -26,7 +26,6 @@
     { "include": "#type-alias-declaration" },
     { "include": "#type-declaration-parameters" },
     { "include": "#declarations" },
-    { "include": "#bare-import" },
     { "include": "#keyword-name-seats" },
     { "include": "#keywords" },
     { "include": "#contextual-keywords" },
@@ -43,21 +42,6 @@
   ],
 
   "repository": {
-
-    "bare-import": {
-      "patterns": [
-        {
-          "//": "The selected data name and source module are distinct seats; bare and from are contextual only in this complete import head.",
-          "match": "^[ \\t]*(import)[ \\t]+(bare)[ \\t]+([\\p{Uppercase}\\p{Lt}][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*)[ \\t]+(from)(?=[ \\t]+[\\p{Uppercase}\\p{Lt}])",
-          "captures": {
-            "1": { "name": "keyword.control.import.hexagon" },
-            "2": { "name": "storage.modifier.hexagon" },
-            "3": { "name": "entity.name.type.hexagon" },
-            "4": { "name": "keyword.other.from.hexagon" }
-          }
-        }
-      ]
-    },
 
     "comments": {
       "patterns": [
@@ -994,8 +978,9 @@
             "order the language pairs them. Ordering does not decide the match here: both",
             "rules are anchored to the start of a line, and `end module` puts `end` there.",
             "",
-            "`from` in `import bare Type from Module` is painted by #bare-import;",
-            "`extern from` is painted by #extern-from-block. The `from` in a refused",
+            "`from` has no rule here since #829: the Hexagon `import` carries none (Lexer",
+            "§4.2's row), so the only `from` in the language is `extern from`, painted by",
+            "#extern-from-block with the `extern` it follows. The `from` in a refused",
             "`import { a } from \"./m\"` is left an ordinary name, exactly as that head's",
             "`*`, `{`, and names are (§3.1's Rewrite Rule)."
           ],

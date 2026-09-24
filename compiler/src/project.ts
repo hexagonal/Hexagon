@@ -39,8 +39,6 @@ import {
 } from "./passes/checker/checker.js";
 import { elaborate } from "./passes/elaborator/elaborator.js";
 import {
-  emitDataDeclarations,
-  emitDataJavaScript,
   emitDeclarations,
   emitJavaScript,
   emittedModuleSpecifier,
@@ -58,7 +56,12 @@ import {
 } from "./passes/emitter/specializations.js";
 import type { ModuleImport, PreludeImport } from "./passes/resolver/resolver.js";
 import type { RuntimeLocations } from "./passes/emitter/emitter.js";
-import { LIBRARY_MODULES, PRELUDE_MODULES, PRIMITIVE_COMPANION_MODULES } from "./prelude.js";
+import {
+  LIBRARY_MODULES,
+  PRELUDE_DATA_SEATS,
+  PRELUDE_MODULES,
+  PRIMITIVE_COMPANION_MODULES,
+} from "./prelude.js";
 import { RUNTIME_MODULES } from "./runtime-modules.js";
 import { deepFreeze } from "./support/deep-freeze.js";
 
@@ -81,8 +84,6 @@ export interface CompiledModule {
   readonly resolved: Resolved.Module;
   readonly typed: Typed.Module;
   readonly core: Core.Module;
-  /** Full output's imports/re-exports of selected data owners. */
-  readonly dataSpecifiers?: ReadonlyMap<string, string>;
   readonly javascript: Emitted.JavaScript;
   readonly declarations: Emitted.Declarations;
   /**
@@ -104,15 +105,13 @@ export interface CompiledModule {
    * otherwise write an import of a path that is not there.
    */
   readonly runtimeGlobalsSpecifier: string;
-}
-
-/** Generated constructor/type support shared by bare and full importers. */
-export interface CompiledDataUnit {
-  readonly path: string;
-  readonly sourcePath: string;
-  readonly selectedNames: readonly string[];
-  readonly javascript: Emitted.JavaScript;
-  readonly declarations: Emitted.Declarations;
+  /**
+   * The prelude members this module sees as data only (Modules §11), carried
+   * for `runtimes`' reason: a host that re-emits the module without them would
+   * write a JavaScript import the data-only edge never makes — for the
+   * prelude's early members, an import cycle through `Option.js`.
+   */
+  readonly dataOnlyHomes: ReadonlySet<string>;
 }
 
 /** One explicitly selected source file and the modules it contributes. */
@@ -124,22 +123,10 @@ export interface CompiledRoot {
 
 /**
  * One module through elaboration, before emission — `CompiledModule` minus the
- * two emitted artefacts. See `checked` in `compileProject` for why the compile
- * has a seam here at all.
+ * two emitted artefacts and the data-only edges their emission read. See
+ * `checked` in `compileProject` for why the compile has a seam here at all.
  */
-type CheckedModule = Omit<CompiledModule, "javascript" | "declarations">;
-
-/** Reserved outside the uppercase-start module path grammar. */
-function dataUnitPath(modulePath: string, declaration: string): string {
-  const discriminator = [...declaration]
-    .map((character) => character.codePointAt(0)!.toString(16))
-    .join("-");
-  return `/.hex-data/${
-    modulePath.replace(/^\//u, "").replace(/\.hex$/u, "")
-  }/${declaration}.${discriminator}.hex`;
-}
-
-type ParsedDataDeclaration = Parsed.UnionItem | Parsed.RecordItem | Parsed.TypeAliasItem;
+type CheckedModule = Omit<CompiledModule, "javascript" | "declarations" | "dataOnlyHomes">;
 
 /**
  * The declaration surface needed to recognize providers without traversing an
@@ -201,50 +188,8 @@ function recognitionProjection(module: Parsed.Module): Parsed.Module {
   return { ...module, items };
 }
 
-/** Type-position references only; executable bodies and derives are excluded. */
-function dataTypeReferences(
-  declaration: ParsedDataDeclaration,
-): readonly { readonly qualifier?: string; readonly name: string }[] {
-  if (declaration.kind !== "TypeAlias" && declaration.opaque) return [];
-  const roots: readonly Parsed.TypeAnnotation[] = declaration.kind === "TypeAlias"
-    ? [declaration.annotation]
-    : declaration.kind === "RecordDeclaration"
-    ? declaration.fields.map(({ annotation }) => annotation)
-    : declaration.constructors.flatMap(({ slots }) => slots.map(({ annotation }) => annotation));
-  const found: { qualifier?: string; name: string }[] = [];
-  const visit = (type: Parsed.TypeAnnotation): void => {
-    switch (type.kind) {
-      case "NamedType":
-        found.push({ ...(type.qualifier === undefined ? {} : { qualifier: type.qualifier.text }),
-          name: type.name.text });
-        break;
-      case "AppliedType":
-        found.push({ ...(type.qualifier === undefined ? {} : { qualifier: type.qualifier.text }),
-          name: type.constructor.text });
-        type.arguments.forEach(visit);
-        break;
-      case "Tuple":
-        type.elements.forEach(visit);
-        break;
-      case "Record":
-        type.fields.forEach(({ annotation }) => visit(annotation));
-        break;
-      case "Function":
-        type.parameters.forEach(visit);
-        visit(type.result);
-        break;
-      case "TypeVariable":
-      case "Hole":
-        break;
-    }
-  };
-  roots.forEach(visit);
-  return found;
-}
-
 export interface CompiledProject {
   readonly modules: readonly CompiledModule[];
-  readonly dataUnits: readonly CompiledDataUnit[];
   /** Explicit roots, in request order; empty for the legacy whole-project request. */
   readonly roots: readonly CompiledRoot[];
   /**
@@ -493,6 +438,12 @@ interface InjectedIdBases {
 
 /** The chain, keyed seat by seat; see `StandardLibrarySeat`. */
 let cachedSeats: readonly StandardLibrarySeat[] = [];
+/**
+ * Each data-seat member's source text as the chain was built against it
+ * (Modules §5.5). Its union is checked ahead of every seat, so the identities
+ * the whole chain is numbered from are a function of this text.
+ */
+let cachedDataSeatTexts: ReadonlyMap<string, string> = new Map();
 /** Whether cached structures are frozen on the way in — the pin's hook. */
 let freezingCachedSeats = false;
 
@@ -558,6 +509,7 @@ export function resetStandardLibraryCache(
   options: { readonly freezeEntries?: boolean } = {},
 ): void {
   cachedSeats = [];
+  cachedDataSeatTexts = new Map();
   freezingCachedSeats = options.freezeEntries === true;
   statistics.compiles = 0;
   statistics.seatsChecked = 0;
@@ -582,6 +534,33 @@ function reusableStandardLibrary(injected: readonly Unit[]): readonly StandardLi
       )
     ) break;
     count += 1;
+  }
+  // A data seat's union (Modules §5.5) is checked ahead of every seat. The
+  // identities it spends are the base every seat's own start from, so a member
+  // whose text changed invalidates the whole chain; and the seats between the
+  // data seat and the member's own read the union's declaration, so a member
+  // supplied from another file invalidates them too.
+  for (const { name, before } of PRELUDE_DATA_SEATS) {
+    const full = injected.findIndex(({ declaredName }) => declaredName === name);
+    const early = injected.findIndex(({ declaredName }) => declaredName === before);
+    if (full < 0 || early < 0 || count === 0) continue;
+    const unit = injected[full]!;
+    if (cachedDataSeatTexts.get(name) !== unit.source.text) {
+      count = 0;
+      continue;
+    }
+    if (count <= early || count > full) continue;
+    const cached = cachedSeats[full];
+    if (
+      cached === undefined ||
+      !standardLibrarySeatHolds(
+        cached,
+        Number(unit.source.id),
+        unit.source.path,
+        unit.source.text,
+        unit.path,
+      )
+    ) count = early;
   }
   return cachedSeats.slice(0, count);
 }
@@ -677,6 +656,10 @@ function rememberStandardLibrary(
     seats.push(seat);
   }
   cachedSeats = seats;
+  cachedDataSeatTexts = new Map(PRELUDE_DATA_SEATS.flatMap(({ name }) => {
+    const member = injected.find(({ declaredName }) => declaredName === name);
+    return member === undefined ? [] : [[name, member.source.text] as const];
+  }));
 }
 
 /** A compiled injected module read back as the seat the chain keeps of it. */
@@ -964,8 +947,6 @@ export function compileProject(
    * set is known, and binds no alias (§5.2).
    */
   const importEdges = new Map<string, Map<string, string>>();
-  const fullImportEdges = new Map<string, Set<string>>();
-  const dataSelections = new Map<string, Set<string>>();
   const importDiagnostics = new Map<string, Diagnostics.Diagnostic[]>();
   const addImportDiagnostic = (path: string, diagnostic: Diagnostics.Diagnostic): void => {
     const own = importDiagnostics.get(path) ?? [];
@@ -974,10 +955,7 @@ export function compileProject(
   };
   for (const unit of seated) {
     const edges = new Map<string, string>();
-    const fullEdges = new Set<string>();
-    const importModes = new Map<string, "bare" | "full">();
     importEdges.set(unit.path, edges);
-    fullImportEdges.set(unit.path, fullEdges);
     for (const item of unit.parsed.items) {
       if (
         (item.kind === "ExternBlock" || item.kind === "ExternImport") &&
@@ -992,25 +970,9 @@ export function compileProject(
         continue;
       }
       if (item.kind !== "Import") continue;
+      if (edges.has(item.module.text)) continue;
       const resolution = resolveModuleName(item.module.text, packageOf(unit, packagesByName), index);
       if (resolution.kind === "Resolved") {
-        if (item.bare !== undefined) {
-          const names = dataSelections.get(resolution.module.path) ?? new Set<string>();
-          names.add(item.bare.text);
-          dataSelections.set(resolution.module.path, names);
-        }
-        const mode = item.bare === undefined ? "full" : "bare";
-        if (mode === "full") fullEdges.add(resolution.module.path);
-        const previousMode = importModes.get(resolution.module.path);
-        if (previousMode !== undefined && previousMode !== mode) {
-          addImportDiagnostic(unit.path, {
-            severity: "error",
-            message: `cannot combine bare and full imports of ${item.module.text}; replace the bare selections with a full import to use its implementation`,
-            primary: item.span,
-          });
-        } else {
-          importModes.set(resolution.module.path, mode);
-        }
         edges.set(item.module.text, resolution.module.path);
         continue;
       }
@@ -1076,7 +1038,7 @@ export function compileProject(
     const module = byPath.get(path);
     if (module === undefined) return;
     visiting.push(path);
-    for (const target of fullImportEdges.get(path) ?? []) visit(target);
+    for (const target of importEdges.get(path)?.values() ?? []) visit(target);
     visiting.pop();
     visited.add(path);
     ordered.push(path);
@@ -1087,25 +1049,8 @@ export function compileProject(
   for (const path of activationSeeds) visit(path);
   const activePaths = new Set(ordered);
 
-  // Import validity and bare-data requests are semantic obligations of the
-  // activated graph. Discovery and parsing above still covered every source.
-  dataSelections.clear();
-  for (const path of activePaths) {
-    const unit = byPath.get(path);
-    if (unit === undefined) continue;
-    for (const item of unit.parsed.items) {
-      if (item.kind !== "Import" || item.bare === undefined) continue;
-      const target = importEdges.get(path)?.get(item.module.text);
-      if (target === undefined) continue;
-      const names = dataSelections.get(target) ?? new Set<string>();
-      names.add(item.bare.text);
-      dataSelections.set(target, names);
-    }
-  }
-
   // Recognition visits the remaining declarations after the activated graph.
-  // Its diagnostics are deliberately not surfaced unless a selected data
-  // projection below requires them.
+  // Its diagnostics are deliberately not surfaced.
   const recognitionOrdered = [...ordered];
   const recognitionVisited = new Set(recognitionOrdered);
   const recognitionVisiting = new Set<string>();
@@ -1113,187 +1058,12 @@ export function compileProject(
     if (recognitionVisited.has(path) || recognitionVisiting.has(path)) return;
     if (!byPath.has(path)) return;
     recognitionVisiting.add(path);
-    for (const target of fullImportEdges.get(path) ?? []) visitRecognition(target);
+    for (const target of importEdges.get(path)?.values() ?? []) visitRecognition(target);
     recognitionVisiting.delete(path);
     recognitionVisited.add(path);
     recognitionOrdered.push(path);
   };
   for (const unit of seated) visitRecognition(unit.path);
-
-  const dataDeclarations = new Map<string, Map<string, ParsedDataDeclaration>>();
-  const dataExternTypes = new Map<string, Map<string, Parsed.ExternTypeDeclaration>>();
-  for (const unit of seated) {
-    dataDeclarations.set(unit.path, new Map(unit.parsed.items.flatMap((item) =>
-      (item.kind === "Union" && item.externEnum !== true && item.foreign === undefined) ||
-        item.kind === "RecordDeclaration" || item.kind === "TypeAlias"
-        ? [[item.name.text, item] as const]
-        : []
-    )));
-    dataExternTypes.set(unit.path, new Map(unit.parsed.items.flatMap((item) =>
-      item.kind === "ExternBlock"
-        ? item.declarations.flatMap((declaration) =>
-          declaration.kind === "ExternType"
-            ? [[declaration.localName.text, declaration] as const]
-            : []
-        )
-        : []
-    )));
-  }
-  const dataNode = (modulePath: string, name: string): string => `${modulePath}#${name}`;
-  const splitDataNode = (node: string): readonly [string, string] => {
-    const separator = node.lastIndexOf("#");
-    return [node.slice(0, separator), node.slice(separator + 1)];
-  };
-  const preludeDataHomes = new Map<string, string>();
-  for (const path of preludePaths) {
-    const names = [
-      ...(dataDeclarations.get(path)?.keys() ?? []),
-      ...(dataExternTypes.get(path)?.keys() ?? []),
-    ];
-    for (const name of names) {
-      if (!preludeDataHomes.has(name)) preludeDataHomes.set(name, path);
-    }
-  }
-  const dataImportNeeds = new Map<string, Set<string>>();
-  const requireDataImport = (path: string, written: string): void => {
-    const names = dataImportNeeds.get(path) ?? new Set<string>();
-    names.add(written);
-    dataImportNeeds.set(path, names);
-  };
-  const referenceHome = (
-    path: string,
-    reference: { readonly qualifier?: string; readonly name: string },
-  ): string | undefined => {
-    const unit = byPath.get(path)!;
-    if (reference.qualifier !== undefined) {
-      const imported = unit.parsed.items.find((item) =>
-        item.kind === "Import" && item.alias.text === reference.qualifier
-      );
-      if (imported?.kind === "Import") requireDataImport(path, imported.module.text);
-      return imported?.kind === "Import"
-        ? importEdges.get(path)?.get(imported.module.text)
-        : undefined;
-    }
-    if (dataDeclarations.get(path)?.has(reference.name) ||
-        dataExternTypes.get(path)?.has(reference.name)) return path;
-    const imported = unit.parsed.items.find((item) =>
-      item.kind === "Import" && item.alias.text === reference.name
-    );
-    if (imported?.kind === "Import") {
-      requireDataImport(path, imported.module.text);
-      return importEdges.get(path)?.get(imported.module.text);
-    }
-    return preludeDataHomes.get(reference.name);
-  };
-  const dataDependencies = new Map<string, Set<string>>();
-  const dataNamesByPath = new Map<string, Set<string>>();
-  const dataExternNamesByPath = new Map<string, Set<string>>();
-  const dataVisiting: string[] = [];
-  const collectData = (path: string, name: string): void => {
-    const declaration = dataDeclarations.get(path)?.get(name) ?? dataExternTypes.get(path)?.get(name);
-    if (declaration === undefined) return;
-    const node = dataNode(path, name);
-    const cycleStart = dataVisiting.indexOf(node);
-    if (cycleStart >= 0) {
-      const cycle = [...dataVisiting.slice(cycleStart), node];
-      if (new Set(cycle.map((entry) => splitDataNode(entry)[0])).size > 1) {
-        diagnostics.add({
-          severity: "error",
-          message: `data import cycle: ${cycle.map((entry) => {
-            const [member, typeName] = splitDataNode(entry);
-            return `${byPath.get(member)?.fullName ?? member}.${typeName}`;
-          }).join(" -> ")}`,
-          primary: declaration.span,
-        });
-      }
-      return;
-    }
-    if (dataDependencies.has(node)) return;
-    dataVisiting.push(node);
-    const dependencies = new Set<string>();
-    dataDependencies.set(node, dependencies);
-    const names = declaration.kind === "ExternType"
-      ? dataExternNamesByPath.get(path) ?? new Set<string>()
-      : dataNamesByPath.get(path) ?? new Set<string>();
-    names.add(name);
-    if (declaration.kind === "ExternType") dataExternNamesByPath.set(path, names);
-    else dataNamesByPath.set(path, names);
-    for (const reference of declaration.kind === "ExternType" ? [] : dataTypeReferences(declaration)) {
-      const home = referenceHome(path, reference);
-      if (home === undefined ||
-          (!dataDeclarations.get(home)?.has(reference.name) &&
-           !dataExternTypes.get(home)?.has(reference.name))) continue;
-      const dependency = dataNode(home, reference.name);
-      dependencies.add(dependency);
-      collectData(home, reference.name);
-    }
-    dataVisiting.pop();
-  };
-  for (const [path, names] of dataSelections) {
-    for (const name of names) collectData(path, name);
-  }
-  const dataOwner = new Map<string, string>();
-  const dataGroups = new Map<string, {
-    modulePath: string;
-    owner: string;
-    names: string[];
-    externTypes: string[];
-  }>();
-  let dataIndex = 0;
-  const dataIndices = new Map<string, number>();
-  const dataLow = new Map<string, number>();
-  const dataStack: string[] = [];
-  const dataOnStack = new Set<string>();
-  const visitDataScc = (node: string): void => {
-    dataIndices.set(node, dataIndex);
-    dataLow.set(node, dataIndex++);
-    dataStack.push(node);
-    dataOnStack.add(node);
-    for (const dependency of dataDependencies.get(node) ?? []) {
-      if (!dataIndices.has(dependency)) {
-        visitDataScc(dependency);
-        dataLow.set(node, Math.min(dataLow.get(node)!, dataLow.get(dependency)!));
-      } else if (dataOnStack.has(dependency)) {
-        dataLow.set(node, Math.min(dataLow.get(node)!, dataIndices.get(dependency)!));
-      }
-    }
-    if (dataLow.get(node) !== dataIndices.get(node)) return;
-    const component: string[] = [];
-    for (let member = dataStack.pop(); member !== undefined; member = dataStack.pop()) {
-      dataOnStack.delete(member);
-      component.push(member);
-      if (member === node) break;
-    }
-    const paths = new Set(component.map((member) => splitDataNode(member)[0]));
-    if (paths.size > 1) {
-      // The cycle diagnostic above refuses this graph; keep distinct owners so
-      // recovery still has deterministic output and cannot duplicate a brand.
-      for (const member of component) {
-        const [modulePath, name] = splitDataNode(member);
-        dataOwner.set(member, name);
-        dataGroups.set(member, {
-          modulePath,
-          owner: name,
-          names: dataDeclarations.get(modulePath)?.has(name) ? [name] : [],
-          externTypes: dataExternTypes.get(modulePath)?.has(name) ? [name] : [],
-        });
-      }
-      return;
-    }
-    const [modulePath] = splitDataNode(node);
-    const allNames = component.map((member) => splitDataNode(member)[1]).sort();
-    const owner = allNames[0]!;
-    const names = allNames.filter((name) => dataDeclarations.get(modulePath)?.has(name));
-    const externTypes = allNames.filter((name) => dataExternTypes.get(modulePath)?.has(name));
-    const groupKey = dataNode(modulePath, owner);
-    for (const member of component) dataOwner.set(member, owner);
-    dataGroups.set(groupKey, { modulePath, owner, names, externTypes });
-  };
-  for (const node of dataDependencies.keys()) {
-    if (!dataIndices.has(node)) visitDataScc(node);
-  }
-  const ownerPath = (modulePath: string, name: string): string =>
-    dataUnitPath(modulePath, dataOwner.get(dataNode(modulePath, name)) ?? name);
 
   // Prelude and runtime placement is fixed by `weaveInjected`. Ordinary
   // library members have no bare-scope prefix of their own, but an explicit
@@ -1378,7 +1148,6 @@ export function compileProject(
   interface ResolutionStage {
     readonly resolved: Resolved.Module;
     readonly repairs: ImportRepairs;
-    readonly bareItems: readonly Parsed.ImportItem[];
     readonly runtimeGlobalsSpecifier: string;
     readonly isInjected: boolean;
     readonly reused?: Omit<CheckedModule, "runtimeGlobalsSpecifier">;
@@ -1439,7 +1208,6 @@ export function compileProject(
     records: Map<number, Resolved.RecordId>;
     externTypes: Map<number, Resolved.ExternTypeId>;
   }>();
-  const ensuringData = new Set<string>();
   let symbolBase = 0;
   let unionBase = 0;
   let recordBase = 0;
@@ -1457,95 +1225,31 @@ export function compileProject(
   } | undefined => {
     const existing = checkedData.get(target)?.get(name);
     if (existing !== undefined) return existing;
-    if (ensuringData.has(target)) return undefined;
     const unit = byPath.get(target);
     if (unit === undefined) return undefined;
-    const neededNames = dataNamesByPath.get(target) ?? new Set<string>();
-    const neededExternTypes = dataExternNamesByPath.get(target) ?? new Set<string>();
-    if (!neededNames.has(name) && !neededExternTypes.has(name)) return undefined;
-    ensuringData.add(target);
-    const dependencies = new Map<string, Set<string>>();
-    for (const ownName of [...neededNames, ...neededExternTypes]) {
-      for (const node of dataDependencies.get(dataNode(target, ownName)) ?? []) {
-        const [modulePath, dependencyName] = splitDataNode(node);
-        if (modulePath === target) continue;
-        const names = dependencies.get(modulePath) ?? new Set<string>();
-        names.add(dependencyName);
-        dependencies.set(modulePath, names);
-      }
-    }
-    const projectedImports = new Map<string, ModuleImport>();
-    const dataSchemes = new Map<Resolved.SymbolId, Typed.Scheme>();
-    for (const item of unit.parsed.items) {
-      if (item.kind !== "Import") continue;
-      const importedPath = importEdges.get(target)?.get(item.module.text);
-      if (importedPath === undefined || !dependencies.has(importedPath)) continue;
-      const full = checked.get(importedPath);
-      const dependency = full === undefined
-        ? ensureData(importedPath, [...dependencies.get(importedPath)!][0]!)
-        : undefined;
-      if (full === undefined && dependency === undefined) continue;
-      const resolved = full?.resolved ?? dependency!.resolved;
-      const typed = full?.typed ?? dependency!.typed;
-      projectedImports.set(item.module.text, {
-        interface: moduleInterface(resolved),
-        specifier: relativeSpecifier(target, importedPath),
-        name: byPath.get(importedPath)!.fullName,
-      });
-      for (const symbol of typed.symbols) dataSchemes.set(symbol.id, symbol.scheme);
-    }
-    // Derivation is an implementation obligation. The full source is checked
-    // later; this early pass needs only the data definition.
-    const projectedItems: Parsed.Item[] = unit.parsed.items.flatMap((item): Parsed.Item[] => {
-      if (item.kind === "Import") {
-        return projectedImports.has(item.module.text) ? [item] : [];
-      }
-      if (item.kind === "ExternBlock") {
-        const declarations = item.declarations.filter((declaration) =>
-          declaration.kind === "ExternType" && neededExternTypes.has(declaration.localName.text)
-        );
-        return declarations.length === 0 ? [] : [{ ...item, declarations }];
-      }
-      if ((item.kind !== "Union" && item.kind !== "RecordDeclaration" &&
-          item.kind !== "TypeAlias") || !neededNames.has(item.name.text)) return [];
-      if (item.kind === "Union") {
-        return [{ ...item, derives: [], constructors: item.opaque ? [] : item.constructors }];
-      }
-      if (item.kind === "RecordDeclaration") {
-        return [{ ...item, derives: [], fields: item.opaque ? [] : item.fields }];
-      }
-      return [item];
-    });
+    // The union alone, derives stripped: derivation is an implementation
+    // obligation, checked at the member's full seat with the rest of its body.
+    const projectedItems: Parsed.Item[] = unit.parsed.items.flatMap((item): Parsed.Item[] =>
+      item.kind === "Union" && item.name.text === name && !item.opaque
+        ? [{ ...item, derives: [] }]
+        : []
+    );
+    if (projectedItems.length === 0) return undefined;
     const projection: Parsed.Module = { ...unit.parsed, items: projectedItems };
     const injected = injectedSeats.has(target);
-    const visiblePrelude = preludePaths.flatMap((preludePath) => {
-      const prelude = resolvedModules.get(preludePath);
-      return prelude === undefined ? [] : [{
-        interface: moduleInterface(prelude),
-        specifier: relativeSpecifier(target, preludePath),
-        name: byPath.get(preludePath)!.fullName,
-      }];
-    });
+    // Checked ahead of every prelude module, so against no prelude at all: a
+    // data seat's declaration names no other prelude type (`PRELUDE_DATA_SEATS`).
     const dataResolved = resolve(projection, {
       path: target,
       identity: unit.fullName,
       text: unit.source.text,
-      imports: projectedImports,
       symbolBase: injected ? preludeSymbolBase : symbolBase,
       unionBase: injected ? preludeUnionBase : unionBase,
       recordBase: injected ? preludeRecordBase : recordBase,
       externTypeBase: injected ? preludeExternTypeBase : externTypeBase,
-      ...(visiblePrelude.length === 0 ? {} : { prelude: visiblePrelude }),
       privileged: injected,
     });
-    const schemes = dataSchemes;
-    for (const prelude of preludePaths) {
-      for (const symbol of checked.get(prelude)?.typed.symbols ?? []) {
-        schemes.set(symbol.id, symbol.scheme);
-      }
-    }
     const dataTyped = check(dataResolved, {
-      importedSchemes: schemes,
       programNominals,
       programOperations,
       sourceText: unit.source.text,
@@ -1560,11 +1264,8 @@ export function compileProject(
       runtimeGlobalsSpecifier: relativeSpecifier(target, `/${runtimeBasename}.hex`),
     };
     const byName = checkedData.get(target) ?? new Map();
-    for (const ownName of [...neededNames, ...neededExternTypes]) {
-      byName.set(ownName, dataModule);
-    }
+    byName.set(name, dataModule);
     checkedData.set(target, byName);
-    ensuringData.delete(target);
     const ids = reservedDataIds.get(target) ?? {
       symbols: new Map(), unions: new Map(), records: new Map(), externTypes: new Map(),
     };
@@ -1619,14 +1320,26 @@ export function compileProject(
     recordNominalHomes(dataResolved, target, nominalHomes);
     return dataModule;
   };
-  const optionPreludePath = preludeUnits.find(({ declaredName }) => declaredName === "Option")?.path;
-  const optionData = optionPreludePath === undefined
-    ? undefined
-    : ensureData(optionPreludePath, "Option");
-  const optionFullSeat = optionPreludePath === undefined
-    ? undefined
-    : injectedSeats.get(optionPreludePath);
-  const optionDataSeat = preludeUnits.find(({ declaredName }) => declaredName === "Int")?.seat;
+  // Modules §5.5: each prelude data seat the inventory states, with the data
+  // view the modules between its two seats see in place of the full member.
+  const dataSeats = PRELUDE_DATA_SEATS.flatMap(({ name, before }) => {
+    const path = preludeUnits.find(({ declaredName }) => declaredName === name)?.path;
+    const dataSeat = preludeUnits.find(({ declaredName }) => declaredName === before)?.seat;
+    const fullSeat = path === undefined ? undefined : injectedSeats.get(path);
+    const data = path === undefined ? undefined : ensureData(path, name);
+    // No seat where the member is missing or no longer declares its union: a
+    // host's trusted replacement may do either, and the program then reports
+    // through the ordinary diagnostics rather than through this inventory.
+    return path === undefined || dataSeat === undefined || fullSeat === undefined ||
+        data === undefined
+      ? []
+      : [{ path, dataSeat, fullSeat, data }];
+  });
+  /** The data seats whose interval holds `seat` — none for a non-injected module. */
+  const dataSeatsAt = (seat: number | undefined) =>
+    seat === undefined
+      ? []
+      : dataSeats.filter(({ dataSeat, fullSeat }) => seat >= dataSeat && seat < fullSeat);
   for (const path of recognitionOrdered) {
     const isPrelude = preludeSet.has(path);
     const isRuntimeModule = runtimeModuleSet.has(path);
@@ -1676,7 +1389,6 @@ export function compileProject(
       resolutionStages.set(path, {
         resolved: reusedSeat.checked.resolved,
         repairs: new ImportRepairs(parsedModule, source.text, path),
-        bareItems: [],
         runtimeGlobalsSpecifier,
         isInjected,
         reused: reusedSeat.checked,
@@ -1689,41 +1401,9 @@ export function compileProject(
     // the emitter writes — computed from the two modules' full names and their
     // package directories (§11.2, Packages §6), because the source wrote none.
     const imports = new Map<string, ModuleImport>();
-    const bareItems = parsedModule.items.filter((item): item is Parsed.ImportItem =>
-      item.kind === "Import" && item.bare !== undefined
-    );
     for (const [written, target] of importEdges.get(path) ?? []) {
       const dependency = resolvedModules.get(target);
-      if (dependency === undefined) {
-        const data = bareItems.filter((item) => item.module.text === written)
-          .flatMap((item) => {
-            const found = ensureData(target, item.bare!.text);
-            return found === undefined ? [] : [found];
-          });
-        if (data.length === 0) continue;
-        const views = data.map(({ resolved }) => moduleInterface(resolved));
-        const first = views[0]!;
-        const combined = {
-          ...first,
-          module: {
-            ...first.module,
-            items: data.flatMap(({ resolved }) => resolved.items),
-            symbols: data.flatMap(({ resolved }) => resolved.symbols),
-            unions: data.flatMap(({ resolved }) => resolved.unions),
-            records: data.flatMap(({ resolved }) => resolved.records),
-          },
-          terms: new Map(views.flatMap((view) => [...view.terms])),
-          unions: new Map(views.flatMap((view) => [...view.unions])),
-          records: new Map(views.flatMap((view) => [...view.records])),
-          aliases: new Map(views.flatMap((view) => [...view.aliases])),
-        };
-        imports.set(written, {
-          interface: combined,
-          specifier: relativeSpecifier(path, target),
-          name: byPath.get(target)!.fullName,
-        });
-        continue;
-      }
+      if (dependency === undefined) continue;
       imports.set(written, {
         interface: moduleInterface(dependency),
         specifier: relativeSpecifier(path, target),
@@ -1742,15 +1422,11 @@ export function compileProject(
         name: byPath.get(preludePath)!.fullName,
       }];
     });
-    if (
-      optionData !== undefined && optionPreludePath !== undefined && seat !== undefined &&
-      optionDataSeat !== undefined && optionFullSeat !== undefined &&
-      seat >= optionDataSeat && seat < optionFullSeat
-    ) {
+    for (const { path: home, data } of dataSeatsAt(seat)) {
       preludeImports.push({
-        interface: moduleInterface(optionData.resolved),
-        specifier: relativeSpecifier(path, ownerPath(optionPreludePath, "Option")),
-        name: byPath.get(optionPreludePath)!.fullName,
+        interface: moduleInterface(data.resolved),
+        specifier: relativeSpecifier(path, home),
+        name: byPath.get(home)!.fullName,
       });
     }
     const patternHomes: ModuleImport[] = [];
@@ -1864,7 +1540,6 @@ export function compileProject(
     resolutionStages.set(path, {
       resolved,
       repairs,
-      bareItems,
       runtimeGlobalsSpecifier,
       isInjected,
     });
@@ -1883,14 +1558,6 @@ export function compileProject(
     recordCompanionOperationProviders(resolved, path, programOperations);
     programInstanceProviders.push(...homeInstanceProviders(resolved, path));
   }
-
-  const reachesFull = (from: string, destination: string, seen = new Set<string>()): boolean => {
-    if (from === destination) return true;
-    if (seen.has(from)) return false;
-    seen.add(from);
-    return [...(fullImportEdges.get(from) ?? [])]
-      .some((next) => reachesFull(next, destination, seen));
-  };
 
   for (const path of ordered) {
     const stage = resolutionStages.get(path);
@@ -1911,19 +1578,9 @@ export function compileProject(
     }
 
     const importedSchemes = new Map<Resolved.SymbolId, Typed.Scheme>();
-    for (const [written, target] of importEdges.get(path) ?? []) {
-      const dependency = checked.get(target);
-      if (dependency !== undefined) {
-        for (const symbol of dependency.typed.symbols) {
-          importedSchemes.set(symbol.id, symbol.scheme);
-        }
-        continue;
-      }
-      for (const item of stage.bareItems.filter((candidate) => candidate.module.text === written)) {
-        const data = ensureData(target, item.bare!.text);
-        for (const symbol of data?.typed.symbols ?? []) {
-          importedSchemes.set(symbol.id, symbol.scheme);
-        }
+    for (const target of importEdges.get(path)?.values() ?? []) {
+      for (const symbol of checked.get(target)?.typed.symbols ?? []) {
+        importedSchemes.set(symbol.id, symbol.scheme);
       }
     }
     const preludeVisible = seat === undefined
@@ -1934,11 +1591,8 @@ export function compileProject(
         importedSchemes.set(symbol.id, symbol.scheme);
       }
     }
-    if (
-      optionData !== undefined && seat !== undefined && optionDataSeat !== undefined &&
-      optionFullSeat !== undefined && seat >= optionDataSeat && seat < optionFullSeat
-    ) {
-      for (const symbol of optionData.typed.symbols) {
+    for (const { data } of dataSeatsAt(seat)) {
+      for (const symbol of data.typed.symbols) {
         importedSchemes.set(symbol.id, symbol.scheme);
       }
     }
@@ -1954,35 +1608,10 @@ export function compileProject(
       }
     }
 
-    const forbiddenProviderPaths = new Set(stage.bareItems.flatMap((item) => {
-      const target = importEdges.get(path)?.get(item.module.text);
-      return target === undefined ? [] : [target];
-    }));
-    // Prelude staging is an implicit data-only import with the same provider
-    // boundary as written `import bare`: modules in the early interval know
-    // Option's data identity, but its full operations and instances remain
-    // fixed unavailable providers until the later full seat.
-    if (
-      optionPreludePath !== undefined && seat !== undefined &&
-      optionDataSeat !== undefined && optionFullSeat !== undefined &&
-      seat >= optionDataSeat && seat < optionFullSeat
-    ) {
-      forbiddenProviderPaths.add(optionPreludePath);
-    }
-    const forbiddenProviderCycles = new Map<string, string>();
-    for (const provider of forbiddenProviderPaths) {
-      const providerSeat = injectedSeats.get(provider);
-      const closesInjectedCycle = seat !== undefined && providerSeat !== undefined &&
-        providerSeat > seat;
-      if (!closesInjectedCycle && !reachesFull(provider, path)) continue;
-      const consumerName = unit.declaredName;
-      const providerName = byPath.get(provider)?.declaredName ?? provider;
-      forbiddenProviderCycles.set(
-        provider,
-        `\`${consumerName} full -> ${providerName} full -> ${consumerName} full\`, ` +
-          `alongside \`${providerName} data\``,
-      );
-    }
+    // Modules §5.5: modules between a prelude member's data seat and its full
+    // seat know the member's data identity, but its full operations and
+    // instances stay unavailable providers until its full seat.
+    const forbiddenProviderPaths = new Set(dataSeatsAt(seat).map(({ path: home }) => home));
     const typed = check(stage.resolved, {
       importRepair: (written: string) =>
         importRepairFor(written, unit, packagesByName, index),
@@ -1993,7 +1622,6 @@ export function compileProject(
       programOperations,
       programInstanceProviders,
       forbiddenProviderPaths,
-      forbiddenProviderCycles,
       sourceText: source.text,
       patternExports,
       trustedStandardLibrary: stage.isInjected,
@@ -2031,39 +1659,15 @@ export function compileProject(
     preludeCores.map(preludeBoolUnion).find((id) => id !== undefined),
   );
 
-  const dataNominalHomes = new Map([...nominalHomes].map(([key, home]) => [
-    key,
-    dataOwner.has(dataNode(home.path, home.name))
-      ? { ...home, path: ownerPath(home.path, home.name) }
-      : home,
-  ] as const));
-
   for (const path of ordered) {
     const module = checked.get(path);
     if (module === undefined) continue;
     const { source, parsed: parsedModule, resolved, typed, core, runtimes } = module;
-    const dataSpecifiers = new Map(
-      [
-        ...(dataNamesByPath.get(path) ?? []),
-        ...(dataExternNamesByPath.get(path) ?? []),
-      ].map((name) => [
-        name,
-        relativeSpecifier(path, ownerPath(path, name)),
-      ]),
-    );
-    const emissionCore: Core.Module = {
-      ...core,
-      items: core.items.map((item) => {
-        if (item.kind !== "Import" || item.bareSelection === undefined) return item;
-        const target = pathByFullName.get(item.moduleName);
-        return target === undefined ? item : {
-          ...item,
-          specifier: relativeSpecifier(path, ownerPath(target, item.bareSelection)),
-        };
-      }),
-    };
     const { runtimeGlobalsSpecifier } = module;
     const seat = injectedSeats.get(path);
+    // Modules §11: a prelude member this module sees as data only is no load
+    // edge, so its constructors are made here and nothing is imported.
+    const dataOnlyHomes = new Set(dataSeatsAt(seat).map(({ path: home }) => home));
     const reusedEmission = reusableEmission && seat !== undefined
       ? reusableSeats[seat]?.emission.get(runtimeBasename)
       : undefined;
@@ -2071,19 +1675,18 @@ export function compileProject(
       if (reusedEmission === undefined) statistics.seatsEmitted += 1;
       else statistics.emissionsReused += 1;
     }
-    const javascript = reusedEmission?.javascript ?? emitJavaScript(emissionCore, {
+    const javascript = reusedEmission?.javascript ?? emitJavaScript(core, {
       exportInstanceEvidence: true,
-      dataSpecifiers,
+      dataOnlyHomes,
       runtimes,
       runtimeGlobalsSpecifier,
       fundamentalInstances,
     });
-    const declarations = reusedEmission?.declarations ?? emitDeclarations(emissionCore, {
-      dataSpecifiers,
+    const declarations = reusedEmission?.declarations ?? emitDeclarations(core, {
       runtimeSpecifier: emittedModuleSpecifier(
         relativeSpecifier(path, `/${runtimeBasename}.hex`),
       ),
-      nominalHomes: dataNominalHomes,
+      nominalHomes,
       modulePath: path,
       fundamentalInstances,
     });
@@ -2094,50 +1697,15 @@ export function compileProject(
       parsed: parsedModule,
       resolved,
       typed,
-      core: emissionCore,
-      dataSpecifiers,
+      core,
       runtimes,
       runtimeGlobalsSpecifier,
+      dataOnlyHomes,
       javascript,
       declarations,
     });
   }
 
-  const dataUnits: CompiledDataUnit[] = [];
-  for (const { modulePath, owner, names, externTypes } of dataGroups.values()) {
-    const module = checked.get(modulePath);
-    const projected = checkedData.get(modulePath)?.values().next().value;
-    const core = module?.core ?? projected?.core;
-    const runtimes = module?.runtimes ?? projected?.runtimes;
-    const runtimeGlobalsSpecifier = module?.runtimeGlobalsSpecifier ??
-      projected?.runtimeGlobalsSpecifier;
-    if (core === undefined || runtimes === undefined || runtimeGlobalsSpecifier === undefined) continue;
-    const path = dataUnitPath(modulePath, owner);
-    const selectedNames = names;
-    dataUnits.push({
-      path,
-      sourcePath: modulePath,
-      selectedNames,
-      javascript: emitDataJavaScript(core, {
-        selectedNames,
-        supportExternTypes: externTypes,
-        runtimes,
-        runtimeGlobalsSpecifier: relativeSpecifier(path, `/${runtimeBasename}.hex`),
-        fundamentalInstances,
-      }),
-      declarations: emitDataDeclarations(core, {
-        selectedNames,
-        supportExternTypes: externTypes,
-        runtimeSpecifier: emittedModuleSpecifier(
-          relativeSpecifier(path, `/${runtimeBasename}.hex`),
-        ),
-        nominalHomes: dataNominalHomes,
-        modulePath: path,
-        fundamentalInstances,
-      }),
-    });
-  }
-  const dataUnitsByPath = new Map(dataUnits.map((unit) => [unit.path, unit]));
 
   // Surface every module's own diagnostics on the project. `typed` accumulates
   // the lexing, layout, parsing, resolution, and checking stages; emission adds
@@ -2193,16 +1761,7 @@ export function compileProject(
   // imports. What emission reported is the answer for both channels.
   const importsOf = (path: string): readonly string[] => {
     const module = compiled.get(path);
-    const data = dataUnitsByPath.get(path);
-    if (module === undefined && data !== undefined) {
-      return [
-        ...data.declarations.preludeTypeImports,
-        ...data.declarations.mintedTypeImports,
-      ].map((specifier) => resolveSpecifier(path, specifier));
-    }
     return [
-      ...[...(module?.dataSpecifiers ?? new Map()).values()]
-        .map((specifier) => resolveSpecifier(path, specifier)),
       ...(module?.core.items ?? []).flatMap((item) =>
         item.kind === "Import" && !item.synthesized
           ? [resolveSpecifier(path, item.specifier)]
@@ -2290,21 +1849,7 @@ export function compileProject(
       }
     }
   }
-  for (const [path, names] of checkedData) {
-    const neededImports = dataImportNeeds.get(path) ?? new Set<string>();
-    const unit = byPath.get(path);
-    for (const diagnostic of importDiagnostics.get(path) ?? []) {
-      const item = unit?.parsed.items.find((candidate) =>
-        candidate.kind === "Import" &&
-        Number(candidate.span.fileId) === Number(diagnostic.primary.fileId) &&
-        candidate.span.start.offset === diagnostic.primary.start.offset &&
-        candidate.span.end.offset === diagnostic.primary.end.offset
-      );
-      if (item?.kind !== "Import" || !neededImports.has(item.module.text)) continue;
-      if (surfaced.has(diagnostic)) continue;
-      surfaced.add(diagnostic);
-      diagnostics.add(diagnostic);
-    }
+  for (const names of checkedData.values()) {
     for (const data of new Set(names.values())) {
       for (const stage of [data.resolved, data.typed]) {
         for (const diagnostic of stage.diagnostics) {
@@ -2321,12 +1866,12 @@ export function compileProject(
     const module = compiled.get(path);
     return module === undefined ? [] : [module];
   });
-  const emittedDataUnits = dataUnits.filter(({ path }) => emitted.has(path));
 
   // The chain this compile leaves behind, before `validatePatternFixes` can
   // compile again from inside this call.
   if (injectedImportCycle) {
     cachedSeats = [];
+    cachedDataSeatTexts = new Map();
   } else if (injectedUnits.length > 0) {
     rememberStandardLibrary(
       injectedUnits,
@@ -2342,7 +1887,6 @@ export function compileProject(
     : validatePatternFixes(diagnostics.toArray(), files, options);
   return {
     modules,
-    dataUnits: emittedDataUnits,
     roots: requestedRoots.map(({ fileId, sourcePath, units: own }) => ({
       fileId,
       sourcePath,
@@ -2352,7 +1896,7 @@ export function compileProject(
     // obligation 3). A module that was compiled but not emitted writes no file,
     // so its faces are not an importer — which is why this reads the emitted
     // list rather than every module compiled.
-    runtimeDeclarations: [...modules, ...emittedDataUnits]
+    runtimeDeclarations: modules
       .some(({ declarations }) => declarations.importsRuntimeTypes)
       ? {
           kind: "RuntimeDeclarations",
@@ -2365,7 +1909,7 @@ export function compileProject(
     // the same way — over the *emitted* list, because an unemitted module writes
     // no file and so imports nothing — and, unlike it, load-bearing at run time:
     // a host's execution set must carry this one.
-    runtimeGlobals: [...modules, ...emittedDataUnits]
+    runtimeGlobals: modules
       .some(({ javascript }) => javascript.importsRuntimeGlobals)
       ? {
           kind: "RuntimeGlobals",

@@ -109,15 +109,6 @@ Inference attaches constraints without annotation (`fun double(x) = x + x` infer
 
 ## 4. The `honor` declaration
 
-A [bare data import](bare-imports.md) activates no instances, including instances
-written through `derives` on its selected type. Full implementation activation
-retains program-wide instance identity and coherence. A consumer with a bare
-selection from a module cannot acquire that module's full instance providers
-through implicit evidence selection; the unique provider is diagnosed as
-unavailable, never replaced by another candidate (Bare Imports §5/§7). Passing
-existing evidence through a generic parameter is ordinary value passing and
-does not itself name a fixed implementation provider.
-
 ### 4.1 Ground instances
 
 ```

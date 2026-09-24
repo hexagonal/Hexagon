@@ -128,9 +128,6 @@ function preview(source: string): string {
  */
 function declarationSet(compiled: CompiledProject): Record<string, string> {
   const files: Record<string, string> = {};
-  for (const data of compiled.dataUnits) {
-    files[data.path.replace(/^\//u, "").replace(/\.hex$/u, ".d.ts")] = data.declarations.text;
-  }
   for (const module of compiled.modules) {
     files[module.path.replace(/^\//u, "").replace(/\.hex$/u, ".d.ts")] =
       module.declarations.text;
