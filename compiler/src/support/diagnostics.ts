@@ -123,6 +123,7 @@ export class Bag {
   noteErrors(where: (diagnostic: Diagnostic) => boolean, note: string): void {
     this.#diagnostics.forEach((diagnostic, index) => {
       if (diagnostic.severity !== "error" || !where(diagnostic)) return;
+      if (diagnostic.notes?.includes(note)) return;
       this.#diagnostics[index] = { ...diagnostic, notes: [...(diagnostic.notes ?? []), note] };
     });
   }

@@ -89,9 +89,38 @@ describe("the seats, one construct at a time", () => {
     expect(main("let = 1\nexport let good: Int = 2\n")).toEqual(["`let` requires a non-uppercase-start name"]);
   });
 
-  test("a member-block item is not a name seat: `or` beginning a line still continues", () => {
-    const text = javascript("export let f(a: Bool, b: Bool): Bool =\n    a\n    or b\n");
-    expect(text).toContain("a || b");
+  test("a member-block item is not a name seat: `or = …` in an `honor` block stays the keyword", () => {
+    // At block level a label seat does not exist (it lies inside a bracket pair),
+    // so the line is the continuation §2.3 makes it, never a member named `or`.
+    expect(main(
+      "constraint Both<a> =\n    both(x: a, y: a) -> a\n" +
+        "honor Both<Int> =\n    both(x, y) = x\n    or = 1\n",
+    )).not.toContain("`or` is reserved; a local or parameter name is only ever written bare — choose another name");
+  });
+
+  test("`get`, `set`, `method`, and `as` are ordinary names outside an extern row", () => {
+    // Their seat is an extern row's alone; a keyword after one elsewhere stays a
+    // keyword (the review's regression: these compiled before Rule D).
+    expect(main("export let f(r: {get: Bool}): Int = if r.get then 1 else 2\n")).toEqual([]);
+    expect(main("export let f(get: Bool, set: Int): Int = if get then set else 0\n")).toEqual([]);
+    expect(main("export let f(set: Bool, b: Bool): Bool = set and b\n")).toEqual([]);
+    expect(main("export let f(method: Bool, b: Bool): Bool =\n    method\n    or b\n")).toEqual([]);
+    expect(main("export let f(as: Bool, b: Bool): Bool = as and b\n")).toEqual([]);
+  });
+
+  test("an update pun names the written-out field", () => {
+    expect(main("let r = {type = 1}\nexport let u: {type: Int} = {r with type}\n")).toContain(
+      "`type` is reserved; write the field out: `{type = …}`",
+    );
+  });
+
+  test("`true` and `false` are foreign names on any extern row, never the local", () => {
+    expect(main(
+      'extern from "lib"\n    export fun true as isTrue(x: Int) -> Bool\n    export let false as no: Int\n',
+    )).toEqual([]);
+    expect(main('extern from "lib"\n    export fun true(x: Int) -> Bool\n')).toContain(
+      "`true` is reserved and cannot be used as a name",
+    );
   });
 
   test("a keyword in a name seat is never a block head (Lexer & Layout §2.1)", () => {
@@ -102,9 +131,13 @@ describe("the seats, one construct at a time", () => {
   test("a bare use of the module's own keyword-named term says where the name went", () => {
     const [report] = compileFiles([["/main.hex",
       "module Main\n\nexport let or(a: Int, b: Int): Int = a\nexport let v: Int = or(1, 2)\n"]]).diagnostics;
-    expect(report?.notes).toContain(
-      "this module's `or` is reached through a dot — `x.or(…)` on its home type, or `Module.or` from an importer",
-    );
+    const note =
+      "this module's `or` is reached through a dot — `x.or(…)` on its home type, or `Module.or` from an importer";
+    expect(report?.notes).toContain(note);
+    // Once per report, however many bare uses share its line.
+    const [twice] = compileFiles([["/main.hex",
+      "module Main\n\nexport let or(a: Int, b: Int): Int = a\nexport let v: Int = or(or(1, 2), 3)\n"]]).diagnostics;
+    expect(twice?.notes?.filter((text) => text === note)).toEqual([note]);
   });
 
   test("an extern row binds a keyword-named export unaliased, and a foreign type name before `as`", () => {

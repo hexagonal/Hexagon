@@ -125,9 +125,9 @@ export function lex(source: Source.File): Lexed.File {
  *   pair;
  * - **declaration name** — straight after `let`, `var`, or `fun` on the same
  *   line (a bare `fun` ending its line heads a member block, whose items are
- *   not name seats); on an extern row, straight after `method`, `get`, or
- *   `set`, an extern `type`'s foreign name before `as`, and the local name
- *   straight after `as`.
+ *   not name seats); and on an extern row — a line indented under an `extern
+ *   from` head — straight after a row-opening `method`, `get`, or `set`, a
+ *   `type`/`fun`/`let` row's foreign name before `as`, and the local after it.
  *
  * `true` and `false` stay keywords wherever the seat is a Hexagon declaration's,
  * and before `as`, where a literal `extern enum` member reads them as the booleans
@@ -155,6 +155,32 @@ function readNameSeats(tokens: readonly Lexed.Token[]): readonly Lexed.Token[] {
     depths.push(depth);
     if (token.kind === "LeftParen" || token.kind === "LeftBracket" || token.kind === "LeftBrace") depth += 1;
   }
+  // An extern row's seats hold only on a row: a line indented under an
+  // `extern from` head. Everywhere else `get`, `set`, `method`, and `as` are
+  // ordinary names, and `if r.get then 1 else 2` keeps its `then`.
+  const inExtern: boolean[] = [];
+  let externColumn: number | undefined;
+  let rowColumn = 0;
+  tokens.forEach((token, index) => {
+    const previous = tokens[index - 1];
+    if (previous === undefined || !sameLine(previous, token)) {
+      rowColumn = token.span.start.column;
+      if (externColumn !== undefined && rowColumn <= externColumn) externColumn = undefined;
+      if (token.kind === "Extern") externColumn = rowColumn;
+    }
+    inExtern.push(externColumn !== undefined && rowColumn > externColumn);
+  });
+  // Whether the token at `at` heads its row, past only the modifiers a row head
+  // admits (FFI Part 5 §2.4's member keyword opens the item).
+  const rowHead = (at: number): boolean => {
+    let before = at - 1;
+    while (
+      before >= 0 && sameLine(tokens[before]!, tokens[at]!) &&
+      (tokens[before]!.kind === "Export" ||
+        contextual(tokens[before], ["static", "default", "pure", "conduit"]))
+    ) before -= 1;
+    return before < 0 || !sameLine(tokens[before]!, tokens[at]!);
+  };
   return tokens.map((token, index) => {
     if (token.kind === "String") {
       return {
@@ -170,22 +196,24 @@ function readNameSeats(tokens: readonly Lexed.Token[]): readonly Lexed.Token[] {
     const previous = tokens[index - 1];
     const next = tokens[index + 1];
     const adjacent = previous !== undefined && sameLine(previous, token);
+    const beforeAs = next !== undefined && sameLine(token, next) && contextual(next, ["as"]);
+    const row = inExtern[index]!;
     // A member row's foreign side is a JavaScript property name, booleans
     // included; the parser refuses an unaliased `true` as the local it would be.
-    const member = adjacent && contextual(previous, ["method", "get", "set"]);
+    const member = row && adjacent && contextual(previous, ["method", "get", "set"]) &&
+      rowHead(index - 1);
+    // A row's foreign name before `as` — `type match as Match`, and `true`/`false`
+    // as an exported JavaScript name, `fun true as isTrue` — and its local after.
+    const foreign = row && adjacent && beforeAs &&
+      (previous.kind === "Type" || previous.kind === "Fun" || previous.kind === "Let");
+    const local = row && adjacent && contextual(previous, ["as"]) && !boolean;
     const declaring = adjacent &&
-      (previous.kind === "Let" || previous.kind === "Var" || previous.kind === "Fun" ||
-        contextual(previous, ["as"]));
-    const named = previous?.kind === "Dot" || member ||
+      (previous.kind === "Let" || previous.kind === "Var" || previous.kind === "Fun");
+    const named = previous?.kind === "Dot" || member || foreign || local ||
       (declaring && !boolean) ||
-      (next !== undefined && sameLine(token, next) && (
-        ((next.kind === "Colon" || next.kind === "Equal") && depths[index]! > 0 &&
-          !(declaring && boolean)) ||
-        // An extern `type`'s foreign name (`type match as Match`); a `fun` or
-        // `let` row's is already a declaration seat. Bare "before `as`" would
-        // take `let` itself in `export let as: Int`.
-        (previous?.kind === "Type" && adjacent && contextual(next, ["as"]))
-      ));
+      (next !== undefined && sameLine(token, next) &&
+        (next.kind === "Colon" || next.kind === "Equal") && depths[index]! > 0 &&
+        !(declaring && boolean));
     return named ? { kind: "NonUpperName", text: spelling, span: token.span } : token;
   });
 }

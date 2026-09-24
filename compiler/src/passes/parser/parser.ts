@@ -6131,7 +6131,11 @@ class Parser {
         if (distance > 0 && token.kind === "NonUpperName" && token.text === "with") {
           const before = this.#peek(distance - 1).kind;
           const after = this.#peek(distance + 1).kind;
-          if (endsExpression.has(before) && (after === "NonUpperName" || after === "RightBrace")) {
+          // A keyword after `with` is a keyword-named field's pun, `{ev with type}`:
+          // still an update, so the pun refusal names the field rather than the
+          // brace misreading as a literal (Lexer §4.4).
+          const keyword = isKeywordToken(this.#peek(distance + 1));
+          if (endsExpression.has(before) && (after === "NonUpperName" || after === "RightBrace" || keyword)) {
             return true;
           }
         }
