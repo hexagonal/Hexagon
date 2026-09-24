@@ -655,6 +655,9 @@ class Parser {
    */
   readonly #keywordLabels = new Set<number>();
 
+  /** Offsets of keyword puns `#takeFieldLabel` refused, whose fields are kept as errors. */
+  readonly #refusedPuns = new Set<number>();
+
   /**
    * Items an item head produced that are **not** it — today, exactly the
    * object-reading `extern enum`s an `extern from` block hoisted to module level
@@ -5049,7 +5052,7 @@ class Parser {
     const seen = new Set<string>();
     while (!this.#at("RightBrace") && !this.#at("Eof")) {
       const fieldStart = this.#current().span.start.offset;
-      const fieldToken = this.#takeFieldLabel("record fields must be non-uppercase-start names");
+      const fieldToken = this.#takeFieldLabel("record fields must be non-uppercase-start names", false);
       if (fieldToken === undefined) break;
       this.#expect("Colon", "expected `:` after record field name");
       const annotation = this.#parseTypeAnnotation(true);
@@ -5626,11 +5629,9 @@ class Parser {
         const name = parsedName(field);
         if (seen.has(name.text)) this.#errorAt(name.span, `duplicate record pattern field \`${name.text}\``);
         seen.add(name.text);
-        let pattern: Parsed.Pattern = {
-          kind: "Binding",
-          name,
-          span: name.span,
-        };
+        let pattern: Parsed.Pattern = this.#refusedPuns.has(name.span.start.offset)
+          ? { kind: "Error", span: name.span }
+          : { kind: "Binding", name, span: name.span };
         if (this.#recordFieldSeparator(name.text, true) !== undefined) {
           const nested = this.#parsePattern();
           if (nested === undefined) return undefined;
@@ -6071,7 +6072,9 @@ class Parser {
       const separator = this.#recordFieldSeparator(name.text, false);
       let value: Parsed.Expr;
       if (separator === undefined) {
-        value = { kind: "Name", name, span: name.span };
+        value = this.#refusedPuns.has(name.span.start.offset)
+          ? { kind: "ErrorExpr", span: name.span }
+          : { kind: "Name", name, span: name.span };
       } else {
         value = this.#parseExpression(0, insideBrackets(stops, "Comma", "RightBrace"));
       }
@@ -7271,7 +7274,7 @@ class Parser {
           if (this.#at("Comma")) this.#error("`...` must be the final entry in a record type");
           break;
         }
-        const fieldToken = this.#takeFieldLabel("record type fields must be non-uppercase-start names");
+        const fieldToken = this.#takeFieldLabel("record type fields must be non-uppercase-start names", false);
         if (fieldToken === undefined) return undefined;
         this.#expect("Colon", "expected `:` after record type field name");
         const annotation = this.#parseTypeAnnotation(true);
@@ -7496,14 +7499,19 @@ class Parser {
    * A field label — a record type's, literal's, update's, or pattern's (Lexer
    * §4.4's label seat, where a keyword is a name). A keyword that reached here
    * still a keyword is a **pun**, `{type}` or `{ev with type}`: its binding would
-   * be the keyword, so the field is written out.
+   * be the keyword, so the field is written out. The refused pun still returns
+   * its field, recorded in `#refusedPuns`, so the caller keeps the brace — an
+   * update keeps its override — and the one report is the only one. A type's
+   * braces have no puns (`puns` off): a keyword there is a missing annotation.
    */
-  #takeFieldLabel(message: string): Lexed.NameToken | undefined {
+  #takeFieldLabel(message: string, puns = true): Lexed.NameToken | undefined {
     const token = this.#current();
-    if (isKeywordToken(token) && ["Comma", "RightBrace"].includes(this.#peek(1).kind)) {
+    if (puns && isKeywordToken(token) && ["Comma", "RightBrace"].includes(this.#peek(1).kind)) {
       const spelling = this.#text.slice(token.span.start.offset, token.span.end.offset);
       this.#error(`\`${spelling}\` is reserved; write the field out: \`{${spelling} = …}\``);
-      return undefined;
+      this.#advance();
+      this.#refusedPuns.add(token.span.start.offset);
+      return { kind: "NonUpperName", text: spelling, span: token.span };
     }
     const index = this.#index;
     const name = this.#takeName("NonUpperName", message);

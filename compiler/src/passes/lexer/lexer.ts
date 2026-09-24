@@ -166,7 +166,8 @@ function readNameSeats(tokens: readonly Lexed.Token[]): readonly Lexed.Token[] {
     if (previous === undefined || !sameLine(previous, token)) {
       rowColumn = token.span.start.column;
       if (externColumn !== undefined && rowColumn <= externColumn) externColumn = undefined;
-      if (token.kind === "Extern") externColumn = rowColumn;
+      // `extern from` alone opens rows; an `extern enum`'s lines are its members.
+      if (token.kind === "Extern" && contextual(tokens[index + 1], ["from"])) externColumn = rowColumn;
     }
     inExtern.push(externColumn !== undefined && rowColumn > externColumn);
   });

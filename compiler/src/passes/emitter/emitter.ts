@@ -3754,10 +3754,11 @@ class JavaScriptEmitter {
         const scheme = symbol?.scheme;
         if (scheme === undefined) continue;
         const constrained = scheme.constraints.length > 0;
-        if (
-          !constrained && name.imported !== WITHHELD_EXPORT &&
-          !this.#capturesAcrossExport(name.symbol, scheme.type)
-        ) {
+        // A withheld `then` is reached through its `__then` edition — except a
+        // receiver member's, whose calls are all inline and bind nothing (FFI
+        // Part 5 §2.2); its one first-class spelling is `#withheldMember`'s.
+        const withheld = name.imported === WITHHELD_EXPORT && symbol?.receiver === undefined;
+        if (!constrained && !withheld && !this.#capturesAcrossExport(name.symbol, scheme.type)) {
           continue;
         }
         this.#internalEditionImports.set(
@@ -5479,7 +5480,7 @@ class JavaScriptEmitter {
         // §5.1 rule 3's fallback, whose bare word is the alias's namespace
         // binding here (§11.2: "never called as though the namespace object
         // were the export").
-        const spelled = expression.emitted ?? expression.text;
+        const spelled = this.#withheldMember(expression.symbol, expression.emitted ?? expression.text);
         const patternMember = this.#patternMemberLocals.get(expression.symbol);
         if (patternMember !== undefined) return patternMember;
         if (spelled.includes(".")) return this.#qualifiedSpelling(spelled);
@@ -9832,6 +9833,18 @@ class JavaScriptEmitter {
    * only the former can have moved — a companion is seeded rather than
    * imported, so it binds no local of this module's to contest.
    */
+  /**
+   * A first-class reference to another module's receiver member named `then`,
+   * respelled onto the `__then` its module publishes instead (FFI Part 7 §7):
+   * `Task.then` reads `Task.__then` off the namespace. Its calls never get here —
+   * they are emitted inline — so this is the member's one import-free route.
+   */
+  #withheldMember(symbol: Resolved.SymbolId, spelled: string): string {
+    const suffix = `.${WITHHELD_EXPORT}`;
+    if (!spelled.endsWith(suffix) || this.#symbols.get(symbol)?.receiver === undefined) return spelled;
+    return `${spelled.slice(0, -WITHHELD_EXPORT.length)}__${WITHHELD_EXPORT}`;
+  }
+
   #qualifiedSpelling(text: string): string {
     const head = text.slice(0, text.indexOf("."));
     const local = this.#namespaceAliases.get(head);
