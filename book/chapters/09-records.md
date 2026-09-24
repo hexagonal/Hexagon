@@ -241,6 +241,24 @@ export declare const origin: {x: number; y: number};
 Field access and spread updates retain their JavaScript spellings. Static immutability
 and inferred field requirements add guarantees without changing the runtime shape.
 
+## A field can be named with a keyword
+
+JavaScript objects often use words Hexagon reserves as field names: an event's
+`type`, a promise-like's `then`. A field name always sits inside a record's braces or
+after a dot, where nothing else could stand, so a keyword is an ordinary name there:
+
+```hexagon
+let click = {type = "click", x = 10}
+let kind = click.type
+```
+
+Punning is the one exception. `{type}` means `{type = type}`, which needs a variable
+named `type`, and no variable can have that name. Write the field out instead:
+
+```hexagon
+let {type = kind} = click
+```
+
 ## A declaration gives a record identity
 
 A structural record is identified by its fields. Sometimes a program needs a stronger
