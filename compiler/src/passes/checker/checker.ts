@@ -7400,6 +7400,7 @@ class Checker {
       for (const symbol of ordered) {
         this.#defaultNamedFrame(bySymbol.get(symbol)!.value);
       }
+      this.#compareKnotDemands(knot);
       for (const symbol of ordered) {
         this.#schemes.set(
           symbol,
@@ -15280,11 +15281,16 @@ class Checker {
       this.#defaultFrameColour(frame);
       this.#defaultCallColours(frame);
     }
-    // Only now do the demands the knot recorded meet the colours: decided by
-    // the bodies and defaulted, never chosen by a demand (§2.6). A source
-    // against a `->` is §4.3's refusal at the demand, a pure colour against a
-    // `->!` its reverse. A knot inside a seat holds no frames here, and its
-    // demands are compared all the same.
+  }
+
+  /**
+   * Only after the defaulting do the demands a knot recorded meet its colours
+   * *(#947)*: decided by the bodies, never chosen by a demand (§2.6). A source
+   * against a `->` is §4.3's refusal at the demand, a pure colour against a
+   * `->!` its reverse. Run after `#settleKnot` and, for a knot inside a seat,
+   * after the members' named-frame defaulting too.
+   */
+  #compareKnotDemands(knot: Knot): void {
     for (const { demand, colour, span, colourFirst } of knot.demands) {
       if (colourFirst) this.#unify(colour, demand, span);
       else this.#unify(demand, colour, span);

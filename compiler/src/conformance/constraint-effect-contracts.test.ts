@@ -3816,4 +3816,27 @@ honor C<R> =
       "demand is written `->`, the function's face `->?` or `->!`",
     ]);
   });
+
+  test("a `->!` demand never chooses a pure sibling's colour at a seat either", () => {
+    expect(messages(`export record Box = { step: () ->! Int }
+constraint C<r> =
+    go(runner: r, k: () ->! Unit) ->! Unit
+record R = { id: Int }
+honor C<R> =
+    go(runner, k) =
+        fun
+            a(): Int =
+                let s = Box({ step = b })
+                1
+            b(): Int =
+                let unused = a
+                1
+        k!()
+`)).toEqual([
+      "this position's arrow is the impure constant — its colour is fixed where the " +
+      "type is declared, and this function's face is the pure `->`; the demand cannot " +
+      "weaken — change the position's declared arrow, or supply the effectful function " +
+      "the position promises",
+    ]);
+  });
 });
