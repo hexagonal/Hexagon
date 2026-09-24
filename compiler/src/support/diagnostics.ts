@@ -115,6 +115,19 @@ export class Bag {
     this.#diagnostics.push(diagnostic);
   }
 
+  /**
+   * Appends `note` to every error already in the bag that `where` selects —
+   * for a fact that is only known once the reports it explains are in (Lexer
+   * §4.4's dotted-route note on a parse error at a keyword the module declares).
+   */
+  noteErrors(where: (diagnostic: Diagnostic) => boolean, note: string): void {
+    this.#diagnostics.forEach((diagnostic, index) => {
+      if (diagnostic.severity !== "error" || !where(diagnostic)) return;
+      if (diagnostic.notes?.includes(note)) return;
+      this.#diagnostics[index] = { ...diagnostic, notes: [...(diagnostic.notes ?? []), note] };
+    });
+  }
+
   get isEmpty(): boolean {
     return this.#diagnostics.length === 0;
   }

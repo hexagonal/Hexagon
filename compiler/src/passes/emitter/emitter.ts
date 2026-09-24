@@ -3754,7 +3754,10 @@ class JavaScriptEmitter {
         const scheme = symbol?.scheme;
         if (scheme === undefined) continue;
         const constrained = scheme.constraints.length > 0;
-        if (!constrained && !this.#capturesAcrossExport(name.symbol, scheme.type)) {
+        if (
+          !constrained && name.imported !== WITHHELD_EXPORT &&
+          !this.#capturesAcrossExport(name.symbol, scheme.type)
+        ) {
           continue;
         }
         this.#internalEditionImports.set(
@@ -4298,11 +4301,7 @@ class JavaScriptEmitter {
           // output is already off-book. §8.3 records the choice.
           lines.push(`${prefix}const ${local} = ${this.#unit};`);
           if (declaration.exported) {
-            this.#exports.push(
-              local === declaration.localName
-                ? `export { ${local} };`
-                : `export { ${local} as ${declaration.localName} };`,
-            );
+            this.#publish(local, declaration.localName);
             this.#externInternalEdition(
               declaration.binding.symbol,
               declaration.localName,
@@ -4358,11 +4357,7 @@ class JavaScriptEmitter {
               declaredType,
               declaration.localName,
             );
-            this.#exports.push(
-              exported === declaration.localName
-                ? `export { ${exported} };`
-                : `export { ${exported} as ${declaration.localName} };`,
-            );
+            this.#publish(exported, declaration.localName);
             this.#externInternalEdition(
               declaration.binding.symbol,
               declaration.localName,
@@ -4410,11 +4405,7 @@ class JavaScriptEmitter {
             body.statement ? `{ ${body.text}; }` : arrowBody(body.text)
           };`);
           if (declaration.exported) {
-            this.#exports.push(
-              local === declaration.localName
-                ? `export { ${local} };`
-                : `export { ${local} as ${declaration.localName} };`,
-            );
+            this.#publish(local, declaration.localName);
             this.#externInternalEdition(
               declaration.binding.symbol,
               declaration.localName,
@@ -4495,11 +4486,7 @@ class JavaScriptEmitter {
           }
         }
         if (declaration.exported) {
-          this.#exports.push(
-            local === declaration.localName
-              ? `export { ${local} };`
-              : `export { ${local} as ${declaration.localName} };`,
-          );
+          this.#publish(local, declaration.localName);
           this.#externInternalEdition(
             declaration.binding.symbol,
             declaration.localName,
@@ -4874,8 +4861,8 @@ class JavaScriptEmitter {
           // constructor's documentation is spoken for rather than falling
           // through to the item-boundary comment channel.
           if (!this.#materializes(constructor.symbol, exportedHere)) return [];
-          const parameters = slots.map(({ field }) => field);
-          const fields = slots.map(({ field }) => objectProperty(field, field));
+          const parameters = slots.map(({ field }) => slotParameter(field));
+          const fields = slots.map(({ field }) => objectProperty(field, slotParameter(field)));
           return [...doc, `${prefix}const ${name} = ${arrowParameters(parameters)} => ({ tag: ${JSON.stringify(constructor.name)}, ${fields.join(", ")} });`];
         }
         // A constructor that *is* a JavaScript literal binds that literal, and
@@ -4944,11 +4931,11 @@ class JavaScriptEmitter {
     if (item.kind === "Exception") {
       const exceptionHelper = this.#useHelper("exception");
       const name = this.#identifier(item.binding.symbol, item.binding.name);
-      const parameters = item.slots.map(({ field }) => field);
+      const parameters = item.slots.map(({ field }) => slotParameter(field));
       const message = item.slots.some(({ field }) => field === "message")
         ? "message"
         : '""';
-      const fields = `{ ${item.slots.map(({ field }) => objectProperty(field, field)).join(", ")} }`;
+      const fields = `{ ${item.slots.map(({ field }) => objectProperty(field, slotParameter(field))).join(", ")} }`;
       const value = item.slots.length === 0
         ? `() => ${exceptionHelper}(${JSON.stringify(item.binding.name)}, "", {})`
         : `${arrowParameters(parameters)} => ${exceptionHelper}(${JSON.stringify(item.binding.name)}, ${message}, ${fields})`;
@@ -5161,11 +5148,7 @@ class JavaScriptEmitter {
       item.binding.scheme.type,
       item.binding.name,
     );
-    this.#exports.push(
-      exported === item.binding.name
-        ? `export { ${exported} };`
-        : `export { ${exported} as ${item.binding.name} };`,
-    );
+    this.#publish(exported, item.binding.name);
     // Part 7 §7 occasion 4: "the public name binds the wrapper; the internal
     // edition … is exported under that internal name, appearing in no `.d.ts`,
     // and Hexagon importers bind it". The internal edition is the emitted
@@ -5177,11 +5160,23 @@ class JavaScriptEmitter {
     // The constrained branch above already publishes one, and for the same
     // reason under a different name: its face is the specializations, and the
     // trailing-evidence edition Hexagon importers bind takes no wrapper.
-    if (this.#capturesAcrossExport(item.binding.symbol, item.binding.scheme.type)) {
+    if (
+      item.binding.name === WITHHELD_EXPORT ||
+      this.#capturesAcrossExport(item.binding.symbol, item.binding.scheme.type)
+    ) {
       this.#exports.push(
         `export { ${name} as ${this.#ownInternalName(item.binding.name)} };`,
       );
     }
+  }
+
+  /**
+   * One term's public ESM export — withheld for `then` alone, whose internal
+   * edition is then its only export (`WITHHELD_EXPORT`).
+   */
+  #publish(local: string, exported: string): void {
+    if (exported === WITHHELD_EXPORT) return;
+    this.#exports.push(local === exported ? `export { ${local} };` : `export { ${local} as ${exported} };`);
   }
 
   /**
@@ -5243,7 +5238,7 @@ class JavaScriptEmitter {
     local: string,
     type: Typed.Type,
   ): void {
-    if (!this.#capturesAcrossExport(symbol, type)) return;
+    if (localName !== WITHHELD_EXPORT && !this.#capturesAcrossExport(symbol, type)) return;
     this.#exports.push(`export { ${local} as ${this.#ownInternalName(localName)} };`);
   }
 
@@ -11818,7 +11813,7 @@ class DeclarationEmitter {
             isExternalModule = true;
             continue;
           }
-          if (!declaration.exported) continue;
+          if (!declaration.exported || declaration.localName === WITHHELD_EXPORT) continue;
           // The brand line goes before the documentation: JSDoc binds to the
           // declaration that immediately follows it.
           const doc = this.#docs.lines(declaration.span, "", [], true);
@@ -11959,7 +11954,7 @@ class DeclarationEmitter {
             ? item.parameters.length === 0
               ? item.name
               : `${item.name}<${item.parameters.map(() => "never").join(", ")}>`
-            : `${generics}(${constructor.slots.map((slot, index) => `${slot.field || `arg${index}`}: ${renderType(slot.type, variables, this.#faces, false)}`).join(", ")}) => ${result}`;
+            : `${generics}(${constructor.slots.map((slot, index) => `${slot.field ? slotParameter(slot.field) : `arg${index}`}: ${renderType(slot.type, variables, this.#faces, false)}`).join(", ")}) => ${result}`;
           declarations.push(...this.#docs.lines(constructor.span, "", [], true));
           declarations.push(
             `export declare const ${constructor.name}: ${type};`,
@@ -12078,6 +12073,9 @@ class DeclarationEmitter {
         isExternalModule ||= specializations.length > 0;
         continue;
       }
+      // Withheld from both files (FFI Part 7 §7): the `.js` exports only the
+      // internal edition, which no `.d.ts` declares.
+      if (item.binding.name === WITHHELD_EXPORT) continue;
       isExternalModule = true;
 
       declarations.push(
@@ -12297,8 +12295,10 @@ class TypeScriptPreviewEmitter {
       }
       if (item.kind === "ExternBlock") {
         for (const declaration of item.declarations) {
-          const prefix = declaration.exported ? "export " : "";
-          const doc = this.#docs.lines(declaration.span, "", [], declaration.exported);
+          // `then` previews as the `.d.ts` has it: unpublished (FFI Part 7 §7).
+          const published = declaration.exported && declaration.localName !== WITHHELD_EXPORT;
+          const prefix = published ? "export " : "";
+          const doc = this.#docs.lines(declaration.span, "", [], published);
           if (declaration.kind === "ExternType") {
             const brand = this.#opaqueBrands.get(declaration.localName)!;
             declarations.push(`declare const ${brand}: unique symbol;`);
@@ -12319,7 +12319,7 @@ class TypeScriptPreviewEmitter {
             declarations.push(...doc);
             declarations.push(...renderExternFunctionDeclaration(
               declaration,
-              declaration.exported,
+              published,
               this.#faces,
               emittedBindingName(
                 declaration.binding.symbol,
@@ -12340,11 +12340,11 @@ class TypeScriptPreviewEmitter {
             } else {
               declarations.push(`declare const ${local}: ${type};`);
             }
-            if (declaration.exported && !isSafeIdentifier(declaration.localName)) {
+            if (published && !isSafeIdentifier(declaration.localName)) {
               declarations.push(`export { ${local} as ${declaration.localName} };`);
             }
           }
-          isExternalModule ||= declaration.exported;
+          isExternalModule ||= published;
         }
         continue;
       }
@@ -12391,7 +12391,7 @@ class TypeScriptPreviewEmitter {
             ? item.parameters.length === 0
               ? item.name
               : `${item.name}<${item.parameters.map(() => "never").join(", ")}>`
-            : `${generics}(${constructor.slots.map((slot, index) => `${slot.field || `arg${index}`}: ${renderType(slot.type, variables, this.#faces, false)}`).join(", ")}) => ${result}`;
+            : `${generics}(${constructor.slots.map((slot, index) => `${slot.field ? slotParameter(slot.field) : `arg${index}`}: ${renderType(slot.type, variables, this.#faces, false)}`).join(", ")}) => ${result}`;
           declarations.push(...this.#docs.lines(constructor.span, "", [], item.exported));
           declarations.push(
             `${prefix}declare const ${constructor.name}: ${type};`,
@@ -12504,8 +12504,9 @@ class TypeScriptPreviewEmitter {
         item.binding.name,
         this.#unsafeModuleLocals,
       );
-      declarations.push(...this.#docs.lines(item.span, "", [], item.exported));
-      if (item.exported) {
+      const published = item.exported && item.binding.name !== WITHHELD_EXPORT;
+      declarations.push(...this.#docs.lines(item.span, "", [], published));
+      if (published) {
         if (item.kind === "Fun") {
           declarations.push(
             renderFunctionDeclaration(
@@ -13037,6 +13038,18 @@ function arrowBody(text: string): string {
 }
 
 /** Uses object-property shorthand whenever the emitted key and value coincide. */
+/**
+ * A constructor's parameter for one named slot: the slot's own name, or FFI Part
+ * 7 §1.2 rule 4's `__<name>` where JavaScript refuses it as a binding — a slot is
+ * a label seat (Lexer §4.4), so `Click(in: Int)` is lawful and its field stays
+ * `in`, while the parameter carrying it becomes `__in`, in the `.js` and the
+ * `.d.ts` alike. No other binder shares a constructor's parameter list, and user
+ * names never begin `__`, so the spelling needs no probe.
+ */
+function slotParameter(field: string): string {
+  return reservedWords.has(field) ? `__${field}` : field;
+}
+
 function objectProperty(name: string, value: string): string {
   return name === value ? name : `${name}: ${value}`;
 }
@@ -15950,6 +15963,8 @@ function renderExceptionDeclarations(
   const name = item.binding.name;
   const slot = (slot: Typed.ConstructorSlot): string =>
     `${slot.field}: ${renderType(slot.type, new Map(), faces, false)}`;
+  const parameter = (slot: Typed.ConstructorSlot): string =>
+    `${slotParameter(slot.field)}: ${renderType(slot.type, new Map(), faces, false)}`;
   // §1.1: the exception face is the vocabulary's sharpest seat. An `export
   // record Error` in this file silently intersects every one of these with the
   // user's record instead of the library's `Error`, and an exception *itself*
@@ -15960,7 +15975,7 @@ function renderExceptionDeclarations(
     `${item.slots.map((declared) => `; readonly ${slot(declared)}`).join("")} }`;
   const rows = [
     `${prefix}type ${name} = ${face};`,
-    `${prefix}declare function ${name}(${item.slots.map(slot).join(", ")}): ${name};`,
+    `${prefix}declare function ${name}(${item.slots.map(parameter).join(", ")}): ${name};`,
   ];
   if (prefix === "" || !guarded) return rows;
   return [
@@ -16221,6 +16236,16 @@ export function emittedModuleSpecifier(specifier: string): string {
 function indent(depth: number): string {
   return "  ".repeat(depth);
 }
+
+/**
+ * The one term name no module publishes to JavaScript (FFI Part 7 §7, #1014).
+ *
+ * Promise resolution reads any object's `then` and calls it when callable, and a
+ * module namespace is such an object: a module exporting `then` never arrives
+ * from `import()`. A term so named exports only its internal edition, `__then`,
+ * which Hexagon importers bind as they bind any; the `.d.ts` declares no `then`.
+ */
+const WITHHELD_EXPORT = "then";
 
 /**
  * The spellings JavaScript refuses as a binding name, which the emitter renames

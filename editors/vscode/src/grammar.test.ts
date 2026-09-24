@@ -430,10 +430,21 @@ describe("declarations name what they declare", () => {
     expect(await scope("fun true(x: Int) = x", "true")).toBe(
       "invalid.illegal.reserved-redirect-word.hexagon",
     );
-    expect(await scope("let if = 1", "if")).toBe("keyword.control.hexagon");
-    expect(await scope("fun if(x: Int) = x", "if")).toBe("keyword.control.hexagon");
-    expect(await scope("var for = 1", "for")).toBe("keyword.control.hexagon");
-    expect(await scope("let not = 1", "not")).toBe("keyword.operator.word.hexagon");
+  });
+
+  it("reads a hard keyword in a name seat as a name (#1014)", async () => {
+    // spec/lexer.md §4.4: after `let`/`var`/`fun`, after a `.`, and before a
+    // label's `:` or `=`, a keyword is an ordinary name. Whether the seat may hold
+    // one (a parameter may not) is the compiler's to say; the paint is a name's.
+    expect(await scope("export let if = 1", "if")).toBe("variable.other.definition.hexagon");
+    expect(await scope("export fun match(x: Int) = x", "match")).toBe("entity.name.function.hexagon");
+    expect(await scope("let kind = ev.type", "type")).toBe("variable.other.hexagon");
+    expect(await scope("let t = task.then(f)", "then")).toBe("entity.name.function.hexagon");
+    expect(await scope("record Ev = {type: String}", "type")).toBe("variable.parameter.hexagon");
+    expect(await scope("let e = {type = \"click\"}", "type")).toBe("variable.other.hexagon");
+    // Everywhere else it stays the keyword: a range's `..` is not a dot.
+    expect(await scope("if x then y else z", "then")).toBe("keyword.control.hexagon");
+    expect(await scope("let r = a..not", "not")).toBe("keyword.operator.word.hexagon");
   });
 
   it("still lets a foreign member name be a Hexagon keyword", async () => {

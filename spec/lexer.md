@@ -359,7 +359,7 @@ need no workaround spelling:
 |---|---|---|
 | **Dotted** | the token straight after a `.`: field access, a dot call, a module- or type-qualified name (Method Syntax §1) | `ev.type`, `task.then(f)`, `Regex.match(re, text)`, `Symbol.for("app")` |
 | **Label** | a name straight before `:` or `=` inside a bracket pair — at the top level of a block, `let = 1` is a half-typed declaration, not a label: record types and literals, the `with` update's overrides, record patterns, a union constructor's or exception's named slots (Products §3.1, Pattern Matching §2.4, Unions §2.1) | `{type: String}`, `{type = "click"}`, `{ev with type = t}`, `{type = t} =>`, `Click(type: String)` |
-| **Declaration name** | straight after `let`, `var`, or `fun` on the same line — a bare `fun` ending its line heads a member block instead, whose items are not name seats — and on an extern row: straight after its `method`, `get`, or `set`, a foreign name straight before `as` (`type match as Match`), and the local name straight after it (FFI Part 4 §3.2, Part 5 §2.4) | `export fun match(pattern: String) -> Matcher`, `export let or(a: Flag, b: Flag): Flag = …`, `method then(…)` |
+| **Declaration name** | straight after `let`, `var`, or `fun` on the same line — a bare `fun` ending its line heads a member block instead, whose items are not name seats — and on an extern row — a line indented under an `extern from` head, `method`, `get`, or `set` opening it past only its modifiers — straight after that member keyword, a `type`, `fun`, or `let` row's foreign name straight before `as` (`type match as Match`), and the local name straight after it; elsewhere `get`, `set`, `method`, and `as` are ordinary names, and `if r.get then 1 else 2` keeps its `then` (FFI Part 4 §3.2, Part 5 §2.4) | `export fun match(pattern: String) -> Matcher`, `export let or(a: Flag, b: Flag): Flag = …`, `method then(…)` |
 
 The table is exhaustive. In particular a member-block item's head is not a name seat:
 a line beginning `or(a, b) = …` in a `constraint`, `honor`, or `fun` block would read,
@@ -395,7 +395,7 @@ decidable from neighbouring tokens alone.
   head, so a keyword there takes the ordinary hard-keyword refusal.
 - **`true` and `false` never name a declaration** (§4.1's redirect); they are names
   in the dotted and label seats and on an FFI row's foreign side.
-- **The seat is decided by neighbouring tokens alone, before layout** — `true` and
+- **The seat is decided by neighbouring tokens alone, before layout** — an extern row's seats reading also the row's line, indented under its `extern from` head — `true` and
   `false` excepted where the seat is a declaration's, or a literal `extern enum`
   member's value before `as` (§4.1). A keyword in
   a name seat is a name to the layout pass and the parser alike, and never a block

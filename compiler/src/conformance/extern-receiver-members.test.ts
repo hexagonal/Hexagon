@@ -478,20 +478,25 @@ extern from "world"
     expect(report?.fixes?.[0]?.edits?.map(({ replacement }) => replacement)).toEqual(["->!"]);
   });
 
-  test("a Hexagon hard keyword needs the author's alias, and gets no applied fixit (§2.4)", () => {
-    const [report] = compileFiles([["/main.hex", `module Main
-
-extern from "world"
-    type T
-    get then(t: T) ->! Int
-`]]).diagnostics;
-    expect(report?.message).toBe(
-      "`then` is a Hexagon hard keyword and cannot name a binding; " +
-        "bind the member under an alias: `get then as …`",
-    );
-    expect(report?.fixes ?? []).toEqual([]);
+  test("a keyword-named member binds unaliased, and is reached through a dot (§2.4, #1014)", () => {
+    // Every use of a member is dotted — Lexer §4.4's name seat — so the Hexagon
+    // name is the JavaScript name. It is exported, since only a dot reaches it.
+    expect(diagnostics(
+      "    export get then(t: T) ->! Int\n    export method catch(t: T) ->! Int\n",
+      "    export type T\n",
+    )).toEqual([]);
+    // An alias stays the author's choice.
     expect(diagnostics("    method catch as recover(t: T) ->! Int\n")).toEqual([]);
-    expect(diagnostics("    method match as matches(t: T, s: String) ->! Bool\n")).toEqual([]);
+    // Unexported, it could never be reached.
+    expect(diagnostics("    get then(t: T) ->! Int\n")).toEqual([
+      "`then` is reserved; a declaration named `then` is reached only through a dot, " +
+        "from an importer or on its home type — export it, or choose another name",
+    ]);
+    // `true`/`false` name a JavaScript property on the foreign side, never a binding.
+    expect(diagnostics("    export get true(t: T) ->! Int\n", "    export type T\n")).toEqual([
+      "`true` is reserved and cannot be used as a name; bind the member under an alias: `get true as …`",
+    ]);
+    expect(diagnostics("    export get true as isTrue(t: T) ->! Int\n", "    export type T\n")).toEqual([]);
   });
 
   test("a foreign name illegal as a Hexagon term takes the alias rewrite (Part 4 §3.2)", () => {

@@ -105,11 +105,123 @@ export function lex(source: Source.File): Lexed.File {
   return {
     fileId: source.id,
     text: source.text,
-    tokens,
+    tokens: readNameSeats(tokens),
     newlines: scanner.newlines,
     comments: scanner.comments,
     diagnostics: diagnostics.toArray(),
   };
+}
+
+/**
+ * Lexer §4.4: a hard keyword standing in a name seat is an ordinary name, and
+ * the seat is decided here, from the token's neighbours alone, before layout —
+ * so `let kind = ev.match` ending its line is a name to the layout pass and the
+ * parser alike, never a block head.
+ *
+ * The seats, exhaustively (§4.4's table):
+ *
+ * - **dotted** — straight after a `.`;
+ * - **label** — straight before `:` or `=` on the same line, inside a bracket
+ *   pair;
+ * - **declaration name** — straight after `let`, `var`, or `fun` on the same
+ *   line (a bare `fun` ending its line heads a member block, whose items are
+ *   not name seats); and on an extern row — a line indented under an `extern
+ *   from` head — straight after a row-opening `method`, `get`, or `set`, a
+ *   `type`/`fun`/`let` row's foreign name before `as`, and the local after it.
+ *
+ * `true` and `false` stay keywords wherever the seat is a Hexagon declaration's,
+ * and before `as`, where a literal `extern enum` member reads them as the booleans
+ * they spell (§4.1). Which of these seats may actually *hold* a keyword — a
+ * parameter is label-shaped but refuses one — is the parser's to say; this pass
+ * only makes the token a name so that the refusal, not a parse error, is what
+ * the author reads.
+ *
+ * Recurses into interpolations, whose tokens are an expression like any other.
+ */
+function readNameSeats(tokens: readonly Lexed.Token[]): readonly Lexed.Token[] {
+  const sameLine = (left: Lexed.Token, right: Lexed.Token): boolean =>
+    left.span.end.line === right.span.start.line;
+  const contextual = (token: Lexed.Token | undefined, words: readonly string[]): boolean =>
+    token?.kind === "NonUpperName" && words.includes(token.text);
+  // A label always sits inside a bracket pair — a record's braces, a slot or
+  // parameter list's parentheses — so the label seat reads the bracket depth: at
+  // depth zero a keyword before `=` is a half-typed `let = 1`, not a field.
+  const depths: number[] = [];
+  let depth = 0;
+  for (const token of tokens) {
+    if (token.kind === "RightParen" || token.kind === "RightBracket" || token.kind === "RightBrace") {
+      depth = Math.max(0, depth - 1);
+    }
+    depths.push(depth);
+    if (token.kind === "LeftParen" || token.kind === "LeftBracket" || token.kind === "LeftBrace") depth += 1;
+  }
+  // An extern row's seats hold only on a row: a line indented under an
+  // `extern from` head. Everywhere else `get`, `set`, `method`, and `as` are
+  // ordinary names, and `if r.get then 1 else 2` keeps its `then`.
+  const inExtern: boolean[] = [];
+  let externColumn: number | undefined;
+  let rowColumn = 0;
+  tokens.forEach((token, index) => {
+    const previous = tokens[index - 1];
+    if (previous === undefined || !sameLine(previous, token)) {
+      rowColumn = token.span.start.column;
+      if (externColumn !== undefined && rowColumn <= externColumn) externColumn = undefined;
+      if (token.kind === "Extern") externColumn = rowColumn;
+    }
+    inExtern.push(externColumn !== undefined && rowColumn > externColumn);
+  });
+  // Whether the token at `at` heads its row, past only the modifiers a row head
+  // admits (FFI Part 5 §2.4's member keyword opens the item).
+  const rowHead = (at: number): boolean => {
+    let before = at - 1;
+    while (
+      before >= 0 && sameLine(tokens[before]!, tokens[at]!) &&
+      (tokens[before]!.kind === "Export" ||
+        contextual(tokens[before], ["static", "default", "pure", "conduit"]))
+    ) before -= 1;
+    return before < 0 || !sameLine(tokens[before]!, tokens[at]!);
+  };
+  return tokens.map((token, index) => {
+    if (token.kind === "String") {
+      return {
+        ...token,
+        parts: token.parts.map((part) =>
+          part.kind === "Interpolation" ? { ...part, tokens: readNameSeats(part.tokens) } : part
+        ),
+      };
+    }
+    const spelling = keywordSpelling(token);
+    if (spelling === undefined) return token;
+    const boolean = token.kind === "True" || token.kind === "False";
+    const previous = tokens[index - 1];
+    const next = tokens[index + 1];
+    const adjacent = previous !== undefined && sameLine(previous, token);
+    const beforeAs = next !== undefined && sameLine(token, next) && contextual(next, ["as"]);
+    const row = inExtern[index]!;
+    // A member row's foreign side is a JavaScript property name, booleans
+    // included; the parser refuses an unaliased `true` as the local it would be.
+    const member = row && adjacent && contextual(previous, ["method", "get", "set"]) &&
+      rowHead(index - 1);
+    // A row's foreign name before `as` — `type match as Match`, and `true`/`false`
+    // as an exported JavaScript name, `fun true as isTrue` — and its local after.
+    const foreign = row && adjacent && beforeAs &&
+      (previous.kind === "Type" || previous.kind === "Fun" || previous.kind === "Let");
+    const local = row && adjacent && contextual(previous, ["as"]) && !boolean;
+    const declaring = adjacent &&
+      (previous.kind === "Let" || previous.kind === "Var" || previous.kind === "Fun");
+    const named = previous?.kind === "Dot" || member || foreign || local ||
+      (declaring && !boolean) ||
+      (next !== undefined && sameLine(token, next) &&
+        (next.kind === "Colon" || next.kind === "Equal") && depths[index]! > 0 &&
+        !(declaring && boolean));
+    return named ? { kind: "NonUpperName", text: spelling, span: token.span } : token;
+  });
+}
+
+/** The source spelling of a hard-keyword token, or `undefined` for any other. */
+function keywordSpelling(token: Lexed.Token): string | undefined {
+  const spelling = token.kind.toLowerCase();
+  return keywords.get(spelling) === token.kind ? spelling : undefined;
 }
 
 interface ScannedSequence {
