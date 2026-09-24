@@ -14417,7 +14417,10 @@ class Checker {
     // then Int, then Nat. The first source to reach an unsolved shared variable
     // solves it, so the widest goes first and the narrower ones widen into it —
     // `mix(n, i)` meets at `Int` exactly as `mix(i, n)` does (#1033). The sort
-    // is stable, so sources of one width keep their written order.
+    // is stable, so sources of one width keep their written order. BigInt's rank
+    // ahead of Int is §5.1's order but no program is known to observe it: a
+    // BigInt reaches this class only when a sibling has already established the
+    // variable (`structurallyLicensed`).
     const width = (index: number): number => {
       const source = this.#prune(arguments_[index] ?? ERROR);
       if (source.kind !== "Constructor") return 3;
