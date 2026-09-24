@@ -47,7 +47,7 @@ function link(
   foreignUrls: ReadonlyMap<string, string>,
 ): string {
   return javascript.replace(
-    /^(\s*(?:import|export)(?:[^;\n]*?\sfrom)?\s+)(["'])([^"']+)\2;/gmu,
+    /^(\s*import(?:[^;\n]*?\sfrom)?\s+)(["'])([^"']+)\2;/gmu,
     (statement, prefix: string, _quote: string, specifier: string) => {
       const foreign = foreignUrls.get(specifier);
       if (foreign !== undefined) return `${prefix}${JSON.stringify(foreign)};`;
@@ -79,9 +79,6 @@ async function run(
   const runtimeGlobals = project.runtimeGlobals;
   if (runtimeGlobals !== undefined) {
     moduleUrls.set(runtimeGlobals.path.replace(/\.js$/u, ".hex"), url(runtimeGlobals.text));
-  }
-  for (const data of project.dataUnits) {
-    moduleUrls.set(data.path, url(link(data.javascript.text, data.path, moduleUrls, foreignUrls)));
   }
   for (const module of project.modules) {
     moduleUrls.set(

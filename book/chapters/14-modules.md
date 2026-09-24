@@ -104,9 +104,8 @@ binding.
 
 ## Imports bind modules
 
-An ordinary import names a module and brings it into scope. It does not select
-individual functions or constructors. A restricted data import for breaking
-dependencies appears below.
+An import names a module and brings it into scope. That is the whole of it: there is
+no form that imports a single function, type, or constructor by name.
 
 ```hexagon
 import Geometry
@@ -199,9 +198,9 @@ There is no import that loads a module for its effects alone. A pure Hexagon mod
 holds no state, so it cannot register anything at load time; the idiom for a setup
 effect is an exported function the importer calls, `Telemetry.init()`, where the reader
 can see when it runs. A module that exists to be run is a root module, covered below,
-not something another module imports. Ordinary full imports also bring the
-module's instances into the program without a separate instance-import step.
-The bare data import below deliberately leaves those implementations out.
+not something another module imports. Instances need no loading step either: naming a
+type brings its home module, and with it the instances declared there, into the
+program.
 
 ## Companion modules give operations a home
 
@@ -450,8 +449,7 @@ inside a function.
 
 ## Imports form an acyclic graph
 
-Hexagon rejects cycles in the required dependencies, including cycles among data
-definitions in different modules:
+Hexagon rejects every import cycle, including cycles used only for types:
 
 ```text
 import cycle: A → B → A
@@ -461,22 +459,7 @@ Mutually recursive declarations belong in one module. The acyclic rule gives pro
 a deterministic initialization order and avoids JavaScript's partially initialized
 cycle behavior.
 
-Sometimes one side needs only the other's data definition. A bare import makes
-that smaller dependency explicit:
-
-```hexagon
-import bare Shape from Geometry
-```
-
-This brings in `Shape` and its public constructors, without Geometry's companion
-functions or instances, including derived instances. Ordinary construction and
-matching rules remain unchanged. The producer needs no special declaration.
-The compiler can therefore make the data available without loading the full
-implementation. A module may select several bare types from Geometry, but it
-cannot also import full Geometry. Bare imports break a dependency on unnecessary
-implementation; they do not make genuinely recursive modules legal.
-
-A module's imports load depth-first in source order, each required generated unit once, before
+A module's imports load depth-first in source order, each module exactly once, before
 that module's own top level runs. Within one module, executable top-level items run in
 source order.
 
@@ -518,9 +501,7 @@ is an interoperation concern, not module-level Hexagon mutation.
 
 ## Modules emit as modules
 
-A module's public ESM file is named by the module. Bare data imports can require
-additional generated support files; ordinary full imports keep their public
-paths. The source:
+One Hexagon module emits as one ESM file, named by the module. The source:
 
 ```hexagon
 module Origin
@@ -540,8 +521,8 @@ export const origin = {x: 0.0, y: 0.0};
 const label = "origin";
 ```
 
-A file holding two modules has two public module files, and the source file's own
-name appears nowhere in the output. A dotted module name becomes a directory: `Render.Geometry`
+A file holding two modules emits two files, and the source file's own name appears
+nowhere in the output. A dotted module name becomes a directory: `Render.Geometry`
 emits `Render/Geometry.js`.
 
 Private declarations remain ordinary private ESM bindings. The module import lowers to

@@ -194,64 +194,6 @@ describe("explicit compilation roots", () => {
     expect(imported.diagnostics.some(({ primary }) => Number(primary.fileId) === 3)).toBe(true);
   });
 
-  test("reports a semantic error in selected bare data", () => {
-    const project = compileProject([
-      source(0, "/types.hex", "module Types\nexport type Broken = Missing\n"),
-      source(1, "/main.hex", "module Main\nimport bare Broken from Types\n" +
-        "export fun keep(value: Broken): Broken = value\n"),
-    ], { roots: [Source.fileId(1)] });
-    expect(project.diagnostics.some(({ primary }) => Number(primary.fileId) === 0)).toBe(true);
-  });
-
-  test("includes runtime globals required only by an emitted data unit", () => {
-    const project = compileProject([
-      source(0, "/types.hex", "module Types\nexport record Set = { value: Int }\n" +
-        "export type Wrapper = Set\n"),
-      source(1, "/main.hex", "module Main\nimport bare Wrapper from Types\n" +
-        "export fun id(value: Wrapper): Wrapper = value\n"),
-    ], { roots: [Source.fileId(1)] });
-    expect(messagesOf(project)).toEqual([]);
-    expect(project.modules.map(({ name }) => name)).not.toContain("Types");
-    const data = project.dataUnits.find(({ selectedNames }) => selectedNames.includes("Set"));
-    expect(data?.javascript.importsRuntimeGlobals).toBe(true);
-    expect(data?.javascript.text).toContain('from "../../hex.js"');
-    expect(project.runtimeGlobals?.path).toBe("/hex.js");
-  });
-
-  test("reports import-mode conflicts required by a selected data alias", () => {
-    const project = compileProject([
-      source(0, "/dep.hex", "module Dep\nexport record Token = { value: Int }\n"),
-      source(1, "/types.hex", "module Types\nimport bare Token from Dep\nimport Dep\n" +
-        "import Missing\nexport type Wrapper = Dep.Token\n"),
-      source(2, "/main.hex", "module Main\nimport bare Wrapper from Types\n" +
-        "export fun id(value: Wrapper): Wrapper = value\n"),
-    ], { roots: [Source.fileId(2)] });
-    const messages = messagesOf(project);
-    expect(messages).toContain(
-      "cannot combine bare and full imports of Dep; replace the bare selections with a full import to use its implementation",
-    );
-    expect(messages.some((message) => message.includes("Missing"))).toBe(false);
-    expect(project.modules.map(({ name }) => name)).not.toContain("Types");
-    expect(project.modules.map(({ name }) => name)).not.toContain("Dep");
-  });
-
-  test("recognizes an unavailable bare companion without activating its body", () => {
-    const project = compileProject([
-      source(0, "/a.hex", "module A\nimport B\nexport record Token = { number: () -> Int }\n" +
-        "type TokenAlias = Token\nexport fun number(token: TokenAlias): Int = missing\n"),
-      source(1, "/b.hex", "module B\nimport bare Token from A\n" +
-        "let token = Token({ number = () => 2 })\nexport let value: Int = token.number()\n"),
-    ], { roots: [Source.fileId(1)] });
-    const messages = messagesOf(project);
-    expect(messages.some((message) =>
-      message.includes("requires the full provider `A`") &&
-      message.includes("replace the bare selections")
-    )).toBe(true);
-    expect(messages.some((message) => message.includes("unbound name `missing`"))).toBe(false);
-    expect(project.modules.map(({ name }) => name)).not.toContain("A");
-    expect(project.dataUnits.some(({ sourcePath }) => sourcePath === "/A.hex")).toBe(true);
-  });
-
   test("keeps full transitive companion output and cold/warm results stable", () => {
     const files = [
       source(0, "/types.hex", "module Types\nexport record Token = { value: Int }\n" +
@@ -270,11 +212,6 @@ describe("explicit compilation roots", () => {
       })),
       modules: project.modules.map(({ name, path, javascript, declarations }) => ({
         name,
-        path,
-        javascript: javascript.text,
-        declarations: declarations.text,
-      })),
-      data: project.dataUnits.map(({ path, javascript, declarations }) => ({
         path,
         javascript: javascript.text,
         declarations: declarations.text,

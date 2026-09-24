@@ -2,7 +2,6 @@ import fc from "fast-check";
 import { describe, expect, test } from "vitest";
 
 import * as Source from "../../support/source.js";
-import { typeScriptErrors } from "../../support/typescript-check.js";
 import type * as Core from "../../syntax/core/index.js";
 import { check } from "../checker/checker.js";
 import { elaborate } from "../elaborator/elaborator.js";
@@ -13,143 +12,10 @@ import { resolve } from "../resolver/resolver.js";
 import { compileProject } from "../../project.js";
 import { compileFiles, runProject } from "../../support/test-project.js";
 import {
-  emitDataDeclarations,
-  emitDataJavaScript,
   emitDeclarations,
   emitJavaScript,
   emitTypeScriptPreview,
-  nominalHomeKey,
 } from "./emitter.js";
-
-describe("bare data emission", () => {
-  test("a selected union owns its constructors and full output reexports the same identities", async () => {
-    const module = coreSource(
-      "export union Shape = Circle(Int) | Square(Int)\n" +
-        "export union Other = Other\n" +
-        "export let origin: Shape = Circle(0)",
-    );
-    expect(module.diagnostics).toEqual([]);
-    const data = emitDataJavaScript(module, { selectedNames: ["Shape"] }).text;
-    const dataTypes = emitDataDeclarations(module, { selectedNames: ["Shape"] }).text;
-    expect(data).toContain("const Circle =");
-    expect(data).toContain("export { Circle };");
-    expect(data).not.toContain("const Other =");
-    expect(data).not.toContain("const origin =");
-    expect(dataTypes).toContain("export type Shape");
-    expect(dataTypes).toContain("export declare const Circle:");
-    expect(dataTypes).not.toContain("Other");
-    expect(dataTypes).not.toContain("origin");
-
-    const location = new Map([["Shape", "./.hex-data/Main/Shape.hex"]]);
-    const full = emitJavaScript(module, { dataSpecifiers: location }).text;
-    const fullTypes = emitDeclarations(module, { dataSpecifiers: location }).text;
-    expect(full).toContain('import { Circle, Square } from "./.hex-data/Main/Shape.js";');
-    expect(full).toContain('export { Circle } from "./.hex-data/Main/Shape.js";');
-    expect(full).not.toContain("const Circle =");
-    expect(full).toContain("const Other =");
-    expect(full).toContain("const origin =");
-    expect(fullTypes).toContain('import type { Shape } from "./.hex-data/Main/Shape.js";');
-    expect(fullTypes).toContain('export { type Shape, Circle, Square } from "./.hex-data/Main/Shape.js";');
-    expect(fullTypes).not.toContain("export type Shape =");
-    expect(await typeScriptErrors({
-      "Main.d.ts": fullTypes,
-      ".hex-data/Main/Shape.d.ts": dataTypes,
-    })).toEqual([]);
-  });
-
-  test("an opaque data unit owns the brand while hidden construction stays in full output", async () => {
-    const module = coreSource(
-      "opaque record Secret = { value: Int }\n" +
-        "export fun make(value: Int): Secret = Secret({ value })",
-    );
-    expect(module.diagnostics).toEqual([]);
-    const data = emitDataJavaScript(module, { selectedNames: ["Secret"] }).text;
-    const dataTypes = emitDataDeclarations(module, { selectedNames: ["Secret"] }).text;
-    const location = new Map([["Secret", "./.hex-data/Main/Secret.hex"]]);
-    const full = emitJavaScript(module, { dataSpecifiers: location }).text;
-    const fullTypes = emitDeclarations(module, { dataSpecifiers: location }).text;
-    expect(data).not.toContain("const Secret =");
-    expect(full).toContain("return { value };");
-    expect(dataTypes).toContain("declare const SecretBrand: unique symbol;");
-    expect(fullTypes).not.toContain("declare const SecretBrand: unique symbol;");
-    expect(fullTypes).toContain('export { type Secret } from "./.hex-data/Main/Secret.js";');
-    expect(await typeScriptErrors({
-      "Main.d.ts": fullTypes,
-      ".hex-data/Main/Secret.d.ts": dataTypes,
-    })).toEqual([]);
-  });
-
-  test("a private supporting data owner remains private in the full public face", () => {
-    const module = coreSource(
-      "union Support = Ready\n" +
-        "export let answer: Int = 1",
-    );
-    expect(module.diagnostics).toEqual([]);
-    const location = new Map([["Support", "./.hex-data/Main/Support.hex"]]);
-    const data = emitDataJavaScript(module, { selectedNames: ["Support"] }).text;
-    const dataTypes = emitDataDeclarations(module, { selectedNames: ["Support"] }).text;
-    const full = emitJavaScript(module, { dataSpecifiers: location }).text;
-    const fullTypes = emitDeclarations(module, { dataSpecifiers: location }).text;
-    expect(data).toContain("export { Ready };");
-    expect(dataTypes).toContain("export type Support");
-    expect(full).toContain('import { Ready } from "./.hex-data/Main/Support.js";');
-    expect(full).not.toContain("export { Ready }");
-    expect(fullTypes).toContain('import type { Support } from "./.hex-data/Main/Support.js";');
-    expect(fullTypes).not.toContain("export { type Support");
-  });
-
-  test("data signatures route prelude nominal types through data owners", () => {
-    const module = coreSource("export record Wrapper = { value: Option(Int) }");
-    expect(module.diagnostics).toEqual([]);
-    const option = module.preludeTypeImports.find(({ name }) => name === "Option");
-    expect(option?.union).toBeDefined();
-    const homes = new Map([[nominalHomeKey("union", Number(option!.union)), {
-      name: "Option",
-      path: "/.hex-data/Option/Option.hex",
-    }]]);
-    const dataTypes = emitDataDeclarations(module, {
-      selectedNames: ["Wrapper"],
-      modulePath: "/.hex-data/Main/Wrapper.hex",
-      nominalHomes: homes,
-    }).text;
-    expect(dataTypes).toContain('from "../Option/Option.js"');
-    expect(dataTypes).not.toContain('from "./Hex/Prelude/Option.js"');
-  });
-
-  test("foreign nominal support emits brand metadata without loading its foreign module", async () => {
-    const module = coreSource(
-      "extern from \"sdk\"\n" +
-        "    export type Token\n" +
-        "export record Envelope = { token: Token }",
-    );
-    expect(module.diagnostics).toEqual([]);
-    const data = emitDataJavaScript(module, {
-      selectedNames: ["Envelope"],
-      supportExternTypes: ["Token"],
-    }).text;
-    const dataTypes = emitDataDeclarations(module, {
-      selectedNames: ["Envelope"],
-      supportExternTypes: ["Token"],
-    }).text;
-    const location = new Map([
-      ["Envelope", "./.hex-data/Main/Envelope.hex"],
-      ["Token", "./.hex-data/Main/Envelope.hex"],
-    ]);
-    const fullTypes = emitDeclarations(module, { dataSpecifiers: location }).text;
-    expect(data).not.toContain("sdk");
-    expect(dataTypes).toContain("declare const TokenBrand: unique symbol;");
-    expect(dataTypes).toContain("export type Token = { readonly [TokenBrand]: never };");
-    expect(dataTypes).toContain("export type Envelope = { token: Token };");
-    expect(fullTypes).not.toContain("declare const TokenBrand: unique symbol;");
-    expect(fullTypes).toContain(
-      'export { type Token } from "./.hex-data/Main/Envelope.js";',
-    );
-    expect(await typeScriptErrors({
-      "Main.d.ts": fullTypes,
-      ".hex-data/Main/Envelope.d.ts": dataTypes,
-    })).toEqual([]);
-  });
-});
 
 describe("emitJavaScript", () => {
   test("emits declared pattern objects, shared root views, construction, and faces", () => {

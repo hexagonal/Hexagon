@@ -411,9 +411,6 @@ describe("the boundary face composes (`Array(JsValue)`)", () => {
     // from the prelude's own declaration files, and checking it alone is what
     // left #227 undetected.
     const files: Record<string, string> = {};
-    for (const data of compiled.dataUnits) {
-      files[data.path.replace(/^\//u, "").replace(/\.hex$/u, ".d.ts")] = data.declarations.text;
-    }
     for (const module of compiled.modules) {
       files[module.source.path.replace(/^\//u, "").replace(/\.hex$/u, ".d.ts")] =
         module.declarations.text;

@@ -31,8 +31,6 @@ import * as Resolved from "../../syntax/resolved/index.js";
 
 export interface ModuleInterface {
   readonly module: Resolved.Module;
-  /** Present only for a restricted data view created by `import bare`. */
-  readonly bareSelection?: string;
   readonly terms: ReadonlyMap<string, Resolved.Symbol>;
   /** Exported suffix patterns, in their own namespace. */
   readonly patterns: ReadonlyMap<string, Resolved.PatternReference>;
@@ -1229,7 +1227,6 @@ export function internalNameInputs(
   imported: ModuleInterface | undefined,
 ): Resolved.InternalNameInputs {
   if (imported === undefined) return { fixed: [], members: [], terms: [] };
-  if (imported.bareSelection !== undefined) return { fixed: [], members: [], terms: [] };
   const fixed = imported.module.items.flatMap((item) =>
     item.kind === "PatternDeclaration" ? [patternExportName(item.name)] : []
   );
@@ -1276,7 +1273,7 @@ export function internalNameInputs(
 function specializableTerms(
   imported: ModuleInterface | undefined,
 ): readonly string[] {
-  if (imported === undefined || imported.bareSelection !== undefined) return [];
+  if (imported === undefined) return [];
   return imported.module.items.flatMap((item) =>
     (item.kind === "Fun" || (item.kind === "Let" && item.value.kind === "Lambda")) &&
       item.exported
@@ -1403,7 +1400,6 @@ class Resolver {
   readonly #externTypeDeclarations = new WeakMap<Parsed.ExternTypeDeclaration, Resolved.ExternTypeId>();
   readonly #resolvingAliases: string[] = [];
   readonly #imports: ReadonlyMap<string, ModuleImport>;
-  readonly #importViews = new WeakMap<Parsed.ImportItem, ModuleInterface | null>();
   readonly #dataIds: ResolveOptions["dataIds"];
   readonly #runtime: boolean;
   readonly #privileged: boolean;
@@ -2627,67 +2623,6 @@ class Resolver {
    * has — the module's own declarations claim first, imports settle among
    * themselves in source order — and lands on the same line it landed on before.
    */
-  #viewForImport(item: Parsed.ImportItem, home: ModuleImport): ModuleInterface | undefined {
-    if (item.bare === undefined) return home.interface;
-    const cached = this.#importViews.get(item);
-    if (cached !== undefined) return cached ?? undefined;
-    const full = home.interface;
-    const name = item.bare.text;
-    const offeredUnion = full.unions.get(name);
-    const union = offeredUnion?.externEnum === true || offeredUnion?.foreign !== undefined
-      ? undefined
-      : offeredUnion;
-    const record = full.records.get(name);
-    const alias = full.aliases.get(name);
-    if (union === undefined && record === undefined && alias === undefined) {
-      const declared = offeredUnion !== undefined || full.externTypes.has(name) || full.module.items.some((candidate) =>
-        "name" in candidate && candidate.name === name
-      );
-      this.#diagnostics.add({
-        severity: "error",
-        message: declared
-          ? `\`${name}\` is not an exported data type of ${item.module.text}; use \`import ${item.module.text}\` for full operations`
-          : `module ${item.module.text} does not export data type \`${name}\`; use \`import ${item.module.text}\` for full operations`,
-        primary: item.bare.span,
-      });
-      this.#importViews.set(item, null);
-      return undefined;
-    }
-    const terms = new Map<string, Resolved.Symbol>();
-    if (union !== undefined) {
-      const declaration = full.module.items.find((candidate) =>
-        candidate.kind === "Union" && candidate.name === name
-      );
-      if (declaration?.kind === "Union" && !declaration.opaque) {
-        for (const constructor of declaration.constructors) {
-          const symbol = full.terms.get(constructor.binding.name);
-          if (symbol !== undefined) terms.set(constructor.binding.name, symbol);
-        }
-      }
-    }
-    if (record !== undefined) {
-      const constructor = full.terms.get(name);
-      if (constructor !== undefined) terms.set(name, constructor);
-    }
-    const view: ModuleInterface = {
-      ...full,
-      bareSelection: name,
-      terms,
-      patterns: new Map(),
-      unions: union === undefined ? new Map() : new Map([[name, union]]),
-      records: record === undefined ? new Map() : new Map([[name, record]]),
-      aliases: alias === undefined ? new Map() : new Map([[name, alias]]),
-      exceptions: new Map(),
-      externTypes: new Map(),
-      instances: [],
-      constraints: new Map(),
-      constraintMembers: new Map(),
-      widensBindings: new Set(),
-    };
-    this.#importViews.set(item, view);
-    return view;
-  }
-
   #predeclareImports(items: readonly Parsed.Item[]): void {
     for (const item of items) {
       if (item.kind !== "Import") continue;
@@ -2695,7 +2630,7 @@ class Resolver {
       // A refused import binds no alias, whatever refused it (Modules §5.2);
       // the project reported it where the package set is known.
       if (home === undefined) continue;
-      const imported = this.#viewForImport(item, home);
+      const imported = home.interface;
       if (imported !== undefined) {
         for (const [name, reference] of imported.patterns) {
           const candidates = this.#importedPatterns.get(name) ?? [];
@@ -2716,7 +2651,6 @@ class Resolver {
           }
         }
       }
-      if (imported === undefined) continue;
       const constraints: Resolved.ConstraintImport[] = [];
       let aliasBound = false;
       if (this.#moduleAliases.has(item.alias.text)) {
@@ -3331,7 +3265,7 @@ class Resolver {
         // unknown module, a contest between packages, a package's own name.
         // A name with no entry here was refused there and binds nothing.
         const home = this.#imports.get(item.module.text);
-        const importedModule = home === undefined ? undefined : this.#viewForImport(item, home);
+        const importedModule = home?.interface;
         /**
          * What this line put in the constraint namespace; see
          * `ConstraintImport`. A constraint *name* is type-namespace, so the
@@ -3390,7 +3324,6 @@ class Resolver {
           this.#preludeFileIds.has(Number(importedModule.module.fileId));
         return {
           kind: "Import",
-          ...(item.bare === undefined ? {} : { bareSelection: item.bare.text }),
           specifier: home?.specifier ?? "",
           moduleName: home?.name ?? "",
           synthesized: false,

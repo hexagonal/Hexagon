@@ -202,17 +202,6 @@ TS aliases are equally transparent, so semantics are preserved exactly, and the 
 
 ---
 
-## 6.1 Bare selection of a data declaration
-
-`import bare TypeName from ModuleName` selects an existing exported record,
-union, or alias without changing its declaration syntax. Public constructors
-and data operations follow the declaration's visibility; opaque representation
-stays hidden. The import activates no derived or handwritten instances. A
-`derives` clause remains sugar for ordinary instances in the full implementation,
-validated there under the existing rules, while the data declaration retains
-one identity across full and bare users. The complete import and dependency
-contract is [Bare Imports](bare-imports.md).
-
 ## 7. Module-level consolidation
 
 ### 7.1 The declaration inventory and site rule

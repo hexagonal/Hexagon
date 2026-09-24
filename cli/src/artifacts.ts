@@ -8,7 +8,7 @@ export function artifactsOf(project: CompiledProject): ReadonlyMap<string, strin
     if (artifacts.has(relative)) throw new Error(`internal compiler error: duplicate emitted path ${relative}`);
     artifacts.set(relative, text);
   };
-  for (const unit of [...project.modules, ...project.dataUnits]) {
+  for (const unit of project.modules) {
     add(replaceExtension(unit.path, ".js"), unit.javascript.text);
     add(replaceExtension(unit.path, ".d.ts"), unit.declarations.text);
   }

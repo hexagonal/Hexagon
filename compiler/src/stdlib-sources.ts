@@ -2191,8 +2191,6 @@ export const STDLIB_SOURCES: Readonly<Record<string, string>> = {
   "Option":
     "module Option\n"
     + "\n"
-    + "import Seq\n"
-    + "\n"
     + "// The canonical optional-value union used by total standard-library accessors.\n"
     + "export union Option(a) derives (Eq, Show) =\n"
     + "    | Some(value: a)\n"
@@ -3749,8 +3747,6 @@ export const STDLIB_SOURCES: Readonly<Record<string, string>> = {
     + "    result\n",
   "Seq":
     "module Seq\n"
-    + "\n"
-    + "import bare Option from Option\n"
     + "\n"
     + "(** Raised when a sequence position is forced while it is already being\n"
     + "    forced (FFI Part 3 section 7.3-7.4). *)\n"

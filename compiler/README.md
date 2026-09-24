@@ -157,7 +157,7 @@ interactive analysis sessions continue to use that mode.
 
 `CompiledProject.roots` maps explicit root file identities and source paths to
 declared module names and output layout addresses. Writers must handle ordinary
-modules, `dataUnits`, `runtimeDeclarations` and `runtimeGlobals`. The executable
+modules, `runtimeDeclarations` and `runtimeGlobals`. The executable
 and declaration smoke test is `node scripts/test-root-selection.mjs` after a
 compiler build. The [Node CLI](../cli/README.md) uses this API to provide the
 `hexc check` and `hexc build` commands.

@@ -28,7 +28,9 @@ export interface PreludeModule {
  * module, and in the prelude modules *after* it — each member sees the members
  * before it, and only those, which is what makes cycles impossible by
  * construction. Adding a member means placing it after everything it uses —
- * `Seq.hex` sits after `Option.hex` because a pull step returns an `Option`.
+ * `JsValue.hex` sits after `Result.hex` because every decoder answers with one.
+ * The one refinement is `PRELUDE_DATA_SEATS` below: a member's data may be
+ * seated earlier than its full implementation.
  *
  * ## The constraint declarations come as early as their signatures allow (#335)
  *
@@ -91,14 +93,16 @@ export interface PreludeModule {
  *
  * ## Then the data modules
  *
- * `Option.hex` and the rest follow in the order their uses demand — `Seq.hex`
- * sits after `Option.hex` because a pull step returns an `Option`.
+ * `Option`'s data seat comes first (`PRELUDE_DATA_SEATS`), and the rest follow
+ * in the order their uses demand. `Option.hex`'s full seat is after `Seq.hex`,
+ * because `Option.toSeq` builds a `Seq`, while `Seq.hex` itself needs only the
+ * data — a pull step returns an `Option`.
  *
  * `Int.hex` (#344) is the first **primitive companion** — a primitive's home
  * module, where its instances are ordinary `honor` blocks rather than compiler
  * rows (Constraints §5.3). It sits after every constraint declaration it honors
- * and after `Option.hex`, because the checked family (`checkedAdd` and its two
- * siblings) answers with an `Option(Int)`.
+ * and after `Option`'s data seat, because the checked family (`checkedAdd` and
+ * its two siblings) answers with an `Option(Int)`.
  *
  * `Nat.hex` and `Float.hex` are the second and third, and their seats follow
  * the same reading. `Nat.hex` sits after `Int.hex`: `Nat.fromInt`'s sign check
@@ -117,7 +121,7 @@ export interface PreludeModule {
  *
  * `BigInt.hex` is the fourth, and it needs the most of the five. It sits after
  * every constraint declaration because it honors eight of them, after
- * `Option.hex` because `toInt` answers with one, and after `Float.hex` because
+ * `Option`'s data seat because `toInt` answers with one, and after `Float.hex` because
  * `toFloat`'s guard throws `Float.hex`'s `FloatRangeError` (#533) — the same
  * sentence as everything else here, an exception being a use like any other.
  * Nothing before it names a `BigInt`.
@@ -296,6 +300,39 @@ export const PRELUDE_MODULES: readonly PreludeModule[] = [
   "JsError",
   "Debug",
 ].map((name) => ({ name, source: STDLIB_SOURCES[name]! }));
+
+/**
+ * The prelude members whose **data** is seated earlier than their full
+ * implementation (Modules §5.5). Each entry names a member of
+ * `PRELUDE_MODULES` and the same-named, non-opaque `union` it declares, and seats
+ * that union just before `before`: the modules from `before`'s seat up to the
+ * member's own see the declaration's type and public constructors, and none of
+ * its functions or instances; the member's full seat is its place in the list
+ * above.
+ *
+ * `Option` is the one entry, and its two seats are forced from both sides. Its
+ * data is needed early — `Int.checkedAdd`, `Nat.fromInt` and `BigInt.toInt`
+ * answer with an `Option`, and `Seq`'s own pull step returns one — while its
+ * full implementation is needed late, because `Option.toSeq` builds a `Seq`.
+ * The data seat sits where `Option.hex` sat before `toSeq` existed.
+ *
+ * The seat is stated here, in the inventory, and not by an import in each early
+ * module: a prelude module never writes the dependencies its seat gives it, and
+ * this is the same fact about order the list above states for every other
+ * member.
+ *
+ * The union is checked on its own, ahead of every prelude module and so against
+ * none of them: a data seat's union may name no other prelude type. `Option`'s
+ * names only its parameter.
+ */
+export const PRELUDE_DATA_SEATS: readonly {
+  /** The member's declared name, which is also its data declaration's name. */
+  readonly name: string;
+  /** The member whose seat the data seat precedes. */
+  readonly before: string;
+}[] = [
+  { name: "Option", before: "Int" },
+];
 
 /**
  * The rest of the package `Hex`: every embedded standard-library module that is

@@ -75,7 +75,7 @@ compiler errors. Build requests can reach the compiler and output-writer boundar
 ### Step 3: Implement reliable build output
 
 Write the complete emitted graph: ordinary modules, required standard-library
-modules, bare-import data units, runtime support and applicable declarations.
+modules, runtime support and applicable declarations.
 Preserve compiler-selected paths and import relationships. Implement the agreed
 ESM boundary, output ownership, stale-file cleanup and failure behaviour.
 
@@ -155,7 +155,7 @@ tests:
 - Help and version work from outside the repository.
 - A simple root checks, builds and executes on Node.
 - Multiple modules and multiple explicit roots produce correct shared output.
-- Standard-library use, a bare data import and runtime support resolve correctly.
+- Standard-library use and runtime support resolve correctly.
 - A separately installed Hexagon source dependency compiles and runs.
 - Supported foreign imports work under the agreed deployment/output rules.
 - Generated declarations resolve their emitted supporting files.
@@ -297,10 +297,10 @@ Inspected on 2026-09-23. This is source inspection, not a packaged-runtime test.
 | Boundary | Finding |
 |---|---|
 | Root selection | `compiler/src/project.ts`: `ProjectOptions` has no roots option. `compileProject` gathers supplied sources and visits every seated module. Passing all discovered files therefore checks unrelated bodies. |
-| Output selection | Emission starts from all ordinary compiled modules. Required edges also include bare-data units, companion operations, specializations and runtime imports; source-written imports alone are insufficient. |
+| Output selection | Emission starts from all ordinary compiled modules. Required edges also include companion operations, specializations and runtime imports; source-written imports alone are insufficient. |
 | Discovery | `host/src/packages.ts`: `discoverPrograms` takes directory roots and can return nested projects. The CLI must select the project owning each requested file. |
 | Packaging | Host sources import `../../compiler/src/index.js`, and the host has no production build script. Copying the host directory into a package does not make it independently installable. |
-| Artifacts | The writer must consume all four `CompiledProject` categories: `modules`, `dataUnits`, `runtimeDeclarations` and `runtimeGlobals`, preserving their compiler-provided layout. |
+| Artifacts | The writer must consume all three `CompiledProject` categories: `modules`, `runtimeDeclarations` and `runtimeGlobals`, preserving their compiler-provided layout. |
 | Diagnostics | Source spans, secondary labels, notes and fixes already exist. Terminal rendering belongs in the CLI. |
 | Bundle precedent | The language server already bundles its compiler/host imports with esbuild. The CLI can package the same internal boundaries without runtime repository imports. |
 
@@ -312,7 +312,7 @@ project source files. The compiler owns package-aware resolution and traversal;
 the CLI must not maintain a second import parser or compile everything and hide
 errors afterward.
 
-Root selection must respect full-module and bare-data activation, coherence,
+Root selection must respect module activation, coherence,
 companion availability and compiler-generated runtime dependencies. Multiple
 roots are checked together. Output selection must use the compiler's complete
 dependency information, including declarations, not a text scan of emitted code.
@@ -436,8 +436,8 @@ Add these acceptance cases to section 6:
   follow the decision in section 13.2.
 - Multiple legal modules in a selected file are all roots; shared dependencies
   are handled consistently, and conflicting activated instances are refused.
-- Bare imports preserve non-activation, and companion, specialization, data and
-  runtime dependencies all appear in runnable output.
+- Companion, specialization and runtime dependencies all appear in runnable
+  output.
 - Existing whole-project compiler callers retain their previous behaviour.
 - Nested manifests, exclusions, manifestless projects and symlink aliases have
   consistent ownership between CLI and editor.
@@ -495,8 +495,7 @@ Keep three distinct operations:
    provider that is unavailable because its implementation was not activated.
    Recognition is not a request to check that provider's implementation body.
 3. **Activation:** selected root modules seed full-module traversal. Full imports
-   activate implementations; bare imports request only selected data and its
-   transitive data dependencies. Existing implicit prelude availability remains
+   activate implementations. Existing implicit prelude availability remains
    unchanged. Only required bodies are resolved, checked and elaborated.
 
 The current implementation builds provider tables after resolving every full
@@ -536,8 +535,8 @@ and cache invariants must remain valid in both request modes.
 ### 16.4 Output closure
 
 Seed output with the selected full roots and traverse the complete compiler
-dependency information. Include required data units and declaration-only
-dependencies as well as executable imports. Existing specialization, companion,
+dependency information. Include declaration-only dependencies as well as
+executable imports. Existing specialization, companion,
 instance-member, enum and runtime edges must remain represented.
 
 Do not turn an output edge into a new source-language activation rule. Provider

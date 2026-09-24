@@ -351,10 +351,12 @@ describe("membership drags nothing in", () => {
     // The trie brings its own dependencies since #344: its index arithmetic is
     // `Integral<Int>`'s members at `stdlib/Int.hex`, which in turn names
     // `Pow.hex`'s and `Integral.hex`'s exceptions, `Sign.hex` for Int's `Real`
-    // instance, with Option's data shell available separately. `Vector.hex`
-    // is what must stay out, and does.
+    // instance, and `Option.hex`'s type for the checked family — a `.d.ts`
+    // edge, so `Option.hex` is written with `Seq.hex`, which its full
+    // implementation imports, though nothing here loads either (Bare Imports
+    // §8). `Vector.hex` is what must stay out, and does.
     expect(emittedPaths(files)).toEqual([
-      "/Hex/Pow.hex", "/Hex/Sign.hex", "/Hex/Integral.hex", "/Hex/Int.hex", "/Hex/Runtime/VectorTrie.hex", "/main.hex",
+      "/Hex/Pow.hex", "/Hex/Sign.hex", "/Hex/Integral.hex", "/Hex/Int.hex", "/Hex/Seq.hex", "/Hex/Option.hex", "/Hex/Runtime/VectorTrie.hex", "/main.hex",
     ]);
   });
 

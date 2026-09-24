@@ -154,21 +154,6 @@ Under the receiver-level deadline (§3.1), the asymmetry is **cross-region only*
 
 ## 4. `CompanionOf` — definition
 
-### 4.0 Availability under a bare data import
-
-A selected data view does not change a type's companion owner or operation
-candidate. It restricts whether the consumer may use the full provider. When
-this module imports data bare from a source module, a full companion or concrete
-instance provider from that source is unavailable even if another module loaded
-it. Diagnose the operation with its actual full-import route: replace the bare
-selections with a full import, never add one alongside them. No alternative
-method or instance is selected, and no full import is silently synthesized.
-The rule is keyed by resolved source-module identity, so aliases and inferred
-receivers cannot bypass it. See [Bare Imports §7](bare-imports.md).
-
-Field access and calls through accessible function-valued fields remain ordinary
-data operations. Full-only programs retain their existing lookup behavior.
-
 ### 4.1 The function
 
 `CompanionOf` is total over eligible receiver heads and requires no search:
@@ -231,7 +216,7 @@ identity(x: a): a                            -- excluded: bare type variable, no
 - **Exported only, uniformly** — including inside the home module itself. Making private functions dot-callable inside-only would give a type a visibility-dependent method set; inside the home module bare calls are available anyway. (Alternative rejected, §11.9.)
 - **The subject-first filter is nearly free**: the stdlib convention (Operators §8 — first parameter is the subject, normative) means companion modules are already shaped for this. `Vector.empty` is correctly invisible after a dot, per the table above.
 - **No overloading exists** (one function per name per module — Modules §5.2), so each *clause* yields at most one candidate per name; where the union holds two, the call is refused naming both homes (§6) — never ranked. Arity and argument types are checked *after* resolution as an ordinary call, with ordinary errors. Resolution is by name; typing is by the resolved function or member. Within the honoring module itself the two clauses cannot even collide: an ordinary binding of a member's spelling is the rebinding error (Constraints §4.6), so an export-vs-member split there is unwritable — the cross-source collision requires the instance to live in the *constraint's* home under the orphan rule.
-- The candidate set is **import-insensitive** (the separate bare-import availability guard in §4.0 still applies): whether the *call site's module* imported the companion is irrelevant to resolution (the compiler is whole-program; the type determines its stable home; full-only programs reach that home normally, while §4.0 checks whether a bare consumer may use its full provider, and instances are global once their full provider is active — Modules §7.1). No `use`-changes-methods spookiness, by construction. Emission handles the import (§8.2).
+- The set is **import-insensitive**: whether the *call site's module* imported the companion is irrelevant to resolution (the compiler is whole-program; the home module is in the graph by reachability of the type, and instances are global once their module is — Modules §7.1). No `use`-changes-methods spookiness, by construction. Emission handles the import (§8.2).
 
 ### 4.3 Transparent aliases and `opaque`
 

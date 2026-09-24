@@ -1,8 +1,21 @@
 import { describe, expect, test } from "vitest";
 
 import { compileSource } from "../compile";
-import { linkModule } from "../module-execution";
 import { exampleById, playgroundExamples } from "./index";
+
+/** Rewrites compiler-owned relative imports to data-URL modules, as the worker does. */
+function resolveModulePath(importer: string, specifier: string): string | undefined {
+  if (!specifier.startsWith("./") && !specifier.startsWith("../")) return undefined;
+  const directory = importer.slice(0, Math.max(0, importer.lastIndexOf("/")));
+  const parts: string[] = [];
+  for (const part of `${directory}/${specifier}`.split("/")) {
+    if (part === "" || part === ".") continue;
+    if (part === "..") parts.pop();
+    else parts.push(part);
+  }
+  const path = `/${parts.join("/")}`;
+  return path.endsWith(".js") ? `${path.slice(0, -3)}.hex` : path;
+}
 
 /**
  * Both tests below compile every curated example through the whole pipeline,
@@ -53,7 +66,14 @@ describe("curated playground examples", () => {
 
         const moduleUrls = new Map<string, string>();
         for (const module of compiled.executionModules) {
-          const linked = linkModule(module.javascript, module.path, moduleUrls);
+          const linked = module.javascript.replace(
+            /^(\s*import(?:[^;\n]*?\sfrom)?\s+)(["'])([^"']+)\2;/gmu,
+            (statement, prefix: string, _quote: string, specifier: string) => {
+              const target = resolveModulePath(module.path, specifier);
+              const url = target === undefined ? undefined : moduleUrls.get(target);
+              return url === undefined ? statement : `${prefix}${JSON.stringify(url)};`;
+            },
+          );
           moduleUrls.set(
             module.path,
             `data:text/javascript;charset=utf-8,${
