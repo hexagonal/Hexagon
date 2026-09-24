@@ -105,7 +105,7 @@ export interface ExternImportItem {
 }
 
 /** FFI Part 5 §1's receiver member forms (#982). */
-export type ReceiverConvention = "method" | "get" | "set";
+export type ReceiverConvention = "method" | "get" | "set" | "new";
 
 export type ExternDeclaration =
   | ExternFunDeclaration
@@ -129,6 +129,14 @@ export interface ExternFunDeclaration extends ExternDeclarationFields {
    * first parameter the emitter makes the JavaScript receiver.
    */
   readonly convention?: ReceiverConvention;
+  /** A `static` member of an `extern class` (FFI Part 5 §6.3). */
+  readonly static?: true;
+  /**
+   * The `extern class` row this member was declared in (§6), present on its
+   * members and nothing else — the class whose type an instance member's subject
+   * must be, and whose constructor object `new` and `static` rows reach.
+   */
+  readonly owner?: ExternTypeDeclaration;
   /**
    * The declared binders, present only inside the reserved boundary (#370,
    * `spec/intrinsics.md` §3.4): an intrinsic row may carry constraint brackets,
@@ -168,6 +176,13 @@ export interface ExternLetDeclaration extends ExternDeclarationFields {
 export interface ExternTypeDeclaration extends ExternDeclarationFields {
   readonly kind: "ExternType";
   readonly default: false;
+  /**
+   * Present when the row is an `extern class` header (FFI Part 5 §6.1): the type
+   * is the class's, and its constructor object is what `new` and `static`
+   * members reach. `default` is §6.4's default-export class, which has no
+   * foreign name.
+   */
+  readonly foreignClass?: { readonly default: boolean };
 }
 
 export interface LetItem {

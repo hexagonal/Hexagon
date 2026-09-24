@@ -67,6 +67,7 @@ refuses it before a `fun` block head (Functions §7.3; layout stays agnostic).
 | A `fun` head ending its logical item — the keyword alone, or with its binder list (`fun<a: Eq>`), no member on the line (Functions §7.3) | `fun` member block |
 | A `pattern` head ending its logical item — the name, alone or with its binder list, component list, and result type (`pattern rat(top: BigInt, bottom: BigInt): Rat`, `pattern parts`; Pattern Declarations §2.1). The alias form `pattern rgb = Color.rgb` opens nothing: a deeper-indented following line is a continuation of the item, as everywhere, and the alias rule reads the one name it finds there (Pattern Declarations §3.4) | `pattern` member block |
 | `extern from "specifier"` head (FFI Part 4 §2.2 — one item per line under ordinary layout; the row was owed from that part and is added with the kind taxonomy) | Member block |
+| An `extern class` head — `class` and its name, alias or modifiers, ending its logical item (FFI Part 5 §6.1). **Optional:** a head followed by no deeper-indented line is a class with no members and complete, never "expected an indented block" | Member block |
 | Term binding ending in `=` (`let x =`, `var x =`, `let f(...) =`, `fun f(...) =`, or a member header — a `fun` block's member lines included) | Binding body block |
 
 A control word standing in an FFI Part 5 member row's foreign-name seat —
@@ -79,7 +80,7 @@ matches(text: String, pattern: RegExp) ->! Bool` opens nothing *(#982)*.
 decides which: **expression blocks** — bodies and binding blocks, item
 sequences whose final expression is the block's value (Statements §3) —
 **arm blocks** — a `match`'s or `catch`'s arms — and **member blocks** —
-the `constraint`, `honor`, `extern from`, `fun`, and `pattern` heads' bodies, plus the
+the `constraint`, `honor`, `extern from`, `extern class`, `fun`, and `pattern` heads' bodies, plus the
 module's own implicit block: sequences that declare rather than compute — no
 value, no final-expression law (Statements §3.1; the module top level also
 runs `Unit`-typed items, Modules §8.2). A member block is not an expression —

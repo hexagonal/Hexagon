@@ -471,6 +471,10 @@ export interface ExternFunDeclaration extends ExternDeclarationFields {
   readonly binding: Binding;
   /** FFI Part 5's receiver convention (#982); see the parsed tree's field. */
   readonly convention?: Resolved.ReceiverConvention;
+  /** A `static` class member; see the parsed tree's field. */
+  readonly static?: true;
+  /** The `extern class` a member belongs to (§6); see the resolved tree's field. */
+  readonly ownerClass?: Resolved.ExternTypeId;
   readonly parameters: readonly Binding[];
   readonly result: Type;
 }
@@ -487,6 +491,8 @@ export interface ExternTypeDeclaration extends ExternDeclarationFields {
   readonly externType: Resolved.ExternTypeId;
   /** The nominal type's home module, carried for expected-type doors. */
   readonly declaringPath?: string;
+  /** An `extern class` header (FFI Part 5 §6.1); see the parsed tree's field. */
+  readonly foreignClass?: { readonly default: boolean };
 }
 
 export interface LetItem {

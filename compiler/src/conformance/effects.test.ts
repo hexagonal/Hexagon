@@ -1612,15 +1612,12 @@ export let t: String = trim("x")
     // callable. The instance members are forms since #982, so the redirect is
     // the row's one report, composed as a `fun`'s is — and a `set` row's arrow
     // is `->!` whatever the word claimed (Part 5 §4.1).
-    const slice = (keyword: string) =>
-      `extern \`${keyword}\` declarations belong to a later FFI slice`;
     const head = (text: string) =>
       effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
     ${text}
 `]]);
     expect(head("pure class Foo")).toEqual([
       "`pure` is retired, and a type declares nothing invocable — drop the word",
-      slice("class"),
     ]);
     expect(head("pure method foo(x: Int): Int")).toEqual([RETIRED_PURE]);
     expect(head("conduit get x(v: Int): Int")).toEqual([retiredWithoutInlet("conduit")]);

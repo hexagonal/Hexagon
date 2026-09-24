@@ -188,7 +188,10 @@ function beginLine(
   const indentation = token.span.start.column;
   const continuesClause = clauseContinuations.has(token.kind);
 
-  if (indentation > block.indentation && expectsBlock(block.item)) {
+  if (
+    indentation > block.indentation &&
+    (expectsBlock(block.item) || opensClassBlock(block.item))
+  ) {
     output.push(virtual("VOpen", token.span));
     block.item.length = 0;
     blocks.push({ indentation, delimiterDepth, item: [], hasContent: false });
@@ -433,6 +436,31 @@ function lastControlHead(
     }
   }
   return undefined;
+}
+
+/**
+ * Whether an item is an `extern class` head (FFI Part 5 §6.1, #982) — `class`
+ * and a name at the head of the item, past only the modifiers and retired words
+ * a row head admits — whose member block opens on a following indented line.
+ *
+ * Optional, unlike `expectsBlock`'s heads: a class with no members declares
+ * its type alone, so a head followed by no indented line is complete and draws
+ * no "expected an indented block". A `class` followed by a name is no term —
+ * the `union`/`widens` disambiguation — so ordinary code never reaches this.
+ */
+function opensClassBlock(item: readonly Lexed.Token[]): boolean {
+  let index = 0;
+  while (index < item.length) {
+    const token = item[index]!;
+    if (token.kind === "Export") index += 1;
+    else if (
+      token.kind === "NonUpperName" && ["default", "pure", "conduit"].includes(token.text)
+    ) index += 1;
+    else break;
+  }
+  const head = item[index];
+  if (head?.kind !== "NonUpperName" || head.text !== "class") return false;
+  return ["UpperName", "NonUpperName"].includes(item[index + 1]?.kind ?? "");
 }
 
 /**
