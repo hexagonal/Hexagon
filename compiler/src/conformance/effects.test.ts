@@ -2607,6 +2607,25 @@ export let useDefer(action: () ->? Unit): (() ->? Unit) = defer(action)
     expect(hover(source, "outer")).toBe("(() ->? Unit, () -> Unit) ->? Unit");
   });
 
+  it("decides a source's other call colours before it generalizes", () => {
+    // The body is a source, so its conduit arm has nothing to join `f`'s
+    // colour to; the defaulting clause at calls makes it pure before `run`
+    // generalizes, and an impure argument meets that face (§3.4, §4.3).
+    const source = `let run(cb: () ->? Unit, f) =
+    save!("x")
+    cb?()
+    f(1)
+`;
+    expect(hover(source, "run(")).toBe("<a: Num> (() ->? Unit, a -> b) ->! b");
+    expect(check(`${source}export let use(): Int = run!(() => (), (n) =>
+    save!("y")
+    n)
+`)).toEqual([
+      "a `->` arrow promises purity, and this function performs effects — the " +
+      "demand is written `->`, the function's face `->?` or `->!`",
+    ]);
+  });
+
   it("leaves a pure lambda handed to a conduit pure beside the enclosing callback", () => {
     // `applyTo` is a conduit; the lambda it is handed is pure by its body, so
     // the call is bare even beside `cb?()` — the conservative-conduct rule
@@ -2659,6 +2678,48 @@ export let total(value: Int, cb: () ->? Unit): Int =
       }
     });
 
+    it("refuses a sibling pinned pure that the source arm then claims, at the demand (§4.3)", () => {
+      const pinned = "    a(): Unit =\n        let p: () -> Unit = b\n        ()\n";
+      const source = "    b(): Unit =\n        let unused = a\n        save!(\"x\")\n";
+      for (const members of [[pinned, source], [source, pinned]]) {
+        const knot = `fun\n${members.join("")}`;
+        const text = "module Main\n\n" + world + knot;
+        const compiled = compileFiles([["/world.js", ""], ["/main.hex", text]]).diagnostics;
+        expect(compiled.map(({ message }) => message)).toEqual([
+          "a `->` arrow promises purity, and this function performs effects — the " +
+          "demand is written `->`, the function's face `->?` or `->!`",
+        ]);
+        // The primary is the demand — the written `() -> Unit` that pinned `b`.
+        expect(text.slice(compiled[0]!.primary.start.offset)).toMatch(/^\(\) -> Unit = b\n/);
+        expect(hover(knot, "b()")).toBe("() ->! Unit");
+      }
+    });
+
+    it("holds a lambda that calls a sibling to the knot's close, whichever member closes first", () => {
+      const conducting = "    a(cb: () ->? Unit): Unit =\n        let g = () =>\n            cb?()\n" +
+        "            b!()\n        g!()\n";
+      const source = "    b(): Unit =\n        let unused = a\n        save!(\"x\")\n";
+      for (const members of [[conducting, source], [source, conducting]]) {
+        const knot = `fun\n${members.join("")}`;
+        expect(check(knot)).toEqual([]);
+        expect(hover(knot, "a(cb")).toBe("(() ->? Unit) ->! Unit");
+      }
+      // The same lambda beside a sibling that performs nothing: the sibling
+      // stays pure, and the call on it bare — nothing conducted it early.
+      const quiet = `fun
+    a(cb: () ->? Unit): Unit =
+        let g = () =>
+            cb?()
+            b(cb)
+        g?()
+    b(cb: () ->? Unit): Unit =
+        let unused = a
+        ()
+`;
+      expect(check(quiet)).toEqual([]);
+      expect(hover(quiet, "b(cb: ")).toBe("(() ->? Unit) -> Unit");
+    });
+
     it("captures an enclosing signature's colour in a nested knot", () => {
       const source = `export let outer(action: () ->? Unit): Int =
     fun
@@ -2692,9 +2753,11 @@ export let total(value: Int, cb: () ->? Unit): Int =
       expect(hover(orNoop, "orNoop")).toBe("(Bool, () ->? Unit) -> () ->? Unit");
     });
 
-    it("refuses a pure lambda where a `->!` field is demanded", () => {
+    it("refuses a pure lambda where a `->!` field is demanded, inside an inlet-bearing body too", () => {
       expect(check(`export record Source = { step: () ->! String }
-export let quiet: Source = Source({ step = () => "x" })
+export let quiet(cb: () ->? Unit): Source =
+    cb?()
+    Source({ step = () => "x" })
 `)).toEqual([
         "this position's arrow is the impure constant — its colour is fixed where the " +
         "type is declared, and this function's face is the pure `->`; the demand cannot " +

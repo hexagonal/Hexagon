@@ -151,7 +151,7 @@ does nothing the world can see when you call it:
 let defer(action: () ->? Unit) = () => action?()
 ```
 
-Hover shows `defer : (() ->? Unit) -> (() ->? Unit)`. The returned closure conducts
+Hover shows `defer : (() ->? Unit) -> () ->? Unit`. The returned closure conducts
 `action`, so its arrow is linked to the callback's. `defer`'s own arrow is plain `->`:
 its body neither performs an effect nor runs anything it was handed, and a colour that
 nothing claims is pure. So `defer(action)` is a bare call, even inside a body that has
@@ -162,7 +162,8 @@ does.** The body decides when it closes, and nothing the function later meets ca
 that. A pure lambda is pure wherever you hand it. Put it in a record field declared
 `->!` and it is refused, because the field promises an effect the lambda does not have.
 Hand it where a callback's `->?` is shared with another parameter, and it pins that
-colour pure. Where you mean a do-nothing function to stand in for the caller's colour,
+colour pure — which the checker reports as a `->?` that promises more than the body
+delivers. Where you mean a do-nothing function to stand in for the caller's colour,
 say so with a written face:
 
 ```hexagon
