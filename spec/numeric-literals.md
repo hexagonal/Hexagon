@@ -242,7 +242,7 @@ a stand-down always ends in refusal, at every seat, by a short argument: operand
 elaboration uses the same three conversions the lift uses, so were its result the face,
 every operand would have reached the face and the lift would have fired; and the only
 results that widen into a face are `Nat`, `Int`, and `BigInt`: a `Nat` result means every operand was
-`Nat`, and every face honoring a rung owns `Num.fromNat`, so the lift would have fired; an
+`Nat`, and every face honoring a `Num`-rooted rung owns `Num.fromNat`, so the lift would have fired; an
 `Int` result the face admits means the face owns `Signed.fromInt`, so every `Nat`/`Int`
 operand reached it and the lift would have fired. A `BigInt` result the face admits
 means the face owns `FromBigInt.fromBigInt`, and therefore also `Signed.fromInt`
@@ -316,7 +316,7 @@ ungated elaboration (the operand stand-down above declines differently: its resu
 meets a seat that refuses it, the dot's receiver seat included): at `let t: T = a ** b`
 (`a, b : Int`) for a nominal `T` honoring `Num` and `Signed` but not `Pow`, the
 expectation lifts nothing, so the power runs at `Int` and the finished value injects,
-exactly as this section always read. The gate's remaining subjects are exactly such user
+exactly as this section always read. Under the arithmetic operators, the gate's remaining subjects are exactly such user
 nominals: since `Rat` honors `Pow` (Operators §6.3), every tower face reachable by
 injection carries the constraint of every operator whose operand elaboration can land at
 `Nat` or `Int` — `+`, `-`, `*`, `**`, unary negation — so no in-tower written face is

@@ -312,7 +312,7 @@ constraint Concat<a> =
 
 Lineage: Haskell, Elm, PureScript, and (as `<>`/append) the broader ML family. Overloading `+` for strings was rejected: `+` is `Num.add` and `String` is not `Num`; keeping algebra and joining as separate operators is both the FP tradition and a genuine diagnostic improvement (`"a" + "b"` errors with "did you mean `++`?" — mandatory fixit, see §14.1).
 
-`++` and `+`/`-` sharing level 5 is harmless in practice — mixing them in one expression is invariably a type error anyway — and saves a table row.
+`++` and `+`/`-` sharing level 6 is harmless in practice — mixing them in one expression is invariably a type error anyway — and saves a table row.
 
 ---
 
@@ -329,7 +329,7 @@ xs |> Seq.map(x => x + 1) |> Seq.filter(p) |> Seq.take(3)
                   -- Seq.take(Seq.filter(Seq.map(xs, x => x + 1), p), 3)
 ```
 
-- Left-associative, level 13 (loosest infix — §3.3 covers the two `=>` interaction cases).
+- Left-associative, level 17 (loosest infix — §3.3 covers the two `=>` interaction cases).
 - **Desugar shape:** if the right operand is syntactically a call `E(args…)`, rewrite to `E(a, args…)`; otherwise treat the whole right operand as a callee and rewrite to `RHS(a)` (this is what makes the bare form and `a |> (x => x + 1)` work). Because the rewrite precedes inference, the type checker, constraint resolution, and dictionary insertion never know pipes exist.
 - **Typing rides the rewritten application** (Functions §4.3): when the bare-form rewrite makes the callee a lambda literal — `a |> (x => …)`, `a |> match …` — that application elaborates its argument before its callee, so the lambda's parameter reads its type off `a`. This is the elaboration schedule only; the evaluation-order footnote below is unchanged.
 - *(#355.)* **A pipe stage is a call, so it takes a call mark** (Effects §3). A stage with its own argument list marks that list as any call does: `x |> take!(3)` rewrites to `take!(x, 3)`. The bare form's mark stands at the end of the stage — `x |> save!` — and the rewrite carries it onto the call it builds: `save!(x)`. The stage end is one of the mark's two grammatical seats (Effects §3.2; Lexer §8.1); the checker still never knows pipes exist — it sees the rewritten, marked call.

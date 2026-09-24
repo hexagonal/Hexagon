@@ -366,7 +366,7 @@ Unchanged and still worth its ink here: **`Unit`'s `undefined` must not be confu
 | `${e}` → `show(e)`; Show is display-semantics; not universal | this doc §5.3, §7 |
 | Escapes `\$` and `\#`; bare `#{` is a v1 lex error (reserved for v2 Debug) | this doc §5.2, §5.4 |
 | String length/indexing: codepoints, 1-based, O(n) accepted; graphemes maybe-later | this doc §5.1 |
-| `_` separators: JS rule, all numeric literals; decimal-only bases in v1 | this doc §8 |
+| `_` separators: JS rule, all numeric literals; integers and BigInts also in hexadecimal, octal, and binary (`bitwise.md` §8), Float and Dec decimal only | this doc §8 |
 | `Unit` = `()` = JS `undefined` | this doc §9 |
 | `Float.nan` / `Float.infinity` constants and `Float.isNan` / `Float.isFinite` detectors; no special-value literals; `x != x` is uniformly `False` | this doc §3 |
 | `Float.floor`/`ceil`/`trunc`/`round`/`roundAway` return `Int`; `round` uses ties to even, `roundAway` ties away from zero; unsafe results throw target-owned `IntRangeError`; zero is canonical | this doc §3; #919, #974 |

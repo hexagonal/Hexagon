@@ -48,10 +48,10 @@ shift count is always `Int`, whatever the subject type.
 
 `Bitwise` is **pre-registered** (Constraints §5.1.1). Its name resolves in every module,
 it cannot be redeclared, and the operators reach it by its one identity. Its declaring
-module is `stdlib/Bitwise.hex`. A constraint declaration seats as early as its member
-headers allow (Modules §5.5), and these headers name only the subject and `Int`, so
-`Bitwise.hex` seats among the leading constraint declarations. It must seat before
-`Int.hex` and `BigInt.hex`, which honor it.
+module is `stdlib/Bitwise.hex`. A prelude module sees only the members seated before it
+(Modules §5.5), so `Bitwise.hex` seats before `Int.hex` and `BigInt.hex`, which honor it.
+Its member headers name only the subject and `Int`, so it can seat among the leading
+constraint declarations.
 
 The members are not in bare scope (Modules §5.5). They are reached by the dot
 (`x.bitAnd(y)`, `x.shiftLeft(3)`) and by qualification through the constraint's module
@@ -123,8 +123,12 @@ seats only, and Lexer §4.4's name seats admit it (`x.bnot` is a field).
 `band`, `bor`, and `bxor` are contextual keywords (Lexer §4.2). Each is the operator in
 the seat directly after a complete operand, and an ordinary name everywhere else.
 Hexagon has no juxtaposition application, so a name directly after a complete operand
-is otherwise always an error. The same argument supports `union`, `widens`, and
-`module`, and `when`, `with`, and `as` already occupy that infix seat. `band` is an
+is otherwise an error, with one exception: a name written against the closing
+parenthesis of a parenthesised primary, with no space, is Pattern Declarations §3.1's
+suffix seat, which keeps its priority (Lexer §4.2's `pattern` row). So `(a bor b)band`
+is a suffix construction, and `(a bor b) band mask` is the operator, just as `(0, 0) when g`
+is a guard. The same argument supports `union`, `widens`, and `module`, and `when`,
+`with`, and `as` already occupy that infix seat. `band` is an
 English word, and a local named `band` stays usable:
 
 ```hex
@@ -136,7 +140,7 @@ let y =
     flags band               // operator at line end: y continues
         mask
 let z = flags
-band.play()                  // new item: a leading band never continues
+band.play()                  // new item: a leading band at the item's column never continues
 ```
 
 Because a contextual `band`, `bor`, or `bxor` can begin an expression, none of them is
@@ -144,8 +148,8 @@ in the continuation set of Lexer & Layout §2.3. This is the rule `-` and `<` al
 follow. A continuation that wants one indents deeper, or ends the previous line with
 the operator.
 
-Constraint members keep non-keyword names (Lexer §4.4), which is why the members are
-named `bitAnd` and its siblings.
+Constraint members keep non-keyword names (Lexer §4.4), so the complement is `bitNot`,
+not `bnot`; the binary members take the same shape for uniformity.
 
 ### 3.2 Precedence
 
@@ -174,6 +178,8 @@ Consequences:
   as in Boolean algebra.
 - `bnot x ** 2` is `(bnot x) ** 2`, while `-x ** 2` stays `-(x ** 2)`.
 - `bnot f(x)` is `bnot (f(x))`: postfix forms stay at level 1.
+- `bnot -x` is `bnot (-x)`: `bnot`'s operand admits a prefix, as `**`'s right operand
+  does (Operators §6.2).
 
 Lean has no range operator, so placing the operators above `..` is Hexagon's own choice.
 Range endpoints are numbers, so `0..n band mask` is `0..(n band mask)`. Shifts are named
@@ -204,7 +210,9 @@ BigInt.fromInt(x band y) == BigInt.fromInt(x) band BigInt.fromInt(y)
 numbers:
 
 - **`bitAnd`, `bitOr`, `bitXor`.** When both operands lie in the signed 32-bit range,
-  JavaScript's native operator is already exact and is used. Otherwise each operand
+  JavaScript's native operator is already exact and is used. When either lies outside
+  ±(2⁵³ − 1), a value already past the overflow contract, the operation goes through
+  `BigInt` and converts back, as Gleam's does. Otherwise each operand
   splits into a high part, ⌊x / 2³²⌋ (at most 21 bits and signed), and a low part,
   x − high · 2³², in [0, 2³²). The operation acts on each pair of parts, and the parts
   recombine as high · 2³² + low.
@@ -243,13 +251,16 @@ To port 32-bit JavaScript:
 - `e | 0` becomes `e.toInt32()`, and `e >>> 0` becomes `e.toUint32()`.
 - `x >>> n` becomes `x.toUint32().shiftRight(n)`.
 - `x >> n` on 32-bit data becomes `x.toInt32().shiftRight(n)`.
+- `x << n` becomes `x.shiftLeft(n).toInt32()`: JavaScript reduces at every `<<`, and a
+  shift of a 32-bit value by at most 31 is exact before the reduction.
 
 JavaScript reduces a shift count modulo 32, so these rewrites assume a count from 0 to
 31, which is what 32-bit code writes.
 
-`band`, `bor`, `bxor`, `+`, `-`, `*`, and `shiftLeft` all commute with reduction modulo
-2³². So one reduction where the JavaScript reduced gives the JavaScript answer, as long
-as intermediates stay inside ±2⁵³. Right shifts do not commute with reduction. Because
+`band`, `bor`, `bxor`, `bnot`, `+`, `-`, `*`, and `shiftLeft` all commute with reduction
+modulo 2³². So one reduction where the JavaScript reduced gives the JavaScript answer, as
+long as intermediates stay inside ±2⁵³; where they would not (a product of two 32-bit
+values, a sum of several shifted copies), reduce each term where the JavaScript did. Right shifts do not commute with reduction. Because
 there is no unsigned right shift, the explicit conversion goes exactly where the 32-bit
 meaning lives.
 
@@ -317,9 +328,10 @@ Every spelling of a member emits alike: the operator, the dot, and the qualified
   `x << BigInt(n)`. A literal count converts the same way, `x.shiftLeft(3)` emitting
   `x << BigInt(3)`, because the shape follows the algebra and never a value
   (Constraints §6.1).
-- **At `Int`**, no JavaScript operator carries the member's meaning, so every spelling
-  keeps the call to the instance's member seat. This is what `**` does at `Int`, where
-  `3 ** 2` emits `__Pow_Int.pow(3, 2)`.
+- **At `Int`**, no JavaScript operator carries the member's meaning, so every spelling,
+  the operator included, emits the direct call to the instance's member seat, as
+  `Integral`'s members do (`i.div(j)` emits `div(i, j)`; Method Syntax §8.1). The `**`
+  operator's dictionary-slot read at `Int` is #810's divergence and is not copied.
 - **In a generic body**, calls use ordinary constraint evidence. No runtime dispatch on
   JavaScript operand values stands in for static instance selection.
 
@@ -390,10 +402,10 @@ BigInt  = (Digits | HexInteger | OctInteger | BinInteger) "n"
   A `d` suffix in the octal and binary bases would give one letter two meanings across
   the three bases, so it is not admitted there either. A Dec from a mask goes through
   the ordinary literal rule: `let price: Dec = 0xFF` is `Num<Dec>.fromNat` of 255.
-- **Malformed forms.** A fractional or exponent form (`0x1.5`, `0b1e3`) is one malformed
-  numeric literal. So is a digit outside the base (`0b102`, `0o8`), and a prefix with no
-  digits (`0x`). None of them is a valid literal followed by a name. `0x1.show()` is a
-  literal followed by a dot call, as `1.show()` is.
+- **Malformed forms.** A fractional form (a `.` followed by a decimal digit, as in
+  `0x1.5`) or an exponent form (`0b1e3`) is one malformed numeric literal. So is a digit outside the base (`0b102`, `0o8`), and a prefix with no
+  digits (`0x`). None of them is a valid literal followed by a name. `0x1.show()` and
+  `0xA.abs()` are literals followed by a dot call, as `1.show()` is.
 - **Meaning.** A literal denotes the plain number: `0xFFFFFFFF` is 4294967295, never −1.
   A negative value is unary minus applied to a literal. The type rules, the bare range
   limit of 2⁵³ − 1 with its `n` fix-it, and the literal-pattern rules are exactly those
@@ -415,7 +427,7 @@ BigInt  = (Digits | HexInteger | OctInteger | BinInteger) "n"
 | `x and y`, `x or y`, `not x` at a type honoring `Bitwise` | the ordinary `Bool` type error + fixit "for bitwise conjunction write `band`" (resp. `bor`, `bnot`) |
 | `honor Bitwise<Bool>` (or `Float`, `Nat`) in project source | the orphan-rule refusal at the declaration (Constraints §5.3): both homes are prelude source |
 | `n band m`, `bnot n`, `n.shiftLeft(k)` with only `Nat` operands and no face | the closed-pair report + the written-face route: "a written `Int` face runs the operation and admits the result (`let bits: Int = …`)" (§5.1) |
-| Non-`Int` shift count | the seat's type error (the count is a concrete `Int` parameter, §5) |
+| Non-`Int` shift count | the seat's type error (the count is a concrete `Int` parameter, §5.1) |
 | `&`, `^`, `~` in source | invalid character, with a redirect: "Hexagon spells bitwise and `band`" (resp. `bxor`, with "for a power write `**`" at `^`; `bnot` at `~`) |
 | `\|` directly after a complete operand in expression position | parse error + "Hexagon spells bitwise or `bor`" |
 | Glued `<<`, `>>`, or `>>>` after a complete operand | parse error + "Hexagon has no shift operators; write `x.shiftLeft(n)`" (resp. `shiftRight`; at `>>>`, "`x.toUint32().shiftRight(n)`") |
@@ -455,7 +467,9 @@ BigInt.fromInt(x band y) == BigInt.fromInt(x) band BigInt.fromInt(y)   -- and bo
 -- (b) The 32-bit conversions
 4294967295.toInt32()             -- -1
 (-1).toUint32()                  -- 4294967295
--- a ported 32-bit hash (e.g. FNV-1a) matches its JavaScript original
+-- a ported 32-bit hash matches its JavaScript original: FNV-1a in its shift-add form,
+-- h ^= c; h += (h<<1)+(h<<4)+(h<<7)+(h<<8)+(h<<24), each << ported per §4.3
+-- x << n → x.shiftLeft(n).toInt32();  bnot commutes with reduction mod 2³²
 
 -- (c) Spellings and emission
 x band y      Bitwise.bitAnd(x, y)      x.bitAnd(y)      Int.bitAnd(x, y)
