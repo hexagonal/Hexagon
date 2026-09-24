@@ -3757,3 +3757,33 @@ describe("Effects §13.2: the publish walk moves a colour, never a type and neve
     }
   });
 });
+
+/**
+ * **§3.4's defaulting clause at calls reaches a named local inside a seat**
+ * *(#947)*: the local generalizes where it is bound, so its undetermined call
+ * colours are decided there — not left free and pinned after its callers
+ * instantiated them.
+ */
+describe("Effects §3.4 at a seat: a named local's call colours default before it generalizes", () => {
+  test("an impure argument meets the pure face the local's body gave its callback", () => {
+    expect(messages(`extern from "./io.js"
+    export fun save(document: String) ->! Unit
+
+constraint C<r> =
+    go(runner: r, b: () ->! Unit) ->! Unit
+record R = { id: Int }
+honor C<R> =
+    go(runner, b) =
+        let run = (f) =>
+            save!("x")
+            f(1)
+        let k = run!((n) =>
+            save!("y")
+            n)
+        b!()
+`)).toEqual([
+      "a `->` arrow promises purity, and this function performs effects — the " +
+      "demand is written `->`, the function's face `->?` or `->!`",
+    ]);
+  });
+});

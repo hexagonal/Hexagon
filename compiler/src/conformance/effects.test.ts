@@ -2720,6 +2720,44 @@ export let total(value: Int, cb: () ->? Unit): Int =
       expect(hover(quiet, "b(cb: ")).toBe("(() ->? Unit) -> Unit");
     });
 
+    it("decides a held lambda's own calls at its own close, so nothing generalizes them free", () => {
+      // `g` reaches `b`, so its join with `b` waits for the knot; its call on
+      // `h` does not, and is pure before `g` generalizes (§2.6, §3.4). The
+      // impure argument then meets that face — §4.3, as outside any knot.
+      const holding = "    a(): Int =\n        let g = (h) =>\n            let u = b()\n            h(1)\n" +
+        "        g((n) =>\n            save!(\"x\")\n            n)\n";
+      const quiet = "    b(): Int =\n        let unused = a\n        1\n";
+      for (const members of [[holding, quiet], [quiet, holding]]) {
+        const knot = `fun\n${members.join("")}`;
+        expect(check(knot)).toEqual([
+          "a `->` arrow promises purity, and this function performs effects — the " +
+          "demand is written `->`, the function's face `->?` or `->!`",
+        ]);
+        expect(hover(knot, "b()")).toBe("() -> Int");
+      }
+    });
+
+    it("makes a pinned source's callers sources too, however the pin and the call are ordered", () => {
+      const source = "    b(): Unit =\n        let unused = a\n        save!(\"x\")\n";
+      for (
+        const caller of [
+          "    a(): Unit =\n        let p: () -> Unit = b\n        b!()\n",
+          "    a(): Unit =\n        b!()\n        let p: () -> Unit = b\n        ()\n",
+          "    a(): Unit =\n        let q = b\n        let p: () -> Unit = b\n        q!()\n",
+        ]
+      ) {
+        for (const members of [[caller, source], [source, caller]]) {
+          const knot = `fun\n${members.join("")}`;
+          expect(check(knot)).toEqual([
+            "a `->` arrow promises purity, and this function performs effects — the " +
+            "demand is written `->`, the function's face `->?` or `->!`",
+          ]);
+          expect(hover(knot, "a()")).toBe("() ->! Unit");
+          expect(hover(knot, "b()")).toBe("() ->! Unit");
+        }
+      }
+    });
+
     it("captures an enclosing signature's colour in a nested knot", () => {
       const source = `export let outer(action: () ->? Unit): Int =
     fun

@@ -2301,8 +2301,14 @@ interface Knot {
   readonly frames: EffectFrame[];
   /** The level the members' monotypes stand at; a deferred colour sinks to it. */
   readonly level: number;
-  /** Each member's own frame, and the monotype it closes into. */
-  readonly memberTypes: Map<EffectFrame, Variable>;
+  /**
+   * The demands met by a colour of this knot while it is open *(#947)*: a `->`
+   * or `->!` a sibling was handed to as a value. Recorded instead of bound, and
+   * compared at the close — "the knot's close is where the two are compared"
+   * (Effects §3.4) — so a sibling the source arm claims keeps `->!` and the
+   * demand is what the report names.
+   */
+  readonly demands: { readonly demand: Mono; readonly colour: Mono; readonly span: Source.Span }[];
 }
 
 /** The module a receiver head's companion is addressed under (§4.1's table). */
@@ -2527,9 +2533,13 @@ class Checker {
    * a later binding in its own chain is reached by walking `instance`.
    */
   readonly #colourPins = new WeakMap<Variable, Source.Span>();
-  /** A knot member's monotype variable, and where a use first bound it (#947). */
+  /** A knot member's monotype variable (#947). */
   readonly #knotTypeVariables = new WeakSet<Variable>();
-  readonly #knotTypeBindings = new WeakMap<Variable, Source.Span>();
+  /**
+   * Nonzero while a body's own arms run: their unifications are the body
+   * deciding its colour, never a demand a knot records (#947).
+   */
+  #settlingArms = 0;
   /**
    * The token a written arrow was elaborated from *(#867)*. Only the constraint
    * seat reads it: Effects §13.2 makes the contract's failing arrow a related
@@ -7339,7 +7349,7 @@ class Checker {
         types: recursiveTypes,
         frames: [],
         level: level + 1,
-        memberTypes: new Map(),
+        demands: [],
       };
       this.#knots.push(knot);
       for (const symbol of ordered) {
@@ -7358,13 +7368,7 @@ class Checker {
         const value = this.#inferExpr(item.value, level + 1);
         this.#declaringMember = enclosingMember;
         this.#annotationOwner = enclosingAnnotationOwner;
-        // Where a use bound the member's monotype before its body did — a
-        // demand it was handed to — is the pin the knot's close may report
-        // (#947); the member's own binding below is no pin.
-        const recursiveType = recursiveTypes.get(symbol)!;
-        const boundEarly = recursiveType.instance !== undefined;
-        this.#unify(recursiveType, value, item.span);
-        if (!boundEarly) this.#knotTypeBindings.delete(recursiveType);
+        this.#unify(recursiveTypes.get(symbol)!, value, item.span);
       }
       knot.host = undefined;
       this.#knots.pop();
@@ -8538,8 +8542,6 @@ class Checker {
           this.#deferredFrames.push(effectFrame);
         } else if (declaringMember !== undefined && knot?.host === declaringMember.symbol) {
           knot.frames.push(effectFrame);
-          const memberType = knot.types.get(declaringMember.symbol);
-          if (memberType?.kind === "Variable") knot.memberTypes.set(effectFrame, memberType);
         } else {
           // A lambda whose calls reach a sibling's colour cannot be decided
           // before the sibling is: it waits for the knot, its colour sunk to
@@ -8548,7 +8550,15 @@ class Checker {
           if (holding === undefined) {
             this.#settleFrame(effectFrame);
           } else {
+            // Only the join with the sibling waits. The body's constants are
+            // its own now, and every call colour that is no dependency is
+            // decided here, before any binding around it generalizes — a
+            // lambda's colour is still its body's (§2.6); what the knot holds
+            // is only what the sibling's colour will make of it.
+            this.#sourceArm(effectFrame);
+            this.#defaultCallColours(effectFrame);
             this.#lowerLevels(effectFrame.own, holding.level);
+            for (const { effect } of effectFrame.absorbed) this.#lowerLevels(effect, holding.level);
             holding.frames.push(effectFrame);
           }
         }
@@ -14644,6 +14654,10 @@ class Checker {
     if (index < 0) return;
     if (this.#holdsColour(this.#seatBounded, frame.own)) return;
     this.#defaultFrameColour(frame);
+    // Its calls too, before the binding generalizes (§3.4, #947) — all but the
+    // colours the seat itself is still to answer.
+    this.#defaultCallColours(frame, (colour) =>
+      this.#holdsColour(this.#seatBounded, colour) || this.#holdsColour(this.#seatSlots, colour));
     if (this.#prune(frame.own).kind !== "Variable") this.#deferredFrames.splice(index, 1);
   }
 
@@ -15016,12 +15030,12 @@ class Checker {
    * parameter's colour would generalize free and be pinned only afterwards —
    * an impure argument accepted where the displayed face says `->`.
    */
-  #defaultCallColours(frame: EffectFrame): void {
+  #defaultCallColours(frame: EffectFrame, held?: (colour: Mono) => boolean): void {
     for (const { effect } of frame.absorbed) {
       const colour = this.#prune(effect);
-      if (colour.kind === "Variable" && !this.#isDependency(frame, colour)) {
-        colour.instance = PURE;
-      }
+      if (colour.kind !== "Variable" || this.#isDependency(frame, colour)) continue;
+      if (held?.(colour) === true) continue;
+      colour.instance = PURE;
     }
   }
 
@@ -15054,6 +15068,15 @@ class Checker {
    * face is `->`.
    */
   #sourceArm(frame: EffectFrame): void {
+    this.#settlingArms += 1;
+    try {
+      this.#sourceArmBody(frame);
+    } finally {
+      this.#settlingArms -= 1;
+    }
+  }
+
+  #sourceArmBody(frame: EffectFrame): void {
     // Constants first: they are the only thing that can *force* a colour, and a
     // forced `own` then satisfies every remaining `⊒` outright — which is what
     // keeps a `->!` face from constantifying the callback it forwards.
@@ -15092,6 +15115,19 @@ class Checker {
     frame: EffectFrame,
     atSeat = false,
     deferred?: (colour: Mono) => boolean,
+  ): void {
+    this.#settlingArms += 1;
+    try {
+      this.#conduitArmBody(frame, atSeat, deferred);
+    } finally {
+      this.#settlingArms -= 1;
+    }
+  }
+
+  #conduitArmBody(
+    frame: EffectFrame,
+    atSeat: boolean,
+    deferred: ((colour: Mono) => boolean) | undefined,
   ): void {
     // Then the conduits. A body is at least as effectful as anything it
     // calls, and with two points and no subtyping the join is unification —
@@ -15205,11 +15241,10 @@ class Checker {
       growing = false;
       for (const frame of frames) {
         if (sources.has(frame)) continue;
-        const impure = frame.absorbed.find(({ effect }) => isImpure(this.#prune(effect)));
-        if (impure === undefined) continue;
+        if (!frame.absorbed.some(({ effect }) => isImpure(this.#prune(effect)))) continue;
         sources.add(frame);
         growing = true;
-        if (!this.#claimPinnedSource(frame, impure.effect, knot)) this.#sourceArm(frame);
+        this.#sourceArm(frame);
       }
     }
     for (const frame of frames) {
@@ -15228,55 +15263,14 @@ class Checker {
         }
       }
     }
+    // The demands the knot recorded meet the colours the arms settled: a
+    // source against a `->` is §4.3's refusal at the demand, a pure colour is
+    // what it asked for, and one still unconstrained takes the demand.
+    for (const { demand, colour, span } of knot.demands) this.#unify(demand, colour, span);
     for (const frame of frames) {
       this.#defaultFrameColour(frame);
       this.#defaultCallColours(frame);
     }
-  }
-
-  /**
-   * The knot bullet's pinned sibling *(#947)*: a member — or a lambda the knot
-   * held — whose colour ordinary unification pinned pure (a `->` demand it was
-   * handed to as a value) and which the source arm then claims. A body that
-   * writes no face has nothing §4.2 could name; what was violated is the
-   * demand, so this is §4.3's refusal, at the pin, and the arm's constant is
-   * the face the sibling keeps. A written face is the constant itself, never a
-   * pinned variable, and takes §4.2 through the ordinary arm.
-   */
-  #claimPinnedSource(frame: EffectFrame, absorbed: Mono, knot: Knot): boolean {
-    if (frame.own.kind !== "Variable") return false;
-    let node: Variable = frame.own;
-    while (node.instance?.kind === "Variable") node = node.instance;
-    if (node.instance === undefined || isImpure(node.instance)) return false;
-    frame.sourced = true;
-    // A member's pin is where its monotype's colour was fixed — the demand —
-    // or, where the demand bound the whole monotype before the body existed,
-    // where it did; never the member's own closing unification.
-    const memberType = knot.memberTypes.get(frame);
-    const face = memberType === undefined ? undefined : this.#prune(memberType);
-    const pin = (face?.kind === "Function" && face.effect !== undefined
-      ? this.#colourPin(face.effect)
-      : undefined) ??
-      (memberType === undefined ? undefined : this.#knotTypeBindings.get(memberType)) ??
-      this.#colourPin(frame.own);
-    node.instance = IMPURE;
-    // Where the demand bound the whole monotype, the member still points at
-    // the demand's own arrow: rebind it to a copy wearing the constant, so the
-    // member keeps the face the arm gave it and the demand keeps its `->`.
-    if (memberType !== undefined && face?.kind === "Function" &&
-      (face.effect === undefined || face.effect.kind === "Effect")) {
-      let holder: Variable = memberType;
-      while (holder.instance?.kind === "Variable") holder = holder.instance;
-      holder.instance = { ...face, effect: IMPURE };
-    }
-    if (pin !== undefined && !isRecovered(this.#prune(absorbed))) {
-      this.#diagnostics.add({
-        severity: "error",
-        message: effectMismatchMessage(PURE, IMPURE),
-        primary: pin,
-      });
-    }
-    return true;
   }
 
   /**
@@ -18526,8 +18520,32 @@ class Checker {
       // element or a vector element is the merge its enclosing form is.
       this.#recordJoinedColour(variable, type);
     }
-    if (type.kind === "Function" && this.#knotTypeVariables.has(variable)) {
-      this.#knotTypeBindings.set(variable, span);
+    // *(#947.)* While a knot is open, a demand never binds a sibling's colour:
+    // it is recorded and compared at the knot's close (Effects §3.4). A demand
+    // that binds a member's whole monotype before its body exists binds a copy
+    // whose colour is fresh, the demand's own arrow recorded the same way.
+    if (this.#knots.length > 0 && this.#settlingArms === 0) {
+      if (type.kind === "Effect" && !isRecovered(type)) {
+        const knot = this.#knots.find((open) => this.#knotColour(open, variable));
+        if (knot !== undefined) {
+          knot.demands.push({ demand: type, colour: variable, span });
+          return;
+        }
+      }
+      if (
+        type.kind === "Function" && this.#knotTypeVariables.has(variable) &&
+        (type.effect === undefined || type.effect.kind === "Effect")
+      ) {
+        const knot = this.#knots.find((open) =>
+          open.members.some((member) => open.types.get(member.symbol) === variable)
+        );
+        if (knot !== undefined) {
+          const colour = this.#fresh(knot.level, false);
+          knot.demands.push({ demand: type.effect ?? PURE, colour, span });
+          variable.instance = { ...type, effect: colour };
+          return;
+        }
+      }
     }
     variable.instance = type;
     for (const requirement of variable.requirements) this.#validate(requirement);
