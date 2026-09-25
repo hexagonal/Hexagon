@@ -2263,6 +2263,8 @@ interface DotCallGoal {
    * deadline lifts exactly as one that resolved at the dot does.
    */
   readonly expected: Mono | undefined;
+  /** The binding chain the call was written in: its demands are made there (#1048). */
+  readonly chain: readonly ChainEntry[];
 }
 
 /** One member of a `fun` block's strongly-connected component (Functions §7.4). */
@@ -2300,6 +2302,12 @@ type HeadOwner =
       readonly members: readonly Resolved.SymbolId[];
       readonly span: Source.Span;
     };
+
+/** A binding whose right-hand side encloses a demand (#1048). */
+type ChainEntry = {
+  readonly symbol: Resolved.SymbolId;
+  readonly name: string;
+};
 
 /** One side of §10's rigid-vs-rigid refusal, resolved against the live knot. */
 type HeadSite =
@@ -2892,7 +2900,7 @@ class Checker {
    * checked, outermost first — the declarations whose generalization can carry a
    * dictionary into this body (#1048).
    */
-  readonly #bindingChain: { readonly symbol: Resolved.SymbolId; readonly name: string }[] = [];
+  readonly #bindingChain: ChainEntry[] = [];
   /**
    * Every demand made while a binding chain is open, with that chain, for the
    * evidence-route check that runs once every declaration has generalized
@@ -2901,7 +2909,7 @@ class Checker {
    */
   readonly #demands: {
     readonly requirement: Requirement;
-    readonly chain: readonly { readonly symbol: Resolved.SymbolId; readonly name: string }[];
+    readonly chain: readonly ChainEntry[];
   }[] = [];
   /**
    * The declared variables a function or a `fun` block head introduced, with
@@ -2912,6 +2920,18 @@ class Checker {
    */
   readonly #functionDeclared = new Map<Variable, Resolved.SymbolId | undefined>();
   #declaringBinders = false;
+  /**
+   * The chain a demand made *now* belongs to, where that is not the one open:
+   * a dot-call goal settled at a generalization deadline, or a requirement's
+   * components minted when its type later became concrete. A demand is
+   * attributed to where it was **made**, never to when its requirement object
+   * happened to be minted.
+   */
+  #chainOverride: readonly ChainEntry[] | undefined = undefined;
+  /** The chain each recorded requirement was made in, for its components. */
+  readonly #requirementChains = new Map<Requirement, readonly ChainEntry[]>();
+  /** Each `fun` member's knot — the members checked with it (#1048). */
+  readonly #knotMembers = new Map<Resolved.SymbolId, readonly Resolved.SymbolId[]>();
   /**
    * The span of the ascribed type currently being elaborated, or `undefined`
    * outside one. Read only by `#annotationType`'s type-variable arm, to mark the
@@ -5100,6 +5120,7 @@ class Checker {
       const result = this.#fresh(actual.level, false);
       this.#dotCallGoals.push({
         expression, callee, receiver, argumentTypes, result, level, expected,
+        chain: [...(this.#chainOverride ?? this.#bindingChain)],
       });
       return result;
     }
@@ -5685,8 +5706,23 @@ class Checker {
     }
   }
 
+  /** Runs `body` with the goal's own chain as the one its demands are made in. */
+  #inGoalChain(goal: DotCallGoal, body: () => void): void {
+    const enclosing = this.#chainOverride;
+    this.#chainOverride = goal.chain;
+    try {
+      body();
+    } finally {
+      this.#chainOverride = enclosing;
+    }
+  }
+
   /** A goal whose receiver became head-known: §3.4's table, replayed. */
   #settleDotCallGoal(goal: DotCallGoal): void {
+    this.#inGoalChain(goal, () => this.#settleDotCallGoalMade(goal));
+  }
+
+  #settleDotCallGoalMade(goal: DotCallGoal): void {
     const type = this.#dispatchDotCall(
       goal.expression,
       goal.callee,
@@ -7447,6 +7483,7 @@ class Checker {
         held: new Set(),
       };
       this.#knots.push(knot);
+      for (const symbol of ordered) this.#knotMembers.set(symbol, ordered);
       for (const symbol of ordered) {
         const item = bySymbol.get(symbol)!;
         const enclosingMember = this.#declaringMember;
@@ -18868,8 +18905,11 @@ class Checker {
     const actual = this.#prune(type);
     if (actual.kind === "Variable") this.#acceptRequirement(actual, requirement);
     else this.#validate(requirement);
-    if (!this.#declaringBinders && this.#bindingChain.length > 0) {
-      this.#demands.push({ requirement, chain: [...this.#bindingChain] });
+    const demandChain = this.#chainOverride ?? this.#bindingChain;
+    if (!this.#declaringBinders && demandChain.length > 0) {
+      const chain = [...demandChain];
+      this.#requirementChains.set(requirement, chain);
+      this.#demands.push({ requirement, chain });
     }
     return requirement;
   }
@@ -19745,6 +19785,17 @@ class Checker {
   }
 
   #validate(requirement: Requirement): void {
+    const enclosing = this.#chainOverride;
+    this.#chainOverride = this.#requirementChains.get(requirement) ?? enclosing;
+    try {
+      this.#validateMade(requirement);
+    } finally {
+      this.#chainOverride = enclosing;
+    }
+  }
+
+  /** `#validate` itself, run in the chain the requirement was made in (#1048). */
+  #validateMade(requirement: Requirement): void {
     if (requirement.reported || requirement.validated === true) return;
     const type = this.#prune(requirement.type);
     if (type.kind === "Variable" || type.kind === "Error") return;
@@ -21073,7 +21124,7 @@ class Checker {
     type Unrouted = {
       readonly requirement: Requirement;
       readonly variable: Variable;
-      readonly named: { readonly symbol: Resolved.SymbolId; readonly name: string };
+      readonly named: ChainEntry;
       readonly mentioned: boolean;
     };
     const unrouted: Unrouted[] = [];
@@ -21090,8 +21141,17 @@ class Checker {
       if (carried) continue;
       const owner = this.#declaredHeadOwners.get(variable.id);
       const declaring = this.#functionDeclared.get(variable);
+      // The declaration to name is the one whose type could carry the variable:
+      // for a head's variable, the innermost enclosing member of that block; for
+      // a knot sibling's own variable, the innermost enclosing member of that
+      // knot — never a local binding inside it, whose type the repair is not in.
+      const knot = owner?.kind === "member" && !chain.some(({ symbol }) => symbol === owner.symbol)
+        ? this.#knotMembers.get(owner.symbol)
+        : undefined;
       const named = (owner?.kind === "block"
         ? [...chain].reverse().find(({ symbol }) => owner.members.includes(symbol))
+        : knot !== undefined
+        ? [...chain].reverse().find(({ symbol }) => knot.includes(symbol))
         : chain.find(({ symbol }) => symbol === declaring)) ?? chain.at(-1)!;
       const type = this.#schemes.get(named.symbol)?.type;
       unrouted.push({
@@ -21121,13 +21181,20 @@ class Checker {
       // not-yet-general type (Functions §7.4): `named` cannot write it — a `u`
       // in its signature would be its own — so the repair is the block head.
       const sibling = owner?.kind === "member" && owner.symbol !== named.symbol;
+      // The head to write, spelled whole — the constraints the knot demands of
+      // the variable, maximal and alphabetical — so the advice compiles as
+      // written rather than drawing the head's own contract refusal next.
+      const bounds = [...new Set(this.#keptRequirements(variable).map(({ name }) => name))].sort();
+      const binder = bounds.length === 0
+        ? name
+        : `${name}: ${bounds.length === 1 ? bounds[0] : `(${bounds.join(", ")})`}`;
       this.#diagnostics.add({
         severity: "error",
         message: sibling
           ? `\`${name}\` is declared on \`${owner.name}\`, and this in \`${named.name}\` needs its ` +
-            `\`${requirement.name}\` evidence, but a recursive knot's members share types, not ` +
-            `evidence; declare \`${name}\` on the \`fun\` block's head and write it in ` +
-            `\`${named.name}\`'s signature too`
+            `\`${requirement.name}\` evidence, but \`${named.name}\`'s type does not mention it, and ` +
+            `a knot member cannot name a sibling's variable; declare it on the block's head, ` +
+            `\`fun<${binder}>\`, and write \`${name}\` in \`${named.name}\`'s signature too`
           : mentioned
           ? `\`${name}\` is a declared type variable, and this needs its \`${requirement.name}\` ` +
             `evidence, but \`${named.name}\` cannot be generalized over \`${name}\`, so no ` +
