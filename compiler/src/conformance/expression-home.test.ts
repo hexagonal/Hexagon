@@ -325,4 +325,39 @@ describe("a faced tree is refused once, naming the value that declined (#827)", 
       "`p` is a `Foo` and cannot enter `Rat`, so the division could not run at `Rat`",
     ]);
   });
+  test("a gated call whose own parts select no home is a value that reaches", () => {
+    // `Nat` honors no `Signed`, so `y - z` is gated; its operands are unsolved
+    // and select no home, so it reaches the face like any unsolved value, and
+    // the gate's missing instance is the one report — never silence.
+    const missing = (face: string, rung: string): string =>
+      `type \`${face}\` has no \`${rung}\` instance`;
+    for (
+      const [source, face, rung] of [
+        ["fun gg(y, z) =\n    let x: Nat = (y - z) + m\n    x\n", "Nat", "Signed"],
+        ["fun gg(y) =\n    let x: Nat = -y + m\n    x\n", "Nat", "Signed"],
+        ["fun gg(y) =\n    let x: Nat = if c then -y else m\n    x\n", "Nat", "Signed"],
+        ["fun gg(y, z) =\n    let x: Float = (y band z) * f\n    x\n", "Float", "Bitwise"],
+      ] as const
+    ) {
+      const reports = refusals(source);
+      expect(reports).toHaveLength(1);
+      expect(reports[0]).toContain(missing(face, rung));
+    }
+    // A gated call that does select a home is a value like any other.
+    expect(refusals("let x: Nat = if c then n - i else m\n")).toEqual([
+      "`n - i` is a `Int` and cannot enter `Nat`, the home `: Nat` writes",
+    ]);
+  });
+
+  test("a value already refused poisons the tree", () => {
+    for (const source of ["let x: Dec = nope + n * f\n", "let x: Dec = n * f + nope\n"]) {
+      expect(refusals(source)).toEqual(["unknown name `nope`"]);
+    }
+  });
+
+  test("an unsolved value runs at the face, the kept type deciding nothing", () => {
+    expect(refusals("fun h(x) =\n    let y: Dec = x * f\n    let z: Dec = x\n    z\n")).toEqual([
+      "`f` is a `Float` and cannot enter `Dec`, so the multiplication could not run at `Dec`",
+    ]);
+  });
 });

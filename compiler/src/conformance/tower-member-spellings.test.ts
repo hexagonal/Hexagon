@@ -737,6 +737,31 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
         ascribe: "Num.add(p, i + j)",
         kept: "Foo",
       })]);
+    // In either operand order: the operand the face lifted first never holds
+    // the subject over the one that declined, in any spelling.
+    for (
+      const receiver of [
+        "((i + j) + p)",
+        "(Num.add(i + j, p))",
+        "add(i + j, p)",
+        "((i + j) |> Num.add(p))",
+        "(i + j).add(p)",
+        "i.add(j).add(p)",
+      ]
+    ) {
+      const call = receiver.startsWith("((") || receiver.startsWith("(Num")
+        ? receiver.slice(1, -1)
+        : receiver;
+      expect(refusals(`${foo}let probe: BigInt = ${receiver}.gcd(s2)\n`)).toEqual([rowSixteen({
+        receiver,
+        declined: "`p` is a `Foo` and",
+        ascribe: call,
+        kept: "Foo",
+      })]);
+    }
+    expect(refusals(`${foo}let t: BigInt = Num.add(i + j, p)\n`)).toEqual([
+      "`p` is a `Foo` and cannot enter `BigInt`, so the addition could not run at `BigInt`",
+    ]);
     // At a binding the same tree says the same sentence, once.
     expect(refusals(`${foo}let t: BigInt = p + (i + j)\n`)).toEqual([
       "`p` is a `Foo` and cannot enter `BigInt`, so the addition could not run at `BigInt`",
