@@ -208,6 +208,22 @@ describe("the four faces are the branded `Hex.*` interfaces (obligation 1)", () 
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
   });
 
+  /**
+   * The seat whose published type is the *body's*: a function's return. The
+   * written qualifier replaces the inferred node's absence of one, as it does
+   * for a nominal (`#applyWrittenQualifiers`), so the face is the author's.
+   */
+  test("a function's written return keeps its qualifier though the body inferred none", () => {
+    const compiled = project({
+      "/src/main.hex": "import Hex.Vector as V\n" + "import Hex.Map as M\n" +
+        "export fun f(): V.Vector(Int) =\n    let x: Vector(Int) = [1]\n    x\n" +
+        "export fun g(): M.Map(String, Int) =\n    let m: Map(String, Int) = Map.empty\n    m\n",
+    });
+    const text = declarationsOf(compiled, "/src/main.hex");
+    expect(text).toContain("export declare function f(): V.Vector<number>;");
+    expect(text).toContain("export declare function g(): M.Map<string, number>;");
+  });
+
   test("`Seq(a)` is not swept up: its face stays the structural `Iterable<a>` (§8.2)", () => {
     const text = declarations("export let items: Seq(Int) = Seq.singleton(1)\n");
     expect(text).toContain("export declare const items: Iterable<number>;");

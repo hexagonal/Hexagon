@@ -205,7 +205,7 @@ describe("the companion is the type's home (Constraints §4.4, §5.3)", () => {
    */
   test.each([
     ["Vector", "Show<Vector(a)>", "honor Show<Vector(a)> =\n    show(x) = \"v\"\n"],
-    ["Vector", "Hash<Vector(a)>", "honor Hash<Vector(a)> =\n    hash(x) = 0\n"],
+    ["Vector", "Hash<Vector(a)>", "honor<a: Hash> Hash<Vector(a)> =\n    hash(x) = 0\n"],
     ["Vector", "Concat<Vector(a)>", "honor Concat<Vector(a)> =\n    concat(left, right) = left\n"],
     [
       "Vector",
@@ -220,6 +220,59 @@ describe("the companion is the type's home (Constraints §4.4, §5.3)", () => {
   ])("the companion `%s` may not honor `%s`, a slot the compiler fills", (companion, head, honor) => {
     expect(inCompanion(companion, `\n${honor}`))
       .toEqual([`duplicate instance of \`${head}\`: the compiler provides it`]);
+  });
+
+  /**
+   * A slot the compiler leaves open is the companion's to fill — `Ord` at `Map`
+   * has no structural answer — and its head binds its variables like any
+   * head's (Constraints §4.4, #390): written bare, the base constraint's demand
+   * on them is reported at the header; written with the prefix, it is admitted.
+   */
+  test("the companion's own head binds its variables, as any head does", () => {
+    expect(inCompanion("Map", "\nhonor Ord<Map(k, v)> =\n    compare(l, r) = Ordering.Equal\n"))
+      .toEqual([
+        "`k` is declared without constraints, but the body requires `Hash`; write `<k: Hash>` on the `honor` header",
+        "`v` is declared without constraints, but the body requires `Eq`; write `<v: Eq>` on the `honor` header",
+      ]);
+    expect(inCompanion(
+      "Map",
+      "\nhonor<k: Hash, v: Eq> Ord<Map(k, v)> =\n    compare(l, r) = Ordering.Equal\n",
+    )).toEqual([]);
+  });
+
+  /**
+   * A head at a collection introduces its variables as binders, with nothing
+   * the prefix does not say (Constraints §4.4, #390): what the constraint's
+   * base or the body demands of them is reported at the header, as it is at
+   * `Option(a)`. An unbound variable here once reached emission and faulted.
+   */
+  test.each([
+    ...(["Eq", "Hash", "Show"] as const).flatMap((base) => [
+      [base, "Vector(a)", ["a"]],
+      [base, "Set(a)", ["a"]],
+      [base, "Map(k, v)", ["k", "v"]],
+    ] as const),
+    ["Ord", "Vector(a)", ["a"]] as const,
+  ])("a bare `%s`-based head at `%s` asks the header for its binders' constraints", (base, head, binders) => {
+    const messages = diagnostics(
+      `constraint Pretty<t: ${base}> =\n    pretty(x: t) -> Int\n\n` +
+        `honor Pretty<${head}> =\n    pretty(x) = 0\n`,
+    );
+    expect(messages).toHaveLength(binders.length);
+    binders.forEach((binder, index) => {
+      expect(messages[index]).toMatch(
+        new RegExp(`^\`${binder}\` is declared without constraints, but the body requires `),
+      );
+    });
+  });
+
+  test("a body's demand on a bare head's variable is reported at the header", () => {
+    expect(diagnostics(
+      "constraint Pretty<t> =\n    pretty(x: t) -> String\n\n" +
+        "honor Pretty<Set(a)> =\n    pretty(x) = show(x)\n",
+    )).toEqual([
+      "`a` is declared without constraints, but the body requires `Show`; write `<a: Show>` on the `honor` header",
+    ]);
   });
 
   /** A program owns neither `Show` nor `Vector`, so this is the orphan it always was. */

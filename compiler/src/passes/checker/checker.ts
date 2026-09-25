@@ -2598,14 +2598,36 @@ function companionHeadName(type: Mono): string | undefined {
  * from this list mint only what the head lawfully binds.
  */
 function headBinderNames(subject: Resolved.TypeAnnotation): readonly string[] {
-  if (subject.kind !== "Union" && subject.kind !== "RecordDeclaration") return [];
   return [
     ...new Set(
-      subject.arguments.flatMap((argument) =>
+      headArguments(subject).flatMap((argument) =>
         argument.kind === "TypeVariable" ? [argument.name] : []
       ),
     ),
   ];
+}
+
+/**
+ * An instance head's constructor arguments: a declared nominal's, and *(#1071)*
+ * a public door row's kind's slots — `Vector(a)`'s element, `Map(k, v)`'s key
+ * and value — since the row makes each a declared type the head law reads like
+ * any other. Empty for every other head. The one reading behind both the head
+ * law (`#checkInstanceHead`) and the binders a head introduces
+ * (`headBinderNames`), so the two cannot disagree about what a head binds.
+ */
+function headArguments(subject: Resolved.TypeAnnotation): readonly Resolved.TypeAnnotation[] {
+  switch (subject.kind) {
+    case "Union":
+    case "RecordDeclaration":
+      return subject.arguments;
+    case "Vector":
+    case "Set":
+      return [subject.element];
+    case "Map":
+      return [subject.key, subject.value];
+    default:
+      return [];
+  }
 }
 
 /**
@@ -6468,14 +6490,7 @@ class Checker {
     // are the kind's slots.
     const nominal = subject.kind === "Union" || subject.kind === "RecordDeclaration" ||
       isPublicTypeKind(subject.kind);
-    const headArguments: readonly Resolved.TypeAnnotation[] =
-      subject.kind === "Union" || subject.kind === "RecordDeclaration"
-        ? subject.arguments
-        : subject.kind === "Vector" || subject.kind === "Set"
-        ? [subject.element]
-        : subject.kind === "Map"
-        ? [subject.key, subject.value]
-        : [];
+    const written = headArguments(subject);
     // A head is parameterized when it is *applied*, whether or not a `<...>`
     // prefix declares the binders (#390): the prefix attaches constraints, it
     // does not decide that the head has arguments. Reading the prefix alone let
@@ -6483,8 +6498,8 @@ class Checker {
     // the first honoring one constraint at two unrelated argument positions
     // through a single variable, the second keying a ground head on a
     // constructor the coherence table cannot tell apart from the generic one.
-    if (item.typeParameters.length > 0 || (nominal && headArguments.length > 0)) {
-      const arguments_ = nominal ? headArguments : [];
+    if (item.typeParameters.length > 0 || (nominal && written.length > 0)) {
+      const arguments_ = nominal ? written : [];
       const names = arguments_.flatMap((argument) =>
         argument.kind === "TypeVariable" ? [argument.name] : []
       );
