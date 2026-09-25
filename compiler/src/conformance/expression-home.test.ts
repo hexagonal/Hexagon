@@ -739,8 +739,44 @@ describe("calls join the tree (#1062, part 2)", () => {
       settled("n", "Rat", "; write `(n: Rat.Rat)`, or annotate the callback: `(v: Rat.Rat) => …`"),
     ]);
     expect(implied("let w = apply2((n: Rat.Rat), (v) => v * r)\n")).toEqual([]);
-    // A compiler-owned type whose name a declaration took has no spelling.
-    for (const declaration of ["record Float = {z: Int}", "type Float = Int"]) {
+    // An implied type skips only the companion fallback: outside its
+    // constraint the tables and the compiler's own names answer first.
+    expect(projectDiagnostics(
+      "module Main\n\nconstraint Source<a> =\n    type Float\n    peek(supply: a) -> Float\n\n" +
+        "let n: Int = 3\n" + apply + "let g = 1.5\nlet w = apply2(n, (v) => v * g)\n",
+    )).toEqual([settled("n", "Float", "; write `(n: Float)`, or annotate the callback: `(v: Float) => …`")]);
+    // The module's own union is spelled bare.
+    const own = "module Main\n\nunion U = U(Int)\n\n" +
+      "honor Num<U> =\n    add(left, right) = left\n    multiply(left, right) = left\n" +
+      "    fromNat(value) = U(0)\n" +
+      "honor Signed<U> =\n    subtract(left, right) = left\n    negate(value) = value\n" +
+      "    fromInt(value) = U(value)\n\nlet n: Int = 3\nlet u: U = U(2)\n" + apply;
+    expect(projectDiagnostics(own + "let w = apply2(n, (v) => v * u)\n")).toEqual([
+      settled("n", "U", "; write `(n: U)`, or annotate the callback: `(v: U) => …`"),
+    ]);
+    expect(projectDiagnostics(own + "let w = apply2((n: U), (v) => v * u)\n")).toEqual([]);
+    // An imported union the file never names is reached through its alias.
+    const unionLib = own.replace("module Main", "module Lib").replace("union U", "export union U")
+      .replace("let u: U = U(2)", "export let two: U = U(2)").replace(apply, "");
+    const imported = (call: string): readonly string[] =>
+      compileFiles([
+        ["/main.hex", "module Main\n\nimport Lib as L\n\nlet n: Int = 3\n" + apply + "let u = L.two\n" + call],
+        ["/Lib.hex", unionLib],
+      ]).diagnostics.map(({ message }) => message);
+    expect(imported("let w = apply2(n, (v) => v * u)\n")).toEqual([
+      settled("n", "U", "; write `(n: L.U)`, or annotate the callback: `(v: L.U) => …`"),
+    ]);
+    expect(imported("let w = apply2((n: L.U), (v) => v * u)\n")).toEqual([]);
+    // A compiler-owned type whose name a declaration took has no spelling —
+    // the module's own, or an import's through its companion alias.
+    const float = "let n: Int = 3\n" + apply + "let g = 1.5\nlet w = apply2(n, (v) => v * g)\n";
+    for (const lib of ["export type Float = Int\n", 'extern from "./x.js"\n    export type Float\n']) {
+      expect(compileFiles([
+        ["/main.hex", "module Main\n\nimport Lib as Float\n\n" + float],
+        ["/Lib.hex", "module Lib\n\n" + lib],
+      ]).diagnostics.map(({ message }) => message), lib).toEqual([settled("n", "Float", "")]);
+    }
+    for (const declaration of ["record Float = {z: Int}", "type Float = Int", 'extern from "./x.js"\n    type Float']) {
       expect(projectDiagnostics(
         `module Main\n\n${declaration}\n\nlet n: Int = 3\n` + apply +
           "let g = 1.5\nlet w = apply2(n, (v) => v * g)\n",

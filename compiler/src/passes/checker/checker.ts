@@ -14086,11 +14086,11 @@ class Checker {
    * (Method Syntax §2.2), with the call, the member's constraint, and whether it
    * is a tower member (whose result is the home).
    *
-   * Every such receiver is registered, a literal one included: the report is
-   * looked up by the refused value, or by the value that gave the home, and a
-   * literal receiver is a value of its call through its grouping (ruling b′) —
-   * its ungrouped literal, which is the registered receiver only where no
-   * grouping was written, and then it is no tree and has no `#rootValues`.
+   * A literal receiver is registered too, and never reported on: the report is
+   * looked up by a value of the call, and a literal receiver's value is the
+   * literal inside its grouping (ruling b′), never the grouped receiver
+   * registered here. An ungrouped literal is both, but it is no tree, so it has
+   * no `#rootValues` and the report declines.
    */
   readonly #closedReceivers = new WeakMap<Resolved.Expr, ClosedReceiver>();
 

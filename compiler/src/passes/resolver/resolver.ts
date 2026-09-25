@@ -5863,7 +5863,6 @@ class Resolver {
       ...this.#typeAliases.keys(),
       ...this.#externTypeNames.keys(),
       ...this.#moduleAliases.keys(),
-      ...this.#impliedTypeOwners.keys(),
     ]);
     for (const name of names) {
       const answer = this.#bareTypeAnswer(name);
@@ -5888,16 +5887,17 @@ class Resolver {
    * What a bare, unapplied type spelling answers with here, in
    * `#resolveTypeAnnotation`'s order — the module's own layer, the companion
    * fallback, then the tables the prelude shares — or `undefined` where no
-   * declaration answers it. An alias, an extern type, and an implied type
-   * answer with no nominal of their own.
+   * declaration answers it, and a compiler-owned name, if it is one, keeps it.
+   * An empty answer is a declaration with no nominal of its own: an alias or an
+   * extern type, which takes the spelling and gives no record or union one.
    */
   #bareTypeAnswer(
     name: string,
   ): { readonly record?: Resolved.RecordId; readonly union?: Resolved.UnionId } | undefined {
-    if (!this.#ownTypeNames.has(name)) {
-      // An implied type of the module's own constraint is refused outside its
-      // constraint's context, and takes the spelling from everything below.
-      if (this.#impliedTypeOwners.has(name)) return {};
+    // An implied type of the module's own constraint skips the companion
+    // fallback, as the module's own layer; outside its constraint it is
+    // refused only once the tables and the compiler's own names have declined.
+    if (!this.#ownTypeNames.has(name) && !this.#impliedTypeOwners.has(name)) {
       const aliased = this.#moduleAliases.get(name);
       const union = aliased?.unions.get(name);
       if (union !== undefined) return { union: union.id };
