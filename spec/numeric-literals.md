@@ -1,7 +1,7 @@
 # Hexagon Spec: Numeric Literals
 
 **Status:** Decided (July 2026); §5.1 amended September 2026 for #808 — the tower is a closed list, the expected-type lift governs every spelling of a tower member call, reaches a dot call's receiver under Method Syntax §2.2's receiver rule, and is binding wherever it lands — a stand-down ends in refusal at every seat, the dot's receiver included (#821).
-**Decision:** Roc-style polymorphic integer literals with `Int` defaulting. `1n` is monomorphic `BigInt`. Unsuffixed decimal/exponent literals are monomorphic `Float`; `d` literals are monomorphic `Dec` (`dec.md`).
+**Decision:** Roc-style polymorphic integer literals with `Int` defaulting. `1n` is monomorphic `BigInt`. Unsuffixed decimal/exponent literals are `Float`, promoted to an exact type only where §5.1 already establishes one (#525); `d` literals are monomorphic `Dec` (`dec.md`).
 
 This document is written for a future implementation session. It assumes the reader knows the existing `hexc` architecture: Algorithm J with union-find mutable type variables, level-based generalisation, constraints compiled to dictionary passing, and `honor` declarations as instance definitions.
 
@@ -16,7 +16,7 @@ There are four literal forms (Dec is specified in `dec.md`):
 | `1`, `42`, `0` | `<a: Num> a` (polymorphic) | `fromNat(1) : α` with pending constraint `Num α` |
 | `1n`, `42n` | `BigInt` (monomorphic, always) | the literal itself |
 | `5d`, `5.00d` | canonical prelude `Dec` (monomorphic) | exact digits and retained decimal places |
-| `1.5`, `0.0`, `1e9` | `Float` (monomorphic, always) | the literal itself |
+| `1.5`, `0.0`, `1e9` | `Float` (monomorphic), promoted only at a known exact target (§5.1) | the literal itself, or the exact value its digits spell |
 
 Key rules:
 
@@ -24,7 +24,7 @@ Key rules:
 2. `fromNat : Nat -> a` is a method of the `Num` constraint. Every `Num` instance must implement it. It is total and exact for all planned instances (`Nat`, `Int`, `Float`, `BigInt`, `Rat`).
 3. **Defaulting:** at generalisation time, any type variable that (a) is still unresolved and (b) carries a constraint set arising *solely from literal elaboration and other defaultable constraints* (see §4) is unified with `Int` instead of being generalised. Literal type variables are therefore **never** generalised. `let x = 1` gives `x : Int`, not `x : <a: Num> a`.
 4. `1n` does **not** participate in the polymorphic scheme. The `n` suffix is a type annotation, exactly as in JavaScript. There is no `fromBigInt` method in `Num` (deliberately — see §7, Rejected alternatives).
-5. Unsuffixed decimal literals do not participate either. `1.5 : Float`, always, in v1.
+5. Unsuffixed decimal literals do not participate either: `1.5 : Float`, never polymorphic. Where §5.1 already establishes an exact target for the literal, it is promoted there from its written digits.
 6. **Codegen guarantee:** when `α` resolves to `Int`, `Float`, or `BigInt`, the `fromNat` wrapper is erased and the literal is emitted respectively as `k`, `k.0`, or `kn`. The Float spelling deliberately preserves inferred type intent for a human reader even though `k` and `k.0` are identical JavaScript numbers. Only literals inside genuinely polymorphic (dictionary-taking) functions emit `dict.fromNat(k)`.
 7. **Contextual numeric widening:** an established `Nat` may be injected through `Num<a>.fromNat`; an established `Int` may be injected through `Signed<a>.fromInt`; an established `BigInt` may be injected through `FromBigInt<a>.fromBigInt`. The target must be independently established — by an annotation, a concrete operand, a boundary, or (at a tower member call only, through the expected-type lift) the seat's expected type — and widening never invents a polymorphic target merely to make an expression type-check. At a tower member call — an operator, or the same member spelled bare, qualified, as a pipe stage, or by the dot (Method Syntax §1; #808) — whose expected type is concrete **and carries the member's constraint instance**, that type is the operation's home: the operands widen in and the operation runs at the written type — at `**`, the base alone; the exponent seat is the member's concrete `Int` parameter and never joins (§5.1, Operators §6.3) — without the instance, or where no expectation lands, the operation elaborates from its operands and exact unification wins first (§5.1).
 
@@ -105,7 +105,7 @@ The literal's payload `k` is validated at lex time: it must be an exact non-nega
 
 `1n` literals: elaborate directly to `BigIntLit(k)` with type `BigInt`. No type variable, no constraint. Payload is arbitrary precision (store as string or JS bigint in the AST).
 
-Unsuffixed decimal literals: elaborate directly to `FloatLit`, type `Float`. (Future work note: decimal-literal polymorphism is explicitly deferred — a design task, not an implementation task (#525). It cannot ride a `fromFloat` method: a `Rat` `fromFloat` exists in no spelling, ever (friendly-numerics tenet 7) — the exact binary conversion of the double nearest `0.1` is not what a user writing `0.1` means, and a `Float` entering `Rat` would receive manufactured exactness — so any future design must carry the literal's written digits, never the parsed double.)
+Unsuffixed decimal literals: elaborate directly to `FloatLit`, type `Float`. No type variable and no constraint: a decimal literal is never polymorphic (§7). Where §5.1 establishes an exact target for the literal itself, it is **promoted** there, carrying its written digits — never the parsed double, whose exact binary value is not what a writer of `0.1` means (friendly-numerics tenet 7).
 
 ### Interaction with the existing pipeline
 
@@ -203,6 +203,71 @@ Generic targets need existing `FromBigInt` evidence; `Signed` alone is insuffici
 Monomorphic BigInt literals can widen in expression seats, but literal patterns
 still require their exact type. See `integer-widening.md` §§4–6.
 
+**Decimal-point literal promotion** *(#525)*. An unsuffixed decimal-point or
+exponent literal is a `Float` (§3). It is the one `Float` that may meet an
+exact target: where this section establishes the target for the literal itself
+— by exactly the rules above, the lift included — and the target is concrete,
+the literal takes it. Write its digits, separators removed, as `c × 10^(e − s)`:
+`c` the digits with the point removed, `s` the count of digits after the point,
+and `e` the written exponent (zero when there is none).
+
+```text
+ℓ : Float, a decimal-point literal with no exponent    target is the canonical Dec
+────────────────────────────────────────────────────────────────────────────────
+ℓ ⇑ Dec    elaborates as the `d` literal of the same digits: coefficient c, s places
+
+ℓ : Float, a decimal-point literal    Γ ⊢ Frac<target>    Γ ⊢ FromBigInt<target>
+target is concrete and is not Float
+────────────────────────────────────────────────────────────────────────────────
+ℓ ⇑ target    elaborates as Frac<target>.divide(fromBigInt(c), fromBigInt(10^(s − e)))
+              or, where e ≥ s, as fromBigInt(c × 10^(e − s))
+```
+
+- **The written digits, never the double.** `let r: Rat = 0.1` is exactly
+  `1/10`; `let x: Dec = 0.10` is `0.10` with two places.
+- **The literal, never a value.** An established `Float` — a binding, a call's
+  result, an operation that ran at `Float` — never reaches an exact type
+  (friendly-numerics tenet 7). A promoted literal is an operand, never a result:
+  no operation is a literal, so the stand-down argument below is unchanged.
+- **A concrete target, never a variable.** At a type variable, declared or
+  inferred, the literal stays `Float`. No literal's type is decided anywhere a
+  reader cannot see, and no second defaulting candidate exists (§4, §7).
+- **`Dec` by identity; every other target by what it honors.** `Dec` honors no
+  `Frac`, so it is named: the canonical prelude declaration, as for `d`
+  literals, whatever a module shadows. Any other target qualifies by honoring
+  `Frac` and `FromBigInt` — `Rat`, and a user type that joins the tower as `Rat`
+  did — and reaches the written value through its own exact injection and its
+  own division, which is honest for that type: exact at `Rat`, rounded at a type
+  whose division rounds.
+- **Exponents.** At `Dec` an exponent is refused, because a `Dec` literal shows
+  its decimal places (`dec.md` §3); the refusal spells the value in ordinary
+  notation. At a `Frac` target an exponent hides nothing and is accepted:
+  `let r: Rat = 1e-9` is `1/1000000000`.
+- **Literal-shaped expressions.** The seat reads through what only restates a
+  literal: a negation (`price * -1.5`; the sign folds into the value, and the
+  lift does not descend into it, so `-2.5` and `0.5` stay one kind of arm) and a
+  forwarding form (Functions §4.3) whose every value path is literal-shaped —
+  grouping parentheses, both branches of an `if`, every arm of a `match` or
+  `try`, a block's final expression. Each literal takes the target, and each
+  form around them takes it as its type, exactly as an `if` of `Int` branches
+  widens as one value: `if waived then 0.0 else 1.25` at a `Dec` seat compiles
+  as `if waived then 0 else 1` does. A form with any other value path —
+  `if waived then f else 0.5` with `f: Float` — is a `Float` value and is not
+  promoted.
+- **The seats integer widening reaches, and no others.** Among a call's
+  arguments a literal-shaped argument waits for its non-callback siblings, so
+  `Num.add(0.5, price)` meets at `Dec` as `0.5 + price` does. It settles before
+  any callback argument is checked: promoted where a sibling established an
+  exact subject, and otherwise settling the subject at `Float`, as it did before
+  it waited — `xs.fold(0.0, (acc, x) => acc + x)` checks its callback at
+  `Float`. A vector element, a tuple component, a record field, a constructor
+  argument, or a lambda body under a function-typed expectation is not a
+  widening seat, so a literal there stays `Float` — where an integer *literal*
+  would have unified. A literal whose exponent would scale it by more than
+  10,000 powers of ten is refused rather than read.
+- **Not in patterns.** A literal pattern keeps Pattern Matching §2.5's exact-type
+  rule; at a `Dec` scrutinee the refusal names the `d` spelling (#1054).
+
 **The tower** *(#808)*. The tower is the closed family of constraints whose members this
 section's conversions and lift serve: `Num`, `Signed`, `Frac`, `Pow`, `Integral`, and
 `Bitwise` — the prelude's rungs, and no others. `Bitwise` is the one rung not rooted in
@@ -239,16 +304,18 @@ the `Bitwise` words and members included, a shift's count being its concrete `In
 parameter as `**`'s exponent is —
 whose expected type is **concrete** and carries the member's constraint instance, the
 expected type **is** the operation's common type: each operand reaches it by exact
-unification or by the three conversions above, and the operation's evidence is selected at
+unification, by the three conversions above, or — a decimal-point literal — by promotion,
+and the operation's evidence is selected at
 it. Where an operand can reach it by neither — a `Float` under a `Rat` face, a user type
-under `BigInt` — the lift **stands down**: the operation elaborates from its operands
+under `BigInt` — the lift **stands down** (a decimal-point *literal* under an exact face is
+promoted instead, below): the operation elaborates from its operands
 alone, exactly as below, and whatever mismatch remains surfaces where the result meets its
 seat (`let total: Rat = count * price` is refused at the binding rather than at the
 operation) — and that refusal names the operand that declined the face, so the report
 keeps the information the lift's own refusal carried: "`price` is a `Float` and cannot
 enter `Rat`, so the multiplication ran at `Float`" (§6). No accepted program changes, and
 a stand-down always ends in refusal, at every seat, by a short argument: operand-driven
-elaboration uses the same three conversions the lift uses, so were its result the face,
+elaboration uses the same conversions and promotion the lift uses, so were its result the face,
 every operand would have reached the face and the lift would have fired; and the only
 results that widen into a face are `Nat`, `Int`, and `BigInt`: a `Nat` result means every operand was
 `Nat`, and every face honoring a `Num`-rooted rung owns `Num.fromNat`, so the lift would have fired; an
@@ -469,6 +536,7 @@ Elaboration changes the *character* of type errors involving literals, and this 
 - When defaulting is blocked by a non-defaultable constraint (§4), the error must name the blocking constraint and the literal's location, and suggest an annotation: `The literal 1 at <span> has constraint MyConstraint, which prevents defaulting to Int. Add a type annotation to pin its type.`
 - Never surface the name `fromNat` in an error for code the user wrote without mentioning it. The elaboration is invisible machinery; errors should speak in terms of the literal.
 - *(#808.)* **When the expected-type lift stands down** (§5.1) because an operand cannot reach the face, the refusal that then fires at the consuming seat names that operand and the algebra the operation ran at instead — "`price` is a `Float` and cannot enter `Rat`, so the multiplication ran at `Float`" — so the report keeps what the lift's own refusal at the operand carried. The checker therefore records, at a stand-down, which operand declined and why, and carries it to the seat that refuses — a binding, an argument seat, or a dot call's receiver seat *(#821)*, where the report adds the two facts that seat alone knows: why the face reached the receiver (the spelling's rung) and the written boundary that keeps the receiver at its own type, an ascription or a separate binding (Method Syntax §9 row 16). Every stand-down ends at such a seat (§5.1), so the note is always spent.
+- *(#525.)* A decimal-point literal promoted to `Dec` with an exponent is refused with the value in ordinary notation: "a `Dec` literal is written without an exponent, so its decimal places show; write `0.0015`". A decimal-point literal *pattern* at a `Dec` scrutinee is refused with its `d` spelling: "…; a `Dec` pattern is written with the `d` suffix: `0.5d`" (Pattern Matching §2.5, #1054).
 - LSP hover on a bare literal in polymorphic position should show `<a: Num> a` (matching the round-trip-consistency rule for signatures — the display is source-shaped, Functions §5.1); hover on a defaulted or pinned literal shows the concrete type.
 
 **Settling at synthesized `Unit` obligations.** Three positions carry a `Unit` obligation the language inserts rather than the user writing it: a discarded non-final block item (Statements §3.2), a loop body (Loops §2.2; `while` identically, Loops §4), and the `then` branch of an else-less `if` (Operators §11.2). A type variable that meets such an obligation is settled to `Int` at that point, ahead of §4's generalisation-time defaulting — provided `Int` satisfies every constraint on the variable and at least one of those constraints has no `Unit` instance. The rule is stated over constraints, not provenance: a literal's variable (§3) is the common case, but a variable constrained only by use (`x + x`) settles identically, and there is no reason to give the two different reports. A **declared** type variable is excluded — an annotation pins it, so settling it would report that annotation as requiring the `Int` the settling itself invented, naming a rewrite that repairs nothing (the Rewrite Rule, Declarations Preamble §1.1).
@@ -495,7 +563,7 @@ A branch or item whose type is *structured* — `(1, 2)`, `[1, 2]` — can never
 
 **Haskell-style extensible defaulting** (multiple candidate types, `default` declarations). Rejected: single candidate (`Int`), closed defaultable-constraint list, no per-module configuration. See §4.
 
-**Polymorphic decimal literals.** The polymorphism is deferred, not rejected (#525) — but the `fromFloat` route to it *is* rejected: a `Rat` `fromFloat` exists in no spelling, ever (friendly-numerics tenet 7 — exact binary conversion would mint exactness the double never had), so the open design question is how a literal's written digits reach an exact instance, not which conversion to bless. v1 pins `1.5 : Float`.
+**Polymorphic decimal literals** (#525). Rejected. A decimal literal whose type a type variable decided — `x * 0.5` in `fun half<a: Frac>(x: a)` meaning whatever each caller picks — would need a new `Frac` member to build it and `Float` as a second defaulting candidate beside `Int` (§4), and its type would be decided where no reader can see it. §5.1's promotion covers the concrete targets instead. The `fromFloat` route was never open: a `Rat` `fromFloat` exists in no spelling (friendly-numerics tenet 7 — exact binary conversion would mint exactness the double never had).
 
 ---
 
@@ -505,7 +573,7 @@ A branch or item whose type is *structured* — `(1, 2)`, `[1, 2]` — can never
 2. **Prelude / constraint defs:** add `fromNat : Nat -> a` to `Num` and `fromInt : Int -> a` to `Signed`; implement the five `Num` and four `Signed` prelude instances (§5 table); document the exact-homomorphism law.
 3. **Inference:** elaborate IntLit per §3 (fresh tyvar, `Num` constraint with `LiteralConstraint` provenance, `fromNat` application node). BigIntLit/FloatLit type directly.
 4. **Generalisation:** insert the defaulting pass per §4, testing membership against the compiler's own `Int` instance table — the closed defaultable set of §4's correction record, not the v1.1 five-name list *(corrected 2026-07-28, #135)*. Assert successful unification with Int.
-5. **Codegen:** implement contextual Nat, Int, and BigInt widening per §5.1; erase resolved literal `fromNat` per §5.2 (`k` for Nat/Int, readable `k.0` identity folding for Float, `kn` folding for BigInt, constructor call for Rat/others); dictionary slots for polymorphic cases.
+5. **Codegen:** implement contextual Nat, Int, and BigInt widening and decimal-point literal promotion per §5.1; erase resolved literal `fromNat` per §5.2 (`k` for Nat/Int, readable `k.0` identity folding for Float, `kn` folding for BigInt, constructor call for Rat/others); dictionary slots for polymorphic cases.
 6. **Diagnostics:** literal-aware unification errors, blocked-defaulting error, no `fromNat` leakage (§6).
 7. **LSP:** hover types per §6; signature round-trip consistency (`<a: Num> a -> a -> a` etc.) unchanged.
 8. **Tests:** the eight examples in §2 as golden tests (inferred type + emitted JS), plus the §4 consequence list, plus an error-message snapshot for (g) and the blocked-defaulting case.

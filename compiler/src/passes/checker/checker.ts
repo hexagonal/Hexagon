@@ -1745,6 +1745,134 @@ const POW_IDENTITY: string = preRegisteredConstraintIdentity("Pow");
 /** The contextual bitwise words (`bitwise.md` §3.1). */
 const BITWISE_WORDS: ReadonlySet<string> = new Set(["band", "bor", "bxor"]);
 
+/** A decimal-point literal's written digits: `coefficient × 10^(exponent − places)`. */
+interface DecimalLiteralParts {
+  readonly coefficient: bigint;
+  /** Digits written after the point, separators excluded. */
+  readonly places: number;
+  /** The written exponent, where the literal has one. */
+  readonly exponent?: number;
+}
+
+type DecimalPromotion =
+  | { readonly kind: "Dec"; readonly written: DecimalLiteralParts }
+  | {
+      readonly kind: "Frac";
+      readonly written: DecimalLiteralParts;
+      readonly fromBigInt: Requirement;
+      readonly frac: Requirement;
+    };
+
+/**
+ * The largest power of ten a promoted literal may scale by. The lexer reads
+ * `1e-1000000000000` as a `Float` (zero); read exactly, it would need a
+ * trillion-digit integer, so such a literal is refused rather than promoted.
+ */
+const MAX_PROMOTED_SHIFT = 10_000;
+
+/** Reads a `Float` literal's spelling exactly, never through the parsed double. */
+function decimalLiteralParts(spelling: string, negative = false): DecimalLiteralParts {
+  const [mantissa = "", exponent] = spelling.replaceAll("_", "").split(/[eE]/);
+  const [whole = "", fraction = ""] = mantissa.split(".");
+  const magnitude = BigInt(`${whole}${fraction}` || "0");
+  return {
+    coefficient: negative ? -magnitude : magnitude,
+    places: fraction.length,
+    ...(exponent === undefined ? {} : { exponent: Number(exponent) }),
+  };
+}
+
+/** One literal a literal-shaped expression carries: the node that stands for it, and its sign. */
+interface DecimalLiteralLeaf {
+  /** The literal itself, or the negation that stands for its negative. */
+  readonly node: Resolved.Expr;
+  readonly literal: Resolved.FloatExpr;
+  readonly negative: boolean;
+}
+
+/**
+ * The literals a **literal-shaped** expression carries (#525), or `undefined`
+ * for any other expression. Literal-shaped means a decimal-point literal, a
+ * negated one (`-1.5`, whose negation folds into the value), or a forwarding
+ * form (Functions §4.3) whose every value path is literal-shaped: grouping
+ * parentheses, both branches of an `if`, every arm of a `match` or `try`, a
+ * block's final expression. Anything else — a name, a call, an operation that
+ * ran at `Float` — is a `Float` value and is never promoted.
+ */
+function decimalLiteralLeaves(expression: Resolved.Expr): DecimalLiteralLeaf[] | undefined {
+  switch (expression.kind) {
+    case "Float":
+      return [{ node: expression, literal: expression, negative: false }];
+    case "Unary": {
+      if (expression.operator !== "Negate") return undefined;
+      const inner = decimalLiteralLeaves(expression.operand);
+      // One literal only: the negation stands for it, so any grouping inside
+      // is never materialized. `-(if c then 0.5 else 1.5)` is not literal-shaped.
+      if (inner === undefined || inner.length !== 1) return undefined;
+      return [{ node: expression, literal: inner[0]!.literal, negative: !inner[0]!.negative }];
+    }
+    default: {
+      const paths = forwardedValuePaths(expression);
+      if (paths === undefined) return undefined;
+      const leaves: DecimalLiteralLeaf[] = [];
+      for (const path of paths) {
+        const found = decimalLiteralLeaves(path);
+        if (found === undefined) return undefined;
+        leaves.push(...found);
+      }
+      return leaves;
+    }
+  }
+}
+
+/** The forwarding forms of a literal-shaped expression, outermost first. */
+function decimalLiteralForms(expression: Resolved.Expr): Resolved.Expr[] {
+  const paths = forwardedValuePaths(expression);
+  if (paths === undefined) return [];
+  return [expression, ...paths.flatMap(decimalLiteralForms)];
+}
+
+/**
+ * A forwarding form's value paths (Functions §4.3), or `undefined` for an
+ * expression that is not one. An else-less `if` is excluded: its value is `Unit`.
+ */
+function forwardedValuePaths(expression: Resolved.Expr): readonly Resolved.Expr[] | undefined {
+  switch (expression.kind) {
+    case "Group":
+      return [expression.expression];
+    case "If":
+      return expression.elseless ? undefined : [expression.consequence, expression.alternative];
+    case "Match":
+      return [
+        ...expression.arms.map((arm) => arm.body),
+        ...(expression.catchArms ?? []).map((arm) => arm.body),
+      ];
+    case "Try":
+      return [expression.body, ...expression.arms.map((arm) => arm.body)];
+    case "Block": {
+      const final = expression.items.at(-1);
+      return final?.kind === "ExprItem" ? [final.expression] : undefined;
+    }
+    default:
+      return undefined;
+  }
+}
+
+/** The same value in ordinary notation, with the fewest places that hold it. */
+function ordinaryDecimalSpelling(written: DecimalLiteralParts): string {
+  const shift = (written.exponent ?? 0) - written.places;
+  if (shift >= 0) return (written.coefficient * 10n ** BigInt(shift)).toString();
+  let digits = written.coefficient.toString();
+  let places = -shift;
+  while (places > 0 && digits.length > 1 && digits.endsWith("0")) {
+    digits = digits.slice(0, -1);
+    places -= 1;
+  }
+  if (places === 0) return digits;
+  const padded = digits.padStart(places + 1, "0");
+  return `${padded.slice(0, -places)}.${padded.slice(-places)}`;
+}
+
 /** A span as a map key: file and both offsets, never the position objects. */
 function spanKey(span: Source.Span): string {
   return `${Number(span.fileId)}:${span.start.offset}:${span.end.offset}`;
@@ -2775,6 +2903,18 @@ class Checker {
   readonly #intWidenings = new WeakMap<Resolved.Expr, Requirement>();
   /** Exact BigInt expressions injected into an independently known FromBigInt target. */
   readonly #bigIntWidenings = new WeakMap<Resolved.Expr, Requirement>();
+  /**
+   * Decimal-point literals promoted to an independently known exact target
+   * (Numeric Literals §5.1, #525): the canonical `Dec`, carrying the written
+   * digits, or a concrete `Frac` + `FromBigInt` type, reaching the written value
+   * exactly through that type's own arithmetic.
+   */
+  readonly #decimalPromotions = new WeakMap<Resolved.Expr, DecimalPromotion>();
+  /**
+   * The forwarding forms around promoted literals — grouping, `if`, `match`,
+   * `try`, a block — each retyped to the target its literal value paths took.
+   */
+  readonly #decimalRetyped = new WeakMap<Resolved.Expr, Mono>();
   /**
    * Numeric Literals §6's **stand-down note** *(#808)*: at an operation whose
    * lift stood down, which operand declined the face and what algebra the
@@ -6181,7 +6321,7 @@ class Checker {
       const seat = seats[index];
       const operand = expressions[index];
       if (seat === undefined || operand === undefined) continue;
-      if (this.#operandReaches(seat, home)) continue;
+      if (this.#operandReaches(seat, home, operand)) continue;
       return { operand, type: seat };
     }
     return undefined;
@@ -9647,7 +9787,13 @@ class Checker {
         // Numeric Literals §5.1's lift reaches unary negation too — the same
         // gate, at `Signed`. `Not` is not arithmetic and lifts nothing.
         // `bnot` lifts the same way, at `Bitwise` (`bitwise.md` §5.1).
-        const home = expression.operator === "Not"
+        //
+        // A negated decimal-point literal is not lifted (#525): it stays the
+        // `Float` it spells, so the seat reading it promotes it — and any form
+        // it sits in — in one step. Lifted here, `-2.5` would reach `Dec` while
+        // a sibling arm's `0.5` stayed `Float`, and the arms could not join.
+        const home = expression.operator === "Not" ||
+            (expression.operator === "Negate" && decimalLiteralLeaves(expression) !== undefined)
           ? undefined
           : this.#operationHome(expression.operator, expected);
         const operand = this.#inferExpr(expression.operand, level, home);
@@ -13945,12 +14091,15 @@ class Checker {
    * neither, the lift does not fire and the operation elaborates from its
    * operands alone.
    */
-  #operandReaches(operand: Mono, home: Mono): boolean {
+  #operandReaches(operand: Mono, home: Mono, expression?: Resolved.Expr): boolean {
     const source = this.#prune(operand);
     const target = this.#prune(home);
     if (source.kind === "Error" || target.kind === "Error") return true;
     if (source.kind === "Variable") return true;
     if (this.#acceptsExactly(source, target)) return true;
+    if (expression !== undefined && this.#decimalHome(expression, source, target) !== undefined) {
+      return true;
+    }
     if (source.kind !== "Constructor") return false;
     if (source.name === "Nat") return this.#supportsNumericTarget(target);
     if (source.name === "Int") return this.#supportsSignedTarget(target);
@@ -14187,9 +14336,9 @@ class Checker {
     // and the algebra the operation ran at instead (§6).
     const declined = home === undefined
       ? undefined
-      : !this.#operandReaches(left, home)
+      : !this.#operandReaches(left, home, expression.left)
         ? { operand: expression.left, type: left }
-        : !this.#operandReaches(right, home)
+        : !this.#operandReaches(right, home, expression.right)
           ? { operand: expression.right, type: right }
           : undefined;
     const lifted = declined === undefined ? home : undefined;
@@ -14543,7 +14692,7 @@ class Checker {
     // in between.
     const deferral = (
       index: number,
-    ): "literal" | "numeric" | "exact-bigint" | undefined => {
+    ): "literal" | "numeric" | "decimal" | "exact-bigint" | undefined => {
       const source = this.#prune(actuals[index] ?? ERROR);
       const destination = this.#prune(parameters[index] ?? ERROR);
       if (destination.kind !== "Variable") return undefined;
@@ -14553,6 +14702,18 @@ class Checker {
         (source.name === "Nat" || source.name === "Int")
       ) {
         return "numeric";
+      }
+      const argument = expressions[index];
+      if (
+        source.kind === "Constructor" && source.name === "Float" &&
+        argument !== undefined && decimalLiteralLeaves(argument) !== undefined
+      ) {
+        // A decimal-point literal waits for its non-callback siblings (#525):
+        // `Num.add(0.5, price)` meets at `Dec` as `0.5 + price` does, rather
+        // than the literal settling the subject at `Float` first. It settles
+        // before any callback is checked, as it did before it waited — see
+        // `establishFirstPass`.
+        return "decimal";
       }
       if (source.kind === "Constructor" && source.name === "BigInt") {
         // BigInt keeps its old eager, fixed-source role unless a sibling in
@@ -14576,7 +14737,7 @@ class Checker {
     // filed to the class it belongs to. `disposed` is what makes that "once" —
     // a double filing is invisible while the unification succeeds and reports
     // the same mismatch once per copy when it does not.
-    const eager = (index: number): void => {
+    const eager = (index: number, settleDecimal = false): void => {
       if (disposed.has(index)) return;
       const actual = actuals[index] ?? ERROR;
       const expected = parameters[index] ?? ERROR;
@@ -14595,7 +14756,7 @@ class Checker {
         deferredLiteralArguments.push(index);
         return;
       }
-      if (filed === "numeric") {
+      if (filed === "numeric" || (filed === "decimal" && !settleDecimal)) {
         deferredNumericArguments.push(index);
         return;
       }
@@ -14661,8 +14822,17 @@ class Checker {
           // unfiled: it establishes nothing for the callback either, and its
           // destination may still be solved before `finish` asks again.
           const filed = deferral(index);
-          if (filed === "literal" || filed === "numeric") continue;
+          if (filed === "literal" || filed === "numeric" || filed === "decimal") continue;
           eager(index);
+        }
+        // A held decimal-point literal settles **now**, after its non-callback
+        // siblings and before any callback is checked (#525): it is promoted
+        // where a sibling established an exact subject, and otherwise settles
+        // the subject at `Float` exactly as it did when it was not held, so
+        // `xs.fold(0.0, (acc, x) => acc + x)` checks its callback at `Float`.
+        for (let index = 0; index < actuals.length; index += 1) {
+          if (deferredLambdas.has(index) || deferral(index) !== "decimal") continue;
+          eager(index, true);
         }
       },
       disposeSeat: (index: number): void => {
@@ -14739,9 +14909,15 @@ class Checker {
     // ahead of Int is §5.1's order but no program is known to observe it: a
     // BigInt reaches this class only when a sibling has already established the
     // variable (`structurallyLicensed`).
+    //
+    // A deferred decimal-point literal (#525) goes ahead of all three: it only
+    // waited for the eager siblings, and where none of them established the
+    // subject it settles it at `Float` exactly as it did before it waited, so
+    // `plus(n, 0.5)` still meets at `Float` with `n` widening in.
     const width = (index: number): number => {
       const source = this.#prune(arguments_[index] ?? ERROR);
       if (source.kind !== "Constructor") return 3;
+      if (source.name === "Float") return -1;
       return source.name === "BigInt" ? 0 : source.name === "Int" ? 1 : 2;
     };
     const widestFirst = [...deferredNumericArguments].sort((left, right) =>
@@ -18112,9 +18288,28 @@ class Checker {
       pattern.span,
       pattern.kind === "Constructor"
         ? () => this.#rivalConstructorMessage(pattern, expected)
+        : pattern.kind === "Float"
+        ? () => this.#decimalPatternMessage(pattern, expected)
         : undefined,
     );
     if (this.#diagnostics.count > before) this.#brokenPatterns.add(pattern);
+  }
+
+  /**
+   * A decimal-point literal pattern at a `Dec` scrutinee. Expressions promote
+   * such a literal (#525) but patterns keep their exact-type rule for now
+   * (#1054), so the refusal names the `d` spelling of the same value.
+   */
+  #decimalPatternMessage(pattern: Resolved.FloatPattern, expected: Mono): string | undefined {
+    const scrutinee = this.#prune(expected);
+    if (scrutinee.kind !== "NominalRecord" || scrutinee.record !== this.#decRecord) return undefined;
+    const written = decimalLiteralParts(pattern.spelling.replace(/^-/, ""));
+    const spelled = written.exponent === undefined
+      ? pattern.spelling.replace(/^-/, "")
+      : ordinaryDecimalSpelling(written);
+    const sign = pattern.spelling.startsWith("-") ? "-" : "";
+    return "type mismatch: expected Dec, found Float; a `Dec` pattern is written with " +
+      `the \`d\` suffix: \`${sign}${spelled}d\``;
   }
 
   /**
@@ -19101,12 +19296,101 @@ class Checker {
   ): boolean {
     return this.#tryWidenInt(expression, actual, target, span, allowVariableTarget) ||
       this.#tryWidenNat(expression, actual, target, span, allowVariableTarget) ||
-      this.#tryWidenBigInt(expression, actual, target, span, allowVariableTarget);
+      this.#tryWidenBigInt(expression, actual, target, span, allowVariableTarget) ||
+      this.#tryPromoteDecimal(expression, actual, target, span);
   }
 
   #hasNumericWidening(expression: Resolved.Expr): boolean {
     return this.#natWidenings.has(expression) || this.#intWidenings.has(expression) ||
-      this.#bigIntWidenings.has(expression);
+      this.#bigIntWidenings.has(expression) || this.#decimalPromotions.has(expression) ||
+      this.#decimalRetyped.has(expression);
+  }
+
+  /**
+   * Which exact home a decimal-point literal can take at `target`, or
+   * `undefined` (Numeric Literals §5.1, #525). The expression must be
+   * **literal-shaped** (`decimalLiteralLeaves`): a literal, a negated literal,
+   * or a forwarding form whose every value path is one. Only literals are ever
+   * promoted — an established `Float` value never is (Friendly Numerics tenet
+   * 7) — and only into a **concrete** target: a type variable keeps the
+   * literal `Float`, so no literal's type is decided where a reader cannot see.
+   */
+  #decimalHome(
+    expression: Resolved.Expr,
+    actual: Mono,
+    target: Mono,
+  ): "Dec" | "Frac" | undefined {
+    const source = this.#prune(actual);
+    if (source.kind !== "Constructor" || source.name !== "Float") return undefined;
+    if (decimalLiteralLeaves(expression) === undefined) return undefined;
+    const destination = this.#prune(target);
+    if (destination.kind === "NominalRecord" && destination.record === this.#decRecord) {
+      return "Dec";
+    }
+    if (destination.kind === "Variable" || destination.kind === "Error") return undefined;
+    if (destination.kind === "Constructor" && destination.name === "Float") return undefined;
+    return this.#supportsTarget(destination, "Frac") &&
+        this.#supportsTarget(destination, "FromBigInt")
+      ? "Frac"
+      : undefined;
+  }
+
+  /**
+   * Promotes a literal-shaped expression at `target`: each literal leaf takes
+   * the exact value its digits spell, and every forwarding form around the
+   * leaves takes `target` as its type. Reached through `#tryWidenNumeric`, so
+   * a seat that widens an `Int` promotes a literal on exactly the same terms,
+   * the forwarding forms included — the seat reads through them, as it widens
+   * an `if` whose branches are `Int`.
+   */
+  #tryPromoteDecimal(
+    expression: Resolved.Expr,
+    actual: Mono,
+    target: Mono,
+    span: Source.Span,
+  ): boolean {
+    const home = this.#decimalHome(expression, actual, target);
+    const leaves = decimalLiteralLeaves(expression);
+    if (home === undefined || leaves === undefined) return false;
+    const destination = this.#prune(target);
+    const evidence = home === "Frac"
+      ? {
+          fromBigInt: this.#require("FromBigInt", destination, span),
+          frac: this.#require("Frac", destination, span),
+        }
+      : undefined;
+    for (const leaf of leaves) {
+      const written = decimalLiteralParts(leaf.literal.spelling, leaf.negative);
+      const shift = (written.exponent ?? 0) - written.places;
+      if (home === "Dec" && written.exponent !== undefined) {
+        // `dec.md` §3: a Dec literal shows its decimal places, which an
+        // exponent hides; the repair spells the same value in ordinary
+        // notation, where that spelling is short enough to offer.
+        this.#unsupported(
+          leaf.node.span,
+          "a `Dec` literal is written without an exponent, so its decimal places show" +
+            (Math.abs(shift) > MAX_PROMOTED_SHIFT
+              ? ""
+              : `; write \`${ordinaryDecimalSpelling(written)}\``),
+        );
+        continue;
+      }
+      if (Math.abs(shift) > MAX_PROMOTED_SHIFT) {
+        this.#unsupported(
+          leaf.node.span,
+          `this literal's exponent is too large to read exactly at \`${this.#display(destination)}\``,
+        );
+        continue;
+      }
+      this.#decimalPromotions.set(
+        leaf.node,
+        evidence === undefined ? { kind: "Dec", written } : { kind: "Frac", written, ...evidence },
+      );
+    }
+    for (const form of decimalLiteralForms(expression)) {
+      this.#decimalRetyped.set(form, destination);
+    }
+    return true;
   }
 
   #supportsTarget(
@@ -26363,6 +26647,12 @@ class Checker {
   }
 
   #materializeExpr(expression: Resolved.Expr): Typed.Expr {
+    const promotion = this.#decimalPromotions.get(expression);
+    if (promotion !== undefined) return this.#materializeDecimalPromotion(expression, promotion);
+    const retyped = this.#decimalRetyped.get(expression);
+    if (retyped !== undefined) {
+      return { ...this.#materializeUnwidenedExpr(expression), type: this.#publicType(retyped) };
+    }
     const value = this.#materializeUnwidenedExpr(expression);
     const natWidening = this.#natWidenings.get(expression);
     if (natWidening !== undefined) {
@@ -26394,6 +26684,55 @@ class Checker {
       value,
       requirement,
       type: requirement.type,
+      span: expression.span,
+    };
+  }
+
+  /**
+   * A promoted decimal-point literal (#525). At `Dec` it is exactly the `d`
+   * literal of the same digits. At a `Frac` target it is the written value
+   * `c / 10^s` built from two exact `fromBigInt` injections and the target's own
+   * division — or the one injection, where the value is an integer.
+   */
+  #materializeDecimalPromotion(
+    expression: Resolved.Expr,
+    promotion: DecimalPromotion,
+  ): Typed.Expr {
+    const { written } = promotion;
+    if (promotion.kind === "Dec") {
+      return {
+        kind: "Dec",
+        coefficient: written.coefficient.toString(),
+        decimalPlaces: written.places,
+        type: this.#publicType(
+          { kind: "NominalRecord", record: this.#decRecord!, name: "Dec", arguments: [] },
+        ),
+        span: expression.span,
+      };
+    }
+    const fromBigInt = this.#publicRequirement(promotion.fromBigInt);
+    const inject = (value: bigint): Typed.Expr => ({
+      kind: "WidenBigInt",
+      value: {
+        kind: "BigInt",
+        decimal: value.toString(),
+        type: this.#publicType(primitive("BigInt")),
+        span: expression.span,
+      },
+      requirement: fromBigInt,
+      type: fromBigInt.type,
+      span: expression.span,
+    });
+    const shift = (written.exponent ?? 0) - written.places;
+    if (shift >= 0) return inject(written.coefficient * 10n ** BigInt(shift));
+    const frac = this.#publicRequirement(promotion.frac);
+    return {
+      kind: "ConstraintCall",
+      constraint: "Frac",
+      member: "divide",
+      requirement: frac,
+      arguments: [inject(written.coefficient), inject(10n ** BigInt(-shift))],
+      type: frac.type,
       span: expression.span,
     };
   }

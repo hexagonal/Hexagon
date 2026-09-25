@@ -57,7 +57,9 @@ Drafting order is not final reading order.
   specialization-wrapper set. `Bool` remains a prelude union and `Unit` the empty
   tuple. Exceptions owns `Exn`.
 - **Dec equality is numerical; display retains places.** The `d` suffix selects
-  Dec directly; unsuffixed point/exponent forms select Float. Addition retains the
+  Dec directly; unsuffixed point/exponent forms select Float, except that a
+  decimal-point literal takes Dec (or Rat) exactly where that type is already
+  known (#525). Patterns still need the `d`. Addition retains the
   larger place count, multiplication adds counts, and explicit rounded operations
   retain the requested count. There is no Dec `/` operator. Float enters Dec only
   through `Dec.fromFloat`/`fromFloatEven`, which round the binary value to

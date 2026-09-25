@@ -133,7 +133,8 @@ let populationEstimate = 1e9
 let electronMass = 9.109_383_713_9e-31
 ```
 
-Unlike a bare integer literal, these forms are always `Float`. `1e9` may describe a
+Unlike a bare integer literal, these forms are `Float` wherever no exact type is
+already known; the `Dec` section below shows the exception. `1e9` may describe a
 whole mathematical number, but the exponent marks it as floating point.
 
 `Float` is IEEE 754 double-precision floating point—the same value space as a
@@ -145,7 +146,7 @@ let surprising = 0.1 + 0.2
 ```
 
 The value of `surprising` is the same approximation JavaScript produces, commonly
-displayed as `0.30000000000000004`. When exact decimal behavior matters, choose `Dec` and write the `d` suffix.
+displayed as `0.30000000000000004`. When exact decimal behavior matters, choose `Dec`.
 The choice of type determines which arithmetic the program performs.
 
 `Int` and `Float` are distinct Hexagon types even though both become `number` at the
@@ -183,6 +184,18 @@ in the number. `0.050d` retains three places; `5d` retains zero.
 Separators do not count as digits: `1_000.00d` retains two places. A written point
 needs digits on both sides, so use `0.5d`, not `.5d` or `5.d`. Dec literals use
 ordinary notation; `5e2d` is not permitted.
+
+Where the type is already known to be Dec, you can leave the suffix off. The digits
+are still read exactly:
+
+```hexagon
+let price: Dec = 2.50                 // 2.50, two places
+let total = price * 1.15              // 2.8750: price is a Dec, so 1.15 is too
+let refund = price * -0.5             // -1.000
+```
+
+With no known Dec type, a decimal literal is a Float, as `surprising` was above.
+Only a literal is read this way; a Float value never quietly becomes a Dec.
 
 Addition and subtraction retain the larger operand's decimal-place count:
 
@@ -478,6 +491,7 @@ import Rat
 let count = 9_007_199_254_740_993n
 let exact: Rat = count
 let half = count * Rat.create(1, 2)
+let tenth: Rat = 0.1  // exactly 1/10, read from the written digits
 ```
 
 This friendliness has a boundary. BigInt does not implicitly enter Float, and

@@ -15,8 +15,11 @@ tests.
 `BigInt`s. Construction always reduces the fraction and keeps the bottom
 positive, so equality and hashing can use the canonical pair directly.
 
-Unsuffixed decimal literals remain `Float`; v1 does not infer `Rat` from `0.5`. Exactness is
-requested visibly through `Rat.create(1, 2)` or an operation returning `Rat`.
+An unsuffixed decimal literal is `Float` unless the checker already knows its target is
+`Rat`: there it is promoted exactly, through `Rat`'s `FromBigInt` and `Frac` instances, so
+`let half: Rat = 0.5` is `1/2` and `let tiny: Rat = 1e-9` is `1/1000000000` (Numeric
+Literals §5.1, #525). The literal's written digits are read, never the parsed double. An
+established `Float` value never becomes a `Rat`.
 
 ## 2. Representation and invariant
 

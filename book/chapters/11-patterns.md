@@ -112,6 +112,8 @@ writing both as consecutive arms makes the second unreachable. A bare integer
 pattern such as `5` also works at a Dec position. Retained places affect display,
 not matching; use a guard checking `places()` when that count matters.
 The `d` suffix fixes the pattern's type to Dec, so it cannot match a Float position.
+Unlike an expression, a pattern needs the suffix even at a Dec position: `0.5 =>` there
+is refused, and the message suggests `0.5d`.
 
 A `Float` literal matches by the same equality that `==` uses, and no more loosely:
 a computed value matches a written one only when `==` would say they are equal. The
