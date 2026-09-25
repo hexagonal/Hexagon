@@ -602,12 +602,7 @@ Notes:
 
 Diagnostics obey the Rewrite Rule (Declarations Preamble §1.1): where a legal spelling of the intent exists, the error names it.
 
-**Where a report stands** *(#1063)*. A constraint demand is made at a seat: an operator, a literal, a loop head, an interpolation, or a binder's written list. Using a binding copies its scheme's demands to the use. A report about a demand carets **where it reached this program's source**. For a copy, that is the use: the call, reference or dot call, never the callee's declaration, and never another module's file. A demand reached through a component of a structural type, or through an instance's argument, carets the demand it was reached from. The report then says only what is true at its caret. Wording that names or advises about the seat is said only of a demand still standing at its seat:
-- "integer literal cannot have type `X`", and the literal that Numeric Literals §6 and Ascription §5 name;
-- the numeric tower riders ("a written `Int` face runs the operation…");
-- `bitwise.md` §9's logic word.
-
-At a call, such wording would describe code the caret is not on, and its advice would not compile there. The report is instead the one that holds at the call: the missing instance and its legal homes, or the contract refusal and its binder. Every copy leaves its seat but one: a **called** constraint member's own constraint, since `n.subtract(n)`, `Signed.subtract(n, n)` and `n |> Signed.negate` each *are* the operation, as `n - n` is. The same member passed as a value (`let f = Signed.subtract`) is no operation. Its report is the plain one, at the reference, where typing the reference is what compiles. This is GHC's placement for the same reason ("arising from a use of `d`"). A caret is only useful where the reader can act, and the call is the one place in their program that chose the type.
+**Where a report stands** *(#1063)*. A report about a constraint demand carets where this program's source made it — the use, for the demands a binding's scheme copies there (never the callee's declaration, which may be in another module), and the demand it was reached from, for one reached through a structural component or an instance's argument — and says only what is true there, so wording about the seat that made a demand ("integer literal cannot have type `X`", the literal Numeric Literals §6 and Ascription §5 name, the numeric tower riders, `bitwise.md` §9's logic word) is never said at a use, except of a **called** constraint member's own constraint, which is its operation (`n.subtract(n)`, `Signed.subtract(n, n)` and `n |> Signed.negate` are as `n - n` is; `let f = Signed.subtract` is no operation).
 
 | Situation | Error |
 |---|---|

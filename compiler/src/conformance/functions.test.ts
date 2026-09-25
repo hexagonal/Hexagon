@@ -168,7 +168,7 @@ describe("Functions specification conformance", () => {
   });
 
   test("§10 a report carets the use and says only what is true there (#1063)", () => {
-    // The report-seat rule: a demand copied at a call reports at the call,
+    // Where a report stands: a demand copied at a call reports at the call,
     // and wording about the seat that made it — the literal, the operator's
     // riders — stays with the requirement at that seat, where its advice
     // compiles. At the call it would describe code the caret is not on.

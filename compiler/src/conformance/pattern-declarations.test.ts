@@ -364,6 +364,21 @@ describe("unheaded inference and a view's effect demand", () => {
     )).toEqual(["a pattern's binders carry no constraints"]);
   });
 
+  test("a demand a use copies from the view carets the use (Functions §10, #1063)", () => {
+    const source = main(
+      "pattern doubled\n" +
+        "    view(value) = value + value\n" +
+        "export let d: Bool =\n" +
+        "    let (x)doubled = True\n" +
+        "    x\n",
+    );
+    const reports = compileFiles([["/main.hex", source]]).diagnostics.map(({ message, primary }) => [
+      message.split(";")[0],
+      source.slice(primary.start.offset, primary.end.offset),
+    ]);
+    expect(reports).toContainEqual(["type `Bool` has no `Num` instance", "(x)doubled"]);
+  });
+
   test("a conduit-effect view reports its linked `->?` face", () => {
     expect(messages(
       "extern from \"./world.js\"\n" +
