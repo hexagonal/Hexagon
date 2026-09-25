@@ -14158,8 +14158,14 @@ class Checker {
 
   /** A tree's values, in source order, with every interior node walked. */
   #treeValues(node: TreeNode): { readonly expression: Resolved.Expr; readonly type: Mono }[] {
+    // A refused `match` is one `ERROR` value to the tree around it: its own
+    // arms joined among themselves, and nothing it holds votes outside it.
     return node.parts.flatMap((part) =>
-      "node" in part ? this.#treeValues(part.node) : [part.value]
+      !("node" in part)
+        ? [part.value]
+        : part.node.failed === true
+          ? [{ expression: part.node.expression, type: ERROR }]
+          : this.#treeValues(part.node)
     );
   }
 
@@ -14178,10 +14184,13 @@ class Checker {
    * The home a tree's values establish (§5.1's "The home"), or `undefined`
    * where they establish none and unify with one another exactly, as ever.
    *
-   * An inference variable establishes nothing, and neither does a decimal-point
-   * literal — it is the `Float` it spells only where nothing exact is in. A
-   * value outside the numeric tower keeps the order-first reading every join
-   * always had, so a mismatch between a number and a string reports as it did.
+   * An `ERROR` value poisons the tree, as it poisoned every join: the home is
+   * `ERROR`, which every value enters, so a refusal already reported cascades
+   * no further. An inference variable establishes nothing unless it already
+   * carries the evidence every fixed-integer value needs; a decimal-point
+   * literal is the `Float` it spells only where nothing exact is in. A value
+   * outside the numeric tower keeps the order-first reading every join always
+   * had, so a mismatch between a number and a string reports as it did.
    * `source` is the value that gave the home, for §6's report.
    */
   #chooseHome(
@@ -14189,17 +14198,12 @@ class Checker {
   ): { readonly home: Mono; readonly source?: Resolved.Expr } | undefined {
     let decimal: Resolved.Expr | undefined;
     const established: { readonly type: Mono; readonly expression: Resolved.Expr }[] = [];
-    // An inference variable already carrying a tower constraint is §5.1's
-    // "already-constrained type variable": a candidate below any concrete
-    // non-integer type and above the fixed integers.
-    let constrained: { readonly type: Mono; readonly expression: Resolved.Expr } | undefined;
+    const constrained: { readonly type: Variable; readonly expression: Resolved.Expr }[] = [];
     for (const { expression, type } of values) {
       const actual = this.#prune(type);
-      if (actual.kind === "Error") continue;
+      if (actual.kind === "Error") return { home: ERROR };
       if (actual.kind === "Variable" && actual.rigidName === undefined) {
-        if (constrained === undefined && !actual.literalOnly && actual.requirements.length > 0) {
-          constrained = { type: actual, expression };
-        }
+        if (this.#supportsTarget(actual, "Num", true)) constrained.push({ type: actual, expression });
         continue;
       }
       if (
@@ -14217,8 +14221,7 @@ class Checker {
     if (established.some(({ type }) => !this.#supportsTarget(type, "Num", true))) {
       // Not arithmetic: the first value is the home, whatever it is, so the
       // join unifies in source order exactly as every form always joined.
-      const first = values.find(({ type }) => this.#prune(type).kind !== "Error");
-      return first === undefined ? undefined : { home: first.type, source: first.expression };
+      return { home: values[0]!.type, source: values[0]!.expression };
     }
     const fixed = (type: Mono): number => {
       if (type.kind !== "Constructor") return -1;
@@ -14227,17 +14230,20 @@ class Checker {
     const exact = established.find(({ type }) => fixed(type) < 0);
     if (exact !== undefined) return { home: exact.type, source: exact.expression };
     // A constrained inference variable homes the tree only where it already
-    // carries the evidence every fixed-integer value needs to enter it (§5.1).
-    if (constrained !== undefined && decimal === undefined) {
+    // carries the evidence every fixed-integer value needs to enter it (§5.1);
+    // which variable is asked first decides nothing, since every other one
+    // then unifies with it.
+    if (decimal === undefined) {
       const evidence = (type: Mono): Typed.ConstraintName =>
         type.kind === "Constructor" && type.name === "Nat"
           ? "Num"
           : type.kind === "Constructor" && type.name === "Int"
             ? "Signed"
             : "FromBigInt";
-      if (established.every(({ type }) => this.#supportsTarget(constrained.type, evidence(type), true))) {
-        return { home: constrained.type, source: constrained.expression };
-      }
+      const carrier = constrained.find((candidate) =>
+        established.every(({ type }) => this.#supportsTarget(candidate.type, evidence(type), true))
+      );
+      if (carrier !== undefined) return { home: carrier.type, source: carrier.expression };
     }
     if (decimal !== undefined) return { home: primitive("Float"), source: decimal };
     const widest = [...established].sort((left, right) => fixed(left.type) - fixed(right.type))[0]!;
@@ -14246,39 +14252,48 @@ class Checker {
 
   /** §5.1's close with no written face: one home, from every value in the tree. */
   #closeFree(node: TreeNode): void {
-    this.#applyHome(node, this.#chooseHome(this.#treeValues(node)));
+    this.#applyHome(node, this.#chooseHome(this.#treeValues(node)), undefined, undefined, {
+      refused: false,
+    });
   }
 
   /**
    * Runs `node` at `chosen`, and every part with it. A tower operator whose
    * rung the home does not carry runs at the home its own parts select — the
    * **instance gate** — and its result enters the enclosing home as a value.
+   *
+   * `merge` is where a value's colour merge is recorded (`#mergeSpan`), `owner`
+   * where its mismatch is reported (`#ownerSpan`), and `tree` whether the tree
+   * has already been refused, so it is refused once (§6).
    */
   #applyHome(
     node: TreeNode,
     chosen: { readonly home: Mono; readonly source?: Resolved.Expr } | undefined,
-    merge?: Source.Span,
+    merge: Source.Span | undefined,
+    owner: Source.Span | undefined,
+    tree: { refused: boolean },
   ): void {
     const span = node.expression.span;
     if (node.failed === true) {
       // A refused `match` still joins its arms, as it always did; its own type
       // is `ERROR`, which enters anything.
-      this.#closeParts(node, this.#chooseHome(this.#treeValues(node)), merge);
+      this.#closeParts(node, this.#chooseHome(this.#treeValues(node)), merge, owner, tree);
       node.published = ERROR;
       return;
     }
     if (
       node.rung !== undefined && chosen !== undefined &&
+      this.#prune(chosen.home).kind !== "Error" &&
       !this.#supportsTarget(chosen.home, node.rung)
     ) {
       const own = this.#chooseHome(this.#treeValues(node));
       if (own !== undefined && !this.#sameSeat(own.home, chosen.home)) {
-        this.#applyHome(node, own, merge);
-        this.#unifyExpected(chosen.home, node.result, node.expression, span, true);
+        this.#applyHome(node, own, merge, owner, tree);
+        this.#unifyExpected(chosen.home, node.result, node.expression, owner ?? span, true);
         return;
       }
     }
-    this.#closeParts(node, chosen, merge);
+    this.#closeParts(node, chosen, merge, owner, tree);
   }
 
   /**
@@ -14293,61 +14308,130 @@ class Checker {
     return node.rung === undefined && node.siblings !== true ? merge : undefined;
   }
 
+  /**
+   * The span a value's mismatch with its home is reported at: the tower
+   * operation or comparison it is an operand of, the `if` it is a branch of,
+   * and — for a `match` or `try` arm — the arm body itself (`undefined`), each
+   * read through grouping and a block's final expression, which join nothing.
+   */
+  #ownerSpan(node: TreeNode, owner: Source.Span | undefined): Source.Span | undefined {
+    switch (node.expression.kind) {
+      case "Group":
+      case "Block":
+        return owner;
+      case "Match":
+      case "Try":
+        return undefined;
+      default:
+        return node.expression.span;
+    }
+  }
+
   #closeParts(
     node: TreeNode,
     chosen: { readonly home: Mono; readonly source?: Resolved.Expr } | undefined,
-    merge?: Source.Span,
+    merge: Source.Span | undefined,
+    owner: Source.Span | undefined,
+    tree: { refused: boolean },
   ): void {
     const span = node.expression.span;
     const at = chosen?.home ?? this.#fresh(node.level, false);
     const here = this.#mergeSpan(node, merge);
+    const reportAt = this.#ownerSpan(node, owner);
     this.#unify(node.result, at, span);
     for (const part of node.parts) {
       if ("node" in part) {
-        this.#applyHome(part.node, chosen === undefined ? { home: at } : chosen, here);
+        this.#applyHome(part.node, chosen === undefined ? { home: at } : chosen, here, reportAt, tree);
         continue;
       }
-      this.#enterHome(node, part.value, at, chosen?.source, here);
+      this.#enterHome(part.value, at, chosen?.source, here, reportAt, tree);
     }
     this.#finishNode(node, at);
   }
 
   /**
    * One value entering its tree's home: by exact unification, one of §5.1's
-   * conversions, or promotion — or refused. Where the value and the home are
-   * two different exact types, neither enters the other, and §6's report names
-   * both.
+   * conversions, or promotion — or refused, once per tree (§6): where the value
+   * and the home are two different exact types, the report names both; where
+   * a numeric value cannot enter a numeric home, it names the value, the home,
+   * and what gave the home; each names a door between the two where one exists.
    */
   #enterHome(
-    node: TreeNode,
     value: { readonly expression: Resolved.Expr; readonly type: Mono },
     home: Mono,
     source: Resolved.Expr | undefined,
     merge: Source.Span | undefined,
+    owner: Source.Span | undefined,
+    tree: { refused: boolean },
   ): void {
-    const form = node.rung === undefined && node.siblings !== true;
-    const span = form && node.expression.kind === "If"
-      ? node.expression.span
-      : form ? value.expression.span : node.expression.span;
+    const span = owner ?? value.expression.span;
     const enter = (): void => {
-      if (this.#exactConflict(value.type, home)) {
-        const spelled = this.#writtenOperand(value.expression);
-        const giver = source === undefined ? undefined : this.#writtenOperand(source);
-        if (spelled !== undefined && giver !== undefined && source !== value.expression) {
-          this.#diagnostics.add({
-            severity: "error",
-            message: `\`${spelled}\` is a \`${this.#display(value.type)}\` and \`${giver}\` ` +
-              `a \`${this.#display(home)}\`; an expression's arithmetic runs at one type, ` +
-              "and neither enters the other",
-            primary: value.expression.span,
-          });
-          return;
+      const report = this.#homeRefusal(value, home, source);
+      if (report !== undefined) {
+        if (!tree.refused) {
+          this.#diagnostics.add({ severity: "error", message: report, primary: value.expression.span });
         }
+        tree.refused = true;
+        return;
       }
       this.#unifyExpected(home, value.type, value.expression, span, true);
     };
     if (merge !== undefined) this.#joining(merge, enter);
     else enter();
+  }
+
+  /**
+   * §6's report for a numeric value its tree's numeric home cannot take, or
+   * `undefined` where the value enters (or the ordinary unification report is
+   * the right one: a value or a home outside the tower, or one the source
+   * cannot spell).
+   */
+  #homeRefusal(
+    value: { readonly expression: Resolved.Expr; readonly type: Mono },
+    home: Mono,
+    source: Resolved.Expr | undefined,
+  ): string | undefined {
+    const actual = this.#prune(value.type);
+    const target = this.#prune(home);
+    const numeric = (type: Mono): boolean =>
+      type.kind !== "Variable" && type.kind !== "Error" && this.#supportsTarget(type, "Num");
+    if (!numeric(actual) || !numeric(target) || this.#sameSeat(actual, target)) return undefined;
+    if (this.#operandReaches(actual, target, value.expression)) return undefined;
+    const spell = (expression: Resolved.Expr): string | undefined =>
+      this.#writtenOperand(expression) ?? this.#spelledExpression(expression);
+    const spelled = spell(value.expression);
+    const giver = source === undefined || source === value.expression ? undefined : spell(source);
+    if (spelled === undefined || giver === undefined) return undefined;
+    const door = this.#numericDoor(spelled, actual, target) ??
+      this.#numericDoor(giver, target, actual);
+    const repair = door === undefined ? "" : `; convert one explicitly — \`${door}\``;
+    return this.#exactConflict(actual, target)
+      ? `\`${spelled}\` is a \`${this.#display(actual)}\` and \`${giver}\` ` +
+        `a \`${this.#display(target)}\`; an expression's arithmetic runs at one type, ` +
+        `and neither enters the other${repair}`
+      : `\`${spelled}\` is a \`${this.#display(actual)}\` and cannot enter ` +
+        `\`${this.#display(target)}\`, the home \`${giver}\` gives this expression${repair}`;
+  }
+
+  /**
+   * The named door that takes a `from` value spelled `spelled` into `to`, if
+   * one exists (friendly-numerics tenet 7): `Dec.fromFloat` into `Dec`, and an
+   * exact type's own `toFloat` into `Float`.
+   */
+  #numericDoor(spelled: string, from: Mono, to: Mono): string | undefined {
+    const source = this.#prune(from);
+    const target = this.#prune(to);
+    const isDec = (type: Mono): boolean =>
+      type.kind === "NominalRecord" && type.record === this.#decRecord;
+    const isFloat = (type: Mono): boolean => type.kind === "Constructor" && type.name === "Float";
+    const operand = /^[\p{L}_][\p{L}\p{N}_]*$/u.test(spelled) ? spelled : `(${spelled})`;
+    if (isFloat(source) && isDec(target)) return `Dec.fromFloat(${spelled}, places)`;
+    if (isFloat(target) && (isDec(source) ||
+      source.kind === "Constructor" && source.name === "BigInt" ||
+      source.kind === "NominalRecord" && source.name === "Rat")) {
+      return `${operand}.toFloat()`;
+    }
+    return undefined;
   }
 
   /** Two different exact numeric types, neither of which widens into the other. */
@@ -14436,6 +14520,17 @@ class Checker {
 
   /** Whether every value under `node` reaches `face` — a lookup, never an elaboration. */
   #facedReaches(node: TreeNode, face: Mono): boolean {
+    const known = this.#reachesFace.get(node);
+    if (known !== undefined) return known;
+    const reaches = this.#facedReachesUncached(node, face);
+    this.#reachesFace.set(node, reaches);
+    return reaches;
+  }
+
+  /** One node's tree is closed against one face, so the answer is cached per node. */
+  readonly #reachesFace = new WeakMap<TreeNode, boolean>();
+
+  #facedReachesUncached(node: TreeNode, face: Mono): boolean {
     if (node.failed === true) return false;
     if (node.rung !== undefined && !this.#supportsTarget(face, node.rung)) {
       const own = this.#chooseHome(this.#treeValues(node));
@@ -14451,7 +14546,7 @@ class Checker {
   /** Runs `node` at the face, every value entering it. */
   #enterFace(node: TreeNode, face: Mono, merge?: Source.Span): void {
     if (node.rung !== undefined && !this.#supportsTarget(face, node.rung)) {
-      this.#applyHome(node, { home: face }, merge);
+      this.#applyHome(node, { home: face }, merge, node.expression.span, { refused: false });
       return;
     }
     const span = node.expression.span;
@@ -14488,6 +14583,15 @@ class Checker {
 
     const expression = node.expression;
     const span = expression.span;
+    if (types.length === 1) {
+      // A negation or `bnot` under a face whose rung it honors never stood
+      // down: it runs at the face, and an operand that cannot enter is
+      // reported there — its own stand-down note, where it has one, saying why.
+      this.#unifyExpected(face, types[0]!, expressions[0]!, span, true);
+      this.#unify(node.result, face, span);
+      this.#finishNode(node, face);
+      return this.#prune(node.result);
+    }
     const declinedIndex = Math.max(
       0,
       types.findIndex((type, index) => !this.#operandReaches(type, face, expressions[index])),

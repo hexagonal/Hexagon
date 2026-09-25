@@ -805,6 +805,24 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
       .toEqual([descended("(p + (i + (j + i)))", "expected Foo, found BigInt")]);
   });
 
+  test("a negation receiver runs at the face and is never accepted at the type it kept", () => {
+    // A unary tower operator under a face whose rung it honors never stood
+    // down: it runs at the face, and its operand's refusal is reported there
+    // (#1062's tree keeps this exactly). Accepting `(-p).gcd(s2)` at `Foo`
+    // would be the retracted receiver stand-down (#821).
+    expect(refusals(`${foo}let probe: BigInt = (-p).gcd(s2)\n`)).toEqual([
+      "type mismatch: expected BigInt, found Foo",
+      "type mismatch: expected BigInt, found Foo",
+    ]);
+    expect(refusals(`${foo}let probe: BigInt = (-(p + q)).gcd(s2)\n`)).toEqual([
+      "type mismatch: expected BigInt, found Foo",
+      "`p` is a `Foo` and cannot enter `BigInt`, so the addition ran at `Foo`",
+    ]);
+    expect(refusals(`${foo}let t: BigInt = -(p + q)\n`)).toEqual([
+      "`p` is a `Foo` and cannot enter `BigInt`, so the addition ran at `Foo`",
+    ]);
+  });
+
   test("the binding is a repair at the stood-down call, and at a form", () => {
     // Row 16 ascribes the **stood-down call**, whose own type is the kept type,
     // so binding it is §2.2's boundary by construction. The descent ascribes a

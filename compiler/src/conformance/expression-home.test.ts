@@ -64,11 +64,14 @@ describe("a decimal literal waits for the rest of its expression", () => {
     expect(exports.shown).toEqual(["11.250", "11.250", "11.250", "1.8750", "2.500"]);
   });
 
-  test("the order of the operands emits nothing different", () => {
-    const first = emittedLine("let b1 = n * 1.5 * price\n", "b1");
-    const second = emittedLine("let b1 = 1.5 * n * price\n", "b1");
-    expect(first).toContain("unscaled: 15n, places: 1");
-    expect(second).toContain("unscaled: 15n, places: 1");
+  test("in every operand order, every operation runs at Dec", () => {
+    for (const spelled of ["n * 1.5 * price", "price * n * 1.5", "1.5 * price * n"]) {
+      const line = emittedLine(`let b1 = ${spelled}\n`, "b1");
+      // The literal is the `d` literal of its digits, and no multiplication
+      // is JavaScript's own — each is `Dec`'s.
+      expect(line).toContain("unscaled: 15n, places: 1");
+      expect(line).not.toMatch(/[\w)] \* [\w(]/u);
+    }
   });
 
   test("with nothing exact in the tree, a decimal literal is the Float it is", async () => {
@@ -89,6 +92,16 @@ describe("the forms join as one", () => {
         "export let joined: (Int, Int, Int, Int, Int, Int) = (j1, j2, j3, j4, j5, j6)\n",
     );
     expect(exports.joined).toEqual([2, 3, 2, 3, 3, 2]);
+    // The home each join chose is `Int`, not the `Nat` its first path was.
+    for (const join of [
+      "if c then m else n",
+      "if c then n else m",
+      "match c\n    True => m\n    False => n",
+      "match c\n    True => n\n    False => m",
+    ]) {
+      expect(refusals(`let j = ${join}\nlet z: Nat = j\n`))
+        .toEqual(["type mismatch: expected Nat, found Int"]);
+    }
   });
 
   test("a written face reaches a lambda body and an assignment", async () => {
@@ -148,10 +161,14 @@ describe("the boundaries", () => {
   test("a binding, a call's result, and a dot receiver each end the tree", () => {
     expect(refusals("let y = n * 1.5\nlet a = y * price\n")).toEqual([
       "`price` is a `Dec` and `y` a `Float`; an expression's arithmetic runs at one type, " +
-        "and neither enters the other",
+        "and neither enters the other; convert one explicitly — `price.toFloat()`",
     ]);
-    expect(refusals("let id<a>(x: a): a = x\nlet a = id(n * 1.5) * price\n"))
-      .toEqual(["type mismatch: expected Float, found Dec"]);
+    expect(refusals("let id<a>(x: a): a = x\nlet a = id(n * 1.5) * price\n")).toEqual([
+      "`price` is a `Dec` and `id(n * 1.5)` a `Float`; an expression's arithmetic runs at one " +
+        "type, and neither enters the other; convert one explicitly — `price.toFloat()`",
+    ]);
+    expect(refusals("let id<a>(x: a): a = x\nlet a: Dec = id(n * 1.5)\n"))
+      .toEqual(["type mismatch: expected Dec, found Float"]);
     expect(refusals("let a = (n * 1.5).multiply(price)\n"))
       .toEqual(["type mismatch: expected Float, found Dec"]);
   });
@@ -159,8 +176,43 @@ describe("the boundaries", () => {
   test("an established Float meets an exact value, and neither enters the other", () => {
     expect(refusals("let a = f * 1.5 * price\n")).toEqual([
       "`price` is a `Dec` and `f` a `Float`; an expression's arithmetic runs at one type, " +
-        "and neither enters the other",
+        "and neither enters the other; convert one explicitly — `price.toFloat()`",
     ]);
+    // Refused once for the whole expression, however many values decline.
+    expect(refusals("let a = f + price + price + price\n")).toHaveLength(1);
+    expect(refusals("let a = if c then f else (if c then price else price)\n")).toHaveLength(1);
+  });
+
+  test("a value its home cannot take is named with the home and the door", () => {
+    expect(refusals("let b: BigInt = 7n\nlet a = b * 1.5\n")).toEqual([
+      "`b` is a `BigInt` and cannot enter `Float`, the home `1.5` gives this expression; " +
+        "convert one explicitly — `b.toFloat()`",
+    ]);
+    expect(refusals("let a = f * price\n")).toEqual([
+      "`price` is a `Dec` and `f` a `Float`; an expression's arithmetic runs at one type, " +
+        "and neither enters the other; convert one explicitly — `price.toFloat()`",
+    ]);
+  });
+
+  test("a refusal already reported poisons its tree, as it poisoned every join", () => {
+    expect(refusals("let a = foo / 2\n")).toEqual(["unknown name `foo`"]);
+    expect(refusals("let a = foo + \"a\"\n")).toEqual(["unknown name `foo`"]);
+    expect(refusals("let a: Int = foo / 2\n")).toEqual(["unknown name `foo`"]);
+    expect(refusals(
+      "let g = (v: Int) => v\nlet a: Int = match g\n    _ => \"s\"\n",
+    )).toEqual(["cannot match on `(Int) -> Int` yet"]);
+    expect(refusals(
+      "let g = (v: Int) => v\nlet a = (match g\n    _ => \"s\"\n    ) + 1\n",
+    )).toEqual(["cannot match on `(Int) -> Int` yet"]);
+  });
+
+  test("grouping moves no report", () => {
+    const at = (source: string): number => {
+      const project = compileMain(HEADER + FIXTURES + source);
+      return project.diagnostics[0]!.primary.start.offset;
+    };
+    const plain = at("let a = n + \"a\"\n");
+    expect(at("let a = (n) + (\"a\")\n")).toBe(plain);
   });
 
   test("the exclusions stand", () => {
@@ -175,11 +227,36 @@ describe("the boundaries", () => {
   });
 
   test("declared and constrained variables keep their targets", () => {
-    expect(refusals(
+    const kept =
       "fun widen<t: Num>(value: Nat): t = value\n" +
-        "fun k(count: Int, value) =\n    let z = value / value\n    count * value\n" +
-        "fun k5(count: Int, value) =\n    let z = value + 1\n    count * value\n" +
-        "let scale<a: Signed>(count: Int, value: a): a = count * value\n",
-    )).toEqual([]);
+      "fun k(count: Int, value) =\n    let z = value / value\n    count * value\n" +
+      "fun k5(count: Int, value) =\n    let z = value + 1\n    count * value\n" +
+      "let scale<a: Signed>(count: Int, value: a): a = count * value\n";
+    expect(refusals(kept)).toEqual([]);
+    // `k` stays polymorphic, `<a: Frac> (Int, a) -> a`: a `Float` reaches it.
+    expect(refusals(kept + "let kf: Float = k(1, 2.5)\n")).toEqual([]);
+    // `k5`'s variable carries `Num` alone, which an `Int` cannot enter: it is
+    // `(Int, Int) -> Int`, and a `Float` does not reach it.
+    expect(refusals(kept + "let kf = k5(1, 2.5)\n")).toHaveLength(1);
+  });
+
+  test("which constrained variable is asked first decides nothing", () => {
+    for (const sum of ["x + y + n", "y + x + n"]) {
+      for (const first of ["x == x", "x + x"]) {
+        expect(refusals(
+          `fun g(x, y) =\n    let t = ${first}\n    let z = y / y\n    ${sum}\n`,
+        )).toEqual([]);
+      }
+    }
+  });
+
+  test("an operator under a face keeps its seats", () => {
+    // `**`'s exponent is its own seat, faced by `Int` (Operators §6.3).
+    expect(refusals("let x: Int = n ** (m - m)\n")).toEqual([]);
+    // A negation or `bnot` runs at the face its rung honors, as it always did.
+    expect(refusals("let x: Dec = -(n * f)\n")).toEqual([
+      "`f` is a `Float` and cannot enter `Dec`, so the multiplication ran at `Float`",
+    ]);
+    expect(refusals("let x: Int = bnot f\n")).toEqual(["type mismatch: expected Int, found Float"]);
   });
 });
