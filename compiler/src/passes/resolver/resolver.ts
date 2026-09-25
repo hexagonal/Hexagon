@@ -1810,8 +1810,9 @@ class Resolver {
   /**
    * Modules §5.1 rule 3's **companion fallback, term half** (#763): a bare
    * `Name` the term namespace has nothing for resolves to the **constructor**
-   * `Name` exported by a visible module alias `Name` — in an expression and in
-   * a pattern alike, rule 2 one namespace over.
+   * `Name` exported by a visible module alias `Name` — a record's, a union's,
+   * or an exception's (#1078), which carries the same symbol kind — in an
+   * expression, a pattern, and a catch arm alike, rule 2 one namespace over.
    *
    * It **answers, never binds**: nothing enters the term namespace, so a
    * same-spelled declaration or binding wins outright with no collision and no
@@ -1875,8 +1876,10 @@ class Resolver {
    * The occlusion keys on the **type**, so an opaque type's unreachable
    * constructor still occludes, and a transparent union with no constructor of
    * its spelling does too; either way the prelude's constructor is not reached,
-   * and the module's own reading reports. An exception constructor is not
-   * reached by the fallback (#763), so it occludes nothing (#1078).
+   * and the module's own reading reports. An **exception** of the spelling
+   * occludes as well (#1078): the fallback reaches it, as a constructor, so
+   * letting the prelude answer first would let a prelude exception added later
+   * capture a spelling that already resolved to the program's own.
    *
    * A **pending** alias counts: the occlusion is module-wide, and a reference
    * above the line reads as if the prelude did not bind the name (§5.4).
@@ -1884,9 +1887,7 @@ class Resolver {
   #occludingImport(name: string): ModuleInterface | undefined {
     const module = this.#moduleAliases.get(name);
     if (module === undefined) return undefined;
-    // An exception constructor carries the ordinary constructor kind; the
-    // interface's own `exceptions` table is what tells it apart.
-    const term = module.exceptions.has(name) ? undefined : module.terms.get(name);
+    const term = module.terms.get(name);
     return module.unions.has(name) || module.records.has(name) ||
         module.aliases.has(name) || module.externTypes.has(name) ||
         term?.kind === "constructor" || term?.kind === "record-constructor"
@@ -1990,7 +1991,11 @@ class Resolver {
    * Gated on the exporter really exporting a **constructor** of the spelling,
    * for the reason `#reportUnreachedAlias` gates on what the line binds: moving
    * an import that would still not answer is a repair that fixes nothing, and
-   * the reference falls through to whatever reports it today.
+   * the reference falls through to whatever reports it today. Or a **type** of
+   * the spelling (#1075): the import is then §5.4's occluder of the prelude's
+   * same-spelled constructor, and a reference above an occluder draws the
+   * declared-later error with the import's fixit whatever the line below it
+   * reports — the same sentence the qualified spelling above the line draws.
    *
    * Answers whether it reported.
    */
@@ -1999,8 +2004,9 @@ class Resolver {
     if (pending === undefined) return false;
     const symbol = this.#moduleAliases.get(name.text)?.terms.get(name.text);
     if (
-      symbol === undefined ||
-      (symbol.kind !== "constructor" && symbol.kind !== "record-constructor")
+      (symbol === undefined ||
+        (symbol.kind !== "constructor" && symbol.kind !== "record-constructor")) &&
+      this.#occludingImport(name.text) === undefined
     ) {
       return false;
     }

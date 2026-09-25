@@ -17,7 +17,8 @@ import { compileFiles, runProject } from "../support/test-project.js";
  *
  * The occlusion keys on the **type**: an import whose module exports a type of
  * the alias's spelling takes the prelude's same-spelled constructor with it,
- * whether or not its own constructor is reachable abroad.
+ * whether or not its own constructor is reachable abroad; so does an import
+ * whose module exports an exception of the spelling (#1078).
  *
  * The companion fallback's own properties (answers, never binds; carries no
  * members) are pinned by `companion-fallback.test.ts`.
@@ -318,10 +319,10 @@ describe("term position: the occlusion keys on the type", () => {
     ])).toEqual(["unknown name `Shape`"]);
   });
 
-  test("above the import line of a transparent union, no route is offered either", () => {
-    // Neither the prelude's route nor the union's own constructors: above the
-    // line none of the union's qualified spellings resolves yet (§3), and the
-    // prelude's is occluded module-wide (§5.4).
+  test("above the import line of a transparent union: the declared-later error", () => {
+    // §5.4: a reference above an occluder draws the declared-later error with
+    // the import's fixit — the sentence `Shape.Line(1)` draws there too — and
+    // neither the prelude's route nor the union's own constructors.
     expect(messages([
       ["/shape.hex", "module Shape\n\n" + "export union Shape = Dot | Line(Int)\n"],
       ["/main.hex",
@@ -331,7 +332,10 @@ describe("term position: the occlusion keys on the type", () => {
           "    let s = Shape(1)\n" +
           "    0\n" +
           "import Shape\n"],
-    ])).toContain("unknown name `Shape`");
+    ])).toContain(
+      "`Shape` is declared later in this block; declarations are read top-down — " +
+        "move the import above this use",
+    );
   });
 
   test("in a pattern the type's door answers, and the prelude's constructor is not reached", () => {
@@ -356,16 +360,43 @@ describe("term position: the occlusion keys on the type", () => {
     ])).toEqual([]);
   });
 
-  test("an exception of the spelling occludes nothing (#1078)", () => {
-    // The fallback does not reach exception constructors (#763), so the bare
-    // spelling is still the prelude's; only `JsError.x` is the user's.
-    expect(messages([
+  test("an exception of the spelling occludes too (#1078)", async () => {
+    // The fallback reaches an exception constructor spelled like its alias, so
+    // it outranks the prelude's `JsError` as it outranks a type's constructor:
+    // bare, in the throw and in the catch arm, and qualified all mean the
+    // user's exception. The prelude's stays reachable through its module.
+    const project = (arm: string): readonly (readonly [string, string])[] => [
       jsError("export exception JsError(code: Int)\n"),
       ["/main.hex",
-        "module Main\n\n" + "import JsError\n" +
-          "export fun f(v: JsValue): Exn = JsError(v)\n" +
-          "export fun g(): Exn = JsError.JsError(1)\n"],
-    ])).toEqual([]);
+        "module Main\n\n" + "import JsError\n" + "import Hex.JsError as Js\n" +
+          "export fun theirs(v: JsValue): Exn = Js.JsError(v)\n" +
+          "export let x: Int =\n" +
+          "    try\n" +
+          "        throw(JsError(7))\n" +
+          "    catch\n" +
+          `        ${arm} => c\n` +
+          "        _ => 0\n"],
+    ];
+    for (const arm of ["JsError(c)", "JsError.JsError(c)"]) {
+      expect(messages(project(arm))).toEqual([]);
+      expect((await runProject(project(arm)))["x"]).toBe(7);
+    }
+  });
+
+  test("an exception spelled like no prelude name agrees bare and qualified", async () => {
+    // The shape a later prelude exception of the spelling must not re-mean.
+    const module = await runProject([
+      ["/oops.hex", "module Oops\n\n" + "export exception Oops(code: Int)\n"],
+      ["/main.hex",
+        "module Main\n\n" + "import Oops\n" +
+          "export let x: Int =\n" +
+          "    try\n" +
+          "        throw(Oops(3))\n" +
+          "    catch\n" +
+          "        Oops.Oops(c) => c\n" +
+          "        _ => 0\n"],
+    ]);
+    expect(module["x"]).toBe(3);
   });
 
   test("the module's own constructor of the spelling wins outright", async () => {
