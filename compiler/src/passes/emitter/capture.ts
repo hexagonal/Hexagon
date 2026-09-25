@@ -470,7 +470,9 @@ export class CapturePlans {
       case "Variable":
         return `?${type.id}`;
       case "ExternType":
-        return `x${type.externType}`;
+        return type.arguments.length === 0
+          ? `x${type.externType}`
+          : `x${type.externType}(${type.arguments.map(of).join(",")})`;
       case "Vector":
         return `Vector(${of(type.element)})`;
       case "Set":
