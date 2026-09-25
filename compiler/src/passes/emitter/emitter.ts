@@ -5911,6 +5911,9 @@ class JavaScriptEmitter {
     // An unapplied release seat that copies emits an arrow, not a name
     // (`#releasedReference`), and an arrow binds loosest of all.
     if (this.#releasesUnapplied(expression)) return Precedence.Arrow;
+    // A door whose lowering is one JavaScript operator binds as that operator.
+    const inlined = this.#inlinedIntrinsic(expression);
+    if (inlined !== undefined) return inlined.precedence;
     // A receiver member's `Unit` call emits under `void` in value position
     // (`#emitCall`), which binds as a unary operator, not as a call.
     if (
@@ -6118,11 +6121,30 @@ class JavaScriptEmitter {
     ];
   }
 
+  /**
+   * The inline lowering of a call to a door whose lowering is one JavaScript
+   * operator, or `undefined` for every other call (`bitwise.md` §6).
+   *
+   * Keyed by the door's intrinsic key, which rides the callee's symbol across
+   * module boundaries, so no other declaration of the same name can match.
+   */
+  #inlinedIntrinsic(expression: Core.Expr): InlinedIntrinsic | undefined {
+    if (expression.kind !== "Call" || expression.callee.kind !== "Name") return undefined;
+    if (expression.arguments.length !== 1) return undefined;
+    const key = this.#symbols.get(expression.callee.symbol)?.intrinsic;
+    return key === undefined ? undefined : INLINED_INTRINSICS.get(key);
+  }
+
   #emitCall(
     expression: Core.CallExpr,
     depth: number,
     evidenceNames: EvidenceNames,
   ): string {
+    const inlined = this.#inlinedIntrinsic(expression);
+    if (inlined !== undefined) {
+      return `${this.#emitOperand(expression.arguments[0]!, inlined.precedence, depth, evidenceNames)} ` +
+        inlined.operator;
+    }
     // Statements §3.3's **value position** — everywhere `#emitStatement` did not
     // claim the call, so the `Unit` result is consumed. The erasure may not leak
     // the operand here: `void` evaluates it exactly once and answers `undefined`,
@@ -14757,6 +14779,24 @@ const BITWISE_MEMBERS: readonly string[] = [
   "shiftLeft",
   "shiftRight",
 ];
+
+/** A door lowering written inline as its operand and one JavaScript operator. */
+interface InlinedIntrinsic {
+  /** What follows the operand: the operator and its constant right side. */
+  readonly operator: string;
+  readonly precedence: Precedence;
+}
+
+/**
+ * The doors whose call emits as the JavaScript a person would write in its
+ * place (`bitwise.md` §6): `toInt32(h)` is `h | 0`. A door is here only when
+ * its lowering is exactly one operator over its one operand, so inlining it is
+ * the lowering, verbatim.
+ */
+const INLINED_INTRINSICS: ReadonlyMap<string, InlinedIntrinsic> = new Map([
+  ["intToInt32", { operator: "| 0", precedence: Precedence.BitwiseOr }],
+  ["intToUint32", { operator: ">>> 0", precedence: Precedence.Shift }],
+]);
 
 /**
  * The constraint members whose call at a known primitive instance emits as a

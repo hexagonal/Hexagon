@@ -392,6 +392,14 @@ export interface Symbol {
    * holds symbols rather than items, has to know it too.
    */
   readonly receiver?: ReceiverLinkage;
+  /**
+   * An intrinsic door row's key (`spec/intrinsics.md` §4.1). It rides the
+   * symbol for `receiver`'s reason: a call to a door whose lowering is one
+   * JavaScript operator emits that operator inline in every module
+   * (`bitwise.md` §6's `toInt32`/`toUint32`), so an importer has to know the
+   * key too.
+   */
+  readonly intrinsic?: string;
 }
 
 /** FFI Part 5 §1's receiver member forms (#982). */

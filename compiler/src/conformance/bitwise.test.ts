@@ -252,6 +252,24 @@ describe("spellings and emission (§3, §6)", () => {
     });
   });
 
+  test("toInt32 and toUint32 emit JavaScript's | 0 and >>> 0 in every spelling (§4.3, §6)", async () => {
+    const source =
+      "let h: Int = 4294967295\n" +
+      "export let a: Int = h.toInt32()\nexport let b: Int = Int.toUint32(-1)\n" +
+      "export let c: Int = h.toInt32() + 1\nexport let d: Int = (h + 1).toInt32()\n" +
+      "export let e: Int = h |> Int.toInt32\nexport let f: Bool = (h band 3).toUint32() == 3\n" +
+      "let g = Int.toInt32\nexport let viaValue: Int = g(h)\n";
+    const text = mainJavaScript(source);
+    expect(text).toContain("const a = h | 0;");
+    expect(text).toContain("const b = -1 >>> 0;");
+    expect(text).toContain("const c = (h | 0) + 1;");
+    expect(text).toContain("const d = h + 1 | 0;");
+    expect(text).toContain("const e = h | 0;");
+    expect(text).toMatch(/const g = \w*toInt32;/u);
+    const exports = await runMain("module Main\n\n" + source);
+    expect(exports).toMatchObject({ a: -1, b: 4294967295, c: 0, d: 0, e: -1, f: true, viaValue: -1 });
+  });
+
   test("a bitwise result compared keeps its grouping in JavaScript", async () => {
     const exports = await runMain(
       "module Main\n\nlet x: BigInt = 6n\nexport let zero: Bool = x band 1n == 0n\n",

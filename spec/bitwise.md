@@ -350,7 +350,10 @@ Every spelling of a member emits alike: the operator, the dot, and the qualified
 - **In a generic body**, calls use ordinary constraint evidence. No runtime dispatch on
   JavaScript operand values stands in for static instance selection.
 
-`Int.toInt32` and `Int.toUint32` emit their table's operators.
+`Int.toInt32` and `Int.toUint32` emit their table's operators in every spelling of a
+call: `h.toInt32()`, `Int.toInt32(h)`, and a pipe stage all emit `h | 0`. Each is an
+exported door row, inlined at the call site under Intrinsics §8.3's latitude; a
+reference to the function that is not called is an ordinary function value.
 
 ## 7. Implementations and intrinsic keys
 
@@ -383,7 +386,7 @@ The keys (Intrinsics §4.1):
 
 | Companion | Keys |
 |---|---|
-| `Int.hex` | `intBitAnd`, `intBitOr`, `intBitXor`, `intShiftLeft`, `intShiftRight` (the members of §4.2); `intToInt32`, `intToUint32` (the §4.3 conversions, cores of plain exports) |
+| `Int.hex` | `intBitAnd`, `intBitOr`, `intBitXor`, `intShiftLeft`, `intShiftRight` (the members of §4.2); `intToInt32`, `intToUint32` (the §4.3 conversions, exported door rows, inlined at every call, §6) |
 | `BigInt.hex` | `bigIntBitAnd`, `bigIntBitOr`, `bigIntBitXor`, `bigIntShiftLeft`, `bigIntShiftRight` (native operators; the shift keys convert their `Int` count) |
 
 `Hex.Runtime.HashTrie`'s bit algebra keeps its own keys. Its population counts are not

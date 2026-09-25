@@ -42,8 +42,16 @@ extern from "hex:intrinsic"
     fun intBitXor as nativeBitXor(left: Int, right: Int) -> Int
     fun intShiftLeft as nativeShiftLeft(value: Int, count: Int) -> Int
     fun intShiftRight as nativeShiftRight(value: Int, count: Int) -> Int
-    fun intToInt32 as nativeToInt32(value: Int) -> Int
-    fun intToUint32 as nativeToUint32(value: Int) -> Int
+
+    (** `value` reduced to the signed 32-bit range: the value in [-2^31, 2^31)
+        that differs from `value` by a multiple of 2^32. It compiles to
+        JavaScript's `value | 0`. *)
+    export fun intToInt32 as toInt32(value: Int) -> Int
+
+    (** `value` reduced to the unsigned 32-bit range: the value in [0, 2^32)
+        that differs from `value` by a multiple of 2^32. It compiles to
+        JavaScript's `value >>> 0`. *)
+    export fun intToUint32 as toUint32(value: Int) -> Int
 
 honor Num<Int> =
     (** The sum of `left` and `right`, exact within the safe range. *)
@@ -173,14 +181,6 @@ honor Bitwise<Int> =
     (** `value` divided by two to the power `count`, rounded toward negative
         infinity; a negative `count` shifts left. *)
     shiftRight(value, count) = nativeShiftRight(value, count)
-
-(** `value` reduced to the signed 32-bit range: the value in [-2^31, 2^31) that
-    differs from `value` by a multiple of 2^32. JavaScript's `value | 0`. *)
-export let toInt32(value: Int): Int = nativeToInt32(value)
-
-(** `value` reduced to the unsigned 32-bit range: the value in [0, 2^32) that
-    differs from `value` by a multiple of 2^32. JavaScript's `value >>> 0`. *)
-export let toUint32(value: Int): Int = nativeToUint32(value)
 
 // The largest magnitude an `Int` holds exactly, in either direction: 2^53 - 1.
 // The range being symmetric is what lets `checkedSub` negate its right operand

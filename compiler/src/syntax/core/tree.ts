@@ -119,6 +119,8 @@ export interface Symbol {
   readonly scheme: Typed.Scheme;
   /** See `Resolved.Symbol.receiver` — an FFI Part 5 member's linkage (#982). */
   readonly receiver?: Resolved.ReceiverLinkage;
+  /** See `Resolved.Symbol.intrinsic` — a door row's key, for inline lowering. */
+  readonly intrinsic?: string;
 }
 
 export interface Binding {
