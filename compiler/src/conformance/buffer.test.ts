@@ -123,8 +123,8 @@ describe("`Buffer(a)` is invariant (§3.3)", () => {
   /**
    * There is no representation for the closure doc's §6.3 to verify a variance
    * claim against, so §3.3 gives the row the opaque-declaration rule's bare
-   * parameter — the empty claim, meaning invariant — and a written sigil is
-   * refused at the parser.
+   * parameter — the empty claim, meaning invariant. `buffer` writes no sigil,
+   * so every slot of `Buffer(a)` is invariant.
    *
    * The consequence at a **use** site: a `Buffer(Int)` is not a buffer of
    * anything else, and the contextual widening that carries an `Int` literal to
@@ -205,7 +205,8 @@ describe("the honest arrows (§3.3, `regex.md` §7)", () => {
   /**
    * `create`, `read` and `write` are `->!`, so a `->`-faced function calling one
    * draws the effects discipline's refusal — which is the whole content of the
-   * arrows being *written* rather than left to the `:` spelling's pure default.
+   * arrows being *written*: an extern row's arrow is its effect contract (FFI
+   * Part 4 §4.5), and these three contracts say `->!`.
    * `bufferLength` is `->`, because a buffer's size is fixed at creation and no
    * row changes it, so the same function calling it is at home.
    *
@@ -253,4 +254,62 @@ describe("the honest arrows (§3.3, `regex.md` §7)", () => {
       "    read!(b, 1)\n",
     )).toEqual([]);
   });
+});
+
+/**
+ * The walks that now read a `Buffer`'s **argument** (#927): a door type is the
+ * first `ExternType` that carries one, and every walk over types had to learn
+ * to enter it. Each pin below fails if its walk passes over the argument.
+ */
+describe("walks that enter a `Buffer`'s argument", () => {
+  /**
+   * The occurs check. `write!(b, 0, b)` asks `b : Buffer(a)` to hold itself, so
+   * `a` would be `Buffer(a)`. Without the argument arm this is not a diagnostic
+   * but a stack overflow in the unifier.
+   */
+  test("a buffer that would hold itself is an infinite type", () => {
+    expect(diagnostics("let f(b) = write!(b, 0, b)\n")).toEqual([
+      "infinite type: a type variable occurs inside itself",
+    ]);
+  });
+
+  /**
+   * The contract's colours inside a `Buffer` reach an instance body fresh
+   * (Effects §13.2), so the body's demand for an impure element is compared at
+   * the seat and reported as the instance-against-contract refusal. A walk that
+   * did not see the arrow inside `Buffer(Int -> Int)` would hand the body the
+   * contract's own `->`, and the report would be a plain colour clash instead.
+   */
+  test("an arrow inside a `Buffer` is recoloured at an instance seat", () => {
+    expect(diagnostics(
+      "let useImpure(fs: Buffer(Int ->! Int)): Int = length(fs)\n" +
+      "constraint Holds<c> =\n" +
+      "    first(x: c, fs: Buffer(Int -> Int)) -> Int\n" +
+      "record Box = { n: Int }\n" +
+      "honor Holds<Box> =\n" +
+      "    first(x, fs) = useImpure(fs)\n",
+    )).toEqual([
+      "this instance demands a function that may perform effects where `first`'s " +
+      "contract writes `->` inside the parameter `fs` — an invariant position admits " +
+      "no widening — do not require effects of the function inside `fs` here, or, if " +
+      "the constraint is yours, write `->!` on that arrow inside the parameter `fs`",
+    ]);
+  });
+});
+
+/**
+ * A confined type has no pattern, permanently (§3.3's second property), so a
+ * `match` over one is refused without the "yet" the unsupported-scrutinee
+ * message otherwise carries: there is no representation for a pattern to read,
+ * and no form to promise (Intrinsics §11).
+ */
+test("a `match` over a `Buffer` is refused as patternless, not as not-yet", () => {
+  expect(diagnostics(
+    "let f(b: Buffer(Int)): Int =\n" +
+    "    match b\n" +
+    "        _ => 0\n",
+  )).toEqual([
+    "`Buffer(Int)` is a compiler-implemented type and has no pattern; its values " +
+    "are read only through the rows that declare it",
+  ]);
 });

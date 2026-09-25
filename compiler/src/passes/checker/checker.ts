@@ -1040,11 +1040,12 @@ interface ExternMono {
    * foreign extern type, which stays monomorphic (FFI Part 4 §12.4); non-empty
    * for a parameterized intrinsic `type` row's occurrence.
    *
-   * **Every slot is invariant.** There is no representation for §6.3 to verify
-   * a claim against, so §3.3 gives the row the opaque-declaration rule's bare
-   * parameter, and a written sigil is refused at the parser. Unification is
-   * therefore equality on each argument, and generalization refuses to quantify
-   * a variable that occurs in one.
+   * **A slot is invariant unless the row claims otherwise.** There is no
+   * representation for §6.3 to verify a claim against, so §3.3 gives the row
+   * the opaque-declaration rule: a bare parameter is invariant, and a written
+   * `+`/`-` is a trusted claim both variance readers believe. Unification is
+   * equality on each argument whatever the claim; the claim decides what
+   * generalization may quantify.
    */
   readonly arguments: readonly Mono[];
   readonly qualifier?: Qualifier;
@@ -24482,7 +24483,9 @@ class Checker {
       case "Error":
         return "<error>";
       case "ExternType":
-        return `x${actual.externType}`;
+        return actual.arguments.length === 0
+          ? `x${actual.externType}`
+          : `x${actual.externType}(${actual.arguments.map(key).join(",")})`;
       case "Tuple":
         return `(${actual.elements.map(key).join(",")})`;
       case "Record":
@@ -24691,6 +24694,13 @@ class Checker {
           break;
         case "Node":
           push([actual.element]);
+          break;
+        case "ExternType":
+          // *(#927.)* Followed through its arguments, like the holder it is: a
+          // door type's representation is the compiler's, so what it holds is
+          // what its arguments say. A foreign extern type has none, and ends the
+          // path as it always did. Not one of item 1's five containers.
+          push(actual.arguments);
           break;
         case "Function":
           // Entered like any other constructor, and no longer marked: a
@@ -25009,49 +25019,6 @@ class Checker {
   }
 
   /**
-   * §3.3's **confinement**, verified (`spec/intrinsics.md` §11's "Confined type
-   * escaping" row, #927/#930).
-   *
-   * A door-declared `type` names a compiler-implemented type *no program can
-   * address*: values arise only from the block's `fun` rows, and the type itself
-   * is never addressable outside the modules its inventory entry names. The
-   * declarer list is the resolver's half of that (a declaration elsewhere is
-   * refused at the row); this is the other half — no value of the type escapes
-   * the module through a face a consumer could name.
-   *
-   * Five carriers are refused, and the message's clause is selected by which
-   * one fired, as the rest of §11's checklist selects its clauses:
-   *
-   *  - an **exported signature** — an exported binding's or exported door row's;
-   *  - an **exported pattern's parameter types** (a pattern is a capability and
-   *    crosses — Modules §4.2);
-   *  - an **exception payload**, exported or not: an exception escapes the
-   *    module by being thrown, so `export` is not what makes its payload travel.
-   *    §3.3's clause carries no `exported` qualifier where its neighbours do,
-   *    and this is what that difference says;
-   *  - the **representation of a non-`opaque` exported type** — a record's
-   *    field, a union constructor's payload, a type alias's target;
-   *  - an **`export` of the row itself**.
-   *
-   * And one carrier is **accepted**: an `opaque` exported record's field or an
-   * `opaque` exported union constructor's payload, because an opaque value's
-   * structure is unreadable outside the home module (Modules §4.2). That is how
-   * a value over confined storage travels — a compiled `Regex` carries its
-   * program and its cache — while the storage stays addressable only from a
-   * module that declares it. It falls out of the carrier list rather than
-   * needing an exemption: the `opaque` heads are simply not walked.
-   *
-   * A `derives` clause over such a carrier needs no rule here. A confined type
-   * has no derived instances (§3.3's second property), so the derivation asks
-   * for `Eq`/`Ord`/`Hash`/`Show` at the field's type and finds none — the
-   * refusal is the missing instance, at the seat that wanted it, which is the
-   * report that names what is actually absent.
-   *
-   * Local like its neighbour `#checkPublicSignatures`: only a row **this
-   * module** declared is confined here, and a confined type is unexported by
-   * this very check, so no other module can hold one to report.
-   */
-  /**
    * **The one structural walk both privacy doors run** (#927, and the
    * walk-vs-doors lesson the `#857` review recorded): Modules §4.3's private-type
    * family and `spec/intrinsics.md` §3.3's confinement ask the same question of
@@ -25140,6 +25107,49 @@ class Checker {
     return type.kind === "Function" ? type.parameters : [];
   }
 
+  /**
+   * §3.3's **confinement**, verified (`spec/intrinsics.md` §11's "Confined type
+   * escaping" row, #927/#930).
+   *
+   * A door-declared `type` names a compiler-implemented type *no program can
+   * address*: values arise only from the block's `fun` rows, and the type itself
+   * is never addressable outside the modules its inventory entry names. The
+   * declarer list is the resolver's half of that (a declaration elsewhere is
+   * refused at the row); this is the other half — no value of the type escapes
+   * the module through a face a consumer could name.
+   *
+   * Five carriers are refused, and the message's clause is selected by which
+   * one fired, as the rest of §11's checklist selects its clauses:
+   *
+   *  - an **exported signature** — an exported binding's or exported door row's;
+   *  - an **exported pattern's parameter types** (a pattern is a capability and
+   *    crosses — Modules §4.2);
+   *  - an **exception payload**, exported or not: an exception escapes the
+   *    module by being thrown, so `export` is not what makes its payload travel.
+   *    §3.3's clause carries no `exported` qualifier where its neighbours do,
+   *    and this is what that difference says;
+   *  - the **representation of a non-`opaque` exported type** — a record's
+   *    field, a union constructor's payload, a type alias's target;
+   *  - an **`export` of the row itself**.
+   *
+   * And one carrier is **accepted**: an `opaque` exported record's field or an
+   * `opaque` exported union constructor's payload, because an opaque value's
+   * structure is unreadable outside the home module (Modules §4.2). That is how
+   * a value over confined storage travels — a compiled `Regex` carries its
+   * program and its cache — while the storage stays addressable only from a
+   * module that declares it. It falls out of the carrier list rather than
+   * needing an exemption: the `opaque` heads are simply not walked.
+   *
+   * A `derives` clause over such a carrier needs no rule here. A confined type
+   * has no derived instances (§3.3's second property), so the derivation asks
+   * for `Eq`/`Ord`/`Hash`/`Show` at the field's type and finds none — the
+   * refusal is the missing instance, at the seat that wanted it, which is the
+   * report that names what is actually absent.
+   *
+   * Local like its neighbour `#checkPublicSignatures`: only a row **this
+   * module** declared is confined here, and a confined type is unexported by
+   * this very check, so no other module can hold one to report.
+   */
   #checkConfinedTypes(items: readonly Resolved.Item[]): void {
     /** This door's membership question: a **door-declared** row, and no other. */
     const confined = (actual: Mono): Source.Span | undefined => {
@@ -29049,8 +29059,8 @@ function annotationHasErrorType(annotation: Resolved.TypeAnnotation): boolean {
       return annotation.fields.some((field) => annotationHasErrorType(field.annotation));
     case "Union":
     case "RecordDeclaration":
-      return annotation.arguments.some(annotationHasErrorType);
     case "ExternType":
+      return annotation.arguments.some(annotationHasErrorType);
     case "Primitive":
     case "Range":
     case "JsValue":

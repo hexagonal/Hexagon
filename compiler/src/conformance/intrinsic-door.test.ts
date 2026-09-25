@@ -483,7 +483,6 @@ describe("the `type` form (§3.3)", () => {
     return diagnostics([["/Regex.hex", `${regexRuntimeSource}\n${source}`]], TRUST_REGEX);
   }
 
-  /** A specimen in a *runtime* module that is not a named declarer of `buffer`. */
   /**
    * A specimen that is the whole `Runtime.Regex` module: the shipped file
    * already declares `buffer`, and a second row for the key beside it is the
@@ -493,6 +492,7 @@ describe("the `type` form (§3.3)", () => {
     return diagnostics([["/Regex.hex", `module Runtime.Regex\n\n${block}`]], TRUST_REGEX);
   }
 
+  /** A specimen in a *runtime* module that is not a named declarer of `buffer`. */
   function inOtherRuntime(block: string): readonly string[] {
     return diagnostics([["/VectorTrie.hex", `${vectorTrieSource}\n${block}`]], new Set(["Runtime.VectorTrie"]));
   }
@@ -521,6 +521,41 @@ describe("the `type` form (§3.3)", () => {
     ]);
   });
 
+  /**
+   * One key is one compiler type (§3.3, §4.1), so a second row for a key in one
+   * module is refused at the second row. The duplicate's own spelling still
+   * names that one type, so a later use of it draws nothing further: one typo,
+   * one report.
+   */
+  test("a second row for one type key in a module is refused, once", () => {
+    expect(inBareRegexRuntime(
+      'extern from "hex:intrinsic"\n' +
+      "    type buffer as Buffer(a)\n" +
+      "    type buffer as Other(a)\n" +
+      "\n" +
+      "let f(x: Other(Int)): Other(Int) = x\n",
+    )).toEqual([
+      "intrinsic type `buffer` is already declared in this module as `Buffer`; " +
+      "one key is one compiler type",
+    ]);
+  });
+
+  /**
+   * §11's wrong-bracket row: a type row declares its parameters in the
+   * declaration shape, a parenthesised head like a record's. The binders are
+   * kept, so a right arity in the wrong brackets draws this report alone and
+   * not the arity refusal beside it.
+   */
+  test("a type row's parameters in angle brackets are rewritten to a head", () => {
+    expect(inBareRegexRuntime(
+      'extern from "hex:intrinsic"\n' +
+      "    type buffer as Buffer<a>\n",
+    )).toEqual([
+      "an intrinsic type declares its parameters in a declaration head; " +
+      "write `type buffer as Buffer(a)`",
+    ]);
+  });
+
   /** §11's type-key arity row: the arity is the type's **parameter** count. */
   test("a type key's arity is verified, in type parameters", () => {
     expect(inBareRegexRuntime(
@@ -529,9 +564,13 @@ describe("the `type` form (§3.3)", () => {
     )).toEqual([
       "intrinsic type `buffer` takes 1 type parameter, but this declaration has 2",
     ]);
+    // A use of the misdeclared row draws nothing further, applied or not: the
+    // declaration was the typo.
     expect(inBareRegexRuntime(
       'extern from "hex:intrinsic"\n' +
-      "    type buffer as Store\n",
+      "    type buffer as Store\n" +
+      "\n" +
+      "let f(x: Store(Int)): Store(Int) = x\n",
     )).toEqual([
       "intrinsic type `buffer` takes 1 type parameter, but this declaration has 0",
     ]);

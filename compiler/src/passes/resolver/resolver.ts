@@ -1394,6 +1394,13 @@ class Resolver {
    * name absent here is monomorphic, which is every foreign extern type.
    */
   readonly #externTypeArities = new Map<string, number>();
+  /**
+   * *(#927.)* Door rows whose declared arity §11's type-key arity row already
+   * refused, by local name. A use of one takes its arguments as written and
+   * draws nothing further: the declaration was the typo, and one typo is one
+   * report.
+   */
+  readonly #arityRefusedExternTypes = new Set<string>();
   readonly #typeAliases = new Map<string, Parsed.TypeAliasItem | Resolved.TypeAliasItem>();
   /**
    * The **written** alias declarations of this module, kept beside
@@ -2665,6 +2672,13 @@ class Resolver {
               primary: item.localName.span,
               labels: [{ span: first.span, message: "first declaration is here" }],
             });
+            // The duplicate's own spelling still names the key's one type, so
+            // a later use of it resolves rather than drawing a second report
+            // about a name the author did write.
+            this.#externTypeNames.set(item.localName.text, Resolved.externTypeId(reserved));
+            if (item.parameters !== undefined && item.parameters.length > 0) {
+              this.#externTypeArities.set(item.localName.text, item.parameters.length);
+            }
             continue;
           }
           doorKeys.set(key, { span: item.localName.span, local: item.localName.text });
@@ -3007,6 +3021,7 @@ class Resolver {
             `declaration has ${declared}`,
           primary: declaration.span,
         });
+        this.#arityRefusedExternTypes.add(declaration.localName.text);
       }
       return;
     }
@@ -6138,6 +6153,14 @@ class Resolver {
       // like any other nominal; a foreign extern type has no arity entry and
       // keeps FFI Part 4 §12.4's monomorphism refusal.
       const externArity = this.#externTypeArities.get(name);
+      if (this.#arityRefusedExternTypes.has(name)) {
+        const written = annotation.kind === "AppliedType"
+          ? annotation.arguments.map((argument) =>
+            this.#resolveTypeAnnotation(argument, typeParameters, impliedContext, substitutions)
+          )
+          : [];
+        return { kind: "ExternType", externType, name, arguments: written, span: annotation.span };
+      }
       if (externArity === undefined) {
         if (annotation.kind === "AppliedType") {
           this.#diagnostics.add({

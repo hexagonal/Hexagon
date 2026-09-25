@@ -4321,27 +4321,6 @@ class Parser {
   }
 
   /**
-   * A variance sigil at a type-parameter position (Declarations Preamble §2.1).
-   * `+a` and `-a` are legal only on a parameterized `opaque` record or
-   * union: what crosses an opaque boundary must be declared, and there is
-   * nothing to declare where the definition is public (closure doc §6.1, §9.6).
-   *
-   * The sigil is consumed either way, so the parameter after it still parses and
-   * the author gets one report rather than a cascade.
-   *
-   * That covers a sigil, and only a sigil. `Box(++a)` is not a doubled one —
-   * `++` is the concatenation operator's own token (Lexer §3) — so it never
-   * reaches here and recovers as any other token that cannot start a parameter
-   * would, with the parameter list's ordinary messages. There is no doubled
-   * sigil in the grammar to report better.
-   *
-   * The gate is `opaque`, and after #590 that is the whole of it: the word fills
-   * the head's visibility slot by itself, so `opaque` *is* the crossing and there
-   * is no second flag to consult. (Before #590 the gate read the same, because
-   * the keyword only ever followed `export`; Preamble §2.1 now says plainly what
-   * the code always tested — "only on an `opaque` declaration".)
-   */
-  /**
    * An intrinsic `type` row's parameter list (`spec/intrinsics.md` §3.3, #927):
    * `type buffer as Buffer(a)`. Arity 0 is spelled with no list at all, which is
    * why the caller asks whether the paren is there rather than this method
@@ -4388,6 +4367,27 @@ class Parser {
     return parameters;
   }
 
+  /**
+   * A variance sigil at a type-parameter position (Declarations Preamble §2.1).
+   * `+a` and `-a` are legal only on a parameterized `opaque` record or
+   * union: what crosses an opaque boundary must be declared, and there is
+   * nothing to declare where the definition is public (closure doc §6.1, §9.6).
+   *
+   * The sigil is consumed either way, so the parameter after it still parses and
+   * the author gets one report rather than a cascade.
+   *
+   * That covers a sigil, and only a sigil. `Box(++a)` is not a doubled one —
+   * `++` is the concatenation operator's own token (Lexer §3) — so it never
+   * reaches here and recovers as any other token that cannot start a parameter
+   * would, with the parameter list's ordinary messages. There is no doubled
+   * sigil in the grammar to report better.
+   *
+   * The gate is `opaque`, and after #590 that is the whole of it: the word fills
+   * the head's visibility slot by itself, so `opaque` *is* the crossing and there
+   * is no second flag to consult. (Before #590 the gate read the same, because
+   * the keyword only ever followed `export`; Preamble §2.1 now says plainly what
+   * the code always tested — "only on an `opaque` declaration".)
+   */
   #takeVarianceSigil(
     opaque: boolean,
   ): { readonly claim: "co" | "contra"; readonly span: Source.Span } | undefined {

@@ -26,8 +26,9 @@ module Runtime.Regex
 //
 // **The storage is confined.** A `Buffer(a)` is addressable from this module and
 // nowhere else (`spec/intrinsics.md` §3.3): it may not appear in an exported
-// signature, in an exception payload, in the representation of a non-`opaque`
-// exported type, or in an `export` of its own, and the checker verifies all of
+// signature, in an exported pattern's parameter types, in an exception payload,
+// in the representation of a non-`opaque` exported type, or in an `export` of
+// its own, and the checker verifies all of
 // that. It is the half of Effects §6.2 species (d) the compiler can check — the
 // other half being the engine's own obligation never to write a program it has
 // frozen.

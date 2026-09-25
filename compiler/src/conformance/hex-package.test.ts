@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import { compileFiles, runProject } from "../support/test-project.js";
 import { LIBRARY_MODULES, PRELUDE_MODULES } from "../prelude.js";
 import { RUNTIME_MODULES } from "../runtime-modules.js";
+import { RUNTIME_WIRINGS } from "../passes/emitter/emitter.js";
 
 /**
  * The standard library is the package `Hex`, **in full** (Packages §2.4, §3.2;
@@ -231,6 +232,13 @@ describe("the runtime modules are registered members of `Hex`", () => {
       ["Runtime.HashTrie", "Map"],
       ["Runtime.Regex", undefined],
     ]);
+    // The emitter's wiring rows and the injected list agree **member for
+    // member** (`project.ts`'s `runtimeModulePathsByName`): a member with no
+    // wiring row is compiled and emitted and then loses its path, so every
+    // importer below the root would spell the same-directory default — the
+    // wrong file — with nothing turning red but this.
+    expect(RUNTIME_WIRINGS.map(({ name }) => name))
+      .toEqual(RUNTIME_MODULES.map(({ name }) => name));
     // Neither list may hold the other's members, and the three together are the
     // embedded library — the property `LIBRARY_MODULES` is derived by.
     for (const { name } of RUNTIME_MODULES) {

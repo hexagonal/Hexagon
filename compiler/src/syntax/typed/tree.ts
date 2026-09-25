@@ -174,8 +174,8 @@ export interface ExternType {
   /**
    * The type arguments (#927): empty for a foreign extern type, which stays
    * monomorphic (FFI Part 4 §12.4), and non-empty for a parameterized intrinsic
-   * `type` row's occurrence. Every slot is invariant (`spec/intrinsics.md`
-   * §3.3).
+   * `type` row's occurrence. A slot is invariant unless the row writes a
+   * variance sigil (`spec/intrinsics.md` §3.3).
    */
   readonly arguments: readonly Type[];
   /** See `TypeQualifier`; absent for an occurrence the source wrote bare. */

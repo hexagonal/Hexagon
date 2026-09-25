@@ -1310,7 +1310,9 @@ export function compileProject(
       preludeUnionBase = nextId(dataResolved.unions.map(({ id }) => Number(id)), preludeUnionBase);
       preludeRecordBase = nextId(dataResolved.records.map(({ id }) => Number(id)), preludeRecordBase);
       preludeExternTypeBase = nextId(
-        dataResolved.externTypes.map(({ externType }) => Number(externType)),
+        dataResolved.externTypes
+          .map(({ externType }) => Number(externType))
+          .filter(mintable),
         preludeExternTypeBase,
       );
     } else {
