@@ -16,13 +16,6 @@ const MAP_HELPERS =
   "fun both(a: Bool, b: Bool): Bool = a and b\n" +
   "fun keyed(m: Map(k, Int), key: k): Bool = True\n";
 
-function sibling(member: string, evidence: string, binder: string): string {
-  return `\`u\` is declared on \`b\`, and this in \`${member}\` needs its \`${evidence}\` evidence, ` +
-    `but \`${member}\`'s type does not mention it, and a knot member cannot name a sibling's ` +
-    `variable; declare it on the block's head, \`fun<${binder}>\`, and write \`u\` in ` +
-    `\`${member}\`'s signature too`;
-}
-
 function unmentioned(variable: string, evidence: string, member: string): string {
   return `\`${variable}\` is a declared type variable, and this needs its \`${evidence}\` ` +
     `evidence, but \`${member}\`'s type does not mention \`${variable}\`, so no call of ` +
@@ -97,9 +90,9 @@ describe("a demand whose evidence no enclosing declaration carries is refused, n
   });
 
   test("a knot sibling's own variable, reached through the shared type (#1046's shape)", () => {
-    // One report, at the demand that reached across. `b`'s own `x + …` demand is
-    // its casualty (the sibling's reach is what stopped `b` generalizing over
-    // `u`), and is not reported separately.
+    // #1035's widening never targets a variable the caller cannot name, so the
+    // sibling's reach is refused at the argument, before any demand is made —
+    // one report, and `b`'s own `x + …` demand compiles as it should.
     expect(diagnostics(
       "fun\n" +
       "    b(x: u, go: Bool): Int =\n" +
@@ -107,10 +100,13 @@ describe("a demand whose evidence no enclosing declaration carries is refused, n
       "        if go then a(3n, False) else 1\n" +
       "    a(n: BigInt, flag: Bool): Int = if flag then b(n, False) else 0\n" +
       "export let r: Int = a(3n, True)\n",
-    )).toEqual([sibling("a", "FromBigInt", "u: FromBigInt")]);
+    )).toEqual([
+      "`u` is a declared type variable, but the body requires `BigInt`; change the " +
+        "annotation to `BigInt`, or remove it to let the type be inferred",
+    ]);
   });
 
-  test("a sibling reached from a local inside a member names the member, not the local", () => {
+  test("a sibling reached from a local inside a member is the same refusal at the argument", () => {
     for (const local of [
       "        fun inner(k: Int): Int = if flag then b(n, False) else k\n        inner(0)\n",
       "        let g = (k: Int) => if flag then b(n, False) else k\n        g(0)\n",
@@ -122,7 +118,10 @@ describe("a demand whose evidence no enclosing declaration carries is refused, n
         "        if go then a(3n, False) else 1\n" +
         "    a(n: BigInt, flag: Bool): Int =\n" + local +
         "export let r: Int = a(3n, True)\n",
-      )).toEqual([sibling("a", "FromBigInt", "u: FromBigInt")]);
+      )).toEqual([
+      "`u` is a declared type variable, but the body requires `BigInt`; change the " +
+        "annotation to `BigInt`, or remove it to let the type be inferred",
+    ]);
     }
   });
 

@@ -188,17 +188,50 @@ describe("a Nat or Int argument widens into a caller's declared type variable (#
     expect((await runProject([["/main.hex", source]]))["r"]).toBe(3);
   });
 
-  test("a head variable the calling member's signature does not mention is not its own", () => {
-    // `u` is in `a`'s scope, but its evidence reaches a member only through the
-    // member's own scheme, and `a`'s signature does not mention it.
-    const messages = verdict(
+  // A head variable is in every member's scope, so the widening is admitted,
+  // and it is a demand like any other: #1048's evidence-route check refuses it
+  // where no enclosing declaration quantifies the variable.
+  const noEvidence = "`u` is a declared type variable, and this needs its `Num` evidence, " +
+    "but `a`'s type does not mention `u`, so no call of `a` can supply it; use `u` in " +
+    "`a`'s parameter or result types";
+
+  test("widening into a head variable in a member that does not carry it is refused (#1048)", () => {
+    expect(verdict(
       "fun<u: Frac>\n" +
       "    b(x: u, go: Bool): Int = if go then a(3, False) else 1\n" +
       "    a(n: Nat, flag: Bool): Int = if flag then b(n, False) else 0\n" +
       "export let r: Int = a(3, True)\n",
-    );
-    expect(messages).toHaveLength(1);
-    expect(messages[0]).toContain("`u` is a declared type variable, but the body requires `Nat`");
+    )).toEqual([noEvidence]);
+  });
+
+  test("so is one from a `fun` nested in that member, whatever its own signature writes", () => {
+    expect(verdict(
+      "fun<u: Frac>\n" +
+      "    b(x: u, go: Bool): Int = if go then a(3, False) else 1\n" +
+      "    a(n: Nat, flag: Bool): Int =\n" +
+      "        fun inner(x: u, k: Nat): Int =\n" +
+      "            let acc(i: u): u = i\n" +
+      "            let z = acc(k)\n" +
+      "            0\n" +
+      "        0\n" +
+      "export let r: Int = a(3, True)\n",
+    )).toEqual([noEvidence]);
+  });
+
+  test("and one from a `fun` nested in a member that does carry it is accepted", async () => {
+    const source = "module Main\n\n" +
+      "fun<u: Num>\n" +
+      "    b(x: u, n: Nat, go: Bool): u =\n" +
+      "        let acc(i: u): u = i\n" +
+      "        fun inner(k: Nat): Int =\n" +
+      "            let z = acc(k)\n" +
+      "            0\n" +
+      "        let w = inner(n)\n" +
+      "        if go then a(x, 1, False) else x\n" +
+      "    a(x: u, n: Nat, go: Bool): u = if go then b(x, n, False) else x\n" +
+      "export let r: Float = a(1.5, 3, True)\n";
+    expect(compileMain(source).diagnostics).toEqual([]);
+    expect((await runProject([["/main.hex", source]]))["r"]).toBe(1.5);
   });
 
   test("a shadowed outer variable is not one the inner body can name, and stays refused", () => {
