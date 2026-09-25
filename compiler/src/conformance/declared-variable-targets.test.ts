@@ -155,11 +155,19 @@ describe("a Nat or Int argument widens into a caller's declared type variable (#
   test("a knot sibling's declared variable is not the caller's, and stays refused", () => {
     // Members of a `fun` knot share one not-yet-general type (Functions §7.4),
     // so `a`'s call reaches `b`'s own `u` — whose evidence `a` does not carry.
-    for (const [source, width] of [["n: Nat", "3"], ["n: Int", "3"], ["n: BigInt", "3n"]]) {
+    // Each row's `u` carries the constraint its source's widening needs, so the
+    // old rigid-only test would have accepted it and emission found no evidence:
+    // `Frac` gives `Num` and `Signed`, and `FromBigInt` has to be demanded itself.
+    const rows = [
+      ["n: Nat", "3", "let y = x / x"],
+      ["n: Int", "3", "let y = x / x"],
+      ["n: BigInt", "3n", "let y = FromBigInt.fromBigInt(5n) + x"],
+    ];
+    for (const [source, width, demand] of rows) {
       const messages = verdict(
         "fun\n" +
         "    b(x: u, go: Bool): Int =\n" +
-        "        let y = x / x\n" +
+        `        ${demand}\n` +
         `        if go then a(${width}, False) else 1\n` +
         `    a(${source}, flag: Bool): Int = if flag then b(n, False) else 0\n` +
         "export let r: Int = a(3, True)\n",
@@ -178,6 +186,34 @@ describe("a Nat or Int argument widens into a caller's declared type variable (#
       "export let r: Float = a(1.5, 3, True)\n";
     expect(compileMain(source).diagnostics).toEqual([]);
     expect((await runProject([["/main.hex", source]]))["r"]).toBe(3);
+  });
+
+  test("a head variable the calling member's signature does not mention is not its own", () => {
+    // `u` is in `a`'s scope, but its evidence reaches a member only through the
+    // member's own scheme, and `a`'s signature does not mention it.
+    const messages = verdict(
+      "fun<u: Frac>\n" +
+      "    b(x: u, go: Bool): Int = if go then a(3, False) else 1\n" +
+      "    a(n: Nat, flag: Bool): Int = if flag then b(n, False) else 0\n" +
+      "export let r: Int = a(3, True)\n",
+    );
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toContain("`u` is a declared type variable, but the body requires `Nat`");
+  });
+
+  test("a shadowed outer variable is not one the inner body can name, and stays refused", () => {
+    // The outer `t`'s evidence does reach `inner`, but `inner` can no longer name
+    // it: the target must be a variable the body can name (§5.1).
+    const messages = verdict(
+      "fun outer<t: Num>(n: Nat): t =\n" +
+      "    let accept(item: t): t = item\n" +
+      "    let inner<t: Num>(m: Nat): t =\n" +
+      "        let ignored = accept(m)\n" +
+      "        m\n" +
+      "    accept(n)\n",
+    );
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toContain("`t` is a declared type variable, but the body requires `Nat`");
   });
 
   test("the conversion the declared constraints do not supply is still refused", () => {

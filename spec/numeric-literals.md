@@ -173,9 +173,11 @@ The checker admits three exact, evidence-directed contextual conversions. The
 
 “Independently established” means that the target is fixed by an annotation, a concrete
 operand or argument, a branch or assignment boundary, an already-constrained type
-variable — a declared one included, where the body being checked carries its evidence:
-one its own declaration or an enclosing one declares, never a variable another member of
-its `fun` knot declared (Functions §7.4 shares the members' types, not their evidence) — or, **at a tower member call the expected-type lift below governs**, the
+variable — a declared one included, where the body being checked carries its evidence and
+can name it: one its own declaration or an enclosing one declares, unshadowed, and a `fun`
+block head's only in a member whose written signature mentions it; never a variable another
+member of its knot declared (Functions §7.4 shares the members' types, not their evidence).
+A self-recursive call's argument and an `honor` binder are not yet delivered (#1045) — or, **at a tower member call the expected-type lift below governs**, the
 seat's expected type (Functions §4.3), a written face arriving where an annotation could
 have been written. The expectation route exists only through the lift: at every other
 position an expectation establishes no widening target of its own (Functions §4.3's

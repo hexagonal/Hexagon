@@ -3420,6 +3420,14 @@ class Checker {
   #declaringMember: { readonly symbol: Resolved.SymbolId; readonly name: string } | undefined;
   readonly #declaredHeadOwners = new Map<number, HeadOwner>();
   /**
+   * The type-variable names each `fun` member's **written** signature mentions —
+   * its parameter annotations and its return annotation — read off the source
+   * before its body is checked (#1035). Whether a member carries a head
+   * variable's evidence is a fact about its signature, as GHC's ambiguity check
+   * reads it; the body's own annotations do not put a variable in the scheme.
+   */
+  readonly #memberSignatureNames = new Map<Resolved.SymbolId, ReadonlySet<string>>();
+  /**
    * The site an annotation-introduced type variable minted right now belongs to
    * — the `fun` member whose body is being checked, or `undefined` anywhere else
    * (#700).
@@ -7497,6 +7505,7 @@ class Checker {
           symbol,
           name: item.binding.name,
         };
+        this.#memberSignatureNames.set(symbol, signatureVariableNames(item.value));
         this.#bindingChain.push({ symbol, name: item.binding.name });
         let value: Mono;
         try {
@@ -14611,13 +14620,18 @@ class Checker {
    * refused as it was before #1035.
    */
   #declaredInScope(variable: Variable): boolean {
-    if (variable.rigidName === undefined) return false;
+    const name = variable.rigidName;
+    if (name === undefined) return false;
     const scope = this.#annotationVariableScope;
-    if (scope === undefined) return false;
-    for (const candidate of scope.values()) {
-      if (candidate === variable) return true;
-    }
-    return false;
+    if (scope === undefined || ![...scope.values()].includes(variable)) return false;
+    // A block head's variable is in every member's scope, but its evidence
+    // reaches a member only through that member's own scheme — so only where
+    // the member's written signature mentions it. Otherwise the widening would
+    // demand evidence the member does not carry, which emission cannot find.
+    if (this.#declaredHeadOwners.get(variable.id)?.kind !== "block") return true;
+    const member = this.#annotationOwner;
+    return member?.kind === "member" &&
+      this.#memberSignatureNames.get(member.symbol)?.has(name) === true;
   }
 
   #checkCallArguments(
@@ -27553,6 +27567,61 @@ function openRowInPayloadMessage(alias: string | undefined): string {
     "the record may have more fields — name them, or give the slot the type `JsValue`";
 }
 
+
+/** The type-variable names a lambda's written signature mentions (#1035). */
+function signatureVariableNames(value: Resolved.Expr): ReadonlySet<string> {
+  const names = new Set<string>();
+  if (value.kind !== "Lambda") return names;
+  const walk = (annotation: Resolved.TypeAnnotation): void => {
+    switch (annotation.kind) {
+      case "TypeVariable":
+        names.add(annotation.name);
+        return;
+      case "Function":
+        annotation.parameters.forEach(walk);
+        walk(annotation.result);
+        return;
+      case "Vector":
+      case "Set":
+      case "Array":
+      case "JsSet":
+      case "Node":
+        walk(annotation.element);
+        return;
+      case "Nullable":
+        walk(annotation.value);
+        return;
+      case "Map":
+      case "JsMap":
+        walk(annotation.key);
+        walk(annotation.value);
+        return;
+      case "Tuple":
+        annotation.elements.forEach(walk);
+        return;
+      case "Record":
+        annotation.fields.forEach((field) => walk(field.annotation));
+        return;
+      case "Union":
+      case "RecordDeclaration":
+        annotation.arguments.forEach(walk);
+        return;
+      case "ExternType":
+      case "Primitive":
+      case "Range":
+      case "JsValue":
+      case "ImpliedType":
+      case "Hole":
+      case "ErrorType":
+        return;
+    }
+  };
+  for (const parameter of value.parameters) {
+    if (parameter.annotation !== undefined) walk(parameter.annotation);
+  }
+  if (value.returnAnnotation !== undefined) walk(value.returnAnnotation);
+  return names;
+}
 
 function annotationHasTypeVariable(
   annotation: Resolved.TypeAnnotation,
