@@ -169,8 +169,10 @@ describe("the boundaries", () => {
     ]);
     expect(refusals("let id<a>(x: a): a = x\nlet a: Dec = id(n * 1.5)\n"))
       .toEqual(["type mismatch: expected Dec, found Float"]);
-    expect(refusals("let a = (n * 1.5).multiply(price)\n"))
-      .toEqual(["type mismatch: expected Float, found Dec"]);
+    expect(refusals("let a = (n * 1.5).multiply(price)\n")).toEqual([
+      "`n * 1.5` settled at `Float` before `.multiply` saw `price` — a dot call's receiver " +
+        "is settled on its own; write `n * 1.5 * price`, or name the home: `let a: Dec = …`",
+    ]);
   });
 
   test("an established Float meets an exact value, and neither enters the other", () => {
@@ -396,6 +398,134 @@ describe("a faced tree is refused once, naming the value that declined (#827)", 
   test("an unsolved value is left to its later seats, the kept type deciding nothing", () => {
     expect(refusals("fun h(x) =\n    let y: Dec = x * f\n    let z: Dec = x\n    z\n")).toEqual([
       "`f` is a `Float` and cannot enter `Dec`, so the multiplication could not run at `Dec`",
+    ]);
+  });
+});
+
+describe("calls join the tree (#1062, part 2)", () => {
+  const generic = "let h<t: Num>(x: t, y: t): t = x + y\n" +
+    "let h3<t: Num>(x: t, v: Vector(t), y: t): t = y\n" +
+    "let decs: Vector(Dec) = [price]\n";
+
+  test("a tower member call is an interior node in every spelling", async () => {
+    const exports = await run(
+      "let c1 = Num.multiply(n, 1.5) * price\n" +
+        "let c2 = n.multiply(1.5) * price\n" +
+        "let c3 = (n |> Num.multiply(1.5)) * price\n" +
+        "let c4 = price.multiply(n * 1.5)\n" +
+        "let c5: Dec = (n * 1.5).multiply(price)\n" +
+        "let c6 = Num.add(0.5, price)\n" +
+        "export let shown: (String, String, String, String, String, String) = " +
+        "(c1.show(), c2.show(), c3.show(), c4.show(), c5.show(), c6.show())\n",
+    );
+    expect(exports.shown).toEqual(["11.250", "11.250", "11.250", "11.250", "11.250", "3.00"]);
+  });
+
+  test("arguments at one type variable are siblings, in either order", async () => {
+    const exports = await run(
+      generic +
+        "let s1 = h(n * 1.5, price)\n" +
+        "let s2 = h(price, n * 1.5)\n" +
+        "let s3 = price.compare(n * 1.5) == Ordering.Less\n" +
+        "export let shown: (String, String, Bool) = (s1.show(), s2.show(), s3)\n",
+    );
+    expect(exports.shown).toEqual(["7.00", "7.00", true]);
+    for (const call of ["h(n * 1.5, price)", "h(price, n * 1.5)"]) {
+      expect(emittedLine(generic + `let s = ${call}\n`, "s")).not.toMatch(/[\w)] \* [\w(]/u);
+    }
+  });
+
+  test("the schedule residue: what a receiver was handed at its turn", () => {
+    // `decs` solves `t` at its turn, so the later receiver is handed `Dec`
+    // (Method Syntax §2.2) and runs there; the earlier one closed at `Float`.
+    expect(refusals(generic + "let r = h3((n * 1.5).multiply(price), decs, 0.5)\n")).toEqual([
+      "`n * 1.5` settled at `Float` before `.multiply` saw `price` — a dot call's receiver " +
+        "is settled on its own; write `n * 1.5 * price`, or name the home: " +
+        "`((n * 1.5).multiply(price): Dec)`",
+    ]);
+    expect(refusals(generic + "let r = h3(0.5, decs, (n * 1.5).multiply(price))\n")).toEqual([]);
+  });
+
+  test("the siblings' home is settled before a callback reads it", () => {
+    const folds = "let fs: Vector(Float) = [f]\n";
+    expect(refusals(folds + "let t = Seq.fold(fs.toSeq(), 0.0, (acc, x) => acc + x)\n"))
+      .toEqual([]);
+    // `0.0` alone at `b` is a `Float` before the callback is checked, so the
+    // callback's `Dec` element cannot join it.
+    expect(refusals(generic + "let t = Seq.fold(decs.toSeq(), 0.0, (acc, x) => acc + x)\n"))
+      .toHaveLength(1);
+  });
+
+  test("a vector literal's elements are siblings", () => {
+    for (const vector of ["[m, n]", "[n, m]"]) {
+      expect(refusals(`let v: Vector(Int) = ${vector}\n`)).toEqual([]);
+    }
+    for (const vector of ["[m, n, price]", "[price, m, n]", "[n, price]", "[price, n * 1.5]"]) {
+      expect(refusals(`let v: Vector(Dec) = ${vector}\n`)).toEqual([]);
+    }
+  });
+
+  test("an inferred face reaches a receiver the schedule solved it for (#818)", async () => {
+    // `bigs` solves `t` at its turn, so the dot chain's receiver is handed
+    // `BigInt` and the addition cannot overflow.
+    const exports = await run(
+      "let big: BigInt = 1n\n" +
+        "let bigs: Vector(BigInt) = [big]\n" +
+        "let a9: Int = 9007199254740991\n" +
+        "let b9: Int = 2\n" +
+        "let c9: Int = 3\n" +
+        "let f2<t: Num>(v: Vector(t), y: t): t = y\n" +
+        "export let exact: String = f2(bigs, a9.add(b9).multiply(c9)).show()\n",
+    );
+    expect(exports.exact).toBe("27021597764222979");
+  });
+
+  test("every spelling of a tower call reports as its operator does", () => {
+    const declared = "`a` is a declared type variable, but the body requires `Dec`; " +
+      "change the annotation to `Dec`, or remove it to let the type be inferred";
+    for (const body of ["x * f", "Num.multiply(x, f)", "x.multiply(f)", "x |> Num.multiply(f)"]) {
+      expect(refusals(`fun half<a: Num>(x: a): Dec = ${body}\n`), body).toEqual([declared]);
+    }
+    const foo = "record Foo = {n: Int}\n" +
+      "honor Num<Foo> =\n    add(left, right) = left\n    multiply(left, right) = left\n" +
+      "    fromNat(value) = Foo({n = 0})\n" +
+      "honor Signed<Foo> =\n    subtract(left, right) = left\n    negate(value) = value\n" +
+      "    fromInt(value) = Foo({n = value})\n" +
+      "let s2: Foo = Foo({n = 8})\n";
+    const orders = ["Integral.gcd(s2, n + i)", "Integral.gcd(n + i, s2)", "(n + i).gcd(s2)"];
+    const reports = orders.map((call) => refusals(foo + `let g = ${call}\n`));
+    expect(reports[0]).toHaveLength(1);
+    expect(reports[0]![0]).toContain("type `Foo` has no `Integral` instance");
+    for (const report of reports) expect(report).toEqual(reports[0]);
+    // Under a face the operand order is invisible too, whether or not the
+    // declining type carries the rung (Method Syntax §2.2): `s2` is named once.
+    for (const call of orders) {
+      expect(refusals(foo + `let g: BigInt = ${call}\n`), call).toEqual([
+        "`s2` is a `Foo` and cannot enter `BigInt`, so the `gcd` operation could not run at `BigInt`",
+      ]);
+    }
+  });
+
+  test("a receiver that closed before the dot is named with both repairs", () => {
+    expect(refusals("let a = (n + 1.5).multiply(price)\n")).toEqual([
+      "`n + 1.5` settled at `Float` before `.multiply` saw `price` — a dot call's receiver " +
+        "is settled on its own; write `(n + 1.5) * price`, or name the home: `let a: Dec = …`",
+    ]);
+    expect(refusals("let a = (n * 1.5).add(price * 2)\n")).toEqual([
+      "`n * 1.5` settled at `Float` before `.add` saw `price * 2` — a dot call's receiver " +
+        "is settled on its own; write `n * 1.5 + price * 2`, or name the home: `let a: Dec = …`",
+    ]);
+    // Away from a binding, the home is named by an ascription.
+    expect(refusals("let id<a>(x: a): a = x\nlet a = id((n * 1.5).multiply(price))\n")).toEqual([
+      "`n * 1.5` settled at `Float` before `.multiply` saw `price` — a dot call's receiver " +
+        "is settled on its own; write `n * 1.5 * price`, or name the home: " +
+        "`((n * 1.5).multiply(price): Dec)`",
+    ]);
+    // A receiver holding an established `Float` would not have entered `Dec`
+    // either way: the ordinary conflict.
+    expect(refusals("let a = (f * 2).multiply(price)\n")).toEqual([
+      "`price` is a `Dec` and `(f * 2)` a `Float`; an expression's arithmetic runs at one " +
+        "type, and neither enters the other; convert one explicitly — `price.toFloat()`",
     ]);
   });
 });
