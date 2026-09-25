@@ -8205,7 +8205,7 @@ class Checker {
       case "Integer": {
         type = this.#fresh(level, true);
         const requirement = this.#require("Num", type, expression.span, "literal");
-        requirement.literal = expression.decimal;
+        requirement.literal = expression.written ?? expression.decimal;
         this.#requirements.set(expression, [requirement]);
         break;
       }
@@ -10767,7 +10767,7 @@ class Checker {
     // both being the numeric half of what a negative literal is.
     const eq = this.#require("Eq", expected, pattern.span);
     const num = this.#require("Num", expected, pattern.span, "literal");
-    num.literal = pattern.decimal;
+    num.literal = pattern.written ?? pattern.decimal;
     const signed = pattern.decimal.startsWith("-")
       ? this.#require("Signed", expected, pattern.span)
       : undefined;

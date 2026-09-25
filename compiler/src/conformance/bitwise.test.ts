@@ -476,6 +476,23 @@ describe("non-decimal literals (§8)", () => {
     expect(message).toContain("x when x == 0xFF");
   });
 
+  test("nested guards, duplicate arms, and literal reports quote the source base (#1038)", () => {
+    const [nested] = projectDiagnostics("module Main\n\nimport Rat\n\n" +
+      "export fun f(p: (Rat.Rat, Int)): String =\n" +
+      "    match p\n" +
+      "        (0xFF, 0x1) => \"mask\"\n" +
+      "        _ => \"other\"\n");
+    expect(nested).toContain("(y, 0x1) when y == 0xFF");
+    const duplicate = projectDiagnostics("module Main\n\n" +
+      "export fun f(p: Option(Int)): String =\n" +
+      "    match p\n" +
+      "        Some(0xFF) => \"a\"\n" +
+      "        Some(0xFF) => \"b\"\n" +
+      "        _ => \"c\"\n");
+    expect(duplicate.join("\n")).toContain("`Some(0xFF)`");
+    expect(verdict("let x = 0xFF / 0x2\n").join("\n")).toContain("the literal `0x2`");
+  });
+
   test("the bare range limit and its n fix-it apply as for decimal literals", () => {
     const project = compileMain("module Main\n\nlet x = 0x20000000000000\n");
     const [diagnostic] = project.diagnostics;
