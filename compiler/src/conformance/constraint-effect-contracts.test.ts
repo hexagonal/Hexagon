@@ -901,15 +901,15 @@ describe("Effects §13.2: where a seat's refusal stands", () => {
   });
 
   test("the seat itself is the primary where no call carries the colour", () => {
-    // `make(k) = k` merges nothing of its own and calls nothing: the refusal is
+    // `make(seed, k) = k` merges nothing of its own and calls nothing: the refusal is
     // anchored at the member line, and **both** contract arrows are related
     // locations, neither being visible from the seat.
     const source =
-      "constraint Maker<a> =\n    make(k: () ->! Unit) -> (() -> Unit)\n" +
+      "constraint Maker<a> =\n    make(seed: a, k: () ->! Unit) -> (() -> Unit)\n" +
       "export record S = { n: Int }\n" +
-      "honor Maker<S> =\n    make(k) = k\n";
+      "honor Maker<S> =\n    make(seed, k) = k\n";
     expect(messages(source)).toEqual([pureSeatConflict("make", "k", true)]);
-    expect(primaries(source)).toEqual(["make(k) = k"]);
+    expect(primaries(source)).toEqual(["make(seed, k) = k"]);
     // **Both**, as the comment says: the failing upper arrow — the `->` inside
     // `(() -> Unit)`, whose written token is recorded like every other arrow's
     // — and the handed callback's, in walk order.
@@ -921,10 +921,10 @@ describe("Effects §13.2: where a seat's refusal stands", () => {
 
   test("a merge is the primary where no call carries the colour", () => {
     const source =
-      "constraint Maker<a> =\n    make(k: () ->! Unit) -> (() -> Unit)\n" +
+      "constraint Maker<a> =\n    make(seed: a, k: () ->! Unit) -> (() -> Unit)\n" +
       "export record S = { n: Int }\n" +
       "let c: Bool = True\n" +
-      "honor Maker<S> =\n    make(k) = if c then k else (() => ())\n";
+      "honor Maker<S> =\n    make(seed, k) = if c then k else (() => ())\n";
     expect(messages(source)).toEqual([pureMergeConflict("make", "k", true)]);
     expect(primaries(source)).toEqual(["if c then k else (() => ())"]);
     // A merge primary takes the handed callback's arrow as its second related
@@ -1102,14 +1102,14 @@ describe("Effects §13.2: every frame names the arrow's actual position", () => 
     // `an \`action\`` is §9's example, not a constant: a parameter named `k`
     // earns "a `k`".
     expect(labels(
-      "constraint Maker<a> =\n    make(k: () ->! Unit) -> Unit\n" +
+      "constraint Maker<a> =\n    make(seed: a, k: () ->! Unit) -> Unit\n" +
       "export record S = { n: Int }\n" +
-      "honor Maker<S> =\n    make(k: () -> Unit) = ()\n",
+      "honor Maker<S> =\n    make(seed, k: () -> Unit) = ()\n",
     )).toEqual([["the contract's failing arrow: \"->!\""]]);
     expect(messages(
-      "constraint Maker<a> =\n    make(k: () ->! Unit) -> Unit\n" +
+      "constraint Maker<a> =\n    make(seed: a, k: () ->! Unit) -> Unit\n" +
       "export record S = { n: Int }\n" +
-      "honor Maker<S> =\n    make(k: () -> Unit) = ()\n",
+      "honor Maker<S> =\n    make(seed, k: () -> Unit) = ()\n",
     )).toEqual([
       "`make`'s contract accepts a `k` that performs effects, and this instance " +
       "accepts only a pure one — an instance accepts everything its contract " +
@@ -1244,24 +1244,24 @@ describe("Effects §13.2: the settle, the disposal, and what the bounds leave be
 
 describe("Effects §13.2: broader acceptance, the raise, the annotation, and the merges", () => {
   const MAKER = (parameter: string, arrow: string, body: string) =>
-    `constraint Maker<a> =\n    make(k: ${parameter}) ${arrow} Unit\n` +
+    `constraint Maker<a> =\n    make(seed: a, k: ${parameter}) ${arrow} Unit\n` +
     "export record S = { n: Int }\n" +
-    `honor Maker<S> =\n    make(k) = ${body}\n`;
+    `honor Maker<S> =\n    make(seed, k) = ${body}\n`;
 
   test("the raise: a `->!` demand on a `->` callback is accepted silently", () => {
     expect(messages(
-      "constraint Maker<a> =\n    make(k: () -> Unit) ->! Unit\n" +
+      "constraint Maker<a> =\n    make(seed: a, k: () -> Unit) ->! Unit\n" +
       "export record S = { n: Int }\n" +
       "let force(f: () ->! Unit): Unit = f!()\n" +
-      "honor Maker<S> =\n    make(k) = force!(k)\n",
+      "honor Maker<S> =\n    make(seed, k) = force!(k)\n",
     )).toEqual([]);
   });
 
   test("the annotation: writing `->!` where the contract writes `->` is accepted silently", () => {
     expect(messages(
-      "constraint Maker<a> =\n    make(k: () -> Unit) ->! Unit\n" +
+      "constraint Maker<a> =\n    make(seed: a, k: () -> Unit) ->! Unit\n" +
       "export record S = { n: Int }\n" +
-      "honor Maker<S> =\n    make(k: () ->! Unit) = k!()\n",
+      "honor Maker<S> =\n    make(seed, k: () ->! Unit) = k!()\n",
     )).toEqual([]);
   });
 
@@ -1269,8 +1269,8 @@ describe("Effects §13.2: broader acceptance, the raise, the annotation, and the
     // "An explicit implementation annotation is preserved: a member's own
     // written annotation for the parameter is its face, exact."
     expect(messages(MAKER("() ->! Unit", "->", "()").replace(
-      "make(k) = ()",
-      "make(k: () -> Unit) = ()",
+      "make(seed, k) = ()",
+      "make(seed, k: () -> Unit) = ()",
     ))).toEqual([
       "`make`'s contract accepts a `k` that performs effects, and this instance " +
       "accepts only a pure one — an instance accepts everything its contract " +
@@ -1281,8 +1281,8 @@ describe("Effects §13.2: broader acceptance, the raise, the annotation, and the
 
   test("and writing the contract's own `->!` holds it, which is accepted", () => {
     expect(messages(MAKER("() ->! Unit", "->!", "k!()").replace(
-      "make(k) = k!()",
-      "make(k: () ->! Unit) = k!()",
+      "make(seed, k) = k!()",
+      "make(seed, k: () ->! Unit) = k!()",
     ))).toEqual([]);
   });
 
@@ -1348,11 +1348,11 @@ describe("Effects §13.2: broader acceptance, the raise, the annotation, and the
     // James, 2026-09-10: the narrower-acceptance row in its **merge form**, the
     // merge its pin — never in preference to a conflict that is available.
     expect(messages(
-      "constraint Maker<a> =\n    make(k: () ->! Unit) -> (() ->! Unit)\n" +
+      "constraint Maker<a> =\n    make(seed: a, k: () ->! Unit) -> (() ->! Unit)\n" +
       "export record S = { n: Int }\n" +
       "let pureFn(): Unit = ()\n" +
       "let c: Bool = True\n" +
-      "honor Maker<S> =\n    make(k) = if c then k else pureFn\n",
+      "honor Maker<S> =\n    make(seed, k) = if c then k else pureFn\n",
     )).toEqual([
       "this expression merges the callback with a pure function, and `make`'s " +
       "contract accepts a `k` that performs effects, and this instance accepts " +
@@ -1370,10 +1370,10 @@ describe("Effects §13.2: broader acceptance, the raise, the annotation, and the
     // function can change the verdict; the paired requirement below promises
     // equivalent *explanations*, never identical acceptance.
     expect(messages(
-      "constraint Maker<a> =\n    make(k: () ->! Unit) -> (() ->! Unit)\n" +
+      "constraint Maker<a> =\n    make(seed: a, k: () ->! Unit) -> (() ->! Unit)\n" +
       "export record S = { n: Int }\n" +
       "let c: Bool = True\n" +
-      "honor Maker<S> =\n    make(k) = if c then k else (() => ())\n",
+      "honor Maker<S> =\n    make(seed, k) = if c then k else (() => ())\n",
     )).toEqual([]);
   });
 
@@ -1389,10 +1389,10 @@ describe("Effects §13.2: broader acceptance, the raise, the annotation, and the
     // lambda a name is what moves the verdict, whichever spelling the name
     // takes.
     const narrower = (bind: string, other: string) =>
-      "constraint Maker<a> =\n    make(k: () ->! Unit) -> (() ->! Unit)\n" +
+      "constraint Maker<a> =\n    make(seed: a, k: () ->! Unit) -> (() ->! Unit)\n" +
       "export record S = { n: Int }\n" +
       "let c: Bool = True\n" +
-      "honor Maker<S> =\n    make(k) =\n" + bind + `        if c then k else ${other}\n`;
+      "honor Maker<S> =\n    make(seed, k) =\n" + bind + `        if c then k else ${other}\n`;
     const merged = "this expression merges the callback with a pure function, and `make`'s " +
       "contract accepts a `k` that performs effects, and this instance accepts " +
       "only a pure one — an instance accepts everything its contract promises " +
@@ -1410,11 +1410,11 @@ describe("Effects §13.2: broader acceptance, the raise, the annotation, and the
     // a pure constant classifies as the conflict it would have been without the
     // constant — same row, same form, same primary (James, 2026-09-10).
     const paired = (other: string) =>
-      "constraint Maker<a> =\n    make(k: () ->! Unit) -> (() -> Unit)\n" +
+      "constraint Maker<a> =\n    make(seed: a, k: () ->! Unit) -> (() -> Unit)\n" +
       "export record S = { n: Int }\n" +
       "let pureFn(): Unit = ()\n" +
       "let c: Bool = True\n" +
-      `honor Maker<S> =\n    make(k) = if c then k else ${other}\n`;
+      `honor Maker<S> =\n    make(seed, k) = if c then k else ${other}\n`;
     expect(messages(paired("pureFn"))).toEqual([pureMergeConflict("make", "k", true)]);
     expect(messages(paired("(() => ())"))).toEqual([pureMergeConflict("make", "k", true)]);
     expect(primaries(paired("pureFn"))).toEqual(["if c then k else pureFn"]);
@@ -1424,10 +1424,10 @@ describe("Effects §13.2: broader acceptance, the raise, the annotation, and the
     // upper arrow is met all three coincide, which is what "equivalent
     // explanations" promises.
     const bound =
-      "constraint Maker<a> =\n    make(k: () ->! Unit) -> (() -> Unit)\n" +
+      "constraint Maker<a> =\n    make(seed: a, k: () ->! Unit) -> (() -> Unit)\n" +
       "export record S = { n: Int }\n" +
       "let c: Bool = True\n" +
-      "honor Maker<S> =\n    make(k) =\n        let g = () => ()\n" +
+      "honor Maker<S> =\n    make(seed, k) =\n        let g = () => ()\n" +
       "        if c then k else g\n";
     expect(messages(bound)).toEqual([pureMergeConflict("make", "k", true)]);
     expect(primaries(bound)).toEqual(["if c then k else g"]);
@@ -1514,11 +1514,11 @@ describe("Effects §13.2: broader acceptance, the raise, the annotation, and the
 
   test("and plain forwarding keeps its seat-level conflict report", () => {
     const source =
-      "constraint Maker<a> =\n    make(k: () ->! Unit) -> (() -> Unit)\n" +
+      "constraint Maker<a> =\n    make(seed: a, k: () ->! Unit) -> (() -> Unit)\n" +
       "export record S = { n: Int }\n" +
-      "honor Maker<S> =\n    make(k) = k\n";
+      "honor Maker<S> =\n    make(seed, k) = k\n";
     expect(messages(source)).toEqual([pureSeatConflict("make", "k", true)]);
-    expect(primaries(source)).toEqual(["make(k) = k"]);
+    expect(primaries(source)).toEqual(["make(seed, k) = k"]);
   });
 });
 
@@ -2948,9 +2948,9 @@ describe("Effects §13.2: the merge's branch order, and each slot's own reach", 
     // member's own outer one, so the failing arrow is a nested one and the
     // report's related locations are the two contract arrows.
     const nested = (merge: string, bind: string) =>
-      "constraint Maker<a> =\n    make(k: () ->! Unit) -> (() -> Unit)\n" +
+      "constraint Maker<a> =\n    make(seed: a, k: () ->! Unit) -> (() -> Unit)\n" +
       "export record S = { n: Int }\nlet c: Bool = True\nlet spare(): Unit = ()\n" +
-      "honor Maker<S> =\n    make(k) =\n" + bind + `        ${merge}\n`;
+      "honor Maker<S> =\n    make(seed, k) =\n" + bind + `        ${merge}\n`;
     for (const [other, bind] of SPELLINGS) {
       for (const merge of orders("k", other)) {
         const seat = seen(nested(merge, bind));
@@ -2996,9 +2996,9 @@ describe("Effects §13.2: the merge's branch order, and each slot's own reach", 
     // inherited inference behaviour, and it must not depend on which branch the
     // writer put first either.
     const alone = (merge: string, bind: string) =>
-      "constraint Maker<a> =\n    make(k: () ->! Unit) -> (() ->! Unit)\n" +
+      "constraint Maker<a> =\n    make(seed: a, k: () ->! Unit) -> (() ->! Unit)\n" +
       "export record S = { n: Int }\nlet c: Bool = True\nlet spare(): Unit = ()\n" +
-      "honor Maker<S> =\n    make(k) =\n" + bind + `        ${merge}\n`;
+      "honor Maker<S> =\n    make(seed, k) =\n" + bind + `        ${merge}\n`;
     for (const [other, bind] of SPELLINGS) {
       for (const merge of orders("k", other)) {
         const source = alone(merge, bind);

@@ -918,7 +918,7 @@ describe("item 7 — an open structural record at a declaration or the release s
       "export union B = Held({n: Int, ...q}) | E\n",
       "exception Bad(r: {n: Int, ...t})\nexport let go(): Int = 1\n",
       "let w(x: {n: a, ...q}): JsValue = JsValue.from(x)\nexport let go(): Int = 1\n",
-      "export constraint C<a> =\n    m(x: {n: Int, ...t}) -> Int\n",
+      "export constraint C<a> =\n    m(self: a, x: {n: Int, ...t}) -> Int\n",
     ];
     const reported = sources.flatMap((source) => diagnose(source));
     expect(reported.length).toBe(sources.length);
@@ -1019,7 +1019,7 @@ describe("item 7 — an open structural record at a declaration or the release s
     ],
     [
       "an unexported constraint's member",
-      "constraint Rowy<a> =\n    rows(x: {n: Int, ...}) -> Int\nexport let go(): Int = 1\n",
+      "constraint Rowy<a> =\n    rows(self: a, x: {n: Int, ...}) -> Int\nexport let go(): Int = 1\n",
     ],
   ])("%s keeps its open row", (_what, source) => {
     expect(diagnose(source)).toEqual([]);
@@ -1039,7 +1039,7 @@ describe("item 7 — an open structural record at a declaration or the release s
   test.each([
     [
       "an exported constraint's member parameter",
-      "export constraint Rowy<a> =\n    rows(x: {n: Int, ...}) -> Int\n",
+      "export constraint Rowy<a> =\n    rows(self: a, x: {n: Int, ...}) -> Int\n",
       openRow("{n: Int, ...}"),
     ],
     [
@@ -1219,7 +1219,7 @@ describe("#953 — an exported constraint's member parameters and result", () =>
   test("item 2 at a member's parameter", () => {
     expect(diagnose(
       "opaque record Box = { rows: Array(Int) }\n\n" +
-        "export constraint Rowy<a> =\n    rows(x: Box) -> Int\n",
+        "export constraint Rowy<a> =\n    rows(self: a, x: Box) -> Int\n",
     )).toEqual([
       "opaque type `Box` names the captured collection `Array(Int)` in its representation " +
       "(`rows`); an opaque value crosses the foreign boundary by identity, so its " +
@@ -1244,7 +1244,7 @@ describe("#953 — an exported constraint's member parameters and result", () =>
   test("each parameter and the result is its own seat", () => {
     expect(diagnose(
       "export constraint Rowy<a> =\n" +
-        "    rows(x: Vector(Array(Int)), y: Set(JsSet(Int))) -> Seq(Array(Int))\n",
+        "    rows(self: a, x: Vector(Array(Int)), y: Set(JsSet(Int))) -> Seq(Array(Int))\n",
     )).toEqual([
       beneath("Array(Int)", "Vector"),
       beneath("JsSet(Int)", "Set"),

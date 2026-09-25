@@ -2933,6 +2933,29 @@ class Checker {
   /** Each `fun` member's knot — the members checked with it (#1048). */
   readonly #knotMembers = new Map<Resolved.SymbolId, readonly Resolved.SymbolId[]>();
   /**
+   * The declaration each declared type variable was declared **for** — the
+   * type it must occur in — recorded when that declaration closes *(#712,
+   * Ascription §3.1; GHC's ambiguity check)*. A lambda's own variables are its
+   * binders and the names its annotations and ascriptions first write; a `fun`
+   * block head's are declared for every member at once. Read by the
+   * end-of-module sweep, which is the one place a variable nothing quantified
+   * arrives, and which must tell an **unmentioned** variable (refused here, at
+   * its declaration) from a knot's survivor (whose knot has already spoken).
+   */
+  /**
+   * A `fun` member's own lambda type, as it closed — its written signature's
+   * variables in place. A block head's variable is checked against these, never
+   * the members' schemes: a knot that has refused can leave a scheme carrying a
+   * sibling's variable where the member wrote its own (#712).
+   */
+  readonly #memberLambdaTypes = new Map<Resolved.SymbolId, Mono>();
+  readonly #declaredFor = new Map<Variable, {
+    readonly types: readonly Mono[];
+    readonly span: Source.Span | undefined;
+    readonly binder: boolean;
+    readonly head: boolean;
+  }>();
+  /**
    * The span of the ascribed type currently being elaborated, or `undefined`
    * outside one. Read only by `#annotationType`'s type-variable arm, to mark the
    * variables an ascription *declares* (Ascription §3.1). A field rather than a
@@ -4228,6 +4251,24 @@ class Checker {
           },
         );
         this.#closeSignature(enclosingMemberSignature);
+        // Constraints §2: a member header mentions the subject *(#1044)*. The
+        // subject is how a call chooses the instance, and Hexagon has no call-site
+        // type application to choose it otherwise, so a header without it is a
+        // member no call can ever use — Haskell's ambiguity check, at the member.
+        // An implied type does not stand in for the subject: it is determined by
+        // the subject, never the other way round.
+        if (![...parameters, result].some((type) =>
+          this.#collectVariables(type).some(({ id }) => id === subject.id)
+        )) {
+          this.#diagnostics.add({
+            severity: "error",
+            message:
+              `the member \`${member.binding.name}\` does not mention \`${item.name}\`'s ` +
+              `subject \`${item.subject}\`, so no call can determine which \`${item.name}\` ` +
+              `instance it uses; use \`${item.subject}\` in its parameters or its result`,
+            primary: member.binding.span,
+          });
+        }
         this.#require(item.name, subject, member.span);
         // The member's colour is **quantified at the member and instantiated
         // fresh at every call** (Effects §13.4), which is exactly what a scheme
@@ -7428,19 +7469,37 @@ class Checker {
   #inferFunGroup(group: readonly Resolved.FunItem[], level: number): void {
     const head = group[0]?.block;
     const enclosingVariableScope = this.#annotationVariableScope;
+    const headVariables = new Map<string, Variable>();
     if (head?.typeParameters !== undefined) {
       const scope = new Map<string, Variable>(this.#annotationVariableScope);
-      this.#declareBinderVariables(head.typeParameters, level, scope, {
+      this.#declareBinderVariables(head.typeParameters, level, headVariables, {
         kind: "block",
         members: group.map((item) => item.binding.symbol),
         span: head.span,
       });
+      for (const [name, variable] of headVariables) scope.set(name, variable);
       this.#annotationVariableScope = scope;
     }
     try {
       this.#inferFunBlockMembers(group, level);
     } finally {
       this.#annotationVariableScope = enclosingVariableScope;
+    }
+    // A head's variable is declared for the whole block: it must occur in some
+    // member's type, the only place a call can choose it (#712).
+    const memberTypes = group.flatMap((item) => {
+      const type = this.#memberLambdaTypes.get(item.binding.symbol);
+      return type === undefined ? [] : [type];
+    });
+    for (const parameter of head?.typeParameters ?? []) {
+      const variable = headVariables.get(parameter.name);
+      if (variable === undefined) continue;
+      this.#declaredFor.set(variable, {
+        types: memberTypes,
+        span: parameter.span,
+        binder: true,
+        head: true,
+      });
     }
   }
 
@@ -8562,6 +8621,7 @@ class Checker {
         // annotations may name them (lexical scoping); its own `<...>` binders below
         // shadow by overwriting.
         const annotationVariables = new Map<string, Variable>(this.#annotationVariableScope);
+        const inheritedVariables = new Set(annotationVariables.values());
         this.#declareBinderVariables(
           expression.typeParameters ?? [],
           level,
@@ -8718,6 +8778,20 @@ class Checker {
           result,
           effect: effectFrame.own,
         };
+        const binderSpans = new Map(
+          (expression.typeParameters ?? []).map(({ name, span }) => [name, span] as const),
+        );
+        if (declaringMember !== undefined) this.#memberLambdaTypes.set(declaringMember.symbol, type);
+        for (const [name, variable] of annotationVariables) {
+          if (inheritedVariables.has(variable)) continue;
+          const binderSpan = binderSpans.get(name);
+          this.#declaredFor.set(variable, {
+            types: [type],
+            span: binderSpan ?? variable.ascribedAt,
+            binder: binderSpan !== undefined,
+            head: false,
+          });
+        }
         break;
       }
       case "If": {
@@ -21254,6 +21328,7 @@ class Checker {
       }
       seen.add(actual.id);
       if (actual.requirements.length === 0) continue;
+      if (this.#reportUnmentionedDeclared(actual)) continue;
       if (this.#canDefaultToInt(actual)) {
         this.#refuseOrDefault(actual, actual.requirements[0]!.span);
         continue;
@@ -21284,6 +21359,54 @@ class Checker {
       // last point at which the blocking constraint can still be named.
       this.#reportBlockedDefaulting(actual);
     }
+  }
+
+  /**
+   * A declared type variable that carries a constraint and occurs nowhere in
+   * the type it was declared for *(#712; Ascription §3.1; Functions §10)* —
+   * reported at its declaration, and `true` when it was.
+   *
+   * GHC's ambiguity check, and Hexagon's for the same reason: the type is the
+   * only place a call can choose a variable, and there is no call-site type
+   * application to choose it otherwise, so no call can ever supply its evidence.
+   * Asked **before** defaulting, which would otherwise propose an `Int` no body
+   * demanded and let the rigid arm report it as a demand — or, for a constraint
+   * defaulting cannot discharge, say nothing while the constraint is silently
+   * dropped. A variable its declaration's type does mention, still unquantified
+   * here, is a knot's survivor: its knot has already refused, and it is not this
+   * report's (#704). An unconstrained unused variable never arrives — it needs
+   * no evidence, and a zero-information form misleads no one (Constraints §3).
+   */
+  #reportUnmentionedDeclared(variable: Variable): boolean {
+    if (variable.rigidName === undefined) return false;
+    const declared = this.#declaredFor.get(variable);
+    if (declared === undefined) return false;
+    if (declared.types.some((type) => this.#collectVariables(type).includes(variable))) {
+      return false;
+    }
+    if (variable.requirements.every(({ reported }) => reported)) return true;
+    for (const requirement of variable.requirements) requirement.reported = true;
+    variable.instance = ERROR;
+    const names = [...new Set(variable.requirements.map(({ name }) => name))];
+    const name = variable.rigidName;
+    const evidence = `\`${names.join("`, `")}\``;
+    // One wording for a block head and a fused `fun`'s binder: the fused
+    // spelling's list *is* its head's (Functions §4.2), and the two must agree.
+    const where = "this declaration's type does not mention it";
+    // A binder's constraints are all written ones: a body demand the list does
+    // not entail is §4.2's contract refusal, reported where it arose and never
+    // attached here. So removing the binder is always the rewrite that compiles.
+    const rewrite = declared.binder
+      ? `use \`${name}\` in a parameter or result type, or remove \`${name}\` from the binder list`
+      : "ascribe a concrete type, or name a type variable the declaration uses";
+    this.#diagnostics.add({
+      severity: "error",
+      message:
+        `\`${name}\` is a declared type variable, but ${where}, so no call can choose it ` +
+        `or supply its ${evidence} evidence; ${rewrite}`,
+      primary: declared.span ?? variable.requirements[0]!.span,
+    });
+    return true;
   }
 
   /**
