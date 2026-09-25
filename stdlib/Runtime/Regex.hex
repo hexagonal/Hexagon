@@ -28,10 +28,9 @@ module Runtime.Regex
 // nowhere else (`spec/intrinsics.md` §3.3): it may not appear in an exported
 // signature, in an exported pattern's parameter types, in an exception payload,
 // in the representation of a non-`opaque` exported type, or in an `export` of
-// its own, and the checker verifies all of
-// that. It is the half of Effects §6.2 species (d) the compiler can check — the
-// other half being the engine's own obligation never to write a program it has
-// frozen.
+// its own, and the checker verifies all of that. It is the half of Effects §6.2
+// species (d) the compiler can check — the other half being the engine's own
+// obligation never to write a program it has frozen.
 
 // The mutable storage every structure in the engine is built over (§6.3): DFA
 // state tables, the alphabet map, the VM's thread lists, the capture vectors.

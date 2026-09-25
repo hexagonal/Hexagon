@@ -574,6 +574,16 @@ describe("the `type` form (§3.3)", () => {
     )).toEqual([
       "intrinsic type `buffer` takes 1 type parameter, but this declaration has 0",
     ]);
+    // And a use written *above* the block, which resolves before the block's
+    // own verification runs.
+    expect(inBareRegexRuntime(
+      "let f(x: Store(Int)): Store(Int) = x\n" +
+      "\n" +
+      'extern from "hex:intrinsic"\n' +
+      "    type buffer as Store\n",
+    )).toEqual([
+      "intrinsic type `buffer` takes 1 type parameter, but this declaration has 0",
+    ]);
   });
 
   /**

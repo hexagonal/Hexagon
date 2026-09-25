@@ -280,6 +280,43 @@ describe("walks that enter a `Buffer`'s argument", () => {
    * did not see the arrow inside `Buffer(Int -> Int)` would hand the body the
    * contract's own `->`, and the report would be a plain colour clash instead.
    */
+  /**
+   * Level lowering. `b` joins the outer `x` with a buffer built from `g`'s own
+   * `y`, so `y`'s level must drop to `x`'s through the `Buffer`'s argument, and
+   * `g` must not generalize over it. Without the arm `g` is used at `Int` and at
+   * `String` and the program compiles, silently.
+   */
+  test("a variable reached through a `Buffer` is not generalized past its owner", () => {
+    expect(diagnostics(
+      "let f(x) =\n" +
+      "    let g(y) =\n" +
+      "        let b = if True then x else create!(1, y)\n" +
+      "        length(b)\n" +
+      "    let first = g!(1)\n" +
+      "    let second = g!(\"s\")\n" +
+      "    first + second\n",
+    )).toEqual(["integer literal cannot have type `String`"]);
+  });
+
+  /**
+   * The captured-collection walk follows a door type's argument like a holder
+   * (FFI Part 1 §5.4), so an opaque carrier whose `Buffer` holds a captured
+   * collection is item 2's refusal at an exported signature, naming the
+   * collection.
+   */
+  test("a captured collection inside a `Buffer` is found by the capture walk", () => {
+    expect(diagnostics(
+      "opaque record Cell = {slots: Buffer(Array(Int))}\n" +
+      "export let size(cell: Cell): Int = 0\n",
+    )).toEqual([
+      "opaque type `Cell` names the captured collection `Array(Int)` in its " +
+      "representation (`slots`); an opaque value crosses the foreign boundary by " +
+      "identity, so its representation cannot be copied at the crossing — keep an " +
+      "identity-safe representation such as a `Vector` whose element types name " +
+      "none in turn, or expose the collection through an exported accessor",
+    ]);
+  });
+
   test("an arrow inside a `Buffer` is recoloured at an instance seat", () => {
     expect(diagnostics(
       "let useImpure(fs: Buffer(Int ->! Int)): Int = length(fs)\n" +

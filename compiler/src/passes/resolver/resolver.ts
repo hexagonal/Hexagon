@@ -2689,6 +2689,17 @@ class Resolver {
           : Resolved.externTypeId(reserved);
         this.#externTypeDeclarations.set(item, id);
         this.#externTypeNames.set(item.localName.text, id);
+        // A door row whose declared arity the inventory refuses (§11's type-key
+        // arity row, reported at the block): its uses — before the block as
+        // well as after — take their arguments as written, so one typo is one
+        // report.
+        const inventoryEntry = key === undefined ? undefined : INTRINSIC_INVENTORY.get(key);
+        if (
+          inventoryEntry?.grade === "type" &&
+          (item.parameters?.length ?? 0) !== inventoryEntry.arity
+        ) {
+          this.#arityRefusedExternTypes.add(item.localName.text);
+        }
         // *(#927.)* An intrinsic `type` row's arity, for the annotation walk.
         // A foreign row never records one and stays monomorphic (FFI Part 4
         // §12.4), which is why an absent entry is what the walk reads as "takes
@@ -3021,7 +3032,6 @@ class Resolver {
             `declaration has ${declared}`,
           primary: declaration.span,
         });
-        this.#arityRefusedExternTypes.add(declaration.localName.text);
       }
       return;
     }
