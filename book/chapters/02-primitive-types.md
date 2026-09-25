@@ -204,8 +204,17 @@ multiplying the denominators gives `10000`. The result therefore has four places
 
 An established `Nat`, `Int`, or `BigInt` can enter Dec exactly at zero decimal
 places. That explains why multiplying by the integer `2` preserves two places.
-There is no conversion from `Float` to `Dec`: an approximate input cannot recover
-its intended decimal digits. Begin with exact inputs instead.
+A `Float` enters Dec only by rounding, and you choose the places. `Dec.fromFloat`
+rounds the float's stored binary value once, so it cannot recover digits the float
+never held:
+
+```hexagon
+Dec.fromFloat(0.1 + 0.2, 2)   // 0.30
+Dec.fromFloat(2.675, 2)       // 2.67: the nearest double is just below 2.675
+```
+
+Prefer exact inputs where you have them, and use this door for results that were
+honestly approximate, such as a rate computed with `Math`.
 
 Retained places affect display, while equality and ordering compare numbers:
 
@@ -244,8 +253,10 @@ ties; they do not round every answer to an even number. Increasing the places
 appends zeros without changing the number.
 
 Float and Dec intentionally choose different default tie rules. Float's `round`
-chooses the even integer at an exact halfway value; Dec's `round` chooses away
-from zero, reflecting Dec's intended use in financial calculations:
+chooses the even integer at an exact halfway value, the unbiased choice for
+approximate computation. Dec's `round` chooses away from zero, the commercial
+rounding most invoices and tax rules use. Finance does not agree on one rule, so
+check which one your calculation calls for:
 
 ```hexagon
 2.5.round()       // 2
@@ -254,6 +265,14 @@ from zero, reflecting Dec's intended use in financial calculations:
 
 Dec returns a `BigInt`, so large whole-number results stay exact. When a calculation
 calls for the other tie rule, use `Float.roundAway` or `Dec.roundEven`.
+
+Because multiplication adds places, repeated multiplication grows them. Compounding
+monthly interest at a six-place rate for 360 months would retain 2,160 places. Round
+at each step, as a ledger does:
+
+```hexagon
+let next = (balance * (1 + rate)).withPlaces(2)
+```
 
 Use `show` for everyday inspection. For an adapter needing the stored parts,
 `5.00d.unscaled()` returns the unscaled integer `500n`, and

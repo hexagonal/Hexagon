@@ -15,7 +15,7 @@ import {
  *
  * The prelude used to seed every export into every module's bare term scope.
  * §5.5 now seeds **nothing** there by default, and four channel rules put
- * twenty names back: the twelve exception constructors, the six constructors of
+ * twenty-one names back: the thirteen exception constructors, the six constructors of
  * the open unions `Bool`/`Option`/`Result`, `ignore`, and `show`. Everything
  * else is reached by the dot or the qualified spelling, and a bare reference to
  * it draws §10's refusal with its routes named.
@@ -24,7 +24,7 @@ import {
  *
  * The companion suites (`vector-prelude-companion`, `float-companion`,
  * `js-kind-qualification`, …) each pin their own module's surface. This one pins
- * the **rule**: the set is exactly nineteen names and is closed, each channel
+ * the **rule**: the set is exactly twenty-one names and is closed, each channel
  * admits what it says it admits and nothing beside, and the refusal has one
  * shape across all three channels. The set pin is written against the *compiled
  * prelude* rather than a transcription, so drift in either direction — a name
@@ -61,7 +61,8 @@ function moduleNames(source: string): readonly string[] {
  * design ruling argued against §5.5, never an edit.
  */
 const BARE_SET = [
-  // The twelve exception constructors — a category, not a list (§5.5).
+  // The thirteen exception constructors — a category, not a list (§5.5).
+  "DecRangeError",
   "DecimalPlacesOverflowError",
   "DivideByZeroError",
   "FloatRangeError",
@@ -86,13 +87,13 @@ const BARE_SET = [
   "show",
 ].sort();
 
-describe("the bare set is exactly twenty names, and closed", () => {
+describe("the bare set is exactly twenty-one names, and closed", () => {
   test("the prelude layer binds the set and nothing else", () => {
     expect(bareNames()).toEqual(BARE_SET);
   });
 
-  test("twenty is the count the section states", () => {
-    expect(BARE_SET.length).toBe(20);
+  test("twenty-one is the count the section states", () => {
+    expect(BARE_SET.length).toBe(21);
   });
 
   /**
@@ -699,6 +700,7 @@ describe("the exception channel: all of them, as a category", () => {
    */
   test.each([
     ["DecimalPlacesOverflowError", "Dec", "(m)"],
+    ["DecRangeError", "Dec", "(m)"],
     ["NegativeDecimalPlacesError", "Dec", "(m)"],
     ["NegativeExponentError", "Pow", "(m)"],
     ["DivideByZeroError", "Integral", "(m)"],

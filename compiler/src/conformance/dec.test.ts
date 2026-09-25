@@ -162,7 +162,9 @@ describe("Dec literals and exact decimal arithmetic", () => {
         "export let divideNegative(): Dec = 0d.divide(1d, -1)\n" +
         "export let divideEvenBeforeZero(): Dec = 1d.divideEven(0d, -1)\n" +
         "export let ratNegative(): Dec = Rat.toDec(Rat.create(0n, 1n), -1)\n" +
-        "export let ratEvenNegative(): Dec = Rat.toDecEven(Rat.create(0n, 1n), -1)\n",
+        "export let ratEvenNegative(): Dec = Rat.toDecEven(Rat.create(0n, 1n), -1)\n" +
+        "export let floatNegative(): Dec = Dec.fromFloat(Float.nan, -1)\n" +
+        "export let floatEvenNegative(): Dec = Dec.fromFloatEven(Float.nan, -1)\n",
     );
     for (const [name, operation] of [
       ["createNegative", "Dec.create"],
@@ -172,6 +174,8 @@ describe("Dec literals and exact decimal arithmetic", () => {
       ["divideEvenBeforeZero", "Dec.divideEven"],
       ["ratNegative", "Rat.toDec"],
       ["ratEvenNegative", "Rat.toDecEven"],
+      ["floatNegative", "Dec.fromFloat"],
+      ["floatEvenNegative", "Dec.fromFloatEven"],
     ] as const) {
       expect(threw(exports[name] as () => unknown)).toMatchObject({
         name: "NegativeDecimalPlacesError",
@@ -275,6 +279,8 @@ describe("Dec literals and exact decimal arithmetic", () => {
         "export let compareEqual: Ordering = 1.50d.compare(1.500d)\n" +
         "export let less: Bool = -2.0d < -1.99d\n" +
         "export let hashes: Bool = 1.50d.hash() == 1.500d.hash() and 0d.hash() == 0.00d.hash()\n" +
+        "export let integralHashes: Bool = 3d.hash() == 3.0d.hash() and -0.5d.hash() == -0.50d.hash()\n" +
+        "export let scaledHashes: Int = Set.fromVector([5d.hash(), 0.5d.hash(), 0.05d.hash(), 50d.hash()]).size()\n" +
         "export let mapSize: Int = map.size()\n" +
         "export let replacement: Option(Int) = map.get(1.5d)\n" +
         "export let mapRepresentativePlaces: Int = map.keys().fold(0, keyPlaces)\n" +
@@ -286,12 +292,16 @@ describe("Dec literals and exact decimal arithmetic", () => {
       compareEqual: { tag: "Equal" },
       less: true,
       hashes: true,
+      integralHashes: true,
       mapSize: 1,
       replacement: { tag: "Some", value: 2 },
       mapRepresentativePlaces: 2,
       setSize: 1,
       setRepresentativePlaces: 2,
     });
+    // The hash reads the whole canonical key, places included, so a number and
+    // its tenfold neighbours do not collide.
+    expect(exports.scaledHashes).toBe(4);
   });
 
   test("keeps large coefficients exact and implements the full Real and integer-rounding surface", async () => {
@@ -441,6 +451,66 @@ describe("Dec literals and exact decimal arithmetic", () => {
         name: "FloatRangeError",
         message: "Dec.toFloat: value does not fit in Float",
         $hex: "Hex.Float",
+      });
+    }
+  });
+});
+
+describe("Float to Dec conversion", () => {
+  test("rounds the float's exact binary value once to the requested places", async () => {
+    const exports = await runMain(
+      HEADER +
+        "let shown(value: Dec): String = value.show()\n" +
+        "export let sum: String = shown(Dec.fromFloat(0.1 + 0.2, 2))\n" +
+        "export let price: String = shown(Dec.fromFloat(12.34, 2))\n" +
+        "export let widened: String = shown(Dec.fromFloat(1.5, 3))\n" +
+        "export let belowTie: String = shown(Dec.fromFloat(2.675, 2))\n" +
+        "export let ties: (String, String, String, String) = (\n" +
+        "    shown(Dec.fromFloat(2.5, 0)), shown(Dec.fromFloatEven(2.5, 0)),\n" +
+        "    shown(Dec.fromFloat(-2.5, 0)), shown(Dec.fromFloatEven(-2.5, 0)))\n" +
+        "export let binaryTies: (String, String) = " +
+          "(shown(Dec.fromFloat(0.125, 2)), shown(Dec.fromFloatEven(0.125, 2)))\n" +
+        "export let negativeZero: String = shown(Dec.fromFloat(-0.0, 2))\n" +
+        "export let negativeToZero: String = shown(Dec.fromFloat(-0.001, 2))\n" +
+        "export let large: String = shown(Dec.fromFloat(1e21, 0))\n" +
+        "export let largest: BigInt = Dec.fromFloat(1.7976931348623157e308, 0).unscaled()\n" +
+        "export let smallest: (BigInt, Int) = " +
+          "(Dec.fromFloat(5e-324, 1074).unscaled(), Dec.fromFloat(5e-324, 1074).places())\n" +
+        "export let smallestRounded: String = shown(Dec.fromFloat(5e-324, 2))\n",
+    );
+    expect(exports).toMatchObject({
+      sum: "0.30",
+      price: "12.34",
+      widened: "1.500",
+      // The double nearest 2.675 lies just below it, so no tie arises.
+      belowTie: "2.67",
+      ties: ["3", "2", "-3", "-2"],
+      binaryTies: ["0.13", "0.12"],
+      negativeZero: "0.00",
+      negativeToZero: "0.00",
+      large: "1000000000000000000000",
+      largest: (2n ** 53n - 1n) * 2n ** 971n,
+      smallest: [5n ** 1074n, 1074],
+      smallestRounded: "0.00",
+    });
+  });
+
+  test("throws DecRangeError for NaN and the infinities", async () => {
+    const exports = await runMain(
+      HEADER +
+        "export let nan(): Dec = Dec.fromFloat(Float.nan, 2)\n" +
+        "export let positive(): Dec = Dec.fromFloat(Float.infinity, 2)\n" +
+        "export let negative(): Dec = Dec.fromFloatEven(-Float.infinity, 2)\n",
+    );
+    for (const [name, operation] of [
+      ["nan", "Dec.fromFloat"],
+      ["positive", "Dec.fromFloat"],
+      ["negative", "Dec.fromFloatEven"],
+    ] as const) {
+      expect(threw(exports[name] as () => unknown)).toMatchObject({
+        name: "DecRangeError",
+        message: `${operation}: value is not finite`,
+        $hex: "Hex.Dec",
       });
     }
   });

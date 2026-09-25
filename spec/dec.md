@@ -1,9 +1,6 @@
 # Hexagon Spec: `Dec`
 
-**Status:** Revised API agreed and implemented on 21 September 2026; specification,
-book, and code reviewed by Sol Medium. Focused and full compiler/language-server
-validation passed; package builds also passed after resuming with isolated,
-bounded-worker runs. Validation history is recorded in §12.
+**Status:** Decided and implemented (September 2026).
 **Scope:** A fundamental prelude decimal type, exact arithmetic, explicit rounding,
 numerical comparison and hashing, retained decimal places, and display.
 **Companions:** `numeric-literals.md`, `constraints.md`,
@@ -82,7 +79,7 @@ numerical `Eq`, `Ord`, and matching `Hash` are also explicitly implemented.
 `Dec` does **not** honor `Frac`, and has no `/` operator. No division function
 omitting `places` is introduced, even for a quotient that happens to have
 a terminating decimal expansion. Further constraint instances are not implied by
-this list; see §12.
+this list.
 
 The following table gives semantic signatures, not declaration syntax. The
 binary arithmetic functions are constraint members with their ordinary
@@ -119,20 +116,30 @@ to `Dec`.
 | `Rat.fromDec` | `Dec` | `Rat`, exact |
 | `Rat.toDec` | `Rat, places: Int` | `Dec`, school rounding |
 | `Rat.toDecEven` | `Rat, places: Int` | `Dec`, ties to even |
+| `Dec.fromFloat` | `Float, places: Int` | `Dec`, school rounding |
+| `Dec.fromFloatEven` | `Float, places: Int` | `Dec`, ties to even |
 | `Dec.toFloat` | `Dec` | `Float`, correctly rounded, ties to even |
 
 The rounded operations taking a final `places` parameter return a `Dec`
 retaining **exactly** that many places. They have no operator spellings.
 `divide` names division to requested places;
 `withPlaces` names a returned value with the requested places; `Rat.toDec`
-names conversion to a destination type. Their `Even` variants use nearest
+and `Dec.fromFloat` name conversions between types. Their `Even` variants use nearest
 rounding with ties to even, not rounding every result to an even number.
-These names replace the first-release names without aliases. `multiplyTo` and
-`multiplyToEven` are removed: use exact multiplication followed by `withPlaces`
-or `withPlacesEven`. The intermediate exact product must fit the retained-place
-range, even if a later adjustment would reduce it. Float intentionally uses a
-different naming convention: `Float.round` chooses ties to even, and
-`Float.roundAway` chooses ties away from zero.
+There is no combined rounded multiplication: use exact multiplication followed
+by `withPlaces` or `withPlacesEven`. The intermediate exact product must fit the
+retained-place range, even if a later adjustment would reduce it.
+
+Float intentionally uses a different naming convention: `Float.round` chooses
+ties to even, and `Float.roundAway` chooses ties away from zero. Each type's
+unmarked name carries its own domain's default: commercial rounding for `Dec`
+and unbiased rounding for approximate computation. Conversions into `Dec` follow
+`Dec`'s convention whatever their source, so `Dec.fromFloat` rounds ties away
+from zero. The divergence is sound only because integer and place rounding are
+companion operations, never constraint members: every call site names a concrete
+type, and its reader can see which rule applies. A constraint member spelled
+`round` would have to state one tie rule for every instance, so none may be
+introduced until the two conventions are reconciled.
 
 ### Construction and observation
 
@@ -148,7 +155,7 @@ construction/deconstruction pattern is introduced in this release.
 ### Places arguments and validation
 
 Every public places parameter and the `places` accessor use `Int`, including
-`Rat.toDec` and `Rat.toDecEven`. An ordinary `let places = 2` can therefore be
+`Rat.toDec`, `Rat.toDecEven`, `Dec.fromFloat`, and `Dec.fromFloatEven`. An ordinary `let places = 2` can therefore be
 passed directly; differences between observed place counts use ordinary Int
 subtraction. The stored `places: Int` field always remains nonnegative.
 
@@ -213,8 +220,8 @@ For operands represented by `(c1, s1)` and `(c2, s2)`:
   range.
 
 All intermediate arithmetic is exact; these operations do not silently round to
-a fixed number of digits or route through `Float`. Resource-limit handling is
-subject to §12, not permission to substitute an approximate answer.
+a fixed number of digits or route through `Float`. Host resource limits (§2)
+are not permission to substitute an approximate answer.
 
 The following are Hexagon expressions, with their ordinary display in comments.
 Later tables and `text` blocks use mathematical/display notation without suffixes:
@@ -243,13 +250,7 @@ to that member. Ordinary function naming alone never grants implicit widening.
 
 Unsuffixed decimal-point and exponent literals remain `Float`. This specification
 does not infer `Dec` from a `Float` literal or silently convert `Float` into `Dec`.
-
-There is no `Float`-to-`Dec` conversion, implicit or explicit: no `Dec.fromFloat`,
-`Float.toDec`, or equivalent conversion under another name. This follows the
-existing `Float`-to-`Rat` boundary in Friendly Numerics §2, tenet 7: an approximate
-input must not acquire a promise of exactness through conversion. Recovering the
-exact stored binary value would not recover the decimal quantity the caller
-intended. `Dec` values must instead originate from exact inputs.
+The only way from `Float` to `Dec` is the named rounding door below.
 
 ### Exact conversion to `Rat`
 
@@ -278,6 +279,35 @@ For example, converting `Rat.create(1, 8)` to two decimal places yields `0.13`
 through `Rat.toDec` and `0.12` through `Rat.toDecEven`. Converting
 `Rat.create(1, 2)` to two places yields `0.50` through either operation.
 Ordinary resource limits apply.
+
+### Rounded conversion from `Float`
+
+`Dec.fromFloat(value: Float, places: Int): Dec` uses school rounding;
+`Dec.fromFloatEven(value: Float, places: Int): Dec` uses ties to even. Both
+round the float's exact stored binary value once, using §5, to exactly the
+requested places. The places argument is required. There is no conversion that
+keeps a float's full binary expansion: that would claim an exactness the value
+never had (Friendly Numerics tenet 7). With places, the caller names the
+precision being spent, exactly as `Float.round` names it at zero places.
+
+The binary value is what rounds, not the digits a programmer wrote:
+
+```text
+fromFloat(0.1 + 0.2, 2) = 0.30
+fromFloat(12.34, 2)     = 12.34
+fromFloat(2.675, 2)     = 2.67   // the double nearest 2.675 lies below it
+fromFloat(0.125, 2)     = 0.13   // an exact binary tie
+fromFloatEven(0.125, 2) = 0.12
+fromFloat(-0.0, 2)      = 0.00
+```
+
+`NaN` and both infinities have no decimal value and throw
+`DecRangeError(message: String)`, declared by `Dec.hex`. The message identifies
+the operation. Negative places are rejected first (§3). Every finite float,
+subnormals included, converts; its exact value is always a finite decimal.
+
+These conversions belong to `Dec` because `Float.hex` sits before `Dec.hex` in
+the prelude order and cannot name `Dec`.
 
 ### Explicit conversion to `Float`
 
@@ -478,17 +508,16 @@ support for BigInt-backed data.
 
 ## 10. Implementation and teaching obligations
 
-Implementation is handled by Sol Medium. Register the type and
-companion in the prelude, preserve ordinary nominal ownership and dictionary
+Register the type and companion in the prelude, preserve ordinary nominal ownership and dictionary
 dispatch, and regenerate embedded sources. Both Playground and language-server
 consumers must observe the same prelude and widening behaviour.
 
 The Primitive Types book chapter must introduce `Dec` alongside `Int`, `Float`,
 and `BigInt`, explain coefficient multiplication versus addition of decimal
-places, and distinguish numerical equality from retained display. The chapter now
-includes this material and defines its scope as fundamental prelude types rather
-than requiring a JavaScript primitive representation; Sol Medium has approved
-the book review. The compiler's primitive-type classification is unchanged.
+places, and distinguish numerical equality from retained display. The chapter
+defines its scope as fundamental prelude types rather than requiring a
+JavaScript primitive representation. The compiler's primitive-type
+classification is unchanged.
 
 ## 11. Acceptance cases for the implementation
 
@@ -531,56 +560,19 @@ the book review. The compiler's primitive-type classification is unchanged.
   cover negative and positive fractions and numerically integral values.
 - Rational conversions cover exact values and both tie rules. `toFloat` covers
   ties to even, finite overflow, nonzero underflow to zero, and subnormal results.
+- `fromFloat` and `fromFloatEven` cover both tie rules at exact binary ties,
+  values whose written digits suggest a tie the binary value does not hold,
+  negative zero, the largest finite float and the smallest subnormal, `NaN` and
+  both infinities, and negative places ahead of the finiteness check.
+- Hashes differ for a number and its tenfold neighbours (`5`, `0.5`, `0.05`, `50`),
+  so the canonical key's place count is known to participate.
 
-These are acceptance obligations. The completed local validation is recorded
-below; finite test coverage does not establish every possible input case.
+## 12. Deferred work
 
-## 12. Implementation status and deferred work
+Runtime text parsing is deferred to one design covering every numeric type
+(#1049). No parser name, grammar, result type, or exception is adopted here. The
+source-literal rules are independent of a future runtime text parser.
 
-The first release is deployed. The revised API in §§2–7 has passed independent
-Sol Medium specification, book, and code review. Focused checks passed: 123 compiler
-Dec/prelude tests, 41 Playground compilation tests, and the language-server Dec
-hover/completion test. The Dec suite also passed after adding accessor subtraction
-coverage. Playground check and all 237 tests passed; language-server check passed.
-An initial broad run under parallel package load encountered language-server
-and compiler timing failures and was paused at the user-requested failure limit.
-After user review, isolated runs with two workers and normal timeouts passed on
-21 September 2026: all 189 compiler files (5,816 tests passed, one expected
-failure), and all 170 tests in each ordinary and linked language-server suite.
-No implementation changes were needed for these reruns. Compiler, Playground,
-and language-server TypeScript checks passed; their builds also passed, run
-sequentially. These results support load sensitivity in the earlier failures.
-The subsequent `same` addition passed independent Sol Medium specification, book,
-and code review, all 18 Dec tests, a focused dot-call runtime case, the editor
-hover/completion test, and all 41 Playground compilation tests. Compiler check
-and build and language-server check also passed. Full aggregate results above
-precede this small addition; GitHub integration/deployment gates are tracked
-separately.
-
-The following records first-release validation. The prerequisite exact-integer widening in
-`integer-widening.md` is implemented and validated locally with BigInt and Rat.
-Dec's module, literals, pattern support, Rat-owned
-conversions, and ordinary `FromBigInt<Dec>` instance are implemented locally,
-with review fixes and local acceptance validation complete. The book chapter
-addition and its continuity updates have passed independent Sol Medium review.
-
-Local integration checks on 20 September 2026 passed the focused compiler suite
-(264 tests), compiler check/build, host source and linked suites (97 tests each),
-language-server source and linked suites (165 tests each) and check/build,
-Playground check/build and all 237 tests, and VS Code check/build and all 261
-tests. Dec literals share BigInt's literal colour family in Playground and both
-repository VS Code themes; this integration passed independent Sol Medium review.
-The final full compiler suite passed all 189 test files: 5,814 tests passed and one
-was an expected failure (5,815 total), using two workers and a 180-second per-test
-timeout. These results record completed local aggregate validation; pull-request
-and deployment checks are tracked separately in GitHub.
-
-Runtime text parsing is deferred until the other numeric types establish
-Hexagon's parsing conventions. No parser name, grammar, result type, or exception
-is adopted here, and parsing does not block this release. The source-literal
-rules are independent of a future runtime text parser.
-
-The nonnegative `Int` decimal-place range and `DecimalPlacesOverflowError` are settled
-(§2). Host resource limits do not imply a smaller decimal-specific cap. No
-construction/deconstruction pattern is included. Conversion from `Float` to
-`Dec` is excluded (§4), not deferred.
+The nonnegative `Int` decimal-place range and `DecimalPlacesOverflowError` are
+settled (§2). Host resource limits do not imply a smaller decimal-specific cap.
+No construction/deconstruction pattern is included.
