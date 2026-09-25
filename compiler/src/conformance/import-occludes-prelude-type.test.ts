@@ -338,6 +338,23 @@ describe("term position: the occlusion keys on the type", () => {
     );
   });
 
+  test("above the line, a prelude spelling taken by a type alias is told to move the import", () => {
+    // The prelude binds `JsError` bare, so the import occludes it module-wide:
+    // above the line the reference is §5.4's declared-later case.
+    expect(messages([
+      jsError("export type JsError = Int\n"),
+      ["/main.hex",
+        "module Main\n\n" +
+          "export fun f(): Int =\n" +
+          "    let s = JsError(1)\n" +
+          "    0\n" +
+          "import JsError\n"],
+    ])).toEqual([
+      "`JsError` is declared later in this block; declarations are read top-down — " +
+        "move the import above this use",
+    ]);
+  });
+
   test("above the line, a spelling the prelude lacks is not told to move the import", () => {
     // Nothing of the prelude's is occluded, so moving the line would only trade
     // one refusal for another: the plain report stands, as for a type of the

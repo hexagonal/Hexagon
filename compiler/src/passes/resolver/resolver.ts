@@ -1889,7 +1889,10 @@ class Resolver {
    * declaration (`import Hex.JsError`), so there is no second meaning to keep
    * out and no later capture to guard against, and reserving the spelling
    * would only break a use above the line that resolved before the import
-   * was written.
+   * was written. Keyed on the module rather than the symbol, which agrees
+   * because no prelude module exports a spelling whose bare prelude binding
+   * belongs to another member; a symbol-keyed test would hold that by
+   * construction.
    */
   #occludingImport(name: string): ModuleInterface | undefined {
     const module = this.#moduleAliases.get(name);
