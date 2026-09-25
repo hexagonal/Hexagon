@@ -784,8 +784,6 @@ export interface ExternFunDeclaration extends ExternDeclarationFields {
   readonly ownerClass?: ExternTypeId;
   /** The declared binders and their bounds (#370); see the parsed tree's field. */
   readonly typeParameters?: readonly TypeParameter[];
-  /** The row's written `->!` or `->?` (#927); see the parsed tree's field. */
-  readonly effect?: "linked" | "constant";
   readonly parameters: readonly Parameter[];
   /** The row's outer arrow (#869); see the parsed tree's field. */
   readonly effect?: "linked" | "constant";

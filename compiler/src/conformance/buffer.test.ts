@@ -20,21 +20,22 @@ import regexRuntimeSource from "../../../stdlib/Runtime/Regex.hex?raw";
  *    draw the effects discipline's refusal inside a `->`-faced function, while
  *    `length` is `->` and does not.
  *
- * Every specimen rides in the shipped `stdlib/Runtime/Regex.hex`'s own text at
- * `/Regex.hex`: a file is a runtime member by sitting at the member's basename
- * and declaring the member's name (#829), and `buffer`'s inventory entry names
- * that module as its one declarer, so this is the only seat the rows exist in.
+ * Every specimen rides in the shipped `stdlib/Runtime/Regex.hex`'s own text,
+ * explicitly trusted as the registered `Runtime.Regex` member, and `buffer`'s
+ * inventory entry names that module as its one declarer, so this is the only
+ * seat the rows exist in.
  */
 
 /**
- * The one route into a runtime member's seat (#829): a project file at the
- * member's **basename** declaring the member's **name** is adopted as that
- * member, privileges and all. `buffer`'s inventory entry names
+ * The specialized harness explicitly grants the registered `Runtime.Regex`
+ * identity to this supplied declaration, which carries the member seat's
+ * privileges independently of the fixture path. `buffer`'s inventory entry names
  * `Hex.Runtime.Regex` as its one declarer, so this is the only seat the rows
  * exist in, and the shipped text rides along so the specimen compiles beside
  * the rows it is about.
  */
 const PROBE_PATH = "/Regex.hex";
+const TRUST_RUNTIME = { trustedStandardLibraryModules: new Set(["Runtime.Regex"]) } as const;
 
 /**
  * One ordinary module that reaches the adopted runtime module, so it is emitted.
@@ -51,7 +52,7 @@ const TOUCH: readonly [string, string] = [
 ];
 
 function diagnostics(source: string): readonly string[] {
-  return compileFiles([[PROBE_PATH, `${regexRuntimeSource}\n${source}`]])
+  return compileFiles([[PROBE_PATH, `${regexRuntimeSource}\n${source}`]], TRUST_RUNTIME)
     .diagnostics.map((diagnostic) => diagnostic.message);
 }
 
@@ -65,7 +66,7 @@ describe("the four operations, run through the emitted JavaScript", () => {
   async function run(body: string): Promise<unknown> {
     const exports = await runProject(
       [[PROBE_PATH, `${regexRuntimeSource}\nexport let probe: Int = ${body}\n`], TOUCH],
-      { entry: PROBE_PATH },
+      { ...TRUST_RUNTIME, entry: PROBE_PATH },
     );
     return exports.probe;
   }

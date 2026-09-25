@@ -183,6 +183,7 @@ export interface ExternTypeDeclaration extends ExternDeclarationFields {
    * foreign name.
    */
   readonly foreignClass?: { readonly default: boolean };
+  /**
    * The declared type parameters, present only inside the reserved boundary
    * (#927, `spec/intrinsics.md` §3.3): an intrinsic `type` row declares a
    * compiler-implemented type, and its arity is what §4.2 verifies against the

@@ -29,6 +29,7 @@ function diagnostics(
 }
 
 const TRUST_DEBUG = new Set(["Debug"]);
+const TRUST_REGEX = new Set(["Runtime.Regex"]);
 
 /** A supplied declaration explicitly seated as the registered final prelude member. */
 function debugDiagnostics(files: readonly (readonly [string, string])[]): readonly string[] {
@@ -479,12 +480,21 @@ describe("genericity is granted inside the boundary only (§3.4)", () => {
 describe("the `type` form (§3.3)", () => {
   /** A specimen inside `Runtime.Regex`'s seat, the `buffer` key's one declarer. */
   function inRegexRuntime(source: string): readonly string[] {
-    return diagnostics([["/Regex.hex", `${regexRuntimeSource}\n${source}`]]);
+    return diagnostics([["/Regex.hex", `${regexRuntimeSource}\n${source}`]], TRUST_REGEX);
   }
 
   /** A specimen in a *runtime* module that is not a named declarer of `buffer`. */
+  /**
+   * A specimen that is the whole `Runtime.Regex` module: the shipped file
+   * already declares `buffer`, and a second row for the key beside it is the
+   * duplicate refusal rather than whatever the specimen is about.
+   */
+  function inBareRegexRuntime(block: string): readonly string[] {
+    return diagnostics([["/Regex.hex", `module Runtime.Regex\n\n${block}`]], TRUST_REGEX);
+  }
+
   function inOtherRuntime(block: string): readonly string[] {
-    return diagnostics([["/VectorTrie.hex", `${vectorTrieSource}\n${block}`]]);
+    return diagnostics([["/VectorTrie.hex", `${vectorTrieSource}\n${block}`]], new Set(["Runtime.VectorTrie"]));
   }
 
   /**
@@ -494,7 +504,7 @@ describe("the `type` form (§3.3)", () => {
    * will be written against rather than a specimen shaped like it.
    */
   test("the shipped `Runtime.Regex` door compiles in its real role", () => {
-    expect(diagnostics([["/Regex.hex", regexRuntimeSource]])).toEqual([]);
+    expect(diagnostics([["/Regex.hex", regexRuntimeSource]], TRUST_REGEX)).toEqual([]);
   });
 
   /**
@@ -513,13 +523,13 @@ describe("the `type` form (§3.3)", () => {
 
   /** §11's type-key arity row: the arity is the type's **parameter** count. */
   test("a type key's arity is verified, in type parameters", () => {
-    expect(inRegexRuntime(
+    expect(inBareRegexRuntime(
       'extern from "hex:intrinsic"\n' +
       "    type buffer as Store(a, b)\n",
     )).toEqual([
       "intrinsic type `buffer` takes 1 type parameter, but this declaration has 2",
     ]);
-    expect(inRegexRuntime(
+    expect(inBareRegexRuntime(
       'extern from "hex:intrinsic"\n' +
       "    type buffer as Store\n",
     )).toEqual([
@@ -535,7 +545,7 @@ describe("the `type` form (§3.3)", () => {
   test("a type key under `fun` is refused, and an operation key under `type`", () => {
     expect(inRegexRuntime(
       'extern from "hex:intrinsic"\n' +
-      "    fun buffer as make(size: Int): Int\n",
+      "    fun buffer as make(size: Int) -> Int\n",
     )).toEqual([
       "`buffer` is an intrinsic type, not an operation; declare it with `type`",
     ]);
@@ -580,20 +590,42 @@ describe("the `type` form (§3.3)", () => {
   });
 
   /**
-   * *(#927.)* The variance sigil. §3.3 gives the row the opaque-declaration rule
-   * and a written sigil would be a *trusted* claim under §4.2's parametricity
-   * obligation; no inventory row makes one, and a claim recorded but not carried
-   * through both variance walks would read as load-bearing and do nothing. The
-   * form is refused rather than half-built.
+   * *(#927.)* The variance sigil. §3.3 gives the row the opaque-declaration
+   * rule: a parameter is invariant unless a sigil claims otherwise, and a
+   * written claim is *trusted* under §4.2's parametricity obligation — there is
+   * no representation for §6.3 to verify it against. The shipped `buffer` row
+   * writes none, which is what keeps a mutable store invariant; a row that
+   * writes `+` is believed by every variance reader.
+   *
+   * The type walk first: through one covariant `Seq` hop, an expansive binding
+   * over `Store(+a)` generalizes, and its two consumers instantiate
+   * independently — the shape `buffer.test.ts` pins refused for the invariant
+   * `Buffer(a)`.
    */
-  test("a written variance sigil is refused", () => {
-    expect(inRegexRuntime(
+  test("a written variance sigil is a trusted claim the type walk believes", () => {
+    expect(inBareRegexRuntime(
       'extern from "hex:intrinsic"\n' +
-      "    type buffer as Store(+a)\n",
-    )).toEqual([
-      "an intrinsic `type` row takes no variance claim; every parameter is " +
-      "invariant here — remove the `+`",
-    ]);
+      "    type buffer as Store(+a)\n" +
+      "\n" +
+      "let nested(k: Int): Seq(Store(a)) = Seq.empty\n" +
+      "let shared = nested(1)\n" +
+      "let asInt: Seq(Store(Int)) = shared\n" +
+      "let asText: Seq(Store(String)) = shared\n",
+    )).toEqual([]);
+  });
+
+  /**
+   * And the annotation walk (`variance.ts`): a declaration claiming `+` over a
+   * field of `Store(a)` is verified against the row's claim, so it passes where
+   * the same field over the invariant `Buffer(a)` is refused (`buffer.test.ts`).
+   */
+  test("a written variance sigil is a trusted claim the annotation walk believes", () => {
+    expect(inBareRegexRuntime(
+      'extern from "hex:intrinsic"\n' +
+      "    type buffer as Store(+a)\n" +
+      "\n" +
+      "opaque record Cell(+a) = {slots: Store(a)}\n",
+    )).toEqual([]);
   });
 });
 
@@ -607,12 +639,16 @@ describe("the `type` form (§3.3)", () => {
  */
 describe("confinement (§3.3, §11)", () => {
   function inRegexRuntime(source: string): readonly string[] {
-    return diagnostics([["/Regex.hex", `${regexRuntimeSource}\n${source}`]]);
+    return diagnostics([["/Regex.hex", `${regexRuntimeSource}\n${source}`]], TRUST_REGEX);
   }
 
   /** The two clauses §11 selects between, by carrier. */
   const CARRY = "the intrinsic type `Buffer` is private to this module; " +
-    "carry it in an opaque record, or keep this private";
+    "carry it in an opaque record, or drop the `export`";
+  // An exception escapes by being thrown, so dropping `export` repairs nothing
+  // there: its clause offers the opaque wrapper alone.
+  const PAYLOAD = "the intrinsic type `Buffer` is private to this module; " +
+    "carry it in an opaque record";
   const HEAD = "the intrinsic type `Buffer` is private to this module; " +
     "head the carrier `opaque`, carry it in an opaque record, or drop the `export`";
 
@@ -647,10 +683,10 @@ describe("confinement (§3.3, §11)", () => {
   test("an exception payload carrying the type is refused, exported or not", () => {
     expect(inRegexRuntime(
       "export exception Overrun(message: String, at: Buffer(Int))\n",
-    )).toEqual([CARRY]);
+    )).toEqual([PAYLOAD]);
     expect(inRegexRuntime(
       "exception Overrun(message: String, at: Buffer(Int))\n",
-    )).toEqual([CARRY]);
+    )).toEqual([PAYLOAD]);
   });
 
   /** Carrier 4: the representation of a non-`opaque` exported type. */
@@ -676,7 +712,7 @@ describe("confinement (§3.3, §11)", () => {
       "module Runtime.Regex\n\n" +
       'extern from "hex:intrinsic"\n' +
       "    export type buffer as Buffer(a)\n",
-    ]])).toEqual([
+    ]], TRUST_REGEX)).toEqual([
       "the intrinsic type `Buffer` is private to this module; drop the `export`",
     ]);
   });
