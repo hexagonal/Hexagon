@@ -65,11 +65,55 @@ describe("promotion into Dec", () => {
     expect(exports.shown).toEqual(["0.0", "1.25", "0.00", "2.5", "0.75", "0.250", "0.5"]);
   });
 
+  /**
+   * A negated or grouped literal is still a literal, and a literal argument
+   * waits for its siblings as an `Int` does: every spelling of the operation
+   * meets at `Dec`, whichever operand is written first.
+   */
+  test("reads through negation and grouping, and waits for sibling arguments", async () => {
+    const exports = await runMain(
+      HEADER +
+        "fun plus<a: Num>(x: a, y: a): a = x + y\n" +
+        "let price: Dec = 2.00d\n" +
+        "let refund(c: Bool): Dec = if c then price else -0.5\n" +
+        "export let negated: (String, String, String) = " +
+          "((price * -1.5).show(), (price * -(0.5)).show(), refund(False).show())\n" +
+        "export let compared: (Bool, Bool) = (price == -2.0, price < -0.01)\n" +
+        "export let firstArgument: (String, String, String, String) = (Num.add(0.5, price).show(), " +
+          "Num.multiply(1.15, price).show(), (0.5 |> Num.add(price)).show(), plus(0.5, price).show())\n",
+    );
+    expect(exports).toMatchObject({
+      negated: ["-3.000", "-1.000", "-0.5"],
+      compared: [false, false],
+      firstArgument: ["2.50", "2.3000", "2.50", "2.50"],
+    });
+  });
+
+  /**
+   * Where no sibling establishes the subject, the literal settles it at `Float`
+   * exactly as it did before it waited, and an `Int` or `Nat` widens in.
+   */
+  test("still meets at Float when no sibling establishes an exact subject", async () => {
+    const exports = await runMain(
+      HEADER +
+        "fun plus<a: Num>(x: a, y: a): a = x + y\n" +
+        "let n: Nat = 2\n" +
+        "let i: Int = 3\n" +
+        "export let sums: (Float, Float) = (plus(n, 0.5), plus(0.5, i))\n",
+    );
+    expect(exports.sums).toEqual([2.5, 3.5]);
+  });
+
   test("emits exactly the `d` literal of the same digits", () => {
     const project = compileMain(HEADER + "export let amount: Dec = 1.50\n");
     expect(project.diagnostics).toEqual([]);
     const main = project.modules.find(({ name }) => name === "Main")!;
     expect(main.javascript.text).toContain("({ unscaled: 150n, places: 2 })");
+  });
+
+  test("reaches nothing through a shadowing `Dec` declaration", () => {
+    expect(projectDiagnostics(HEADER + "record Dec = {value: Int}\nlet user: Dec = 1.5\n"))
+      .toEqual(["type mismatch: expected Dec, found Float"]);
   });
 
   test("refuses an exponent, spelling the value in ordinary notation", () => {
@@ -78,6 +122,10 @@ describe("promotion into Dec", () => {
     ]);
     expect(projectDiagnostics(HEADER + "let small: Dec = 1.5e-3\n")).toEqual([
       "a `Dec` literal is written without an exponent, so its decimal places show; write `0.0015`",
+    ]);
+    // Too long to spell out: the refusal stands without the repair.
+    expect(projectDiagnostics(HEADER + "let vanishing: Dec = 1e-1000000000000\n")).toEqual([
+      "a `Dec` literal is written without an exponent, so its decimal places show",
     ]);
   });
 });
@@ -96,6 +144,29 @@ describe("promotion into Frac targets", () => {
           "(tenth.show(), tiny.show(), hundreds.show(), sum.show(), (third + 0.5).show())\n",
     );
     expect(exports.shown).toEqual(["1/10", "1/1000000000", "150/1", "3/10", "5/6"]);
+  });
+
+  test("refuses an exponent too large to read exactly", () => {
+    expect(projectDiagnostics(HEADER + "import Rat\n\nlet r: Rat = 1e-1000000000000\n"))
+      .toEqual(["this literal's exponent is too large to read exactly at `Rat`"]);
+  });
+
+  test("needs FromBigInt as well as Frac", () => {
+    expect(projectDiagnostics(
+      HEADER +
+        "record Half = {value: Float}\n\n" +
+        "honor Num<Half> =\n" +
+        "    add(l, r) = Half({value = l.value + r.value})\n" +
+        "    multiply(l, r) = Half({value = l.value * r.value})\n" +
+        "    fromNat(n) = Half({value = Float.fromNat(n)})\n\n" +
+        "honor Signed<Half> =\n" +
+        "    subtract(l, r) = Half({value = l.value - r.value})\n" +
+        "    negate(v) = Half({value = -v.value})\n" +
+        "    fromInt(n) = Half({value = Float.fromInt(n)})\n\n" +
+        "honor Frac<Half> =\n" +
+        "    divide(l, r) = Half({value = l.value / r.value})\n\n" +
+        "let h: Half = 0.5\n",
+    )).toEqual(["type mismatch: expected Half, found Float"]);
   });
 
   /**
@@ -138,6 +209,28 @@ describe("what stays Float", () => {
         "export let values: (Float, Float) = (plain, scaled(3.0))\n",
     );
     expect(exports.values).toEqual([0.1, 1.5]);
+  });
+
+  test("a literal whose seat is Float", async () => {
+    const exports = await runMain(
+      HEADER + "let pick(c: Bool): Float = if c then 0.5 else -1.5\nexport let v: Float = pick(False)\n",
+    );
+    expect(exports.v).toBe(-1.5);
+  });
+
+  /**
+   * Where the lift stands down, a literal operand that could have reached the
+   * face does not change the report: the declining value is named, as it is
+   * beside an integer literal.
+   */
+  test("a stand-down beside a literal operand keeps its note", () => {
+    const standDown = "`f` is a `Float` and cannot enter `Dec`, so the addition ran at `Float`";
+    const declared = "let f = 0.5\nlet c = True\n";
+    expect(projectDiagnostics(HEADER + declared + "let r: Dec = (0.25) + f\n")).toEqual([standDown]);
+    expect(projectDiagnostics(HEADER + declared + "let r: Dec = f + (if c then 0.5 else 0.25)\n"))
+      .toEqual([standDown]);
+    expect(projectDiagnostics(HEADER + declared + "let r: Dec = if c then f else 0.5\n"))
+      .toEqual(["type mismatch: expected Dec, found Float"]);
   });
 
   test("an established Float value, a type variable, and an inferred Float seat", () => {

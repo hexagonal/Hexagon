@@ -108,7 +108,7 @@ Preview, but defer full treatment of:
 
 - Bare integer literals are polymorphic during inference but default to `Int`; do not
   falsely teach that their type is fixed lexically.
-- An unsuffixed decimal point or exponent makes a literal monomorphic `Float`; `d` selects Dec.
+- An unsuffixed decimal point or exponent makes a literal monomorphic `Float`, promoted only where an exact type is already known (#525); `d` selects Dec.
 - `Int` and `Float` both emit as JS/TS `number`; `BigInt` emits as `bigint`.
 - `Unit` emits as `undefined` and appears as `void` only in TS return position.
 - Interpolation requires `Show`; it is not universal JavaScript coercion.

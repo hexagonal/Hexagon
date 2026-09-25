@@ -133,7 +133,8 @@ let populationEstimate = 1e9
 let electronMass = 9.109_383_713_9e-31
 ```
 
-Unlike a bare integer literal, these forms are always `Float`. `1e9` may describe a
+Unlike a bare integer literal, these forms are `Float` wherever no exact type is
+already known; the `Dec` section below shows the exception. `1e9` may describe a
 whole mathematical number, but the exponent marks it as floating point.
 
 `Float` is IEEE 754 double-precision floating point—the same value space as a
@@ -190,12 +191,11 @@ are still read exactly:
 ```hexagon
 let price: Dec = 2.50                 // 2.50, two places
 let total = price * 1.15              // 2.8750: price is a Dec, so 1.15 is too
-let fee: Dec = if member then 0.00 else 1.25
+let refund = price * -0.5             // -1.000
 ```
 
 With no known Dec type, a decimal literal is a Float, as `surprising` was above.
-Only a literal is read this way; a Float value never quietly becomes a Dec. In a
-`match` arm a Dec literal still needs its suffix: `0.5d =>`.
+Only a literal is read this way; a Float value never quietly becomes a Dec.
 
 Addition and subtraction retain the larger operand's decimal-place count:
 
