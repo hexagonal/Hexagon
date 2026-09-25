@@ -151,9 +151,10 @@ describe("an inlined row binds as the expression it becomes", () => {
 });
 
 describe("the global is spelled in the calling module's vocabulary", () => {
-  test("a module whose own `Math`, `Map`, and `Set` contest the globals steps around them", async () => {
+  test("a module whose own `Math`, `Map`, `Set`, and `Array` contest the globals steps around them", async () => {
     const source =
-      "export union Contested = Math(Int) | Map(Int) | Set(Int)\n" +
+      "export union Contested = Math(Int) | Map(Int) | Set(Int) | Array(Int)\n" +
+      "export let n(v: Vector(Int)): Int = Array.length(Vector.toArray(v))\n" +
       "export let r: Float = Math.sqrt(16.0)\n" +
       "export let m(pairs: Seq((String, Int))): JsMap(String, Int) = JsMap.fromSeq(pairs)\n" +
       "export let s(values: Seq(Int)): JsSet(Int) = JsSet.fromSeq(values)\n";
@@ -161,6 +162,8 @@ describe("the global is spelled in the calling module's vocabulary", () => {
     expect(text).not.toMatch(/[^_]Math\.sqrt\(/u);
     expect(text).toMatch(/const r = \w+\.sqrt\(16\.0\);/u);
     expect(text).not.toMatch(/new (Map|Set)\(/u);
+    expect(text).not.toMatch(/[^_]Array\.from\(/u);
+    expect(text).toMatch(/const n = v => \w+\.from\(v\)\.length;/u);
     expect(await runMain(HEADER + source)).toMatchObject({ r: 4 });
   });
 });
