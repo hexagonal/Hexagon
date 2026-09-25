@@ -230,9 +230,11 @@ chosen once for the whole expression — never operation by operation from the i
   established target (`fun widen<t: Num>(value: Nat): t = value`). Otherwise the home is
   chosen from the types the tree's values **establish**: concrete types; declared type
   variables the body can name; and an inference variable that, when the home is chosen,
-  already carries the evidence every fixed-integer value of the tree needs to enter it —
-  `Num` for a `Nat`, `Signed` for an `Int`, `FromBigInt` for a `BigInt` — where the tree
-  has such a value and no decimal-point literal. That evidence comes from outside the tree
+  already carries — directly or through a constraint's bases — the evidence every
+  fixed-integer value of the tree needs to enter it — `Num` for a `Nat`, `Signed` for an
+  `Int`, `FromBigInt` for a `BigInt` — where the tree has such a value and no
+  decimal-point literal; two such variables unify with one another, and the result is
+  the candidate. That evidence comes from outside the tree
   or from a value's own elaboration, never from the tree's own operations. Any other
   inference variable establishes nothing, and unifies with the home. The choice runs by
   rank: an established concrete type other than `Nat`, `Int`, and `BigInt`, or a declared
@@ -240,7 +242,8 @@ chosen once for the whole expression — never operation by operation from the i
   value`); else a constrained inference variable; else the widest established of
   `BigInt`, `Int`, and `Nat` — unless a decimal-point literal is among the values, when
   the home is `Float`. A tree whose values establish two different types of
-  the first rank is **conflicting**. A tree whose values establish nothing is **open**: a
+  the first rank is **conflicting**, and is refused at the second of them in source
+  order. A tree whose values establish nothing is **open**: a
   decimal-point literal among them makes its home `Float`, and otherwise its values unify
   with one another exactly, as ever — integer literals then defaulting at their binding
   (§4). A tree none of whose values is numeric keeps ordinary unification in source order
@@ -609,7 +612,7 @@ The expression home owes (#1062; fixtures `n : Int`, `m : Nat`, `price : Dec`,
 price`; order-independence triples, emitting identically — `n * 1.5 * price`,
 `price * n * 1.5`, `1.5 * price * n` — and pairs — `[m, n]` beside `[n, m]`, `if c then m
 else n` beside `if c then n else m`, and the same two `match` arm orders, unannotated
-(#824); the comparisons `price < n * 1.5` and `n * 1.5 < price`; the siblings `h(n * 1.5,
+(#824); the comparisons `price < n * 1.5`, `n * 1.5 < price`, and `price.compare(n * 1.5)`; the siblings `h(n * 1.5,
 price)` and `h(price, n * 1.5)`; the schedule residue at a receiver, `h3((n * 1.5).multiply(price),
 decs, 0.5)` refused beside `h3(0.5, decs, (n * 1.5).multiply(price))` accepted (`h3<t:
 Num>(x: t, v: Vector(t), y: t)`, `decs : Vector(Dec)`); the declared and constrained
