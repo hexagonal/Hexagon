@@ -768,7 +768,7 @@ describe("a constraint's default body is checked like any other body (#599)", ()
   test("a non-exhaustive match reports the missing case (§7.1, §7.3)", () => {
     expect(projectDiagnostics(
       "module Main\n\n" + FLAG + PICK +
-      "    rank(flag: Flag) -> Int =\n" +
+      "    rank(self: a, flag: Flag) -> Int =\n" +
       "        match flag\n" +
       "            On => 1\n",
     )).toEqual(["match is missing cases: `Off`"]);
@@ -777,7 +777,7 @@ describe("a constraint's default body is checked like any other body (#599)", ()
   test("an arm from the wrong union is refused as it is at the top level", () => {
     const inDefault = projectDiagnostics(
       "module Main\n\n" + FLAG + "union Other = Thing\n" + PICK +
-      "    rank(flag: Flag) -> Int =\n" +
+      "    rank(self: a, flag: Flag) -> Int =\n" +
       "        match flag\n" +
       "            Thing => 1\n",
     );
@@ -801,7 +801,7 @@ describe("a constraint's default body is checked like any other body (#599)", ()
     // covers `Off` read as dead.
     expect(projectDiagnostics(
       "module Main\n\n" + FLAG + PICK +
-      "    rank(flag: Flag) -> Int =\n" +
+      "    rank(self: a, flag: Flag) -> Int =\n" +
       "        match flag\n" +
       "            On => 1\n" +
       "            _ => 2\n",
@@ -811,7 +811,7 @@ describe("a constraint's default body is checked like any other body (#599)", ()
   test("a repeated constructor is a dead arm (§7.2)", () => {
     expect(projectDiagnostics(
       "module Main\n\n" + FLAG + PICK +
-      "    rank(flag: Flag) -> Int =\n" +
+      "    rank(self: a, flag: Flag) -> Int =\n" +
       "        match flag\n" +
       "            On => 1\n" +
       "            On => 2\n" +
@@ -821,7 +821,7 @@ describe("a constraint's default body is checked like any other body (#599)", ()
 
   test("a call to a binding above the constraint is typed against its scheme", () => {
     expect(projectDiagnostics("module Main\n\n" + "fun helper(n: Int): Int = n\n" + PICK +
-      "    rank() -> Int = helper(True)\n",
+      "    rank(self: a) -> Int = helper(True)\n",
     )).toEqual(["type mismatch: expected Int, found Bool"]);
   });
 
@@ -830,7 +830,7 @@ describe("a constraint's default body is checked like any other body (#599)", ()
     // late: the names a default body may reach are the ones already seeded.
     expect(projectDiagnostics(
       "module Main\n\n" + PICK +
-      "    rank() -> Int = helper(1)\n" +
+      "    rank(self: a) -> Int = helper(1)\n" +
       "fun helper(n: Int): Int = n\n",
     )).toEqual([
       "`helper` is declared later in this block; declarations are read top-down — " +
@@ -841,7 +841,7 @@ describe("a constraint's default body is checked like any other body (#599)", ()
   test("a `catch` arm reads the module's exception table", () => {
     expect(projectDiagnostics("module Main\n\n" + "exception Boom(message: String)\n" +
       "fun blow(): Int = throw(Boom(\"no\"))\n" + PICK +
-      "    rank() -> Int =\n" +
+      "    rank(self: a) -> Int =\n" +
       "        try\n" +
       "            blow()\n" +
       "        catch\n" +
@@ -852,14 +852,14 @@ describe("a constraint's default body is checked like any other body (#599)", ()
   test("the prelude's unions are visible too", () => {
     expect(projectDiagnostics(
       "module Main\n\n" + PICK +
-      "    rank(flag: Bool) -> Int =\n" +
+      "    rank(self: a, flag: Bool) -> Int =\n" +
       "        match flag\n" +
       "            True => 1\n",
     )).toEqual(["match is missing cases: `False`"]);
 
     expect(projectDiagnostics(
       "module Main\n\n" + PICK +
-      "    rank(held: Option(Int)) -> Int =\n" +
+      "    rank(self: a, held: Option(Int)) -> Int =\n" +
       "        match held\n" +
       "            Some(n) => n\n",
     )).toEqual(["match is missing cases: `None`"]);

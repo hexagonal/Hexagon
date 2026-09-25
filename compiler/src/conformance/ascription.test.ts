@@ -451,17 +451,23 @@ describe("§9.3 the four declared-variable error paths", () => {
     // determine its evidence. It must be surfaced, not quietly defaulted.
     const messages = projectDiagnostics("module Main\n\n" + `${IGNORE}let f() = ignore((42 : a))\nexport let out: Int = 1\n`,
     );
-    expect(messages).toHaveLength(1);
-    expect(messages[0]).toContain("`a` is a declared type variable");
+    // Functions §10's unmentioned-variable row, one wording for every
+    // declaring spelling (#712), with the ascription's own rewrites.
+    expect(messages).toEqual([
+      "`a` is a declared type variable, but this declaration's type does not mention it, " +
+        "so no call can choose it or supply its `Num` evidence; ascribe a concrete type, " +
+        "or name a type variable the declaration uses",
+    ]);
     // Not defaulted: `f`'s scheme never acquired an `Int` nobody wrote.
     expect(projectDiagnostics("module Main\n\n" + `${IGNORE}let f() = ignore((42 : Int))\nexport let out: Int = 1\n`,
     )).toEqual([]);
   });
 
   test("(4) an orphan defaulting cannot discharge is surfaced too", () => {
-    // The `Num` orphan is caught by defaulting's own refusal. One carrying a
-    // constraint defaulting never touches has no other reader, so without its
-    // own report the declaration compiled with an obligation nothing can meet.
+    // The same row whatever the constraint (#712): before it, the `Num` orphan
+    // was caught by defaulting's refusal and one carrying a constraint
+    // defaulting never touches had no reader at all, compiling with an
+    // obligation nothing could meet.
     const messages = projectDiagnostics("module Main\n\n" + `${TAG}${IGNORE}let f() = ignore((describe : a -> String))\nexport let out: Int = 1\n`,
     );
     expect(messages).toHaveLength(1);

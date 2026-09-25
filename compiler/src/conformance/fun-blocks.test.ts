@@ -319,10 +319,12 @@ describe("sharing is opt-in, and grouping bounds visibility only (§12.4)", () =
     expect(blocked).toEqual(fused);
     // The agreement has to be an agreement about something: two empty lists
     // would satisfy the line above and say nothing, and the shared verdict is
-    // §4.2's contract machinery reaching a binder no body mentions.
+    // the unmentioned-variable refusal at the binder (#712) — never the `Int`
+    // defaulting used to propose for a variable no body demanded anything of.
     expect(blocked).toEqual([
-      "`a` is a declared type variable, but the body requires `Int`; change the annotation " +
-        "to `Int`, or remove it to let the type be inferred",
+      "`a` is a declared type variable, but this declaration's type does not mention it, " +
+        "so no call can choose it or supply its `Eq` evidence; use `a` in a parameter or " +
+        "result type, or remove `a` from the binder list",
     ]);
   });
 });
