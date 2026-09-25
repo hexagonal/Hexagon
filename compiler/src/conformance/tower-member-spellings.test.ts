@@ -1144,11 +1144,13 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
 
   test("a receiver that entered the face is refused for its own reasons", () => {
     // The literal-only receiver: literals reach anything, so `1 + 2` lifts to
-    // `BigInt` and the receiver **entered** the face. What refuses is `s2` at
-    // `Integral<BigInt>`'s own seat — not row 16, which is about a receiver that
-    // could not enter.
-    expect(refusals(`${foo}let probe: BigInt = (1 + 2).gcd(s2)\n`))
-      .toEqual(["type mismatch: expected BigInt, found Foo"]);
+    // `BigInt` and the receiver **entered** the face. What refuses is `s2`,
+    // which cannot enter the `gcd`'s face — the faced tree's one report, and
+    // no evidence selected at the `Foo` the call kept (Numeric Literals §5.1)
+    // — not row 16, which is about a receiver that could not enter.
+    expect(refusals(`${foo}let probe: BigInt = (1 + 2).gcd(s2)\n`)).toEqual([
+      "`s2` is a `Foo` and cannot enter `BigInt`, so the `gcd` operation could not run at `BigInt`",
+    ]);
     // Unannotated, the literals take `s2`'s `Foo` and `Integral<Foo>` is
     // missing — refused either way, and neither refusal is row 16.
     expect(refusals(`${foo}let probe = (1 + 2).gcd(s2)\n`)).toEqual([

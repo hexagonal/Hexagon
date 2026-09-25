@@ -117,14 +117,22 @@ describe("the non-lambda sibling pair: pass 1's residue", () => {
     expect(parameterOf(intFirst, "outer")).toMatchObject(INT);
   });
 
-  test("the same order decides a verdict where the widening is the unsafe one", () => {
-    const natFirst = "let g(a1: a, b1: b): String = \"x\"\n" +
-      "fun outer(p) = g(useNat(p), p + one)\n";
-    const natLast = "let g(a1: a, b1: b): String = \"x\"\n" +
-      "fun outer(p) = g(p + one, useNat(p))\n";
-    expect(verdict(natFirst)).toEqual([]);
-    expect(parameterOf(natFirst, "outer")).toMatchObject(NAT);
-    expect(verdict(natLast)).toEqual([mismatch]);
+  test("an argument at a variable's seat closes after the pass's last argument", () => {
+    // `p + one` is a tree at its variable's seat, `a`'s or `b`'s: it closes
+    // after the pass's last argument, when `useNat(p)` has fixed `p`, so the
+    // addition widens the `Nat` toward `one`'s `Int` in either order (#1062).
+    // Before the rule it closed at its own turn, and `p + one` written first
+    // typed `p` at `Int` and refused `useNat(p)`.
+    for (const [sibling, home] of [["p + one", "Int"], ["p + half", "Float"]] as const) {
+      const natFirst = "let g(a1: a, b1: b): String = \"x\"\n" +
+        `fun outer(p) = g(useNat(p), ${sibling})\n`;
+      const natLast = "let g(a1: a, b1: b): String = \"x\"\n" +
+        `fun outer(p) = g(${sibling}, useNat(p))\n`;
+      expect(verdict(natFirst), home).toEqual([]);
+      expect(parameterOf(natFirst, "outer")).toMatchObject(NAT);
+      expect(verdict(natLast), home).toEqual([]);
+      expect(parameterOf(natLast, "outer")).toMatchObject(NAT);
+    }
   });
 });
 

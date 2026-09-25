@@ -408,11 +408,12 @@ describe("the ordering pin (§4.3)", () => {
     // sweep after it would file it again — and a copy of a *failing*
     // unification is a copy of its diagnostic.
     //
-    // Here `n` is an `Int` against the variable parameter `a`, so it is
-    // deferred; two match-function arguments defer to the second pass; and
-    // `"boom"` then settles `a` at `String`, which the deferred `Int` no longer
-    // meets. The named-function spelling of the same call is the control — it
-    // defers nothing, checks nothing early, and has always reported once.
+    // Here `n` and `"boom"` are siblings at the variable parameter `a`, one
+    // tree that closes before the two match-function arguments' second pass;
+    // not being arithmetic, its values meet in source order, so `"boom"`
+    // cannot meet the `Int` `n` settled (Numeric Literals §5.1, #1062). The
+    // named-function spelling of the same call is the control — it defers
+    // nothing, checks nothing early, and has always reported once.
     const call = (callbacks: string): string =>
       "module Main\n\n" +
       "let g(a1: a, m1: (Int) -> String, m2: (Int) -> String, a2: a): String = \"x\"\n" +
@@ -423,9 +424,9 @@ describe("the ordering pin (§4.3)", () => {
 
     const landings = "match\n" + guardOnly("    ") + ", match\n" + guardOnly("    ");
     expect(projectDiagnostics(call(landings)))
-      .toEqual(["type mismatch: expected String, found Int"]);
+      .toEqual(["type mismatch: expected Int, found String"]);
     expect(projectDiagnostics(call("sign, sign")))
-      .toEqual(["type mismatch: expected String, found Int"]);
+      .toEqual(["type mismatch: expected Int, found String"]);
   });
 
   test("the callee-position flavours read `p` off the argument (#517)", () => {
