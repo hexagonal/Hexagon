@@ -1097,8 +1097,8 @@ describe("a crossing that copies nothing is unchanged (§5.4)", () => {
    * own values (Intrinsics §3), so `Array.length(xs)` copies nothing".
    *
    * The claim is about the **call**, and the call is what is measured: the
-   * lowering is a native `.length` read and the Hexagon caller reaches it
-   * through the companion's internal edition, copying nothing on the way. What
+   * lowering is a native `.length` read, and the Hexagon caller writes it in
+   * place (Intrinsics §8.3), copying nothing on the way. What
    * the companion also carries since PR 3 is its own *published* face — its
    * exports are exported Hexagon functions over `Array(a)`, so they take FFI
    * Part 7 §7 occasion 4's wrapper like any other, which is a different
@@ -1108,15 +1108,19 @@ describe("a crossing that copies nothing is unchanged (§5.4)", () => {
     const project = compileFiles([[
       "/main.hex",
       "module Main\n\nexport fun probe(xs: Array(Int), v: Vector(Int)): Int =\n" +
-        "    Array.length(xs) + Array.length(Vector.toArray(v))\n",
+        "    Array.length(xs) + Array.length(Vector.toArray(v))\n" +
+        // A call is inlined; a value reference binds the companion's internal
+        // edition, which keeps `Vector` emitted for the face pinned below.
+        "let convert: (Vector(Int)) -> Array(Int) = Vector.toArray\n" +
+        "export fun viaValue(v: Vector(Int)): Int = Array.length(convert(v))\n",
     ]]);
     expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
     const main = project.modules.find(({ source }) => source.path === "/main.hex");
     // The caller performs no walk of its own; its only `__capture` is its own
-    // export wrapper's entry walk. The row's call is its lowering, inlined
-    // (Intrinsics §8.3), and `toArray` binds the internal edition.
+    // export wrapper's entry walk. Both rows' calls are their lowerings,
+    // inlined (Intrinsics §8.3).
+    expect(main?.javascript.text).toContain("return xs.length + Array.from(v).length;");
     expect(main?.javascript.text).toContain('import { __toArray as toArray } from "./Hex/Vector.js";');
-    expect(main?.javascript.text).toContain("return xs.length + toArray(v).length;");
     expect(main?.javascript.text.match(/__capture\(__capturePlans/gu)).toHaveLength(1);
     // `Vector`'s own published face carries exactly one walk, and it is not
     // this row's: `toArray`'s result is an `Array(a)` leaving through an

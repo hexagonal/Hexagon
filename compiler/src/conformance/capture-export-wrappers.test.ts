@@ -254,7 +254,7 @@ describe("the public name binds the wrapper and the internal edition rides besid
       "export fun hold(xs: Array(Int)): Int = xs[1]\n" +
         "export fun twice(v: Vector(Int)): Int = hold(Vector.toArray(v)) + hold(Vector.toArray(v))\n",
     );
-    expect(text).toContain("return hold(toArray(v)) + hold(toArray(v));");
+    expect(text).toContain("return hold(Array.from(v)) + hold(Array.from(v));");
     expect(copies(text)).toBe(1);
   });
 });
@@ -405,7 +405,7 @@ describe("a Hexagon importer binds the internal edition and never copies", () =>
       ],
     ], "/main.hex").javascript.text;
     expect(text).toContain('import { __hold } from "./Lib.js";');
-    expect(text).toContain("return __hold(toArray(v)) + Lib.plain(2);");
+    expect(text).toContain("return __hold(Array.from(v)) + Lib.plain(2);");
     expect(copies(text)).toBe(0);
   });
 
@@ -454,17 +454,17 @@ describe("a Hexagon importer binds the internal edition and never copies", () =>
    * instead, and a captured export there has to move to the internal edition by
    * the same rule or the copy-free Hexagon call is only copy-free on one route.
    *
-   * `Vector.toArray` is the shipped case: its result is `Array(a)`, so the
+   * `Array.get` is the shipped case: its parameter is `Array(a)`, so the
    * companion publishes occasion 4's wrapper, and a Hexagon caller binds the
-   * unwalked lowering beside it and pays nothing for the call.
+   * unwalked function beside it and pays nothing to read an element.
    */
   test("the prelude's named channel binds the edition too", () => {
-    const text = javascript("export fun size(v: Vector(Int)): Int = Array.length(Vector.toArray(v))\n");
-    expect(text).toContain('import { __toArray as toArray } from "./Hex/Vector.js";');
-    expect(text).toContain("return toArray(v).length;");
-    // No walk in the module: its export takes no captured collection, and the
+    const text = javascript("export fun first(xs: Array(Int)): Option(Int) = Array.get(xs, 1)\n");
+    expect(text).toContain('import { __get as get } from "./Hex/Array.js";');
+    expect(text).toContain("return get(xs, 1);");
+    // One walk in the module, and it is this export's own entry wrapper — the
     // call into the companion adds none.
-    expect(copies(text)).toBe(0);
+    expect(copies(text)).toBe(1);
   });
 
   /** A constructor's edition rides the same route. */

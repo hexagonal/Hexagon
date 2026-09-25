@@ -271,11 +271,12 @@ An intrinsic declaration is emitted as an **ordinary binding of the declaring mo
 | `Float.rem` | `Float.rem(x, y)` | `x % y` |
 | `Math.sqrt`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `exp`, `ln`, `log10`, `sinh`, `cosh`, `tanh` | `Math.ln(x)` | `Math.log(x)`, and `Math.name(…)` for every other row |
 | `Nullable.isNull`, `Nullable.isUndefined` | `Nullable.isNull(v)` | `v === null`, `v === undefined` |
-| `Array.length`, `JsMap.size`, `JsSet.size` | `Array.length(xs)` | `xs.length`, `m.size` |
+| `Array.length`, `JsMap.size`, `JsSet.size` | `Array.length(xs)` | `xs.length`, and `.size` for the other two |
 | `JsMap.containsKey`, `JsSet.contains` | `m.containsKey(k)` | `m.has(k)` |
-| `JsMap.fromSeq`, `JsSet.fromSeq` | `JsSet.fromSeq(xs)` | `new Map(pairs)`, `new Set(xs)` |
+| `JsMap.fromSeq`, `JsSet.fromSeq` | `JsMap.fromSeq(pairs)` | `new Map(pairs)`, `new Set(xs)` |
+| `Vector.toArray` | `Vector.toArray(v)` | `Array.from(v)` |
 
-A row whose lowering does not meet the rule is called as the binding it is: a runtime module's operation, a helper, or a longer expression. An **unexported** row is not inlined even where its lowering would qualify. The declaring module's own instances still reach it as a value, so its binding stays in the output, and inlining its calls would only set the lowering beside it a second time. The stable export wrapper an exported row may carry for JavaScript callers (the edit note below) is not involved: a Hexagon call reaches the internal binding, and the internal binding's lowering is exactly what is inlined.
+A row whose lowering does not meet the rule is called as the binding it is: a runtime module's operation, a helper, or a longer expression. `JsValue.from`'s identity lowering is not reached by a call at all: FFI Part 11 §2's release seat decides what its call emits. An **unexported** row is not inlined even where its lowering would qualify. Inlining an exported row is what lets another module's call name no import of the row; an unexported row has no importer, and its call inside its own module is already one short name bound beside its lowering. The stable export wrapper an exported row may carry for JavaScript callers (the edit note below) is not involved: a Hexagon call reaches the internal binding, and the internal binding's lowering is exactly what is inlined.
 
 Two non-perturbations, stated so they are checkable: the block is not an `import` line, so Modules §5.5's no-import-lines pedagogy for prelude source is intact — and the lesson the block teaches a reader is true (this operation is compiler-provided). And nothing here decides defect 12: `memoize`'s declared type is `Seq(a) -> Seq(a)`; whatever that ruling makes of an exported `Seq`'s JavaScript face applies to `memoize`'s results uniformly with every other combinator's.
 

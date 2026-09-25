@@ -6143,6 +6143,7 @@ class JavaScriptEmitter {
    */
   #inlinedIntrinsic(expression: Core.Expr): InlinedIntrinsic | undefined {
     if (expression.kind !== "Call" || expression.callee.kind !== "Name") return undefined;
+    if (expression.evidence.length > 0) return undefined;
     const key = this.#symbols.get(expression.callee.symbol)?.intrinsic;
     const inlined = key === undefined ? undefined : INLINED_INTRINSICS.get(key);
     return inlined?.operands.length === expression.arguments.length ? inlined : undefined;
@@ -14904,7 +14905,15 @@ const INLINED_INTRINSICS: ReadonlyMap<string, InlinedIntrinsic> = new Map([
     operands: [ARGUMENT],
     text: ([elements], spell) => `new ${spell("Set")}(${elements})`,
   }],
+  ["vectorToArray", {
+    precedence: Precedence.Call,
+    operands: [ARGUMENT],
+    text: ([values], spell) => `${spell("Array")}.from(${values})`,
+  }],
 ]);
+
+/** The keys `INLINED_INTRINSICS` inlines, for the conformance check that each is an exported row. */
+export const INLINED_INTRINSIC_KEYS: readonly string[] = [...INLINED_INTRINSICS.keys()];
 
 /**
  * The constraint members whose call at a known primitive instance emits as a
