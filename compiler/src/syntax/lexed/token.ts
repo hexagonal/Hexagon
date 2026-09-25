@@ -11,6 +11,7 @@ import type * as Source from "../../support/source.js";
 
 export const keywordKinds = [
   "And",
+  "Bnot",
   "Catch",
   "Constraint",
   "Derive",
@@ -122,12 +123,19 @@ export interface IntegerToken {
   readonly recovered?: true;
   /** The written form, retained only when recovery may offer a source edit. */
   readonly spelling?: string;
+  /**
+   * A non-decimal literal's separator-free source form (`0xFF`), which emission
+   * writes back (`bitwise.md` §8); absent for a decimal literal.
+   */
+  readonly written?: string;
   readonly span: Source.Span;
 }
 
 export interface BigIntToken {
   readonly kind: "BigInt";
   readonly decimal: string;
+  /** A non-decimal literal's separator-free source form, without its `n` (`0xFF`). */
+  readonly written?: string;
   readonly span: Source.Span;
 }
 

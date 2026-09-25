@@ -196,9 +196,12 @@ describe("verification replaces trust (§4.2)", () => {
       "`bigIntFromNat`, `bigIntSubtract`, `bigIntNegate`, `bigIntFromInt`, " +
       "`bigIntEquals`, `bigIntCompare`, `bigIntShow`, `bigIntPow`, `bigIntHash`, " +
       "`bigIntQuot`, `bigIntRem`, `bigIntToIntUnchecked`, `bigIntToFloatUnchecked`, " +
+      "`bigIntBitAnd`, `bigIntBitOr`, `bigIntBitXor`, `bigIntShiftLeft`, `bigIntShiftRight`, " +
       "`intAdd`, `intMultiply`, `intFromNat`, `intSubtract`, `intNegate`, " +
       "`intEquals`, `intCompare`, `intShow`, `intPow`, `intHash`, `intQuot`, " +
-      "`intRem`, `natAdd`, `natMultiply`, `natEquals`, `natCompare`, `natShow`, " +
+      "`intRem`, `intBitAnd`, `intBitOr`, `intBitXor`, `intShiftLeft`, `intShiftRight`, " +
+      "`intToInt32`, `intToUint32`, " +
+      "`natAdd`, `natMultiply`, `natEquals`, `natCompare`, `natShow`, " +
       "`natPow`, `natHash`, `natQuot`, `natRem`, `natFromIntUnchecked`, " +
       "`floatAdd`, `floatMultiply`, `floatSubtract`, `floatNegate`, " +
       "`floatFromInt`, `floatDivide`, `floatEquals`, `floatCompare`, " +

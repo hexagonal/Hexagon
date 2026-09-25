@@ -1,9 +1,6 @@
 # Bitwise operations and non-decimal literals — proposal
 
-**Status:** Accepted design. Promotion into the normative specs waits only on
-the constraint-effects implementation (the dependency below); until then this note
-does not amend the operator inventory, lexer, or primitive types. §8 lists what
-promotion changes.
+**Status:** Promoted. The normative text is [`bitwise.md`](../bitwise.md), which drops this note's sealing (§6.2): the orphan rule already refuses every prelude type, and a program's own type may honor `Bitwise`. This note is kept as the design record.
 
 **Dependency:** Complete and verify the constraint-effects work before promoting
 this proposal, to avoid designing against drifting contracts. Constraint members

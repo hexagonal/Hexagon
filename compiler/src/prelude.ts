@@ -34,7 +34,7 @@ export interface PreludeModule {
  *
  * ## The constraint declarations come as early as their signatures allow (#335)
  *
- * A constraint member is an export of its declaring module, so all **thirteen**
+ * A constraint member is an export of its declaring module, so all **fourteen**
  * declarations the compiler holds are `.hex` files here, and their seats are
  * what make `Show.show`, `Eq.equals`, `Ord.compare`, `Num.add`, `Integral.div`
  * and `Iterable.toSeq` spellable everywhere. (Their seats no longer put those
@@ -52,8 +52,8 @@ export interface PreludeModule {
  * the list, after `Seq.hex`, because `toSeq(xs: c): Seq(Item)` names `Seq`.
  *
  * - `Show.hex` is first: its one signature names only the primitive `String`.
- * - `Num.hex`, `Signed.hex`, `FromBigInt.hex`, `Frac.hex`, `Pow.hex` and
- *   `Concat.hex` follow directly, because their headers name only primitives
+ * - `Num.hex`, `Signed.hex`, `FromBigInt.hex`, `Frac.hex`, `Pow.hex`,
+ *   `Concat.hex` and `Bitwise.hex` follow directly, because their headers name only primitives
  *   (`Nat`, `Int`, `BigInt`) and the
  *   subject variable. Their own order among themselves is base-constraint order
  *   (`Signed` extends `Num`, `FromBigInt` and `Frac` extend `Signed`, and
@@ -264,6 +264,7 @@ export const PRELUDE_MODULES: readonly PreludeModule[] = [
   "Frac",
   "Pow",
   "Concat",
+  "Bitwise",
   "Bool",
   "Eq",
   "Hash",

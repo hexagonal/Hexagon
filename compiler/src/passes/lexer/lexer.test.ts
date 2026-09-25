@@ -213,13 +213,13 @@ describe("lex", () => {
 
   test("reports malformed and overflowing numeric literals as whole constructs", () => {
     const result = lexSource(
-      ".5 1. 0xFF 1__0 12cats 9007199254740992 1e999",
+      ".5 1. 0XFF 1__0 12cats 9007199254740992 1e999",
     );
 
     expect(result.diagnostics.map(({ message }) => message)).toEqual([
       "a Float literal needs a digit before `.`",
       "a Float literal needs a digit after `.`",
-      "Hexagon v1 has decimal literals only",
+      "the base prefix `0X` is written lowercase",
       "`_` in a number must have a digit on both sides",
       "invalid numeric literal suffix in `12cats`",
       "Float literal is too large; use `Float.infinity`",
@@ -239,6 +239,65 @@ describe("lex", () => {
       spelling: "1e999",
       value: Infinity,
       recovered: true,
+    });
+  });
+
+  test("scans hexadecimal, octal, and binary literals (bitwise.md §8)", () => {
+    const result = lexSource(
+      "0xFF 0o777 0b1010 0xFF_FF 0xFFn 007 0xFFd 0x1e5 0xa_B 0b1n 0x1FFFFFFFFFFFFF",
+    );
+    expect(result.diagnostics).toEqual([]);
+    expect(kinds(result.tokens).slice(2, -1)).toEqual([
+      "Integer", "Integer", "Integer", "Integer", "BigInt", "Integer",
+      "Integer", "Integer", "Integer", "BigInt", "Integer",
+    ]);
+    expect(result.tokens.slice(2, -1).map((token) =>
+      "decimal" in token ? [token.decimal, token.written] : undefined
+    )).toEqual([
+      ["255", "0xFF"], ["511", "0o777"], ["10", "0b1010"], ["65535", "0xFFFF"],
+      ["255", "0xFF"], ["007", undefined], ["4093", "0xFFd"], ["485", "0x1e5"],
+      ["171", "0xaB"], ["1", "0b1"], ["9007199254740991", "0x1FFFFFFFFFFFFF"],
+    ]);
+  });
+
+  test("keeps a non-decimal literal's dot call and range", () => {
+    const result = lexSource("0x1.show() 0xA.abs() 0x1..0xF");
+    expect(result.diagnostics).toEqual([]);
+    expect(kinds(result.tokens).slice(2, -1)).toEqual([
+      "Integer", "Dot", "NonUpperName", "LeftParen", "RightParen",
+      "Integer", "Dot", "NonUpperName", "LeftParen", "RightParen",
+      "Integer", "Range", "Integer",
+    ]);
+  });
+
+  test("reports malformed non-decimal literals as whole constructs", () => {
+    const result = lexSource("0x 0b102 0o8 0x1.5 0b1e3 0x_FF 0xFF_ 0xFF_n 0XFF 0B1 0xFFnope");
+    expect(result.diagnostics.map(({ message }) => message)).toEqual([
+      "`0x` needs at least one hexadecimal digit",
+      "`2` is not a binary digit",
+      "`0o` needs at least one octal digit",
+      "a hexadecimal literal has no fractional form",
+      "invalid numeric literal suffix in `0b1e3`",
+      "`_` in a number must have a digit on both sides",
+      "`_` in a number must have a digit on both sides",
+      "`_` in a number must have a digit on both sides",
+      "the base prefix `0X` is written lowercase",
+      "the base prefix `0B` is written lowercase",
+      "invalid numeric literal suffix in `0xFFnope`",
+    ]);
+    expect(kinds(result.tokens)).toEqual(["NonUpperName", "UpperName", "Eof"]);
+    expect(result.diagnostics[8]?.fixes?.[0]?.edits[0]?.replacement).toBe("0xFF");
+    expect(result.diagnostics[9]?.fixes?.[0]?.edits[0]?.replacement).toBe("0b1");
+  });
+
+  test("range-checks a non-decimal integer and retains it for its repair", () => {
+    const result = lexSource("0x20000000000000");
+    expect(result.tokens[2]).toMatchObject({
+      kind: "Integer",
+      decimal: "9007199254740992",
+      written: "0x20000000000000",
+      recovered: true,
+      spelling: "0x20000000000000",
     });
   });
 

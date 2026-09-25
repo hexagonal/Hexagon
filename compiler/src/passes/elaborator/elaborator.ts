@@ -487,6 +487,7 @@ function elaboratePattern(pattern: Typed.Pattern): Core.Pattern {
           ? {
               kind: "BigInt",
               decimal: pattern.decimal,
+              ...(pattern.written === undefined ? {} : { written: pattern.written }),
               type: pattern.type,
               span: pattern.span,
             }
@@ -497,6 +498,7 @@ function elaboratePattern(pattern: Typed.Pattern): Core.Pattern {
           : elaborateInteger({
               kind: "FromNat",
               decimal: pattern.decimal,
+              ...(pattern.written === undefined ? {} : { written: pattern.written }),
               requirement: pattern.requirement,
               type: pattern.type,
               span: pattern.span,
@@ -564,6 +566,7 @@ function elaborateInteger(expression: Typed.FromNatExpr): Core.Expr {
       return {
         kind: "Number",
         decimal: expression.decimal,
+        ...(expression.written === undefined ? {} : { written: expression.written }),
         representation: expression.type.name,
         type: expression.type,
         span: expression.span,
@@ -573,6 +576,7 @@ function elaborateInteger(expression: Typed.FromNatExpr): Core.Expr {
       return {
         kind: "BigInt",
         decimal: expression.decimal,
+        ...(expression.written === undefined ? {} : { written: expression.written }),
         type: expression.type,
         span: expression.span,
       };
@@ -582,6 +586,7 @@ function elaborateInteger(expression: Typed.FromNatExpr): Core.Expr {
   return {
     kind: "ConvertNat",
     decimal: expression.decimal,
+    ...(expression.written === undefined ? {} : { written: expression.written }),
     evidence: evidence(expression.requirement),
     type: expression.type,
     span: expression.span,

@@ -392,6 +392,14 @@ export interface Symbol {
    * holds symbols rather than items, has to know it too.
    */
   readonly receiver?: ReceiverLinkage;
+  /**
+   * An intrinsic door row's key (`spec/intrinsics.md` §4.1). It rides the
+   * symbol for `receiver`'s reason: a call to a door whose lowering is one
+   * JavaScript operator emits that operator inline in every module
+   * (`bitwise.md` §6's `toInt32`/`toUint32`), so an importer has to know the
+   * key too.
+   */
+  readonly intrinsic?: string;
 }
 
 /** FFI Part 5 §1's receiver member forms (#982). */
@@ -1286,6 +1294,8 @@ export interface OrPattern {
 export interface IntegerPattern {
   readonly kind: "Integer";
   readonly decimal: string;
+  /** A non-decimal literal's source form, sign included, without suffix (`-0xFF`). */
+  readonly written?: string;
   /** Present for the monomorphic `n`-suffixed form. */
   readonly bigint?: true;
   readonly span: Source.Span;
@@ -1895,12 +1905,16 @@ export interface UnitExpr {
 export interface IntegerExpr {
   readonly kind: "Integer";
   readonly decimal: string;
+  /** A non-decimal literal's separator-free source form, without suffix (`0xFF`; `bitwise.md` §8). */
+  readonly written?: string;
   readonly span: Source.Span;
 }
 
 export interface BigIntExpr {
   readonly kind: "BigInt";
   readonly decimal: string;
+  /** A non-decimal literal's separator-free source form, without suffix (`0xFF`; `bitwise.md` §8). */
+  readonly written?: string;
   readonly span: Source.Span;
 }
 
@@ -2139,7 +2153,7 @@ export interface CollectionOperationExpr {
   readonly span: Source.Span;
 }
 
-export type UnaryOperator = "Negate" | "Not";
+export type UnaryOperator = "Negate" | "Not" | "BitNot";
 
 export interface UnaryExpr {
   readonly kind: "Unary";
@@ -2155,6 +2169,9 @@ export type BinaryOperator =
   | "Add"
   | "Subtract"
   | "Concat"
+  | "BitAnd"
+  | "BitOr"
+  | "BitXor"
   | "Range"
   | "And"
   | "Or"

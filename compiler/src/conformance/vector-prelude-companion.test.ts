@@ -70,6 +70,7 @@ describe("the module", () => {
       "Frac",
       "Pow",
       "Concat",
+      "Bitwise",
       "Bool",
       "Eq",
       "Hash",
