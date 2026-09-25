@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { compileMain, projectDiagnostics, runMain } from "../support/test-project.js";
+import { compileFiles, compileMain, projectDiagnostics, runMain } from "../support/test-project.js";
 
 /**
  * Conformance for **one expression, one home** (#1062, Numeric Literals §5.1).
@@ -543,10 +543,15 @@ describe("calls join the tree (#1062, part 2)", () => {
       "`n * 1.5` settled at `Float` before `.compare` saw `price` — a dot call's receiver " +
         "is settled on its own; name the home: `(n * 1.5: Dec)`",
     ]);
-    // A home this site cannot spell drops that repair and keeps the report.
-    expect(refusals("let r: Rat = Rat.fromInt(2)\nlet a = (n * 1.5).multiply(r)\n")).toEqual([
-      "`n * 1.5` settled at `Float` before `.multiply` saw `r` — a dot call's receiver " +
-        "is settled on its own; write `n * 1.5 * r`",
+    // A home this site cannot spell drops that repair and keeps the report:
+    // `Rat` reached only through another module's face has no name here.
+    const lib = "module Lib\n\nimport Rat\n\nexport let third: Rat = Rat.create(1, 3)\n";
+    expect(compileFiles([
+      ["/main.hex", "module Main\n\nimport Lib\n\nlet n: Int = 3\nlet a = (n * 1.5).multiply(Lib.third)\n"],
+      ["/Lib.hex", lib],
+    ]).diagnostics.map(({ message }) => message)).toEqual([
+      "`n * 1.5` settled at `Float` before `.multiply` saw `Lib.third` — a dot call's receiver " +
+        "is settled on its own; write `n * 1.5 * Lib.third`",
     ]);
     // The refused receiver takes the call around it with it.
     expect(refusals("let a = (n * 1.5).multiply(price).add(price)\n")).toEqual([
@@ -677,6 +682,119 @@ describe("calls join the tree (#1062, part 2)", () => {
     // A `Dec` body is reported as any other.
     expect(refusals("let apply2(x: a, g: (a) -> a): a = g(x)\nlet w = apply2(n, (v) => v * price)\n"))
       .toEqual([report("n", "Int", "Dec", "write `(n: Dec)`, or annotate the callback: `(v: Dec) => …`")]);
+  });
+
+  test("a repair names its type as this site resolves it (#1089)", () => {
+    const apply = "let apply2(x: a, g: (a) -> a): a = g(x)\n";
+    const settled = (sibling: string, body: string, repairs: string): string =>
+      `\`${sibling}\` settled this call's \`Int\` before the callback was checked, and the ` +
+      `callback's body returns \`${body}\` — a callback's body chooses no type for the ` +
+      `arguments beside it${repairs}`;
+    const closed = (saw: string, repairs: string): string =>
+      `\`n * 1.5\` settled at \`Float\` before \`.multiply\` saw \`${saw}\` — a dot call's ` +
+      `receiver is settled on its own; ${repairs}`;
+    // A local `Dec` takes the bare name, so the prelude's is reached through
+    // its companion — and each repair offered compiles.
+    const shadowed = (source: string): readonly string[] =>
+      projectDiagnostics("module Main\n\nrecord Dec = {z: Int}\n\nlet n: Int = 3\n" + source);
+    expect(shadowed(apply + "let w = apply2(n, (v) => v * 2.50d)\n")).toEqual([
+      settled("n", "Dec", "; write `(n: Dec.Dec)`, or annotate the callback: `(v: Dec.Dec) => …`"),
+    ]);
+    expect(shadowed("let a = (n * 1.5).multiply(2.50d)\n")).toEqual([
+      closed("2.50d", "write `n * 1.5 * 2.50d`, or name the home: `let a: Dec.Dec = …`"),
+    ]);
+    expect(shadowed(apply + "let w = apply2((n: Dec.Dec), (v) => v * 2.50d)\n")).toEqual([]);
+    expect(shadowed(apply + "let w = apply2(n, (v: Dec.Dec) => v * 2.50d)\n")).toEqual([]);
+    expect(shadowed("let a: Dec.Dec = (n * 1.5).multiply(2.50d)\n")).toEqual([]);
+    // An imported type is spelled as the file spells it: bare through its
+    // companion alias, qualified through any other.
+    const rat = "let r: Rat = Rat.fromInt(2)\n";
+    expect(refusals(rat + apply + "let w = apply2(n, (v) => v * r)\n")).toEqual([
+      settled("n", "Rat", "; write `(n: Rat)`, or annotate the callback: `(v: Rat) => …`"),
+    ]);
+    expect(refusals(rat + "let a = (n * 1.5).multiply(r)\n")).toEqual([
+      closed("r", "write `n * 1.5 * r`, or name the home: `let a: Rat = …`"),
+    ]);
+    expect(refusals(rat + "let a = (n * 1.5).compare(r)\n")).toEqual([
+      "`n * 1.5` settled at `Float` before `.compare` saw `r` — a dot call's receiver " +
+        "is settled on its own; name the home: `(n * 1.5: Rat)`",
+    ]);
+    expect(refusals(rat + apply + "let w = apply2((n: Rat), (v) => v * r)\n")).toEqual([]);
+    expect(refusals(rat + apply + "let w = apply2(n, (v: Rat) => v * r)\n")).toEqual([]);
+    expect(refusals(rat + "let a: Rat = (n * 1.5).multiply(r)\n")).toEqual([]);
+    expect(refusals(rat + "let a = (n * 1.5: Rat).compare(r)\n")).toEqual([]);
+    const aliased = (source: string): readonly string[] =>
+      projectDiagnostics("module Main\n\nimport Rat as Q\n\nlet n: Int = 3\n" + apply +
+        "let r = Q.fromInt(2)\n" + source);
+    expect(aliased("let w = apply2(n, (v) => v * r)\n")).toEqual([
+      settled("n", "Rat", "; write `(n: Q.Rat)`, or annotate the callback: `(v: Q.Rat) => …`"),
+    ]);
+    expect(aliased("let w = apply2((n: Q.Rat), (v) => v * r)\n")).toEqual([]);
+    // An implied type of the module's own constraint takes the bare name, and
+    // refuses it outside its constraint.
+    const implied = (source: string): readonly string[] =>
+      projectDiagnostics("module Main\n\nimport Rat\n\nconstraint Source<a> =\n    type Rat\n" +
+        "    peek(supply: a) -> Rat\n\nlet n: Int = 3\n" + apply + "let r = Rat.fromInt(2)\n" + source);
+    expect(implied("let w = apply2(n, (v) => v * r)\n")).toEqual([
+      settled("n", "Rat", "; write `(n: Rat.Rat)`, or annotate the callback: `(v: Rat.Rat) => …`"),
+    ]);
+    expect(implied("let w = apply2((n: Rat.Rat), (v) => v * r)\n")).toEqual([]);
+    // An implied type skips only the companion fallback: outside its
+    // constraint the tables and the compiler's own names answer first.
+    expect(projectDiagnostics(
+      "module Main\n\nconstraint Source<a> =\n    type Float\n    peek(supply: a) -> Float\n\n" +
+        "let n: Int = 3\n" + apply + "let g = 1.5\nlet w = apply2(n, (v) => v * g)\n",
+    )).toEqual([settled("n", "Float", "; write `(n: Float)`, or annotate the callback: `(v: Float) => …`")]);
+    // Implied `Dec` keeps the prelude's bare `Dec`.
+    expect(projectDiagnostics(
+      "module Main\n\nconstraint Source<a> =\n    type Dec\n    peek(supply: a) -> Dec\n\n" +
+        "let n: Int = 3\n" + apply + "let w = apply2(n, (v) => v * 2.50d)\n",
+    )).toEqual([settled("n", "Dec", "; write `(n: Dec)`, or annotate the callback: `(v: Dec) => …`")]);
+    // The module's own union is spelled bare.
+    const own = "module Main\n\nunion U = U(Int)\n\n" +
+      "honor Num<U> =\n    add(left, right) = left\n    multiply(left, right) = left\n" +
+      "    fromNat(value) = U(0)\n" +
+      "honor Signed<U> =\n    subtract(left, right) = left\n    negate(value) = value\n" +
+      "    fromInt(value) = U(value)\n\nlet n: Int = 3\nlet u: U = U(2)\n" + apply;
+    expect(projectDiagnostics(own + "let w = apply2(n, (v) => v * u)\n")).toEqual([
+      settled("n", "U", "; write `(n: U)`, or annotate the callback: `(v: U) => …`"),
+    ]);
+    expect(projectDiagnostics(own + "let w = apply2((n: U), (v) => v * u)\n")).toEqual([]);
+    // An imported union the file never names is reached through its alias.
+    const unionLib = own.replace("module Main", "module Lib").replace("union U", "export union U")
+      .replace("let u: U = U(2)", "export let two: U = U(2)").replace(apply, "");
+    const imported = (call: string): readonly string[] =>
+      compileFiles([
+        ["/main.hex", "module Main\n\nimport Lib as L\n\nlet n: Int = 3\n" + apply + "let u = L.two\n" + call],
+        ["/Lib.hex", unionLib],
+      ]).diagnostics.map(({ message }) => message);
+    expect(imported("let w = apply2(n, (v) => v * u)\n")).toEqual([
+      settled("n", "U", "; write `(n: L.U)`, or annotate the callback: `(v: L.U) => …`"),
+    ]);
+    expect(imported("let w = apply2((n: L.U), (v) => v * u)\n")).toEqual([]);
+    // And through its companion alias, bare.
+    expect(compileFiles([
+      ["/main.hex", "module Main\n\nimport Lib as U\n\nlet n: Int = 3\n" + apply + "let u = U.two\n" +
+        "let w = apply2(n, (v) => v * u)\n"],
+      ["/Lib.hex", unionLib],
+    ]).diagnostics.map(({ message }) => message)).toEqual([
+      settled("n", "U", "; write `(n: U)`, or annotate the callback: `(v: U) => …`"),
+    ]);
+    // A compiler-owned type whose name a declaration took has no spelling —
+    // the module's own, or an import's through its companion alias.
+    const float = "let n: Int = 3\n" + apply + "let g = 1.5\nlet w = apply2(n, (v) => v * g)\n";
+    for (const lib of ["export type Float = Int\n", 'extern from "./x.js"\n    export type Float\n']) {
+      expect(compileFiles([
+        ["/main.hex", "module Main\n\nimport Lib as Float\n\n" + float],
+        ["/Lib.hex", "module Lib\n\n" + lib],
+      ]).diagnostics.map(({ message }) => message), lib).toEqual([settled("n", "Float", "")]);
+    }
+    for (const declaration of ["record Float = {z: Int}", "type Float = Int", 'extern from "./x.js"\n    type Float']) {
+      expect(projectDiagnostics(
+        `module Main\n\n${declaration}\n\nlet n: Int = 3\n` + apply +
+          "let g = 1.5\nlet w = apply2(n, (v) => v * g)\n",
+      ), declaration).toEqual([settled("n", "Float", "")]);
+    }
   });
 
   test("an annotated binding is never offered its own annotation", () => {

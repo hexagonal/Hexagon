@@ -2649,6 +2649,7 @@ class Resolver {
       visibleConstraints: [...this.#visibleConstraints.values()],
       visibleExceptions: [...this.#visibleExceptions.values()],
       typeSpellings: this.#typeSpellingChannel(),
+      nominalSpellings: this.#nominalSpellingChannel(),
       externTypes: this.#externTypes,
       comments: module.comments,
       docs: module.docs,
@@ -5847,6 +5848,79 @@ class Resolver {
       });
     }
     return spellings;
+  }
+
+  /**
+   * `Module.nominalSpellings`: the barest spelling of each nominal type that
+   * resolves to it here, read off the tables `#resolveTypeAnnotation` reads,
+   * in its order — so a spelling offered is one the next compile resolves to
+   * the same declaration.
+   *
+   * Bare first: a bare name answers with the module's own declaration, else
+   * with the companion fallback's (§5.1 rule 2), else with the prelude's
+   * (§5.4). Then qualified, through the first module alias of each spelling —
+   * an import's before the prelude companion of the same name, which it
+   * shadows — so a prelude type a local declaration occludes is still reached
+   * as `Dec.Dec`. Built at the end, when every table is complete.
+   */
+  #nominalSpellingChannel(): Resolved.NominalSpellings {
+    const claimed = new Set<string>();
+    const records = new Map<Resolved.RecordId, string>();
+    const unions = new Map<Resolved.UnionId, string>();
+    const names = new Set([
+      ...this.#unionNames.keys(),
+      ...this.#recordNames.keys(),
+      ...this.#typeAliases.keys(),
+      ...this.#externTypeNames.keys(),
+      ...this.#moduleAliases.keys(),
+    ]);
+    for (const name of names) {
+      const answer = this.#bareTypeAnswer(name);
+      if (answer === undefined) continue;
+      claimed.add(name);
+      if (answer.record !== undefined && !records.has(answer.record)) records.set(answer.record, name);
+      if (answer.union !== undefined && !unions.has(answer.union)) unions.set(answer.union, name);
+    }
+    for (const alias of new Set([...this.#moduleAliases.keys(), ...this.#preludeModuleAliases.keys()])) {
+      const reached = this.#namedModule(alias)!;
+      for (const [name, record] of reached.records) {
+        if (!records.has(record.id)) records.set(record.id, `${alias}.${name}`);
+      }
+      for (const [name, union] of reached.unions) {
+        if (!unions.has(union.id)) unions.set(union.id, `${alias}.${name}`);
+      }
+    }
+    return { claimed, records, unions };
+  }
+
+  /**
+   * What a bare, unapplied type spelling answers with here, in
+   * `#resolveTypeAnnotation`'s order — the module's own layer, the companion
+   * fallback, then the tables the prelude shares — or `undefined` where no
+   * declaration answers it, and a compiler-owned name, if it is one, keeps it.
+   * An empty answer is a declaration with no nominal of its own: an alias or an
+   * extern type, which takes the spelling and gives no record or union one.
+   */
+  #bareTypeAnswer(
+    name: string,
+  ): { readonly record?: Resolved.RecordId; readonly union?: Resolved.UnionId } | undefined {
+    // An implied type of the module's own constraint skips the companion
+    // fallback, as the module's own layer; outside its constraint it is
+    // refused only once the tables and the compiler's own names have declined.
+    if (!this.#ownTypeNames.has(name) && !this.#impliedTypeOwners.has(name)) {
+      const aliased = this.#moduleAliases.get(name);
+      const union = aliased?.unions.get(name);
+      if (union !== undefined) return { union: union.id };
+      const record = aliased?.records.get(name);
+      if (record !== undefined) return { record: record.id };
+      if (aliased?.aliases.has(name) === true || aliased?.externTypes.has(name) === true) return {};
+    }
+    if (this.#typeAliases.has(name) || this.#externTypeNames.has(name)) return {};
+    const union = this.#unionNames.get(name);
+    if (union !== undefined) return { union };
+    const record = this.#recordNames.get(name);
+    if (record !== undefined) return { record };
+    return undefined;
   }
 
   /**

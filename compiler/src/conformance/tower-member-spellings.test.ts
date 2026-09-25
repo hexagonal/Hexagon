@@ -551,6 +551,29 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
         written: "Foo.Foo",
       }),
     ]);
+    // A type the file never wrote is spelled by the name that reaches it here
+    // (#1089): bare through its companion alias, qualified through any other.
+    for (const [alias, written] of [["Foo", "Foo"], ["F", "F.Foo"]] as const) {
+      const main = "module Main\n\n" + `import Foo${alias === "Foo" ? "" : ` as ${alias}`}\n` +
+        `let p = ${alias}.mk()\nlet q = p\nlet s2 = p\n`;
+      for (const [probe, expected] of [
+        ["p.add(q).gcd(s2)", [rowSixteen({
+          receiver: "p.add(q)",
+          declined: "`p` is a `Foo` and",
+          ascribe: "p.add(q)",
+          kept: "Foo",
+          written,
+        })]],
+        // And the ascription it offers compiles.
+        [`(p.add(q): ${written}).gcd(s2)`, []],
+      ] as const) {
+        const messages = compileFiles([
+          ["/main.hex", main + `let probe: BigInt = ${probe}\n`],
+          ["/Foo.hex", "module Foo\n\n" + fooModule],
+        ]).diagnostics.map(({ message }) => message);
+        expect(messages, probe).toEqual(expected);
+      }
+    }
   });
 
   test("the face reaches a tower call through every forwarding form", () => {
