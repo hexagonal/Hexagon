@@ -98,11 +98,12 @@ const punctuation: readonly (readonly [string, Lexed.PunctuationKind])[] = [
 ];
 
 /** The redirects for JavaScript's bitwise characters (`bitwise.md` §9). */
-const BITWISE_REDIRECTS: ReadonlyMap<string, string> = new Map([
-  ["&", "Hexagon spells bitwise and `band`"],
-  ["^", "Hexagon spells bitwise exclusive or `bxor`; a power is `**`"],
-  ["~", "Hexagon spells bitwise complement `bnot`"],
-]);
+const BITWISE_REDIRECTS: ReadonlyMap<string, { readonly message: string; readonly word: string }> =
+  new Map([
+    ["&", { message: "Hexagon spells bitwise and `band`", word: "band" }],
+    ["^", { message: "Hexagon spells bitwise exclusive or `bxor`; a power is `**`", word: "bxor" }],
+    ["~", { message: "Hexagon spells bitwise complement `bnot`", word: "bnot" }],
+  ]);
 
 export function lex(source: Source.File): Lexed.File {
   const diagnostics = new Diagnostics.Bag();
@@ -552,8 +553,13 @@ class Scanner {
     const bitwiseRedirect = BITWISE_REDIRECTS.get(this.#source.text[start] ?? "");
     if (bitwiseRedirect !== undefined) {
       this.#offset += 1;
-      this.#error(start, this.#offset, bitwiseRedirect);
-      return undefined;
+      this.#error(start, this.#offset, bitwiseRedirect.message);
+      // Recovery stands the word in for the character, so the expression around
+      // it still parses and the one slip reports once.
+      const span = this.#source.span(start, this.#offset);
+      return bitwiseRedirect.word === "bnot"
+        ? { kind: "Bnot", span }
+        : { kind: "NonUpperName", text: bitwiseRedirect.word, span };
     }
 
     if (codeUnit === 0x21 && !this.#startsWith("!=")) {

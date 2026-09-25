@@ -74,10 +74,14 @@ const bitwiseInfix = new Map<string, Infix>([
   ["band", { operator: "BitAnd", leftBindingPower: 10, rightBindingPower: 11 }],
 ]);
 
-/** Tokens that can begin an operand — what a juxtaposed word would be applied to. */
+/**
+ * Tokens that begin an operand and cannot continue a suffix construction — so a
+ * glued bitwise word before one is never a construction that compiles. `-` and
+ * `[` are absent: after a construction they are subtraction and indexing.
+ */
 const operandStarts: ReadonlySet<TokenKind> = new Set<TokenKind>([
   "NonUpperName", "UpperName", "Integer", "BigInt", "Float", "Dec", "String",
-  "LeftParen", "LeftBracket", "LeftBrace", "Minus", "Not", "Bnot",
+  "LeftParen", "LeftBrace", "Not", "Bnot",
 ]);
 
 /** Unary minus's operand: tighter than `*`, looser than `**` (Operators §6.2). */

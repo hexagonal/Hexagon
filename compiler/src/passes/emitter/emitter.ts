@@ -13625,7 +13625,7 @@ function renderHelper(
         `function ${name}(__value, __count) {`,
         `  if (__count < 0) return ${dependencyName("intShiftLeft")}(__value, -__count);`,
         "  if (__value === 0) return 0;",
-        "  if (__count > 1023) return __value < 0 ? -1 : 0;",
+        `  if (__count > 1023 && ${spell("Number")}.isFinite(__value)) return __value < 0 ? -1 : 0;`,
         `  return ${spell("Math")}.floor(__value / 2 ** __count);`,
         "}",
       ];

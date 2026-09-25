@@ -8051,9 +8051,16 @@ class Checker {
                 ? `; for the bitwise operator write a space: \`) ${expression.name}\``
                 : ""),
             primary: expression.nameSpan,
-            ...(module === undefined || importName === undefined ? {} : {
-              fixes: this.#patternImportFixes(module, expression.nameSpan),
-            }),
+            ...(module === undefined || importName === undefined
+              ? BITWISE_WORDS.has(expression.name)
+                ? {
+                  fixes: [{
+                    message: "write a space",
+                    edits: [{ span: expression.nameSpan, replacement: ` ${expression.name}` }],
+                  }],
+                }
+                : {}
+              : { fixes: this.#patternImportFixes(module, expression.nameSpan) }),
           });
         }
         if (namespace.length > 1) {

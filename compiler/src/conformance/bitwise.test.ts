@@ -233,6 +233,25 @@ describe("spellings and emission (§3, §6)", () => {
     expect(text).toContain("const h = (x | y) & x;");
   });
 
+  test("BigInt's shifts and complement keep their grouping against JavaScript's precedences", async () => {
+    const source =
+      "let x: BigInt = 12n\nlet y: BigInt = 5n\n" +
+      "export let a: BigInt = x.shiftLeft(1) + y\nexport let b: BigInt = y + x.shiftRight(1)\n" +
+      "export let c: BigInt = bnot (x band y)\nexport let d: BigInt = bnot x band y\n" +
+      "export let e: BigInt = -x band y\nexport let f: BigInt = (x + y).shiftLeft(2)\n";
+    const text = mainJavaScript(source);
+    expect(text).toContain("const a = (x << BigInt(1)) + y;");
+    expect(text).toContain("const b = y + (x >> BigInt(1));");
+    expect(text).toContain("const c = ~(x & y);");
+    expect(text).toContain("const d = ~x & y;");
+    // JavaScript's `+` binds tighter than `<<`, so no parentheses are owed.
+    expect(text).toContain("const f = x + y << BigInt(2);");
+    const exports = await runMain("module Main\n\n" + source);
+    expect(exports).toMatchObject({
+      a: 29n, b: 11n, c: ~(12n & 5n), d: ~12n & 5n, e: -12n & 5n, f: 68n,
+    });
+  });
+
   test("a bitwise result compared keeps its grouping in JavaScript", async () => {
     const exports = await runMain(
       "module Main\n\nlet x: BigInt = 6n\nexport let zero: Bool = x band 1n == 0n\n",
@@ -305,10 +324,12 @@ describe("refusals (§2.1, §9)", () => {
   test("Bool, Float, and a user honor of a prelude type are refused", () => {
     expect(verdict("let f: Float = 1.5\nlet x = f band f\n")[0])
       .toContain("type `Float` has no `Bitwise` instance");
-    expect(verdict("honor Bitwise<Bool> =\n" +
-      "    bitAnd(l, r) = l\n    bitOr(l, r) = l\n    bitXor(l, r) = l\n" +
-      "    bitNot(v) = v\n    shiftLeft(v, c) = v\n    shiftRight(v, c) = v\n").length)
-      .toBeGreaterThan(0);
+    for (const type of ["Bool", "Float", "Nat"]) {
+      expect(verdict(`honor Bitwise<${type}> =\n` +
+        "    bitAnd(l, r) = l\n    bitOr(l, r) = l\n    bitXor(l, r) = l\n" +
+        "    bitNot(v) = v\n    shiftLeft(v, c) = v\n    shiftRight(v, c) = v\n"))
+        .toContain("orphan instance: this module declares neither `Bitwise` nor the instance subject");
+    }
   });
 
   test("a program's own type may honor Bitwise, and the operators reach it", async () => {
@@ -408,7 +429,10 @@ describe("non-decimal literals (§8)", () => {
   });
 
   test("the bare range limit and its n fix-it apply as for decimal literals", () => {
-    expect(verdict("let x = 0x20000000000000\n")[0]).toContain("n");
+    const project = compileMain("module Main\n\nlet x = 0x20000000000000\n");
+    const [diagnostic] = project.diagnostics;
+    expect(diagnostic?.message).toContain("integer literal exceeds Int range; add `n`");
+    expect(diagnostic?.fixes?.[0]?.edits[0]?.replacement).toBe("0x20000000000000n");
     expect(verdict("let x: BigInt = 0x20000000000000n\n")).toEqual([]);
   });
 });
