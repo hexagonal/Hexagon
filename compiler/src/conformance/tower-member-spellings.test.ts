@@ -687,10 +687,8 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
     // the arm forms do not. The reason is not that the walk stops early — it
     // reaches the arm bodies and finds that both of them do follow — but that an
     // arm form's own text spans lines, so the ascription cannot be put on one
-    // line, and the *binding* is no repair here either: `let t = match c / True
-    // => i + j / False => p` refuses on its own, the arm join carrying no
-    // widening where the `if`'s does (pinned below). Nothing offerable, so
-    // nothing offered.
+    // line, and the binding is not offered on the disagreeing-form path (#828).
+    // Nothing offerable, so nothing offered.
     expect(
       refusals(
         `${foo}let probe: BigInt = (match c\n` +
@@ -807,19 +805,38 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
       .toEqual([descended("(p + (i + (j + i)))", "expected Foo, found BigInt")]);
   });
 
-  test("the binding is a repair at the stood-down call, and not at a form", () => {
-    // Why §9 row 16's repair names a binding and the face descent's does not.
+  test("a negation receiver runs at the face and is never accepted at the type it kept", () => {
+    // A unary tower operator under a face whose rung it honors never stood
+    // down: it runs at the face, and its operand's refusal is reported there
+    // (#1062's tree keeps this exactly). Accepting `(-p).gcd(s2)` at `Foo`
+    // would be the retracted receiver stand-down (#821).
+    expect(refusals(`${foo}let probe: BigInt = (-p).gcd(s2)\n`)).toEqual([
+      "type mismatch: expected BigInt, found Foo",
+      "type mismatch: expected BigInt, found Foo",
+    ]);
+    expect(refusals(`${foo}let probe: BigInt = (-(p + q)).gcd(s2)\n`)).toEqual([
+      "type mismatch: expected BigInt, found Foo",
+      "`p` is a `Foo` and cannot enter `BigInt`, so the addition ran at `Foo`",
+    ]);
+    expect(refusals(`${foo}let t: BigInt = -(p + q)\n`)).toEqual([
+      "`p` is a `Foo` and cannot enter `BigInt`, so the addition ran at `Foo`",
+    ]);
+  });
+
+  test("the binding is a repair at the stood-down call, and at a form", () => {
     // Row 16 ascribes the **stood-down call**, whose own type is the kept type,
     // so binding it is §2.2's boundary by construction. The descent ascribes a
-    // whole form, whose join *without* the face is a separate question: the
-    // `if` widens and repairs, the `match` of the same two paths does not.
+    // whole form, whose join *without* the face is its expression tree's home
+    // (Numeric Literals §5.1, #1062): the `if` and the `match` of the same two
+    // paths both meet at `Foo`, so binding either one repairs (#824).
     expect(line(`${foo}let t9 = if c then i + j else p\nlet probe: BigInt = t9.gcd(s2)\n`))
       .toBe("const probe = gcd(t9, s2);");
     expect(
-      refusals(
-        `${foo}let t9 = match c\n        True => i + j\n        False => p\n`,
+      line(
+        `${foo}let t9 = match c\n        True => i + j\n        False => p\n` +
+          "let probe: BigInt = t9.gcd(s2)\n",
       ),
-    ).toEqual(["type mismatch: expected Int, found Foo"]);
+    ).toBe("const probe = gcd(t9, s2);");
   });
 
   test("a dot with no claimant at all keeps its own refusal", () => {

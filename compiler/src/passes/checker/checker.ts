@@ -788,21 +788,17 @@ function expectationLands(expression: Resolved.Expr): boolean {
       ) !== undefined;
     case "Unary":
       return expression.operator !== "Not";
+    // A forwarding form is an interior node of its expression tree, whose home
+    // is the seat's type (Numeric Literals §5.1, #1062): the face lands there
+    // whatever its value paths are.
     case "Group":
-      return expectationLands(expression.expression);
-    case "Block": {
-      const final = expression.items.at(-1);
-      return final?.kind === "ExprItem" && expectationLands(final.expression);
-    }
-    case "If":
-      return expectationLands(expression.consequence) ||
-        expectationLands(expression.alternative);
     case "Try":
-      return expectationLands(expression.body) ||
-        expression.arms.some((arm) => expectationLands(arm.body));
     case "Match":
-      return expression.arms.some((arm) => expectationLands(arm.body)) ||
-        (expression.catchArms ?? []).some((arm) => expectationLands(arm.body));
+      return true;
+    case "Block":
+      return expression.items.at(-1)?.kind === "ExprItem";
+    case "If":
+      return !expression.elseless;
     default:
       return false;
   }
@@ -859,6 +855,40 @@ function liftsAtOperator(operator: Resolved.BinaryOperator): boolean {
   return liftConstraint(operator) !== undefined;
 }
 
+
+/**
+ * One part of an **expression tree** (Numeric Literals §5.1's expression home,
+ * #1062): a value, typed as it was elaborated, or an interior node whose type
+ * is decided when the tree closes.
+ */
+type TreePart =
+  | { readonly value: { readonly expression: Resolved.Expr; readonly type: Mono } }
+  | { readonly node: TreeNode };
+
+/**
+ * An interior node of an expression tree: a tower operator, or a forwarding
+ * form (Functions §4.3). Its `result` is a fresh variable that nothing unifies
+ * until the tree's home is chosen, so no node settles before the whole
+ * expression is in (#1062).
+ */
+interface TreeNode {
+  readonly expression: Resolved.Expr;
+  readonly result: Mono;
+  readonly level: number;
+  /** The expectation the node was elaborated under — what its parts were handed. */
+  readonly face: Mono | undefined;
+  readonly parts: TreePart[];
+  /** The rung a tower operator runs at; absent on a forwarding form. */
+  rung?: Typed.ConstraintName;
+  /** `**`'s exponent: its own seat, faced by `Int` (Operators §6.3). */
+  exponent?: { readonly expression: Resolved.Expr; readonly type: Mono };
+  /** A comparison's operands: siblings with no interior node joining them. */
+  siblings?: true;
+  /** A `match` whose scrutinee was refused: the form's type is `ERROR`. */
+  failed?: true;
+  /** The type the node publishes once closed (Effects §13.2's joined colours). */
+  published?: Mono;
+}
 
 /**
  * One call's argument checking, split so the **first pass** of it can run
@@ -6489,6 +6519,8 @@ class Checker {
     level: number,
     moduleItems: boolean,
     expected?: Mono,
+    /** The final expression as a part of the block's expression tree (#1062). */
+    finalPart?: (expression: Resolved.Expr) => Mono,
   ): Mono {
     // Ascription §3.1 scopes annotation variables to a *declaration*. Inside a
     // definition that scope already exists and every item shares it — a
@@ -7431,11 +7463,10 @@ class Checker {
         // §4.3's block-final forwarding, and only that: an item whose value is
         // discarded is not a value path and synthesizes as before. A right-hand
         // side's layout block is the one-item case of this rule.
-        const expressionType = this.#inferExpr(
-          item.expression,
-          level,
-          !moduleItems && index === items.length - 1 ? expected : undefined,
-        );
+        const final = !moduleItems && index === items.length - 1;
+        const expressionType = final && finalPart !== undefined
+          ? finalPart(item.expression)
+          : this.#inferExpr(item.expression, level, final ? expected : undefined);
         if (!moduleItems && index < items.length - 1) {
           this.#defaultDiscardedLiteral(expressionType, item.expression.span);
           this.#unify(
@@ -8641,9 +8672,9 @@ class Checker {
         break;
       case "Group":
         // §4.3's first forwarding form: grouping parentheses return their
-        // subexpression's value, so they hand on whatever expectation they were
-        // given (§3.1).
-        type = this.#inferExpr(expression.expression, level, expected);
+        // subexpression's value — an interior node of its expression tree
+        // (Numeric Literals §5.1, #1062).
+        type = this.#inferTree(expression, level, expected);
         break;
       case "Ascription": {
         // Ascription introduces zero new semantics (§1): this is the annotated
@@ -8707,7 +8738,12 @@ class Checker {
       }
       case "Block": {
         // A block's **final expression** is its value, so it inherits the
-        // expectation; every earlier item is checked as it always was.
+        // expectation, as a part of its expression tree (#1062); every earlier
+        // item is checked as it always was.
+        if (this.#isTreeInterior(expression)) {
+          type = this.#inferTree(expression, level, expected);
+          break;
+        }
         type = this.#inferItems(expression.items, level, false, expected);
         // Its one value path, for §2.2's boundary repair (`#formParts`).
         const final = expression.items.at(-1);
@@ -8867,6 +8903,18 @@ class Checker {
         );
         this.#annotationVariableScope = savedVariableScope;
         let result = inferredResult;
+        // A lambda's body is a seat (Numeric Literals §5.1, #1062): where the
+        // landed result component is concrete, a value there widens into it as
+        // at any seat — `let g: () -> Dec = () => n`.
+        const landedResult = expression.returnAnnotation === undefined
+          ? this.#concreteFace(landing?.result)
+          : undefined;
+        if (
+          landedResult !== undefined &&
+          this.#tryWidenNumeric(expression.body, inferredResult, landedResult, expression.body.span)
+        ) {
+          result = landedResult;
+        }
         if (expression.returnAnnotation !== undefined) {
           const annotationType = returnAnnotationType ?? this.#annotationType(
             expression.returnAnnotation,
@@ -8959,103 +9007,38 @@ class Checker {
         break;
       }
       case "If": {
+        if (this.#isTreeInterior(expression)) {
+          type = this.#inferTree(expression, level, expected);
+          break;
+        }
         const condition = this.#inferExpr(expression.condition, level);
         this.#unify(condition, this.#boolType(expression.condition.span), expression.condition.span);
-        // §4.3: **both** branches forward — each returns the construct's value.
-        // The condition does not; it is an operand, and synthesizes.
-        const consequence = this.#inferExpr(expression.consequence, level, expected);
-        const alternative = this.#inferExpr(expression.alternative, level, expected);
-        // Both value paths, for §2.2's boundary repair (`#formParts`), recorded
-        // whatever the join then does with them: an `if` **inside** an ascribed
-        // expression is walked whether or not its own branches agreed.
-        if (!expression.elseless) {
-          this.#formParts.set(expression, {
-            total: 2,
-            parts: [
-              { expression: expression.consequence, type: consequence },
-              { expression: expression.alternative, type: alternative },
-            ],
-          });
-        }
-        // An `if` with both arms is one of §13.2's **merges** *(#867)*: two
-        // colours the body joined by its own act, which a constraint seat names
-        // as a related location, or as the primary where no call carries the
-        // colour it condemned. The record is taken at the join itself
-        // (`#joining` below), and the seat's node published afterwards.
-        if (expression.elseless) {
-          // `else`-less: the false branch is the synthesized `Unit`, so the
-          // `then` branch must be `Unit` (Operators §11.2). No numeric
-          // widening — a unit branch never widens.
-          //
-          // Default a still-polymorphic numeric literal first: it would
-          // otherwise unify with `Unit` structurally and succeed (Numeric
-          // Literals §1), hiding the §11.2 fixit behind a later unresolved
-          // `Num Unit`. Defaulting settles it to `Int` so the unification
-          // below fails and reports the add-an-`else` fixit instead.
-          this.#defaultDiscardedLiteral(consequence, expression.consequence.span);
-          this.#unify(
-            consequence,
-            alternative,
-            expression.consequence.span,
-            () =>
-              "an `if` without `else` produces `Unit`; its `then` branch is " +
-              `\`${this.#display(consequence)}\` — add an \`else\` branch to ` +
-              "produce a value",
-          );
-          type = alternative;
-        } else if (
-          this.#tryWidenNumeric(
-            expression.consequence,
-            consequence,
-            alternative,
-            expression.span,
-            true,
-          )
-        ) {
-          type = alternative;
-        } else if (
-          this.#tryWidenNumeric(
-            expression.alternative,
-            alternative,
-            consequence,
-            expression.span,
-            true,
-          )
-        ) {
-          type = consequence;
-        } else {
-          this.#joining(expression.span, () =>
-            this.#unify(
-              consequence,
-              alternative,
-              expression.span,
-              // *(#821.)* A forwarding form has no lift of its own to stand down:
-              // the face reaches **both** branches, one enters it and one cannot,
-              // and the disagreement Operators §11 already reports is the whole
-              // refusal. What §2.2 adds is the boundary repair — the receiver this
-              // form sits in took a face, and an ascription stops it.
-              this.#forwardingBranchRepair(
-                expression,
-                consequence,
-                alternative,
-                expected,
-              ),
-            ));
-          type = consequence;
-        }
-        // *(#867; review round 7, MEDIUM 1; review round 8, MINOR 3.)* The
-        // published value wears the seat's node at every colour the join fixed.
-        // A branch order that puts the pure arm first would otherwise publish
-        // the one constant every pure arrow in the program shares, and a colour
-        // one level down — a record field, a tuple element — would publish it
-        // whichever order was written. Against both branches: the walk is a
-        // no-op against the one the form published — the two sides are then one
-        // node and it returns at the first test — and the other is the one that
-        // may hold the seat's node.
-        if (!expression.elseless) {
-          type = this.#publishJoinedColours(type, consequence);
-          type = this.#publishJoinedColours(type, alternative);
-        }
+        // An `else`-less `if` is no forwarding form (§4.3): its value is the
+        // synthesized `Unit`, which its `then` branch must be — the form's own
+        // obligation, reported by §11.2's fixit below, not an expectation the
+        // branch's expression tree could take as its home (#1062).
+        const consequence = this.#inferExpr(expression.consequence, level);
+        const alternative = this.#inferExpr(expression.alternative, level);
+        // The false branch is the synthesized `Unit`, so the `then` branch must
+        // be `Unit` (Operators §11.2). No numeric widening — a unit branch never
+        // widens.
+        //
+        // Default a still-polymorphic numeric literal first: it would otherwise
+        // unify with `Unit` structurally and succeed (Numeric Literals §1),
+        // hiding the §11.2 fixit behind a later unresolved `Num Unit`.
+        // Defaulting settles it to `Int` so the unification below fails and
+        // reports the add-an-`else` fixit instead.
+        this.#defaultDiscardedLiteral(consequence, expression.consequence.span);
+        this.#unify(
+          consequence,
+          alternative,
+          expression.consequence.span,
+          () =>
+            "an `if` without `else` produces `Unit`; its `then` branch is " +
+            `\`${this.#display(consequence)}\` — add an \`else\` branch to ` +
+            "produce a value",
+        );
+        type = alternative;
         break;
       }
       case "While": {
@@ -9168,187 +9151,18 @@ class Checker {
         type = UNIT;
         break;
       }
-      case "Match": {
-        const scrutinee = this.#inferExpr(expression.scrutinee, level);
-        const result = this.#fresh(level, false);
-        const outerArmTop = this.#matchArmTop;
-        // The value paths, accumulated as they elaborate (`#formParts`). A
-        // disagreement at an early arm leaves the record incomplete, and an
-        // incomplete record answers nothing — see the field.
-        const paths: { expression: Resolved.Expr; type: Mono }[] = [];
-        const total = expression.arms.length +
-          (expression.catchArms?.length ?? 0);
-        const outerCollisionFixes = this.#matchPatternCollisionFixes;
-        this.#matchPatternCollisionFixes = new Map();
-        for (const arm of expression.arms) {
-          this.#matchArmTop = true;
-          const outerGuardSeat = this.#armGuardSeat;
-          const outerHasGuard = this.#armHasGuard;
-          this.#armGuardSeat = true;
-          this.#armHasGuard = arm.guard !== undefined;
-          const outerMatchPattern = this.#currentMatchPattern;
-          this.#currentMatchPattern = arm.pattern;
-          try {
-            this.#inferMatchPattern(arm.pattern, scrutinee, level);
-          } finally {
-            this.#currentMatchPattern = outerMatchPattern;
-            this.#matchArmTop = outerArmTop;
-            this.#armGuardSeat = outerGuardSeat;
-            this.#armHasGuard = outerHasGuard;
-          }
-          if (arm.guard !== undefined) {
-            const guard = this.#inferExpr(arm.guard, level);
-            this.#unify(guard, this.#boolType(arm.guard.span), arm.guard.span);
-          }
-          // §4.3: every arm body forwards the expectation — an arm body is one
-          // of the construct's value paths.
-          const body = this.#inferExpr(arm.body, level, expected);
-          // *(#821.)* The arm bodies are a forwarding form's parts exactly as an
-          // `if`'s branches are, and §9 row 16 names both: where the face
-          // entered one part and not another, the form's own report — Pattern
-          // Matching §6.2's, at the arm body — is the whole refusal and row 16
-          // stands aside. The join here is result-against-arm rather than
-          // branch-against-branch, so the pair the test is stated over is the
-          // result the earlier arms established and this arm's body.
-          paths.push({ expression: arm.body, type: body });
-          this.#formParts.set(expression, { total, parts: [...paths] });
-          // A second and later arm is a **merge** of two colours, exactly as an
-          // `if`'s two branches are (#867; Effects §13.2). The first arm joins
-          // nothing — it establishes the result — and the join below is where
-          // each later arm's merge is recorded, so the record is **every**
-          // arm's rather than the first slot-carrying one's (review round 8,
-          // MEDIUM 1). Its span is the whole `match`, the expression that did
-          // the joining.
-          this.#joining(expression.span, () =>
-            this.#unify(
-              result,
-              body,
-              arm.body.span,
-              this.#forwardingBranchRepair(expression, result, body, expected),
-            ));
-        }
-        this.#matchPatternCollisionFixes = outerCollisionFixes;
-        // The match catch clause (Exceptions §5.4): its arms are `try`'s arms in
-        // a second seat, so they carry §5.3 whole and their bodies join the one
-        // result type. Reachability is per-section — the loop above has already
-        // finished, and the two sets never compete for one evaluation — and the
-        // data arms' exhaustiveness demand below is untouched by the clause.
-        if (expression.catchArms !== undefined) {
-          this.#checkCatchArms(expression.catchArms, result, level, expected, {
-            expression,
-            total,
-            paths,
-          });
-        }
-        const actual = this.#prune(scrutinee);
-        // §7's judgments come off one matrix. They are queued until defaulting
-        // and deferred pattern checks finish: §2.5 judges a literal on its
-        // resolved type, and §7.3 must see that verdict before deciding whether
-        // the pattern can shadow another arm. Reachability is queued wherever
-        // the arms were walked — every domain the dispatch admits below, and
-        // the ones it refuses as well: a dead arm is a dead arm whatever the
-        // scrutinee turned out to be, so a `match` on `Exn` or on a function
-        // type reports its refusal *and* its unreachable arms.
-        //
-        // The one exclusion is a scrutinee whose type is an unresolved variable
-        // or an error, and it is a property of the matrix rather than a policy
-        // about refusals: such a column knows nothing, so every pattern there
-        // reads as a wildcard (`#coverageColumn`) and every arm after the first
-        // would be reported dead. Suppressing the judgment is the only way not
-        // to invent one.
-        const coverageSupported =
-          actual.kind === "Union" || actual.kind === "NominalRecord" ||
-          actual.kind === "Tuple" || actual.kind === "Record" ||
-          actual.kind === "Vector" ||
-          (actual.kind === "Constructor" &&
-            (actual.name === "Int" || actual.name === "Nat" ||
-              actual.name === "BigInt" || actual.name === "String" ||
-              actual.name === "Float"));
-        if (actual.kind !== "Variable" && actual.kind !== "Error") {
-          this.#pendingMatchCoverage.push({
-            expression,
-            type: actual,
-            reportMissing: coverageSupported,
-          });
-        }
-        if (coverageSupported) {
-          // One report for every closed and every infinite domain alike. The
-          // union's bare constructor listing, the nominal record's type name,
-          // and the structural "needs a catch-all" demand were three renderings
-          // of one judgment; §7.3 has one, and it is a witness pattern.
-          //
-          // The infinite domains (`Int`, `Nat`, `BigInt`, `String`, `Float`)
-          // join through the same door: their columns carry no signature, so no
-          // set of literals ever completes them and the witness is `_`, which is
-          // §7.1's "a catch-all is required" said in witnesses. `Float` arrived
-          // with #513; `Nat` and `BigInt` with #519, whose "cannot match on `X`
-          // yet" stood here only because the old literal typing refused their
-          // arms anyway — §2.5 settles the literal at the type of its position,
-          // and with that settled the gate had nothing left to protect.
-          //
-          // The vector joins it too (#600). Its lengths *are* a signature
-          // (Collections Part 3 §3.3, `#vectorColumn`), so the length-only
-          // judgment that used to sit in a branch of its own — which never
-          // looked at an element sub-pattern, and blessed `[True, ...rest]` +
-          // `[]` over `Vector(Bool)` as exhaustive — is gone, and the witness
-          // here is a whole vector value rather than a bare length.
-          //
-          // #147 deleted the `Bool` branch that stood here. `Bool` is a union,
-          // so it reaches this path like every other union.
-          if (actual.kind === "Union") this.#matchUnions.set(expression, actual.union);
-        } else if (
-          actual.kind === "Constructor" &&
-          actual.name === "Exn"
-        ) {
-          this.#diagnostics.add({
-            severity: "error",
-            message: "match requires a closed type; exceptions are inspected with `try`/`catch`",
-            primary: expression.scrutinee.span,
-          });
-        } else {
-          type = this.#unsupported(
-            expression.scrutinee.span,
-            actual.kind === "Variable"
-              ? this.#abstractScrutineeRefusal(expression.scrutinee, actual)
-              : `cannot match on \`${this.#display(actual)}\` yet`,
-          );
-          break;
-        }
-        type = result;
-        // *(Review round 7, MEDIUM 1; review round 8, MINOR 3.)* Every arm,
-        // data and `catch` alike — `paths` is the one array both loops push
-        // into — so a colour a later arm carried, at the arm's own arrow or
-        // inside a record, a tuple or a vector it built, reaches the published
-        // value as the seat's node and not as the first arm's constant.
-        for (const path of paths) type = this.#publishJoinedColours(type, path.type);
+      case "Match":
+        type = this.#inferTree(expression, level, expected);
         break;
-      }
       case "Throw": {
         const exception = this.#inferExpr(expression.exception, level);
         this.#unify(exception, primitive("Exn"), expression.exception.span);
         type = this.#fresh(level, false);
         break;
       }
-      case "Try": {
-        // §4.3: the `try` body block is the construct's value path, and every
-        // catch arm body is a value path too — both forward.
-        const result = this.#inferExpr(expression.body, level, expected);
-        const paths = [{ expression: expression.body, type: result }];
-        this.#formParts.set(expression, {
-          total: 1 + expression.arms.length,
-          parts: [...paths],
-        });
-        this.#checkCatchArms(expression.arms, result, level, expected, {
-          expression,
-          total: 1 + expression.arms.length,
-          paths,
-        });
-        // *(Review round 8, MINOR 3.)* The arms joined the body's colour, so
-        // the form publishes the seat's node where one of them carried it.
-        type = result;
-        for (const path of paths) type = this.#publishJoinedColours(type, path.type);
+      case "Try":
+        type = this.#inferTree(expression, level, expected);
         break;
-      }
       case "Call": {
         // The frame is captured here, where the call was written. A dot call
         // may be elaborated much later, from a goal settled at a generalisation
@@ -9784,6 +9598,10 @@ class Checker {
         break;
       }
       case "Unary": {
+        if (this.#isTreeInterior(expression)) {
+          type = this.#inferTree(expression, level, expected);
+          break;
+        }
         // Numeric Literals §5.1's lift reaches unary negation too — the same
         // gate, at `Signed`. `Not` is not arithmetic and lifts nothing.
         // `bnot` lifts the same way, at `Bitwise` (`bitwise.md` §5.1).
@@ -9825,55 +9643,13 @@ class Checker {
         break;
       }
       case "Binary":
-        type = this.#inferBinary(expression, level, expected);
+        type = this.#isTreeInterior(expression)
+          ? this.#inferTree(expression, level, expected)
+          : this.#inferBinary(expression, level, expected);
         break;
-      case "Comparison": {
-        const operands = expression.operands.map((operand) =>
-          this.#inferExpr(operand, level),
-        );
-        // A FromBigInt destination outranks BigInt as the common comparison
-        // type even when the BigInt operand is written first. This is a direct
-        // source-to-established-target rule, not a searched conversion chain.
-        let targetIndex = operands.findIndex((operand) => {
-          const actual = this.#prune(operand);
-          return !(actual.kind === "Constructor" && actual.name === "BigInt") &&
-            this.#supportsTarget(actual, "FromBigInt", true);
-        });
-        if (targetIndex < 0) targetIndex = operands.findIndex((operand) => {
-          const actual = this.#prune(operand);
-          return !(actual.kind === "Constructor" && ["Nat", "Int"].includes(actual.name)) &&
-            this.#supportsNumericTarget(actual, true);
-        });
-        if (targetIndex < 0) {
-          targetIndex = operands.findIndex((operand) => {
-            const actual = this.#prune(operand);
-            return actual.kind === "Constructor" && actual.name === "Int";
-          });
-        }
-        const common = targetIndex < 0 ? operands[0] ?? ERROR : operands[targetIndex]!;
-        for (const [index, operand] of operands.entries()) {
-          if (index === targetIndex || (targetIndex < 0 && index === 0)) continue;
-          const sourceExpression = expression.operands[index];
-          if (sourceExpression === undefined) continue;
-          this.#unifyExpected(
-            common,
-            operand,
-            sourceExpression,
-            expression.span,
-            true,
-          );
-        }
-        const requirements = expression.operators.map((operator) =>
-          this.#require(
-            operator === "Equal" || operator === "NotEqual" ? "Eq" : "Ord",
-            common,
-            expression.span,
-          ),
-        );
-        this.#requirements.set(expression, requirements);
-        type = this.#boolType(expression.span);
+      case "Comparison":
+        type = this.#inferComparison(expression, level);
         break;
-      }
       case "Assignment": {
         // *(#700.)* This seat left §4.3's supplying list with the `var`
         // function-type ban (Statements §6.1): the only lambda it could land is
@@ -9881,7 +9657,13 @@ class Checker {
         // the assignment boundary still establishes the *numeric* channel's
         // expected type through `#unifyExpected` (Numeric Literals §5.1).
         const target = this.#inferExpr(expression.target, level);
-        const value = this.#inferExpr(expression.value, level);
+        // The assignment boundary is a seat faced by the `var`'s type (Numeric
+        // Literals §5.1, #1062): an arithmetic right-hand side runs there.
+        const value = this.#inferExpr(
+          expression.value,
+          level,
+          this.#prune(target).kind === "Function" ? undefined : target,
+        );
         // **A re-assignment is a merge** *(Effects §13.2)*. A `var` has one
         // monotype, and the assigned value's type is unified with it; where two
         // function colours meet in that unification the re-assignment has
@@ -11892,6 +11674,11 @@ class Checker {
       readonly total: number;
       readonly paths: { expression: Resolved.Expr; type: Mono }[];
     },
+    /**
+     * The arm body as a part of the enclosing form's expression tree *(#1062)*:
+     * collected rather than joined, the join made when the tree closes.
+     */
+    collect?: (body: Resolved.Expr) => void,
   ): void {
     for (const arm of arms) {
       // §3 names `catch` beside `match`, so both flags are set here as there. Neither
@@ -11914,6 +11701,10 @@ class Checker {
       if (arm.guard !== undefined) {
         const guard = this.#inferExpr(arm.guard, level);
         this.#unify(guard, this.#boolType(arm.guard.span), arm.guard.span);
+      }
+      if (collect !== undefined) {
+        collect(arm.body);
+        continue;
       }
       // Catch arms are value paths of the construct holding them, so they
       // forward the expectation exactly as data arms do (§4.3) — and they are a
@@ -14227,6 +14018,888 @@ class Checker {
     return this.#supportsTarget(target, constraint) ? target : undefined;
   }
 
+  /* --- One expression, one home (Numeric Literals §5.1, #1062) --------- */
+
+  /**
+   * Whether `expression` is an **interior** node of an expression tree: a tower
+   * operator (unary negation and `bnot` included), or a forwarding form. Every
+   * other expression is a value of the tree it sits in, and a seat of its own
+   * for whatever it contains.
+   *
+   * A negated decimal-point literal is a value: its sign folds into the literal
+   * it promotes as (§5.1), so it is one literal rather than a negation of one.
+   */
+  #isTreeInterior(expression: Resolved.Expr): boolean {
+    switch (expression.kind) {
+      case "Binary":
+        return expression.operator !== "Pipe" &&
+          liftConstraint(expression.operator) !== undefined;
+      case "Unary":
+        return expression.operator !== "Not" &&
+          !(expression.operator === "Negate" && decimalLiteralLeaves(expression) !== undefined);
+      case "Group":
+      case "Match":
+      case "Try":
+        return true;
+      case "If":
+        return !expression.elseless;
+      case "Block":
+        return expression.items.at(-1)?.kind === "ExprItem";
+      default:
+        return false;
+    }
+  }
+
+  /**
+   * An expression tree, rooted at a seat: every part is elaborated once, in
+   * source order, and the home is chosen when the last one is in (§5.1's
+   * "Once"). With a concrete expectation the home is that written face — the
+   * expected-type lift, closed exactly as the lift always closed, stand-downs
+   * and their reports included (#821). Without one it is the widest type the
+   * tree's values establish (`#closeFree`).
+   */
+  #inferTree(expression: Resolved.Expr, level: number, expected: Mono | undefined): Mono {
+    const node = this.#collectNode(expression, level, expected);
+    const face = this.#concreteFace(expected);
+    if (face !== undefined) this.#closeFaced(node, face);
+    else this.#closeFree(node);
+    return node.failed === true ? ERROR : node.published ?? node.result;
+  }
+
+  #concreteFace(expected: Mono | undefined): Mono | undefined {
+    if (expected === undefined) return undefined;
+    const face = this.#prune(expected);
+    return face.kind === "Variable" || face.kind === "Error" ? undefined : face;
+  }
+
+  #treePart(expression: Resolved.Expr, level: number, expected: Mono | undefined): TreePart {
+    return this.#isTreeInterior(expression)
+      ? { node: this.#collectNode(expression, level, expected) }
+      : { value: { expression, type: this.#inferExpr(expression, level, expected) } };
+  }
+
+  /**
+   * Elaborates one interior node's own pieces and collects its parts. Nothing
+   * is joined here: the node's `result` stays a fresh variable until the tree
+   * closes. What a part is handed as its expectation is what the lift and the
+   * forwarding forms always handed it (Functions §4.3), so a lambda still lands
+   * and a tower member call inside still lifts under a written face.
+   */
+  #collectNode(expression: Resolved.Expr, level: number, expected: Mono | undefined): TreeNode {
+    const node: TreeNode = {
+      expression,
+      result: this.#fresh(level, false),
+      level,
+      face: expected,
+      parts: [],
+    };
+    this.#expressionTypes.set(expression, node.result);
+    const collect = (part: Resolved.Expr, expectation: Mono | undefined): void => {
+      node.parts.push(this.#treePart(part, level, expectation));
+    };
+    switch (expression.kind) {
+      case "Binary": {
+        node.rung = liftConstraint(expression.operator)!;
+        const home = this.#operationHome(expression.operator, expected);
+        collect(expression.left, home);
+        if (expression.operator === "Power") {
+          // The exponent is the member's written `Int` seat: a tree of its own,
+          // faced by `Int`, never a part of the base's (Operators §6.3).
+          node.exponent = {
+            expression: expression.right,
+            type: this.#inferExpr(expression.right, level, primitive("Int")),
+          };
+        } else {
+          collect(expression.right, home);
+        }
+        break;
+      }
+      case "Unary": {
+        const operator = expression.operator === "BitNot" ? "BitNot" : "Negate";
+        node.rung = operator === "BitNot" ? "Bitwise" : "Signed";
+        collect(expression.operand, this.#operationHome(operator, expected));
+        break;
+      }
+      case "Group":
+        collect(expression.expression, expected);
+        break;
+      case "Block":
+        this.#inferItems(expression.items, level, false, expected, (final) => {
+          collect(final, expected);
+          return this.#typeOf(final);
+        });
+        break;
+      case "If": {
+        const condition = this.#inferExpr(expression.condition, level);
+        this.#unify(condition, this.#boolType(expression.condition.span), expression.condition.span);
+        collect(expression.consequence, expected);
+        collect(expression.alternative, expected);
+        break;
+      }
+      case "Match":
+        this.#collectMatch(expression, level, expected, node, collect);
+        break;
+      case "Try":
+        collect(expression.body, expected);
+        this.#checkCatchArms(
+          expression.arms,
+          node.result,
+          level,
+          expected,
+          undefined,
+          (body) => collect(body, expected),
+        );
+        break;
+      default:
+        break;
+    }
+    return node;
+  }
+
+  /** A tree's values, in source order, with every interior node walked. */
+  #treeValues(node: TreeNode): { readonly expression: Resolved.Expr; readonly type: Mono }[] {
+    // A refused `match` is one `ERROR` value to the tree around it: its own
+    // arms joined among themselves, and nothing it holds votes outside it.
+    return node.parts.flatMap((part) =>
+      !("node" in part)
+        ? [part.value]
+        : part.node.failed === true
+          ? [{ expression: part.node.expression, type: ERROR }]
+          : this.#treeValues(part.node)
+    );
+  }
+
+  /** The type a part stands at once its node has closed. */
+  #partType(part: TreePart): Mono {
+    return "node" in part
+      ? part.node.failed === true ? ERROR : part.node.published ?? part.node.result
+      : part.value.type;
+  }
+
+  #partExpression(part: TreePart): Resolved.Expr {
+    return "node" in part ? part.node.expression : part.value.expression;
+  }
+
+  /**
+   * The home a tree's values establish (§5.1's "The home"), or `undefined`
+   * where they establish none and unify with one another exactly, as ever.
+   *
+   * An `ERROR` value poisons the tree, as it poisoned every join: the home is
+   * `ERROR`, which every value enters, so a refusal already reported cascades
+   * no further. The price is that a second, unrelated mismatch elsewhere in the
+   * same tree — `(foo + 1) * (n + "a")` — waits for the first to be repaired;
+   * no verdict moves. An inference variable establishes nothing unless it already
+   * carries the evidence every fixed-integer value needs; a decimal-point
+   * literal is the `Float` it spells only where nothing exact is in. A value
+   * outside the numeric tower keeps the order-first reading every join always
+   * had, so a mismatch between a number and a string reports as it did.
+   * `source` is the value that gave the home, for §6's report.
+   */
+  #chooseHome(
+    values: readonly { readonly expression: Resolved.Expr; readonly type: Mono }[],
+  ): { readonly home: Mono; readonly source?: Resolved.Expr } | undefined {
+    let decimal: Resolved.Expr | undefined;
+    const established: { readonly type: Mono; readonly expression: Resolved.Expr }[] = [];
+    const constrained: { readonly type: Variable; readonly expression: Resolved.Expr }[] = [];
+    for (const { expression, type } of values) {
+      const actual = this.#prune(type);
+      if (actual.kind === "Error") return { home: ERROR };
+      if (actual.kind === "Variable" && actual.rigidName === undefined) {
+        if (this.#supportsTarget(actual, "Num", true)) constrained.push({ type: actual, expression });
+        continue;
+      }
+      if (
+        actual.kind === "Constructor" && actual.name === "Float" &&
+        decimalLiteralLeaves(expression) !== undefined
+      ) {
+        decimal ??= expression;
+        continue;
+      }
+      established.push({ type: actual, expression });
+    }
+    if (established.length === 0) {
+      return decimal === undefined ? undefined : { home: primitive("Float"), source: decimal };
+    }
+    if (established.some(({ type }) => !this.#supportsTarget(type, "Num", true))) {
+      // Not arithmetic: no home is ranked, so the values unify in source order
+      // exactly as every form always joined, and report as they always did.
+      return undefined;
+    }
+    const fixed = (type: Mono): number => {
+      if (type.kind !== "Constructor") return -1;
+      return type.name === "BigInt" ? 0 : type.name === "Int" ? 1 : type.name === "Nat" ? 2 : -1;
+    };
+    const exact = established.find(({ type }) => fixed(type) < 0);
+    if (exact !== undefined) return { home: exact.type, source: exact.expression };
+    // A constrained inference variable homes the tree only where it already
+    // carries the evidence every fixed-integer value needs to enter it (§5.1);
+    // which variable is asked first decides nothing, since every other one
+    // then unifies with it. Today the ranking and its evidence test decide no
+    // verdict on their own — a flexible variable that is not the home unifies
+    // with the home either way — but they are the spec's statement of which
+    // type the tree runs at, and emission reads it.
+    if (decimal === undefined) {
+      const evidence = (type: Mono): Typed.ConstraintName =>
+        type.kind === "Constructor" && type.name === "Nat"
+          ? "Num"
+          : type.kind === "Constructor" && type.name === "Int"
+            ? "Signed"
+            : "FromBigInt";
+      const carrier = constrained.find((candidate) =>
+        established.every(({ type }) => this.#supportsTarget(candidate.type, evidence(type), true))
+      );
+      if (carrier !== undefined) return { home: carrier.type, source: carrier.expression };
+    }
+    if (decimal !== undefined) return { home: primitive("Float"), source: decimal };
+    const widest = [...established].sort((left, right) => fixed(left.type) - fixed(right.type))[0]!;
+    return { home: widest.type, source: widest.expression };
+  }
+
+  /** §5.1's close with no written face: one home, from every value in the tree. */
+  #closeFree(node: TreeNode): void {
+    this.#applyHome(node, this.#chooseHome(this.#treeValues(node)), undefined, undefined, {
+      refused: false,
+    });
+  }
+
+  /**
+   * Runs `node` at `chosen`, and every part with it. A tower operator whose
+   * rung the home does not carry runs at the home its own parts select — the
+   * **instance gate** — and its result enters the enclosing home as a value.
+   *
+   * `merge` is where a value's colour merge is recorded (`#mergeSpan`), `owner`
+   * where its mismatch is reported (`#ownerSpan`), and `tree` whether the tree
+   * has already been refused, so it is refused once (§6).
+   */
+  #applyHome(
+    node: TreeNode,
+    chosen: { readonly home: Mono; readonly source?: Resolved.Expr } | undefined,
+    merge: Source.Span | undefined,
+    owner: Source.Span | undefined,
+    tree: { refused: boolean },
+  ): void {
+    const span = node.expression.span;
+    if (node.failed === true) {
+      // A refused `match` still joins its arms, as it always did; its own type
+      // is `ERROR`, which enters anything.
+      this.#closeParts(node, this.#chooseHome(this.#treeValues(node)), merge, owner, tree);
+      node.published = ERROR;
+      return;
+    }
+    if (
+      node.rung !== undefined && chosen !== undefined &&
+      this.#prune(chosen.home).kind !== "Error" &&
+      !this.#supportsTarget(chosen.home, node.rung)
+    ) {
+      const own = this.#chooseHome(this.#treeValues(node));
+      if (own !== undefined && !this.#sameSeat(own.home, chosen.home)) {
+        this.#applyHome(node, own, merge, owner, tree);
+        // Its result enters the enclosing home as any value does — the same
+        // report, refused once with its tree (§6).
+        this.#enterHome(
+          { expression: node.expression, type: node.result },
+          chosen.home,
+          chosen.source,
+          undefined,
+          owner ?? span,
+          tree,
+        );
+        return;
+      }
+    }
+    this.#closeParts(node, chosen, merge, owner, tree);
+  }
+
+  /**
+   * The span a value's colour **merge** is recorded at (Effects §13.2): the
+   * nearest enclosing form that joins two or more value paths — an `if`, a
+   * `match`, a `try` — read through grouping and a block's final expression,
+   * which join nothing. A tower operator's operands merge no colours.
+   */
+  #mergeSpan(node: TreeNode, merge: Source.Span | undefined): Source.Span | undefined {
+    const kind = node.expression.kind;
+    if (kind === "If" || kind === "Match" || kind === "Try") return node.expression.span;
+    return node.rung === undefined && node.siblings !== true ? merge : undefined;
+  }
+
+  /**
+   * The span a value's mismatch with its home is reported at: the tower
+   * operation or comparison it is an operand of, the `if` it is a branch of,
+   * and — for a `match` or `try` arm — the arm body itself (`undefined`), each
+   * read through grouping and a block's final expression, which join nothing.
+   */
+  #ownerSpan(node: TreeNode, owner: Source.Span | undefined): Source.Span | undefined {
+    switch (node.expression.kind) {
+      case "Group":
+      case "Block":
+        return owner;
+      case "Match":
+      case "Try":
+        return undefined;
+      default:
+        return node.expression.span;
+    }
+  }
+
+  #closeParts(
+    node: TreeNode,
+    chosen: { readonly home: Mono; readonly source?: Resolved.Expr } | undefined,
+    merge: Source.Span | undefined,
+    owner: Source.Span | undefined,
+    tree: { refused: boolean },
+  ): void {
+    const span = node.expression.span;
+    const at = chosen?.home ?? this.#fresh(node.level, false);
+    const here = this.#mergeSpan(node, merge);
+    const reportAt = this.#ownerSpan(node, owner);
+    this.#unify(node.result, at, span);
+    for (const part of node.parts) {
+      if ("node" in part) {
+        this.#applyHome(part.node, chosen === undefined ? { home: at } : chosen, here, reportAt, tree);
+        continue;
+      }
+      this.#enterHome(part.value, at, chosen?.source, here, reportAt, tree);
+    }
+    this.#finishNode(node, at);
+  }
+
+  /**
+   * One value entering its tree's home: by exact unification, one of §5.1's
+   * conversions, or promotion — or refused, once per tree (§6): where the value
+   * and the home are two different exact types, the report names both; where
+   * a numeric value cannot enter a numeric home, it names the value, the home,
+   * and what gave the home; each names a door between the two where one exists.
+   */
+  #enterHome(
+    value: { readonly expression: Resolved.Expr; readonly type: Mono },
+    home: Mono,
+    source: Resolved.Expr | undefined,
+    merge: Source.Span | undefined,
+    owner: Source.Span | undefined,
+    tree: { refused: boolean },
+  ): void {
+    const span = owner ?? value.expression.span;
+    const enter = (): void => {
+      const report = this.#homeRefusal(value, home, source);
+      if (report !== undefined) {
+        if (!tree.refused) {
+          this.#diagnostics.add({ severity: "error", message: report, primary: value.expression.span });
+        }
+        tree.refused = true;
+        return;
+      }
+      this.#unifyExpected(home, value.type, value.expression, span, true);
+    };
+    if (merge !== undefined) this.#joining(merge, enter);
+    else enter();
+  }
+
+  /**
+   * §6's report for a numeric value its tree's numeric home cannot take, or
+   * `undefined` where the value enters (or the ordinary unification report is
+   * the right one: a value or a home outside the tower, or one the source
+   * cannot spell).
+   */
+  #homeRefusal(
+    value: { readonly expression: Resolved.Expr; readonly type: Mono },
+    home: Mono,
+    source: Resolved.Expr | undefined,
+  ): string | undefined {
+    const actual = this.#prune(value.type);
+    const target = this.#prune(home);
+    const numeric = (type: Mono): boolean =>
+      type.kind !== "Variable" && type.kind !== "Error" && this.#supportsTarget(type, "Num");
+    if (!numeric(actual) || !numeric(target) || this.#sameSeat(actual, target)) return undefined;
+    if (this.#operandReaches(actual, target, value.expression)) return undefined;
+    const spell = (expression: Resolved.Expr): string | undefined =>
+      this.#writtenOperand(expression) ?? this.#spelledExpression(expression);
+    const spelled = spell(value.expression);
+    const giver = source === undefined || source === value.expression ? undefined : spell(source);
+    if (spelled === undefined || giver === undefined) return undefined;
+    const door = this.#numericDoor(spelled, actual, target) ??
+      this.#numericDoor(giver, target, actual);
+    const repair = door === undefined ? "" : `; convert one explicitly — \`${door}\``;
+    return this.#exactConflict(actual, target)
+      ? `\`${spelled}\` is a \`${this.#display(actual)}\` and \`${giver}\` ` +
+        `a \`${this.#display(target)}\`; an expression's arithmetic runs at one type, ` +
+        `and neither enters the other${repair}`
+      : `\`${spelled}\` is a \`${this.#display(actual)}\` and cannot enter ` +
+        `\`${this.#display(target)}\`, the home \`${giver}\` gives this expression${repair}`;
+  }
+
+  /**
+   * The named door that takes a `from` value spelled `spelled` into `to`, if
+   * one exists (friendly-numerics tenet 7): `Dec.fromFloat` into `Dec`, and an
+   * exact type's own `toFloat` into `Float`.
+   */
+  #numericDoor(spelled: string, from: Mono, to: Mono): string | undefined {
+    const source = this.#prune(from);
+    const target = this.#prune(to);
+    const isDec = (type: Mono): boolean =>
+      type.kind === "NominalRecord" && type.record === this.#decRecord;
+    const isFloat = (type: Mono): boolean => type.kind === "Constructor" && type.name === "Float";
+    // A call, a field, or a name is already a receiver; anything with an
+    // operator in it needs its parentheses.
+    const operand = /^[\p{L}\p{N}_.()]+$/u.test(spelled) ? spelled : `(${spelled})`;
+    if (isFloat(source) && isDec(target)) return `Dec.fromFloat(${spelled}, places)`;
+    if (!isFloat(target)) return undefined;
+    // The exact type's own exit (tenet 7), where its companion exports one.
+    const companion = this.#companionKeyOfType(source);
+    const exit = companion === undefined
+      ? undefined
+      : this.#companionOperations.get(companion)?.get("toFloat");
+    return exit === undefined ? undefined : `${operand}.toFloat()`;
+  }
+
+  /** Two different exact numeric types, neither of which widens into the other. */
+  #exactConflict(value: Mono, home: Mono): boolean {
+    const left = this.#prune(value);
+    const right = this.#prune(home);
+    const exact = (type: Mono): boolean =>
+      type.kind !== "Variable" && type.kind !== "Error" &&
+      !(type.kind === "Constructor" && ["Nat", "Int", "BigInt"].includes(type.name)) &&
+      this.#supportsTarget(type, "Num");
+    return exact(left) && exact(right) && !this.#sameSeat(left, right);
+  }
+
+  /**
+   * The bookkeeping a node owes once its type is known: a tower operator's
+   * requirement and subject operands (Method Syntax §2.2 reads them), `**`'s
+   * exponent seat; a form's value paths and the colours its join published.
+   */
+  #finishNode(node: TreeNode, at: Mono): void {
+    const expression = node.expression;
+    if (node.siblings === true) return;
+    if (node.rung !== undefined) {
+      if (node.exponent !== undefined) {
+        this.#checkExponent(node.exponent.expression, node.exponent.type, at);
+      }
+      this.#subjectOperands.set(expression, {
+        rung: node.rung,
+        operands: node.parts.map((part) => ({
+          expression: this.#partExpression(part),
+          type: this.#partType(part),
+        })),
+      });
+      if (expression.kind === "Binary") {
+        const logic = BITWISE_LOGIC_WORDS[expression.operator];
+        if (logic !== undefined) this.#bitwiseLogicWords.set(spanKey(expression.span), logic);
+      } else if (expression.kind === "Unary" && expression.operator === "BitNot") {
+        this.#bitwiseLogicWords.set(spanKey(expression.span), "not");
+      }
+      this.#requirements.set(expression, [this.#require(node.rung, at, expression.span)]);
+      node.published = at;
+      return;
+    }
+    const paths = node.parts.map((part) => ({
+      expression: this.#partExpression(part),
+      type: this.#partType(part),
+    }));
+    let published: Mono = at;
+    for (const path of paths) published = this.#publishJoinedColours(published, path.type);
+    node.published = published;
+    this.#expressionTypes.set(expression, published);
+  }
+
+  /**
+   * §5.1's close under a **written face**. Where every value of `node` reaches
+   * the face, the whole node runs there and every value enters it — the tree's
+   * home. Where one does not, the node does exactly what the lift always did:
+   * a tower operator stands down and elaborates from its operands, noting which
+   * one declined (§6; Method Syntax §9 row 16), its own tower operands having
+   * run at the face or stood down for themselves; a form joins its parts,
+   * reporting a disagreement the face's descent caused (Operators §11). A
+   * stand-down always ends in refusal at the seat.
+   *
+   * Whether a node reaches is a lookup over the recorded types
+   * (`#facedReaches`); nothing is elaborated to answer it.
+   */
+  #closeFaced(node: TreeNode, face: Mono): Mono {
+    if (node.failed === true) {
+      this.#closeFree(node);
+      return ERROR;
+    }
+    if (node.rung !== undefined && !this.#supportsTarget(face, node.rung)) {
+      // The instance gate: no face reached these parts (they were handed
+      // none), so the operator's subtree has no written home.
+      this.#closeFree(node);
+      return this.#partType({ node });
+    }
+    if (this.#facedReaches(node, face)) {
+      this.#enterFace(node, face);
+      return this.#partType({ node });
+    }
+    return this.#standDownFaced(node, face);
+  }
+
+  /** Whether every value under `node` reaches `face` — a lookup, never an elaboration. */
+  #facedReaches(node: TreeNode, face: Mono): boolean {
+    const known = this.#reachesFace.get(node);
+    if (known !== undefined) return known;
+    const reaches = this.#facedReachesUncached(node, face);
+    this.#reachesFace.set(node, reaches);
+    return reaches;
+  }
+
+  /** One node's tree is closed against one face, so the answer is cached per node. */
+  readonly #reachesFace = new WeakMap<TreeNode, boolean>();
+
+  #facedReachesUncached(node: TreeNode, face: Mono): boolean {
+    if (node.failed === true) return false;
+    if (node.rung !== undefined && !this.#supportsTarget(face, node.rung)) {
+      const own = this.#chooseHome(this.#treeValues(node));
+      return own !== undefined && this.#operandReaches(own.home, face, node.expression);
+    }
+    return node.parts.every((part) =>
+      "node" in part
+        ? this.#facedReaches(part.node, face)
+        : this.#operandReaches(part.value.type, face, part.value.expression)
+    );
+  }
+
+  /** Runs `node` at the face, every value entering it. */
+  #enterFace(node: TreeNode, face: Mono, merge?: Source.Span): void {
+    if (node.rung !== undefined && !this.#supportsTarget(face, node.rung)) {
+      this.#applyHome(node, { home: face }, merge, node.expression.span, { refused: false });
+      return;
+    }
+    const span = node.expression.span;
+    const here = this.#mergeSpan(node, merge);
+    this.#unify(node.result, face, span);
+    for (const part of node.parts) {
+      if ("node" in part) {
+        this.#enterFace(part.node, face, here);
+        continue;
+      }
+      const enter = (): void =>
+        this.#unifyExpected(face, part.value.type, part.value.expression, span, true);
+      if (here !== undefined) this.#joining(here, enter);
+      else enter();
+    }
+    this.#finishNode(node, face);
+  }
+
+  /**
+   * A node some value of which cannot reach the face: its own tower operands
+   * run at the face or stand down for themselves, its other parts join
+   * without it, and the node reconciles its parts as the lift always did.
+   */
+  #standDownFaced(node: TreeNode, face: Mono): Mono {
+    const types = node.parts.map((part) => {
+      if ("value" in part) return part.value.type;
+      return part.node.rung !== undefined
+        ? this.#closeFaced(part.node, face)
+        : this.#standDownFaced(part.node, face);
+    });
+    const expressions = node.parts.map((part) => this.#partExpression(part));
+    this.#recordParts(node);
+    if (node.rung === undefined) return this.#joinForm(node, face, types, expressions);
+
+    const expression = node.expression;
+    const span = expression.span;
+    if (types.length === 1) {
+      // A negation or `bnot` under a face whose rung it honors never stood
+      // down: it runs at the face, and an operand that cannot enter is
+      // reported there — its own stand-down note, where it has one, saying why.
+      this.#unifyExpected(face, types[0]!, expressions[0]!, span, true);
+      this.#unify(node.result, face, span);
+      this.#finishNode(node, face);
+      return this.#prune(node.result);
+    }
+    const declinedIndex = Math.max(
+      0,
+      types.findIndex((type, index) => !this.#operandReaches(type, face, expressions[index])),
+    );
+    const reconciled = this.#diagnostics.count;
+    let common = types[0] ?? ERROR;
+    if (types.length === 2) {
+      const [left, right] = types as [Mono, Mono];
+      const [leftExpression, rightExpression] = expressions as [Resolved.Expr, Resolved.Expr];
+      if (this.#tryWidenNumeric(leftExpression, left, right, span, true)) {
+        common = right;
+      } else if (this.#tryWidenNumeric(rightExpression, right, left, span, true)) {
+        common = left;
+      } else {
+        const liftedOperand = this.#acceptsExactly(left, face) || this.#acceptsExactly(right, face);
+        const declinedType = types[declinedIndex]!;
+        this.#unify(
+          left,
+          right,
+          span,
+          !liftedOperand ? undefined : this.#faceDescentRepair(
+            `type mismatch: expected ${this.#display(left)}, found ${this.#display(right)}`,
+            declinedType,
+            (kept) => this.#followsAtType(expression, undefined, kept),
+          ),
+        );
+      }
+    }
+    if (expression.kind === "Binary") {
+      this.#standDowns.set(expression, {
+        operand: this.#display(types[declinedIndex]!),
+        face: this.#display(face),
+        ran: this.#display(common),
+        ranType: common,
+        spelled: this.#writtenOperand(expressions[declinedIndex]!),
+        operation: OPERATION_NOUNS[expression.operator] ?? "operation",
+        reported: this.#diagnostics.count > reconciled,
+      });
+    }
+    this.#unify(node.result, common, span);
+    this.#finishNode(node, common);
+    return this.#prune(node.result);
+  }
+
+  /** The join every form always made, the face's descent reported as its own disagreement. */
+  #joinForm(
+    node: TreeNode,
+    face: Mono,
+    types: readonly Mono[],
+    expressions: readonly Resolved.Expr[],
+  ): Mono {
+    const expression = node.expression;
+    const span = expression.span;
+    let result = types[0] ?? ERROR;
+    if (expression.kind === "If" && types.length === 2) {
+      const [consequence, alternative] = types as [Mono, Mono];
+      const [consequenceExpression, alternativeExpression] =
+        expressions as [Resolved.Expr, Resolved.Expr];
+      if (this.#tryWidenNumeric(consequenceExpression, consequence, alternative, span, true)) {
+        result = alternative;
+      } else if (
+        this.#tryWidenNumeric(alternativeExpression, alternative, consequence, span, true)
+      ) {
+        result = consequence;
+      } else {
+        this.#joining(span, () =>
+          this.#unify(
+            consequence,
+            alternative,
+            span,
+            this.#forwardingBranchRepair(expression, consequence, alternative, face),
+          ));
+      }
+    } else {
+      for (const [index, type] of types.entries()) {
+        if (index === 0) continue;
+        const body = expressions[index]!;
+        this.#joining(span, () =>
+          this.#unify(
+            result,
+            type,
+            body.span,
+            this.#forwardingBranchRepair(expression, result, type, face),
+          ));
+      }
+    }
+    this.#unify(node.result, result, span);
+    this.#finishNode(node, result);
+    return node.published ?? result;
+  }
+
+  /**
+   * A node's parts as Method Syntax §2.2's boundary repair reads them — a tower
+   * operator's subject operands, a form's value paths — recorded before any
+   * report of its own can fire.
+   */
+  #recordParts(node: TreeNode): void {
+    const parts = node.parts.map((part) => ({
+      expression: this.#partExpression(part),
+      type: this.#partType(part),
+    }));
+    if (node.rung !== undefined) {
+      this.#subjectOperands.set(node.expression, { rung: node.rung, operands: parts });
+    } else if (node.siblings !== true && node.expression.kind !== "Group") {
+      this.#formParts.set(node.expression, { total: parts.length, parts });
+    }
+  }
+
+  /**
+   * A comparison's operands are **siblings** (Operators §5, #1062): one tree
+   * with no interior node joining them, whose home is chosen before the `Eq` or
+   * `Ord` operation is selected — so `price < n * 1.5` is a `Dec` comparison.
+   */
+  #inferComparison(expression: Resolved.ComparisonExpr, level: number): Mono {
+    const node: TreeNode = {
+      expression,
+      result: this.#fresh(level, false),
+      level,
+      face: undefined,
+      parts: expression.operands.map((operand) => this.#treePart(operand, level, undefined)),
+      siblings: true,
+    };
+    const values = this.#treeValues(node);
+    const numeric = values.every(({ type }) => {
+      const actual = this.#prune(type);
+      return actual.kind === "Variable" || actual.kind === "Error" ||
+        this.#supportsTarget(actual, "Num", true);
+    });
+    let common: Mono;
+    if (numeric) {
+      this.#closeFree(node);
+      common = this.#prune(node.result);
+    } else {
+      // Not arithmetic: the operands meet as they always met — at the operand a
+      // numeric one would widen toward, else the first — and a non-numeric
+      // mismatch reports as it always did.
+      for (const part of node.parts) if ("node" in part) this.#closeFree(part.node);
+      const operands = node.parts.map((part) => this.#partType(part));
+      let targetIndex = operands.findIndex((operand) => {
+        const actual = this.#prune(operand);
+        return !(actual.kind === "Constructor" && ["Nat", "Int", "BigInt"].includes(actual.name)) &&
+          this.#supportsNumericTarget(actual, true);
+      });
+      if (targetIndex < 0) {
+        targetIndex = operands.findIndex((operand) => {
+          const actual = this.#prune(operand);
+          return actual.kind === "Constructor" && ["BigInt", "Int"].includes(actual.name);
+        });
+      }
+      if (targetIndex < 0) targetIndex = 0;
+      common = operands[targetIndex] ?? ERROR;
+      for (const [index, operand] of operands.entries()) {
+        if (index === targetIndex) continue;
+        this.#unifyExpected(common, operand, expression.operands[index]!, expression.span, true);
+      }
+    }
+    this.#requirements.set(
+      expression,
+      expression.operators.map((operator) =>
+        this.#require(
+          operator === "Equal" || operator === "NotEqual" ? "Eq" : "Ord",
+          common,
+          expression.span,
+        )
+      ),
+    );
+    return this.#boolType(expression.span);
+  }
+
+  /** A `match` form's own pieces — scrutinee, patterns, guards — and its arm bodies as parts. */
+  #collectMatch(
+    expression: Resolved.MatchExpr,
+    level: number,
+    expected: Mono | undefined,
+    node: TreeNode,
+    collect: (part: Resolved.Expr, expectation: Mono | undefined) => void,
+  ): void {
+    const scrutinee = this.#inferExpr(expression.scrutinee, level);
+    const outerArmTop = this.#matchArmTop;
+    const outerCollisionFixes = this.#matchPatternCollisionFixes;
+    this.#matchPatternCollisionFixes = new Map();
+    for (const arm of expression.arms) {
+      this.#matchArmTop = true;
+      const outerGuardSeat = this.#armGuardSeat;
+      const outerHasGuard = this.#armHasGuard;
+      this.#armGuardSeat = true;
+      this.#armHasGuard = arm.guard !== undefined;
+      const outerMatchPattern = this.#currentMatchPattern;
+      this.#currentMatchPattern = arm.pattern;
+      try {
+        this.#inferMatchPattern(arm.pattern, scrutinee, level);
+      } finally {
+        this.#currentMatchPattern = outerMatchPattern;
+        this.#matchArmTop = outerArmTop;
+        this.#armGuardSeat = outerGuardSeat;
+        this.#armHasGuard = outerHasGuard;
+      }
+      if (arm.guard !== undefined) {
+        const guard = this.#inferExpr(arm.guard, level);
+        this.#unify(guard, this.#boolType(arm.guard.span), arm.guard.span);
+      }
+      // §4.3: every arm body is a value path of the form — a part of its tree.
+      collect(arm.body, expected);
+    }
+    this.#matchPatternCollisionFixes = outerCollisionFixes;
+    // The match catch clause (Exceptions §5.4): its arms are `try`'s arms in a
+    // second seat, and their bodies are value paths of the same form.
+    if (expression.catchArms !== undefined) {
+      this.#checkCatchArms(
+        expression.catchArms,
+        node.result,
+        level,
+        expected,
+        undefined,
+        (body) => collect(body, expected),
+      );
+    }
+    const actual = this.#prune(scrutinee);
+    // §7's judgments come off one matrix. They are queued until defaulting
+    // and deferred pattern checks finish: §2.5 judges a literal on its
+    // resolved type, and §7.3 must see that verdict before deciding whether
+    // the pattern can shadow another arm. Reachability is queued wherever
+    // the arms were walked — every domain the dispatch admits below, and
+    // the ones it refuses as well: a dead arm is a dead arm whatever the
+    // scrutinee turned out to be, so a `match` on `Exn` or on a function
+    // type reports its refusal *and* its unreachable arms.
+    //
+    // The one exclusion is a scrutinee whose type is an unresolved variable
+    // or an error, and it is a property of the matrix rather than a policy
+    // about refusals: such a column knows nothing, so every pattern there
+    // reads as a wildcard (`#coverageColumn`) and every arm after the first
+    // would be reported dead. Suppressing the judgment is the only way not
+    // to invent one.
+    const coverageSupported =
+      actual.kind === "Union" || actual.kind === "NominalRecord" ||
+      actual.kind === "Tuple" || actual.kind === "Record" ||
+      actual.kind === "Vector" ||
+      (actual.kind === "Constructor" &&
+        (actual.name === "Int" || actual.name === "Nat" ||
+          actual.name === "BigInt" || actual.name === "String" ||
+          actual.name === "Float"));
+    if (actual.kind !== "Variable" && actual.kind !== "Error") {
+      this.#pendingMatchCoverage.push({
+        expression,
+        type: actual,
+        reportMissing: coverageSupported,
+      });
+    }
+    if (coverageSupported) {
+      // One report for every closed and every infinite domain alike. The
+      // union's bare constructor listing, the nominal record's type name,
+      // and the structural "needs a catch-all" demand were three renderings
+      // of one judgment; §7.3 has one, and it is a witness pattern.
+      //
+      // The infinite domains (`Int`, `Nat`, `BigInt`, `String`, `Float`)
+      // join through the same door: their columns carry no signature, so no
+      // set of literals ever completes them and the witness is `_`, which is
+      // §7.1's "a catch-all is required" said in witnesses. `Float` arrived
+      // with #513; `Nat` and `BigInt` with #519, whose "cannot match on `X`
+      // yet" stood here only because the old literal typing refused their
+      // arms anyway — §2.5 settles the literal at the type of its position,
+      // and with that settled the gate had nothing left to protect.
+      //
+      // The vector joins it too (#600). Its lengths *are* a signature
+      // (Collections Part 3 §3.3, `#vectorColumn`), so the length-only
+      // judgment that used to sit in a branch of its own — which never
+      // looked at an element sub-pattern, and blessed `[True, ...rest]` +
+      // `[]` over `Vector(Bool)` as exhaustive — is gone, and the witness
+      // here is a whole vector value rather than a bare length.
+      //
+      // #147 deleted the `Bool` branch that stood here. `Bool` is a union,
+      // so it reaches this path like every other union.
+      if (actual.kind === "Union") this.#matchUnions.set(expression, actual.union);
+    } else if (
+      actual.kind === "Constructor" &&
+      actual.name === "Exn"
+    ) {
+      this.#diagnostics.add({
+        severity: "error",
+        message: "match requires a closed type; exceptions are inspected with `try`/`catch`",
+        primary: expression.scrutinee.span,
+      });
+    } else {
+      this.#unsupported(
+        expression.scrutinee.span,
+        actual.kind === "Variable"
+          ? this.#abstractScrutineeRefusal(expression.scrutinee, actual)
+          : `cannot match on \`${this.#display(actual)}\` yet`,
+      );
+      node.failed = true;
+      return;
+    }
+  }
+
   #inferBinary(
     expression: Resolved.BinaryExpr,
     level: number,
@@ -14241,26 +14914,12 @@ class Checker {
       return this.#inferExpr(call, level, expected);
     }
 
-    // The written type is the arithmetic's home (Numeric Literals §5.1). The
-    // expectation reaches the operands **recursively** — an operand seat of a
-    // lifted operation expects the same type — so a whole arithmetic expression
-    // runs at its written type: `let r: Rat = (a + b) * c` is `Rat` throughout.
-    // Away from the lift the operands take no expectation, exactly as before.
-    //
-    // `**` is the one heterogeneous operator (#541): `Pow`'s member is
-    // `pow(value: a, exponent: Int)`, so the home governs the **base seat
-    // only** and the exponent seat is an ordinary written-`Int` seat. §5.1
-    // applies *into* it independently, with `Int` as the written face — which
-    // is how the right spine of an exponent tower runs at `Int` whatever the
-    // base's home (Operators §6.3, Numeric Literals §5.1).
-    const home = this.#operationHome(expression.operator, expected);
-    const exponentSeat = expression.operator === "Power";
-    const left = this.#inferExpr(expression.left, level, home);
-    const right = this.#inferExpr(
-      expression.right,
-      level,
-      exponentSeat ? primitive("Int") : home,
-    );
+    // Every arithmetic operator is an interior node of an expression tree and
+    // never reaches here (`#inferTree`, Numeric Literals §5.1's expression
+    // home, #1062). What remains are the operators that name no algebra: the
+    // logical four, `Range`, and `Concat`, whose operands synthesize.
+    const left = this.#inferExpr(expression.left, level);
+    const right = this.#inferExpr(expression.right, level);
 
     if (["And", "Or", "Implies", "Iff"].includes(expression.operator)) {
       const bool = this.#boolType(expression.span);
@@ -14301,117 +14960,12 @@ class Checker {
       this.#unify(right, primitive("Int"), expression.right.span);
       return { kind: "Range" };
     }
-    // One source of truth for the operator's constraint, shared with the lift's
-    // gate: `Concat` is the only operator left here that names no arithmetic
-    // algebra, the logical four and `Range` having returned above.
-    const constraint: Typed.ConstraintName =
-      liftConstraint(expression.operator) ?? "Concat";
-    if (exponentSeat) {
-      // The exponent is checked at `Int` and takes no part in the common type
-      // (Operators §6.3): the instance subject is the **left** operand alone,
-      // selected from it where no expectation lands and from the written face
-      // where one does. One operand, so there is no widening race to run.
-      this.#checkExponent(expression.right, right, home ?? left);
-      let base = left;
-      if (home !== undefined) {
-        this.#unifyExpected(home, left, expression.left, expression.span, true);
-        base = home;
-      }
-      const power = this.#require(constraint, base, expression.span);
-      this.#requirements.set(expression, [power]);
-      // The base alone: the exponent is the written `Int` seat, never the
-      // subject, and never part of what an ascription would have to carry.
-      this.#subjectOperands.set(expression, {
-        rung: constraint,
-        operands: [{ expression: expression.left, type: left }],
-      });
-      return base;
-    }
-    // §5.1's **stand-down**: where an operand can reach the face by neither
-    // exact unification nor the two conversions, the lift does not fire. The
-    // operation elaborates from its operands alone and whatever mismatch remains
-    // surfaces where the *result* meets its seat — `let total: Rat = count *
-    // price` refused at the binding rather than at `price` — and the note taken
-    // here is what lets that refusal say why: which operand declined the face,
-    // and the algebra the operation ran at instead (§6).
-    const declined = home === undefined
-      ? undefined
-      : !this.#operandReaches(left, home, expression.left)
-        ? { operand: expression.left, type: left }
-        : !this.#operandReaches(right, home, expression.right)
-          ? { operand: expression.right, type: right }
-          : undefined;
-    const lifted = declined === undefined ? home : undefined;
-    let common = left;
-    // Whether the face had already lifted one operand where the two then have no
-    // algebra between them (#821) — see the `else` branch below.
-    let liftedOperand = false;
-    // The subject operands, recorded before anything reports: §2.2's boundary
-    // repair reads them to decide whether the ascription it would offer compiles
-    // (see `#subjectOperands`).
-    this.#subjectOperands.set(expression, {
-      rung: constraint,
-      operands: [
-        { expression: expression.left, type: left },
-        { expression: expression.right, type: right },
-      ],
-    });
-    // What the operands' own reconciliation reports, if anything — read the way
-    // `Diagnostics.Bag.count` exists to be read (#821).
-    const reconciled = this.#diagnostics.count;
-    if (lifted !== undefined) {
-      // The home **is** the common type: each operand reaches it by exact
-      // unification or by §5.1's two conversions, each converted once, and the
-      // operation's evidence is selected at it. Operand-driven selection is the
-      // no-expectation case below.
-      this.#unifyExpected(lifted, left, expression.left, expression.span, true);
-      this.#unifyExpected(lifted, right, expression.right, expression.span, true);
-      common = lifted;
-    } else if (
-      this.#tryWidenNumeric(expression.left, left, right, expression.span, true)
-    ) {
-      common = right;
-    } else if (
-      this.#tryWidenNumeric(expression.right, right, left, expression.span, true)
-    ) {
-      common = left;
-    } else {
-      // The **nested receiver** *(#821)*: the face descended into an operand on
-      // the way down and that operand ran at it, while another declined it, so
-      // the operation is left with two types and no algebra for either. This
-      // operation's own report is the whole refusal — §9 row 16 stands aside —
-      // and what §2.2 adds is the boundary repair, licensed by where the
-      // operation sits rather than by anything its operands did.
-      const leftIsFace = home !== undefined && this.#acceptsExactly(left, home);
-      const rightIsFace = home !== undefined && this.#acceptsExactly(right, home);
-      liftedOperand = declined !== undefined && (leftIsFace || rightIsFace);
-      this.#unify(
-        left,
-        right,
-        expression.span,
-        !liftedOperand ? undefined : this.#faceDescentRepair(
-          `type mismatch: expected ${this.#display(left)}, found ${this.#display(right)}`,
-          declined!.type,
-          (kept) => this.#followsAtType(expression, undefined, kept),
-        ),
-      );
-    }
-    if (declined !== undefined && home !== undefined) {
-      this.#standDowns.set(expression, {
-        operand: this.#display(declined.type),
-        face: this.#display(home),
-        ran: this.#display(common),
-        ranType: common,
-        spelled: this.#writtenOperand(declined.operand),
-        operation: OPERATION_NOUNS[expression.operator] ?? "operation",
-        reported: this.#diagnostics.count > reconciled,
-      });
-    }
-    const logic = BITWISE_LOGIC_WORDS[expression.operator];
-    if (logic !== undefined) this.#bitwiseLogicWords.set(spanKey(expression.span), logic);
-    const requirement = this.#require(constraint, common, expression.span);
+    // `Concat`: both operands share one type, and the operation's evidence is
+    // selected at it.
+    this.#unify(left, right, expression.span);
+    const requirement = this.#require("Concat", left, expression.span);
     this.#requirements.set(expression, [requirement]);
-    return common;
+    return left;
   }
 
   /**

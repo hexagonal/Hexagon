@@ -153,10 +153,12 @@ describe("exact BigInt-source widening through FromBigInt", () => {
         `let result = ${expression}\n`,
       );
 
-      expect(messages).toHaveLength(1);
-      expect(messages[0]).toContain("type mismatch");
-      expect(messages[0]).toContain("BigInt");
-      expect(messages[0]).toContain("Float");
+      // Numeric Literals §6 (#1062): the value that cannot enter its
+      // expression's home is named, with the home and the door between them.
+      expect(messages).toEqual([
+        "`big` is a `BigInt` and cannot enter `Float`, the home `floating` gives this " +
+          "expression; convert one explicitly — `big.toFloat()`",
+      ]);
     }
   });
 
