@@ -233,6 +233,83 @@ means:
 not (status == "cancelled")
 ```
 
+## Bitwise operations use words too
+
+Masks, flags, packed fields, and hash functions work on the bits of an integer. Hexagon
+spells those operations with words, like logic, so the two families can never be
+confused:
+
+```hexagon
+let readable = 0b100
+let writable = 0b010
+
+let permissions = readable bor writable        // 6
+let canWrite = permissions band writable != 0  // True
+let withoutWrite = permissions band bnot writable  // 4, readable alone again
+```
+
+`band`, `bor`, and `bxor` are bitwise and, or, and exclusive or; `bnot` flips every
+bit. Shifts are named operations rather than operators:
+
+```hexagon
+let packed = 0x12.shiftLeft(8) bor 0x34  // 0x1234, which displays as 4660
+let high = packed.shiftRight(8)          // 0x12, which displays as 18
+```
+
+A shift by a negative count shifts the other way, and a right shift rounds toward
+negative infinity, so shifting a negative number far enough to the right reaches `-1`.
+
+The operations work on `Int` and `BigInt`, and they compute the true integer answer at
+both. That is the main difference from JavaScript, whose operators first cut every
+number down to 32 bits:
+
+```hexagon
+let big = 1.shiftLeft(31)                 // 2147483648
+let wrapped = 1.shiftLeft(31).toInt32()   // -2147483648, what JavaScript's 1 << 31 gives
+```
+
+When code really does mean 32-bit arithmetic, such as a hash ported from JavaScript, it
+says so with `toInt32` or `toUint32` where the JavaScript reduced an integer: `e | 0`
+becomes `e.toInt32()`, and `e >>> 0` becomes `e.toUint32()`. (JavaScript also uses `| 0`
+to truncate a fractional number; in Hexagon that is a `Float` operation, `floor` or
+`round` from Chapter 2.) There is no unsigned right shift;
+`x >>> n` is written `x.toUint32().shiftRight(n)`, because "unsigned" only means
+something once the width is named.
+
+At `BigInt` the words compile to JavaScript's own operators, because JavaScript's
+`bigint` already has exactly this meaning:
+
+```hexagon
+let id = 0x1234_5678_9ABCn
+let lowByte = id band 0xFFn    // 0xBCn
+```
+
+```js
+const lowByte = id & 0xFFn;
+```
+
+At `Int`, JavaScript's operators would give the 32-bit answer, so each operation
+compiles to a call instead.
+
+Integers of different types meet at the wider one, as they do under `+`: a `Nat` and an
+`Int` give an `Int`, and an `Int` and a `BigInt` give a `BigInt`. `Nat` has no bitwise
+operations of its own, because `bnot` of a natural number is negative. A written `Int`
+type lets them run on natural numbers anyway; the same annotation is also how two
+`Nat`s are subtracted:
+
+```hexagon
+let count: Nat = 23
+let bits: Int = count band 0xF   // 7
+```
+
+`band`, `bor`, and `bxor` are operators only directly after an operand. Anywhere else
+they are ordinary names, so a variable called `band` still works. `bnot` is reserved,
+as `not` is. The two families
+refuse each other's types, and each refusal names the spelling that was probably meant:
+`p band q` on `Bool` suggests `and`, and `x and y` on `Int` suggests `band`. JavaScript's
+`&`, `|`, `^`, `~`, `<<`, and `>>` are not Hexagon operators, and writing one draws the
+same kind of redirect.
+
 ## A conditional produces a value
 
 An inline conditional has both branches and produces the value of the selected one:
@@ -330,10 +407,14 @@ From tightest to loosest, the operator groups are:
 | Order | Forms |
 |---|---|
 | Tightest | field access `.`, calls `()`, indexing `[]` |
+| | `bnot` |
 | | exponentiation `**` |
 | | unary `-` |
 | | `*`, `/` |
 | | `+`, `-`, `++` |
+| | `band` |
+| | `bxor` |
+| | `bor` |
 | | range `..` |
 | | comparisons |
 | | `not` |
@@ -345,7 +426,10 @@ From tightest to loosest, the operator groups are:
 
 Most of this is the familiar mathematical order. The two rules most worth remembering
 are that exponentiation binds inside unary minus on its left, and `not` applies to a
-comparison before it applies to surrounding logic.
+comparison before it applies to surrounding logic. The binary bitwise words sit between
+arithmetic and comparison, `band` tightest, so `flags band mask == 0` compares the
+masked value with zero, as it reads. `bnot`, like a call, binds tighter than everything
+else: `bnot x ** 2` is `(bnot x) ** 2`, unlike `-x ** 2`.
 
 Conditionals and lambdas extend to the right rather than occupying an infix level:
 
@@ -366,6 +450,9 @@ The entire pipe is the lambda body, and the entire conditional is the right oper
 - Strings concatenate with `++`, not numeric `+`.
 - Comparison chains are directional, short-circuiting, and single-evaluation.
 - Logic uses words, requires `Bool`, and has explicit short-circuit rules.
+- Bitwise operations use words too — `band`, `bor`, `bxor`, `bnot` — with named shifts,
+  and compute the true integer answer at `Int` and `BigInt`; `toInt32` and `toUint32`
+  name the 32-bit view.
 - `if` is an expression; its branches are ordinary value-producing blocks.
 - `|>` inserts its left side as the first argument and then disappears.
 - Precedence follows mathematics, with `not` below comparisons and pipes looser than

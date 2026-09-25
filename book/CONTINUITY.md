@@ -524,6 +524,9 @@ late pedagogy pass, not a commitment to the current order.
 
 ### Primitive Types
 
+- Integer and BigInt literals may be written after a lowercase `0x`, `0o`, or `0b`
+  prefix (`0xFF_00`, `0o755`, `0b1010`), emitted in their own base; `007` stays the
+  decimal 7.
 - **The temperature converter** (`toCelsius`/`toFahrenheit`, "`/` always means division")
   is the numerics showcase: the C integer-division trap, then correct-in-`Float`,
   exact-in-`Rat`, refused-without-a-face. Establishes the phrase **"the written type is
@@ -612,8 +615,13 @@ late pedagogy pass, not a commitment to the current order.
 
 ### Operators
 
-- Fixed vocabulary: symbols for algebra/comparison, words for logic; no user-defined
-  operators.
+- Fixed vocabulary: symbols for arithmetic/comparison, words for logic and for bitwise
+  operations; no user-defined operators.
+- Bitwise words `band`/`bor`/`bxor` (operators only after an operand, names elsewhere)
+  and `bnot` (reserved); shifts are named calls (`shiftLeft`/`shiftRight`), with no
+  unsigned shift. `Int` and `BigInt` compute the true integer answer;
+  `toInt32`/`toUint32` name the 32-bit view. `readable`/`writable`/`permissions` is
+  the canonical flags example.
 - `/` is fractional. Integer `div`/`mod` are Euclidean; `quot`/`rem` are truncated,
   with `rem` matching JavaScript `%`.
 - `0 <= discount <= 100` is the canonical comparison chain. Chain operands evaluate
