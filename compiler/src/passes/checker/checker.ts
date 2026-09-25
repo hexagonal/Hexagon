@@ -896,12 +896,36 @@ interface TreeNode {
   rung?: Typed.ConstraintName;
   /** `**`'s exponent: its own seat, faced by `Int` (Operators §6.3). */
   exponent?: { readonly expression: Resolved.Expr; readonly type: Mono };
-  /** A comparison's operands: siblings with no interior node joining them. */
+  /**
+   * A tower member **call**'s subject: the callee's own variable, whose
+   * requirement is the call's evidence. It takes the home when the node
+   * finishes, as an operator's requirement is made then — and never the type
+   * a stood-down call kept (§5.1: no evidence is selected there).
+   */
+  subject?: Mono;
+  /**
+   * Siblings with no interior node joining them: a comparison's operands, a
+   * call's arguments at one type variable, a vector literal's elements.
+   */
   siblings?: true;
+  /**
+   * A vector literal's elements: they merge their colours at the literal
+   * (Effects §13.2), and a mismatch is reported at the element itself.
+   */
+  elements?: true;
   /** A `match` whose scrutinee was refused: the form's type is `ERROR`. */
   failed?: true;
   /** The type the node publishes once closed (Effects §13.2's joined colours). */
   published?: Mono;
+}
+
+/** A dot call's receiver that closed before the dot resolved (Method Syntax §2.2). */
+interface ClosedReceiver {
+  readonly call: Resolved.CallExpr;
+  /** The resolved member's constraint, which a home must honor for the call to run there. */
+  readonly constraint: Typed.ConstraintName;
+  /** Whether the member is a tower member, whose result is its subject and so its home. */
+  readonly tower: boolean;
 }
 
 /**
@@ -911,8 +935,15 @@ interface TreeNode {
  */
 interface ArgumentPass {
   /**
-   * Checks the first pass's arguments — every index outside the deferred
-   * lambda class — before the second pass elaborates.
+   * Elaborates one non-lambda argument at its turn: a sibling is collected
+   * unclosed into its group, and any other argument is checked against its
+   * parameter at once, unless it still stands on an unsolved variable.
+   */
+  readonly argument: (index: number, expectation: Mono | undefined) => Mono;
+  /**
+   * Closes the sibling groups and checks the first pass's arguments — every
+   * index outside the deferred lambda class — before the second pass
+   * elaborates.
    */
   readonly establishFirstPass: (deferredLambdas: ReadonlySet<number>) => void;
   /**
@@ -924,29 +955,11 @@ interface ArgumentPass {
    * what lets a sibling argument read an expectation off the receiver's own
    * type — the seat a `Vector(BigInt)`'s element takes is `BigInt` from the
    * moment the receiver is checked, whatever the argument. At a constraint
-   * member that seat is the *subject* and must not be settled from one operand,
-   * so the member path does not call this (§2.2); its receiver is established
-   * with the other operands by `establishFirstPass` instead.
+   * member that seat is the *subject*, a sibling of the member's other subject
+   * operands, and is closed with them (§2.2).
    */
   readonly disposeSeat: (index: number) => void;
-  /**
-   * Tells the sweep that this call's lift **stood down** from `face`
-   * *(#821, Numeric Literals §5.1)*.
-   *
-   * Where the operand that declined could hold the subject — its type honors
-   * the call's rung (`waits`) — an operand the face had already lifted into
-   * itself waits for the end of the sweep: it establishes the subject only
-   * where no other operand has, and otherwise says nothing, the stand-down's
-   * one report naming the operand that declined (#827). The face descends into
-   * the operands before the stand-down can be decided, so which of them ran at
-   * the face is the *descent order*, and §16.3 is that the order stays
-   * invisible in every verdict and every report. Where the declining operand's
-   * type lacks the rung, no subject could be kept there without selecting
-   * evidence the type does not have, so the lifted operand establishes the
-   * subject as it always did.
-   */
-  readonly standDown: (face: Mono, waits: boolean) => void;
-  /** The rest of the sweep, then the two deferred classes. */
+  /** The sibling groups, if still open, then the rest of the sweep. */
   readonly finish: () => void;
 }
 
@@ -1809,6 +1822,29 @@ const OPERATOR_SPELLINGS: Partial<Record<Resolved.BinaryOperator, string>> = {
   Pipe: "|>",
 };
 
+/**
+ * The operator a tower member's dot spelling can be rewritten to, for §6's
+ * closed-receiver repair.
+ */
+const MEMBER_OPERATORS: ReadonlyMap<string, Resolved.BinaryOperator> = new Map([
+  ["add", "Add"],
+  ["subtract", "Subtract"],
+  ["multiply", "Multiply"],
+  ["divide", "Divide"],
+]);
+
+/**
+ * The arithmetic rows' precedences (Operators §1.2), tightest highest, for a
+ * rewrite that must keep its operands' grouping.
+ */
+const BINARY_PRECEDENCE: Partial<Record<Resolved.BinaryOperator, number>> = {
+  Add: 2,
+  Subtract: 2,
+  Multiply: 3,
+  Divide: 3,
+  Power: 4,
+};
+
 /** Every member name the tower owns, across its rungs — the dot's cheap probe. */
 const TOWER_MEMBER_NAMES: ReadonlySet<string> = new Set(TOWER_SPELLING_RUNGS.keys());
 
@@ -1864,71 +1900,22 @@ interface DecimalLiteralLeaf {
 }
 
 /**
- * The literals a **literal-shaped** expression carries (#525), or `undefined`
- * for any other expression. Literal-shaped means a decimal-point literal, a
- * negated one (`-1.5`, whose negation folds into the value), or a forwarding
- * form (Functions §4.3) whose every value path is literal-shaped: grouping
- * parentheses, both branches of an `if`, every arm of a `match` or `try`, a
- * block's final expression. Anything else — a name, a call, an operation that
- * ran at `Float` — is a `Float` value and is never promoted.
+ * The literal a **literal-shaped** expression carries (#525), or `undefined`
+ * for any other expression: a decimal-point literal, or a negated one (`-1.5`,
+ * whose negation folds into the value). A forwarding form is an interior node
+ * of its expression tree (Numeric Literals §5.1, #1062), so the literals in its
+ * value paths are each a value of that tree and promote one by one. Anything
+ * else — a name, a call, an operation that ran at `Float` — is a `Float` value
+ * and is never promoted.
  */
-function decimalLiteralLeaves(expression: Resolved.Expr): DecimalLiteralLeaf[] | undefined {
-  switch (expression.kind) {
-    case "Float":
-      return [{ node: expression, literal: expression, negative: false }];
-    case "Unary": {
-      if (expression.operator !== "Negate") return undefined;
-      const inner = decimalLiteralLeaves(expression.operand);
-      // One literal only: the negation stands for it, so any grouping inside
-      // is never materialized. `-(if c then 0.5 else 1.5)` is not literal-shaped.
-      if (inner === undefined || inner.length !== 1) return undefined;
-      return [{ node: expression, literal: inner[0]!.literal, negative: !inner[0]!.negative }];
-    }
-    default: {
-      const paths = forwardedValuePaths(expression);
-      if (paths === undefined) return undefined;
-      const leaves: DecimalLiteralLeaf[] = [];
-      for (const path of paths) {
-        const found = decimalLiteralLeaves(path);
-        if (found === undefined) return undefined;
-        leaves.push(...found);
-      }
-      return leaves;
-    }
-  }
-}
-
-/** The forwarding forms of a literal-shaped expression, outermost first. */
-function decimalLiteralForms(expression: Resolved.Expr): Resolved.Expr[] {
-  const paths = forwardedValuePaths(expression);
-  if (paths === undefined) return [];
-  return [expression, ...paths.flatMap(decimalLiteralForms)];
-}
-
-/**
- * A forwarding form's value paths (Functions §4.3), or `undefined` for an
- * expression that is not one. An else-less `if` is excluded: its value is `Unit`.
- */
-function forwardedValuePaths(expression: Resolved.Expr): readonly Resolved.Expr[] | undefined {
-  switch (expression.kind) {
-    case "Group":
-      return [expression.expression];
-    case "If":
-      return expression.elseless ? undefined : [expression.consequence, expression.alternative];
-    case "Match":
-      return [
-        ...expression.arms.map((arm) => arm.body),
-        ...(expression.catchArms ?? []).map((arm) => arm.body),
-      ];
-    case "Try":
-      return [expression.body, ...expression.arms.map((arm) => arm.body)];
-    case "Block": {
-      const final = expression.items.at(-1);
-      return final?.kind === "ExprItem" ? [final.expression] : undefined;
-    }
-    default:
-      return undefined;
-  }
+function decimalLiteral(expression: Resolved.Expr): DecimalLiteralLeaf | undefined {
+  if (expression.kind === "Float") return { node: expression, literal: expression, negative: false };
+  if (expression.kind !== "Unary" || expression.operator !== "Negate") return undefined;
+  // The negation stands for the literal, through its grouping (`-(1.5)`).
+  const inner = decimalLiteral(ungrouped(expression.operand));
+  return inner === undefined
+    ? undefined
+    : { node: expression, literal: inner.literal, negative: !inner.negative };
 }
 
 /** The same value in ordinary notation, with the fewest places that hold it. */
@@ -2677,6 +2664,15 @@ function moduleAlias(constraint: string): string {
  * would have parsed as a `Tuple` — so the shed spelling is self-delimiting in
  * the argument seat it is pasted into.
  */
+/**
+ * A dot call's receiver as a value of its call: a literal through its
+ * grouping, which is punctuation (#1062, ruling b′), and anything else as it
+ * stands.
+ */
+function literalReceiver(receiver: Resolved.Expr): Resolved.Expr {
+  return decimalLiteral(ungrouped(receiver)) === undefined ? receiver : ungrouped(receiver);
+}
+
 function ungrouped(receiver: Resolved.Expr): Resolved.Expr {
   let node = receiver;
   for (; node.kind === "Group";) node = node.expression;
@@ -2997,11 +2993,6 @@ class Checker {
    * exactly through that type's own arithmetic.
    */
   readonly #decimalPromotions = new WeakMap<Resolved.Expr, DecimalPromotion>();
-  /**
-   * The forwarding forms around promoted literals — grouping, `if`, `match`,
-   * `try`, a block — each retyped to the target its literal value paths took.
-   */
-  readonly #decimalRetyped = new WeakMap<Resolved.Expr, Mono>();
   /**
    * Numeric Literals §6's **stand-down note** *(#808)*: at an operation whose
    * lift stood down, which value declined the face and the operation it is an
@@ -5808,9 +5799,9 @@ class Checker {
         expression.span,
       );
     } else {
-      // The sweep `#dotCallSeats` began, finished: every seat the first pass
-      // left, in the order the unsplit sweep would have asked, then §5.1's two
-      // deferred classes. One pass, so nothing is checked — or reported — twice.
+      // The sweep `#dotCallSeats` began, finished: the sibling groups, if still
+      // open, then every seat the first pass left. One pass, so nothing is
+      // checked — or reported — twice.
       pass.finish();
       result = seated.result;
     }
@@ -5846,14 +5837,8 @@ class Checker {
    * already checked (§3.6). Inferring twice would record a second copy of every
    * literal's requirement, so the goal carries what it measured.
    *
-   * `subject` is the **delayed bind** *(#821)*: the face a tower member call
-   * would run at, handed to the subject seats as their *expectation* while the
-   * subject variable itself stays unbound. An expectation is not an annotation
-   * (Functions §4.3), so an operand that cannot enter the face elaborates at its
-   * own type and the caller decides the lift afterwards — with every operand in
-   * hand, which is what a subject established "together, after their operands
-   * are in" (§2.2) means. Binding first, as the lift once did, decided the
-   * stand-down off the receiver alone.
+   * A dot call a tree is collecting that resolves to an open tower member never
+   * comes here: it is an interior node of that tree (`#collectDotNode`).
    */
   #dotCallSeats(
     expression: Resolved.CallExpr,
@@ -5868,7 +5853,6 @@ class Checker {
      */
     openMember: boolean,
     powerSeat: PowerSeat | undefined,
-    subject?: { readonly face: Mono; readonly seats: ReadonlySet<number> },
   ): { readonly seats: readonly Mono[]; readonly pass: ArgumentPass | undefined } {
     const known = this.#prune(calleeType);
     const parameters = known.kind === "Function" &&
@@ -5879,34 +5863,31 @@ class Checker {
     // receiver is seat 0 and its expression is the one before the dot, so a
     // conversion or a mismatch reports where the reader wrote it.
     const seats: Mono[] = [receiver, ...expression.arguments.map(() => ERROR)];
-    const expressions = [callee.receiver, ...expression.arguments];
+    // A literal receiver is a value of the call through its grouping (#1062,
+    // ruling b′), so it joins a sibling group as the literal it is.
+    const expressions = [literalReceiver(callee.receiver), ...expression.arguments];
+    if (cached !== undefined) {
+      for (const [index, type] of cached.entries()) seats[index + 1] = type;
+    }
     const pass = parameters === undefined ? undefined : this.#argumentPass(
+      expression,
       parameters,
       seats,
       expressions,
+      level,
       expression.span,
       powerSeat,
+      new Set(cached === undefined ? [0] : seats.keys()),
     );
-    if (cached !== undefined) {
-      for (const [index, type] of cached.entries()) seats[index + 1] = type;
-      return { seats, pass };
-    }
+    if (cached !== undefined) return { seats, pass };
     // Seat indices, so the one set serves the sweep and the elaboration alike.
     const deferredLambdas = new Set(
       expression.arguments.flatMap((argument, index) =>
         defersAsLambda(argument) ? [index + 1] : []
       ),
     );
-    // What a seat expects while it elaborates: its parameter, or — at a subject
-    // seat of a tower member call under a face — the face itself, the subject
-    // variable it is written in being still unbound (#821). The two coincide
-    // once the lift fires; until it does, only the face can carry the
-    // expectation down into a nested operation, which is what makes
-    // `a.add(b.multiply(c))` run at the face throughout.
-    const expectation = (index: number): Mono | undefined =>
-      subject !== undefined && subject.seats.has(index)
-        ? subject.face
-        : parameters?.[index];
+    // What a seat expects while it elaborates: its parameter.
+    const expectation = (index: number): Mono | undefined => parameters?.[index];
     // The companion's written subject seat, settled before the arguments read
     // their expectations — see `disposeSeat`. A member's is not settled here.
     if (!openMember && pass !== undefined && expression.arguments.some(expectationLands)) {
@@ -5914,7 +5895,9 @@ class Checker {
     }
     for (const [index, argument] of expression.arguments.entries()) {
       if (deferredLambdas.has(index + 1)) continue;
-      seats[index + 1] = this.#inferExpr(argument, level, expectation(index + 1));
+      seats[index + 1] = pass === undefined
+        ? this.#inferExpr(argument, level, expectation(index + 1))
+        : pass.argument(index + 1, expectation(index + 1));
     }
     if (deferredLambdas.size > 0) {
       // §4.3's first pass, complete, before the second elaborates: an
@@ -6299,6 +6282,39 @@ class Checker {
     const subjectSeats = rung === undefined
       ? undefined
       : this.#subjectSeats(calleeType, expression.arguments.length + 1);
+    // A tree is collecting this call, and it is an open tower member: it is an
+    // interior node of that tree (Numeric Literals §5.1), its receiver one of
+    // its values (Method Syntax §2.2).
+    const request = this.#dotNode;
+    if (
+      request?.expression === expression && cachedArguments === undefined &&
+      rung !== undefined && TOWER_MEMBERS.has(candidate.identity) &&
+      subjectSeats?.has(0) === true
+    ) {
+      request.node = this.#collectDotNode(
+        expression, callee, receiver, candidate, calleeType, requirements, subjectSeats, home,
+        level, expected,
+      );
+      return request.node.result;
+    }
+    // Any other open member whose subject the receiver is: the receiver closed
+    // before the dot, and is a sibling of the member's other subject operands
+    // (`price.compare(n * 1.5)`), so §6's closed-receiver report can name it.
+    const subjectParameter = (() => {
+      const known = this.#prune(calleeType);
+      return known.kind === "Function" ? known.parameters[0] : undefined;
+    })();
+    if (
+      cachedArguments === undefined && subjectParameter !== undefined &&
+      this.#prune(subjectParameter).kind === "Variable" &&
+      literalReceiver(callee.receiver) === callee.receiver
+    ) {
+      this.#closedReceivers.set(callee.receiver, {
+        call: expression,
+        constraint: candidate.constraint,
+        tower: false,
+      });
+    }
     const { seats, pass } = this.#dotCallSeats(
       expression,
       callee,
@@ -6313,28 +6329,18 @@ class Checker {
           expression.arguments.length === 1
         ? { index: 1, base: 0 }
         : undefined,
-      home === undefined || subjectSeats === undefined
-        ? undefined
-        : { face: home, seats: subjectSeats },
     );
-    // **The delayed bind** *(#821, Method Syntax §2.2)*. The subject seats are
-    // established together, after their operands are in — so §5.1's stand-down
-    // is decided over *every* operand, receiver and arguments alike, and not
-    // over the one the dot happened to hold first. Where all of them reach the
-    // face the lift fires exactly as it always did; where one declines, the
-    // subject is left to the operands and the note (§6) is what the consuming
-    // seat's refusal will say.
+    // A pending goal settled late — its receiver was unsolved at the dot, and
+    // its arguments were measured then: the subject seats are siblings of one
+    // another (`#closeSiblings`). Where every operand reaches the face the lift
+    // binds the subject to it first, so they close there; where one declines,
+    // the subject is left to the operands and the note (§6) is what the
+    // consuming seat's refusal will say.
     const declined = home === undefined || subjectSeats === undefined
       ? undefined
       : this.#declinedSubject(seats, [callee.receiver, ...expression.arguments], subjectSeats, home);
     if (home !== undefined && declined === undefined) {
       this.#liftMemberCall(calleeType, home, expression.span);
-    }
-    // The operands the face had already lifted say nothing: the stand-down's
-    // one report names the first operand that declined (§6), never the pair
-    // the descent left behind (#827).
-    if (declined !== undefined && home !== undefined) {
-      pass?.standDown(home, rung !== undefined && this.#supportsTarget(declined.type, rung));
     }
     // The subject operands, for §2.2's boundary repair — see `#subjectOperands`.
     if (rung !== undefined && subjectSeats !== undefined) {
@@ -6913,11 +6919,18 @@ class Checker {
             ))
           : undefined;
         this.#bindingChain.push({ symbol: item.binding.symbol, name: item.binding.name });
+        const enclosingBindingValue = this.#bindingValue;
+        this.#bindingValue = {
+          name: item.binding.name,
+          value: item.value,
+          annotated: annotation !== undefined,
+        };
         let inferredValueType: Mono;
         try {
           inferredValueType = this.#inferExpr(item.value, level + 1, suppliedFace);
         } finally {
           this.#bindingChain.pop();
+          this.#bindingValue = enclosingBindingValue;
         }
         this.#pendingInlet = false;
         this.#pendingOwnEffect = undefined;
@@ -8689,23 +8702,27 @@ class Checker {
         };
         break;
       case "Vector": {
-        const element = this.#fresh(level, false);
-        const elements: Mono[] = [];
-        for (const value of expression.elements) {
-          const inferred = this.#inferExpr(value, level);
-          elements.push(inferred);
-          // *(Review round 8, MINOR 3.)* A literal's elements join one element
-          // type, and §13.2's third merge form — "a value carrying both" — is
-          // exactly this: `[spare, b]` fixes `b`'s slot as surely as
-          // `if c then spare else b` does.
-          this.#joining(expression.span, () =>
-            this.#unifyExpected(element, inferred, value, value.span, true));
-        }
+        // A literal's elements are **siblings** of one expression tree (Numeric
+        // Literals §5.1, #1062): their home is chosen from all of them at once,
+        // so `[m, n]` is a `Vector(Int)` in either order. *(Review round 8,
+        // MINOR 3.)* They join one element type, and §13.2's third merge form —
+        // "a value carrying both" — is exactly this: `[spare, b]` fixes `b`'s
+        // slot as surely as `if c then spare else b` does.
+        const node: TreeNode = {
+          expression,
+          result: this.#fresh(level, false),
+          level,
+          face: undefined,
+          parts: expression.elements.map((value) => this.#treePart(value, level, undefined)),
+          siblings: true,
+          elements: true,
+        };
+        this.#closeFree(node);
         // And the published element wears the seat's node where an element
         // carried one, so a call through the vector records the edge.
-        let published: Mono = element;
-        for (const inferred of elements) {
-          published = this.#publishJoinedColours(published, inferred);
+        let published: Mono = node.result;
+        for (const part of node.parts) {
+          published = this.#publishJoinedColours(published, this.#partType(part));
         }
         type = { kind: "Vector", element: published };
         break;
@@ -9018,6 +9035,13 @@ class Checker {
           this.#tryWidenNumeric(expression.body, inferredResult, landedResult, expression.body.span)
         ) {
           result = landedResult;
+        } else if (landedResult !== undefined) {
+          const report = this.#settledCallbackRefusal(expression, inferredResult, landedResult);
+          if (report !== undefined) {
+            this.#diagnostics.add({ severity: "error", message: report, primary: expression.body.span });
+            // Refused once, here: the call's own check meets the type it settled.
+            result = landedResult;
+          }
         }
         if (expression.returnAnnotation !== undefined) {
           const annotationType = returnAnnotationType ?? this.#annotationType(
@@ -9268,6 +9292,12 @@ class Checker {
         type = this.#inferTree(expression, level, expected);
         break;
       case "Call": {
+        if (this.#isTreeInterior(expression)) {
+          // A tower member call, in every spelling, is an interior node of its
+          // expression tree (Numeric Literals §5.1, #1062).
+          type = this.#inferTree(expression, level, expected);
+          break;
+        }
         // The frame is captured here, where the call was written. A dot call
         // may be elaborated much later, from a goal settled at a generalisation
         // boundary, and the frame stack then describes somewhere else.
@@ -9282,7 +9312,10 @@ class Checker {
           if (face !== undefined) {
             this.#forwardedReceiver = { expression, callee: expression.callee };
           }
+          const enclosingRoot = this.#receiverRoot;
+          this.#receiverRoot = expression.callee.receiver;
           const receiver = this.#inferExpr(expression.callee.receiver, level, face);
+          this.#receiverRoot = enclosingRoot;
           this.#forwardedReceiver = enclosingReceiver;
           // A receiver that already refused under the face takes the call with
           // it, whether it said so by marking itself — a forwarding form's part
@@ -9412,21 +9445,9 @@ class Checker {
             result: this.#fresh(level, false),
           })
           : this.#inferExpr(expression.callee, level);
-        // *(#808.)* The lift, at a tower member call spelled bare, qualified
-        // through its constraint, or as a pipe stage (the rewrite arrives here
-        // as an ordinary call). The home is what the subject seats expect while
-        // they elaborate — `let r: BigInt = Num.add(i, j)` is `BigInt` addition
-        // of two injected `Int`s, never the injected `Int` sum — and *(#821)*
-        // whether it is also what they are is settled below, once every operand
-        // is in. Binding first decided §5.1's stand-down off one operand.
-        const memberHome = this.#memberCallHome(expression.callee, expected);
-        const memberRung = expression.callee.kind === "Name" &&
-            expression.callee.instanceSubject === undefined
-          ? this.#towerRung(expression.callee.symbol)
-          : undefined;
-        const memberSubjectSeats = memberRung === undefined
-          ? undefined
-          : this.#subjectSeats(callee, expression.arguments.length);
+        // A tower member call of the member's own arity, in any spelling, is an
+        // interior node of its tree and never reaches here (`#collectCall`,
+        // Numeric Literals §5.1).
         const calleeParameters = (() => {
           const known = this.#prune(callee);
           return known.kind === "Function" &&
@@ -9444,24 +9465,21 @@ class Checker {
           ? { index: 1, base: 0 }
           : undefined;
         const pass = calleeParameters === undefined ? undefined : this.#argumentPass(
+          expression,
           calleeParameters,
           arguments_,
           expression.arguments,
+          level,
           expression.span,
           powerSeat,
+          new Set(calleeIsLambda ? arguments_.keys() : []),
         );
-        // A subject seat's expectation is the home, the subject variable it is
-        // written in being still unbound (#821) — the two coincide once the lift
-        // fires, and until it does only the home can carry the expectation down
-        // into a nested operation.
-        const memberSeat = (index: number): Mono | undefined =>
-          memberHome !== undefined && memberSubjectSeats?.has(index) === true
-            ? memberHome
-            : calleeParameters?.[index];
         if (!calleeIsLambda) {
           for (const [index, argument] of expression.arguments.entries()) {
             if (deferredLambdas.has(index)) continue;
-            arguments_[index] = this.#inferExpr(argument, level, memberSeat(index));
+            arguments_[index] = pass === undefined
+              ? this.#inferExpr(argument, level)
+              : pass.argument(index, calleeParameters?.[index]);
           }
           if (deferredLambdas.size > 0) {
             // An expectation has to *be* something by the time it is read, so
@@ -9473,49 +9491,11 @@ class Checker {
               arguments_[index] = this.#inferExpr(
                 expression.arguments[index]!,
                 level,
-                memberSeat(index),
+                calleeParameters?.[index],
               );
             }
           }
         }
-        // **The delayed bind** *(#821)*: the subject seats are established
-        // together, after their operands are in, so §5.1's stand-down is decided
-        // over every one of them. The lift's own unification is silent by
-        // construction and the parameter list is the same array either way, so
-        // the sweep below is the one it always was.
-        const memberDeclined = memberHome === undefined ||
-            memberSubjectSeats === undefined
-          ? undefined
-          : this.#declinedSubject(
-            arguments_,
-            expression.arguments,
-            memberSubjectSeats,
-            memberHome,
-          );
-        if (memberHome !== undefined && memberDeclined === undefined) {
-          this.#liftMemberCall(callee, memberHome, expression.span);
-        }
-        if (memberDeclined !== undefined && memberHome !== undefined) {
-          pass?.standDown(
-            memberHome,
-            memberRung !== undefined && this.#supportsTarget(memberDeclined.type, memberRung),
-          );
-        }
-        // The subject operands, for §2.2's boundary repair (`#subjectOperands`).
-        if (memberRung !== undefined && memberSubjectSeats !== undefined) {
-          this.#subjectOperands.set(expression, {
-            rung: memberRung,
-            operands: [...memberSubjectSeats].sort((left, right) => left - right)
-              .flatMap((index) => {
-                const operand = expression.arguments[index];
-                const type = arguments_[index];
-                return operand === undefined || type === undefined
-                  ? []
-                  : [{ expression: operand, type }];
-              }),
-          });
-        }
-        const memberReconciled = this.#diagnostics.count;
         const result = this.#fresh(level, false);
         const knownCallee = this.#prune(callee);
         if (
@@ -9545,9 +9525,11 @@ class Checker {
             pass.finish();
           } else {
             this.#checkCallArguments(
+              expression,
               knownCallee.parameters,
               arguments_,
               expression.arguments,
+              level,
               expression.span,
               powerSeat,
             );
@@ -9558,17 +9540,6 @@ class Checker {
           // which is why `compose(save, audit)` is a bare call.
           this.#registerCall(expression, knownCallee.effect ?? PURE, calleeLabel(expression));
           type = knownCallee.result;
-          if (memberDeclined !== undefined && memberHome !== undefined) {
-            // The note the member spellings never took (#821; #819's first
-            // bullet): one operation, one report, whichever spelling wrote it.
-            this.#standDowns.set(expression, this.#standDownFor(
-              memberDeclined,
-              memberHome,
-              type,
-              this.#memberOperationNoun(expression.callee),
-              this.#diagnostics.count > memberReconciled,
-            ));
-          }
         } else if (knownCallee.kind !== "Variable" && knownCallee.kind !== "Error") {
           // The callee is known, and it is not a function. Unification with a
           // demanded arrow is guaranteed to fail here, and the mismatch it
@@ -9706,7 +9677,7 @@ class Checker {
         // it sits in — in one step. Lifted here, `-2.5` would reach `Dec` while
         // a sibling arm's `0.5` stayed `Float`, and the arms could not join.
         const home = expression.operator === "Not" ||
-            (expression.operator === "Negate" && decimalLiteralLeaves(expression) !== undefined)
+            (expression.operator === "Negate" && decimalLiteral(expression) !== undefined)
           ? undefined
           : this.#operationHome(expression.operator, expected);
         const operand = this.#inferExpr(expression.operand, level, home);
@@ -14056,8 +14027,9 @@ class Checker {
    *
    * Silent by construction: the home was gated on carrying the rung's instance,
    * and the result is the freshly instantiated subject variable, so the
-   * unification cannot fail. It is performed *before* the arguments elaborate,
-   * which is what makes the home their expected type.
+   * unification cannot fail. Its one caller is a pending dot goal settled late
+   * (`#elaborateMemberCall`); every other tower member call is a node of its
+   * expression tree, and runs at the tree's home.
    */
   #liftMemberCall(callee: Mono, home: Mono, span: Source.Span): void {
     const known = this.#prune(callee);
@@ -14134,7 +14106,7 @@ class Checker {
           liftConstraint(expression.operator) !== undefined;
       case "Unary":
         return expression.operator !== "Not" &&
-          !(expression.operator === "Negate" && decimalLiteralLeaves(expression) !== undefined);
+          !(expression.operator === "Negate" && decimalLiteral(expression) !== undefined);
       case "Group":
       case "Match":
       case "Try":
@@ -14143,9 +14115,93 @@ class Checker {
         return !expression.elseless;
       case "Block":
         return expression.items.at(-1)?.kind === "ExprItem";
+      case "Call":
+        return this.#towerCallRung(expression) !== undefined ||
+          (this.#towerDotSpelled(expression) && this.#dotNode?.expression !== expression);
       default:
         return false;
     }
+  }
+
+  /**
+   * The rung of a **tower member call** spelled bare, qualified through its
+   * constraint, or as a pipe stage (Numeric Literals §5.1) — the callee
+   * resolves to a tower member, of the member's own arity — or `undefined`.
+   * A companion-qualified spelling (`Float.multiply`) is a written face, a
+   * seat for its operands, and never interior.
+   */
+  #towerCallRung(expression: Resolved.CallExpr): Typed.ConstraintName | undefined {
+    const callee = expression.callee;
+    if (callee.kind !== "Name" || callee.instanceSubject !== undefined) return undefined;
+    const member = this.#towerMembers().get(callee.symbol);
+    if (member === undefined || !TOWER_MEMBERS.has(member.identity)) return undefined;
+    const scheme = this.#schemes.get(callee.symbol);
+    const type = scheme === undefined ? undefined : this.#prune(scheme.type);
+    return type?.kind === "Function" && type.parameters.length === expression.arguments.length
+      ? member.constraint
+      : undefined;
+  }
+
+  /**
+   * Whether a dot call is spelled by a tower member's name. Whether it *is* a
+   * tower member call is known only once its receiver has closed and the dot
+   * has resolved (Method Syntax §2.2), so the tree asks the dispatch
+   * (`#dotNode`) rather than the spelling.
+   */
+  #towerDotSpelled(expression: Resolved.CallExpr): boolean {
+    return expression.callee.kind === "Access" &&
+      TOWER_SPELLING_RUNGS.has(expression.callee.field.text);
+  }
+
+  /**
+   * A dot call a tree is collecting: `#elaborateMemberCall` builds its node
+   * where the dot resolves to an open tower member, and leaves `node` unset
+   * where it resolves to anything else — the call is then a value.
+   */
+  #dotNode: { readonly expression: Resolved.CallExpr; node?: TreeNode } | undefined;
+
+  /** The values each expression tree held, by its root, for §6's closed-receiver report. */
+  readonly #rootValues = new WeakMap<
+    Resolved.Expr,
+    readonly { readonly expression: Resolved.Expr; readonly type: Mono }[]
+  >();
+
+  /**
+   * A dot call's receiver that closed before the dot resolved to an open member
+   * (Method Syntax §2.2), with the call, the member's constraint, and whether it
+   * is a tower member (whose result is the home).
+   */
+  readonly #closedReceivers = new WeakMap<Resolved.Expr, ClosedReceiver>();
+
+  /**
+   * The receiver whose own tree is being elaborated: its values are recorded
+   * (`#rootValues`) for the closed-receiver report, and no other tree's are.
+   */
+  #receiverRoot: Resolved.Expr | undefined;
+
+  /**
+   * A callback whose result a sibling group settled from its values alone
+   * before the callback was read (#1062, ruling A2): the sibling that gave the
+   * type, and which of the callback's parameters are written in it — for the
+   * report should the callback's body disagree.
+   */
+  readonly #siblingSettled = new WeakMap<
+    Resolved.LambdaExpr,
+    { readonly sibling: Resolved.Expr; readonly parameters: readonly boolean[] }
+  >();
+
+  /** The `let` whose right-hand side is being elaborated, for a repair that names it. */
+  #bindingValue:
+    | { readonly name: string; readonly value: Resolved.Expr; readonly annotated: boolean }
+    | undefined;
+
+  /** The call a pipe stage rewrites to (Operators §8), one per stage. */
+  #pipeCall(expression: Resolved.BinaryExpr): Resolved.CallExpr {
+    const known = this.#pipeCalls.get(expression);
+    if (known !== undefined) return known;
+    const call = rewritePipe(expression);
+    this.#pipeCalls.set(expression, call);
+    return call;
   }
 
   /**
@@ -14157,11 +14213,25 @@ class Checker {
    * tree's values establish (`#closeFree`).
    */
   #inferTree(expression: Resolved.Expr, level: number, expected: Mono | undefined): Mono {
-    const node = this.#collectNode(expression, level, expected);
+    const part = this.#treePart(expression, level, expected);
+    // A dot call spelled by a tower member's name that resolved to something
+    // else is a value, already elaborated.
+    if (!("node" in part)) return part.value.type;
+    const node = part.node;
+    // What a dot call's receiver held, for §6's closed-receiver report: read
+    // from the recorded types, for the report alone.
+    if (this.#receiverRoot === expression) this.#rootValues.set(expression, this.#treeValues(node));
     const face = this.#concreteFace(expected);
-    if (face !== undefined) this.#closeFaced(node, face);
-    else this.#closeFree(node);
-    return node.failed === true ? ERROR : node.published ?? node.result;
+    // A tree refused once says nothing more (§6): what it would have been
+    // meets nothing further — `(n * 1.5).multiply(price).add(price)` is the
+    // receiver's report alone.
+    const refused = face !== undefined ? this.#closeFaced(node, face) : this.#closeFree(node);
+    if (refused && this.#receiverRoot === expression) {
+      // A refused receiver takes its dot call with it: dispatching on what the
+      // refusal left behind would report again (Method Syntax §9 row 17).
+      this.#refusedReceivers.add(expression);
+    }
+    return node.failed === true || refused ? ERROR : node.published ?? node.result;
   }
 
   #concreteFace(expected: Mono | undefined): Mono | undefined {
@@ -14171,6 +14241,26 @@ class Checker {
   }
 
   #treePart(expression: Resolved.Expr, level: number, expected: Mono | undefined): TreePart {
+    if (expression.kind === "Binary" && expression.operator === "Pipe") {
+      // The stage *is* the call (Operators §8): the rewrite precedes inference.
+      const part = this.#treePart(this.#pipeCall(expression), level, expected);
+      this.#expressionTypes.set(expression, "node" in part ? part.node.result : part.value.type);
+      return part;
+    }
+    if (expression.kind === "Call" && this.#towerDotSpelled(expression)) {
+      const outer = this.#dotNode;
+      const request: { readonly expression: Resolved.CallExpr; node?: TreeNode } = { expression };
+      this.#dotNode = request;
+      let type: Mono;
+      try {
+        type = this.#inferExpr(expression, level, expected);
+      } finally {
+        this.#dotNode = outer;
+      }
+      return request.node !== undefined
+        ? { node: request.node }
+        : { value: { expression, type } };
+    }
     return this.#isTreeInterior(expression)
       ? { node: this.#collectNode(expression, level, expected) }
       : { value: { expression, type: this.#inferExpr(expression, level, expected) } };
@@ -14237,6 +14327,9 @@ class Checker {
       case "Match":
         this.#collectMatch(expression, level, expected, node, collect);
         break;
+      case "Call":
+        this.#collectCall(expression, level, expected, node);
+        break;
       case "Try":
         collect(expression.body, expected);
         this.#checkCatchArms(
@@ -14252,6 +14345,156 @@ class Checker {
         break;
     }
     return node;
+  }
+
+  /**
+   * A **tower member call** spelled bare, qualified through its constraint, or
+   * as a pipe stage (Numeric Literals §5.1): its subject operands are the
+   * node's parts, and its result — the member's subject — is the node's, so
+   * the home it runs at is chosen with the tree's. `pow`'s exponent is its
+   * written `Int` seat, a tree of its own, and so is any other seat the
+   * member writes concretely.
+   */
+  #collectCall(
+    expression: Resolved.CallExpr,
+    level: number,
+    expected: Mono | undefined,
+    node: TreeNode,
+  ): void {
+    this.#callFrames.set(expression, this.#effectFrames.at(-1));
+    const callee = this.#inferExpr(expression.callee, level);
+    const known = this.#prune(callee);
+    const symbol = (expression.callee as Resolved.NameExpr).symbol;
+    node.rung = this.#towerRung(symbol)!;
+    const seats = this.#subjectSeats(callee, expression.arguments.length);
+    if (known.kind === "Function") node.subject = known.result;
+    // Under a written face the subject operands are handed it, as an
+    // operator's are (the lift); their parts still close with the tree.
+    const home = this.#memberCallHome(expression.callee, expected);
+    const power = this.#towerMembers().get(symbol)?.identity === POW_IDENTITY;
+    for (const [index, argument] of expression.arguments.entries()) {
+      if (seats.has(index)) {
+        node.parts.push(this.#treePart(argument, level, home));
+        continue;
+      }
+      if (power && index === 1) {
+        node.exponent = {
+          expression: argument,
+          type: this.#inferExpr(argument, level, primitive("Int")),
+        };
+        continue;
+      }
+      const parameter = known.kind === "Function" ? known.parameters[index] : undefined;
+      const type = this.#inferExpr(argument, level, parameter);
+      if (parameter !== undefined) {
+        this.#unifyExpected(parameter, type, argument, expression.span, true);
+      }
+    }
+    this.#registerCall(
+      expression,
+      known.kind === "Function" ? known.effect ?? PURE : PURE,
+      calleeLabel(expression),
+    );
+    // The call owns this reference's evidence, so the reference itself must
+    // not also carry it — that would apply it twice.
+    this.#calleeNames.add(expression.callee as Resolved.NameExpr);
+    this.#callRequirements.set(
+      expression,
+      this.#nameRequirements.get(expression.callee as Resolved.NameExpr) ?? [],
+    );
+  }
+
+  /**
+   * A dot call that resolved to an open **tower member** (Method Syntax §2.2):
+   * its receiver has closed on its own and is a value of the node, and the
+   * member's other subject operands are parts beside it, so `price.multiply(n
+   * * 1.5)` runs at `Dec`. The call is an interior node of the tree around it.
+   */
+  #collectDotNode(
+    expression: Resolved.CallExpr,
+    callee: Resolved.AccessExpr,
+    receiver: Mono,
+    candidate: MemberCandidate,
+    calleeType: Mono,
+    requirements: Requirement[],
+    subjectSeats: ReadonlySet<number>,
+    home: Mono | undefined,
+    level: number,
+    expected: Mono | undefined,
+  ): TreeNode {
+    const node: TreeNode = {
+      expression,
+      result: this.#fresh(level, false),
+      level,
+      face: expected,
+      // A literal receiver is a value of the call, nothing having settled it
+      // (#1062, ruling b′): through its grouping, which is punctuation, it
+      // joins the call's parts and promotes as any literal does.
+      parts: [{
+        value: {
+          expression: literalReceiver(callee.receiver),
+          type: receiver,
+        },
+      }],
+      rung: this.#towerRung(candidate.symbol)!,
+    };
+    if (literalReceiver(callee.receiver) === callee.receiver) {
+      this.#closedReceivers.set(callee.receiver, {
+        call: expression,
+        constraint: candidate.constraint,
+        tower: true,
+      });
+    }
+    this.#expressionTypes.set(expression, node.result);
+    const known = this.#prune(calleeType);
+    if (known.kind === "Function") node.subject = known.result;
+    const power = candidate.identity === POW_IDENTITY && candidate.member === "pow";
+    for (const [index, argument] of expression.arguments.entries()) {
+      const seat = index + 1;
+      if (subjectSeats.has(seat)) {
+        node.parts.push(this.#treePart(argument, level, home));
+        continue;
+      }
+      if (power && seat === 1) {
+        node.exponent = {
+          expression: argument,
+          type: this.#inferExpr(argument, level, primitive("Int")),
+        };
+        continue;
+      }
+      const parameter = known.kind === "Function" ? known.parameters[seat] : undefined;
+      const type = this.#inferExpr(argument, level, parameter);
+      if (parameter !== undefined) {
+        this.#unifyExpected(parameter, type, argument, expression.span, true);
+      }
+    }
+    this.#registerCall(expression, this.#calleeEffect(calleeType, level), calleeLabel(expression));
+    this.#dotCalls.set(expression, {
+      symbol: candidate.symbol,
+      name: candidate.member,
+      requirements,
+      callee: calleeType,
+      receiver: callee.receiver,
+    });
+    return node;
+  }
+
+  /**
+   * A tower member call's subject takes `at`, its home. `ERROR` — a refused
+   * tree, or a stood-down call's kept type — is **bound**, since unification
+   * with `ERROR` is a no-op: left unsolved, the subject would carry its
+   * requirement to defaulting, selecting evidence nobody asked for, and the
+   * refusal would gain a second report.
+   */
+  #settleSubject(subject: Mono, at: Mono, span: Source.Span): void {
+    const variable = this.#prune(subject);
+    if (this.#prune(at).kind === "Error") {
+      if (variable.kind === "Variable" && variable.rigidName === undefined) {
+        this.#bind(variable, ERROR, span);
+      }
+      return;
+    }
+    this.#unify(subject, at, span);
   }
 
   /** A tree's values, in source order, with every interior node walked. */
@@ -14308,7 +14551,7 @@ class Checker {
       }
       if (
         actual.kind === "Constructor" && actual.name === "Float" &&
-        decimalLiteralLeaves(expression) !== undefined
+        decimalLiteral(expression) !== undefined
       ) {
         decimal ??= expression;
         continue;
@@ -14353,11 +14596,14 @@ class Checker {
     return { home: widest.type, source: widest.expression };
   }
 
-  /** §5.1's close with no written face: one home, from every value in the tree. */
-  #closeFree(node: TreeNode): void {
-    this.#applyHome(node, this.#chooseHome(this.#treeValues(node)), undefined, undefined, {
-      refused: false,
-    });
+  /**
+   * §5.1's close with no written face: one home, from every value in the tree.
+   * Answers whether the tree was refused.
+   */
+  #closeFree(node: TreeNode): boolean {
+    const tree = { refused: false };
+    this.#applyHome(node, this.#chooseHome(this.#treeValues(node)), undefined, undefined, tree);
+    return tree.refused;
   }
 
   /**
@@ -14417,6 +14663,7 @@ class Checker {
   #mergeSpan(node: TreeNode, merge: Source.Span | undefined): Source.Span | undefined {
     const kind = node.expression.kind;
     if (kind === "If" || kind === "Match" || kind === "Try") return node.expression.span;
+    if (node.elements === true) return node.expression.span;
     return node.rung === undefined && node.siblings !== true ? merge : undefined;
   }
 
@@ -14427,6 +14674,7 @@ class Checker {
    * read through grouping and a block's final expression, which join nothing.
    */
   #ownerSpan(node: TreeNode, owner: Source.Span | undefined): Source.Span | undefined {
+    if (node.elements === true) return undefined;
     switch (node.expression.kind) {
       case "Group":
       case "Block":
@@ -14478,10 +14726,18 @@ class Checker {
   ): void {
     const span = owner ?? value.expression.span;
     const enter = (): void => {
-      const report = this.#homeRefusal(value, home, source);
+      const refusal = this.#homeRefusal(value, home, source);
+      const closed = refusal === undefined
+        ? undefined
+        : this.#closedReceiverRefusal(value, home, source);
+      const report = closed?.message ?? refusal;
       if (report !== undefined) {
         if (!tree.refused) {
-          this.#diagnostics.add({ severity: "error", message: report, primary: value.expression.span });
+          this.#diagnostics.add({
+            severity: "error",
+            message: report,
+            primary: closed?.span ?? value.expression.span,
+          });
         }
         tree.refused = true;
         return;
@@ -14490,6 +14746,148 @@ class Checker {
     };
     if (merge !== undefined) this.#joining(merge, enter);
     else enter();
+  }
+
+  /**
+   * §6's **closed-receiver** report *(#1062, Method Syntax §2.2)*, or
+   * `undefined` where it is not owed: a dot call's receiver closed on its own
+   * before the dot resolved, and a sibling then refused it — where every value
+   * of the receiver's own tree would have entered that sibling's type. "`n *
+   * 1.5` settled at `Float` before `.multiply` saw `price` — a dot call's
+   * receiver is settled on its own; write `n * 1.5 * price`, or name the home:
+   * `let a: Dec = …`". Decided from recorded types, for the report alone.
+   *
+   * Either side of the refusal may be the receiver: the value refused, or the
+   * value that gave the home the sibling could not enter.
+   */
+  #closedReceiverRefusal(
+    value: { readonly expression: Resolved.Expr; readonly type: Mono },
+    home: Mono,
+    source: Resolved.Expr | undefined,
+  ): { readonly message: string; readonly span: Source.Span } | undefined {
+    const valueCall = this.#closedReceivers.get(value.expression);
+    if (valueCall !== undefined) return this.#closedReceiverReport(value.expression, valueCall, home);
+    if (source === undefined) return undefined;
+    const sourceCall = this.#closedReceivers.get(source);
+    if (sourceCall === undefined) return undefined;
+    return this.#closedReceiverReport(source, sourceCall, value.type, value.expression);
+  }
+
+  /**
+   * The closed-receiver report for `receiver`, the receiver of `call`, refused
+   * by `target` — where every value of the receiver's own tree would have
+   * entered `target` — or `undefined`.
+   */
+  #closedReceiverReport(
+    receiver: Resolved.Expr,
+    closed: ClosedReceiver,
+    target: Mono,
+    sibling?: Resolved.Expr,
+  ): { readonly message: string; readonly span: Source.Span } | undefined {
+    const { call } = closed;
+    const values = this.#rootValues.get(receiver);
+    const destination = this.#prune(target);
+    if (values === undefined || destination.kind === "Variable" || destination.kind === "Error") {
+      return undefined;
+    }
+    // The receiver would have run there only where the member itself does: a
+    // `Dec` home carries no `Frac`, so `.divide` is no call at `Dec` at all.
+    if (!this.#supportsTarget(destination, closed.constraint)) return undefined;
+    if (!values.every(({ expression, type }) => this.#operandReaches(type, destination, expression))) {
+      return undefined;
+    }
+    if (call.callee.kind !== "Access") return undefined;
+    const member = call.callee.field.text;
+    const written = this.#spelledExpression(ungrouped(receiver));
+    // The argument the refusing value sits in, as the reader wrote it.
+    const within = (outer: Source.Span, inner: Source.Span): boolean =>
+      outer.start.offset <= inner.start.offset && inner.end.offset <= outer.end.offset;
+    const other = sibling === undefined
+      ? call.arguments[0]
+      : call.arguments.find((argument) => within(argument.span, sibling.span)) ?? sibling;
+    const saw = other === undefined ? undefined : this.#spelledExpression(other);
+    if (written === undefined || saw === undefined) return undefined;
+    const settled = this.#display(this.#typeOf(receiver));
+    const repairs: string[] = [];
+    // The operator spelling puts the receiver's values in the siblings' tree.
+    const operator = closed.tower ? MEMBER_OPERATORS.get(member) : undefined;
+    if (
+      operator !== undefined && other !== undefined && call.arguments.length === 1 &&
+      other === call.arguments[0]
+    ) {
+      const precedence = BINARY_PRECEDENCE[operator]!;
+      const left = this.#bindsAtLeast(ungrouped(receiver), precedence)
+        ? written
+        : `(${written})`;
+      const right = this.#bindsAtLeast(ungrouped(other), precedence + 1) ? saw : `(${saw})`;
+      repairs.push(`write \`${left} ${OPERATOR_SPELLINGS[operator]} ${right}\``);
+    }
+    // Naming the home: a tower call's result is its home, so an unannotated
+    // binding of the call names it by an annotation; anywhere else the
+    // receiver is ascribed. A home with no spelling here is not offered.
+    const home = this.#homeSpelling(destination);
+    const binding = this.#bindingValue;
+    if (home !== undefined) {
+      if (closed.tower && binding !== undefined && ungrouped(binding.value) === call) {
+        if (!binding.annotated) repairs.push(`name the home: \`let ${binding.name}: ${home} = …\``);
+      } else {
+        repairs.push(`name the home: \`(${written}: ${home})\``);
+      }
+    }
+    return {
+      span: receiver.span,
+      message: `\`${written}\` settled at \`${settled}\` before \`.${member}\` saw \`${saw}\` — ` +
+        "a dot call's receiver is settled on its own" +
+        (repairs.length === 0 ? "" : `; ${repairs.join(", or ")}`),
+    };
+  }
+
+  /**
+   * A home as a repair written at this site spells it (`#typeSpellingAtSite`),
+   * or `undefined` — `Dec` being a prelude name, spelled bare wherever it is
+   * not shadowed.
+   */
+  #homeSpelling(type: Mono): string | undefined {
+    const actual = this.#prune(type);
+    return this.#typeSpellingAtSite(actual) ??
+      (actual.kind === "NominalRecord" && actual.record === this.#decRecord ? "Dec" : undefined);
+  }
+
+  /**
+   * Whether `expression` needs no parentheses as an operand at `precedence`:
+   * anything but an operator binds tighter than every operator, and an
+   * operator binds as tightly as its own row.
+   */
+  #bindsAtLeast(expression: Resolved.Expr, precedence: number): boolean {
+    if (expression.kind === "Unary") return true;
+    if (expression.kind !== "Binary") return !["If", "Match", "Try", "Lambda", "Block"].includes(expression.kind);
+    return (BINARY_PRECEDENCE[expression.operator] ?? 0) >= precedence;
+  }
+
+  /**
+   * §6's entry report for a sibling argument whose home an earlier argument
+   * solved — "`f` is a `Float` and cannot enter `Dec`, the home `decs` gives
+   * this argument" — or `undefined` where the value enters, or where the
+   * ordinary report is the right one (a value or home outside the tower, or
+   * one the source cannot spell).
+   */
+  #siblingEntryRefusal(
+    value: { readonly expression: Resolved.Expr; readonly type: Mono },
+    home: Mono,
+    giver: Resolved.Expr,
+  ): string | undefined {
+    const actual = this.#prune(value.type);
+    const numeric = (type: Mono): boolean =>
+      type.kind !== "Variable" && type.kind !== "Error" && this.#supportsTarget(type, "Num");
+    if (!numeric(actual) || !numeric(home) || this.#sameSeat(actual, home)) return undefined;
+    if (this.#operandReaches(actual, home, value.expression)) return undefined;
+    const spelled = this.#writtenOperand(value.expression) ?? this.#spelledExpression(value.expression);
+    const gave = this.#spelledExpression(giver);
+    if (spelled === undefined || gave === undefined) return undefined;
+    const door = this.#numericDoor(spelled, actual, home);
+    return `\`${spelled}\` is a \`${this.#display(actual)}\` and cannot enter ` +
+      `\`${this.#display(home)}\`, the home \`${gave}\` gives this argument` +
+      (door === undefined ? "" : `; convert it explicitly — \`${door}\``);
   }
 
   /**
@@ -14585,7 +14983,10 @@ class Checker {
       } else if (expression.kind === "Unary" && expression.operator === "BitNot") {
         this.#bitwiseLogicWords.set(spanKey(expression.span), "not");
       }
-      this.#requirements.set(expression, [this.#require(node.rung, at, expression.span)]);
+      // A call's evidence is its callee's own requirement, which the home
+      // solves here; an operator's is required here.
+      if (node.subject !== undefined) this.#settleSubject(node.subject, at, expression.span);
+      else this.#requirements.set(expression, [this.#require(node.rung, at, expression.span)]);
       node.published = at;
       return;
     }
@@ -14607,22 +15008,23 @@ class Checker {
    * Whether a node reaches is a lookup over the recorded types
    * (`#facedReaches`); nothing is elaborated to answer it.
    */
-  #closeFaced(node: TreeNode, face: Mono): void {
+  #closeFaced(node: TreeNode, face: Mono): boolean {
     if (node.failed === true) {
       this.#closeFree(node);
-      return;
+      return false;
     }
     if (node.rung !== undefined && !this.#supportsTarget(face, node.rung)) {
       // The instance gate: no face reached these parts (they were handed
-      // none), so the operator's subtree has no written home.
-      this.#closeFree(node);
-      return;
+      // none), so the operator's subtree has no written home. A refusal
+      // there is the tree's one report; the answer says so.
+      return this.#closeFree(node);
     }
     if (this.#facedReaches(node, face)) {
       this.#enterFace(node, face);
-      return;
+      return false;
     }
     this.#standDownFaced(node, face);
+    return false;
   }
 
   /** Whether every value under `node` reaches `face` — a lookup, never an elaboration. */
@@ -14750,7 +15152,16 @@ class Checker {
     }
     let reported = false;
     const declared = this.#prune(first.type);
-    if (declared.kind === "Variable" && declared.rigidName !== undefined) {
+    const closed = this.#closedReceivers.get(first.expression) === undefined
+      ? undefined
+      : this.#closedReceiverRefusal(first, face, undefined);
+    if (closed !== undefined) {
+      // A dot call's receiver closed on its own before the dot resolved, and
+      // the face then refused it, though its own values would have entered
+      // (§6's closed-receiver report).
+      this.#diagnostics.add({ severity: "error", message: closed.message, primary: closed.span });
+      reported = true;
+    } else if (declared.kind === "Variable" && declared.rigidName !== undefined) {
       // A declared variable that declines first speaks in its own words — the
       // declared-variable report, at the value — at any seat, a receiver's
       // included (§5.1, #827).
@@ -14955,6 +15366,8 @@ class Checker {
     if (node.exponent !== undefined) {
       this.#checkExponent(node.exponent.expression, node.exponent.type, at);
     }
+    // A stood-down call selects no evidence at the type it kept (§5.1).
+    if (node.subject !== undefined) this.#settleSubject(node.subject, ERROR, node.expression.span);
     const first = declined.get(node);
     if (first !== undefined) {
       this.#standDowns.set(node.expression, this.#standDownFor(
@@ -14995,6 +15408,11 @@ class Checker {
     if (expression.kind === "Binary") return OPERATION_NOUNS[expression.operator] ?? "operation";
     if (expression.kind === "Unary") {
       return expression.operator === "BitNot" ? "bitwise complement" : "negation";
+    }
+    if (expression.kind === "Call") {
+      if (expression.callee.kind !== "Access") return this.#memberOperationNoun(expression.callee);
+      const member = expression.callee.field.text;
+      return MEMBER_OPERATION_NOUNS.get(member) ?? `\`${member}\` operation`;
     }
     return "operation";
   }
@@ -15283,8 +15701,7 @@ class Checker {
     expected?: Mono,
   ): Mono {
     if (expression.operator === "Pipe") {
-      const call = rewritePipe(expression);
-      this.#pipeCalls.set(expression, call);
+      const call = this.#pipeCall(expression);
       // The stage *is* the call (Operators §8: the rewrite precedes inference),
       // so the seat's expectation reaches it — which is how `let s: BigInt =
       // count |> Num.add(1)` lifts exactly as the bare spelling does (#808).
@@ -15465,338 +15882,364 @@ class Checker {
   }
 
   /**
-   * The bookkeeping one call's argument checking carries, so that the **first
-   * pass** of it can run before the second elaborates *(#513, #517)*.
+   * One call's argument checking, on Functions §4.3's schedule *(#513, #517)*,
+   * with its **sibling arguments** *(#1062)*.
    *
-   * The sweep itself is unchanged — index order, then the two deferred
-   * numeric/literal classes. What the schedule adds is `establishFirstPass`:
-   * once every non-lambda argument has elaborated, they are checked against
-   * their parameters, so a callback *anywhere* in the list reads its expected
-   * type off an instantiation the first pass has already resolved (§4.3).
-   * `Seq.map(xs, match …)` resolves `a` from `xs` and hands the arms `Int`;
-   * so does the callback-first `apply(match …, xs)`.
+   * The non-lambda arguments at the seats a callee's signature writes as one
+   * bare type variable are the parts of one expression tree (Numeric Literals
+   * §5.1's expression home): none settles the shared variable before the others
+   * are in. Each is collected unclosed at its turn (`argument`), and the groups
+   * close after the first pass's last argument and before any lambda literal
+   * elaborates, so a callback reads the home settled —
+   * `xs.fold(0.0, (acc, x) => acc + x)` checks its callback at `Float`, and
+   * `h(n * 1.5, price)` meets at `Dec`. A comparison is such a call; so is a
+   * dot call on an open member, its receiver a value among the siblings.
+   *
+   * Every other argument is checked against its parameter **at its own turn**,
+   * so a later argument reads the instantiation an earlier one solved — the
+   * unification the final check performs anyway, performed early (§4.3's
+   * ordering pin). One still standing on an unsolved variable waits for the
+   * end, where the second pass may have decided it: `g(p, x => useInt(p))` at
+   * `g : (Float, (Int) -> String) -> …` types `p` at `Int` through the callback
+   * and widens it into `Float`.
+   *
+   * A group closes against what its variable is by then (`#closeSiblings`).
    *
    * `powerSeat` is Method Syntax §9 row 14 *(#808)*: at a `Pow.pow` call the
    * exponent is the member's written `Int` parameter, and the seat it takes is
    * the operator's own — `#checkExponent`, which widens a `Nat` in and
    * otherwise reports Operators §6.3's mandatory fixit, **on the argument's own
-   * span**. Without it `i.pow(2n)` and `Pow.pow(i, 2n)` took a bare "type
-   * mismatch" where `i ** 2n` named the door (#783's second finding).
+   * span**.
+   *
+   * `actuals` is the caller's seat list, filled as the arguments elaborate; a
+   * seat already filled when the pass is built — a dot call's receiver, a
+   * pending dot call's measured arguments — is a value of its group.
    */
   #argumentPass(
+    call: Resolved.Expr,
     parameters: readonly Mono[],
-    actuals: readonly Mono[],
+    actuals: Mono[],
     expressions: readonly Resolved.Expr[],
+    level: number,
     span: Source.Span,
     powerSeat?: PowerSeat,
+    /** Seats already elaborated when the pass is built. */
+    preset: ReadonlySet<number> = new Set(),
   ): ArgumentPass {
-    // A later argument may establish the shared type of an earlier Nat/Int/BigInt argument
-    // (`plus(count, 1.5)`). Bare literals and fresh variables establish nothing,
-    // so defer both classes until concrete/already-constrained arguments settle.
-    const deferredNumericArguments: number[] = [];
-    const deferredLiteralArguments: number[] = [];
-    const establishedVariables = new Set<number>();
-    // Every index is dispositioned exactly once — unified, or filed to the
-    // class it belongs to. The two entry points partition the arguments
-    // between them, and `finish` re-asks about anything the first pass left.
+    // Every index is dispositioned exactly once — checked at its seat, or
+    // closed with its group.
     const disposed = new Set<number>();
-    // The face this call's lift stood down from, once `standDown` has said so
-    // (#821), and the operands that ran at it. Set after the pass is built,
-    // because the stand-down is decided only when every operand is in — which is
-    // the whole of the delayed bind.
-    let stoodDownFace: Mono | undefined;
-    let liftedWait = false;
-    const lifted: {
-      readonly expected: Mono;
-      readonly actual: Mono;
-      readonly expression: Resolved.Expr;
-    }[] = [];
+    const collected = new Map<number, TreePart>();
+    const groups = new Map<Mono, number[]>();
+    const grouped = new Set<number>();
+    for (const [index, expression] of expressions.entries()) {
+      if (powerSeat?.index === index || defersAsLambda(expression)) continue;
+      const parameter = this.#prune(parameters[index] ?? ERROR);
+      if (parameter.kind !== "Variable") continue;
+      const group = groups.get(parameter);
+      if (group === undefined) groups.set(parameter, [index]);
+      else group.push(index);
+      grouped.add(index);
+    }
+    let closed = false;
 
-    /**
-     * Finds independently established targets occupying `subject`'s seats in
-     * two already-elaborated, structurally aligned types. This mirrors the
-     * invariant structure ordinary unification equates. Record tails are not
-     * inspected; only same-named explicit fields carry aligned provenance.
-     */
-    const alignedTargets = (
-      parameter: Mono,
-      actual: Mono,
-      subject: number,
-      walking = new Map<Mono, Set<Mono>>(),
-    ): readonly Mono[] => {
-      const expected = this.#prune(parameter);
-      const found = this.#prune(actual);
-      let rights = walking.get(expected);
-      if (rights?.has(found) === true) return [];
-      if (rights === undefined) {
-        rights = new Set();
-        walking.set(expected, rights);
-      }
-      rights.add(found);
-
-      if (expected.kind === "Variable") {
-        if (expected.id !== subject) return [];
-        const fixed = found.kind === "Constructor" &&
-          (found.name === "Nat" || found.name === "Int" || found.name === "BigInt");
-        if (fixed || found.kind === "Error" ||
-          found.kind === "Variable" && found.id === subject ||
-          !this.#supportsTarget(found, "FromBigInt", true)) return [];
-        return [found];
-      }
-      const descend = (pairs: readonly (readonly [Mono, Mono])[]): readonly Mono[] =>
-        pairs.flatMap(([left, right]) => alignedTargets(left, right, subject, walking));
-      if (expected.kind === "Vector" && found.kind === "Vector") {
-        return descend([[expected.element, found.element]]);
-      }
-      if (expected.kind === "Set" && found.kind === "Set") {
-        return descend([[expected.element, found.element]]);
-      }
-      if (expected.kind === "Array" && found.kind === "Array") {
-        return descend([[expected.element, found.element]]);
-      }
-      if (expected.kind === "JsSet" && found.kind === "JsSet") {
-        return descend([[expected.element, found.element]]);
-      }
-      if (expected.kind === "Node" && found.kind === "Node") {
-        return descend([[expected.element, found.element]]);
-      }
-      if (expected.kind === "Nullable" && found.kind === "Nullable") {
-        return descend([[expected.value, found.value]]);
-      }
-      if (expected.kind === "Map" && found.kind === "Map" ||
-        expected.kind === "JsMap" && found.kind === "JsMap") {
-        return descend([[expected.key, found.key], [expected.value, found.value]]);
-      }
-      if (expected.kind === "Tuple" && found.kind === "Tuple" &&
-        expected.elements.length === found.elements.length) {
-        return descend(expected.elements.map((element, index) =>
-          [element, found.elements[index]!] as const));
-      }
-      if (expected.kind === "Function" && found.kind === "Function" &&
-        expected.parameters.length === found.parameters.length) {
-        const pairs: (readonly [Mono, Mono])[] = expected.parameters.map((parameter, index) =>
-          [parameter, found.parameters[index]!] as const);
-        pairs.push([expected.result, found.result]);
-        return descend(pairs);
-      }
-      if (expected.kind === "Record" && found.kind === "Record") {
-        // Row tails carry no positional information. Same-named explicit
-        // fields do, exactly as record unification does, so they can establish
-        // a subject while unknown tail contents cannot.
-        return descend([...expected.fields].flatMap(([name, field]) => {
-          const other = found.fields.get(name);
-          return other === undefined ? [] : [[field, other] as const];
-        }));
-      }
-      if (expected.kind === "Union" && found.kind === "Union" &&
-        expected.union === found.union && expected.arguments.length === found.arguments.length) {
-        return descend(expected.arguments.map((argument, index) =>
-          [argument, found.arguments[index]!] as const));
-      }
-      if (expected.kind === "NominalRecord" && found.kind === "NominalRecord" &&
-        expected.record === found.record &&
-        expected.arguments.length === found.arguments.length) {
-        return descend(expected.arguments.map((argument, index) =>
-          [argument, found.arguments[index]!] as const));
-      }
-      return [];
-    };
-
-    const structurallyLicensed = (index: number, subject: number): boolean =>
-      actuals.some((candidateActual, candidateIndex) => {
-        if (candidateIndex === index || defersAsLambda(expressions[candidateIndex]!)) return false;
-        const candidateParameter = parameters[candidateIndex] ?? ERROR;
-        const candidate = this.#prune(candidateActual);
-        const fixed = candidate.kind === "Constructor" &&
-          (candidate.name === "Nat" || candidate.name === "Int" ||
-            candidate.name === "BigInt");
-        if (candidate.kind === "Error" || fixed) return false;
-        const direct = this.#prune(candidateParameter);
-        if (direct.kind === "Variable" && direct.id === subject) {
-          return !(candidate.kind === "Variable" && candidate.id === subject) &&
-            this.#supportsTarget(candidate, "FromBigInt", true);
-        }
-        return alignedTargets(candidateParameter, candidateActual, subject).length > 0;
-      });
-
-    // Which deferred class an argument belongs to, or `undefined` for one the
-    // sweep unifies on the spot. Classification is a *question*, asked without
-    // filing anything: `establishFirstPass` needs the answer to decide whether
-    // it may proceed, and an argument it declines must still arrive at `finish`
-    // undispositioned — asked again there, at the moment the unsplit sweep would
-    // have asked, since a destination it saw as a variable may have been solved
-    // in between.
-    const deferral = (
-      index: number,
-    ): "literal" | "numeric" | "decimal" | "exact-bigint" | undefined => {
-      const source = this.#prune(actuals[index] ?? ERROR);
-      const destination = this.#prune(parameters[index] ?? ERROR);
-      if (destination.kind !== "Variable") return undefined;
-      if (source.kind === "Variable" && source.literalOnly) return "literal";
-      if (
-        source.kind === "Constructor" &&
-        (source.name === "Nat" || source.name === "Int")
-      ) {
-        return "numeric";
-      }
-      const argument = expressions[index];
-      if (
-        source.kind === "Constructor" && source.name === "Float" &&
-        argument !== undefined && decimalLiteralLeaves(argument) !== undefined
-      ) {
-        // A decimal-point literal waits for its non-callback siblings (#525):
-        // `Num.add(0.5, price)` meets at `Dec` as `0.5 + price` does, rather
-        // than the literal settling the subject at `Float` first. It settles
-        // before any callback is checked, as it did before it waited — see
-        // `establishFirstPass`.
-        return "decimal";
-      }
-      if (source.kind === "Constructor" && source.name === "BigInt") {
-        // BigInt keeps its old eager, fixed-source role unless a sibling in
-        // this exact shared subject already supplies an independently known
-        // destination licensed by canonical FromBigInt evidence. The callee's
-        // fresh subject constraint is not evidence on an actual argument, and
-        // callbacks cannot establish the first pass from their expectations.
-        // A caller-owned rigid destination is already established and takes
-        // the ordinary contextual conversion path. A licensed sibling defers
-        // this source until that sibling has unified. With neither provenance,
-        // BigInt is the exact fixed home; it must never consume the fresh
-        // callee parameter's own FromBigInt bound as evidence for itself.
-        if ((this.#declaredInScope(destination) || establishedVariables.has(destination.id)) &&
-          this.#supportsTarget(destination, "FromBigInt", true)) return undefined;
-        return structurallyLicensed(index, destination.id) ? "numeric" : "exact-bigint";
-      }
-      return undefined;
-    };
-
-    // One index of the eager sweep, dispositioned exactly once: unified here, or
-    // filed to the class it belongs to. `disposed` is what makes that "once" —
-    // a double filing is invisible while the unification succeeds and reports
-    // the same mismatch once per copy when it does not.
-    const eager = (index: number, settleDecimal = false): void => {
-      if (disposed.has(index)) return;
-      const actual = actuals[index] ?? ERROR;
-      const expected = parameters[index] ?? ERROR;
+    // The argument that solved a group's variable before the group closed —
+    // what gave the siblings their home, for §6's report.
+    const givers = new Map<Mono, Resolved.Expr>();
+    const eager = (index: number): void => {
+      if (disposed.has(index) || grouped.has(index)) return;
       const expression = expressions[index];
       if (expression === undefined) return;
       disposed.add(index);
       if (powerSeat !== undefined && powerSeat.index === index) {
-        // The base is read **here**, not when the seat was described: the
-        // arguments elaborate after the pass is built, so a base captured then
-        // would be the placeholder rather than the operand.
-        this.#checkExponent(expression, actual, actuals[powerSeat.base] ?? ERROR);
+        this.#checkExponent(expression, actuals[index] ?? ERROR, actuals[powerSeat.base] ?? ERROR);
         return;
       }
-      const filed = deferral(index);
-      if (filed === "literal") {
-        deferredLiteralArguments.push(index);
-        return;
+      const open = [...groups.keys()].filter((variable) =>
+        !givers.has(variable) && this.#prune(variable).kind === "Variable"
+      );
+      this.#unifyExpected(parameters[index] ?? ERROR, actuals[index] ?? ERROR, expression, span, true);
+      for (const variable of open) {
+        if (this.#prune(variable).kind !== "Variable") givers.set(variable, expression);
       }
-      if (filed === "numeric" || (filed === "decimal" && !settleDecimal)) {
-        deferredNumericArguments.push(index);
-        return;
-      }
-      const source = this.#prune(actual);
-      // §5.1's stand-down, at an operand the face had already lifted (#821).
-      // It waits for the rest of the sweep: it establishes the subject only
-      // where no other operand has, and is otherwise silent, the stand-down's
-      // own report naming the operand that declined — in either operand order
-      // (#827), so which operand the face entered first is never said.
-      if (stoodDownFace !== undefined && this.#acceptsExactly(source, stoodDownFace)) {
-        if (liftedWait) lifted.push({ expected, actual, expression });
-        else if (this.#prune(expected).kind === "Variable") this.#unify(expected, actual, span);
-        return;
-      }
-      if (filed === "exact-bigint") {
-        this.#unify(expected, actual, span);
-        return;
-      }
-      const independentlyEstablished = source.kind !== "Variable" ||
-        this.#supportsNumericTarget(source, true);
-      const expectedBefore = this.#prune(expected);
-      const structuralTargets = expectedBefore.kind === "Variable"
-        ? []
-        : [...new Set(parameters.flatMap((parameter, parameterIndex) => {
-          const candidateSource = this.#prune(actuals[parameterIndex] ?? ERROR);
-          const candidateDestination = this.#prune(parameter);
-          return candidateSource.kind === "Constructor" && candidateSource.name === "BigInt" &&
-              candidateDestination.kind === "Variable"
-            ? alignedTargets(expectedBefore, actual, candidateDestination.id)
-            : [];
-        }))];
-      const diagnosticsBefore = this.#diagnostics.count;
-      this.#unifyExpected(expected, actual, expression, span, true);
-      if (this.#diagnostics.count === diagnosticsBefore) {
-        for (const target of structuralTargets) {
-          if (target.kind === "Variable") establishedVariables.add(target.id);
+    };
+
+    const closeGroups = (lambdas: ReadonlySet<number> = new Set()): void => {
+      if (closed) return;
+      closed = true;
+      // Which callbacks read a variable a group is about to settle from its
+      // values alone, for the report should a callback's body then disagree.
+      for (const variable of groups.keys()) {
+        if (this.#prune(variable).kind !== "Variable") continue;
+        for (const index of lambdas) {
+          const expression = expressions[index];
+          const face = this.#prune(parameters[index] ?? ERROR);
+          if (expression?.kind !== "Lambda" || face.kind !== "Function") continue;
+          if (!this.#occurs(variable as Variable, face.result)) continue;
+          // The value that establishes the home is the one to name.
+          const values = groups.get(variable)!.flatMap((at) => {
+            const part = collected.get(at);
+            return part === undefined
+              ? [{ expression: expressions[at]!, type: actuals[at] ?? ERROR }]
+              : "node" in part ? this.#treeValues(part.node) : [part.value];
+          });
+          const sibling = this.#chooseHome(values)?.source ?? values[0]?.expression;
+          if (sibling === undefined) continue;
+          this.#siblingSettled.set(expression, {
+            sibling,
+            // Only a parameter written as the variable itself can be annotated
+            // with the wider type.
+            parameters: face.parameters.map((component) => this.#prune(component) === variable),
+          });
         }
       }
-      const established = this.#prune(expected);
-      if (independentlyEstablished && established.kind === "Variable") {
-        establishedVariables.add(established.id);
+      // A seat elaborated before the pass was built has had its turn: it is
+      // checked before any group closes, so a group reads what it solved —
+      // `bigs.append(n)` widens `n` into the receiver's `BigInt`.
+      for (const index of preset) {
+        const actual = actuals[index];
+        if (actual !== undefined && this.#prune(actual).kind !== "Variable") eager(index);
+      }
+      for (const [variable, indices] of groups) {
+        const parts = indices.map((index): TreePart =>
+          collected.get(index) ??
+            { value: { expression: expressions[index]!, type: actuals[index] ?? ERROR } }
+        );
+        this.#closeSiblings(call, variable, parts, level, span, givers.get(variable));
+        for (const [position, index] of indices.entries()) {
+          disposed.add(index);
+          actuals[index] = this.#partType(parts[position]!);
+        }
       }
     };
 
     return {
+      argument: (index: number, expectation: Mono | undefined): Mono => {
+        const expression = expressions[index]!;
+        if (grouped.has(index)) {
+          const part = this.#treePart(expression, level, expectation);
+          collected.set(index, part);
+          const type = "node" in part ? part.node.result : part.value.type;
+          actuals[index] = type;
+          return type;
+        }
+        const type = this.#inferExpr(expression, level, expectation);
+        actuals[index] = type;
+        if (this.#prune(type).kind !== "Variable") eager(index);
+        return type;
+      },
       establishFirstPass: (deferredLambdas: ReadonlySet<number>): void => {
+        // A lambda literal's **written** face is part of the first pass: its
+        // body is not (#1062, ruling A2). What it writes reaches its siblings'
+        // variable before the groups close — `apply2(m, (v: Int) => v + n)`
+        // meets at `Int` — and what its body does never chooses their home.
+        for (const index of deferredLambdas) {
+          const expression = expressions[index];
+          if (expression?.kind === "Lambda") this.#landWrittenFace(expression, parameters[index], level);
+        }
+        closeGroups(deferredLambdas);
         for (let index = 0; index < actuals.length; index += 1) {
           // The second pass's own arguments have not elaborated yet; their
-          // turn comes at `finish`.
+          // turn comes at `finish`. One still on an unsolved variable is left
+          // for the callback to decide.
           if (deferredLambdas.has(index)) continue;
-          // Skips — never *decides* — an argument that is not already
-          // concrete. One still sitting on an unsolved variable establishes
-          // nothing (the sweep's own `independentlyEstablished` test says so),
-          // and unifying it here would decide it from the parameter rather than
-          // letting the second pass's lambda body decide it: `g(p, x =>
-          // useInt(p))` at `g : (Float, (Int) -> String) -> …` types `p` at
-          // `Int` through the callback and widens the first argument, and it
-          // must keep doing so.
           const actual = actuals[index];
           if (actual === undefined || this.#prune(actual).kind === "Variable") continue;
-          // A deferred numeric or literal argument is left where it stands,
-          // unfiled: it establishes nothing for the callback either, and its
-          // destination may still be solved before `finish` asks again.
-          const filed = deferral(index);
-          if (filed === "literal" || filed === "numeric" || filed === "decimal") continue;
           eager(index);
-        }
-        // A held decimal-point literal settles **now**, after its non-callback
-        // siblings and before any callback is checked (#525): it is promoted
-        // where a sibling established an exact subject, and otherwise settles
-        // the subject at `Float` exactly as it did when it was not held, so
-        // `xs.fold(0.0, (acc, x) => acc + x)` checks its callback at `Float`.
-        for (let index = 0; index < actuals.length; index += 1) {
-          if (deferredLambdas.has(index) || deferral(index) !== "decimal") continue;
-          eager(index, true);
         }
       },
       disposeSeat: (index: number): void => {
         eager(index);
       },
-      standDown: (face: Mono, waits: boolean): void => {
-        stoodDownFace = face;
-        liftedWait = waits;
-      },
       finish: (): void => {
-        // The eager sweep in index order, skipping what the first pass already
-        // dispositioned: every index is dispositioned by exactly one of the
-        // two, and the order among those the first pass left is the order the
-        // unsplit sweep saw.
+        closeGroups();
         for (let index = 0; index < actuals.length; index += 1) eager(index);
-        this.#checkDeferredArguments(
-          parameters,
-          actuals,
-          expressions,
-          span,
-          deferredNumericArguments,
-          deferredLiteralArguments,
-          establishedVariables,
-        );
-        for (const { expected, actual } of lifted) {
-          if (this.#prune(expected).kind === "Variable") this.#unify(expected, actual, span);
-        }
       },
     };
+  }
+
+  /**
+   * The report for a callback whose body gives a type its call's siblings did
+   * not settle at, where they would have widened into it (#1062, ruling A2): a
+   * callback's body chooses no type for the arguments beside it. "`m` settled
+   * this call's `Nat` before the callback was checked, and the callback's body
+   * returns `Int` — a callback's body chooses no type for the arguments beside
+   * it; write `(m: Int)`, or annotate the callback: `(v: Int) => …`". Or
+   * `undefined` where the report is not owed.
+   */
+  #settledCallbackRefusal(
+    expression: Resolved.LambdaExpr,
+    body: Mono,
+    settled: Mono,
+  ): string | undefined {
+    const known = this.#siblingSettled.get(expression);
+    if (known === undefined || expression.returnAnnotation !== undefined) return undefined;
+    const given = this.#prune(body);
+    const numeric = (type: Mono): boolean =>
+      type.kind !== "Variable" && type.kind !== "Error" && this.#supportsTarget(type, "Num");
+    if (!numeric(given) || !numeric(settled) || this.#sameSeat(given, settled)) return undefined;
+    if (!this.#reachesSeat(settled, given)) return undefined;
+    const sibling = this.#writtenOperand(known.sibling) ?? this.#spelledExpression(known.sibling);
+    if (sibling === undefined) return undefined;
+    // A type this site cannot spell drops the repairs and keeps the report.
+    const wider = this.#homeSpelling(given);
+    const repairs = wider === undefined ? [] : [`write \`(${sibling}: ${wider})\``];
+    // The callback annotated, where its parameters are plain names.
+    const names = expression.parameters.map((parameter) =>
+      parameter.annotation === undefined ? parameter.name : undefined
+    );
+    if (
+      wider !== undefined && names.every((name) => name !== undefined) &&
+      known.parameters.some((written) => written)
+    ) {
+      const annotated = names.map((name, index) =>
+        known.parameters[index] === true ? `${name}: ${wider}` : name
+      );
+      repairs.push(`annotate the callback: \`(${annotated.join(", ")}) => …\``);
+    }
+    return `\`${sibling}\` settled this call's \`${this.#display(settled)}\` before the callback ` +
+      `was checked, and the callback's body returns \`${this.#display(given)}\` — a callback's ` +
+      "body chooses no type for the arguments beside it" +
+      (repairs.length === 0 ? "" : `; ${repairs.join(", or ")}`);
+  }
+
+  /**
+   * Lands a lambda literal's **written** parameter and result types on the
+   * callee's parameter before its call's sibling groups close (Functions §4.3,
+   * #1062 ruling A2): a lambda is a black box whose interface is visible. Only
+   * where the callee's component is still an unsolved variable and the written
+   * type holds no inferable part, so the unification cannot fail and the
+   * lambda's own landing, later, stays the one that checks and reports. Only
+   * an annotation whose reading has no effect of its own is read early
+   * (`#readsCleanly`): no hole, row, arrow, or implied type, each of which
+   * records state when read. A lambda that declares binders of its own is left
+   * entirely to its landing.
+   */
+  #landWrittenFace(expression: Resolved.LambdaExpr, parameter: Mono | undefined, level: number): void {
+    if ((expression.typeParameters ?? []).length > 0 || parameter === undefined) return;
+    const face = this.#prune(parameter);
+    if (face.kind !== "Function" || face.parameters.length !== expression.parameters.length) return;
+    const land = (annotation: Resolved.TypeAnnotation | undefined, component: Mono): void => {
+      if (annotation === undefined || !this.#readsCleanly(annotation)) return;
+      const target = this.#prune(component);
+      if (target.kind !== "Variable" || target.rigidName !== undefined) return;
+      const written = this.#annotationType(
+        annotation,
+        level + 1,
+        new Map(),
+        this.#annotationVariableScope ?? new Map(),
+      );
+      this.#unify(target, written, annotation.span);
+    };
+    for (const [index, written] of expression.parameters.entries()) {
+      land(written.annotation, face.parameters[index]!);
+    }
+    land(expression.returnAnnotation, face.result);
+  }
+
+  /**
+   * Whether reading `annotation` has no effect beyond its type: built from
+   * primitives, nominal and collection types, and declared variables already
+   * in scope. A hole, a row, an arrow, and an implied type each record state
+   * when read — a hole's variable, a tail, a colour — so reading one twice is
+   * never harmless, and is left to the lambda's own landing.
+   */
+  #readsCleanly(annotation: Resolved.TypeAnnotation): boolean {
+    switch (annotation.kind) {
+      case "Primitive":
+      case "Range":
+      case "JsValue":
+        return true;
+      case "TypeVariable":
+        return this.#annotationVariableScope?.has(annotation.name) === true;
+      case "Vector":
+      case "Set":
+      case "Array":
+      case "JsSet":
+      case "Node":
+        return this.#readsCleanly(annotation.element);
+      case "Map":
+      case "JsMap":
+        return this.#readsCleanly(annotation.key) && this.#readsCleanly(annotation.value);
+      case "Nullable":
+        return this.#readsCleanly(annotation.value);
+      case "Tuple":
+        return annotation.elements.every((element) => this.#readsCleanly(element));
+      case "Union":
+      case "RecordDeclaration":
+        return annotation.arguments.every((argument) => this.#readsCleanly(argument));
+      default:
+        return false;
+    }
+  }
+
+  /**
+   * Closes one group of **sibling arguments** — the arguments at one bare type
+   * variable (Numeric Literals §5.1, Functions §4.3) — against what that
+   * variable is when the call's first pass is in.
+   *
+   * A concrete type, which an earlier argument solved (`h3(0.5, decs, …)` at
+   * `h3<t: Num>(x: t, v: Vector(t), y: t)`), is every sibling's face: each
+   * closes there as at any seat it faces. A declared variable is a seat each
+   * sibling meets as a value meets any variable seat (`accept(value)`). An
+   * unsolved variable takes the home its siblings' values choose, all of them
+   * at once, so no leading argument pins it before a later one is in.
+   */
+  #closeSiblings(
+    call: Resolved.Expr,
+    variable: Mono,
+    parts: TreePart[],
+    level: number,
+    span: Source.Span,
+    /** The argument that solved `variable` at its turn, if one did. */
+    giver?: Resolved.Expr,
+  ): void {
+    const target = this.#prune(variable);
+    if (target.kind !== "Variable" || target.rigidName !== undefined) {
+      const face = target.kind === "Variable" || target.kind === "Error" ? undefined : target;
+      // One tree, refused once (§6): once a sibling has been refused, the rest
+      // close on their own and meet the home no more.
+      let refused = false;
+      for (const part of parts) {
+        if (refused) {
+          if ("node" in part) this.#closeFree(part.node);
+          continue;
+        }
+        const before = this.#diagnostics.count;
+        if ("node" in part) {
+          if (face === undefined) this.#closeFree(part.node);
+          else this.#closeFaced(part.node, face);
+        } else if (face !== undefined && giver !== undefined) {
+          // A value that cannot enter the home an earlier argument gave: §6's
+          // entry report, naming that argument.
+          const report = this.#siblingEntryRefusal(part.value, face, giver);
+          if (report !== undefined) {
+            this.#diagnostics.add({ severity: "error", message: report, primary: part.value.expression.span });
+            refused = true;
+            continue;
+          }
+        }
+        this.#unifyExpected(
+          target,
+          this.#partType(part),
+          this.#partExpression(part),
+          span,
+          target.kind !== "Variable" || this.#declaredInScope(target),
+        );
+        refused = this.#diagnostics.count > before;
+      }
+      return;
+    }
+    const node: TreeNode = {
+      expression: call,
+      result: this.#fresh(level, false),
+      level,
+      face: undefined,
+      parts,
+      siblings: true,
+    };
+    this.#closeFree(node);
+    this.#unify(target, node.result, span);
   }
 
   /**
@@ -15819,73 +16262,17 @@ class Checker {
   }
 
   #checkCallArguments(
+    call: Resolved.Expr,
     parameters: readonly Mono[],
-    arguments_: readonly Mono[],
+    arguments_: Mono[],
     expressions: readonly Resolved.Expr[],
+    level: number,
     span: Source.Span,
     powerSeat?: PowerSeat,
   ): void {
-    this.#argumentPass(parameters, arguments_, expressions, span, powerSeat).finish();
-  }
-
-  #checkDeferredArguments(
-    parameters: readonly Mono[],
-    arguments_: readonly Mono[],
-    expressions: readonly Resolved.Expr[],
-    span: Source.Span,
-    deferredNumericArguments: readonly number[],
-    deferredLiteralArguments: readonly number[],
-    establishedVariables: ReadonlySet<number>,
-  ): void {
-    // Numeric Literals §5.1's common-home order among the fixed sources: BigInt,
-    // then Int, then Nat. The first source to reach an unsolved shared variable
-    // solves it, so the widest goes first and the narrower ones widen into it —
-    // `mix(n, i)` meets at `Int` exactly as `mix(i, n)` does (#1033). The sort
-    // is stable, so sources of one width keep their written order. BigInt's rank
-    // ahead of Int is §5.1's order but no program is known to observe it: a
-    // BigInt reaches this class only when a sibling has already established the
-    // variable (`structurallyLicensed`).
-    //
-    // A deferred decimal-point literal (#525) goes ahead of all three: it only
-    // waited for the eager siblings, and where none of them established the
-    // subject it settles it at `Float` exactly as it did before it waited, so
-    // `plus(n, 0.5)` still meets at `Float` with `n` widening in.
-    const width = (index: number): number => {
-      const source = this.#prune(arguments_[index] ?? ERROR);
-      if (source.kind !== "Constructor") return 3;
-      if (source.name === "Float") return -1;
-      return source.name === "BigInt" ? 0 : source.name === "Int" ? 1 : 2;
-    };
-    const widestFirst = [...deferredNumericArguments].sort((left, right) =>
-      width(left) - width(right)
-    );
-    for (const index of widestFirst) {
-      const expected = parameters[index] ?? ERROR;
-      const actual = arguments_[index] ?? ERROR;
-      const expression = expressions[index];
-      if (expression === undefined) continue;
-      const destination = this.#prune(expected);
-      // A caller's declared variable is §5.1's "already-constrained type
-      // variable" (#1035): established by its binder, as a `BigInt` source's
-      // `deferral` reads it, and needing no sibling to establish it.
-      const allowVariableTarget = destination.kind === "Variable" &&
-        (establishedVariables.has(destination.id) || this.#declaredInScope(destination));
-      this.#unifyExpected(
-        expected,
-        actual,
-        expression,
-        span,
-        allowVariableTarget,
-      );
-    }
-
-    for (const index of deferredLiteralArguments) {
-      const expected = parameters[index] ?? ERROR;
-      const actual = arguments_[index] ?? ERROR;
-      const expression = expressions[index];
-      if (expression === undefined) continue;
-      this.#unifyExpected(expected, actual, expression, span, true);
-    }
+    this.#argumentPass(
+      call, parameters, arguments_, expressions, level, span, powerSeat, new Set(arguments_.keys()),
+    ).finish();
   }
 
   /* --- #355's effect engine ------------------------------------------ */
@@ -20303,15 +20690,14 @@ class Checker {
 
   #hasNumericWidening(expression: Resolved.Expr): boolean {
     return this.#natWidenings.has(expression) || this.#intWidenings.has(expression) ||
-      this.#bigIntWidenings.has(expression) || this.#decimalPromotions.has(expression) ||
-      this.#decimalRetyped.has(expression);
+      this.#bigIntWidenings.has(expression) || this.#decimalPromotions.has(expression);
   }
 
   /**
    * Which exact home a decimal-point literal can take at `target`, or
    * `undefined` (Numeric Literals §5.1, #525). The expression must be
-   * **literal-shaped** (`decimalLiteralLeaves`): a literal, a negated literal,
-   * or a forwarding form whose every value path is one. Only literals are ever
+   * **literal-shaped** (`decimalLiteral`): a literal, or a negated
+   * literal — one value of its expression tree. Only literals are ever
    * promoted — an established `Float` value never is (Friendly Numerics tenet
    * 7) — and only into a **concrete** target: a type variable keeps the
    * literal `Float`, so no literal's type is decided where a reader cannot see.
@@ -20323,7 +20709,7 @@ class Checker {
   ): "Dec" | "Frac" | undefined {
     const source = this.#prune(actual);
     if (source.kind !== "Constructor" || source.name !== "Float") return undefined;
-    if (decimalLiteralLeaves(expression) === undefined) return undefined;
+    if (decimalLiteral(expression) === undefined) return undefined;
     const destination = this.#prune(target);
     if (destination.kind === "NominalRecord" && destination.record === this.#decRecord) {
       return "Dec";
@@ -20337,12 +20723,10 @@ class Checker {
   }
 
   /**
-   * Promotes a literal-shaped expression at `target`: each literal leaf takes
-   * the exact value its digits spell, and every forwarding form around the
-   * leaves takes `target` as its type. Reached through `#tryWidenNumeric`, so
-   * a seat that widens an `Int` promotes a literal on exactly the same terms,
-   * the forwarding forms included — the seat reads through them, as it widens
-   * an `if` whose branches are `Int`.
+   * Promotes a literal-shaped expression at `target`: the literal takes the
+   * exact value its digits spell. Reached through `#tryWidenNumeric`, so a
+   * value entering its tree's home promotes on exactly the terms an `Int`
+   * widens on.
    */
   #tryPromoteDecimal(
     expression: Resolved.Expr,
@@ -20351,8 +20735,8 @@ class Checker {
     span: Source.Span,
   ): boolean {
     const home = this.#decimalHome(expression, actual, target);
-    const leaves = decimalLiteralLeaves(expression);
-    if (home === undefined || leaves === undefined) return false;
+    const leaf = decimalLiteral(expression);
+    if (home === undefined || leaf === undefined) return false;
     const destination = this.#prune(target);
     const evidence = home === "Frac"
       ? {
@@ -20360,37 +20744,32 @@ class Checker {
           frac: this.#require("Frac", destination, span),
         }
       : undefined;
-    for (const leaf of leaves) {
-      const written = decimalLiteralParts(leaf.literal.spelling, leaf.negative);
-      const shift = (written.exponent ?? 0) - written.places;
-      if (home === "Dec" && written.exponent !== undefined) {
-        // `dec.md` §3: a Dec literal shows its decimal places, which an
-        // exponent hides; the repair spells the same value in ordinary
-        // notation, where that spelling is short enough to offer.
-        this.#unsupported(
-          leaf.node.span,
-          "a `Dec` literal is written without an exponent, so its decimal places show" +
-            (Math.abs(shift) > MAX_PROMOTED_SHIFT
-              ? ""
-              : `; write \`${ordinaryDecimalSpelling(written)}\``),
-        );
-        continue;
-      }
-      if (Math.abs(shift) > MAX_PROMOTED_SHIFT) {
-        this.#unsupported(
-          leaf.node.span,
-          `this literal's exponent is too large to read exactly at \`${this.#display(destination)}\``,
-        );
-        continue;
-      }
-      this.#decimalPromotions.set(
-        leaf.node,
-        evidence === undefined ? { kind: "Dec", written } : { kind: "Frac", written, ...evidence },
+    const written = decimalLiteralParts(leaf.literal.spelling, leaf.negative);
+    const shift = (written.exponent ?? 0) - written.places;
+    if (home === "Dec" && written.exponent !== undefined) {
+      // `dec.md` §3: a Dec literal shows its decimal places, which an
+      // exponent hides; the repair spells the same value in ordinary
+      // notation, where that spelling is short enough to offer.
+      this.#unsupported(
+        leaf.node.span,
+        "a `Dec` literal is written without an exponent, so its decimal places show" +
+          (Math.abs(shift) > MAX_PROMOTED_SHIFT
+            ? ""
+            : `; write \`${ordinaryDecimalSpelling(written)}\``),
       );
+      return true;
     }
-    for (const form of decimalLiteralForms(expression)) {
-      this.#decimalRetyped.set(form, destination);
+    if (Math.abs(shift) > MAX_PROMOTED_SHIFT) {
+      this.#unsupported(
+        leaf.node.span,
+        `this literal's exponent is too large to read exactly at \`${this.#display(destination)}\``,
+      );
+      return true;
     }
+    this.#decimalPromotions.set(
+      leaf.node,
+      evidence === undefined ? { kind: "Dec", written } : { kind: "Frac", written, ...evidence },
+    );
     return true;
   }
 
@@ -28032,10 +28411,6 @@ class Checker {
   #materializeExpr(expression: Resolved.Expr): Typed.Expr {
     const promotion = this.#decimalPromotions.get(expression);
     if (promotion !== undefined) return this.#materializeDecimalPromotion(expression, promotion);
-    const retyped = this.#decimalRetyped.get(expression);
-    if (retyped !== undefined) {
-      return { ...this.#materializeUnwidenedExpr(expression), type: this.#publicType(retyped) };
-    }
     const value = this.#materializeUnwidenedExpr(expression);
     const natWidening = this.#natWidenings.get(expression);
     if (natWidening !== undefined) {
