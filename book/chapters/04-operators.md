@@ -245,15 +245,15 @@ let writable = 0b010
 
 let permissions = readable bor writable        // 6
 let canWrite = permissions band writable != 0  // True
-let withoutWrite = permissions band bnot writable
+let withoutWrite = permissions band bnot writable  // 4, readable alone again
 ```
 
 `band`, `bor`, and `bxor` are bitwise and, or, and exclusive or; `bnot` flips every
 bit. Shifts are named operations rather than operators:
 
 ```hexagon
-let packed = 0x12.shiftLeft(8) bor 0x34  // 0x1234
-let high = packed.shiftRight(8)          // 0x12
+let packed = 0x12.shiftLeft(8) bor 0x34  // 0x1234, which displays as 4660
+let high = packed.shiftRight(8)          // 0x12, which displays as 18
 ```
 
 A shift by a negative count shifts the other way, and a right shift rounds toward
@@ -269,8 +269,10 @@ let wrapped = 1.shiftLeft(31).toInt32()   // -2147483648, what JavaScript's 1 <<
 ```
 
 When code really does mean 32-bit arithmetic, such as a hash ported from JavaScript, it
-says so with `toInt32` or `toUint32` where the JavaScript reduced: `e | 0` becomes
-`e.toInt32()`, and `e >>> 0` becomes `e.toUint32()`. There is no unsigned right shift;
+says so with `toInt32` or `toUint32` where the JavaScript reduced an integer: `e | 0`
+becomes `e.toInt32()`, and `e >>> 0` becomes `e.toUint32()`. (JavaScript also uses `| 0`
+to truncate a fractional number; in Hexagon that is a `Float` operation, `floor` or
+`round` from Chapter 2.) There is no unsigned right shift;
 `x >>> n` is written `x.toUint32().shiftRight(n)`, because "unsigned" only means
 something once the width is named.
 
@@ -278,11 +280,12 @@ At `BigInt` the words compile to JavaScript's own operators, because JavaScript'
 `bigint` already has exactly this meaning:
 
 ```hexagon
-let masked = big band 0xFFn
+let id = 0x1234_5678_9ABCn
+let lowByte = id band 0xFFn    // 0xBCn
 ```
 
 ```js
-const masked = big & 0xFFn;
+const lowByte = id & 0xFFn;
 ```
 
 At `Int`, JavaScript's operators would give the 32-bit answer, so each operation
@@ -291,14 +294,17 @@ compiles to a call instead.
 Integers of different types meet at the wider one, as they do under `+`: a `Nat` and an
 `Int` give an `Int`, and an `Int` and a `BigInt` give a `BigInt`. `Nat` has no bitwise
 operations of its own, because `bnot` of a natural number is negative. A written `Int`
-type runs them on natural numbers, exactly as it runs subtraction:
+type lets them run on natural numbers anyway; the same annotation is also how two
+`Nat`s are subtracted:
 
 ```hexagon
-let bits: Int = count band 0xF   // count : Nat
+let count: Nat = 23
+let bits: Int = count band 0xF   // 7
 ```
 
 `band`, `bor`, and `bxor` are operators only directly after an operand. Anywhere else
-they are ordinary names, so a variable called `band` still works. The two families
+they are ordinary names, so a variable called `band` still works. `bnot` is reserved,
+as `not` is. The two families
 refuse each other's types, and each refusal names the spelling that was probably meant:
 `p band q` on `Bool` suggests `and`, and `x and y` on `Int` suggests `band`. JavaScript's
 `&`, `|`, `^`, `~`, `<<`, and `>>` are not Hexagon operators, and writing one draws the
@@ -420,9 +426,10 @@ From tightest to loosest, the operator groups are:
 
 Most of this is the familiar mathematical order. The two rules most worth remembering
 are that exponentiation binds inside unary minus on its left, and `not` applies to a
-comparison before it applies to surrounding logic. The bitwise words sit between
+comparison before it applies to surrounding logic. The binary bitwise words sit between
 arithmetic and comparison, `band` tightest, so `flags band mask == 0` compares the
-masked value with zero, as it reads.
+masked value with zero, as it reads. `bnot`, like a call, binds tighter than everything
+else: `bnot x ** 2` is `(bnot x) ** 2`, unlike `-x ** 2`.
 
 Conditionals and lambdas extend to the right rather than occupying an infix level:
 

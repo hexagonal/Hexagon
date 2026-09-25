@@ -422,7 +422,7 @@ safe range:
 ```hexagon
 let exactPopulation = 9_007_199_254_740_993n
 let cryptographicModulus = 340_282_366_920_938_463_463_374_607_431_768_211_507n
-let widest = 0xFFFF_FFFF_FFFFn
+let mask48 = 0xFFFF_FFFF_FFFFn
 ```
 
 These literals have type `BigInt` and compile directly to JavaScript `bigint` values.
