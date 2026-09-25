@@ -77,7 +77,7 @@ like any other instance's. Nothing seals the constraint beyond the orphan rule.
 
 As in Constraints §7, the laws are what instances are written and reviewed against;
 nothing checks them. The shipped instances keep them exactly: `BigInt` everywhere, and
-`Int` wherever operands, intermediates, and results lie in [−2⁵³, 2⁵³]. Past that range
+`Int` wherever operands, intermediates, and results lie in [−2⁵³, 2⁵³). Past that range
 `Int`'s overflow contract governs (§4.2).
 
 - `bitAnd`, `bitOr`, and `bitXor` are associative and commutative. `bitAnd` and `bitOr`
