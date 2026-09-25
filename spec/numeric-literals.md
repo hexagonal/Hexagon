@@ -259,11 +259,12 @@ target is concrete and is not Float
   `Num.add(0.5, price)` meets at `Dec` as `0.5 + price` does. It settles before
   any callback argument is checked: promoted where a sibling established an
   exact subject, and otherwise settling the subject at `Float`, as it did before
-  it waited — `xs.fold(0.0, (acc, x) => acc + x)` checks its callback at `Float`. A vector element, a tuple component, a record field, a
-  constructor argument, or a lambda body under a function-typed expectation is
-  not a widening seat, so a literal there stays `Float` — where an integer
-  *literal* would have unified. A literal whose exponent would scale it by more
-  than 10,000 powers of ten is refused rather than read.
+  it waited — `xs.fold(0.0, (acc, x) => acc + x)` checks its callback at
+  `Float`. A vector element, a tuple component, a record field, a constructor
+  argument, or a lambda body under a function-typed expectation is not a
+  widening seat, so a literal there stays `Float` — where an integer *literal*
+  would have unified. A literal whose exponent would scale it by more than
+  10,000 powers of ten is refused rather than read.
 - **Not in patterns.** A literal pattern keeps Pattern Matching §2.5's exact-type
   rule; at a `Dec` scrutinee the refusal names the `d` spelling (#1054).
 
