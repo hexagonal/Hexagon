@@ -3070,6 +3070,8 @@ class Checker {
   #chainOverride: readonly ChainEntry[] | undefined = undefined;
   /** The chain each recorded requirement was made in, for its components. */
   readonly #requirementChains = new Map<Requirement, readonly ChainEntry[]>();
+  /** The `fun` members a refused declared variable belongs to (#704). */
+  readonly #refusedDeclarations = new Set<Resolved.SymbolId>();
   /** Each `fun` member's knot — the members checked with it (#1048). */
   readonly #knotMembers = new Map<Resolved.SymbolId, readonly Resolved.SymbolId[]>();
   /**
@@ -19003,6 +19005,7 @@ class Checker {
           primary: span,
         });
       }
+      this.#markDeclarationsRefused(variable);
       variable.instance = ERROR;
       return;
     }
@@ -21520,6 +21523,30 @@ class Checker {
   }
 
   /**
+   * Records that a declaration owning `variable` has refused one of its declared
+   * variables (#704). A knot refuses as one: every member of the live knot the
+   * refused variable's owner belongs to. Its survivors — the members' other
+   * declared variables, left unquantified because the knot failed — are then
+   * this refusal's to account for, and nothing reports them again. Only the
+   * refused variable is asked, never the other side of a rigid-vs-rigid clash:
+   * that side may be a casualty leaked from another knot's unquantified member,
+   * and marking its knot would hide that knot's own report.
+   */
+  #markDeclarationsRefused(variable: Variable): void {
+    const owner = this.#declaredHeadOwners.get(variable.id);
+    if (owner === undefined) return;
+    const owners = owner.kind === "block" ? owner.members : [owner.symbol];
+    // Only the live knot — the SCC, never the whole §7.3 block — refuses as one.
+    // A clash outside any knot holding the owner (an outer declaration meeting a
+    // variable leaked from an unquantified member) marks nothing, and a sibling
+    // knot of the same block is not this one.
+    for (const knot of this.#knots) {
+      if (!owners.some((symbol) => knot.types.has(symbol))) continue;
+      for (const symbol of knot.types.keys()) this.#refusedDeclarations.add(symbol);
+    }
+  }
+
+  /**
    * **A demand on a declared variable is met only where its evidence reaches**
    * *(#1048; closure doc §13.6's checker-clean invariant)*.
    *
@@ -21566,6 +21593,10 @@ class Checker {
         : knot !== undefined
         ? [...chain].reverse().find(({ symbol }) => knot.includes(symbol))
         : chain.find(({ symbol }) => symbol === declaring)) ?? chain.at(-1)!;
+      // A survivor of the knot that refused: the knot's refusal is the only
+      // report it gets (#704; Functions §10's fence). Asked of the member this
+      // demand would name, so another knot of the same block still reports.
+      if (owner !== undefined && this.#refusedDeclarations.has(named.symbol)) continue;
       const type = this.#schemes.get(named.symbol)?.type;
       unrouted.push({
         requirement,
@@ -21635,7 +21666,14 @@ class Checker {
       seen.add(actual.id);
       if (actual.requirements.length === 0) continue;
       if (this.#reportUnmentionedDeclared(actual)) continue;
-      if (this.#canDefaultToInt(actual)) {
+      // **A declared variable is never proposed `Int`** *(#704; Numeric
+      // Literals §4)*, as GHC never defaults a signature's variable. One that
+      // reaches here unquantified, mentioned by its declaration's type, is a
+      // knot's survivor: the knot has refused already, and a proposal here
+      // would surface a type no body demanded (Functions §10's fence). The
+      // bindings with no evidence seat keep defaulting's refusal, which
+      // `#generalize` delivers at the binding itself.
+      if (actual.rigidName === undefined && this.#canDefaultToInt(actual)) {
         this.#refuseOrDefault(actual, actual.requirements[0]!.span);
         continue;
       }
