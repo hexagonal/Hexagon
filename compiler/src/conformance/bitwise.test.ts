@@ -451,6 +451,31 @@ describe("non-decimal literals (§8)", () => {
     expect(text).toContain("=== -0b1");
   });
 
+  test("a literal extern enum member keeps its base in JavaScript and TypeScript (#1038)", () => {
+    const project = compileMain(
+      "module Main\n\nexport extern enum Mode = 0x1 as Read | 0b10 as Write | -0x4 as Back | -0x0 as Zero\n",
+    );
+    expect(project.diagnostics).toEqual([]);
+    const main = project.modules.find(({ source }) => source.path === "/main.hex")!;
+    const text = main.javascript.text;
+    for (const line of ["const Read = 0x1;", "const Write = 0b10;", "const Back = -0x4;", "case 0x1:", "case -0x4:"]) {
+      expect(text).toContain(line);
+    }
+    // `-0x0` is `0`, as the value is: JavaScript would read the signed spelling as `-0`.
+    expect(text).toContain("const Zero = 0x0;");
+    expect(main.declarations?.text).toContain("export type Mode = 0x1 | 0b10 | -0x4 | 0x0;");
+  });
+
+  test("a refused literal pattern is quoted, and its guard written, in the source base (#1038)", () => {
+    const [message] = projectDiagnostics("module Main\n\nimport Rat\n\n" +
+      "export fun f(ratio: Rat.Rat): String =\n" +
+      "    match ratio\n" +
+      "        0xFF => \"mask\"\n" +
+      "        _ => \"other\"\n");
+    expect(message).toContain("`0xFF` is not a pattern at `Rat`");
+    expect(message).toContain("x when x == 0xFF");
+  });
+
   test("the bare range limit and its n fix-it apply as for decimal literals", () => {
     const project = compileMain("module Main\n\nlet x = 0x20000000000000\n");
     const [diagnostic] = project.diagnostics;

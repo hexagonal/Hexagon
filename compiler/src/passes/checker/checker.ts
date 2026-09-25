@@ -11167,7 +11167,9 @@ class Checker {
     // what keeps `match None` with the arms `Some(0)` and `Some({x = _})` to the one
     // report §12 allows instead of adding a refusal whose fixit cannot clear it.
     if (!this.#literalDemandsHold(pattern, type)) return;
-    const head = `\`${pattern.decimal}\` is not a pattern at \`${this.#display(type)}\``;
+    // The literal as the reader wrote it, in its own base (`bitwise.md` §8, #1038).
+    const spelled = pattern.written ?? pattern.decimal;
+    const head = `\`${spelled}\` is not a pattern at \`${this.#display(type)}\``;
     // §2.5: the guard is offered **only where it is valid at that position**. Its
     // two halves are settled by now — the type unifies by construction (the literal
     // stood at it) and the gate above has just established the constraints. The
@@ -11176,7 +11178,7 @@ class Checker {
     // that already has one the rendered arm head would replace it.
     const guard = guardUnavailable
       ? undefined
-      : literalPatternGuard(pattern, pattern.decimal, root);
+      : literalPatternGuard(pattern, spelled, root);
     this.#diagnostics.add({
       severity: "error",
       message: guard === undefined
@@ -27762,7 +27764,7 @@ function renderPattern(
     case "Unit":
       return "()";
     case "Integer":
-      return `${pattern.decimal}${pattern.bigint === true ? "n" : ""}`;
+      return `${pattern.written ?? pattern.decimal}${pattern.bigint === true ? "n" : ""}`;
     case "Dec": {
       const negative = pattern.coefficient.startsWith("-");
       const magnitude = (negative ? pattern.coefficient.slice(1) : pattern.coefficient)

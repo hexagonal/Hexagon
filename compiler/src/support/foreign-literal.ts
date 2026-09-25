@@ -17,7 +17,16 @@
  */
 export type ForeignLiteral =
   | { readonly kind: "String"; readonly value: string }
-  | { readonly kind: "Integer"; readonly value: number }
+  | {
+    readonly kind: "Integer";
+    readonly value: number;
+    /**
+     * A non-decimal member's source spelling, sign included (`-0x2`), which the
+     * JavaScript and TypeScript faces write back (`bitwise.md` §8, #1038). The
+     * value stays the key: `0x1` and `1` are one member value.
+     */
+    readonly written?: string;
+  }
   | { readonly kind: "Bool"; readonly value: boolean }
   | { readonly kind: "Null" }
   | { readonly kind: "Undefined" };
@@ -32,7 +41,7 @@ export function foreignLiteralJs(literal: ForeignLiteral): string {
     case "String":
       return JSON.stringify(literal.value);
     case "Integer":
-      return String(literal.value);
+      return literal.written ?? String(literal.value);
     case "Bool":
       return literal.value ? "true" : "false";
     case "Null":
