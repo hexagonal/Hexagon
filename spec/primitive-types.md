@@ -36,9 +36,10 @@ are integral and lie in `0 ... 2^53 - 1`; there is no runtime tag or wrapper. Na
 deliberately not the default for bare literals: `let count = 3` remains `Int`, while
 `let count: Nat = 3` pins the same bare literal to Nat.
 
-Nat honors `Num`, `Eq`, `Ord`, `Show`, `Hash`, `Pow`, `Integral`, and `Real`, but not `Signed`
-or `Frac`. Generic addition and multiplication therefore accept Nat; subtraction and
-negation do not. `Nat.fromInt : Int -> Option(Nat)` is the checked boundary conversion
+Nat honors `Num`, `Eq`, `Ord`, `Show`, `Hash`, `Pow`, `Integral`, and `Real`, but not `Signed`,
+`Frac`, or `Bitwise`. Generic addition and multiplication therefore accept Nat; subtraction,
+negation, and the bitwise operations do not, and run on Nat values under a written `Int`
+face (Numeric Literals §5.1; `bitwise.md` §5.1). `Nat.fromInt : Int -> Option(Nat)` is the checked boundary conversion
 *(#344: built — an ordinary export of `stdlib/Nat.hex`, a sign check in Hexagon over its
 unexported unchecked core. One consequence rode in with it: `fromInt` gained a second
 exporter beside `Signed.hex`'s member, so the bare spelling is refused per Modules §5.5
@@ -67,11 +68,11 @@ type name from a type variable and enables implicit generalisation without `fora
 
 **Why not BigInt** (decided, do not re-litigate without new information): ambient BigInt taxes every index and loop counter (~10× on small values in V8, no small-int fast path), `JSON.stringify` throws on bigint, `Math.*` rejects it, mixed `number`/`bigint` arithmetic throws, Immutable.js uses number indexes internally (coercion on every List op), and the emitted `.d.ts` would force `bigint` on every JS consumer. Precedents: Dart 2 retreated from arbitrary-precision int to fixed-width largely because of the web target; PureScript/Elm/ReScript/Gleam all chose `number`. Users who need arbitrary precision opt in via `BigInt` (§6).
 
-**Literals:** decimal digits, optional `_` separators (§8), no decimal point, no exponent, no `n` or `d` suffix. Per the Numeric Literals spec: a bare integer literal is *polymorphic* — it elaborates to `fromNat(k) : α` with constraint `Num α`, defaulting to `Int` at generalisation. The lexer range-checks the payload against 2^53 − 1 and errors with an "add `n`" fixit beyond that. **This doc does not restate that machinery; the Numeric Literals spec is authoritative for elaboration, defaulting, and codegen erasure.**
+**Literals:** decimal digits, or hexadecimal (`0xFF`), octal (`0o777`), or binary (`0b1010`) digits after a lowercase prefix (Lexer §5, `bitwise.md` §8); optional `_` separators (§8), no decimal point, no exponent, no `n` or `d` suffix. Per the Numeric Literals spec: a bare integer literal is *polymorphic* — it elaborates to `fromNat(k) : α` with constraint `Num α`, defaulting to `Int` at generalisation. The lexer range-checks the payload against 2^53 − 1 and errors with an "add `n`" fixit beyond that. **This doc does not restate that machinery; the Numeric Literals spec is authoritative for elaboration, defaulting, and codegen erasure.**
 
 **Division:** `Int` honors `Num` and `Signed` (add/multiply plus subtract/negate/fromInt) but **not** `Frac` — there is no generic `divide` at Int (decided when `divide` was evicted from `Signed`). Integer division/modulo are `Integral<Int>`'s `div`/`mod`, **Euclidean**, per the Division & Remainder spec — the owning doc; `Int.div`/`Int.mod` are those members qualified *(#344 — this sentence previously said "monomorphic" and "(floored)": it predated both the `Integral` constraint and the Euclidean ruling, and the members now live as source `honor` blocks in `stdlib/Int.hex`)*.
 
-**Standard constraints:** `Real` (Constraints §7), `Num`, `Signed`, `Eq`, `Ord`, `Show`, `Pow` (Operators §6.3), `Hash` (Collections Part 2 §2.5), `Integral` (Integral §3) *(corrected 2026-07-28, #137 — record in §11)*.
+**Standard constraints:** `Real` (Constraints §7), `Num`, `Signed`, `Eq`, `Ord`, `Show`, `Pow` (Operators §6.3), `Hash` (Collections Part 2 §2.5), `Integral` (Integral §3), `Bitwise` (`bitwise.md`) *(corrected 2026-07-28, #137 — record in §11)*.
 
 ### 2.1 Overflow policy (decided)
 
@@ -92,7 +93,7 @@ continues to return `None` instead and does not throw it.
 
 **Rejected: int32 via `(a + b) | 0` / `Math.imul` (the PureScript/ReScript design).** Considered seriously and declined. Mechanics for the record: JS bitwise ops apply ToInt32 (truncate, then wrap two's-complement into [−2^31, 2^31)), so `| 0` coerces a result into int32 with C-style wraparound; multiplication needs `Math.imul` because int32 products can exceed 2^53 and round before `| 0` could wrap them; engines optimize the pattern heavily (it is asm.js's foundation). Genuine gains: lawful modular semantics for `Signed Int`, determinism, honest bitwise ops. Rejected because: `| 0`/`Math.imul` on every arithmetic op is codegen noise on the hottest expressions (the same disease as `0n` loop counters that killed BigInt-as-Int); and ±2^31 excludes commonplace values — millisecond timestamps (~1.7·10^12), files over 2GB, cents past $21M — that ±2^53 comfortably holds, while int32's failure mode (silent wrap to a normal-looking, often negative number) is just as silent as f64's, only four million times sooner. Deterministic wraparound mainly benefits ported native-int code (ReScript inherits OCaml's semantics; PureScript prizes the algebraic law); Hexagon has neither motivation. Gleam's JS backend faced this same choice and also went plain-number.
 
-**Bitwise operators, forward note:** if Hexagon ever adds `<<`, `&`, `|`, etc., they must be specced as operating on the int32 projection (which is what JS provides anyway) or gated behind an explicit `Int32` type — never presented as acting on 53-bit values. v2+ concern; recorded here so it isn't invented ad hoc.
+**Bitwise operations:** `Int` honors `Bitwise` (`bitwise.md`). `band`, `bor`, `bxor`, `bnot`, and the named shifts compute the true integer answer on the `number` representation, the answer `BigInt` gives for the same value — never the int32 projection JavaScript's operators apply. JavaScript's 32-bit view is two named lossy conversions, `Int.toInt32` (`x | 0`) and `Int.toUint32` (`x >>> 0`) (`bitwise.md` §4.3).
 
 ---
 
@@ -276,7 +277,7 @@ normalization.
 
 **Semantics:** arbitrary-precision integers. JS `bigint`, natively — no hand-rolled bignum library (decided: the engine's implementation is strictly better than anything we'd write, and the gap is only ergonomics around it, not the type).
 
-**Literals:** decimal digits + `n` suffix: `42n`, `9_007_199_254_740_993n`. **Monomorphic, always `BigInt`** — the `n` suffix *is* the type annotation, exactly as in JS, and BigInt literals do **not** participate in the polymorphic `Num`-literal scheme (decided, with reasons recorded in Numeric Literals spec §7: a polymorphic `1n` would hollow out the suffix and force a lossy or partial `fromBigInt` into `Num`). Payload is arbitrary precision; the lexer/AST must store it losslessly (string or JS bigint), never through an f64.
+**Literals:** decimal, hexadecimal, octal, or binary digits + `n` suffix: `42n`, `9_007_199_254_740_993n`, `0xFFn` (Lexer §5). **Monomorphic, always `BigInt`** — the `n` suffix *is* the type annotation, exactly as in JS, and BigInt literals do **not** participate in the polymorphic `Num`-literal scheme (decided, with reasons recorded in Numeric Literals spec §7: a polymorphic `1n` would hollow out the suffix and force a lossy or partial `fromBigInt` into `Num`). Payload is arbitrary precision; the lexer/AST must store it losslessly (string or JS bigint), never through an f64.
 
 **Exact destination capability:** `BigInt` honors `FromBigInt` with identity
 conversion. A BigInt expression may enter an independently established target
@@ -292,7 +293,7 @@ implicit conversion to Float, Int, or Nat. Literal patterns still require BigInt
 
 **FFI:** appears as `bigint` in emitted `.d.ts`. Known landmine, documented once in FFI docs: `JSON.stringify` throws on bigint — but only records that explicitly contain BigInt fields carry it, which is the point of keeping BigInt out of `Int`.
 
-**Standard constraints:** `FromBigInt` (`integer-widening.md`), `Real` (Constraints §7), `Num`, `Signed`, `Eq`, `Ord`, `Show` (note `show 1n` is `"1"` — **no** `n` suffix; this is JS `String(1n)` behaviour and is display-correct), `Pow` (Operators §6.3), `Hash` (Collections Part 2 §2.5), `Integral` (Integral §3) *(corrected 2026-07-28, #137 — record in §11)*.
+**Standard constraints:** `FromBigInt` (`integer-widening.md`), `Real` (Constraints §7), `Num`, `Signed`, `Eq`, `Ord`, `Show` (note `show 1n` is `"1"` — **no** `n` suffix; this is JS `String(1n)` behaviour and is display-correct), `Pow` (Operators §6.3), `Hash` (Collections Part 2 §2.5), `Integral` (Integral §3), `Bitwise` (`bitwise.md`) *(corrected 2026-07-28, #137 — record in §11)*.
 
 ---
 
@@ -331,7 +332,7 @@ Underscore separators are allowed in all numeric literals (Nat/Int-payload bare 
 - Separators are for readability only: erased from the numeric value; grouping is unenforced (`1_00_00` is legal).
 - Emission: literals may be emitted with or without their separators (both are valid JS); preserving them where the source had them is nicer for readable-JS but not required.
 
-**Bases:** v1 literals are **decimal only**. Hex/binary/octal (`0xFF`, `0b1010`, `0o777`) are deferred; when added, the JS underscore rule extends to them unchanged (which sidesteps the `0x_FF` divergence permanently).
+**Bases:** integer and BigInt literals may be hexadecimal, octal, or binary (`0xFF`, `0o777`, `0b1010`; `bitwise.md` §8), and the JS underscore rule extends to them unchanged, which sidesteps the `0x_FF` divergence permanently: `0xFF_FF` is legal, `0x_FF` is not. Float and Dec literals are decimal only.
 
 The BigInt example in §1's table, `9_007_199_254_740_993n`, exercises both features at once but they are independent: `_` is general modern-integer-literal syntax, not BigInt-specific. (That value, 2^53 + 1, is also the smallest positive integer a bare literal *cannot* express — the lexer range check from the Numeric Literals spec rejects it without the `n`.)
 
@@ -365,7 +366,7 @@ Unchanged and still worth its ink here: **`Unit`'s `undefined` must not be confu
 | `${e}` → `show(e)`; Show is display-semantics; not universal | this doc §5.3, §7 |
 | Escapes `\$` and `\#`; bare `#{` is a v1 lex error (reserved for v2 Debug) | this doc §5.2, §5.4 |
 | String length/indexing: codepoints, 1-based, O(n) accepted; graphemes maybe-later | this doc §5.1 |
-| `_` separators: JS rule, all numeric literals; decimal-only bases in v1 | this doc §8 |
+| `_` separators: JS rule, all numeric literals; integers and BigInts also in hexadecimal, octal, and binary (`bitwise.md` §8), Float and Dec decimal only | this doc §8 |
 | `Unit` = `()` = JS `undefined` | this doc §9 |
 | `Float.nan` / `Float.infinity` constants and `Float.isNan` / `Float.isFinite` detectors; no special-value literals; `x != x` is uniformly `False` | this doc §3 |
 | `Float.floor`/`ceil`/`trunc`/`round`/`roundAway` return `Int`; `round` uses ties to even, `roundAway` ties away from zero; unsafe results throw target-owned `IntRangeError`; zero is canonical | this doc §3; #919, #974 |

@@ -510,8 +510,9 @@ evidence lies in the source rather than the declarations.
 ### 8.2 Flags and bitmasks
 
 Bitflag APIs are not closed alternatives: `Read | Write` may be valid without being a
-declared member. Bind them as `Int` or an opaque foreign type with explicit bit
-operations. Documentation and diagnostics should suggest this rewrite when member
+declared member. Bind them as `Int` and combine them with the bitwise operators
+(`band`, `bor`, `bnot` — `bitwise.md`), or as an opaque foreign type with explicit bit
+operations. Typed flag sets are an open question (#1031). Documentation and diagnostics should suggest this rewrite when member
 values are declared as combinable flags.
 
 ### 8.3 Alias values

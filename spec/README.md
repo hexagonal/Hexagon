@@ -35,6 +35,7 @@ Every normative owner appears exactly once. The explicitly marked router and gui
 | Types | `products.md` | tuples (incl. `Unit`, the empty tuple — #159), structural/nominal records, rows, field access |
 | Types | `unions.md` | `union` declarations, `match` surface, representations |
 | Types | `integral-constraint.md` | the `Integral` constraint |
+| Types | `bitwise.md` | the `Bitwise` constraint, `band`/`bor`/`bxor`/`bnot`, named shifts and 32-bit conversions, hexadecimal/octal/binary literals |
 | Types | `integer-widening.md` | `FromBigInt`, exact-integer construction laws, and prerequisite integration; contextual widening is owned by `numeric-literals.md` |
 | Types | `math.md` | the `Math` module: Float mathematical functions, edge cases, and approximation contract |
 | Types | `rat.md` | exact `BigInt`-backed rational values |

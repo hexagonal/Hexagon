@@ -248,11 +248,11 @@ Hard keywords receive dedicated token kinds. A hard keyword is syntax in a **bar
 anywhere a construct can begin — and an ordinary name in §4.4's three name seats:
 
 ```text
-and         catch       constraint  derive      else       exception
-export      extern      false       finally     for        fun
-honor       iff         if          implies     import      in
-let         match       not         or          record      then
-true        try         type        var         while
+and         bnot        catch       constraint  derive     else
+exception   export      extern      false       finally    for
+fun         honor       iff         if          implies    import
+in          let         match       not         or         record
+then        true        try         type        var        while
 ```
 
 The groups are:
@@ -262,7 +262,7 @@ The groups are:
   this group, is contextual since the Set milestone (#373; §4.2);
 - expression and control forms: `catch`, `else`, `for`, `if`, `in`, `match`,
   `then`, `try`, `while`;
-- word operators: `and`, `iff`, `implies`, `not`, `or`;
+- word operators: `and`, `bnot`, `iff`, `implies`, `not`, `or` — `bnot` the bitwise complement (`bitwise.md` §3.1), whose binary siblings `band`, `bor`, and `bxor` are contextual (§4.2);
 - reserved redirect words: `false`, `true` — formerly Bool literals, now reserved
   spellings whose only role is a diagnostic (see below) *(corrected 2026-07-29,
   #147: Bool is the prelude union `False | True`; its values are ordinary
@@ -324,6 +324,7 @@ listed positions:
 | `module` | the module header at the head of a top-level item, always followed by the module's uppercase-start name, dotted or not (`module Geometry`, `module Render.Geometry` — Modules §2.1, #829); the `union`/`widens` disambiguation: no juxtaposition exists, so `module` followed by a name is no term, and elsewhere `module` is an ordinary name (`let module = 3` binds). Recognition includes the refused seats: the same head followed by a name with a segment that is not uppercase-start (`module geometry`), Modules §2.1's casing refusal, and the header inside a block, Modules §2.2's redirect — the `opaque` row's pattern, seats no expression could occupy |
 | `end` | the module closer `end module Name` at the head of a top-level item — the two words together, the second the contextual header word above (Modules §2.2, #829); recognition includes a closing name with a segment that is not uppercase-start (`end module geometry`), whose report is Modules §2.2's closer-naming rule, never Modules §2.1's casing refusal, and the closer inside a block, Modules §2.2's redirect; `end` alone is an ordinary name everywhere, and stays one: `SliceError(start: Int, end: Int)` in `stdlib/Vector.hex` is live use |
 | `pattern` | the pattern-declaration introducer at declaration head — module top level, optionally after `export`, always followed by the pattern's non-uppercase-start name and then `(`, `<`, `:`, `=`, or the end of the item (Pattern Declarations §2.1, §3.4; #834). The `union`/`widens`/`module` disambiguation: no juxtaposition exists, so `pattern` followed by a name is no term; elsewhere `pattern` is an ordinary name (`let pattern = 3` binds). `view` and `build` are the block's member names, not keywords. The use form is the parser's, not the lexer's: a non-uppercase-start name written **against** the closing parenthesis of a parenthesised primary — no whitespace — is the suffix seat (Pattern Declarations §3.1); with whitespace the name is whatever it is elsewhere (`(0, 0) when g` is a guard, `(r) as s` an as-pattern), and a call's argument list is no seat |
+| `band`, `bor`, `bxor` | the binary operator seat directly after a complete operand (`bitwise.md` §3.1). No juxtaposition exists, so a name there is otherwise an error — the `when`/`with`/`as` infix seat — except a name written against a parenthesised primary's `)`, which is the `pattern` row's suffix seat and keeps it: `(a bor b)band` is a suffix construction, `(a bor b) band m` the operator. Everywhere else each is an ordinary name (`let band = 3` binds, `band(x)` calls, `x.band` reads a field), and a line that begins with one at the item's column begins a new item: none joins Lexer & Layout §2.3's continuation set |
 | `widened` | the complete RHS of a member line in an `honor` block — `pow = widened` (Constraints §4.7; #546). The position is otherwise always an error (member RHSs must be lambdas), so recognition is total; elsewhere `widened` is an ordinary name |
 
 Contextual status is observable: `let when = True` is legal, while the same spelling
@@ -417,8 +418,12 @@ of an optional underscore and another ASCII decimal digit:
 Digits   = [0-9] ("_"? [0-9])*
 Exponent = ("e" | "E") ("+" | "-")? Digits
 
-Integer  = Digits
-BigInt   = Digits "n"
+HexInteger = "0x" HexDigit ("_"? HexDigit)*      HexDigit = [0-9a-fA-F]
+OctInteger = "0o" [0-7] ("_"? [0-7])*
+BinInteger = "0b" [01] ("_"? [01])*
+
+Integer  = Digits | HexInteger | OctInteger | BinInteger
+BigInt   = (Digits | HexInteger | OctInteger | BinInteger) "n"
 Dec      = Digits ("." Digits)? "d"
 Float    = Digits "." Digits Exponent?
          | Digits Exponent
@@ -426,7 +431,7 @@ Float    = Digits "." Digits Exponent?
 
 Consequences:
 
-- Decimal is the only base in v1. `0x`, `0o`, and `0b` forms are errors.
+- Integers and BigInts may be written in hexadecimal, octal, or binary (`bitwise.md` §8). The prefix is lowercase only — `0X`, `0O`, and `0B` are diagnosed with a lowercase fix-it — and hex digits take either case. Dec and Float are decimal only: `d` and `e` are hex digits, so `0xFFd` is 4093 and `0x1e5` is 485. A fractional or exponent form (`0x1.5`, `0b1e3`), a digit outside the base (`0b102`, `0o8`), and a prefix with no digits (`0x`) are each one malformed numeric literal. `0x1.show()` is a literal followed by a dot call.
 - A decimal point belongs to a Float or Dec literal only when a digit follows it, and then requires
   digits on both sides. Write `1.0`, not a standalone `1.`, and `0.5`, not `.5`.
   The postfix form `1.show()` remains an Integer followed by `.` and a name.
@@ -439,10 +444,10 @@ Consequences:
   not an accepted Float followed by a separate identifier.
 - A leading sign is never part of the physical token. `-3` is `-` followed by an
   integer token; the parser forms a negative literal pattern in pattern position.
-- Leading zeroes are legal and decimal: `00`, `01`, and `00.5` have no octal meaning.
+- Leading zeroes are legal and decimal: `00`, `01`, `007`, and `00.5` have no octal meaning. Only a `0` followed by `x`, `o`, or `b` is a base prefix.
 - `1..2` is an integer, `..`, and an integer. It is never a malformed float.
 
-An integer token stores its separator-free decimal spelling. A bare integer must be
+An integer token stores its separator-free decimal value, and a non-decimal token also stores its source base and digits, which emission writes back (`bitwise.md` §8). A bare integer must be
 at most `2^53 - 1`, as fixed by Numeric Literals; a larger token is diagnosed with an
 `n`-suffix fix-it in expression position. In pattern position, retain an invalid
 recovery form and select the repair after the position's type is known: `n` only
@@ -603,9 +608,12 @@ spellings `/*` and `*/` join this family with Comments §3.1's redirects *(#171)
 
 ### 8.3 Not tokens
 
-The following are deliberately absent: `%`, `^`, `&`, `@`, `#`,
+The following are deliberately absent: `%`, `^`, `&`, `~`, `@`, `#`,
 backtick, backslash outside a string, `&&`, `||`, `::`, `??`, `?.`, `..<`,
 compound assignments, increment/decrement, and every user-invented punctuation run.
+`&`, `^`, and `~` stay absent with the bitwise operations in the language: those
+operations are the words `band`, `bxor`, and `bnot` (`bitwise.md`), and each character takes
+the redirect of §10.
 *(Corrected for #355 — this list previously included `->`, bare `!`, and `?`,
 all three now §8.1 tokens: `->` had already shipped, and `!`/`?` are the call
 marks. `??` and `?.` remain absent — maximal munch does not combine two marks or
@@ -674,7 +682,8 @@ token inventory and the lexer must not report the same source code unit twice.
 | `.5` / `1.` | suggest `0.5` / `1.0` |
 | `.5d` / `5.d` intended as a Dec literal | one diagnostic for the malformed joined form; suggest `0.5d` / `5.0d`, preserving the suffix |
 | Exponent notation with `d` (`5e2d`, `5.00e2d`) | one diagnostic: Dec literals do not allow exponent notation; do not accept a Float plus identifier |
-| Non-decimal base prefix | "Hexagon v1 has decimal literals only" |
+| Uppercase base prefix (`0X`, `0O`, `0B`) | name the prefix; lowercase fix-it (`bitwise.md` §8) |
+| Malformed non-decimal literal (`0x`, `0b102`, `0o8`, `0x1.5`, `0x_FF`, `0xFF_n`) | one malformed-numeric-literal diagnostic; consume the joined run |
 | Bare integer over safe range | Numeric Literals message + `n` fix-it in expressions; in patterns retain recovery syntax and select the repair by the position's type (Pattern Matching §2.5); literal extern enum members get the range error without a repair (Foreign Enums §2.4) |
 | Float overflow | "Float literal is too large; use `Float.infinity`" |
 | Invalid literal suffix | consume the joined run and name the invalid suffix |
@@ -685,6 +694,7 @@ token inventory and the lexer must not report the same source code unit twice.
 | Unterminated/unmatched block comment | Comments §5 messages verbatim |
 | JavaScript comment spelling `/*` / `*/` | Comments §5 redirect messages verbatim *(#171)* |
 | `&&`, `||` | suggest `and`, `or` respectively |
+| `&`, `^`, `~` | invalid character, with a redirect: `band`, `bxor` (and `**` for a power), `bnot` respectively (`bitwise.md` §9) |
 | `!` in prefix-expression position | suggest `not` — the parser selects the message now that `!` is a token *(#355; §8.2)*; a mark outside its grammatical seats gets Effects §9's mark-position error instead |
 | Any other invalid character | name the character and codepoint; consume it once |
 
@@ -704,6 +714,8 @@ let lines = "first\r\nsecond"      // escapes retain explicit CRLF
 let multi = "first
 second"                           // physical newline contributes one \n
 let n = 1..10                     // Integer, Range, Integer
+let mask = 0xFF_FF band 0b1010    // Integer, NonUpperName, Integer
+let big = 0x1F_FFFF_FFFF_FFFFn    // a BigInt in hexadecimal
 let subtract = x --1              // x - (-1); never a comment
 match value
     Some(x) | None as whole when ready => whole
@@ -716,7 +728,8 @@ let __temp = 1      -- compiler prefix is reserved (parser-selected, §10)
 let 😀 = 1           -- emoji is not an ECMAScript identifier start
 let x = .5          -- write 0.5
 let x = 1.          -- write 1.0
-let x = 0xFF        -- decimal only
+let x = 0XFF        -- the base prefix is lowercase: 0xFF
+let x = 0b102       -- 2 is not a binary digit
 let x = 1__0        -- digit required on both sides of `_`
 let x = "\q"        -- unknown escape
 let x = "#{value}"  -- reserved; write "\#{value}" for text
@@ -744,3 +757,4 @@ a && b              -- write `a and b`
 | Exact physical token families; virtual layout tokens excluded | §9 |
 | No warning tier; malformed tokens advance and recover | §10 |
 | `pure` and `conduit` leave the contextual table — ordinary names again; the arrow a callable extern row writes says what they claimed (FFI Part 4 §4.5, #869) | §4.2 |
+| `bnot` hard; `band`/`bor`/`bxor` contextual in the operator seat after a complete operand; `0x`/`0o`/`0b` integer literals, lowercase prefix, `n` suffix only; `&`/`^`/`~` redirect to the words (`bitwise.md`) | §4.1, §4.2, §5, §8.3, §10 |
