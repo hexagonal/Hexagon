@@ -118,8 +118,8 @@ not choose between direct conversion and a searched indirect path. For those
 sources it still calls `fromNat` or `fromInt`; §3 gives the implementations their
 single shared exact-integer construction path.
 
-Use the existing target-establishment, checking-order, exact-unification-first,
-and expected-type-lift rules. An annotation, established parameter type, concrete
+Use the existing target-establishment, checking-order, and expected-type-lift rules,
+now stated as Numeric Literals §5.1's expression home (#1062). An annotation, established parameter type, concrete
 operand, or existing constrained type variable can establish the destination.
 Widening does not invent a fresh destination variable or add a `FromBigInt` bound
 to make an otherwise unconstrained expression succeed.
@@ -167,7 +167,7 @@ must not be treated as independently fixed source types merely because they
 currently display as BigInt. This remains bounded argument checking, not a
 new unrestricted inference search.
 
-When operand-based comparison/arithmetic home selection needs to distinguish
+When the expression home's ranking (Numeric Literals §5.1) needs to distinguish
 the fixed integer sources, prefer an independently established non-Nat/Int/BigInt
 numeric destination over those sources; otherwise prefer BigInt, then Int, then
 Nat. Conversions must still be licensed by actual evidence. This neither guesses

@@ -1,7 +1,7 @@
 # Hexagon Spec: Numeric Literals
 
 **Status:** Decided (July 2026); §5.1 amended September 2026 for #808 — the tower is a closed list, the expected-type lift governs every spelling of a tower member call, reaches a dot call's receiver under Method Syntax §2.2's receiver rule, and is binding wherever it lands — a stand-down ends in refusal at every seat, the dot's receiver included (#821); and for #1062 — an expression's arithmetic runs at one home, chosen once for the whole expression (§5.1's expression home).
-**Decision:** Roc-style polymorphic integer literals with `Int` defaulting. `1n` is monomorphic `BigInt`. Unsuffixed decimal/exponent literals are `Float`, promoted to an exact type only where their expression's home is one (§5.1; #525, #1062); `d` literals are monomorphic `Dec` (`dec.md`).
+**Decision:** Roc-style polymorphic integer literals with `Int` defaulting. `1n` is monomorphic `BigInt`. Unsuffixed decimal/exponent literals are `Float`, promoted only where their expression's home is a concrete type other than `Float` (§5.1; #525, #1062); `d` literals are monomorphic `Dec` (`dec.md`).
 
 This document is written for a future implementation session. It assumes the reader knows the existing `hexc` architecture: Algorithm J with union-find mutable type variables, level-based generalisation, constraints compiled to dictionary passing, and `honor` declarations as instance definitions.
 
@@ -16,7 +16,7 @@ There are four literal forms (Dec is specified in `dec.md`):
 | `1`, `42`, `0` | `<a: Num> a` (polymorphic) | `fromNat(1) : α` with pending constraint `Num α` |
 | `1n`, `42n` | `BigInt` (monomorphic, always) | the literal itself |
 | `5d`, `5.00d` | canonical prelude `Dec` (monomorphic) | exact digits and retained decimal places |
-| `1.5`, `0.0`, `1e9` | `Float` (monomorphic), promoted only where the expression's home is exact (§5.1) | the literal itself, or the exact value its digits spell |
+| `1.5`, `0.0`, `1e9` | `Float` (monomorphic), promoted only where the expression's home is a concrete type other than `Float` (§5.1) | the literal itself, or the exact value its digits spell |
 
 Key rules:
 
@@ -24,9 +24,9 @@ Key rules:
 2. `fromNat : Nat -> a` is a method of the `Num` constraint. Every `Num` instance must implement it. It is total and exact for all planned instances (`Nat`, `Int`, `Float`, `BigInt`, `Rat`).
 3. **Defaulting:** at generalisation time, any type variable that (a) is still unresolved and (b) carries a constraint set arising *solely from literal elaboration and other defaultable constraints* (see §4) is unified with `Int` instead of being generalised. Literal type variables are therefore **never** generalised. `let x = 1` gives `x : Int`, not `x : <a: Num> a`.
 4. `1n` does **not** participate in the polymorphic scheme. The `n` suffix is a type annotation, exactly as in JavaScript. There is no `fromBigInt` method in `Num` (deliberately — see §7, Rejected alternatives).
-5. Unsuffixed decimal literals do not participate either: `1.5 : Float`, never polymorphic. Where the literal's expression home (§5.1) is an exact type, it is promoted there from its written digits; otherwise it is the `Float` it is.
+5. Unsuffixed decimal literals do not participate either: `1.5 : Float`, never polymorphic. Where the literal's expression home (§5.1) is a concrete type other than `Float`, it is promoted there from its written digits; otherwise it is the `Float` it is.
 6. **Codegen guarantee:** when `α` resolves to `Int`, `Float`, or `BigInt`, the `fromNat` wrapper is erased and the literal is emitted respectively as `k`, `k.0`, or `kn`. The Float spelling deliberately preserves inferred type intent for a human reader even though `k` and `k.0` are identical JavaScript numbers. Only literals inside genuinely polymorphic (dictionary-taking) functions emit `dict.fromNat(k)`.
-7. **Contextual numeric widening:** an established `Nat` may be injected through `Num<a>.fromNat`; an established `Int` may be injected through `Signed<a>.fromInt`; an established `BigInt` may be injected through `FromBigInt<a>.fromBigInt`. The target is the **expression's home** (§5.1, #1062): an expression's tower member calls — an operator, or the same member spelled bare, qualified, as a pipe stage, or by the dot (Method Syntax §1; #808) — its forms that forward a value, and its values that must share a type form one tree, a seat ends it, and its home is the seat's expected type where that is concrete, otherwise the widest type the tree's own values establish — chosen once, for the whole tree, and never a polymorphic target invented to make an expression type-check. Every operation in the tree runs at the home where the home **carries the member's constraint instance**, the operands widening in — at `**`, the base alone; the exponent seat is the member's concrete `Int` parameter and never joins (§5.1, Operators §6.3) — and without the instance, at the home of its own operands (§5.1's instance gate).
+7. **Contextual numeric widening:** an established `Nat` may be injected through `Num<a>.fromNat`; an established `Int` may be injected through `Signed<a>.fromInt`; an established `BigInt` may be injected through `FromBigInt<a>.fromBigInt`. The target is the **expression's home** (§5.1, #1062): an expression's tower member calls — an operator, or the same member spelled bare, qualified, as a pipe stage, or by the dot (Method Syntax §1; #808) — its forms that forward a value, and its values that must share a type form one tree, a seat ends it, and its home is the seat's expected type where that is concrete, otherwise the widest type the tree's own values establish — chosen once, for the whole tree, and never a polymorphic target invented to make an expression type-check; at a seat whose type is a variable, the finished value then meets the seat as any value does. Every operation in the tree runs at the home where the home **carries the member's constraint instance**, the operands widening in — at `**`, the base alone; the exponent seat is the member's concrete `Int` parameter and never joins (§5.1, Operators §6.3) — and without the instance, at the home of its own operands (§5.1's instance gate).
 
 ---
 
@@ -105,7 +105,7 @@ The literal's payload `k` is validated at lex time: it must be an exact non-nega
 
 `1n` literals: elaborate directly to `BigIntLit(k)` with type `BigInt`. No type variable, no constraint. Payload is arbitrary precision (store as string or JS bigint in the AST).
 
-Unsuffixed decimal literals: elaborate directly to `FloatLit`, type `Float`. No type variable and no constraint: a decimal literal is never polymorphic (§7). Where the literal's expression home (§5.1) is an exact type, it is **promoted** there, carrying its written digits — never the parsed double, whose exact binary value is not what a writer of `0.1` means (friendly-numerics tenet 7).
+Unsuffixed decimal literals: elaborate directly to `FloatLit`, type `Float`. No type variable and no constraint: a decimal literal is never polymorphic (§7). Where the literal's expression home (§5.1) is a concrete type other than `Float`, it is **promoted** there, carrying its written digits — never the parsed double, whose exact binary value is not what a writer of `0.1` means (friendly-numerics tenet 7).
 
 ### Interaction with the existing pipeline
 
@@ -212,32 +212,49 @@ chosen once for the whole expression — never operation by operation from the i
   record field, `**`'s exponent seat and a shift's count (each faced by its written
   `Int`), a condition, a scrutinee, a guard, a block's non-final item — and a dot call's
   receiver, which closes before the dot resolves, since the dot must know what its
-  receiver is to know what it calls (Method Syntax §2.2: under a written face the face
-  travels into it, and without one it closes from its own contents alone).
-- **The home.** Where the seat's expected type (Functions §4.3) is concrete when the
-  tree's last part is in, it is the home — the expected-type lift below. Otherwise the
-  home is chosen from the types the tree's values **establish** — concrete types, and
-  declared type variables the body can name; an inference variable establishes nothing.
-  One established type other than `Nat`, `Int`, and `BigInt` is the home, and two
-  different ones leave the tree without a home. With none, the widest established of
-  `BigInt`, `Int`, and `Nat` is the home — unless a decimal-point literal is among the
-  values, when the home is `Float`. With no established type at all, a decimal-point
-  literal makes the home `Float`; and otherwise the tree has no home and its values
-  unify with one another exactly, as ever — integer literals then defaulting at their
-  binding (§4).
+  receiver is to know what it calls: it takes from outside only its own seat's expected
+  type, as Method Syntax §2.2's receiver rule forwards it, and never the home of the tree
+  around it. A non-lambda argument at a seat its callee's signature writes as a bare
+  type variable is a sibling group of one where no other argument shares the variable,
+  and closes with the call's other siblings.
+- **The home.** Where the seat's expected type is **concrete** — it contains no type
+  variable — when the tree's last part is in, it is the home: the expected-type lift
+  below. The seats that supply one are an annotated binding, an ascription, a parameter's
+  type, a lambda's landed result component, the `:=` right-hand side (whose expected type
+  is the `var`'s), and whatever a forwarding form hands on (Functions §4.3). A seat whose
+  type is a type variable supplies no home: the tree's home is chosen from its values,
+  and its finished value then meets the seat as any value does — by exact unification or
+  one of the three conversions, a declared variable the body can name being an
+  established target (`fun widen<t: Num>(value: Nat): t = value`). Otherwise the home is
+  chosen from the types the tree's values **establish**: concrete types; declared type
+  variables the body can name; and an inference variable already carrying a tower
+  constraint when the home is chosen — from outside the tree or from a value's own
+  elaboration, never from the tree's own operations. Any other inference variable
+  establishes nothing. The choice runs by rank: an established concrete type other than
+  `Nat`, `Int`, and `BigInt`; else a constrained inference variable; else the widest
+  established of `BigInt`, `Int`, and `Nat` — unless a decimal-point literal is among the
+  values, when the home is `Float`. A tree whose values establish two different types of
+  the first rank is **conflicting**. A tree whose values establish nothing is **open**: a
+  decimal-point literal among them makes its home `Float`, and otherwise its values unify
+  with one another exactly, as ever — integer literals then defaulting at their binding
+  (§4). A tree none of whose values is numeric keeps ordinary unification in source order
+  and ordinary reports.
 - **Entry.** Every value reaches the home by exact unification, by the three conversions
   above, or — a decimal-point literal at a concrete home other than `Float` — by
-  promotion (below), each converted once. A value that reaches it by none of these
-  refuses the tree, and so does a tree without a home; the report names the value, its
+  promotion (below), each converted once. The entry evidence is required after the home
+  is chosen, never consulted to choose it. A value that reaches it by none of these
+  refuses the tree, and so does a conflicting tree; the report names the value, its
   type, the home, and what gave the home (§6). Nothing in a tree enters anything but its
-  home.
+  home, except within a gated call (below).
 - **Closing.** Every forwarding form takes the home as its type, and every sibling seat
   takes it as its variable's solution. Every interior tower member call runs at the home
   where the home carries the call's constraint instance; otherwise — the **instance
-  gate** — it runs at the home its own parts select by this same rule, and its result
-  enters the enclosing home as a value: `(n mod 3) * f` (`f : Float`) runs the `mod` at
-  `Int` and the multiplication at `Float`. Every value votes in the enclosing choice, a
-  gated call's included.
+  gate** — it runs at the home its own parts select by this same rule, its parts and the
+  forms among them closing there, and its result enters the enclosing home as a value:
+  `(n band 3) * f` (`f : Float`) runs the `band` at `Int` and the multiplication at
+  `Float`. Every value votes in the enclosing choice, a gated call's included; a gated
+  call whose own home lacks the instance too is the missing-instance refusal (Method
+  Syntax §9 row 15).
 - **Once.** The parts elaborate on Functions §4.3's normative schedule, and the home is
   chosen when the last part is in — for siblings at a call, after the call's last
   non-lambda argument and before its first lambda-literal argument, so a callback reads
@@ -264,30 +281,41 @@ id(n * 1.5) * price                   // refused: id's result is a value, alread
 price.multiply(n * 1.5)               // Dec: the argument is the receiver's sibling
 ```
 
-Typed from the inside out, an operation settles its type before the operation around it
-is seen. For integers that is harmless — an `Int` result still widens exactly afterwards
-— but a decimal-point literal pulls its operation to `Float`, and no value leaves `Float`
-for an exact type, so `n * 1.5 * price` was refused where `price * n * 1.5` compiled. The
-tree takes the order out: the home is the expression's, not the first operation's to
-settle. It also moves some accepted programs' arithmetic: `n * m * price` (`n, m : Int`)
-runs its first multiplication at `Dec` rather than at `Int` with the product injected —
-equal wherever the `Int` product was exact, and exact where it was not, which is the
-lift's own reason (below).
+The reason is the order it removes. Typed from the inside out, an operation settles its
+type before the operation around it is seen. For integers that is harmless — an `Int`
+result still widens exactly afterwards — but a decimal-point literal would pull its
+operation to `Float`, and no value leaves `Float` for an exact type, so `n * 1.5 * price`
+would be refused where `price * n * 1.5` compiles. The home is the expression's, not the
+first operation's to settle.
+
+It moves programs that operation-by-operation typing accepts, in three ways. An
+operation runs at the wider home: `n * m * price` (`n, m : Int`) runs its first
+multiplication at `Dec` rather than at `Int` with the product injected — equal wherever
+the `Int` product is exact, and exact where it is not, which is the lift's own reason
+(below). An unannotated variable takes its tree's home: in `fun ff(x) = x + m + n` (`m :
+Nat`, `n : Int`), `x` is an `Int`, so `ff : (Int) -> Int`, and a later `useNat(x)` is
+refused. And a type's partiality follows the home: `(i ** k) * f` (`f : Float`) runs the
+power at `Float`, whose `pow` is total, so a negative `k` yields a reciprocal rather than
+`Pow<Int>`'s `NegativeExponentError` — the move a written face makes (Method Syntax
+§2.2).
 
 The home is no second default and no search. Every candidate is an exact embedding of the
-same values (friendly-numerics tenet 1), so the choice decides how exact the answer is,
-never what an operation means. It never outlives its tree and never enters a binding, a
-type variable, or another tree. And no interpretation is chosen between: the tree's shape
-— which calls are tower member calls, which seats share a written variable, where the
-seats are — is fixed before any home is, and inferred types choose only the home within
-it (friendly-numerics §4).
+same values (friendly-numerics tenet 1), so the choice decides how exact the answer is and
+which type's partiality applies, never which operation runs. It never outlives its tree
+and never enters a binding, a type variable, or another tree. And no interpretation is
+chosen between: the tree's shape — which calls are tower member calls, which seats share
+a written variable, where the seats are — is fixed before any home is, and inferred types
+choose only the home within it (friendly-numerics §4). Within a tree, the choice reads
+the parts' types as a set; an expectation a part received at its own turn — a sibling
+argument's parameter, solved by the schedule before it — is Functions §4.3's schedule
+residue, and so is a dot receiver's (Method Syntax §2.2).
 
 **Source ordering (exact BigInt extension).** Sibling arguments at one type variable
 are one tree (above), so no leading source argument pins the shared parameter before
 a later argument can establish its target — `Nat`, `Int`, and `BigInt` alike.
-Common-home selection prefers an independently established non-Nat/Int/BigInt
-numeric target, then BigInt, then Int, then Nat, always requiring the actual
-conversion evidence and preserving an already established expected home. Thus
+Common-home selection is by rank — an independently established non-Nat/Int/BigInt
+numeric target, then BigInt, then Int, then Nat — and preserves an already established
+expected home; entry then requires the actual conversion evidence, or refuses. Thus
 BigInt/Rat comparisons work in either operand order, while BigInt/Float remains
 refused. No third target is guessed and no general conversion-chain search occurs.
 Generic targets need existing `FromBigInt` evidence; `Signed` alone is insufficient.
@@ -315,7 +343,7 @@ target is concrete and is not Float
 
 - **The written digits, never the double.** `let r: Rat = 0.1` is exactly
   `1/10`; `let x: Dec = 0.10` is `0.10` with two places.
-- **The literal, never a value.** An established `Float` — a binding, a call's
+- **A literal, never a result.** An established `Float` — a binding, a call's
   result, an operation that ran at `Float` — never reaches an exact type
   (friendly-numerics tenet 7). A promoted literal is a value of its tree, never
   a result: no operation is a literal.
@@ -421,7 +449,8 @@ concrete `Int` parameter (Operators §6.3), an ordinary written-`Int` seat that 
 joins the common type nor receives the outer expectation — this rule applies *into* it
 independently, with `Int` as the written face, which is how the right spine of an exponent
 tower runs at `Int` whatever the base's home. An expectation that is a variable is no
-home: the tree's home is chosen from its values (above). A concrete face without an
+home: the tree's home is chosen from its values, and the finished value meets the seat as
+any value does (above). A concrete face without an
 operation's instance is still the tree's home, and that operation alone runs at the home
 of its own parts (the instance gate, above). The distinction the lift turns on: widening a **value**
 is always exact, but which *algebra an operation runs in* decides what the value is — and
@@ -574,10 +603,16 @@ else n` beside `if c then n else m`, and the same two `match` arm orders, unanno
 price)` and `h(price, n * 1.5)`; the boundaries, each refused — `let y = n * 1.5` then `y *
 price`, `id(n * 1.5) * price`, and `(n * 1.5).multiply(price)` with §6's receiver report —
 beside `price.multiply(n * 1.5)` and `let a: Dec = (n * 1.5).multiply(price)`, accepted;
-the gate `(n mod 3) * f`, `mod` at `Int`; the moved program `n * m * price` value-checked
-at `Dec` where the `Int` product passes 2^53; the seats a face now homes, `let g: () ->
+the gate `(n band 3) * f`, `band` at `Int`; the moved programs — `n * i * price` (`i :
+Int`) value-checked at `Dec` where the `Int` product passes 2^53, `fun ff(x) = { let s = x
++ m + n; useNat(x) }` refused, and `(i ** k) * f` with `k` negative value-checked as a
+reciprocal; the seats a face now homes, `let g: () ->
 Dec = () => n` and `t := n * 1.5` at `var t: Dec`; one report for a `**` base that cannot
-enter the face (#827); and the exclusions standing — `fun half<a: Frac>(x: a): a = x * 0.5`
+enter the face (#827) — row 16 at the outermost stood-down call, its fixit `((p.add(q) **
+i): Foo).gcd(s2)`; the seats a face does not reach, `let a: Dec = id(n * 1.5)` refused; the
+targets kept — `fun widen<t: Num>(value: Nat): t = value`, `let y: t = value`, and
+`fun k(count: Int, value) = { let z = value / value; count * value }` at `<a: Frac>
+(Int, a) -> a` accepted; and the exclusions standing — `fun half<a: Frac>(x: a): a = x * 0.5`
 refused, a decimal literal pattern at `Dec` refused (#1054), and `let p: (Dec, Dec) = (n,
 0.5)` refused (#1066).
 
@@ -627,7 +662,7 @@ Elaboration changes the *character* of type errors involving literals, and this 
 - When defaulting is blocked by a non-defaultable constraint (§4), the error must name the blocking constraint and the literal's location, and suggest an annotation: `The literal 1 at <span> has constraint MyConstraint, which prevents defaulting to Int. Add a type annotation to pin its type.`
 - Never surface the name `fromNat` in an error for code the user wrote without mentioning it. The elaboration is invisible machinery; errors should speak in terms of the literal.
 - *(#808.)* **When the expected-type lift stands down** (§5.1) because an operand cannot reach the face, the refusal that then fires at the consuming seat names that operand and the operation that could not run at the face — "`price` is a `Float` and cannot enter `Rat`, so the multiplication could not run at `Rat`" — so the report keeps what a refusal at the operand would have carried. The checker therefore records, at a stand-down, which operand declined and why, and carries it to the seat that refuses — a binding, an argument seat, or a dot call's receiver seat *(#821)*, where the report adds the two facts that seat alone knows: why the face reached the receiver (the spelling's rung) and the written boundary that keeps the receiver at its own type, an ascription or a separate binding (Method Syntax §9 row 16). Every stand-down ends at such a seat (§5.1), so the note is always spent.
-- *(#1062.)* **When a value cannot enter its expression's home** (§5.1), the report names the value, its type, the home, and what gave the home — the seat's type ("the home `: Dec` writes") or the value that established it ("the home `price` gives this expression") — and, where the value's type has a named door into the home, the door (`Dec.fromFloat(x, places)`; friendly-numerics tenet 7). **When two values establish different homes**, the report names both — "`x` is a `Float` and `price` a `Dec`; an expression's arithmetic runs at one type, and neither enters the other". **When a dot call's receiver closed before the dot** (Method Syntax §2.2) and a sibling then refuses it, where every value of the receiver's own tree would have entered that sibling's type, the report says so and names both repairs: "`n * 1.5` settled at `Float` before `.multiply` saw `price` — a dot call's receiver is settled on its own; write `n * 1.5 * price`, or name the home: `let a: Dec = …`". Each is decided from recorded types, for the report alone.
+- *(#1062.)* **When a value cannot enter its expression's home** (§5.1), the report names the value, its type, the home, and what gave the home — the seat's type ("the home `: Dec` writes") or the value that established it ("the home `price` gives this expression") — at the declining value. **When two values establish different homes** (a conflicting tree), the report names both — "`x` is a `Float` and `price` a `Dec`; an expression's arithmetic runs at one type, and neither enters the other". Each names the named door where either type has one into the other (`Dec.fromFloat(x, places)`, `price.toFloat()`; friendly-numerics tenet 7), and otherwise the written boundary — a separate binding at the type the value has. Precedence: at a dot call's receiver, Method Syntax §9 row 16 and Operators §11's form report; under a written face, the #808 stand-down wording above; otherwise these. **When a dot call's receiver closed before the dot** (Method Syntax §2.2) and a sibling then refuses it, where every value of the receiver's own tree would have entered that sibling's type, the report says so and names both repairs: "`n * 1.5` settled at `Float` before `.multiply` saw `price` — a dot call's receiver is settled on its own; write `n * 1.5 * price`, or name the home: `let a: Dec = …`". Each is decided from recorded types, for the report alone.
 - *(#525.)* A decimal-point literal promoted to `Dec` with an exponent is refused with the value in ordinary notation: "a `Dec` literal is written without an exponent, so its decimal places show; write `0.0015`". A decimal-point literal *pattern* at a `Dec` scrutinee is refused with its `d` spelling: "…; a `Dec` pattern is written with the `d` suffix: `0.5d`" (Pattern Matching §2.5, #1054).
 - LSP hover on a bare literal in polymorphic position should show `<a: Num> a` (matching the round-trip-consistency rule for signatures — the display is source-shaped, Functions §5.1); hover on a defaulted or pinned literal shows the concrete type.
 
@@ -663,7 +698,7 @@ A branch or item whose type is *structured* — `(1, 2)`, `[1, 2]` — can never
 
 **Arguments as separate trees** (#1062). Every argument its own tree, even at a shared type variable. Rejected: `price < n * 1.5` would stay refused while `price < n * 2` compiles, and the sibling clauses the tree now states in one place would remain special cases.
 
-**A receiver joined by its own home** (#1062). The dot reads the home its receiver's parts would select alone, and where that home honors the spelling's rung, joins the receiver to the enclosing tree. Rejected: it reads inferred types to choose how a part is read — the #821 leaf gate by another name (friendly-numerics §4). A dot call's receiver closes before the dot resolves, taking from outside only a written face (Method Syntax §2.2).
+**A receiver joined by its own home** (#1062). The dot reads the home its receiver's parts would select alone, and where that home honors the spelling's rung, joins the receiver to the enclosing tree. Rejected: it reads inferred types to choose how a part is read — the #821 leaf gate by another name (friendly-numerics §4). A dot call's receiver closes before the dot resolves, taking from outside only its seat's expected type (Method Syntax §2.2).
 
 ---
 

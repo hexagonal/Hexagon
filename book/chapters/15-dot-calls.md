@@ -291,6 +291,12 @@ let total = count.multiply(price)      // Float, exactly as count * price
 let exact: BigInt = count.add(count)   // BigInt addition, exactly as count + count
 ```
 
+The one difference is the receiver. The dot has to know what its receiver is before it
+knows what it calls, so the receiver is settled first, on its own. With `n: Int` and
+`price: Dec`, `n * 1.5 * price` runs at `Dec`, but `(n * 1.5).multiply(price)` is an
+error, because `n * 1.5` has already settled at `Float` by the time the dot looks at it.
+Write the operator, or name the type: `let owed: Dec = (n * 1.5).multiply(price)`.
+
 The receiver chooses the operation; the operands and the written type choose where it
 runs. A companion-qualified spelling is different: `Float.multiply(count, price)` names
 `Float`'s own multiplication, so the `Int` widens into it, and `Int.multiply(count, price)`
