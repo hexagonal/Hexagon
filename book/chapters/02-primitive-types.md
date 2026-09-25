@@ -194,8 +194,21 @@ let total = price * 1.15              // 2.8750: price is a Dec, so 1.15 is too
 let refund = price * -0.5             // -1.000
 ```
 
-With no known Dec type, a decimal literal is a Float, as `surprising` was above.
-Only a literal is read this way; a Float value never quietly becomes a Dec.
+The Dec type can be known from anywhere in the same expression, not only from the
+value beside the literal. An expression's arithmetic runs at one type: the one
+written for it, or else the widest type among its values. So the order of the
+operands does not matter:
+
+```hexagon
+let quantity: Int = 3
+let owed = quantity * 1.5 * price     // 11.250: price makes the whole expression Dec
+let early = (quantity + 0.5) * price  // 8.750
+```
+
+With no Dec anywhere in the expression, a decimal literal is a Float, as `surprising`
+was above. A binding ends an expression, so its value is settled there: after
+`let rate = quantity * 1.5`, `rate` is a Float, and `rate * price` is an error. Only
+a literal is read this way; a Float value never quietly becomes a Dec.
 
 Addition and subtraction retain the larger operand's decimal-place count:
 

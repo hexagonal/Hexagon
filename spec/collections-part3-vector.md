@@ -26,7 +26,7 @@ let zs = [f(a), g(b)]       -- elements are arbitrary expressions
 ```
 
 - `[e1, e2, …, en]` in expression-head position is the `Vector(a)` literal — the reading Operators §10 reserved this position for. Postfix `xs[…]` remains indexing/slicing; the lexer/parser distinguish by position exactly as Operators §10 specified.
-- All elements unify to one type; a heterogeneous literal is an ordinary type error at the first offending element.
+- All elements meet at one type: by unification, and numeric elements at the home of the expression tree they form as siblings (Numeric Literals §5.1, #1062) — `[m, n]` is `Vector(Int)` for `m : Nat`, `n : Int`, in either order. A heterogeneous literal is otherwise an ordinary type error, naming the offending element. A type written around the literal does not reach its elements (#1066).
 - `[]` types as `Vector(α)`. It is a syntactic value, so `let xs = []` generalizes normally (value restriction satisfied); `xs` is polymorphic until used.
 - Elements are evaluated left to right (the uniform evaluation order).
 - **Trailing comma is permitted** in a literal with at least one element (`[1, 2, 3,]`); `[,]` is a parse error. The JS habit, at zero cost. Record and tuple literals state the same rule (Products §3.1).

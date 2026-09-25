@@ -147,8 +147,9 @@ from inventing evidence during automatic widening.
 The existing bounded argument pass also handles BigInt sources: an earlier
 BigInt argument must not prematurely bind a shared parameter when another
 already-elaborated argument in that pass independently establishes a licensed
-destination for the same parameter. This changes neither expression elaboration
-order nor runtime evaluation order.
+destination for the same parameter — the arguments at one shared parameter being
+siblings of one expression tree (Numeric Literals §5.1's expression home, #1062).
+This changes neither expression elaboration order nor runtime evaluation order.
 
 A `FromBigInt` bound on the callee's freshly instantiated parameter does not
 itself establish a destination. With no independently established target, a

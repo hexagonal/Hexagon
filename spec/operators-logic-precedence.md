@@ -178,12 +178,13 @@ The early draft's primitive-operator table (`<=` as `a < b or a == b`, etc.) is 
 
 **Implementer note (one representation):** the elaborations above are constructor tests on the `Ordering` result — never sign tests on a number; int-returning `compare` is the rejected alternative (Decisions Batch §3). Derived and hand-written instances return the same `Ordering` values — the shared tagged constants (Unions §6.2) — where derived `Ord` is declaration-index order, never JS `<` on the tags (Unions §7) — and a dictionary's `compare` slot holds exactly that `(a, a) -> Ordering` function (FFI Part 9 faces it so). Numeric comparators remain legal as internals; what is forbidden is a number anywhere a `compare` result is observable — a dictionary's `compare` slot, an exported face, a value user code can reach. Adapting a dictionary's `compare` into a numeric comparator for a host API (an `Array.prototype.sort` callback, say) is the consumer's own conversion and is fine.
 
-Operands normally share one type. Numeric Literals §5.1 applies before the `Eq`/`Ord`
-operation is selected: an established `Nat` may widen through `Num.fromNat`, while an
-established `Int` may widen through `Signed.fromInt`, when another operand independently
-establishes the matching target. Thus `count < cost` is a
-Float comparison when `count : Int` and `cost : Float`; `Int` versus `Int` remains an
-exact Int comparison. Non-numeric comparisons gain no coercion.
+Operands normally share one type. The two operands are siblings of one expression
+tree (Numeric Literals §5.1's expression home, #1062), whose home is chosen before the
+`Eq`/`Ord` operation is selected: an established `Nat` may widen through `Num.fromNat`,
+an established `Int` through `Signed.fromInt`, and a decimal-point literal promotes,
+wherever in either operand they stand. Thus `count < cost` is a Float comparison when
+`count : Int` and `cost : Float`, `price < n * 1.5` a `Dec` comparison at `price : Dec`,
+and `Int` versus `Int` an exact Int comparison. Non-numeric comparisons gain no coercion.
 
 **Codegen fast path (mandatory for readable JS):** when the `Ord`/`Eq` dictionary is a known primitive (or pinned-`Bool`) instance, emit the direct JavaScript operation only when it preserves that instance's semantics. *(#808.)* The fast path's lowering is the text every spelling of the member takes at that instance — `i.equals(j)` and `Eq.equals(i, j)` emit what `i == j` emits, helper forms included (Constraints §6.1). `Int` and all-BMP-safe `String` handling per Primitive Types §5 may use native operators directly (a union's derived `Eq` compares tags, `x.tag === y.tag`, then payloads — never a native operator on the value); `Bool` — since #147 a prelude union, not a primitive — takes the native path under its representation pin (§4.5): `===` on booleans *is* the derived `Eq<Bool>`, and JS `<` on booleans agrees with derived `Ord`'s declaration order `False | True` by construction (Unions §6.2), so no declaration-index table is needed. *(Reclassified 2026-07-29, #147.)*
 
@@ -400,7 +401,7 @@ this is the F# rule for else-less `unit` conditionals, adopted July 2026 on
 re-examination of the original strict decision; Statements §10.3 records
 the reversal.)
 
-Eats to the right (§3.2): `expr2` extends as far as possible, so `1 + if c then a else b` is `1 + (if c then a else b)` and `if c then a else b + 1` is `if c then a else (b + 1)` — the `else` arm ate the `+ 1`. Chained: `if c1 then a else if c2 then b else c` nests rightward with no special grammar. Both arms resolve to one type: exact unification wins, followed by Numeric Literals §5.1's contextual widening: established `Nat` through `Num.fromNat`, or established `Int` through `Signed.fromInt`, when the other arm independently establishes the corresponding target. A landed expected type reaches both arms as forwarding positions (Functions §4.3), where it feeds Numeric Literals §5.1's lift at an arithmetic arm; a bare-value arm still widens at the form's own seat boundary, as ever. The whole form has the resulting type.
+Eats to the right (§3.2): `expr2` extends as far as possible, so `1 + if c then a else b` is `1 + (if c then a else b)` and `if c then a else b + 1` is `if c then a else (b + 1)` — the `else` arm ate the `+ 1`. Chained: `if c1 then a else if c2 then b else c` nests rightward with no special grammar. Both arms are parts of one expression tree (Numeric Literals §5.1's expression home, #1062) and meet at its home: a landed expected type where it is concrete (Functions §4.3's forwarding), otherwise the widest type the tree's values establish — established `Nat` through `Num.fromNat`, established `Int` through `Signed.fromInt`, a decimal-point literal by promotion — in either arm order. The whole form has the home as its type; `match` and `try` arms join identically.
 
 ### 11.3 Canonical formatting
 

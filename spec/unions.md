@@ -86,7 +86,7 @@ match shape
 - `match scrutineeExpr` followed by a **layout block of arms** — one arm per VSEP, `;` usable as the compressed newline exactly per the Lexer & Layout rules. There is no braced form: braces are records, so Rust-style `match e { ... }` does not exist and must produce the standard brace diagnostic if attempted.
 - Each arm is `pattern => body`. The `=>` is the same token as the lambda arrow; no ambiguity arises because arms occur only inside a `match` block (the parser is in match-arm context after VOPEN following a `match` head). A pattern is *not* a parameter list; the parser must not route it through lambda parsing.
 - The arm body is an expression: same line, or an indented block whose final expression is the arm's value — identical to lambda bodies (Functions §3.1).
-- `match` is an **expression**; all arm bodies unify to one result type. The scrutinee is evaluated once.
+- `match` is an **expression**; all arm bodies meet at one result type — by unification, and for numeric arms at their expression tree's home, exactly as `if` branches do (Numeric Literals §5.1, #1062). The scrutinee is evaluated once.
 - A `match` whose head begins its logical item may take a **`catch` clause** at that column, after the arm block — the match catch expression, whose arms handle exceptions thrown by the scrutinee's evaluation only (a mid-line head takes no clause). Owned by Exceptions §5.4; nothing in this section changes when the clause is present.
 - A `match` that **ends** its logical item — no scrutinee at all — is the **match function**, the unary function literal matching its argument (Pattern Matching §6.7). Any token after `match` on the same line means this section's scrutinee form, unchanged.
 
