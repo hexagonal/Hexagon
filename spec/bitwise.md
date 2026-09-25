@@ -77,8 +77,8 @@ like any other instance's. Nothing seals the constraint beyond the orphan rule.
 
 As in Constraints §7, the laws are what instances are written and reviewed against;
 nothing checks them. The shipped instances keep them exactly: `BigInt` everywhere, and
-`Int` for operands and results inside ±(2⁵³ − 1). Past that range `Int`'s overflow
-contract governs, and §4.2 states its three edges.
+`Int` wherever operands, intermediates, and results lie in [−2⁵³, 2⁵³]. Past that range
+`Int`'s overflow contract governs (§4.2).
 
 - `bitAnd`, `bitOr`, and `bitXor` are associative and commutative. `bitAnd` and `bitOr`
   are idempotent and distribute over each other.
@@ -203,8 +203,8 @@ BigInt.fromInt(x band y) == BigInt.fromInt(x) band BigInt.fromInt(y)
   infinity, so a long enough right shift reaches `0` for a non-negative value and `-1`
   for a negative one.
 - The operations are total. No count is refused and nothing is thrown, except where a
-  host limit on `BigInt` size applies (§4.4), and at an `Int` already past its
-  overflow contract (§4.2's third edge).
+  host limit on `BigInt` size applies (§4.4), and at a non-finite `Int`, which exists
+  only past the overflow contract (§4.2).
 
 ### 4.2 `Int`
 
@@ -224,18 +224,19 @@ numbers:
   right shift by a count past the value's magnitude answers `0` or `-1`, so a negative
   value never reaches `-0`.
 
-Three edges follow `Int`'s ordinary overflow contract (Primitive Types §2.1) instead of
-adding a new one:
+Past the safe range `Int`'s ordinary overflow contract governs (Primitive Types §2.1),
+as it does for arithmetic, and no new contract is added. A bitwise result on in-range
+operands can land exactly on −2⁵³ (`bnot` of 2⁵³ − 1), which is still exact. Beyond
+that, each operation gives what its computation gives on an `Int` the contract has
+already let overflow:
 
-- A `shiftLeft` whose result passes ±2⁵³ gives the f64 product that `x * 2 ** n` gives
-  for a nonzero `x`.
-- A bitwise result on in-range operands can land exactly on −2⁵³: `bnot` of 2⁵³ − 1 is
-  one example.
-- An operand already outside ±(2⁵³ − 1), which only the contract's silent overflow
-  produces, is not exact to begin with. A finite one goes through `BigInt`, and its
-  result rounds on the way back as any out-of-range `Int` does (`2⁶⁰ bor 1` is `2⁶⁰`).
-  A non-finite one throws the host's `RangeError` from that conversion, as Gleam's
-  does.
+- `bitAnd`, `bitOr`, and `bitXor` take an operand outside ±(2⁵³ − 1), or `NaN`, through
+  `BigInt`. A finite one rounds on the way back, as any out-of-range `Int` does
+  (`2⁶⁰ bor 1` is `2⁶⁰`). A non-finite one throws the host's `RangeError` from the
+  conversion.
+- `bitNot` and the shifts are f64 arithmetic, so past the range they round, and at a
+  non-finite operand they give ±Infinity or `NaN`, and throw nothing. A `shiftLeft`
+  whose result passes ±2⁵³ gives the product `x * 2 ** n` gives for a nonzero `x`.
 
 These results agree with JavaScript wherever JavaScript's answer is the true integer.
 That covers the three binary operations and `~` when every operand fits in signed 32
@@ -262,7 +263,7 @@ To port 32-bit JavaScript:
 - `x >>> n` becomes `x.toUint32().shiftRight(n)`.
 - `x >> n` on 32-bit data becomes `x.toInt32().shiftRight(n)`.
 - `x << n` becomes `x.shiftLeft(n).toInt32()`: JavaScript reduces at every `<<`. The
-  shifted value can reach 2⁶³, but multiplying by a power of two only moves an f64's
+  shifted value can pass 2⁵³, but multiplying by a power of two only moves an f64's
   exponent, so it is exact, and `toInt32` reduces any finite integer exactly.
 
 JavaScript reduces a shift count modulo 32, so these rewrites assume a count from 0 to
@@ -270,9 +271,11 @@ JavaScript reduces a shift count modulo 32, so these rewrites assume a count fro
 
 `band`, `bor`, `bxor`, `bnot`, `+`, `-`, `*`, and `shiftLeft` all commute with reduction
 modulo 2³². So one reduction where the JavaScript reduced gives the JavaScript answer, as
-long as intermediates stay inside ±2⁵³ (a single `shiftLeft` is exempt, for the reason
-given above). Where they would not (a product of two 32-bit values, a sum of several
-shifted copies), reduce each term where the JavaScript did. Right shifts do not commute
+long as intermediates stay inside ±2⁵³. A `shiftLeft`, or a chain of them, whose result
+is reduced directly is exempt, for the reason given above; one whose result feeds `+`,
+`-`, or `*` first is not. Where intermediates would leave the range (a product of two
+32-bit values, a sum of several shifted copies), reduce each term where the JavaScript
+did. Right shifts do not commute
 with reduction. Because there is no unsigned right shift, the explicit conversion goes
 exactly where the 32-bit meaning lives.
 
@@ -443,7 +446,7 @@ BigInt  = (Digits | HexInteger | OctInteger | BinInteger) "n"
 | `&`, `^`, `~` in source | invalid character, with a redirect: "Hexagon spells bitwise and `band`" (resp. `bxor`, with "for a power write `**`" at `^`; `bnot` at `~`) |
 | `\|` directly after a complete operand in expression position | parse error + "Hexagon spells bitwise or `bor`" |
 | Glued `<<`, `>>`, or `>>>` after a complete operand | parse error + "Hexagon has no shift operators; write `x.shiftLeft(n)`" (resp. `shiftRight`; at `>>>`, "`x.toUint32().shiftRight(n)`") |
-| `(a bor b)band m`: a bitwise word glued to a parenthesis, read as a suffix (§3.1) | the suffix seat's own report + fixit "write a space: `) band`" |
+| `(a bor b)band m`: a bitwise word glued to a parenthesis, read as a suffix (§3.1) | whichever report the glued form draws (Pattern Declarations §9's no-suffix row, or the no-juxtaposition error after a suffix that resolves) + fixit "write a space: `) band`"; this spec owns the rider |
 | `0X`, `0O`, `0B` | lexical error + lowercase fixit |
 | `0x`, `0b102`, `0o8`, `0x1.5`, `0b1e3`, `0xFF_n`, `0x_FF` | one malformed-numeric-literal diagnostic (Lexer §10) |
 | `let bnot = …`, `bnot` as a lambda binder | the hard-keyword rows of Lexer §10 |
@@ -510,6 +513,10 @@ let band = 3                     -- binds; band(x), x.band, {band = 1} are names
 0b102  0o8  0x  0x1.5  0x_FF     -- one malformed literal each
 -- each literal emits in its source base; 0xFFFFFFFF is 4294967295
 
+-- Past the overflow contract (§4.2)
+2⁶⁰ bor 1                        -- 2⁶⁰ (rounds; BigInt route)
+-- an infinite Int operand of band throws RangeError; bnot of it gives -Infinity
+
 -- (f) Widening (§5.1)
 n band i        i band n                       -- Int, either order
 i band b        b band i                       -- BigInt; BigInt(i) & b, b & BigInt(i)
@@ -544,6 +551,7 @@ x.shiftLeft(k)                                 -- k : Nat widens into the Int co
   §8.1's keep-the-call list; §9 row 15's rider.
 - **Constraints §6.1:** the keep-the-call list.
 - **Effects §5:** the operator elaboration list.
+- **Integer Widening:** the tower list.
 - **stdlib-roadmap** and the spec **README**.
 - **Friendly Numerics:** the rung list.
 - **Intrinsics:** §3.2 key notes; §4.1 pointer.

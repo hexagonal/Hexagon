@@ -183,8 +183,8 @@ there is no new dictionary representation or general conversion registry.
 ## 5. Arithmetic, dots, and literal boundaries
 
 `FromBigInt` is a conversion capability, **not an additional arithmetic tower
-rung**. The existing closed tower remains `Num`, `Signed`, `Frac`, `Pow`, and
-`Integral`. Its existing expected-type lift can now inject BigInt-source operands
+rung**. The existing closed tower remains `Num`, `Signed`, `Frac`, `Pow`, `Integral`,
+and `Bitwise` (`bitwise.md` §5.1). Its existing expected-type lift can now inject BigInt-source operands
 into a home that carries both the requested arithmetic instance and `FromBigInt`.
 It must not lift the argument of `fromBigInt` itself from `BigInt` to its result
 type; that argument's declared type remains `BigInt`.
