@@ -197,7 +197,7 @@ Instances are global over the import graph (Modules §7.1). For the home-module 
 
 ### 7.3 Collisions with provided instances
 
-Provided rows occupy ordinary coherence slots (Part 2 §4.4). A user `honor Iterable<Vector(a)>` fails the **orphan rule** first — the user's file declares neither `Iterable` nor `Vector` — and when the head constructor is a provided row, the orphan error appends the useful fact: *"the prelude already provides `Iterable<Vector(a)>`."* (A duplicate-instance error proper is unreachable for prelude pairs from user code: satisfying the orphan rule would require editing the prelude.) User-vs-user duplicates follow Modules §7.3 unchanged: same module at the second declaration, cross-module at whole-program check naming both sites.
+Provided rows occupy ordinary coherence slots (Part 2 §4.4). A user `honor Iterable<Vector(a)>` fails the **orphan rule** first — the user's file declares neither `Iterable` nor `Vector` — and when the head constructor is a provided row, the orphan error appends the useful fact: *"the prelude already provides `Iterable<Vector(a)>`."* (A duplicate-instance error proper is unreachable for prelude pairs from user code: satisfying the orphan rule would require editing the prelude. Standard-library source that does write one at a provided row's slot at `Vector`, `Map`, or `Set` is refused — Intrinsics §3.3, §11.) User-vs-user duplicates follow Modules §7.3 unchanged: same module at the second declaration, cross-module at whole-program check naming both sites.
 
 ---
 

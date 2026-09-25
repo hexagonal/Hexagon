@@ -715,7 +715,7 @@ describe("placement, and one probe for both minting rungs", () => {
       [
         "/main.hex",
         "module Main\n\n" + 'import Other as Color\nimport Mid as Wrapped\n' +
-          "export fun f(c: Color, w: Wrapped, v: Vector(Int)): Option(Int) = None\n",
+          "export fun f(c: Color, w: Wrapped, v: Range): Option(Int) = None\n",
       ],
     ]);
 
@@ -728,7 +728,7 @@ describe("placement, and one probe for both minting rungs", () => {
         'import type { Option } from "./Hex/Option.js";\n' +
         'import type { Point } from "./Lib.js";\n' +
         'import type { Color } from "./Other.js";\n' +
-        "export declare function f(c: Color, w: Point, v: Hex.Vector<number>): Option<number>;\n",
+        "export declare function f(c: Color, w: Point, v: Hex.Range): Option<number>;\n",
     );
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
   });

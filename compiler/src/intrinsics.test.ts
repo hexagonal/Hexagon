@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import { compileProject, Source } from "./index";
 import { INTRINSIC_INVENTORY, intrinsicKeys, nearestIntrinsicKey } from "./intrinsics";
 import regexRuntimeSource from "../../stdlib/Runtime/Regex.hex?raw";
+import { STDLIB_SOURCES } from "./stdlib-sources";
 
 /**
  * The intrinsic inventory is split across two files by necessity — the resolver
@@ -70,7 +71,7 @@ describe("the inventory and its lowerings agree", () => {
     const types = intrinsicKeys("type");
     expect(operations.filter((key) => types.includes(key))).toEqual([]);
     expect(new Set([...operations, ...types])).toEqual(new Set(INTRINSIC_INVENTORY.keys()));
-    expect(types).toEqual(["buffer"]);
+    expect(types).toEqual(["buffer", "vector", "map", "set"]);
   });
 
   /**
@@ -89,12 +90,12 @@ describe("the inventory and its lowerings agree", () => {
       expect(entry.grade).toBe("type");
       if (entry.grade !== "type") return;
       for (const declarer of entry.declarers) {
-        // The one declarer today is `Runtime.Regex`, whose shipped file is
-        // compiled in its real seat below. A second declarer joining the entry
-        // without a row would fail here at the source lookup.
-        expect(declarer).toBe("Runtime.Regex");
+        // Every declarer is a shipped standard-library file, and its row is in
+        // it: a declarer joining the entry without a row fails here at the
+        // source lookup. `Runtime.Regex` is compiled in its real seat below.
+        const source = declarer === "Runtime.Regex" ? regexRuntimeSource : STDLIB_SOURCES[declarer];
+        expect(source).toContain(`type ${key} as `);
       }
-      expect(regexRuntimeSource).toContain(`type ${key} as `);
     },
   );
 });

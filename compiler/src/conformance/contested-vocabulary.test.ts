@@ -473,7 +473,7 @@ describe("compiler-chosen spellings never contest the vocabulary (§1.1 half 1)"
     // exists to prevent, and this is the direction that drift would show in.
     expect(declarations(project({
       "/main.hex": "export record Iterable = {x: Int}\n" +
-        "export let rows: Vector(Int) = [1, 2, 3]\n",
+        "export let rows: Range = 1..3\n",
     }))).toContain('import type * as Hex from "./hex.js";');
   });
 });
@@ -532,9 +532,9 @@ describe("the negatives — nothing else moves", () => {
     // show: this file must stay bare while `main.d.ts` beside it qualifies.
     const compiled = project({
       "/main.hex": "export record Iterable = {x: Int}\n" +
-        "export let rows: Vector(Int) = [1, 2, 3]\n",
+        "export let rows: Range = 1..3\n",
     });
-    expect(declarations(compiled)).toContain("export declare const rows: Hex.Vector<number>;");
+    expect(declarations(compiled)).toContain("export declare const rows: Hex.Range;");
     expect(compiled.runtimeDeclarations?.text).toBe(
       'export interface Vector<a> extends Iterable<a> { readonly "~hex": "Vector"; }\n' +
         'export interface Set<a> extends Iterable<a> { readonly "~hex": "Set"; }\n' +
@@ -618,7 +618,7 @@ describe("the preview shows what would ship (§14.6)", () => {
     // interfaces through a file of their own and is unaffected.
     const text = preview(project({
       "/main.hex": "export record Iterable = {x: Int}\n" +
-        "export let rows: Vector(Int) = [1, 2, 3]\n",
+        "export let rows: Range = 1..3\n",
     }));
 
     expect(text).not.toMatch(/(?<!globalThis\.)\bIterable</u);
@@ -631,7 +631,7 @@ describe("the preview shows what would ship (§14.6)", () => {
   });
 
   test("an uncontested preview keeps the bare namespace body", () => {
-    const text = preview(project({ "/main.hex": "export let rows: Vector(Int) = [1, 2, 3]\n" }));
+    const text = preview(project({ "/main.hex": "export let rows: Range = 1..3\n" }));
 
     expect(text).not.toContain("globalThis");
     expect(text).toContain(
@@ -644,7 +644,7 @@ describe("the preview shows what would ship (§14.6)", () => {
       await typeScriptErrors({
         "preview.ts": preview(project({
           "/main.hex": "export record Iterable = {x: Int}\n" +
-            "export let rows: Vector(Int) = [1, 2, 3]\n" + SEQ_FACE,
+            "export let rows: Range = 1..3\n" + SEQ_FACE,
         })),
       }),
     ).toEqual([]);

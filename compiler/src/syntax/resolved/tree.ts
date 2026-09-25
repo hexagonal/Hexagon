@@ -78,6 +78,8 @@ export interface RangeTypeAnnotation {
 export interface VectorTypeAnnotation {
   readonly kind: "Vector";
   readonly element: TypeAnnotation;
+  /** See `TypeQualifier`; absent for an occurrence the source wrote bare (#1071). */
+  readonly qualifier?: TypeQualifier;
   readonly span: Source.Span;
 }
 
@@ -85,12 +87,16 @@ export interface MapTypeAnnotation {
   readonly kind: "Map";
   readonly key: TypeAnnotation;
   readonly value: TypeAnnotation;
+  /** See `TypeQualifier`; absent for an occurrence the source wrote bare (#1071). */
+  readonly qualifier?: TypeQualifier;
   readonly span: Source.Span;
 }
 
 export interface SetTypeAnnotation {
   readonly kind: "Set";
   readonly element: TypeAnnotation;
+  /** See `TypeQualifier`; absent for an occurrence the source wrote bare (#1071). */
+  readonly qualifier?: TypeQualifier;
   readonly span: Source.Span;
 }
 
@@ -814,7 +820,10 @@ export interface ExternTypeDeclaration extends ExternDeclarationFields {
    * holds the lowering to — trusted, not verified, because there is no
    * representation for §6.3 to check it against, exactly as the compiler-side
    * claim table's trusted rows are. `Buffer(a)` writes none; `Node(+a)` writes
-   * one at its scheduled migration (§9.2).
+   * one at its scheduled migration (§9.2). *(#1071.)* A public row whose key
+   * names a representation record — `Vector(+a)`, `Map(+k, +v)`, `Set(+a)` —
+   * is the exception: its claim **is** verified, at the row, against that
+   * record (the checker's `#verifyPublicRowClaims`).
    */
   readonly parameters?: readonly DeclaredTypeParameter[];
   /**

@@ -797,7 +797,7 @@ describe("the declaration face is untouched (§7, Part 1 §4.1)", () => {
     const text = declarations(FACES);
     expect(text).toContain("export declare function hold(xs: ReadonlyArray<number>): number;");
     expect(text).toContain(
-      "export declare function make(v: Hex.Vector<number>): ReadonlyArray<number>;",
+      "export declare function make(v: Vector<number>): ReadonlyArray<number>;",
     );
     expect(text).not.toContain("Boundary");
   });

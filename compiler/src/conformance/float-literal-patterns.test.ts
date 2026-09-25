@@ -834,11 +834,16 @@ describe("coverage identity is the value, not the spelling (§7.2)", BUDGET, () 
       "export let late: String =\n" +
       "    match None\n" + arms,
     ));
+    // `Vector`'s home is named since #1071: its companion declares it.
+    const noNum = "type `Vector((Int) -> String)` has no `Num` instance; its only legal homes " +
+      "are the module declaring `Num` and the prelude module declaring `Vector`, both " +
+      "outside project source, so this pair's honored set is closed — change the type, " +
+      "or go through the operations those homes export";
     expect(eager).toEqual([
       "functions have no `Eq` instance",
-      "type `Vector((Int) -> String)` has no `Num` instance",
+      noNum,
       "functions have no `Eq` instance",
-      "type `Vector((Int) -> String)` has no `Num` instance",
+      noNum,
     ]);
     // The inferred path may report before every nested display variable settles,
     // but it owes the same four failures: one `Eq` and one `Num` for each literal.

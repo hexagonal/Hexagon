@@ -1,7 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { compileFiles, runMain } from "../support/test-project.js";
-import { COMPILER_CLAIMS } from "../passes/checker/variance.js";
+import { compileFiles, publicRowClaims, runMain } from "../support/test-project.js";
 import { HASH_TRIE_RUNTIME_OPERATIONS } from "../passes/emitter/emitter.js";
 import type * as Typed from "../syntax/typed/index.js";
 import trieSource from "../../../stdlib/Runtime/HashTrie.hex?raw";
@@ -347,6 +346,8 @@ describe("§5.3 the `Map(k, v)` claim, verified against the representation", () 
 
   interface TrieVariance {
     readonly diagnostics: readonly string[];
+    /** `Hex.Map`'s row claim, the one the representation is checked against. */
+    readonly row: readonly string[];
     readonly hashTrie: readonly Typed.ParameterVariance[];
     readonly root: readonly Typed.ParameterVariance[];
   }
@@ -371,6 +372,7 @@ describe("§5.3 the `Map(k, v)` claim, verified against the representation", () 
     }
     return {
       diagnostics: project.diagnostics.map(({ message }) => message),
+      row: publicRowClaims(project, "/Hex/Map.hex", "Map"),
       hashTrie: record.variance,
       root: union.variance,
     };
@@ -399,12 +401,15 @@ describe("§5.3 the `Map(k, v)` claim, verified against the representation", () 
     expect(shipped.hashTrie[1]?.declared).toBeUndefined();
   });
 
-  /** The row and the representation, side by side — which is all "verified" means. */
-  test("the claim table's `Map` row is what the representation computes", () => {
+  /**
+   * The row and the representation, side by side — which is all "verified"
+   * means. The claim is `Hex.Map`'s row's written `+k, +v` (#1071), checked
+   * there against this record.
+   */
+  test("the `Map(+k, +v)` row claims what the representation computes", () => {
     const shipped = varianceIn([["/main.hex", "module Main\n\n" + ONE_MAP]], "/Hex/Runtime/HashTrie.hex");
-    expect(COMPILER_CLAIMS.get("Map")).toEqual(["co", "co"]);
-    expect(shipped.hashTrie.map(({ computed }) => computed))
-      .toEqual(COMPILER_CLAIMS.get("Map"));
+    expect(shipped.row).toEqual(["co", "co"]);
+    expect(shipped.hashTrie.map(({ computed }) => computed)).toEqual(shipped.row);
   });
 
   /**
@@ -446,9 +451,15 @@ describe("§5.3 the `Map(k, v)` claim, verified against the representation", () 
 
     const broken = varianceIn([[PROBE_PATH, sabotaged], TOUCH], PROBE_PATH);
     expect(positions(broken.hashTrie)).toEqual([["k", "co"], ["v", "inv"]]);
-    expect(broken.hashTrie.map(({ computed }) => computed))
-      .not.toEqual(COMPILER_CLAIMS.get("Map"));
+    expect(broken.hashTrie.map(({ computed }) => computed)).not.toEqual(broken.row);
     expect(broken.diagnostics.join("\n")).toContain("occurs in an invariant position");
+    // The row goes red at the row, and only in the slot the field broke.
+    expect(broken.diagnostics).toContain(
+      "`v` cannot be declared covariant in `Map`: field `consume` of its representation " +
+        "`HashTrie` uses the parameter in argument position. Remove the `+`, or change the field",
+    );
+    expect(broken.diagnostics.join("\n")).not.toContain("`k` cannot be declared");
+    expect(baseline.diagnostics.join("\n")).not.toContain("cannot be declared covariant");
   });
 });
 
@@ -475,7 +486,11 @@ describe("§5.3 the `Set(a)` claim, verified against the representation", () => 
   function wrapperVarianceIn(
     files: readonly (readonly [string, string])[],
     path: string,
-  ): { readonly diagnostics: readonly string[]; readonly hashSet: readonly Typed.ParameterVariance[] } {
+  ): {
+    readonly diagnostics: readonly string[];
+    readonly row: readonly string[];
+    readonly hashSet: readonly Typed.ParameterVariance[];
+  } {
     const project = compileFiles(
       files,
       path === PROBE_PATH
@@ -488,6 +503,7 @@ describe("§5.3 the `Set(a)` claim, verified against the representation", () => 
     if (record === undefined) throw new Error(`${path} declares no HashSet`);
     return {
       diagnostics: project.diagnostics.map(({ message }) => message),
+      row: publicRowClaims(project, "/Hex/Set.hex", "Set"),
       hashSet: record.variance,
     };
   }
@@ -503,12 +519,11 @@ describe("§5.3 the `Set(a)` claim, verified against the representation", () => 
     expect(shipped.hashSet[0]?.declared).toBeUndefined();
   });
 
-  /** The row and the representation, side by side — all "verified" means. */
-  test("the claim table's `Set` row is what the representation computes", () => {
+  /** The row and the representation, side by side — all "verified" means (#1071). */
+  test("the `Set(+a)` row claims what the representation computes", () => {
     const shipped = wrapperVarianceIn([["/main.hex", "module Main\n\n" + ONE_SET]], "/Hex/Runtime/HashTrie.hex");
-    expect(COMPILER_CLAIMS.get("Set")).toEqual(["co"]);
-    expect(shipped.hashSet.map(({ computed }) => computed))
-      .toEqual(COMPILER_CLAIMS.get("Set"));
+    expect(shipped.row).toEqual(["co"]);
+    expect(shipped.hashSet.map(({ computed }) => computed)).toEqual(shipped.row);
   });
 
   /**
@@ -548,8 +563,11 @@ describe("§5.3 the `Set(a)` claim, verified against the representation", () => 
 
     const broken = wrapperVarianceIn([[PROBE_PATH, sabotaged], TOUCH], PROBE_PATH);
     expect(positions(broken.hashSet)).toEqual([["a", "inv"]]);
-    expect(broken.hashSet.map(({ computed }) => computed))
-      .not.toEqual(COMPILER_CLAIMS.get("Set"));
+    expect(broken.hashSet.map(({ computed }) => computed)).not.toEqual(broken.row);
     expect(broken.diagnostics.join("\n")).toContain("occurs in an invariant position");
+    expect(broken.diagnostics).toContain(
+      "`a` cannot be declared covariant in `Set`: field `consume` of its representation " +
+        "`HashSet` uses the parameter in argument position. Remove the `+`, or change the field",
+    );
   });
 });

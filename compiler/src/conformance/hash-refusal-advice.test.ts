@@ -264,8 +264,10 @@ describe("row 3: a prelude nominal subject", () => {
 
 describe("row 4: a subject with no `derives` seat", () => {
   /**
-   * A structural subject has no declaring module at all (Modules §7.6's own
-   * carve-out), so there is nothing to name and nothing to edit. The primitive
+   * A subject with no declaration a `derives` clause could sit on, so there is
+   * nothing to name and nothing to edit. `Vector` has a declaring module since
+   * #1071 — `Hex.Vector`'s public door row — but a door row carries no
+   * `derives`, which is this row's question (Modules §7.6). The primitive
    * arm of this row is pinned where the carve-out's boundary is measured —
    * `int-companion`, `nat-companion`, `bigint-companion`.
    */

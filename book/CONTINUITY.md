@@ -1049,8 +1049,10 @@ late pedagogy pass, not a commitment to the current order.
 - `Bag(a)` briefly shows `type Item = a` and its member `toSeq` delegating to
   `Vector.toSeq`; the line is intentionally left for the immediately following
   chapter to explain.
-- Persistent collection `.d.ts` faces are `Hex.Vector`, `Hex.Map`, and `Hex.Set`, not
-  native mutable collection types.
+- Persistent collection `.d.ts` faces are `Vector<a>`, `Map<k, v>`, and `Set<a>`, by
+  name, imported from `./Hex/Vector.js` and its siblings, whose seats alias the branded
+  `Hex.*` interfaces in `hex.d.ts` (#1071); never native mutable collection types.
+  `Range` still faces as `Hex.Range` until its own companion declares it.
 
 ### Implied Types
 

@@ -572,8 +572,16 @@ describe("§5.3 the compiler-side claim table", () => {
       )) {
         sigilled.add(match[1]!);
       }
+      // A public door row is a declaration of the name too (#1071), and
+      // `Vector`, `Map`, and `Set` retired their rows by writing theirs.
+      for (const match of source.matchAll(
+        /\btype\s+[a-z][A-Za-z0-9]*\s+as\s+([A-Z][A-Za-z0-9_]*)\s*\([^)]*[+-]/gu,
+      )) {
+        sigilled.add(match[1]!);
+      }
     }
     expect(sigilled).toContain("Seq");
+    for (const constructor of ["Vector", "Map", "Set"]) expect(sigilled).toContain(constructor);
     for (const constructor of sigilled) {
       expect(COMPILER_CLAIMS.has(constructor)).toBe(false);
     }
@@ -586,7 +594,7 @@ describe("§5.3 the compiler-side claim table", () => {
     expect(COMPILER_CLAIMS.get("JsSet")).toEqual(["inv"]);
   });
 
-  test("every row is consulted, and says what the table says", () => {
+  test("every claim is consulted, and says what its source says", () => {
     // §6.3's verification reads a row through the same `multiply` that Step 2's
     // covariance test does, so a declaration site is where a row's effect can be
     // asserted for every row at once.
@@ -595,8 +603,9 @@ describe("§5.3 the compiler-side claim table", () => {
     // (`unknown generic type \`Node\``), which is what makes its row's warrant
     // `intrinsics.md` §4.2 rather than anything a user could write.
     expect(projectDiagnostics("module Main\n\n" + "opaque record W(+a) = { v: Vector(a) }\n")).toEqual([]);
-    // `Map` moved sides at #370 and `Set` at #373: their rows are verified
-    // (`co, co` and `co`) now, so both belong with `Vector` above. `Nullable`
+    // `Map` moved sides at #370 and `Set` at #373, verified (`co, co` and `co`),
+    // so both belong with `Vector` above — and all three claims are their
+    // companions' written rows since #1071 rather than table rows. `Nullable`
     // joins that side under #786; only the three captured foreign collections
     // remain in the invariant list below.
     expect(projectDiagnostics("module Main\n\n" + "opaque record W(+a) = { v: Map(String, a) }\n")).toEqual([]);
