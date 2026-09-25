@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { compileMain, runMain } from "../support/test-project.js";
+import { compileFiles, compileMain, runMain } from "../support/test-project.js";
 
 import {
   applyLayout,
@@ -67,11 +67,24 @@ describe("Functions specification conformance", () => {
     // rigid variable unchecked, so each of these compiled with `Show`/`Hash`
     // silently added to the caller's published list.
     const describe = "export let describe<a: Show>(x: a): String = show(x)\n";
-    expect(
-      checkSource(describe + "export let f<a: Eq>(x: a): String = describe(x)")
-        .diagnostics.map(({ message }) => message),
-    ).toEqual([
+    const direct = describe + "export let f<a: Eq>(x: a): String = describe(x)";
+    const refused = checkSource(direct);
+    expect(refused.diagnostics.map(({ message }) => message)).toEqual([
       "`a` is declared to honor `Eq`, but the body requires `Show`; write `<a: (Eq, Show)>`, or remove the constraint annotation to let it be inferred",
+    ]);
+    // At the call that made the demand — never the callee's own binder, which
+    // is the one declaration in the program that is not at fault.
+    expect(caret(direct, refused.diagnostics[0]!.primary)).toBe("describe");
+    // A callee in another module: the caret stays in the calling file.
+    const imported = compileFiles([
+      ["/lib.hex", "module Lib\n\n" + describe],
+      ["/main.hex", "module Main\n\nimport Lib\nexport let f<a: Eq>(x: a): String = Lib.describe(x)\n"],
+    ]);
+    expect(imported.diagnostics.map(({ message, primary }) => [message, primary.fileId])).toEqual([
+      [
+        "`a` is declared to honor `Eq`, but the body requires `Show`; write `<a: (Eq, Show)>`, or remove the constraint annotation to let it be inferred",
+        imported.modules.find(({ source }) => source.path === "/main.hex")!.source.id,
+      ],
     ]);
     expect(
       checkSource(
@@ -138,6 +151,11 @@ describe("Functions specification conformance", () => {
 // Through the whole project, prelude included. Since #147 `Bool` is a prelude
 // declaration, so a module assembled by calling the passes directly cannot type
 // a condition, a guard, a comparison, or a logic operator.
+/** The text a span covers within `checkSource(text)`'s file. */
+function caret(text: string, span: { readonly start: { readonly offset: number }; readonly end: { readonly offset: number } }): string {
+  return ("module Main\n\n" + text).slice(span.start.offset, span.end.offset);
+}
+
 function checkSource(text: string): Typed.Module {
   return compileMain("module Main\n\n" + text).modules.find(({ source }) => source.path === "/main.hex")!.typed;
 }

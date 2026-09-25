@@ -1246,8 +1246,9 @@ interface Requirement {
   /**
    * Where the scheme carrying this requirement was *used*. `span` points at
    * the definition, which a copy inherits, so a report about the use — §6's
-   * blocked-defaulting one — would otherwise caret a constraint declaration,
-   * or another module's source entirely.
+   * blocked-defaulting one, and a declared list's contract refusal (#1063) —
+   * would otherwise caret a constraint declaration, or another module's source
+   * entirely.
    */
   useSpan?: Source.Span;
   readonly impliedTypes?: ReadonlyMap<string, Mono>;
@@ -21013,7 +21014,7 @@ class Checker {
             } as a base constraint — ` +
               `write \`constraint ${constraint}<${variable.rigidName}: ${baseList}>\`` +
               this.#constraintRouteClauses(bases, !collision),
-          primary: requirement.span,
+          primary: requirement.useSpan ?? requirement.span,
         });
         requirement.reported = true;
         return;
@@ -21033,7 +21034,7 @@ class Checker {
             // two would part the binder from its header.
             : `${declaration}, but the body requires ${requiredMention}; ` +
               `write \`<${variable.rigidName}: ${headerList}>\` on the \`honor\` header${routes}`,
-          primary: requirement.span,
+          primary: requirement.useSpan ?? requirement.span,
         });
         requirement.reported = true;
         return;
@@ -21057,7 +21058,7 @@ class Checker {
             : `${declaration} on the block head, but ${subject} requires ` +
               `${requiredMention}; widen the head: ` +
               `\`fun<${variable.rigidName}: ${constraintList}>\`${routes}, or ${headRewrite}`,
-          primary: requirement.span,
+          primary: requirement.useSpan ?? requirement.span,
         });
         requirement.reported = true;
         return;
@@ -21072,7 +21073,7 @@ class Checker {
           : `${declaration}, but the body requires ` +
             `${requiredMention}; write \`<${variable.rigidName}: ${constraintList}>\`${routes}, ` +
             `or ${inferenceRewrite}`,
-        primary: requirement.span,
+        primary: requirement.useSpan ?? requirement.span,
       });
       requirement.reported = true;
       return;
