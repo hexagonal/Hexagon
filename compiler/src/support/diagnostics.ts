@@ -144,6 +144,15 @@ export class Bag {
   }
 
   /**
+   * Drops every diagnostic added since `count` was read. For a pass that
+   * elaborates something **tentatively**, ahead of the elaboration that owns
+   * its reports, and must leave no report of its own when it declines.
+   */
+  rollback(count: number): void {
+    this.#diagnostics.length = Math.min(count, this.#diagnostics.length);
+  }
+
+  /**
    * Returns diagnostics in source order while preserving production order for
    * diagnostics at the same location. This makes host output deterministic
    * without requiring passes to coordinate how they discover failures.
