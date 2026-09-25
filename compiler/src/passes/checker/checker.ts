@@ -14542,6 +14542,18 @@ class Checker {
     );
   }
 
+  /**
+   * Whether a value of a faced tree enters the face: `#operandReaches`, except
+   * that a **declared** type variable is an established type like any concrete
+   * one (§5.1's first rank), and no conversion takes it into a concrete face —
+   * it declines, and where it is the first to, it is the one reported (#827).
+   */
+  #entersFace(type: Mono, face: Mono, expression?: Resolved.Expr): boolean {
+    const actual = this.#prune(type);
+    if (actual.kind === "Variable" && actual.rigidName !== undefined) return false;
+    return this.#operandReaches(actual, face, expression);
+  }
+
   /** One node's tree is closed against one face, so the answer is cached per node. */
   readonly #reachesFace = new WeakMap<TreeNode, boolean>();
 
@@ -14552,12 +14564,12 @@ class Checker {
       // where they select none it is as unsolved as any unsolved value, and
       // reaches — the face's missing instance is then its own report.
       const own = this.#chooseHome(this.#treeValues(node));
-      return own === undefined || this.#operandReaches(own.home, face, node.expression);
+      return own === undefined || this.#entersFace(own.home, face, node.expression);
     }
     return node.parts.every((part) =>
       "node" in part
         ? this.#facedReaches(part.node, face)
-        : this.#operandReaches(part.value.type, face, part.value.expression)
+        : this.#entersFace(part.value.type, face, part.value.expression)
     );
   }
 
@@ -14628,9 +14640,14 @@ class Checker {
       return;
     }
     let reported = false;
-    if (
-      first !== undefined && first.owner === undefined && first.note === undefined && !receiver
-    ) {
+    const declared = this.#prune(first.type);
+    if (declared.kind === "Variable" && declared.rigidName !== undefined) {
+      // A declared variable that declines first speaks in its own words — the
+      // declared-variable report, at the value — at any seat, a receiver's
+      // included (§5.1, #827).
+      this.#unify(face, declared, first.expression.span);
+      reported = true;
+    } else if (first.owner === undefined && first.note === undefined && !receiver) {
       this.#diagnostics.add({
         severity: "error",
         message: this.#faceEntryRefusal(first, face),
@@ -14749,7 +14766,7 @@ class Checker {
     const here = node.rung !== undefined ? node : owner;
     for (const part of node.parts) {
       if ("value" in part) {
-        if (this.#operandReaches(part.value.type, face, part.value.expression)) continue;
+        if (this.#entersFace(part.value.type, face, part.value.expression)) continue;
         return {
           expression: part.value.expression,
           type: part.value.type,
@@ -14761,7 +14778,7 @@ class Checker {
       if (inner.failed === true) continue;
       if (inner.rung !== undefined && !this.#supportsTarget(face, inner.rung)) {
         const own = this.#chooseHome(this.#treeValues(inner));
-        if (own === undefined || this.#operandReaches(own.home, face, inner.expression)) continue;
+        if (own === undefined || this.#entersFace(own.home, face, inner.expression)) continue;
         return { expression: inner.expression, type: own.home, owner: here, note: undefined };
       }
       if (this.#facedReaches(inner, face)) continue;

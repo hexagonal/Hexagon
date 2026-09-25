@@ -437,8 +437,10 @@ reach it by none of these — a `Float` under a `Rat` face, a user type under `B
 lift **stands down** at every tower member call whose parts hold that value, and the tree
 is refused: the report is given where the tree's result meets its seat (`let total: Rat =
 count * price` is refused at the binding rather than at the operation), naming the value
-that declined the face — the first in source order where several do — and the tower
-member call it is an operand of: "`price` is a `Float` and cannot enter `Rat`, so the
+that declined the face — the first in source order where several do, a declared type
+variable declining like any established type (no conversion takes it into a concrete face)
+and, where it is first, reported in its own words at the value — and the tower member call
+it is an operand of: "`price` is a `Float` and cannot enter `Rat`, so the
 multiplication could not run at `Rat`" (§6). A call with one subject operand — a
 negation, `bnot`, `**`'s base — stands down as a binary one does, and nothing else in the
 tree reports: a form joins without a word, except where it is a dot call's receiver

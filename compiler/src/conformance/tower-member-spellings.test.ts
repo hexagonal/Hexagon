@@ -785,6 +785,15 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
       kept: "",
       repair: false,
     })]);
+    // A declared variable that declines first is reported in its own words,
+    // at a receiver as anywhere; after `p`, `p` is the one named.
+    expect(refusals(`${foo}fun half<a: Num>(x: a): BigInt = (x + p).gcd(s2)\n`)).toEqual([
+      "`a` is a declared type variable, but the body requires `BigInt`; change the " +
+        "annotation to `BigInt`, or remove it to let the type be inferred",
+    ]);
+    expect(refusals(`${foo}fun half<a: Num>(x: a): BigInt = (p + x).gcd(s2)\n`)).toEqual([
+      rowSixteen({ receiver: "(p + x)", declined: "`p` is a `Foo` and", ascribe: "", kept: "", repair: false }),
+    ]);
     // At a binding the same tree says the same sentence, once.
     expect(refusals(`${foo}let t: BigInt = p + (i + j)\n`)).toEqual([
       "`p` is a `Foo` and cannot enter `BigInt`, so the addition could not run at `BigInt`",

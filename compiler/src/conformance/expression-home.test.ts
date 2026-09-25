@@ -373,12 +373,19 @@ describe("a faced tree is refused once, naming the value that declined (#827)", 
     ]);
   });
 
-  test("a declared variable in a refused tree keeps its own verdict", () => {
-    for (const product of ["x * f", "f * x"]) {
-      expect(refusals(`fun half<a: Num>(x: a): Dec = ${product}\n`)).toEqual([
-        "`f` is a `Float` and cannot enter `Dec`, so the multiplication could not run at `Dec`",
-      ]);
-    }
+  test("a declared variable declines, and speaks in its own words", () => {
+    // No conversion takes `a` into `Dec`: `x` declines like any established
+    // type, and the first declining value in source order is the one named —
+    // a declared variable by its own report, at the value (#827, ruling 3).
+    const declared = "`a` is a declared type variable, but the body requires `Dec`; " +
+      "change the annotation to `Dec`, or remove it to let the type be inferred";
+    expect(refusals("fun half<a: Num>(x: a): Dec = x * f\n")).toEqual([declared]);
+    expect(refusals("fun half<a: Num>(x: a): Dec = if c then x else f\n")).toEqual([declared]);
+    expect(refusals("fun half<a: Num>(x: a): Dec = f * x\n")).toEqual([
+      "`f` is a `Float` and cannot enter `Dec`, so the multiplication could not run at `Dec`",
+    ]);
+    // Alone, it is the report it always was.
+    expect(refusals("fun half<a: Num>(x: a): Dec = x * 2\n")).toEqual([declared]);
   });
 
   test("an unsolved value runs at the face, the kept type deciding nothing", () => {
