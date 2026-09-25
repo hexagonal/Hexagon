@@ -142,6 +142,20 @@ describe("type position: what the import does not take", () => {
     ])).toEqual([]);
   });
 
+  test("an implied type of the module's own constraint keeps its refusal", () => {
+    // The module's own layer, like its declarations: the import does not answer
+    // ahead of it.
+    expect(messages([
+      ["/item.hex", "module Item\n\n" + "export record Item = { n: Float }\n"],
+      ["/main.hex",
+        "module Main\n\n" + "import Item\n" +
+          "export constraint Bag<c> =\n" +
+          "    type Item\n" +
+          "    first(bag: c) -> Item\n" +
+          "export let x: Item = Item.Item({ n = 1.0 })\n"],
+    ])).toContain("`Item` is an implied type of `Bag` and cannot appear in type expressions");
+  });
+
   test("constraint position is unchanged: the pre-registered name is the prelude's", () => {
     // No other module can export one of the fourteen pre-registered constraint
     // names (Constraints §5.1.1), so an import spelled like one competes in
@@ -292,6 +306,34 @@ describe("term position: the occlusion keys on the type", () => {
     ])).toEqual(["no bare `Shape`; write `Shape.Dot` or `Shape.Line`"]);
   });
 
+  test("a type alias of the spelling takes the name too: no prelude route is offered", () => {
+    // `Shape` is also the prelude's qualified-only `JsConversionReason.Shape`.
+    // The alias has no constructors to name, so the report is the plain one —
+    // never the prelude's route for a spelling the import has taken.
+    expect(messages([
+      ["/shape.hex", "module Shape\n\n" + "export type Shape = Int\n"],
+      ["/main.hex",
+        "module Main\n\n" + "import Shape\n" +
+          "export let x: Int = Shape(1)\n"],
+    ])).toEqual(["unknown name `Shape`"]);
+  });
+
+  test("above the import line of a transparent union, no route is offered either", () => {
+    // Neither the prelude's route nor the union's own constructors: above the
+    // line none of the union's qualified spellings resolves yet (§3), and the
+    // prelude's is occluded module-wide (§5.4).
+    expect(messages([
+      ["/shape.hex", "module Shape\n\n" + "export union Shape = Dot | Line(Int)\n"],
+      ["/main.hex",
+        "module Main\n\n" +
+          "export let x: Int = 1\n" +
+          "fun f(): Int =\n" +
+          "    let s = Shape(1)\n" +
+          "    0\n" +
+          "import Shape\n"],
+    ])).toContain("unknown name `Shape`");
+  });
+
   test("in a pattern the type's door answers, and the prelude's constructor is not reached", () => {
     expect(messages([
       jsError("export union JsError = Wrap(Int) | Other\n"),
@@ -326,13 +368,23 @@ describe("term position: the occlusion keys on the type", () => {
     ])).toEqual([]);
   });
 
-  test("the module's own term of the spelling wins outright", () => {
-    expect(messages([
+  test("the module's own constructor of the spelling wins outright", async () => {
+    // A same-spelled union constructor of the module's own is a term-namespace
+    // declaration, so it answers before the import's record constructor —
+    // bare, in an expression and a pattern — while the qualified spelling
+    // still reaches the import's.
+    const module = await runProject([
       jsError("export record JsError = { n: Int }\n"),
       ["/main.hex",
         "module Main\n\n" + "import JsError\n" +
-          "export fun JsError(n: Int): Int = n\n" +
-          "export let y: Int = JsError(1)\n"],
-    ])).not.toContain("unknown name `JsError`");
+          "union Mine = JsError(Int) | Nope\n" +
+          "fun read(m: Mine): Int =\n" +
+          "    match m\n" +
+          "        JsError(k) => k\n" +
+          "        Nope => 0\n" +
+          "export let y: Int = read(JsError(5))\n" +
+          "export let z: Int = JsError.JsError({ n = 2 }).n\n"],
+    ]);
+    expect([module["y"], module["z"]]).toEqual([5, 2]);
   });
 });

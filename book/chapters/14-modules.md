@@ -233,10 +233,11 @@ One line, three readings. `Point.` selects the module. `Point` in type position 
 the type, because the module exports a type spelled like the alias. Bare `Point(...)`
 selects the constructor, for the same reason, in an expression and in a pattern. These
 are the companion fallbacks: where your module declares nothing of the alias's
-spelling, a same-spelled export of the aliased module answers, and it answers ahead of
-the prelude. A module of your own named `Option` that exports a type `Option` means
-your `Option` bare just as it does qualified, and a type or constructor that a later
-release adds to the prelude cannot take a spelling your import already answers. The
+spelling, the aliased module's same-spelled type, or its record or union constructor,
+answers, and it answers ahead of the prelude. A module of your own named `Option` that
+exports a type `Option` means your `Option` bare just as it does qualified, and a type
+or constructor that a later release adds to the prelude cannot take a spelling your
+import's type already answers. The
 prelude's own stays reachable through its module, as `import Hex.Option as Opt` and
 `Opt.Option(a)`. A module whose type is not spelled like its alias takes the qualified
 spelling, or a `type` alias of your own. Many modules choose a plural name instead; the
