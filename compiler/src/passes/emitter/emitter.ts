@@ -2718,6 +2718,15 @@ function faceQualifiers(type: Typed.Type, into: FaceQualifier[]): void {
       return;
     case "Vector":
     case "Set":
+      // #1071: a public door row's kind is qualified like a nominal.
+      if (type.qualifier !== undefined) {
+        into.push({
+          qualifier: type.qualifier,
+          key: nominalHomeKey("externType", publicTypeKey(type.kind).id),
+        });
+      }
+      faceQualifiers(type.element, into);
+      return;
     case "Array":
     case "JsSet":
     case "Node":
@@ -2727,6 +2736,15 @@ function faceQualifiers(type: Typed.Type, into: FaceQualifier[]): void {
       faceQualifiers(type.value, into);
       return;
     case "Map":
+      if (type.qualifier !== undefined) {
+        into.push({
+          qualifier: type.qualifier,
+          key: nominalHomeKey("externType", publicTypeKey("Map").id),
+        });
+      }
+      faceQualifiers(type.key, into);
+      faceQualifiers(type.value, into);
+      return;
     case "JsMap":
       faceQualifiers(type.key, into);
       faceQualifiers(type.value, into);
@@ -15983,11 +16001,12 @@ function renderNominal(
 function publicKindFace(
   kind: PublicTypeKind,
   args: readonly Typed.Type[],
+  qualifier: Typed.TypeQualifier | undefined,
   variables: ReadonlyMap<Typed.TypeVariableId, string>,
   faces: DeclarationFaces,
 ): string {
   const identity = { kind: "externType", id: publicTypeKey(kind).id as Resolved.ExternTypeId } as const;
-  return renderNominal(faces.nominals.reference(identity, undefined, kind), args, variables, faces);
+  return renderNominal(faces.nominals.reference(identity, qualifier, kind), args, variables, faces);
 }
 
 function renderType(
@@ -16053,9 +16072,9 @@ function renderType(
       return faces.runtime.reference("Range");
     case "Vector":
     case "Set":
-      return publicKindFace(type.kind, [type.element], variables, faces);
+      return publicKindFace(type.kind, [type.element], type.qualifier, variables, faces);
     case "Map":
-      return publicKindFace("Map", [type.key, type.value], variables, faces);
+      return publicKindFace("Map", [type.key, type.value], type.qualifier, variables, faces);
     case "Array":
       // A borrowed foreign array is readonly to Hexagon and has no mutation
       // surface (FFI Part 1 §4.1; Part 2 §6.1, §13), so the face is the

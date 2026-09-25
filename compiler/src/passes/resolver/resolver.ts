@@ -21,6 +21,7 @@ import {
   type IntrinsicGrade,
   intrinsicKeys,
   intrinsicTypeId,
+  publicTypeKey,
   publicTypeKind,
   isIntrinsicScheme,
   nearestIntrinsicKey,
@@ -6259,7 +6260,9 @@ class Resolver {
       if (alias !== undefined) return this.#instantiateResolvedAlias(alias, arguments_, annotation.span);
       const externType = imported.externTypes.get(name);
       if (externType !== undefined) {
-        const kind = this.#publicKindType(externType.externType, name, arguments_, annotation.span);
+        const kind = this.#publicKindType(
+          externType.externType, name, arguments_, annotation.span, qualifier,
+        );
         if (kind !== undefined) return kind;
         if (arguments_.length > 0) {
           this.#diagnostics.add({
@@ -6831,10 +6834,11 @@ class Resolver {
     name: string,
     arguments_: readonly Resolved.TypeAnnotation[],
     span: Source.Span,
+    qualifier?: Resolved.TypeQualifier,
   ): Resolved.TypeAnnotation | undefined {
     const kind = publicTypeKind(Number(externType));
     if (kind === undefined) return undefined;
-    const arity = kind === "Map" ? 2 : 1;
+    const arity = publicTypeKey(kind).entry.arity;
     if (arguments_.length !== arity) {
       this.#diagnostics.add({
         severity: "error",
@@ -6845,9 +6849,12 @@ class Resolver {
     }
     const at = (index: number): Resolved.TypeAnnotation =>
       arguments_[index] ?? { kind: "ErrorType", span };
+    // FFI Part 7 §2.4 rung 3: an occurrence written through a source import
+    // alias carries it, as a nominal's does.
+    const written = qualifier === undefined ? {} : { qualifier };
     return kind === "Map"
-      ? { kind: "Map", key: at(0), value: at(1), span }
-      : { kind, element: at(0), span };
+      ? { kind: "Map", key: at(0), value: at(1), ...written, span }
+      : { kind, element: at(0), ...written, span };
   }
 
   /**

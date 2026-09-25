@@ -26,6 +26,15 @@ function diagnostics(source: string): readonly string[] {
     .map(({ message }) => message);
 }
 
+/** A shipped companion's own source with `extra` appended, compiled in its real seat. */
+function inCompanion(companion: string, extra: string): readonly string[] {
+  return compileProject([
+    new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + "export let n: Int = 1\n"),
+    new Source.File(Source.fileId(1), `/${companion}.hex`, STDLIB_SOURCES[companion]! + extra),
+  ], { trustedStandardLibraryModules: new Set([companion]) }).diagnostics
+    .map(({ message }) => message);
+}
+
 describe("the rows (§3.3, §4.1)", () => {
   test.each([
     ["vector", "Vector", "export type vector as Vector(+a)", "Runtime.VectorTrie", "TrieVector"],
@@ -70,6 +79,26 @@ describe("the rows (§3.3, §4.1)", () => {
       "`vector` may be declared only in `Hex.Vector`; the type is reached from there, as `Vector`",
     ]);
   });
+});
+
+/**
+ * The representation records a row's claim is checked against are the trusted
+ * runtime modules' alone (`project.ts`). A program's own module spelled
+ * `Runtime.VectorTrie`, declaring a `TrieVector` that would break the claim, is
+ * a different module — `Hex.Runtime.VectorTrie` is the standard library's — and
+ * must not become the record `Hex.Vector`'s row is read against.
+ */
+test("a program's own record of the same spelling is not the representation", () => {
+  // `Hex.Vector` is supplied in its real seat so its row is checked in this
+  // compilation rather than answered from the standard-library cache.
+  const project = compileFiles([
+    ["/rt.hex", "module Runtime.VectorTrie\n\n" + "export record TrieVector(a) = { f: a -> Int }\n"],
+    ["/main.hex", "module Main\n\n" + "import Runtime.VectorTrie as Rt\n" +
+      "export let n: Int = Vector.length([1])\n" +
+      "export let r: Rt.TrieVector(Int) = Rt.TrieVector({ f = (x) => x })\n"],
+    ["/Vector.hex", STDLIB_SOURCES["Vector"]!],
+  ], { trustedStandardLibraryModules: new Set(["Vector"]) });
+  expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
 });
 
 describe("every route to the name reaches the kind", () => {
@@ -151,22 +180,46 @@ describe("the companion is the type's home (Constraints §4.4, §5.3)", () => {
    * The home, from the other side: the companion itself may honor a constraint
    * it does not declare at its own type, because its row *is* the declaration
    * the orphan rule asks for — the seat `honor Iterable<Vector(a)>` will take.
-   * The same honor in a program is an orphan. `Concat` is used because no
-   * compiler-provided row stands at `Vector` for it.
+   * The same honor in a program is an orphan. `Concat` at `Map` is used because
+   * no compiler-provided row stands in that slot.
    */
   test("the declaring companion may honor a prelude constraint at its type; a program may not", () => {
-    const CONCAT = "\nhonor Concat<Vector(a)> =\n    concat(left, right) = left\n";
-    const companion = compileProject([
-      new Source.File(
-        Source.fileId(0),
-        "/main.hex",
-        "module Main\n\n" + "export let v: Vector(Int) = Vector.append([1], 2)\n",
-      ),
-      new Source.File(Source.fileId(1), "/Vector.hex", STDLIB_SOURCES["Vector"]! + CONCAT),
-    ], { trustedStandardLibraryModules: new Set(["Vector"]) }).diagnostics;
-    expect(companion.map(({ message }) => message)).toEqual([]);
+    const CONCAT = "\nhonor Concat<Map(k, v)> =\n    concat(left, right) = left\n";
+    expect(inCompanion("Map", CONCAT)).toEqual([]);
     expect(diagnostics(CONCAT))
       .toEqual(["orphan instance: this module declares neither `Concat` nor the instance subject"]);
+  });
+
+  /**
+   * *(Ruled 2026-09-26.)* A slot the compiler fills — structurally, or by a
+   * provided `Iterable` row — takes no source instance beside it: an instance
+   * there is one or the other (Intrinsics §3.3), and moving one into source
+   * deletes the compiler's in the same change. Only the standard library can
+   * write one, so the refusal is a guard on our own edits. Before it, `Show`
+   * was accepted and never used, `Iterable` was dropped without a word, and
+   * `Hash` passed the checker and faulted in emission.
+   *
+   * `Hash` also pins the companion's hand-written-`Hash` privilege (Constraints
+   * §4.5's standard-library exception): the one refusal is this one, not the
+   * derivable-only law's.
+   */
+  test.each([
+    ["Vector", "Show<Vector(a)>", "honor Show<Vector(a)> =\n    show(x) = \"v\"\n"],
+    ["Vector", "Hash<Vector(a)>", "honor Hash<Vector(a)> =\n    hash(x) = 0\n"],
+    ["Vector", "Concat<Vector(a)>", "honor Concat<Vector(a)> =\n    concat(left, right) = left\n"],
+    [
+      "Vector",
+      "Iterable<Vector(a)>",
+      "honor Iterable<Vector(a)> =\n    type Item = a\n    toSeq(x) = elements(x)\n",
+    ],
+    [
+      "Set",
+      "Iterable<Set(a)>",
+      "honor Iterable<Set(a)> =\n    type Item = a\n    toSeq(x) = Seq.empty\n",
+    ],
+  ])("the companion `%s` may not honor `%s`, a slot the compiler fills", (companion, head, honor) => {
+    expect(inCompanion(companion, `\n${honor}`))
+      .toEqual([`duplicate instance of \`${head}\`: the compiler provides it`]);
   });
 
   /** A program owns neither `Show` nor `Vector`, so this is the orphan it always was. */

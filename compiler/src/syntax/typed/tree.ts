@@ -62,17 +62,23 @@ export interface RangeType {
 export interface VectorType {
   readonly kind: "Vector";
   readonly element: Type;
+  /** See `TypeQualifier`; absent for an occurrence the source wrote bare (#1071). */
+  readonly qualifier?: TypeQualifier;
 }
 
 export interface MapType {
   readonly kind: "Map";
   readonly key: Type;
   readonly value: Type;
+  /** See `TypeQualifier`; absent for an occurrence the source wrote bare (#1071). */
+  readonly qualifier?: TypeQualifier;
 }
 
 export interface SetType {
   readonly kind: "Set";
   readonly element: Type;
+  /** See `TypeQualifier`; absent for an occurrence the source wrote bare (#1071). */
+  readonly qualifier?: TypeQualifier;
 }
 
 export interface ArrayType {

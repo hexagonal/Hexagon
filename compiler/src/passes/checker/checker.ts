@@ -968,17 +968,23 @@ interface RangeMono {
 interface VectorMono {
   readonly kind: "Vector";
   readonly element: Mono;
+  /** See `Qualifier` (#1071: a public door row's type is qualified like any nominal). */
+  readonly qualifier?: Qualifier;
 }
 
 interface MapMono {
   readonly kind: "Map";
   readonly key: Mono;
   readonly value: Mono;
+  /** See `Qualifier` (#1071: a public door row's type is qualified like any nominal). */
+  readonly qualifier?: Qualifier;
 }
 
 interface SetMono {
   readonly kind: "Set";
   readonly element: Mono;
+  /** See `Qualifier` (#1071: a public door row's type is qualified like any nominal). */
+  readonly qualifier?: Qualifier;
 }
 
 interface ArrayMono {
@@ -4344,7 +4350,14 @@ class Checker {
         this.#storeInstanceImpliedTypes(item, typeParameters, true);
         const key = this.#instanceKey(item.constraintIdentity, subject);
         const occupant = this.#instances.get(key);
-        if (occupant !== undefined) {
+        if (this.#compilerProvidedSlot(item, instanceSubject, occupant)) {
+          this.#diagnostics.add({
+            severity: "error",
+            message: `duplicate instance of \`${item.constraint}<${this.#display(subject)}>\`: ` +
+              "the compiler provides it",
+            primary: item.span,
+          });
+        } else if (occupant !== undefined) {
           // Both instances answer the *same* declaration — that is what a key
           // collision now means — so §5.1.1's disambiguation rule leaves the
           // name bare: there is one constraint to name, and qualifying it by
@@ -6404,6 +6417,32 @@ class Checker {
    */
   #companionsPrimitive(subject: Resolved.TypeAnnotation): boolean {
     return subject.kind === "Primitive" && subject.name === this.#companionPrimitive;
+  }
+
+  /**
+   * *(#1071, ruled 2026-09-26.)* Whether a lawful `honor` at a public door
+   * row's type lands on a slot the **compiler** fills: `#selectEvidence`'s
+   * structural answers (`Eq`, `Ord`, `Show`, `Hash`, `Concat` at the kinds that
+   * have them) or a provided `Iterable` row (Collections Part 5 §4). An instance
+   * there is one or the other, never both (Intrinsics §3.3): a provided row
+   * moves into source by being deleted in the same change, and a source row
+   * beside it would be dead, or dropped, or — for `Hash` — an emission fault.
+   *
+   * Only standard-library source can write one: a program owns neither half of
+   * such a head, so the orphan rule answers it first and this stays silent.
+   */
+  #compilerProvidedSlot(
+    item: Resolved.HonorItem,
+    subject: Mono,
+    occupant: Resolved.HonorItem | undefined,
+  ): boolean {
+    if (!isPublicTypeKind(item.subject.kind)) return false;
+    const lawful = this.#localConstraints.has(item.constraint) ||
+      this.#ownPublicKinds.has(item.subject.kind);
+    if (!lawful) return false;
+    if (occupant !== undefined && this.#providedIterableRows.has(occupant)) return true;
+    return this.#selectEvidence(subject, item.constraintIdentity, item.constraint).kind ===
+      "components";
   }
 
   /**
@@ -18433,7 +18472,7 @@ class Checker {
       case "JsSet":
       case "Node": {
         if (!this.#carriesArrow(actual)) return actual;
-        return { kind: actual.kind, element: this.#recolour(actual.element, level, freshened) };
+        return { ...actual, element: this.#recolour(actual.element, level, freshened) };
       }
       case "Nullable": {
         if (!this.#carriesArrow(actual)) return actual;
@@ -18984,6 +19023,28 @@ class Checker {
             ? this.#applyWrittenQualifiers(source.arguments[index]!, argument)
             : argument
         ),
+        ...(source.qualifier === undefined ? {} : { qualifier: source.qualifier }),
+      };
+    }
+    // *(#1071.)* A public door row's kinds carry a written qualifier too, and
+    // take it by the same rule: the written one replaces the inferred one.
+    if (
+      (source.kind === "Vector" && target.kind === "Vector") ||
+      (source.kind === "Set" && target.kind === "Set")
+    ) {
+      const { qualifier: _inferred, ...carried } = target;
+      return {
+        ...carried,
+        element: this.#applyWrittenQualifiers(source.element, target.element),
+        ...(source.qualifier === undefined ? {} : { qualifier: source.qualifier }),
+      };
+    }
+    if (source.kind === "Map" && target.kind === "Map") {
+      const { qualifier: _inferred, ...carried } = target;
+      return {
+        ...carried,
+        key: this.#applyWrittenQualifiers(source.key, target.key),
+        value: this.#applyWrittenQualifiers(source.value, target.value),
         ...(source.qualifier === undefined ? {} : { qualifier: source.qualifier }),
       };
     }
@@ -22098,10 +22159,10 @@ class Checker {
       };
     }
     if (actual.kind === "Vector") {
-      return { kind: "Vector", element: this.#replaceVariables(actual.element, replacements) };
+      return { ...actual, element: this.#replaceVariables(actual.element, replacements) };
     }
     if (actual.kind === "Set") {
-      return { kind: "Set", element: this.#replaceVariables(actual.element, replacements) };
+      return { ...actual, element: this.#replaceVariables(actual.element, replacements) };
     }
     if (actual.kind === "Array") return { kind: "Array", element: this.#replaceVariables(actual.element, replacements) };
     if (actual.kind === "JsSet") return { kind: "JsSet", element: this.#replaceVariables(actual.element, replacements) };
@@ -23109,14 +23170,14 @@ class Checker {
       if (actual.kind === "ExternType") {
         return { ...actual, arguments: actual.arguments.map(copy) };
       }
-      if (actual.kind === "Vector") return { kind: "Vector", element: copy(actual.element) };
-      if (actual.kind === "Set") return { kind: "Set", element: copy(actual.element) };
+      if (actual.kind === "Vector") return { ...actual, element: copy(actual.element) };
+      if (actual.kind === "Set") return { ...actual, element: copy(actual.element) };
       if (actual.kind === "Array") return { kind: "Array", element: copy(actual.element) };
       if (actual.kind === "JsSet") return { kind: "JsSet", element: copy(actual.element) };
       if (actual.kind === "Node") return { kind: "Node", element: copy(actual.element) };
       if (actual.kind === "Nullable") return { kind: "Nullable", value: copy(actual.value) };
       if (actual.kind === "Map" || actual.kind === "JsMap") {
-        return { kind: actual.kind, key: copy(actual.key), value: copy(actual.value) };
+        return { ...actual, key: copy(actual.key), value: copy(actual.value) };
       }
       if (actual.kind === "Record") {
         const record = this.#normalizeRecord(actual);
@@ -23208,10 +23269,15 @@ class Checker {
       return {
         kind: "Vector",
         element: this.#annotationType(annotation.element, level, namedTails, typeParameters, impliedTypes, holes),
+        ...(annotation.qualifier === undefined ? {} : { qualifier: annotation.qualifier }),
       };
     }
     if (annotation.kind === "Set") {
-      return { kind: "Set", element: this.#annotationType(annotation.element, level, namedTails, typeParameters, impliedTypes, holes) };
+      return {
+        kind: "Set",
+        element: this.#annotationType(annotation.element, level, namedTails, typeParameters, impliedTypes, holes),
+        ...(annotation.qualifier === undefined ? {} : { qualifier: annotation.qualifier }),
+      };
     }
     if (annotation.kind === "Array") return { kind: "Array", element: this.#annotationType(annotation.element, level, namedTails, typeParameters, impliedTypes, holes) };
     if (annotation.kind === "JsSet") return { kind: "JsSet", element: this.#annotationType(annotation.element, level, namedTails, typeParameters, impliedTypes, holes) };
@@ -23225,6 +23291,9 @@ class Checker {
         kind: annotation.kind,
         key: this.#annotationType(annotation.key, level, namedTails, typeParameters, impliedTypes, holes),
         value: this.#annotationType(annotation.value, level, namedTails, typeParameters, impliedTypes, holes),
+        ...(annotation.kind === "JsMap" || annotation.qualifier === undefined
+          ? {}
+          : { qualifier: annotation.qualifier }),
       };
     }
     if (annotation.kind === "Function") {
@@ -23892,14 +23961,14 @@ class Checker {
       switch (type.kind) {
         case "Primitive": return primitive(type.name);
         case "Range": return { kind: "Range" };
-        case "Vector": return { kind: "Vector", element: copy(type.element) };
-        case "Set": return { kind: "Set", element: copy(type.element) };
+        case "Vector": return { ...type, element: copy(type.element) };
+        case "Set": return { ...type, element: copy(type.element) };
         case "Array": return { kind: "Array", element: copy(type.element) };
         case "JsSet": return { kind: "JsSet", element: copy(type.element) };
         case "JsValue": return { kind: "JsValue" };
         case "Node": return { kind: "Node", element: copy(type.element) };
         case "Nullable": return { kind: "Nullable", value: copy(type.value) };
-        case "Map": return { kind: "Map", key: copy(type.key), value: copy(type.value) };
+        case "Map": return { ...type, key: copy(type.key), value: copy(type.value) };
         case "JsMap": return { kind: "JsMap", key: copy(type.key), value: copy(type.value) };
         case "Variable": {
           const existing = variables.get(type.id);
@@ -24001,14 +24070,14 @@ class Checker {
       if (actual.kind === "Union") return { ...actual, arguments: actual.arguments.map(copy) };
       if (actual.kind === "NominalRecord") return { ...actual, arguments: actual.arguments.map(copy) };
       if (actual.kind === "ExternType") return { ...actual, arguments: actual.arguments.map(copy) };
-      if (actual.kind === "Vector") return { kind: "Vector", element: copy(actual.element) };
-      if (actual.kind === "Set") return { kind: "Set", element: copy(actual.element) };
+      if (actual.kind === "Vector") return { ...actual, element: copy(actual.element) };
+      if (actual.kind === "Set") return { ...actual, element: copy(actual.element) };
       if (actual.kind === "Array") return { kind: "Array", element: copy(actual.element) };
       if (actual.kind === "JsSet") return { kind: "JsSet", element: copy(actual.element) };
       if (actual.kind === "Node") return { kind: "Node", element: copy(actual.element) };
       if (actual.kind === "Nullable") return { kind: "Nullable", value: copy(actual.value) };
       if (actual.kind === "Map" || actual.kind === "JsMap") {
-        return { kind: actual.kind, key: copy(actual.key), value: copy(actual.value) };
+        return { ...actual, key: copy(actual.key), value: copy(actual.value) };
       }
       if (actual.kind === "Function") {
         return {
@@ -26906,16 +26975,31 @@ class Checker {
     }
     if (actual.kind === "Range") return { kind: "Range" };
     if (actual.kind === "Vector") {
-      return { kind: "Vector", element: this.#publicType(actual.element, seen) };
+      return {
+        kind: "Vector",
+        element: this.#publicType(actual.element, seen),
+        ...(actual.qualifier === undefined ? {} : { qualifier: actual.qualifier }),
+      };
     }
-    if (actual.kind === "Set") return { kind: "Set", element: this.#publicType(actual.element, seen) };
+    if (actual.kind === "Set") {
+      return {
+        kind: "Set",
+        element: this.#publicType(actual.element, seen),
+        ...(actual.qualifier === undefined ? {} : { qualifier: actual.qualifier }),
+      };
+    }
     if (actual.kind === "Array") return { kind: "Array", element: this.#publicType(actual.element, seen) };
     if (actual.kind === "JsSet") return { kind: "JsSet", element: this.#publicType(actual.element, seen) };
     if (actual.kind === "JsValue") return { kind: "JsValue" };
     if (actual.kind === "Node") return { kind: "Node", element: this.#publicType(actual.element, seen) };
     if (actual.kind === "Nullable") return { kind: "Nullable", value: this.#publicType(actual.value, seen) };
     if (actual.kind === "Map") {
-      return { kind: "Map", key: this.#publicType(actual.key, seen), value: this.#publicType(actual.value, seen) };
+      return {
+        kind: "Map",
+        key: this.#publicType(actual.key, seen),
+        value: this.#publicType(actual.value, seen),
+        ...(actual.qualifier === undefined ? {} : { qualifier: actual.qualifier }),
+      };
     }
     if (actual.kind === "JsMap") {
       return { kind: "JsMap", key: this.#publicType(actual.key, seen), value: this.#publicType(actual.value, seen) };
@@ -28585,9 +28669,9 @@ class Checker {
             ...(actual.effect === undefined ? {} : { effect: actual.effect }),
           };
         case "Vector":
-          return { kind: "Vector", element: copy(actual.element) };
+          return { ...actual, element: copy(actual.element) };
         case "Set":
-          return { kind: "Set", element: copy(actual.element) };
+          return { ...actual, element: copy(actual.element) };
         case "Array":
           return { kind: "Array", element: copy(actual.element) };
         case "JsSet":
@@ -28598,7 +28682,7 @@ class Checker {
           return { kind: "Nullable", value: copy(actual.value) };
         case "Map":
         case "JsMap":
-          return { kind: actual.kind, key: copy(actual.key), value: copy(actual.value) };
+          return { ...actual, key: copy(actual.key), value: copy(actual.value) };
         case "Union":
         case "NominalRecord":
           return { ...actual, arguments: actual.arguments.map(copy) };

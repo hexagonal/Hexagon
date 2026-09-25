@@ -78,6 +78,8 @@ export interface RangeTypeAnnotation {
 export interface VectorTypeAnnotation {
   readonly kind: "Vector";
   readonly element: TypeAnnotation;
+  /** See `TypeQualifier`; absent for an occurrence the source wrote bare (#1071). */
+  readonly qualifier?: TypeQualifier;
   readonly span: Source.Span;
 }
 
@@ -85,12 +87,16 @@ export interface MapTypeAnnotation {
   readonly kind: "Map";
   readonly key: TypeAnnotation;
   readonly value: TypeAnnotation;
+  /** See `TypeQualifier`; absent for an occurrence the source wrote bare (#1071). */
+  readonly qualifier?: TypeQualifier;
   readonly span: Source.Span;
 }
 
 export interface SetTypeAnnotation {
   readonly kind: "Set";
   readonly element: TypeAnnotation;
+  /** See `TypeQualifier`; absent for an occurrence the source wrote bare (#1071). */
+  readonly qualifier?: TypeQualifier;
   readonly span: Source.Span;
 }
 

@@ -187,6 +187,27 @@ describe("the four faces are the branded `Hex.*` interfaces (obligation 1)", () 
     );
   });
 
+  /**
+   * §2.4 rung 3 (#1071 review): an occurrence written through a source import
+   * alias keeps it, exactly as `O.Option(Int)` does — the alias's own line is
+   * what the face answers through, and no named import is minted.
+   */
+  test("a face written through a source alias takes rung 3, as any nominal's does", async () => {
+    const compiled = project({
+      "/src/main.hex": "import Hex.Vector as V\n" + "import Hex.Map as M\n" +
+        "export fun f(v: V.Vector(V.Vector(Int)), m: M.Map(String, Int)): Int = 0\n" +
+        "export let bare: Vector(Int) = V.append([1], 2)\n",
+    });
+    expect(declarationsOf(compiled, "/src/main.hex")).toBe(
+      'import type { Vector } from "./Hex/Vector.js";\n' +
+        'import type * as V from "./Hex/Vector.js";\n' +
+        'import type * as M from "./Hex/Map.js";\n' +
+        "export declare function f(v: V.Vector<V.Vector<number>>, m: M.Map<string, number>): number;\n" +
+        "export declare const bare: Vector<number>;\n",
+    );
+    expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
+  });
+
   test("`Seq(a)` is not swept up: its face stays the structural `Iterable<a>` (§8.2)", () => {
     const text = declarations("export let items: Seq(Int) = Seq.singleton(1)\n");
     expect(text).toContain("export declare const items: Iterable<number>;");
