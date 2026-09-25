@@ -12,7 +12,6 @@ import * as Diagnostics from "../../support/diagnostics.js";
 import { stronglyConnectedComponents } from "../../support/graph.js";
 import { cleanDigits } from "../../support/numeric-literal.js";
 import {
-  COMPILER_CLAIMS,
   type Declarations as VarianceDeclarations,
   flip as flipVariance,
   join as joinVariance,
@@ -30,7 +29,7 @@ import {
   preRegisteredConstraintIdentity,
   STRUCTURAL_CONSTRAINTS,
 } from "../../constraints.js";
-import { isIntrinsicScheme } from "../../intrinsics.js";
+import { isIntrinsicScheme, publicTypeKey, publicTypeKind } from "../../intrinsics.js";
 import { PRIMITIVE_COMPANION_MODULES } from "../../prelude.js";
 import { relativeSpecifier } from "../../support/paths.js";
 import {
@@ -98,6 +97,16 @@ export interface CheckOptions {
    * falls back to that view, which is complete for a single-module program.
    */
   readonly programNominals?: VarianceDeclarations;
+  /**
+   * *(#1071.)* The **representation records** the public type keys name
+   * (`spec/intrinsics.md` §3.3, §4.1), by `<module>.<record>` as the inventory
+   * spells them — `Runtime.VectorTrie.TrieVector` — gathered from the trusted
+   * runtime modules that declare them. A public row's written claim is checked
+   * against its record's computed variance, and only the compilation knows
+   * which module a record came from. Absent, no row's claim is checked, which
+   * is a lone `check` in a test.
+   */
+  readonly representationRecords?: ReadonlyMap<string, Resolved.RecordId>;
   /**
    * Every nominal's companion operation set as its **home module** declared it,
    * for the modules the program has compiled so far (#585, `homeCompanionOperations`).
@@ -2656,15 +2665,6 @@ function constraintMemberCandidates(
   });
 }
 
-/**
- * A compiler-known constructor's claim (closure doc §5.3). A constructor with
- * no row is invariant, and item 7 declines its variables — the answer that
- * withholds generalization rather than granting it on a claim nobody made.
- */
-function compilerClaim(constructor: string, slot: number): Variance {
-  return COMPILER_CLAIMS.get(constructor)?.[slot] ?? "inv";
-}
-
 /** How an occurrence's sign reads in a report, in position words rather than lattice ones. */
 function positionPhrase(variance: Variance): string {
   if (variance === "contra") return "in argument position";
@@ -3951,6 +3951,7 @@ class Checker {
   readonly #diagnostics: Diagnostics.Bag;
   readonly #importedSchemes: ReadonlyMap<Resolved.SymbolId, Typed.Scheme>;
   readonly #programNominals: VarianceDeclarations;
+  readonly #representationRecords: ReadonlyMap<string, Resolved.RecordId>;
   readonly #programOperations: ProgramOperations;
   readonly #programInstanceProviders: readonly ProgramInstanceProvider[];
   readonly #forbiddenProviderPaths: ReadonlySet<string>;
@@ -4039,6 +4040,7 @@ class Checker {
     this.#diagnostics = diagnostics;
     this.#importedSchemes = options.importedSchemes ?? new Map();
     this.#programNominals = options.programNominals ?? { unions: [], records: [] };
+    this.#representationRecords = options.representationRecords ?? new Map();
     this.#programOperations = options.programOperations ?? new Map();
     this.#programInstanceProviders = options.programInstanceProviders ?? [];
     this.#forbiddenProviderPaths = options.forbiddenProviderPaths ?? new Set();
@@ -17233,7 +17235,7 @@ class Checker {
           walk(
             left.element,
             right.element,
-            multiplyVariance(sign, compilerClaim(left.kind, 0)),
+            multiplyVariance(sign, this.#variance.kindClaim(left.kind, 0)),
             inData(place),
           );
           return;
@@ -17243,7 +17245,7 @@ class Checker {
           walk(
             left.value,
             right.value,
-            multiplyVariance(sign, compilerClaim("Nullable", 0)),
+            multiplyVariance(sign, this.#variance.kindClaim("Nullable", 0)),
             inData(place),
           );
           return;
@@ -17254,13 +17256,13 @@ class Checker {
           walk(
             left.key,
             right.key,
-            multiplyVariance(sign, compilerClaim(left.kind, 0)),
+            multiplyVariance(sign, this.#variance.kindClaim(left.kind, 0)),
             inData(place),
           );
           walk(
             left.value,
             right.value,
-            multiplyVariance(sign, compilerClaim(left.kind, 1)),
+            multiplyVariance(sign, this.#variance.kindClaim(left.kind, 1)),
             inData(place),
           );
           return;
@@ -22408,15 +22410,15 @@ class Checker {
         case "Array":
         case "JsSet":
         case "Node":
-          walk(actual.element, multiplyVariance(sign, compilerClaim(actual.kind, 0)));
+          walk(actual.element, multiplyVariance(sign, this.#variance.kindClaim(actual.kind, 0)));
           return;
         case "Nullable":
-          walk(actual.value, multiplyVariance(sign, compilerClaim("Nullable", 0)));
+          walk(actual.value, multiplyVariance(sign, this.#variance.kindClaim("Nullable", 0)));
           return;
         case "Map":
         case "JsMap":
-          walk(actual.key, multiplyVariance(sign, compilerClaim(actual.kind, 0)));
-          walk(actual.value, multiplyVariance(sign, compilerClaim(actual.kind, 1)));
+          walk(actual.key, multiplyVariance(sign, this.#variance.kindClaim(actual.kind, 0)));
+          walk(actual.value, multiplyVariance(sign, this.#variance.kindClaim(actual.kind, 1)));
           return;
         default:
           return;
@@ -26597,6 +26599,7 @@ class Checker {
    * at the author's declaration, never downstream in a client module.
    */
   #verifyVarianceClaims(module: Resolved.Module): void {
+    this.#verifyPublicRowClaims(module);
     for (const item of module.items) {
       if (item.kind !== "Union" && item.kind !== "RecordDeclaration") continue;
       for (const [index, declared] of (item.declaredParameters ?? []).entries()) {
@@ -26637,6 +26640,59 @@ class Checker {
             }],
           }),
         });
+      }
+    }
+  }
+
+  /**
+   * *(#1071.)* §6.3's verification, at a **public** door row: the written claim
+   * is checked against the computed variance of the representation record the
+   * key's entry names (`spec/intrinsics.md` §3.3), parameter for parameter,
+   * exactly as an `opaque record`'s claim is checked against its own fields.
+   * The row is the type's declaration and the record is what its values are,
+   * so this is the same check one module over.
+   *
+   * The witness names the record's field, since that is where the edit would
+   * go; it carries no label, because the field is in another module's source.
+   */
+  #verifyPublicRowClaims(module: Resolved.Module): void {
+    for (const item of module.items) {
+      if (item.kind !== "ExternBlock") continue;
+      for (const declaration of item.declarations) {
+        if (declaration.kind !== "ExternType") continue;
+        const kind = publicTypeKind(Number(declaration.externType));
+        if (kind === undefined) continue;
+        const representation = publicTypeKey(kind).entry.representation;
+        if (representation === undefined) continue;
+        const record = this.#representationRecords.get(
+          `${representation.module}.${representation.record}`,
+        );
+        if (record === undefined) continue;
+        for (const [index, declared] of (declaration.parameters ?? []).entries()) {
+          const claim = declared.claim;
+          if (claim === undefined) continue;
+          const admitted: readonly Variance[] = claim === "co"
+            ? ["unused", "co"]
+            : ["unused", "contra"];
+          if (admitted.includes(this.#variance.computedRecord(record, index))) continue;
+          const witness = this.#variance.occurrencesRecord(record, index).find(
+            (occurrence) => !admitted.includes(occurrence.variance),
+          );
+          const claimed = claim === "co" ? "covariant" : "contravariant";
+          const sigil = claim === "co" ? "+" : "-";
+          const through = `representation \`${representation.record}\``;
+          this.#diagnostics.add({
+            severity: "error",
+            message: witness === undefined
+              ? `\`${declared.name}\` cannot be declared ${claimed} in ` +
+                `\`${declaration.localName}\`; remove the \`${sigil}\`, or change its ${through}`
+              : `\`${declared.name}\` cannot be declared ${claimed} in ` +
+                `\`${declaration.localName}\`: field \`${witness.field}\` of its ${through} ` +
+                `uses the parameter ${positionPhrase(witness.variance)}. ` +
+                `Remove the \`${sigil}\`, or change the field`,
+            primary: declared.span,
+          });
+        }
       }
     }
   }

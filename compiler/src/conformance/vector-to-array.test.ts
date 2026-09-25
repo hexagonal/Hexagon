@@ -485,7 +485,7 @@ describe("the `.d.ts` face is the `Array(a)` row (Part 1 §4.1, §9.1 obligation
         " * itself a vector arrives as that same vector. The empty vector gives an\n" +
         " * empty array.\n" +
         " */\n" +
-        "export declare function toArray<a>(values: Hex.Vector<a>): ReadonlyArray<a>;",
+        "export declare function toArray<a>(values: Vector<a>): ReadonlyArray<a>;",
     );
   });
 
@@ -494,7 +494,7 @@ describe("the `.d.ts` face is the `Array(a)` row (Part 1 §4.1, §9.1 obligation
     expect(compiled.diagnostics).toEqual([]);
     const main = compiled.modules.find(({ source }) => source.path === "/main.hex");
     expect(main!.declarations.text).toContain(
-      "export declare const f: (v: Hex.Vector<number>) => ReadonlyArray<number>;",
+      "export declare const f: (v: Vector<number>) => ReadonlyArray<number>;",
     );
     expect(main!.declarations.text).not.toMatch(/(?<!Readonly)Array</u);
   });

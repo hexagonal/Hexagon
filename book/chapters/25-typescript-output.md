@@ -266,19 +266,34 @@ signatures.
 
 ## Runtime-owned values name their runtime types
 
-Persistent collections are not described as native arrays, maps, or sets:
+Persistent collections are not described as native arrays, maps, or sets. They keep
+their Hexagon names, each imported from the declaration file of the standard-library
+module that declares it:
 
 ```ts
-import type * as Hex from "@hexagon/runtime";
+import type { Vector } from "./Hex/Vector.js";
+import type { Map } from "./Hex/Map.js";
+import type { Set } from "./Hex/Set.js";
 
-export declare const path: Hex.Vector<Point>;
-export declare const lookup: Hex.Map<string, Point>;
-export declare const visited: Hex.Set<string>;
+export declare const path: Vector<Point>;
+export declare const lookup: Map<string, Point>;
+export declare const visited: Set<string>;
 ```
 
-`Hex` is a generated local namespace alias for runtime types, not a global object.
-The visible names prevent a TypeScript caller from assuming mutable native collection
-semantics.
+Those declaration files say what the names are. `Hex/Vector.d.ts`, for example,
+exports its type as an alias of a branded interface from the program's `hex.d.ts`:
+
+```ts
+import type * as Hex from "../hex.js";
+
+export type Vector<a> = Hex.Vector<a>;
+```
+
+`Hex` there is a generated local namespace alias, not a global object. The interface
+it names extends `Iterable`, so a caller can loop over a vector. It also carries a
+brand, so an ordinary array cannot be passed off as one. The names stop a TypeScript
+caller from assuming mutable native collection semantics, and the brand stops a
+native collection from standing in for a persistent one.
 
 `Seq(a)` deliberately uses JavaScript's iterable protocol at the boundary:
 
@@ -354,7 +369,8 @@ ordinary concrete calls pay for it.
 - public aliases remain useful names, while private aliases expand;
 - ordinary nominal records expose their honest structural runtime shape;
 - opaque records and unions use TypeScript-only brands and hide their representation;
-- persistent collections appear as `Hex.Vector`, `Hex.Map`, and `Hex.Set`, while
-  `Seq(a)` appears as `Iterable<a>`;
+- persistent collections appear by their own names, `Vector`, `Map`, and `Set`,
+  imported from the standard library's declaration files and branded, while `Seq(a)`
+  appears as `Iterable<a>`;
 - source-only checking and syntax do not clutter the declaration; and
 - declaration changes are foreign API changes and should be reviewed accordingly.

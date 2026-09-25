@@ -355,9 +355,11 @@ describe("membership drags nothing in", () => {
     // instance, and `Option.hex`'s type for the checked family — a `.d.ts`
     // edge, so `Option.hex` is written with `Seq.hex`, which its full
     // implementation imports, though nothing here loads either (Modules
-    // §11.1). `Vector.hex` is what must stay out, and does.
+    // §11.1). `Vector.hex` is written on those terms too since #1071 — the
+    // exports' faces name `Vector`, its declaring companion's type — and what
+    // must stay out is the load: the JavaScript imports nothing from it.
     expect(emittedPaths(files)).toEqual([
-      "/Hex/Pow.hex", "/Hex/Sign.hex", "/Hex/Integral.hex", "/Hex/Int.hex", "/Hex/Seq.hex", "/Hex/Option.hex", "/Hex/Runtime/VectorTrie.hex", "/main.hex",
+      "/Hex/Pow.hex", "/Hex/Sign.hex", "/Hex/Integral.hex", "/Hex/Int.hex", "/Hex/Seq.hex", "/Hex/Option.hex", "/Hex/Runtime/VectorTrie.hex", "/Hex/Vector.hex", "/main.hex",
     ]);
   });
 

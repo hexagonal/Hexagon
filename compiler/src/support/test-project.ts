@@ -146,3 +146,26 @@ export async function runProject(
 export async function runMain(source: string): Promise<Record<string, unknown>> {
   return runProject([["/main.hex", source]]);
 }
+
+/**
+ * A public door row's written claims (#1071, `spec/intrinsics.md` §3.3), read
+ * off the compiled companion that declares it: `["co"]` for `Vector(+a)`, and
+ * `"inv"` for a bare parameter. This is the claim every consumer of the type
+ * reads, and the one the row is checked at.
+ */
+export function publicRowClaims(
+  project: CompiledProject,
+  companionPath: string,
+  typeName: string,
+): readonly string[] {
+  const module = project.modules.find(({ source }) => source.path === companionPath);
+  for (const item of module?.typed.items ?? []) {
+    if (item.kind !== "ExternBlock") continue;
+    for (const declaration of item.declarations) {
+      if (declaration.kind === "ExternType" && declaration.localName === typeName) {
+        return (declaration.parameters ?? []).map(({ claim }) => claim ?? "inv");
+      }
+    }
+  }
+  throw new Error(`${companionPath} declares no row for \`${typeName}\``);
+}

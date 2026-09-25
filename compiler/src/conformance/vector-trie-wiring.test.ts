@@ -1,7 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { compileFiles, runMain, runProject } from "../support/test-project.js";
-import { COMPILER_CLAIMS } from "../passes/checker/variance.js";
+import { compileFiles, publicRowClaims, runMain, runProject } from "../support/test-project.js";
 import { PRELUDE_MODULES } from "../prelude.js";
 import { RUNTIME_MODULES } from "../runtime-modules.js";
 import { VECTOR_RUNTIME_OPERATIONS } from "../passes/emitter/emitter.js";
@@ -175,10 +174,12 @@ describe("the import surface", () => {
     // `Sign.hex` for its `Real` instance, and `Option.hex`'s type for the
     // checked family — a `.d.ts` edge, so `Option.hex` is written with
     // `Seq.hex`, which its full implementation imports, though nothing here
-    // loads either (Modules §11.1). `Vector.hex` is still absent, which is
-    // what this case is about.
+    // loads either (Modules §11.1). `Vector.hex` is written on the same terms
+    // since #1071 — the export's face names `Vector`, which its companion
+    // declares, a `.d.ts` edge — and the JavaScript still loads nothing from
+    // it, which is what this case is about.
     expect(emittedPaths(files)).toEqual([
-      "/Hex/Pow.hex", "/Hex/Sign.hex", "/Hex/Integral.hex", "/Hex/Int.hex", "/Hex/Seq.hex", "/Hex/Option.hex", "/Hex/Runtime/VectorTrie.hex", "/main.hex",
+      "/Hex/Pow.hex", "/Hex/Sign.hex", "/Hex/Integral.hex", "/Hex/Int.hex", "/Hex/Seq.hex", "/Hex/Option.hex", "/Hex/Runtime/VectorTrie.hex", "/Hex/Vector.hex", "/main.hex",
     ]);
     const javascript = emitted(files, "/main.hex");
     expect(javascript).toContain(
@@ -371,7 +372,10 @@ describe("the representation contract", () => {
   test("the `.d.ts` face is the branded runtime `Vector`", () => {
     const project = compileFiles([["/main.hex", "module Main\n\n" + "export let v: Vector(Int) = [1]\n"]]);
     const main = project.modules.find(({ source }) => source.path === "/main.hex")!;
-    expect(main.declarations.text).toContain("Hex.Vector<number>");
+    // By name, through the companion's seat, which aliases the interface (#1071).
+    expect(main.declarations.text).toContain("export declare const v: Vector<number>;");
+    const companion = project.modules.find(({ source }) => source.path === "/Hex/Vector.hex")!;
+    expect(companion.declarations.text).toContain("export type Vector<a> = Hex.Vector<a>;");
     expect(project.runtimeDeclarations?.text).toContain(
       'export interface Vector<a> extends Iterable<a> { readonly "~hex": "Vector"; }',
     );
@@ -664,6 +668,8 @@ describe("§5.3 the `Vector(+a)` claim, verified against the representation", ()
 
   interface TrieVariance {
     readonly diagnostics: readonly string[];
+    /** `Hex.Vector`'s row claim, the one the representation is checked against. */
+    readonly row: readonly string[];
     readonly trieVector: readonly Typed.ParameterVariance[];
     readonly tree: readonly Typed.ParameterVariance[];
   }
@@ -688,6 +694,7 @@ describe("§5.3 the `Vector(+a)` claim, verified against the representation", ()
     }
     return {
       diagnostics: project.diagnostics.map(({ message }) => message),
+      row: publicRowClaims(project, "/Hex/Vector.hex", "Vector"),
       trieVector: record.variance,
       tree: union.variance,
     };
@@ -718,15 +725,19 @@ describe("§5.3 the `Vector(+a)` claim, verified against the representation", ()
     expect(shipped.trieVector[0]?.declared).toBeUndefined();
   });
 
-  /** The row and the representation, side by side — which is all "verified" means. */
-  test("the claim table's `Vector` row is what the representation computes", () => {
+  /**
+   * The row and the representation, side by side — which is all "verified"
+   * means. The claim is `Hex.Vector`'s row's written `+` (#1071), and the
+   * compiler checks it there against this record; the compiler-side table
+   * holds no `Vector` row any more.
+   */
+  test("the `Vector(+a)` row claims what the representation computes", () => {
     const shipped = varianceIn(
       [["/main.hex", "module Main\n\n" + "export let v: Vector(Int) = [1]\n"]],
       "/Hex/Runtime/VectorTrie.hex",
     );
-    expect(COMPILER_CLAIMS.get("Vector")).toEqual(["co"]);
-    expect(shipped.trieVector.map(({ computed }) => computed))
-      .toEqual(COMPILER_CLAIMS.get("Vector"));
+    expect(shipped.row).toEqual(["co"]);
+    expect(shipped.trieVector.map(({ computed }) => computed)).toEqual(shipped.row);
   });
 
   /**
@@ -756,9 +767,15 @@ describe("§5.3 the `Vector(+a)` claim, verified against the representation", ()
 
     const broken = varianceIn([[PROBE_PATH, sabotaged], TOUCH], PROBE_PATH);
     expect(positions(broken.trieVector)).toEqual([["a", "inv"]]);
-    expect(broken.trieVector.map(({ computed }) => computed))
-      .not.toEqual(COMPILER_CLAIMS.get("Vector"));
+    expect(broken.trieVector.map(({ computed }) => computed)).not.toEqual(broken.row);
     expect(broken.diagnostics.join("\n")).toContain("`a` occurs in an invariant position");
+    // And the row itself goes red, at the row (#1071): the `+` is an over-claim
+    // against the record, named by the field that breaks it.
+    expect(broken.diagnostics).toContain(
+      "`a` cannot be declared covariant in `Vector`: field `consume` of its representation " +
+        "`TrieVector` uses the parameter in argument position. Remove the `+`, or change the field",
+    );
+    expect(baseline.diagnostics.join("\n")).not.toContain("cannot be declared covariant");
   });
 });
 

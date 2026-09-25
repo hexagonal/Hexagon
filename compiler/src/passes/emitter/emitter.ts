@@ -8,7 +8,13 @@ import {
   preRegisteredBaseSlots,
   preRegisteredConstraintIdentity,
 } from "../../constraints.js";
-import { INTRINSIC_INVENTORY, isIntrinsicScheme } from "../../intrinsics.js";
+import {
+  INTRINSIC_INVENTORY,
+  isIntrinsicScheme,
+  publicTypeKey,
+  publicTypeKind,
+  type PublicTypeKind,
+} from "../../intrinsics.js";
 import { PRIMITIVE_COMPANION_MODULES } from "../../prelude.js";
 import { type Documentation, throwsManifests } from "../../support/documentation.js";
 import {
@@ -2486,7 +2492,8 @@ function emittedBrandNames(
     }
     if (item.kind !== "ExternBlock") return [];
     return item.declarations.flatMap((declaration) =>
-      declaration.kind === "ExternType" && declaration.exported
+      declaration.kind === "ExternType" && declaration.exported &&
+        !isPublicRow(declaration)
         ? [brands.get(declaration.localName)!]
         : []
     );
@@ -11917,7 +11924,10 @@ class DeclarationEmitter {
           // The brand line goes before the documentation: JSDoc binds to the
           // declaration that immediately follows it.
           const doc = this.#docs.lines(declaration.span, "", [], true);
-          if (declaration.kind === "ExternType") {
+          if (declaration.kind === "ExternType" && isPublicRow(declaration)) {
+            declarations.push(...doc);
+            declarations.push(publicRowSeat(declaration, "export ", this.#faces));
+          } else if (declaration.kind === "ExternType") {
             const brand = this.#opaqueBrands.get(declaration.localName)!;
             declarations.push(`declare const ${brand}: unique symbol;`);
             declarations.push(...doc);
@@ -12399,7 +12409,10 @@ class TypeScriptPreviewEmitter {
           const published = declaration.exported && declaration.localName !== WITHHELD_EXPORT;
           const prefix = published ? "export " : "";
           const doc = this.#docs.lines(declaration.span, "", [], published);
-          if (declaration.kind === "ExternType") {
+          if (declaration.kind === "ExternType" && isPublicRow(declaration)) {
+            declarations.push(...doc);
+            declarations.push(publicRowSeat(declaration, prefix, this.#faces));
+          } else if (declaration.kind === "ExternType") {
             const brand = this.#opaqueBrands.get(declaration.localName)!;
             declarations.push(`declare const ${brand}: unique symbol;`);
             declarations.push(...doc);
@@ -12736,12 +12749,40 @@ function opaqueBrandNames(module: Core.Module): ReadonlyMap<string, string> {
       ? [[item.name, brand(item.name)] as const]
       : item.kind === "ExternBlock"
       ? item.declarations.flatMap((declaration) =>
-          declaration.kind === "ExternType"
+          declaration.kind === "ExternType" && !isPublicRow(declaration)
             ? [[declaration.localName, brand(declaration.localName)] as const]
             : []
         )
       : []
   ));
+}
+
+/**
+ * *(#1071.)* Whether an extern `type` declaration is a **public** door row —
+ * `Vector`, `Map`, `Set` — whose type is a built-in kind rather than a brand.
+ * Such a row takes no `unique symbol`: its seat aliases the runtime declaration
+ * module's branded interface instead (FFI Part 7 §2.1), so it neither declares
+ * a brand nor claims one's name.
+ */
+function isPublicRow(declaration: { readonly externType: Resolved.ExternTypeId }): boolean {
+  return publicTypeKind(Number(declaration.externType)) !== undefined;
+}
+
+/**
+ * *(#1071.)* A public row's declaration seat (FFI Part 7 §2.1): the name,
+ * exported as an alias of the runtime declaration module's branded interface at
+ * the row's own parameters — `export type Vector<a> = Hex.Vector<a>;`. The
+ * reference is what owes the file its `Hex` namespace import.
+ */
+function publicRowSeat(
+  declaration: Typed.ExternTypeDeclaration,
+  prefix: string,
+  faces: DeclarationFaces,
+): string {
+  const kind = publicTypeKind(Number(declaration.externType))!;
+  const binders = (declaration.parameters ?? []).map(({ name }) => name);
+  const head = binders.length === 0 ? declaration.localName : `${declaration.localName}<${binders.join(", ")}>`;
+  return `${prefix}type ${head} = ${faces.runtime.reference(kind, ...binders)};`;
 }
 
 interface PatternPlan {
@@ -15938,6 +15979,17 @@ function renderNominal(
     ).join(", ")}>`;
 }
 
+/** A public kind's face, by its key's identity (#1071); see `renderType`. */
+function publicKindFace(
+  kind: PublicTypeKind,
+  args: readonly Typed.Type[],
+  variables: ReadonlyMap<Typed.TypeVariableId, string>,
+  faces: DeclarationFaces,
+): string {
+  const identity = { kind: "externType", id: publicTypeKey(kind).id as Resolved.ExternTypeId } as const;
+  return renderNominal(faces.nominals.reference(identity, undefined, kind), args, variables, faces);
+}
+
 function renderType(
   type: Typed.Type,
   variables: ReadonlyMap<Typed.TypeVariableId, string>,
@@ -15990,18 +16042,20 @@ function renderType(
     // called `map.get(k)` through the old face typechecked and failed at run
     // time (§8.4 item 1). `Seq` keeps the structural `Iterable<a>` below: its
     // parameter positions must admit arbitrary foreign iterables (§8.2).
+    //
+    // *(#1071.)* `Vector`, `Map`, and `Set` are declared by their companions'
+    // public door rows now, so a face names each by its Hexagon name through
+    // §2.4's sink, like any module-owned type: the declaring companion's own
+    // declaration file answers at rung 1, and every other file takes a
+    // type-only named import of it (Part 7 §2.1). The branded interface stays
+    // in the runtime declaration module, where the companion's seat aliases it.
     case "Range":
       return faces.runtime.reference("Range");
     case "Vector":
-      return faces.runtime.reference("Vector", renderType(type.element, variables, faces, false));
     case "Set":
-      return faces.runtime.reference("Set", renderType(type.element, variables, faces, false));
+      return publicKindFace(type.kind, [type.element], variables, faces);
     case "Map":
-      return faces.runtime.reference(
-        "Map",
-        renderType(type.key, variables, faces, false),
-        renderType(type.value, variables, faces, false),
-      );
+      return publicKindFace("Map", [type.key, type.value], variables, faces);
     case "Array":
       // A borrowed foreign array is readonly to Hexagon and has no mutation
       // surface (FFI Part 1 §4.1; Part 2 §6.1, §13), so the face is the

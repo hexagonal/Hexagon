@@ -18,6 +18,7 @@
  * this variable be generalized — and unification stays equality-based (§5.4).
  */
 
+import { isPublicTypeKind, publicTypeKey } from "../../intrinsics.js";
 import { stronglyConnectedComponents } from "../../support/graph.js";
 import type * as Resolved from "../../syntax/resolved/index.js";
 import type * as Source from "../../support/source.js";
@@ -51,19 +52,6 @@ export interface Occurrence {
  *   home; both citations are live, so there is nothing here to correct.)*
  *   - `Node(+a)`: the hidden fixed-32 immutable slot type, read-only from
  *     Hexagon; its disposition is owned by #223, the reopener for this row.
- *   - `Vector(+a)`: `stdlib/Runtime/VectorTrie.hex` writes the representation in
- *     Hexagon, but nothing wires it to the emitter yet, so there is nothing for
- *     §6.3 to check. Collections Part 3 §4 specifies a persistent trie; what
- *     ships is a **copy-on-write native JavaScript array** (`append` is
- *     `[...v, x]`, `set` is `slice()`-then-assign), reaching no persistent
- *     collection runtime at all — which is further from `VectorTrie.hex` than a
- *     JS trie would be, so the conclusion holds a fortiori. *(Corrected
- *     2026-08-02 under #128, per FFI Part 1 §8.3's edit note to this file: this
- *     read "`Vector` ships from `@hexagon/runtime`'s JS trie today", wrong
- *     twice over — no such package exists, and there is no trie.)* The
- *     row upgrades to **verified** at the emitter-wiring milestone, at which
- *     point a future `a`-in-argument-position field in `VectorTrie.hex` breaks
- *     at the row rather than silently.
  * - `Array`, `JsMap`, and `JsSet` remain **invariant**. All three are captured
  *   foreign collections now, but no ruling has replaced their existing claim
  *   rows; invariant remains the conservative default rather than a statement
@@ -74,31 +62,12 @@ export interface Occurrence {
  *   other trusted rows. The row is what lets its two zero-arity nullish producers
  *   generalize under the relaxed value restriction.
  *
- * `Map`'s row is **verified** as of the Map step (#370), and it is `co, co`.
- * §11.4 sequenced the real claim after the milestone, and the milestone has
- * arrived: `stdlib/Runtime/HashTrie.hex` writes the representation and the emitter is
- * wired to it, so there is something for §6.3 to check the claim *against* —
- * `k` and `v` reach `HashTrie` through `root: Root(k, v)`, whose three arms hold
- * them in `Sole(key: k, value: v)` and under `Tree(k, v)`'s `Node` slots, every
- * position covariant. `hash-trie-wiring.test.ts` reads the checker's own
- * computed variance for that record and asserts row equality here, with a
- * sabotage control, which is all "verified" means; §11.1 (ix)'s recomputation
- * clause is what obliges it to run on every edit to that file.
- *
- * `Set`'s row is **verified** as of the Set step (#373), and it is `co`. It
- * upgraded from the explicit invariant row it carried until then — a row written
- * out rather than left absent precisely so that changing it would have to be a
- * deliberate edit — and it reads the same representation `Map`'s does, one
- * composition step further along. A `Set(a)` is not the bare `HashTrie(a, Unit)`
- * the earlier note guessed: it is `HashSet(a)`, the one-field wrapper record the
- * Set step ruled, holding a `HashTrie(a, Unit)`, because one record carries one
- * `[Symbol.iterator]` and a map's yields pairs. The derivation is short given
- * `Map`'s: `a` reaches the trie through its key slot, covariant above; `Unit`
- * fills the value slot, so `a` has no occurrence there at all; and the wrapper's
- * one field puts nothing under an arrow. `hash-trie-wiring.test.ts` reads the
- * checker's own computed variance for `HashSet` and asserts row equality here,
- * with a sabotage control, which is all "verified" means; §11.1 (ix)'s
- * recomputation clause obliges it to run on every edit to that same file.
+ * `Vector`, `Map`, and `Set` are **not** here either *(#1071)*. Their rows were
+ * verified ones — each checked against the runtime record the emitter targets —
+ * and their companions now declare the types by public door rows
+ * (`spec/intrinsics.md` §3.3), so each claim is the row's written sigil, checked
+ * at the row against that record's computed variance (the checker's
+ * `#verifyVarianceClaims`). `VarianceTable.kindClaim` reads it by the key.
  *
  * `Seq` is **not** here. It has a declaration site, and the ruling's transitional
  * `Seq(+a)` row was retired by writing the sigil into `stdlib/Seq.hex` — a
@@ -107,12 +76,9 @@ export interface Occurrence {
  * per constructor" case in `conformance/relaxed-generalization.test.ts` holds it).
  */
 export const COMPILER_CLAIMS: ReadonlyMap<string, readonly Variance[]> = new Map([
-  ["Vector", ["co"]],
   ["Node", ["co"]],
   ["Array", ["inv"]],
   ["Nullable", ["co"]],
-  ["Map", ["co", "co"]],
-  ["Set", ["co"]],
   ["JsMap", ["inv", "inv"]],
   ["JsSet", ["inv"]],
 ]);
@@ -303,6 +269,26 @@ export class VarianceTable {
    */
   externClaim(id: Resolved.ExternTypeId, index: number): Variance {
     return this.#externClaims.get(Number(id))?.[index] ?? "inv";
+  }
+
+  /**
+   * A built-in kind's slot claim: the one question every reader of a
+   * compiler-known constructor's variance asks, so none of them has to know
+   * where the answer lives.
+   *
+   * *(#1071.)* A **public** key's kind — `Vector`, `Map`, `Set` — answers with
+   * its door row's written claim, by the key's reserved identity, exactly as a
+   * confined row's slot does (`externClaim`): the row is the type's declaration
+   * and a written sigil is where its claim lives. Where the row is not in view —
+   * a module seated before its declarer, or a compile with no prelude — the
+   * answer is the empty claim, invariant, as §3.3's seat visibility says it is.
+   * Every other kind answers from the compiler-side table.
+   */
+  kindClaim(kind: string, index: number): Variance {
+    if (isPublicTypeKind(kind)) {
+      return this.#externClaims.get(publicTypeKey(kind).id)?.[index] ?? "inv";
+    }
+    return COMPILER_CLAIMS.get(kind)?.[index] ?? "inv";
   }
 
   /**
@@ -512,7 +498,7 @@ export class VarianceTable {
         this.#classify(
           entry,
           annotation.element,
-          multiply(sign, COMPILER_CLAIMS.get(annotation.kind)?.[0] ?? "inv"),
+          multiply(sign, this.kindClaim(annotation.kind, 0)),
           into,
           field,
         );
@@ -522,7 +508,7 @@ export class VarianceTable {
         this.#classify(
           entry,
           annotation.element,
-          multiply(sign, COMPILER_CLAIMS.get(annotation.kind)?.[0] ?? "inv"),
+          multiply(sign, this.kindClaim(annotation.kind, 0)),
           into,
           field,
         );
@@ -531,7 +517,7 @@ export class VarianceTable {
         this.#classify(
           entry,
           annotation.value,
-          multiply(sign, COMPILER_CLAIMS.get("Nullable")?.[0] ?? "inv"),
+          multiply(sign, this.kindClaim("Nullable", 0)),
           into,
           field,
         );
@@ -541,14 +527,14 @@ export class VarianceTable {
         this.#classify(
           entry,
           annotation.key,
-          multiply(sign, COMPILER_CLAIMS.get(annotation.kind)?.[0] ?? "inv"),
+          multiply(sign, this.kindClaim(annotation.kind, 0)),
           into,
           field,
         );
         this.#classify(
           entry,
           annotation.value,
-          multiply(sign, COMPILER_CLAIMS.get(annotation.kind)?.[1] ?? "inv"),
+          multiply(sign, this.kindClaim(annotation.kind, 1)),
           into,
           field,
         );

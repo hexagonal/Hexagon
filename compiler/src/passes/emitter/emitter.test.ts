@@ -174,7 +174,7 @@ describe("emitJavaScript", () => {
     expect(output.text).toContain('__stringIndex("héllo", 2)');
     expect(output.text).toContain("function __stableHash");
     expect(output.text).toContain("__trieSize(__match) >= 1");
-    expect(emitDeclarations(module).text).toContain("Hex.Vector<number>");
+    expect(emitDeclarations(module).text).toContain("Vector<number>");
     expect(output.diagnostics).toEqual([]);
   });
 
@@ -277,8 +277,9 @@ describe("emitJavaScript", () => {
    * pass if the operations had merely stopped being reached: the same module
    * that carries no helper must carry the calls into the companions, and must
    * still answer the same `.d.ts` faces. The faces are the part this milestone
-   * deliberately does not move — `Hex.Map<k, v>` and `Hex.Set<a>` are what a
-   * crossed value faced before the arc and what it faces after it.
+   * deliberately does not move. *(#1071 moved their spelling, not what they
+   * denote: `Map<k, v>` and `Set<a>` name the companions' seats, which alias the
+   * same `Hex.Map<k, v>` and `Hex.Set<a>` a crossed value always faced.)*
    */
   test("the transitional helper is gone, and both companions are reached by call", () => {
     const module = coreSource(
@@ -303,8 +304,8 @@ describe("emitJavaScript", () => {
     // What stands in its place: imported companion bindings, called.
     expect(output.text).toContain('from "./Hex/Map.js";');
     expect(output.text).toContain('from "./Hex/Set.js";');
-    expect(emitDeclarations(module).text).toContain("Hex.Map<[number, number], string>");
-    expect(emitDeclarations(module).text).toContain("Hex.Set<[number, number]>");
+    expect(emitDeclarations(module).text).toContain("Map<[number, number], string>");
+    expect(emitDeclarations(module).text).toContain("Set<[number, number]>");
   });
 
   /** And it is absent from a module of each kind on its own, not just from both. */

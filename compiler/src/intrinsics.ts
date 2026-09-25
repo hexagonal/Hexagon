@@ -687,6 +687,23 @@ export function publicTypeKind(id: number): PublicTypeKind | undefined {
   return entry?.reach === "public" ? entry.kind : undefined;
 }
 
+/**
+ * Every representation record a type key names, as `<module>.<record>` (#1071):
+ * the records a public row's written claim is checked against.
+ */
+export const REPRESENTATION_RECORD_KEYS: ReadonlySet<string> = new Set(
+  INTRINSIC_TYPES.flatMap(([, entry]) =>
+    entry.representation === undefined
+      ? []
+      : [`${entry.representation.module}.${entry.representation.record}`]
+  ),
+);
+
+/** Whether a built-in kind's name is one a public type key names (#1071). */
+export function isPublicTypeKind(kind: string): kind is PublicTypeKind {
+  return INTRINSIC_TYPES.some(([, entry]) => entry.kind === kind);
+}
+
 /** A public kind's type key and entry (#1071): the inverse of `publicTypeKind`. */
 export function publicTypeKey(
   kind: PublicTypeKind,
