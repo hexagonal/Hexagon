@@ -158,9 +158,6 @@ late pedagogy pass, not a commitment to the current order.
 
 ### Primitive Types
 
-- Integer and BigInt literals may be written after a lowercase `0x`, `0o`, or `0b`
-  prefix (`0xFF_00`, `0o755`, `0b1010`), emitted in their own base; `007` stays the
-  decimal 7.
 - Assumes the distinction between expressions and bindings and the established role of
   `Unit`.
 - Lightly previews conditions, comparisons, numeric constraints, interpolation through
@@ -527,6 +524,9 @@ late pedagogy pass, not a commitment to the current order.
 
 ### Primitive Types
 
+- Integer and BigInt literals may be written after a lowercase `0x`, `0o`, or `0b`
+  prefix (`0xFF_00`, `0o755`, `0b1010`), emitted in their own base; `007` stays the
+  decimal 7.
 - **The temperature converter** (`toCelsius`/`toFahrenheit`, "`/` always means division")
   is the numerics showcase: the C integer-division trap, then correct-in-`Float`,
   exact-in-`Rat`, refused-without-a-face. Establishes the phrase **"the written type is
