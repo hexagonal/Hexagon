@@ -358,7 +358,9 @@ describe("what Playground gains by inheriting the grammar (#145)", () => {
     expect(await tokenOf("let a = x && y", "&&")).toBe("invalid.illegal.operator.hexagon");
     expect(await tokenOf("let a = x || y", "||")).toBe("invalid.illegal.operator.hexagon");
     expect(await tokenOf("let a = !x", "!")).toBe("invalid.illegal.operator.hexagon");
-    expect(await tokenOf("let a = 0xFF", "0xFF")).toBe("invalid.illegal.numeric-base.hexagon");
+    expect(await tokenOf("let a = 0XFF", "0XFF")).toBe("invalid.illegal.numeric-base.hexagon");
+    // `bitwise.md` §8: a lowercase base prefix is a literal now.
+    expect(await tokenOf("let a = 0xFF", "0xFF")).toBe("constant.numeric.integer.hexagon");
     expect(await tokenOf("let a = 12cats", "12cats")).toBe(
       "invalid.illegal.numeric-literal.hexagon",
     );

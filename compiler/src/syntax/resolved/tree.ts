@@ -1286,6 +1286,8 @@ export interface OrPattern {
 export interface IntegerPattern {
   readonly kind: "Integer";
   readonly decimal: string;
+  /** A non-decimal literal's source form, sign included, without suffix (`-0xFF`). */
+  readonly written?: string;
   /** Present for the monomorphic `n`-suffixed form. */
   readonly bigint?: true;
   readonly span: Source.Span;
@@ -1895,12 +1897,16 @@ export interface UnitExpr {
 export interface IntegerExpr {
   readonly kind: "Integer";
   readonly decimal: string;
+  /** A non-decimal literal's separator-free source form, without suffix (`0xFF`; `bitwise.md` §8). */
+  readonly written?: string;
   readonly span: Source.Span;
 }
 
 export interface BigIntExpr {
   readonly kind: "BigInt";
   readonly decimal: string;
+  /** A non-decimal literal's separator-free source form, without suffix (`0xFF`; `bitwise.md` §8). */
+  readonly written?: string;
   readonly span: Source.Span;
 }
 
@@ -2139,7 +2145,7 @@ export interface CollectionOperationExpr {
   readonly span: Source.Span;
 }
 
-export type UnaryOperator = "Negate" | "Not";
+export type UnaryOperator = "Negate" | "Not" | "BitNot";
 
 export interface UnaryExpr {
   readonly kind: "Unary";
@@ -2155,6 +2161,9 @@ export type BinaryOperator =
   | "Add"
   | "Subtract"
   | "Concat"
+  | "BitAnd"
+  | "BitOr"
+  | "BitXor"
   | "Range"
   | "And"
   | "Or"

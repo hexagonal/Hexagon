@@ -39,6 +39,8 @@ interface Infix {
   readonly assignment?: true;
 }
 
+// Operators §3's table as binding powers, loosest first. Only the order is
+// meaning; the numbers leave room between levels for nothing in particular.
 const infix = new Map<TokenKind, Infix>([
   ["Assign", { leftBindingPower: 0, rightBindingPower: 1, assignment: true }],
   ["Pipe", { operator: "Pipe", leftBindingPower: 1, rightBindingPower: 2 }],
@@ -53,13 +55,37 @@ const infix = new Map<TokenKind, Infix>([
   ["LessEqual", { comparison: "LessEqual", leftBindingPower: 6, rightBindingPower: 7 }],
   ["GreaterEqual", { comparison: "GreaterEqual", leftBindingPower: 6, rightBindingPower: 7 }],
   ["Range", { operator: "Range", leftBindingPower: 7, rightBindingPower: 8 }],
-  ["Plus", { operator: "Add", leftBindingPower: 8, rightBindingPower: 9 }],
-  ["Minus", { operator: "Subtract", leftBindingPower: 8, rightBindingPower: 9 }],
-  ["Concat", { operator: "Concat", leftBindingPower: 8, rightBindingPower: 9 }],
-  ["Star", { operator: "Multiply", leftBindingPower: 9, rightBindingPower: 10 }],
-  ["Slash", { operator: "Divide", leftBindingPower: 9, rightBindingPower: 10 }],
-  ["Power", { operator: "Power", leftBindingPower: 11, rightBindingPower: 11 }],
+  ["Plus", { operator: "Add", leftBindingPower: 11, rightBindingPower: 12 }],
+  ["Minus", { operator: "Subtract", leftBindingPower: 11, rightBindingPower: 12 }],
+  ["Concat", { operator: "Concat", leftBindingPower: 11, rightBindingPower: 12 }],
+  ["Star", { operator: "Multiply", leftBindingPower: 12, rightBindingPower: 13 }],
+  ["Slash", { operator: "Divide", leftBindingPower: 12, rightBindingPower: 13 }],
+  ["Power", { operator: "Power", leftBindingPower: 14, rightBindingPower: 14 }],
 ]);
+
+/**
+ * `bitwise.md` §3: the contextual bitwise words, operators only in the seat
+ * straight after a complete operand — which is exactly where this loop asks —
+ * between the additive level and `..`, `band` tightest (Lean's levels).
+ */
+const bitwiseInfix = new Map<string, Infix>([
+  ["bor", { operator: "BitOr", leftBindingPower: 8, rightBindingPower: 9 }],
+  ["bxor", { operator: "BitXor", leftBindingPower: 9, rightBindingPower: 10 }],
+  ["band", { operator: "BitAnd", leftBindingPower: 10, rightBindingPower: 11 }],
+]);
+
+/** Tokens that can begin an operand — what a juxtaposed word would be applied to. */
+const operandStarts: ReadonlySet<TokenKind> = new Set<TokenKind>([
+  "NonUpperName", "UpperName", "Integer", "BigInt", "Float", "Dec", "String",
+  "LeftParen", "LeftBracket", "LeftBrace", "Minus", "Not", "Bnot",
+]);
+
+/** Unary minus's operand: tighter than `*`, looser than `**` (Operators §6.2). */
+const NEGATE_OPERAND_POWER = 13;
+/** `bnot`'s operand: above `**`, below the postfix forms (`bitwise.md` §3.2). */
+const BNOT_OPERAND_POWER = 15;
+/** The postfix forms — call, access, index — bind at every level up to this. */
+const POSTFIX_POWER = 15;
 
 const itemEnds = new Set<TokenKind>(["VSep", "Semicolon", "VClose", "Eof"]);
 
@@ -5413,7 +5439,12 @@ class Parser {
           span: token.span,
         };
       }
-      return { kind: "Integer", decimal: token.decimal, span: token.span };
+      return {
+        kind: "Integer",
+        decimal: token.decimal,
+        ...(token.written === undefined ? {} : { written: token.written }),
+        span: token.span,
+      };
     }
     if (token.kind === "Minus" && this.#peek(1).kind === "Integer") {
       const minus = this.#advance();
@@ -5428,12 +5459,19 @@ class Parser {
       return {
         kind: "Integer",
         decimal: `-${integer.decimal}`,
+        ...(integer.written === undefined ? {} : { written: `-${integer.written}` }),
         span: spanFrom(minus.span, integer.span),
       };
     }
     if (token.kind === "BigInt") {
       this.#advance();
-      return { kind: "Integer", decimal: token.decimal, bigint: true, span: token.span };
+      return {
+        kind: "Integer",
+        decimal: token.decimal,
+        ...(token.written === undefined ? {} : { written: token.written }),
+        bigint: true,
+        span: token.span,
+      };
     }
     if (token.kind === "Minus" && this.#peek(1).kind === "BigInt") {
       const minus = this.#advance();
@@ -5441,6 +5479,7 @@ class Parser {
       return {
         kind: "Integer",
         decimal: `-${integer.decimal}`,
+        ...(integer.written === undefined ? {} : { written: `-${integer.written}` }),
         bigint: true,
         span: spanFrom(minus.span, integer.span),
       };
@@ -5742,7 +5781,7 @@ class Parser {
         this.#errorAt(token.span, markSeatError);
         continue;
       }
-      if (minimumBindingPower <= 12) {
+      if (minimumBindingPower <= POSTFIX_POWER) {
         if (this.#at("LeftParen")) {
           left = this.#parseCall(left);
           continue;
@@ -5757,7 +5796,34 @@ class Parser {
         }
       }
 
-      const operation = infix.get(this.#current().kind);
+      // `bitwise.md` §9: JavaScript's `|` and glued shift runs after a complete
+      // operand. Nothing else puts them there — or-patterns and union bars are
+      // parsed before this loop is ever reached — so each is reported with its
+      // Hexagon spelling and the right operand is still parsed, so one slip
+      // reports once.
+      if (this.#at("Bar") && minimumBindingPower <= 8) {
+        const bar = this.#advance();
+        this.#errorAt(bar.span, "Hexagon spells bitwise or `bor`");
+        const right = this.#parseExpression(9, effectiveStops);
+        left = { kind: "Binary", operator: "BitOr", left, right, span: spanFrom(left.span, right.span) };
+        continue;
+      }
+      const shift = this.#gluedShiftAt();
+      if (shift !== undefined && minimumBindingPower <= 10) {
+        let end = this.#current().span;
+        for (let count = 0; count < shift.length; count += 1) end = this.#advance().span;
+        this.#errorAt(
+          spanFrom(shift.start, end),
+          shift.length === 3
+            ? "Hexagon has no shift operators; write `x.toUint32().shiftRight(n)`"
+            : `Hexagon has no shift operators; write \`x.${shift.name}(n)\``,
+        );
+        const right = this.#parseExpression(11, effectiveStops);
+        left = { kind: "ErrorExpr", span: spanFrom(left.span, right.span) };
+        continue;
+      }
+
+      const operation = this.#infixAt();
       if (operation === undefined || operation.leftBindingPower < minimumBindingPower) {
         break;
       }
@@ -5820,6 +5886,39 @@ class Parser {
     return left;
   }
 
+  /**
+   * A run of two or three `<` or `>` tokens written with no space between them
+   * — JavaScript's `<<`, `>>`, `>>>`, which Hexagon spells as named shifts.
+   */
+  #gluedShiftAt():
+    | { readonly length: number; readonly name: string; readonly start: Source.Span }
+    | undefined {
+    const first = this.#current();
+    if (first.kind !== "Less" && first.kind !== "Greater") return undefined;
+    let length = 1;
+    let previous = first;
+    while (length < 3) {
+      const next = this.#peek(length);
+      if (next.kind !== first.kind || next.span.start.offset !== previous.span.end.offset) break;
+      previous = next;
+      length += 1;
+    }
+    if (length < 2 || (first.kind === "Less" && length > 2)) return undefined;
+    return {
+      length,
+      name: first.kind === "Less" ? "shiftLeft" : "shiftRight",
+      start: first.span,
+    };
+  }
+
+  /** The infix operation the current token spells, contextual words included. */
+  #infixAt(): Infix | undefined {
+    const token = this.#current();
+    return token.kind === "NonUpperName"
+      ? bitwiseInfix.get((token as Lexed.NameToken).text)
+      : infix.get(token.kind);
+  }
+
   #parsePrefix(stops: ReadonlySet<TokenKind>): Parsed.Expr {
     // No lambda may start where the next `=>` is already spoken for (§6.5's guard pin,
     // `#arrowIsClaimed`) — it belongs to the arm, and eating it strands the arm.
@@ -5840,10 +5939,20 @@ class Parser {
     }
     if (this.#at("Minus")) {
       const start = this.#advance();
-      const operand = this.#parseExpression(10, stops);
+      const operand = this.#parseExpression(NEGATE_OPERAND_POWER, stops);
       return {
         kind: "Unary",
         operator: "Negate",
+        operand,
+        span: spanFrom(start.span, operand.span),
+      };
+    }
+    if (this.#at("Bnot")) {
+      const start = this.#advance();
+      const operand = this.#parseExpression(BNOT_OPERAND_POWER, stops);
+      return {
+        kind: "Unary",
+        operator: "BitNot",
         operand,
         span: spanFrom(start.span, operand.span),
       };
@@ -5914,10 +6023,20 @@ class Parser {
           this.#reportOversizedInteger(token.span, token.spelling ?? token.decimal);
           return { kind: "ErrorExpr", span: token.span };
         }
-        return { kind: "Integer", decimal: token.decimal, span: token.span };
+        return {
+          kind: "Integer",
+          decimal: token.decimal,
+          ...(token.written === undefined ? {} : { written: token.written }),
+          span: token.span,
+        };
       case "BigInt":
         this.#advance();
-        return { kind: "BigInt", decimal: token.decimal, span: token.span };
+        return {
+          kind: "BigInt",
+          decimal: token.decimal,
+          ...(token.written === undefined ? {} : { written: token.written }),
+          span: token.span,
+        };
       case "Dec":
         this.#advance();
         return {
@@ -6189,7 +6308,32 @@ class Parser {
     opening: Source.Span,
     closing: Source.Span,
   ): Parsed.Expr {
-    if (!this.#at("NonUpperName")) {
+    // A bitwise word with a space before it is the operator, never a misspaced
+    // suffix name (`bitwise.md` §3.1): `(a bor b) band mask`. Glued, the seat
+    // keeps its priority and `(a bor b)band` is a construction.
+    const next = this.#current();
+    const spacedBitwise = next.kind === "NonUpperName" &&
+      bitwiseInfix.has((next as Lexed.NameToken).text) &&
+      next.span.start.offset !== closing.end.offset;
+    // Glued and followed by an operand on its line, the word cannot be a suffix
+    // that compiles — a construction then meets a juxtaposed operand — so the
+    // slip is the missing space, reported once with that rewrite, and the word
+    // is read as the operator it was meant to be.
+    const gluedBitwise = next.kind === "NonUpperName" &&
+      bitwiseInfix.has((next as Lexed.NameToken).text) && !spacedBitwise &&
+      operandStarts.has(this.#peek(1).kind) &&
+      this.#peek(1).span.start.line === next.span.end.line;
+    if (gluedBitwise) {
+      const word = (next as Lexed.NameToken).text;
+      this.#diagnostics.add({
+        severity: "error",
+        message: `\`${word}\` written against \`)\` is a pattern's suffix seat; ` +
+          `for the bitwise operator write a space: \`) ${word}\``,
+        primary: next.span,
+        fixes: [{ message: "write a space", edits: [{ span: next.span, replacement: ` ${word}` }] }],
+      });
+    }
+    if (!this.#at("NonUpperName") || spacedBitwise || gluedBitwise) {
       return components.length === 1
         ? components[0]!
         : { kind: "Tuple", elements: components, span: spanFrom(opening, closing) };

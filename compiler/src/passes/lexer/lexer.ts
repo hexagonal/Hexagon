@@ -27,6 +27,7 @@ const MAX_SAFE_INTEGER_DECIMAL = 9_007_199_254_740_991n;
 // hold. The table answers for the words written below and for nothing else.
 const keywords: ReadonlyMap<string, Lexed.KeywordKind> = new Map([
   ["and", "And"],
+  ["bnot", "Bnot"],
   ["catch", "Catch"],
   ["constraint", "Constraint"],
   ["derive", "Derive"],
@@ -95,6 +96,13 @@ const punctuation: readonly (readonly [string, Lexed.PunctuationKind])[] = [
   ["|", "Bar"],
   ["_", "Wildcard"],
 ];
+
+/** The redirects for JavaScript's bitwise characters (`bitwise.md` §9). */
+const BITWISE_REDIRECTS: ReadonlyMap<string, string> = new Map([
+  ["&", "Hexagon spells bitwise and `band`"],
+  ["^", "Hexagon spells bitwise exclusive or `bxor`; a power is `**`"],
+  ["~", "Hexagon spells bitwise complement `bnot`"],
+]);
 
 export function lex(source: Source.File): Lexed.File {
   const diagnostics = new Diagnostics.Bag();
@@ -538,6 +546,16 @@ class Scanner {
       return undefined;
     }
 
+    // `bitwise.md` §9: JavaScript's bitwise characters are no tokens, and each
+    // takes the word it is spelled as here. `|` is a token (unions, patterns),
+    // so its redirect is the parser's.
+    const bitwiseRedirect = BITWISE_REDIRECTS.get(this.#source.text[start] ?? "");
+    if (bitwiseRedirect !== undefined) {
+      this.#offset += 1;
+      this.#error(start, this.#offset, bitwiseRedirect);
+      return undefined;
+    }
+
     if (codeUnit === 0x21 && !this.#startsWith("!=")) {
       // A lone `!` is the impure call mark. The parser, not the scanner,
       // decides where it is grammatical — a mark governs an argument list
@@ -680,15 +698,27 @@ class Scanner {
       return undefined;
     }
 
-    if (
-      integerDigits === "0" &&
-      ["x", "X", "o", "O", "b", "B"].includes(
-        this.#source.text[this.#offset] ?? "",
-      )
-    ) {
-      this.#consumeNumericTail();
-      this.#error(start, this.#offset, "Hexagon v1 has decimal literals only");
-      return undefined;
+    if (integerDigits === "0") {
+      const prefix = this.#source.text[this.#offset] ?? "";
+      if (prefix === "x" || prefix === "o" || prefix === "b") {
+        return this.#scanRadix(start, prefix);
+      }
+      if (prefix === "X" || prefix === "O" || prefix === "B") {
+        // `bitwise.md` §8: the prefix is lowercase only, and the repair is the
+        // whole run with its prefix lowered, as `1N`'s is its suffix lowered.
+        this.#consumeNumericTail();
+        const written = this.#source.text.slice(start, this.#offset);
+        this.#error(
+          start,
+          this.#offset,
+          `the base prefix \`0${prefix}\` is written lowercase`,
+          {
+            message: `write \`0${prefix.toLowerCase()}\``,
+            replacement: `0${prefix.toLowerCase()}${written.slice(2)}`,
+          },
+        );
+        return undefined;
+      }
     }
 
     if (this.#source.text[this.#offset] === "n") {
@@ -873,7 +903,82 @@ class Scanner {
     };
   }
 
-  #finishInteger(start: number, digits: string): Lexed.Token | undefined {
+  /**
+   * A hexadecimal, octal, or binary integer or BigInt literal (`bitwise.md` §8),
+   * scanned from its lowercase prefix. The token keeps its decimal value, as
+   * every integer token does, and its separator-free written form, which is
+   * what emission writes back. Every malformed run is one diagnostic that
+   * consumes the joined run, never a valid literal followed by a name.
+   */
+  #scanRadix(start: number, prefix: "x" | "o" | "b"): Lexed.Token | undefined {
+    const base = prefix === "x" ? "hexadecimal" : prefix === "o" ? "octal" : "binary";
+    const isDigit = (codeUnit: number): boolean =>
+      prefix === "x"
+        ? isAsciiHex(codeUnit)
+        : prefix === "o"
+          ? codeUnit >= 0x30 && codeUnit <= 0x37
+          : codeUnit === 0x30 || codeUnit === 0x31;
+    this.#offset += 1;
+    const digitsStart = this.#offset;
+    while (this.#offset < this.#source.text.length) {
+      const codeUnit = this.#source.text.charCodeAt(this.#offset);
+      if (!isDigit(codeUnit) && codeUnit !== 0x5f) break;
+      this.#offset += 1;
+    }
+    const digits = this.#source.text.slice(digitsStart, this.#offset);
+    const malformed = (message: string): undefined => {
+      this.#consumeNumericTail();
+      this.#error(start, this.#offset, message);
+      return undefined;
+    };
+    if (digits.replaceAll("_", "") === "" && !digits.includes("_")) {
+      return malformed(`\`0${prefix}\` needs at least one ${base} digit`);
+    }
+    if (!validDigitSeparators(digits) || digits.replaceAll("_", "") === "") {
+      return malformed("`_` in a number must have a digit on both sides");
+    }
+    if (
+      this.#source.text[this.#offset] === "." &&
+      isAsciiDigit(this.#source.text.charCodeAt(this.#offset + 1))
+    ) {
+      this.#offset += 1;
+      return malformed(`a ${base} literal has no fractional form`);
+    }
+    const written = `0${prefix}${digits.replaceAll("_", "")}`;
+    const decimal = BigInt(written).toString();
+    if (this.#source.text[this.#offset] === "n") {
+      this.#offset += 1;
+      if (this.#continuesIdentifierAt(this.#offset)) {
+        this.#consumeNumericTail();
+        this.#invalidNumericSuffix(start);
+        return undefined;
+      }
+      return {
+        kind: "BigInt",
+        decimal,
+        written,
+        span: this.#source.span(start, this.#offset),
+      };
+    }
+    if (this.#continuesIdentifierAt(this.#offset)) {
+      const next = this.#source.text.charCodeAt(this.#offset);
+      if (isAsciiDigit(next)) {
+        return malformed(
+          `\`${this.#source.text[this.#offset]}\` is not a ${base} digit`,
+        );
+      }
+      this.#consumeNumericTail();
+      this.#invalidNumericSuffix(start);
+      return undefined;
+    }
+    return this.#finishInteger(start, decimal, written);
+  }
+
+  #finishInteger(
+    start: number,
+    digits: string,
+    written?: string,
+  ): Lexed.Token | undefined {
     const decimal = digits.replaceAll("_", "");
     if (BigInt(decimal) > MAX_SAFE_INTEGER_DECIMAL) {
       // Keep the whole construct in the stream. Expressions retain the historic
@@ -884,6 +989,7 @@ class Scanner {
         decimal,
         recovered: true,
         spelling: this.#source.text.slice(start, this.#offset),
+        ...(written === undefined ? {} : { written }),
         span: this.#source.span(start, this.#offset),
       };
     }
@@ -891,6 +997,7 @@ class Scanner {
     return {
       kind: "Integer",
       decimal,
+      ...(written === undefined ? {} : { written }),
       span: this.#source.span(start, this.#offset),
     };
   }

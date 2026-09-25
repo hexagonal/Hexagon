@@ -5448,12 +5448,17 @@ class JavaScriptEmitter {
         // SyntaxError in strict-mode code, which every emitted module is. The
         // same reason `=== 007` was wrong in a pattern makes `let x = 007`
         // wrong in an expression.
+        //
+        // A non-decimal literal is written back in its own base (`bitwise.md`
+        // §8), and at `Float` without the `.0`: JavaScript has no fractional
+        // form in another base.
+        if (expression.written !== undefined) return expression.written;
         const literal = canonicalIntegerLiteral(expression.decimal);
         return expression.representation === "Float" ? `${literal}.0` : literal;
       }
       case "BigInt":
         // `007n` is not even a legacy octal: it is an outright SyntaxError.
-        return `${canonicalIntegerLiteral(expression.decimal)}n`;
+        return `${expression.written ?? canonicalIntegerLiteral(expression.decimal)}n`;
       case "Dec":
         return `({ unscaled: ${canonicalIntegerLiteral(expression.coefficient)}n, places: ${expression.decimalPlaces} })`;
       case "Float":
@@ -7634,10 +7639,11 @@ class JavaScriptEmitter {
   ): string {
     const converted = primitiveInstance(expression.evidence);
     if (converted !== undefined) {
-      // #897's canonical printing, here as at every other integer-literal seat.
-      const literal = canonicalIntegerLiteral(expression.decimal);
+      // #897's canonical printing, here as at every other integer-literal seat;
+      // a non-decimal literal keeps its base, with no `.0` at `Float`.
+      const literal = expression.written ?? canonicalIntegerLiteral(expression.decimal);
       if (converted === "BigInt") return `${literal}n`;
-      if (converted === "Float") return `${literal}.0`;
+      if (converted === "Float" && expression.written === undefined) return `${literal}.0`;
       return literal;
     }
     if (expression.evidence.kind === "Instance" || expression.evidence.kind === "Structural") {
@@ -7645,7 +7651,7 @@ class JavaScriptEmitter {
         expression.evidence,
         "Num",
         "fromNat",
-        [canonicalIntegerLiteral(expression.decimal)],
+        [expression.written ?? canonicalIntegerLiteral(expression.decimal)],
         expression.span,
         evidenceNames,
       );
@@ -7658,7 +7664,7 @@ class JavaScriptEmitter {
       evidenceNames,
       expression.evidence.path,
     );
-    return `${dictionary}.fromNat(${canonicalIntegerLiteral(expression.decimal)})`;
+    return `${dictionary}.fromNat(${expression.written ?? canonicalIntegerLiteral(expression.decimal)})`;
   }
 
   #emitWidenNat(
@@ -7847,8 +7853,17 @@ class JavaScriptEmitter {
       : undefined;
     const instance = expression.member === "pow" && candidate !== "Float"
       ? undefined
+      : BITWISE_MEMBERS.includes(expression.member) && candidate !== "BigInt"
+      ? undefined
       : candidate;
     if (instance === undefined) {
+      // `bitwise.md` §6: at `Int` the operator spelling of a `Bitwise` member
+      // is the member seat's direct call, as every other spelling is — never
+      // the slot read `**` still takes there (#810).
+      if (BITWISE_MEMBERS.includes(expression.member) && isGroundEvidence(expression.evidence)) {
+        const seat = this.#memberSeat(expression.evidence, expression.constraint, expression.member);
+        if (seat !== undefined) return `${seat}(${arguments_.join(", ")})`;
+      }
       // `Dictionary` and `Error` returned above, so what is left is an instance
       // — nominal, structural, or a primitive companion's source one, which
       // `#emitEvidence` resolves to the dictionary that module exports.
@@ -7921,6 +7936,28 @@ class JavaScriptEmitter {
             ? `(${this.#emitExpr(leftExpression, depth, evidenceNames)})`
             : operand(leftExpression, Precedence.Exponentiation, true);
         return `${left} ** ` + operand(rightExpression, Precedence.Exponentiation);
+      }
+      // `bitwise.md` §6: the members at `BigInt`, whose operators are the true
+      // integer answer. A shift count is an `Int` and converts exactly, since
+      // JavaScript never mixes `bigint` and `number`.
+      case "bitAnd":
+        return `${operand(leftExpression, Precedence.BitwiseAnd)} & ` +
+          operand(rightExpression, Precedence.BitwiseAnd, true);
+      case "bitXor":
+        return `${operand(leftExpression, Precedence.BitwiseXor)} ^ ` +
+          operand(rightExpression, Precedence.BitwiseXor, true);
+      case "bitOr":
+        return `${operand(leftExpression, Precedence.BitwiseOr)} | ` +
+          operand(rightExpression, Precedence.BitwiseOr, true);
+      case "bitNot":
+        return `~${operand(leftExpression, Precedence.Unary)}`;
+      case "shiftLeft":
+      case "shiftRight": {
+        const count = rightExpression === undefined
+          ? this.#unit
+          : this.#emitExpr(rightExpression, depth, evidenceNames);
+        return `${operand(leftExpression, Precedence.Shift)} ` +
+          `${expression.member === "shiftLeft" ? "<<" : ">>"} ${this.#spell("BigInt")}(${count})`;
       }
     }
   }
@@ -10870,6 +10907,19 @@ class JavaScriptEmitter {
         return "(__a, __b) => __a % __b";
       case "bigIntPow":
         return "(__a, __b) => __a ** __b";
+      // `bitwise.md` §4.4: BigInt's own operators are the true integer answer.
+      // A shift's count is an `Int`, and JavaScript never mixes `bigint` and
+      // `number`, so it converts exactly on the way in.
+      case "bigIntBitAnd":
+        return "(__a, __b) => __a & __b";
+      case "bigIntBitOr":
+        return "(__a, __b) => __a | __b";
+      case "bigIntBitXor":
+        return "(__a, __b) => __a ^ __b";
+      case "bigIntShiftLeft":
+        return `(__a, __b) => __a << ${this.#spell("BigInt")}(__b)`;
+      case "bigIntShiftRight":
+        return `(__a, __b) => __a >> ${this.#spell("BigInt")}(__b)`;
       case "bigIntEquals":
         return "(__a, __b) => __a === __b";
       case "bigIntCompare":
@@ -10921,6 +10971,24 @@ class JavaScriptEmitter {
       case "intPow":
       case "natPow":
         return "(__a, __b) => __a ** __b";
+      // `bitwise.md` §4.2–§4.3: the true integer answer on a `number`. The
+      // three binary operations and the shifts need branches (the 32-bit fast
+      // path, the high/low split, the shifts' ends), so each is a helper; the
+      // 32-bit conversions are the one JavaScript operator apiece they name.
+      case "intBitAnd":
+        return this.#useHelper("intBitAnd");
+      case "intBitOr":
+        return this.#useHelper("intBitOr");
+      case "intBitXor":
+        return this.#useHelper("intBitXor");
+      case "intShiftLeft":
+        return this.#useHelper("intShiftLeft");
+      case "intShiftRight":
+        return this.#useHelper("intShiftRight");
+      case "intToInt32":
+        return "__a => __a | 0";
+      case "intToUint32":
+        return "__a => __a >>> 0";
       case "intEquals":
       case "natEquals":
         return "(__a, __b) => __a === __b";
@@ -13062,7 +13130,12 @@ type Helper =
   | "stableHash"
   | "mixHash"
   | "hashTrieMix"
-  | "bitCount";
+  | "bitCount"
+  | "intBitAnd"
+  | "intBitOr"
+  | "intBitXor"
+  | "intShiftLeft"
+  | "intShiftRight";
 
 /**
  * Which helpers a helper's own body names. `#useHelper` closes over this, so
@@ -13137,6 +13210,12 @@ const HELPER_DEPENDENCIES: Readonly<Record<Helper, readonly Helper[]>> = {
   mixHash: [],
   hashTrieMix: [],
   bitCount: [],
+  intBitAnd: [],
+  intBitOr: [],
+  intBitXor: [],
+  // A negative count shifts the other way, so the two shifts call each other.
+  intShiftLeft: ["intShiftRight"],
+  intShiftRight: ["intShiftLeft"],
 };
 
 /**
@@ -13175,8 +13254,12 @@ enum Precedence {
   Conditional,
   LogicalOr,
   LogicalAnd,
+  BitwiseOr,
+  BitwiseXor,
+  BitwiseAnd,
   Equality,
   Relational,
+  Shift,
   Additive,
   Multiplicative,
   Exponentiation,
@@ -13229,6 +13312,17 @@ function expressionPrecedence(expression: Core.Expr): Precedence {
             : Precedence.Call;
         case "negate":
           return Precedence.Unary;
+        case "bitAnd":
+          return inlined === "BigInt" ? Precedence.BitwiseAnd : Precedence.Call;
+        case "bitXor":
+          return inlined === "BigInt" ? Precedence.BitwiseXor : Precedence.Call;
+        case "bitOr":
+          return inlined === "BigInt" ? Precedence.BitwiseOr : Precedence.Call;
+        case "bitNot":
+          return inlined === "BigInt" ? Precedence.Unary : Precedence.Call;
+        case "shiftLeft":
+        case "shiftRight":
+          return inlined === "BigInt" ? Precedence.Shift : Precedence.Call;
         default:
           return Precedence.Call;
       }
@@ -13488,6 +13582,53 @@ function renderHelper(
     // then bytes, then one multiply that sums the four byte counts into the top
     // byte. Four statements, which is why this is a helper and not the bare
     // arrow the rest of the bit family lowers to.
+    case "intBitAnd":
+    case "intBitOr":
+    case "intBitXor": {
+      // `bitwise.md` §4.2. Both operands in the signed 32-bit range: the native
+      // operator is already exact. Either past ±(2^53 - 1), a value already
+      // past the overflow contract: through BigInt and back, as Gleam's does.
+      // Otherwise each operand splits at 2^32 — a high part of at most 21
+      // signed bits, which JavaScript's operator handles exactly, and the low
+      // 32 bits, which the operator's own truncation already reads — and the
+      // halves recombine. Neither half can leave the safe range.
+      const operator = helper === "intBitAnd" ? "&" : helper === "intBitOr" ? "|" : "^";
+      return [
+        `function ${name}(__a, __b) {`,
+        `  if ((__a | 0) === __a && (__b | 0) === __b) return __a ${operator} __b;`,
+        "  if (!(__a >= -9007199254740991 && __a <= 9007199254740991 &&",
+        "    __b >= -9007199254740991 && __b <= 9007199254740991)) {",
+        `    return ${spell("Number")}(${spell("BigInt")}(__a) ${operator} ${spell("BigInt")}(__b));`,
+        "  }",
+        `  return (${spell("Math")}.floor(__a / 4294967296) ${operator} ` +
+          `${spell("Math")}.floor(__b / 4294967296)) * 4294967296 + ((__a ${operator} __b) >>> 0);`,
+        "}",
+      ];
+    }
+    case "intShiftLeft":
+      // ⌊x · 2ⁿ⌋. A power of two only moves an f64's exponent, so the product
+      // is exact until it passes the safe range, where it rounds as `Int`
+      // arithmetic does; zero is answered first so that no count, however
+      // large, meets `0 * Infinity`.
+      return [
+        `function ${name}(__value, __count) {`,
+        `  if (__count < 0) return ${dependencyName("intShiftRight")}(__value, -__count);`,
+        "  if (__value === 0) return 0;",
+        "  return __value * 2 ** __count;",
+        "}",
+      ];
+    case "intShiftRight":
+      // ⌊x · 2⁻ⁿ⌋, floored so a long shift reaches `0` or `-1`. Division by a
+      // finite power of two is exact; past 2^1023 the power is `Infinity`, so
+      // that end is answered directly rather than meeting `-0`.
+      return [
+        `function ${name}(__value, __count) {`,
+        `  if (__count < 0) return ${dependencyName("intShiftLeft")}(__value, -__count);`,
+        "  if (__value === 0) return 0;",
+        "  if (__count > 1023) return __value < 0 ? -1 : 0;",
+        `  return ${spell("Math")}.floor(__value / 2 ** __count);`,
+        "}",
+      ];
     case "bitCount":
       return [
         `function ${name}(__bitmap) {`,
@@ -14604,6 +14745,20 @@ function renderHelper(
  * literal would be a second definition rather than a rendering of one.
  */
 /**
+ * `Bitwise`'s members (`bitwise.md` §6). They lower to JavaScript's operators
+ * at `BigInt` alone, whose native semantics is theirs; at `Int` every spelling,
+ * the operator included, is the direct call to the companion's member seat.
+ */
+const BITWISE_MEMBERS: readonly string[] = [
+  "bitAnd",
+  "bitOr",
+  "bitXor",
+  "bitNot",
+  "shiftLeft",
+  "shiftRight",
+];
+
+/**
  * The constraint members whose call at a known primitive instance emits as a
  * JavaScript operator rather than as a dictionary slot read.
  *
@@ -14620,7 +14775,9 @@ const INLINED_OPERATOR_MEMBERS: readonly string[] = [
   "divide",
   "concat",
   "pow",
+  ...BITWISE_MEMBERS,
 ];
+
 
 /**
  * The primitives whose instances are source `honor` blocks (#344), read from

@@ -615,6 +615,8 @@ export interface OrPattern {
 export interface IntegerPattern {
   readonly kind: "Integer";
   readonly decimal: string;
+  /** A non-decimal literal's source form, sign included, without suffix (`-0xFF`). */
+  readonly written?: string;
   /** Present for the monomorphic `n`-suffixed form. */
   readonly bigint?: true;
   readonly type: Type;
@@ -1074,6 +1076,8 @@ export interface UnitExpr extends ExpressionFields {
 export interface FromNatExpr extends ExpressionFields {
   readonly kind: "FromNat";
   readonly decimal: string;
+  /** A non-decimal literal's separator-free source form, without suffix (`0xFF`; `bitwise.md` §8). */
+  readonly written?: string;
   readonly requirement: Constraint;
 }
 
@@ -1101,6 +1105,8 @@ export interface WidenBigIntExpr extends ExpressionFields {
 export interface BigIntExpr extends ExpressionFields {
   readonly kind: "BigInt";
   readonly decimal: string;
+  /** A non-decimal literal's separator-free source form, without suffix (`0xFF`; `bitwise.md` §8). */
+  readonly written?: string;
 }
 
 export interface DecExpr extends ExpressionFields {
@@ -1316,7 +1322,13 @@ export type ConstraintMember =
   | "divide"
   | "add"
   | "subtract"
-  | "concat";
+  | "concat"
+  | "bitAnd"
+  | "bitOr"
+  | "bitXor"
+  | "bitNot"
+  | "shiftLeft"
+  | "shiftRight";
 
 export interface ConstraintCallExpr extends ExpressionFields {
   readonly kind: "ConstraintCall";

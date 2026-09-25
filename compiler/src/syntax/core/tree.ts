@@ -614,12 +614,16 @@ export interface UnitExpr extends ExpressionFields {
 export interface NumberExpr extends ExpressionFields {
   readonly kind: "Number";
   readonly decimal: string;
+  /** A non-decimal literal's separator-free source form, without suffix (`0xFF`; `bitwise.md` §8). */
+  readonly written?: string;
   readonly representation: "Nat" | "Int" | "Float";
 }
 
 export interface BigIntExpr extends ExpressionFields {
   readonly kind: "BigInt";
   readonly decimal: string;
+  /** A non-decimal literal's separator-free source form, without suffix (`0xFF`; `bitwise.md` §8). */
+  readonly written?: string;
 }
 
 export interface DecExpr extends ExpressionFields {
@@ -722,6 +726,8 @@ export interface CollectionOperationExpr extends ExpressionFields {
 export interface ConvertNatExpr extends ExpressionFields {
   readonly kind: "ConvertNat";
   readonly decimal: string;
+  /** A non-decimal literal's separator-free source form, without suffix (`0xFF`; `bitwise.md` §8). */
+  readonly written?: string;
   readonly evidence: Evidence;
 }
 
@@ -858,7 +864,13 @@ export type ConstraintMember =
   | "divide"
   | "add"
   | "subtract"
-  | "concat";
+  | "concat"
+  | "bitAnd"
+  | "bitOr"
+  | "bitXor"
+  | "bitNot"
+  | "shiftLeft"
+  | "shiftRight";
 
 export interface ConstraintCallExpr extends ExpressionFields {
   readonly kind: "ConstraintCall";

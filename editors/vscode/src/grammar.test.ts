@@ -92,6 +92,22 @@ describe("keywords (spec/lexer.md §4)", () => {
     expect(await scope("let x = a implies b", "implies")).toBe("keyword.operator.word.hexagon");
   });
 
+  it("scopes the bitwise words (spec/bitwise.md §3.1)", async () => {
+    expect(await scope("let x = bnot a", "bnot")).toBe("keyword.operator.word.hexagon");
+    expect(await scope("let x = flags band mask", "band")).toBe("keyword.operator.word.hexagon");
+    expect(await scope("let x = f(a) bor b", "bor")).toBe("keyword.operator.word.hexagon");
+    expect(await scope("let x = 0xFF bxor b", "bxor")).toBe("keyword.operator.word.hexagon");
+    // Outside the operator seat each is an ordinary name.
+    expect(await scope("let band = 3", "band")).not.toBe("keyword.operator.word.hexagon");
+    expect(await scope("let x = play(band)", "band")).not.toBe("keyword.operator.word.hexagon");
+  });
+
+  it("scopes non-decimal literals as numbers (spec/bitwise.md §8)", async () => {
+    for (const literal of ["0xFF", "0o777", "0b1010", "0xFF_FF", "0xFFn", "0xFFd"]) {
+      expect(await scope(`let x = ${literal}`, literal)).toBe("constant.numeric.integer.hexagon");
+    }
+  });
+
   // #147: Bool is the prelude union `False | True`, so `true`/`false` are reserved
   // spellings with no value meaning. They must read as errors, and the constructors
   // must read as the ordinary UpperNames they are.
@@ -1055,7 +1071,7 @@ describe("an unterminated bracket group stays on its line (#162)", () => {
         "|pattern(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+" +
           "(?![\\p{Uppercase}\\p{Lt}])(?!__)(?!(?:catch|else|finally|for|if|in|match|" +
           "then|try|while|import|export|extern|constraint|derive|exception|fun|honor|let|" +
-          "record|type|var|and|iff|implies|not|or|true|false)" +
+          "record|type|var|and|bnot|iff|implies|not|or|true|false)" +
           "(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))[\\p{ID_Start}$_]" +
           "[\\p{ID_Continue}$_\\x{200C}\\x{200D}]*[ \\t]*(?=[(<:=]|$)|opaque",
       );
@@ -1342,7 +1358,8 @@ describe("numeric literals (spec/lexer.md §5)", () => {
 
   it("rejects the forms §11 lists as lexical errors", async () => {
     const rejected: [string, string][] = [
-      ["let x = 0xFF", "0xFF"],
+      ["let x = 0XFF", "0XFF"],
+      ["let x = 0b102", "0b102"],
       ["let x = .5", ".5"],
       ["let x = 1.", "1."],
       ["let x = 1__0", "1__0"],
