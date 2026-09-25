@@ -382,6 +382,26 @@ describe("Functions specification conformance", () => {
       "`a` is a declared type variable, but this right-hand side is a computation that cannot be generalized in `a` (`a` is constrained by `Tag`); remove `a` from the binder list, and bind where the type is known or remove the annotation",
     ]);
     expect(messages(tag + "let f: (String) -> String = mk(())")).toEqual([]);
+    // Where the body names the listed variable, those names need a concrete
+    // type too, or the applied advice meets §4.1's forced-type row.
+    expect(
+      messages(tag + "let holder<a: Tag>: { f: (a) -> String } = { f = (x: a) => label(x) }"),
+    ).toEqual([
+      "`a` is a declared type variable, but a binding whose type is not a function cannot carry its `Tag` constraint — evidence rides only a function's trailing parameters; remove `a` from the binder list, write a concrete type where the body names `a`, and annotate at a concrete type or remove the annotation",
+    ]);
+    expect(
+      messages(tag + "let holder: { f: (String) -> String } = { f = (x: String) => label(x) }"),
+    ).toEqual([]);
+    expect(messages(tag + "let f<a: Tag>: (a) -> String = (mk(()) : (a) -> String)")).toEqual([
+      "`a` is a declared type variable, but this right-hand side is a computation that cannot be generalized in `a` (`a` is constrained by `Tag`); remove `a` from the binder list, write a concrete type where the body names `a`, and bind where the type is known or remove the annotation",
+    ]);
+    expect(messages(tag + "let f: (String) -> String = (mk(()) : (String) -> String)")).toEqual([]);
+    // An unconstrained listed variable is not #712's to refuse: the plain exits.
+    expect(
+      messages(tag + "let mk2(u: Unit): (b) -> Unit = (x) => ()\nlet g<a>: (a) -> Unit = mk2(())"),
+    ).toEqual([
+      "`a` is a declared type variable, but this right-hand side is a computation that cannot be generalized in `a` (`a` occurs in argument position); bind where the type is known, or remove the annotation",
+    ]);
 
     // A local list shadows an enclosing declared variable for its own binding
     // only: `g`'s `a` is its own, and `same`'s `a`, written after, is `outer`'s.

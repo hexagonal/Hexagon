@@ -7046,13 +7046,14 @@ class Checker {
         // and still reports "at the offending call in the door's body".
         const doorFrom = this.#seatMark();
         const suppliedFace = annotation !== undefined && expectationLands(item.value)
-          ? this.#inAnnotationPosition(annotation, () =>
-            this.#annotationType(
-              annotation,
-              level + 1,
-              new Map(),
-              this.#annotationVariableScope ?? new Map(),
-            ))
+          ? this.#ownAnnotation(letBinders, () =>
+            this.#inAnnotationPosition(annotation, () =>
+              this.#annotationType(
+                annotation,
+                level + 1,
+                new Map(),
+                this.#annotationVariableScope ?? new Map(),
+              )))
           : undefined;
         this.#bindingChain.push({ symbol: item.binding.symbol, name: item.binding.name });
         const enclosingBindingValue = this.#bindingValue;
@@ -7073,13 +7074,14 @@ class Checker {
         let valueType = inferredValueType;
         if (annotation !== undefined) {
           const annotationType = suppliedFace ??
-            this.#inAnnotationPosition(annotation, () =>
-            this.#annotationType(
-              annotation,
-              level + 1,
-              new Map(),
-              this.#annotationVariableScope ?? new Map(),
-            ));
+            this.#ownAnnotation(letBinders, () =>
+              this.#inAnnotationPosition(annotation, () =>
+                this.#annotationType(
+                  annotation,
+                  level + 1,
+                  new Map(),
+                  this.#annotationVariableScope ?? new Map(),
+                )));
           this.#unifyExpected(
             annotationType,
             inferredValueType,
@@ -22947,8 +22949,8 @@ class Checker {
               `constraint${names.length === 1 ? "" : "s"} — evidence rides only a ` +
               "function's trailing parameters; " +
               (this.#nameListVariables.has(variable)
-                ? `remove \`${variable.rigidName}\` from the binder list, and annotate at a ` +
-                  "concrete type or remove the annotation"
+                ? `${this.#nameListExit(variable)}, and annotate at a concrete type or ` +
+                  "remove the annotation"
                 : "annotate at a concrete type, or remove the annotation"),
             primary: seatReport,
           });
@@ -22998,9 +23000,11 @@ class Checker {
               `\`${variable.rigidName}\` is a declared type variable, but this right-hand ` +
               `side is a computation that cannot be generalized in \`${variable.rigidName}\` ` +
               `(${this.#declineReason(variable.rigidName, variable, declined)}); ` +
-              (this.#nameListVariables.has(variable)
-                ? `remove \`${variable.rigidName}\` from the binder list, and bind where the ` +
-                  "type is known or remove the annotation"
+              // An unconstrained listed variable is not #712's to refuse, so
+              // either exit alone already compiles.
+              (this.#nameListVariables.has(variable) && variable.requirements.length > 0
+                ? `${this.#nameListExit(variable)}, and bind where the type is known or ` +
+                  "remove the annotation"
                 : "bind where the type is known, or remove the annotation"),
             primary: declineReport,
           });
@@ -23352,6 +23356,34 @@ class Checker {
    * report's (#704). An unconstrained unused variable never arrives — it needs
    * no evidence, and a zero-information form misleads no one (Constraints §5.4).
    */
+  /**
+   * The exit a list on a binding's name adds to §8.2's refusals (#1047):
+   * remove the variable from the list — and, where the body names it, give
+   * those names a concrete type too, or they meet §4.1's forced-type row.
+   */
+  /**
+   * Elaborates a binding's own annotation without counting its lookups of the
+   * variables a list on the binding's name declared as *body* names (#1047):
+   * the annotation is where the list is used, as a header's parameter types
+   * are, and only a name written in the value needs its own concrete type.
+   */
+  #ownAnnotation<T>(listed: ReadonlyMap<string, Variable>, elaborate: () => T): T {
+    const before = new Set([...listed.values()].filter((variable) => this.#namedInBody.has(variable)));
+    const result = elaborate();
+    for (const variable of listed.values()) {
+      if (!before.has(variable)) this.#namedInBody.delete(variable);
+    }
+    return result;
+  }
+
+  #nameListExit(variable: Variable): string {
+    const name = variable.rigidName ?? "";
+    return `remove \`${name}\` from the binder list` +
+      (this.#namedInBody.has(variable)
+        ? `, write a concrete type where the body names \`${name}\``
+        : "");
+  }
+
   #reportUnmentionedDeclared(variable: Variable): boolean {
     if (variable.rigidName === undefined) return false;
     const declared = this.#declaredFor.get(variable);
