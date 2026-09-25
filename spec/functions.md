@@ -238,7 +238,14 @@ Inference is Hindley–Milner, Algorithm J (§8) — a lambda's unannotated para
 signature writes as one bare type variable — alone or with others — are the parts of one
 expression tree (Numeric Literals §5.1's expression home): none settles the shared variable before the others
 are in, and their home is chosen after the pass's last argument, before the second
-pass begins, so a lambda literal reads it settled. Fixed `Nat`, `Int`, and `BigInt`
+pass begins, so a lambda literal reads it settled. A lambda literal is a black box
+whose interface is visible (ruling A2): its **written** parameter and result types are
+part of the first pass, landing on the callee's parameters before the groups close, and
+its body is not — what a callback's body does never chooses the home of the arguments
+beside it. So `apply2(m, (v: Int) => v + n)` (`m : Nat`) meets at `Int`, while
+`apply2(m, (v) => v + n)` is refused, the body finding `a` settled at `Nat` (Numeric
+Literals §6 names both repairs). A body still unifies where no conversion is chosen:
+`fun outer(p) = apply2(p, (v) => v + n)` types `p` at `Int`. Fixed `Nat`, `Int`, and `BigInt`
 sources are the everyday case — BigInt through independent `FromBigInt` evidence, the
 fresh callee parameter's own bound establishing nothing (Exact Integer Widening §4).
 The rule changes neither the expression elaboration schedule nor runtime evaluation
