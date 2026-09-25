@@ -185,6 +185,12 @@ describe("Functions specification conformance", () => {
     expect(reports(n + "let x = Signed.subtract(n, n)")).toEqual([[signed + signedFace, "Signed.subtract"]]);
     expect(reports(n + "let x = n |> Signed.negate").map(([message, at]) => [message!.includes("face"), at]))
       .toEqual([[true, "Signed.negate"]]);
+    // Grouping is punctuation: the member is still the one applied.
+    expect(reports(n + "let x = (Signed.negate)(n)").map(([message, at]) => [message!.includes("face"), at]))
+      .toEqual([[true, "Signed.negate"]]);
+    // A called member outside any arithmetic tree is its operation too.
+    expect(reports("let x: Nat = Signed.fromInt(3)").map(([message, at]) => [message!.includes("face"), at]))
+      .toEqual([[true, "Signed.fromInt"]]);
     // A member passed as a value is no operation: `let x: Int = f(n, n)` would
     // not compile, so no face is offered — the reference itself is typed.
     expect(reports(n + "let f = Signed.subtract\nlet x = f(n, n)")).toEqual([[signed, "Signed.subtract"]]);

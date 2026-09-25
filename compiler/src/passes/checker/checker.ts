@@ -1208,9 +1208,8 @@ interface Requirement {
    * the user where to put an `Iterable` instance and what to do instead, which
    * is the right thing to say about a loop head and the wrong thing to say
    * about, for instance, a failing `toSeq(x)` call — that keeps the generic
-   * requirement failure. Everywhere else in this file the two origins behave
-   * identically, and deliberately so: nothing about *how* the constraint is
-   * discharged changes.
+   * requirement failure. Nothing about *how* the constraint is discharged
+   * changes between the two.
    *
    * `"use"` and `"derived"` are the two demands that stand away from the seat
    * that made them, and the origin is the one record of that (Functions §10's
@@ -1221,9 +1220,12 @@ interface Requirement {
    * structural requirement or an instance's argument, and its `span` is the
    * demand it was derived from. Wording that names or advises about a seat
    * reads the origin that seat stamps, so neither is ever given it; the tower
-   * riders, which advise about an operation, ride `"operation"` alone. That
-   * origin is an operator, and a **called** constraint member's own constraint
-   * — `n.subtract(n)` is where the subtraction is.
+   * riders, which advise about an operation, ride `"operation"` alone.
+   * `"operation"` is `#require`'s default, so it also stamps seats no rider
+   * concerns (a map key's `Hash`, a pattern's `Eq`); the ones a rider can
+   * reach — `Signed`, `Frac` and `Bitwise` — are an operator's, and a
+   * **called** constraint member's own constraint, the one copy that keeps
+   * it: `n.subtract(n)` is where the subtraction is.
    */
   readonly origin:
     | "annotation"
@@ -9460,7 +9462,11 @@ class Checker {
             arguments_[index] = this.#inferExpr(expression.arguments[index]!, level);
           }
         }
-        if (expression.callee.kind === "Name") this.#calledNames.add(expression.callee);
+        // The name applied, through any grouping: `(Signed.negate)(n)` is
+        // called as `Signed.negate(n)` is.
+        let applied: Resolved.Expr = expression.callee;
+        while (applied.kind === "Group") applied = applied.expression;
+        if (applied.kind === "Name") this.#calledNames.add(applied);
         const callee = calleeIsLambda
           ? this.#inferExpr(expression.callee, level, {
             kind: "Function",
