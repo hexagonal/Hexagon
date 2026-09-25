@@ -21753,8 +21753,11 @@ class Checker {
             this.#missingInstanceMessage(requirement, type),
       // At the use, as the declared-list refusals are (#1063): a requirement
       // copied from a scheme keeps the definition's span, possibly another
-      // module's.
-      primary: requirement.useSpan ?? requirement.span,
+      // module's. A literal's report names the literal, so it stays on it,
+      // as §6's blocked-defaulting report does.
+      primary: requirement.origin === "literal"
+        ? requirement.span
+        : requirement.useSpan ?? requirement.span,
     });
   }
 
@@ -21865,8 +21868,10 @@ class Checker {
     // spelling it was mistaken for.
     // Only the operator's own requirement: a derived one shares its span, and
     // `Box(True) band Box(False)` has no `and` to offer.
+    // Keyed where the report carets: a copy's definition span is an operator
+    // in the callee's body, and `h(True, False)` has no `and` to offer either.
     const logic = requirement.identity === BITWISE_IDENTITY && requirement.derived !== true
-      ? this.#bitwiseLogicWords.get(spanKey(requirement.span))
+      ? this.#bitwiseLogicWords.get(spanKey(requirement.useSpan ?? requirement.span))
       : undefined;
     const subject = this.#prune(type);
     if (logic !== undefined && subject.kind === "Union" && subject.union === this.#boolUnion) {

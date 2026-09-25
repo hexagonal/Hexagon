@@ -394,6 +394,10 @@ describe("refusals (§2.1, §9)", () => {
     );
     expect(boxed).toHaveLength(1);
     expect(boxed[0]).not.toContain("logic on `Bool`");
+    // Nor through a call: `h`'s own `band` is not written at `h(True, False)`.
+    const called = verdict("let h(a, b) = a band b\nlet x = h(True, False)\n");
+    expect(called).toHaveLength(1);
+    expect(called[0]).not.toContain("logic on `Bool`");
     const bits = "let i: Int = 6\nlet j: Int = 3\n";
     expect(verdict(bits + "let x = i and j\n")[0]).toContain("the bitwise operation is spelled `band`");
     expect(verdict(bits + "let x = i or j\n")[0]).toContain("the bitwise operation is spelled `bor`");

@@ -165,6 +165,11 @@ describe("Functions specification conformance", () => {
     expect(missing.diagnostics.map(({ message, primary }) => [message, primary.fileId])).toEqual([
       ["functions have no `Show` instance", mainId(missing)],
     ]);
+    // Except a literal's: its report names the literal, so it carets it.
+    const literal = "let g(x) = x + 1\nlet y = g(True)";
+    expect(
+      checkSource(literal).diagnostics.map(({ message, primary }) => [message, caret(literal, primary)]),
+    ).toEqual([["integer literal cannot have type `Bool`", "1"]]);
 
     // Entailment still discharges a copied demand: `Hash` provides `Eq`.
     const accepted = checkSource(
