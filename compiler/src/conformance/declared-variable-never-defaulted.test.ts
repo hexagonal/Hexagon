@@ -48,6 +48,21 @@ describe("a knot's survivor gets no report of its own", () => {
         "it on the block's head, `fun<u: Num>`, and write `u` in `a`'s signature too",
     ]);
   });
+
+  test("a clash outside the knot is not the knot's refusal, and hides nothing", () => {
+    // `h` meets `u` only because it leaked from `c`, which `a`'s reach left
+    // unquantified. `h`'s own clash is reported, and so is the knot's cause.
+    const messages = verdict(
+      "fun\n" +
+      "    c(go: Bool): u = if go then 0 else if a(False) == 0 then c(True) else 0\n" +
+      "    a(flag: Bool): Int =\n" +
+      "        let z = c(True) + c(False)\n" +
+      "        if flag then 1 else 0\n" +
+      "fun h<q: Num>(x: q): q = c(True)\n",
+    );
+    expect(messages.some((message) => message.startsWith("`u` is declared on `c`, and this in `a`")))
+      .toBe(true);
+  });
 });
 
 describe("the bindings with no evidence seat keep defaulting's refusal", () => {

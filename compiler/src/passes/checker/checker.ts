@@ -21265,6 +21265,10 @@ class Checker {
     const owner = this.#declaredHeadOwners.get(variable.id);
     if (owner === undefined) return;
     const owners = owner.kind === "block" ? owner.members : [owner.symbol];
+    // Only a refusal *inside* a live knot is the knot's: a clash outside it — an
+    // outer declaration meeting a variable that leaked from an unquantified
+    // member — is that declaration's own, and must not hide the knot's report.
+    if (!this.#knots.some((knot) => owners.some((symbol) => knot.types.has(symbol)))) return;
     for (const symbol of owners) this.#refusedDeclarations.add(symbol);
     for (const knot of this.#knots) {
       if (!owners.some((symbol) => knot.types.has(symbol))) continue;
