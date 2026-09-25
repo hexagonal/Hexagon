@@ -13800,6 +13800,7 @@ class Checker {
           this.#followsAtType(part.expression, part.type, type)
         );
     }
+    if (this.#unsolvedAtClose.has(expression)) return true;
     return actual !== undefined && this.#reachesSeat(actual, type);
   }
 
@@ -14523,6 +14524,14 @@ class Checker {
     return reaches;
   }
 
+  /**
+   * Values that were still unsolved when their refused faced tree closed, and
+   * took the face there (`#keepFaced`). The face is not what they *are*, so
+   * §2.2's boundary repair counts them as following any type (`#followsAtType`):
+   * under the ascription they would have taken it instead.
+   */
+  readonly #unsolvedAtClose = new WeakSet<Resolved.Expr>();
+
   /** One node's tree is closed against one face, so the answer is cached per node. */
   readonly #reachesFace = new WeakMap<TreeNode, boolean>();
 
@@ -14772,7 +14781,7 @@ class Checker {
       this.#closeFree(node);
       return this.#partType({ node });
     }
-    if (this.#facedReaches(node, face)) {
+    if (this.#facedReaches(node, face) && !this.#holdsHomelessGate(node, face)) {
       this.#enterFace(node, face);
       // Its forms' value paths are recorded all the same: an ascription the
       // report offers carries them, so it has to see them (`#followsAtType`).
@@ -14790,10 +14799,13 @@ class Checker {
     }
     // An unsolved value reaches the face and runs there, as the lift hands it;
     // the kept type decides nothing about it (§5.1: for the report alone).
+    // A declared variable is no unsolved value: it keeps its own verdict.
     for (const part of node.parts) {
-      if ("value" in part && this.#prune(part.value.type).kind === "Variable") {
-        this.#unifyExpected(face, part.value.type, part.value.expression, part.value.expression.span, true);
-      }
+      if (!("value" in part)) continue;
+      const type = this.#prune(part.value.type);
+      if (type.kind !== "Variable" || type.rigidName !== undefined) continue;
+      this.#unsolvedAtClose.add(part.value.expression);
+      this.#unifyExpected(face, type, part.value.expression, part.value.expression.span, true);
     }
     const kept = this.#chooseHome(this.#treeValues(node))?.home;
     if (kept !== undefined) this.#unify(node.result, kept, node.expression.span);
@@ -14817,6 +14829,20 @@ class Checker {
     }
     node.published = at;
     return kept;
+  }
+
+  /**
+   * Whether `node` holds a gated call whose own values select no home. Such a
+   * call reaches the face only as an unsolved value does; entering the face
+   * would ask its missing instance there, a second report in a tree already
+   * refused, so a refused tree closes it on its own instead.
+   */
+  #holdsHomelessGate(node: TreeNode, face: Mono): boolean {
+    if (
+      node.rung !== undefined && !this.#supportsTarget(face, node.rung) &&
+      this.#chooseHome(this.#treeValues(node)) === undefined
+    ) return true;
+    return node.parts.some((part) => "node" in part && this.#holdsHomelessGate(part.node, face));
   }
 
   /** Records the value paths of every form in `node`, for `#followsAtType`. */

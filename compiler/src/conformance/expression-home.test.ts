@@ -343,6 +343,13 @@ describe("a faced tree is refused once, naming the value that declined (#827)", 
       expect(reports).toHaveLength(1);
       expect(reports[0]).toContain(missing(face, rung));
     }
+    // Inside a tree already refused, the gated call adds nothing: the tree's
+    // one report is the value that declined.
+    for (const sum of ["(y - z) + f", "f + (y - z)", "(y - z) * 2 + f"]) {
+      expect(refusals(`fun gg(y, z) =\n    let x: Nat = ${sum}\n    x\n`)).toEqual([
+        "`f` is a `Float` and cannot enter `Nat`, so the addition could not run at `Nat`",
+      ]);
+    }
     // A gated call that does select a home is a value like any other.
     expect(refusals("let x: Nat = if c then n - i else m\n")).toEqual([
       "`n - i` is a `Int` and cannot enter `Nat`, the home `: Nat` writes",
@@ -352,6 +359,14 @@ describe("a faced tree is refused once, naming the value that declined (#827)", 
   test("a value already refused poisons the tree", () => {
     for (const source of ["let x: Dec = nope + n * f\n", "let x: Dec = n * f + nope\n"]) {
       expect(refusals(source)).toEqual(["unknown name `nope`"]);
+    }
+  });
+
+  test("a declared variable in a refused tree keeps its own verdict", () => {
+    for (const product of ["x * f", "f * x"]) {
+      expect(refusals(`fun half<a: Num>(x: a): Dec = ${product}\n`)).toEqual([
+        "`f` is a `Float` and cannot enter `Dec`, so the multiplication could not run at `Dec`",
+      ]);
     }
   });
 
