@@ -690,7 +690,9 @@ describe("the companion's surface", () => {
         ? [item.binding.name]
         : item.kind === "ExternBlock"
         ? item.declarations.flatMap((declaration) =>
-          declaration.exported ? [declaration.localName] : []
+          // The type row (#1071) exports a type, which has no binding here;
+          // its documentation is the `.d.ts` seat's, pinned with the faces.
+          declaration.exported && declaration.kind !== "ExternType" ? [declaration.localName] : []
         )
         : []
     );

@@ -289,15 +289,21 @@ const supplies = Vector.of("rope", "torch", "map");
 const betterSupplies = Vector.set(supplies, 2, "lantern");
 ```
 
-Their public TypeScript faces make the distinction visible:
+Their public TypeScript faces make the distinction visible. Each collection keeps its
+Hexagon name, imported from the declaration file of the module that declares it:
 
 ```ts
-import type * as Hex from "@hexagon/runtime";
+import type { Vector } from "./Hex/Vector.js";
+import type { Map } from "./Hex/Map.js";
+import type { Set } from "./Hex/Set.js";
 
-export declare const supplies: Hex.Vector<string>;
-export declare const scores: Hex.Map<string, number>;
-export declare const invited: Hex.Set<string>;
+export declare const supplies: Vector<string>;
+export declare const scores: Map<string, number>;
+export declare const invited: Set<string>;
 ```
+
+Those `Map` and `Set` are Hexagon's, not JavaScript's: inside this file the imports
+stand in for the global names, so no caller can mistake one for a native collection.
 
 Explicit conversion functions are the doors to foreign JavaScript collections. They
 will appear with the rest of JavaScript input rather than being hidden inside

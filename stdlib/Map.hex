@@ -10,8 +10,16 @@ export exception KeyError
 // maintained size, the keyed trio, and the one traversal. Everything below is
 // ordinary Hexagon over these seven, which is what makes the keys/values/entries
 // correspondence (section 7.3) free rather than arranged.
+//
+// The type row declares `Map` itself (`spec/intrinsics.md` section 3.3): the
+// type is this module's own, its values are the runtime's `HashTrie` records,
+// and both `+`s are checked against that record's variance here, at the row.
 extern from "hex:intrinsic"
-    // Unexported, beneath `empty` below: the block admits `fun` only and an
+    (** An immutable map from keys to values, each key bound at most once. Every
+        update answers a new map and leaves the one it was given as it was. *)
+    export type map as Map(+k, +v)
+
+    // Unexported, beneath `empty` below: the block admits no `let` and an
     // empty map is a value, so the door row is the thunk and the wrapper is what
     // the language sees (`spec/intrinsics.md` section 3.2).
     fun mapEmpty as emptyMap() -> Map(k, v)

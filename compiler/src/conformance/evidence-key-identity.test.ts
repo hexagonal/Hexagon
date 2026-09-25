@@ -395,7 +395,9 @@ describe("what keeps a pre-registered name canonical", () => {
   test("a declared constraint cannot be honored at a structural head", () => {
     const declaration = "constraint Describe<a> =\n    describe(subject: a) -> String\n";
 
-    for (const head of ["(Int, Int)", "Vector(Int)", "{x: Int}"]) {
+    // `Vector(Int)` left this list at #1071: its companion declares `Vector`,
+    // so it is a nominal head now, refused only as a ground one (§4.4).
+    for (const head of ["(Int, Int)", "{x: Int}", "(Int) -> Int"]) {
       expect(projectDiagnostics("module Main\n\n" + `${declaration}honor Describe<${head}> =\n    describe(v) = "shape"\n`,
       )).toContain("an instance head must name a primitive or nominal type constructor");
     }

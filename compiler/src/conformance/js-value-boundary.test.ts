@@ -125,7 +125,8 @@ describe("the `.d.ts` face is `unknown`, never `any` (§2)", () => {
     expect(text).toContain("export declare const loose: unknown;");
     expect(text).toContain("export declare const echo: (v: unknown) => unknown;");
     expect(text).toContain("export type Envelope = { payload: unknown };");
-    expect(text).toContain("Hex.Vector<unknown>");
+    expect(text).toContain("Vector<unknown>");
+    expect(text).toContain('import type { Vector } from "./Hex/Vector.js";');
   });
 
   /** The prohibition is half the row, and it is the half a slip would take. */
@@ -187,13 +188,13 @@ describe("the `.d.ts` face is `unknown`, never `any` (§2)", () => {
 
     const value = faceOf("/Hex/JsValue.hex");
     expect(value).toContain(
-      "export type JsConversionError = { reason: JsConversionReason; path: Hex.Vector<JsPathSegment> };",
+      "export type JsConversionError = { reason: JsConversionReason; path: Vector<JsPathSegment> };",
     );
 
     const reason = faceOf("/Hex/JsConversionReason.hex");
     expect(reason).toContain('{ tag: "Shape" }');
     expect(reason).toContain('{ tag: "Range" }');
-    expect(reason).toContain('{ tag: "Cycle"; firstSeen: Hex.Vector<JsPathSegment> }');
+    expect(reason).toContain('{ tag: "Cycle"; firstSeen: Vector<JsPathSegment> }');
 
     const segment = faceOf("/Hex/JsPathSegment.hex");
     expect(segment).toContain('{ tag: "Field"; name: string }');

@@ -1,7 +1,7 @@
 /** Whole-project orchestration for Hexagon's acyclic relative module graph. */
 
 import * as Diagnostics from "./support/diagnostics.js";
-import { INTRINSIC_TYPE_ID_BASE } from "./intrinsics.js";
+import { INTRINSIC_TYPE_ID_BASE, REPRESENTATION_RECORD_KEYS } from "./intrinsics.js";
 import { ImportRepairs } from "./support/import-placement.js";
 import { relativeSpecifier } from "./support/paths.js";
 import * as Source from "./support/source.js";
@@ -1172,6 +1172,7 @@ export function compileProject(
     unions: [],
     records: [],
   };
+  const representationRecords = new Map<string, Resolved.RecordId>();
   // Method Syntax §4.2's companion operation set for every nominal the program
   // has declared, dependencies first, each contributed by the type's own home
   // module (#585, `homeCompanionOperations`). The section's "the set is
@@ -1569,6 +1570,17 @@ export function compileProject(
     if (resolved === undefined) continue;
     programNominals.unions.push(...resolved.unions);
     programNominals.records.push(...resolved.records);
+    // *(#1071.)* The public type keys' representation records, from the
+    // trusted modules the inventory names as their homes and from nowhere
+    // else: a program's own `record TrieVector` is not one of them.
+    if (resolutionStages.get(path)?.isInjected === true) {
+      const declared = byPath.get(path)!.declaredName;
+      for (const item of resolved.items) {
+        if (item.kind !== "RecordDeclaration") continue;
+        const key = `${declared}.${item.name}`;
+        if (REPRESENTATION_RECORD_KEYS.has(key)) representationRecords.set(key, item.record);
+      }
+    }
     recordNominalHomes(resolved, path, nominalHomes);
     recordCompanionOperationProviders(resolved, path, programOperations);
     programInstanceProviders.push(...homeInstanceProviders(resolved, path));
@@ -1634,6 +1646,7 @@ export function compileProject(
       ownDefaultAlias: unit.declaredName.split(".").at(-1)!,
       importedSchemes,
       programNominals,
+      representationRecords,
       programOperations,
       programInstanceProviders,
       forbiddenProviderPaths,

@@ -13,12 +13,20 @@ export exception SliceError(start: Int, end: Int)
 
 // The whole boundary Collections Part 3 section 7 pins: representation-sensitive
 // length and end updates, signed indexed access, persistent indexed update, and
-// the eager/lazy bridge — the seven this block opens with. The eighth row is a
-// different document's: `toArray` is FFI Part 2 section 9's outbound
+// the eager/lazy bridge — the seven operations after the type row. The eighth is
+// a different document's: `toArray` is FFI Part 2 section 9's outbound
 // conversion, and it is declared here because section 9.1's obligation 2 says
 // the intrinsic door is its mechanism and this file its home. Everything below
 // the block is ordinary Hexagon over these.
+//
+// The type row declares `Vector` itself (`spec/intrinsics.md` section 3.3): the
+// type is this module's own, its values are the runtime's `TrieVector` records,
+// and the `+` is checked against that record's variance here, at the row.
 extern from "hex:intrinsic"
+    (** An immutable sequence of elements, indexed from 1. Every update answers a
+        new vector and leaves the one it was given as it was. *)
+    export type vector as Vector(+a)
+
     (** How many elements `values` holds, in constant time. *)
     export fun vectorLength as length(values: Vector(a)) -> Int
 

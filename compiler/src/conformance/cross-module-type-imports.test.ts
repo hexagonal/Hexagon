@@ -222,7 +222,7 @@ describe("placement", () => {
       [
         "/main.hex",
         "module Main\n\n" + 'import Lib as Color\n' +
-          "export let f(c: Color, v: Vector(Int)): Option(Int) = None\n",
+          "export let f(c: Color, v: Range): Option(Int) = None\n",
       ],
     ]);
     const text = emitted(compiled, "/main.hex").declarations.text;
@@ -234,7 +234,7 @@ describe("placement", () => {
       'import type * as Hex from "./hex.js";\n' +
         'import type { Option } from "./Hex/Option.js";\n' +
         'import type { Color } from "./Lib.js";\n' +
-        "export declare const f: (c: Color, v: Hex.Vector<number>) => Option<number>;\n",
+        "export declare const f: (c: Color, v: Hex.Range) => Option<number>;\n",
     );
     expect(await typeScriptErrors({
       ...declarationSet(compiled),

@@ -12,7 +12,6 @@ import * as Diagnostics from "../../support/diagnostics.js";
 import { stronglyConnectedComponents } from "../../support/graph.js";
 import { cleanDigits } from "../../support/numeric-literal.js";
 import {
-  COMPILER_CLAIMS,
   type Declarations as VarianceDeclarations,
   flip as flipVariance,
   join as joinVariance,
@@ -30,7 +29,12 @@ import {
   preRegisteredConstraintIdentity,
   STRUCTURAL_CONSTRAINTS,
 } from "../../constraints.js";
-import { isIntrinsicScheme } from "../../intrinsics.js";
+import {
+  isIntrinsicScheme,
+  isPublicTypeKind,
+  publicTypeKey,
+  publicTypeKind,
+} from "../../intrinsics.js";
 import { PRIMITIVE_COMPANION_MODULES } from "../../prelude.js";
 import { relativeSpecifier } from "../../support/paths.js";
 import {
@@ -98,6 +102,16 @@ export interface CheckOptions {
    * falls back to that view, which is complete for a single-module program.
    */
   readonly programNominals?: VarianceDeclarations;
+  /**
+   * *(#1071.)* The **representation records** the public type keys name
+   * (`spec/intrinsics.md` §3.3, §4.1), by `<module>.<record>` as the inventory
+   * spells them — `Runtime.VectorTrie.TrieVector` — gathered from the trusted
+   * runtime modules that declare them. A public row's written claim is checked
+   * against its record's computed variance, and only the compilation knows
+   * which module a record came from. Absent, no row's claim is checked, which
+   * is a lone `check` in a test.
+   */
+  readonly representationRecords?: ReadonlyMap<string, Resolved.RecordId>;
   /**
    * Every nominal's companion operation set as its **home module** declared it,
    * for the modules the program has compiled so far (#585, `homeCompanionOperations`).
@@ -967,17 +981,23 @@ interface RangeMono {
 interface VectorMono {
   readonly kind: "Vector";
   readonly element: Mono;
+  /** See `Qualifier` (#1071: a public door row's type is qualified like any nominal). */
+  readonly qualifier?: Qualifier;
 }
 
 interface MapMono {
   readonly kind: "Map";
   readonly key: Mono;
   readonly value: Mono;
+  /** See `Qualifier` (#1071: a public door row's type is qualified like any nominal). */
+  readonly qualifier?: Qualifier;
 }
 
 interface SetMono {
   readonly kind: "Set";
   readonly element: Mono;
+  /** See `Qualifier` (#1071: a public door row's type is qualified like any nominal). */
+  readonly qualifier?: Qualifier;
 }
 
 interface ArrayMono {
@@ -2143,8 +2163,9 @@ function externTypeCompanionKey(externType: Resolved.ExternTypeId): string {
  * module that is at any moment — the one addressable under the name here, which
  * is how `stdlib/Vector.hex` occludes the compiler's own core inventory today.
  *
- * They are keyed by name because there is no declaration to key on: no `.hex`
- * file declares `Vector`, so `bindingSpan.fileId` cannot answer "is this
+ * They are keyed by name because there is no declaration node to key on: the
+ * companion's public door row (#1071) binds the name to a built-in kind, not to
+ * a node, so `bindingSpan.fileId` cannot answer "is this
  * operation the companion's?" the way it does for a nominal type. The module
  * alias answers instead. When nothing supplies one — the shipped-today
  * configuration, where `stdlib/Vector.hex` is in `stdlib/` but in no project's
@@ -2565,14 +2586,36 @@ function companionHeadName(type: Mono): string | undefined {
  * from this list mint only what the head lawfully binds.
  */
 function headBinderNames(subject: Resolved.TypeAnnotation): readonly string[] {
-  if (subject.kind !== "Union" && subject.kind !== "RecordDeclaration") return [];
   return [
     ...new Set(
-      subject.arguments.flatMap((argument) =>
+      headArguments(subject).flatMap((argument) =>
         argument.kind === "TypeVariable" ? [argument.name] : []
       ),
     ),
   ];
+}
+
+/**
+ * An instance head's constructor arguments: a declared nominal's, and *(#1071)*
+ * a public door row's kind's slots — `Vector(a)`'s element, `Map(k, v)`'s key
+ * and value — since the row makes each a declared type the head law reads like
+ * any other. Empty for every other head. The one reading behind both the head
+ * law (`#checkInstanceHead`) and the binders a head introduces
+ * (`headBinderNames`), so the two cannot disagree about what a head binds.
+ */
+function headArguments(subject: Resolved.TypeAnnotation): readonly Resolved.TypeAnnotation[] {
+  switch (subject.kind) {
+    case "Union":
+    case "RecordDeclaration":
+      return subject.arguments;
+    case "Vector":
+    case "Set":
+      return [subject.element];
+    case "Map":
+      return [subject.key, subject.value];
+    default:
+      return [];
+  }
 }
 
 /**
@@ -2650,15 +2693,6 @@ function constraintMemberCandidates(
       parameterCount: member.parameters.length,
     };
   });
-}
-
-/**
- * A compiler-known constructor's claim (closure doc §5.3). A constructor with
- * no row is invariant, and item 7 declines its variables — the answer that
- * withholds generalization rather than granting it on a claim nobody made.
- */
-function compilerClaim(constructor: string, slot: number): Variance {
-  return COMPILER_CLAIMS.get(constructor)?.[slot] ?? "inv";
 }
 
 /** How an occurrence's sign reads in a report, in position words rather than lattice ones. */
@@ -3493,6 +3527,12 @@ class Checker {
   readonly #ownUnions = new Set<Resolved.UnionId>();
   readonly #ownRecords = new Set<Resolved.RecordId>();
   /**
+   * *(#1071.)* The built-in kinds this module declares by public door rows —
+   * `Vector` in `Hex.Vector` — for the orphan rule's "the module that declares
+   * `T`" (Constraints §5.3), which a public row answers like any declaration.
+   */
+  readonly #ownPublicKinds = new Set<string>();
+  /**
    * Per intrinsic declaration, the variables its annotations introduced. Shared
    * between scheme construction and materialization so both name the same
    * variables — without it the materialized result type would carry a fresh
@@ -3942,6 +3982,7 @@ class Checker {
   readonly #diagnostics: Diagnostics.Bag;
   readonly #importedSchemes: ReadonlyMap<Resolved.SymbolId, Typed.Scheme>;
   readonly #programNominals: VarianceDeclarations;
+  readonly #representationRecords: ReadonlyMap<string, Resolved.RecordId>;
   readonly #programOperations: ProgramOperations;
   readonly #programInstanceProviders: readonly ProgramInstanceProvider[];
   readonly #forbiddenProviderPaths: ReadonlySet<string>;
@@ -4032,6 +4073,7 @@ class Checker {
     this.#diagnostics = diagnostics;
     this.#importedSchemes = options.importedSchemes ?? new Map();
     this.#programNominals = options.programNominals ?? { unions: [], records: [] };
+    this.#representationRecords = options.representationRecords ?? new Map();
     this.#programOperations = options.programOperations ?? new Map();
     this.#programInstanceProviders = options.programInstanceProviders ?? [];
     this.#forbiddenProviderPaths = options.forbiddenProviderPaths ?? new Set();
@@ -4056,6 +4098,13 @@ class Checker {
       }
       if (item.kind === "Union") this.#ownUnions.add(item.union);
       if (item.kind === "RecordDeclaration") this.#ownRecords.add(item.record);
+      if (item.kind === "ExternBlock") {
+        for (const declaration of item.declarations) {
+          if (declaration.kind !== "ExternType") continue;
+          const kind = publicTypeKind(Number(declaration.externType));
+          if (kind !== undefined) this.#ownPublicKinds.add(kind);
+        }
+      }
     }
     for (const symbol of module.symbols) this.#symbolKinds.set(symbol.id, symbol.kind);
     // See `#declaredUnions`: an annotation elaborated before the registration
@@ -4071,8 +4120,9 @@ class Checker {
       module.unions,
       module.records,
       // #927: this module's own door rows carry the claims. A confined type
-      // never leaves the module that declares it (§3.3), so the module's own
-      // view is already complete and the program-wide one supplies none.
+      // never leaves the module that declares it (§3.3), and a public one's
+      // row arrives with the prelude's seed (#1071), so the module's own view
+      // is already complete and the program-wide one supplies none.
       module.externTypes,
       this.#programNominals,
     );
@@ -4317,7 +4367,14 @@ class Checker {
         this.#storeInstanceImpliedTypes(item, typeParameters, true);
         const key = this.#instanceKey(item.constraintIdentity, subject);
         const occupant = this.#instances.get(key);
-        if (occupant !== undefined) {
+        if (this.#compilerProvidedSlot(item, instanceSubject, occupant)) {
+          this.#diagnostics.add({
+            severity: "error",
+            message: `duplicate instance of \`${item.constraint}<${this.#display(subject)}>\`: ` +
+              "the compiler provides it",
+            primary: item.span,
+          });
+        } else if (occupant !== undefined) {
           // Both instances answer the *same* declaration — that is what a key
           // collision now means — so §5.1.1's disambiguation rule leaves the
           // name bare: there is one constraint to name, and qualifying it by
@@ -4330,11 +4387,11 @@ class Checker {
           // fires, and `#providedRowNote` appends the fact the user needs.
           //
           // **The one silent path this opens, for whoever edits the prelude
-          // next.** From user code the suppression is unreachable twice over: a
-          // structural head (`Vector(a)`, `Map(k, v)`, `Set(a)`) is refused
-          // outright by `#checkInstanceHead` (Constraints §5.4), and a user file
+          // next.** From user code the suppression is unreachable: a user file
           // declares neither `Iterable` nor any provided row's subject, so it
-          // fails the orphan rule and gets the report either way. Inside
+          // fails the orphan rule and gets the report either way — and at
+          // `Vector(a)`, `Map(k, v)`, or `Set(a)` even the standard library is
+          // stopped before this, by `#compilerProvidedSlot` (#1071). Inside
           // `stdlib/Iterable.hex` both guards lift at once: it *declares* the
           // constraint, so `ownsConstraint` holds and no orphan error fires, and
           // a nominal head slips past the head check — so a hand-written
@@ -6393,10 +6450,42 @@ class Checker {
     return subject.kind === "Primitive" && subject.name === this.#companionPrimitive;
   }
 
-  /** Whether this module's source declares the nominal named by an instance head. */
+  /**
+   * *(#1071, ruled 2026-09-26.)* Whether a lawful `honor` at a public door
+   * row's type lands on a slot the **compiler** fills: `#selectEvidence`'s
+   * structural answers (`Eq`, `Ord`, `Show`, `Hash`, `Concat` at the kinds that
+   * have them) or a provided `Iterable` row (Collections Part 5 §4). An instance
+   * there is one or the other, never both (Intrinsics §3.3): a provided row
+   * moves into source by being deleted in the same change, and a source row
+   * beside it would be dead, or dropped, or — for `Hash` — an emission fault.
+   *
+   * Only standard-library source can write one: a program owns neither half of
+   * such a head, so the orphan rule answers it first and this stays silent.
+   */
+  #compilerProvidedSlot(
+    item: Resolved.HonorItem,
+    subject: Mono,
+    occupant: Resolved.HonorItem | undefined,
+  ): boolean {
+    if (!isPublicTypeKind(item.subject.kind)) return false;
+    const lawful = this.#localConstraints.has(item.constraint) ||
+      this.#ownPublicKinds.has(item.subject.kind);
+    if (!lawful) return false;
+    if (occupant !== undefined && this.#providedIterableRows.has(occupant)) return true;
+    return this.#selectEvidence(subject, item.constraintIdentity, item.constraint).kind ===
+      "components";
+  }
+
+  /**
+   * Whether this module's source declares the nominal named by an instance head
+   * — a public door row's kind included (#1071), which is how `Hex.Map` would
+   * hand-write a `Hash` at `Map` under Constraints §4.5's standard-library
+   * exception.
+   */
   #ownsNominal(subject: Resolved.TypeAnnotation): boolean {
     return (subject.kind === "Union" && this.#ownUnions.has(subject.union)) ||
-      (subject.kind === "RecordDeclaration" && this.#ownRecords.has(subject.record));
+      (subject.kind === "RecordDeclaration" && this.#ownRecords.has(subject.record)) ||
+      this.#ownPublicKinds.has(subject.kind);
   }
 
   #checkInstanceHead(
@@ -6404,7 +6493,13 @@ class Checker {
     moduleItems: readonly Resolved.Item[],
   ): void {
     const subject = item.subject;
-    const nominal = subject.kind === "Union" || subject.kind === "RecordDeclaration";
+    // *(#1071.)* A type a public door row declares — `Vector`, `Map`, `Set` —
+    // is a nominal constructor for this law like any declared one: the row is
+    // its declaration (Constraints §4.4's own `Show<Vector(a)>`). Its arguments
+    // are the kind's slots.
+    const nominal = subject.kind === "Union" || subject.kind === "RecordDeclaration" ||
+      isPublicTypeKind(subject.kind);
+    const written = headArguments(subject);
     // A head is parameterized when it is *applied*, whether or not a `<...>`
     // prefix declares the binders (#390): the prefix attaches constraints, it
     // does not decide that the head has arguments. Reading the prefix alone let
@@ -6412,8 +6507,8 @@ class Checker {
     // the first honoring one constraint at two unrelated argument positions
     // through a single variable, the second keying a ground head on a
     // constructor the coherence table cannot tell apart from the generic one.
-    if (item.typeParameters.length > 0 || (nominal && subject.arguments.length > 0)) {
-      const arguments_ = nominal ? subject.arguments : [];
+    if (item.typeParameters.length > 0 || (nominal && written.length > 0)) {
+      const arguments_ = nominal ? written : [];
       const names = arguments_.flatMap((argument) =>
         argument.kind === "TypeVariable" ? [argument.name] : []
       );
@@ -6455,11 +6550,7 @@ class Checker {
           "`union` for a type you control",
         primary: item.subject.span,
       });
-    } else if (
-      subject.kind !== "Primitive" &&
-      subject.kind !== "Union" &&
-      subject.kind !== "RecordDeclaration"
-    ) {
+    } else if (subject.kind !== "Primitive" && !nominal) {
       this.#diagnostics.add({
         severity: "error",
         message: "an instance head must name a primitive or nominal type constructor",
@@ -6474,6 +6565,7 @@ class Checker {
     // (Constraints §5.3).
     const ownsConstraint = this.#localConstraints.has(item.constraint);
     const ownsSubject = this.#companionsPrimitive(subject) ||
+      this.#ownPublicKinds.has(subject.kind) ||
       moduleItems.some((candidate) =>
         (subject.kind === "Union" && candidate.kind === "Union" && candidate.union === subject.union) ||
         (subject.kind === "RecordDeclaration" &&
@@ -17620,7 +17712,7 @@ class Checker {
           walk(
             left.element,
             right.element,
-            multiplyVariance(sign, compilerClaim(left.kind, 0)),
+            multiplyVariance(sign, this.#variance.kindClaim(left.kind, 0)),
             inData(place),
           );
           return;
@@ -17630,7 +17722,7 @@ class Checker {
           walk(
             left.value,
             right.value,
-            multiplyVariance(sign, compilerClaim("Nullable", 0)),
+            multiplyVariance(sign, this.#variance.kindClaim("Nullable", 0)),
             inData(place),
           );
           return;
@@ -17641,13 +17733,13 @@ class Checker {
           walk(
             left.key,
             right.key,
-            multiplyVariance(sign, compilerClaim(left.kind, 0)),
+            multiplyVariance(sign, this.#variance.kindClaim(left.kind, 0)),
             inData(place),
           );
           walk(
             left.value,
             right.value,
-            multiplyVariance(sign, compilerClaim(left.kind, 1)),
+            multiplyVariance(sign, this.#variance.kindClaim(left.kind, 1)),
             inData(place),
           );
           return;
@@ -18783,7 +18875,7 @@ class Checker {
       case "JsSet":
       case "Node": {
         if (!this.#carriesArrow(actual)) return actual;
-        return { kind: actual.kind, element: this.#recolour(actual.element, level, freshened) };
+        return { ...actual, element: this.#recolour(actual.element, level, freshened) };
       }
       case "Nullable": {
         if (!this.#carriesArrow(actual)) return actual;
@@ -19334,6 +19426,28 @@ class Checker {
             ? this.#applyWrittenQualifiers(source.arguments[index]!, argument)
             : argument
         ),
+        ...(source.qualifier === undefined ? {} : { qualifier: source.qualifier }),
+      };
+    }
+    // *(#1071.)* A public door row's kinds carry a written qualifier too, and
+    // take it by the same rule: the written one replaces the inferred one.
+    if (
+      (source.kind === "Vector" && target.kind === "Vector") ||
+      (source.kind === "Set" && target.kind === "Set")
+    ) {
+      const { qualifier: _inferred, ...carried } = target;
+      return {
+        ...carried,
+        element: this.#applyWrittenQualifiers(source.element, target.element),
+        ...(source.qualifier === undefined ? {} : { qualifier: source.qualifier }),
+      };
+    }
+    if (source.kind === "Map" && target.kind === "Map") {
+      const { qualifier: _inferred, ...carried } = target;
+      return {
+        ...carried,
+        key: this.#applyWrittenQualifiers(source.key, target.key),
+        value: this.#applyWrittenQualifiers(source.value, target.value),
         ...(source.qualifier === undefined ? {} : { qualifier: source.qualifier }),
       };
     }
@@ -22142,9 +22256,11 @@ class Checker {
 
   /**
    * The subject half of the pair — `undefined` for a subject with no home module
-   * to name, which is §7.6's own carve-out: a tuple, a function type, a
-   * structural record, and the structural collection heads have no declaring
-   * module, and their refusals keep the messages they already have.
+   * to name, which is §7.6's own carve-out: a tuple, a function type, and a
+   * structural record have no declaring module, and their refusals keep the
+   * messages they already have. `Vector`, `Map`, and `Set` left that list at
+   * #1071: their companions declare them, so they are named like the prelude's
+   * other types.
    *
    * A **primitive** does have a home — its fixed prelude companion (Constraints
    * §5.3, #344) — and that home is never offerable: `honor Integral<BigInt>` is
@@ -22174,6 +22290,12 @@ class Checker {
    * and must not let the structural case ride out on the same predicate.
    */
   #subjectHome(type: Mono): LegalHome | undefined {
+    // *(#1071.)* A public door row's type has a declaring module now — its
+    // companion — and, like a prelude-supplied nominal, it is named as fact and
+    // never offered: no program file may write the instance there.
+    if (isPublicTypeKind(type.kind)) {
+      return { name: type.kind, statedHome: `the prelude module declaring \`${type.kind}\`` };
+    }
     if (type.kind === "Constructor") {
       return PRIMITIVE_COMPANION_HOMES.has(type.name)
         ? {
@@ -22440,10 +22562,10 @@ class Checker {
       };
     }
     if (actual.kind === "Vector") {
-      return { kind: "Vector", element: this.#replaceVariables(actual.element, replacements) };
+      return { ...actual, element: this.#replaceVariables(actual.element, replacements) };
     }
     if (actual.kind === "Set") {
-      return { kind: "Set", element: this.#replaceVariables(actual.element, replacements) };
+      return { ...actual, element: this.#replaceVariables(actual.element, replacements) };
     }
     if (actual.kind === "Array") return { kind: "Array", element: this.#replaceVariables(actual.element, replacements) };
     if (actual.kind === "JsSet") return { kind: "JsSet", element: this.#replaceVariables(actual.element, replacements) };
@@ -22787,15 +22909,15 @@ class Checker {
         case "Array":
         case "JsSet":
         case "Node":
-          walk(actual.element, multiplyVariance(sign, compilerClaim(actual.kind, 0)));
+          walk(actual.element, multiplyVariance(sign, this.#variance.kindClaim(actual.kind, 0)));
           return;
         case "Nullable":
-          walk(actual.value, multiplyVariance(sign, compilerClaim("Nullable", 0)));
+          walk(actual.value, multiplyVariance(sign, this.#variance.kindClaim("Nullable", 0)));
           return;
         case "Map":
         case "JsMap":
-          walk(actual.key, multiplyVariance(sign, compilerClaim(actual.kind, 0)));
-          walk(actual.value, multiplyVariance(sign, compilerClaim(actual.kind, 1)));
+          walk(actual.key, multiplyVariance(sign, this.#variance.kindClaim(actual.kind, 0)));
+          walk(actual.value, multiplyVariance(sign, this.#variance.kindClaim(actual.kind, 1)));
           return;
         default:
           return;
@@ -23451,14 +23573,14 @@ class Checker {
       if (actual.kind === "ExternType") {
         return { ...actual, arguments: actual.arguments.map(copy) };
       }
-      if (actual.kind === "Vector") return { kind: "Vector", element: copy(actual.element) };
-      if (actual.kind === "Set") return { kind: "Set", element: copy(actual.element) };
+      if (actual.kind === "Vector") return { ...actual, element: copy(actual.element) };
+      if (actual.kind === "Set") return { ...actual, element: copy(actual.element) };
       if (actual.kind === "Array") return { kind: "Array", element: copy(actual.element) };
       if (actual.kind === "JsSet") return { kind: "JsSet", element: copy(actual.element) };
       if (actual.kind === "Node") return { kind: "Node", element: copy(actual.element) };
       if (actual.kind === "Nullable") return { kind: "Nullable", value: copy(actual.value) };
       if (actual.kind === "Map" || actual.kind === "JsMap") {
-        return { kind: actual.kind, key: copy(actual.key), value: copy(actual.value) };
+        return { ...actual, key: copy(actual.key), value: copy(actual.value) };
       }
       if (actual.kind === "Record") {
         const record = this.#normalizeRecord(actual);
@@ -23550,10 +23672,15 @@ class Checker {
       return {
         kind: "Vector",
         element: this.#annotationType(annotation.element, level, namedTails, typeParameters, impliedTypes, holes),
+        ...(annotation.qualifier === undefined ? {} : { qualifier: annotation.qualifier }),
       };
     }
     if (annotation.kind === "Set") {
-      return { kind: "Set", element: this.#annotationType(annotation.element, level, namedTails, typeParameters, impliedTypes, holes) };
+      return {
+        kind: "Set",
+        element: this.#annotationType(annotation.element, level, namedTails, typeParameters, impliedTypes, holes),
+        ...(annotation.qualifier === undefined ? {} : { qualifier: annotation.qualifier }),
+      };
     }
     if (annotation.kind === "Array") return { kind: "Array", element: this.#annotationType(annotation.element, level, namedTails, typeParameters, impliedTypes, holes) };
     if (annotation.kind === "JsSet") return { kind: "JsSet", element: this.#annotationType(annotation.element, level, namedTails, typeParameters, impliedTypes, holes) };
@@ -23567,6 +23694,9 @@ class Checker {
         kind: annotation.kind,
         key: this.#annotationType(annotation.key, level, namedTails, typeParameters, impliedTypes, holes),
         value: this.#annotationType(annotation.value, level, namedTails, typeParameters, impliedTypes, holes),
+        ...(annotation.kind === "JsMap" || annotation.qualifier === undefined
+          ? {}
+          : { qualifier: annotation.qualifier }),
       };
     }
     if (annotation.kind === "Function") {
@@ -23933,9 +24063,10 @@ class Checker {
    * **The table is the constraint** (Part 5 §1). The rows are compiler-provided
    * and have **no source form** (§4, and #353's ruling 1): `Seq`'s row cannot be
    * source because `Seq.hex` seats before `Iterable.hex` and a cycle is the only
-   * other ordering; `Vector`'s cannot because a structural head is not a legal
-   * `honor` subject (Constraints §5.4, enforced by `#checkInstanceHead`); the
-   * rest follow. What they are *not* is a second mechanism beside the constraint
+   * other ordering; `Vector`'s could since #1071 — `Hex.Vector` declares the
+   * type and is its home — but it moves into source only by this row being
+   * deleted in the same change (`#compilerProvidedSlot` refuses both at once);
+   * the rest follow. What they are *not* is a second mechanism beside the constraint
    * system — they occupy real coherence slots here, which is what makes §7.3's
    * orphan hint have something to find, `toSeq` resolve at a concrete provided
    * type, and Modules §5.3's `Vector.toSeq` read honest.
@@ -24234,14 +24365,14 @@ class Checker {
       switch (type.kind) {
         case "Primitive": return primitive(type.name);
         case "Range": return { kind: "Range" };
-        case "Vector": return { kind: "Vector", element: copy(type.element) };
-        case "Set": return { kind: "Set", element: copy(type.element) };
+        case "Vector": return { ...type, element: copy(type.element) };
+        case "Set": return { ...type, element: copy(type.element) };
         case "Array": return { kind: "Array", element: copy(type.element) };
         case "JsSet": return { kind: "JsSet", element: copy(type.element) };
         case "JsValue": return { kind: "JsValue" };
         case "Node": return { kind: "Node", element: copy(type.element) };
         case "Nullable": return { kind: "Nullable", value: copy(type.value) };
-        case "Map": return { kind: "Map", key: copy(type.key), value: copy(type.value) };
+        case "Map": return { ...type, key: copy(type.key), value: copy(type.value) };
         case "JsMap": return { kind: "JsMap", key: copy(type.key), value: copy(type.value) };
         case "Variable": {
           const existing = variables.get(type.id);
@@ -24343,14 +24474,14 @@ class Checker {
       if (actual.kind === "Union") return { ...actual, arguments: actual.arguments.map(copy) };
       if (actual.kind === "NominalRecord") return { ...actual, arguments: actual.arguments.map(copy) };
       if (actual.kind === "ExternType") return { ...actual, arguments: actual.arguments.map(copy) };
-      if (actual.kind === "Vector") return { kind: "Vector", element: copy(actual.element) };
-      if (actual.kind === "Set") return { kind: "Set", element: copy(actual.element) };
+      if (actual.kind === "Vector") return { ...actual, element: copy(actual.element) };
+      if (actual.kind === "Set") return { ...actual, element: copy(actual.element) };
       if (actual.kind === "Array") return { kind: "Array", element: copy(actual.element) };
       if (actual.kind === "JsSet") return { kind: "JsSet", element: copy(actual.element) };
       if (actual.kind === "Node") return { kind: "Node", element: copy(actual.element) };
       if (actual.kind === "Nullable") return { kind: "Nullable", value: copy(actual.value) };
       if (actual.kind === "Map" || actual.kind === "JsMap") {
-        return { kind: actual.kind, key: copy(actual.key), value: copy(actual.value) };
+        return { ...actual, key: copy(actual.key), value: copy(actual.value) };
       }
       if (actual.kind === "Function") {
         return {
@@ -26976,6 +27107,7 @@ class Checker {
    * at the author's declaration, never downstream in a client module.
    */
   #verifyVarianceClaims(module: Resolved.Module): void {
+    this.#verifyPublicRowClaims(module);
     for (const item of module.items) {
       if (item.kind !== "Union" && item.kind !== "RecordDeclaration") continue;
       for (const [index, declared] of (item.declaredParameters ?? []).entries()) {
@@ -27016,6 +27148,59 @@ class Checker {
             }],
           }),
         });
+      }
+    }
+  }
+
+  /**
+   * *(#1071.)* §6.3's verification, at a **public** door row: the written claim
+   * is checked against the computed variance of the representation record the
+   * key's entry names (`spec/intrinsics.md` §3.3), parameter for parameter,
+   * exactly as an `opaque record`'s claim is checked against its own fields.
+   * The row is the type's declaration and the record is what its values are,
+   * so this is the same check one module over.
+   *
+   * The witness names the record's field, since that is where the edit would
+   * go; it carries no label, because the field is in another module's source.
+   */
+  #verifyPublicRowClaims(module: Resolved.Module): void {
+    for (const item of module.items) {
+      if (item.kind !== "ExternBlock") continue;
+      for (const declaration of item.declarations) {
+        if (declaration.kind !== "ExternType") continue;
+        const kind = publicTypeKind(Number(declaration.externType));
+        if (kind === undefined) continue;
+        const representation = publicTypeKey(kind).entry.representation;
+        if (representation === undefined) continue;
+        const record = this.#representationRecords.get(
+          `${representation.module}.${representation.record}`,
+        );
+        if (record === undefined) continue;
+        for (const [index, declared] of (declaration.parameters ?? []).entries()) {
+          const claim = declared.claim;
+          if (claim === undefined) continue;
+          const admitted: readonly Variance[] = claim === "co"
+            ? ["unused", "co"]
+            : ["unused", "contra"];
+          if (admitted.includes(this.#variance.computedRecord(record, index))) continue;
+          const witness = this.#variance.occurrencesRecord(record, index).find(
+            (occurrence) => !admitted.includes(occurrence.variance),
+          );
+          const claimed = claim === "co" ? "covariant" : "contravariant";
+          const sigil = claim === "co" ? "+" : "-";
+          const through = `representation \`${representation.record}\``;
+          this.#diagnostics.add({
+            severity: "error",
+            message: witness === undefined
+              ? `\`${declared.name}\` cannot be declared ${claimed} in ` +
+                `\`${declaration.localName}\`; remove the \`${sigil}\`, or change its ${through}`
+              : `\`${declared.name}\` cannot be declared ${claimed} in ` +
+                `\`${declaration.localName}\`: field \`${witness.field}\` of its ${through} ` +
+                `uses the parameter ${positionPhrase(witness.variance)}. ` +
+                `Remove the \`${sigil}\`, or change the field`,
+            primary: declared.span,
+          });
+        }
       }
     }
   }
@@ -27194,16 +27379,31 @@ class Checker {
     }
     if (actual.kind === "Range") return { kind: "Range" };
     if (actual.kind === "Vector") {
-      return { kind: "Vector", element: this.#publicType(actual.element, seen) };
+      return {
+        kind: "Vector",
+        element: this.#publicType(actual.element, seen),
+        ...(actual.qualifier === undefined ? {} : { qualifier: actual.qualifier }),
+      };
     }
-    if (actual.kind === "Set") return { kind: "Set", element: this.#publicType(actual.element, seen) };
+    if (actual.kind === "Set") {
+      return {
+        kind: "Set",
+        element: this.#publicType(actual.element, seen),
+        ...(actual.qualifier === undefined ? {} : { qualifier: actual.qualifier }),
+      };
+    }
     if (actual.kind === "Array") return { kind: "Array", element: this.#publicType(actual.element, seen) };
     if (actual.kind === "JsSet") return { kind: "JsSet", element: this.#publicType(actual.element, seen) };
     if (actual.kind === "JsValue") return { kind: "JsValue" };
     if (actual.kind === "Node") return { kind: "Node", element: this.#publicType(actual.element, seen) };
     if (actual.kind === "Nullable") return { kind: "Nullable", value: this.#publicType(actual.value, seen) };
     if (actual.kind === "Map") {
-      return { kind: "Map", key: this.#publicType(actual.key, seen), value: this.#publicType(actual.value, seen) };
+      return {
+        kind: "Map",
+        key: this.#publicType(actual.key, seen),
+        value: this.#publicType(actual.value, seen),
+        ...(actual.qualifier === undefined ? {} : { qualifier: actual.qualifier }),
+      };
     }
     if (actual.kind === "JsMap") {
       return { kind: "JsMap", key: this.#publicType(actual.key, seen), value: this.#publicType(actual.value, seen) };
@@ -28869,9 +29069,9 @@ class Checker {
             ...(actual.effect === undefined ? {} : { effect: actual.effect }),
           };
         case "Vector":
-          return { kind: "Vector", element: copy(actual.element) };
+          return { ...actual, element: copy(actual.element) };
         case "Set":
-          return { kind: "Set", element: copy(actual.element) };
+          return { ...actual, element: copy(actual.element) };
         case "Array":
           return { kind: "Array", element: copy(actual.element) };
         case "JsSet":
@@ -28882,7 +29082,7 @@ class Checker {
           return { kind: "Nullable", value: copy(actual.value) };
         case "Map":
         case "JsMap":
-          return { kind: actual.kind, key: copy(actual.key), value: copy(actual.value) };
+          return { ...actual, key: copy(actual.key), value: copy(actual.value) };
         case "Union":
         case "NominalRecord":
           return { ...actual, arguments: actual.arguments.map(copy) };

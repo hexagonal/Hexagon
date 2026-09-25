@@ -21,6 +21,8 @@ import {
   type IntrinsicGrade,
   intrinsicKeys,
   intrinsicTypeId,
+  publicTypeKey,
+  publicTypeKind,
   isIntrinsicScheme,
   nearestIntrinsicKey,
 } from "../../intrinsics.js";
@@ -3137,14 +3139,18 @@ class Resolver {
       if (declaration.kind !== "ExternType") return;
       // §3.3's declarer list, the half of the confinement bar a declaration site
       // can answer. The rewrite is the sealed row — the one lawful way a value
-      // over confined storage reaches another module.
+      // over confined storage reaches another module. A public key's type is
+      // its declarer's own and is reached through it like any other (#1071).
       if (!entry.declarers.includes(this.#declaredModuleName)) {
+        const declarers = entry.declarers.map((module) => `\`Hex.${module}\``).join(" and ");
         this.#diagnostics.add({
           severity: "error",
-          message: `\`${name.text}\` may be declared only in ` +
-            `${entry.declarers.map((module) => `\`Hex.${module}\``).join(" and ")}` +
-            "; a value over it reaches other modules through a sealed row, " +
-            "never through the type",
+          message: entry.reach === "public"
+            ? `\`${name.text}\` may be declared only in ${declarers}; ` +
+              `the type is reached from there, as \`${entry.kind}\``
+            : `\`${name.text}\` may be declared only in ${declarers}` +
+              "; a value over it reaches other modules through a sealed row, " +
+              "never through the type",
           primary: name.span,
         });
       }
@@ -3702,7 +3708,11 @@ class Resolver {
               // Only a door-declared type is confined (§3.3): a foreign extern
               // `type` is an ordinary nominal that may be exported like any
               // other, and the two are told apart by the block they came from.
-              ...(intrinsic ? { confined: true as const } : {}),
+              // A door row is confined unless its key's reach is public
+              // (#1071), so a row whose key is unknown fails closed.
+              ...(intrinsic && publicTypeKind(Number(this.#externTypeDeclarations.get(declaration))) === undefined
+                ? { confined: true as const }
+                : {}),
               externType: this.#externTypeDeclarations.get(declaration) ?? Resolved.externTypeId(this.#nextExternType++),
               ...(this.#path === undefined ? {} : { declaringPath: this.#path }),
               span: declaration.span,
@@ -6324,6 +6334,10 @@ class Resolver {
       if (alias !== undefined) return this.#instantiateResolvedAlias(alias, arguments_, annotation.span);
       const externType = imported.externTypes.get(name);
       if (externType !== undefined) {
+        const kind = this.#publicKindType(
+          externType.externType, name, arguments_, annotation.span, qualifier,
+        );
+        if (kind !== undefined) return kind;
         if (arguments_.length > 0) {
           this.#diagnostics.add({
             severity: "error",
@@ -6335,8 +6349,9 @@ class Resolver {
           kind: "ExternType",
           externType: externType.externType,
           name: `${annotation.qualifier.text}.${name}`,
-          // A confined type is never exported (§3.3), so an extern type reached
-          // through an import is a foreign one and monomorphic.
+          // A confined type is never exported (§3.3), and a public one answered
+          // above as its kind, so an extern type reached here is a foreign one
+          // and monomorphic.
           arguments: [],
           ...(qualifier === undefined ? {} : { qualifier }),
           span: annotation.span,
@@ -6390,6 +6405,14 @@ class Resolver {
         : this.#resolveAlias(name, arguments_, annotation.span, typeParameters, impliedContext, substitutions);
     }
     const externType = this.#externTypeNames.get(name);
+    if (externType !== undefined && publicTypeKind(Number(externType)) !== undefined) {
+      const arguments_ = annotation.kind === "AppliedType"
+        ? annotation.arguments.map((argument) =>
+          this.#resolveTypeAnnotation(argument, typeParameters, impliedContext, substitutions)
+        )
+        : [];
+      return this.#publicKindType(externType, name, arguments_, annotation.span)!;
+    }
     if (externType !== undefined) {
       // *(#927.)* A **parameterized** intrinsic `type` row takes its arguments
       // like any other nominal; a foreign extern type has no arity entry and
@@ -6501,14 +6524,14 @@ class Resolver {
         return { kind: "Node", element, span: annotation.span };
       }
       // `Seq` is gone from this list: it is a prelude *declaration* now (Loops
-      // §6.6), reached through the record table above. The names left are the
+      // §6.6), reached through the record table above — and so are `Vector`,
+      // `Map`, and `Set` (#1071), whose companions declare them by public door
+      // rows the prelude seeds like any declared type. The names left are the
       // boundary intrinsics that no `.hex` module declares — `JsMap` and
       // `JsSet` (FFI Part 10 §1) among them, reached here for the same reason
-      // `Array` is: a captured foreign collection has no Hexagon declaration site.
-      if (
-        name === "Vector" || name === "Set" || name === "Array" ||
-        name === "Nullable" || name === "JsSet"
-      ) {
+      // `Array` is: a captured foreign collection has no Hexagon declaration
+      // site until its own row lands (#1076).
+      if (name === "Array" || name === "Nullable" || name === "JsSet") {
         if (annotation.arguments.length !== 1) {
           this.#diagnostics.add({
             severity: "error",
@@ -6524,12 +6547,10 @@ class Resolver {
         // the equation has to hold of a type however it arrives, and an
         // annotation is only one of the ways.
         if (name === "Nullable") return { kind: "Nullable", value: argument, span: annotation.span };
-        if (name === "Vector") return { kind: "Vector", element: argument, span: annotation.span };
-        if (name === "Set") return { kind: "Set", element: argument, span: annotation.span };
         if (name === "JsSet") return { kind: "JsSet", element: argument, span: annotation.span };
         return { kind: "Array", element: argument, span: annotation.span };
       }
-      if (name === "Map" || name === "JsMap") {
+      if (name === "JsMap") {
         if (annotation.arguments.length !== 2) {
           this.#diagnostics.add({
             severity: "error",
@@ -6543,8 +6564,7 @@ class Resolver {
         const value = annotation.arguments[1] === undefined
           ? { kind: "ErrorType" as const, span: annotation.span }
           : this.#resolveTypeAnnotation(annotation.arguments[1], typeParameters, impliedContext, substitutions);
-        if (name === "JsMap") return { kind: "JsMap", key, value, span: annotation.span };
-        return { kind: "Map", key, value, span: annotation.span };
+        return { kind: "JsMap", key, value, span: annotation.span };
       }
       // `JsValue` takes no parameters (FFI Part 11 §2), so an applied spelling
       // gets the boundary family's arity diagnostic rather than the
@@ -6873,6 +6893,45 @@ class Resolver {
   }
 
   /**
+   * *(#1071.)* A **public** door row's spelling, resolved: the built-in kind its
+   * key names (`spec/intrinsics.md` §3.3). The kind is the key's one identity —
+   * the language's own `Vector`, `Map`, or `Set`, which a vector literal is
+   * typed at in every module whatever is in scope there — so the row binds its
+   * name to it and mints nothing beside it. Every route a declared type is
+   * reached by comes here: the declaring module's own spelling, the prelude's
+   * seed of it, a qualified `Vector.Vector(Int)`, and the companion fallback.
+   *
+   * `undefined` for any other identity, a confined row's included.
+   */
+  #publicKindType(
+    externType: Resolved.ExternTypeId,
+    name: string,
+    arguments_: readonly Resolved.TypeAnnotation[],
+    span: Source.Span,
+    qualifier?: Resolved.TypeQualifier,
+  ): Resolved.TypeAnnotation | undefined {
+    const kind = publicTypeKind(Number(externType));
+    if (kind === undefined) return undefined;
+    const arity = publicTypeKey(kind).entry.arity;
+    if (arguments_.length !== arity) {
+      this.#diagnostics.add({
+        severity: "error",
+        message: `type \`${name}\` expects ${arity} argument${arity === 1 ? "" : "s"}, ` +
+          `but ${arguments_.length} were provided`,
+        primary: span,
+      });
+    }
+    const at = (index: number): Resolved.TypeAnnotation =>
+      arguments_[index] ?? { kind: "ErrorType", span };
+    // FFI Part 7 §2.4 rung 3: an occurrence written through a source import
+    // alias carries it, as a nominal's does.
+    const written = qualifier === undefined ? {} : { qualifier };
+    return kind === "Map"
+      ? { kind: "Map", key: at(0), value: at(1), ...written, span }
+      : { kind, element: at(0), ...written, span };
+  }
+
+  /**
    * Modules §5.1 rule 2's **companion fallback**, type half.
    *
    * A bare `Name` in type position that the module's own type namespace has
@@ -6932,6 +6991,8 @@ class Resolver {
     if (alias !== undefined) {
       return this.#instantiateResolvedAlias(alias, arguments_, annotation.span);
     }
+    const kind = this.#publicKindType(externType!.externType, name, arguments_, annotation.span);
+    if (kind !== undefined) return kind;
     if (arguments_.length > 0) {
       this.#diagnostics.add({
         severity: "error",

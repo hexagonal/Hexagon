@@ -572,12 +572,21 @@ describe("provided rows occupy real slots (Part 5 §7.3)", () => {
     );
   });
 
-  /** No source form, from the other side: a structural head is not a legal subject. */
-  test("a structural head is refused outright (Constraints §5.4)", () => {
+  /**
+   * No source form, from the other side. `Vector(a)` is a lawful head since its
+   * companion declares it (#1071; Constraints §4.4), so what refuses a
+   * program's `Iterable<Vector(a)>` now is the orphan rule — the program owns
+   * neither half — and the hint names the row already there. Its home is
+   * `Hex.Vector`, where the Iterable arc will write it.
+   */
+  test("a program's row at a collection is an orphan, and the hint names the provided row", () => {
     expect(projectDiagnostics("module Main\n\n" + "honor Iterable<Vector(a)> =\n" +
         "    type Item = a\n" +
         "    toSeq(xs) = Vector.toSeq(xs)\n",
-    )).toContain("an instance head must name a primitive or nominal type constructor");
+    )).toEqual([
+      "orphan instance: this module declares neither `Iterable` nor the instance " +
+        "subject; the prelude already provides `Iterable<Vector(a)>`",
+    ]);
   });
 
   /**

@@ -63,7 +63,7 @@ import { typeScriptErrors } from "../support/typescript-check.js";
  * is pinned in one file. The `.d.ts` row (`ReadonlyArray<a>` in an *argument*
  * position, Part 1 §4.1) is `array-readonly-face.test.ts`'s in general; the row's
  * own generic face in the emitted `Array.d.ts`, and the monomorphic composition
- * with `Hex.Vector<a>` in the result, are pinned below through the real `tsc`.
+ * with `Vector<a>` in the result, are pinned below through the real `tsc`.
  *
  * The rest of §9's quartet (`Array.toSeq`/`Array.fromSeq`) is still absent, and
  * `array-borrowed-view.test.ts` still pins it as absent.
@@ -611,7 +611,7 @@ describe("both spellings reach the same export (Modules §5.5)", () => {
    */
 });
 
-describe("the `.d.ts` face is `ReadonlyArray<a>` in, `Hex.Vector<a>` out", () => {
+describe("the `.d.ts` face is `ReadonlyArray<a>` in, `Vector<a>` out", () => {
   const FACE = "export let f(xs: Array(Int)): Vector(Int) = Array.toVector(xs)\n";
 
   /**
@@ -633,7 +633,7 @@ describe("the `.d.ts` face is `ReadonlyArray<a>` in, `Hex.Vector<a>` out", () =>
         " * conversion is shallow — an element that is itself a vector or a record\n" +
         " * arrives as that same value.\n" +
         " */\n" +
-        "export declare const toVector: <a>(values: ReadonlyArray<a>) => Hex.Vector<a>;",
+        "export declare const toVector: <a>(values: ReadonlyArray<a>) => Vector<a>;",
     );
   });
 
@@ -642,7 +642,7 @@ describe("the `.d.ts` face is `ReadonlyArray<a>` in, `Hex.Vector<a>` out", () =>
     expect(compiled.diagnostics).toEqual([]);
     const main = compiled.modules.find(({ source }) => source.path === "/main.hex");
     expect(main!.declarations.text).toContain(
-      "export declare const f: (xs: ReadonlyArray<number>) => Hex.Vector<number>;",
+      "export declare const f: (xs: ReadonlyArray<number>) => Vector<number>;",
     );
   });
 
