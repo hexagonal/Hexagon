@@ -104,6 +104,36 @@ describe("promotion into Dec", () => {
     expect(exports.sums).toEqual([2.5, 3.5]);
   });
 
+  /**
+   * A held literal settles before any callback argument is checked, so a
+   * callback still sees the `Float` subject it always saw.
+   */
+  test("settles before a callback argument is checked", async () => {
+    const exports = await runMain(
+      HEADER +
+        "fun with<a, b>(v: a, g: (a) -> b): b = g(v)\n" +
+        "fun app<a, b>(g: (a) -> b, v: a): b = g(v)\n" +
+        "let n: Int = 3\n" +
+        "let xs: Seq(Int) = [1, 2].toSeq()\n" +
+        "export let results: (Float, Float, Float, Float) = (xs.fold(0.0, (acc, x) => acc + x), " +
+          "Seq.fold(xs, -1.0, (acc, x) => acc + x), with(0.5, x => x * n), app(x => x * n, 0.5))\n",
+    );
+    expect(exports.results).toEqual([3, 2, 1.5, 1.5]);
+  });
+
+  /** Arms of mixed sign join as one literal-shaped form, and promote together. */
+  test("promotes arms that mix negative and positive literals", async () => {
+    const exports = await runMain(
+      HEADER +
+        "import Rat\n\n" +
+        "let size(m: Int): Dec = match m\n    0 => 0.5\n    _ => -2.5\n" +
+        "let ratio(m: Int): Rat = match m\n    0 => -0.5\n    _ => 2.5\n" +
+        "let guarded(): Dec =\n    try\n        0.5\n    catch\n        _ => -1.5\n" +
+        "export let shown: (String, String, String) = (size(1).show(), ratio(0).show(), guarded().show())\n",
+    );
+    expect(exports.shown).toEqual(["-2.5", "-1/2", "0.5"]);
+  });
+
   test("emits exactly the `d` literal of the same digits", () => {
     const project = compileMain(HEADER + "export let amount: Dec = 1.50\n");
     expect(project.diagnostics).toEqual([]);

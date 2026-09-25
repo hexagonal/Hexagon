@@ -244,7 +244,8 @@ target is concrete and is not Float
   notation. At a `Frac` target an exponent hides nothing and is accepted:
   `let r: Rat = 1e-9` is `1/1000000000`.
 - **Literal-shaped expressions.** The seat reads through what only restates a
-  literal: a negation (`price * -1.5`; the sign folds into the value) and a
+  literal: a negation (`price * -1.5`; the sign folds into the value, and the
+  lift does not descend into it, so `-2.5` and `0.5` stay one kind of arm) and a
   forwarding form (Functions §4.3) whose every value path is literal-shaped —
   grouping parentheses, both branches of an `if`, every arm of a `match` or
   `try`, a block's final expression. Each literal takes the target, and each
@@ -254,10 +255,11 @@ target is concrete and is not Float
   `if waived then f else 0.5` with `f: Float` — is a `Float` value and is not
   promoted.
 - **The seats integer widening reaches, and no others.** Among a call's
-  arguments a literal-shaped argument waits for its siblings as an `Int`
-  source does, so `Num.add(0.5, price)` meets at `Dec` as `0.5 + price` does;
-  where no sibling establishes an exact subject it settles it at `Float`, as it
-  did before it waited. A vector element, a tuple component, a record field, a
+  arguments a literal-shaped argument waits for its non-callback siblings, so
+  `Num.add(0.5, price)` meets at `Dec` as `0.5 + price` does. It settles before
+  any callback argument is checked: promoted where a sibling established an
+  exact subject, and otherwise settling the subject at `Float`, as it did before
+  it waited — `xs.fold(0.0, (acc, x) => acc + x)` checks its callback at `Float`. A vector element, a tuple component, a record field, a
   constructor argument, or a lambda body under a function-typed expectation is
   not a widening seat, so a literal there stays `Float` — where an integer
   *literal* would have unified. A literal whose exponent would scale it by more

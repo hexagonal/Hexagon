@@ -9785,7 +9785,13 @@ class Checker {
         // Numeric Literals §5.1's lift reaches unary negation too — the same
         // gate, at `Signed`. `Not` is not arithmetic and lifts nothing.
         // `bnot` lifts the same way, at `Bitwise` (`bitwise.md` §5.1).
-        const home = expression.operator === "Not"
+        //
+        // A negated decimal-point literal is not lifted (#525): it stays the
+        // `Float` it spells, so the seat reading it promotes it — and any form
+        // it sits in — in one step. Lifted here, `-2.5` would reach `Dec` while
+        // a sibling arm's `0.5` stayed `Float`, and the arms could not join.
+        const home = expression.operator === "Not" ||
+            (expression.operator === "Negate" && decimalLiteralLeaves(expression) !== undefined)
           ? undefined
           : this.#operationHome(expression.operator, expected);
         const operand = this.#inferExpr(expression.operand, level, home);
@@ -14684,7 +14690,7 @@ class Checker {
     // in between.
     const deferral = (
       index: number,
-    ): "literal" | "numeric" | "exact-bigint" | undefined => {
+    ): "literal" | "numeric" | "decimal" | "exact-bigint" | undefined => {
       const source = this.#prune(actuals[index] ?? ERROR);
       const destination = this.#prune(parameters[index] ?? ERROR);
       if (destination.kind !== "Variable") return undefined;
@@ -14700,10 +14706,12 @@ class Checker {
         source.kind === "Constructor" && source.name === "Float" &&
         argument !== undefined && decimalLiteralLeaves(argument) !== undefined
       ) {
-        // A decimal-point literal waits for its siblings exactly as an `Int`
-        // does (#525): `Num.add(0.5, price)` meets at `Dec` as `0.5 + price`
-        // does, rather than the literal settling the subject at `Float` first.
-        return "numeric";
+        // A decimal-point literal waits for its non-callback siblings (#525):
+        // `Num.add(0.5, price)` meets at `Dec` as `0.5 + price` does, rather
+        // than the literal settling the subject at `Float` first. It settles
+        // before any callback is checked, as it did before it waited — see
+        // `establishFirstPass`.
+        return "decimal";
       }
       if (source.kind === "Constructor" && source.name === "BigInt") {
         // BigInt keeps its old eager, fixed-source role unless a sibling in
@@ -14727,7 +14735,7 @@ class Checker {
     // filed to the class it belongs to. `disposed` is what makes that "once" —
     // a double filing is invisible while the unification succeeds and reports
     // the same mismatch once per copy when it does not.
-    const eager = (index: number): void => {
+    const eager = (index: number, settleDecimal = false): void => {
       if (disposed.has(index)) return;
       const actual = actuals[index] ?? ERROR;
       const expected = parameters[index] ?? ERROR;
@@ -14746,7 +14754,7 @@ class Checker {
         deferredLiteralArguments.push(index);
         return;
       }
-      if (filed === "numeric") {
+      if (filed === "numeric" || (filed === "decimal" && !settleDecimal)) {
         deferredNumericArguments.push(index);
         return;
       }
@@ -14812,8 +14820,17 @@ class Checker {
           // unfiled: it establishes nothing for the callback either, and its
           // destination may still be solved before `finish` asks again.
           const filed = deferral(index);
-          if (filed === "literal" || filed === "numeric") continue;
+          if (filed === "literal" || filed === "numeric" || filed === "decimal") continue;
           eager(index);
+        }
+        // A held decimal-point literal settles **now**, after its non-callback
+        // siblings and before any callback is checked (#525): it is promoted
+        // where a sibling established an exact subject, and otherwise settles
+        // the subject at `Float` exactly as it did when it was not held, so
+        // `xs.fold(0.0, (acc, x) => acc + x)` checks its callback at `Float`.
+        for (let index = 0; index < actuals.length; index += 1) {
+          if (deferredLambdas.has(index) || deferral(index) !== "decimal") continue;
+          eager(index, true);
         }
       },
       disposeSeat: (index: number): void => {
