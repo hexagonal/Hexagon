@@ -1,7 +1,8 @@
 import { describe, expect, test } from "vitest";
 
 import { compileProject, Source } from "./index";
-import { INTRINSIC_INVENTORY, nearestIntrinsicKey } from "./intrinsics";
+import { INTRINSIC_INVENTORY, intrinsicKeys, nearestIntrinsicKey } from "./intrinsics";
+import regexRuntimeSource from "../../stdlib/Runtime/Regex.hex?raw";
 
 /**
  * The intrinsic inventory is split across two files by necessity — the resolver
@@ -22,7 +23,11 @@ describe("the inventory and its lowerings agree", () => {
    * quietly reintroduce one. Only existence and arity are checked here, which is
    * exactly what the compiler itself checks.
    */
-  test.each([...INTRINSIC_INVENTORY].map(([key, arity]) => ({ key, arity })))(
+  test.each(
+    [...INTRINSIC_INVENTORY].flatMap(([key, entry]) =>
+      entry.grade === "operation" ? [{ key, arity: entry.arity }] : []
+    ),
+  )(
     "`$key` has a lowering and accepts its declared arity",
     ({ key, arity }) => {
       const parameters = Array.from(
@@ -53,12 +58,65 @@ describe("the inventory and its lowerings agree", () => {
       expect(key).toMatch(/^[a-z][A-Za-z0-9]*$/u);
     }
   });
+
+  /**
+   * §4.1's key space is flat and **compiler-global across both grades** (#927):
+   * one space, two grades. A key spelled at both would make the wrong-grade
+   * diagnostic unstatable — it names the one thing a key is — so the two lists
+   * partition the map rather than overlapping it.
+   */
+  test("the two grades partition one flat key space (§4.1)", () => {
+    const operations = intrinsicKeys("operation");
+    const types = intrinsicKeys("type");
+    expect(operations.filter((key) => types.includes(key))).toEqual([]);
+    expect(new Set([...operations, ...types])).toEqual(new Set(INTRINSIC_INVENTORY.keys()));
+    expect(types).toEqual(["buffer"]);
+  });
+
+  /**
+   * A **type** key's row carries two things a `fun` row's does not, and both are
+   * verified at the declaration site: an arity in type parameters, and the list
+   * of modules permitted to declare it (§3.3, §4.1). The whole of that list is
+   * compiled here in its real role — the declarer is a real runtime module, and
+   * the source is the shipped file — so a row that drifted from its entry is a
+   * red test rather than a refusal nobody meets until the engine lands.
+   */
+  test.each([...INTRINSIC_INVENTORY].flatMap(([key, entry]) =>
+    entry.grade === "type" ? [{ key, entry }] : []
+  ))(
+    "intrinsic type `$key` is declared by every module its entry names",
+    ({ key, entry }) => {
+      expect(entry.grade).toBe("type");
+      if (entry.grade !== "type") return;
+      for (const declarer of entry.declarers) {
+        // The one declarer today is `Runtime.Regex`, whose shipped file is
+        // compiled in its real seat below. A second declarer joining the entry
+        // without a row would fail here at the source lookup.
+        expect(declarer).toBe("Runtime.Regex");
+      }
+      expect(regexRuntimeSource).toContain(`type ${key} as `);
+    },
+  );
 });
 
 describe("the nearest-key suggestion", () => {
   test("offers a genuinely close key", () => {
-    expect(nearestIntrinsicKey("seqMemoise")).toBe("seqMemoize");
-    expect(nearestIntrinsicKey("seqMemoize")).toBe("seqMemoize");
+    expect(nearestIntrinsicKey("seqMemoise", "operation")).toBe("seqMemoize");
+    expect(nearestIntrinsicKey("seqMemoize", "operation")).toBe("seqMemoize");
+  });
+
+  /**
+   * §4.2: the search is **grade-scoped**. `bufferLength` is an operation key one
+   * edit from nothing at the type grade, so a `type` row misspelling it is
+   * offered `buffer` — the only type key — and never an operation it could not
+   * take, which would draw the wrong-grade refusal on the next compile.
+   */
+  test("searches the row's own grade only", () => {
+    expect(nearestIntrinsicKey("bufer", "type")).toBe("buffer");
+    expect(nearestIntrinsicKey("bufferLenght", "operation")).toBe("bufferLength");
+    // The very key that is nearest at the other grade is not offered here.
+    expect(nearestIntrinsicKey("bufferLenght", "type")).toBeUndefined();
+    expect(nearestIntrinsicKey("buffe", "operation")).toBeUndefined();
   });
 
   /**
@@ -67,7 +125,7 @@ describe("the nearest-key suggestion", () => {
    * intrinsic" than by being pointed at an unrelated one.
    */
   test("declines to guess when nothing is close", () => {
-    expect(nearestIntrinsicKey("mapInsert")).toBeUndefined();
-    expect(nearestIntrinsicKey("")).toBeUndefined();
+    expect(nearestIntrinsicKey("mapInsert", "operation")).toBeUndefined();
+    expect(nearestIntrinsicKey("", "operation")).toBeUndefined();
   });
 });

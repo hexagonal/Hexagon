@@ -57,6 +57,9 @@ export function collectEffectVariables(
       return found;
     case "Union":
     case "NominalRecord":
+    // #927: an intrinsic `type` row's arguments are type arguments like any
+    // nominal's, and an arrow inside one carries its colour like any other.
+    case "ExternType":
       for (const argument of type.arguments) collectEffectVariables(argument, found);
       return found;
     default:
@@ -94,6 +97,7 @@ export function carriesEffect(type: Typed.Type): boolean {
       return type.fields.some((field) => carriesEffect(field.type));
     case "Union":
     case "NominalRecord":
+    case "ExternType":
       return type.arguments.some(carriesEffect);
     default:
       return false;
@@ -136,6 +140,7 @@ export function collectTypeVariables(
       return found;
     case "Union":
     case "NominalRecord":
+    case "ExternType":
       for (const argument of type.arguments) collectTypeVariables(argument, found);
       return found;
     default:

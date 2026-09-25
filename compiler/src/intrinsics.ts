@@ -354,8 +354,68 @@ export function isIntrinsicScheme(specifier: string): boolean {
  * performance evidence) reaches it. Both premises are pinned in
  * `array-to-vector.test.ts`, so if either stops holding this paragraph breaks
  * visibly rather than quietly.
+ *
+ * *(#927, the Regex arc's foundations.)* The `buffer` family is
+ * `stdlib/Runtime/Regex.hex`'s, and it is the inventory's **first type row**
+ * beside four operations over it (§3.3, `regex.md` §7). `buffer` is the
+ * confined, mutable, invariant storage the engine is written over: a Hexagon
+ * record is immutable whatever its fields (Statements §6.4), so no declared form
+ * can carry the mutation, and an empty `opaque record` would leave the compiler
+ * nothing to own. Its entry names `Runtime.Regex` as its one declarer, which is
+ * the half of §3.3's confinement bar a declaration site can answer; the other
+ * half — that no value of the type escapes the declaring module — the checker
+ * verifies.
+ *
+ * The four operations write the arrow true of each (§3.3, `regex.md` §7):
+ * `bufferCreate`, `bufferRead`, and `bufferWrite` are `->!`, because a fresh
+ * buffer's identity is observable through the other two — a write to one and a
+ * read of the other tell two buffers apart — while `bufferLength` is `->`, the
+ * size being fixed at creation with no row that changes it. Bounds are
+ * unchecked: the engine never reads or writes outside a buffer it sized, and
+ * that is a conformance obligation on the engine rather than a check (`regex.md`
+ * §7). The engine itself, and the `regexProgram` type key with its two sealed
+ * rows, land in later arcs of #927; nothing here anticipates them.
  */
-export const INTRINSIC_INVENTORY: ReadonlyMap<string, number> = new Map([
+
+/** Which of §4.2's two grades a key is verified at. */
+export type IntrinsicGrade = "operation" | "type";
+
+/** An operation key: a `fun` row's, whose arity is its parameter count. */
+export interface IntrinsicOperationEntry {
+  readonly grade: "operation";
+  readonly arity: number;
+}
+
+/**
+ * A type key (§3.3, §4.1): a `type` row's, whose arity is its **type**-parameter
+ * count and whose entry names the modules permitted to declare it — by declared
+ * name, as `runtime-modules.ts` spells one (`Runtime.Regex`). A declaration
+ * anywhere else is refused (§11).
+ *
+ * Where two modules are named they bind the same compiler type, as two `fun`
+ * rows for one key bind one lowering, and every obligation over the type binds
+ * them jointly.
+ */
+export interface IntrinsicTypeEntry {
+  readonly grade: "type";
+  readonly arity: number;
+  readonly declarers: readonly string[];
+}
+
+export type IntrinsicEntry = IntrinsicOperationEntry | IntrinsicTypeEntry;
+
+/**
+ * The inventory's **type** rows (§3.3). They share the one flat, compiler-global
+ * key space with the operations — one space, two grades — which is what makes
+ * §4.2's wrong-grade diagnostic a statement about the row's *keyword* rather
+ * than about the key's existence.
+ */
+const INTRINSIC_TYPES: readonly (readonly [string, IntrinsicTypeEntry])[] = [
+  ["buffer", { grade: "type", arity: 1, declarers: ["Runtime.Regex"] }],
+];
+
+/** The inventory's **operation** rows, key to parameter count. */
+const INTRINSIC_OPERATIONS: readonly (readonly [string, number])[] = [
   ["seqMemoize", 1],
   ["streamFromSeq", 1],
   ["vectorLength", 1],
@@ -511,17 +571,80 @@ export const INTRINSIC_INVENTORY: ReadonlyMap<string, number> = new Map([
   ["jsErrorReadMessage", 1],
   ["jsErrorReadStack", 1],
   ["jsErrorRender", 1],
+  ["bufferCreate", 2],
+  ["bufferRead", 2],
+  ["bufferWrite", 3],
+  ["bufferLength", 1],
+];
+
+/**
+ * Every intrinsic the compiler provides, at both grades, in one flat
+ * compiler-global space (§4.1). The operations come first because they were
+ * first; the order is the inventory listing's order and nothing else reads it.
+ */
+export const INTRINSIC_INVENTORY: ReadonlyMap<string, IntrinsicEntry> = new Map<
+  string,
+  IntrinsicEntry
+>([
+  ...INTRINSIC_OPERATIONS.map(
+    ([key, arity]) => [key, { grade: "operation", arity } as IntrinsicEntry] as const,
+  ),
+  ...INTRINSIC_TYPES.map(([key, entry]) => [key, entry as IntrinsicEntry] as const),
 ]);
+
+/**
+ * The reserved identity band for **door-declared types** (§3.3, §4.1).
+ *
+ * A type key names **one compiler type**, not one per declaration: "where two
+ * modules are named they bind the same compiler type, as two `fun` rows for one
+ * key bind one lowering, and every obligation over the type binds them jointly"
+ * (§3.3). So the identity is a function of the key and of nothing else — not of
+ * the declaration, not of the module, not of the order the compiler happened to
+ * reach them in — and `node`'s scheduled migration, which names two declarers,
+ * is what makes that difference observable rather than theoretical.
+ *
+ * The band sits above the prelude's reserved range (`project.ts`'s
+ * `PRELUDE_ID_BASE`) so that the two allocators never meet: an ordinary extern
+ * type's id is minted per module and rebased per compilation, and an intrinsic
+ * type's is fixed for the life of the compiler. `project.ts` excludes this band
+ * from both rebasings for that reason.
+ */
+export const INTRINSIC_TYPE_ID_BASE = 2_000_000;
+
+/**
+ * The one identity a type key denotes, or `undefined` for a key that is not a
+ * type key. Stable across modules and across compilations, by construction.
+ */
+export function intrinsicTypeId(key: string): number | undefined {
+  const index = INTRINSIC_TYPES.findIndex(([name]) => name === key);
+  return index < 0 ? undefined : INTRINSIC_TYPE_ID_BASE + index;
+}
+
+/** The inventory's keys at one grade, in inventory order (§4.2). */
+export function intrinsicKeys(grade: IntrinsicGrade): readonly string[] {
+  return [...INTRINSIC_INVENTORY]
+    .filter(([, entry]) => entry.grade === grade)
+    .map(([key]) => key);
+}
 
 /**
  * The nearest inventory member to a misspelled key, for §11's diagnostic. Only
  * a genuinely close key is offered: past a third of the key's length the
  * "nearest" member is noise, and the message falls back to listing nothing.
+ *
+ * *(#927.)* The search is **grade-scoped** (§4.2): the row's own keyword says
+ * which half of the space the author was reaching into, so offering an operation
+ * key to a misspelled `type` row would be a suggestion the row could not take —
+ * it would draw the wrong-grade refusal on the next compile. A key at the other
+ * grade is not "near"; it is a different kind of thing.
  */
-export function nearestIntrinsicKey(key: string): string | undefined {
+export function nearestIntrinsicKey(
+  key: string,
+  grade: IntrinsicGrade,
+): string | undefined {
   let best: string | undefined;
   let bestDistance = Number.POSITIVE_INFINITY;
-  for (const candidate of INTRINSIC_INVENTORY.keys()) {
+  for (const candidate of intrinsicKeys(grade)) {
     const distance = editDistance(key, candidate);
     if (distance < bestDistance) {
       best = candidate;

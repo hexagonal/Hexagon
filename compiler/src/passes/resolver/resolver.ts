@@ -18,6 +18,9 @@ import {
 import {
   INTRINSIC_INVENTORY,
   INTRINSIC_SPECIFIER,
+  type IntrinsicGrade,
+  intrinsicKeys,
+  intrinsicTypeId,
   isIntrinsicScheme,
   nearestIntrinsicKey,
 } from "../../intrinsics.js";
@@ -1385,6 +1388,19 @@ class Resolver {
   readonly #preludeUnions = new Map<string, Resolved.UnionId>();
   readonly #recordArities = new Map<string, number>();
   readonly #externTypeNames = new Map<string, Resolved.ExternTypeId>();
+  /**
+   * The arity of each **parameterized** extern type this module declares (#927,
+   * `spec/intrinsics.md` §3.3). Only an intrinsic `type` row can have one; a
+   * name absent here is monomorphic, which is every foreign extern type.
+   */
+  readonly #externTypeArities = new Map<string, number>();
+  /**
+   * *(#927.)* Door rows whose declared arity §11's type-key arity row already
+   * refused, by local name. A use of one takes its arguments as written and
+   * draws nothing further: the declaration was the typo, and one typo is one
+   * report.
+   */
+  readonly #arityRefusedExternTypes = new Set<string>();
   readonly #typeAliases = new Map<string, Parsed.TypeAliasItem | Resolved.TypeAliasItem>();
   /**
    * The **written** alias declarations of this module, kept beside
@@ -1409,6 +1425,17 @@ class Resolver {
   readonly #path: string | undefined;
   /** This module's brand identity; see `ResolveOptions.identity`. */
   readonly #identity: string;
+  /**
+   * This module's **declared name** (Modules §2.1) — `Runtime.Regex` — filled at
+   * `resolve`'s entry from the header the parser read.
+   *
+   * Read by one check: §3.3's declarer list, which names the modules permitted
+   * to declare a given intrinsic type key by declared name. A path would not do
+   * — the language reads none (Modules §9.2), and a project file standing in for
+   * a runtime member sits at the member's basename and declares the member's
+   * name, which is exactly the fact this compares.
+   */
+  #declaredModuleName = "";
   /** This module's source text; see `ResolveOptions.text`. */
   readonly #text: string | undefined;
   /** The resolving package's name; see `ResolveOptions.packageName`. */
@@ -2437,6 +2464,7 @@ class Resolver {
     // "implicitly in scope everywhere" means — and it is registered first, so
     // that a module-level binding of the same name, recorded later, is the one
     // an inner-wins reader takes.
+    this.#declaredModuleName = module.name.text;
     this.#preludeScope.region = module.span;
     this.#openScopes.push(this.#preludeScope);
     const scope = this.#openScope(this.#preludeScope, module.span, true);
@@ -2549,23 +2577,48 @@ class Resolver {
     return scope;
   }
 
+  /**
+   * Whether a block with this specifier **is** the intrinsic door here — the
+   * gate's answer (§5), computed without reporting.
+   *
+   * `#checkExternSpecifier` is the reporting form and must stay the only one
+   * that speaks, so that a refused block draws exactly one diagnostic. This is
+   * for the pre-passes, which run before it and need the same answer: a door
+   * `type` row's identity is keyed on its inventory key (§4.1), and that keying
+   * may not be reached from an unprivileged block the gate is about to refuse.
+   */
+  #isDoorBlock(specifier: string): boolean {
+    return this.#privileged && specifier === INTRINSIC_SPECIFIER;
+  }
+
   /** Registers module type identities before resolving any declaration body. */
   #predeclareTypes(items: readonly Parsed.Item[]): void {
     const claimed = new Map<string, Source.Span>();
+    /**
+     * Each **inventory key** a door `type` row in this module has claimed, and
+     * the row that claimed it (§4.1). One key is one compiler type, so a second
+     * row for it here is a duplicate declaration however it spells its local
+     * name — which is exactly the case the local-name map above cannot see.
+     */
+    const doorKeys = new Map<string, { readonly span: Source.Span; readonly local: string }>();
     const declarations: (
       | Parsed.TypeAliasItem
       | Parsed.UnionItem
       | Parsed.RecordItem
       | Parsed.ExternTypeDeclaration
     )[] = [];
+    /** The door rows among them, for the key-identity pass below. */
+    const doorRows = new Set<Parsed.ExternTypeDeclaration>();
     for (const item of items) {
       if (item.kind === "TypeAlias" || item.kind === "Union" || item.kind === "RecordDeclaration") {
         declarations.push(item);
       } else if (item.kind === "ExternBlock") {
-        declarations.push(...item.declarations.filter(
-          (declaration): declaration is Parsed.ExternTypeDeclaration =>
-            declaration.kind === "ExternType",
-        ));
+        const door = this.#isDoorBlock(item.specifier);
+        for (const declaration of item.declarations) {
+          if (declaration.kind !== "ExternType") continue;
+          declarations.push(declaration);
+          if (door) doorRows.add(declaration);
+        }
       }
     }
     for (const item of declarations) {
@@ -2598,10 +2651,69 @@ class Resolver {
         this.#recordNames.set(item.name.text, id);
         this.#recordArities.set(item.name.text, item.parameters.length);
       } else {
-        const id = this.#dataIds?.externTypes.get(item.localName.span.start.offset) ??
-          Resolved.externTypeId(this.#nextExternType++);
+        // *(#927.)* A **door** row's identity is the inventory key's, not this
+        // declaration's: one type key is one compiler type across every module
+        // its entry names (§3.3, §4.1). An ordinary foreign extern type keeps
+        // the per-declaration mint, where two rows against the same foreign name
+        // in the same specifier really are two distinct nominal types (FFI Part
+        // 4 §5) — the opposite rule, stated in the opposite part, and the
+        // reason the two allocators stay apart.
+        const key = doorRows.has(item)
+          ? (item.foreignName ?? item.localName).text
+          : undefined;
+        const reserved = key === undefined ? undefined : intrinsicTypeId(key);
+        if (key !== undefined && reserved !== undefined) {
+          const first = doorKeys.get(key);
+          if (first !== undefined) {
+            this.#diagnostics.add({
+              severity: "error",
+              message: `intrinsic type \`${key}\` is already declared in this module ` +
+                `as \`${first.local}\`; one key is one compiler type`,
+              primary: item.localName.span,
+              labels: [{ span: first.span, message: "first declaration is here" }],
+            });
+            // The duplicate's own spelling still names the key's one type, so
+            // a later use of it resolves rather than drawing a second report
+            // about a name the author did write.
+            this.#externTypeNames.set(item.localName.text, Resolved.externTypeId(reserved));
+            if (item.parameters !== undefined && item.parameters.length > 0) {
+              this.#externTypeArities.set(item.localName.text, item.parameters.length);
+            }
+            const duplicateEntry = INTRINSIC_INVENTORY.get(key);
+            if (
+              duplicateEntry?.grade === "type" &&
+              (item.parameters?.length ?? 0) !== duplicateEntry.arity
+            ) {
+              this.#arityRefusedExternTypes.add(item.localName.text);
+            }
+            continue;
+          }
+          doorKeys.set(key, { span: item.localName.span, local: item.localName.text });
+        }
+        const id = reserved === undefined
+          ? this.#dataIds?.externTypes.get(item.localName.span.start.offset) ??
+            Resolved.externTypeId(this.#nextExternType++)
+          : Resolved.externTypeId(reserved);
         this.#externTypeDeclarations.set(item, id);
         this.#externTypeNames.set(item.localName.text, id);
+        // A door row whose declared arity the inventory refuses (§11's type-key
+        // arity row, reported at the block): its uses — before the block as
+        // well as after — take their arguments as written, so one typo is one
+        // report.
+        const inventoryEntry = key === undefined ? undefined : INTRINSIC_INVENTORY.get(key);
+        if (
+          inventoryEntry?.grade === "type" &&
+          (item.parameters?.length ?? 0) !== inventoryEntry.arity
+        ) {
+          this.#arityRefusedExternTypes.add(item.localName.text);
+        }
+        // *(#927.)* An intrinsic `type` row's arity, for the annotation walk.
+        // A foreign row never records one and stays monomorphic (FFI Part 4
+        // §12.4), which is why an absent entry is what the walk reads as "takes
+        // no type arguments" rather than as zero.
+        if (item.parameters !== undefined && item.parameters.length > 0) {
+          this.#externTypeArities.set(item.localName.text, item.parameters.length);
+        }
       }
     }
   }
@@ -2849,46 +2961,93 @@ class Resolver {
 
   /**
    * Verification replaces trust (§4.2). At a foreign boundary the declaration is
-   * believed; here the compiler is the implementer, so key existence and arity
-   * are checked at the declaration site. Types are deliberately *not* checked
-   * against a compiler-side table — the annotation is normative, and a lowering
-   * that diverges from it is a compiler conformance defect, never a user
-   * diagnostic.
+   * believed; here the compiler is the implementer, so key existence, grade and
+   * arity are checked at the declaration site, and a type key's declarer list
+   * besides (§3.3). Types are deliberately *not* checked against a compiler-side
+   * table — the annotation is normative, and a lowering that diverges from it is
+   * a compiler conformance defect, never a user diagnostic.
    */
-  #verifyIntrinsicKey(
-    declaration: Parsed.ExternFunDeclaration | Parsed.ExternLetDeclaration,
-  ): void {
+  #verifyIntrinsicKey(declaration: Parsed.ExternDeclaration): void {
     // A `default` declaration has no foreign name to be the key, and the form
     // was already refused (§3.3). Verifying the local name as a key on top of
     // that would report the author's one mistake twice, the second time as a
     // claim about a key they never wrote.
     if (declaration.default) return;
     const name = declaration.foreignName ?? declaration.localName;
-    const arity = INTRINSIC_INVENTORY.get(name.text);
-    if (arity === undefined) {
+    // *(#927.)* The row's own keyword says which half of the key space it is
+    // reaching into, and that is what the unknown-key suggestion and the
+    // wrong-grade refusal are both stated against.
+    const grade: IntrinsicGrade =
+      declaration.kind === "ExternType" ? "type" : "operation";
+    const entry = INTRINSIC_INVENTORY.get(name.text);
+    if (entry === undefined) {
       // The Rewrite Rule wants a named rewrite in every hard error. A near
       // neighbour is the best one — it is almost always the key the author meant.
       // With nothing close, the inventory itself is the rewrite: it is flat and
       // compiler-global, so listing it is exhaustive rather than a guess, which
-      // is the one thing a suggestion here must not be.
-      const nearest = nearestIntrinsicKey(name.text);
+      // is the one thing a suggestion here must not be. Both are scoped to the
+      // row's grade (§4.2): a key at the other grade is not a spelling this row
+      // could take, it is a different kind of thing.
+      const nearest = nearestIntrinsicKey(name.text, grade);
       this.#diagnostics.add({
         severity: "error",
         message: `the compiler provides no intrinsic \`${name.text}\`; ` +
           (nearest === undefined
-            ? `the keys it provides are ${[...INTRINSIC_INVENTORY.keys()]
+            ? `the keys it provides are ${intrinsicKeys(grade)
               .map((key) => `\`${key}\``).join(", ")}`
             : `the nearest provided key is \`${nearest}\``),
         primary: name.span,
       });
       return;
     }
-    if (declaration.kind !== "ExternFun") return;
-    if (declaration.parameters.length !== arity) {
+    if (entry.grade !== grade) {
+      // §11's wrong-grade row. The rewrite is the row's *keyword*: the key
+      // exists and names exactly one thing, so there is nothing to correct in
+      // the spelling and everything to correct in the form.
       this.#diagnostics.add({
         severity: "error",
-        message: `intrinsic \`${name.text}\` takes ${arity} ` +
-          `${arity === 1 ? "parameter" : "parameters"}, but this declaration has ` +
+        message: entry.grade === "type"
+          ? `\`${name.text}\` is an intrinsic type, not an operation; ` +
+            "declare it with `type`"
+          : `\`${name.text}\` is an intrinsic operation, not a type; ` +
+            "declare it with `fun`",
+        primary: name.span,
+      });
+      return;
+    }
+    if (entry.grade === "type") {
+      if (declaration.kind !== "ExternType") return;
+      // §3.3's declarer list, the half of the confinement bar a declaration site
+      // can answer. The rewrite is the sealed row — the one lawful way a value
+      // over confined storage reaches another module.
+      if (!entry.declarers.includes(this.#declaredModuleName)) {
+        this.#diagnostics.add({
+          severity: "error",
+          message: `\`${name.text}\` may be declared only in ` +
+            `${entry.declarers.map((module) => `\`Hex.${module}\``).join(" and ")}` +
+            "; a value over it reaches other modules through a sealed row, " +
+            "never through the type",
+          primary: name.span,
+        });
+      }
+      const declared = declaration.parameters?.length ?? 0;
+      if (declared !== entry.arity) {
+        this.#diagnostics.add({
+          severity: "error",
+          message: `intrinsic type \`${name.text}\` takes ${entry.arity} ` +
+            `type ${entry.arity === 1 ? "parameter" : "parameters"}, but this ` +
+            `declaration has ${declared}`,
+          primary: declaration.span,
+        });
+      }
+      return;
+    }
+    if (declaration.kind !== "ExternFun") return;
+    if (declaration.parameters.length !== entry.arity) {
+      this.#diagnostics.add({
+        severity: "error",
+        message: `intrinsic \`${name.text}\` takes ${entry.arity} ` +
+          `${entry.arity === 1 ? "parameter" : "parameters"}, but this declaration has ` +
           `${declaration.parameters.length}`,
         primary: declaration.span,
       });
@@ -3398,9 +3557,10 @@ class Resolver {
       case "ExternBlock": {
         const intrinsic = this.#checkExternSpecifier(item.specifier, item.span, "block");
         const declarations = item.declarations.map((declaration): Resolved.ExternDeclaration => {
-          if (intrinsic && declaration.kind !== "ExternType") {
-            this.#verifyIntrinsicKey(declaration);
-          }
+          // *(#927.)* A `type` row is keyed and verified like every other row:
+          // §3.3 put it in the same flat space, so the grade check is what tells
+          // the two apart rather than the walk skipping one of them.
+          if (intrinsic) this.#verifyIntrinsicKey(declaration);
           if (declaration.kind === "ExternType") {
             const resolved: Resolved.ExternTypeDeclaration = {
               kind: "ExternType",
@@ -3409,6 +3569,13 @@ class Resolver {
               ...(declaration.foreignName === undefined ? {} : { foreignName: declaration.foreignName.text }),
               localName: declaration.localName.text,
               ...(declaration.foreignClass === undefined ? {} : { foreignClass: declaration.foreignClass }),
+              ...(declaration.parameters === undefined || declaration.parameters.length === 0
+                ? {}
+                : { parameters: declaration.parameters }),
+              // Only a door-declared type is confined (§3.3): a foreign extern
+              // `type` is an ordinary nominal that may be exported like any
+              // other, and the two are told apart by the block they came from.
+              ...(intrinsic ? { confined: true as const } : {}),
               externType: this.#externTypeDeclarations.get(declaration) ?? Resolved.externTypeId(this.#nextExternType++),
               ...(this.#path === undefined ? {} : { declaringPath: this.#path }),
               span: declaration.span,
@@ -5958,6 +6125,9 @@ class Resolver {
           kind: "ExternType",
           externType: externType.externType,
           name: `${annotation.qualifier.text}.${name}`,
+          // A confined type is never exported (§3.3), so an extern type reached
+          // through an import is a foreign one and monomorphic.
+          arguments: [],
           ...(qualifier === undefined ? {} : { qualifier }),
           span: annotation.span,
         };
@@ -5996,14 +6166,47 @@ class Resolver {
     }
     const externType = this.#externTypeNames.get(name);
     if (externType !== undefined) {
-      if (annotation.kind === "AppliedType") {
+      // *(#927.)* A **parameterized** intrinsic `type` row takes its arguments
+      // like any other nominal; a foreign extern type has no arity entry and
+      // keeps FFI Part 4 §12.4's monomorphism refusal.
+      const externArity = this.#externTypeArities.get(name);
+      if (this.#arityRefusedExternTypes.has(name)) {
+        const written = annotation.kind === "AppliedType"
+          ? annotation.arguments.map((argument) =>
+            this.#resolveTypeAnnotation(argument, typeParameters, impliedContext, substitutions)
+          )
+          : [];
+        return { kind: "ExternType", externType, name, arguments: written, span: annotation.span };
+      }
+      if (externArity === undefined) {
+        if (annotation.kind === "AppliedType") {
+          this.#diagnostics.add({
+            severity: "error",
+            message: `extern type \`${name}\` is monomorphic and takes no type arguments`,
+            primary: annotation.span,
+          });
+        }
+        return { kind: "ExternType", externType, name, arguments: [], span: annotation.span };
+      }
+      const externArguments = annotation.kind === "AppliedType"
+        ? annotation.arguments.map((argument) =>
+          this.#resolveTypeAnnotation(argument, typeParameters, impliedContext, substitutions)
+        )
+        : [];
+      if (externArguments.length !== externArity) {
         this.#diagnostics.add({
           severity: "error",
-          message: `extern type \`${name}\` is monomorphic and takes no type arguments`,
+          message: `type \`${name}\` expects ${externArity} argument${externArity === 1 ? "" : "s"}, but ${externArguments.length} were provided`,
           primary: annotation.span,
         });
       }
-      return { kind: "ExternType", externType, name, span: annotation.span };
+      return {
+        kind: "ExternType",
+        externType,
+        name,
+        arguments: externArguments,
+        span: annotation.span,
+      };
     }
     const union = this.#unionNames.get(name);
     if (union !== undefined) {
@@ -6543,6 +6746,7 @@ class Resolver {
       kind: "ExternType",
       externType: externType!.externType,
       name,
+      arguments: [],
       span: annotation.span,
     };
   }
@@ -8072,8 +8276,11 @@ function annotationTypeVariables(annotation: Resolved.TypeAnnotation): readonly 
     );
     case "Union":
     case "RecordDeclaration":
-      return annotation.arguments.flatMap(annotationTypeVariables);
+    // *(#927.)* An intrinsic `type` row's occurrence carries arguments like any
+    // other nominal, and a variable written in one is this declaration head's
+    // exactly as `Seq(a)`'s is.
     case "ExternType":
+      return annotation.arguments.flatMap(annotationTypeVariables);
     case "Primitive":
     case "Range":
     case "JsValue":

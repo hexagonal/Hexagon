@@ -189,6 +189,17 @@ interface Entry {
 export interface Declarations {
   readonly unions: Iterable<Resolved.Union>;
   readonly records: Iterable<Resolved.RecordDeclaration>;
+  /**
+   * The intrinsic `type` rows this view holds (#927), for their **claims**.
+   *
+   * Optional, and absent on the program-wide view for a reason rather than for
+   * convenience: a door-declared type is *confined* (`spec/intrinsics.md` §3.3),
+   * so every occurrence of one is inside a module that declares it, and the
+   * checking module's own `externTypes` is therefore already the complete
+   * answer. A foreign extern type is monomorphic (FFI Part 4 §12.4) and has no
+   * claim to carry either way.
+   */
+  readonly externTypes?: Iterable<Resolved.ExternTypeDeclaration>;
 }
 
 export class VarianceTable {
@@ -196,11 +207,32 @@ export class VarianceTable {
   /** The component currently being solved; see `#slotVariance`. */
   #solving = new Set<Key>();
 
+  /**
+   * Each door-declared type's claims by its identity (#927): the declaration
+   * head's list, read as the opaque-declaration rule reads one — a bare
+   * parameter is the empty claim and means invariant, and a written `+`/`-` is
+   * the claim itself, trusted under §4.2's parametricity obligation because
+   * there is no representation for §6.3 to verify it against.
+   */
+  readonly #externClaims = new Map<number, readonly Variance[]>();
+
   constructor(
     unions: Iterable<Resolved.Union>,
     records: Iterable<Resolved.RecordDeclaration>,
+    externTypes: Iterable<Resolved.ExternTypeDeclaration>,
     ...rest: readonly Declarations[]
   ) {
+    for (
+      const declaration of [externTypes, ...rest.map((it) => it.externTypes ?? [])]
+        .flatMap((it) => [...it])
+    ) {
+      const id = Number(declaration.externType);
+      if (this.#externClaims.has(id)) continue;
+      this.#externClaims.set(
+        id,
+        (declaration.parameters ?? []).map(({ claim }) => claim ?? "inv"),
+      );
+    }
     for (const union of [unions, ...rest.map((it) => it.unions)].flatMap((it) => [...it])) {
       if (this.#entries.has(unionKey(union.id))) continue;
       this.#entries.set(unionKey(union.id), {
@@ -258,6 +290,19 @@ export class VarianceTable {
 
   computedRecord(id: Resolved.RecordId, index: number): Variance {
     return this.#entries.get(recordKey(id))?.computed[index] ?? "inv";
+  }
+
+  /**
+   * One door-declared type's slot claim (#927, `spec/intrinsics.md` §3.3).
+   *
+   * There is no `computed` twin and there should not be: the type has no
+   * representation, so the claim is all there is, and §6.3's verification —
+   * which is what a computed variance exists to feed — has nothing to compare
+   * against. An id with no row answers `inv`, the empty claim, which is also
+   * what every foreign extern type's empty parameter list answers.
+   */
+  externClaim(id: Resolved.ExternTypeId, index: number): Variance {
+    return this.#externClaims.get(Number(id))?.[index] ?? "inv";
   }
 
   /**
@@ -508,10 +553,24 @@ export class VarianceTable {
           field,
         );
         return;
+      case "ExternType":
+        // *(#927.)* An intrinsic `type` row's slots take the
+        // **opaque-declaration rule** (§3.3): a bare parameter is the empty
+        // claim and multiplies to `inv`, a written `+`/`-` is the claim itself.
+        // A foreign extern type stays monomorphic (FFI Part 4 §12.4) and its
+        // empty argument list walks to nothing, so the one case serves both.
+        this.#classifyArguments(
+          entry,
+          annotation.arguments,
+          sign,
+          into,
+          field,
+          (index) => this.externClaim(annotation.externType, index),
+        );
+        return;
       default:
-        // Primitives, ranges, extern types (monomorphic in v1 — FFI Part 4
-        // §12.4), implied types (unreferenceable in v1), and error nodes carry
-        // no parameter occurrence.
+        // Primitives, ranges, implied types (unreferenceable in v1), and error
+        // nodes carry no parameter occurrence.
         return;
     }
   }
