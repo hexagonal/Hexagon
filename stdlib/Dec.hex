@@ -7,6 +7,10 @@ export exception NegativeDecimalPlacesError(message: String)
     than `Int` can represent. *)
 export exception DecimalPlacesOverflowError(message: String)
 
+(** Raised when a value has no `Dec` equivalent: `NaN` and the infinities, which
+    no finite decimal represents. `message` names the operation that threw. *)
+export exception DecRangeError(message: String)
+
 (** A finite decimal number, represented exactly by an integer coefficient and
     a retained count of decimal places. *)
 opaque record Dec = {
@@ -174,16 +178,37 @@ honor Signed<Dec> =
 honor FromBigInt<Dec> =
     fromBigInt(value) = create(value, 0)
 
+// The one representation of a number: trailing zeros removed while places
+// remain, and every zero at `(0n, 0)`. Numerically equal decimals share this key
+// and unequal ones never do, so `Eq` and `Hash` both read it and agree by
+// construction: `3d` and `3.0d` are both `(3n, 0)`, while `5d` is `(5n, 0)` and
+// `0.5d` is `(5n, 1)`.
+let canonical(decimal: Dec): (BigInt, Int) =
+    if decimal.unscaled == 0 then (0n, 0)
+    else
+        // Strip zeros in doubling strides, halving the stride when it overshoots,
+        // so a long run of zeros costs a few divisions rather than one per zero.
+        // A stride of one always succeeds under the loop's guard.
+        var coefficient = decimal.unscaled
+        var remainingPlaces = decimal.places
+        var stride: Int = 1
+        while remainingPlaces > 0 and coefficient.rem(10) == 0
+            let count = if stride < remainingPlaces then stride else remainingPlaces
+            let divisor = tenTo(count)
+            if coefficient.rem(divisor) == 0 then
+                coefficient := coefficient.quot(divisor)
+                remainingPlaces := remainingPlaces - count
+                stride := stride * 2
+            else
+                stride := if stride > 1 then stride.quot(2) else 1
+        (coefficient, remainingPlaces)
+
 honor Eq<Dec> =
     equals(left, right) =
-        if left.unscaled == 0 then
-            right.unscaled == 0
-        else if right.unscaled == 0 then
-            False
-        else if left.places >= right.places then
-            left.unscaled == right.unscaled * tenTo(left.places - right.places)
+        if left.places == right.places then
+            left.unscaled == right.unscaled
         else
-            left.unscaled * tenTo(right.places - left.places) == right.unscaled
+            canonical(left) == canonical(right)
 
 honor Ord<Dec> =
     compare(left, right) =
@@ -208,20 +233,8 @@ honor Ord<Dec> =
             else
                 Ordering.Equal
 
-let canonicalCoefficient(decimal: Dec): BigInt =
-    if decimal.unscaled == 0 then 0n
-    else
-        var coefficient = decimal.unscaled
-        var remainingPlaces = decimal.places
-        while remainingPlaces > 0 and coefficient.rem(10) == 0
-            coefficient := coefficient.quot(10)
-            remainingPlaces := remainingPlaces - 1
-        coefficient
-
-// A coefficient-only hash deliberately permits collisions between unequal
-// scales, while canonicalization guarantees equal decimals hash equally.
 honor Hash<Dec> =
-    hash(decimal) = canonicalCoefficient(decimal).hash()
+    hash(decimal) = Hash.hash(canonical(decimal))
 
 honor Real<Dec> =
     abs(decimal) = if decimal.unscaled < 0 then -decimal else decimal
@@ -327,6 +340,44 @@ export let toFloat(decimal: Dec): Float =
         else
             let result = assemble(bits, exponent)
             if negative then -result else result
+
+// A finite float is exactly `significand * 2^-shift`, with `significand` a
+// safe integer. Doubling or halving a float changes only its exponent, so
+// scaling its magnitude into [2^52, 2^53) reads both parts exactly; the door then
+// rounds that exact value once to the requested places, as `divide` does.
+let fromFloatRounded(value: Float, requested: Int, even: Bool, operation: String): Dec =
+    let checked = requirePlaces(requested, operation)
+    if not value.isFinite() then
+        throw(DecRangeError("${operation}: value is not finite"))
+    else if value == 0 then
+        create(0n, checked)
+    else
+        var magnitude = if value < 0 then -value else value
+        var shift: Int = 0
+        while magnitude < 4503599627370496.0
+            magnitude := magnitude * 2
+            shift := shift + 1
+        while magnitude >= 9007199254740992.0
+            magnitude := magnitude / 2
+            shift := shift - 1
+        let significand = BigInt.fromInt(magnitude.trunc())
+        let signed = if value < 0 then -significand else significand
+        if shift <= 0 then
+            create(signed * (2n ** (-shift)) * tenTo(checked), checked)
+        else
+            create(roundedRatio(signed * tenTo(checked), 2n ** shift, even), checked)
+
+(** The exact value stored by `value`, rounded once to exactly `places` decimal
+    places, ties away from zero. The float's binary value is what rounds, so
+    `fromFloat(0.1 + 0.2, 2)` is `0.30`. Throws `DecRangeError` for `NaN` and
+    the infinities. *)
+export let fromFloat(value: Float, places: Int): Dec =
+    fromFloatRounded(value, places, False, "Dec.fromFloat")
+
+(** The exact value stored by `value`, rounded once to exactly `places` decimal
+    places, ties to even. Throws `DecRangeError` for `NaN` and the infinities. *)
+export let fromFloatEven(value: Float, places: Int): Dec =
+    fromFloatRounded(value, places, True, "Dec.fromFloatEven")
 
 (** The number of decimal places retained by `decimal`. *)
 export let places(decimal: Dec): Int = decimal.places

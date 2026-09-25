@@ -462,7 +462,7 @@ It has an arbitrary-precision coefficient, never a parsed Float or a safe-Int
 payload. Removing the point gives the coefficient and counting digits after the
 point gives decimal places; underscores do not count. `5d.show()` retains the
 ordinary literal-then-postfix token boundary. Canonical type identity, lowering,
-and retained display are specified in `dec.md`; implementation is pending.
+and retained display are specified in `dec.md`.
 
 A Float token stores both its source spelling and the correctly-rounded IEEE-754
 binary64 value. Conversion overflow is a lexical error directing the user to

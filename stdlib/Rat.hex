@@ -140,26 +140,19 @@ export let fromDec(decimal: Dec): Rat =
     else
         create(decimal.unscaled(), 10n ** decimal.places())
 
+// `Dec`'s own division already rounds an exact quotient once to requested
+// places; a rational is that quotient. Only the places check stays here, so its
+// message names this door.
 let roundedDecimal(value: Rat, requested: Int, even: Bool, operation: String): Dec =
     if requested < 0 then
         throw(Dec.NegativeDecimalPlacesError("${operation}: decimal places cannot be negative"))
-    else if value.top == 0 then
-        Dec.create(0n, requested)
     else
-        let numerator = value.top * (10n ** requested)
-        let magnitude = numerator.abs()
-        let quotient = magnitude.quot(value.bottom)
-        let twiceRemainder = magnitude.rem(value.bottom) * 2
-        let rounded =
-            if twiceRemainder > value.bottom then
-                quotient + 1
-            else if twiceRemainder < value.bottom then
-                quotient
-            else if even and quotient.rem(2) == 0 then
-                quotient
-            else
-                quotient + 1
-        Dec.create(if numerator < 0 then -rounded else rounded, requested)
+        let dividend = Dec.create(value.top, 0)
+        let divisor = Dec.create(value.bottom, 0)
+        if even then
+            Dec.divideEven(dividend, divisor, requested)
+        else
+            Dec.divide(dividend, divisor, requested)
 
 (** `value` rounded once to exactly `places`, ties away from zero. *)
 export let toDec(value: Rat, places: Int): Dec =

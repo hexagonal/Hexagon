@@ -27,7 +27,12 @@ log("but we have to say how many decimal places")
 let places = 2
 log("If we choose \${places} places,")
 let person = 2.00d.divide(3, places)
-log("we end up with \${person} cents per person")
+log("we end up with $\${person} per person")
+log("but three shares add up to $\${person * 3}: a cent appeared")
+log("")
+
+log("A Float becomes a Dec only by rounding, to places you choose")
+log("\${0.1 + 0.2} => \${Dec.fromFloat(0.1 + 0.2, 2)}")
 log("")
 
 log("42.00 is equal to 42")

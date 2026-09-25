@@ -296,12 +296,6 @@ source-provenance checks for canonical constraint identities.
 - Repeat positive cases against Dec's zero-place integer injection
   and exact retained-place multiplication, keeping Rat conversions Rat-owned.
 
-The BigInt/Rat prerequisite passed 268 focused compiler tests, compiler check and
-build, host source/linked suites (97 tests each), language-server source/linked
-suites (164 tests each), and Playground tests (235), checks, and builds. Those
-results describe the initial prerequisite pass, which did not run the full
-compiler aggregate suite. Subsequent Dec validation found and repaired an
-argument-selection regression; the dedicated `integer-widening-arguments.test.ts`
-now checks independent target evidence, exact BigInt inference, structural and
-generic targets, and runtime evaluation order. Current combined validation is
-recorded in `dec.md`.
+The dedicated `integer-widening-arguments.test.ts` checks independent target
+evidence, exact BigInt inference, structural and generic targets, and runtime
+evaluation order.
