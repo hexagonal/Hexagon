@@ -2176,8 +2176,9 @@ function externTypeCompanionKey(externType: Resolved.ExternTypeId): string {
  * module that is at any moment — the one addressable under the name here, which
  * is how `stdlib/Vector.hex` occludes the compiler's own core inventory today.
  *
- * They are keyed by name because there is no declaration to key on: no `.hex`
- * file declares `Vector`, so `bindingSpan.fileId` cannot answer "is this
+ * They are keyed by name because there is no declaration node to key on: the
+ * companion's public door row (#1071) binds the name to a built-in kind, not to
+ * a node, so `bindingSpan.fileId` cannot answer "is this
  * operation the companion's?" the way it does for a nominal type. The module
  * alias answers instead. When nothing supplies one — the shipped-today
  * configuration, where `stdlib/Vector.hex` is in `stdlib/` but in no project's
@@ -4392,11 +4393,11 @@ class Checker {
           // fires, and `#providedRowNote` appends the fact the user needs.
           //
           // **The one silent path this opens, for whoever edits the prelude
-          // next.** From user code the suppression is unreachable twice over: a
-          // structural head (`Vector(a)`, `Map(k, v)`, `Set(a)`) is refused
-          // outright by `#checkInstanceHead` (Constraints §5.4), and a user file
+          // next.** From user code the suppression is unreachable: a user file
           // declares neither `Iterable` nor any provided row's subject, so it
-          // fails the orphan rule and gets the report either way. Inside
+          // fails the orphan rule and gets the report either way — and at
+          // `Vector(a)`, `Map(k, v)`, or `Set(a)` even the standard library is
+          // stopped before this, by `#compilerProvidedSlot` (#1071). Inside
           // `stdlib/Iterable.hex` both guards lift at once: it *declares* the
           // constraint, so `ownsConstraint` holds and no orphan error fires, and
           // a nominal head slips past the head check — so a hand-written
@@ -21876,9 +21877,11 @@ class Checker {
 
   /**
    * The subject half of the pair — `undefined` for a subject with no home module
-   * to name, which is §7.6's own carve-out: a tuple, a function type, a
-   * structural record, and the structural collection heads have no declaring
-   * module, and their refusals keep the messages they already have.
+   * to name, which is §7.6's own carve-out: a tuple, a function type, and a
+   * structural record have no declaring module, and their refusals keep the
+   * messages they already have. `Vector`, `Map`, and `Set` left that list at
+   * #1071: their companions declare them, so they are named like the prelude's
+   * other types.
    *
    * A **primitive** does have a home — its fixed prelude companion (Constraints
    * §5.3, #344) — and that home is never offerable: `honor Integral<BigInt>` is
@@ -21908,6 +21911,12 @@ class Checker {
    * and must not let the structural case ride out on the same predicate.
    */
   #subjectHome(type: Mono): LegalHome | undefined {
+    // *(#1071.)* A public door row's type has a declaring module now — its
+    // companion — and, like a prelude-supplied nominal, it is named as fact and
+    // never offered: no program file may write the instance there.
+    if (isPublicTypeKind(type.kind)) {
+      return { name: type.kind, statedHome: `the prelude module declaring \`${type.kind}\`` };
+    }
     if (type.kind === "Constructor") {
       return PRIMITIVE_COMPANION_HOMES.has(type.name)
         ? {
@@ -23675,9 +23684,10 @@ class Checker {
    * **The table is the constraint** (Part 5 §1). The rows are compiler-provided
    * and have **no source form** (§4, and #353's ruling 1): `Seq`'s row cannot be
    * source because `Seq.hex` seats before `Iterable.hex` and a cycle is the only
-   * other ordering; `Vector`'s cannot because a structural head is not a legal
-   * `honor` subject (Constraints §5.4, enforced by `#checkInstanceHead`); the
-   * rest follow. What they are *not* is a second mechanism beside the constraint
+   * other ordering; `Vector`'s could since #1071 — `Hex.Vector` declares the
+   * type and is its home — but it moves into source only by this row being
+   * deleted in the same change (`#compilerProvidedSlot` refuses both at once);
+   * the rest follow. What they are *not* is a second mechanism beside the constraint
    * system — they occupy real coherence slots here, which is what makes §7.3's
    * orphan hint have something to find, `toSeq` resolve at a concrete provided
    * type, and Modules §5.3's `Vector.toSeq` read honest.

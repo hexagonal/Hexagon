@@ -3,7 +3,7 @@ import { describe, expect, test } from "vitest";
 import { compileProject, Source } from "../index";
 import { INTRINSIC_INVENTORY } from "../intrinsics";
 import { STDLIB_SOURCES } from "../stdlib-sources";
-import { compileFiles, runMain } from "../support/test-project.js";
+import { compileFiles, runMain, runProject } from "../support/test-project.js";
 
 /**
  * Conformance for #1071: `Vector`, `Map`, and `Set` are declared by their
@@ -166,6 +166,48 @@ describe("the companion is the type's home (Constraints §4.4, §5.3)", () => {
     );
     expect([main.one, main.two, main.map, main.set])
       .toEqual(["many: [1, 2]", "many: [[3]]many: [[3]]", "map", "set"]);
+  });
+
+  /**
+   * An instance at a collection crosses modules like any instance: declared in
+   * one program module and used from another, at a generic call (the head's
+   * binder carrying its own evidence) and through an implied type.
+   */
+  test("a program's instances at the collections are used from another module", async () => {
+    const main = await runProject([
+      [
+        "/lib.hex",
+        "module Lib\n\n" +
+          "export constraint Sized<t> =\n    size(x: t) -> Int\n\n" +
+          "export constraint Parts<t> =\n    type Part\n    parts(x: t) -> Vector(Part)\n\n" +
+          "honor<a: Show> Sized<Vector(a)> =\n    size(x) = Vector.length(x)\n\n" +
+          "honor Sized<Map(k, v)> =\n    size(m) = Map.size(m)\n\n" +
+          "honor Parts<Set(a)> =\n    type Part = a\n    parts(s) = Vector.fromSeq(Set.toSeq(s))\n",
+      ],
+      [
+        "/main.hex",
+        "module Main\n\n" + "import Lib\n\n" +
+          "fun twice<t: Lib.Sized>(x: t): Int = Lib.size(x) + Lib.size(x)\n\n" +
+          "export let a: Int = twice([1, 2, 3])\n" +
+          "export let b: Int = Lib.size(Map.singleton(1, 2))\n" +
+          "export let c: Vector(Int) = Lib.parts(Set.singleton(7))\n",
+      ],
+    ]);
+    expect([main.a, main.b, [...(main.c as Iterable<number>)]]).toEqual([6, 1, [7]]);
+  });
+
+  /**
+   * A missing instance at a collection names its homes (Modules §7.6): the
+   * companion declares the type since #1071, so it is named as fact beside the
+   * constraint's module, as the prelude's other types are.
+   */
+  test("a missing instance at a collection names the companion as a home", () => {
+    expect(diagnostics(
+      "constraint Pretty<t> =\n    pretty(x: t) -> Int\n\n" + "export let n: Int = pretty([1])\n",
+    )).toEqual([
+      "type `Vector(a)` has no `Pretty` instance; it could only be declared in module `Main` " +
+        "(declares `Pretty`) or the prelude module declaring `Vector`",
+    ]);
   });
 
   test("a head names the constructor applied to distinct variables, as any head does", () => {
