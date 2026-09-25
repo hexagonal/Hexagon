@@ -1244,18 +1244,24 @@ interface Requirement {
    */
   patternSeat?: true;
   /**
-   * Set on a requirement *derived* from another: a component of a structural
-   * one, or an instance's argument. It shares the demand's span, so a rider
-   * keyed on the operation seat (`bitwise.md` §9's logic word) must not read
-   * it as the operator's own.
+   * Set on a requirement that does not stand at the seat that made it
+   * (Functions §10's report-seat rule, #1063): a copy made at a use of a
+   * scheme — unless it is a constraint member's *own* constraint, where the
+   * member call is the operation — and one *derived* from another, a
+   * component of a structural requirement or an instance's argument.
+   *
+   * A report about such a requirement carets the use (`#reportSpan`) and says
+   * only what is true there: wording that names or advises about the seat —
+   * "integer literal", the literal defaulting names, the tower riders, the
+   * logic word — belongs to the requirement at the seat, and at a call it
+   * would describe code the caret is not on, with advice that does not
+   * compile there.
    */
-  derived?: true;
+  offSeat?: true;
   /**
    * Where the scheme carrying this requirement was *used*. `span` points at
-   * the definition, which a copy inherits, so a report about the use — §6's
-   * blocked-defaulting one, and a declared list's contract refusal (#1063) —
-   * would otherwise caret a constraint declaration, or another module's source
-   * entirely.
+   * the definition, which a copy inherits; every report carets
+   * `#reportSpan`, which reads this first.
    */
   useSpan?: Source.Span;
   readonly impliedTypes?: ReadonlyMap<string, Mono>;
@@ -2990,7 +2996,7 @@ class Checker {
    * spellings are recorded: a member spelling was never a slip for a logic word.
    */
   readonly #bitwiseLogicWords = new Map<string, string>();
-  /** Whether `#require` is minting a derived requirement (`Requirement.derived`). */
+  /** Whether `#require` is minting a derived requirement (`Requirement.offSeat`). */
   #deriving = false;
   /** Exact Int expressions that checking injects into an independently known Signed target. */
   readonly #intWidenings = new WeakMap<Resolved.Expr, Requirement>();
@@ -20274,7 +20280,9 @@ class Checker {
     const literal = variable.ascribedAt === undefined
       ? undefined
       : variable.requirements.find(
-          (requirement) => requirement.origin === "literal" && requirement.literal !== undefined,
+          (requirement) =>
+            requirement.origin === "literal" && requirement.literal !== undefined &&
+            requirement.offSeat !== true,
         );
     if (literal?.literal === undefined) {
       this.#bind(variable, primitive("Int"), span);
@@ -20617,7 +20625,7 @@ class Checker {
       ...(demandedBy?.kind === "member" ? { demandedBy: demandedBy.name } : {}),
       ...(impliedTypes === undefined ? {} : { impliedTypes }),
       ...(this.#literalPatternSeat ? { patternSeat: true as const } : {}),
-      ...(this.#deriving ? { derived: true as const } : {}),
+      ...(this.#deriving ? { offSeat: true as const } : {}),
       reported: false,
     };
     const actual = this.#prune(type);
@@ -21024,7 +21032,7 @@ class Checker {
             } as a base constraint — ` +
               `write \`constraint ${constraint}<${variable.rigidName}: ${baseList}>\`` +
               this.#constraintRouteClauses(bases, !collision),
-          primary: requirement.useSpan ?? requirement.span,
+          primary: this.#reportSpan(requirement),
         });
         requirement.reported = true;
         return;
@@ -21044,7 +21052,7 @@ class Checker {
             // two would part the binder from its header.
             : `${declaration}, but the body requires ${requiredMention}; ` +
               `write \`<${variable.rigidName}: ${headerList}>\` on the \`honor\` header${routes}`,
-          primary: requirement.useSpan ?? requirement.span,
+          primary: this.#reportSpan(requirement),
         });
         requirement.reported = true;
         return;
@@ -21068,7 +21076,7 @@ class Checker {
             : `${declaration} on the block head, but ${subject} requires ` +
               `${requiredMention}; widen the head: ` +
               `\`fun<${variable.rigidName}: ${constraintList}>\`${routes}, or ${headRewrite}`,
-          primary: requirement.useSpan ?? requirement.span,
+          primary: this.#reportSpan(requirement),
         });
         requirement.reported = true;
         return;
@@ -21083,7 +21091,7 @@ class Checker {
           : `${declaration}, but the body requires ` +
             `${requiredMention}; write \`<${variable.rigidName}: ${constraintList}>\`${routes}, ` +
             `or ${inferenceRewrite}`,
-        primary: requirement.useSpan ?? requirement.span,
+        primary: this.#reportSpan(requirement),
       });
       requirement.reported = true;
       return;
@@ -21648,9 +21656,8 @@ class Checker {
           obligation.name,
           obligation.type,
           // A component's demand belongs to where its whole was demanded
-          // (Functions §10): `useSpan` when the whole was copied from a scheme,
-          // or a refusal carets that scheme's declaration (#1063).
-          requirement.useSpan ?? requirement.span,
+          // (Functions §10's report-seat rule, #1063).
+          this.#reportSpan(requirement),
           "operation",
           undefined,
           obligation.identity,
@@ -21691,7 +21698,7 @@ class Checker {
       this.#diagnostics.add({
         severity: "error",
         message: `\`${requirement.name}<${this.#display(type)}>\` ${dataSeatRefusal(provider)}`,
-        primary: requirement.span,
+        primary: this.#reportSpan(requirement),
       });
       return;
     }
@@ -21712,7 +21719,7 @@ class Checker {
         requirement.structural = true;
       } else {
         requirement.dictionary = instance.dictionary;
-        requirement.dictionaryArguments = this.#instanceArguments(instance, type, requirement.useSpan ?? requirement.span);
+        requirement.dictionaryArguments = this.#instanceArguments(instance, type, this.#reportSpan(requirement));
         if (
           requirement.origin === "iteration" &&
           this.#canonicalStringIterableInstances.has(instance)
@@ -21744,20 +21751,14 @@ class Checker {
         // `type.kind === "Union"` since #147: `Bool` is the common case of a
         // literal landing on a type with no `Num`, and it stopped being a
         // `Constructor` when it left the primitive set.
-        requirement.origin === "literal" &&
+        requirement.origin === "literal" && requirement.offSeat !== true &&
           (type.kind === "Constructor" || type.kind === "Union")
           ? `integer literal cannot have type \`${type.name}\``
           : type.kind === "Function"
           ? `functions have no \`${requirement.name}\` instance`
           : this.#userNominalIterableFailure(requirement, type) ??
             this.#missingInstanceMessage(requirement, type),
-      // At the use, as the declared-list refusals are (#1063): a requirement
-      // copied from a scheme keeps the definition's span, possibly another
-      // module's. A literal's report names the literal, so it stays on it,
-      // as §6's blocked-defaulting report does.
-      primary: requirement.origin === "literal"
-        ? requirement.span
-        : requirement.useSpan ?? requirement.span,
+      primary: this.#reportSpan(requirement),
     });
   }
 
@@ -21858,20 +21859,30 @@ class Checker {
    * members too, and naming a module the program may not contain would be an
    * offer the reader cannot take.
    */
+  /**
+   * Where a report about `requirement` carets (Functions §10's report-seat
+   * rule, #1063): the use that brought the demand into this program's source.
+   * A requirement at its own seat has no `useSpan`, and its `span` is the seat.
+   */
+  #reportSpan(requirement: Requirement): Source.Span {
+    return requirement.useSpan ?? requirement.span;
+  }
+
   #towerFaceRider(requirement: Requirement, type: Mono): string {
     // Pattern Matching §2.5: the rider rides at its **operation** seat only, and a
     // pattern is not one — "no seat of the numeric lift exists in a pattern". The
     // rest of the report is the comparison's word for word; this clause alone is
     // dropped, and nothing is offered in its place.
     if (requirement.patternSeat === true) return "";
+    // Functions §10's report-seat rule: a rider advises about the operation,
+    // and a requirement off its seat is reported where no operation is written.
+    if (requirement.offSeat === true) return "";
     // `bitwise.md` §9: a bitwise operator reached for on `Bool` names the logic
     // spelling it was mistaken for.
     // Only the operator's own requirement: a derived one shares its span, and
     // `Box(True) band Box(False)` has no `and` to offer.
-    // Keyed where the report carets: a copy's definition span is an operator
-    // in the callee's body, and `h(True, False)` has no `and` to offer either.
-    const logic = requirement.identity === BITWISE_IDENTITY && requirement.derived !== true
-      ? this.#bitwiseLogicWords.get(spanKey(requirement.useSpan ?? requirement.span))
+    const logic = requirement.identity === BITWISE_IDENTITY
+      ? this.#bitwiseLogicWords.get(spanKey(requirement.span))
       : undefined;
     const subject = this.#prune(type);
     if (logic !== undefined && subject.kind === "Union" && subject.union === this.#boolUnion) {
@@ -23092,7 +23103,7 @@ class Checker {
             `evidence, but \`${named.name}\`'s type does not mention \`${name}\`, so no call of ` +
             `\`${named.name}\` can supply it; use \`${name}\` in \`${named.name}\`'s parameter or ` +
             "result types",
-        primary: requirement.span,
+        primary: this.#reportSpan(requirement),
       });
     }
   }
@@ -23206,7 +23217,11 @@ class Checker {
     // keeps the message and the caret agreeing. Otherwise report where the
     // blocked scheme was used: `blocking.span` is the *declaration* the
     // constraint was written at, which is not what this error is about.
-    const literal = variable.requirements.find(({ origin }) => origin === "literal");
+    // The literal named must be one written here: a copy's literal is in the
+    // callee's body, where no annotation of this program's pins anything.
+    const literal = variable.requirements.find(({ origin, offSeat }) =>
+      origin === "literal" && offSeat !== true
+    );
     for (const requirement of variable.requirements) requirement.reported = true;
     this.#diagnostics.add({
       severity: "error",
@@ -23216,7 +23231,7 @@ class Checker {
           : `the literal \`${literal.literal}\``
       } cannot default to \`Int\`: \`${blocking.name}\` is not a defaultable ` +
         "constraint; add a type annotation to pin the type",
-      primary: literal?.span ?? blocking.useSpan ?? blocking.span,
+      primary: literal?.span ?? this.#reportSpan(blocking),
     });
   }
 
@@ -23578,7 +23593,13 @@ class Checker {
           // that span points at too (§6's report names both) — and records
           // where the use was, for a report that is about the use.
           if (requirement.literal !== undefined) copied.literal = requirement.literal;
-          if (useSpan !== undefined) copied.useSpan = useSpan;
+          if (useSpan !== undefined) {
+            copied.useSpan = useSpan;
+            // A constraint member's own constraint is the operation itself —
+            // `n.subtract(n)` is where the subtraction is — so its copy keeps
+            // the seat; any other copy reports at a call to code elsewhere.
+            if (requirement.identity !== scheme.constraintIdentity) copied.offSeat = true;
+          }
           // `actual.id` is the *originating scheme* variable, which is the id
           // `dictionaryEntries` sorts the callee's parameters under; the
           // canonical name is the one `#publicRequirement` will publish, so the

@@ -602,6 +602,13 @@ Notes:
 
 Diagnostics obey the Rewrite Rule (Declarations Preamble §1.1): where a legal spelling of the intent exists, the error names it.
 
+**Where a report stands** *(#1063)*. A constraint demand is made at a seat: an operator, a literal, a loop head, an interpolation, or a binder's written list. Using a binding copies its scheme's demands to the use. A report about a demand carets **where it reached this program's source**. For a copy, that is the use: the call, reference or dot call, never the callee's declaration, and never another module's file. A demand reached through a component of a structural type, or through an instance's argument, carets the demand it was reached from. The report then says only what is true at its caret. Wording that names or advises about the seat is said only of a demand still standing at its seat:
+- "integer literal cannot have type `X`", and the literal Numeric Literals §6 names;
+- the numeric tower riders ("a written `Int` face runs the operation…");
+- `bitwise.md` §9's logic word.
+
+At a call, such wording would describe code the caret is not on, and its advice would not compile there. The report is instead the one that holds at the call: the missing instance and its legal homes, or the contract refusal and its binder. One copy keeps its seat: a constraint member's own constraint, since `n.subtract(n)` *is* the operation, as `n - n` is. This is GHC's placement for the same reason ("arising from a use of `d`"). A caret is only useful where the reader can act, and the call is the one place in their program that chose the type.
+
 | Situation | Error |
 |---|---|
 | Uppercase-start function/binding name | hard error: term bindings require a non-uppercase-start name (§2) |

@@ -165,11 +165,50 @@ describe("Functions specification conformance", () => {
     expect(missing.diagnostics.map(({ message, primary }) => [message, primary.fileId])).toEqual([
       ["functions have no `Show` instance", mainId(missing)],
     ]);
-    // Except a literal's: its report names the literal, so it carets it.
-    const literal = "let g(x) = x + 1\nlet y = g(True)";
-    expect(
-      checkSource(literal).diagnostics.map(({ message, primary }) => [message, caret(literal, primary)]),
-    ).toEqual([["integer literal cannot have type `Bool`", "1"]]);
+  });
+
+  test("§10 a report carets the use and says only what is true there (#1063)", () => {
+    // The report-seat rule: a demand copied at a call reports at the call,
+    // and wording about the seat that made it — the literal, the operator's
+    // riders — stays with the requirement at that seat, where its advice
+    // compiles. At the call it would describe code the caret is not on.
+    const reports = (text: string) =>
+      checkSource(text).diagnostics.map(({ message, primary }) => [message, caret(text, primary)]);
+    const n = "let n: Nat = 3\n";
+    const signedFace = "; a written `Int` face runs the operation and admits the result (`let difference: Int = …`)";
+    const signed = "type `Nat` has no `Signed` instance; its only legal homes are the module declaring `Signed` and `Nat`'s prelude companion module, both outside project source, so this pair's honored set is closed — change the type, or go through the operations those homes export";
+
+    // At the seat — an operator, and a constraint member's own call — the
+    // rider stands: the face goes on the binding that runs the operation.
+    expect(reports(n + "let x = n - n")).toEqual([[signed + signedFace, "n - n"]]);
+    expect(reports(n + "let x = n.subtract(n)")).toEqual([[signed + signedFace, "subtract"]]);
+    // Through a function, the call is not the operation: no rider.
+    expect(reports(n + "let d(a, b) = a - b\nlet x = d(n, n)")).toEqual([[signed, "d"]]);
+    const bandCall = reports(n + "let h(a, b) = a band b\nlet x = h(n, n)");
+    expect(bandCall.map(([, at]) => at)).toEqual(["h"]);
+    expect(bandCall[0]![0]).not.toContain("face");
+    const divCall = reports("let i: Int = 3\nlet q(a, b) = a / b\nlet x = q(i, i)");
+    expect(divCall.map(([, at]) => at)).toEqual(["q"]);
+    expect(divCall[0]![0]).not.toContain("face");
+
+    // A literal in the callee is not at the call: the report is the
+    // instance's, and names no literal the caller did not write.
+    expect(reports("let g(x) = x + 1\nlet y = g(True)")).toEqual([
+      [
+        "type `Bool` has no `Num` instance; its only legal homes are the module declaring `Num` and the prelude module declaring `Bool`, both outside project source, so this pair's honored set is closed — change the type, or go through the operations those homes export",
+        "g",
+      ],
+    ]);
+    expect(reports("let y: Bool = 1")).toEqual([["integer literal cannot have type `Bool`", "1"]]);
+    // Numeric Literals §6's blocked defaulting names a literal only where one
+    // is written; otherwise it is the call's type, at the call.
+    expect(reports("let k(u: Unit) = 1 / 2\nlet y = k(())")).toEqual([
+      [
+        "this expression's type cannot default to `Int`: `Frac` is not a defaultable constraint; add a type annotation to pin the type",
+        "k",
+      ],
+    ]);
+    expect(reports("let y = 1 / 2").map(([, at]) => at)).toEqual(["2"]);
 
     // Entailment still discharges a copied demand: `Hash` provides `Eq`.
     const accepted = checkSource(
