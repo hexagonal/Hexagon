@@ -846,6 +846,10 @@ function liftConstraint(
       return "Frac";
     case "Power":
       return "Pow";
+    case "BitAnd":
+    case "BitOr":
+    case "BitXor":
+      return "Bitwise";
     default:
       return undefined;
   }
@@ -1613,6 +1617,7 @@ const TOWER_MEMBERS: ReadonlyMap<string, ReadonlySet<string>> = new Map(
     ["Frac", ["divide"]],
     ["Pow", ["pow"]],
     ["Integral", ["div", "mod", "quot", "rem", "gcd"]],
+    ["Bitwise", ["bitAnd", "bitOr", "bitXor", "bitNot", "shiftLeft", "shiftRight"]],
   ] as const).map(([constraint, members]) =>
     [preRegisteredConstraintIdentity(constraint), new Set<string>(members)] as const
   ),
@@ -1644,7 +1649,7 @@ const TOWER_SPELLING_RUNGS: ReadonlyMap<string, string> = new Map(
  * (#727); only the report reads the word.
  */
 const TOWER_RUNG_NAMES: ReadonlyMap<string, string> = new Map(
-  (["Num", "Signed", "Frac", "Pow", "Integral"] as const).map(
+  (["Num", "Signed", "Frac", "Pow", "Integral", "Bitwise"] as const).map(
     (constraint) => [preRegisteredConstraintIdentity(constraint), constraint] as const,
   ),
 );
@@ -1685,6 +1690,9 @@ const OPERATION_NOUNS: Partial<Record<Resolved.BinaryOperator, string>> = {
   Divide: "division",
   Power: "power",
   Concat: "concatenation",
+  BitAnd: "bitwise and",
+  BitOr: "bitwise or",
+  BitXor: "bitwise exclusive or",
 };
 
 /**
@@ -1701,6 +1709,12 @@ const MEMBER_OPERATION_NOUNS: ReadonlyMap<string, string> = new Map([
   ["divide", "division"],
   ["pow", "power"],
   ["negate", "negation"],
+  ["bitAnd", "bitwise and"],
+  ["bitOr", "bitwise or"],
+  ["bitXor", "bitwise exclusive or"],
+  ["bitNot", "bitwise complement"],
+  ["shiftLeft", "left shift"],
+  ["shiftRight", "right shift"],
 ]);
 
 /** How a binary operator is spelled, for a report that quotes the source. */
@@ -1711,6 +1725,9 @@ const OPERATOR_SPELLINGS: Partial<Record<Resolved.BinaryOperator, string>> = {
   Add: "+",
   Subtract: "-",
   Concat: "++",
+  BitAnd: "band",
+  BitOr: "bor",
+  BitXor: "bxor",
   Range: "..",
   And: "and",
   Or: "or",
@@ -1724,6 +1741,24 @@ const TOWER_MEMBER_NAMES: ReadonlySet<string> = new Set(TOWER_SPELLING_RUNGS.key
 
 /** The identity of `Pow`, whose written `Int` exponent seat is §9 row 14's. */
 const POW_IDENTITY: string = preRegisteredConstraintIdentity("Pow");
+
+/** The contextual bitwise words (`bitwise.md` §3.1). */
+const BITWISE_WORDS: ReadonlySet<string> = new Set(["band", "bor", "bxor"]);
+
+/** A span as a map key: file and both offsets, never the position objects. */
+function spanKey(span: Source.Span): string {
+  return `${Number(span.fileId)}:${span.start.offset}:${span.end.offset}`;
+}
+
+/** The logic spelling each bitwise operator is mistaken for on `Bool` (`bitwise.md` §9). */
+const BITWISE_LOGIC_WORDS: Partial<Record<Resolved.BinaryOperator, string>> = {
+  BitAnd: "and",
+  BitOr: "or",
+  BitXor: "!=",
+};
+
+/** The identity of `Bitwise`, the one rung whose operators lower only at `BigInt`. */
+const BITWISE_IDENTITY: string = preRegisteredConstraintIdentity("Bitwise");
 
 /**
  * **The operator faces** *(#808, Method Syntax §8.1)* — the constraint members
@@ -1763,6 +1798,12 @@ const OPERATOR_FACES: ReadonlyMap<string, OperatorFace> = new Map([
   ["divide", { constraint: "Frac", arity: 2, lowering: "operation", member: "divide" }],
   ["pow", { constraint: "Pow", arity: 2, lowering: "operation", member: "pow" }],
   ["concat", { constraint: "Concat", arity: 2, lowering: "operation", member: "concat" }],
+  ["bitAnd", { constraint: "Bitwise", arity: 2, lowering: "operation", member: "bitAnd" }],
+  ["bitOr", { constraint: "Bitwise", arity: 2, lowering: "operation", member: "bitOr" }],
+  ["bitXor", { constraint: "Bitwise", arity: 2, lowering: "operation", member: "bitXor" }],
+  ["bitNot", { constraint: "Bitwise", arity: 1, lowering: "operation", member: "bitNot" }],
+  ["shiftLeft", { constraint: "Bitwise", arity: 2, lowering: "operation", member: "shiftLeft" }],
+  ["shiftRight", { constraint: "Bitwise", arity: 2, lowering: "operation", member: "shiftRight" }],
   ["equals", { constraint: "Eq", arity: 2, lowering: "comparison", test: "Equal" }],
   ["notEquals", { constraint: "Eq", arity: 2, lowering: "comparison", test: "NotEqual" }],
 ] as const);
@@ -2714,6 +2755,14 @@ class Checker {
   readonly #requirements = new WeakMap<object, readonly Requirement[]>();
   /** Exact Nat expressions that checking injects into an independently known Num target. */
   readonly #natWidenings = new WeakMap<Resolved.Expr, Requirement>();
+  /**
+   * The logic spelling each bitwise operator would have been on `Bool`
+   * (`bitwise.md` §9) — `and` for `band`, and so on — keyed by the operator's
+   * span, because a concrete requirement is validated, and so reported, inside
+   * `#require` itself, before its object could be keyed on. Only operator
+   * spellings are recorded: a member spelling was never a slip for a logic word.
+   */
+  readonly #bitwiseLogicWords = new Map<string, string>();
   /** Exact Int expressions that checking injects into an independently known Signed target. */
   readonly #intWidenings = new WeakMap<Resolved.Expr, Requirement>();
   /** Exact BigInt expressions injected into an independently known FromBigInt target. */
@@ -7994,13 +8043,24 @@ class Checker {
           const importName = module === undefined ? undefined : this.#patternImportSpelling(module);
           this.#diagnostics.add({
             severity: "error",
-            message: module === undefined || importName === undefined
+            message: (module === undefined || importName === undefined
               ? `no \`${expression.name}\` pattern is in scope; import its module`
-              : `no \`${expression.name}\` here; \`import ${importName}\``,
+              : `no \`${expression.name}\` here; \`import ${importName}\``) +
+              // `bitwise.md` §9: a bitwise word glued to `)` is read as a suffix.
+              (BITWISE_WORDS.has(expression.name)
+                ? `; for the bitwise operator write a space: \`) ${expression.name}\``
+                : ""),
             primary: expression.nameSpan,
-            ...(module === undefined || importName === undefined ? {} : {
-              fixes: this.#patternImportFixes(module, expression.nameSpan),
-            }),
+            ...(module === undefined || importName === undefined
+              ? BITWISE_WORDS.has(expression.name)
+                ? {
+                  fixes: [{
+                    message: "write a space",
+                    edits: [{ span: expression.nameSpan, replacement: ` ${expression.name}` }],
+                  }],
+                }
+                : {}
+              : { fixes: this.#patternImportFixes(module, expression.nameSpan) }),
           });
         }
         if (namespace.length > 1) {
@@ -9408,12 +9468,18 @@ class Checker {
       case "Unary": {
         // Numeric Literals §5.1's lift reaches unary negation too — the same
         // gate, at `Signed`. `Not` is not arithmetic and lifts nothing.
+        // `bnot` lifts the same way, at `Bitwise` (`bitwise.md` §5.1).
         const home = expression.operator === "Not"
           ? undefined
-          : this.#operationHome("Negate", expected);
+          : this.#operationHome(expression.operator, expected);
         const operand = this.#inferExpr(expression.operand, level, home);
         if (expression.operator === "Not") {
-          this.#unify(operand, this.#boolType(expression.span), expression.span);
+          this.#unify(
+            operand,
+            this.#boolType(expression.span),
+            expression.span,
+            this.#logicOnBitsMessage(operand, "not", "bnot"),
+          );
           type = this.#boolType(expression.span);
           this.#requirements.set(expression, []);
         } else {
@@ -9421,7 +9487,14 @@ class Checker {
             this.#unifyExpected(home, operand, expression.operand, expression.span, true);
           }
           const common = home ?? operand;
-          const requirement = this.#require("Signed", common, expression.span);
+          if (expression.operator === "BitNot") {
+            this.#bitwiseLogicWords.set(spanKey(expression.span), "not");
+          }
+          const requirement = this.#require(
+            expression.operator === "BitNot" ? "Bitwise" : "Signed",
+            common,
+            expression.span,
+          );
           this.#requirements.set(expression, [requirement]);
           type = common;
         }
@@ -13184,6 +13257,11 @@ class Checker {
       ? OPERATOR_FACE_PRIMITIVES.has(subject.name)
       : subject.kind === "Union" && subject.union === this.#boolUnion;
     if (!represented) return false;
+    // `Bitwise`'s members lower to an operator at `BigInt` alone (`bitwise.md`
+    // §6): at `Int` no JavaScript operator carries the true integer answer.
+    if (TOWER_SPELLING_RUNGS.get(member) === BITWISE_IDENTITY) {
+      return subject.kind === "Constructor" && subject.name === "BigInt";
+    }
     return member !== "pow" ||
       (subject.kind === "Constructor" && subject.name === "Float");
   }
@@ -13784,12 +13862,36 @@ class Checker {
    * every subject there is (#344), so the gate is the same question evidence
    * selection will ask.
    */
+  /**
+   * `bitwise.md` §9's other direction: a logic word applied to a type that
+   * honors `Bitwise` refuses with the bitwise spelling named. `undefined` —
+   * the ordinary mismatch — for every other operand type.
+   */
+  #logicOnBitsMessage(
+    operand: Mono,
+    word: string,
+    bitwise: string,
+  ): () => string | undefined {
+    return () => {
+      const actual = this.#prune(operand);
+      if (actual.kind !== "Constructor" || !this.#supportsTarget(actual, "Bitwise")) {
+        return undefined;
+      }
+      return `\`${word}\` needs \`Bool\` operands, and this one is ` +
+        `\`${this.#display(actual)}\`; the bitwise operation is spelled \`${bitwise}\``;
+    };
+  }
+
   #operationHome(
-    operator: Resolved.BinaryOperator | "Negate",
+    operator: Resolved.BinaryOperator | "Negate" | "BitNot",
     expected: Mono | undefined,
   ): Mono | undefined {
     if (expected === undefined) return undefined;
-    const constraint = operator === "Negate" ? "Signed" : liftConstraint(operator);
+    const constraint = operator === "Negate"
+      ? "Signed"
+      : operator === "BitNot"
+      ? "Bitwise"
+      : liftConstraint(operator);
     if (constraint === undefined) return undefined;
     const target = this.#prune(expected);
     if (target.kind === "Variable" || target.kind === "Error") return undefined;
@@ -13833,8 +13935,23 @@ class Checker {
 
     if (["And", "Or", "Implies", "Iff"].includes(expression.operator)) {
       const bool = this.#boolType(expression.span);
-      this.#unify(left, bool, expression.left.span);
-      this.#unify(right, bool, expression.right.span);
+      const bits = expression.operator === "And"
+        ? ["and", "band"] as const
+        : expression.operator === "Or"
+        ? ["or", "bor"] as const
+        : undefined;
+      this.#unify(
+        left,
+        bool,
+        expression.left.span,
+        bits === undefined ? undefined : this.#logicOnBitsMessage(left, bits[0], bits[1]),
+      );
+      this.#unify(
+        right,
+        bool,
+        expression.right.span,
+        bits === undefined ? undefined : this.#logicOnBitsMessage(right, bits[0], bits[1]),
+      );
       // `iff` lowers to `Eq<Bool>` equality (§5.5's derived-logic table), so it
       // needs a real, *resolved* requirement — evidence selection runs over the
       // registered ones. Before #147 `Eq<Bool>` was primitive evidence the
@@ -13961,6 +14078,8 @@ class Checker {
         reported: this.#diagnostics.count > reconciled,
       });
     }
+    const logic = BITWISE_LOGIC_WORDS[expression.operator];
+    if (logic !== undefined) this.#bitwiseLogicWords.set(spanKey(expression.span), logic);
     const requirement = this.#require(constraint, common, expression.span);
     this.#requirements.set(expression, [requirement]);
     return common;
@@ -19832,9 +19951,24 @@ class Checker {
     // rest of the report is the comparison's word for word; this clause alone is
     // dropped, and nothing is offered in its place.
     if (requirement.patternSeat === true) return "";
+    // `bitwise.md` §9: a bitwise operator reached for on `Bool` names the logic
+    // spelling it was mistaken for.
+    const logic = requirement.identity === BITWISE_IDENTITY
+      ? this.#bitwiseLogicWords.get(spanKey(requirement.span))
+      : undefined;
+    const subject = this.#prune(type);
+    if (logic !== undefined && subject.kind === "Union" && subject.union === this.#boolUnion) {
+      return `; logic on \`Bool\` is spelled \`${logic}\``;
+    }
     const actual = this.#prune(type);
     if (actual.kind !== "Constructor") return "";
     if (actual.name !== "Nat" && actual.name !== "Int") return "";
+    // `bitwise.md` §5.1: `Nat` owns the bitwise members and runs them under a
+    // written `Int` face, exactly as it runs subtraction.
+    if (actual.name === "Nat" && requirement.identity === BITWISE_IDENTITY) {
+      return "; a written `Int` face runs the operation and admits the result " +
+        "(`let bits: Int = …`)";
+    }
     if (requirement.identity === preRegisteredConstraintIdentity("Signed")) {
       return "; a written `Int` face runs the operation and admits the result " +
         "(`let difference: Int = …`)";
@@ -25573,6 +25707,7 @@ class Checker {
       return {
         kind: "Integer",
         decimal: pattern.decimal,
+        ...(pattern.written === undefined ? {} : { written: pattern.written }),
         ...(pattern.bigint === true ? { bigint: true as const } : {}),
         type: this.#publicType(resolved?.type ?? ERROR),
         ...(resolved?.num === undefined
@@ -25890,6 +26025,7 @@ class Checker {
         return {
           kind: "FromNat",
           decimal: expression.decimal,
+          ...(expression.written === undefined ? {} : { written: expression.written }),
           requirement: this.#publicRequirement(this.#requirements.get(expression)![0]!),
           type,
           span: expression.span,
@@ -26102,12 +26238,19 @@ class Checker {
             span: expression.span,
           };
         }
-        return this.#materializeConstraintCall(
-          expression,
-          "Signed",
-          "negate",
-          [expression.operand],
-        );
+        return expression.operator === "BitNot"
+          ? this.#materializeConstraintCall(
+            expression,
+            "Bitwise",
+            "bitNot",
+            [expression.operand],
+          )
+          : this.#materializeConstraintCall(
+            expression,
+            "Signed",
+            "negate",
+            [expression.operand],
+          );
       case "Binary":
         return this.#materializeBinary(expression, type);
       case "Comparison":
@@ -26229,6 +26372,9 @@ class Checker {
       Add: ["Num", "add"],
       Subtract: ["Signed", "subtract"],
       Concat: ["Concat", "concat"],
+      BitAnd: ["Bitwise", "bitAnd"],
+      BitOr: ["Bitwise", "bitOr"],
+      BitXor: ["Bitwise", "bitXor"],
     };
     const detail = details[expression.operator];
     return detail === undefined

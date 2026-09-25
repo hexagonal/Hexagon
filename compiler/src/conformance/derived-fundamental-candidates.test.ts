@@ -131,9 +131,9 @@ describe("the judgment over the pre-registered constraints", () => {
     // caught at the planner rather than in a `.d.ts` golden three files away.
     expect(rows(compiled.fundamentalInstances)).toEqual(new Map([
       ["Nat", preRegistered("Num", "Eq", "Ord", "Show", "Pow", "Integral", "Hash", "Real")],
-      ["Int", preRegistered("Num", "Signed", "Eq", "Ord", "Show", "Pow", "Integral", "Hash", "Real")],
+      ["Int", preRegistered("Num", "Signed", "Eq", "Ord", "Show", "Pow", "Integral", "Hash", "Real", "Bitwise")],
       ["Float", preRegistered("Num", "Signed", "Frac", "Eq", "Ord", "Show", "Pow", "Hash", "Real")],
-      ["BigInt", preRegistered("Num", "Signed", "FromBigInt", "Eq", "Ord", "Show", "Pow", "Integral", "Hash", "Real")],
+      ["BigInt", preRegistered("Num", "Signed", "FromBigInt", "Eq", "Ord", "Show", "Pow", "Integral", "Hash", "Real", "Bitwise")],
       ["String", preRegistered("Eq", "Ord", "Show", "Concat", "Hash", "Iterable")],
       // The two enumeration-membered fundamentals answer from the #147/#159 pin
       // — the four the compiler can derive — because that is exactly what an
@@ -205,9 +205,10 @@ describe("the program table is what makes a prelude module's plan the consumer's
       "/Hex/Vector.hex",
     ]);
     // String's newly source-owned `Iterable` row is one more program-visible
-    // candidate that neither earlier numeric companion can see locally.
-    expect(shortfalls.find(({ path }) => path === "/Hex/Int.hex")?.missing).toBe(33);
-    expect(shortfalls.find(({ path }) => path === "/Hex/Nat.hex")?.missing).toBe(25);
+    // candidate that neither earlier numeric companion can see locally, and so
+    // is `BigInt.hex`'s `Bitwise` row, seated after both (`bitwise.md` §2).
+    expect(shortfalls.find(({ path }) => path === "/Hex/Int.hex")?.missing).toBe(34);
+    expect(shortfalls.find(({ path }) => path === "/Hex/Nat.hex")?.missing).toBe(26);
   });
 
   test("emission plans from the table it is handed, not from the module", () => {

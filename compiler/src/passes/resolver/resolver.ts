@@ -2794,6 +2794,12 @@ class Resolver {
             },
           });
         }
+        if (item.specifier === INTRINSIC_SPECIFIER && declaration.kind === "ExternFun") {
+          this.#symbols.set(binding.symbol, {
+            ...this.#symbol(binding.symbol),
+            intrinsic: declaration.foreignName?.text ?? declaration.localName.text,
+          });
+        }
         this.#predeclaredBindings.set(declaration, binding);
         if (existing === undefined) scope.define(declaration.localName.text, binding.symbol);
       }

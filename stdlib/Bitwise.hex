@@ -1,0 +1,27 @@
+module Bitwise
+
+(** Bitwise operations on integers, and the constraint behind `band`, `bor`,
+    `bxor`, and `bnot`. Every instance computes the true integer answer: two's
+    complement over integers of unbounded width, so an `Int` and a `BigInt`
+    holding the same value give the same answer. The standard instances are
+    `Int` and `BigInt`. *)
+export constraint Bitwise<a> =
+    (** Each bit of the result is set where it is set in both `left` and
+        `right`. The operator `band` spells it. *)
+    bitAnd(left: a, right: a) -> a
+    (** Each bit of the result is set where it is set in `left` or `right`.
+        The operator `bor` spells it. *)
+    bitOr(left: a, right: a) -> a
+    (** Each bit of the result is set where exactly one of `left` and `right`
+        has it set. The operator `bxor` spells it. *)
+    bitXor(left: a, right: a) -> a
+    (** Every bit of `value` flipped, which is `-value - 1`. The operator
+        `bnot` spells it. *)
+    bitNot(value: a) -> a
+    (** `value` times two to the power `count`. A negative `count` shifts
+        right instead. *)
+    shiftLeft(value: a, count: Int) -> a
+    (** `value` divided by two to the power `count`, rounded toward negative
+        infinity, so a long enough shift reaches `0` or `-1`. A negative
+        `count` shifts left instead. *)
+    shiftRight(value: a, count: Int) -> a

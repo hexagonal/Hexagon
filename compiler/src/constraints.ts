@@ -45,6 +45,7 @@ export const PRE_REGISTERED_CONSTRAINTS: readonly string[] = [
   "Iterable",
   "Integral",
   "Real",
+  "Bitwise",
 ];
 
 /**
@@ -112,6 +113,7 @@ export const PRE_REGISTERED_CONSTRAINT_MEMBERS: Readonly<
   Iterable: ["toSeq"],
   Integral: ["div", "mod", "quot", "rem", "gcd"],
   Real: ["abs", "sign"],
+  Bitwise: ["bitAnd", "bitOr", "bitXor", "bitNot", "shiftLeft", "shiftRight"],
 };
 
 /**

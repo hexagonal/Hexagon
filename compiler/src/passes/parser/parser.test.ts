@@ -521,6 +521,101 @@ describe("parse", () => {
     expect(module.diagnostics).toEqual([]);
   });
 
+  describe("bitwise operators (bitwise.md §3)", () => {
+    // The parse as a fully parenthesized string: each binary node wraps its
+    // operands, so the grouping the precedence table chose is the text.
+    const spelled: Record<string, string> = {
+      BitAnd: "band", BitOr: "bor", BitXor: "bxor", Add: "+", Subtract: "-",
+      Multiply: "*", Power: "**", Range: "..", And: "and", Or: "or",
+    };
+    const shape = (expression: Parsed.Expr): string => {
+      switch (expression.kind) {
+        case "Binary":
+          return `(${shape(expression.left)} ${spelled[expression.operator] ?? expression.operator} ${shape(expression.right)})`;
+        case "Unary":
+          return `(${expression.operator === "BitNot" ? "bnot " : expression.operator === "Not" ? "not " : "-"}${shape(expression.operand)})`;
+        case "Comparison":
+          return `(${expression.operands.map(shape).join(" cmp ")})`;
+        case "Name":
+          return expression.name.text;
+        case "Integer":
+          return expression.decimal;
+        case "Call":
+          return `${shape(expression.callee)}(${expression.arguments.map(shape).join(", ")})`;
+        case "Group":
+          return shape(expression.expression);
+        default:
+          return `<${expression.kind}>`;
+      }
+    };
+    const parsedShape = (text: string): string => {
+      const module = parseSource(`let value = ${text}`);
+      expect(module.diagnostics).toEqual([]);
+      return shape((module.items[0] as Parsed.LetItem).value);
+    };
+
+    test.each([
+      ["flags band mask == 0", "((flags band mask) cmp 0)"],
+      ["a + b band c", "((a + b) band c)"],
+      ["a bor b band c", "(a bor (b band c))"],
+      ["a bor b bxor c band d", "(a bor (b bxor (c band d)))"],
+      ["a band b band c", "((a band b) band c)"],
+      ["bnot x ** 2", "((bnot x) ** 2)"],
+      ["-x ** 2", "(-(x ** 2))"],
+      ["bnot f(x)", "(bnot f(x))"],
+      ["bnot -x", "(bnot (-x))"],
+      ["0..n band mask", "(0 .. (n band mask))"],
+      ["flags band bnot mask", "(flags band (bnot mask))"],
+      ["not a band b == 0", "(not ((a band b) cmp 0))"],
+      ["p and a bor b == c", "(p and ((a bor b) cmp c))"],
+      ["(a bor b) band mask", "((a bor b) band mask)"],
+      ["f(x)band y", "(f(x) band y)"],
+    ])("%s parses as %s", (text, expected) => {
+      expect(parsedShape(text)).toBe(expected);
+    });
+
+    test("band, bor, and bxor stay names outside the operator seat", () => {
+      const module = parseSource(
+        "let band = 3\nlet bor = band(bxor)\nlet r = {band = 1}\nlet s = r.band\n" +
+          "let t = xs.map(band => band + 1)",
+      );
+      expect(module.diagnostics).toEqual([]);
+      expect((module.items[1] as Parsed.LetItem).value).toMatchObject({
+        kind: "Call",
+        callee: { kind: "Name", name: { text: "band" } },
+      });
+    });
+
+    test("a leading band at the item's column starts a new item", () => {
+      const module = parseSource("let z = flags\nband.play()");
+      expect(module.diagnostics).toEqual([]);
+      expect(module.items).toHaveLength(2);
+    });
+
+    test("a band ending its line continues onto a deeper line", () => {
+      const module = parseSource("let y =\n    flags band\n        mask");
+      expect(module.diagnostics).toEqual([]);
+      // The right-hand side on its own line is a block; its one item is the
+      // whole conjunction, `mask` included.
+      expect((module.items[0] as Parsed.LetItem).value).toMatchObject({
+        kind: "Block",
+        items: [{ kind: "ExprItem", expression: { kind: "Binary", operator: "BitAnd" } }],
+      });
+    });
+
+    test("a glued band after a parenthesis keeps the suffix seat", () => {
+      const module = parseSource("let c = (a bor b)band");
+      expect((module.items[0] as Parsed.LetItem).value).toMatchObject({
+        kind: "PatternConstruction",
+      });
+    });
+
+    test("bnot is reserved in bare seats and a name in name seats", () => {
+      expect(parseSource("let s = r.bnot").diagnostics).toEqual([]);
+      expect(parseSource("let f = bnot => 1").diagnostics.length).toBeGreaterThan(0);
+    });
+  });
+
   test("preserves comparison chains and rejects non-associative chains", () => {
     const module = parseSource("a < middle <= z\n1..2..3\nx := y := z");
 

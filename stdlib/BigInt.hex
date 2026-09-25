@@ -26,6 +26,11 @@ extern from "hex:intrinsic"
     fun bigIntRem as nativeRem(left: BigInt, right: BigInt) -> BigInt
     fun bigIntToIntUnchecked as toIntUnchecked(value: BigInt) -> Int
     fun bigIntToFloatUnchecked as toFloatUnchecked(value: BigInt) -> Float
+    fun bigIntBitAnd as nativeBitAnd(left: BigInt, right: BigInt) -> BigInt
+    fun bigIntBitOr as nativeBitOr(left: BigInt, right: BigInt) -> BigInt
+    fun bigIntBitXor as nativeBitXor(left: BigInt, right: BigInt) -> BigInt
+    fun bigIntShiftLeft as nativeShiftLeft(value: BigInt, count: Int) -> BigInt
+    fun bigIntShiftRight as nativeShiftRight(value: BigInt, count: Int) -> BigInt
 
 honor Num<BigInt> =
     (** The sum of `left` and `right`, exactly. *)
@@ -134,6 +139,24 @@ honor Integral<BigInt> =
             larger := smaller
             smaller := next
         larger
+
+// `bitwise.md` §4.4: BigInt's native operators already compute the true
+// integer answer, so every member lowers to one of them.
+honor Bitwise<BigInt> =
+    (** The bits set in both `left` and `right`. *)
+    bitAnd(left, right) = nativeBitAnd(left, right)
+    (** The bits set in `left` or `right`. *)
+    bitOr(left, right) = nativeBitOr(left, right)
+    (** The bits set in exactly one of `left` and `right`. *)
+    bitXor(left, right) = nativeBitXor(left, right)
+    (** Every bit of `value` flipped: `-value - 1`. *)
+    bitNot(value) = -value - 1
+    (** `value` times two to the power `count`; a negative `count` shifts right.
+        The host's limit on `BigInt` size applies. *)
+    shiftLeft(value, count) = nativeShiftLeft(value, count)
+    (** `value` divided by two to the power `count`, rounded toward negative
+        infinity; a negative `count` shifts left. *)
+    shiftRight(value, count) = nativeShiftRight(value, count)
 
 honor Real<BigInt> =
     abs(x) = if x < 0 then -x else x

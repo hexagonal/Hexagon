@@ -37,6 +37,21 @@ extern from "hex:intrinsic"
     fun intHash as nativeHash(value: Int) -> Int
     fun intQuot as nativeQuot(left: Int, right: Int) -> Int
     fun intRem as nativeRem(left: Int, right: Int) -> Int
+    fun intBitAnd as nativeBitAnd(left: Int, right: Int) -> Int
+    fun intBitOr as nativeBitOr(left: Int, right: Int) -> Int
+    fun intBitXor as nativeBitXor(left: Int, right: Int) -> Int
+    fun intShiftLeft as nativeShiftLeft(value: Int, count: Int) -> Int
+    fun intShiftRight as nativeShiftRight(value: Int, count: Int) -> Int
+
+    (** `value` reduced to the signed 32-bit range: the value in [-2^31, 2^31)
+        that differs from `value` by a multiple of 2^32. It compiles to
+        JavaScript's `value | 0`. *)
+    export fun intToInt32 as toInt32(value: Int) -> Int
+
+    (** `value` reduced to the unsigned 32-bit range: the value in [0, 2^32)
+        that differs from `value` by a multiple of 2^32. It compiles to
+        JavaScript's `value >>> 0`. *)
+    export fun intToUint32 as toUint32(value: Int) -> Int
 
 honor Num<Int> =
     (** The sum of `left` and `right`, exact within the safe range. *)
@@ -145,6 +160,27 @@ honor Real<Int> =
             Sign.Negative
         else
             Sign.Positive
+
+// `bitwise.md` §4.2. The natives compute the true integer answer on the plain
+// `number`: JavaScript's own operator where both operands fit in 32 bits, the
+// high and low halves otherwise. `bitNot` is ordinary Hexagon, over `Signed`'s
+// members — a strictly simpler operation than the one being defined.
+honor Bitwise<Int> =
+    (** The bits set in both `left` and `right`, as a true integer: no 32-bit
+        truncation, so `0x1_0000_0001 band 0x1_0000_0000` is `0x1_0000_0000`. *)
+    bitAnd(left, right) = nativeBitAnd(left, right)
+    (** The bits set in `left` or `right`, as a true integer. *)
+    bitOr(left, right) = nativeBitOr(left, right)
+    (** The bits set in exactly one of `left` and `right`, as a true integer. *)
+    bitXor(left, right) = nativeBitXor(left, right)
+    (** Every bit of `value` flipped: `-value - 1`. *)
+    bitNot(value) = -value - 1
+    (** `value` times two to the power `count`; a negative `count` shifts right.
+        Past the safe range the result rounds, as `Int` arithmetic does. *)
+    shiftLeft(value, count) = nativeShiftLeft(value, count)
+    (** `value` divided by two to the power `count`, rounded toward negative
+        infinity; a negative `count` shifts left. *)
+    shiftRight(value, count) = nativeShiftRight(value, count)
 
 // The largest magnitude an `Int` holds exactly, in either direction: 2^53 - 1.
 // The range being symmetric is what lets `checkedSub` negate its right operand
