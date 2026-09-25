@@ -1,7 +1,7 @@
 # Hexagon Spec: Numeric Literals
 
 **Status:** Decided (July 2026); §5.1 amended September 2026 for #808 — the tower is a closed list, the expected-type lift governs every spelling of a tower member call, reaches a dot call's receiver under Method Syntax §2.2's receiver rule, and is binding wherever it lands — a stand-down ends in refusal at every seat, the dot's receiver included (#821).
-**Decision:** Roc-style polymorphic integer literals with `Int` defaulting. `1n` is monomorphic `BigInt`. Unsuffixed decimal/exponent literals are monomorphic `Float`; `d` literals are monomorphic `Dec` (`dec.md`, implemented locally; validation status recorded there).
+**Decision:** Roc-style polymorphic integer literals with `Int` defaulting. `1n` is monomorphic `BigInt`. Unsuffixed decimal/exponent literals are monomorphic `Float`; `d` literals are monomorphic `Dec` (`dec.md`).
 
 This document is written for a future implementation session. It assumes the reader knows the existing `hexc` architecture: Algorithm J with union-find mutable type variables, level-based generalisation, constraints compiled to dictionary passing, and `honor` declarations as instance definitions.
 

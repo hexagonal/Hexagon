@@ -186,11 +186,21 @@ honor FromBigInt<Dec> =
 let canonical(decimal: Dec): (BigInt, Int) =
     if decimal.unscaled == 0 then (0n, 0)
     else
+        // Strip zeros in doubling strides, halving the stride when it overshoots,
+        // so a long run of zeros costs a few divisions rather than one per zero.
+        // A stride of one always succeeds under the loop's guard.
         var coefficient = decimal.unscaled
         var remainingPlaces = decimal.places
+        var stride: Int = 1
         while remainingPlaces > 0 and coefficient.rem(10) == 0
-            coefficient := coefficient.quot(10)
-            remainingPlaces := remainingPlaces - 1
+            let count = if stride < remainingPlaces then stride else remainingPlaces
+            let divisor = tenTo(count)
+            if coefficient.rem(divisor) == 0 then
+                coefficient := coefficient.quot(divisor)
+                remainingPlaces := remainingPlaces - count
+                stride := stride * 2
+            else
+                stride := if stride > 1 then stride.quot(2) else 1
         (coefficient, remainingPlaces)
 
 honor Eq<Dec> =

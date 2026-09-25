@@ -1,6 +1,6 @@
 # Hexagon Spec: `Dec`
 
-**Status:** Decided and implemented (September 2026).
+**Status:** Decided and implemented.
 **Scope:** A fundamental prelude decimal type, exact arithmetic, explicit rounding,
 numerical comparison and hashing, retained decimal places, and display.
 **Companions:** `numeric-literals.md`, `constraints.md`,
@@ -70,7 +70,7 @@ number of places, without a minus sign.
 
 ## 3. Constraints and the public operation names
 
-The agreed instances are `Num<Dec>`, `Signed<Dec>`, `Eq<Dec>`, `Ord<Dec>`,
+The instances are `Num<Dec>`, `Signed<Dec>`, `Eq<Dec>`, `Ord<Dec>`,
 `Show<Dec>`, `Hash<Dec>`, `Real<Dec>`, `Pow<Dec>`, and `FromBigInt<Dec>`.
 `Num` and `Signed` are implemented explicitly;
 numerical `Eq`, `Ord`, and matching `Hash` are also explicitly implemented.
@@ -150,7 +150,7 @@ the count (`2`). These accessors support extensions and adapters. For everyday
 inspection and display, prefer `show`, which returns `"5.00"` for this value.
 Opacity prevents direct field deconstruction outside the module in Hexagon. The
 ordinary JavaScript record remains inspectable, with fields `unscaled` and `places`. No `(x, y)dec`
-construction/deconstruction pattern is introduced in this release.
+construction/deconstruction pattern exists.
 
 ### Places arguments and validation
 
@@ -242,7 +242,7 @@ Existing numeric widening applies: an established `Nat` can enter through
 `Num<Dec>.fromNat`, and an established `Int` through `Signed<Dec>.fromInt`, when
 `Dec` is independently established as the target. Both operand orders are covered.
 No dedicated mixed-type multiplication instance is necessary. The explicit
-`Dec.fromBigInt(value: BigInt): Dec` is agreed and equals `Dec.create(value, 0)`.
+`Dec.fromBigInt(value: BigInt): Dec` equals `Dec.create(value, 0)`.
 Under the prerequisite `integer-widening.md` design, it is the required member
 of `FromBigInt<Dec>` and also serves automatic BigInt-source injection. The
 existing `fromNat` and `fromInt` entries delegate through exact BigInt conversion
@@ -564,8 +564,10 @@ classification is unchanged.
   values whose written digits suggest a tie the binary value does not hold,
   negative zero, the largest finite float and the smallest subnormal, `NaN` and
   both infinities, and negative places ahead of the finiteness check.
-- Hashes differ for a number and its tenfold neighbours (`5`, `0.5`, `0.05`, `50`),
-  so the canonical key's place count is known to participate.
+- Equality is false between a number and its tenfold neighbours (`5` and `0.5`),
+  and between nearby values at different places (`1.5` and `1.51`).
+- As a quality check on the implementation, not a Hash law: `5`, `0.5`, `0.05`,
+  and `50` hash differently, showing the hashed key includes its place count.
 
 ## 12. Deferred work
 

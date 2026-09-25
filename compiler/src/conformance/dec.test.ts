@@ -279,6 +279,8 @@ describe("Dec literals and exact decimal arithmetic", () => {
         "export let compareEqual: Ordering = 1.50d.compare(1.500d)\n" +
         "export let less: Bool = -2.0d < -1.99d\n" +
         "export let hashes: Bool = 1.50d.hash() == 1.500d.hash() and 0d.hash() == 0.00d.hash()\n" +
+        "export let tenfoldUnequal: (Bool, Bool, Bool, Bool) = " +
+          "(5d == 0.5d, 0.5d != 0.05d, 1.5d == 1.51d, -5d == 5.0d)\n" +
         "export let integralHashes: Bool = 3d.hash() == 3.0d.hash() and -0.5d.hash() == -0.50d.hash()\n" +
         "export let scaledHashes: Int = Set.fromVector([5d.hash(), 0.5d.hash(), 0.05d.hash(), 50d.hash()]).size()\n" +
         "export let mapSize: Int = map.size()\n" +
@@ -292,6 +294,7 @@ describe("Dec literals and exact decimal arithmetic", () => {
       compareEqual: { tag: "Equal" },
       less: true,
       hashes: true,
+      tenfoldUnequal: [false, true, false, false],
       integralHashes: true,
       mapSize: 1,
       replacement: { tag: "Some", value: 2 },

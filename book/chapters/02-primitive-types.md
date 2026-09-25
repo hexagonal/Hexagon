@@ -214,7 +214,7 @@ Dec.fromFloat(2.675, 2)       // 2.67: the nearest double is just below 2.675
 ```
 
 Prefer exact inputs where you have them, and use this door for results that were
-honestly approximate, such as a rate computed with `Math`.
+honestly approximate, such as a rate computed in `Float`.
 
 Retained places affect display, while equality and ordering compare numbers:
 
@@ -267,7 +267,7 @@ Dec returns a `BigInt`, so large whole-number results stay exact. When a calcula
 calls for the other tie rule, use `Float.roundAway` or `Dec.roundEven`.
 
 Because multiplication adds places, repeated multiplication grows them. Compounding
-monthly interest at a six-place rate for 360 months would retain 2,160 places. Round
+monthly interest at a six-place rate for 360 months would retain over 2,000 places. Round
 at each step, as a ledger does:
 
 ```hexagon
@@ -281,7 +281,8 @@ value. Places parameters and the `places` accessor use `Int`, so a binding such
 as `let places = 2` works directly, and observed counts can be subtracted.
 Negative places throw `NegativeDecimalPlacesError`.
 
-Dec has no NaN, infinity, or negative zero. Its coefficient is limited by available
+Dec has no NaN, infinity, or negative zero, so `Dec.fromFloat` throws
+`DecRangeError` for a `NaN` or infinite float. Its coefficient is limited by available
 resources; its decimal-place count uses the nonnegative Int range. Exact multiplication
 and powers throw `DecimalPlacesOverflowError` if the retained count exceeds that
 range. Large permitted counts can still demand more memory than a machine has.

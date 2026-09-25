@@ -223,7 +223,7 @@ and arithmetic; checking inferred types or snapshots alone is insufficient.
 
 ## 10. Dec conversions
 
-Rat owns all conversions between the two types; validation status is recorded in `dec.md`:
+Rat owns all conversions between the two types (`dec.md` §4):
 
 ```text
 Rat.fromDec(value: Dec): Rat
