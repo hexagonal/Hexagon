@@ -283,7 +283,7 @@ Foreign throws participate in ordinary Hexagon `try`/`catch` through the prelude
 
 ## 8. The `Hex` runtime type namespace
 
-Generated `.d.ts` files that mention Hexagon-owned runtime types use one type-only namespace import:
+The runtime's branded interfaces for its Hexagon-owned types live in one runtime declaration module, and the declaration files that name them reach it through one type-only namespace import:
 
 ```ts
 import type * as Hex from "./hex.js";
@@ -291,7 +291,7 @@ import type * as Hex from "./hex.js";
 
 *(Amended 2026-08-02, §8.3: this line read `from "@hexagon/runtime"`. No such package exists to resolve that specifier — the import target is re-grounded to the runtime declaration module the compiler emits into the program's own output, spelled by **path-adjusted relative specifier**, of which `./hex.js` is the same-directory case; a module emitted into a subdirectory — a dotted name, or another package's directory (Packages §6; #829) — spells `../hex.js` one level down and `../../hex.js` two, and a collision-probed root file gives `./hex1.js`, and so on. The alias, the one-import discipline, and the faces are unchanged; the last bullet's "runtime's public module surface" is qualified below. Both code blocks in this section are respelled rather than left with the note beside them: they are copyable `.d.ts` samples, and round 2's standard is that an unapplied correction does not stop an implementer.)*
 
-*(#1071.)* Their public faces name them **by their Hexagon names** — `Vector<a>`, `Map<k, v>`, `Set<a>`, and `Range` (§8.1) — each through a type-only named import from the type's declaring companion, which declares it by a public intrinsic `type` row (Intrinsics §3.3) and whose declaration file exports the name as an alias of this module's branded interface, the #622 seat shape (Part 7 §2.1, §2.3). The declaration files are where the namespace import above appears:
+*(#1071.)* The public faces of `Vector`, `Map`, `Set`, and `Range` name them **by their Hexagon names** — `Vector<a>`, `Map<k, v>`, `Set<a>`, and `Range` (§8.1) — each through a type-only named import from the type's declaring companion, which declares it by a public intrinsic `type` row (Intrinsics §3.3) and whose declaration file exports the name as an alias of this module's branded interface, the #622 seat shape (Part 7 §2.1, §2.3). The declaration files are where the namespace import above appears:
 
 ```ts
 // Hex/Vector.d.ts
@@ -314,7 +314,7 @@ export declare function index():
   Map<string, Vector<number>>;
 ```
 
-- **The names are Hexagon's** (James, 2026-09-25): a generated declaration is read by someone who knows Hexagon's types, so `Map<string, number>` reads as Hexagon's map, and Hexagon's names are primary where the two languages share a word (Part 7 §1.1, §1.2 — the JavaScript and TypeScript globals are the ones re-spelled). The spelling admits no wrong value: the brand (§8.3) keeps a native `Map` from satisfying Hexagon's `Map` whatever it is called. The captured `JsMap`, `JsSet`, and `Array` keep TypeScript's own read-only types (§4.1), because each *is* the native object — the ground `Int` faces as `number` on. The imports are type-only and by themselves add no emitted JavaScript dependency.
+- **The names are Hexagon's**: a generated declaration is read by someone who knows Hexagon's types, so `Map<string, number>` reads as Hexagon's map, and Hexagon's names are primary where the two languages share a word (Part 7 §1.1, §1.2 — the JavaScript and TypeScript globals are the ones re-spelled). The spelling admits no wrong value: the brand (§8.3) keeps a native `Map` from satisfying Hexagon's `Map` whatever it is called. The captured `JsMap`, `JsSet`, and `Array` keep TypeScript's own read-only types (§4.1), because each *is* the native object, for the same reason `Int` faces as `number`. The imports are type-only and by themselves add no emitted JavaScript dependency.
 - The runtime package *(2026-08-02: read "the emitted runtime declaration module", §8.3)* exports the naturally named public types `Vector`, `Map`, `Set`, and `Range`; **`Hex` is the generated file's local namespace alias**, not a claim on a global identifier. The compiler controls the alias in its generated declarations and must resolve the rare collision with a user-exported local `Hex` name **deterministically**, while preserving `Hex` as the normal spelling. (The exact deterministic renaming scheme is an implementation obligation of the `.d.ts` generator; recorded in §10.)
 - `Hex` is the standard short form for tooling and generated foreign surfaces, aligned with the `.hex` source extension and the `hexc` compiler name. The mental model resembles C++'s `import std;` plus `std::…`: one short namespace houses the runtime vocabulary. JavaScript operation exports may support a matching `Hex.Vector.get(...)` style through the runtime's public module surface, but the type-only declaration import does not by itself dictate that runtime export organization. *(2026-08-02, §8.3: no runtime public module surface exists in v1 — the "may" stays speculative, commits to nothing, and would land in `hex.js`, the seat §8.3 reserves.)*
 
