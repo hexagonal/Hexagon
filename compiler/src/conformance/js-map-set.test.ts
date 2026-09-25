@@ -1059,18 +1059,25 @@ describe("the faces and the emitted text the new surfaces produce", () => {
    * spellings and imports the captures; the shipped copy, uncontested, writes
    * the bare text.
    */
+  const FROM_SEQ_CONSUMER =
+    "let buildMap: (Seq((String, Int))) -> JsMap(String, Int) = JsMap.fromSeq\n" +
+    "let buildSet: (Seq(Int)) -> JsSet(Int) = JsSet.fromSeq\n" +
+    "export fun m(): JsMap(String, Int) = buildMap(Vector.toSeq([(\"a\", 1)]))\n" +
+    "export fun s(): JsSet(Int) = buildSet(Vector.toSeq([1]))\n" +
+    "export fun m2(): JsMap(String, Int) = JsMap.fromSeq(Vector.toSeq([(\"a\", 1)]))\n" +
+    "export fun s2(): JsSet(Int) = JsSet.fromSeq(Vector.toSeq([1]))\n";
+
   test("`fromSeq` steps around a contested `Map`/`Set` in a supplied companion", () => {
     const contested = (name: string): string =>
       `${STDLIB_SOURCES[name]!}\nexport union Contested = Map(Int) | Set(Int)\n`;
-    // A prelude module is emitted only when something emitted imports it, so
-    // `/main.hex` reaches both constructors: without a consumer there would be
-    // no text to read, and the assertions below would pass on nothing.
+    // A prelude module is emitted only when something emitted imports it, and
+    // a call to either row is inlined (Intrinsics §8.3), so `/main.hex` binds
+    // both constructors as values: without a consumer there would be no text
+    // to read, and the assertions below would pass on nothing.
     const project = compileFiles([
       [
         "/main.hex",
-        "module Main\n\n" + "export fun m(): JsMap(String, Int) =\n" +
-          '    JsMap.fromSeq(Vector.toSeq([("a", 1)]))\n' +
-          "export fun s(): JsSet(Int) = JsSet.fromSeq(Vector.toSeq([1]))\n",
+        "module Main\n\n" + FROM_SEQ_CONSUMER,
       ],
       ["/JsMap.hex", contested("JsMap")],
       ["/JsSet.hex", contested("JsSet")],
@@ -1085,15 +1092,17 @@ describe("the faces and the emitted text the new surfaces produce", () => {
     expect(text("/JsSet.hex")).toContain("__global_Set");
     expect(text("/JsSet.hex")).toContain("new __global_Set(__a)");
     expect(text("/JsSet.hex")).not.toMatch(/new Set\(/u);
+    // The contest is the companion's own: a call inlined into `/main.hex`
+    // spells the global in `/main.hex`'s vocabulary, where nothing contests it.
+    expect(text("/main.hex")).toContain("new Map(");
+    expect(text("/main.hex")).toContain("new Set(");
   });
 
   test("and the uncontested companion writes the bare spelling", () => {
     const project = compileFiles([
       [
         "/main.hex",
-        "module Main\n\n" + "export fun m(): JsMap(String, Int) =\n" +
-          '    JsMap.fromSeq(Vector.toSeq([("a", 1)]))\n' +
-          "export fun s(): JsSet(Int) = JsSet.fromSeq(Vector.toSeq([1]))\n",
+        "module Main\n\n" + FROM_SEQ_CONSUMER,
       ],
       ["/JsMap.hex", STDLIB_SOURCES["JsMap"]!],
       ["/JsSet.hex", STDLIB_SOURCES["JsSet"]!],
@@ -1134,9 +1143,10 @@ describe("the faces and the emitted text the new surfaces produce", () => {
     expect(text).toContain("(__a, __b) => __a.has(__b)");
     expect(text).toContain("(__a, __b) => __a.get(__b)");
     // The verdict, in one line and in the order §4.2 fixes: the membership
-    // question, and the raw read only on its `true` branch.
+    // question — `containsKey`, an exported row inlined at its call
+    // (Intrinsics §8.3) — and the raw read only on its `true` branch.
     expect(text).toContain(
-      'containsKey(map, key) ? { tag: "Some", value: readUnchecked(map, key) } : None',
+      'map.has(key) ? { tag: "Some", value: readUnchecked(map, key) } : None',
     );
     // And no fused shape *in the accessor*: the module's other text says the
     // word — the doc comments explain the hazard, and the `Seq` adapter helper

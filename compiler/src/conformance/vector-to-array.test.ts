@@ -468,7 +468,12 @@ describe("the `.d.ts` face is the `Array(a)` row (Part 1 §4.1, §9.1 obligation
    * still typecheck.
    */
   test("the prelude's `Vector.d.ts` carries the generic row and its doc", () => {
-    const compiled = compileMain("module Main\n\n" + FACE);
+    // A call to the row is inlined (Intrinsics §8.3), so a value reference is
+    // what keeps `Vector` emitted.
+    const compiled = compileMain(
+      "module Main\n\n" + "let convert: (Vector(Int)) -> Array(Int) = Vector.toArray\n" +
+        "export let f(v: Vector(Int)): Array(Int) = convert(v)\n",
+    );
     expect(compiled.diagnostics).toEqual([]);
     const vector = compiled.modules.find(({ source }) => source.path.endsWith("/Vector.hex"));
     expect(vector).toBeDefined();

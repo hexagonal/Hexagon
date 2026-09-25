@@ -144,6 +144,10 @@ In particular, `sqrt` is not fractional power, and hyperbolic functions are
 not naive compositions of `exp`. Implementation must preserve the existing
 `Float.pow` behaviour and must add no `Math.pow` export.
 
+Each operation is an exported door row whose lowering is the one native call, so
+a call is inlined as that call (Intrinsics §8.3): `Math.sqrt(x)` emits
+`Math.sqrt(x)`, and `Math.ln(x)` emits `Math.log(x)`.
+
 Conformance must cover the full interface, NaN in every argument position,
 the boundary tables, domain-adjacent inputs, ordinary finite values, and
 finite inputs whose `atan` rounds to an endpoint. Check the sign of zero

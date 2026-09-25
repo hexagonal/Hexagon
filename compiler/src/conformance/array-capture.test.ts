@@ -100,7 +100,12 @@ function mainJavaScript(source: string): string {
 
 /** The emitted JavaScript of the injected `stdlib/Array.hex`. */
 function companionJavaScript(): string {
-  const compiled = compileMain("module Main\n\n" + "export let size(xs: Array(Int)): Int = Array.length(xs)\n");
+  // A call to `Array.length` is inlined (Intrinsics §8.3), so the companion is
+  // reached by a value reference, which keeps it emitted.
+  const compiled = compileMain(
+    "module Main\n\n" + "let length: (Array(Int)) -> Int = Array.length\n" +
+      "export let size(xs: Array(Int)): Int = length(xs)\n",
+  );
   expect(compiled.diagnostics).toEqual([]);
   const companion = compiled.modules.find(({ source }) => source.path.endsWith("/Array.hex"));
   if (companion === undefined) throw new Error("no Array.hex in the compiled project");
@@ -277,8 +282,9 @@ describe("the dot form is companion dispatch, and the bare read is not (§13.1)"
       "export let size(xs: Array(Int)): Int = Array.length(xs)\n" +
         "export let sizeDot(xs: Array(Int)): Int = xs.length()\n",
     );
-    expect(javascript).toContain("const size = xs => length(xs);");
-    expect(javascript).toContain("const sizeDot = xs => length(xs);");
+    // Both spellings are the row's call, inlined as the native read (Intrinsics §8.3).
+    expect(javascript).toContain("const size = xs => xs.length;");
+    expect(javascript).toContain("const sizeDot = xs => xs.length;");
     expect(size([1, 2])).toBe(2);
     expect((exports_["sizeDot"] as (xs: readonly number[]) => number)([1, 2])).toBe(2);
   });
