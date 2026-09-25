@@ -146,10 +146,24 @@ describe("Functions specification conformance", () => {
     ).toEqual(["describeIt"]);
     const importedInstance = compileFiles([
       ["/lib.hex", "module Lib\n\nexport " + describeBox],
-      ["/main.hex", "module Main\n\nimport Lib\nexport let f<a: Eq>(x: Lib.Box(a)): String = Lib.Describe.describeIt(x)\n"],
+      ["/main.hex", "module Main\n\nimport Lib\nexport let f<a: Eq>(x: Lib.Box(a)): String = x.describeIt()\n"],
     ]);
-    expect(importedInstance.diagnostics.map(({ primary }) => primary.fileId)).toEqual([
-      importedInstance.modules.find(({ source }) => source.path === "/main.hex")!.source.id,
+    const mainId = (project: typeof importedInstance) =>
+      project.modules.find(({ source }) => source.path === "/main.hex")!.source.id;
+    expect(importedInstance.diagnostics.map(({ message, primary }) => [message, primary.fileId])).toEqual([
+      [
+        "`a` is declared to honor `Eq`, but the body requires `Describe`; write `<a: (Lib.Describe, Eq)>`, or remove the constraint annotation to let it be inferred",
+        mainId(importedInstance),
+      ],
+    ]);
+    // A missing instance for a copied demand carets the call too, not the
+    // callee's binder in its own module.
+    const missing = compileFiles([
+      ["/lib.hex", "module Lib\n\n" + describe],
+      ["/main.hex", "module Main\n\nimport Lib\nexport let s: String = Lib.describe((x: Int) => x)\n"],
+    ]);
+    expect(missing.diagnostics.map(({ message, primary }) => [message, primary.fileId])).toEqual([
+      ["functions have no `Show` instance", mainId(missing)],
     ]);
 
     // Entailment still discharges a copied demand: `Hash` provides `Eq`.

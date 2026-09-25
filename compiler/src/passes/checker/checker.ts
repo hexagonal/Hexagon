@@ -1244,6 +1244,13 @@ interface Requirement {
    */
   patternSeat?: true;
   /**
+   * Set on a requirement *derived* from another: a component of a structural
+   * one, or an instance's argument. It shares the demand's span, so a rider
+   * keyed on the operation seat (`bitwise.md` §9's logic word) must not read
+   * it as the operator's own.
+   */
+  derived?: true;
+  /**
    * Where the scheme carrying this requirement was *used*. `span` points at
    * the definition, which a copy inherits, so a report about the use — §6's
    * blocked-defaulting one, and a declared list's contract refusal (#1063) —
@@ -2983,6 +2990,8 @@ class Checker {
    * spellings are recorded: a member spelling was never a slip for a logic word.
    */
   readonly #bitwiseLogicWords = new Map<string, string>();
+  /** Whether `#require` is minting a derived requirement (`Requirement.derived`). */
+  #deriving = false;
   /** Exact Int expressions that checking injects into an independently known Signed target. */
   readonly #intWidenings = new WeakMap<Resolved.Expr, Requirement>();
   /** Exact BigInt expressions injected into an independently known FromBigInt target. */
@@ -20608,6 +20617,7 @@ class Checker {
       ...(demandedBy?.kind === "member" ? { demandedBy: demandedBy.name } : {}),
       ...(impliedTypes === undefined ? {} : { impliedTypes }),
       ...(this.#literalPatternSeat ? { patternSeat: true as const } : {}),
+      ...(this.#deriving ? { derived: true as const } : {}),
       reported: false,
     };
     const actual = this.#prune(type);
@@ -21630,6 +21640,8 @@ class Checker {
       // instance the component contributes, and emission renders that selection
       // rather than re-walking the type — the re-walk is what silently ignored a
       // hand-written component instance and read through `opaque`.
+      const deriving = this.#deriving;
+      this.#deriving = true;
       requirement.components = selection.obligations.map((obligation) => ({
         key: obligation.key,
         requirement: this.#require(
@@ -21644,6 +21656,7 @@ class Checker {
           obligation.identity,
         ),
       }));
+      this.#deriving = deriving;
       requirement.structural = true;
       return;
     }
@@ -21738,7 +21751,10 @@ class Checker {
           ? `functions have no \`${requirement.name}\` instance`
           : this.#userNominalIterableFailure(requirement, type) ??
             this.#missingInstanceMessage(requirement, type),
-      primary: requirement.span,
+      // At the use, as the declared-list refusals are (#1063): a requirement
+      // copied from a scheme keeps the definition's span, possibly another
+      // module's.
+      primary: requirement.useSpan ?? requirement.span,
     });
   }
 
@@ -21847,7 +21863,9 @@ class Checker {
     if (requirement.patternSeat === true) return "";
     // `bitwise.md` §9: a bitwise operator reached for on `Bool` names the logic
     // spelling it was mistaken for.
-    const logic = requirement.identity === BITWISE_IDENTITY
+    // Only the operator's own requirement: a derived one shares its span, and
+    // `Box(True) band Box(False)` has no `and` to offer.
+    const logic = requirement.identity === BITWISE_IDENTITY && requirement.derived !== true
       ? this.#bitwiseLogicWords.get(spanKey(requirement.span))
       : undefined;
     const subject = this.#prune(type);
@@ -22480,7 +22498,9 @@ class Checker {
       // The identity the head resolved to **at home**, where one is recorded
       // (#762): the binder's word belongs to the declaring module, and this
       // module may have no spelling for the constraint at all.
-      return parameter.constraints.map((constraint, index) =>
+      const deriving = this.#deriving;
+      this.#deriving = true;
+      const required = parameter.constraints.map((constraint, index) =>
         this.#require(
           constraint,
           actual,
@@ -22490,6 +22510,8 @@ class Checker {
           parameter.constraintIdentities?.[index] ?? this.#constraintIdentity(constraint),
         )
       );
+      this.#deriving = deriving;
+      return required;
     });
   }
 
