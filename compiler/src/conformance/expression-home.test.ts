@@ -628,4 +628,61 @@ describe("calls join the tree (#1062, part 2)", () => {
     expect(refusals("let a = (if c then 1.5 else 2.5).multiply(price)\n")).toHaveLength(1);
     expect(refusals("let y = 1.5\nlet a = y.multiply(price)\n")).toHaveLength(1);
   });
+
+  test("a callback's annotation is read early only where reading it has no effect", () => {
+    const apply = "let apply2(x: a, g: (a) -> a): a = g(x)\n";
+    // A hole is the lambda's own to read: it takes the type the call settles.
+    const project = compileMain(HEADER + FIXTURES + apply + "let w = apply2(m, (v: _) => v)\n");
+    expect(project.diagnostics).toEqual([]);
+    const main = project.modules.find(({ name }) => name === "Main")!;
+    expect(main.typed.typeHoles.map(({ scheme }) => scheme.type))
+      .toEqual([{ kind: "Primitive", name: "Nat" }]);
+    // A constrained hole's constraint is required once.
+    const frac = refusals(apply + "let w = apply2(m, (v: _ : Frac) => v)\n");
+    expect(frac).toHaveLength(1);
+    expect(frac[0]).toContain("type `Nat` has no `Frac` instance");
+    // An arrow's colour is reported as the lambda's own reading finds it, as on
+    // `main`; an early reading would call the `->?` orphaned instead.
+    expect(refusals(
+      "let spare(): Unit = ()\nlet applyF(x: a, g: (a) -> Int): Int = g(x)\n" +
+        "let w = applyF(spare, (k: () ->? Unit) => 1)\n",
+    )).toEqual([
+      "this signature's `->?` promises a colour the caller chooses, but the body solves it " +
+        "to the pure constant — the honest face is `->`",
+    ]);
+    // A malformed annotation reports once.
+    expect(refusals(apply + "let w = apply2(m, (v: Zork) => v)\n")).toEqual(["unknown type `Zork`"]);
+  });
+
+  test("a literal receiver is a value at every open member, through any grouping", () => {
+    for (const receiver of ["1.5", "(1.5)", "(-1.5)", "(-(1.5))"]) {
+      expect(refusals(`let a = ${receiver}.compare(price)\n`), receiver).toEqual([]);
+      expect(refusals(`let a = ${receiver}.multiply(price)\n`), receiver).toEqual([]);
+    }
+  });
+
+  test("the settled-callback report names what settled the home, and offers what compiles", () => {
+    const report = (sibling: string, settled: string, body: string, repairs: string): string =>
+      `\`${sibling}\` settled this call's \`${settled}\` before the callback was checked, and ` +
+      `the callback's body returns \`${body}\` — a callback's body chooses no type for the ` +
+      `arguments beside it; ${repairs}`;
+    // The value that established the home, not the first sibling.
+    expect(refusals(
+      "let apply4(x: a, y: a, g: (a) -> a): a = g(x)\nlet w = apply4(1, m, (v) => v + n)\n",
+    )).toEqual([report("m", "Nat", "Int", "write `(m: Int)`, or annotate the callback: `(v: Int) => …`")]);
+    // A parameter written in the variable, but not as it, is not annotated.
+    expect(refusals(
+      "let applyV(x: a, g: (Vector(a)) -> a): a = x\nlet w = applyV(m, (vs) => vs.at(1) + n)\n",
+    )).toEqual([report("m", "Nat", "Int", "write `(m: Int)`")]);
+    // A `Dec` body is reported as any other.
+    expect(refusals("let apply2(x: a, g: (a) -> a): a = g(x)\nlet w = apply2(n, (v) => v * price)\n"))
+      .toEqual([report("n", "Int", "Dec", "write `(n: Dec)`, or annotate the callback: `(v: Dec) => …`")]);
+  });
+
+  test("an annotated binding is never offered its own annotation", () => {
+    expect(refusals("let a: String = (n * 1.5).multiply(price)\n")).toEqual([
+      "`n * 1.5` settled at `Float` before `.multiply` saw `price` — a dot call's receiver " +
+        "is settled on its own; write `n * 1.5 * price`",
+    ]);
+  });
 });

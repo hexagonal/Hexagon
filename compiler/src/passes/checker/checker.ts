@@ -1891,8 +1891,8 @@ interface DecimalLiteralLeaf {
 function decimalLiteral(expression: Resolved.Expr): DecimalLiteralLeaf | undefined {
   if (expression.kind === "Float") return { node: expression, literal: expression, negative: false };
   if (expression.kind !== "Unary" || expression.operator !== "Negate") return undefined;
-  // The negation stands for the literal. `-(0.5)` is a negation of a group.
-  const inner = decimalLiteral(expression.operand);
+  // The negation stands for the literal, through its grouping (`-(1.5)`).
+  const inner = decimalLiteral(ungrouped(expression.operand));
   return inner === undefined
     ? undefined
     : { node: expression, literal: inner.literal, negative: !inner.negative };
@@ -2621,6 +2621,15 @@ function moduleAlias(constraint: string): string {
  * would have parsed as a `Tuple` — so the shed spelling is self-delimiting in
  * the argument seat it is pasted into.
  */
+/**
+ * A dot call's receiver as a value of its call: a literal through its
+ * grouping, which is punctuation (#1062, ruling b′), and anything else as it
+ * stands.
+ */
+function literalReceiver(receiver: Resolved.Expr): Resolved.Expr {
+  return decimalLiteral(ungrouped(receiver)) === undefined ? receiver : ungrouped(receiver);
+}
+
 function ungrouped(receiver: Resolved.Expr): Resolved.Expr {
   let node = receiver;
   for (; node.kind === "Group";) node = node.expression;
@@ -5797,7 +5806,9 @@ class Checker {
     // receiver is seat 0 and its expression is the one before the dot, so a
     // conversion or a mismatch reports where the reader wrote it.
     const seats: Mono[] = [receiver, ...expression.arguments.map(() => ERROR)];
-    const expressions = [callee.receiver, ...expression.arguments];
+    // A literal receiver is a value of the call through its grouping (#1062,
+    // ruling b′), so it joins a sibling group as the literal it is.
+    const expressions = [literalReceiver(callee.receiver), ...expression.arguments];
     if (cached !== undefined) {
       for (const [index, type] of cached.entries()) seats[index + 1] = type;
     }
@@ -6238,7 +6249,8 @@ class Checker {
     })();
     if (
       cachedArguments === undefined && subjectParameter !== undefined &&
-      this.#prune(subjectParameter).kind === "Variable"
+      this.#prune(subjectParameter).kind === "Variable" &&
+      literalReceiver(callee.receiver) === callee.receiver
     ) {
       this.#closedReceivers.set(callee.receiver, {
         call: expression,
@@ -14328,19 +14340,19 @@ class Checker {
       // joins the call's parts and promotes as any literal does.
       parts: [{
         value: {
-          expression: decimalLiteral(ungrouped(callee.receiver)) === undefined
-            ? callee.receiver
-            : ungrouped(callee.receiver),
+          expression: literalReceiver(callee.receiver),
           type: receiver,
         },
       }],
       rung: this.#towerRung(candidate.symbol)!,
     };
-    this.#closedReceivers.set(callee.receiver, {
-      call: expression,
-      constraint: candidate.constraint,
-      tower: true,
-    });
+    if (literalReceiver(callee.receiver) === callee.receiver) {
+      this.#closedReceivers.set(callee.receiver, {
+        call: expression,
+        constraint: candidate.constraint,
+        tower: true,
+      });
+    }
     this.#expressionTypes.set(expression, node.result);
     const known = this.#prune(calleeType);
     if (known.kind === "Function") node.subject = known.result;
@@ -14721,11 +14733,7 @@ class Checker {
     // Naming the home: a tower call's result is its home, so an unannotated
     // binding of the call names it by an annotation; anywhere else the
     // receiver is ascribed. A home with no spelling here is not offered.
-    // `Dec` is a prelude name, spelled bare wherever it is not shadowed.
-    const home = this.#typeSpellingAtSite(destination) ??
-      (destination.kind === "NominalRecord" && destination.record === this.#decRecord
-        ? "Dec"
-        : undefined);
+    const home = this.#homeSpelling(destination);
     const binding = this.#bindingValue;
     if (home !== undefined) {
       if (closed.tower && binding !== undefined && ungrouped(binding.value) === call) {
@@ -14740,6 +14748,17 @@ class Checker {
         "a dot call's receiver is settled on its own" +
         (repairs.length === 0 ? "" : `; ${repairs.join(", or ")}`),
     };
+  }
+
+  /**
+   * A home as a repair written at this site spells it (`#typeSpellingAtSite`),
+   * or `undefined` — `Dec` being a prelude name, spelled bare wherever it is
+   * not shadowed.
+   */
+  #homeSpelling(type: Mono): string | undefined {
+    const actual = this.#prune(type);
+    return this.#typeSpellingAtSite(actual) ??
+      (actual.kind === "NominalRecord" && actual.record === this.#decRecord ? "Dec" : undefined);
   }
 
   /**
@@ -15865,12 +15884,20 @@ class Checker {
           const face = this.#prune(parameters[index] ?? ERROR);
           if (expression?.kind !== "Lambda" || face.kind !== "Function") continue;
           if (!this.#occurs(variable as Variable, face.result)) continue;
-          const sibling = groups.get(variable)!.map((at) => expressions[at]!)[0]!;
+          // The value that establishes the home is the one to name.
+          const values = groups.get(variable)!.flatMap((at) => {
+            const part = collected.get(at);
+            return part === undefined
+              ? [{ expression: expressions[at]!, type: actuals[at] ?? ERROR }]
+              : "node" in part ? this.#treeValues(part.node) : [part.value];
+          });
+          const sibling = this.#chooseHome(values)?.source ?? values[0]?.expression;
+          if (sibling === undefined) continue;
           this.#siblingSettled.set(expression, {
             sibling,
-            parameters: face.parameters.map((component) =>
-              this.#occurs(variable as Variable, component)
-            ),
+            // Only a parameter written as the variable itself can be annotated
+            // with the wider type.
+            parameters: face.parameters.map((component) => this.#prune(component) === variable),
           });
         }
       }
@@ -15961,14 +15988,18 @@ class Checker {
     if (!numeric(given) || !numeric(settled) || this.#sameSeat(given, settled)) return undefined;
     if (!this.#reachesSeat(settled, given)) return undefined;
     const sibling = this.#writtenOperand(known.sibling) ?? this.#spelledExpression(known.sibling);
-    const wider = this.#typeSpellingAtSite(given);
-    if (sibling === undefined || wider === undefined) return undefined;
-    const repairs = [`write \`(${sibling}: ${wider})\``];
+    if (sibling === undefined) return undefined;
+    // A type this site cannot spell drops the repairs and keeps the report.
+    const wider = this.#homeSpelling(given);
+    const repairs = wider === undefined ? [] : [`write \`(${sibling}: ${wider})\``];
     // The callback annotated, where its parameters are plain names.
     const names = expression.parameters.map((parameter) =>
       parameter.annotation === undefined ? parameter.name : undefined
     );
-    if (names.every((name) => name !== undefined) && known.parameters.some((written) => written)) {
+    if (
+      wider !== undefined && names.every((name) => name !== undefined) &&
+      known.parameters.some((written) => written)
+    ) {
       const annotated = names.map((name, index) =>
         known.parameters[index] === true ? `${name}: ${wider}` : name
       );
@@ -15976,7 +16007,8 @@ class Checker {
     }
     return `\`${sibling}\` settled this call's \`${this.#display(settled)}\` before the callback ` +
       `was checked, and the callback's body returns \`${this.#display(given)}\` — a callback's ` +
-      `body chooses no type for the arguments beside it; ${repairs.join(", or ")}`;
+      "body chooses no type for the arguments beside it" +
+      (repairs.length === 0 ? "" : `; ${repairs.join(", or ")}`);
   }
 
   /**
@@ -15985,36 +16017,68 @@ class Checker {
    * #1062 ruling A2): a lambda is a black box whose interface is visible. Only
    * where the callee's component is still an unsolved variable and the written
    * type holds no inferable part, so the unification cannot fail and the
-   * lambda's own landing, later, stays the one that checks and reports; an
-   * annotation that reports anything when read is left to that landing too.
-   * A lambda that declares binders of its own is left entirely to it.
+   * lambda's own landing, later, stays the one that checks and reports. Only
+   * an annotation whose reading has no effect of its own is read early
+   * (`#readsCleanly`): no hole, row, arrow, or implied type, each of which
+   * records state when read. A lambda that declares binders of its own is left
+   * entirely to its landing.
    */
   #landWrittenFace(expression: Resolved.LambdaExpr, parameter: Mono | undefined, level: number): void {
     if ((expression.typeParameters ?? []).length > 0 || parameter === undefined) return;
     const face = this.#prune(parameter);
     if (face.kind !== "Function" || face.parameters.length !== expression.parameters.length) return;
     const land = (annotation: Resolved.TypeAnnotation | undefined, component: Mono): void => {
-      if (annotation === undefined) return;
+      if (annotation === undefined || !this.#readsCleanly(annotation)) return;
       const target = this.#prune(component);
       if (target.kind !== "Variable" || target.rigidName !== undefined) return;
-      const before = this.#diagnostics.count;
       const written = this.#annotationType(
         annotation,
         level + 1,
         new Map(),
         this.#annotationVariableScope ?? new Map(),
       );
-      if (this.#diagnostics.count > before) {
-        this.#diagnostics.rollback(before);
-        return;
-      }
-      if (this.#collectVariables(written).some(({ rigidName }) => rigidName === undefined)) return;
       this.#unify(target, written, annotation.span);
     };
     for (const [index, written] of expression.parameters.entries()) {
       land(written.annotation, face.parameters[index]!);
     }
     land(expression.returnAnnotation, face.result);
+  }
+
+  /**
+   * Whether reading `annotation` has no effect beyond its type: built from
+   * primitives, nominal and collection types, and declared variables already
+   * in scope. A hole, a row, an arrow, and an implied type each record state
+   * when read — a hole's variable, a tail, a colour — so reading one twice is
+   * never harmless, and is left to the lambda's own landing.
+   */
+  #readsCleanly(annotation: Resolved.TypeAnnotation): boolean {
+    switch (annotation.kind) {
+      case "Primitive":
+      case "Range":
+      case "JsValue":
+        return true;
+      case "TypeVariable":
+        return this.#annotationVariableScope?.has(annotation.name) === true;
+      case "Vector":
+      case "Set":
+      case "Array":
+      case "JsSet":
+      case "Node":
+        return this.#readsCleanly(annotation.element);
+      case "Map":
+      case "JsMap":
+        return this.#readsCleanly(annotation.key) && this.#readsCleanly(annotation.value);
+      case "Nullable":
+        return this.#readsCleanly(annotation.value);
+      case "Tuple":
+        return annotation.elements.every((element) => this.#readsCleanly(element));
+      case "Union":
+      case "RecordDeclaration":
+        return annotation.arguments.every((argument) => this.#readsCleanly(argument));
+      default:
+        return false;
+    }
   }
 
   /**
