@@ -154,7 +154,7 @@ this kind of named exit from the approximate world.
 
 **`Float.pow(value: Float, exponent: Float): Float`** is the analytic power — `exp(y·ln x)`, total, honestly IEEE with every `NaN` edge, `Float.pow(2.0, 0.5)` the nearest double to `√2`. It is the `widens` declaration over `Pow<Float>`'s member (Operators §6.3.1; Constraints §4.7; Modules §5.3's generalisation law): the operator `**` takes the member's `Int` exponent, the qualified spelling and the dot call take this door, and the member is the door's derived restriction to integer exponents, accounted for in the honor block as `pow = widened`. A fractional exponent at `**` draws the mandatory fixit pointing here.
 
-**Literals:** monomorphic, always `Float` — an unsuffixed numeric literal is a Float literal iff it contains a `.` or an exponent (`1.5`, `0.0`, `1e9`, `2.5e-3`). `_` separators allowed per §8. Unsuffixed decimal literals do **not** participate in the polymorphic literal scheme in v1 (deferred — see Numeric Literals spec §7, #525). The deferred piece is the polymorphism, not a conversion: a `Rat` `fromFloat` exists in no spelling, ever (friendly-numerics tenet 7), so a future design must carry the written digits — `0.1` meaning `1/10` — rather than the parsed double, whose exact binary value is not what the writer meant.
+**Literals:** monomorphic, always `Float` — an unsuffixed numeric literal is a Float literal iff it contains a `.` or an exponent (`1.5`, `0.0`, `1e9`, `2.5e-3`). `_` separators allowed per §8. Unsuffixed decimal literals are never polymorphic (Numeric Literals §7). Where the checker already knows an exact target — `Dec`, or a concrete type honoring `Frac` and `FromBigInt` such as `Rat` — the literal is promoted there, carrying its written digits: `0.1` means `1/10`, never the parsed double, whose exact binary value is not what the writer meant (Numeric Literals §5.1, #525; friendly-numerics tenet 7).
 
 **Standard constraints:** `Real` (Constraints §7), `Num`, `Signed`, `Frac` (generic `divide`, lawful up to rounding), `Eq`, `Ord`, `Show`, `Pow` (Operators §6.3), `Hash` (Collections Part 2 §2.5). Never `Integral` — permanently, so that `gcd(1.5, 2.0)` fails with the right message (Integral §3) *(corrected 2026-07-28, #137 — record in §11)*.
 
@@ -361,7 +361,7 @@ Unchanged and still worth its ink here: **`Unit`'s `undefined` must not be confu
 | `Int` = f64-integer-invariant `number`, not bigint | this doc §2; Numeric Literals spec |
 | Bare int literals use a `Nat` payload and are polymorphic via `Num.fromNat`, default `Int` | Numeric Literals spec (authoritative) |
 | `1n` monomorphic BigInt; suffix = annotation | Numeric Literals spec §7; this doc §6 |
-| Unsuffixed decimal literals monomorphic Float in v1; `d` selects Dec | Numeric Literals spec; this doc §3 |
+| Unsuffixed decimal literals are Float, promoted only at a known exact target (#525); `d` selects Dec | Numeric Literals spec §5.1; this doc §3 |
 | One string form `"..."`: interpolating, multi-line, no backticks, no tags | this doc §5.2 |
 | `${e}` → `show(e)`; Show is display-semantics; not universal | this doc §5.3, §7 |
 | Escapes `\$` and `\#`; bare `#{` is a v1 lex error (reserved for v2 Debug) | this doc §5.2, §5.4 |

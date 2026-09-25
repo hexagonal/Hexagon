@@ -195,7 +195,12 @@ Exponent notation is not permitted: `5e2d` and `5.00e2d` are rejected. Ordinary
 notation makes retained decimal places visible. This restriction is a notation
 choice, not a claim that exponent notation inherently implies approximation.
 Negative expressions follow ordinary unary negation and preserve decimal places.
-Unsuffixed decimal-point or exponent literals remain `Float`.
+Unsuffixed decimal-point or exponent literals are `Float`, except where the
+checker already knows the target is `Dec`: there an unsuffixed decimal-point
+literal is promoted to the `d` literal of the same digits, so
+`let price: Dec = 2.50` is `2.50d` (Numeric Literals §5.1, #525). An exponent
+spelling at a `Dec` target is refused with the value in ordinary notation.
+Patterns are not promoted: a `Dec` literal pattern needs its `d` (#1054).
 
 `Dec` literals are also literal match patterns, using numerical `Eq`. Thus `5d`,
 `5.0d`, and `5.00d` match the same values; a `5.00d` arm after a `5d` arm is
@@ -248,9 +253,11 @@ of `FromBigInt<Dec>` and also serves automatic BigInt-source injection. The
 existing `fromNat` and `fromInt` entries delegate through exact BigInt conversion
 to that member. Ordinary function naming alone never grants implicit widening.
 
-Unsuffixed decimal-point and exponent literals remain `Float`. This specification
-does not infer `Dec` from a `Float` literal or silently convert `Float` into `Dec`.
-The only way from `Float` to `Dec` is the named rounding door below.
+A decimal-point literal whose target is already `Dec` takes it, carrying its
+written digits (§3; Numeric Literals §5.1). That is a literal's spelling read
+exactly, not a conversion: an established `Float` value never becomes a `Dec`
+implicitly. The only way from a `Float` value to `Dec` is the named rounding door
+below.
 
 ### Exact conversion to `Rat`
 
@@ -544,8 +551,9 @@ classification is unchanged.
   comparison, display, and integer rounding. No path converts through `Float`.
 - A prelude `Dec` is usable as a written type and companion without import;
   established `Int`/`Nat` operands widen through the existing instance machinery.
-  Unsuffixed decimal-point literals remain `Float`; BigInt-source widening uses
-  the prerequisite `FromBigInt` capability rather than a Dec-specific exception.
+  Unsuffixed decimal-point literals are `Float` unless promoted at a known `Dec`
+  target (Numeric Literals §5.1); BigInt-source widening uses the prerequisite
+  `FromBigInt` capability rather than a Dec-specific exception.
 - Display preserves leading fractional zeros and trailing retained zeros;
   interpolation agrees. Foreign output remains an ordinary opaque record.
 - Constructors and accessors preserve the unscaled integer and decimal places.

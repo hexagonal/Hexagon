@@ -335,7 +335,8 @@ describe("Dec literals and exact decimal arithmetic", () => {
       signs: [{ tag: "Negative" }, { tag: "Zero" }, { tag: "Positive" }],
       interpolated: "amount 1.50",
     });
-    expect(projectDiagnostics(HEADER + "let approximate: Dec = 1.5\n"))
+    // An established Float never reaches Dec; a literal at a Dec seat is promoted (#525).
+    expect(projectDiagnostics(HEADER + "let approximate = 1.5\nlet exact: Dec = approximate\n"))
       .toEqual(["type mismatch: expected Dec, found Float"]);
   });
 
