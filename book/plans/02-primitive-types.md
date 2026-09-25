@@ -64,8 +64,7 @@ Preview, but defer full treatment of:
 
 ### `Dec` teaching contract
 
-`spec/dec.md` records the settled first-release contract. The chapter now incorporates
-this contract; implementation validation is tracked in the specification:
+`spec/dec.md` records the contract, and the chapter incorporates it:
 
 - Introduce `Dec` as a fundamental prelude type alongside the other number types.
   Replace the seven-type count and the claim that chapter membership requires a

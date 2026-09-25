@@ -59,8 +59,9 @@ Drafting order is not final reading order.
 - **Dec equality is numerical; display retains places.** The `d` suffix selects
   Dec directly; unsuffixed point/exponent forms select Float. Addition retains the
   larger place count, multiplication adds counts, and explicit rounded operations
-  retain the requested count. There is no Dec `/` operator or Float-to-Dec
-  conversion. Ordinary inspection uses `show`; `unscaled` returns the stored BigInt.
+  retain the requested count. There is no Dec `/` operator. Float enters Dec only
+  through `Dec.fromFloat`/`fromFloatEven`, which round the binary value to
+  required places. Ordinary inspection uses `show`; `unscaled` returns the stored BigInt.
   `same` compares both stored parts, including retained places, without changing
   numerical equality, ordering, or hashing; it is not object identity.
   Places parameters and the `places` accessor use `Int`; negative places are rejected.

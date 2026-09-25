@@ -21,7 +21,7 @@ This document is written for a future implementation session and assumes the exi
 | `BigInt` | `bigint` | `9_007_199_254_740_993n` | Whole numbers of arbitrary size. |
 | `Unit` | `undefined` | `()` | *Reclassified:* the empty tuple (§9, #159). Row retained for the representation fact. |
 
-`Dec` (`dec.md`, implemented locally; validation status recorded there) is also a fundamental
+`Dec` (`dec.md`) is also a fundamental
 prelude type, introduced in the book’s Primitive Types chapter. It is an opaque
 nominal record, not a compiler or JavaScript primitive, so it does not extend
 the compiler-primitive inventory here. Its `d` literals and exact display are
