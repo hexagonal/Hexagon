@@ -291,6 +291,12 @@ let total = count.multiply(price)      // Float, exactly as count * price
 let exact: BigInt = count.add(count)   // BigInt addition, exactly as count + count
 ```
 
+The one difference is the receiver. The dot has to know what its receiver is before it
+knows what it calls, so the receiver is settled first, on its own. With `n: Int` and
+`price: Dec`, `n * 1.5 * price` runs at `Dec`, but `(n * 1.5).multiply(price)` is an
+error, because `n * 1.5` has already settled at `Float` by the time the dot looks at it.
+Write the operator, or name the type: `let owed: Dec = (n * 1.5).multiply(price)`.
+
 The receiver chooses the operation; the operands and the written type choose where it
 runs. A companion-qualified spelling is different: `Float.multiply(count, price)` names
 `Float`'s own multiplication, so the `Int` widens into it, and `Int.multiply(count, price)`
@@ -359,7 +365,8 @@ objects.
 - constraint members answer to the dot and the qualified spelling, and `show` alone
   to the bare call as well;
 - a dot call on a numeric member widens exactly as the operator does: the receiver picks
-  the operation, the operands and the written type pick where it runs; and
+  the operation, the operands and the written type pick where it runs — though the
+  receiver itself is settled first, on its own; and
 - dot calls add no runtime methods, `this`, prototypes, or TypeScript methods.
 
 Together, constraints, derivation, modules, and dot calls form Hexagon's capability
