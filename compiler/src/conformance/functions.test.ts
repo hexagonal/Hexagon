@@ -105,6 +105,53 @@ describe("Functions specification conformance", () => {
       "`a` is declared to honor `Eq` on the block head, but `q`'s body requires `Show`; widen the head: `fun<a: (Eq, Show)>`, or remove the head's constraint to let it be inferred",
     ]);
 
+    // Every arm carets the demand's use, and a demand reached through a
+    // component or an instance argument belongs to the use that reached it.
+    const carets = (text: string) =>
+      checkSource(text).diagnostics.map(({ primary }) => caret(text, primary));
+    expect(carets(describe + "export let f<a: Eq>(x: a): String = describe((x, 1))")).toEqual([
+      "describe",
+    ]);
+    expect(
+      carets("export let h<a: Hash>(x: a): Int = x.hash()\nexport let g<a: Eq>(x: a): Int = h(x)"),
+    ).toEqual(["h"]);
+    expect(
+      carets(
+        "constraint Tell<a> =\n    tell(value: a) -> String\n" + describe +
+          "record Box(a) = { item: a }\n" +
+          "honor<a: Eq> Tell<Box(a)> =\n    tell(value) = describe(value.item)",
+      ),
+    ).toEqual(["describe"]);
+    expect(
+      carets(
+        describe +
+          "fun<a: Eq>\n" +
+          "    p(x: a, n: Int): String = if n > 0 then q(x, n) else \"\"\n" +
+          "    q(x: a, n: Int): String = describe(x)",
+      ),
+    ).toEqual(["describe"]);
+    expect(
+      carets(
+        describe +
+          "constraint Labelled<a: Eq> =\n" +
+          "    label(value: a) -> String\n" +
+          "    shown(value: a) -> String = describe(value)",
+      ),
+    ).toEqual(["describe"]);
+    const describeBox = "constraint Describe<a> =\n    describeIt(value: a) -> String\n" +
+      "export record Box(a) = { item: a }\n" +
+      "honor<a: Describe> Describe<Box(a)> =\n    describeIt(value) = value.item.describeIt()\n";
+    expect(
+      carets(describeBox + "export let f<a: Eq>(x: Box(a)): String = x.describeIt()"),
+    ).toEqual(["describeIt"]);
+    const importedInstance = compileFiles([
+      ["/lib.hex", "module Lib\n\nexport " + describeBox],
+      ["/main.hex", "module Main\n\nimport Lib\nexport let f<a: Eq>(x: Lib.Box(a)): String = Lib.Describe.describeIt(x)\n"],
+    ]);
+    expect(importedInstance.diagnostics.map(({ primary }) => primary.fileId)).toEqual([
+      importedInstance.modules.find(({ source }) => source.path === "/main.hex")!.source.id,
+    ]);
+
     // Entailment still discharges a copied demand: `Hash` provides `Eq`.
     const accepted = checkSource(
       "export let same<a: Eq>(x: a): Bool = x == x\n" +

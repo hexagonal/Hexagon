@@ -21635,7 +21635,10 @@ class Checker {
         requirement: this.#require(
           obligation.name,
           obligation.type,
-          requirement.span,
+          // A component's demand belongs to where its whole was demanded
+          // (Functions §10): `useSpan` when the whole was copied from a scheme,
+          // or a refusal carets that scheme's declaration (#1063).
+          requirement.useSpan ?? requirement.span,
           "operation",
           undefined,
           obligation.identity,
@@ -21696,7 +21699,7 @@ class Checker {
         requirement.structural = true;
       } else {
         requirement.dictionary = instance.dictionary;
-        requirement.dictionaryArguments = this.#instanceArguments(instance, type);
+        requirement.dictionaryArguments = this.#instanceArguments(instance, type, requirement.useSpan ?? requirement.span);
         if (
           requirement.origin === "iteration" &&
           this.#canonicalStringIterableInstances.has(instance)
@@ -22459,9 +22462,15 @@ class Checker {
   }
 
   /** Instantiates the context on a parameterized instance at a concrete use. */
+  /**
+   * `at` is where the demand the instance answers was made: an argument's
+   * demand is that demand's, so a refusal carets the use, never the instance
+   * head's binder — which may sit in another module (#1063).
+   */
   #instanceArguments(
     instance: Resolved.HonorItem,
     subject: Mono,
+    at: Source.Span,
   ): readonly Requirement[] {
     const replacements = this.#matchInstanceSubject(instance, subject);
     return instance.typeParameters.flatMap((parameter) => {
@@ -22475,7 +22484,7 @@ class Checker {
         this.#require(
           constraint,
           actual,
-          parameter.span,
+          at,
           "operation",
           undefined,
           parameter.constraintIdentities?.[index] ?? this.#constraintIdentity(constraint),
