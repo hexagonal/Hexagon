@@ -4993,7 +4993,15 @@ class Parser {
       // so the two spellings of zero collide in the duplicate check above and
       // no signed zero ever reaches a `switch` case.
       const value = negative && magnitude !== 0 ? -magnitude : magnitude;
-      return { literal: { kind: "Integer", value }, span };
+      // A non-decimal member keeps its spelling for emission. Zero drops the
+      // sign, as the value does: JavaScript reads `-0x0` as `-0`.
+      const written = integer.written === undefined
+        ? undefined
+        : negative && magnitude !== 0 ? `-${integer.written}` : integer.written;
+      return {
+        literal: { kind: "Integer", value, ...(written === undefined ? {} : { written }) },
+        span,
+      };
     }
     if (token.kind === "True" || token.kind === "False") {
       this.#advance();
