@@ -917,20 +917,21 @@ interface ArgumentPass {
   readonly disposeSeat: (index: number) => void;
   /**
    * Tells the sweep that this call's lift **stood down** from `face`
-   * *(#821, Numeric Literals §5.1)*, and collects the operands the face had
-   * already lifted into itself.
+   * *(#821, Numeric Literals §5.1)*.
    *
-   * A lifted operand still *establishes* the subject where nothing has — it is
-   * as good an operand as any — but where the other operands have already
-   * established some different subject it says nothing, and is reported instead
-   * as the "no algebra" half of the stand-down's own single report. The face
-   * descends into the operands before the stand-down can be decided, so which
-   * of them ran at the face is the *descent order*, and §16.3 is that the order
-   * stays invisible in every verdict.
+   * Where the operand that declined could hold the subject — its type honors
+   * the call's rung (`waits`) — an operand the face had already lifted into
+   * itself waits for the end of the sweep: it establishes the subject only
+   * where no other operand has, and otherwise says nothing, the stand-down's
+   * one report naming the operand that declined (#827). The face descends into
+   * the operands before the stand-down can be decided, so which of them ran at
+   * the face is the *descent order*, and §16.3 is that the order stays
+   * invisible in every verdict and every report. Where the declining operand's
+   * type lacks the rung, no subject could be kept there without selecting
+   * evidence the type does not have, so the lifted operand establishes the
+   * subject as it always did.
    */
-  readonly standDown: (
-    face: Mono,
-  ) => readonly { readonly expression: Resolved.Expr; readonly actual: Mono }[];
+  readonly standDown: (face: Mono, waits: boolean) => void;
   /** The rest of the sweep, then the two deferred classes. */
   readonly finish: () => void;
 }
@@ -1699,30 +1700,39 @@ const TOWER_RUNG_NAMES: ReadonlyMap<string, string> = new Map(
 
 /**
  * One recorded stand-down (Numeric Literals §6), in the words the report needs:
- * the operand that declined, its type, the face it could not enter, and the
- * algebra the operation ran at instead.
+ * the value that declined, its type, the face it could not enter, and the
+ * operation it is an operand of.
  */
 interface StandDown {
   /** The operand as the source spells it, or `undefined` for an unspellable one. */
   readonly spelled: string | undefined;
   readonly operand: string;
   readonly face: string;
-  readonly ran: string;
   /**
-   * The same type the report's `ran` displays, kept as a type *(#821)*: §2.2's
-   * boundary repair ascribes the stood-down call **at the type it kept**, and an
-   * ascription needs the spelling this site has for that type, not its display.
+   * The type the stood-down call **kept**, for the report alone *(#821)*: §2.2's
+   * boundary repair ascribes the call at it, and an ascription needs the
+   * spelling this site has for that type, not its display.
    */
   readonly ranType: Mono;
   readonly operation: string;
   /**
-   * Whether the stood-down operation already reported on its own span *(#821)*
-   * — the nested receiver, where the face had descended into another operand and
-   * the operation was left with no algebra, and anything else that refuses on
-   * the operation's own span. One refusal is the whole verdict, so the seats
-   * downstream then say nothing and §9 row 16 in particular stands aside.
+   * Whether the stood-down operation already refused on its own span *(#821)*.
+   * One refusal is the whole verdict, so the seats downstream then say nothing
+   * and §9 row 16 in particular stands aside.
    */
   readonly reported: boolean;
+}
+
+/**
+ * The first value of a faced tree that cannot enter the face (Numeric Literals
+ * §5.1, #827), and the nearest tower operation it is an operand of — none where
+ * only forms stand between it and the seat.
+ */
+interface DeclinedValue {
+  readonly expression: Resolved.Expr;
+  readonly type: Mono;
+  readonly owner: TreeNode | undefined;
+  readonly note: StandDown | undefined;
 }
 
 /** What each arithmetic operator is called in a stand-down report. */
@@ -2960,8 +2970,8 @@ class Checker {
   readonly #decimalRetyped = new WeakMap<Resolved.Expr, Mono>();
   /**
    * Numeric Literals §6's **stand-down note** *(#808)*: at an operation whose
-   * lift stood down, which operand declined the face and what algebra the
-   * operation ran at instead.
+   * lift stood down, which value declined the face and the operation it is an
+   * operand of.
    *
    * §5.1's theorem is why this is worth carrying: a stand-down always ends in
    * refusal, and the refusal fires at the *consuming seat* rather than at the
@@ -6263,9 +6273,12 @@ class Checker {
     if (home !== undefined && declined === undefined) {
       this.#liftMemberCall(calleeType, home, expression.span);
     }
-    const liftedSeats = declined === undefined || home === undefined
-      ? undefined
-      : pass?.standDown(home);
+    // The operands the face had already lifted say nothing: the stand-down's
+    // one report names the first operand that declined (§6), never the pair
+    // the descent left behind (#827).
+    if (declined !== undefined && home !== undefined) {
+      pass?.standDown(home, rung !== undefined && this.#supportsTarget(declined.type, rung));
+    }
     // The subject operands, for §2.2's boundary repair — see `#subjectOperands`.
     if (rung !== undefined && subjectSeats !== undefined) {
       const expressions = [callee.receiver, ...expression.arguments];
@@ -6284,35 +6297,18 @@ class Checker {
     }
     const reconciled = this.#diagnostics.count;
     const result = this.#checkDotSeats(expression, calleeType, seats, pass, level);
-    // The **nested receiver**, at the member spelling: the face descended into
-    // an operand on the way down and that operand ran at it, while another
-    // declined it, so the operation is left with two types and no algebra for
-    // either. This operation's own report is the whole refusal, exactly as it is
-    // at the operator (#808's "one operation, five spellings"); §9 row 16 stands
-    // aside, and §2.2 adds only the boundary repair.
-    const noAlgebra = liftedSeats?.[0];
-    if (noAlgebra !== undefined) {
-      this.#diagnostics.add({
-        severity: "error",
-        message: this.#noAlgebraMessage(expression, result, noAlgebra),
-        primary: expression.span,
-      });
-    }
     if (declined !== undefined && home !== undefined) {
       // The note the member spelling never took *(#821, and #819's first
       // bullet)*. `let n: T = p.add(q)` said only "expected T, found Foo" where
-      // `p + q` said which operand declined the face and what the addition ran
-      // at instead; one operation, one report (Method Syntax §1).
-      this.#standDowns.set(expression, {
-        operand: this.#display(declined.type),
-        face: this.#display(home),
-        ran: this.#display(result),
-        ranType: result,
-        spelled: this.#writtenOperand(declined.operand),
-        operation: MEMBER_OPERATION_NOUNS.get(candidate.member) ??
-          `\`${candidate.member}\` operation`,
-        reported: this.#diagnostics.count > reconciled,
-      });
+      // `p + q` said which operand declined the face; one operation, one report
+      // (Method Syntax §1).
+      this.#standDowns.set(expression, this.#standDownFor(
+        declined,
+        home,
+        result,
+        MEMBER_OPERATION_NOUNS.get(candidate.member) ?? `\`${candidate.member}\` operation`,
+        this.#diagnostics.count > reconciled,
+      ));
     }
     this.#dotCalls.set(expression, {
       symbol: candidate.symbol,
@@ -6325,29 +6321,28 @@ class Checker {
   }
 
   /**
-   * A member call's **no-algebra** report *(#821)*: the operation's own mismatch
-   * between the subject its operands established and the operand the face had
-   * already lifted, with §2.2's boundary repair where the receiver took a face.
-   *
-   * The same sentence the operator's own `#unify` produces for `p + (i + j)`,
-   * said by the member spelling — one operation, one report, whichever spelling
-   * wrote it (Method Syntax §1).
+   * The stand-down note (Numeric Literals §6) for a tower call whose operand
+   * `declined` could not enter `face`. Where that operand is itself a call
+   * that stood down, its own note is carried out, so the report names the
+   * value that declined rather than the call around it (#827): `p.add(q) ** i`
+   * under `BigInt` says `p`, and "the addition".
    */
-  #noAlgebraMessage(
-    call: Resolved.Expr,
-    subject: Mono,
-    lifted: { readonly expression: Resolved.Expr; readonly actual: Mono },
-  ): string {
-    const mismatch = `type mismatch: expected ${this.#display(subject)}, found ` +
-      this.#display(lifted.actual);
-    const enclosing = this.#forwardedReceiver;
-    if (enclosing === undefined) return mismatch;
-    this.#refusedReceivers.add(enclosing.callee.receiver);
-    // The whole call is what the ascription carries, so the whole call is what
-    // has to follow — every subject operand of it, and of anything nested in it.
-    if (!this.#followsAtType(call, undefined, subject)) return mismatch;
-    const repair = this.#boundaryRepair(enclosing.callee.receiver, subject, false);
-    return repair === undefined ? mismatch : `${mismatch}. ${repair}`;
+  #standDownFor(
+    declined: { readonly operand: Resolved.Expr; readonly type: Mono },
+    face: Mono,
+    ran: Mono,
+    operation: string,
+    reported: boolean,
+  ): StandDown {
+    const inner = this.#standDownNote(declined.operand);
+    return {
+      spelled: inner === undefined ? this.#writtenOperand(declined.operand) : inner.spelled,
+      operand: inner?.operand ?? this.#display(declined.type),
+      face: inner?.face ?? this.#display(face),
+      ranType: ran,
+      operation: inner?.operation ?? operation,
+      reported: reported || inner?.reported === true,
+    };
   }
 
   /**
@@ -9408,9 +9403,12 @@ class Checker {
         if (memberHome !== undefined && memberDeclined === undefined) {
           this.#liftMemberCall(callee, memberHome, expression.span);
         }
-        const memberLifted = memberDeclined === undefined || memberHome === undefined
-          ? undefined
-          : pass?.standDown(memberHome);
+        if (memberDeclined !== undefined && memberHome !== undefined) {
+          pass?.standDown(
+            memberHome,
+            memberRung !== undefined && this.#supportsTarget(memberDeclined.type, memberRung),
+          );
+        }
         // The subject operands, for §2.2's boundary repair (`#subjectOperands`).
         if (memberRung !== undefined && memberSubjectSeats !== undefined) {
           this.#subjectOperands.set(expression, {
@@ -9468,28 +9466,16 @@ class Checker {
           // which is why `compose(save, audit)` is a bare call.
           this.#registerCall(expression, knownCallee.effect ?? PURE, calleeLabel(expression));
           type = knownCallee.result;
-          // The nested receiver at the bare, qualified and pipe spellings — see
-          // `#noAlgebraMessage`.
-          const memberNoAlgebra = memberLifted?.[0];
-          if (memberNoAlgebra !== undefined) {
-            this.#diagnostics.add({
-              severity: "error",
-              message: this.#noAlgebraMessage(expression, type, memberNoAlgebra),
-              primary: expression.span,
-            });
-          }
           if (memberDeclined !== undefined && memberHome !== undefined) {
             // The note the member spellings never took (#821; #819's first
             // bullet): one operation, one report, whichever spelling wrote it.
-            this.#standDowns.set(expression, {
-              operand: this.#display(memberDeclined.type),
-              face: this.#display(memberHome),
-              ran: this.#display(type),
-              spelled: this.#writtenOperand(memberDeclined.operand),
-              ranType: type,
-              operation: this.#memberOperationNoun(expression.callee),
-              reported: this.#diagnostics.count > memberReconciled,
-            });
+            this.#standDowns.set(expression, this.#standDownFor(
+              memberDeclined,
+              memberHome,
+              type,
+              this.#memberOperationNoun(expression.callee),
+              this.#diagnostics.count > memberReconciled,
+            ));
           }
         } else if (knownCallee.kind !== "Variable" && knownCallee.kind !== "Error") {
           // The callee is known, and it is not a function. Unification with a
@@ -13692,8 +13678,13 @@ class Checker {
         `\`${this.#display(face)}\` honors \`${rung}\`, so the ` +
         `\`${this.#display(face)}\` here reached the receiver` +
         `${receiver_ === undefined ? "" : ` \`${receiver_}\``}; ` +
-        `${this.#standDownSentence(note, named, "face")}. ` +
-        this.#boundaryRepair(found.at, note.ranType, true),
+        `${this.#standDownSentence(note, named)}.` +
+        // A repair is offered only where it compiles: the stood-down call has to
+        // follow to the type it kept (`(p ** i: Foo)` needs `Pow<Foo>`), and a
+        // binding runs the same operation there (Modules §7.6).
+        (this.#followsAtType(found.at, undefined, note.ranType)
+          ? ` ${this.#boundaryRepair(found.at, note.ranType, true)}`
+          : ""),
     };
   }
 
@@ -13826,6 +13817,8 @@ class Checker {
           this.#followsAtType(part.expression, part.type, type)
         );
     }
+    const demands = this.#unsolvedAtClose.get(expression);
+    if (demands !== undefined) return this.#carriesDemands(type, demands);
     return actual !== undefined && this.#reachesSeat(actual, type);
   }
 
@@ -13876,18 +13869,14 @@ class Checker {
 
   /**
    * Numeric Literals §6's sentence, shared by the two seats that say it: the
-   * ordinary consuming seat (`#reportStandDown`) and §9 row 16's receiver.
-   *
-   * Two readings, and which one is true is recorded rather than guessed. Where
-   * the operation ran at *some* algebra the sentence names it — and at the
-   * receiver seat, where the point is that it did not run at the **face**, says
-   * that instead (#821), which is true in every shape. Where the face had
-   * already descended into another operand, the operation was left with two
-   * types and ran at neither, and both seats say so.
+   * ordinary consuming seat (`#reportStandDown`) and §9 row 16's receiver —
+   * "`price` is a `Float` and cannot enter `Rat`, so the multiplication could
+   * not run at `Rat`". What the operation ran at instead is never said: a
+   * stood-down operation runs nowhere, its kept type being for the repair alone.
    */
-  #standDownSentence(note: StandDown, named: string, ran: "kept" | "face"): string {
+  #standDownSentence(note: StandDown, named: string): string {
     return `${named} cannot enter \`${note.face}\`, so the ${note.operation} ` +
-      `${ran === "kept" ? `ran at \`${note.ran}\`` : `could not run at \`${note.face}\``}`;
+      `could not run at \`${note.face}\``;
   }
 
   /**
@@ -14521,32 +14510,27 @@ class Checker {
   /**
    * §5.1's close under a **written face**. Where every value of `node` reaches
    * the face, the whole node runs there and every value enters it — the tree's
-   * home. Where one does not, the node does exactly what the lift always did:
-   * a tower operator stands down and elaborates from its operands, noting which
-   * one declined (§6; Method Syntax §9 row 16), its own tower operands having
-   * run at the face or stood down for themselves; a form joins its parts,
-   * reporting a disagreement the face's descent caused (Operators §11). A
-   * stand-down always ends in refusal at the seat.
+   * home. Where one does not, the tree is refused once (`#standDownFaced`).
    *
    * Whether a node reaches is a lookup over the recorded types
    * (`#facedReaches`); nothing is elaborated to answer it.
    */
-  #closeFaced(node: TreeNode, face: Mono): Mono {
+  #closeFaced(node: TreeNode, face: Mono): void {
     if (node.failed === true) {
       this.#closeFree(node);
-      return ERROR;
+      return;
     }
     if (node.rung !== undefined && !this.#supportsTarget(face, node.rung)) {
       // The instance gate: no face reached these parts (they were handed
       // none), so the operator's subtree has no written home.
       this.#closeFree(node);
-      return this.#partType({ node });
+      return;
     }
     if (this.#facedReaches(node, face)) {
       this.#enterFace(node, face);
-      return this.#partType({ node });
+      return;
     }
-    return this.#standDownFaced(node, face);
+    this.#standDownFaced(node, face);
   }
 
   /** Whether every value under `node` reaches `face` — a lookup, never an elaboration. */
@@ -14558,19 +14542,51 @@ class Checker {
     return reaches;
   }
 
+  /**
+   * Values that were still unsolved when their refused faced tree closed, with
+   * the demands they carried then (`#keepFaced`). The close leaves them
+   * unsolved, so §2.2's boundary repair counts them as following any type
+   * that carries those demands (`#followsAtType`): under the ascription they
+   * would take it.
+   */
+  readonly #unsolvedAtClose = new WeakMap<Resolved.Expr, readonly Requirement[]>();
+
+  /** Whether `target` carries every demand an unsolved variable made. */
+  #carriesDemands(target: Mono, demands: readonly Requirement[]): boolean {
+    return demands.every(({ identity }) =>
+      STRUCTURAL_IDENTITIES.has(identity) ||
+      this.#instances.has(this.#instanceKey(identity, this.#prune(target)))
+    );
+  }
+
+  /**
+   * Whether a value of a faced tree enters the face: `#operandReaches`, except
+   * that a **declared** type variable is an established type like any concrete
+   * one (§5.1's first rank), and no conversion takes it into a concrete face —
+   * it declines, and where it is the first to, it is the one reported (#827).
+   */
+  #entersFace(type: Mono, face: Mono, expression?: Resolved.Expr): boolean {
+    const actual = this.#prune(type);
+    if (actual.kind === "Variable" && actual.rigidName !== undefined) return false;
+    return this.#operandReaches(actual, face, expression);
+  }
+
   /** One node's tree is closed against one face, so the answer is cached per node. */
   readonly #reachesFace = new WeakMap<TreeNode, boolean>();
 
   #facedReachesUncached(node: TreeNode, face: Mono): boolean {
     if (node.failed === true) return false;
     if (node.rung !== undefined && !this.#supportsTarget(face, node.rung)) {
+      // A gated call is one value of the tree, at the home of its own parts;
+      // where they select none it is as unsolved as any unsolved value, and
+      // reaches — the face's missing instance is then its own report.
       const own = this.#chooseHome(this.#treeValues(node));
-      return own !== undefined && this.#operandReaches(own.home, face, node.expression);
+      return own === undefined || this.#entersFace(own.home, face, node.expression);
     }
     return node.parts.every((part) =>
       "node" in part
         ? this.#facedReaches(part.node, face)
-        : this.#operandReaches(part.value.type, face, part.value.expression)
+        : this.#entersFace(part.value.type, face, part.value.expression)
     );
   }
 
@@ -14597,16 +14613,101 @@ class Checker {
   }
 
   /**
-   * A node some value of which cannot reach the face: its own tower operands
-   * run at the face or stand down for themselves, its other parts join
-   * without it, and the node reconciles its parts as the lift always did.
+   * A faced tree some value of which cannot enter the face: refused, once
+   * (Numeric Literals §5.1, §6; #827). The report names the **first** value in
+   * source order that declined and the tower operation it is an operand of,
+   * and is given where the tree meets its seat — `#reportStandDown` at a
+   * binding or an argument, Method Syntax §9 row 16 at a dot's receiver. Every
+   * tower operation holding a declining value stands down — unary and `**`'s
+   * base as much as any binary operator — and records the note; the parts
+   * that do reach the face still run there.
+   *
+   * Nothing else in the tree reports: a stood-down operation selects no
+   * evidence at the type it kept, and a form joins without a word, the kept
+   * types being for the report alone. The one exception is a dot receiver's
+   * own tree, where a form whose parts disagree keeps Operators §11's report
+   * (Method Syntax §2.2). A value no operation stands between and the seat —
+   * `let x: Dec = if c then f else price` — has no stand-down to note; it is
+   * refused at itself, with §6's entry report.
    */
-  #standDownFaced(node: TreeNode, face: Mono): Mono {
+  #standDownFaced(root: TreeNode, face: Mono): void {
+    const numeric = (type: Mono): boolean => {
+      const actual = this.#prune(type);
+      return actual.kind === "Variable" || actual.kind === "Error" ||
+        this.#supportsTarget(actual, "Num", true);
+    };
+    if (!numeric(face) || !this.#treeValues(root).every(({ type }) => numeric(type))) {
+      this.#reconcileFaced(root, face);
+      return;
+    }
+    const receiver = this.#forwardedReceiver?.callee.receiver === root.expression;
+    if (this.#treeValues(root).some(({ type }) => this.#prune(type).kind === "Error")) {
+      // A refusal already reported inside the tree — an unknown name, a refused
+      // `match` — poisons it, as it poisons every home (`#chooseHome`): it
+      // closes without a word, and cascades no further.
+      this.#keepFaced(root, face, receiver, new Map());
+      root.published = ERROR;
+      return;
+    }
+    const first = this.#firstDeclined(root, face, undefined);
+    if (first === undefined) {
+      // Nothing declined that the walk can name: never close silently — the
+      // ordinary reconcile reports.
+      this.#reconcileFaced(root, face);
+      return;
+    }
+    let reported = false;
+    const declared = this.#prune(first.type);
+    if (declared.kind === "Variable" && declared.rigidName !== undefined) {
+      // A declared variable that declines first speaks in its own words — the
+      // declared-variable report, at the value — at any seat, a receiver's
+      // included (§5.1, #827).
+      this.#unify(face, declared, first.expression.span);
+      reported = true;
+    } else if (first.owner === undefined && first.note === undefined && !receiver) {
+      this.#diagnostics.add({
+        severity: "error",
+        message: this.#faceEntryRefusal(first, face),
+        primary: first.expression.span,
+      });
+      reported = true;
+    }
+    // Every note is taken before anything is closed: closing gives an unsolved
+    // value the kept type, which would then read as a declining value itself.
+    const declined = new Map<TreeNode, DeclinedValue>();
+    const note = (node: TreeNode): void => {
+      if (node.failed === true || this.#facedReaches(node, face)) return;
+      if (node.rung !== undefined && !this.#supportsTarget(face, node.rung)) return;
+      if (node.rung !== undefined) {
+        const found = this.#firstDeclined(node, face, undefined);
+        if (found !== undefined) declined.set(node, found);
+      }
+      for (const part of node.parts) if ("node" in part) note(part.node);
+    };
+    note(root);
+    const kept = this.#keepFaced(root, face, receiver, declined);
+    if (reported) {
+      root.published = ERROR;
+      return;
+    }
+    // The seat has to see a type the face refuses, or the refusal would go
+    // unsaid: the kept type where it is one, else the declining value's own.
+    if (kept === undefined || this.#prune(kept).kind === "Error" || this.#operandReaches(kept, face)) {
+      root.published = first.type;
+    }
+  }
+
+  /**
+   * A faced tree that is not arithmetic — a value or the face outside the
+   * tower — reconciles its parts by ordinary unification, exactly as every
+   * form always joined, and reports as it always did.
+   */
+  #reconcileFaced(node: TreeNode, face: Mono): Mono {
     const types = node.parts.map((part) => {
       if ("value" in part) return part.value.type;
-      return part.node.rung !== undefined
-        ? this.#closeFaced(part.node, face)
-        : this.#standDownFaced(part.node, face);
+      if (part.node.rung === undefined) return this.#reconcileFaced(part.node, face);
+      this.#closeFaced(part.node, face);
+      return this.#partType({ node: part.node });
     });
     const expressions = node.parts.map((part) => this.#partExpression(part));
     this.#recordParts(node);
@@ -14615,9 +14716,9 @@ class Checker {
     const expression = node.expression;
     const span = expression.span;
     if (types.length === 1) {
-      // A negation or `bnot` under a face whose rung it honors never stood
-      // down: it runs at the face, and an operand that cannot enter is
-      // reported there — its own stand-down note, where it has one, saying why.
+      // Outside arithmetic a negation or `bnot` has nothing to stand down to:
+      // it runs at the face, and an operand that cannot enter is reported
+      // there.
       this.#unifyExpected(face, types[0]!, expressions[0]!, span, true);
       this.#unify(node.result, face, span);
       this.#finishNode(node, face);
@@ -14655,7 +14756,6 @@ class Checker {
       this.#standDowns.set(expression, {
         operand: this.#display(types[declinedIndex]!),
         face: this.#display(face),
-        ran: this.#display(common),
         ranType: common,
         spelled: this.#writtenOperand(expressions[declinedIndex]!),
         operation: OPERATION_NOUNS[expression.operator] ?? "operation",
@@ -14665,6 +14765,164 @@ class Checker {
     this.#unify(node.result, common, span);
     this.#finishNode(node, common);
     return this.#prune(node.result);
+  }
+
+  /**
+   * The first value under `node`, in source order, that cannot enter `face`,
+   * with the nearest tower operation it is an operand of (`owner`), and the
+   * note it carries where it is itself a call that stood down.
+   *
+   * A refused `match` is skipped, its `ERROR` entering anything; a gated call
+   * (its rung missing at the face) is one value, at the home of its own parts.
+   */
+  #firstDeclined(
+    node: TreeNode,
+    face: Mono,
+    owner: TreeNode | undefined,
+  ): DeclinedValue | undefined {
+    const here = node.rung !== undefined ? node : owner;
+    for (const part of node.parts) {
+      if ("value" in part) {
+        if (this.#entersFace(part.value.type, face, part.value.expression)) continue;
+        return {
+          expression: part.value.expression,
+          type: part.value.type,
+          owner: here,
+          note: this.#standDownNote(part.value.expression),
+        };
+      }
+      const inner = part.node;
+      if (inner.failed === true) continue;
+      if (inner.rung !== undefined && !this.#supportsTarget(face, inner.rung)) {
+        const own = this.#chooseHome(this.#treeValues(inner));
+        if (own === undefined || this.#entersFace(own.home, face, inner.expression)) continue;
+        return { expression: inner.expression, type: own.home, owner: here, note: undefined };
+      }
+      if (this.#facedReaches(inner, face)) continue;
+      const found = this.#firstDeclined(inner, face, here);
+      if (found !== undefined) return found;
+    }
+    return undefined;
+  }
+
+  /**
+   * Closes a node of a refused faced tree, returning the type it **kept** — the
+   * home its own values select, for the report alone (§5.1) — or `undefined`
+   * where they select none. A part that reaches the face runs there; the rest
+   * is recorded, and nothing is reported or selected.
+   */
+  #keepFaced(
+    node: TreeNode,
+    face: Mono,
+    receiver: boolean,
+    declined: ReadonlyMap<TreeNode, DeclinedValue>,
+  ): Mono | undefined {
+    if (node.failed === true) {
+      this.#closeFree(node);
+      return ERROR;
+    }
+    if (node.rung !== undefined && !this.#supportsTarget(face, node.rung)) {
+      this.#closeFree(node);
+      return this.#partType({ node });
+    }
+    if (this.#facedReaches(node, face) && !this.#holdsHomelessGate(node, face)) {
+      this.#enterFace(node, face);
+      // Its forms' value paths are recorded all the same: an ascription the
+      // report offers carries them, so it has to see them (`#followsAtType`).
+      this.#recordForms(node);
+      return face;
+    }
+    const types = node.parts.map((part) =>
+      "value" in part ? part.value.type : this.#keepFaced(part.node, face, receiver, declined) ?? ERROR
+    );
+    this.#recordParts(node);
+    if (node.rung === undefined && receiver) {
+      // Operators §11's form report, where a dot's receiver took the face.
+      this.#joinForm(node, face, types, node.parts.map((part) => this.#partExpression(part)));
+      return this.#partType({ node });
+    }
+    // An unsolved value is left as it is: a refused tree decides nothing about
+    // it, the kept type being for the report alone (§5.1). Whatever solves it
+    // later — a seat, a demand made further down — does so without this
+    // tree's say. Its demands at close are recorded for §2.2's repair alone
+    // (`#followsAtType`). A declared variable is no unsolved value, and keeps
+    // its own verdict.
+    for (const part of node.parts) {
+      if (!("value" in part)) continue;
+      const type = this.#prune(part.value.type);
+      if (type.kind !== "Variable" || type.rigidName !== undefined) continue;
+      this.#unsolvedAtClose.set(part.value.expression, [...type.requirements]);
+    }
+    const kept = this.#chooseHome(this.#treeValues(node))?.home;
+    if (kept !== undefined) this.#unify(node.result, kept, node.expression.span);
+    const at = kept ?? ERROR;
+    if (node.rung === undefined) {
+      this.#finishNode(node, at);
+      return kept;
+    }
+    if (node.exponent !== undefined) {
+      this.#checkExponent(node.exponent.expression, node.exponent.type, at);
+    }
+    const first = declined.get(node);
+    if (first !== undefined) {
+      this.#standDowns.set(node.expression, this.#standDownFor(
+        { operand: first.expression, type: first.type },
+        face,
+        at,
+        this.#operationNoun(first.owner ?? node),
+        false,
+      ));
+    }
+    node.published = at;
+    return kept;
+  }
+
+  /**
+   * Whether `node` holds a gated call whose own values select no home. Such a
+   * call reaches the face only as an unsolved value does; entering the face
+   * would ask its missing instance there, a second report in a tree already
+   * refused, so a refused tree closes it on its own instead.
+   */
+  #holdsHomelessGate(node: TreeNode, face: Mono): boolean {
+    if (
+      node.rung !== undefined && !this.#supportsTarget(face, node.rung) &&
+      this.#chooseHome(this.#treeValues(node)) === undefined
+    ) return true;
+    return node.parts.some((part) => "node" in part && this.#holdsHomelessGate(part.node, face));
+  }
+
+  /** Records the value paths of every form in `node`, for `#followsAtType`. */
+  #recordForms(node: TreeNode): void {
+    if (node.rung === undefined) this.#recordParts(node);
+    for (const part of node.parts) if ("node" in part) this.#recordForms(part.node);
+  }
+
+  /** What a tower operator is called in a stand-down report. */
+  #operationNoun(node: TreeNode): string {
+    const expression = node.expression;
+    if (expression.kind === "Binary") return OPERATION_NOUNS[expression.operator] ?? "operation";
+    if (expression.kind === "Unary") {
+      return expression.operator === "BitNot" ? "bitwise complement" : "negation";
+    }
+    return "operation";
+  }
+
+  /**
+   * §6's entry report for a value that meets a written face with no operation
+   * between them: "`f` is a `Float` and cannot enter `Dec`, the home `: Dec`
+   * writes", naming a door where one exists.
+   */
+  #faceEntryRefusal(value: { readonly expression: Resolved.Expr; readonly type: Mono }, face: Mono): string {
+    const spelled = this.#writtenOperand(value.expression) ??
+      this.#spelledExpression(value.expression);
+    const home = this.#display(face);
+    if (spelled === undefined) {
+      return `type mismatch: expected ${home}, found ${this.#display(value.type)}`;
+    }
+    const door = this.#numericDoor(spelled, value.type, face);
+    return `\`${spelled}\` is a \`${this.#display(value.type)}\` and cannot enter ` +
+      `\`${home}\`, the home \`: ${home}\` writes` +
+      (door === undefined ? "" : `; convert it explicitly — \`${door}\``);
   }
 
   /** The join every form always made, the face's descent reported as its own disagreement. */
@@ -15155,7 +15413,12 @@ class Checker {
     // because the stand-down is decided only when every operand is in — which is
     // the whole of the delayed bind.
     let stoodDownFace: Mono | undefined;
-    const lifted: { readonly expression: Resolved.Expr; readonly actual: Mono }[] = [];
+    let liftedWait = false;
+    const lifted: {
+      readonly expected: Mono;
+      readonly actual: Mono;
+      readonly expression: Resolved.Expr;
+    }[] = [];
 
     /**
      * Finds independently established targets occupying `subject`'s seats in
@@ -15343,14 +15606,13 @@ class Checker {
       }
       const source = this.#prune(actual);
       // §5.1's stand-down, at an operand the face had already lifted (#821).
-      // It still establishes the subject where nothing has; where some other
-      // operand has, it is silent and the stand-down's own report carries it.
+      // It waits for the rest of the sweep: it establishes the subject only
+      // where no other operand has, and is otherwise silent, the stand-down's
+      // own report naming the operand that declined — in either operand order
+      // (#827), so which operand the face entered first is never said.
       if (stoodDownFace !== undefined && this.#acceptsExactly(source, stoodDownFace)) {
-        const destination = this.#prune(expected);
-        if (destination.kind === "Variable") this.#unify(expected, actual, span);
-        else if (!this.#acceptsExactly(source, destination)) {
-          lifted.push({ expression, actual: source });
-        }
+        if (liftedWait) lifted.push({ expected, actual, expression });
+        else if (this.#prune(expected).kind === "Variable") this.#unify(expected, actual, span);
         return;
       }
       if (filed === "exact-bigint") {
@@ -15419,11 +15681,9 @@ class Checker {
       disposeSeat: (index: number): void => {
         eager(index);
       },
-      standDown: (
-        face: Mono,
-      ): readonly { readonly expression: Resolved.Expr; readonly actual: Mono }[] => {
+      standDown: (face: Mono, waits: boolean): void => {
         stoodDownFace = face;
-        return lifted;
+        liftedWait = waits;
       },
       finish: (): void => {
         // The eager sweep in index order, skipping what the first pass already
@@ -15440,6 +15700,9 @@ class Checker {
           deferredLiteralArguments,
           establishedVariables,
         );
+        for (const { expected, actual } of lifted) {
+          if (this.#prune(expected).kind === "Variable") this.#unify(expected, actual, span);
+        }
       },
     };
   }
@@ -20074,9 +20337,9 @@ class Checker {
    * Numeric Literals §6's stand-down report, or `false` where none is owed.
    *
    * Owed exactly when this seat is about to refuse a value whose own operation
-   * declined a face: the note names the operand that could not enter it and the
-   * algebra the operation ran at instead, which is the information the lift's
-   * refusal at the operand used to carry and this seat would otherwise drop.
+   * declined a face: the note names the value that could not enter it and the
+   * operation it is an operand of, which is what a refusal at the value would
+   * have said and this seat would otherwise drop.
    *
    * The pre-check is a *speculative* unification's worth of care taken without
    * one: the note is consulted only after `#tryWidenNumeric` has declined and
@@ -20093,18 +20356,21 @@ class Checker {
     // one operation say what the bare one says (#821): `let t: Rat = (count *
     // price)` and `count |> Num.multiply(price)` are the multiplication too.
     const note = this.#standDownNote(expression);
-    if (note === undefined || note.reported) return false;
+    if (note === undefined) return false;
     const target = this.#prune(expected);
     const value = this.#prune(actual);
     if (target.kind === "Variable" || target.kind === "Error") return false;
     if (value.kind === "Error") return false;
     if (this.#acceptsExactly(value, target)) return false;
+    // The operation already refused on its own span: one refusal is the whole
+    // verdict, so the seat says nothing more.
+    if (note.reported) return true;
     const named = note.spelled === undefined
       ? `an operand of type \`${note.operand}\``
       : `\`${note.spelled}\` is a \`${note.operand}\` and`;
     this.#diagnostics.add({
       severity: "error",
-      message: this.#standDownSentence(note, named, "kept"),
+      message: this.#standDownSentence(note, named),
       primary: span,
     });
     // The seat has reported; the types stay apart rather than being forced
