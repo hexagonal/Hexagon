@@ -307,6 +307,68 @@ describe("Functions specification conformance", () => {
     ]);
   });
 
+  test("§4.2 a binder list on a binding's name is kept, and is a contract (#1047)", async () => {
+    const describe = "export let describe<a: Show>(x: a): String = show(x)\n";
+    const messages = (text: string) =>
+      checkSource(text).diagnostics.map(({ message }) => message);
+
+    // The list declares the variables its annotation names, and publishes them.
+    const accepted = checkSource(describe + "export let alias<a: Show>: (a) -> String = describe");
+    expect(accepted.diagnostics).toEqual([]);
+    expect(symbol(accepted, "alias").scheme.constraints).toEqual([
+      expect.objectContaining({ name: "Show" }),
+    ]);
+    expect(
+      await run(
+        "module Main\n\n" + describe +
+          "let alias<a: Show>: (a) -> String = describe\n" +
+          'export let both: String = alias(4) ++ " " ++ alias(True)\n',
+      ),
+    ).toMatchObject({ both: "4 True" });
+
+    // The contract: the body may not exceed the list — at module level, and
+    // on a local binding, whose list shadows the enclosing scope.
+    expect(messages(describe + "export let alias<a: Eq>: (a) -> String = describe")).toEqual([
+      "`a` is declared to honor `Eq`, but the body requires `Show`; write `<a: (Eq, Show)>`, or remove the constraint annotation to let it be inferred",
+    ]);
+    expect(
+      messages(
+        describe +
+          "export let r: String =\n" +
+          "    let g<b: Eq>: (b) -> String = describe\n" +
+          "    g(1)",
+      ),
+    ).toEqual([
+      "`b` is declared to honor `Eq`, but the body requires `Show`; write `<b: (Eq, Show)>`, or remove the constraint annotation to let it be inferred",
+    ]);
+    // Over a lambda right-hand side too: the list on the name is the lambda's.
+    expect(
+      messages(
+        "let f<a: Eq>: (a) -> String = (x) => show(x)\n" +
+          "export let r: String = f(1)",
+      ),
+    ).toEqual([
+      "`a` is declared to honor `Eq`, but the body requires `Show`; write `<a: (Eq, Show)>`, or remove the constraint annotation to let it be inferred",
+    ]);
+
+    // #712's unmentioned rule, with the rewrite this seat can take: a function
+    // type can use the variable, a value that is no function cannot.
+    expect(
+      messages(describe + "export let alias<a: Show, b: Num>: (a) -> String = describe"),
+    ).toEqual([
+      "`b` is a declared type variable, but this declaration's type does not mention it, so no call can choose it or supply its `Num` evidence; use `b` in the binding's type, or remove `b` from the binder list",
+    ]);
+    expect(messages("export let v<a: Num>: Int = 3")).toEqual([
+      "`a` is a declared type variable, but this declaration's type does not mention it, so no call can choose it or supply its `Num` evidence; remove `a` from the binder list",
+    ]);
+
+    // One list per binding: the lambda's is refused, and the name's draws no
+    // second report.
+    expect(messages("let f<a: Eq> = <b: Show>(x: b): String => show(x)")).toEqual([
+      "`f` already writes its binders on the name; a binding takes one binder list",
+    ]);
+  });
+
   test("Modules §4.1.1 requires complete exported signatures with maximal constraints", () => {
     const module = checkSource(
       "export let answer = 42\n" +
@@ -319,6 +381,23 @@ describe("Functions specification conformance", () => {
       "exported value `answer` requires a type annotation",
       "exported function `same` must declare every constraint in its signature; write `<a: Eq>`",
       "exported function `hashed` must omit base constraint `Eq` from `a`; `Hash` already provides it",
+    ]);
+  });
+
+  test("Modules §4.1.1 reaches a value binding whose scheme is constrained (#1047)", () => {
+    // The tier is the published scheme's, not the form's: an alias of a
+    // constrained function carries an evidence suffix like the function does.
+    const module = checkSource(
+      "export let describe<a: Show>(x: a): String = show(x)\n" +
+        "export let hashed<a: Hash>(x: a): Int = x.hash()\n" +
+        "export let label: (a) -> String = describe\n" +
+        "export let hashedAgain<a: (Eq, Hash)>: (a) -> Int = hashed\n" +
+        "let privateLabel: (a) -> String = describe",
+    );
+
+    expect(module.diagnostics.map(({ message }) => message)).toEqual([
+      "exported value `label` must declare every constraint in its signature; write `<a: Show>`",
+      "exported value `hashedAgain` must omit base constraint `Eq` from `a`; `Hash` already provides it",
     ]);
   });
   test("§4.2 a constrained generic composes across functions, instantiating evidence per use", async () => {
