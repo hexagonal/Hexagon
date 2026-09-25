@@ -29,7 +29,12 @@ import {
   preRegisteredConstraintIdentity,
   STRUCTURAL_CONSTRAINTS,
 } from "../../constraints.js";
-import { isIntrinsicScheme, publicTypeKey, publicTypeKind } from "../../intrinsics.js";
+import {
+  isIntrinsicScheme,
+  isPublicTypeKind,
+  publicTypeKey,
+  publicTypeKind,
+} from "../../intrinsics.js";
 import { PRIMITIVE_COMPANION_MODULES } from "../../prelude.js";
 import { relativeSpecifier } from "../../support/paths.js";
 import {
@@ -3502,6 +3507,12 @@ class Checker {
   readonly #ownUnions = new Set<Resolved.UnionId>();
   readonly #ownRecords = new Set<Resolved.RecordId>();
   /**
+   * *(#1071.)* The built-in kinds this module declares by public door rows —
+   * `Vector` in `Hex.Vector` — for the orphan rule's "the module that declares
+   * `T`" (Constraints §5.3), which a public row answers like any declaration.
+   */
+  readonly #ownPublicKinds = new Set<string>();
+  /**
    * Per intrinsic declaration, the variables its annotations introduced. Shared
    * between scheme construction and materialization so both name the same
    * variables — without it the materialized result type would carry a fresh
@@ -4065,6 +4076,13 @@ class Checker {
       }
       if (item.kind === "Union") this.#ownUnions.add(item.union);
       if (item.kind === "RecordDeclaration") this.#ownRecords.add(item.record);
+      if (item.kind === "ExternBlock") {
+        for (const declaration of item.declarations) {
+          if (declaration.kind !== "ExternType") continue;
+          const kind = publicTypeKind(Number(declaration.externType));
+          if (kind !== undefined) this.#ownPublicKinds.add(kind);
+        }
+      }
     }
     for (const symbol of module.symbols) this.#symbolKinds.set(symbol.id, symbol.kind);
     // See `#declaredUnions`: an annotation elaborated before the registration
@@ -4080,8 +4098,9 @@ class Checker {
       module.unions,
       module.records,
       // #927: this module's own door rows carry the claims. A confined type
-      // never leaves the module that declares it (§3.3), so the module's own
-      // view is already complete and the program-wide one supplies none.
+      // never leaves the module that declares it (§3.3), and a public one's
+      // row arrives with the prelude's seed (#1071), so the module's own view
+      // is already complete and the program-wide one supplies none.
       module.externTypes,
       this.#programNominals,
     );
@@ -6387,10 +6406,16 @@ class Checker {
     return subject.kind === "Primitive" && subject.name === this.#companionPrimitive;
   }
 
-  /** Whether this module's source declares the nominal named by an instance head. */
+  /**
+   * Whether this module's source declares the nominal named by an instance head
+   * — a public door row's kind included (#1071), which is how `Hex.Map` would
+   * hand-write a `Hash` at `Map` under Constraints §4.5's standard-library
+   * exception.
+   */
   #ownsNominal(subject: Resolved.TypeAnnotation): boolean {
     return (subject.kind === "Union" && this.#ownUnions.has(subject.union)) ||
-      (subject.kind === "RecordDeclaration" && this.#ownRecords.has(subject.record));
+      (subject.kind === "RecordDeclaration" && this.#ownRecords.has(subject.record)) ||
+      this.#ownPublicKinds.has(subject.kind);
   }
 
   #checkInstanceHead(
@@ -6398,7 +6423,20 @@ class Checker {
     moduleItems: readonly Resolved.Item[],
   ): void {
     const subject = item.subject;
-    const nominal = subject.kind === "Union" || subject.kind === "RecordDeclaration";
+    // *(#1071.)* A type a public door row declares — `Vector`, `Map`, `Set` —
+    // is a nominal constructor for this law like any declared one: the row is
+    // its declaration (Constraints §4.4's own `Show<Vector(a)>`). Its arguments
+    // are the kind's slots.
+    const nominal = subject.kind === "Union" || subject.kind === "RecordDeclaration" ||
+      isPublicTypeKind(subject.kind);
+    const headArguments: readonly Resolved.TypeAnnotation[] =
+      subject.kind === "Union" || subject.kind === "RecordDeclaration"
+        ? subject.arguments
+        : subject.kind === "Vector" || subject.kind === "Set"
+        ? [subject.element]
+        : subject.kind === "Map"
+        ? [subject.key, subject.value]
+        : [];
     // A head is parameterized when it is *applied*, whether or not a `<...>`
     // prefix declares the binders (#390): the prefix attaches constraints, it
     // does not decide that the head has arguments. Reading the prefix alone let
@@ -6406,8 +6444,8 @@ class Checker {
     // the first honoring one constraint at two unrelated argument positions
     // through a single variable, the second keying a ground head on a
     // constructor the coherence table cannot tell apart from the generic one.
-    if (item.typeParameters.length > 0 || (nominal && subject.arguments.length > 0)) {
-      const arguments_ = nominal ? subject.arguments : [];
+    if (item.typeParameters.length > 0 || (nominal && headArguments.length > 0)) {
+      const arguments_ = nominal ? headArguments : [];
       const names = arguments_.flatMap((argument) =>
         argument.kind === "TypeVariable" ? [argument.name] : []
       );
@@ -6449,11 +6487,7 @@ class Checker {
           "`union` for a type you control",
         primary: item.subject.span,
       });
-    } else if (
-      subject.kind !== "Primitive" &&
-      subject.kind !== "Union" &&
-      subject.kind !== "RecordDeclaration"
-    ) {
+    } else if (subject.kind !== "Primitive" && !nominal) {
       this.#diagnostics.add({
         severity: "error",
         message: "an instance head must name a primitive or nominal type constructor",
@@ -6468,6 +6502,7 @@ class Checker {
     // (Constraints §5.3).
     const ownsConstraint = this.#localConstraints.has(item.constraint);
     const ownsSubject = this.#companionsPrimitive(subject) ||
+      this.#ownPublicKinds.has(subject.kind) ||
       moduleItems.some((candidate) =>
         (subject.kind === "Union" && candidate.kind === "Union" && candidate.union === subject.union) ||
         (subject.kind === "RecordDeclaration" &&

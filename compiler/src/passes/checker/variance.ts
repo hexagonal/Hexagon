@@ -159,11 +159,13 @@ export interface Declarations {
    * The intrinsic `type` rows this view holds (#927), for their **claims**.
    *
    * Optional, and absent on the program-wide view for a reason rather than for
-   * convenience: a door-declared type is *confined* (`spec/intrinsics.md` §3.3),
-   * so every occurrence of one is inside a module that declares it, and the
-   * checking module's own `externTypes` is therefore already the complete
-   * answer. A foreign extern type is monomorphic (FFI Part 4 §12.4) and has no
-   * claim to carry either way.
+   * convenience: a *confined* door type (`spec/intrinsics.md` §3.3) occurs only
+   * inside a module that declares it, and a *public* one's row reaches every
+   * module seated after its declarer through the prelude's seed (#1071), so the
+   * checking module's own `externTypes` is the complete answer either way —
+   * and, for a public row, exactly §3.3's seat visibility: before its declarer's
+   * seat the claim is not in view and the type is invariant there. A foreign
+   * extern type is monomorphic (FFI Part 4 §12.4) and has no claim to carry.
    */
   readonly externTypes?: Iterable<Resolved.ExternTypeDeclaration>;
 }

@@ -395,6 +395,12 @@ export interface IntrinsicOperationEntry {
  * Where two modules are named they bind the same compiler type, as two `fun`
  * rows for one key bind one lowering, and every obligation over the type binds
  * them jointly.
+ *
+ * *(#1071.)* `vector`, `map`, and `set` are the first **public** keys: each is
+ * its companion's own type, declared by `export type vector as Vector(+a)` and
+ * its siblings, and each names the built-in kind it is and the runtime record
+ * its values are. The claim written at the row is checked against that record
+ * there, which is what retired their compiler-side claim-table rows.
  */
 export interface IntrinsicTypeEntry {
   readonly grade: "type";

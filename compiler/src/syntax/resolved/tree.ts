@@ -814,7 +814,10 @@ export interface ExternTypeDeclaration extends ExternDeclarationFields {
    * holds the lowering to — trusted, not verified, because there is no
    * representation for §6.3 to check it against, exactly as the compiler-side
    * claim table's trusted rows are. `Buffer(a)` writes none; `Node(+a)` writes
-   * one at its scheduled migration (§9.2).
+   * one at its scheduled migration (§9.2). *(#1071.)* A public row whose key
+   * names a representation record — `Vector(+a)`, `Map(+k, +v)`, `Set(+a)` —
+   * is the exception: its claim **is** verified, at the row, against that
+   * record (the checker's `#verifyPublicRowClaims`).
    */
   readonly parameters?: readonly DeclaredTypeParameter[];
   /**

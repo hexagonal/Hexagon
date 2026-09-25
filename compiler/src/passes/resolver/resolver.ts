@@ -3144,8 +3144,8 @@ class Resolver {
         this.#diagnostics.add({
           severity: "error",
           message: entry.reach === "public"
-            ? `\`${name.text}\` may be declared only in ${declarers}, whose type it is; ` +
-              `reach the type through that module`
+            ? `\`${name.text}\` may be declared only in ${declarers}; ` +
+              `the type is reached from there, as \`${entry.kind}\``
             : `\`${name.text}\` may be declared only in ${declarers}` +
               "; a value over it reaches other modules through a sealed row, " +
               "never through the type",
