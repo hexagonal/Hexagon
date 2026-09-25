@@ -274,13 +274,6 @@ describe("walks that enter a `Buffer`'s argument", () => {
   });
 
   /**
-   * The contract's colours inside a `Buffer` reach an instance body fresh
-   * (Effects §13.2), so the body's demand for an impure element is compared at
-   * the seat and reported as the instance-against-contract refusal. A walk that
-   * did not see the arrow inside `Buffer(Int -> Int)` would hand the body the
-   * contract's own `->`, and the report would be a plain colour clash instead.
-   */
-  /**
    * Level lowering. `b` joins the outer `x` with a buffer built from `g`'s own
    * `y`, so `y`'s level must drop to `x`'s through the `Buffer`'s argument, and
    * `g` must not generalize over it. Without the arm `g` is used at `Int` and at
@@ -317,6 +310,13 @@ describe("walks that enter a `Buffer`'s argument", () => {
     ]);
   });
 
+  /**
+   * The contract's colours inside a `Buffer` reach an instance body fresh
+   * (Effects §13.2), so the body's demand for an impure element is compared at
+   * the seat and reported as the instance-against-contract refusal. A walk that
+   * did not see the arrow inside `Buffer(Int -> Int)` would hand the body the
+   * contract's own `->`, and the report would be a plain colour clash instead.
+   */
   test("an arrow inside a `Buffer` is recoloured at an instance seat", () => {
     expect(diagnostics(
       "let useImpure(fs: Buffer(Int ->! Int)): Int = length(fs)\n" +

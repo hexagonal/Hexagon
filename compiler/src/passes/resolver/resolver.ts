@@ -2679,6 +2679,13 @@ class Resolver {
             if (item.parameters !== undefined && item.parameters.length > 0) {
               this.#externTypeArities.set(item.localName.text, item.parameters.length);
             }
+            const duplicateEntry = INTRINSIC_INVENTORY.get(key);
+            if (
+              duplicateEntry?.grade === "type" &&
+              (item.parameters?.length ?? 0) !== duplicateEntry.arity
+            ) {
+              this.#arityRefusedExternTypes.add(item.localName.text);
+            }
             continue;
           }
           doorKeys.set(key, { span: item.localName.span, local: item.localName.text });

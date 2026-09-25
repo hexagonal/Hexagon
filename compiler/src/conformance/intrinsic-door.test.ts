@@ -538,6 +538,18 @@ describe("the `type` form (§3.3)", () => {
       "intrinsic type `buffer` is already declared in this module as `Buffer`; " +
       "one key is one compiler type",
     ]);
+    // A duplicate that also misdeclares the arity: its uses still draw nothing.
+    expect(inBareRegexRuntime(
+      'extern from "hex:intrinsic"\n' +
+      "    type buffer as Buffer(a)\n" +
+      "    type buffer as Other(a, b)\n" +
+      "\n" +
+      "let f(x: Other(Int)): Other(Int) = x\n",
+    )).toEqual([
+      "intrinsic type `buffer` takes 1 type parameter, but this declaration has 2",
+      "intrinsic type `buffer` is already declared in this module as `Buffer`; " +
+      "one key is one compiler type",
+    ]);
   });
 
   /**
