@@ -75,6 +75,20 @@ Underscores may separate digits for readability. They do not affect the value, a
 Hexagon does not enforce groups of three. Each underscore must simply have a digit on
 both sides, so `12_500` is legal while `_12500`, `12500_`, and `12__500` are not.
 
+A whole number can also be written in hexadecimal, octal, or binary, after a lowercase
+prefix:
+
+```hexagon
+let mask = 0xFF_00
+let mode = 0o755
+let flags = 0b1010
+```
+
+These are ordinary integers: `mask` is `65280`, and each literal is written into the
+emitted JavaScript in its own base. The prefix must be lowercase, so `0XFF` is refused
+with the repair `0xFF`. A leading zero on its own changes nothing: `007` is simply `7`,
+never an octal number. Chapter 4 puts these literals to work with the bitwise operators.
+
 Strictly speaking, a bare integer literal begins as a numeric value whose exact type
 can be determined by its surroundings. In an unconstrained binding such as the ones
 above, Hexagon defaults it to `Int`. This distinction will become useful when we study
@@ -408,6 +422,7 @@ safe range:
 ```hexagon
 let exactPopulation = 9_007_199_254_740_993n
 let cryptographicModulus = 340_282_366_920_938_463_463_374_607_431_768_211_507n
+let widest = 0xFFFF_FFFF_FFFFn
 ```
 
 These literals have type `BigInt` and compile directly to JavaScript `bigint` values.
@@ -481,7 +496,7 @@ These fundamental types give ordinary values distinct meanings:
 
 - `Nat` records a non-negative safe-range whole number without changing its JS representation;
 - `Int` is the ordinary signed safe-range whole number and usually the type of a bare integer
-  literal;
+  literal, written in decimal or after a `0x`, `0o`, or `0b` prefix;
 - `Float` is IEEE 754 binary64 and is selected by an unsuffixed decimal point or exponent;
 - `Dec` uses the `d` suffix for exact decimal arithmetic and retained decimal places;
 - `Bool` is the condition type, with constructors `True` and `False` and no truthiness
