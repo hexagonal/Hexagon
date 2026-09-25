@@ -14467,7 +14467,7 @@ class Checker {
         // this source until that sibling has unified. With neither provenance,
         // BigInt is the exact fixed home; it must never consume the fresh
         // callee parameter's own FromBigInt bound as evidence for itself.
-        if ((destination.rigidName !== undefined || establishedVariables.has(destination.id)) &&
+        if ((this.#declaredInScope(destination) || establishedVariables.has(destination.id)) &&
           this.#supportsTarget(destination, "FromBigInt", true)) return undefined;
         return structurallyLicensed(index, destination.id) ? "numeric" : "exact-bigint";
       }
@@ -14595,6 +14595,31 @@ class Checker {
     };
   }
 
+  /**
+   * Whether `variable` is a declared type variable whose evidence this body
+   * carries: one its own declaration or an enclosing one declared, and so one it
+   * can name *(#1035)*.
+   *
+   * Rigidity alone is not the test. Members of a `fun` knot are checked at one
+   * shared, not-yet-general type (Functions §7.4), so a sibling's parameter can
+   * arrive at a call still wearing the **sibling's** declared variable — and a
+   * widening into it demands evidence from a scheme that has none for it: the
+   * checker accepted, and emission found `undefined.fromNat(n)`. The lexical
+   * scope is exactly the variables whose dictionaries reach this body. It is
+   * conservative where a name is shadowed: the outer variable's evidence still
+   * reaches the body, but the scope no longer holds it, and the widening is
+   * refused as it was before #1035.
+   */
+  #declaredInScope(variable: Variable): boolean {
+    if (variable.rigidName === undefined) return false;
+    const scope = this.#annotationVariableScope;
+    if (scope === undefined) return false;
+    for (const candidate of scope.values()) {
+      if (candidate === variable) return true;
+    }
+    return false;
+  }
+
   #checkCallArguments(
     parameters: readonly Mono[],
     arguments_: readonly Mono[],
@@ -14638,9 +14663,9 @@ class Checker {
       const destination = this.#prune(expected);
       // A caller's declared variable is §5.1's "already-constrained type
       // variable" (#1035): established by its binder, as a `BigInt` source's
-      // `deferral` already reads it, and needing no sibling to establish it.
+      // `deferral` reads it, and needing no sibling to establish it.
       const allowVariableTarget = destination.kind === "Variable" &&
-        (establishedVariables.has(destination.id) || destination.rigidName !== undefined);
+        (establishedVariables.has(destination.id) || this.#declaredInScope(destination));
       this.#unifyExpected(
         expected,
         actual,

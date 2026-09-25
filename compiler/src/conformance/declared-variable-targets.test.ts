@@ -56,7 +56,9 @@ describe("a declared type variable occurring only in a function's result (#1042)
   });
 
   test("a use that supplies no type defaults at its own binding, as a literal does", () => {
-    const project = compileMain("module Main\n\n" + GENERIC +
+    const project = compileMain("module Main\n\n" +
+      "fun zero<t: Num>(): t = 0\n" +
+      "fun widen<t: Num>(value: Nat): t = value\n" +
       "let natural: Nat = 3\n" +
       "let fromZero = zero()\n" +
       "let fromWiden = widen(natural)\n");
@@ -76,6 +78,48 @@ describe("a declared type variable occurring only in a function's result (#1042)
     expect(compileMain(source).diagnostics).toEqual([]);
     const exports = await runProject([["/main.hex", source]]);
     expect([exports["asFloat"], exports["asBig"]]).toEqual([0, 0n]);
+  });
+
+  test("with no literal involved, and in the plain-annotation spellings", async () => {
+    const source = "module Main\n\n" +
+      "fun empty<t: Show>(): Vector(t) = []\n" +
+      "fun emptyEq<t: Eq>(): Vector(t) = []\n" +
+      "let f: () -> a = () => 0\n" +
+      "let g(): a = 0\n" +
+      "export let sizes: Vector(Int) = [empty().length(), emptyEq().length()]\n" +
+      "export let annotated: BigInt = f()\n" +
+      "export let returned: BigInt = g()\n";
+    expect(compileMain(source).diagnostics).toEqual([]);
+    const exports = await runProject([["/main.hex", source]]);
+    expect([...(exports["sizes"] as Iterable<unknown>)]).toEqual([0, 0]);
+    expect([exports["annotated"], exports["returned"]]).toEqual([0n, 0n]);
+  });
+
+  test("an exported result-only function publishes an edition per numeric home", async () => {
+    const source = "module Main\n\n" +
+      "export fun zero<t: Num>(): t = 0\n" +
+      "export fun widen<t: Num>(value: Nat): t = value\n";
+    const project = compileMain(source);
+    expect(project.diagnostics).toEqual([]);
+    const declarations = project.modules
+      .find(({ source }) => source.path === "/main.hex")!.declarations.text;
+    expect(declarations).toContain("export declare function zeroFloat(): number;");
+    expect(declarations).toContain("export declare function zeroBigInt(): bigint;");
+    expect(declarations).toContain("export declare function widenBigInt(value: number): bigint;");
+    expect(declarations).not.toContain("unknown");
+    const exports = await runProject([["/main.hex", source]]);
+    expect((exports["widenBigInt"] as (value: number) => unknown)(7)).toBe(7n);
+  });
+
+  test("the seat is read at the evaluated value, never a destructured component", () => {
+    // The component `g` is function-typed; the tuple is not. Keyed on the
+    // component, the declared `a` would skip defaulting and meet the
+    // evidence-seat decline instead of the ascription's own refusal.
+    expect(verdict("let (g, k) = (((() => 0) : () -> a), 1)\n")).toEqual([
+      "`a` is a declared type variable, but `0` can be only a `Num` type; ascribe the " +
+        "concrete type you mean — `(0 : Int)` — or remove the ascription to let the " +
+        "literal default to `Int`",
+    ]);
   });
 
   test("at a non-function value binding there is no seat, and rigidity still refuses", () => {
@@ -106,6 +150,34 @@ describe("a Nat or Int argument widens into a caller's declared type variable (#
     expect(text).toContain("accept(__FromBigInt_a.fromBigInt(value))");
     expect(text).toContain("h(__Signed_a.Num.fromNat(n), __Signed_a.fromInt(i))");
     expect(text).toContain("f(__Num_a.fromNat(value))");
+  });
+
+  test("a knot sibling's declared variable is not the caller's, and stays refused", () => {
+    // Members of a `fun` knot share one not-yet-general type (Functions §7.4),
+    // so `a`'s call reaches `b`'s own `u` — whose evidence `a` does not carry.
+    for (const [source, width] of [["n: Nat", "3"], ["n: Int", "3"], ["n: BigInt", "3n"]]) {
+      const messages = verdict(
+        "fun\n" +
+        "    b(x: u, go: Bool): Int =\n" +
+        "        let y = x / x\n" +
+        `        if go then a(${width}, False) else 1\n` +
+        `    a(${source}, flag: Bool): Int = if flag then b(n, False) else 0\n` +
+        "export let r: Int = a(3, True)\n",
+      );
+      expect(messages).toHaveLength(1);
+      expect(messages[0]).toContain("`u` is a declared type variable, but the body requires");
+      expect(messages[0]).not.toContain("internal compiler error");
+    }
+  });
+
+  test("a block head's variable is every member's, and widens in the sibling call", async () => {
+    const source = "module Main\n\n" +
+      "fun<u: Num>\n" +
+      "    b(x: u, go: Bool): u = if go then a(x, 1, False) else x\n" +
+      "    a(x: u, n: Nat, go: Bool): u = if go then b(n, False) else x\n" +
+      "export let r: Float = a(1.5, 3, True)\n";
+    expect(compileMain(source).diagnostics).toEqual([]);
+    expect((await runProject([["/main.hex", source]]))["r"]).toBe(3);
   });
 
   test("the conversion the declared constraints do not supply is still refused", () => {
