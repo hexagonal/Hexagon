@@ -204,7 +204,7 @@ describe("§14(t): the five spellings of a tower member are one call", () => {
     // the four open spellings bound the subject to the face first and took a
     // plain mismatch at `price`'s seat — #819's first bullet.)
     const report = "`price` is a `Float` and cannot enter `Rat`, so the " +
-      "multiplication ran at `Float`";
+      "multiplication could not run at `Rat`";
     for (const spelling of [
       "count * price",
       "Num.multiply(count, price)",
@@ -319,13 +319,21 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
     /** The type it kept, and that type's spelling at the site. */
     readonly kept: string;
     readonly written?: string;
+    /** The operation the declining value is an operand of. */
+    readonly operation?: string;
+    /** Whether a repair is offered: only where it compiles (#827). */
+    readonly repair?: false;
   }): string =>
     "`gcd` is a member of `Integral` and `BigInt` honors `Integral`, so the " +
     `\`BigInt\` here reached the receiver${
       parts.receiver === "" ? "" : ` \`${parts.receiver}\``
-    }; ${parts.declined} cannot enter \`BigInt\`, so the addition could not run ` +
-    `at \`BigInt\`. To keep \`${parts.ascribe}\` at \`${parts.kept}\`, ascribe ` +
-    `it — \`(${parts.ascribe}: ${parts.written ?? parts.kept})\` — or bind it first`;
+    }; ${parts.declined} cannot enter \`BigInt\`, so the ${
+      parts.operation ?? "addition"
+    } could not run at \`BigInt\`.` +
+    (parts.repair === false
+      ? ""
+      : ` To keep \`${parts.ascribe}\` at \`${parts.kept}\`, ascribe it — ` +
+        `\`(${parts.ascribe}: ${parts.written ?? parts.kept})\` — or bind it first`);
 
   /**
    * The **face descent's** report: the operation's or the form's own mismatch,
@@ -579,7 +587,7 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
     ).toEqual([
       rowSixteen({
         receiver: "((if c then p.add(q) else p) + q)",
-        declined: "the part of the receiver that declined is a `Foo` and it",
+        declined: "`p` is a `Foo` and",
         ascribe: "(if c then p.add(q) else p) + q",
         kept: "Foo",
       }),
@@ -637,7 +645,7 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
     expect(refusals(`${foo}let probe: BigInt = (p.add(q) + q).gcd(s2)\n`)).toEqual([
       rowSixteen({
         receiver: "(p.add(q) + q)",
-        declined: "the part of the receiver that declined is a `Foo` and it",
+        declined: "`p` is a `Foo` and",
         ascribe: "p.add(q) + q",
         kept: "Foo",
       }),
@@ -701,14 +709,95 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
           "    catch\n        JsError(e) => p).gcd(s2)\n",
       ),
     ).toEqual(["type mismatch: expected BigInt, found Foo"]);
-    // The nested receiver is the same shape at the operator and at the member
-    // spelling: the face descends into one operand, the other declines it, and
-    // the operation is left with no algebra. Its own report, once, with the
-    // repair.
+  });
+
+  test("a nested receiver is row 16, naming the value that declined (#827)", () => {
+    // The inner `i + j` reaches the face and runs there; `p` does not, so the
+    // outer addition stands down. The report names `p` — the value the reader
+    // wrote — never the pair (`Foo` against `BigInt`) the face's descent left
+    // behind, and it is the same row at the operator and the member spelling.
     expect(refusals(`${foo}let probe: BigInt = (p + (i + j)).gcd(s2)\n`))
-      .toEqual([descended("(p + (i + j))", "expected Foo, found BigInt")]);
+      .toEqual([rowSixteen({
+        receiver: "(p + (i + j))",
+        declined: "`p` is a `Foo` and",
+        ascribe: "p + (i + j)",
+        kept: "Foo",
+      })]);
     expect(refusals(`${foo}let probe: BigInt = p.add(i.add(j)).gcd(s2)\n`))
-      .toEqual([descended("p.add(i.add(j))", "expected Foo, found BigInt")]);
+      .toEqual([rowSixteen({
+        receiver: "p.add(i.add(j))",
+        declined: "`p` is a `Foo` and",
+        ascribe: "p.add(i.add(j))",
+        kept: "Foo",
+      })]);
+    expect(refusals(`${foo}let probe: BigInt = Num.add(p, i + j).gcd(s2)\n`))
+      .toEqual([rowSixteen({
+        receiver: "Num.add(p, i + j)",
+        declined: "`p` is a `Foo` and",
+        ascribe: "Num.add(p, i + j)",
+        kept: "Foo",
+      })]);
+    // In either operand order: the operand the face lifted first never holds
+    // the subject over the one that declined, in any spelling.
+    for (
+      const receiver of [
+        "((i + j) + p)",
+        "(Num.add(i + j, p))",
+        "add(i + j, p)",
+        "((i + j) |> Num.add(p))",
+        "(i + j).add(p)",
+        "i.add(j).add(p)",
+      ]
+    ) {
+      const call = receiver.startsWith("((") || receiver.startsWith("(Num")
+        ? receiver.slice(1, -1)
+        : receiver;
+      expect(refusals(`${foo}let probe: BigInt = ${receiver}.gcd(s2)\n`)).toEqual([rowSixteen({
+        receiver,
+        declined: "`p` is a `Foo` and",
+        ascribe: call,
+        kept: "Foo",
+      })]);
+    }
+    expect(refusals(`${foo}let t: BigInt = Num.add(i + j, p)\n`)).toEqual([
+      "`p` is a `Foo` and cannot enter `BigInt`, so the addition could not run at `BigInt`",
+    ]);
+    // An unsolved operand follows the ascription, so the repair is offered —
+    // and compiles.
+    expect(refusals(`${foo}fun h(x) =\n    let t: BigInt = (x + p).gcd(s2)\n    t\n`))
+      .toEqual([rowSixteen({
+        receiver: "(x + p)",
+        declined: "`p` is a `Foo` and",
+        ascribe: "x + p",
+        kept: "Foo",
+      })]);
+    expect(refusals(`${foo}fun h(x) =\n    let t: BigInt = (x + p: Foo).gcd(s2)\n    t\n`))
+      .toEqual([]);
+    // Where the operand demands what the kept type lacks — `x / x` needs
+    // `Frac`, which `Foo` does not honor — the ascription would not compile,
+    // so no repair is offered, and the one report is row 16's.
+    expect(
+      refusals(`${foo}fun h(x) =\n    let w = x / x\n    let t: BigInt = (x + p).gcd(s2)\n    t\n`),
+    ).toEqual([rowSixteen({
+      receiver: "(x + p)",
+      declined: "`p` is a `Foo` and",
+      ascribe: "",
+      kept: "",
+      repair: false,
+    })]);
+    // A declared variable that declines first is reported in its own words,
+    // at a receiver as anywhere; after `p`, `p` is the one named.
+    expect(refusals(`${foo}fun half<a: Num>(x: a): BigInt = (x + p).gcd(s2)\n`)).toEqual([
+      "`a` is a declared type variable, but the body requires `BigInt`; change the " +
+        "annotation to `BigInt`, or remove it to let the type be inferred",
+    ]);
+    expect(refusals(`${foo}fun half<a: Num>(x: a): BigInt = (p + x).gcd(s2)\n`)).toEqual([
+      rowSixteen({ receiver: "(p + x)", declined: "`p` is a `Foo` and", ascribe: "", kept: "", repair: false }),
+    ]);
+    // At a binding the same tree says the same sentence, once.
+    expect(refusals(`${foo}let t: BigInt = p + (i + j)\n`)).toEqual([
+      "`p` is a `Foo` and cannot enter `BigInt`, so the addition could not run at `BigInt`",
+    ]);
   });
 
   test("every repair this report offers compiles", () => {
@@ -748,10 +837,12 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
       .toEqual([bare]);
     expect(refusals(`${foo}let probe: BigInt = (if c then i.add(b9) else p).gcd(s2)\n`))
       .toEqual([bare]);
+    const withheld = (receiver: string): string =>
+      rowSixteen({ receiver, declined: "`p` is a `Foo` and", ascribe: "", kept: "", repair: false });
     expect(refusals(`${foo}let probe: BigInt = (p + (i + b9)).gcd(s2)\n`))
-      .toEqual(["type mismatch: expected Foo, found BigInt"]);
+      .toEqual([withheld("(p + (i + b9))")]);
     expect(refusals(`${foo}let probe: BigInt = p.add(i.add(b9)).gcd(s2)\n`))
-      .toEqual(["type mismatch: expected Foo, found BigInt"]);
+      .toEqual([withheld("p.add(i.add(b9))")]);
     // And the rung half of the same test: `Foo` honors no `Pow`, so a `**`
     // branch would not run at `Foo` under any ascription.
     expect(refusals(`${foo}let probe: BigInt = (if c then b9 ** i else p).gcd(s2)\n`))
@@ -780,7 +871,12 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
       ),
     ).toEqual([descended("(if c then (if c then i + j else i) else p)")]);
     expect(refusals(`${foo}let probe: BigInt = (p + ((i + j))).gcd(s2)\n`))
-      .toEqual([descended("(p + ((i + j)))", "expected Foo, found BigInt")]);
+      .toEqual([rowSixteen({
+        receiver: "(p + ((i + j)))",
+        declined: "`p` is a `Foo` and",
+        ascribe: "p + ((i + j))",
+        kept: "Foo",
+      })]);
     expect(refusals(`${foo}let probe: BigInt = (if c then (i + j) else p).gcd(s2)\n`))
       .toEqual([descended("(if c then (i + j) else p)")]);
     // Both, pasted back.
@@ -800,26 +896,75 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
       ),
     ).toEqual([bare]);
     expect(refusals(`${foo}let probe: BigInt = (p + (i + (j + b9))).gcd(s2)\n`))
-      .toEqual(["type mismatch: expected Foo, found BigInt"]);
+      .toEqual([rowSixteen({
+        receiver: "(p + (i + (j + b9)))",
+        declined: "`p` is a `Foo` and",
+        ascribe: "",
+        kept: "",
+        repair: false,
+      })]);
     expect(refusals(`${foo}let probe: BigInt = (p + (i + (j + i))).gcd(s2)\n`))
-      .toEqual([descended("(p + (i + (j + i)))", "expected Foo, found BigInt")]);
+      .toEqual([rowSixteen({
+        receiver: "(p + (i + (j + i)))",
+        declined: "`p` is a `Foo` and",
+        ascribe: "p + (i + (j + i))",
+        kept: "Foo",
+      })]);
   });
 
-  test("a negation receiver runs at the face and is never accepted at the type it kept", () => {
-    // A unary tower operator under a face whose rung it honors never stood
-    // down: it runs at the face, and its operand's refusal is reported there
-    // (#1062's tree keeps this exactly). Accepting `(-p).gcd(s2)` at `Foo`
-    // would be the retracted receiver stand-down (#821).
-    expect(refusals(`${foo}let probe: BigInt = (-p).gcd(s2)\n`)).toEqual([
-      "type mismatch: expected BigInt, found Foo",
-      "type mismatch: expected BigInt, found Foo",
-    ]);
-    expect(refusals(`${foo}let probe: BigInt = (-(p + q)).gcd(s2)\n`)).toEqual([
-      "type mismatch: expected BigInt, found Foo",
-      "`p` is a `Foo` and cannot enter `BigInt`, so the addition ran at `Foo`",
-    ]);
+  test("a single-operand tower call stands down like any other (#827)", () => {
+    // Negation and `**`'s base are operand seats like any other: where the
+    // operand cannot enter the face the call stands down, and the receiver is
+    // refused once with row 16 — never run at the face, never accepted at the
+    // type it kept (#821).
+    expect(refusals(`${foo}let probe: BigInt = (-p).gcd(s2)\n`)).toEqual([rowSixteen({
+      receiver: "(-p)",
+      declined: "`p` is a `Foo` and",
+      operation: "negation",
+      ascribe: "-p",
+      kept: "Foo",
+    })]);
+    expect(refusals(`${foo}let probe: BigInt = (-(p + q)).gcd(s2)\n`)).toEqual([rowSixteen({
+      receiver: "(-(p + q))",
+      declined: "`p` is a `Foo` and",
+      ascribe: "-(p + q)",
+      kept: "Foo",
+    })]);
     expect(refusals(`${foo}let t: BigInt = -(p + q)\n`)).toEqual([
-      "`p` is a `Foo` and cannot enter `BigInt`, so the addition ran at `Foo`",
+      "`p` is a `Foo` and cannot enter `BigInt`, so the addition could not run at `BigInt`",
+    ]);
+    // `Foo` honors no `Pow`: the power stands down, no `Pow` evidence is asked
+    // of the type it kept, and no repair is offered — `(p ** i: Foo)` would not
+    // compile, and neither would binding it.
+    expect(refusals(`${foo}let probe: BigInt = (p ** i).gcd(s2)\n`)).toEqual([rowSixteen({
+      receiver: "(p ** i)",
+      declined: "`p` is a `Foo` and",
+      operation: "power",
+      ascribe: "",
+      kept: "",
+      repair: false,
+    })]);
+    expect(refusals(`${foo}let probe: BigInt = (p.add(q) ** i).gcd(s2)\n`)).toEqual([rowSixteen({
+      receiver: "(p.add(q) ** i)",
+      declined: "`p` is a `Foo` and",
+      ascribe: "",
+      kept: "",
+      repair: false,
+    })]);
+    // Where `Foo` does honor `Pow`, the repair compiles and is offered.
+    const fooPow = `${foo}honor Pow<Foo> =\n    pow(value, exponent) = value\n`;
+    expect(refusals(`${fooPow}let probe: BigInt = (p.add(q) ** i).gcd(s2)\n`)).toEqual([rowSixteen({
+      receiver: "(p.add(q) ** i)",
+      declined: "`p` is a `Foo` and",
+      ascribe: "p.add(q) ** i",
+      kept: "Foo",
+    })]);
+    expect(refusals(`${fooPow}let probe: BigInt = (p.add(q) ** i: Foo).gcd(s2)\n`)).toEqual([]);
+    expect(refusals(`${foo}let t: BigInt = p ** i\n`)).toEqual([
+      "`p` is a `Foo` and cannot enter `BigInt`, so the power could not run at `BigInt`",
+    ]);
+    expect(refusals(`${foo}let t: BigInt = p.add(q) ** i\n`)).toEqual([
+      "`p` is a `Foo` and cannot enter `BigInt`, so the addition could not run at `BigInt`",
     ]);
   });
 
@@ -927,13 +1072,16 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
     // ascription would repair nothing — `(p.add(q): Foo).multiply(s2)` refuses
     // just the same. No row 16, and the enclosing seat's ordinary stand-down
     // report is the one report.
-    const stoodDown =
-      "an operand of type `Foo` cannot enter `BigInt`, so the multiplication " +
-      "ran at `Foo`";
-    expect(refusals(`${foo}let probe: BigInt = p.add(q).multiply(s2)\n`))
-      .toEqual([stoodDown]);
-    expect(refusals(`${foo}let probe: BigInt = (p.add(q): Foo).multiply(s2)\n`))
-      .toEqual([stoodDown]);
+    // The report names the value that declined: `p`, inside the receiver's own
+    // stood-down addition; behind the ascription only the ascribed operand's
+    // type is known (#827).
+    expect(refusals(`${foo}let probe: BigInt = p.add(q).multiply(s2)\n`)).toEqual([
+      "`p` is a `Foo` and cannot enter `BigInt`, so the addition could not run at `BigInt`",
+    ]);
+    expect(refusals(`${foo}let probe: BigInt = (p.add(q): Foo).multiply(s2)\n`)).toEqual([
+      "an operand of type `Foo` cannot enter `BigInt`, so the multiplication could not " +
+        "run at `BigInt`",
+    ]);
   });
 
   test("the three non-rung claimants are refused alike, and repaired alike", () => {
@@ -1038,13 +1186,13 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
 
   test("the stand-down's refusal names the operand and the algebra", () => {
     // Numeric Literals §6. The lift stands down because `price` can reach `Rat`
-    // by neither route, so the multiplication runs at `Float` and the mismatch
-    // surfaces where the *result* meets its seat — at the binding, not at
+    // by neither route, so the multiplication cannot run at `Rat`, and the
+    // refusal is given where the tree meets its seat — at the binding, not at
     // `price`. The note is what keeps the report saying what the lift's own
     // refusal said.
     expect(ratVerdict("export let total: Rat.Rat = count * price\n")).toEqual([
-      "`price` is a `Float` and cannot enter `Rat`, so the multiplication ran " +
-        "at `Float`",
+      "`price` is a `Float` and cannot enter `Rat`, so the multiplication could " +
+        "not run at `Rat`",
     ]);
   });
 });
@@ -1565,13 +1713,13 @@ describe("the negative probes: what #808 does not change", () => {
     // (the dot is the open call, so it takes the note the operator takes).
     expect(verdict("export let probe: Int = i.multiply(f)\n"))
       .toEqual([
-        "`f` is a `Float` and cannot enter `Int`, so the multiplication ran at " +
-          "`Float`",
+        "`f` is a `Float` and cannot enter `Int`, so the multiplication could not " +
+          "run at `Int`",
       ]);
     expect(verdict("export let probe: Int = i * f\n"))
       .toEqual([
-        "`f` is a `Float` and cannot enter `Int`, so the multiplication ran at " +
-          "`Float`",
+        "`f` is a `Float` and cannot enter `Int`, so the multiplication could not " +
+          "run at `Int`",
       ]);
   });
 });

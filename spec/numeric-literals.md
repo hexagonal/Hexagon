@@ -437,10 +437,19 @@ reach it by none of these — a `Float` under a `Rat` face, a user type under `B
 lift **stands down** at every tower member call whose parts hold that value, and the tree
 is refused: the report is given where the tree's result meets its seat (`let total: Rat =
 count * price` is refused at the binding rather than at the operation), naming the value
-that declined the face: "`price` is a `Float` and cannot enter `Rat`, so the
-multiplication could not run at `Rat`" (§6). For the report alone, a stood-down call's
+that declined the face — the first in source order where several do, a declared type
+variable declining like any established type (no conversion takes it into a concrete face)
+and, where it is first, reported in its own words at the value — and the tower member call
+it is an operand of: "`price` is a `Float` and cannot enter `Rat`, so the
+multiplication could not run at `Rat`" (§6). A call with one subject operand — a
+negation, `bnot`, `**`'s base — stands down as a binary one does, and nothing else in the
+tree reports: a form joins without a word, except where it is a dot call's receiver
+(Operators §11's report, Method Syntax §2.2), and a tree holding a value already refused —
+an unknown name — says nothing more. For the report alone, a stood-down call's
 **kept type** is the home its own parts select by the rule above, read off their recorded
-types — what Method Syntax §9 row 16's fixit ascribes; it decides no verdict. A stand-down
+types — what Method Syntax §9 row 16's fixit ascribes, where that ascription compiles; it
+decides no verdict, and no evidence is selected at it: `let x: Rat = p / q`, at a `Foo`
+honoring no `Frac`, is refused for `p` alone, never for the `Frac` `Foo` lacks. A stand-down
 therefore always ends in refusal, at every seat, by construction: a home is never given
 up for another. The dot's
 receiver is such a seat *(#821)*: the forwarded face is the receiver's expectation (Method
@@ -590,7 +599,7 @@ Foo).gcd(s)`, unannotated, through a binding, and companion-qualified (`Foo.add(
 q).gcd(s)`, a written face); the newly refused operator receivers `(p + q).gcd(s)` and
 `(i + p).gcd(s)`, which compile today; the report counts falling to one — from three at
 `Num.add(p, q).gcd(s)` and the pipe stage, from two at `i.add(p).gcd(s)`; the nested
-receiver `(p + (i + j)).gcd(s)` refused once by the outer operation; an `if` receiver
+receiver `(p + (i + j)).gcd(s)` refused once by row 16, naming `p`; an `if` receiver
 with one `Int` branch and one `Foo` branch refused once by Operators §11's own report at
 the `if`, naming the `Foo` branch and carrying the boundary fixit, not by the receiver
 rule; and `(if c then p else q).gcd(s)` accepted beside `(if c then p.add(q) else
@@ -625,8 +634,13 @@ Int`) value-checked at `Dec` where the `Int` product passes 2^53, `fun ff(x) = {
 + m + n; useNat(x) }` refused, and `(i ** k) * f` with `k` negative value-checked as a
 reciprocal; the seats a face now homes, `let g: () ->
 Dec = () => n` and `t := n * 1.5` at `var t: Dec`; one report for a `**` base that cannot
-enter the face (#827) — row 16 at the outermost stood-down call, its fixit `((p.add(q) **
-i): Foo).gcd(s2)`; the seats a face does not reach, `let a: Dec = id(n * 1.5)` refused; the
+enter the face (#827) — row 16 at the outermost stood-down call, naming `p`, with no
+repair where `Foo` honors no `Pow` and the fixit `(p.add(q) ** i: Foo)` where it does — and
+beside it `(-p).gcd(s2)`, row 16 at the negation; one report per faced tree, naming its first
+declining value, for `(if c then n else f) * r` under `Rat` and, under `Dec`, `(n + f) * price`,
+`if c then f * 2 else price`, and a `try` whose body is `n * f` and whose arm is `price`;
+`let x: Dec = if c then f else price` refused at `f` with §6's entry report; and `let x:
+Rat = p / q` refused with no report of `Foo`'s missing `Frac`; the seats a face does not reach, `let a: Dec = id(n * 1.5)` refused; the
 targets kept — `fun widen<t: Num>(value: Nat): t = value`, `let y: t = value`, and
 `fun k(count: Int, value) = { let z = value / value; count * value }` at `<a: Frac>
 (Int, a) -> a` accepted; and the exclusions standing — `fun half<a: Frac>(x: a): a = x * 0.5`
@@ -678,8 +692,8 @@ Elaboration changes the *character* of type errors involving literals, and this 
 - When unification fails and one side traces to a literal's `α`, report it as a literal-type mismatch, not a constraint failure. Prefer: `This literal is used as Float here but as BigInt there` over `Cannot satisfy Num constraint arising from...`.
 - When defaulting is blocked by a non-defaultable constraint (§4), the error must name the blocking constraint and the literal's location, and suggest an annotation: `The literal 1 at <span> has constraint MyConstraint, which prevents defaulting to Int. Add a type annotation to pin its type.`
 - Never surface the name `fromNat` in an error for code the user wrote without mentioning it. The elaboration is invisible machinery; errors should speak in terms of the literal.
-- *(#808.)* **When the expected-type lift stands down** (§5.1) because an operand cannot reach the face, the refusal that then fires at the consuming seat names that operand and the operation that could not run at the face — "`price` is a `Float` and cannot enter `Rat`, so the multiplication could not run at `Rat`" — so the report keeps what a refusal at the operand would have carried. The checker therefore records, at a stand-down, which operand declined and why, and carries it to the seat that refuses — a binding, an argument seat, or a dot call's receiver seat *(#821)*, where the report adds the two facts that seat alone knows: why the face reached the receiver (the spelling's rung) and the written boundary that keeps the receiver at its own type, an ascription or a separate binding (Method Syntax §9 row 16). Every stand-down ends at such a seat (§5.1), so the note is always spent.
-- *(#1062.)* **When a value cannot enter its expression's home** (§5.1), the report names the value, its type, the home, and what gave the home — the seat's type ("the home `: Dec` writes") or the value that established it ("the home `price` gives this expression") — at the declining value. **When two values establish different homes** (a conflicting tree), the report names both — "`x` is a `Float` and `price` a `Dec`; an expression's arithmetic runs at one type, and neither enters the other". Each names the named door where either type has one into the other (`Dec.fromFloat(x, places)`, `price.toFloat()`; friendly-numerics tenet 7), and otherwise no conversion, there being none to name. Precedence: at a dot call's receiver, Method Syntax §9 row 16 and Operators §11's form report; under a written face, the #808 stand-down wording above; otherwise these. **When a dot call's receiver closed before the dot** (Method Syntax §2.2) and a sibling then refuses it, where every value of the receiver's own tree would have entered that sibling's type, the report says so and names both repairs: "`n * 1.5` settled at `Float` before `.multiply` saw `price` — a dot call's receiver is settled on its own; write `n * 1.5 * price`, or name the home: `let a: Dec = …`". Each is decided from recorded types, for the report alone.
+- *(#808.)* **When the expected-type lift stands down** (§5.1) because an operand cannot reach the face, the refusal that then fires at the consuming seat names that operand and the operation that could not run at the face — "`price` is a `Float` and cannot enter `Rat`, so the multiplication could not run at `Rat`" — so the report keeps what a refusal at the operand would have carried. Where several values decline, the first in source order is named, and where it sits inside a call that stood down on its own — `p.add(q) ** i` — the value inside that call is named, with that call's operation. The checker therefore records, at a stand-down, which operand declined and why, and carries it to the seat that refuses — a binding, an argument seat, or a dot call's receiver seat *(#821)*, where the report adds the two facts that seat alone knows: why the face reached the receiver (the spelling's rung) and the written boundary that keeps the receiver at its own type, an ascription or a separate binding (Method Syntax §9 row 16). Every stand-down ends at such a seat (§5.1), so the note is always spent.
+- *(#1062.)* **When a value cannot enter its expression's home** (§5.1), the report names the value, its type, the home, and what gave the home — the seat's type ("the home `: Dec` writes") or the value that established it ("the home `price` gives this expression") — at the declining value. **When two values establish different homes** (a conflicting tree), the report names both — "`x` is a `Float` and `price` a `Dec`; an expression's arithmetic runs at one type, and neither enters the other". Each names the named door where either type has one into the other (`Dec.fromFloat(x, places)`, `price.toFloat()`; friendly-numerics tenet 7), and otherwise no conversion, there being none to name. Precedence: at a dot call's receiver, Method Syntax §9 row 16 and Operators §11's form report; under a written face, the #808 stand-down wording above wherever a tower member call stood down; otherwise these — among them a value that meets a written face with no operation between it and the seat (`let x: Dec = if c then f else price`: "`f` is a `Float` and cannot enter `Dec`, the home `: Dec` writes"), which is reported once, at the value — a gated call's result being such a value (`let x: Nat = if c then n - k else m` names `n - k`). **When a dot call's receiver closed before the dot** (Method Syntax §2.2) and a sibling then refuses it, where every value of the receiver's own tree would have entered that sibling's type, the report says so and names both repairs: "`n * 1.5` settled at `Float` before `.multiply` saw `price` — a dot call's receiver is settled on its own; write `n * 1.5 * price`, or name the home: `let a: Dec = …`". Each is decided from recorded types, for the report alone.
 - *(#525.)* A decimal-point literal promoted to `Dec` with an exponent is refused with the value in ordinary notation: "a `Dec` literal is written without an exponent, so its decimal places show; write `0.0015`". A decimal-point literal *pattern* at a `Dec` scrutinee is refused with its `d` spelling: "…; a `Dec` pattern is written with the `d` suffix: `0.5d`" (Pattern Matching §2.5, #1054).
 - LSP hover on a bare literal in polymorphic position should show `<a: Num> a` (matching the round-trip-consistency rule for signatures — the display is source-shaped, Functions §5.1); hover on a defaulted or pinned literal shows the concrete type.
 

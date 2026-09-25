@@ -254,13 +254,18 @@ describe("what stays Float", () => {
    * beside an integer literal.
    */
   test("a stand-down beside a literal operand keeps its note", () => {
-    const standDown = "`f` is a `Float` and cannot enter `Dec`, so the addition ran at `Float`";
+    const standDown = "`f` is a `Float` and cannot enter `Dec`, so the addition could not run at `Dec`";
     const declared = "let f = 0.5\nlet c = True\n";
     expect(projectDiagnostics(HEADER + declared + "let r: Dec = (0.25) + f\n")).toEqual([standDown]);
     expect(projectDiagnostics(HEADER + declared + "let r: Dec = f + (if c then 0.5 else 0.25)\n"))
       .toEqual([standDown]);
+    // No operation stands between `f` and the seat, so there is no stand-down:
+    // `f` is refused where it meets the face, with §6's entry report (#827).
     expect(projectDiagnostics(HEADER + declared + "let r: Dec = if c then f else 0.5\n"))
-      .toEqual(["type mismatch: expected Dec, found Float"]);
+      .toEqual([
+        "`f` is a `Float` and cannot enter `Dec`, the home `: Dec` writes; " +
+        "convert it explicitly — `Dec.fromFloat(f, places)`",
+      ]);
   });
 
   test("an established Float value, a type variable, and an inferred Float seat", () => {
