@@ -1,0 +1,185 @@
+import { describe, expect, test } from "vitest";
+
+import { compileMain, projectDiagnostics, runMain } from "../support/test-project.js";
+
+/**
+ * Conformance for **one expression, one home** (#1062, Numeric Literals §5.1).
+ *
+ * An expression's tower operators and its forwarding forms (`if`, `match`,
+ * `try`, grouping, a block's final expression) form one tree, and a seat ends
+ * it. Its home is the seat's concrete type where one lands, and otherwise the
+ * widest type its values establish — chosen once, every value then entering it.
+ * A decimal-point literal is `Float` only where the tree offers no exact home,
+ * so it never settles its part of an expression before the rest is in.
+ */
+
+const HEADER = "module Main\n\nimport Rat\n\n";
+const FIXTURES =
+  "let n: Int = 3\n" +
+  "let i: Int = 4\n" +
+  "let m: Nat = 2\n" +
+  "let price: Dec = 2.50d\n" +
+  "let c: Bool = True\n" +
+  "let f: Float = 1.5\n";
+
+const run = (source: string): Promise<Record<string, unknown>> =>
+  runMain(HEADER + FIXTURES + source);
+const refusals = (source: string): readonly string[] =>
+  projectDiagnostics(HEADER + FIXTURES + source);
+
+/** The emitted line that defines `name`. */
+const emittedLine = (source: string, name: string): string => {
+  const project = compileMain(HEADER + FIXTURES + source);
+  expect(project.diagnostics).toEqual([]);
+  const main = project.modules.find(({ name: module }) => module === "Main")!;
+  return main.javascript.text.split("\n").find((line) => line.includes(`const ${name} =`))!;
+};
+
+describe("a decimal literal waits for the rest of its expression", () => {
+  test("#1062's table: every row meets at Dec", async () => {
+    const exports = await run(
+      "let a1: Dec = n * 1.5 * price\n" +
+        "let a2: Dec = (n + 0.5) * price\n" +
+        "let a3: Dec = (if c then n else 0.5) * price\n" +
+        "let a4: Dec = if c then n else 0.5\n" +
+        "let a5: Dec = if c then 1 else 0.5\n" +
+        "let a6: Dec = match c\n    True => n\n    False => m\n" +
+        "let a7: Dec = match c\n    True => 0.5\n    False => n\n" +
+        "export let shown: (String, String, String, String, String, String, String) = " +
+        "(a1.show(), a2.show(), a3.show(), a4.show(), a5.show(), a6.show(), a7.show())\n",
+    );
+    expect(exports.shown).toEqual(["11.250", "8.750", "7.50", "3", "1", "3", "0.5"]);
+  });
+
+  test("unannotated, the home is the exact value's, wherever it stands", async () => {
+    const exports = await run(
+      "let b1 = n * 1.5 * price\n" +
+        "let b2 = price * n * 1.5\n" +
+        "let b3 = 1.5 * price * n\n" +
+        "let b4 = (0.5 + 0.25) * price\n" +
+        "let b5 = 0.5 * 2 * price\n" +
+        "export let shown: (String, String, String, String, String) = " +
+        "(b1.show(), b2.show(), b3.show(), b4.show(), b5.show())\n",
+    );
+    expect(exports.shown).toEqual(["11.250", "11.250", "11.250", "1.8750", "2.500"]);
+  });
+
+  test("the order of the operands emits nothing different", () => {
+    const first = emittedLine("let b1 = n * 1.5 * price\n", "b1");
+    const second = emittedLine("let b1 = 1.5 * n * price\n", "b1");
+    expect(first).toContain("unscaled: 15n, places: 1");
+    expect(second).toContain("unscaled: 15n, places: 1");
+  });
+
+  test("with nothing exact in the tree, a decimal literal is the Float it is", async () => {
+    const exports = await run("export let plain: Float = n * 1.5\n");
+    expect(exports.plain).toBe(4.5);
+  });
+});
+
+describe("the forms join as one", () => {
+  test("if and match meet at the wider integer in either order (#824)", async () => {
+    const exports = await run(
+      "let j1 = if c then m else n\n" +
+        "let j2 = if c then n else m\n" +
+        "let j3 = match c\n    True => m\n    False => n\n" +
+        "let j4 = match c\n    True => n\n    False => m\n" +
+        "let j5: Int = match c\n    True => n\n    False => m\n" +
+        "let j6: Int =\n    try\n        m\n    catch\n        _ => n\n" +
+        "export let joined: (Int, Int, Int, Int, Int, Int) = (j1, j2, j3, j4, j5, j6)\n",
+    );
+    expect(exports.joined).toEqual([2, 3, 2, 3, 3, 2]);
+  });
+
+  test("a written face reaches a lambda body and an assignment", async () => {
+    const exports = await run(
+      "let g: () -> Dec = () => n\n" +
+        "let assigned(): Dec =\n    var t: Dec = price\n    t := n * 1.5\n    t\n" +
+        "export let shown: (String, String) = (g().show(), assigned().show())\n",
+    );
+    expect(exports.shown).toEqual(["3", "4.5"]);
+  });
+});
+
+describe("comparisons are siblings", () => {
+  test("both operands meet at one home before the comparison is chosen", async () => {
+    const exports = await run(
+      "export let compared: (Bool, Bool, Bool) = " +
+        "(price < n * 1.5, n * 1.5 < price, price == 0.5 * 5)\n",
+    );
+    expect(exports.compared).toEqual([true, false, true]);
+  });
+});
+
+describe("the instance gate", () => {
+  test("an operation the home lacks runs at its own parts' home", async () => {
+    const exports = await run("export let gated: Float = (n band 1) * f\n");
+    expect(exports.gated).toBe(1.5);
+  });
+});
+
+describe("what moves", () => {
+  test("an operation runs at the wider home, exact past 2^53", async () => {
+    const exports = await run(
+      "let big: Int = 9007199254740991\n" +
+        "let one: Dec = 1.00d\n" +
+        "export let product: String = (big * i * one).show()\n",
+    );
+    expect(exports.product).toBe("36028797018963964.00");
+  });
+
+  test("an unannotated variable takes its tree's home", () => {
+    expect(refusals(
+      "let useNat(v: Nat): Nat = v\n" +
+        "fun ff(x) =\n    let s = x + m + n\n    useNat(x)\n",
+    )).toEqual(["type mismatch: expected Nat, found Int"]);
+  });
+
+  test("a type's partiality follows the home", async () => {
+    const exports = await run(
+      "let two: Int = 2\nlet k: Int = -1\n" +
+        "export let reciprocal: Float = (two ** k) * f\n",
+    );
+    expect(exports.reciprocal).toBe(0.75);
+  });
+});
+
+describe("the boundaries", () => {
+  test("a binding, a call's result, and a dot receiver each end the tree", () => {
+    expect(refusals("let y = n * 1.5\nlet a = y * price\n")).toEqual([
+      "`price` is a `Dec` and `y` a `Float`; an expression's arithmetic runs at one type, " +
+        "and neither enters the other",
+    ]);
+    expect(refusals("let id<a>(x: a): a = x\nlet a = id(n * 1.5) * price\n"))
+      .toEqual(["type mismatch: expected Float, found Dec"]);
+    expect(refusals("let a = (n * 1.5).multiply(price)\n"))
+      .toEqual(["type mismatch: expected Float, found Dec"]);
+  });
+
+  test("an established Float meets an exact value, and neither enters the other", () => {
+    expect(refusals("let a = f * 1.5 * price\n")).toEqual([
+      "`price` is a `Dec` and `f` a `Float`; an expression's arithmetic runs at one type, " +
+        "and neither enters the other",
+    ]);
+  });
+
+  test("the exclusions stand", () => {
+    expect(refusals("fun half<a: Frac>(x: a): a = x * 0.5\n")).toEqual([
+      "`a` is a declared type variable, but the body requires `Float`; change the annotation " +
+        "to `Float`, or remove it to let the type be inferred",
+    ]);
+    expect(refusals("let p: (Dec, Dec) = (n, 0.5)\n")).toEqual([
+      "type mismatch: expected Dec, found Int",
+      "type mismatch: expected Dec, found Float",
+    ]);
+  });
+
+  test("declared and constrained variables keep their targets", () => {
+    expect(refusals(
+      "fun widen<t: Num>(value: Nat): t = value\n" +
+        "fun k(count: Int, value) =\n    let z = value / value\n    count * value\n" +
+        "fun k5(count: Int, value) =\n    let z = value + 1\n    count * value\n" +
+        "let scale<a: Signed>(count: Int, value: a): a = count * value\n",
+    )).toEqual([]);
+  });
+});
