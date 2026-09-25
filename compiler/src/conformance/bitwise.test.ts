@@ -268,6 +268,11 @@ describe("spellings and emission (§3, §6)", () => {
     expect(text).toMatch(/const g = \w*toInt32;/u);
     const exports = await runMain("module Main\n\n" + source);
     expect(exports).toMatchObject({ a: -1, b: 4294967295, c: 0, d: 0, e: -1, f: true, viaValue: -1 });
+    // Silently widened to `Float`, the inlined operator keeps its parentheses.
+    const widened = await runMain("module Main\n\nlet h: Int = 4294967295\n" +
+      "export let w: Float = 1.5 * h.toInt32()\nexport let v: Float = h.toUint32() + 0.5\n" +
+      "export let u: Float = h.toInt32() * 1.5\n");
+    expect(widened).toMatchObject({ w: -1.5, v: 4294967295.5, u: -1.5 });
   });
 
   test("a bitwise result compared keeps its grouping in JavaScript", async () => {

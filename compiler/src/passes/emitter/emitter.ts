@@ -5914,6 +5914,18 @@ class JavaScriptEmitter {
     // A door whose lowering is one JavaScript operator binds as that operator.
     const inlined = this.#inlinedIntrinsic(expression);
     if (inlined !== undefined) return inlined.precedence;
+    // A widening that emits nothing is its value's text, so it binds as its
+    // value does — asked here rather than of the free `expressionPrecedence`,
+    // which cannot see an inlined door beneath it (`1.5 * h.toInt32()`).
+    if (
+      expression.kind === "WidenNat" || expression.kind === "WidenInt" ||
+      expression.kind === "WidenBigInt"
+    ) {
+      const widened = primitiveInstance(expression.evidence);
+      if (widened !== undefined && (expression.kind === "WidenBigInt" || widened !== "BigInt")) {
+        return this.#emittedPrecedence(expression.value);
+      }
+    }
     // A receiver member's `Unit` call emits under `void` in value position
     // (`#emitCall`), which binds as a unary operator, not as a call.
     if (
