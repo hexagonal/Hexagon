@@ -170,7 +170,8 @@ introduces no unqualified names at all.
 
 Constructors have two doors of their own, neither needing a declaration. The first is
 the companion idiom below: an alias spelled like an exported type also answers for that
-type and for a same-named record or union constructor. The second is the `match` arm. The
+type, and an alias spelled like an exported record, union, or exception constructor
+answers for that constructor. The second is the `match` arm. The
 constructors of the scrutinee's type may be written bare in a pattern, whatever module
 declared them:
 

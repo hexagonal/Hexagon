@@ -338,6 +338,21 @@ describe("term position: the occlusion keys on the type", () => {
     );
   });
 
+  test("above the line, a spelling the prelude lacks is not told to move the import", () => {
+    // Nothing of the prelude's is occluded, so moving the line would only trade
+    // one refusal for another: the plain report stands, as for a type of the
+    // module's own below the use.
+    expect(messages([
+      ["/foo.hex", "module Foo\n\n" + "export type Foo = Int\n"],
+      ["/main.hex",
+        "module Main\n\n" +
+          "export fun f(): Int =\n" +
+          "    let s = Foo(1)\n" +
+          "    0\n" +
+          "import Foo\n"],
+    ])).toEqual(["unknown name `Foo`"]);
+  });
+
   test("in a pattern the type's door answers, and the prelude's constructor is not reached", () => {
     expect(messages([
       jsError("export union JsError = Wrap(Int) | Other\n"),
@@ -381,6 +396,25 @@ describe("term position: the occlusion keys on the type", () => {
       expect(messages(project(arm))).toEqual([]);
       expect((await runProject(project(arm)))["x"]).toBe(7);
     }
+  });
+
+  test("an import of the prelude's own module occludes nothing", async () => {
+    // `import Hex.JsError` exports the prelude's own `JsError`: there is no
+    // second meaning to keep out, so a catch arm above the line still reaches
+    // the foreign door, as it did before the import was written.
+    const module = await runProject([
+      ["/main.hex",
+        "module Main\n\n" +
+          "fun guard(g: () -> Int): Int =\n" +
+          "    try\n" +
+          "        g()\n" +
+          "    catch\n" +
+          "        JsError(_) => 1\n" +
+          "        _ => 0\n" +
+          "export let x: Int = guard(() => throw(JsError(JsValue.from(7))))\n" +
+          "import Hex.JsError\n"],
+    ]);
+    expect(module["x"]).toBe(1);
   });
 
   test("an exception spelled like no prelude name agrees bare and qualified", async () => {

@@ -1870,8 +1870,8 @@ class Resolver {
   /**
    * The import whose alias **occludes the prelude's same-spelled type and
    * constructor** (Modules §5.1 rules 2 and 3, #1075), or `undefined`: its
-   * module exports a type — or a record or union constructor — spelled like the
-   * alias itself.
+   * module exports a type — or a record, union, or exception constructor —
+   * spelled like the alias itself.
    *
    * The occlusion keys on the **type**, so an opaque type's unreachable
    * constructor still occludes, and a transparent union with no constructor of
@@ -1883,10 +1883,18 @@ class Resolver {
    *
    * A **pending** alias counts: the occlusion is module-wide, and a reference
    * above the line reads as if the prelude did not bind the name (§5.4).
+   *
+   * An import of a **prelude module** occludes nothing (#1075 review, James's
+   * ruling): what it exports of the spelling *is* the prelude's own
+   * declaration (`import Hex.JsError`), so there is no second meaning to keep
+   * out and no later capture to guard against, and reserving the spelling
+   * would only break a use above the line that resolved before the import
+   * was written.
    */
   #occludingImport(name: string): ModuleInterface | undefined {
     const module = this.#moduleAliases.get(name);
     if (module === undefined) return undefined;
+    if (this.#preludeFileIds.has(Number(module.module.fileId))) return undefined;
     const term = module.terms.get(name);
     return module.unions.has(name) || module.records.has(name) ||
         module.aliases.has(name) || module.externTypes.has(name) ||
@@ -1992,10 +2000,12 @@ class Resolver {
    * for the reason `#reportUnreachedAlias` gates on what the line binds: moving
    * an import that would still not answer is a repair that fixes nothing, and
    * the reference falls through to whatever reports it today. Or a **type** of
-   * the spelling (#1075): the import is then §5.4's occluder of the prelude's
-   * same-spelled constructor, and a reference above an occluder draws the
-   * declared-later error with the import's fixit whatever the line below it
-   * reports — the same sentence the qualified spelling above the line draws.
+   * the spelling where the prelude answers the spelling too (#1075): the import
+   * is then §5.4's occluder of the prelude's same-spelled constructor, and a
+   * reference above an occluder draws the declared-later error with the
+   * import's fixit whatever the line below it reports — the same sentence the
+   * qualified spelling above the line draws. Where the prelude has nothing of
+   * the spelling nothing is occluded, and the gate's first reason stands.
    *
    * Answers whether it reported.
    */
@@ -2006,7 +2016,7 @@ class Resolver {
     if (
       (symbol === undefined ||
         (symbol.kind !== "constructor" && symbol.kind !== "record-constructor")) &&
-      this.#occludingImport(name.text) === undefined
+      !(this.#occludingImport(name.text) !== undefined && this.#preludeAnswers(name.text))
     ) {
       return false;
     }
@@ -2018,6 +2028,15 @@ class Resolver {
       labels: [{ span: pending.span, message: "declared here" }],
     });
     return true;
+  }
+
+  /**
+   * Whether the prelude has anything for a bare term spelling — a binding in
+   * its layer, or the qualified-only route §5.5's refusal would name.
+   */
+  #preludeAnswers(name: string): boolean {
+    return this.#preludeScope.lookupLocal(name) !== undefined ||
+      (this.#qualifiedOnlyPreludeNames.get(name)?.length ?? 0) > 0;
   }
 
   /**
@@ -3201,9 +3220,9 @@ class Resolver {
         // predeclaration and not in this frame.
         //
         // The one bare spelling it *does* take from the prelude (#1075): where
-        // its module exports a type, or a record or union constructor, of the
-        // alias's own spelling, the prelude's same-spelled constructor is
-        // occluded with the type (§5.1 rule 3), module-wide like every
+        // its module exports a type, or a record, union, or exception
+        // constructor, of the alias's own spelling, the prelude's same-spelled
+        // constructor is occluded with it (§5.1 rule 3), module-wide like every
         // occlusion. It binds nothing — rule 3's fallback answers below the
         // line, and above it the reference reads the prelude as if it did not
         // bind the name.

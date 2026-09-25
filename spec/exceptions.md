@@ -147,7 +147,7 @@ exception JsError(error: JsValue)
 
 ### 6.2 The wrapping is virtual
 
-`JsError` is special-cased in emission (and only there — its typing and surface behaviour are ordinary):
+`JsError` is special-cased in emission (and only there — its typing and surface behaviour are ordinary). The special case is keyed on the prelude's declaration, not the spelling: in a module whose own `exception JsError`, or a same-named import (Modules §5.1 rule 3, §5.4), occludes it, bare `JsError` is that module's constructor and carries none of the below, and the foreign door is reached qualified — `import Hex.JsError as Js`, then `Js.JsError(e)`.
 
 - **In a catch arm**, `JsError(e)` allocates nothing: it is the foreign branch of the two-stage discrimination (§7.4), and `e` binds the raw thrown value directly. Implicit rethrow of an unmatched foreign error rethrows *the original object* — stack intact, no wrapper burying it.
 - **`throw` applied directly to a `JsError` construction unwraps**: `throw(JsError(e))` emits `throw e;`. This makes the rethrow-after-inspection idiom (`JsError(e) => if recoverable(e) then ... else throw(JsError(e))`) preserve the original error's identity and stack. 
