@@ -61,6 +61,48 @@ describe("Functions specification conformance", () => {
     expect(accepted.diagnostics).toEqual([]);
   });
 
+  test("§4.2 a demand copied from a callee's written binder is checked like any other (#1063)", () => {
+    // The callee's list is *its* declaration; at this call it is a demand. The
+    // copy used to keep the declaration's standing and land on the caller's
+    // rigid variable unchecked, so each of these compiled with `Show`/`Hash`
+    // silently added to the caller's published list.
+    const describe = "export let describe<a: Show>(x: a): String = show(x)\n";
+    expect(
+      checkSource(describe + "export let f<a: Eq>(x: a): String = describe(x)")
+        .diagnostics.map(({ message }) => message),
+    ).toEqual([
+      "`a` is declared to honor `Eq`, but the body requires `Show`; write `<a: (Eq, Show)>`, or remove the constraint annotation to let it be inferred",
+    ]);
+    expect(
+      checkSource(
+        "export let h<a: Hash>(x: a): Int = x.hash()\n" +
+          "export let g<a: Eq>(x: a): Int = h(x)",
+      ).diagnostics.map(({ message }) => message),
+    ).toEqual([
+      "`a` is declared to honor `Eq`, but the body requires `Hash`; write `<a: Hash>`, or remove the constraint annotation to let it be inferred",
+    ]);
+    expect(
+      checkSource(
+        describe +
+          "fun<a: Eq>\n" +
+          "    p(x: a, n: Int): String = if n > 0 then q(x, n) else \"\"\n" +
+          "    q(x: a, n: Int): String = describe(x)",
+      ).diagnostics.map(({ message }) => message),
+    ).toEqual([
+      "`a` is declared to honor `Eq` on the block head, but `q`'s body requires `Show`; widen the head: `fun<a: (Eq, Show)>`, or remove the head's constraint to let it be inferred",
+    ]);
+
+    // Entailment still discharges a copied demand: `Hash` provides `Eq`.
+    const accepted = checkSource(
+      "export let same<a: Eq>(x: a): Bool = x == x\n" +
+        "export let hashedSame<a: Hash>(x: a): Bool = same(x)",
+    );
+    expect(accepted.diagnostics).toEqual([]);
+    expect(symbol(accepted, "hashedSame").scheme.constraints).toEqual([
+      expect.objectContaining({ name: "Hash" }),
+    ]);
+  });
+
   test("Modules §4.1.1 requires complete exported signatures with maximal constraints", () => {
     const module = checkSource(
       "export let answer = 42\n" +

@@ -23521,7 +23521,11 @@ class Checker {
             requirement.name,
             replacement,
             requirement.span,
-            requirement.origin,
+            // A written binder's list is its *declaration*, and a use of the
+            // binding is a demand on it: the copy never keeps the standing
+            // that exempts a declaration from a caller's contract (Functions
+            // §4.2, #1063).
+            requirement.origin === "annotation" ? "operation" : requirement.origin,
             // The member's *own* constraint is what projects the implied types,
             // matched on the declaration rather than its spelling so an
             // imported member projects exactly as a local one does.
