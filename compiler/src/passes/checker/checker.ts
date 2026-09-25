@@ -14824,13 +14824,12 @@ class Checker {
       this.#joinForm(node, face, types, node.parts.map((part) => this.#partExpression(part)));
       return this.#partType({ node });
     }
-    // An unsolved value reaches the face and runs there, as the lift hands it;
-    // the kept type decides nothing about it (§5.1: for the report alone).
     // An unsolved value is left as it is: a refused tree decides nothing about
-    // it, and whatever later solves it — a seat, a demand made further down —
-    // does so without this tree's say. Its demands at close are recorded for
-    // §2.2's repair alone (`#followsAtType`). A declared variable is no
-    // unsolved value, and keeps its own verdict.
+    // it, the kept type being for the report alone (§5.1). Whatever solves it
+    // later — a seat, a demand made further down — does so without this
+    // tree's say. Its demands at close are recorded for §2.2's repair alone
+    // (`#followsAtType`). A declared variable is no unsolved value, and keeps
+    // its own verdict.
     for (const part of node.parts) {
       if (!("value" in part)) continue;
       const type = this.#prune(part.value.type);
