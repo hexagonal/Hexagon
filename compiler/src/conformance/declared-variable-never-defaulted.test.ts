@@ -67,6 +67,40 @@ describe("a knot's survivor gets no report of its own", () => {
     ]);
   });
 
+  test("a refusal in a local function inside a member is not the member's knot's", () => {
+    // `helper`'s `t` is refused inside `a`, while the knot {c, a} is live; only
+    // a knot holding the refused variable's owner refuses, so `a`'s reach into
+    // `c`'s `u` is still reported.
+    const messages = verdict(
+      "fun\n" +
+      "    c(go: Bool): u = if go then 0 else if a(False) == 0 then c(True) else 0\n" +
+      "    a(flag: Bool): Int =\n" +
+      "        fun helper<t: Num>(): t = 1.5\n" +
+      "        let z = c(True) + c(False)\n" +
+      "        if flag then 1 else 0\n",
+    );
+    expect(messages.some((message) => message.startsWith("`t` is a declared type variable"))).toBe(true);
+    expect(messages.some((message) => message.startsWith("`u` is declared on `c`, and this in `a`")))
+      .toBe(true);
+  });
+
+  test("a clash's second variable may be a leaked casualty, and its knot is not marked", () => {
+    // `w: t = c(True)` clashes `outer`'s `t` with `u`, which leaked from `c`
+    // because `a`'s reach left it unquantified: the root cause still reports.
+    const messages = verdict(
+      "fun outer<t: Num>(x: t, n: Int): Int =\n" +
+      "    fun\n" +
+      "        c(go: Bool): u = if go then 0 else if a(False) == 0 then c(True) else 0\n" +
+      "        a(flag: Bool): Int =\n" +
+      "            let z = c(True) + c(False)\n" +
+      "            let w: t = c(True)\n" +
+      "            if flag then 1 else 0\n" +
+      "    a(True)\n",
+    );
+    expect(messages.some((message) => message.startsWith("`u` is declared on `c`, and this in `a`")))
+      .toBe(true);
+  });
+
   test("a clash outside the knot is not the knot's refusal, and hides nothing", () => {
     // `h` meets `u` only because it leaked from `c`, which `a`'s reach left
     // unquantified. `h`'s own clash is reported, and so is the knot's cause.

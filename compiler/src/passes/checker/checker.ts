@@ -21239,25 +21239,14 @@ class Checker {
   }
 
   /**
-   * **A demand on a declared variable is met only where its evidence reaches**
-   * *(#1048; closure doc §13.6's checker-clean invariant)*.
-   *
-   * A function's declared variable has a dictionary exactly where a declaration
-   * **quantifies** it: that declaration's scheme takes the dictionary as a
-   * trailing parameter, and every body its right-hand side encloses closes over
-   * it. A demand placed anywhere else — a `fun` member whose own signature does
-   * not mention its block head's variable, a `fun` nested inside such a member, a
-   * knot sibling's variable reached through the shared not-yet-general type —
-   * has no dictionary to find, and the emitter used to be the first to notice.
-   * This asks the question once, of every demand, off the finished schemes: the
-   * rule the emitter depends on, rather than a guess at it from syntax.
-   */
-  /**
    * Records that a declaration owning `variable` has refused one of its declared
    * variables (#704). A knot refuses as one: every member of the live knot the
-   * refused variable's owner belongs to. Its survivors — the members' other declared variables, left
-   * unquantified because the knot failed — are then this refusal's to account
-   * for, and nothing reports them again.
+   * refused variable's owner belongs to. Its survivors — the members' other
+   * declared variables, left unquantified because the knot failed — are then
+   * this refusal's to account for, and nothing reports them again. Only the
+   * refused variable is asked, never the other side of a rigid-vs-rigid clash:
+   * that side may be a casualty leaked from another knot's unquantified member,
+   * and marking its knot would hide that knot's own report.
    */
   #markDeclarationsRefused(variable: Variable): void {
     const owner = this.#declaredHeadOwners.get(variable.id);
@@ -21273,6 +21262,20 @@ class Checker {
     }
   }
 
+  /**
+   * **A demand on a declared variable is met only where its evidence reaches**
+   * *(#1048; closure doc §13.6's checker-clean invariant)*.
+   *
+   * A function's declared variable has a dictionary exactly where a declaration
+   * **quantifies** it: that declaration's scheme takes the dictionary as a
+   * trailing parameter, and every body its right-hand side encloses closes over
+   * it. A demand placed anywhere else — a `fun` member whose own signature does
+   * not mention its block head's variable, a `fun` nested inside such a member, a
+   * knot sibling's variable reached through the shared not-yet-general type —
+   * has no dictionary to find, and the emitter used to be the first to notice.
+   * This asks the question once, of every demand, off the finished schemes: the
+   * rule the emitter depends on, rather than a guess at it from syntax.
+   */
   #checkEvidenceRoutes(): void {
     type Unrouted = {
       readonly requirement: Requirement;
