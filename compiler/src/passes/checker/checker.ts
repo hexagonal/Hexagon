@@ -4006,6 +4006,8 @@ class Checker {
    * applied edit that compiles and rebinds the head to a module.
    */
   #typeSpellings: ReadonlyMap<string, Resolved.TypeSpelling> = new Map();
+  /** How this module spells each nominal type (`Resolved.Module.nominalSpellings`). */
+  #nominalSpellings: Resolved.NominalSpellings = { claimed: new Set(), records: new Map(), unions: new Map() };
   /**
    * Whether the `let` pattern being checked is a lambda parameter's
    * destructuring (Pattern Matching §6.5) rather than a written binding. Read
@@ -4083,6 +4085,7 @@ class Checker {
       "from",
     );
     this.#typeSpellings = module.typeSpellings;
+    this.#nominalSpellings = module.nominalSpellings;
     // Modules §5.1 rule 1 reads the module-alias namespace **first**, so the
     // set it reads has to be the whole of it. `Module.moduleAliases` is that —
     // "modules addressable by name here, prelude companions included" — and the
@@ -6249,8 +6252,7 @@ class Checker {
     })();
     if (
       cachedArguments === undefined && subjectParameter !== undefined &&
-      this.#prune(subjectParameter).kind === "Variable" &&
-      literalReceiver(callee.receiver) === callee.receiver
+      this.#prune(subjectParameter).kind === "Variable"
     ) {
       this.#closedReceivers.set(callee.receiver, {
         call: expression,
@@ -13557,28 +13559,33 @@ class Checker {
    * A type as **this site** spells it, or `undefined` where the site has no
    * spelling for it *(#821)*.
    *
-   * §9 row 16's ascription is a rewrite the reader is invited to paste, so the
-   * name in it has to be the one that resolves here: a two-module program writes
-   * `Foo.Foo`, and a type reached only through an inferred signature has no
-   * written spelling at all — where that is so the report offers the binding
-   * repair alone rather than a rewrite that would not compile.
+   * §9 row 16's ascription, and Numeric Literals §6's closed-receiver and
+   * settled-callback repairs, are rewrites the reader is invited to paste, so
+   * the name in each has to be the one that resolves here to the type meant: a
+   * program that writes `Foo.Foo` is offered `Foo.Foo`, and a type no name here
+   * reaches — a private one, or a nominal with arguments — has no spelling, so
+   * the report offers what else compiles rather than a rewrite that would not.
    */
   #typeSpellingAtSite(type: Mono): string | undefined {
     const actual = this.#prune(type);
-    if (actual.kind === "Constructor") return actual.name;
+    const spellings = this.#nominalSpellings;
+    // A compiler-owned type's name is its spelling until a declaration takes
+    // it: `record Float = {…}` makes a bare `Float` the record.
+    if (actual.kind === "Constructor") return spellings.claimed.has(actual.name) ? undefined : actual.name;
     if (actual.kind !== "NominalRecord" && actual.kind !== "Union") return undefined;
     if (actual.arguments.length > 0) return undefined;
+    // The spelling this file wrote for it travels with the type.
     const qualifier = actual.qualifier;
     if (qualifier !== undefined && Number(qualifier.module) === this.#fileId) {
       return `${qualifier.alias}.${qualifier.member}`;
     }
-    // `representationVisible` is the resolver's "this copy is the declaring
-    // module's own", which is exactly the question: declared here, so the bare
-    // name resolves here.
-    const own = actual.kind === "NominalRecord"
-      ? this.#records.get(actual.record)?.representationVisible === true
-      : this.#declaredUnions.has(actual.union);
-    return own ? actual.name : undefined;
+    // Otherwise the barest name that resolves to it here, as the resolver
+    // reads its own tables: an import's type bare through its companion alias
+    // (`Rat`), a prelude type a local declaration occludes qualified
+    // (`Dec.Dec`), and one no name reaches not at all.
+    return actual.kind === "NominalRecord"
+      ? spellings.records.get(actual.record)
+      : spellings.unions.get(actual.union);
   }
 
   /**
@@ -14078,6 +14085,12 @@ class Checker {
    * A dot call's receiver that closed before the dot resolved to an open member
    * (Method Syntax §2.2), with the call, the member's constraint, and whether it
    * is a tower member (whose result is the home).
+   *
+   * Every such receiver is registered, a literal one included: the report is
+   * looked up by the refused value, or by the value that gave the home, and a
+   * literal receiver is a value of its call through its grouping (ruling b′) —
+   * its ungrouped literal, which is the registered receiver only where no
+   * grouping was written, and then it is no tree and has no `#rootValues`.
    */
   readonly #closedReceivers = new WeakMap<Resolved.Expr, ClosedReceiver>();
 
@@ -14346,13 +14359,11 @@ class Checker {
       }],
       rung: this.#towerRung(candidate.symbol)!,
     };
-    if (literalReceiver(callee.receiver) === callee.receiver) {
-      this.#closedReceivers.set(callee.receiver, {
-        call: expression,
-        constraint: candidate.constraint,
-        tower: true,
-      });
-    }
+    this.#closedReceivers.set(callee.receiver, {
+      call: expression,
+      constraint: candidate.constraint,
+      tower: true,
+    });
     this.#expressionTypes.set(expression, node.result);
     const known = this.#prune(calleeType);
     if (known.kind === "Function") node.subject = known.result;
@@ -14733,7 +14744,7 @@ class Checker {
     // Naming the home: a tower call's result is its home, so an unannotated
     // binding of the call names it by an annotation; anywhere else the
     // receiver is ascribed. A home with no spelling here is not offered.
-    const home = this.#homeSpelling(destination);
+    const home = this.#typeSpellingAtSite(destination);
     const binding = this.#bindingValue;
     if (home !== undefined) {
       if (closed.tower && binding !== undefined && ungrouped(binding.value) === call) {
@@ -14748,17 +14759,6 @@ class Checker {
         "a dot call's receiver is settled on its own" +
         (repairs.length === 0 ? "" : `; ${repairs.join(", or ")}`),
     };
-  }
-
-  /**
-   * A home as a repair written at this site spells it (`#typeSpellingAtSite`),
-   * or `undefined` — `Dec` being a prelude name, spelled bare wherever it is
-   * not shadowed.
-   */
-  #homeSpelling(type: Mono): string | undefined {
-    const actual = this.#prune(type);
-    return this.#typeSpellingAtSite(actual) ??
-      (actual.kind === "NominalRecord" && actual.record === this.#decRecord ? "Dec" : undefined);
   }
 
   /**
@@ -15990,7 +15990,7 @@ class Checker {
     const sibling = this.#writtenOperand(known.sibling) ?? this.#spelledExpression(known.sibling);
     if (sibling === undefined) return undefined;
     // A type this site cannot spell drops the repairs and keeps the report.
-    const wider = this.#homeSpelling(given);
+    const wider = this.#typeSpellingAtSite(given);
     const repairs = wider === undefined ? [] : [`write \`(${sibling}: ${wider})\``];
     // The callback annotated, where its parameters are plain names.
     const names = expression.parameters.map((parameter) =>

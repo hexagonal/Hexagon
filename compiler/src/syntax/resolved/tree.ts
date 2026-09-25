@@ -226,6 +226,28 @@ export interface TypeQualifier {
 }
 
 /**
+ * How this module spells the nominal types it can name — see
+ * `Module.nominalSpellings`.
+ */
+export interface NominalSpellings {
+  /**
+   * Every bare type spelling a declaration answers here — the module's own,
+   * the prelude's, or an import's through Modules §5.1 rule 2's companion
+   * fallback. A compiler-owned type (`Int`, `Float`) is spelled bare only where
+   * its name is not among these: `record Float = {…}` takes the spelling.
+   */
+  readonly claimed: ReadonlySet<string>;
+  /**
+   * Each record and union by identity, with the barest spelling that resolves
+   * to it here: bare where the bare name answers with it, else qualified
+   * through a module alias that reaches it. A nominal absent from these has no
+   * spelling here.
+   */
+  readonly records: ReadonlyMap<RecordId, string>;
+  readonly unions: ReadonlyMap<UnionId, string>;
+}
+
+/**
  * One spelling in the type namespace, as Modules §5.1 rule 1's type branch has
  * to read it — see `Module.typeSpellings`.
  *
@@ -672,6 +694,16 @@ export interface Module {
    * reaches is inert.
    */
   readonly typeSpellings: ReadonlyMap<string, TypeSpelling>;
+  /**
+   * The spelling of each nominal type **at this module's sites**, for the
+   * repairs the checker offers (Numeric Literals §6's closed-receiver and
+   * settled-callback reports, Method Syntax §9 row 16's ascription): a
+   * rewrite the reader pastes has to name the type meant, and whether a name
+   * does is the type namespace's question — a local `record Dec` takes `Dec`,
+   * and an import's same-named type is reached bare. A channel for the reason
+   * `typeSpellings` is one. Metadata, never scope.
+   */
+  readonly nominalSpellings: NominalSpellings;
   readonly externTypes: readonly ExternTypeDeclaration[];
   readonly comments: readonly Source.Comment[];
   /**
