@@ -182,6 +182,15 @@ describe("Functions specification conformance", () => {
     // rider stands: the face goes on the binding that runs the operation.
     expect(reports(n + "let x = n - n")).toEqual([[signed + signedFace, "n - n"]]);
     expect(reports(n + "let x = n.subtract(n)")).toEqual([[signed + signedFace, "subtract"]]);
+    expect(reports(n + "let x = Signed.subtract(n, n)")).toEqual([[signed + signedFace, "Signed.subtract"]]);
+    expect(reports(n + "let x = n |> Signed.negate").map(([message, at]) => [message!.includes("face"), at]))
+      .toEqual([[true, "Signed.negate"]]);
+    // A member passed as a value is no operation: `let x: Int = f(n, n)` would
+    // not compile, so no face is offered — the reference itself is typed.
+    expect(reports(n + "let f = Signed.subtract\nlet x = f(n, n)")).toEqual([[signed, "Signed.subtract"]]);
+    expect(reports(n + "let apply(g, a, b) = g(a, b)\nlet x = apply(Signed.subtract, n, n)"))
+      .toEqual([[signed, "Signed.subtract"]]);
+    expect(reports(n + "let f: (Int, Int) -> Int = Signed.subtract\nlet x = f(n, n)")).toEqual([]);
     // Through a function, the call is not the operation: no rider.
     expect(reports(n + "let d(a, b) = a - b\nlet x = d(n, n)")).toEqual([[signed, "d"]]);
     const bandCall = reports(n + "let h(a, b) = a band b\nlet x = h(n, n)");

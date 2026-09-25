@@ -2996,6 +2996,8 @@ class Checker {
    * spellings are recorded: a member spelling was never a slip for a logic word.
    */
   readonly #bitwiseLogicWords = new Map<string, string>();
+  /** The names applied as a call's callee — `#instantiate`'s `called`. */
+  readonly #calledNames = new Set<Resolved.Expr>();
   /** Whether `#require` is minting a derived requirement (`Requirement.offSeat`). */
   #deriving = false;
   /** Exact Int expressions that checking injects into an independently known Signed target. */
@@ -5591,7 +5593,9 @@ class Checker {
     // call). An unconstrained operation collects an empty list, which is the
     // behaviour this replaces, unchanged.
     const requirements: Requirement[] = [];
-    const calleeType = this.#instantiate(scheme, level, requirements, callee.field.span);
+    const calleeType = this.#instantiate(
+      scheme, level, requirements, callee.field.span, undefined, true,
+    );
     const { seats, pass } = this.#dotCallSeats(
       expression, callee, level, cachedArguments, calleeType, receiver, false, undefined,
     );
@@ -6288,7 +6292,9 @@ class Checker {
       );
     }
     const requirements: Requirement[] = [];
-    const calleeType = this.#instantiate(scheme, level, requirements, callee.field.span);
+    const calleeType = this.#instantiate(
+      scheme, level, requirements, callee.field.span, undefined, true,
+    );
     // *(#808.)* The lift, spelled by the dot: `let whole: BigInt =
     // count.add(count)` is `BigInt` addition, exactly as the operator and the
     // qualified spellings are. The home is what the subject seats expect while
@@ -8632,6 +8638,7 @@ class Checker {
                   ),
                 ),
               ),
+          this.#calledNames.has(expression),
         );
         this.#nameRequirements.set(expression, requirements);
         // Functions §7.4: inside the knot the scheme is a monotype, so the copy
@@ -9456,6 +9463,7 @@ class Checker {
             arguments_[index] = this.#inferExpr(expression.arguments[index]!, level);
           }
         }
+        if (expression.callee.kind === "Name") this.#calledNames.add(expression.callee);
         const callee = calleeIsLambda
           ? this.#inferExpr(expression.callee, level, {
             kind: "Function",
@@ -23452,6 +23460,12 @@ class Checker {
      * already the concrete one selection will answer.
      */
     pinnedSubject?: Mono,
+    /**
+     * Whether this reference is the callee of a call — a dot call, or a name
+     * applied there. Only a *called* constraint member is its operation, so
+     * only its own constraint keeps the seat (Functions §10, #1063).
+     */
+    called = false,
   ): Mono {
     const replacements = new Map<number, Variable>();
     const copiedRequirements = new Set<number>();
@@ -23593,12 +23607,14 @@ class Checker {
           // that span points at too (§6's report names both) — and records
           // where the use was, for a report that is about the use.
           if (requirement.literal !== undefined) copied.literal = requirement.literal;
-          if (useSpan !== undefined) {
-            copied.useSpan = useSpan;
-            // A constraint member's own constraint is the operation itself —
-            // `n.subtract(n)` is where the subtraction is — so its copy keeps
-            // the seat; any other copy reports at a call to code elsewhere.
-            if (requirement.identity !== scheme.constraintIdentity) copied.offSeat = true;
+          if (useSpan !== undefined) copied.useSpan = useSpan;
+          // A *called* constraint member's own constraint is the operation
+          // itself — `n.subtract(n)` is where the subtraction is — so its copy
+          // keeps the seat. Every other copy is off it: a call to code
+          // elsewhere, or a member passed as a value (`let f = Signed.subtract`),
+          // where no operation is written and a rider's advice cannot apply.
+          if (!called || requirement.identity !== scheme.constraintIdentity) {
+            copied.offSeat = true;
           }
           // `actual.id` is the *originating scheme* variable, which is the id
           // `dictionaryEntries` sorts the callee's parameters under; the
