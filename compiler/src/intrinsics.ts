@@ -400,7 +400,30 @@ export interface IntrinsicTypeEntry {
   readonly grade: "type";
   readonly arity: number;
   readonly declarers: readonly string[];
+  /**
+   * The key's **reach** (§3.3): whether the type is addressable only in its
+   * declarers, or is its declaring module's own type, exported like any other.
+   */
+  readonly reach: "confined" | "public";
+  /**
+   * *(#1071.)* For a public key, the **built-in kind** the key's type is. The
+   * language already has a kind for every public key — each is a type with
+   * syntax of its own (a vector literal, `..`) — so the kind *is* the key's one
+   * identity, and the row binds its spelling to it rather than minting a door
+   * type beside it. A confined key has no kind; its identity is its reserved
+   * door-type id (`intrinsicTypeId`).
+   */
+  readonly kind?: PublicTypeKind;
+  /**
+   * The Hexagon record the emitter targets for the type's values, parameter for
+   * parameter, where there is one (§4.1). A written variance claim is checked
+   * against this record's computed variance at the row (§3.3).
+   */
+  readonly representation?: { readonly module: string; readonly record: string };
 }
+
+/** The built-in kinds a public type key names (#1071). */
+export type PublicTypeKind = "Vector" | "Map" | "Set";
 
 export type IntrinsicEntry = IntrinsicOperationEntry | IntrinsicTypeEntry;
 
@@ -411,7 +434,40 @@ export type IntrinsicEntry = IntrinsicOperationEntry | IntrinsicTypeEntry;
  * than about the key's existence.
  */
 const INTRINSIC_TYPES: readonly (readonly [string, IntrinsicTypeEntry])[] = [
-  ["buffer", { grade: "type", arity: 1, declarers: ["Runtime.Regex"] }],
+  ["buffer", { grade: "type", arity: 1, declarers: ["Runtime.Regex"], reach: "confined" }],
+  [
+    "vector",
+    {
+      grade: "type",
+      arity: 1,
+      declarers: ["Vector"],
+      reach: "public",
+      kind: "Vector",
+      representation: { module: "Runtime.VectorTrie", record: "TrieVector" },
+    },
+  ],
+  [
+    "map",
+    {
+      grade: "type",
+      arity: 2,
+      declarers: ["Map"],
+      reach: "public",
+      kind: "Map",
+      representation: { module: "Runtime.HashTrie", record: "HashTrie" },
+    },
+  ],
+  [
+    "set",
+    {
+      grade: "type",
+      arity: 1,
+      declarers: ["Set"],
+      reach: "public",
+      kind: "Set",
+      representation: { module: "Runtime.HashTrie", record: "HashSet" },
+    },
+  ],
 ];
 
 /** The inventory's **operation** rows, key to parameter count. */
@@ -618,6 +674,26 @@ export const INTRINSIC_TYPE_ID_BASE = 2_000_000;
 export function intrinsicTypeId(key: string): number | undefined {
   const index = INTRINSIC_TYPES.findIndex(([name]) => name === key);
   return index < 0 ? undefined : INTRINSIC_TYPE_ID_BASE + index;
+}
+
+/**
+ * The built-in kind a public key's reserved identity denotes (#1071), or
+ * `undefined` for a confined key's identity and for any other id. The resolver
+ * reads it wherever a type name resolves to a door row's identity: a public row
+ * binds its spelling to the kind, so what the spelling produces is the kind.
+ */
+export function publicTypeKind(id: number): PublicTypeKind | undefined {
+  const entry = INTRINSIC_TYPES[id - INTRINSIC_TYPE_ID_BASE]?.[1];
+  return entry?.reach === "public" ? entry.kind : undefined;
+}
+
+/** A public kind's type key and entry (#1071): the inverse of `publicTypeKind`. */
+export function publicTypeKey(
+  kind: PublicTypeKind,
+): { readonly key: string; readonly id: number; readonly entry: IntrinsicTypeEntry } {
+  const index = INTRINSIC_TYPES.findIndex(([, entry]) => entry.kind === kind);
+  const [key, entry] = INTRINSIC_TYPES[index]!;
+  return { key, id: INTRINSIC_TYPE_ID_BASE + index, entry };
 }
 
 /** The inventory's keys at one grade, in inventory order (§4.2). */

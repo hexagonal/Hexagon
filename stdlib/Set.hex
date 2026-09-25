@@ -18,8 +18,16 @@ module Set
 // iterator yields key/value pairs, which is Map's published face, and a set's
 // published face is its elements. The wrapper also absorbs the unit value each
 // element is stored against, which no Hexagon source here ever has to mention.
+//
+// The type row declares `Set` itself (`spec/intrinsics.md` section 3.3): the
+// type is this module's own, its values are the wrapper records, and the `+` is
+// checked against `HashSet`'s variance here, at the row.
 extern from "hex:intrinsic"
-    // Unexported, beneath `empty` below: the block admits `fun` only and an
+    (** An immutable set of elements, each held at most once. Every update
+        answers a new set and leaves the one it was given as it was. *)
+    export type set as Set(+a)
+
+    // Unexported, beneath `empty` below: the block admits no `let` and an
     // empty set is a value, so the door row is the thunk and the wrapper is what
     // the language sees (`spec/intrinsics.md` section 3.2).
     fun setEmpty as emptySet() -> Set(a)
