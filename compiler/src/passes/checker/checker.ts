@@ -3292,6 +3292,13 @@ class Checker {
    */
   readonly #namedInBody = new Set<Variable>();
   /**
+   * The variables a list on a binding's **name** declared (#1047). A refusal
+   * whose exits are "annotate concretely" or "remove the annotation" has to
+   * add the list's own exit at these: either alone leaves the listed variable
+   * unmentioned, which #712 refuses in turn.
+   */
+  readonly #nameListVariables = new Set<Variable>();
+  /**
    * The span of the ascribed type currently being elaborated, or `undefined`
    * outside one. Read only by `#annotationType`'s type-variable arm, to mark the
    * variables an ascription *declares* (Ascription §3.1). A field rather than a
@@ -6972,6 +6979,7 @@ class Checker {
           this.#bindingChain.push({ symbol: item.binding.symbol, name: item.binding.name });
           this.#declareBinderVariables(item.typeParameters, level, letBinders, undefined);
           this.#bindingChain.pop();
+          for (const variable of letBinders.values()) this.#nameListVariables.add(variable);
           this.#annotationVariableScope = new Map([...(enclosingLetScope ?? []), ...letBinders]);
         }
         // A written face is the other place a signature lives (Effects §2.2).
@@ -7096,7 +7104,11 @@ class Checker {
               span: parameter.span,
               binder: true,
               writtenFailed: item.annotation !== undefined && annotationHasErrorType(item.annotation),
-              valueBinding: this.#prune(valueType).kind === "Function" ? "function" : "value",
+              // A lambda with no binding annotation writes its type as its
+              // parameters and result, so the header's wording fits it.
+              ...(item.annotation === undefined && item.value.kind === "Lambda"
+                ? {}
+                : { valueBinding: this.#prune(valueType).kind === "Function" ? "function" as const : "value" as const }),
             });
           }
         }
@@ -22933,8 +22945,11 @@ class Checker {
               `\`${variable.rigidName}\` is a declared type variable, but a binding whose ` +
               `type is not a function cannot carry its \`${names.join("`, `")}\` ` +
               `constraint${names.length === 1 ? "" : "s"} — evidence rides only a ` +
-              "function's trailing parameters; annotate at a concrete type, or " +
-              "remove the annotation",
+              "function's trailing parameters; " +
+              (this.#nameListVariables.has(variable)
+                ? `remove \`${variable.rigidName}\` from the binder list, and annotate at a ` +
+                  "concrete type or remove the annotation"
+                : "annotate at a concrete type, or remove the annotation"),
             primary: seatReport,
           });
           variable.instance = ERROR;
@@ -22983,7 +22998,10 @@ class Checker {
               `\`${variable.rigidName}\` is a declared type variable, but this right-hand ` +
               `side is a computation that cannot be generalized in \`${variable.rigidName}\` ` +
               `(${this.#declineReason(variable.rigidName, variable, declined)}); ` +
-              "bind where the type is known, or remove the annotation",
+              (this.#nameListVariables.has(variable)
+                ? `remove \`${variable.rigidName}\` from the binder list, and bind where the ` +
+                  "type is known or remove the annotation"
+                : "bind where the type is known, or remove the annotation"),
             primary: declineReport,
           });
           // The binding has no legal reading, so nothing downstream should try

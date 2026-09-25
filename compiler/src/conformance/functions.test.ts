@@ -362,6 +362,40 @@ describe("Functions specification conformance", () => {
       "`a` is a declared type variable, but this declaration's type does not mention it, so no call can choose it or supply its `Num` evidence; remove `a` from the binder list",
     ]);
 
+    // A lambda with no binding annotation writes its type as parameters and a
+    // result, so it takes the header's wording.
+    expect(messages("let f<a: Show, b: Num> = (x: a): String => show(x)")).toEqual([
+      "`b` is a declared type variable, but this declaration's type does not mention it, so no call can choose it or supply its `Num` evidence; use `b` in a parameter or result type, or remove `b` from the binder list",
+    ]);
+
+    // §8.2's two refusals add the list's own exit here: annotating concretely,
+    // or removing the annotation, would each leave `a` unmentioned (#712).
+    const tag = "constraint Tag<a> =\n    label(value: a) -> String\n" +
+      "honor Tag<String> =\n    label(value) = value\n" +
+      "let describeTag<a: Tag>(value: a): String = label(value)\n" +
+      "let mk<b: Tag>(u: Unit): (b) -> String = describeTag\n";
+    expect(messages(tag + "let holder<a: Tag>: { f: (a) -> String } = { f = describeTag }")).toEqual([
+      "`a` is a declared type variable, but a binding whose type is not a function cannot carry its `Tag` constraint — evidence rides only a function's trailing parameters; remove `a` from the binder list, and annotate at a concrete type or remove the annotation",
+    ]);
+    expect(messages(tag + "let holder: { f: (String) -> String } = { f = describeTag }")).toEqual([]);
+    expect(messages(tag + "let f<a: Tag>: (a) -> String = mk(())")).toEqual([
+      "`a` is a declared type variable, but this right-hand side is a computation that cannot be generalized in `a` (`a` is constrained by `Tag`); remove `a` from the binder list, and bind where the type is known or remove the annotation",
+    ]);
+    expect(messages(tag + "let f: (String) -> String = mk(())")).toEqual([]);
+
+    // A local list shadows an enclosing declared variable for its own binding
+    // only: `g`'s `a` is its own, and `same`'s `a`, written after, is `outer`'s.
+    expect(
+      await run(
+        "module Main\n\n" + describe +
+          "let outer<a: Eq>(x: a, y: a): String =\n" +
+          "    let g<a: Show>: (a) -> String = describe\n" +
+          "    let same: (a) -> Bool = (z) => z == x\n" +
+          '    if same(y) then g(1) ++ g(True) else "no"\n' +
+          "export let shadowed: String = outer(2, 2)\n",
+      ),
+    ).toMatchObject({ shadowed: "1True" });
+
     // One list per binding: the lambda's is refused, and the name's draws no
     // second report.
     expect(messages("let f<a: Eq> = <b: Show>(x: b): String => show(x)")).toEqual([
