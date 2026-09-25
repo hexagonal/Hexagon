@@ -12,10 +12,11 @@ function verdict(source: string): readonly string[] {
 
 const TAG = "constraint Tag<a> =\n    tag(value: a) -> String\n";
 
-function unmentioned(name: string, evidence: string): string {
+function unmentioned(name: string, evidence: string, named = false): string {
   return `\`${name}\` is a declared type variable, but this declaration's type does not ` +
     `mention it, so no call can choose it or supply its \`${evidence}\` evidence; use ` +
-    `\`${name}\` in a parameter or result type, or remove \`${name}\` from the binder list`;
+    `\`${name}\` in a parameter or result type, or remove \`${name}\` from the binder list` +
+    (named ? ` and write a concrete type where the body names \`${name}\`` : "");
 }
 
 describe("a constrained binder its function's type does not mention (#712)", () => {
@@ -49,7 +50,7 @@ describe("a constrained binder its function's type does not mention (#712)", () 
       "fun f<a: Num>(x: Int): Int =\n" +
       "    let twice = (y: a) => y * y\n" +
       "    x\n",
-    )).toEqual([unmentioned("a", "Num")]);
+    )).toEqual([unmentioned("a", "Num", true)]);
   });
 
   test("a block head that no member mentions is the same refusal", () => {
@@ -67,6 +68,51 @@ describe("a constrained binder its function's type does not mention (#712)", () 
       "    a(x: Int): Int = x\n" +
       "export let r: Float = b(1.5, 2)\n",
     )).toEqual([]);
+  });
+
+  test("the report stands at the binder", () => {
+    const source = "module Main\n\nfun f<b: Show, a: Num>(x: b): b = x\n";
+    const [diagnostic] = compileMain(source).diagnostics;
+    expect(diagnostic?.message).toBe(unmentioned("a", "Num"));
+    expect(source.slice(diagnostic!.primary.start.offset, diagnostic!.primary.end.offset))
+      .toBe("a: Num");
+  });
+
+  test("where the body names the variable, the binder rewrite gives those names a type too", () => {
+    // Removing the binder alone would leave `let y: a = 1` to meet the
+    // forced-to-a-concrete-type row, so the advice has to say so (Rewrite Rule).
+    expect(verdict("fun f<a: Num>(x: Int): Int =\n    let y: a = 1\n    x\n")).toEqual([
+      "`a` is a declared type variable, but this declaration's type does not mention it, " +
+        "so no call can choose it or supply its `Num` evidence; use `a` in a parameter or " +
+        "result type, or remove `a` from the binder list and write a concrete type where " +
+        "the body names `a`",
+    ]);
+    expect(verdict("fun f(x: Int): Int =\n    let y: Int = 1\n    x\n")).toEqual([]);
+  });
+
+  test("a written type that failed to elaborate takes its own report alone", () => {
+    expect(verdict("fun f<a: Num>(x: Nope(a)): Int = 1\n"))
+      .toEqual(["unknown generic type `Nope`"]);
+  });
+
+  test("an ascription's variable at a value binding takes the same row and wording", () => {
+    // No function records it; the end-of-module sweep's ascription arm speaks,
+    // in the one wording every spelling shares.
+    expect(verdict(
+      TAG + "fun anything(): b = anything()\n" +
+      "let v: String = tag((anything() : a))\n",
+    )).toEqual([
+      "`a` is a declared type variable, but this declaration's type does not mention it, " +
+        "so no call can choose it or supply its `Tag` evidence; ascribe a concrete type, " +
+        "or name a type variable the declaration uses",
+    ]);
+  });
+
+  test("a repeated binder is the parser's error, and the variable it overwrites says nothing", () => {
+    expect(verdict("fun f<a: Num, a: Eq>(x: Int): Int = x\n")).toEqual([
+      "duplicate type parameter `a`",
+      unmentioned("a", "Eq"),
+    ]);
   });
 
   test("a knot's survivor is not unmentioned: its member's signature writes it", () => {
