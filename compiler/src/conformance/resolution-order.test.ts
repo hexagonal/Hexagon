@@ -318,10 +318,11 @@ describe("the boundary intrinsics are a fallback in both directions", () => {
  * what the fallback resolves to is a user's declaration reached through the
  * user's own import.
  *
- * This is the one place the fallback re-means a program that already compiled,
- * and rule 2 says so in as many words. The tell of the old reading was the
- * same-name-both-sides mismatch — `expected Array(Int), found Array(Int)` —
- * defect 6's own signature, one namespace over.
+ * Since #1075 the fallback outranks the prelude's types as well, so these are
+ * no longer the only spellings it re-means (the last test below; the prelude
+ * half is pinned in `import-occludes-prelude-type.test.ts`). The tell of the
+ * old reading was the same-name-both-sides mismatch — `expected Array(Int),
+ * found Array(Int)` — defect 6's own signature, one namespace over.
  */
 describe("the companion fallback outranks the boundary intrinsics", () => {
   const ARR = ["/arr.hex", "module Arr\n\n" + "export record Array(a) = { item: a }\n"] as const;
@@ -450,13 +451,15 @@ describe("the companion fallback outranks the boundary intrinsics", () => {
     )).toContain("no module `Mynode`");
   });
 
-  test("the intrinsics that are not boundary types keep answering first", () => {
-    // Rule 2's carve names three spellings. `Vector`, `Set`, `Map`, and the two
-    // JS views are not among them, so conservativity there is exact: a
-    // same-spelled alias over a same-spelled export changes nothing.
+  test("the compiler-owned kinds that are not boundary types answer after it too", () => {
+    // #1075: the fallback outranks *every* prelude type, and `Vector`, `Set`,
+    // `Map`, and the two JS views answer at the prelude's seat before their
+    // public rows land as after them (Intrinsics §3.3). So a same-spelled alias
+    // over a same-spelled export means the export — the field read is the
+    // discriminator, since only the record has one.
     expect(diagnostics(
       'import Myvec as Vector\n' +
-      "export fun first(values: Vector(Int)): Int = values[0]\n",
+      "export fun first(values: Vector(Int)): Int = values.item\n",
       [["/myvec.hex", "module Myvec\n\n" + "export record Vector(a) = { item: a }\n"]],
     )).toEqual([]);
   });

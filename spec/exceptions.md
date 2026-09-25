@@ -46,7 +46,7 @@ Exactly the union rules (Unions §2.2), restated for closure:
 - A nullary exception is a **value** of type `Exn`, used bare: `NotFound`. `NotFound()` gets the standard "`NotFound` is a value, not a function; write it without `()`" hint. *(But note §7.3: unlike union nullaries, a nullary exception is not a shared constant — each mention constructs fresh, to capture a stack.)*
 - Slot names are representation/documentation only; construction and catch patterns are positional, always (Unions §2.1 doctrine unchanged).
 - Value restriction: a constructor application of syntactic values is a syntactic value (Functions §8.2). Nothing generalises here anyway — every exception has type `Exn`, no variables in sight.
-- **Prelude exceptions are bare as a category** *(#742)*: every exception the prelude declares is in bare scope, in a catch arm and in an expression, and stays reachable qualified (`Map.KeyError`) — the one prelude channel whose constructors are all bare, where union constructors are qualified-only but the open unions' (Modules §5.5). The ground is the name shape: a compound `…Error` word is its own qualifier, nobody declares one as a function or a value, and a user's same-named exception occludes with reservation (Modules §5.4). A future prelude exception joins bare without a ruling; the inventory keeps the names unique.
+- **Prelude exceptions are bare as a category** *(#742)*: every exception the prelude declares is in bare scope, in a catch arm and in an expression, and stays reachable qualified (`Map.KeyError`) — the one prelude channel whose constructors are all bare, where union constructors are qualified-only but the open unions' (Modules §5.5). The ground is the name shape: a compound `…Error` word is its own qualifier, nobody declares one as a function or a value, and a user's same-named exception occludes with reservation (Modules §5.4), whether declared in the module or reached through a same-named import (Modules §5.1 rule 3, #1078). A future prelude exception joins bare without a ruling; the inventory keeps the names unique.
 
 ---
 
@@ -147,7 +147,7 @@ exception JsError(error: JsValue)
 
 ### 6.2 The wrapping is virtual
 
-`JsError` is special-cased in emission (and only there — its typing and surface behaviour are ordinary):
+`JsError` is special-cased in emission (and only there — its typing and surface behaviour are ordinary). The special case is keyed on the prelude's declaration, not the spelling: where a module's own `exception JsError`, or a same-named import (Modules §5.1 rule 3, §5.4), occludes the prelude's, bare `JsError` is that other exception's constructor and carries none of the below, and the foreign door is reached qualified — as `JsError.JsError(e)` under the module's own declaration, and through a realiased import of the prelude module (`import Hex.JsError as Js`, then `Js.JsError(e)`) where the spelling `JsError` names the user's module.
 
 - **In a catch arm**, `JsError(e)` allocates nothing: it is the foreign branch of the two-stage discrimination (§7.4), and `e` binds the raw thrown value directly. Implicit rethrow of an unmatched foreign error rethrows *the original object* — stack intact, no wrapper burying it.
 - **`throw` applied directly to a `JsError` construction unwraps**: `throw(JsError(e))` emits `throw e;`. This makes the rethrow-after-inspection idiom (`JsError(e) => if recoverable(e) then ... else throw(JsError(e))`) preserve the original error's identity and stack. 
