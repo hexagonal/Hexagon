@@ -784,7 +784,8 @@ describe("the companion's own emitted shape", () => {
         "__ordering(__compareFloat(__a, __b));",
     );
     // The Euclidean adjustment is Hexagon here, not a helper anywhere else.
-    expect(text).toContain("const remainder = rem(left, right);");
+    // `rem` is an exported door row, so its call here is its operator (§8.3).
+    expect(text).toContain("const remainder = left % right;");
     // `Real.sign` and the shared rounding crossing are the file's two guarded
     // sites. `FloatRangeError` remains an exact-to-Float error and is not thrown
     // by this module.

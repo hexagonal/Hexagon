@@ -1111,13 +1111,13 @@ describe("a crossing that copies nothing is unchanged (§5.4)", () => {
         "    Array.length(xs) + Array.length(Vector.toArray(v))\n",
     ]]);
     expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
-    const array = project.modules.find(({ source }) => source.path.endsWith("/Array.hex"));
-    expect(array?.javascript.text).toContain("const length = __a => __a.length;");
     const main = project.modules.find(({ source }) => source.path === "/main.hex");
-    // The caller binds the internal edition and performs no walk of its own;
-    // its only `__capture` is its own export wrapper's entry walk.
-    expect(main?.javascript.text).toContain('import { __length as length } from "./Hex/Array.js";');
-    expect(main?.javascript.text).toContain("return length(xs) + length(toArray(v));");
+    // The caller performs no walk of its own; its only `__capture` is its own
+    // export wrapper's entry walk. The row's call is its lowering, inlined
+    // (Intrinsics §8.3), and `toArray` binds the internal edition.
+    expect(main?.javascript.text).toContain('import { __toArray as toArray } from "./Hex/Vector.js";');
+    expect(main?.javascript.text).toContain("return xs.length + toArray(v).length;");
+    expect(main?.javascript.text.match(/__capture\(__capturePlans/gu)).toHaveLength(1);
     // `Vector`'s own published face carries exactly one walk, and it is not
     // this row's: `toArray`'s result is an `Array(a)` leaving through an
     // export, so occasion 4 copies it on the way out. Nothing in the module

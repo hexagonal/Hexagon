@@ -257,10 +257,16 @@ describe("variance, faces, and emission", () => {
   });
 
   test("the two narrow predicates emit direct comparisons", () => {
+    // A call is inlined (Intrinsics §8.3); a value reference keeps the
+    // companion emitted, so its own bindings can be read too.
     const project = compileFiles([["/main.hex", "module Main\n\n" +
       "export let nullOnly(value: Nullable(Int)): Bool = Nullable.isNull(value)\n" +
-        "export let undefinedOnly(value: Nullable(Int)): Bool = Nullable.isUndefined(value)\n"]]);
+        "export let undefinedOnly(value: Nullable(Int)): Bool = Nullable.isUndefined(value)\n" +
+        "export let test: (Nullable(Int)) -> Bool = Nullable.isNull\n"]]);
     expect(project.diagnostics).toEqual([]);
+    const main = project.modules.find(({ source }) => source.path === "/main.hex")!.javascript.text;
+    expect(main).toContain("const nullOnly = value => value === null;");
+    expect(main).toContain("const undefinedOnly = value => value === undefined;");
     const source = project.modules.find(({ source }) => source.path.endsWith("Nullable.hex"))!
       .javascript.text;
     expect(source).toContain("const isNull = __a => __a === null;");

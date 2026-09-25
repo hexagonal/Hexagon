@@ -352,8 +352,8 @@ Every spelling of a member emits alike: the operator, the dot, and the qualified
 
 `Int.toInt32` and `Int.toUint32` emit their table's operators in every spelling of a
 call: `h.toInt32()`, `Int.toInt32(h)`, and a pipe stage all emit `h | 0`. Each is an
-exported door row, inlined at the call site under Intrinsics §8.3's latitude; a
-reference to the function that is not called is an ordinary function value.
+exported door row, inlined at the call site by Intrinsics §8.3's rule for inlined
+rows; a reference to the function that is not called is an ordinary function value.
 
 ## 7. Implementations and intrinsic keys
 

@@ -5911,7 +5911,7 @@ class JavaScriptEmitter {
     // An unapplied release seat that copies emits an arrow, not a name
     // (`#releasedReference`), and an arrow binds loosest of all.
     if (this.#releasesUnapplied(expression)) return Precedence.Arrow;
-    // A door whose lowering is one JavaScript operator binds as that operator.
+    // A door inlined at its call binds as the expression it inlines to.
     const inlined = this.#inlinedIntrinsic(expression);
     if (inlined !== undefined) return inlined.precedence;
     // A widening that emits nothing is its value's text, so it binds as its
@@ -6135,16 +6135,17 @@ class JavaScriptEmitter {
 
   /**
    * The inline lowering of a call to a door whose lowering is one JavaScript
-   * operator, or `undefined` for every other call (`bitwise.md` §6).
+   * expression over its operands, or `undefined` for every other call
+   * (Intrinsics §8.3).
    *
    * Keyed by the door's intrinsic key, which rides the callee's symbol across
    * module boundaries, so no other declaration of the same name can match.
    */
   #inlinedIntrinsic(expression: Core.Expr): InlinedIntrinsic | undefined {
     if (expression.kind !== "Call" || expression.callee.kind !== "Name") return undefined;
-    if (expression.arguments.length !== 1) return undefined;
     const key = this.#symbols.get(expression.callee.symbol)?.intrinsic;
-    return key === undefined ? undefined : INLINED_INTRINSICS.get(key);
+    const inlined = key === undefined ? undefined : INLINED_INTRINSICS.get(key);
+    return inlined?.operands.length === expression.arguments.length ? inlined : undefined;
   }
 
   #emitCall(
@@ -6154,8 +6155,11 @@ class JavaScriptEmitter {
   ): string {
     const inlined = this.#inlinedIntrinsic(expression);
     if (inlined !== undefined) {
-      return `${this.#emitOperand(expression.arguments[0]!, inlined.precedence, depth, evidenceNames)} ` +
-        inlined.operator;
+      const operands = expression.arguments.map((argument, index) => {
+        const operand = inlined.operands[index]!;
+        return this.#emitOperand(argument, operand.precedence, depth, evidenceNames, operand.strict);
+      });
+      return inlined.text(operands, (name) => this.#spell(name));
     }
     // Statements §3.3's **value position** — everywhere `#emitStatement` did not
     // claim the call, so the `Unit` result is consumed. The erasure may not leak
@@ -14792,22 +14796,114 @@ const BITWISE_MEMBERS: readonly string[] = [
   "shiftRight",
 ];
 
-/** A door lowering written inline as its operand and one JavaScript operator. */
-interface InlinedIntrinsic {
-  /** What follows the operand: the operator and its constant right side. */
-  readonly operator: string;
+/** One operand of an inlined door lowering: the rung it sits at, and whether an operand already at that rung is bracketed (the right side of a left-associative operator). */
+interface InlinedOperand {
   readonly precedence: Precedence;
+  readonly strict?: boolean;
 }
+
+/** A door lowering written inline at its call: one JavaScript expression over the call's operands. */
+interface InlinedIntrinsic {
+  /** The rung the whole expression binds at. */
+  readonly precedence: Precedence;
+  readonly operands: readonly InlinedOperand[];
+  readonly text: (operands: readonly string[], spell: (name: RuntimeSpelling) => string) => string;
+}
+
+/** An operand in an argument list, or anywhere else nothing it emits can need brackets. */
+const ARGUMENT: InlinedOperand = { precedence: Precedence.Arrow };
+/** An operand a property read or method call is made on. */
+const RECEIVER: InlinedOperand = { precedence: Precedence.Call };
+
+/** `Math.name(x)` (`spec/math.md` §5). */
+function mathCall(name: string): InlinedIntrinsic {
+  return {
+    precedence: Precedence.Call,
+    operands: [ARGUMENT],
+    text: ([value], spell) => `${spell("Math")}.${name}(${value})`,
+  };
+}
+
+/** `x.name`, a native property read. */
+function propertyRead(name: string): InlinedIntrinsic {
+  return { precedence: Precedence.Call, operands: [RECEIVER], text: ([value]) => `${value}.${name}` };
+}
+
+/** `m.has(k)`, a native collection's own membership test. */
+const NATIVE_HAS: InlinedIntrinsic = {
+  precedence: Precedence.Call,
+  operands: [RECEIVER, ARGUMENT],
+  text: ([collection, key]) => `${collection}.has(${key})`,
+};
 
 /**
  * The doors whose call emits as the JavaScript a person would write in its
- * place (`bitwise.md` §6): `toInt32(h)` is `h | 0`. A door is here only when
- * its lowering is exactly one operator over its one operand, so inlining it is
- * the lowering, verbatim.
+ * place (Intrinsics §8.3): `toInt32(h)` is `h | 0` and `Math.sqrt(x)` is
+ * `Math.sqrt(x)`. A row is here only when it is **exported** and its lowering
+ * is one JavaScript expression that names each operand exactly once, in
+ * parameter order, and calls no helper, so the inline text is the lowering,
+ * verbatim: the operands are evaluated as often and in the order the call
+ * evaluated them.
  */
 const INLINED_INTRINSICS: ReadonlyMap<string, InlinedIntrinsic> = new Map([
-  ["intToInt32", { operator: "| 0", precedence: Precedence.BitwiseOr }],
-  ["intToUint32", { operator: ">>> 0", precedence: Precedence.Shift }],
+  ["intToInt32", {
+    precedence: Precedence.BitwiseOr,
+    operands: [{ precedence: Precedence.BitwiseOr }],
+    text: ([value]) => `${value} | 0`,
+  }],
+  ["intToUint32", {
+    precedence: Precedence.Shift,
+    operands: [{ precedence: Precedence.Shift }],
+    text: ([value]) => `${value} >>> 0`,
+  }],
+  ["floatRem", {
+    precedence: Precedence.Multiplicative,
+    operands: [{ precedence: Precedence.Multiplicative }, { precedence: Precedence.Multiplicative, strict: true }],
+    text: ([left, right]) => `${left} % ${right}`,
+  }],
+  ["mathSqrt", mathCall("sqrt")],
+  ["mathSin", mathCall("sin")],
+  ["mathCos", mathCall("cos")],
+  ["mathTan", mathCall("tan")],
+  ["mathAsin", mathCall("asin")],
+  ["mathAcos", mathCall("acos")],
+  ["mathAtan", mathCall("atan")],
+  ["mathAtan2", {
+    precedence: Precedence.Call,
+    operands: [ARGUMENT, ARGUMENT],
+    text: ([y, x], spell) => `${spell("Math")}.atan2(${y}, ${x})`,
+  }],
+  ["mathExp", mathCall("exp")],
+  ["mathLn", mathCall("log")],
+  ["mathLog10", mathCall("log10")],
+  ["mathSinh", mathCall("sinh")],
+  ["mathCosh", mathCall("cosh")],
+  ["mathTanh", mathCall("tanh")],
+  ["nullableIsNull", {
+    precedence: Precedence.Equality,
+    operands: [{ precedence: Precedence.Equality }],
+    text: ([value]) => `${value} === null`,
+  }],
+  ["nullableIsUndefined", {
+    precedence: Precedence.Equality,
+    operands: [{ precedence: Precedence.Equality }],
+    text: ([value], spell) => `${value} === ${spell("undefined")}`,
+  }],
+  ["arrayLength", propertyRead("length")],
+  ["jsMapSize", propertyRead("size")],
+  ["jsSetSize", propertyRead("size")],
+  ["jsMapHas", NATIVE_HAS],
+  ["jsSetHas", NATIVE_HAS],
+  ["jsMapFromSeq", {
+    precedence: Precedence.Call,
+    operands: [ARGUMENT],
+    text: ([pairs], spell) => `new ${spell("Map")}(${pairs})`,
+  }],
+  ["jsSetFromSeq", {
+    precedence: Precedence.Call,
+    operands: [ARGUMENT],
+    text: ([elements], spell) => `new ${spell("Set")}(${elements})`,
+  }],
 ]);
 
 /**

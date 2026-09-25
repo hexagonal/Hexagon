@@ -454,17 +454,17 @@ describe("a Hexagon importer binds the internal edition and never copies", () =>
    * instead, and a captured export there has to move to the internal edition by
    * the same rule or the copy-free Hexagon call is only copy-free on one route.
    *
-   * `Array.length` is the shipped case: its parameter is `Array(a)`, so the
+   * `Vector.toArray` is the shipped case: its result is `Array(a)`, so the
    * companion publishes occasion 4's wrapper, and a Hexagon caller binds the
-   * unwalked lowering beside it and pays nothing to ask a length.
+   * unwalked lowering beside it and pays nothing for the call.
    */
   test("the prelude's named channel binds the edition too", () => {
-    const text = javascript("export fun size(xs: Array(Int)): Int = Array.length(xs)\n");
-    expect(text).toContain('import { __length as length } from "./Hex/Array.js";');
-    expect(text).toContain("return length(xs);");
-    // One walk in the module, and it is this export's own entry wrapper — the
+    const text = javascript("export fun size(v: Vector(Int)): Int = Array.length(Vector.toArray(v))\n");
+    expect(text).toContain('import { __toArray as toArray } from "./Hex/Vector.js";');
+    expect(text).toContain("return toArray(v).length;");
+    // No walk in the module: its export takes no captured collection, and the
     // call into the companion adds none.
-    expect(copies(text)).toBe(1);
+    expect(copies(text)).toBe(0);
   });
 
   /** A constructor's edition rides the same route. */
