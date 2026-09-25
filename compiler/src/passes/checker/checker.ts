@@ -23341,26 +23341,18 @@ class Checker {
   }
 
   /**
-   * A declared type variable that carries a constraint and occurs nowhere in
-   * the type it was declared for *(#712; Ascription §3.1; Functions §10)* —
-   * reported at its declaration, and `true` when it was.
-   *
-   * GHC's ambiguity check, and Hexagon's for the same reason: the type is the
-   * only place a call can choose a variable, and there is no call-site type
-   * application to choose it otherwise, so no call can ever supply its evidence.
-   * Asked **before** defaulting, which would otherwise propose an `Int` no body
-   * demanded and let the rigid arm report it as a demand — or, for a constraint
-   * defaulting cannot discharge, say nothing while the constraint is silently
-   * dropped. A variable its declaration's type does mention, still unquantified
-   * here, is a knot's survivor: its knot has already refused, and it is not this
-   * report's (#704). An unconstrained unused variable never arrives — it needs
-   * no evidence, and a zero-information form misleads no one (Constraints §5.4).
-   */
-  /**
    * The exit a list on a binding's name adds to §8.2's refusals (#1047):
    * remove the variable from the list — and, where the body names it, give
    * those names a concrete type too, or they meet §4.1's forced-type row.
    */
+  #nameListExit(variable: Variable): string {
+    const name = variable.rigidName ?? "";
+    return `remove \`${name}\` from the binder list` +
+      (this.#namedInBody.has(variable)
+        ? `, write a concrete type where the body names \`${name}\``
+        : "");
+  }
+
   /**
    * Elaborates a binding's own annotation without counting its lookups of the
    * variables a list on the binding's name declared as *body* names (#1047):
@@ -23376,14 +23368,22 @@ class Checker {
     return result;
   }
 
-  #nameListExit(variable: Variable): string {
-    const name = variable.rigidName ?? "";
-    return `remove \`${name}\` from the binder list` +
-      (this.#namedInBody.has(variable)
-        ? `, write a concrete type where the body names \`${name}\``
-        : "");
-  }
-
+  /**
+   * A declared type variable that carries a constraint and occurs nowhere in
+   * the type it was declared for *(#712; Ascription §3.1; Functions §10)* —
+   * reported at its declaration, and `true` when it was.
+   *
+   * GHC's ambiguity check, and Hexagon's for the same reason: the type is the
+   * only place a call can choose a variable, and there is no call-site type
+   * application to choose it otherwise, so no call can ever supply its evidence.
+   * Asked **before** defaulting, which would otherwise propose an `Int` no body
+   * demanded and let the rigid arm report it as a demand — or, for a constraint
+   * defaulting cannot discharge, say nothing while the constraint is silently
+   * dropped. A variable its declaration's type does mention, still unquantified
+   * here, is a knot's survivor: its knot has already refused, and it is not this
+   * report's (#704). An unconstrained unused variable never arrives — it needs
+   * no evidence, and a zero-information form misleads no one (Constraints §5.4).
+   */
   #reportUnmentionedDeclared(variable: Variable): boolean {
     if (variable.rigidName === undefined) return false;
     const declared = this.#declaredFor.get(variable);
