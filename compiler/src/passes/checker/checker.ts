@@ -14186,7 +14186,9 @@ class Checker {
    *
    * An `ERROR` value poisons the tree, as it poisoned every join: the home is
    * `ERROR`, which every value enters, so a refusal already reported cascades
-   * no further. An inference variable establishes nothing unless it already
+   * no further. The price is that a second, unrelated mismatch elsewhere in the
+   * same tree — `(foo + 1) * (n + "a")` — waits for the first to be repaired;
+   * no verdict moves. An inference variable establishes nothing unless it already
    * carries the evidence every fixed-integer value needs; a decimal-point
    * literal is the `Float` it spells only where nothing exact is in. A value
    * outside the numeric tower keeps the order-first reading every join always
@@ -14219,9 +14221,9 @@ class Checker {
       return decimal === undefined ? undefined : { home: primitive("Float"), source: decimal };
     }
     if (established.some(({ type }) => !this.#supportsTarget(type, "Num", true))) {
-      // Not arithmetic: the first value is the home, whatever it is, so the
-      // join unifies in source order exactly as every form always joined.
-      return { home: values[0]!.type, source: values[0]!.expression };
+      // Not arithmetic: no home is ranked, so the values unify in source order
+      // exactly as every form always joined, and report as they always did.
+      return undefined;
     }
     const fixed = (type: Mono): number => {
       if (type.kind !== "Constructor") return -1;
@@ -14289,7 +14291,16 @@ class Checker {
       const own = this.#chooseHome(this.#treeValues(node));
       if (own !== undefined && !this.#sameSeat(own.home, chosen.home)) {
         this.#applyHome(node, own, merge, owner, tree);
-        this.#unifyExpected(chosen.home, node.result, node.expression, owner ?? span, true);
+        // Its result enters the enclosing home as any value does — the same
+        // report, refused once with its tree (§6).
+        this.#enterHome(
+          { expression: node.expression, type: node.result },
+          chosen.home,
+          chosen.source,
+          undefined,
+          owner ?? span,
+          tree,
+        );
         return;
       }
     }
@@ -14424,14 +14435,17 @@ class Checker {
     const isDec = (type: Mono): boolean =>
       type.kind === "NominalRecord" && type.record === this.#decRecord;
     const isFloat = (type: Mono): boolean => type.kind === "Constructor" && type.name === "Float";
-    const operand = /^[\p{L}_][\p{L}\p{N}_]*$/u.test(spelled) ? spelled : `(${spelled})`;
+    // A call, a field, or a name is already a receiver; anything with an
+    // operator in it needs its parentheses.
+    const operand = /^[\p{L}\p{N}_.()]+$/u.test(spelled) ? spelled : `(${spelled})`;
     if (isFloat(source) && isDec(target)) return `Dec.fromFloat(${spelled}, places)`;
-    if (isFloat(target) && (isDec(source) ||
-      source.kind === "Constructor" && source.name === "BigInt" ||
-      source.kind === "NominalRecord" && source.name === "Rat")) {
-      return `${operand}.toFloat()`;
-    }
-    return undefined;
+    if (!isFloat(target)) return undefined;
+    // The exact type's own exit (tenet 7), where its companion exports one.
+    const companion = this.#companionKeyOfType(source);
+    const exit = companion === undefined
+      ? undefined
+      : this.#companionOperations.get(companion)?.get("toFloat");
+    return exit === undefined ? undefined : `${operand}.toFloat()`;
   }
 
   /** Two different exact numeric types, neither of which widens into the other. */
@@ -14478,9 +14492,6 @@ class Checker {
       expression: this.#partExpression(part),
       type: this.#partType(part),
     }));
-    if (expression.kind !== "Group") {
-      this.#formParts.set(expression, { total: paths.length, parts: paths });
-    }
     let published: Mono = at;
     for (const path of paths) published = this.#publishJoinedColours(published, path.type);
     node.published = published;

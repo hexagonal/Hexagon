@@ -194,6 +194,23 @@ describe("the boundaries", () => {
     ]);
   });
 
+  test("a gated operation's result enters its home as any value does", () => {
+    const refused =
+      "`b band 1` is a `BigInt` and cannot enter `Float`, the home `f` gives this expression; " +
+      "convert one explicitly — `(b band 1).toFloat()`";
+    expect(refusals("let b: BigInt = 7n\nlet a = (b band 1) * f\n")).toEqual([refused]);
+    expect(refusals("let b: BigInt = 7n\nlet a = (b band 1) * f + price\n")).toEqual([refused]);
+  });
+
+  test("the door is named on whichever side has one", () => {
+    // `Rat` has an exit to `Float` and `Float` none into `Rat` (tenet 7), so the
+    // repair converts the `Rat`, whichever value gave the home.
+    const door = "convert one explicitly — `r.toFloat()`";
+    const rat = "let r: Rat = Rat.create(1, 3)\n";
+    expect(refusals(`${rat}let a = r * f\n`)[0]).toContain(door);
+    expect(refusals(`${rat}let a = f * r\n`)[0]).toContain(door);
+  });
+
   test("a refusal already reported poisons its tree, as it poisoned every join", () => {
     expect(refusals("let a = foo / 2\n")).toEqual(["unknown name `foo`"]);
     expect(refusals("let a = foo + \"a\"\n")).toEqual(["unknown name `foo`"]);
