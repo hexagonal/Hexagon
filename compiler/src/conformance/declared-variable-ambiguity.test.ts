@@ -102,10 +102,31 @@ describe("a constrained binder its function's type does not mention (#712)", () 
       TAG + "fun anything(): b = anything()\n" +
       "let v: String = tag((anything() : a))\n",
     )).toEqual([
+      // Only the concrete type: a constrained variable has no seat here.
       "`a` is a declared type variable, but this declaration's type does not mention it, " +
-        "so no call can choose it or supply its `Tag` evidence; ascribe a concrete type, " +
-        "or name a type variable the declaration uses",
+        "so no call can choose it or supply its `Tag` evidence; ascribe a concrete type",
     ]);
+  });
+
+  test("an ascription's report stands at the ascribed variable, not the value", () => {
+    const source = "module Main\n\nfun ignore(value: t): Unit = ()\nlet f() = ignore((42 : a))\n";
+    const [diagnostic] = compileMain(source).diagnostics;
+    expect(diagnostic?.message).toContain("this declaration's type does not mention it");
+    expect(source.slice(diagnostic!.primary.start.offset, diagnostic!.primary.end.offset))
+      .toBe("a");
+  });
+
+  test("another orphan's refusal, or an error elsewhere, excuses nothing", () => {
+    // `b`'s own type mentions the refused `a`; that settling is not an
+    // unresolved written type of `b`'s.
+    expect(verdict(
+      "fun f<a: Num>(x: Int): Int =\n" +
+      "    let g = <b: Num>(y: a): Int => 1\n" +
+      "    x\n",
+    )).toEqual([unmentioned("a", "Num", true), unmentioned("b", "Num")]);
+    // An error in an inferred result is not a written type.
+    const messages = verdict("fun f<a: Num>(x: Int) = undefinedName\n");
+    expect(messages).toContain(unmentioned("a", "Num"));
   });
 
   test("a repeated binder is the parser's error, and the variable it overwrites says nothing", () => {

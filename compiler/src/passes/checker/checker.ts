@@ -2953,6 +2953,14 @@ class Checker {
     readonly types: readonly Mono[];
     readonly span: Source.Span | undefined;
     readonly binder: boolean;
+    /**
+     * Whether a type the declaration **wrote** — a parameter or return
+     * annotation — failed to resolve (`x: Nope(a)`): the unresolved type may be
+     * exactly where the variable was meant to occur. Read off the source, never
+     * off elaborated types, which an inferred result's error or another
+     * variable's settling can also reach.
+     */
+    readonly writtenFailed: boolean;
   }>();
   /**
    * The declared variables an annotation named after their declaration — a
@@ -7412,10 +7420,7 @@ class Checker {
       // it — so it is settled here rather than left for the end-of-module sweep
       // to report as unmentioned, or to default and blame on the body.
       const overwritten = declared.has(parameter.name) ? into.get(parameter.name) : undefined;
-      if (overwritten?.kind === "Variable") {
-        for (const requirement of overwritten.requirements) requirement.reported = true;
-        overwritten.instance = ERROR;
-      }
+      if (overwritten?.kind === "Variable") overwritten.instance = ERROR;
       declared.add(parameter.name);
       const declaredConstraints = parameter.constraints.filter((constraint) =>
         this.#constraintNames.has(constraint) &&
@@ -7515,6 +7520,7 @@ class Checker {
         types: memberTypes,
         span: parameter.span,
         binder: true,
+        writtenFailed: group.some((item) => lambdaWrittenFailed(item.value)),
       });
     }
   }
@@ -8805,6 +8811,7 @@ class Checker {
             types: [type],
             span: binderSpan ?? variable.ascribedAt,
             binder: binderSpan !== undefined,
+            writtenFailed: lambdaWrittenFailed(expression),
           });
         }
         break;
@@ -21360,7 +21367,7 @@ class Checker {
         for (const requirement of actual.requirements) requirement.reported = true;
         this.#diagnostics.add({
           severity: "error",
-          message: unmentionedDeclaredMessage(actual.rigidName ?? "", names, "ascription"),
+          message: unmentionedDeclaredMessage(actual.rigidName ?? "", names, "value"),
           primary: actual.ascribedAt,
         });
         actual.instance = ERROR;
@@ -21396,12 +21403,12 @@ class Checker {
     if (declared.types.some((type) => this.#collectVariables(type).includes(variable))) {
       return false;
     }
-    if (variable.requirements.every(({ reported }) => reported)) return true;
-    for (const requirement of variable.requirements) requirement.reported = true;
+    // Settled whatever is said: nothing after this — the evidence-route check
+    // included — reports this variable again.
     variable.instance = ERROR;
-    // A type the author wrote but the checker could not elaborate (`x: Nope(a)`)
-    // may be exactly where `a` was meant to occur: its own report stands alone.
-    if (declared.types.some((type) => this.#mentionsError(type))) return true;
+    // A type the author wrote but the resolver could not (`x: Nope(a)`) may be
+    // exactly where `a` was meant to occur: its own report stands alone.
+    if (declared.writtenFailed) return true;
     const names = [...new Set(variable.requirements.map(({ name }) => name))];
     this.#diagnostics.add({
       severity: "error",
@@ -21413,39 +21420,6 @@ class Checker {
       primary: declared.span ?? variable.requirements[0]!.span,
     });
     return true;
-  }
-
-  /** Whether an elaboration failure sits anywhere inside `type`. */
-  #mentionsError(type: Mono): boolean {
-    const actual = this.#prune(type);
-    switch (actual.kind) {
-      case "Error":
-        return true;
-      case "Tuple":
-        return actual.elements.some((element) => this.#mentionsError(element));
-      case "Record":
-        return [...actual.fields.values()].some((field) => this.#mentionsError(field)) ||
-          (actual.tail !== undefined && this.#mentionsError(actual.tail));
-      case "Function":
-        return actual.parameters.some((parameter) => this.#mentionsError(parameter)) ||
-          this.#mentionsError(actual.result);
-      case "Union":
-      case "NominalRecord":
-        return actual.arguments.some((argument) => this.#mentionsError(argument));
-      case "Vector":
-      case "Set":
-      case "Array":
-      case "JsSet":
-      case "Node":
-        return this.#mentionsError(actual.element);
-      case "Nullable":
-        return this.#mentionsError(actual.value);
-      case "Map":
-      case "JsMap":
-        return this.#mentionsError(actual.key) || this.#mentionsError(actual.value);
-      default:
-        return false;
-    }
   }
 
   /**
@@ -27725,9 +27699,14 @@ function openRowInPayloadMessage(alias: string | undefined): string {
 function unmentionedDeclaredMessage(
   name: string,
   constraints: readonly string[],
-  spelling: "binder" | "named" | "ascription",
+  spelling: "binder" | "named" | "ascription" | "value",
 ): string {
-  const rewrite = spelling === "ascription"
+  // At a value binding a variable carrying a constraint has no evidence seat
+  // (Functions §8 item 2), so naming one the declaration uses would only meet
+  // the seat's refusal: the concrete type is the one rewrite that compiles.
+  const rewrite = spelling === "value"
+    ? "ascribe a concrete type"
+    : spelling === "ascription"
     ? "ascribe a concrete type, or name a type variable the declaration uses"
     : spelling === "named"
     ? `use \`${name}\` in a parameter or result type, or remove \`${name}\` from the binder ` +
@@ -27736,6 +27715,52 @@ function unmentionedDeclaredMessage(
   return `\`${name}\` is a declared type variable, but this declaration's type does not ` +
     `mention it, so no call can choose it or supply its \`${constraints.join("`, `")}\` ` +
     `evidence; ${rewrite}`;
+}
+
+/** Whether a lambda's written parameter or return annotations failed to resolve. */
+function lambdaWrittenFailed(value: Resolved.Expr): boolean {
+  if (value.kind !== "Lambda") return false;
+  const annotations = [
+    ...value.parameters.flatMap(({ annotation }) => annotation === undefined ? [] : [annotation]),
+    ...(value.returnAnnotation === undefined ? [] : [value.returnAnnotation]),
+  ];
+  return annotations.some(annotationHasErrorType);
+}
+
+function annotationHasErrorType(annotation: Resolved.TypeAnnotation): boolean {
+  switch (annotation.kind) {
+    case "ErrorType":
+      return true;
+    case "Function":
+      return annotation.parameters.some(annotationHasErrorType) ||
+        annotationHasErrorType(annotation.result);
+    case "Vector":
+    case "Set":
+    case "Array":
+    case "JsSet":
+    case "Node":
+      return annotationHasErrorType(annotation.element);
+    case "Nullable":
+      return annotationHasErrorType(annotation.value);
+    case "Map":
+    case "JsMap":
+      return annotationHasErrorType(annotation.key) || annotationHasErrorType(annotation.value);
+    case "Tuple":
+      return annotation.elements.some(annotationHasErrorType);
+    case "Record":
+      return annotation.fields.some((field) => annotationHasErrorType(field.annotation));
+    case "Union":
+    case "RecordDeclaration":
+      return annotation.arguments.some(annotationHasErrorType);
+    case "ExternType":
+    case "Primitive":
+    case "Range":
+    case "JsValue":
+    case "ImpliedType":
+    case "Hole":
+    case "TypeVariable":
+      return false;
+  }
 }
 
 function annotationHasTypeVariable(
