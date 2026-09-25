@@ -270,10 +270,59 @@ describe("the boundaries", () => {
   test("an operator under a face keeps its seats", () => {
     // `**`'s exponent is its own seat, faced by `Int` (Operators §6.3).
     expect(refusals("let x: Int = n ** (m - m)\n")).toEqual([]);
-    // A negation or `bnot` runs at the face its rung honors, as it always did.
+    // A negation or `bnot` is an operand seat like any other: it stands down
+    // with the value it holds, and the report names that value (#827).
     expect(refusals("let x: Dec = -(n * f)\n")).toEqual([
-      "`f` is a `Float` and cannot enter `Dec`, so the multiplication ran at `Float`",
+      "`f` is a `Float` and cannot enter `Dec`, so the multiplication could not run at `Dec`",
     ]);
-    expect(refusals("let x: Int = bnot f\n")).toEqual(["type mismatch: expected Int, found Float"]);
+    expect(refusals("let x: Int = bnot f\n")).toEqual([
+      "`f` is a `Float` and cannot enter `Int`, so the bitwise complement could not run at `Int`",
+    ]);
+  });
+});
+
+describe("a faced tree is refused once, naming the value that declined (#827)", () => {
+  test("one report, whatever forms and operations stand between", () => {
+    const declined = (face: string, operation: string): string =>
+      `\`f\` is a \`Float\` and cannot enter \`${face}\`, so the ${operation} could not run at \`${face}\``;
+    expect(refusals("let r: Rat = Rat.fromInt(2)\nlet x: Rat = (if c then n else f) * r\n"))
+      .toEqual([declined("Rat", "multiplication")]);
+    expect(refusals("let x: Dec = (n + f) * price\n")).toEqual([declined("Dec", "addition")]);
+    expect(refusals("let x: Dec = if c then f * 2 else price\n"))
+      .toEqual([declined("Dec", "multiplication")]);
+    expect(refusals("let x: Dec =\n    try\n        n * f\n    catch\n        _ => price\n"))
+      .toEqual([declined("Dec", "multiplication")]);
+    expect(refusals("let x: Dec = (if c then n * f else price) * price\n"))
+      .toEqual([declined("Dec", "multiplication")]);
+  });
+
+  test("the first value in source order is the one named", () => {
+    // `f` comes before `price`, and before the second `f`; an operand that is
+    // itself an operation is never the one named — the value inside it is.
+    expect(refusals("let x: Dec = (n * f) * (i * f)\n"))
+      .toEqual(["`f` is a `Float` and cannot enter `Dec`, so the multiplication could not run at `Dec`"]);
+    expect(refusals("let x: Dec = f * 2 + n * f\n"))
+      .toEqual(["`f` is a `Float` and cannot enter `Dec`, so the multiplication could not run at `Dec`"]);
+    // An unsolved value is never taken for the one that declined.
+    expect(refusals("fun g(x) =\n    let y: Dec = (x * f) + x\n    y\n"))
+      .toEqual(["`f` is a `Float` and cannot enter `Dec`, so the multiplication could not run at `Dec`"]);
+  });
+
+  test("with no operation between the value and the seat, the value is refused where it meets the face", () => {
+    const entry = "`f` is a `Float` and cannot enter `Dec`, the home `: Dec` writes; " +
+      "convert it explicitly — `Dec.fromFloat(f, places)`";
+    expect(refusals("let x: Dec = if c then f else price\n")).toEqual([entry]);
+    expect(refusals("let x: Dec = if c then f else n * f\n")).toEqual([entry]);
+  });
+
+  test("a stood-down operation selects no evidence at the type it kept", () => {
+    const foo = "record Foo = {n: Int}\n" +
+      "honor Num<Foo> =\n    add(left, right) = left\n    multiply(left, right) = left\n" +
+      "    fromNat(value) = Foo({n = 0})\n" +
+      "let p: Foo = Foo({n = 4})\nlet q: Foo = Foo({n = 6})\n";
+    // `Foo` has no `Frac`, and nothing asks it to: the division ran nowhere.
+    expect(refusals(foo + "let x: Rat = p / q\n")).toEqual([
+      "`p` is a `Foo` and cannot enter `Rat`, so the division could not run at `Rat`",
+    ]);
   });
 });
