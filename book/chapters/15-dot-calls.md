@@ -365,7 +365,8 @@ objects.
 - constraint members answer to the dot and the qualified spelling, and `show` alone
   to the bare call as well;
 - a dot call on a numeric member widens exactly as the operator does: the receiver picks
-  the operation, the operands and the written type pick where it runs; and
+  the operation, the operands and the written type pick where it runs — though the
+  receiver itself is settled first, on its own; and
 - dot calls add no runtime methods, `this`, prototypes, or TypeScript methods.
 
 Together, constraints, derivation, modules, and dot calls form Hexagon's capability

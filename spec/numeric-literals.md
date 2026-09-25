@@ -185,10 +185,12 @@ yet delivered (#1045). An expectation is a target only as a tree's home: inside 
 establishes nothing of its own (Functions §4.3's ordering pin). The target is never a fresh
 inference variable whose only reason to acquire `Num` would be the proposed conversion.
 The substitution these tests read is the one Functions §4.3's normative elaboration
-schedule built, read once per tree when its last part is in (below): within a tree the
-order of the parts decides nothing, and across trees the schedule is the semantics — two
-programs differing only in the order of sibling expressions in different trees that share
-an undetermined variable may widen differently, by design (Functions §4.3's ordering pin).
+schedule built, read once per tree when its last part is in (below): within a tree the order of the
+parts never decides the choice of home, though what a part received at its own turn — an
+expectation the schedule had solved by then — is the schedule's residue; and across trees
+the schedule is the semantics — two programs differing only in the order of sibling
+expressions in different trees that share an undetermined variable may widen differently,
+by design (Functions §4.3's ordering pin).
 
 **One expression, one home** *(#1062)*. An expression's arithmetic runs at one type,
 chosen once for the whole expression — never operation by operation from the inside out.
@@ -227,13 +229,17 @@ chosen once for the whole expression — never operation by operation from the i
   one of the three conversions, a declared variable the body can name being an
   established target (`fun widen<t: Num>(value: Nat): t = value`). Otherwise the home is
   chosen from the types the tree's values **establish**: concrete types; declared type
-  variables the body can name; and an inference variable already carrying a tower
-  constraint when the home is chosen — from outside the tree or from a value's own
-  elaboration, never from the tree's own operations. Any other inference variable
-  establishes nothing. The choice runs by rank: an established concrete type other than
-  `Nat`, `Int`, and `BigInt`; else a constrained inference variable; else the widest
-  established of `BigInt`, `Int`, and `Nat` — unless a decimal-point literal is among the
-  values, when the home is `Float`. A tree whose values establish two different types of
+  variables the body can name; and an inference variable that, when the home is chosen,
+  already carries the evidence every fixed-integer value of the tree needs to enter it —
+  `Num` for a `Nat`, `Signed` for an `Int`, `FromBigInt` for a `BigInt` — where the tree
+  has such a value and no decimal-point literal. That evidence comes from outside the tree
+  or from a value's own elaboration, never from the tree's own operations. Any other
+  inference variable establishes nothing, and unifies with the home. The choice runs by
+  rank: an established concrete type other than `Nat`, `Int`, and `BigInt`, or a declared
+  variable the body can name (`scale<a: Signed>(count: Int, value: a): a = count *
+  value`); else a constrained inference variable; else the widest established of
+  `BigInt`, `Int`, and `Nat` — unless a decimal-point literal is among the values, when
+  the home is `Float`. A tree whose values establish two different types of
   the first rank is **conflicting**. A tree whose values establish nothing is **open**: a
   decimal-point literal among them makes its home `Float`, and otherwise its values unify
   with one another exactly, as ever — integer literals then defaulting at their binding
@@ -246,8 +252,11 @@ chosen once for the whole expression — never operation by operation from the i
   refuses the tree, and so does a conflicting tree; the report names the value, its
   type, the home, and what gave the home (§6). Nothing in a tree enters anything but its
   home, except within a gated call (below).
-- **Closing.** Every forwarding form takes the home as its type, and every sibling seat
-  takes it as its variable's solution. Every interior tower member call runs at the home
+- **Closing.** Every forwarding form takes the home as its type, and a sibling seat whose
+  variable is still an unsolved inference variable takes the home as its solution; where
+  the variable is, or has been solved to, a declared variable, each sibling meets it as a
+  value meets any variable seat (`accept(value)` at `accept(item: t): t`), and where it
+  has been solved to a concrete type, that type is the siblings' home. Every interior tower member call runs at the home
   where the home carries the call's constraint instance; otherwise — the **instance
   gate** — it runs at the home its own parts select by this same rule, its parts and the
   forms among them closing there, and its result enters the enclosing home as a value:
@@ -259,7 +268,8 @@ chosen once for the whole expression — never operation by operation from the i
   chosen when the last part is in — for siblings at a call, after the call's last
   non-lambda argument and before its first lambda-literal argument, so a callback reads
   the home settled; trees that close at one moment close in source order. The choice
-  reads the parts' types as a set, so the order of the parts decides nothing, and it is
+  reads the parts' types as a set, so the order of the parts never decides the home —
+  what a part received at its own turn is the schedule's residue (below) — and it is
   never revisited: no part elaborates twice, and nothing is re-typed after the choice.
 
 ```hexagon
@@ -600,7 +610,11 @@ price`; order-independence triples, emitting identically — `n * 1.5 * price`,
 `price * n * 1.5`, `1.5 * price * n` — and pairs — `[m, n]` beside `[n, m]`, `if c then m
 else n` beside `if c then n else m`, and the same two `match` arm orders, unannotated
 (#824); the comparisons `price < n * 1.5` and `n * 1.5 < price`; the siblings `h(n * 1.5,
-price)` and `h(price, n * 1.5)`; the boundaries, each refused — `let y = n * 1.5` then `y *
+price)` and `h(price, n * 1.5)`; the schedule residue at a receiver, `h3((n * 1.5).multiply(price),
+decs, 0.5)` refused beside `h3(0.5, decs, (n * 1.5).multiply(price))` accepted (`h3<t:
+Num>(x: t, v: Vector(t), y: t)`, `decs : Vector(Dec)`); the declared and constrained
+variables kept — `passed`'s `accept(value)`, `scale`, and `fun k5(count: Int, value) = { let
+z = value + 1; count * value }` at `(Int, Int) -> Int`; the boundaries, each refused — `let y = n * 1.5` then `y *
 price`, `id(n * 1.5) * price`, and `(n * 1.5).multiply(price)` with §6's receiver report —
 beside `price.multiply(n * 1.5)` and `let a: Dec = (n * 1.5).multiply(price)`, accepted;
 the gate `(n band 3) * f`, `band` at `Int`; the moved programs — `n * i * price` (`i :
@@ -662,7 +676,7 @@ Elaboration changes the *character* of type errors involving literals, and this 
 - When defaulting is blocked by a non-defaultable constraint (§4), the error must name the blocking constraint and the literal's location, and suggest an annotation: `The literal 1 at <span> has constraint MyConstraint, which prevents defaulting to Int. Add a type annotation to pin its type.`
 - Never surface the name `fromNat` in an error for code the user wrote without mentioning it. The elaboration is invisible machinery; errors should speak in terms of the literal.
 - *(#808.)* **When the expected-type lift stands down** (§5.1) because an operand cannot reach the face, the refusal that then fires at the consuming seat names that operand and the operation that could not run at the face — "`price` is a `Float` and cannot enter `Rat`, so the multiplication could not run at `Rat`" — so the report keeps what a refusal at the operand would have carried. The checker therefore records, at a stand-down, which operand declined and why, and carries it to the seat that refuses — a binding, an argument seat, or a dot call's receiver seat *(#821)*, where the report adds the two facts that seat alone knows: why the face reached the receiver (the spelling's rung) and the written boundary that keeps the receiver at its own type, an ascription or a separate binding (Method Syntax §9 row 16). Every stand-down ends at such a seat (§5.1), so the note is always spent.
-- *(#1062.)* **When a value cannot enter its expression's home** (§5.1), the report names the value, its type, the home, and what gave the home — the seat's type ("the home `: Dec` writes") or the value that established it ("the home `price` gives this expression") — at the declining value. **When two values establish different homes** (a conflicting tree), the report names both — "`x` is a `Float` and `price` a `Dec`; an expression's arithmetic runs at one type, and neither enters the other". Each names the named door where either type has one into the other (`Dec.fromFloat(x, places)`, `price.toFloat()`; friendly-numerics tenet 7), and otherwise the written boundary — a separate binding at the type the value has. Precedence: at a dot call's receiver, Method Syntax §9 row 16 and Operators §11's form report; under a written face, the #808 stand-down wording above; otherwise these. **When a dot call's receiver closed before the dot** (Method Syntax §2.2) and a sibling then refuses it, where every value of the receiver's own tree would have entered that sibling's type, the report says so and names both repairs: "`n * 1.5` settled at `Float` before `.multiply` saw `price` — a dot call's receiver is settled on its own; write `n * 1.5 * price`, or name the home: `let a: Dec = …`". Each is decided from recorded types, for the report alone.
+- *(#1062.)* **When a value cannot enter its expression's home** (§5.1), the report names the value, its type, the home, and what gave the home — the seat's type ("the home `: Dec` writes") or the value that established it ("the home `price` gives this expression") — at the declining value. **When two values establish different homes** (a conflicting tree), the report names both — "`x` is a `Float` and `price` a `Dec`; an expression's arithmetic runs at one type, and neither enters the other". Each names the named door where either type has one into the other (`Dec.fromFloat(x, places)`, `price.toFloat()`; friendly-numerics tenet 7), and otherwise no conversion, there being none to name. Precedence: at a dot call's receiver, Method Syntax §9 row 16 and Operators §11's form report; under a written face, the #808 stand-down wording above; otherwise these. **When a dot call's receiver closed before the dot** (Method Syntax §2.2) and a sibling then refuses it, where every value of the receiver's own tree would have entered that sibling's type, the report says so and names both repairs: "`n * 1.5` settled at `Float` before `.multiply` saw `price` — a dot call's receiver is settled on its own; write `n * 1.5 * price`, or name the home: `let a: Dec = …`". Each is decided from recorded types, for the report alone.
 - *(#525.)* A decimal-point literal promoted to `Dec` with an exponent is refused with the value in ordinary notation: "a `Dec` literal is written without an exponent, so its decimal places show; write `0.0015`". A decimal-point literal *pattern* at a `Dec` scrutinee is refused with its `d` spelling: "…; a `Dec` pattern is written with the `d` suffix: `0.5d`" (Pattern Matching §2.5, #1054).
 - LSP hover on a bare literal in polymorphic position should show `<a: Num> a` (matching the round-trip-consistency rule for signatures — the display is source-shaped, Functions §5.1); hover on a defaulted or pinned literal shows the concrete type.
 
