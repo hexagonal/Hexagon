@@ -90,9 +90,17 @@ describe("a constrained binder its function's type does not mention (#712)", () 
     expect(verdict("fun f(x: Int): Int =\n    let y: Int = 1\n    x\n")).toEqual([]);
   });
 
-  test("a written type that failed to elaborate takes its own report alone", () => {
-    expect(verdict("fun f<a: Num>(x: Nope(a)): Int = 1\n"))
-      .toEqual(["unknown generic type `Nope`"]);
+  test("a written type that failed to resolve takes its own report alone", () => {
+    // Wherever the declaration wrote it: a parameter, nested in a parameter's
+    // function type, the return annotation, or a block head's member.
+    for (const source of [
+      "fun f<a: Num>(x: Nope(a)): Int = 1\n",
+      "fun f<a: Num>(g: (Nope(a)) -> Int): Int = 1\n",
+      "fun f<a: Num>(x: Int): Nope(a) = x\n",
+      "fun<u: Num>\n    b(x: Int): Int = x\n    a(x: Nope(u)): Int = 1\n",
+    ]) {
+      expect(verdict(source)).toEqual(["unknown generic type `Nope`"]);
+    }
   });
 
   test("an ascription's variable at a value binding takes the same row and wording", () => {
