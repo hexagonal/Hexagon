@@ -14467,7 +14467,7 @@ class Checker {
         // this source until that sibling has unified. With neither provenance,
         // BigInt is the exact fixed home; it must never consume the fresh
         // callee parameter's own FromBigInt bound as evidence for itself.
-        if ((destination.rigidName !== undefined || establishedVariables.has(destination.id)) &&
+        if ((this.#declaredInScope(destination) || establishedVariables.has(destination.id)) &&
           this.#supportsTarget(destination, "FromBigInt", true)) return undefined;
         return structurallyLicensed(index, destination.id) ? "numeric" : "exact-bigint";
       }
@@ -14595,6 +14595,25 @@ class Checker {
     };
   }
 
+  /**
+   * Whether `variable` is a declared type variable this body can **name** — one
+   * its own declaration or an enclosing one declared, unshadowed *(#1035)* —
+   * and so a target §5.1 counts as established.
+   *
+   * Rigidity alone is not the test. Members of a `fun` knot are checked at one
+   * shared, not-yet-general type (Functions §7.4), so a sibling's parameter can
+   * arrive at a call still wearing the **sibling's** declared variable, which
+   * the caller cannot name. Whether the evidence of a variable the body *can*
+   * name actually reaches it — a block head's variable in a member whose type
+   * does not mention it — is not guessed here: the widening is a demand like any
+   * other, and `#checkEvidenceRoutes` asks that of every demand (#1048).
+   */
+  #declaredInScope(variable: Variable): boolean {
+    if (variable.rigidName === undefined) return false;
+    const scope = this.#annotationVariableScope;
+    return scope !== undefined && [...scope.values()].includes(variable);
+  }
+
   #checkCallArguments(
     parameters: readonly Mono[],
     arguments_: readonly Mono[],
@@ -14636,8 +14655,11 @@ class Checker {
       const expression = expressions[index];
       if (expression === undefined) continue;
       const destination = this.#prune(expected);
+      // A caller's declared variable is §5.1's "already-constrained type
+      // variable" (#1035): established by its binder, as a `BigInt` source's
+      // `deferral` reads it, and needing no sibling to establish it.
       const allowVariableTarget = destination.kind === "Variable" &&
-        establishedVariables.has(destination.id);
+        (establishedVariables.has(destination.id) || this.#declaredInScope(destination));
       this.#unifyExpected(
         expected,
         actual,
@@ -20819,6 +20841,9 @@ class Checker {
       (variable) => variable.level > level,
     );
     const inputVariables = this.#inputVariables(type);
+    // The evidence seat the rule below reads (§13.6): the binding's one
+    // evaluated value, never a component a pattern projects from it.
+    const seated = this.#prune(evaluated ?? type).kind === "Function";
     for (const variable of variables) {
       if (
         !inputVariables.has(variable.id) &&
@@ -20831,6 +20856,14 @@ class Checker {
         // skip is gated on `allow`, or `let x: a = 42` loses the diagnostic that
         // names its rewrite and emits `undefined.fromNat(42)` instead.
         (allow || variable.rigidName === undefined) &&
+        // Numeric Literals §4 *(#1042)*: at a **function** binding a declared
+        // variable is never defaulted. The binder is the author's statement of
+        // polymorphism and the seat carries its evidence, so `fun zero<t:
+        // Num>(): t = 0` quantifies `t`; defaulting it proposed an `Int` no
+        // body demanded, and the rigid arm then refused the function for it.
+        // Only a result-only variable reaches here — one in an input position
+        // was never proposed a default.
+        !(seated && variable.rigidName !== undefined) &&
         variable.requirements.length > 0 &&
         this.#canDefaultToInt(variable)
       ) {
