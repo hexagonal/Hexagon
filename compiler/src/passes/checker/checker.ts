@@ -14234,7 +14234,10 @@ class Checker {
     // A constrained inference variable homes the tree only where it already
     // carries the evidence every fixed-integer value needs to enter it (§5.1);
     // which variable is asked first decides nothing, since every other one
-    // then unifies with it.
+    // then unifies with it. Today the ranking and its evidence test decide no
+    // verdict on their own — a flexible variable that is not the home unifies
+    // with the home either way — but they are the spec's statement of which
+    // type the tree runs at, and emission reads it.
     if (decimal === undefined) {
       const evidence = (type: Mono): Typed.ConstraintName =>
         type.kind === "Constructor" && type.name === "Nat"
