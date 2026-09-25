@@ -1,6 +1,7 @@
 /** Whole-project orchestration for Hexagon's acyclic relative module graph. */
 
 import * as Diagnostics from "./support/diagnostics.js";
+import { INTRINSIC_TYPE_ID_BASE } from "./intrinsics.js";
 import { ImportRepairs } from "./support/import-placement.js";
 import { relativeSpecifier } from "./support/paths.js";
 import * as Source from "./support/source.js";
@@ -902,6 +903,13 @@ export function compileProject(
    * Where each wired runtime module was seated, by declared name. A wiring whose
    * module is absent from the project — which is only an empty project — has no
    * entry, and emission falls back to the same-directory default.
+   *
+   * **Driven by `RUNTIME_WIRINGS`, so the two lists have to agree**: a
+   * `RUNTIME_MODULES` member with no wiring row is injected, compiled and
+   * emitted, and then silently loses its path here — every importer spelling the
+   * same-directory default instead, which is the wrong file from any module
+   * below the root. `hex-package.test.ts` holds the two lists together member
+   * for member so that absence is a red test rather than a bad specifier.
    */
   const runtimeModulePathsByName = new Map(
     RUNTIME_WIRINGS.flatMap(({ name }) => {
@@ -1515,7 +1523,9 @@ export function compileProject(
       preludeUnionBase = nextId(resolved.unions.map(({ id }) => Number(id)), preludeUnionBase);
       preludeRecordBase = nextId(resolved.records.map(({ id }) => Number(id)), preludeRecordBase);
       preludeExternTypeBase = nextId(
-        resolved.externTypes.map(({ externType }) => Number(externType)),
+        resolved.externTypes
+          .map(({ externType }) => Number(externType))
+          .filter(mintable),
         preludeExternTypeBase,
       );
       seatBases[seat!] = {
@@ -1532,7 +1542,10 @@ export function compileProject(
       unionBase = nextId(resolved.unions.map(({ id }) => Number(id)).filter(local), unionBase);
       recordBase = nextId(resolved.records.map(({ id }) => Number(id)).filter(local), recordBase);
       externTypeBase = nextId(
-        resolved.externTypes.map(({ externType }) => Number(externType)).filter(local),
+        resolved.externTypes
+          .map(({ externType }) => Number(externType))
+          .filter(local)
+          .filter(mintable),
         externTypeBase,
       );
     }
@@ -2506,6 +2519,19 @@ function joinWithOr(items: readonly string[]): string {
  */
 const PRELUDE_ID_BASE = 1_000_000;
 
+/**
+ * Whether an extern-type id came from the **per-module mint** rather than from
+ * the intrinsic door's reserved band (#927, `intrinsics.ts`).
+ *
+ * A door-declared type's identity is a function of its inventory key alone, so
+ * it is the same number in every module that declares it and in every
+ * compilation. Feeding one to `nextId` would push the *mint* past it for no
+ * reason — a rebasing over an id nothing rebases.
+ */
+function mintable(id: number): boolean {
+  return id < INTRINSIC_TYPE_ID_BASE;
+}
+
 function nextId(ids: readonly number[], fallback: number): number {
   return ids.length === 0 ? fallback : Math.max(fallback, ...ids.map((id) => id + 1));
 }
@@ -2525,8 +2551,10 @@ interface InjectedModule {
  *
  * A `precedes` naming no prelude member would silently put the module last,
  * which is the one placement its seat exists to forbid, so it lands at the end
- * only when that is what the list already says. There is no such member today
- * and the conformance test pins the resulting order.
+ * only when that is what the list already says. *(#927.)* A member with **no**
+ * `precedes` asks for that last seat outright — the seat is stated by its
+ * absence rather than reached by a name that missed — and the conformance test
+ * pins the resulting order either way.
  *
  * The library members take the **last** seats, and the seat is all they take:
  * they put no name in bare scope (Modules §5.5's set is the prelude's), and
@@ -2539,7 +2567,8 @@ function weaveInjected(
   runtime: readonly {
     readonly name: string;
     readonly source: string;
-    readonly precedes: string;
+    /** Absent for an unseated member; see `RuntimeModule.precedes`. */
+    readonly precedes?: string;
   }[],
   library: readonly { readonly name: string; readonly source: string }[],
 ): readonly InjectedModule[] {

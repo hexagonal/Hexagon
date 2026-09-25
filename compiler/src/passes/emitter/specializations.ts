@@ -560,6 +560,8 @@ function substituteType(
       };
     case "Union":
     case "NominalRecord":
+    // #927: a parameterized intrinsic `type` row substitutes like any nominal.
+    case "ExternType":
       return {
         ...type,
         arguments: type.arguments.map((argument) =>
@@ -568,7 +570,6 @@ function substituteType(
       };
     case "Primitive":
     case "Range":
-    case "ExternType":
     case "Error":
       return type;
   }

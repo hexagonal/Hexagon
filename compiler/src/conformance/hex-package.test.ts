@@ -217,9 +217,20 @@ describe("the runtime modules are registered members of `Hex`", () => {
       .toContain("unknown generic type `Node`");
   });
 
-  test("the runtime members are the two the list names, and no more", () => {
+  test("the runtime members are the three the list names, and no more", () => {
     expect(RUNTIME_MODULES.map(({ name }) => name))
-      .toEqual(["Runtime.VectorTrie", "Runtime.HashTrie"]);
+      .toEqual(["Runtime.VectorTrie", "Runtime.HashTrie", "Runtime.Regex"]);
+    // *(#927.)* `Runtime.Regex` is the first member with **no seat of its own**:
+    // nothing inside the prelude names the regex engine and the engine needs
+    // nothing from inside it, so it takes the seat after the whole prelude.
+    // Pinned here rather than left implicit, because an absent `precedes` and a
+    // `precedes` that named nothing land in the same place and mean opposite
+    // things (`weaveInjected`).
+    expect(RUNTIME_MODULES.map(({ name, precedes }) => [name, precedes])).toEqual([
+      ["Runtime.VectorTrie", "Vector"],
+      ["Runtime.HashTrie", "Map"],
+      ["Runtime.Regex", undefined],
+    ]);
     // Neither list may hold the other's members, and the three together are the
     // embedded library — the property `LIBRARY_MODULES` is derived by.
     for (const { name } of RUNTIME_MODULES) {

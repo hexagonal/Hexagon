@@ -2351,7 +2351,11 @@ class Parser {
     } else if (part5Callable) {
       this.#reportRetiredExternClaims(retired, "callable", "unstated");
     }
-    if (intrinsic && kind !== "Fun") {
+    // §3.3 admits two forms and no more: `fun`, and — since #927 — `type`, the
+    // compiler-implemented type whose values only the block's `fun` rows
+    // construct and inspect. Everything else is a hard error naming the ordinary
+    // declaration it should have been.
+    if (intrinsic && kind !== "Fun" && kind !== "Type") {
       const label = this.#current();
       this.#errorAt(label.span, intrinsicFormError(externDeclarationKeyword(label)));
       this.#synchronize(new Set(["VSep", "VClose", "Eof"]));
@@ -2444,12 +2448,49 @@ class Parser {
     }
     if (kind === "Type") {
       // One rewrite per seat: the reservation message above already names the
-      // alias this would ask for a second time, with the same repair.
+      // alias this would ask for a second time, with the same repair. *(#927.)*
+      // Inside the reserved boundary the row's left side is an intrinsic **key**
+      // rather than a foreign export name, so the noun follows the boundary —
+      // calling a door row's key "foreign" names the one thing it is not.
       if (localName.startClass !== "upper" && !reservedForeignSeat) {
+        const noun = intrinsic ? "intrinsic" : "foreign";
         this.#errorAt(
           localName.span,
-          `foreign type \`${foreignName?.text ?? localName.text}\` needs an uppercase-start local alias; write \`type ${foreignName?.text ?? localName.text} as T${localName.text}\``,
+          `${noun} type \`${foreignName?.text ?? localName.text}\` needs an uppercase-start local alias; write \`type ${foreignName?.text ?? localName.text} as T${localName.text}\``,
         );
+      }
+      // *(#927.)* A type row inside the reserved boundary may be parameterized:
+      // §3.4's genericity grant covers it for the reason it covers a `fun` row
+      // — the implementer is the compiler, which owns the representation of
+      // every instantiation, so Part 4 §12.4's representation question does not
+      // arise. The parameters are written in the *declaration* shape, a
+      // parenthesised list like a record's head, because that is what they are
+      // — `type buffer as Buffer(a)` declares `Buffer`'s arity. A foreign row
+      // keeps Part 4 §12.4's refusal below, unchanged and for both bracket
+      // shapes.
+      let parameters: readonly Parsed.DeclaredTypeParameter[] | undefined;
+      if (intrinsic && this.#at("Less")) {
+        // The door's own wrong-bracket refusal (#927). Part 4 §12.4's
+        // "generic extern declarations are not part of Hexagon v1" is **false**
+        // here — §3.4 grants genericity inside the reserved boundary — so the
+        // row gets one message of its own naming the shape it should have been
+        // written in, and nothing about v1.
+        //
+        // The binders are **kept** as the row's parameters, which is what keeps
+        // one typo to one report: a row whose arity was right in the wrong
+        // brackets would otherwise draw the arity refusal as well, a second
+        // complaint about a list the author did write.
+        const brackets = this.#parseTypeParameters();
+        parameters = brackets.map((binder) => ({ name: binder.name.text, span: binder.span }));
+        this.#errorAt(
+          this.#previous().span,
+          "an intrinsic type declares its parameters in a declaration head; write " +
+            `\`type ${foreignName?.text ?? localName.text} as ${localName.text}(${
+              brackets.map(({ name }) => name.text).join(", ")
+            })\``,
+        );
+      } else if (intrinsic && this.#at("LeftParen")) {
+        parameters = this.#parseIntrinsicTypeParameters();
       }
       if (this.#at("LeftParen") || this.#at("Less")) {
         this.#errorAt(this.#current().span, "generic extern declarations are not part of Hexagon v1");
@@ -2461,6 +2502,7 @@ class Parser {
         default: false,
         ...(foreignName === undefined ? {} : { foreignName }),
         localName,
+        ...(parameters === undefined ? {} : { parameters }),
         span: spanFrom(start.span, this.#previous().span),
       };
     }
@@ -4299,6 +4341,53 @@ class Parser {
    * the keyword only ever followed `export`; Preamble §2.1 now says plainly what
    * the code always tested — "only on an `opaque` declaration".)
    */
+  /**
+   * An intrinsic `type` row's parameter list (`spec/intrinsics.md` §3.3, #927):
+   * `type buffer as Buffer(a)`. Arity 0 is spelled with no list at all, which is
+   * why the caller asks whether the paren is there rather than this method
+   * answering an empty one.
+   *
+   * The head takes variance claims **by the opaque-declaration rule** (§3.3, the
+   * generalization doc §6.2/§6.4): a bare parameter is the empty claim and means
+   * invariant everywhere, the home module included, and a written `+`/`-` is a
+   * claim the compiler holds the lowering to under §4.2's parametricity
+   * obligation. There is no representation for §6.3 to verify it against, so it
+   * is *trusted* exactly as the compiler-side claim table's trusted rows are —
+   * no verification pass exists or should. `#takeVarianceSigil` is asked with
+   * `opaque` true for that reason: the refusal it carries is for a *transparent*
+   * declaration, whose variance is inferred, and a door row is neither.
+   *
+   * `Buffer(a)` writes no sigil, being genuinely invariant; `Node(+a)` writes one
+   * at its scheduled migration (§9.2).
+   */
+  #parseIntrinsicTypeParameters(): readonly Parsed.DeclaredTypeParameter[] {
+    this.#advance();
+    const parameters: Parsed.DeclaredTypeParameter[] = [];
+    const seen = new Set<string>();
+    while (!this.#at("RightParen") && !this.#at("Eof")) {
+      const sigil = this.#takeVarianceSigil(true);
+      const parameter = this.#takeName(
+        "NonUpperName",
+        "intrinsic type parameters must be non-uppercase-start names",
+      );
+      if (parameter === undefined) break;
+      const name = parsedName(parameter);
+      if (seen.has(name.text)) {
+        this.#errorAt(name.span, `duplicate type parameter \`${name.text}\``);
+      }
+      seen.add(name.text);
+      parameters.push({
+        name: name.text,
+        ...(sigil === undefined ? {} : { claim: sigil.claim }),
+        span: sigil === undefined ? name.span : spanFrom(sigil.span, name.span),
+      });
+      if (!this.#at("Comma")) break;
+      this.#advance();
+    }
+    this.#expect("RightParen", "expected `)` after intrinsic type parameters");
+    return parameters;
+  }
+
   #takeVarianceSigil(
     opaque: boolean,
   ): { readonly claim: "co" | "contra"; readonly span: Source.Span } | undefined {
@@ -7930,9 +8019,14 @@ function externDeclarationKeyword(token: LaidOut.Token): string {
 
 /**
  * §11's inadmissible-form diagnostic. The intrinsic boundary provides operations
- * only; compiler-owned *types* in particular do not enter here (§3.3), which is
- * why the rewrite points at an ordinary declaration in the same module rather
- * than at a different extern spelling.
+ * and — since #927 — compiler-implemented types, and nothing else; the rewrite
+ * points at an ordinary declaration in the same module rather than at a
+ * different extern spelling.
+ *
+ * *(#927.)* `type` left the refused list when §3.3 admitted it, and the
+ * parenthetical now names the ordinary form a type *programs must be able to
+ * address* should take — one outside §3.3's confinement bar (#930). The `type`
+ * row is for a type no program can address; `opaque record` is for every other.
  *
  * The row's sentence carries the head exemplar at its **tail** since #590's
  * respell rider: `export opaque` had reduced to the one word `opaque`, and a
@@ -7942,9 +8036,10 @@ function externDeclarationKeyword(token: LaidOut.Token): string {
  * not become adjacent parentheses.
  */
 function intrinsicFormError(form: string): string {
-  return `the intrinsic boundary provides operations only; declare \`fun\` here, ` +
-    `and declare types as ordinary declarations in this module ` +
-    `(typically \`opaque record\`) — \`${form}\` is not admitted`;
+  return `the intrinsic boundary provides operations and compiler-implemented ` +
+    `types only; declare \`fun\` or \`type\` here, and declare everything else ` +
+    `as an ordinary declaration in this module (typically \`opaque record\`) — ` +
+    `\`${form}\` is not admitted`;
 }
 
 /** Whether a token is one of Lexer §4.1's hard keywords. */

@@ -426,7 +426,7 @@ export function spellType(
     case "NominalRecord":
       return nominal(names.records.get(type.record), type.name, type.arguments);
     case "ExternType":
-      return nominal(names.externTypes.get(type.externType), type.name, []);
+      return nominal(names.externTypes.get(type.externType), type.name, type.arguments);
     case "Function": {
       // The arrow's colour is part of the text, so it decides spellability
       // before anything else does (`spec/effects.md` §2, #364). Both constants

@@ -183,6 +183,20 @@ export interface ExternTypeDeclaration extends ExternDeclarationFields {
    * foreign name.
    */
   readonly foreignClass?: { readonly default: boolean };
+   * The declared type parameters, present only inside the reserved boundary
+   * (#927, `spec/intrinsics.md` §3.3): an intrinsic `type` row declares a
+   * compiler-implemented type, and its arity is what §4.2 verifies against the
+   * inventory. A foreign extern `type` stays monomorphic (FFI Part 4 §12.4), so
+   * the field is a boundary fact as much as a syntactic one.
+   *
+   * Absent when the row wrote no list — arity 0, which §3.3 spells that way.
+   *
+   * Each carries its **variance claim** by the opaque-declaration rule (§3.3):
+   * absent is the empty claim and means invariant, and a written `+`/`-` is a
+   * claim §4.2's parametricity obligation holds the lowering to, trusted rather
+   * than verified — there is no representation for §6.3 to check it against.
+   */
+  readonly parameters?: readonly DeclaredTypeParameter[];
 }
 
 export interface LetItem {
