@@ -1695,10 +1695,12 @@ class Resolver {
    * The type names **this module declares** — not the type namespace, which
    * also holds imported and prelude types.
    *
-   * One report reads it: rule 1's type branch takes the self-qualification
-   * carve where the type's home is the reporting module, because the repair it
-   * would otherwise name is an import of the module into itself (§5.1 rule 1;
-   * §8.1's one-node cycle).
+   * Rule 1's type branch takes the self-qualification carve where the type's
+   * home is the reporting module, because the repair it would otherwise name
+   * is an import of the module into itself (§5.1 rule 1; §8.1's one-node
+   * cycle). And rule 2 reads it for its order (#1075): the companion fallback
+   * answers after these and before the prelude's types, which share their
+   * tables.
    */
   readonly #ownTypeNames = new Set<string>();
 
@@ -1808,8 +1810,9 @@ class Resolver {
   /**
    * Modules §5.1 rule 3's **companion fallback, term half** (#763): a bare
    * `Name` the term namespace has nothing for resolves to the **constructor**
-   * `Name` exported by a visible module alias `Name` — in an expression and in
-   * a pattern alike, rule 2 one namespace over.
+   * `Name` exported by a visible module alias `Name` — a record's, a union's,
+   * or an exception's (#1078), which carries the same symbol kind — in an
+   * expression, a pattern, and a catch arm alike, rule 2 one namespace over.
    *
    * It **answers, never binds**: nothing enters the term namespace, so a
    * same-spelled declaration or binding wins outright with no collision and no
@@ -1865,6 +1868,76 @@ class Resolver {
   }
 
   /**
+   * The import whose alias **occludes the prelude's same-spelled type and
+   * constructor** (Modules §5.1 rules 2 and 3, #1075), or `undefined`: its
+   * module exports a type — or a record, union, or exception constructor —
+   * spelled like the alias itself.
+   *
+   * The occlusion keys on the **type**, so an opaque type's unreachable
+   * constructor still occludes, and a transparent union with no constructor of
+   * its spelling does too; either way the prelude's constructor is not reached,
+   * and the module's own reading reports. An **exception** of the spelling
+   * occludes as well (#1078): the fallback reaches it, as a constructor, so
+   * letting the prelude answer first would let a prelude exception added later
+   * capture a spelling that already resolved to the program's own.
+   *
+   * A **pending** alias counts: the occlusion is module-wide, and a reference
+   * above the line reads as if the prelude did not bind the name (§5.4).
+   *
+   * An import of a **prelude module** occludes nothing (#1075 review, James's
+   * ruling): what it exports of the spelling *is* the prelude's own
+   * declaration (`import Hex.JsError`), so there is no second meaning to keep
+   * out and no later capture to guard against, and reserving the spelling
+   * would only break a use above the line that resolved before the import
+   * was written. Keyed on the module rather than the symbol, which agrees
+   * because no prelude module exports a spelling whose bare prelude binding
+   * belongs to another member; a symbol-keyed test would hold that by
+   * construction.
+   */
+  #occludingImport(name: string): ModuleInterface | undefined {
+    const module = this.#moduleAliases.get(name);
+    if (module === undefined) return undefined;
+    if (this.#preludeFileIds.has(Number(module.module.fileId))) return undefined;
+    const term = module.terms.get(name);
+    return module.unions.has(name) || module.records.has(name) ||
+        module.aliases.has(name) || module.externTypes.has(name) ||
+        term?.kind === "constructor" || term?.kind === "record-constructor"
+      ? module
+      : undefined;
+  }
+
+  /**
+   * Modules §5.1 rule 3's report for an occluding import whose type is
+   * **transparent but has no constructor of its spelling** (#1075): bare
+   * `JsError(e)` under `import JsError` whose module exports `union JsError =
+   * Wrap(Int) | Other`. The prelude's `JsError` is occluded, so the reader is
+   * owed the type's own constructors, qualified — §10's row for a constructor
+   * not spelled like its alias, read from the other side. The spellings carry
+   * no arguments: the call's own were written for a constructor that does not
+   * exist, and would be wrong for most of the ones that do.
+   *
+   * Declines where there is nothing to name (a type alias, an extern type), and
+   * above the import line, where the reference is §3's to report.
+   *
+   * Answers whether it reported.
+   */
+  #reportOccludedConstruction(name: Parsed.Name): boolean {
+    if (this.#pendingImportAliases.has(name.text)) return false;
+    const union = this.#occludingImport(name.text)?.unions.get(name.text);
+    if (union === undefined || union.opaque || union.constructors.length === 0) return false;
+    this.#diagnostics.add({
+      severity: "error",
+      message: bareConstructorMessage(
+        name.text,
+        union.constructors.map(({ binding }) => `${name.text}.${binding.name}`),
+        undefined,
+      ),
+      primary: name.span,
+    });
+    return true;
+  }
+
+  /**
    * Modules §10's **opaque-construction row** at rule 3's own seat: a bare
    * `Point({x = 1.0})` under `import Point` whose `Point` is
    * opaque at home.
@@ -1882,7 +1955,8 @@ class Resolver {
    *
    * The seat is reachable **only where the alias is spelled like the opaque
    * type itself** — `import Point` over an `opaque record
-   * Point`, or `import Tag` over an `opaque union Tag = Tag(…)`.
+   * Point`, or `import Tag` over an `opaque union Tag = …` whatever its
+   * constructors are called, the occlusion keying on the type (#1075).
    * An alias spelled like some *other* constructor of an opaque union
    * (`import Handles as FileHandle` over `opaque union Handle =
    * FileHandle(…)`) reaches nothing at all: that module exports only the type
@@ -1896,7 +1970,12 @@ class Resolver {
     const module = this.#moduleAliases.get(name.text);
     const home = this.#moduleAliasModules.get(name.text);
     if (module === undefined || home === undefined) return false;
-    const opaque = this.#opaqueConstructorHome(module, name.text);
+    // An opaque union spelled like the alias counts whatever its constructors
+    // are called: rule 3's occlusion keys on the type (#1075).
+    const opaque = this.#opaqueConstructorHome(module, name.text) ??
+      (module.unions.get(name.text)?.opaque === true
+        ? { noun: "union" as const, name: name.text }
+        : undefined);
     if (opaque === undefined || opaque.name !== name.text) return false;
     this.#diagnostics.add({
       severity: "error",
@@ -1923,7 +2002,13 @@ class Resolver {
    * Gated on the exporter really exporting a **constructor** of the spelling,
    * for the reason `#reportUnreachedAlias` gates on what the line binds: moving
    * an import that would still not answer is a repair that fixes nothing, and
-   * the reference falls through to whatever reports it today.
+   * the reference falls through to whatever reports it today. Or a **type** of
+   * the spelling where the prelude answers the spelling too (#1075): the import
+   * is then §5.4's occluder of the prelude's same-spelled constructor, and a
+   * reference above an occluder draws the declared-later error with the
+   * import's fixit whatever the line below it reports — the same sentence the
+   * qualified spelling above the line draws. Where the prelude has nothing of
+   * the spelling nothing is occluded, and the gate's first reason stands.
    *
    * Answers whether it reported.
    */
@@ -1932,8 +2017,9 @@ class Resolver {
     if (pending === undefined) return false;
     const symbol = this.#moduleAliases.get(name.text)?.terms.get(name.text);
     if (
-      symbol === undefined ||
-      (symbol.kind !== "constructor" && symbol.kind !== "record-constructor")
+      (symbol === undefined ||
+        (symbol.kind !== "constructor" && symbol.kind !== "record-constructor")) &&
+      !(this.#occludingImport(name.text) !== undefined && this.#preludeAnswers(name.text))
     ) {
       return false;
     }
@@ -1945,6 +2031,15 @@ class Resolver {
       labels: [{ span: pending.span, message: "declared here" }],
     });
     return true;
+  }
+
+  /**
+   * Whether the prelude has anything for a bare term spelling — a binding in
+   * its layer, or the qualified-only route §5.5's refusal would name.
+   */
+  #preludeAnswers(name: string): boolean {
+    return this.#preludeScope.lookupLocal(name) !== undefined ||
+      (this.#qualifiedOnlyPreludeNames.get(name)?.length ?? 0) > 0;
   }
 
   /**
@@ -2591,6 +2686,20 @@ class Resolver {
     return this.#privileged && specifier === INTRINSIC_SPECIFIER;
   }
 
+  /**
+   * Drops the prelude's seed of one type name from the name-keyed tables, for
+   * a module declaration of the same spelling that occludes it (§5.4). The
+   * declaration's own entries are written after this.
+   */
+  #forgetPreludeType(name: string): void {
+    this.#typeAliases.delete(name);
+    this.#externTypeNames.delete(name);
+    this.#unionNames.delete(name);
+    this.#unionArities.delete(name);
+    this.#recordNames.delete(name);
+    this.#recordArities.delete(name);
+  }
+
   /** Registers module type identities before resolving any declaration body. */
   #predeclareTypes(items: readonly Parsed.Item[]): void {
     const claimed = new Map<string, Source.Span>();
@@ -2635,6 +2744,14 @@ class Resolver {
       }
       claimed.set(itemName.text, itemName.span);
       this.#ownTypeNames.add(itemName.text);
+      // Modules §5.4: the declaration occludes the prelude's type of its
+      // spelling **whatever either's form**. The prelude was seeded into these
+      // same name-keyed tables, and they are read one form at a time (aliases,
+      // extern types, unions, records), so without this a `record Option` of
+      // the module's own lost to the prelude's `union Option` for being read
+      // second (#1075). The identities the compiler's own producers need stay
+      // in `#preludeUnions`/`#preludeRecords`, which occlusion does not move.
+      if (this.#preludeTypeNames.has(itemName.text)) this.#forgetPreludeType(itemName.text);
       if (item.kind === "TypeAlias") {
         this.#typeAliases.set(item.name.text, item);
         this.#writtenTypeAliases.set(item.name.text, item);
@@ -3104,6 +3221,15 @@ class Resolver {
         // among the prelude's occluders — an alias may occlude a prelude
         // module's alias — and that contest is the alias namespace's, run at
         // predeclaration and not in this frame.
+        //
+        // The one bare spelling it *does* take from the prelude (#1075): where
+        // its module exports a type, or a record, union, or exception
+        // constructor, of the alias's own spelling, the prelude's same-spelled
+        // constructor is occluded with it (§5.1 rule 3), module-wide like every
+        // occlusion. It binds nothing — rule 3's fallback answers below the
+        // line, and above it the reference reads the prelude as if it did not
+        // bind the name.
+        if (this.#occludingImport(item.alias.text) !== undefined) reserve(item.alias.text);
       } else {
         // The term names a type-namespace declaration binds. Their references
         // read top-down like any other term reference (§7.2); the declarations
@@ -5835,10 +5961,20 @@ class Resolver {
     if (later === undefined && this.#reportUnreachedCompanion(expression.name)) {
       return { kind: "ErrorExpr", span: expression.span };
     }
+    // Rule 3's occlusion keys on the type (#1075): an import exporting a type
+    // of its alias's spelling has taken the spelling from the prelude, so a
+    // transparent union with no constructor of that spelling names its own
+    // constructors, and §5.5's refusal below — which would name the prelude's —
+    // does not run.
+    const occluded = later === undefined &&
+      this.#occludingImport(expression.name.text) !== undefined;
+    if (occluded && this.#reportOccludedConstruction(expression.name)) {
+      return { kind: "ErrorExpr", span: expression.span };
+    }
     // §5.5's refusal is read *after* the declared-later one and before the
     // unknown name: a module that declares the spelling lower down means its
     // own, and §5.4's reservation has already made the prelude invisible there.
-    if (later === undefined && this.#refusedBarePrelude(expression.name)) {
+    if (later === undefined && !occluded && this.#refusedBarePrelude(expression.name)) {
       return { kind: "ErrorExpr", span: expression.span };
     }
     // Modules §10's row: a constructor a visible alias's module exports but
@@ -6155,6 +6291,21 @@ class Resolver {
         span: annotation.span,
       };
     }
+    // Modules §5.1 rule 2's **companion fallback** (#531), at its seat since
+    // #1075: directly after the module's **own** type namespace, and ahead of
+    // everything else a bare spelling can reach — the prelude's types (seeded
+    // into the tables below, beside the module's own), the compiler-owned
+    // kinds and primitives, and the boundary types last of all. So a bare
+    // `Name` means what `Name.x` means, and a type the prelude adds later
+    // cannot capture a program's same-named import (§5.4). An implied type of
+    // one of the module's own constraints is the module's own layer too, and
+    // keeps its refusal below.
+    if (!this.#ownTypeNames.has(name) && !this.#impliedTypeOwners.has(name)) {
+      const companion = this.#companionType(
+        name, annotation, typeParameters, impliedContext, substitutions,
+      );
+      if (companion !== undefined) return companion;
+    }
     const alias = this.#typeAliases.get(name);
     if (alias !== undefined) {
       const arguments_ = annotation.kind === "AppliedType"
@@ -6255,22 +6406,11 @@ class Resolver {
       return { kind: "RecordDeclaration", record: declaredRecord, name, arguments: arguments_, span: annotation.span };
     }
     if (annotation.kind === "AppliedType") {
-      // Modules §5.1 rule 2: the compiler-owned boundary types stay **last** —
-      // after declarations *and* after the companion fallback, because the
-      // fallback resolves to a user's declaration reached through the user's own
-      // import, and §5.5 gives the compiler no claim that outranks one. This is
-      // the one place the fallback changes a program that already resolved: a
-      // module imported under a boundary spelling and exporting a same-spelled
-      // type now means the user's type. The other members of the intrinsic
-      // inventory below (`Vector`, `Set`, `Map`, `JsSet`, `JsMap`) are not
-      // boundary types and keep answering first — rule 2's carve names three
-      // spellings and conservativity is exact at every other.
-      if (name === "Array" || name === "Nullable" || (this.#runtime && name === "Node")) {
-        const companion = this.#companionType(
-          name, annotation, typeParameters, impliedContext, substitutions,
-        );
-        if (companion !== undefined) return companion;
-      }
+      // Everything from here down is the compiler's own: rule 2's companion
+      // fallback has already had its turn (above the tables), so a module
+      // imported under any of these spellings and exporting a same-spelled type
+      // means the user's type, and §5.5 gives the compiler no claim that
+      // outranks one.
       if (this.#runtime && name === "Node") {
         // `Node(a)` is spellable only inside a runtime module; elsewhere it falls
         // through to the unknown-generic-type path, keeping the intrinsic hidden.
@@ -6332,13 +6472,6 @@ class Resolver {
         if (name === "JsMap") return { kind: "JsMap", key, value, span: annotation.span };
         return { kind: "Map", key, value, span: annotation.span };
       }
-      // Nothing in the type namespace and no intrinsic answered: rule 2's
-      // companion fallback gets its turn before the refusal, exactly as it does
-      // for the nullary spelling below.
-      const companion = this.#companionType(
-        name, annotation, typeParameters, impliedContext, substitutions,
-      );
-      if (companion !== undefined) return companion;
       // `JsValue` takes no parameters (FFI Part 11 §2), so an applied spelling
       // gets the boundary family's arity diagnostic rather than the
       // unknown-generic-type refusal, and resolves to the type anyway — the
@@ -6382,24 +6515,14 @@ class Resolver {
       });
       return { kind: "ErrorType", span: annotation.span };
     }
-    // Modules §5.1 rule 2's **companion fallback**, the nullary spelling: the
-    // type namespace has nothing, so a visible module alias `Name` whose module
-    // exports a type `Name` answers here — §5.3's idiom is what it exists for.
-    // The alias still binds nothing, which is why this sits at the end of the
-    // chain rather than beside the tables: every declaration and every type
-    // import above has already had its turn and won outright where it could.
-    const companion = this.#companionType(
-      name, annotation, typeParameters, impliedContext, substitutions,
-    );
-    if (companion !== undefined) return companion;
     // `JsValue` (FFI Part 11 §2) is a compiler-owned boundary type and the only
     // nullary one, so it answers exactly where `Array` and `Nullable` do in the
     // applied path: **last**, after every declaration and after rule 2's
     // companion fallback (Modules §5.1 rule 2, §5.5). The compiler holds no
     // resolution claim that outranks a user's own `JsValue`.
     if (name === "JsValue") return { kind: "JsValue", span: annotation.span };
-    // The fallback declined — the alias exports no type of its own spelling — so
-    // the refusal stands, naming the repairs the exported inventory actually
+    // The fallback declined above — the alias exports no type of its own
+    // spelling — so the refusal stands, naming the repairs the exported inventory actually
     // offers (Modules §10's row).
     const aliased = this.#moduleAliases.get(name);
     if (aliased !== undefined) {
@@ -6678,21 +6801,23 @@ class Resolver {
   /**
    * Modules §5.1 rule 2's **companion fallback**, type half.
    *
-   * A bare `Name` in type position that the type namespace has nothing for
-   * resolves to the type `Name` exported by a visible module alias `Name` — the
-   * whole of §5.3's companion idiom in one reading, and the reason the blessed
-   * consumer example compiles at all (#531).
+   * A bare `Name` in type position that the module's own type namespace has
+   * nothing for resolves to the type `Name` exported by a visible module alias
+   * `Name` — the whole of §5.3's companion idiom in one reading, and the reason
+   * the blessed consumer example compiles at all (#531).
    *
    * It **answers, never binds**: nothing enters the type namespace, so a
-   * same-spelled declaration or type import wins outright with no collision and
-   * no diagnostic, and every call site here sits *after* the namespace's own
-   * tables. The answer is exactly what `Name.Name` would have resolved to —
-   * literally the qualified path's own machinery — which is what makes the
-   * arity report, the opacity rule, and emission identical for both spellings.
+   * same-spelled declaration of the module's own wins outright with no
+   * collision and no diagnostic. It **outranks the prelude** (#1075): its one
+   * call site sits after the module's own declarations and before every table
+   * the prelude's types were seeded into, so the order is §5.4's occlusion read
+   * one namespace over. The answer is exactly what `Name.Name` would have
+   * resolved to — literally the qualified path's own machinery — which is what
+   * makes the arity report, the opacity rule, and emission identical for both
+   * spellings.
    *
-   * `undefined` means "declined": the caller proceeds to whatever answered
-   * before the fallback existed (at the boundary spellings, the boundary
-   * intrinsic; elsewhere, the refusal).
+   * `undefined` means "declined": the caller proceeds to the prelude's types,
+   * then the compiler's own, then the refusal.
    */
   #companionType(
     name: string,
@@ -6701,12 +6826,10 @@ class Resolver {
     impliedContext: { readonly owner: string; readonly names: ReadonlySet<string> } | undefined,
     substitutions: ReadonlyMap<string, Resolved.TypeAnnotation>,
   ): Resolved.TypeAnnotation | undefined {
-    // An explicit import alias first, then the prelude companion of the
-    // same name (§6.4's qualified home) — `#namedModule`'s own order, and the
-    // §5.4 one. The prelude half is inert in practice: a prelude module's types
-    // are seeded into the type namespace, so they answer above this and the
-    // fallback never reaches them.
-    const aliased = this.#namedModule(name);
+    // An **import** alias only. A prelude companion's qualified home (§6.4) is
+    // not an import, and the prelude's types are the next layer down, answered
+    // by the tables the caller reaches when this declines.
+    const aliased = this.#moduleAliases.get(name);
     if (aliased === undefined) return undefined;
     const union = aliased.unions.get(name);
     const record = aliased.records.get(name);

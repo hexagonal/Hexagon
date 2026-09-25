@@ -18,9 +18,9 @@ import { compileFiles, runProject } from "../support/test-project.js";
  * - It **answers, never binds.** Nothing enters either namespace, so a
  *   same-spelled declaration or import wins outright, with no collision report
  *   and no refusal.
- * - It is **last but one.** Only the compiler-owned boundary types sit behind
- *   it (§5.5's parenthetical), which is the one place it re-means a program
- *   that already resolved.
+ * - It **outranks the prelude** *(#1075)*. It answers directly after the
+ *   module's own declarations, so the prelude's types and the compiler-owned
+ *   ones all sit behind it (`import-occludes-prelude-type.test.ts`).
  * - It **carries no members.** A constraint's members are reached through the
  *   alias or by the dot (§3.2, #762); the constraint half brings the name and
  *   nothing else.
@@ -155,7 +155,7 @@ describe("type position: §5.3's consumer, compiling", () => {
   });
 });
 
-describe("occlusion: the fallback answers only where the namespace is empty", () => {
+describe("occlusion: the module's own declarations win, the prelude loses", () => {
   test("the module's own record wins, with no diagnostic at all", () => {
     // Zero diagnostics is the assertion, not just "no error at the annotation":
     // the alias binds nothing, so there is no second meaning for a collision
@@ -193,15 +193,16 @@ describe("occlusion: the fallback answers only where the namespace is empty", ()
     ])).toEqual([]);
   });
 
-  test("a prelude type of the alias's spelling still wins", () => {
-    // `Option` is a prelude declaration, so the type namespace answers before
-    // the fallback is consulted and the alias's own `Option` never surfaces.
+  test("a prelude type of the alias's spelling loses to it (#1075)", () => {
+    // `Option` is a prelude declaration, and the fallback outranks the prelude:
+    // the annotation is the alias's own nullary `Option`, so the prelude's
+    // one-argument spelling draws that record's arity report.
     expect(messages([
       ["/option.hex", "module Option\n\n" + "export record Option = {n: Int}\n"],
       ["/main.hex",
         "module Main\n\n" + 'import Option\n' +
         "export fun mine(o: Option(Int)): Int = 1\n"],
-    ])).toEqual([]);
+    ])).toEqual(["type `Option` expects 0 arguments, but 1 were provided"]);
   });
 });
 
