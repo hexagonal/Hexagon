@@ -18811,7 +18811,6 @@ class Checker {
         });
       }
       this.#markDeclarationsRefused(variable);
-      if (type.kind === "Variable") this.#markDeclarationsRefused(type);
       variable.instance = ERROR;
       return;
     }
@@ -21255,9 +21254,8 @@ class Checker {
    */
   /**
    * Records that a declaration owning `variable` has refused one of its declared
-   * variables (#704). A knot refuses as one: the block's members, or the
-   * member, whose variable was refused, and every member of the live knot it
-   * belongs to. Its survivors — the members' other declared variables, left
+   * variables (#704). A knot refuses as one: every member of the live knot the
+   * refused variable's owner belongs to. Its survivors — the members' other declared variables, left
    * unquantified because the knot failed — are then this refusal's to account
    * for, and nothing reports them again.
    */
@@ -21265,11 +21263,10 @@ class Checker {
     const owner = this.#declaredHeadOwners.get(variable.id);
     if (owner === undefined) return;
     const owners = owner.kind === "block" ? owner.members : [owner.symbol];
-    // Only a refusal *inside* a live knot is the knot's: a clash outside it — an
-    // outer declaration meeting a variable that leaked from an unquantified
-    // member — is that declaration's own, and must not hide the knot's report.
-    if (!this.#knots.some((knot) => owners.some((symbol) => knot.types.has(symbol)))) return;
-    for (const symbol of owners) this.#refusedDeclarations.add(symbol);
+    // Only the live knot — the SCC, never the whole §7.3 block — refuses as one.
+    // A clash outside any knot holding the owner (an outer declaration meeting a
+    // variable leaked from an unquantified member) marks nothing, and a sibling
+    // knot of the same block is not this one.
     for (const knot of this.#knots) {
       if (!owners.some((symbol) => knot.types.has(symbol))) continue;
       for (const symbol of knot.types.keys()) this.#refusedDeclarations.add(symbol);
@@ -21296,15 +21293,6 @@ class Checker {
       );
       if (carried) continue;
       const owner = this.#declaredHeadOwners.get(variable.id);
-      // A survivor of a knot that has refused one of its declared variables: the
-      // knot's refusal is the only report it gets (#704; Functions §10's fence).
-      if (
-        owner !== undefined &&
-        (owner.kind === "block" ? owner.members : [owner.symbol])
-          .some((symbol) => this.#refusedDeclarations.has(symbol))
-      ) {
-        continue;
-      }
       const declaring = this.#functionDeclared.get(variable);
       // The declaration to name is the one whose type could carry the variable:
       // for a head's variable, the innermost enclosing member of that block; for
@@ -21318,6 +21306,10 @@ class Checker {
         : knot !== undefined
         ? [...chain].reverse().find(({ symbol }) => knot.includes(symbol))
         : chain.find(({ symbol }) => symbol === declaring)) ?? chain.at(-1)!;
+      // A survivor of the knot that refused: the knot's refusal is the only
+      // report it gets (#704; Functions §10's fence). Asked of the member this
+      // demand would name, so another knot of the same block still reports.
+      if (owner !== undefined && this.#refusedDeclarations.has(named.symbol)) continue;
       const type = this.#schemes.get(named.symbol)?.type;
       unrouted.push({
         requirement,

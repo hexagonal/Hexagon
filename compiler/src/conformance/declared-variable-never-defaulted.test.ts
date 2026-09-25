@@ -49,6 +49,24 @@ describe("a knot's survivor gets no report of its own", () => {
     ]);
   });
 
+  test("a refusal in one knot of a block hides nothing in another knot of it", () => {
+    // `p2` is its own knot, `p4` another: the knot is the SCC, never the whole
+    // block (§10), so `p4`'s unrouted demand is still reported.
+    expect(verdict(
+      "fun<b: Show, c: Show>\n" +
+      "    p2(x: b, n: Int): String = if n <= 0 then show(x) else p2(\"s\", n - 1)\n" +
+      "    p3(x: c, n: Int): String = if n <= 0 then show(x) else p3(x, n - 1)\n" +
+      "    p4(n: Int): String =\n" +
+      "        let f = (y: c) => show(y)\n" +
+      "        \"\"\n",
+    )).toEqual([
+      REFUSED_B,
+      "`c` is a declared type variable, and this needs its `Show` evidence, but `p4`'s " +
+        "type does not mention `c`, so no call of `p4` can supply it; use `c` in `p4`'s " +
+        "parameter or result types",
+    ]);
+  });
+
   test("a clash outside the knot is not the knot's refusal, and hides nothing", () => {
     // `h` meets `u` only because it leaked from `c`, which `a`'s reach left
     // unquantified. `h`'s own clash is reported, and so is the knot's cause.
