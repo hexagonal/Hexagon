@@ -362,6 +362,17 @@ describe("a faced tree is refused once, naming the value that declined (#827)", 
     }
   });
 
+  test("an unsolved value takes the face only where the face carries its demands", () => {
+    // `x / x` demands `Frac`, which `Dec` carries and `BigInt` does not; either
+    // way the tree's one report is the value that declined.
+    expect(refusals("fun h(x) =\n    let w = x / x\n    let t: Dec = x * f\n    t\n")).toEqual([
+      "`f` is a `Float` and cannot enter `Dec`, so the multiplication could not run at `Dec`",
+    ]);
+    expect(refusals("fun h(x) =\n    let w = x / x\n    let t: BigInt = x * f\n    t\n")).toEqual([
+      "`f` is a `Float` and cannot enter `BigInt`, so the multiplication could not run at `BigInt`",
+    ]);
+  });
+
   test("a declared variable in a refused tree keeps its own verdict", () => {
     for (const product of ["x * f", "f * x"]) {
       expect(refusals(`fun half<a: Num>(x: a): Dec = ${product}\n`)).toEqual([

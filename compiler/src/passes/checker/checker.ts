@@ -13800,7 +13800,8 @@ class Checker {
           this.#followsAtType(part.expression, part.type, type)
         );
     }
-    if (this.#unsolvedAtClose.has(expression)) return true;
+    const demands = this.#unsolvedAtClose.get(expression);
+    if (demands !== undefined) return this.#carriesDemands(type, demands);
     return actual !== undefined && this.#reachesSeat(actual, type);
   }
 
@@ -14525,12 +14526,21 @@ class Checker {
   }
 
   /**
-   * Values that were still unsolved when their refused faced tree closed, and
-   * took the face there (`#keepFaced`). The face is not what they *are*, so
-   * §2.2's boundary repair counts them as following any type (`#followsAtType`):
-   * under the ascription they would have taken it instead.
+   * Values that were still unsolved when their refused faced tree closed, with
+   * the demands they carried then (`#keepFaced`). Whatever the close gave them
+   * is not what they *are*, so §2.2's boundary repair counts them as following
+   * any type that carries those demands (`#followsAtType`): under the
+   * ascription they would have taken it instead.
    */
-  readonly #unsolvedAtClose = new WeakSet<Resolved.Expr>();
+  readonly #unsolvedAtClose = new WeakMap<Resolved.Expr, readonly Requirement[]>();
+
+  /** Whether `target` carries every demand an unsolved variable made. */
+  #carriesDemands(target: Mono, demands: readonly Requirement[]): boolean {
+    return demands.every(({ identity }) =>
+      STRUCTURAL_IDENTITIES.has(identity) ||
+      this.#instances.has(this.#instanceKey(identity, this.#prune(target)))
+    );
+  }
 
   /** One node's tree is closed against one face, so the answer is cached per node. */
   readonly #reachesFace = new WeakMap<TreeNode, boolean>();
@@ -14799,12 +14809,17 @@ class Checker {
     }
     // An unsolved value reaches the face and runs there, as the lift hands it;
     // the kept type decides nothing about it (§5.1: for the report alone).
-    // A declared variable is no unsolved value: it keeps its own verdict.
+    // A declared variable is no unsolved value: it keeps its own verdict. An
+    // unsolved one takes the face only where the face carries everything it
+    // already demands; otherwise it is left as it is, its demands reported
+    // wherever they always were, never a second time at the face.
     for (const part of node.parts) {
       if (!("value" in part)) continue;
       const type = this.#prune(part.value.type);
       if (type.kind !== "Variable" || type.rigidName !== undefined) continue;
-      this.#unsolvedAtClose.add(part.value.expression);
+      const demands = [...type.requirements];
+      this.#unsolvedAtClose.set(part.value.expression, demands);
+      if (!this.#carriesDemands(face, demands)) continue;
       this.#unifyExpected(face, type, part.value.expression, part.value.expression.span, true);
     }
     const kept = this.#chooseHome(this.#treeValues(node))?.home;

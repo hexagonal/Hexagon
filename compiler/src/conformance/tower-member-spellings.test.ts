@@ -773,6 +773,18 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
       })]);
     expect(refusals(`${foo}fun h(x) =\n    let t: BigInt = (x + p: Foo).gcd(s2)\n    t\n`))
       .toEqual([]);
+    // Where the operand demands what the kept type lacks — `x / x` needs
+    // `Frac`, which `Foo` does not honor — the ascription would not compile,
+    // so no repair is offered, and the one report is row 16's.
+    expect(
+      refusals(`${foo}fun h(x) =\n    let w = x / x\n    let t: BigInt = (x + p).gcd(s2)\n    t\n`),
+    ).toEqual([rowSixteen({
+      receiver: "(x + p)",
+      declined: "`p` is a `Foo` and",
+      ascribe: "",
+      kept: "",
+      repair: false,
+    })]);
     // At a binding the same tree says the same sentence, once.
     expect(refusals(`${foo}let t: BigInt = p + (i + j)\n`)).toEqual([
       "`p` is a `Foo` and cannot enter `BigInt`, so the addition could not run at `BigInt`",
