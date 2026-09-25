@@ -362,10 +362,15 @@ describe("a faced tree is refused once, naming the value that declined (#827)", 
     }
   });
 
-  test("an unsolved value takes the face only where the face carries its demands", () => {
+  test("a refused tree decides nothing about an unsolved value", () => {
     // `x / x` demands `Frac`, which `Dec` carries and `BigInt` does not; either
     // way the tree's one report is the value that declined.
     expect(refusals("fun h(x) =\n    let w = x / x\n    let t: Dec = x * f\n    t\n")).toEqual([
+      "`f` is a `Float` and cannot enter `Dec`, so the multiplication could not run at `Dec`",
+    ]);
+    // And where the demand comes after the tree: the tree decided nothing
+    // about `x`, so `x / x` meets no face it was given.
+    expect(refusals("fun h(x) =\n    let t: Dec = x * f\n    let w = x / x\n    t\n")).toEqual([
       "`f` is a `Float` and cannot enter `Dec`, so the multiplication could not run at `Dec`",
     ]);
     expect(refusals("fun h(x) =\n    let w = x / x\n    let t: BigInt = x * f\n    t\n")).toEqual([
@@ -388,7 +393,7 @@ describe("a faced tree is refused once, naming the value that declined (#827)", 
     expect(refusals("fun half<a: Num>(x: a): Dec = x * 2\n")).toEqual([declared]);
   });
 
-  test("an unsolved value runs at the face, the kept type deciding nothing", () => {
+  test("an unsolved value is left to its later seats, the kept type deciding nothing", () => {
     expect(refusals("fun h(x) =\n    let y: Dec = x * f\n    let z: Dec = x\n    z\n")).toEqual([
       "`f` is a `Float` and cannot enter `Dec`, so the multiplication could not run at `Dec`",
     ]);

@@ -14527,10 +14527,10 @@ class Checker {
 
   /**
    * Values that were still unsolved when their refused faced tree closed, with
-   * the demands they carried then (`#keepFaced`). Whatever the close gave them
-   * is not what they *are*, so §2.2's boundary repair counts them as following
-   * any type that carries those demands (`#followsAtType`): under the
-   * ascription they would have taken it instead.
+   * the demands they carried then (`#keepFaced`). The close leaves them
+   * unsolved, so §2.2's boundary repair counts them as following any type
+   * that carries those demands (`#followsAtType`): under the ascription they
+   * would take it.
    */
   readonly #unsolvedAtClose = new WeakMap<Resolved.Expr, readonly Requirement[]>();
 
@@ -14826,18 +14826,16 @@ class Checker {
     }
     // An unsolved value reaches the face and runs there, as the lift hands it;
     // the kept type decides nothing about it (§5.1: for the report alone).
-    // A declared variable is no unsolved value: it keeps its own verdict. An
-    // unsolved one takes the face only where the face carries everything it
-    // already demands; otherwise it is left as it is, its demands reported
-    // wherever they always were, never a second time at the face.
+    // An unsolved value is left as it is: a refused tree decides nothing about
+    // it, and whatever later solves it — a seat, a demand made further down —
+    // does so without this tree's say. Its demands at close are recorded for
+    // §2.2's repair alone (`#followsAtType`). A declared variable is no
+    // unsolved value, and keeps its own verdict.
     for (const part of node.parts) {
       if (!("value" in part)) continue;
       const type = this.#prune(part.value.type);
       if (type.kind !== "Variable" || type.rigidName !== undefined) continue;
-      const demands = [...type.requirements];
-      this.#unsolvedAtClose.set(part.value.expression, demands);
-      if (!this.#carriesDemands(face, demands)) continue;
-      this.#unifyExpected(face, type, part.value.expression, part.value.expression.span, true);
+      this.#unsolvedAtClose.set(part.value.expression, [...type.requirements]);
     }
     const kept = this.#chooseHome(this.#treeValues(node))?.home;
     if (kept !== undefined) this.#unify(node.result, kept, node.expression.span);
