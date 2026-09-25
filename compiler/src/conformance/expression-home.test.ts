@@ -745,6 +745,11 @@ describe("calls join the tree (#1062, part 2)", () => {
       "module Main\n\nconstraint Source<a> =\n    type Float\n    peek(supply: a) -> Float\n\n" +
         "let n: Int = 3\n" + apply + "let g = 1.5\nlet w = apply2(n, (v) => v * g)\n",
     )).toEqual([settled("n", "Float", "; write `(n: Float)`, or annotate the callback: `(v: Float) => …`")]);
+    // Implied `Dec` keeps the prelude's bare `Dec`.
+    expect(projectDiagnostics(
+      "module Main\n\nconstraint Source<a> =\n    type Dec\n    peek(supply: a) -> Dec\n\n" +
+        "let n: Int = 3\n" + apply + "let w = apply2(n, (v) => v * 2.50d)\n",
+    )).toEqual([settled("n", "Dec", "; write `(n: Dec)`, or annotate the callback: `(v: Dec) => …`")]);
     // The module's own union is spelled bare.
     const own = "module Main\n\nunion U = U(Int)\n\n" +
       "honor Num<U> =\n    add(left, right) = left\n    multiply(left, right) = left\n" +
@@ -767,6 +772,14 @@ describe("calls join the tree (#1062, part 2)", () => {
       settled("n", "U", "; write `(n: L.U)`, or annotate the callback: `(v: L.U) => …`"),
     ]);
     expect(imported("let w = apply2((n: L.U), (v) => v * u)\n")).toEqual([]);
+    // And through its companion alias, bare.
+    expect(compileFiles([
+      ["/main.hex", "module Main\n\nimport Lib as U\n\nlet n: Int = 3\n" + apply + "let u = U.two\n" +
+        "let w = apply2(n, (v) => v * u)\n"],
+      ["/Lib.hex", unionLib],
+    ]).diagnostics.map(({ message }) => message)).toEqual([
+      settled("n", "U", "; write `(n: U)`, or annotate the callback: `(v: U) => …`"),
+    ]);
     // A compiler-owned type whose name a declaration took has no spelling —
     // the module's own, or an import's through its companion alias.
     const float = "let n: Int = 3\n" + apply + "let g = 1.5\nlet w = apply2(n, (v) => v * g)\n";
