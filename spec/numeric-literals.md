@@ -136,6 +136,9 @@ Consequences worth asserting in tests:
 - A tyvar with `{Num α, SomeUserConstraint α}`: does **not** default; proceeds to ordinary generalisation if the binding form allows it, or produces an ambiguity error if it doesn't. Error message should name the non-defaultable constraint (§6).
 - A tyvar with an empty constraint set: never defaults (it's not a literal var; ordinary generalisation applies).
 - Defaulting is per-tyvar, not per-binding: `let pair = (1, 1.5)` defaults the first component's tyvar to `Int` independently; the `1.5` was never polymorphic.
+- A **declared** type variable at a binding whose value is a function: never defaults. (`fun zero<t: Num>(): t = 0` is `<t: Num>() -> t`.)
+
+**Declared type variables** *(#1042)*. The rule is for variables inference introduced. A type variable the program *declared* — on a binder, or in an ascription — is the author's statement of polymorphism, and where the binding's one evaluated value is a function (Functions §8 item 2's evidence seat) that statement is representable: the variable is quantified with its constraints, and a caller chooses it. So defaulting never proposes `Int` for it, and a declared variable occurring only in a function's result — `fun widen<t: Num>(value: Nat): t = value` — is an ordinary polymorphic result. A use that supplies no type defaults at *its own* binding: `let z = zero()` is `Int`, exactly as `let z = 0` is. At a non-function value binding there is no seat, so the rule applies unchanged and rigidity refuses the proposal: `let x: a = 42` is refused (Functions §10's forced-to-a-concrete-type row; Ascription §5 words the ascription spelling). An expansive binding's declared variables are Functions §8 item 7's to decide, never this rule's.
 
 Note the closed list means a literal used *only* under a user-defined constraint keeps `Num` in its set too (elaboration always adds `Num`), so the "solely defaultable" test correctly fails on the user constraint, not on `Num`.
 
@@ -170,7 +173,8 @@ The checker admits three exact, evidence-directed contextual conversions. The
 
 “Independently established” means that the target is fixed by an annotation, a concrete
 operand or argument, a branch or assignment boundary, an already-constrained type
-variable — or, **at a tower member call the expected-type lift below governs**, the
+variable — a declared one included, which its binder establishes at every seat in its
+scope, an argument's as much as a return annotation's — or, **at a tower member call the expected-type lift below governs**, the
 seat's expected type (Functions §4.3), a written face arriving where an annotation could
 have been written. The expectation route exists only through the lift: at every other
 position an expectation establishes no widening target of its own (Functions §4.3's

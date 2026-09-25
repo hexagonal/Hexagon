@@ -14636,8 +14636,11 @@ class Checker {
       const expression = expressions[index];
       if (expression === undefined) continue;
       const destination = this.#prune(expected);
+      // A caller's declared variable is §5.1's "already-constrained type
+      // variable" (#1035): established by its binder, as a `BigInt` source's
+      // `deferral` already reads it, and needing no sibling to establish it.
       const allowVariableTarget = destination.kind === "Variable" &&
-        establishedVariables.has(destination.id);
+        (establishedVariables.has(destination.id) || destination.rigidName !== undefined);
       this.#unifyExpected(
         expected,
         actual,
@@ -20819,6 +20822,9 @@ class Checker {
       (variable) => variable.level > level,
     );
     const inputVariables = this.#inputVariables(type);
+    // The evidence seat the rule below reads (§13.6): the binding's one
+    // evaluated value, never a component a pattern projects from it.
+    const seated = this.#prune(evaluated ?? type).kind === "Function";
     for (const variable of variables) {
       if (
         !inputVariables.has(variable.id) &&
@@ -20831,6 +20837,14 @@ class Checker {
         // skip is gated on `allow`, or `let x: a = 42` loses the diagnostic that
         // names its rewrite and emits `undefined.fromNat(42)` instead.
         (allow || variable.rigidName === undefined) &&
+        // Numeric Literals §4 *(#1042)*: at a **function** binding a declared
+        // variable is never defaulted. The binder is the author's statement of
+        // polymorphism and the seat carries its evidence, so `fun zero<t:
+        // Num>(): t = 0` quantifies `t`; defaulting it proposed an `Int` no
+        // body demanded, and the rigid arm then refused the function for it.
+        // Only a result-only variable reaches here — one in an input position
+        // was never proposed a default.
+        !(seated && variable.rigidName !== undefined) &&
         variable.requirements.length > 0 &&
         this.#canDefaultToInt(variable)
       ) {
