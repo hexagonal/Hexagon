@@ -219,8 +219,10 @@ chosen once for the whole expression — never operation by operation from the i
   type, as Method Syntax §2.2's receiver rule forwards it, and never the home of the
   tree around it. A non-lambda argument at a seat its callee's signature writes as a
   bare type variable is a sibling group of one where no other argument shares the
-  variable, and closes with the call's other siblings; a literal's component at a seat
-  its expectation writes as a bare type variable, with its literal's (Functions §4.3).
+  variable, and closes with the call's other siblings. A tuple component or record field
+  at a seat its expectation writes as a bare type variable is a group of one whatever
+  other component shares the variable, and closes after its literal's first pass, in
+  source order (Functions §4.3's component schedule).
 - **The home.** Where the seat's expected type is **concrete** — it contains no type
   variable — when the tree's last part is in, it is the home: the expected-type lift
   below. The seats that supply one are an annotated binding, an ascription, a
@@ -400,10 +402,10 @@ target is concrete and is not Float
   checked — `xs.fold(0.0, (acc, x) => acc + x)` checks its callback at `Float`. A type
   written around a tuple, record, or vector literal, or a constructor application,
   reaches its components (Functions §4.3, #1066): `let p: (Dec, Dec) = (n, 0.5)` and
-  `let o: Option(Dec) = Some(0.5)` promote their literals. Through a function's result
-  a face reaches no argument (a tower member call's operands being the lift's, below),
-  so `let o: Option(Dec) = wrap(0.5)` at `wrap<a>(x: a): Option(a)` is refused, its
-  literal having settled at `Float`. A
+  `let o: Option(Dec) = Some(0.5)` promote their literals. Through any other function's
+  result a face reaches no argument (a tower member call's operands being the lift's,
+  below), so `let o: Option(Dec) = wrap(0.5)` at `wrap<a>(x: a): Option(a)` is refused,
+  its literal having settled at `Float`. A
   literal whose exponent would scale it by more than 10,000 powers of ten is refused
   rather than read.
 - **Not in patterns.** A literal pattern keeps Pattern Matching §2.5's exact-type
@@ -655,11 +657,12 @@ declining value, for `(if c then n else f) * r` under `Rat` and, under `Dec`, `(
 `if c then f * 2 else price`, and a `try` whose body is `n * f` and whose arm is `price`;
 `let x: Dec = if c then f else price` refused at `f` with §6's entry report; and `let x:
 Rat = p / q` refused with no report of `Foo`'s missing `Frac`; the seats a face does not
-reach, `let a: Dec = id(n * 1.5)` and `let o: Option(Dec) = wrap(0.5)` refused, and `let
-o: Option(Dec) = wrap(n)` refused with §6's function-result report naming `wrap((n:
-Dec))`; the faces a container carries (#1066), each at `Dec` — `let p: (Dec, Dec) = (n,
-0.5)`, `let v: Vector(Dec) = [n, 0.5]` and `[n]`, `let o: Option(Dec) = Some(n * 1.5)`,
-and `Point({x = n, y = price})` at `record Point = {x: Dec, y: Dec}`; the
+reach, `let a: Dec = id(n * 1.5)`, `let o: Option(Dec) = wrap(0.5)`, and `let o:
+Option(Dec) = wrap(n)` refused with §6's function-result report, naming `id((n * 1.5:
+Dec))`, `wrap((0.5: Dec))`, and `wrap((n: Dec))`; the faces a container carries (#1066),
+each at `Dec` — `let p: (Dec, Dec) = (n, 0.5)`, `let v: Vector(Dec) = [n, 0.5]` and `[n]`,
+`let o: Option(Dec) = Some(n * 1.5)`, and `Point({x = n, y = price})` at `record Point =
+{x: Dec, y: Dec}`; the
 targets kept — `fun widen<t: Num>(value: Nat): t = value`, `let y: t = value`, and
 `fun k(count: Int, value) = { let z = value / value; count * value }` at `<a: Frac>
 (Int, a) -> a` accepted; the callback pair at `apply2<a>(x: a, g: (a) -> a)` —
@@ -717,7 +720,7 @@ Elaboration changes the *character* of type errors involving literals, and this 
 - Never surface the name `fromNat` in an error for code the user wrote without mentioning it. The elaboration is invisible machinery; errors should speak in terms of the literal.
 - *(#808.)* **When the expected-type lift stands down** (§5.1) because an operand cannot reach the face, the refusal that then fires at the consuming seat names that operand and the operation that could not run at the face — "`price` is a `Float` and cannot enter `Rat`, so the multiplication could not run at `Rat`" — so the report keeps what a refusal at the operand would have carried. Where several values decline, the first in source order is named, and where it sits inside a call that stood down on its own — `p.add(q) ** i` — the value inside that call is named, with that call's operation. The checker therefore records, at a stand-down, which operand declined and why, and carries it to the seat that refuses — a binding, an argument seat, or a dot call's receiver seat *(#821)*, where the report adds the two facts that seat alone knows: why the face reached the receiver (the spelling's rung) and the written boundary that keeps the receiver at its own type, an ascription or a separate binding (Method Syntax §9 row 16). Every stand-down ends at such a seat (§5.1), so the note is always spent.
 - *(#1062.)* **When a value cannot enter its expression's home** (§5.1), the report names the value, its type, the home, and what gave the home — the seat's type ("the home `: Dec` writes") or the value that established it ("the home `price` gives this expression") — at the declining value. **When two values establish different homes** (a conflicting tree), the report names both — "`x` is a `Float` and `price` a `Dec`; an expression's arithmetic runs at one type, and neither enters the other". Each names the named door where either type has one into the other (`Dec.fromFloat(x, places)`, `price.toFloat()`; friendly-numerics tenet 7), and otherwise no conversion, there being none to name. Precedence: at a dot call's receiver, Method Syntax §9 row 16 and Operators §11's form report; under a written face, the #808 stand-down wording above wherever a tower member call stood down; otherwise these — among them a value that meets a written face with no operation between it and the seat (`let x: Dec = if c then f else price`: "`f` is a `Float` and cannot enter `Dec`, the home `: Dec` writes"), which is reported once, at the value — a gated call's result being such a value (`let x: Nat = if c then n - k else m` names `n - k`). **When a callback's body finds its call's home settled** (Functions §4.3) at a type that would have widened into the body's — "`m` settled this call's `Nat` before the callback was checked, and the callback's body returns `Int` — a callback's body chooses no type for the arguments beside it; write `(m: Int)`, or annotate the callback: `(v: Int) => …`" — the report is given once, at the body, naming the value that established the home; the annotation is offered only for a parameter written as the settled variable itself, and neither repair where this site cannot spell the body's type. At a literal's components (Functions §4.3's component schedule, #1066) the report names the literal where it names the call — "`n` settled this tuple's `Int` before the callback was checked, and the callback's body returns `Dec` — a callback's body chooses no type for the components beside it; write `(n: Dec)`, or annotate the callback: `(v: Dec) => …`" — and, at a record literal, says "record" and "the fields beside it". **When a dot call's receiver closed before the dot** (Method Syntax §2.2) and a sibling then refuses it, where every value of the receiver's own tree would have entered that sibling's type and that type honors the member's constraint, the report says so and names the repairs that compile: "`n * 1.5` settled at `Float` before `.multiply` saw `price` — a dot call's receiver is settled on its own; write `n * 1.5 * price`, or name the home: `let a: Dec = …`". The operator rewrite is offered at the four arithmetic members; the home is named by the binding's annotation where the call is an unannotated binding's whole value, by ascribing the receiver anywhere else (`(n * 1.5: Dec).compare(price)`), never where the binding already writes one, and not at all where this site cannot spell the home. Each is decided from recorded types, for the report alone.
-- *(#1066.)* **The function-result report.** When a function call's result meets a face and differs from it only at a type variable the callee's signature writes bare at an argument's seat, and every value of that argument's tree would have entered the face's part there (§5.1's entry), the report names the call, the type the argument settled, and the boundary: "`wrap(n)` is an `Option(Int)`; a written type does not reach an argument through a function's result — write `wrap((n: Dec))`" — and at a bare result, "`id(n * 1.5)` is a `Float`; … — write `id((n * 1.5: Dec))`". The ascription is offered on the argument that settled the variable. The report replaces the ordinary mismatch, or the entry report above, at that seat, and is decided from recorded types, for the report alone (Functions §4.3; §7's rejection).
+- *(#1066.)* **The function-result report.** Where a function call — neither a tower member call nor a constructor application — is the whole value meeting a face at a seat (a binding, an argument, an ascription, or a branch a forwarding form hands the face to), its result type differs from the face only at type variables the callee's signature writes, among its parameters, at bare argument seats alone, each variable meeting one type of the face wherever the result writes it, and every value of every argument at those seats would have entered that type (§5.1's entry), the report names the call, its result type, and the boundary: "`wrap(n)` is an `Option(Int)` — a written type does not reach an argument through a function's result; write `wrap((n: Dec))`" — and at a bare result, "`id(n * 1.5)` is a `Float` — …; write `id((n * 1.5: Dec))`". For each such variable the ascription is offered on the argument holding the value that established the home of the arguments at its seats (§5.1), the first in source order where several do. The report replaces the ordinary mismatch, or the entry report above, at that seat; where the call's result meets the face as a lifted operand or a dot call's receiver, the reports above stand. It is decided from recorded types, for the report alone (Functions §4.3; §7's rejection).
 - *(#525.)* A decimal-point literal promoted to `Dec` with an exponent is refused with the value in ordinary notation: "a `Dec` literal is written without an exponent, so its decimal places show; write `0.0015`". A decimal-point literal *pattern* at a `Dec` scrutinee is refused with its `d` spelling: "…; a `Dec` pattern is written with the `d` suffix: `0.5d`" (Pattern Matching §2.5, #1054).
 - LSP hover on a bare literal in polymorphic position should show `<a: Num> a` (matching the round-trip-consistency rule for signatures — the display is source-shaped, Functions §5.1); hover on a defaulted or pinned literal shows the concrete type.
 
@@ -757,7 +760,7 @@ A branch or item whose type is *structured* — `(1, 2)`, `[1, 2]` — can never
 
 **A face through a function's result** (#1066). Unify every call's result type with its seat's expected type before its arguments, as a constructor application's is (Functions §4.3), so that `let o: Option(Dec) = wrap(n)` at `wrap<a>(x: a): Option(a)` checks `n` at `Dec`. Rejected: a function's type parameters choose the instance its body runs at, and its type may itself be inferred, so the face would decide what the body runs through a type the reader may not see — a home travelling through a function's type, which §5.1's expression home keeps out. A constructor qualifies because it has no body and its parameters carry no constraint. The repair is written at the argument, `wrap((n: Dec))`, and §6's function-result report names it.
 
-**Faces stopping at the literal forms** (#1066). Hand a face to a tuple, record, or vector literal's components but not to a constructor application's arguments. Rejected: `Some(n)` would stay refused beside `(n, 0.5)`, and a generic constructor's argument would take no face where a concrete one's does (`Box(n)` beside `Money(n)` at `union Money = Money(Dec)`), though neither selects evidence or runs code.
+**Faces stopping at the literal forms** (#1066). Hand a face to a tuple, record, or vector literal's components but not to a constructor application's arguments. Rejected: `Some(n)` would stay refused beside `(n, 0.5)`, and a generic constructor's argument would take no face where a concrete one's does (`Box(n)` at `union Box(a) = Box(a)` beside `Money(n)` at `union Money = Money(Dec)`), though neither selects evidence or runs code.
 
 ---
 
