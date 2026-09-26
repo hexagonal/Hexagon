@@ -604,10 +604,10 @@ Diagnostics obey the Rewrite Rule (Declarations Preamble §1.1): where a legal s
 
 **Where a report stands** *(#1063)*. A report about a constraint demand carets where this program's source made the demand, and says only what is true there.
 
-- **A copy at a use.** Using a binding copies its scheme's demands to the use: the call, the reference, the dot call or the pattern. A report about one carets the use, never the callee's declaration, which may be in another module.
+- **A copy at a use.** Using a binding copies its scheme's demands to the use: a reference, a call, a dot call or a pattern. A report about one carets the use, as it is written there: the reference, the callee's name at a call, or the member's name at a dot call. It never carets the callee's declaration, which may be in another module.
 - **A derived demand.** A demand reached through a structural type's component, or through an instance's argument, carets the demand it was reached from.
-- **Seat wording.** Wording about the seat that made a demand is never said at a use. That wording is "integer literal cannot have type `X`", the literal that Numeric Literals §6 and Ascription §5 name, the numeric tower riders, and `bitwise.md` §9's logic word.
-- **A called member.** One copy stands at its seat: a constraint member's own constraint, where the member is called in a spelling that joins an expression's tree (Numeric Literals §5.1). `n.subtract(n)`, `Signed.subtract(n, n)` and `n |> Signed.negate` are the operation, as `n - n` is. `(Signed.negate)(n)` and `let f = Signed.subtract` are not.
+- **Seat wording.** Wording about the seat that made a demand is never said at a use. That wording is "integer literal cannot have type `X`", the literal that Numeric Literals §6 and Ascription §5 name, the numeric tower riders, `bitwise.md` §9's logic word, and Collections Part 5 §3.3's loop-head report.
+- **A called member.** One copy stands at its seat: a constraint member's own constraint, where the member is called in one of the spellings Numeric Literals §5.1 names (bare, qualified, as a pipe stage, or by the dot). `n.subtract(n)`, `Signed.subtract(n, n)` and `n |> Signed.negate` are the operation, as `n - n` is. A grouped callee, `(Signed.negate)(n)`, is none of those spellings, and `let f = Signed.subtract` calls nothing.
 - **Once per place.** Demands that fail alike at one place are one report. The exception is refusals of two declared variables, since each is repaired at its own binder.
 - **Blocked defaulting.** Numeric Literals §6's blocked-defaulting report stands where an annotation can pin the stuck type, which may be a value the call supplies rather than the use.
 

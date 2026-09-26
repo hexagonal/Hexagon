@@ -1248,19 +1248,11 @@ interface Requirement {
   /** The literal's digits, so §6's blocked-defaulting report can name it. */
   literal?: string;
   /**
-   * On a copy, the binding's spelling at the use, so a report standing there
-   * can name what was used — §6's blocked-defaulting report, where "this
-   * expression" at `k` in `k(())` would name the function, not what it gave.
+   * On a copy, the use it was made at; on a derived requirement, its whole's.
+   * Given at `#require`, so a requirement derived while this one is validated
+   * — at once, for a concrete type — inherits it (#1063).
    */
-  usedAs?: string;
-  /**
-   * On a copy made at a call, that call: its result and the values it
-   * supplies, a dot call's receiver first. §6's blocked-defaulting report
-   * stands where an annotation can pin the stuck type — at the use when the
-   * call's result carries it, and otherwise at the first value supplied that
-   * does, since an annotation on the result would pin nothing (#1063).
-   */
-  useCall?: RequirementCall;
+  readonly use?: RequirementUse;
   /**
    * Set where a **literal pattern** raised this requirement — Pattern Matching
    * §2.5's delegation, and the one thing it does not delegate.
@@ -1297,7 +1289,27 @@ interface Requirement {
   components?: readonly RequirementComponent[];
 }
 
-/** A call a requirement was copied at (`Requirement.useCall`). */
+/**
+ * The use a copied requirement stands at (`Requirement.use`), for §6's
+ * blocked-defaulting report, which stands where an annotation can pin the
+ * stuck type (Numeric Literals §6, Functions §10; #1063).
+ */
+interface RequirementUse {
+  /**
+   * The binding as the source wrote it at the use, whitespace dropped, so the
+   * report can name what was used: "this expression" at `k` in `k(())` would
+   * name the function, not what it gave.
+   */
+  readonly usedAs: string;
+  /**
+   * The call the use is applied in, where it is: its result and the values it
+   * supplies, a dot call's receiver first. Where the result does not carry
+   * the stuck type, an annotation on it pins nothing, and the report stands
+   * at the first value supplied that does.
+   */
+  readonly call?: RequirementCall;
+}
+
 interface RequirementCall {
   readonly result: Resolved.Expr;
   readonly supplied: readonly Resolved.Expr[];
@@ -3019,7 +3031,13 @@ class Checker {
   readonly #bitwiseLogicWords = new Map<string, string>();
   /** Place-and-wording keys of the requirement reports made (`#reportRequirement`). */
   readonly #requirementReports = new Set<string>();
-  /** The names applied as a call's callee, each to its call — `#instantiate`'s `called`. */
+  /**
+   * Each name applied as a call's callee, through any grouping, to its call.
+   * Only a name that is the callee itself is *called* (`#instantiate`'s
+   * `called`): a grouped one, `(Signed.negate)(n)`, joins no expression's tree
+   * (Numeric Literals §5.1), so no written face lifts it and a rider offering
+   * one would advise what does not compile. Either is a use at that call.
+   */
   readonly #calledNames = new Map<Resolved.Expr, Resolved.CallExpr>();
   /** Exact Int expressions that checking injects into an independently known Signed target. */
   readonly #intWidenings = new WeakMap<Resolved.Expr, Requirement>();
@@ -5615,12 +5633,11 @@ class Checker {
     // behaviour this replaces, unchanged.
     const requirements: Requirement[] = [];
     const calleeType = this.#instantiate(
-      scheme, level, requirements, callee.field.span, undefined, true, callee.field.text,
+      scheme, level, requirements, callee.field.span, undefined, true, {
+        usedAs: callee.field.text,
+        call: { result: expression, supplied: [callee.receiver, ...expression.arguments] },
+      },
     );
-    this.#stampUseCall(requirements, {
-      result: expression,
-      supplied: [callee.receiver, ...expression.arguments],
-    });
     const { seats, pass } = this.#dotCallSeats(
       expression, callee, level, cachedArguments, calleeType, receiver, false, undefined,
     );
@@ -6318,12 +6335,11 @@ class Checker {
     }
     const requirements: Requirement[] = [];
     const calleeType = this.#instantiate(
-      scheme, level, requirements, callee.field.span, undefined, true, callee.field.text,
+      scheme, level, requirements, callee.field.span, undefined, true, {
+        usedAs: callee.field.text,
+        call: { result: expression, supplied: [callee.receiver, ...expression.arguments] },
+      },
     );
-    this.#stampUseCall(requirements, {
-      result: expression,
-      supplied: [callee.receiver, ...expression.arguments],
-    });
     // *(#808.)* The lift, spelled by the dot: `let whole: BigInt =
     // count.add(count)` is `BigInt` addition, exactly as the operator and the
     // qualified spellings are. The home is what the subject seats expect while
@@ -8646,6 +8662,7 @@ class Checker {
         break;
       case "Name":
         const requirements: Requirement[] = [];
+        const call = this.#calledNames.get(expression);
         type = this.#instantiate(
           this.#scheme(expression.symbol),
           level,
@@ -8667,17 +8684,20 @@ class Checker {
                   ),
                 ),
               ),
-          this.#calledNames.has(expression),
-          // What the source wrote at the use: `text` is the member alone for a
-          // prelude constraint's qualified spelling (`Frac.divide`).
-          this.#sourceText?.slice(expression.span.start.offset, expression.span.end.offset) ??
-            expression.text,
+          call?.callee === expression,
+          {
+            // What the source wrote at the use: `text` is the member alone for
+            // a prelude constraint's qualified spelling (`Frac.divide`).
+            usedAs: (
+              this.#sourceText?.slice(expression.span.start.offset, expression.span.end.offset) ??
+                expression.text
+            ).replace(/\s+/gu, ""),
+            ...(call === undefined
+              ? {}
+              : { call: { result: call, supplied: call.arguments } }),
+          },
         );
         this.#nameRequirements.set(expression, requirements);
-        const call = this.#calledNames.get(expression);
-        if (call !== undefined) {
-          this.#stampUseCall(requirements, { result: call, supplied: call.arguments });
-        }
         // Functions §7.4: inside the knot the scheme is a monotype, so the copy
         // above collected nothing. What the reference owes is settled once the
         // component generalizes; `#knotEvidence` reads it back there.
@@ -9500,10 +9520,9 @@ class Checker {
             arguments_[index] = this.#inferExpr(expression.arguments[index]!, level);
           }
         }
-        // Only a callee called by its name: a grouped one, `(Signed.negate)(n)`,
-        // joins no expression's tree (Numeric Literals §5.1), so no written face
-        // lifts it and a rider offering one would advise what does not compile.
-        if (expression.callee.kind === "Name") this.#calledNames.set(expression.callee, expression);
+        let applied: Resolved.Expr = expression.callee;
+        while (applied.kind === "Group") applied = applied.expression;
+        if (applied.kind === "Name") this.#calledNames.set(applied, expression);
         const callee = calleeIsLambda
           ? this.#inferExpr(expression.callee, level, {
             kind: "Function",
@@ -10777,7 +10796,7 @@ class Checker {
       const view = this.#prune(
         this.#instantiate(
           this.#scheme(reference.view), level, undefined, pattern.span, undefined, false,
-          pattern.name,
+          { usedAs: pattern.name },
         ),
       );
       if (view.kind !== "Function" || view.parameters.length !== 1) {
@@ -11638,7 +11657,7 @@ class Checker {
       const view = this.#prune(
         this.#instantiate(
           this.#scheme(reference.view), level, undefined, pattern.span, undefined, false,
-          pattern.name,
+          { usedAs: pattern.name },
         ),
       );
       if (view.kind !== "Function" || view.parameters.length !== 1) {
@@ -20673,6 +20692,8 @@ class Checker {
     impliedTypes?: ReadonlyMap<string, Mono>,
     /** Only `#importScheme` passes this; see `Requirement.identity`. */
     identity: string = this.#constraintIdentity(name),
+    /** A copy's use, or a derived requirement's whole's (`Requirement.use`). */
+    use?: RequirementUse,
   ): Requirement {
     const demandedBy = this.#annotationOwner;
     const requirement: Requirement = {
@@ -20681,6 +20702,7 @@ class Checker {
       type,
       span,
       origin,
+      ...(use === undefined ? {} : { use }),
       ...(demandedBy?.kind === "member" ? { demandedBy: demandedBy.name } : {}),
       ...(impliedTypes === undefined ? {} : { impliedTypes }),
       ...(this.#literalPatternSeat ? { patternSeat: true as const } : {}),
@@ -21708,18 +21730,16 @@ class Checker {
       // hand-written component instance and read through `opaque`.
       requirement.components = selection.obligations.map((obligation) => ({
         key: obligation.key,
-        requirement: this.#derive(
-          requirement,
-          this.#require(
-            obligation.name,
-            obligation.type,
-            // A component's demand stands where its whole was demanded
-            // (Functions §10's "Where a report stands", #1063).
-            requirement.span,
-            "derived",
-            undefined,
-            obligation.identity,
-          ),
+        requirement: this.#require(
+          obligation.name,
+          obligation.type,
+          // A component's demand stands where its whole was demanded
+          // (Functions §10's "Where a report stands", #1063).
+          requirement.span,
+          "derived",
+          undefined,
+          obligation.identity,
+          requirement.use,
         ),
       }));
       requirement.structural = true;
@@ -22582,35 +22602,17 @@ class Checker {
       // (#762): the binder's word belongs to the declaring module, and this
       // module may have no spelling for the constraint at all.
       return parameter.constraints.map((constraint, index) =>
-        this.#derive(
-          from,
-          this.#require(
-            constraint,
-            actual,
-            from.span,
-            "derived",
-            undefined,
-            parameter.constraintIdentities?.[index] ?? this.#constraintIdentity(constraint),
-          ),
+        this.#require(
+          constraint,
+          actual,
+          from.span,
+          "derived",
+          undefined,
+          parameter.constraintIdentities?.[index] ?? this.#constraintIdentity(constraint),
+          from.use,
         )
       );
     });
-  }
-
-  /** Records the call the copies in `requirements` were made at (`Requirement.useCall`). */
-  #stampUseCall(requirements: readonly Requirement[], call: RequirementCall): void {
-    for (const requirement of requirements) requirement.useCall = call;
-  }
-
-  /**
-   * A derived requirement stands where `from` does, so it names what `from`'s
-   * use names (`Requirement.usedAs`, `Requirement.useCall`). Set after `#require`, whose own reports
-   * never read it: only §6's blocked defaulting does, once the module is done.
-   */
-  #derive(from: Requirement, derived: Requirement): Requirement {
-    if (from.usedAs !== undefined) derived.usedAs = from.usedAs;
-    if (from.useCall !== undefined) derived.useCall = from.useCall;
-    return derived;
   }
 
   #matchInstanceSubject(
@@ -23314,8 +23316,8 @@ class Checker {
           `\`${blocking.name}\` is not a defaultable constraint; add a type annotation to pin the type`
         // At a use the caret is the binding, so "this expression" would name
         // the function rather than the type its use gives (Functions §10).
-        : supplier === undefined && blocking.usedAs !== undefined
-        ? `the type this use of \`${blocking.usedAs}\` gives cannot default to \`Int\`: ` +
+        : supplier === undefined && blocking.use !== undefined
+        ? `the type this use of \`${blocking.use.usedAs}\` gives cannot default to \`Int\`: ` +
           `\`${blocking.name}\` is not a defaultable constraint; add a type annotation to pin it`
         : "this expression's type cannot default to `Int`: " +
           `\`${blocking.name}\` is not a defaultable constraint; add a type annotation to pin the type`,
@@ -23330,7 +23332,7 @@ class Checker {
    * variable, or where no supplied value does.
    */
   #stuckSupplier(blocking: Requirement, variable: Variable): Resolved.Expr | undefined {
-    const call = blocking.useCall;
+    const call = blocking.use?.call;
     if (call === undefined) return undefined;
     // An unrecorded type answers "carries" for the result, so the use keeps
     // the report, and "does not" for a supplied value, which is then not named.
@@ -23567,8 +23569,8 @@ class Checker {
      * only its own constraint's copy is `"operation"` (Functions §10, #1063).
      */
     called = false,
-    /** The spelling of the use, which a `"use"` copy keeps (`Requirement.usedAs`). */
-    usedAs?: string,
+    /** The use itself, which every copy keeps (`Requirement.use`). */
+    use?: RequirementUse,
   ): Mono {
     const replacements = new Map<number, Variable>();
     const copiedRequirements = new Set<number>();
@@ -23709,8 +23711,8 @@ class Checker {
             // the identity from the name would break an imported scheme, whose
             // constraint this module may not be able to spell at all (§5.1.1).
             requirement.identity,
+            use,
           );
-          if (usedAs !== undefined) copied.usedAs = usedAs;
           // `actual.id` is the *originating scheme* variable, which is the id
           // `dictionaryEntries` sorts the callee's parameters under; the
           // canonical name is the one `#publicRequirement` will publish, so the

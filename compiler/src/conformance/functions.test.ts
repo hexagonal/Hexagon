@@ -266,6 +266,26 @@ describe("Functions specification conformance", () => {
     // through an instance's argument: `tag` gives a `String`.
     expect(reports(tag + "honor<a: Tag> Tag<Option(a)> =\n    tag(x) = \"o\"\nlet v = None.tag()"))
       .toEqual([[blocked, "None"]]);
+    // Past the first level of an instance's arguments too: `Tag<Option(a)>`
+    // asks `a` for `Tag`, and the use's call still decides where it stands.
+    const optionTag = "honor<a: Tag> Tag<Option(a)> =\n    tag(x) = \"o\"\n";
+    expect(reports(tag + optionTag + "let v = tag(Some(None))")).toEqual([[blocked, "Some(None)"]]);
+    expect(reports(tag + optionTag + "let idt<a: Tag>(x: a): a = x\nlet v = idt(Some(None))")
+      .map(([message, at]) => [message!.slice(0, message!.indexOf(" gives")), at]))
+      .toEqual([["the type this use of `idt`", "idt"]]);
+    // A grouped callee is still a call: its values are supplied as any call's.
+    expect(reports(tag + "let label<a: Tag>(x: Option(a)): String = \"s\"\nlet v = (label)(None)"))
+      .toEqual([[blocked, "None"]]);
+    // The first value supplied that carries it, in source order.
+    const twoSource = tag + "let two<a: Tag>(x: Option(a), y: Option(a)): String = \"s\"\nlet v = two(None, None)";
+    expect(checkSource(twoSource).diagnostics.map(({ primary }) => primary.start.offset))
+      .toEqual([("module Main\n\n" + twoSource).lastIndexOf("two(None") + "two(".length]);
+    // Two stuck types at one use, alike: one report.
+    expect(reports("let k2(u: Unit) = (1 / 2, 3 / 4)\nlet y = k2(())").map(([, at]) => at)).toEqual(["k2"]);
+    // The use is named as written, its layout dropped.
+    expect(reports("let y = Frac.\n    divide(Num.fromNat(1), Num.fromNat(2))").map(([message]) =>
+      message!.slice(0, message!.indexOf(" gives"))
+    )).toContain("the type this use of `Frac.divide`");
     // The repair it names compiles.
     expect(reports(tag + "let label<a: Tag>(x: Option(a)): String = \"s\"\nlet v = label((None : Option(String)))"))
       .toEqual([]);
