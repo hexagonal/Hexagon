@@ -294,8 +294,8 @@ describe("the asymmetric knot", () => {
     );
 
     expect(messages).toContain(
-      "this expression's type cannot default to `Int`: `Blip` is not a defaultable " +
-        "constraint; add a type annotation to pin the type",
+      "the type this use of `blip` gives cannot default to `Int`: `Blip` is not a " +
+        "defaultable constraint; add a type annotation to pin it",
     );
   });
 });

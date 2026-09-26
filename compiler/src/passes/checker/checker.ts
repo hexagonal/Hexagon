@@ -1248,8 +1248,8 @@ interface Requirement {
   /** The literal's digits, so §6's blocked-defaulting report can name it. */
   literal?: string;
   /**
-   * On a `"use"`, the binding's spelling at that use, so a report standing
-   * there can name what was used — §6's blocked-defaulting report, where "this
+   * On a copy, the binding's spelling at the use, so a report standing there
+   * can name what was used — §6's blocked-defaulting report, where "this
    * expression" at `k` in `k(())` would name the function, not what it gave.
    */
   usedAs?: string;
@@ -9471,11 +9471,10 @@ class Checker {
             arguments_[index] = this.#inferExpr(expression.arguments[index]!, level);
           }
         }
-        // The name applied, through any grouping: `(Signed.negate)(n)` is
-        // called as `Signed.negate(n)` is.
-        let applied: Resolved.Expr = expression.callee;
-        while (applied.kind === "Group") applied = applied.expression;
-        if (applied.kind === "Name") this.#calledNames.add(applied);
+        // Only a callee called by its name: a grouped one, `(Signed.negate)(n)`,
+        // joins no expression's tree (Numeric Literals §5.1), so no written face
+        // lifts it and a rider offering one would advise what does not compile.
+        if (expression.callee.kind === "Name") this.#calledNames.add(expression.callee);
         const callee = calleeIsLambda
           ? this.#inferExpr(expression.callee, level, {
             kind: "Function",
@@ -21680,15 +21679,18 @@ class Checker {
       // hand-written component instance and read through `opaque`.
       requirement.components = selection.obligations.map((obligation) => ({
         key: obligation.key,
-        requirement: this.#require(
-          obligation.name,
-          obligation.type,
-          // A component's demand stands where its whole was demanded
-          // (Functions §10's "Where a report stands", #1063).
-          requirement.span,
-          "derived",
-          undefined,
-          obligation.identity,
+        requirement: this.#derive(
+          requirement,
+          this.#require(
+            obligation.name,
+            obligation.type,
+            // A component's demand stands where its whole was demanded
+            // (Functions §10's "Where a report stands", #1063).
+            requirement.span,
+            "derived",
+            undefined,
+            obligation.identity,
+          ),
         ),
       }));
       requirement.structural = true;
@@ -21746,7 +21748,7 @@ class Checker {
         requirement.structural = true;
       } else {
         requirement.dictionary = instance.dictionary;
-        requirement.dictionaryArguments = this.#instanceArguments(instance, type, requirement.span);
+        requirement.dictionaryArguments = this.#instanceArguments(instance, type, requirement);
         if (
           requirement.origin === "iteration" &&
           this.#canonicalStringIterableInstances.has(instance)
@@ -21865,6 +21867,20 @@ class Checker {
   }
 
   /**
+   * Adds a report about a failed requirement, once per place and wording
+   * (Functions §10's "Where a report stands", #1063). Every demand a use copies
+   * stands at that use, so two of them failing alike — `both(f, g)` over
+   * `<a: Show, b: Show>` — would otherwise say the same sentence twice at one
+   * caret.
+   */
+  #reportRequirement(diagnostic: Diagnostics.Diagnostic): void {
+    const key = `${spanKey(diagnostic.primary)}\u0000${diagnostic.message}`;
+    if (this.#requirementReports.has(key)) return;
+    this.#requirementReports.add(key);
+    this.#diagnostics.add(diagnostic);
+  }
+
+  /**
    * Method Syntax §9 row 15's **rider**, or the empty string where none is owed
    * *(#808)*.
    *
@@ -21886,20 +21902,6 @@ class Checker {
    * members too, and naming a module the program may not contain would be an
    * offer the reader cannot take.
    */
-  /**
-   * Adds a report about a failed requirement, once per place and wording
-   * (Functions §10's "Where a report stands", #1063). Every demand a use copies
-   * stands at that use, so two of them failing alike — `both(f, g)` over
-   * `<a: Show, b: Show>` — would otherwise say the same sentence twice at one
-   * caret.
-   */
-  #reportRequirement(diagnostic: Diagnostics.Diagnostic): void {
-    const key = `${spanKey(diagnostic.primary)}\u0000${diagnostic.message}`;
-    if (this.#requirementReports.has(key)) return;
-    this.#requirementReports.add(key);
-    this.#diagnostics.add(diagnostic);
-  }
-
   #towerFaceRider(requirement: Requirement, type: Mono): string {
     // Pattern Matching §2.5: the rider rides at its **operation** seat only, and a
     // pattern is not one — "no seat of the numeric lift exists in a pattern". The
@@ -22530,15 +22532,15 @@ class Checker {
   /**
    * Instantiates the context on a parameterized instance at a concrete use.
    *
-   * `at` is where the demand the instance answers was made: an argument's
-   * demand is derived from that one and stands where it does, so a refusal
-   * carets the use, never the instance head's binder — which may sit in
-   * another module (#1063).
+   * `from` is the demand the instance answers: an argument's demand is derived
+   * from it and stands where it does, so a refusal carets the use, never the
+   * instance head's binder — which may sit in another module — and names what
+   * was used there (#1063).
    */
   #instanceArguments(
     instance: Resolved.HonorItem,
     subject: Mono,
-    at: Source.Span,
+    from: Requirement,
   ): readonly Requirement[] {
     const replacements = this.#matchInstanceSubject(instance, subject);
     return instance.typeParameters.flatMap((parameter) => {
@@ -22549,16 +22551,29 @@ class Checker {
       // (#762): the binder's word belongs to the declaring module, and this
       // module may have no spelling for the constraint at all.
       return parameter.constraints.map((constraint, index) =>
-        this.#require(
-          constraint,
-          actual,
-          at,
-          "derived",
-          undefined,
-          parameter.constraintIdentities?.[index] ?? this.#constraintIdentity(constraint),
+        this.#derive(
+          from,
+          this.#require(
+            constraint,
+            actual,
+            from.span,
+            "derived",
+            undefined,
+            parameter.constraintIdentities?.[index] ?? this.#constraintIdentity(constraint),
+          ),
         )
       );
     });
+  }
+
+  /**
+   * A derived requirement stands where `from` does, so it names what `from`'s
+   * use names (`Requirement.usedAs`). Set after `#require`, whose own reports
+   * never read it: only §6's blocked defaulting does, once the module is done.
+   */
+  #derive(from: Requirement, derived: Requirement): Requirement {
+    if (from.usedAs !== undefined) derived.usedAs = from.usedAs;
+    return derived;
   }
 
   #matchInstanceSubject(
@@ -23633,7 +23648,7 @@ class Checker {
             // constraint this module may not be able to spell at all (§5.1.1).
             requirement.identity,
           );
-          if (usedAs !== undefined && copied.origin === "use") copied.usedAs = usedAs;
+          if (usedAs !== undefined) copied.usedAs = usedAs;
           // `actual.id` is the *originating scheme* variable, which is the id
           // `dictionaryEntries` sorts the callee's parameters under; the
           // canonical name is the one `#publicRequirement` will publish, so the

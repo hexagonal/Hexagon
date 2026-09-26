@@ -1502,8 +1502,8 @@ describe("check", () => {
       "    make() = 1\n";
     const ambiguous = checkSource(conjure + "let v = make()");
     expect(ambiguous.diagnostics.map(({ message }) => message)).toEqual([
-      "this expression's type cannot default to `Int`: `Conjure` is not a " +
-        "defaultable constraint; add a type annotation to pin the type",
+      "the type this use of `make` gives cannot default to `Int`: `Conjure` is not a " +
+        "defaultable constraint; add a type annotation to pin it",
     ]);
     expect(letSymbol(ambiguous, "v").scheme.type).toMatchObject({ kind: "Variable" });
     // …carets the use, not `make`'s declaration. A requirement copied out of a

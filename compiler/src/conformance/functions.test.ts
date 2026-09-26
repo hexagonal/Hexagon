@@ -185,9 +185,12 @@ describe("Functions specification conformance", () => {
     expect(reports(n + "let x = Signed.subtract(n, n)")).toEqual([[signed + signedFace, "Signed.subtract"]]);
     expect(reports(n + "let x = n |> Signed.negate").map(([message, at]) => [message!.includes("face"), at]))
       .toEqual([[true, "Signed.negate"]]);
-    // Grouping is punctuation: the member is still the one applied.
+    // A grouped callee joins no tree, so a written face would not lift it:
+    // `let x: Int = (Signed.negate)(n)` is refused too, and no face is offered.
     expect(reports(n + "let x = (Signed.negate)(n)").map(([message, at]) => [message!.includes("face"), at]))
-      .toEqual([[true, "Signed.negate"]]);
+      .toEqual([[false, "Signed.negate"]]);
+    expect(reports(n + "let x: Int = (Signed.negate)(n)").map(([message, at]) => [message!.includes("face"), at]))
+      .toEqual([[false, "Signed.negate"]]);
     // A called member outside any arithmetic tree is its operation too.
     expect(reports("let x: Nat = Signed.fromInt(3)").map(([message, at]) => [message!.includes("face"), at]))
       .toEqual([[true, "Signed.fromInt"]]);
