@@ -30260,16 +30260,6 @@ class Checker {
    * meaning. A seat that can honestly settle first does so before reporting
    * (Numeric Literals §6's own settle-then-name sequence).
    */
-  /**
-   * A colour as a report shows it: a colour `#freshened` minted and nothing
-   * has solved shows the colour it stands for, the one the reader wrote.
-   */
-  #shownColour(colour: Mono): Mono {
-    const actual = this.#prune(colour);
-    const stands = actual.kind === "Variable" ? this.#shownColours.get(actual) : undefined;
-    return stands === undefined ? actual : this.#shownColour(stands);
-  }
-
   #display(type: Mono): string {
     this.#nameSurvivingVariables(type);
     const colours = this.#effectVariables(type);
@@ -30277,6 +30267,21 @@ class Checker {
       type,
       colours.length <= 1 ? new Map() : new Map(colours.map((id, index) => [id, index + 1])),
     );
+  }
+
+  /**
+   * A colour as a report shows it: a colour `#freshened` minted and nothing
+   * has solved shows the colour it stands for, the one the reader wrote. The
+   * colour it stands for may since have been bound to it — the seat unifying
+   * the written type with the value's still-freshened colour — so the walk
+   * stops at a colour it has already seen.
+   */
+  #shownColour(colour: Mono, seen = new Set<Mono>()): Mono {
+    const actual = this.#prune(colour);
+    if (seen.has(actual)) return actual;
+    seen.add(actual);
+    const stands = actual.kind === "Variable" ? this.#shownColours.get(actual) : undefined;
+    return stands === undefined ? actual : this.#shownColour(stands, seen);
   }
 
   #render(type: Mono, numbering: ReadonlyMap<number, number>): string {

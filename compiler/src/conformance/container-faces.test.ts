@@ -212,6 +212,14 @@ describe("a constructor application's own expected type (#1066)", () => {
       expect(refusals(program), program).toEqual(["functions have no `Num` instance"]);
     }
     expect(refusals("let a: (String, Int) = (1, 2)\n")).toEqual(["integer literal cannot have type `String`"]);
+    // A written colour later bound to the colour standing for it is shown as
+    // what it has become, however the two were joined.
+    const linked = "let useLinked(o: Option(() ->? Unit)): Int = 1\n" +
+      "let useLinkedF(o: {f: () ->? Unit}): Int = 1\n";
+    for (const call of ["useLinked(Some(k))", "useLinkedF({f = k})"]) {
+      expect(refusals(linked + `fun outer(k) =\n    let z = ${call}\n    let y: Int = k\n    z\n`), call)
+        .toEqual(["type mismatch: expected Int, found () ->? Unit"]);
+    }
   });
 
   test("another head declines, with no propagation artifact", () => {
