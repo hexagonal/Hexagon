@@ -880,6 +880,12 @@ export interface LetItem {
   readonly exported: boolean;
   readonly binding: Binding;
   readonly annotation?: TypeAnnotation;
+  /**
+   * The binder list written on the name of a binding with no parameter list
+   * (Functions §4.2, #1047): declared over the annotation and the value, and a
+   * contract as every written list is.
+   */
+  readonly typeParameters?: readonly TypeParameter[];
   readonly value: Expr;
   /**
    * The members this item widens (Constraints §4.7, #546), present exactly on a

@@ -4001,6 +4001,18 @@ class Resolver {
           ...(item.annotation === undefined
             ? {}
             : { annotation: this.#resolveTypeAnnotation(item.annotation) }),
+          ...(item.typeParameters === undefined
+            ? {}
+            : {
+                typeParameters: item.typeParameters.map((parameter) => ({
+                  name: parameter.name.text,
+                  constraints: parameter.constraints.map(({ text }) => text),
+                  constraintQualifiers: parameter.constraints.map(
+                    ({ qualification }) => qualification,
+                  ),
+                  span: parameter.span,
+                })),
+              }),
           ...(widens === undefined ? {} : { widens }),
           value,
           span: item.span,

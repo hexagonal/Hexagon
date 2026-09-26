@@ -36,6 +36,25 @@ describe("a demand whose evidence no enclosing declaration carries is refused, n
     )).toEqual([unmentioned("u", "Frac", "a")]);
   });
 
+  test("a demand copied at a call carets the call, not the callee's binder (#1063)", () => {
+    const source = "module Main\n\n" +
+      "let halve<t: Frac>(x: t): t = x / x\n" +
+      "fun<u: Frac>\n" +
+      "    b(x: u, go: Bool): Int =\n" +
+      "        let y = halve(x)\n" +
+      "        if go then a(False) else 1\n" +
+      "    a(flag: Bool): Int =\n" +
+      "        let f = (x: u) => halve(x)\n" +
+      "        if flag then 1 else 0\n" +
+      "export let r: Int = a(True)\n";
+    const reported = compileMain(source).diagnostics;
+    expect(reported.map(({ message }) => message)).toEqual([unmentioned("u", "Frac", "a")]);
+    const [first] = reported;
+    // `a`'s own call, in `a`'s lambda — not `halve`'s `t: Frac`.
+    expect(first!.primary.start.offset).toBe(source.indexOf("=> halve(x)") + 3);
+    expect(source.slice(first!.primary.start.offset, first!.primary.end.offset)).toBe("halve");
+  });
+
   test("a `fun` nested in such a member, even when its own signature mentions the variable", () => {
     // `inner` does not quantify `u` (it belongs to the head, not to `inner`), and
     // `a`, the member that encloses it, carries no dictionary for it.

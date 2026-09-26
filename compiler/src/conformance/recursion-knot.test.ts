@@ -293,6 +293,8 @@ describe("the asymmetric knot", () => {
         "export let answer: Int = inner(3)\n",
     );
 
+    // `blip(x)` gives an `Int`, so the stuck type is `x`'s, and the report
+    // stands there, where an annotation pins it (Numeric Literals §6).
     expect(messages).toContain(
       "this expression's type cannot default to `Int`: `Blip` is not a defaultable " +
         "constraint; add a type annotation to pin the type",

@@ -363,6 +363,18 @@ export let smaller<a: Ord>(left: a, right: a): a =
     if left < right then left else right
 ```
 
+A value that *is* a constrained function writes its constraints too. An alias of
+one has no parameter list to hang a binder on, so the list goes on its name:
+
+```hexagon
+export let describe<a: Show>(value: a): String = "${value}"
+
+export let label<a: Show>: (a) -> String = describe
+```
+
+A caller hands `label` the same `Show` evidence it would hand `describe`, so the
+signature says so; without the list the compiler asks for it.
+
 Do not repeat base constraints. If `Hash` builds on `Eq`, write `<a: Hash>`,
 not `<a: (Eq, Hash)>`; the `Hash` evidence already carries equality. The compiler
 checks all of these boundary requirements. Private module-level functions keep

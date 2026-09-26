@@ -1208,11 +1208,33 @@ interface Requirement {
    * the user where to put an `Iterable` instance and what to do instead, which
    * is the right thing to say about a loop head and the wrong thing to say
    * about, for instance, a failing `toSeq(x)` call — that keeps the generic
-   * requirement failure. Everywhere else in this file the two origins behave
-   * identically, and deliberately so: nothing about *how* the constraint is
-   * discharged changes.
+   * requirement failure. Nothing about *how* the constraint is discharged
+   * changes between the two.
+   *
+   * `"use"` and `"derived"` are the two demands that stand away from the seat
+   * that made them, and the origin is the one record of that (Functions §10's
+   * "Where a report stands", #1063). A `"use"` is a copy made where a binding's
+   * scheme is used (`#instantiate`): its `span` is the use, and whatever the
+   * original was — a literal, a loop head, a binder's written list — the copy
+   * is none of them at the call. A `"derived"` requirement is a component of a
+   * structural requirement or an instance's argument, and its `span` is the
+   * demand it was derived from. Wording that names or advises about a seat
+   * reads the origin that seat stamps, so neither is ever given it; the tower
+   * riders, which advise about an operation, ride `"operation"` alone.
+   * `"operation"` is `#require`'s default, so it also stamps seats no rider
+   * concerns (a map key's `Hash`, a pattern's `Eq`); the ones a rider can
+   * reach — `Signed`, `Frac` and `Bitwise` — are an operator's, and a
+   * **called** constraint member's own constraint, the one copy that keeps
+   * it: `n.subtract(n)` is where the subtraction is.
    */
-  readonly origin: "annotation" | "literal" | "operation" | "interpolation" | "iteration";
+  readonly origin:
+    | "annotation"
+    | "literal"
+    | "operation"
+    | "interpolation"
+    | "iteration"
+    | "use"
+    | "derived";
   /**
    * The `fun` member whose body raised this requirement, where one did (#700).
    *
@@ -1225,6 +1247,12 @@ interface Requirement {
   readonly demandedBy?: string;
   /** The literal's digits, so §6's blocked-defaulting report can name it. */
   literal?: string;
+  /**
+   * On a copy, the use it was made at; on a derived requirement, its whole's.
+   * Given at `#require`, so a requirement derived while this one is validated
+   * — at once, for a concrete type — inherits it (#1063).
+   */
+  readonly use?: RequirementUse;
   /**
    * Set where a **literal pattern** raised this requirement — Pattern Matching
    * §2.5's delegation, and the one thing it does not delegate.
@@ -1243,13 +1271,6 @@ interface Requirement {
    * *where*, and only one sentence reads it.
    */
   patternSeat?: true;
-  /**
-   * Where the scheme carrying this requirement was *used*. `span` points at
-   * the definition, which a copy inherits, so a report about the use — §6's
-   * blocked-defaulting one — would otherwise caret a constraint declaration,
-   * or another module's source entirely.
-   */
-  useSpan?: Source.Span;
   readonly impliedTypes?: ReadonlyMap<string, Mono>;
   reported: boolean;
   /** Set once a concrete subject has been checked, including successful checks. */
@@ -1266,6 +1287,32 @@ interface Requirement {
    * let a hand-written component instance be ignored.
    */
   components?: readonly RequirementComponent[];
+}
+
+/**
+ * The use a copied requirement stands at (`Requirement.use`), for §6's
+ * blocked-defaulting report, which stands where an annotation can pin the
+ * stuck type (Numeric Literals §6, Functions §10; #1063).
+ */
+interface RequirementUse {
+  /**
+   * The binding as the source wrote it at the use, trivia dropped
+   * (`writtenName`), so the report can name what was used: "this expression" at `k` in `k(())` would
+   * name the function, not what it gave.
+   */
+  readonly usedAs: string;
+  /**
+   * The call the use is applied in, where it is: its result and the values it
+   * supplies, a dot call's receiver first. Where the result does not carry
+   * the stuck type, an annotation on it pins nothing, and the report stands
+   * at the first value supplied that does.
+   */
+  readonly call?: RequirementCall;
+}
+
+interface RequirementCall {
+  readonly result: Resolved.Expr;
+  readonly supplied: readonly Resolved.Expr[];
 }
 
 /** One direct component of a structural type, or of a derivation subject. */
@@ -1936,6 +1983,45 @@ function ordinaryDecimalSpelling(written: DecimalLiteralParts): string {
 /** A span as a map key: file and both offsets, never the position objects. */
 function spanKey(span: Source.Span): string {
   return `${Number(span.fileId)}:${span.start.offset}:${span.end.offset}`;
+}
+
+/**
+ * A name's spelling as written, without the trivia a dotted path may hold
+ * between its segments: whitespace, line comments, and block comments, which
+ * nest (Comments §2, §3), and the JavaScript block spelling the lexer detects
+ * and refuses. `Frac.\n    divide` and `Frac. // why\n    divide` are both
+ * `Frac.divide`.
+ */
+function writtenName(text: string): string {
+  let written = "";
+  let index = 0;
+  while (index < text.length) {
+    if (text.startsWith("//", index)) {
+      const end = text.indexOf("\n", index);
+      index = end === -1 ? text.length : end;
+    } else if (text.startsWith("(*", index)) {
+      let depth = 0;
+      while (index < text.length) {
+        if (text.startsWith("(*", index)) {
+          depth += 1;
+          index += 2;
+        } else if (text.startsWith("*)", index)) {
+          depth -= 1;
+          index += 2;
+          if (depth === 0) break;
+        } else {
+          index += 1;
+        }
+      }
+    } else if (text.startsWith("/*", index)) {
+      const end = text.indexOf("*/", index + 2);
+      index = end === -1 ? text.length : end + 2;
+    } else {
+      if (!/\s/u.test(text[index]!)) written += text[index];
+      index += 1;
+    }
+  }
+  return written;
 }
 
 /** The logic spelling each bitwise operator is mistaken for on `Bool` (`bitwise.md` §9). */
@@ -2982,6 +3068,16 @@ class Checker {
    * spellings are recorded: a member spelling was never a slip for a logic word.
    */
   readonly #bitwiseLogicWords = new Map<string, string>();
+  /** Place-and-wording keys of the requirement reports made (`#reportRequirement`). */
+  readonly #requirementReports = new Set<string>();
+  /**
+   * Each name applied as a call's callee, through any grouping, to its call.
+   * Only a name that is the callee itself is *called* (`#instantiate`'s
+   * `called`): a grouped one, `(Signed.negate)(n)`, joins no expression's tree
+   * (Numeric Literals §5.1), so no written face lifts it and a rider offering
+   * one would advise what does not compile. Either is a use at that call.
+   */
+  readonly #calledNames = new Map<Resolved.Expr, Resolved.CallExpr>();
   /** Exact Int expressions that checking injects into an independently known Signed target. */
   readonly #intWidenings = new WeakMap<Resolved.Expr, Requirement>();
   /** Exact BigInt expressions injected into an independently known FromBigInt target. */
@@ -3181,6 +3277,12 @@ class Checker {
      * variable's settling can also reach.
      */
     readonly writtenFailed: boolean;
+    /**
+     * Present when the list was written on the name of a binding with no
+     * parameter list (#1047): what that binding's type is decides the rewrite,
+     * since a value that is no function has no parameter or result to use it in.
+     */
+    readonly valueBinding?: "function" | "value";
   }>();
   /**
    * The declared variables an annotation named after their declaration — a
@@ -3189,6 +3291,13 @@ class Checker {
    * binder rewrite has to give those names a type too.
    */
   readonly #namedInBody = new Set<Variable>();
+  /**
+   * The variables a list on a binding's **name** declared (#1047). A refusal
+   * whose exits are "annotate concretely" or "remove the annotation" has to
+   * add the list's own exit at these: either alone leaves the listed variable
+   * unmentioned, which #712 refuses in turn.
+   */
+  readonly #nameListVariables = new Set<Variable>();
   /**
    * The span of the ascribed type currently being elaborated, or `undefined`
    * outside one. Read only by `#annotationType`'s type-variable arm, to mark the
@@ -5575,7 +5684,12 @@ class Checker {
     // call). An unconstrained operation collects an empty list, which is the
     // behaviour this replaces, unchanged.
     const requirements: Requirement[] = [];
-    const calleeType = this.#instantiate(scheme, level, requirements, callee.field.span);
+    const calleeType = this.#instantiate(
+      scheme, level, requirements, callee.field.span, undefined, true, {
+        usedAs: callee.field.text,
+        call: { result: expression, supplied: [callee.receiver, ...expression.arguments] },
+      },
+    );
     const { seats, pass } = this.#dotCallSeats(
       expression, callee, level, cachedArguments, calleeType, receiver, false, undefined,
     );
@@ -6272,7 +6386,12 @@ class Checker {
       );
     }
     const requirements: Requirement[] = [];
-    const calleeType = this.#instantiate(scheme, level, requirements, callee.field.span);
+    const calleeType = this.#instantiate(
+      scheme, level, requirements, callee.field.span, undefined, true, {
+        usedAs: callee.field.text,
+        call: { result: expression, supplied: [callee.receiver, ...expression.arguments] },
+      },
+    );
     // *(#808.)* The lift, spelled by the dot: `let whole: BigInt =
     // count.add(count)` is `BigInt` addition, exactly as the operator and the
     // qualified spellings are. The home is what the subject seats expect while
@@ -6848,6 +6967,21 @@ class Checker {
       }
 
       if (item.kind === "Let") {
+        // *(#1047.)* A binder list written on the name of a binding with no
+        // parameter list (`let alias<a: Show>: (a) -> String = describe`) is
+        // declared over the annotation and the value, shadowing as a lambda's
+        // own list does, and is a contract as every written list is
+        // (Functions §4.2). Minted with the binding open, so an evidence route
+        // it fails to reach names this binding.
+        const enclosingLetScope = this.#annotationVariableScope;
+        const letBinders = new Map<string, Variable>();
+        if (item.typeParameters !== undefined) {
+          this.#bindingChain.push({ symbol: item.binding.symbol, name: item.binding.name });
+          this.#declareBinderVariables(item.typeParameters, level, letBinders, undefined);
+          this.#bindingChain.pop();
+          for (const variable of letBinders.values()) this.#nameListVariables.add(variable);
+          this.#annotationVariableScope = new Map([...(enclosingLetScope ?? []), ...letBinders]);
+        }
         // A written face is the other place a signature lives (Effects §2.2).
         // The declaration form has no outer arrow, so `(Tx ->? a) ->! a` — the
         // const ⊔ var shape §2.4 settles — can only be written here, and
@@ -6912,13 +7046,14 @@ class Checker {
         // and still reports "at the offending call in the door's body".
         const doorFrom = this.#seatMark();
         const suppliedFace = annotation !== undefined && expectationLands(item.value)
-          ? this.#inAnnotationPosition(annotation, () =>
-            this.#annotationType(
-              annotation,
-              level + 1,
-              new Map(),
-              this.#annotationVariableScope ?? new Map(),
-            ))
+          ? this.#ownAnnotation(letBinders, () =>
+            this.#inAnnotationPosition(annotation, () =>
+              this.#annotationType(
+                annotation,
+                level + 1,
+                new Map(),
+                this.#annotationVariableScope ?? new Map(),
+              )))
           : undefined;
         this.#bindingChain.push({ symbol: item.binding.symbol, name: item.binding.name });
         const enclosingBindingValue = this.#bindingValue;
@@ -6939,13 +7074,14 @@ class Checker {
         let valueType = inferredValueType;
         if (annotation !== undefined) {
           const annotationType = suppliedFace ??
-            this.#inAnnotationPosition(annotation, () =>
-            this.#annotationType(
-              annotation,
-              level + 1,
-              new Map(),
-              this.#annotationVariableScope ?? new Map(),
-            ));
+            this.#ownAnnotation(letBinders, () =>
+              this.#inAnnotationPosition(annotation, () =>
+                this.#annotationType(
+                  annotation,
+                  level + 1,
+                  new Map(),
+                  this.#annotationVariableScope ?? new Map(),
+                )));
           this.#unifyExpected(
             annotationType,
             inferredValueType,
@@ -6958,6 +7094,26 @@ class Checker {
             : this.#applyWrittenQualifiers(annotationType, valueType);
         }
         this.#closeSignature(enclosingSignature);
+        if (item.typeParameters !== undefined) {
+          this.#annotationVariableScope = enclosingLetScope;
+          // Declared for the binding's own type — the only place a use can
+          // choose them (#712).
+          for (const parameter of item.typeParameters) {
+            const variable = letBinders.get(parameter.name);
+            if (variable === undefined) continue;
+            this.#declaredFor.set(variable, {
+              types: [valueType],
+              span: parameter.span,
+              binder: true,
+              writtenFailed: item.annotation !== undefined && annotationHasErrorType(item.annotation),
+              // A lambda with no binding annotation writes its type as its
+              // parameters and result, so the header's wording fits it.
+              ...(item.annotation === undefined && item.value.kind === "Lambda"
+                ? {}
+                : { valueBinding: this.#prune(valueType).kind === "Function" ? "function" as const : "value" as const }),
+            });
+          }
+        }
         // *(#867.)* **One operation, one colour — the member's contract**
         // (Constraints §4.7). A `widens` door's header writes `:` and its body
         // infers, but the binding it produces shows the declaration's wider
@@ -8595,6 +8751,7 @@ class Checker {
         break;
       case "Name":
         const requirements: Requirement[] = [];
+        const call = this.#calledNames.get(expression);
         type = this.#instantiate(
           this.#scheme(expression.symbol),
           level,
@@ -8616,6 +8773,19 @@ class Checker {
                   ),
                 ),
               ),
+          call?.callee === expression,
+          {
+            // What the source wrote at the use: `text` is the member alone for
+            // a prelude constraint's qualified spelling (`Frac.divide`).
+            usedAs: this.#sourceText === undefined
+              ? expression.text
+              : writtenName(
+                this.#sourceText.slice(expression.span.start.offset, expression.span.end.offset),
+              ),
+            ...(call === undefined
+              ? {}
+              : { call: { result: call, supplied: call.arguments } }),
+          },
         );
         this.#nameRequirements.set(expression, requirements);
         // Functions §7.4: inside the knot the scheme is a monotype, so the copy
@@ -9440,6 +9610,9 @@ class Checker {
             arguments_[index] = this.#inferExpr(expression.arguments[index]!, level);
           }
         }
+        let applied: Resolved.Expr = expression.callee;
+        while (applied.kind === "Group") applied = applied.expression;
+        if (applied.kind === "Name") this.#calledNames.set(applied, expression);
         const callee = calleeIsLambda
           ? this.#inferExpr(expression.callee, level, {
             kind: "Function",
@@ -10710,7 +10883,12 @@ class Checker {
         this.#brokenPatterns.add(pattern);
         return;
       }
-      const view = this.#prune(this.#instantiate(this.#scheme(reference.view), level));
+      const view = this.#prune(
+        this.#instantiate(
+          this.#scheme(reference.view), level, undefined, pattern.span, undefined, false,
+          { usedAs: pattern.name },
+        ),
+      );
       if (view.kind !== "Function" || view.parameters.length !== 1) {
         this.#brokenPatterns.add(pattern);
         return;
@@ -11566,7 +11744,12 @@ class Checker {
         this.#brokenPatterns.add(pattern);
         return;
       }
-      const view = this.#prune(this.#instantiate(this.#scheme(reference.view), level));
+      const view = this.#prune(
+        this.#instantiate(
+          this.#scheme(reference.view), level, undefined, pattern.span, undefined, false,
+          { usedAs: pattern.name },
+        ),
+      );
       if (view.kind !== "Function" || view.parameters.length !== 1) {
         this.#brokenPatterns.add(pattern);
         return;
@@ -14375,6 +14558,9 @@ class Checker {
     node: TreeNode,
   ): void {
     this.#callFrames.set(expression, this.#effectFrames.at(-1));
+    // The member is called here, so its own constraint is this operation's
+    // demand (`#instantiate`'s `called`).
+    this.#calledNames.set(expression.callee, expression);
     const callee = this.#inferExpr(expression.callee, level);
     const known = this.#prune(callee);
     const symbol = (expression.callee as Resolved.NameExpr).symbol;
@@ -20596,6 +20782,8 @@ class Checker {
     impliedTypes?: ReadonlyMap<string, Mono>,
     /** Only `#importScheme` passes this; see `Requirement.identity`. */
     identity: string = this.#constraintIdentity(name),
+    /** A copy's use, or a derived requirement's whole's (`Requirement.use`). */
+    use?: RequirementUse,
   ): Requirement {
     const demandedBy = this.#annotationOwner;
     const requirement: Requirement = {
@@ -20604,6 +20792,7 @@ class Checker {
       type,
       span,
       origin,
+      ...(use === undefined ? {} : { use }),
       ...(demandedBy?.kind === "member" ? { demandedBy: demandedBy.name } : {}),
       ...(impliedTypes === undefined ? {} : { impliedTypes }),
       ...(this.#literalPatternSeat ? { patternSeat: true as const } : {}),
@@ -20998,7 +21187,7 @@ class Checker {
         const baseList = verbatimConstraintList(bases);
         const head = `\`${variable.rigidName}\` is \`${constraint}\`'s subject, so the body reaches ` +
           `only \`${constraint}\` and its base constraints, but it requires `;
-        this.#diagnostics.add({
+        this.#reportRequirement(variable, {
           severity: "error",
           message: sealed !== undefined
             ? `${head}${sealedDemand}`
@@ -21024,7 +21213,7 @@ class Checker {
         // reads (Constraints §6.2, FFI Part 9 §6.2), so the demand is appended
         // and nothing already there moves.
         const headerList = verbatimConstraintList(spellings);
-        this.#diagnostics.add({
+        this.#reportRequirement(variable, {
           severity: "error",
           message: sealed !== undefined
             ? `${declaration}, but the body requires ${sealedDemand}`
@@ -21050,7 +21239,7 @@ class Checker {
         const headRewrite = declared.length === 0
           ? "remove the head's binder to let it be inferred"
           : "remove the head's constraint to let it be inferred";
-        this.#diagnostics.add({
+        this.#reportRequirement(variable, {
           severity: "error",
           message: sealed !== undefined
             ? `${declaration} on the block head, but ${subject} requires ${sealedDemand} — ${headRewrite}`
@@ -21065,7 +21254,7 @@ class Checker {
       const inferenceRewrite = declared.length === 0
         ? "remove the explicit type parameter to let it be inferred"
         : "remove the constraint annotation to let it be inferred";
-      this.#diagnostics.add({
+      this.#reportRequirement(variable, {
         severity: "error",
         message: sealed !== undefined
           ? `${declaration}, but the body requires ${sealedDemand} — ${inferenceRewrite}`
@@ -21634,10 +21823,13 @@ class Checker {
         requirement: this.#require(
           obligation.name,
           obligation.type,
+          // A component's demand stands where its whole was demanded
+          // (Functions §10's "Where a report stands", #1063).
           requirement.span,
-          "operation",
+          "derived",
           undefined,
           obligation.identity,
+          requirement.use,
         ),
       }));
       requirement.structural = true;
@@ -21671,7 +21863,7 @@ class Checker {
     if (selection.kind === "forbidden") {
       requirement.reported = true;
       const provider = this.#moduleName(selection.provider) ?? selection.provider;
-      this.#diagnostics.add({
+      this.#reportRequirement(undefined, {
         severity: "error",
         message: `\`${requirement.name}<${this.#display(type)}>\` ${dataSeatRefusal(provider)}`,
         primary: requirement.span,
@@ -21695,7 +21887,7 @@ class Checker {
         requirement.structural = true;
       } else {
         requirement.dictionary = instance.dictionary;
-        requirement.dictionaryArguments = this.#instanceArguments(instance, type);
+        requirement.dictionaryArguments = this.#instanceArguments(instance, type, requirement);
         if (
           requirement.origin === "iteration" &&
           this.#canonicalStringIterableInstances.has(instance)
@@ -21721,7 +21913,7 @@ class Checker {
     }
 
     requirement.reported = true;
-    this.#diagnostics.add({
+    this.#reportRequirement(undefined, {
       severity: "error",
       message:
         // `type.kind === "Union"` since #147: `Bool` is the common case of a
@@ -21814,6 +22006,22 @@ class Checker {
   }
 
   /**
+   * Adds a report about a failed requirement, once per place and wording
+   * (Functions §10's "Where a report stands", #1063). Every demand a use copies
+   * stands at that use, so two of them failing alike — `both(f, g)` over
+   * `<a: Show, b: Show>` — would otherwise say the same sentence twice at one
+   * caret. A contract refusal is also kept apart per `declared` variable: its
+   * rewrite is on that variable's binder, and two binders that share a name
+   * are two variables, which one rewrite does not both repair.
+   */
+  #reportRequirement(declared: Variable | undefined, diagnostic: Diagnostics.Diagnostic): void {
+    const key = `${spanKey(diagnostic.primary)}\u0000${diagnostic.message}\u0000${declared?.id ?? ""}`;
+    if (this.#requirementReports.has(key)) return;
+    this.#requirementReports.add(key);
+    this.#diagnostics.add(diagnostic);
+  }
+
+  /**
    * Method Syntax §9 row 15's **rider**, or the empty string where none is owed
    * *(#808)*.
    *
@@ -21841,6 +22049,11 @@ class Checker {
     // rest of the report is the comparison's word for word; this clause alone is
     // dropped, and nothing is offered in its place.
     if (requirement.patternSeat === true) return "";
+    // Functions §10's "Where a report stands": a rider advises about the
+    // operation, so it rides only a demand an operation made — never a copy at
+    // a call, where no operation is written, and never a derived one, whose
+    // span is its whole's: `Box(True) band Box(False)` has no `and` to offer.
+    if (requirement.origin !== "operation") return "";
     // `bitwise.md` §9: a bitwise operator reached for on `Bool` names the logic
     // spelling it was mistaken for.
     const logic = requirement.identity === BITWISE_IDENTITY
@@ -22457,10 +22670,18 @@ class Checker {
     this.#unify(this.#replaceVariables(declared, replacements), subject, span);
   }
 
-  /** Instantiates the context on a parameterized instance at a concrete use. */
+  /**
+   * Instantiates the context on a parameterized instance at a concrete use.
+   *
+   * `from` is the demand the instance answers: an argument's demand is derived
+   * from it and stands where it does, so a refusal carets the use, never the
+   * instance head's binder — which may sit in another module — and names what
+   * was used there (#1063).
+   */
   #instanceArguments(
     instance: Resolved.HonorItem,
     subject: Mono,
+    from: Requirement,
   ): readonly Requirement[] {
     const replacements = this.#matchInstanceSubject(instance, subject);
     return instance.typeParameters.flatMap((parameter) => {
@@ -22474,10 +22695,11 @@ class Checker {
         this.#require(
           constraint,
           actual,
-          parameter.span,
-          "operation",
+          from.span,
+          "derived",
           undefined,
           parameter.constraintIdentities?.[index] ?? this.#constraintIdentity(constraint),
+          from.use,
         )
       );
     });
@@ -22725,8 +22947,11 @@ class Checker {
               `\`${variable.rigidName}\` is a declared type variable, but a binding whose ` +
               `type is not a function cannot carry its \`${names.join("`, `")}\` ` +
               `constraint${names.length === 1 ? "" : "s"} — evidence rides only a ` +
-              "function's trailing parameters; annotate at a concrete type, or " +
-              "remove the annotation",
+              "function's trailing parameters; " +
+              (this.#nameListVariables.has(variable)
+                ? `${this.#nameListExit(variable)}, and annotate at a concrete type or ` +
+                  "remove the annotation"
+                : "annotate at a concrete type, or remove the annotation"),
             primary: seatReport,
           });
           variable.instance = ERROR;
@@ -22775,7 +23000,12 @@ class Checker {
               `\`${variable.rigidName}\` is a declared type variable, but this right-hand ` +
               `side is a computation that cannot be generalized in \`${variable.rigidName}\` ` +
               `(${this.#declineReason(variable.rigidName, variable, declined)}); ` +
-              "bind where the type is known, or remove the annotation",
+              // An unconstrained listed variable is not #712's to refuse, so
+              // either exit alone already compiles.
+              (this.#nameListVariables.has(variable) && variable.requirements.length > 0
+                ? `${this.#nameListExit(variable)}, and bind where the type is known or ` +
+                  "remove the annotation"
+                : "bind where the type is known, or remove the annotation"),
             primary: declineReport,
           });
           // The binding has no legal reading, so nothing downstream should try
@@ -23040,7 +23270,7 @@ class Checker {
       const binder = bounds.length === 0
         ? name
         : `${name}: ${bounds.length === 1 ? bounds[0] : `(${bounds.join(", ")})`}`;
-      this.#diagnostics.add({
+      this.#reportRequirement(variable, {
         severity: "error",
         message: sibling
           ? `\`${name}\` is declared on \`${owner.name}\`, and this in \`${named.name}\` needs its ` +
@@ -23111,6 +23341,34 @@ class Checker {
   }
 
   /**
+   * The exit a list on a binding's name adds to §8.2's refusals (#1047):
+   * remove the variable from the list — and, where the body names it, give
+   * those names a concrete type too, or they meet §4.1's forced-type row.
+   */
+  #nameListExit(variable: Variable): string {
+    const name = variable.rigidName ?? "";
+    return `remove \`${name}\` from the binder list` +
+      (this.#namedInBody.has(variable)
+        ? `, write a concrete type where the body names \`${name}\``
+        : "");
+  }
+
+  /**
+   * Elaborates a binding's own annotation without counting its lookups of the
+   * variables a list on the binding's name declared as *body* names (#1047):
+   * the annotation is where the list is used, as a header's parameter types
+   * are, and only a name written in the value needs its own concrete type.
+   */
+  #ownAnnotation<T>(listed: ReadonlyMap<string, Variable>, elaborate: () => T): T {
+    const before = new Set([...listed.values()].filter((variable) => this.#namedInBody.has(variable)));
+    const result = elaborate();
+    for (const variable of listed.values()) {
+      if (!before.has(variable)) this.#namedInBody.delete(variable);
+    }
+    return result;
+  }
+
+  /**
    * A declared type variable that carries a constraint and occurs nowhere in
    * the type it was declared for *(#712; Ascription §3.1; Functions §10)* —
    * reported at its declaration, and `true` when it was.
@@ -23146,6 +23404,7 @@ class Checker {
         variable.rigidName,
         names,
         declared.binder ? (this.#namedInBody.has(variable) ? "named" : "binder") : "ascription",
+        declared.valueBinding,
       ),
       primary: declared.span ?? variable.requirements[0]!.span,
     });
@@ -23166,21 +23425,52 @@ class Checker {
     // Report at the literal, per §6, where one is in the set. Literals that
     // unify (`pair(4, 6)`) collapse onto one `Num` requirement, so exactly one
     // of them is nameable — and the span points at that one, which is what
-    // keeps the message and the caret agreeing. Otherwise report where the
-    // blocked scheme was used: `blocking.span` is the *declaration* the
-    // constraint was written at, which is not what this error is about.
+    // keeps the message and the caret agreeing. Otherwise report the blocking
+    // demand where it stands: a copy's `span` is the use, never the declaration
+    // the constraint was written at. A copy is never `"literal"`: its literal
+    // is in the callee's body, where no annotation of this program's pins
+    // anything.
     const literal = variable.requirements.find(({ origin }) => origin === "literal");
     for (const requirement of variable.requirements) requirement.reported = true;
-    this.#diagnostics.add({
+    // At a call whose result does not carry the stuck type, an annotation on
+    // the result pins nothing: the report stands at the first value supplied
+    // that carries it, where one does — `label(None)` at `None`.
+    const supplier = literal === undefined ? this.#stuckSupplier(blocking, variable) : undefined;
+    this.#reportRequirement(undefined, {
       severity: "error",
-      message: `${
-        literal?.literal === undefined
-          ? "this expression's type"
-          : `the literal \`${literal.literal}\``
-      } cannot default to \`Int\`: \`${blocking.name}\` is not a defaultable ` +
-        "constraint; add a type annotation to pin the type",
-      primary: literal?.span ?? blocking.useSpan ?? blocking.span,
+      message: literal?.literal !== undefined
+        ? `the literal \`${literal.literal}\` cannot default to \`Int\`: ` +
+          `\`${blocking.name}\` is not a defaultable constraint; add a type annotation to pin the type`
+        // At a use the caret is the binding, so "this expression" would name
+        // the function rather than the type its use gives (Functions §10).
+        : supplier === undefined && blocking.use !== undefined
+        ? `the type this use of \`${blocking.use.usedAs}\` gives cannot default to \`Int\`: ` +
+          `\`${blocking.name}\` is not a defaultable constraint; add a type annotation to pin it`
+        : "this expression's type cannot default to `Int`: " +
+          `\`${blocking.name}\` is not a defaultable constraint; add a type annotation to pin the type`,
+      primary: literal?.span ?? supplier?.span ?? blocking.span,
     });
+  }
+
+  /**
+   * The value supplied to `blocking`'s call that carries `variable`, where
+   * the call's result does not: the first in source order. `undefined` where
+   * the demand was not copied at a call, where the result carries the
+   * variable, or where no supplied value does.
+   */
+  #stuckSupplier(blocking: Requirement, variable: Variable): Resolved.Expr | undefined {
+    const call = blocking.use?.call;
+    if (call === undefined) return undefined;
+    // An unrecorded type answers "carries" for the result, so the use keeps
+    // the report, and "does not" for a supplied value, which is then not named.
+    const carries = (expression: Resolved.Expr, unknown: boolean): boolean => {
+      const type = this.#expressionTypes.get(expression);
+      return type === undefined
+        ? unknown
+        : this.#collectVariables(type).some(({ id }) => id === variable.id);
+    };
+    if (carries(call.result, true)) return undefined;
+    return call.supplied.find((expression) => carries(expression, false));
   }
 
   #inputVariables(type: Mono, found = new Set<number>()): Set<number> {
@@ -23400,6 +23690,14 @@ class Checker {
      * already the concrete one selection will answer.
      */
     pinnedSubject?: Mono,
+    /**
+     * Whether this reference is the callee of a call — a dot call, or a name
+     * applied there. Only a *called* constraint member is its operation, so
+     * only its own constraint's copy is `"operation"` (Functions §10, #1063).
+     */
+    called = false,
+    /** The use itself, which every copy keeps (`Requirement.use`). */
+    use?: RequirementUse,
   ): Mono {
     const replacements = new Map<number, Variable>();
     const copiedRequirements = new Set<number>();
@@ -23517,11 +23815,19 @@ class Checker {
         if (copiedRequirements.has(actual.id)) return replacement;
         copiedRequirements.add(actual.id);
         for (const requirement of actual.requirements) {
+          // A copy is a demand made at the use (Functions §10's "Where a report
+          // stands", #1063): it stands there, and it is no literal, loop head or
+          // written binder there. The last is what matters to §4.2 — a binder's
+          // list is its *declaration*, exempt from a contract, and a use of the
+          // binding is a demand on it. A *called* constraint member's own
+          // constraint is the one copy that is its seat: `n.subtract(n)` is
+          // where the subtraction is. A member passed as a value (`let f =
+          // Signed.subtract`) writes no operation.
           const copied = this.#require(
             requirement.name,
             replacement,
-            requirement.span,
-            requirement.origin,
+            useSpan ?? requirement.span,
+            called && requirement.identity === scheme.constraintIdentity ? "operation" : "use",
             // The member's *own* constraint is what projects the implied types,
             // matched on the declaration rather than its spelling so an
             // imported member projects exactly as a local one does.
@@ -23532,12 +23838,8 @@ class Checker {
             // the identity from the name would break an imported scheme, whose
             // constraint this module may not be able to spell at all (§5.1.1).
             requirement.identity,
+            use,
           );
-          // The copy keeps the definition-site span, so it keeps the digits
-          // that span points at too (§6's report names both) — and records
-          // where the use was, for a report that is about the use.
-          if (requirement.literal !== undefined) copied.literal = requirement.literal;
-          if (useSpan !== undefined) copied.useSpan = useSpan;
           // `actual.id` is the *originating scheme* variable, which is the id
           // `dictionaryEntries` sorts the callee's parameters under; the
           // canonical name is the one `#publicRequirement` will publish, so the
@@ -26959,21 +27261,24 @@ class Checker {
     let lambda: Resolved.LambdaExpr | undefined;
     if (item.kind === "Fun") lambda = item.value;
     else if (item.value.kind === "Lambda") lambda = item.value;
-    if (lambda === undefined) {
-      if (item.kind === "Let" && item.annotation === undefined) {
-        this.#diagnostics.add({
-          severity: "error",
-          message: `exported value \`${item.binding.name}\` requires a type annotation`,
-          primary: item.binding.span,
-        });
-      }
+    if (lambda === undefined && item.kind === "Let" && item.annotation === undefined) {
+      this.#diagnostics.add({
+        severity: "error",
+        message: `exported value \`${item.binding.name}\` requires a type annotation`,
+        primary: item.binding.span,
+      });
       return;
     }
+    // *(#1047.)* An annotated value binding still owes its constraints: the
+    // tier a term falls under is decided by its published scheme, never its
+    // form, so `export let alias: (a) -> String = describe` writes `<a: Show>`
+    // on its name as a function writes it on its header (Modules §4.1.1).
+    const form = lambda === undefined ? "value" : "function";
 
-    const missingParameters = lambda.parameters
+    const missingParameters = (lambda?.parameters ?? [])
       .filter((parameter) => parameter.annotation === undefined)
       .map((parameter) => `\`${displayParameterName(parameter.name)}\``);
-    const missingReturn = lambda.returnAnnotation === undefined;
+    const missingReturn = lambda !== undefined && lambda.returnAnnotation === undefined;
     if (missingParameters.length > 0 || missingReturn) {
       const missing = [
         ...(missingParameters.length === 0
@@ -27036,7 +27341,7 @@ class Checker {
         this.#diagnostics.add({
           severity: "error",
           message:
-            `exported function \`${item.binding.name}\` requires ` +
+            `exported ${form} \`${item.binding.name}\` requires ` +
             `${this.#sealedConstraintMention(sealed)}; ` +
             "a complete signature cannot be written here — " +
             `${exits.slice(0, -1).join(", ")}, or ${exits.at(-1)}`,
@@ -27059,7 +27364,7 @@ class Checker {
       this.#diagnostics.add({
         severity: "error",
         message:
-          `exported function \`${item.binding.name}\` must declare every constraint in its signature; ` +
+          `exported ${form} \`${item.binding.name}\` must declare every constraint in its signature; ` +
           (item.kind === "Fun" && item.block !== undefined
             ? `declare the constraint on the block head: \`fun<${binder}>\``
             : `write \`<${binder}>\``) +
@@ -27081,7 +27386,8 @@ class Checker {
     const headBinders = head !== undefined && !this.#checkedBlockHeads.has(head.id)
       ? (this.#checkedBlockHeads.add(head.id), head.typeParameters ?? [])
       : [];
-    for (const parameter of [...(lambda.typeParameters ?? []), ...headBinders]) {
+    const written = item.kind === "Let" ? item.typeParameters ?? [] : [];
+    for (const parameter of [...(lambda?.typeParameters ?? []), ...written, ...headBinders]) {
       const maximal = new Set(this.#maximalConstraintNames(parameter.constraints));
       for (const constraint of parameter.constraints) {
         if (maximal.has(constraint)) continue;
@@ -27092,7 +27398,7 @@ class Checker {
         this.#diagnostics.add({
           severity: "error",
           message:
-            `exported function \`${item.binding.name}\` must omit base constraint \`${constraint}\` from ` +
+            `exported ${form} \`${item.binding.name}\` must omit base constraint \`${constraint}\` from ` +
             `\`${parameter.name}\`; \`${provider ?? "another declared constraint"}\` already provides it`,
           primary: parameter.span,
         });
@@ -29852,7 +30158,17 @@ function unmentionedDeclaredMessage(
   name: string,
   constraints: readonly string[],
   spelling: "binder" | "named" | "ascription" | "value",
+  valueBinding?: "function" | "value",
 ): string {
+  // A list on a binding's name (#1047) is used in the binding's type, which has
+  // no parameter list to point at; and where that type is no function, a
+  // constrained variable in it would have no evidence seat either (Functions §8
+  // item 2), so removal is the one rewrite that compiles.
+  const use = valueBinding === undefined
+    ? `use \`${name}\` in a parameter or result type, or `
+    : valueBinding === "function"
+    ? `use \`${name}\` in the binding's type, or `
+    : "";
   // At a value binding a variable carrying a constraint has no evidence seat
   // (Functions §8 item 2), so naming one the declaration uses would only meet
   // the seat's refusal: the concrete type is the one rewrite that compiles.
@@ -29861,9 +30177,9 @@ function unmentionedDeclaredMessage(
     : spelling === "ascription"
     ? "ascribe a concrete type, or name a type variable the declaration uses"
     : spelling === "named"
-    ? `use \`${name}\` in a parameter or result type, or remove \`${name}\` from the binder ` +
+    ? `${use}remove \`${name}\` from the binder ` +
       `list and write a concrete type where the body names \`${name}\``
-    : `use \`${name}\` in a parameter or result type, or remove \`${name}\` from the binder list`;
+    : `${use}remove \`${name}\` from the binder list`;
   return `\`${name}\` is a declared type variable, but this declaration's type does not ` +
     `mention it, so no call can choose it or supply its \`${constraints.join("`, `")}\` ` +
     `evidence; ${rewrite}`;

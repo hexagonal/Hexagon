@@ -708,6 +708,10 @@ class Collector {
         for (const derive of item.derives) this.#publishConstraint(derive, "reference");
         return;
       case "Let":
+        // A list on the name of a binding with no parameter list (#1047).
+        for (const parameter of item.typeParameters ?? []) this.#parsedTypeParameter(parameter);
+        this.#visitParsedExpr(item.value);
+        return;
       case "Var":
       case "Fun":
         this.#visitParsedExpr(item.value);
