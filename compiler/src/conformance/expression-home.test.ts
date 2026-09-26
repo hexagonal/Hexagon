@@ -167,8 +167,12 @@ describe("the boundaries", () => {
       "`price` is a `Dec` and `id(n * 1.5)` a `Float`; an expression's arithmetic runs at one " +
         "type, and neither enters the other; convert one explicitly — `price.toFloat()`",
     ]);
-    expect(refusals("let id<a>(x: a): a = x\nlet a: Dec = id(n * 1.5)\n"))
-      .toEqual(["type mismatch: expected Dec, found Float"]);
+    // A face reaches no argument through a function's result (#1066): the
+    // function-result report names the boundary and the ascription across it.
+    expect(refusals("let id<a>(x: a): a = x\nlet a: Dec = id(n * 1.5)\n")).toEqual([
+      "`id(n * 1.5)` is a `Float` — the type expected here does not reach an argument " +
+        "through a function's result; write `id((n * 1.5: Dec))`",
+    ]);
     expect(refusals("let a = (n * 1.5).multiply(price)\n")).toEqual([
       "`n * 1.5` settled at `Float` before `.multiply` saw `price` — a dot call's receiver " +
         "is settled on its own; write `n * 1.5 * price`, or name the home: `let a: Dec = …`",
@@ -238,10 +242,6 @@ describe("the boundaries", () => {
     expect(refusals("fun half<a: Frac>(x: a): a = x * 0.5\n")).toEqual([
       "`a` is a declared type variable, but the body requires `Float`; change the annotation " +
         "to `Float`, or remove it to let the type be inferred",
-    ]);
-    expect(refusals("let p: (Dec, Dec) = (n, 0.5)\n")).toEqual([
-      "type mismatch: expected Dec, found Int",
-      "type mismatch: expected Dec, found Float",
     ]);
   });
 
@@ -611,7 +611,7 @@ describe("calls join the tree (#1062, part 2)", () => {
     );
     expect(exports.shown).toEqual([5, 5, 5, 4]);
     const settled = "`m` settled this call's `Nat` before the callback was checked, and the " +
-      "callback's body returns `Int` — a callback's body chooses no type for the arguments " +
+      "callback's body returns `Int` — a callback's body chooses no type for the values " +
       "beside it; write `(m: Int)`, or annotate the callback: `(v: Int) => …`";
     expect(refusals(apply + "let w = apply2(m, (v) => v + n)\n")).toEqual([settled]);
     expect(refusals(apply + "let w = apply3((v) => v + n, m)\n")).toEqual([settled]);
@@ -670,7 +670,7 @@ describe("calls join the tree (#1062, part 2)", () => {
     const report = (sibling: string, settled: string, body: string, repairs: string): string =>
       `\`${sibling}\` settled this call's \`${settled}\` before the callback was checked, and ` +
       `the callback's body returns \`${body}\` — a callback's body chooses no type for the ` +
-      `arguments beside it; ${repairs}`;
+      `values beside it; ${repairs}`;
     // The value that established the home, not the first sibling.
     expect(refusals(
       "let apply4(x: a, y: a, g: (a) -> a): a = g(x)\nlet w = apply4(1, m, (v) => v + n)\n",
@@ -689,7 +689,7 @@ describe("calls join the tree (#1062, part 2)", () => {
     const settled = (sibling: string, body: string, repairs: string): string =>
       `\`${sibling}\` settled this call's \`Int\` before the callback was checked, and the ` +
       `callback's body returns \`${body}\` — a callback's body chooses no type for the ` +
-      `arguments beside it${repairs}`;
+      `values beside it${repairs}`;
     const closed = (saw: string, repairs: string): string =>
       `\`n * 1.5\` settled at \`Float\` before \`.multiply\` saw \`${saw}\` — a dot call's ` +
       `receiver is settled on its own; ${repairs}`;

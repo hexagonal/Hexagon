@@ -980,21 +980,24 @@ describe("code actions: infer return type", () => {
     // nothing earlier has anything to say about it. Only writing the annotation
     // and compiling it shows the row closing.
     //
-    // *(#513.)* The lambda sits in a **tuple component**, which is what keeps
-    // the row closing: a tuple literal is not one of Functions §4.3's
-    // forwarding forms, so the written face never reaches the lambda and its
-    // parameter is inferred, then unified with `{...a}` afterwards — the
-    // pre-propagation order, and the collapse this guard exists to catch. The
-    // bare shape (`= (r) => {...r}`) is where the return annotation now
-    // *supplies*: the parameter takes the written row itself, the two faces
-    // agree, and the action is offered. Pinned as its own case below.
-    const source = "module Main\n\n" + "export fun m() = ((r) => {...r}, 1)\n";
+    // *(#513.)* The lambda sits in a **call's argument**, which is what keeps
+    // the row closing: a written face reaches no argument through a
+    // function's result (Functions §4.3, #1066), so it never reaches the
+    // lambda, whose parameter is inferred, then unified with `{...a}`
+    // afterwards — the pre-propagation order, and the collapse this guard
+    // exists to catch. The bare shape (`= (r) => {...r}`) is where the return
+    // annotation now *supplies*: the parameter takes the written row itself,
+    // the two faces agree, and the action is offered. Pinned as its own case
+    // below. (The specimen was a tuple component until #1066 made the literal
+    // forms hand their components the face.)
+    const source = "module Main\n\n" + "let keep<t>(x: t): t = x\n" +
+      "export fun m() = keep((r) => {...r})\n";
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "m("));
     expect(action.edits).toEqual([]);
     expect(action.disabled).toBe(
-      "writing `: ({...a} -> {...a}, Int)` would change the type of `m` " +
-        "from `() -> ({...a} -> {...a}, Int)` to `() -> ({} -> {}, Int)`",
+      "writing `: {...a} -> {...a}` would change the type of `m` " +
+        "from `() -> {...a} -> {...a}` to `() -> {} -> {}`",
     );
   });
 

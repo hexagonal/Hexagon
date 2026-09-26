@@ -144,6 +144,15 @@ export class Bag {
   }
 
   /**
+   * Drops every diagnostic added since `count` was read — for a report that
+   * replaces the ordinary one a check has just made, known to be owed only
+   * once the check has refused (Numeric Literals §6's function-result report).
+   */
+  discardSince(count: number): void {
+    this.#diagnostics.length = Math.min(count, this.#diagnostics.length);
+  }
+
+  /**
    * Returns diagnostics in source order while preserving production order for
    * diagnostics at the same location. This makes host output deterministic
    * without requiring passes to coordinate how they discover failures.
