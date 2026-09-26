@@ -224,10 +224,11 @@ describe("Functions specification conformance", () => {
     ]);
     expect(reports("let y: Bool = 1")).toEqual([["integer literal cannot have type `Bool`", "1"]]);
     // Numeric Literals §6's blocked defaulting names a literal only where one
-    // is written; otherwise it is the call's type, at the call.
+    // is written; otherwise, at a use, it names the binding used — the caret
+    // is on `k`, whose own type is a function, not the type that is blocked.
     expect(reports("let k(u: Unit) = 1 / 2\nlet y = k(())")).toEqual([
       [
-        "this expression's type cannot default to `Int`: `Frac` is not a defaultable constraint; add a type annotation to pin the type",
+        "the type this use of `k` gives cannot default to `Int`: `Frac` is not a defaultable constraint; add a type annotation to pin it",
         "k",
       ],
     ]);

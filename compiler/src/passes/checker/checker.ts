@@ -1248,6 +1248,12 @@ interface Requirement {
   /** The literal's digits, so §6's blocked-defaulting report can name it. */
   literal?: string;
   /**
+   * On a `"use"`, the binding's spelling at that use, so a report standing
+   * there can name what was used — §6's blocked-defaulting report, where "this
+   * expression" at `k` in `k(())` would name the function, not what it gave.
+   */
+  usedAs?: string;
+  /**
    * Set where a **literal pattern** raised this requirement — Pattern Matching
    * §2.5's delegation, and the one thing it does not delegate.
    *
@@ -5595,7 +5601,7 @@ class Checker {
     // behaviour this replaces, unchanged.
     const requirements: Requirement[] = [];
     const calleeType = this.#instantiate(
-      scheme, level, requirements, callee.field.span, undefined, true,
+      scheme, level, requirements, callee.field.span, undefined, true, callee.field.text,
     );
     const { seats, pass } = this.#dotCallSeats(
       expression, callee, level, cachedArguments, calleeType, receiver, false, undefined,
@@ -6294,7 +6300,7 @@ class Checker {
     }
     const requirements: Requirement[] = [];
     const calleeType = this.#instantiate(
-      scheme, level, requirements, callee.field.span, undefined, true,
+      scheme, level, requirements, callee.field.span, undefined, true, callee.field.text,
     );
     // *(#808.)* The lift, spelled by the dot: `let whole: BigInt =
     // count.add(count)` is `BigInt` addition, exactly as the operator and the
@@ -8640,6 +8646,7 @@ class Checker {
                 ),
               ),
           this.#calledNames.has(expression),
+          expression.text,
         );
         this.#nameRequirements.set(expression, requirements);
         // Functions §7.4: inside the knot the scheme is a monotype, so the copy
@@ -10740,7 +10747,10 @@ class Checker {
         return;
       }
       const view = this.#prune(
-        this.#instantiate(this.#scheme(reference.view), level, undefined, pattern.span),
+        this.#instantiate(
+          this.#scheme(reference.view), level, undefined, pattern.span, undefined, false,
+          pattern.name,
+        ),
       );
       if (view.kind !== "Function" || view.parameters.length !== 1) {
         this.#brokenPatterns.add(pattern);
@@ -11598,7 +11608,10 @@ class Checker {
         return;
       }
       const view = this.#prune(
-        this.#instantiate(this.#scheme(reference.view), level, undefined, pattern.span),
+        this.#instantiate(
+          this.#scheme(reference.view), level, undefined, pattern.span, undefined, false,
+          pattern.name,
+        ),
       );
       if (view.kind !== "Function" || view.parameters.length !== 1) {
         this.#brokenPatterns.add(pattern);
@@ -23240,12 +23253,16 @@ class Checker {
     for (const requirement of variable.requirements) requirement.reported = true;
     this.#reportRequirement({
       severity: "error",
-      message: `${
-        literal?.literal === undefined
-          ? "this expression's type"
-          : `the literal \`${literal.literal}\``
-      } cannot default to \`Int\`: \`${blocking.name}\` is not a defaultable ` +
-        "constraint; add a type annotation to pin the type",
+      message: literal?.literal !== undefined
+        ? `the literal \`${literal.literal}\` cannot default to \`Int\`: ` +
+          `\`${blocking.name}\` is not a defaultable constraint; add a type annotation to pin the type`
+        // At a use the caret is the binding, so "this expression" would name
+        // the function rather than the type its use gives (Functions §10).
+        : blocking.usedAs !== undefined
+        ? `the type this use of \`${blocking.usedAs}\` gives cannot default to \`Int\`: ` +
+          `\`${blocking.name}\` is not a defaultable constraint; add a type annotation to pin it`
+        : "this expression's type cannot default to `Int`: " +
+          `\`${blocking.name}\` is not a defaultable constraint; add a type annotation to pin the type`,
       primary: literal?.span ?? blocking.span,
     });
   }
@@ -23473,6 +23490,8 @@ class Checker {
      * only its own constraint's copy is `"operation"` (Functions §10, #1063).
      */
     called = false,
+    /** The spelling of the use, which a `"use"` copy keeps (`Requirement.usedAs`). */
+    usedAs?: string,
   ): Mono {
     const replacements = new Map<number, Variable>();
     const copiedRequirements = new Set<number>();
@@ -23614,6 +23633,7 @@ class Checker {
             // constraint this module may not be able to spell at all (§5.1.1).
             requirement.identity,
           );
+          if (usedAs !== undefined && copied.origin === "use") copied.usedAs = usedAs;
           // `actual.id` is the *originating scheme* variable, which is the id
           // `dictionaryEntries` sorts the callee's parameters under; the
           // canonical name is the one `#publicRequirement` will publish, so the
