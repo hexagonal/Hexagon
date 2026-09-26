@@ -154,6 +154,25 @@ describe("a constructor application's own expected type (#1066)", () => {
     expect(typeOf("let a: Option(Dec) = (Some)(n)\n", "a")).toBe("Option(Dec)");
   });
 
+  test("its expectation's colours are left for the seat, as a literal's parts' are", () => {
+    // Effects §13.2's paired requirement: the inline and named spellings agree,
+    // and the pin stands where the annotation writes the colour.
+    const world = 'extern from "./io.js"\n    fun save(s: String) ->! Unit\nlet impure(): Unit = save!("x")\n';
+    const at = (source: string): readonly string[] => {
+      const text = HEADER + FIXTURES + world + source;
+      return compileMain(text).diagnostics.map(({ primary }) => text.slice(primary.start.offset, primary.end.offset));
+    };
+    const inline = at("let p: Option(() -> Unit) = Some(impure)\n");
+    expect(inline).toEqual(["Option(() -> Unit)"]);
+    expect(at("let o = Some(impure)\nlet p: Option(() -> Unit) = o\n")).toEqual(inline);
+    expect(at("let p: (() -> Unit, Int) = (impure, 1)\n")).toEqual(["(() -> Unit, Int)"]);
+    // At an honor seat, the narrower-acceptance row stands at the annotation.
+    expect(at(
+      "constraint C<r> =\n    go(runner: r, b: () ->! Unit) -> Unit\nrecord R = { id: Int }\n" +
+        "honor C<R> =\n    go(runner, b) =\n        let p: Option(() -> Unit) = Some(b)\n        ()\n",
+    )).toEqual(["Option(() -> Unit)"]);
+  });
+
   test("another head declines, with no propagation artifact", () => {
     expect(refusals("let a: Result(Dec, String) = Some(n)\n"))
       .toEqual(["type mismatch: expected Result(Dec, String), found Option(Int)"]);

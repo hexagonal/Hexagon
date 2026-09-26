@@ -9712,7 +9712,10 @@ class Checker {
         // unified with it where both are headed by the constructor's type — the
         // unification the seat's final check performs anyway — so the
         // parameters hand the expectation's parts to the arguments. No other
-        // call unifies its result early (Functions §4.3).
+        // call unifies its result early (Functions §4.3). The expectation's
+        // colours are freshened (`#recolour`), as a literal's parts are: the
+        // types reach the arguments, and the colours are left for the seat,
+        // where Effects §13.2 places a pin or a merge.
         if (expected !== undefined && !calleeIsLambda && this.#appliesDataConstructor(expression)) {
           const known = this.#prune(callee);
           const result = known.kind === "Function" ? this.#prune(known.result) : undefined;
@@ -9721,7 +9724,7 @@ class Checker {
             (result?.kind === "Union" && face.kind === "Union" && result.union === face.union) ||
             (result?.kind === "NominalRecord" && face.kind === "NominalRecord" && result.record === face.record)
           ) {
-            this.#unify(result, face, expression.span);
+            this.#unify(result, this.#recolour(face, level), expression.span);
           }
         }
         // A tower member call of the member's own arity, in any spelling, is an
@@ -16958,8 +16961,10 @@ class Checker {
       const open = [...groups.keys()].filter((variable) =>
         !givers.has(variable) && this.#prune(variable).kind === "Variable"
       );
-      // A parameter written as a bare variable supplies no home, and a dot
-      // call's receiver meets its seat under the receiver rule (§6).
+      // A parameter written as a bare variable supplies no home — though an
+      // argument there is a sibling, closed with its group and never here, so
+      // the test only guards — and a dot call's receiver meets its seat under
+      // the receiver rule (§6).
       const written = parameters[index] ?? ERROR;
       const receiver = call.kind === "Call" && call.callee.kind === "Access" &&
         expressions.length === call.arguments.length + 1 && index === 0;
