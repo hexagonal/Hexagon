@@ -294,6 +294,29 @@ interface EffectConstant {
    * claim to re-litigate downstream.
    */
   readonly recovered?: boolean;
+  /**
+   * Set only on the constant a **signature's colour** was solved to by
+   * unification *(#873)* — minted fresh at that bind, so the object itself is
+   * the solved variable's identity. It survives what a variable does not: path
+   * compression cuts the variable out of every chain that reached it, and an
+   * instantiation made after the bind copies the constant rather than the
+   * chain. Every colour that traces to the solved variable therefore prunes to
+   * this one object, which is how one report gathers every signature that
+   * spells the variable and how the marks that read it are suppressed.
+   */
+  readonly solve?: ColourSolve;
+}
+
+/**
+ * How a signature's colour came to be a constant *(#873; Effects §4.2)*: the
+ * act of unification that solved it, and whether that act was the body's own
+ * call — §3.4's source arm — rather than a **pin**, a demand, annotation, or
+ * supplied argument. The two place their reports differently: a body-sourced
+ * constant stands at the signature's written arrow, a pinned one at the pin.
+ */
+interface ColourSolve {
+  readonly span: Source.Span;
+  readonly sourced: boolean;
 }
 
 const PURE: EffectConstant = { kind: "Effect", impure: false };
@@ -2946,6 +2969,15 @@ class Checker {
   readonly #callFrames = new WeakMap<Resolved.CallExpr, EffectFrame | undefined>();
   readonly #markObligations: MarkObligation[] = [];
   readonly #signatureFaces: SignatureFace[] = [];
+  /**
+   * Every variable a signature's colour is, or is bound through *(#873)*: an
+   * open signature's variable, and each variable one of those was bound to.
+   * The root of a chain that holds a signature's colour is always in it, so a
+   * bind of that root to a constant is where `ColourSolve` is minted.
+   */
+  readonly #faceColours = new WeakSet<Variable>();
+  /** Nonzero while §3.4's source arm runs: its binds are body-sourced (#873). */
+  #sourcing = 0;
   /**
    * Where a colour variable was pinned to a constant *(#867)*. Recorded at the
    * binding, read by the constraint seat: §13.2 reports a failed seat "at the
@@ -9207,8 +9239,17 @@ class Checker {
         // signature — `let f: (Tx ->? a) ->! a = (run: Tx ->? a): a => …` writes
         // one signature twice, and opening a second scope here would give the
         // same defect two reports and the same `->?` two variables.
+        //
+        // One with no inlet of its own **borrows** *(#873; Effects §2.2.2's
+        // lexical ownership rule)*: a `->?` in its return annotation names the
+        // nearest enclosing signature that can own a variable, exactly as a
+        // binding annotation in the same body does — `fun h(): () ->? Unit =
+        // () => action?()` inside `outer(action: () ->? Unit)` spells `outer`'s
+        // colour. So it keeps whatever is in scope rather than clearing it: at
+        // module level, and in a body no inlet-bearing signature encloses, that
+        // is nothing, and the arrow is §4.4's inlet-less-signature error.
         const enclosingSignature = this.#openSignature(
-          writtenOwn !== undefined ? "inherit" : ownLinked ? "open" : "clear",
+          writtenOwn === undefined && ownLinked ? "open" : "inherit",
           level + 1,
           expression.span,
         );
@@ -17653,7 +17694,9 @@ class Checker {
    * is for a form that is *not* a second signature: a lambda whose colour a
    * binding annotation already wrote is that annotation's signature, and giving
    * it a scope of its own would mint a second variable for one `->?` and report
-   * one defect twice.
+   * one defect twice. It is also the **borrow** *(#873)*: a local annotation or
+   * header with no inlet of its own names the nearest enclosing signature that
+   * can own a variable (Effects §2.2.2), which is whatever this holds.
    */
   #openSignature(
     mode: "open" | "clear" | "inherit",
@@ -17668,6 +17711,7 @@ class Checker {
     if (this.#signatureFace !== undefined) {
       this.#signatureFaces.push(this.#signatureFace);
       this.#linkedColours.push(this.#signatureFace.effect);
+      this.#faceColours.add(this.#signatureFace.effect);
     }
     return previous;
   }
@@ -18149,9 +18193,11 @@ class Checker {
    */
   #sourceArm(frame: EffectFrame): void {
     this.#settlingArms += 1;
+    this.#sourcing += 1;
     try {
       this.#sourceArmBody(frame);
     } finally {
+      this.#sourcing -= 1;
       this.#settlingArms -= 1;
     }
   }
@@ -20293,7 +20339,17 @@ class Checker {
    * roots and before `#checkMarks` prunes. A ruling made after a body has
    * closed and before the marks are read has it.
    */
-  #suppressMarksOn(colours: readonly Mono[]): void {
+  #suppressMarksOn(
+    colours: readonly Mono[],
+    /**
+     * The constants condemned signature colours were solved to *(#873)*. Each
+     * is its variable's identity after the bind (`ColourSolve`), so an
+     * obligation whose chain ends at one reads that variable however its chain
+     * was compressed — the knot of #891 — and even where the call was checked
+     * after the bind and copied the constant rather than the chain.
+     */
+    solved: ReadonlySet<Mono> = new Set(),
+  ): void {
     const condemned = new Set<Mono>();
     for (const colour of colours) {
       for (
@@ -20304,18 +20360,16 @@ class Checker {
         condemned.add(node);
       }
     }
-    if (condemned.size === 0) return;
+    if (condemned.size === 0 && solved.size === 0) return;
     for (const obligation of this.#markObligations) {
       if (this.#reportedCalls.has(obligation)) continue;
-      for (
-        let node: Mono | undefined = obligation.effect;
-        node !== undefined && node.kind === "Variable";
-        node = node.instance
-      ) {
+      let node: Mono | undefined = obligation.effect;
+      for (; node !== undefined && node.kind === "Variable"; node = node.instance) {
         if (!condemned.has(node)) continue;
         this.#reportedCalls.add(obligation);
         break;
       }
+      if (node !== undefined && solved.has(node)) this.#reportedCalls.add(obligation);
     }
   }
 
@@ -20438,6 +20492,10 @@ class Checker {
     // end — `#checkMarks` prunes each obligation before it reads the stamp, so
     // the question has to be asked before that loop begins, not inside it.
     const condemned: Mono[] = [];
+    const solved = new Set<Mono>();
+    // Faces a **pin** solved, by the constant it solved them to — one entry
+    // per variable, however many signatures spell it (§4.2, #873).
+    const pinned = new Map<EffectConstant, SignatureFace[]>();
     for (const face of this.#signatureFaces) {
       const colour = this.#prune(face.effect);
       if (colour.kind !== "Effect") continue;
@@ -20445,6 +20503,13 @@ class Checker {
       // been reported at the arrow that was refused.
       if (isRecovered(colour)) continue;
       condemned.push(face.effect);
+      if (colour.solve !== undefined) solved.add(colour);
+      if (colour.solve !== undefined && !colour.solve.sourced) {
+        const faces = pinned.get(colour);
+        if (faces === undefined) pinned.set(colour, [face]);
+        else faces.push(face);
+        continue;
+      }
       // §4.2: the report stands at a written `->?`, not presumptively at the
       // outer arrow — the constantified variable may be spelled only on a
       // nested one, while the outer arrow is honestly `->` or `->!`. A
@@ -20483,7 +20548,61 @@ class Checker {
           : {}),
       });
     }
-    this.#suppressMarksOn(condemned);
+    for (const [colour, faces] of pinned) this.#reportPinnedFace(colour, faces);
+    this.#suppressMarksOn(condemned, solved);
+  }
+
+  /**
+   * §4.2's report where a **pin** solved a signature's colour *(#873)* — the
+   * pure direction always, and the impure one where the constant arrived at a
+   * pin rather than from the body's own call: a concrete impure callback handed
+   * to a helper whose variable is captured, a `->?` callback handed to a `->!`
+   * field.
+   *
+   * A solve by unification is one act, and through capture it can contradict
+   * several signatures at once — a nested header joined to its enclosing
+   * signature spells one variable in two places (§3.4). So the report is one,
+   * its primary the pin where the writer can act, a label at every written
+   * `->?` the solved variable spells, and one fixit rewriting each of them to
+   * the constant. There is no join to preserve: the colour that arrived is the
+   * inlets' own variable, not a constant the body raised beside them.
+   */
+  #reportPinnedFace(colour: EffectConstant, faces: readonly SignatureFace[]): void {
+    const bySpan = new Map<string, Source.Span>();
+    for (const face of faces) {
+      for (const span of this.#writtenArrows(face)) {
+        bySpan.set(`${Number(span.fileId)}:${span.start.offset}:${span.end.offset}`, span);
+      }
+    }
+    const written = [...bySpan.values()].sort((left, right) =>
+      Number(left.fileId) - Number(right.fileId) ||
+      left.start.offset - right.start.offset
+    );
+    const replacement = colour.impure ? "->!" : "->";
+    const solvedTo = colour.impure ? "impure" : "pure";
+    this.#diagnostics.add({
+      severity: "error",
+      message: colour.impure
+        ? "this signature's `->?` promises a colour the caller chooses, but the body " +
+          "solves it to the impure constant — a function that performs its own " +
+          "unconditional effects rounds up, and its face is `->!`" +
+          (written.length > 0 ? "" : "; give the binding an explicit `(…) ->! …` face")
+        : "this signature's `->?` promises a colour the caller chooses, but the body " +
+          "solves it to the pure constant — the honest face is `->`",
+      primary: colour.solve!.span,
+      ...(written.length === 0
+        ? {}
+        : {
+          labels: written.map((span) => ({
+            span,
+            message: `this \`->?\` spells the colour solved ${solvedTo}`,
+          })),
+          fixes: [{
+            message: `write \`${replacement}\``,
+            edits: written.map((span) => ({ span, replacement })),
+          }],
+        }),
+    });
   }
 
   /**
@@ -21183,10 +21302,19 @@ class Checker {
     };
     const actualLeft = this.#prune(left);
     const actualRight = this.#prune(right);
+    // §4.4's recovery **binds nothing it meets** *(#873)*: it absorbs as the
+    // error type does, so a variable it meets — an enclosing signature's
+    // colour, a captured callback's, a knot sibling's — is left as it was, and
+    // no face, colour, or mark outside the refused position changes on the
+    // recovery's account. Bound, it flowed outward: a body handing its own
+    // `->?` callback to a refused `record` field had its face silently
+    // rewritten to the recovered constant.
     if (
       actualLeft === actualRight ||
       actualLeft.kind === "Error" ||
-      actualRight.kind === "Error"
+      actualRight.kind === "Error" ||
+      isRecovered(actualLeft) ||
+      isRecovered(actualRight)
     ) {
       return;
     }
@@ -21207,11 +21335,6 @@ class Checker {
       ) {
         return;
       }
-      // §4.4: neither direction is owed where one side is the recovery a
-      // refused `->?` left behind. The arrow was ruled on at the arrow; the
-      // constant standing in for it is scaffolding, and a demand report here
-      // would describe a colour the writer never wrote.
-      if (isRecovered(actualLeft) || isRecovered(actualRight)) return;
       // The one report the two-point lattice owes. It fires where a `->`
       // demand meets an impure function — `Seq.memoize`'s producer, a pure
       // constraint member, a callback stored in a `->` field — and nowhere
@@ -21641,6 +21764,7 @@ class Checker {
       const owner = this.#pinnedVars.get(variable.id);
       if (owner !== undefined) this.#pinnedVars.set(type.id, owner);
       this.#recordJoinedColour(variable, type);
+      if (this.#faceColours.has(variable)) this.#faceColours.add(type);
       variable.instance = type;
       return;
     }
@@ -21721,7 +21845,15 @@ class Checker {
         }
       }
     }
-    variable.instance = type;
+    // *(#873.)* A signature's colour solved to a constant is solved to a
+    // constant of its own, carrying the act that solved it (`ColourSolve`).
+    variable.instance = type.kind === "Effect" && this.#faceColours.has(variable)
+      ? {
+        kind: "Effect",
+        impure: type.impure,
+        solve: { span, sourced: this.#sourcing > 0 },
+      }
+      : type;
     for (const requirement of variable.requirements) this.#validate(requirement);
   }
 
@@ -25205,7 +25337,9 @@ class Checker {
       };
     }
     if (annotation.kind === "Function") {
-      const effect = this.#writtenEffect(annotation.effect, annotation.arrowSpan);
+      const effect = annotation.recovered === true
+        ? RECOVERED
+        : this.#writtenEffect(annotation.effect, annotation.arrowSpan);
       const elaborated: FunctionMono = {
         kind: "Function",
         parameters: annotation.parameters.map((parameter) =>

@@ -770,10 +770,15 @@ export let step(n: Int): Int =
 export let f(h: ((Int) ->? Int) -> Int): Int = h(step)
 `;
 
-  it("reports at `h`'s nested arrow, and rewrites that arrow", () => {
+  it("reports at the pin, labels `h`'s nested arrow, and rewrites that arrow", () => {
     // `f`'s own outer arrow is `->`, returning `Int`, and it is honest: the
     // arrow that constantified is `h`'s parameter's. The advice to give the
     // *binding* an explicit face would have fixed nothing here.
+    //
+    // Handing `step` to `h` is an act of unification, not an effect the body
+    // performs, so the report stands at that pin with the arrow as its label
+    // (§4.2, #873; ruled for this shape by #948) — the fixit still rewrites
+    // the nested arrow alone.
     expect(effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + nested]])).toEqual([
       "this signature's `->?` promises a colour the caller chooses, but the body " +
       "solves it to the impure constant — a function that performs its own " +
@@ -781,7 +786,7 @@ export let f(h: ((Int) ->? Int) -> Int): Int = h(step)
     ]);
     const [report] = effectSpans([["/world.js", ""], ["/main.hex", "module Main\n\n" + nested]]);
     expect(report).toEqual({
-      primary: "module Main\n\n".length + nested.indexOf("->?"),
+      primary: "module Main\n\n".length + nested.indexOf("h(step)"),
       edits: ["module Main\n\n".length + nested.indexOf("->?")],
     });
   });
@@ -883,19 +888,23 @@ export let z: Int = 1
     // monomorphic `->?` stands is §4.2's pure-direction pin. That report owes
     // nothing to the recovery: the control below draws it with no refused
     // annotation anywhere. `mkBad()` itself is bare (§3.4, #868).
+    //
+    // The refusal is an alias's: written inline, `mkBad`'s return annotation
+    // would borrow `f`'s variable instead of being refused (§2.2.2, #873).
     const pin = "this signature's `->?` promises a colour the caller chooses, but the " +
       "body solves it to the pure constant — the honest face is `->`";
     expect(
-      effectDiagnostics([["/main.hex", "module Main\n\n" + `export let f(g: (() ->? String) -> String): String =
-    let mkBad = (): (() ->? String) => (): String => "x"
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `type Maker = () ->? String
+
+export let f(g: (() ->? String) -> String): String =
+    let mkBad = (): Maker => (): String => "x"
     g(mkBad())
 `]]),
     ).toEqual([
-      pin,
       "`->?` is the caller's colour, and this position has no caller to choose it — " +
-      "nothing a caller of this signature supplies carries `->?`, so nothing " +
-      "instantiates it; " +
+      "an alias is a type fragment, not a signature; " +
       "write `->!` for a function that pulls the world, or `->` for one that does not",
+      pin,
     ]);
     expect(
       effectDiagnostics([["/main.hex", "module Main\n\n" + `export let f(g: (() ->? String) -> String): String =
