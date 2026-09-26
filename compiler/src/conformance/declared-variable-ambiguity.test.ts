@@ -170,6 +170,82 @@ describe("a constrained binder its function's type does not mention (#712)", () 
   });
 });
 
+describe("the row absorbs §4.2's refusal of an unmentioned variable (#1053)", () => {
+  // A variable no call can choose can never be handed evidence, so §4.2's
+  // advice to widen its list repairs nothing on its own. This row, at the
+  // declaration, is the whole report; its first rewrite writes the whole list,
+  // since using the variable alone would draw §4.2's refusal next.
+  function absorbed(evidence: string, widen: string, use = "a parameter or result type"): string {
+    return "`a` is a declared type variable, but this declaration's type does not mention it, " +
+      `so no call can choose it or supply its ${evidence} evidence; use \`a\` in ${use} and ${widen}, ` +
+      "or remove `a` from the binder list and write a concrete type where the body names `a`";
+  }
+
+  test("one report, at the binder, naming the whole list", () => {
+    const body = "(x: Int): Int =\n    let g = (y: a) => y + y\n    x\n";
+    expect(verdict(`fun f<a: Eq>${body}`))
+      .toEqual([absorbed("`Eq`, `Num`", "write `<a: (Eq, Num)>`")]);
+    expect(carets(`fun f<a: Eq>${body}`)).toEqual(["a: Eq"]);
+    // Both rewrites, applied as written.
+    expect(verdict("fun f<a: (Eq, Num)>(x: a): Int =\n    let g = (y: a) => y + y\n    0\n")).toEqual([]);
+    expect(verdict("fun f(x: Int): Int =\n    let g = (y: Int) => y + y\n    x\n")).toEqual([]);
+  });
+
+  test("the list is maximal: a written constraint a demand entails is dropped", () => {
+    expect(verdict(
+      "fun f<a: Eq>(x: Int): Int =\n" +
+      '    let g = (y: a) => if y < y then show(y) else ""\n' +
+      "    x\n",
+    )).toEqual([absorbed("`Ord`, `Show`", "write `<a: (Ord, Show)>`")]);
+    expect(verdict(
+      "fun f<a: (Ord, Show)>(x: a): Int =\n" +
+      '    let g = (y: a) => if y < y then show(y) else ""\n' +
+      "    0\n",
+    )).toEqual([]);
+  });
+
+  test("an unconstrained binder the body demands of carries the demand", () => {
+    // It used to take §4.2's refusal alone, whose `write <a: Num>` led straight
+    // into this row.
+    const source = "fun f<a>(x: Int): Int =\n    let g = (y: a) => y + y\n    x\n";
+    expect(verdict(source)).toEqual([absorbed("`Num`", "write `<a: Num>`")]);
+    expect(carets(source)).toEqual(["a"]);
+    expect(verdict("fun f<a: Num>(x: a): Int =\n    let g = (y: a) => y + y\n    0\n")).toEqual([]);
+  });
+
+  test("a block head is widened, in the head's own words", () => {
+    const members = (head: string, parameter: string) =>
+      `fun<${head}>\n` +
+      `    p(x: ${parameter}): Int =\n` +
+      "        let g = (y: a) => y + y\n" +
+      "        0\n" +
+      "    q(x: Int): Int = x\n";
+    expect(verdict(members("a: Eq", "Int")))
+      .toEqual([absorbed("`Eq`, `Num`", "widen the head to `fun<a: (Eq, Num)>`")]);
+    expect(verdict(members("a: (Eq, Num)", "a"))).toEqual([]);
+  });
+
+  test("a list on a binding's name points at the binding's type", () => {
+    expect(verdict("let v<a: Eq>: (Int) -> Int = (x) =>\n    let g = (y: a) => y + y\n    x\n"))
+      .toEqual([absorbed("`Eq`, `Num`", "write `<a: (Eq, Num)>`", "the binding's type")]);
+    expect(verdict("let v<a: (Eq, Num)>: (a) -> Int = (x) =>\n    let g = (y: a) => y + y\n    0\n"))
+      .toEqual([]);
+  });
+
+  test("a list the declaration already covers keeps the row's own wording", () => {
+    expect(verdict("fun f<a: (Eq, Num)>(x: Int): Int =\n    let g = (y: a) => y + y\n    x\n"))
+      .toEqual([unmentioned("a", "Eq`, `Num", true)]);
+  });
+});
+
+/** The carets, in report order, as the source text each one covers. */
+function carets(source: string): readonly string[] {
+  const text = "module Main\n\n" + source;
+  return compileMain(text).diagnostics.map(({ primary }) =>
+    text.slice(primary.start.offset, primary.end.offset)
+  );
+}
+
 describe("a constraint member header mentions the subject (#1044, Constraints §2)", () => {
   function refusal(member: string, constraint: string, subject: string): string {
     return `the member \`${member}\` does not mention \`${constraint}\`'s subject ` +

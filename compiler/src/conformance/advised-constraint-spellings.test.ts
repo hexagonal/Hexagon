@@ -592,15 +592,30 @@ describe("the refusal family qualifies by home, and only on a collision", () => 
         'import Mid2\n' +
         "let g<a: Ord>(x: a): a = Mid1.useOne(Mid2.useTwo(x))\n" + KEEP],
     ])).toEqual([
-      "`a` is declared to honor `Ord`, but the body requires `Describe`; " +
-      "write `<a: (Lib1.Describe, Ord)>` — `Describe` is declared in module `Lib1`; " +
-      "`import Lib1` and spell it `Lib1.Describe`, " +
-      "or remove the constraint annotation to let it be inferred",
-      "`a` is declared to honor `Ord`, but the body requires `Describe`; " +
-      "write `<a: (Lib2.Describe, Ord)>` — `Describe` is declared in module `Lib2`; " +
-      "`import Lib2` and spell it `Lib2.Describe`, " +
-      "or remove the constraint annotation to let it be inferred",
+      // One list for both reports (#1098), whole: the pair compares equal
+      // under the alphabetical key, so it keeps the order its demands arrived
+      // in, and each declaring module routes in its own clause.
+      ...Array(2).fill(
+        "`a` is declared to honor `Ord`, but the body requires `Describe`; " +
+        "write `<a: (Lib2.Describe, Lib1.Describe, Ord)>` — `Describe` is declared in module `Lib2`; " +
+        "`import Lib2` and spell it `Lib2.Describe` — `Describe` is declared in module `Lib1`; " +
+        "`import Lib1` and spell it `Lib1.Describe`, " +
+        "or remove the constraint annotation to let it be inferred",
+      ),
     ]);
+    // And it compiles as written.
+    expect(graphDiagnostics([
+      ["/lib1.hex", "module Lib1\n\n" + DESCRIBE_ONE],
+      ["/lib2.hex", "module Lib2\n\n" + DESCRIBE_TWO],
+      ["/mid1.hex", "module Mid1\n\n" + DESCRIBE_ONE_MID],
+      ["/mid2.hex", "module Mid2\n\n" + DESCRIBE_TWO_MID],
+      ["/main.hex",
+        "module Main\n\n" + 'import Mid1\n' +
+        'import Mid2\n' +
+        'import Lib1\n' +
+        'import Lib2\n' +
+        "let g<a: (Lib2.Describe, Lib1.Describe, Ord)>(x: a): a = Mid1.useOne(Mid2.useTwo(x))\n" + KEEP],
+    ])).toEqual([]);
   });
 });
 
