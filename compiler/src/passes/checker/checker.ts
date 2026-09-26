@@ -8646,7 +8646,10 @@ class Checker {
                 ),
               ),
           this.#calledNames.has(expression),
-          expression.text,
+          // What the source wrote at the use: `text` is the member alone for a
+          // prelude constraint's qualified spelling (`Frac.divide`).
+          this.#sourceText?.slice(expression.span.start.offset, expression.span.end.offset) ??
+            expression.text,
         );
         this.#nameRequirements.set(expression, requirements);
         // Functions §7.4: inside the knot the scheme is a monotype, so the copy
@@ -21046,7 +21049,7 @@ class Checker {
         const baseList = verbatimConstraintList(bases);
         const head = `\`${variable.rigidName}\` is \`${constraint}\`'s subject, so the body reaches ` +
           `only \`${constraint}\` and its base constraints, but it requires `;
-        this.#reportRequirement({
+        this.#reportRequirement(variable, {
           severity: "error",
           message: sealed !== undefined
             ? `${head}${sealedDemand}`
@@ -21072,7 +21075,7 @@ class Checker {
         // reads (Constraints §6.2, FFI Part 9 §6.2), so the demand is appended
         // and nothing already there moves.
         const headerList = verbatimConstraintList(spellings);
-        this.#reportRequirement({
+        this.#reportRequirement(variable, {
           severity: "error",
           message: sealed !== undefined
             ? `${declaration}, but the body requires ${sealedDemand}`
@@ -21098,7 +21101,7 @@ class Checker {
         const headRewrite = declared.length === 0
           ? "remove the head's binder to let it be inferred"
           : "remove the head's constraint to let it be inferred";
-        this.#reportRequirement({
+        this.#reportRequirement(variable, {
           severity: "error",
           message: sealed !== undefined
             ? `${declaration} on the block head, but ${subject} requires ${sealedDemand} — ${headRewrite}`
@@ -21113,7 +21116,7 @@ class Checker {
       const inferenceRewrite = declared.length === 0
         ? "remove the explicit type parameter to let it be inferred"
         : "remove the constraint annotation to let it be inferred";
-      this.#reportRequirement({
+      this.#reportRequirement(variable, {
         severity: "error",
         message: sealed !== undefined
           ? `${declaration}, but the body requires ${sealedDemand} — ${inferenceRewrite}`
@@ -21724,7 +21727,7 @@ class Checker {
     if (selection.kind === "forbidden") {
       requirement.reported = true;
       const provider = this.#moduleName(selection.provider) ?? selection.provider;
-      this.#reportRequirement({
+      this.#reportRequirement(undefined, {
         severity: "error",
         message: `\`${requirement.name}<${this.#display(type)}>\` ${dataSeatRefusal(provider)}`,
         primary: requirement.span,
@@ -21774,7 +21777,7 @@ class Checker {
     }
 
     requirement.reported = true;
-    this.#reportRequirement({
+    this.#reportRequirement(undefined, {
       severity: "error",
       message:
         // `type.kind === "Union"` since #147: `Bool` is the common case of a
@@ -21871,10 +21874,12 @@ class Checker {
    * (Functions §10's "Where a report stands", #1063). Every demand a use copies
    * stands at that use, so two of them failing alike — `both(f, g)` over
    * `<a: Show, b: Show>` — would otherwise say the same sentence twice at one
-   * caret.
+   * caret. A contract refusal is also kept apart per `declared` variable: its
+   * rewrite is on that variable's binder, and two binders that share a name
+   * are two variables, which one rewrite does not both repair.
    */
-  #reportRequirement(diagnostic: Diagnostics.Diagnostic): void {
-    const key = `${spanKey(diagnostic.primary)}\u0000${diagnostic.message}`;
+  #reportRequirement(declared: Variable | undefined, diagnostic: Diagnostics.Diagnostic): void {
+    const key = `${spanKey(diagnostic.primary)}\u0000${diagnostic.message}\u0000${declared?.id ?? ""}`;
     if (this.#requirementReports.has(key)) return;
     this.#requirementReports.add(key);
     this.#diagnostics.add(diagnostic);
@@ -23133,7 +23138,7 @@ class Checker {
       const binder = bounds.length === 0
         ? name
         : `${name}: ${bounds.length === 1 ? bounds[0] : `(${bounds.join(", ")})`}`;
-      this.#reportRequirement({
+      this.#reportRequirement(variable, {
         severity: "error",
         message: sibling
           ? `\`${name}\` is declared on \`${owner.name}\`, and this in \`${named.name}\` needs its ` +
@@ -23266,7 +23271,7 @@ class Checker {
     // anything.
     const literal = variable.requirements.find(({ origin }) => origin === "literal");
     for (const requirement of variable.requirements) requirement.reported = true;
-    this.#reportRequirement({
+    this.#reportRequirement(undefined, {
       severity: "error",
       message: literal?.literal !== undefined
         ? `the literal \`${literal.literal}\` cannot default to \`Int\`: ` +

@@ -210,6 +210,19 @@ describe("Functions specification conformance", () => {
           "let r = both((v: Int) => v, (v: Int) => v)",
       ),
     ).toEqual([["functions have no `Show` instance", "both"]]);
+    // Two declared variables that share a name are two binders to repair.
+    const shadowed = reports(
+      "let both<a: Show, b: Show>(x: a, y: b): String = show(x) ++ show(y)\n" +
+        "export let f<a: Eq>(x: a): String =\n" +
+        "    let g<a: Eq>(y: a): String = both(x, y)\n" +
+        "    g(x)",
+    );
+    expect(shadowed.map(([, at]) => at)).toEqual(["both", "both"]);
+    // A blocked-defaulting report names the use as written, even where the
+    // resolver keeps only the member (`Frac.divide`).
+    expect(reports("let y = Frac.divide(Num.fromNat(1), Num.fromNat(2))").map(([message]) =>
+      message!.slice(0, message!.indexOf(" gives"))
+    )).toContain("the type this use of `Frac.divide`");
     const bandCall = reports(n + "let h(a, b) = a band b\nlet x = h(n, n)");
     expect(bandCall.map(([, at]) => at)).toEqual(["h"]);
     expect(bandCall[0]![0]).not.toContain("face");
