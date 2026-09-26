@@ -312,14 +312,24 @@ describe("the forwarding forms (§4.3)", () => {
     });
   });
 
-  test("no other form forwards: a tuple component declines", () => {
-    // The pin that makes "no other form forwards" a claim with teeth. A tuple
-    // literal's components synthesize exactly as before, so the match function
-    // sees a variable and takes §6.1's refusal with the rider — even though the
-    // annotation one line up spells its parameter type.
+  test("a tuple component takes its part of the face (#1066)", () => {
+    // The literal forms hand each component the matching part of the face
+    // (Functions §4.3), so the match function lands `Int`.
     expect(projectDiagnostics("module Main\n\n" + "let pair: ((Int) -> String, Int) = (match\n" +
         guardOnly("    ") +
         ", 1)\n",
+    )).toEqual([]);
+  });
+
+  test("no other form forwards: a call's argument declines", () => {
+    // The pin that makes "no other form forwards" a claim with teeth. A face
+    // reaches no argument through a function's result (#1066), so the match
+    // function sees a variable and takes §6.1's refusal with the rider — even
+    // though the annotation spells its parameter type.
+    expect(projectDiagnostics("module Main\n\n" + "let keep<t>(x: t): t = x\n" +
+        "let sign: (Int) -> String = keep(match\n" +
+        guardOnly("    ") +
+        ")\n",
     )).toEqual([rider]);
   });
 });

@@ -739,10 +739,17 @@ function signatureInlet(
  * Nothing else defers: a name bound to a lambda, a call producing one, and an
  * ascribed lambda — whose face the ascription itself supplies — are all first
  * pass. One class serves both positions: argument, and callee (the pipe seat).
+ * A lambda literal deeper on an argument's spine defers too (#1096), through
+ * its stand-in (`SpineOwner`).
  */
 function defersAsLambda(expression: Resolved.Expr): boolean {
-  return expression.kind === "Lambda" ||
-    (expression.kind === "Group" && defersAsLambda(expression.expression));
+  return deferredLambda(expression) !== undefined;
+}
+
+/** The lambda literal `expression` is, read through grouping (§3.1), if it is one. */
+function deferredLambda(expression: Resolved.Expr): Resolved.LambdaExpr | undefined {
+  const inner = ungrouped(expression);
+  return inner.kind === "Lambda" ? inner : undefined;
 }
 
 /**
@@ -751,9 +758,13 @@ function defersAsLambda(expression: Resolved.Expr): boolean {
  * (Numeric Literals §5.1's expected-type lift) — reached through §4.3's
  * forwarding set: grouping parentheses, a block's final expression, both `if`
  * branches, a `try`'s body block, and every `match`/`try` arm body, catch arms
- * included. **No other form forwards**, so a tuple component or a call's own
- * result stops it here. An operand does not forward either, but the operation
- * *above* it is a landing site, and the lift reaches the operands from there.
+ * included — or the parts it hands a literal's components (#1066). Every
+ * component is a seat of its own, so a tuple, record, or vector literal always
+ * takes its expectation; a constructor application does too, but whether a
+ * call is one is a matter of resolution, which `#faceLands` answers. **No
+ * other form forwards**, so a call's own result stops it here. An operand does
+ * not forward either, but the operation *above* it is a landing site, and the
+ * lift reaches the operands from there.
  *
  * *(#808.)* An **arithmetic operation** is no longer only an operator: the lift
  * governs every spelling of a tower member call — bare, qualified through the
@@ -787,6 +798,9 @@ function defersAsLambda(expression: Resolved.Expr): boolean {
 function expectationLands(expression: Resolved.Expr): boolean {
   switch (expression.kind) {
     case "Lambda":
+    case "Tuple":
+    case "Record":
+    case "Vector":
       return true;
     case "Call":
       return towerMemberSpelling(expression.callee) !== undefined;
@@ -961,6 +975,29 @@ interface ArgumentPass {
   readonly disposeSeat: (index: number) => void;
   /** The sibling groups, if still open, then the rest of the sweep. */
   readonly finish: () => void;
+}
+
+/**
+ * The lambda literals waiting for one owner's **second pass** (Functions §4.3,
+ * #1066, #1096): a call's, for the lambda literals on its arguments' spines
+ * below the arguments themselves, or a literal's on no spine, for its own
+ * lambda-literal components (the component schedule).
+ *
+ * A claimed lambda is not elaborated where the first pass reaches it: it
+ * stands there as its **stand-in**, a function type of its own arity built of
+ * fresh variables, which meets the form around it as the lambda would. Its
+ * written face lands on the stand-in before the owner's groups close (ruling
+ * A2), and its body is checked in the owner's second pass against the
+ * stand-in, which is then checked against the lambda's own type — its colour
+ * included, so a demand the stand-in met is held until the body has closed and
+ * checked then (Effects §2.6), never used to choose it. The stand-in is the
+ * expectation the lambda's landing reads, so nothing is elaborated twice.
+ */
+interface SpineOwner {
+  /** Claimed when the owner began; released by its second pass. */
+  readonly claimed: Resolved.LambdaExpr[];
+  /** Each claimed lambda the first pass reached, with its stand-in. */
+  readonly waiting: Map<Resolved.LambdaExpr, FunctionMono>;
 }
 
 interface TupleMono {
@@ -5986,6 +6023,9 @@ class Checker {
     if (cached !== undefined) {
       for (const [index, type] of cached.entries()) seats[index + 1] = type;
     }
+    // The lambda literals deeper on the arguments' spines wait for this call's
+    // second pass as well (#1096); a goal's measured arguments have had theirs.
+    const owner = cached === undefined ? this.#claimSpine(expression.arguments) : undefined;
     const pass = parameters === undefined ? undefined : this.#argumentPass(
       expression,
       parameters,
@@ -5995,8 +6035,9 @@ class Checker {
       expression.span,
       powerSeat,
       new Set(cached === undefined ? [0] : seats.keys()),
+      owner,
     );
-    if (cached !== undefined) return { seats, pass };
+    if (owner === undefined) return { seats, pass };
     // Seat indices, so the one set serves the sweep and the elaboration alike.
     const deferredLambdas = new Set(
       expression.arguments.flatMap((argument, index) =>
@@ -6007,7 +6048,7 @@ class Checker {
     const expectation = (index: number): Mono | undefined => parameters?.[index];
     // The companion's written subject seat, settled before the arguments read
     // their expectations — see `disposeSeat`. A member's is not settled here.
-    if (!openMember && pass !== undefined && expression.arguments.some(expectationLands)) {
+    if (!openMember && pass !== undefined && expression.arguments.some((argument) => this.#faceLands(argument))) {
       pass.disposeSeat(0);
     }
     for (const [index, argument] of expression.arguments.entries()) {
@@ -6016,21 +6057,23 @@ class Checker {
         ? this.#inferExpr(argument, level, expectation(index + 1))
         : pass.argument(index + 1, expectation(index + 1));
     }
-    if (deferredLambdas.size > 0) {
-      // §4.3's first pass, complete, before the second elaborates: an
-      // expectation has to *be* something by the time it is read, so every
-      // non-lambda operand — the receiver among them — is checked against its
-      // seat first. That is what resolves the subject a callback's own seat is
-      // written in terms of.
-      pass?.establishFirstPass(deferredLambdas);
-      for (const index of deferredLambdas) {
-        seats[index] = this.#inferExpr(
-          expression.arguments[index - 1]!,
-          level,
-          expectation(index),
-        );
-      }
-    }
+    // §4.3's first pass, complete, before the second elaborates: an
+    // expectation has to *be* something by the time it is read, so every
+    // non-lambda operand — the receiver among them — is checked against its
+    // seat first. That is what resolves the subject a callback's own seat is
+    // written in terms of.
+    if (deferredLambdas.size > 0 || owner.waiting.size > 0) pass?.establishFirstPass(deferredLambdas);
+    this.#secondPass(
+      owner,
+      [...deferredLambdas].map((index) => ({
+        expression: expression.arguments[index - 1]!,
+        elaborate: () => {
+          seats[index] = this.#inferExpr(expression.arguments[index - 1]!, level, expectation(index));
+        },
+      })),
+      level,
+      expression.span,
+    );
     return { seats, pass };
   }
 
@@ -6053,13 +6096,21 @@ class Checker {
   ): readonly Mono[] {
     if (cached !== undefined) return cached;
     const types: Mono[] = expression.arguments.map(() => ERROR);
+    const owner = this.#claimSpine(expression.arguments);
     for (const [index, argument] of expression.arguments.entries()) {
       if (defersAsLambda(argument)) continue;
       types[index] = this.#inferExpr(argument, level);
     }
-    for (const [index, argument] of expression.arguments.entries()) {
-      if (defersAsLambda(argument)) types[index] = this.#inferExpr(argument, level);
-    }
+    this.#secondPass(
+      owner,
+      expression.arguments.flatMap((argument, index) =>
+        defersAsLambda(argument)
+          ? [{ expression: argument, elaborate: () => { types[index] = this.#inferExpr(argument, level); } }]
+          : []
+      ),
+      level,
+      expression.span,
+    );
     return types;
   }
 
@@ -7045,7 +7096,7 @@ class Checker {
         // its seat runs at the honor block, long after this body has closed,
         // and still reports "at the offending call in the door's body".
         const doorFrom = this.#seatMark();
-        const suppliedFace = annotation !== undefined && expectationLands(item.value)
+        const suppliedFace = annotation !== undefined && this.#faceLands(item.value)
           ? this.#ownAnnotation(letBinders, () =>
             this.#inAnnotationPosition(annotation, () =>
               this.#annotationType(
@@ -8635,6 +8686,16 @@ class Checker {
    * the seat's own final check remains the typing authority.
    */
   #inferExpr(expression: Resolved.Expr, level: number, expected?: Mono): Mono {
+    if (expression.kind === "Lambda") {
+      // A lambda literal waiting for its owner's second pass stands here as
+      // its stand-in (`SpineOwner`, Functions §4.3).
+      const owner = this.#claimedLambdas.get(expression);
+      if (owner !== undefined) {
+        const standIn = this.#standIn(expression, owner, level);
+        this.#expressionTypes.set(expression, standIn);
+        return standIn;
+      }
+    }
     let type: Mono;
     switch (expression.kind) {
       case "PatternConstruction": {
@@ -8865,56 +8926,61 @@ class Checker {
         type = primitive("Int");
         break;
       }
-      case "Tuple":
+      case "Tuple": {
+        // *(#1066.)* A tuple literal hands each component the matching part of
+        // a tuple expectation of its arity (Functions §4.3's literal forms).
+        const face = expected === undefined ? undefined : this.#prune(expected);
+        const parts = face?.kind === "Tuple" && face.elements.length === expression.elements.length
+          ? face.elements
+          : [];
         type = {
           kind: "Tuple",
-          elements: expression.elements.map((element) =>
-            this.#inferExpr(element, level),
-          ),
+          elements: this.#inferComponents(expression, expression.elements, parts, level, "tuple"),
         };
-        break;
-      case "Vector": {
-        // A literal's elements are **siblings** of one expression tree (Numeric
-        // Literals §5.1, #1062): their home is chosen from all of them at once,
-        // so `[m, n]` is a `Vector(Int)` in either order. *(Review round 8,
-        // MINOR 3.)* They join one element type, and §13.2's third merge form —
-        // "a value carrying both" — is exactly this: `[spare, b]` fixes `b`'s
-        // slot as surely as `if c then spare else b` does.
-        const node: TreeNode = {
-          expression,
-          result: this.#fresh(level, false),
-          level,
-          face: undefined,
-          parts: expression.elements.map((value) => this.#treePart(value, level, undefined)),
-          siblings: true,
-          elements: true,
-        };
-        this.#closeFree(node);
-        // And the published element wears the seat's node where an element
-        // carried one, so a call through the vector records the edge.
-        let published: Mono = node.result;
-        for (const part of node.parts) {
-          published = this.#publishJoinedColours(published, this.#partType(part));
-        }
-        type = { kind: "Vector", element: published };
         break;
       }
+      case "Vector":
+        type = this.#inferVector(expression, level, expected);
+        break;
       case "Record":
         if (expression.spread === undefined) {
+          // *(#1066.)* Each field takes the field a structural record
+          // expectation names — a nominal record's definition row among them,
+          // at its constructor — and nothing where it names none.
+          const face = expected === undefined ? undefined : this.#prune(expected);
+          const types = this.#inferComponents(
+            expression,
+            expression.fields.map(({ value }) => value),
+            expression.fields.map(({ name }) => face?.kind === "Record" ? face.fields.get(name.text) : undefined),
+            level,
+            "record",
+          );
           type = {
             kind: "Record",
-            fields: new Map(expression.fields.map((field) => [
-              field.name.text,
-              this.#inferExpr(field.value, level),
-            ])),
+            fields: new Map(expression.fields.map((field, index) => [field.name.text, types[index]!])),
           };
         } else {
           const receiver = this.#inferExpr(expression.spread, level);
-          const overrides = new Map(expression.fields.map((field) => [
-            field.name.text,
-            this.#inferExpr(field.value, level),
-          ]));
           const actual = this.#prune(receiver);
+          // *(#1066.)* Each override takes its head's type at the field
+          // (Products §3.3), on the component schedule — so a callback among
+          // them waits, and no value joins a call's groups.
+          const headFields = actual.kind === "NominalRecord"
+            ? this.#recordRepresentationVisible(actual.record) ? this.#nominalRecordFields(actual) : undefined
+            : actual.kind === "Record"
+              ? actual.fields
+              : undefined;
+          const overrideTypes = this.#inferComponents(
+            expression,
+            expression.fields.map(({ value }) => value),
+            expression.fields.map(({ name }) => headFields?.get(name.text)),
+            level,
+            "record",
+          );
+          const overrides = new Map(expression.fields.map((field, index) => [
+            field.name.text,
+            overrideTypes[index]!,
+          ]));
           if (actual.kind === "NominalRecord") {
             if (!this.#recordRepresentationVisible(actual.record)) {
               type = this.#unsupported(
@@ -8923,7 +8989,7 @@ class Checker {
               );
               break;
             }
-            const fields = this.#nominalRecordFields(actual);
+            const fields = headFields ?? this.#nominalRecordFields(actual);
             for (const [name, override] of overrides) {
               const existing = fields.get(name);
               if (existing === undefined) {
@@ -8992,7 +9058,7 @@ class Checker {
         // it establishes its own expectation and passes no enclosing one on.
         const enclosingAscribedType = this.#ascribedTypeSpan;
         let suppliedFace: Mono | undefined;
-        if (expectationLands(expression.expression)) {
+        if (this.#faceLands(expression.expression)) {
           this.#ascribedTypeSpan = expression.annotation.span;
           suppliedFace = this.#annotationType(
             expression.annotation,
@@ -9180,7 +9246,7 @@ class Checker {
         // and `let g = (x: Int): Float => x + x` emits the same JavaScript.
         let returnAnnotationType: Mono | undefined;
         if (
-          expression.returnAnnotation !== undefined && expectationLands(expression.body)
+          expression.returnAnnotation !== undefined && this.#faceLands(expression.body)
         ) {
           returnAnnotationType = this.#annotationType(
             expression.returnAnnotation,
@@ -9584,6 +9650,9 @@ class Checker {
             defersAsLambda(argument) ? [index] : []
           ),
         );
+        // The lambda literals deeper on the arguments' spines wait for this
+        // call's second pass as well (#1096).
+        const owner = this.#claimSpine(expression.arguments);
         const calleeIsLambda = defersAsLambda(expression.callee);
         if (calleeIsLambda) {
           // **The pipe seat** (§4.3, Operators §8). `value |> match …` rewrites
@@ -9606,9 +9675,17 @@ class Checker {
             if (deferredLambdas.has(index)) continue;
             arguments_[index] = this.#inferExpr(argument, level);
           }
-          for (const index of deferredLambdas) {
-            arguments_[index] = this.#inferExpr(expression.arguments[index]!, level);
-          }
+          this.#secondPass(
+            owner,
+            [...deferredLambdas].map((index) => ({
+              expression: expression.arguments[index]!,
+              elaborate: () => {
+                arguments_[index] = this.#inferExpr(expression.arguments[index]!, level);
+              },
+            })),
+            level,
+            expression.span,
+          );
         }
         let applied: Resolved.Expr = expression.callee;
         while (applied.kind === "Group") applied = applied.expression;
@@ -9620,6 +9697,23 @@ class Checker {
             result: this.#fresh(level, false),
           })
           : this.#inferExpr(expression.callee, level);
+        // *(#1066.)* A constructor application's own expected type: before the
+        // first argument elaborates, the constructor's instantiated result is
+        // unified with it where both are headed by the constructor's type — the
+        // unification the seat's final check performs anyway — so the
+        // parameters hand the expectation's parts to the arguments. No other
+        // call unifies its result early (Functions §4.3).
+        if (expected !== undefined && !calleeIsLambda && this.#appliesDataConstructor(expression)) {
+          const known = this.#prune(callee);
+          const result = known.kind === "Function" ? this.#prune(known.result) : undefined;
+          const face = this.#prune(expected);
+          if (
+            (result?.kind === "Union" && face.kind === "Union" && result.union === face.union) ||
+            (result?.kind === "NominalRecord" && face.kind === "NominalRecord" && result.record === face.record)
+          ) {
+            this.#unify(result, face, expression.span);
+          }
+        }
         // A tower member call of the member's own arity, in any spelling, is an
         // interior node of its tree and never reaches here (`#collectCall`,
         // Numeric Literals §5.1).
@@ -9648,6 +9742,7 @@ class Checker {
           expression.span,
           powerSeat,
           new Set(calleeIsLambda ? arguments_.keys() : []),
+          calleeIsLambda ? undefined : owner,
         );
         if (!calleeIsLambda) {
           for (const [index, argument] of expression.arguments.entries()) {
@@ -9656,20 +9751,29 @@ class Checker {
               ? this.#inferExpr(argument, level)
               : pass.argument(index, calleeParameters?.[index]);
           }
-          if (deferredLambdas.size > 0) {
-            // An expectation has to *be* something by the time it is read, so
-            // the whole first pass is checked before the second elaborates: a
-            // callback anywhere in the list — ahead of its subject included —
-            // reads its expectation off a resolved instantiation.
+          // An expectation has to *be* something by the time it is read, so
+          // the whole first pass is checked before the second elaborates: a
+          // callback anywhere in the list — ahead of its subject included, and
+          // at any depth of its argument's spine — reads its expectation off a
+          // resolved instantiation.
+          if (deferredLambdas.size > 0 || owner.waiting.size > 0) {
             pass?.establishFirstPass(deferredLambdas);
-            for (const index of deferredLambdas) {
-              arguments_[index] = this.#inferExpr(
-                expression.arguments[index]!,
-                level,
-                calleeParameters?.[index],
-              );
-            }
           }
+          this.#secondPass(
+            owner,
+            [...deferredLambdas].map((index) => ({
+              expression: expression.arguments[index]!,
+              elaborate: () => {
+                arguments_[index] = this.#inferExpr(
+                  expression.arguments[index]!,
+                  level,
+                  calleeParameters?.[index],
+                );
+              },
+            })),
+            level,
+            expression.span,
+          );
         }
         const result = this.#fresh(level, false);
         const knownCallee = this.#prune(callee);
@@ -14383,7 +14487,27 @@ class Checker {
    */
   readonly #siblingSettled = new WeakMap<
     Resolved.LambdaExpr,
-    { readonly sibling: Resolved.Expr; readonly parameters: readonly boolean[] }
+    {
+      readonly sibling: Resolved.Expr;
+      readonly parameters: readonly boolean[];
+      /** What the values beside it are the parts of: a call, or a literal on no spine. */
+      readonly seat: "call" | "tuple" | "record";
+    }
+  >();
+
+  /** The lambda literals waiting for an owner's second pass (`SpineOwner`), by lambda. */
+  readonly #claimedLambdas = new Map<Resolved.LambdaExpr, SpineOwner>();
+
+  /**
+   * The values a call's first pass reads, on its arguments' spines, against a
+   * bare type variable of its callee's parameters (Functions §4.3, #1096):
+   * siblings in that variable's group, collected there wherever the
+   * elaboration reaches them, and standing in the literal or constructor
+   * application holding them as the variable itself.
+   */
+  readonly #spineSiblings = new Map<
+    Resolved.Expr,
+    { readonly variable: Mono; readonly collect: (part: TreePart) => void }
   >();
 
   /** The `let` whose right-hand side is being elaborated, for a repair that names it. */
@@ -15359,7 +15483,8 @@ class Checker {
     } else if (first.owner === undefined && first.note === undefined && !receiver) {
       this.#diagnostics.add({
         severity: "error",
-        message: this.#faceEntryRefusal(first, face),
+        message: this.#functionResultRefusal(first.expression, face, first.type) ??
+          this.#faceEntryRefusal(first, face),
         primary: first.expression.span,
       });
       reported = true;
@@ -15622,6 +15747,240 @@ class Checker {
     return `\`${spelled}\` is a \`${this.#display(value.type)}\` and cannot enter ` +
       `\`${home}\`, the home \`: ${home}\` writes` +
       (door === undefined ? "" : `; convert it explicitly — \`${door}\``);
+  }
+
+  /**
+   * Numeric Literals §6's **function-result report** *(#1066)* in place of the
+   * refusal a check of `value` against `expected` makes, where it is owed —
+   * answering whether it was. The check is made all the same, so what it
+   * unified stays unified; only its report is replaced.
+   */
+  #refuseFunctionResult(value: Resolved.Expr, expected: Mono, actual: Mono, span: Source.Span): boolean {
+    const refusal = this.#functionResultRefusal(value, expected, actual);
+    if (refusal === undefined) return false;
+    const before = this.#diagnostics.count;
+    this.#unify(expected, actual, span);
+    this.#diagnostics.discardSince(before);
+    this.#diagnostics.add({ severity: "error", message: refusal, primary: ungrouped(value).span });
+    return true;
+  }
+
+  /**
+   * The function-result report for `value` meeting `expected`, or `undefined`
+   * where the ordinary report stands: "`wrap(n)` is an `Option(Int)` — the
+   * type expected here does not reach an argument through a function's result;
+   * write `wrap((n: Dec))`". A face reaches no argument through a function's
+   * result (Functions §4.3; Numeric Literals §7), so the report names the
+   * boundary and the ascription that crosses it — offered only under
+   * conditions that make the repaired call compile:
+   *
+   * - `value` is a call spelled with a name, neither a tower member call nor a
+   *   constructor application, whose callee's type is a generalized scheme,
+   *   instantiated here, and `expected` is concrete;
+   * - the scheme's result type is `expected` but at variables of the scheme,
+   *   each meeting one type of `expected`, and the call's result differs from
+   *   `expected` only at such variables — where it holds one numeric type and
+   *   `expected` another;
+   * - the scheme writes each of those variables among its parameters at bare
+   *   argument seats alone, and places no constraint on it that the type it
+   *   meets lacks;
+   * - every value of every argument at those seats would have entered that
+   *   type (Numeric Literals §5.1's entry); and this site spells it.
+   *
+   * The ascription goes on the argument holding the value that establishes the
+   * home of the arguments at the variable's seats, else the first of them.
+   * Decided from recorded types, for the report alone.
+   */
+  #functionResultRefusal(value: Resolved.Expr, expected: Mono, actual: Mono): string | undefined {
+    const call = ungrouped(value);
+    if (call.kind !== "Call" || call.callee.kind !== "Name") return undefined;
+    if (this.#appliesDataConstructor(call) || this.#towerCallRung(call) !== undefined) return undefined;
+    const face = this.#prune(expected);
+    if (!this.#ground(face)) return undefined;
+    const scheme = this.#schemes.get(call.callee.symbol);
+    if (scheme === undefined || scheme.variables.length === 0) return undefined;
+    const declared = this.#prune(scheme.type);
+    if (declared.kind !== "Function" || declared.parameters.length !== call.arguments.length) return undefined;
+    const quantified = new Map(scheme.variables.map((variable) => [variable.id, variable] as const));
+    const faceParts = new Map<number, Mono>();
+    const actualParts = new Map<number, Mono>();
+    if (
+      !this.#readsAlike(declared.result, face, quantified, faceParts) ||
+      !this.#readsAlike(declared.result, actual, quantified, actualParts)
+    ) return undefined;
+    const numeric = (type: Mono): boolean => {
+      const actualType = this.#prune(type);
+      return actualType.kind !== "Variable" && actualType.kind !== "Error" &&
+        this.#supportsTarget(actualType, "Num");
+    };
+    const edits: { readonly span: Source.Span; readonly text: string }[] = [];
+    for (const [id, target] of faceParts) {
+      const held = actualParts.get(id);
+      if (held === undefined || this.#sameSeat(held, target)) continue;
+      if (!numeric(held) || !numeric(target)) return undefined;
+      const variable = quantified.get(id)!;
+      if (!this.#carriesDemands(target, variable.requirements)) return undefined;
+      const seats: Resolved.Expr[] = [];
+      for (const [index, parameter] of declared.parameters.entries()) {
+        const written = this.#prune(parameter);
+        if (written.kind === "Variable" && written.id === id) seats.push(call.arguments[index]!);
+        else if (this.#occurs(variable, parameter)) return undefined;
+      }
+      if (seats.length === 0) return undefined;
+      const values = seats.flatMap((argument) => this.#recordedValues(argument));
+      if (!values.every(({ expression, type }) => this.#entersFace(type, target, expression))) return undefined;
+      const spelling = this.#typeSpellingAtSite(target);
+      if (spelling === undefined) return undefined;
+      const source = this.#chooseHome(values)?.source;
+      const within = (outer: Source.Span, inner: Source.Span): boolean =>
+        outer.start.offset <= inner.start.offset && inner.end.offset <= outer.end.offset;
+      const holder = (source === undefined ? undefined : seats.find((seat) => within(seat.span, source.span))) ??
+        seats[0]!;
+      const spelled = this.#spelledExpression(holder);
+      if (spelled === undefined) return undefined;
+      edits.push({ span: holder.span, text: `(${spelled}: ${spelling})` });
+    }
+    const written = this.#spelledExpression(call);
+    if (edits.length === 0 || written === undefined) return undefined;
+    let repaired = written;
+    for (const { span, text } of [...edits].sort((left, right) => right.span.start.offset - left.span.start.offset)) {
+      const start = span.start.offset - call.span.start.offset;
+      const end = span.end.offset - call.span.start.offset;
+      repaired = repaired.slice(0, start) + text + repaired.slice(end);
+    }
+    const shown = this.#display(actual);
+    return `\`${written}\` is ${/^[AEIOU]/u.test(shown) ? "an" : "a"} \`${shown}\` — the type expected here ` +
+      `does not reach an argument through a function's result; write \`${repaired}\``;
+  }
+
+  /**
+   * Whether `other` has the shape `declared` writes, reading through the
+   * quantified variables: each takes the part of `other` it stands at, the
+   * same part wherever it stands. `parts` collects them.
+   */
+  #readsAlike(
+    declared: Mono,
+    other: Mono,
+    quantified: ReadonlyMap<number, Variable>,
+    parts: Map<number, Mono>,
+  ): boolean {
+    const shape = this.#prune(declared);
+    const actual = this.#prune(other);
+    if (shape.kind === "Variable") {
+      if (!quantified.has(shape.id)) return false;
+      const known = parts.get(shape.id);
+      if (known === undefined) {
+        parts.set(shape.id, actual);
+        return true;
+      }
+      return this.#sameSeat(known, actual);
+    }
+    const alike = (left: Mono, right: Mono): boolean => this.#readsAlike(left, right, quantified, parts);
+    const all = (left: readonly Mono[], right: readonly Mono[]): boolean =>
+      left.length === right.length && left.every((part, index) => alike(part, right[index]!));
+    switch (shape.kind) {
+      case "Constructor":
+        return actual.kind === "Constructor" && actual.name === shape.name;
+      case "Range":
+      case "JsValue":
+        return actual.kind === shape.kind;
+      case "Tuple":
+        return actual.kind === "Tuple" && all(shape.elements, actual.elements);
+      case "Union":
+        return actual.kind === "Union" && actual.union === shape.union && all(shape.arguments, actual.arguments);
+      case "NominalRecord":
+        return actual.kind === "NominalRecord" && actual.record === shape.record &&
+          all(shape.arguments, actual.arguments);
+      case "ExternType":
+        return actual.kind === "ExternType" && actual.externType === shape.externType &&
+          all(shape.arguments, actual.arguments);
+      case "Vector":
+      case "Set":
+      case "Array":
+      case "JsSet":
+      case "Node":
+        return actual.kind === shape.kind && alike(shape.element, (actual as typeof shape).element);
+      case "Map":
+      case "JsMap":
+        return actual.kind === shape.kind &&
+          alike(shape.key, (actual as typeof shape).key) && alike(shape.value, (actual as typeof shape).value);
+      case "Nullable":
+        return actual.kind === "Nullable" && alike(shape.value, actual.value);
+      default:
+        return false;
+    }
+  }
+
+  /** Whether `type` holds no type variable (colours aside): a concrete type (Numeric Literals §5.1). */
+  #ground(type: Mono): boolean {
+    const actual = this.#prune(type);
+    switch (actual.kind) {
+      case "Variable":
+        return false;
+      case "Tuple":
+        return actual.elements.every((element) => this.#ground(element));
+      case "Record":
+        return actual.tail === undefined && [...actual.fields.values()].every((field) => this.#ground(field));
+      case "Union":
+      case "NominalRecord":
+      case "ExternType":
+        return actual.arguments.every((argument) => this.#ground(argument));
+      case "Vector":
+      case "Set":
+      case "Array":
+      case "JsSet":
+      case "Node":
+        return this.#ground(actual.element);
+      case "Map":
+      case "JsMap":
+        return this.#ground(actual.key) && this.#ground(actual.value);
+      case "Nullable":
+        return this.#ground(actual.value);
+      case "Function":
+        return actual.parameters.every((parameter) => this.#ground(parameter)) && this.#ground(actual.result);
+      default:
+        return true;
+    }
+  }
+
+  /**
+   * The values of the expression tree `expression` roots (Numeric Literals
+   * §5.1), with the types they were elaborated at: every part its tower
+   * operations and forwarding forms hold, read from what was recorded.
+   */
+  #recordedValues(
+    expression: Resolved.Expr,
+    values: { readonly expression: Resolved.Expr; readonly type: Mono }[] = [],
+  ): { readonly expression: Resolved.Expr; readonly type: Mono }[] {
+    const operands = this.#subjectOperands.get(expression)?.operands;
+    if (operands !== undefined) {
+      for (const operand of operands) this.#recordedValues(operand.expression, values);
+      return values;
+    }
+    switch (expression.kind) {
+      case "Group":
+        return this.#recordedValues(expression.expression, values);
+      case "If":
+        if (expression.elseless === true) break;
+        this.#recordedValues(expression.consequence, values);
+        return this.#recordedValues(expression.alternative, values);
+      case "Match":
+        for (const arm of [...expression.arms, ...expression.catchArms ?? []]) this.#recordedValues(arm.body, values);
+        return values;
+      case "Try":
+        this.#recordedValues(expression.body, values);
+        for (const arm of expression.arms) this.#recordedValues(arm.body, values);
+        return values;
+      case "Block": {
+        const final = expression.items.at(-1);
+        if (final?.kind !== "ExprItem") break;
+        return this.#recordedValues(final.expression, values);
+      }
+      default:
+        break;
+    }
+    values.push({ expression, type: this.#typeOf(expression) });
+    return values;
   }
 
   /** The join every form always made, the face's descent reported as its own disagreement. */
@@ -16071,6 +16430,342 @@ class Checker {
   }
 
   /**
+   * Whether `expression` applies a constructor a `union` or `record`
+   * declaration makes, the callee resolving to it by name, bare or qualified
+   * (Functions §4.3, #1066). Decided by resolution, never by inference: a name
+   * bound to a constructor (`let mk = Some`) is called as any function is.
+   */
+  #appliesDataConstructor(expression: Resolved.Expr): boolean {
+    return expression.kind === "Call" && expression.callee.kind === "Name" &&
+      (this.#constructorUnions.has(expression.callee.symbol) ||
+        this.#recordConstructors.has(expression.callee.symbol));
+  }
+
+  /** `expectationLands`, and a constructor application, which takes its expectation first (#1066). */
+  #faceLands(expression: Resolved.Expr): boolean {
+    return expectationLands(expression) || this.#appliesDataConstructor(expression);
+  }
+
+  /**
+   * Claims the lambda literals on the spines of a call's arguments, below the
+   * arguments themselves, for the call's second pass (Functions §4.3's
+   * argument spine, #1096): reached through grouping, the forwarding forms'
+   * value paths, the literal forms' components — a `with` update's overrides
+   * included — and a constructor application's arguments. A lambda an
+   * enclosing call has claimed stays that call's, and an argument that is
+   * itself a lambda literal is the call's own deferred argument.
+   */
+  #claimSpine(arguments_: readonly Resolved.Expr[]): SpineOwner {
+    const owner: SpineOwner = { claimed: [], waiting: new Map() };
+    const visit = (expression: Resolved.Expr, top: boolean): void => {
+      switch (expression.kind) {
+        case "Group":
+          visit(expression.expression, top);
+          return;
+        case "Lambda":
+          if (!top && !this.#claimedLambdas.has(expression)) {
+            this.#claimedLambdas.set(expression, owner);
+            owner.claimed.push(expression);
+          }
+          return;
+        case "Tuple":
+        case "Vector":
+          for (const element of expression.elements) visit(element, false);
+          return;
+        case "Record":
+          for (const field of expression.fields) visit(field.value, false);
+          return;
+        case "Call":
+          if (this.#appliesDataConstructor(expression)) {
+            for (const argument of expression.arguments) visit(argument, false);
+          }
+          return;
+        case "If":
+          if (expression.elseless === true) return;
+          visit(expression.consequence, false);
+          visit(expression.alternative, false);
+          return;
+        case "Match":
+          for (const arm of [...expression.arms, ...expression.catchArms ?? []]) visit(arm.body, false);
+          return;
+        case "Try":
+          visit(expression.body, false);
+          for (const arm of expression.arms) visit(arm.body, false);
+          return;
+        case "Block": {
+          const final = expression.items.at(-1);
+          if (final?.kind === "ExprItem") visit(final.expression, false);
+          return;
+        }
+        default:
+          return;
+      }
+    };
+    for (const argument of arguments_) visit(argument, true);
+    return owner;
+  }
+
+  /** A waiting lambda's stand-in (`SpineOwner`), minted where the first pass first reaches it. */
+  #standIn(lambda: Resolved.LambdaExpr, owner: SpineOwner, level: number): FunctionMono {
+    const known = owner.waiting.get(lambda);
+    if (known !== undefined) return known;
+    const standIn: FunctionMono = {
+      kind: "Function",
+      parameters: lambda.parameters.map(() => this.#fresh(level, false)),
+      result: this.#fresh(level, false),
+      effect: this.#fresh(level, false),
+    };
+    owner.waiting.set(lambda, standIn);
+    return standIn;
+  }
+
+  /** The written faces of `owner`'s waiting lambdas, landed on their stand-ins (ruling A2). */
+  #landWaiting(owner: SpineOwner, level: number): void {
+    for (const [lambda, standIn] of owner.waiting) this.#landWrittenFace(lambda, standIn, level);
+  }
+
+  /**
+   * An owner's **second pass** (Functions §4.3): its own deferred arguments —
+   * each with the elaboration it takes — and the lambdas waiting on its
+   * spine, in source order across the whole list. A waiting lambda's body is
+   * checked against its stand-in, and the stand-in then against the lambda's
+   * type, as a direct argument's parameter is checked against its lambda.
+   */
+  #secondPass(
+    owner: SpineOwner,
+    direct: readonly { readonly expression: Resolved.Expr; readonly elaborate: () => void }[],
+    level: number,
+    span: Source.Span,
+  ): void {
+    this.#landWaiting(owner, level);
+    for (const lambda of owner.claimed) this.#claimedLambdas.delete(lambda);
+    const items = [
+      ...direct.map(({ expression, elaborate }) => ({ at: expression.span.start.offset, run: elaborate })),
+      ...[...owner.waiting].map(([lambda, standIn]) => ({
+        at: lambda.span.start.offset,
+        run: (): void => {
+          const type = this.#inferExpr(lambda, level, standIn);
+          this.#unifyExpected(standIn, type, lambda, span, true);
+        },
+      })),
+    ].sort((left, right) => left.at - right.at);
+    for (const { run } of items) run();
+  }
+
+  /**
+   * Records, for §6's report, which callbacks read `variable` when a group
+   * about to settle it from its values alone closes (ruling A2): the value
+   * that establishes the home, named should a callback's body disagree.
+   * `callbacks` pairs each with the type it was read against.
+   */
+  #recordSettled(
+    callbacks: Iterable<readonly [Resolved.LambdaExpr, Mono]>,
+    variable: Mono,
+    values: () => readonly { readonly expression: Resolved.Expr; readonly type: Mono }[],
+    seat: "call" | "tuple" | "record",
+  ): void {
+    const target = this.#prune(variable);
+    if (target.kind !== "Variable") return;
+    let sibling: Resolved.Expr | undefined;
+    for (const [lambda, read] of callbacks) {
+      const face = this.#prune(read);
+      if (face.kind !== "Function" || !this.#occurs(target, face.result)) continue;
+      if (sibling === undefined) {
+        const found = values();
+        sibling = this.#chooseHome(found)?.source ?? found[0]?.expression;
+        if (sibling === undefined) return;
+      }
+      this.#siblingSettled.set(lambda, {
+        sibling,
+        // Only a parameter written as the variable itself can be annotated
+        // with the wider type.
+        parameters: face.parameters.map((component) => this.#prune(component) === target),
+        seat,
+      });
+    }
+  }
+
+  /**
+   * A tuple literal's components, a record literal's fields, or a `with`
+   * update's overrides, each handed the part of the expectation that matches
+   * it (Functions §4.3's literal forms, #1066), on the **component schedule**:
+   * the non-lambda components in source order, then the lambda literals, read
+   * through grouping. A component at a part written as a bare type variable
+   * closes after the first pass, alone and in source order — no two components
+   * of one literal are siblings (ruling B5 (i)) — and before any of them does,
+   * the lambda literals' written faces land on their parts: so a callback's
+   * body chooses no home for the components beside it (ruling A2). A part that
+   * is a concrete numeric type is the component's home, which it enters at its
+   * turn; any other part is only handed on, the literal meeting its seat as a
+   * whole, so a mismatch or a colour pin is where it always was.
+   *
+   * On a call argument's spine, a component the call read as a sibling joins
+   * the call's group instead, and a lambda the call claimed waits for the call
+   * (#1096).
+   *
+   * Answers each component's type in the literal: the home it entered, where
+   * it had one, and its own type otherwise.
+   */
+  #inferComponents(
+    literal: Resolved.Expr,
+    components: readonly Resolved.Expr[],
+    parts: readonly (Mono | undefined)[],
+    level: number,
+    seat: "tuple" | "record",
+  ): Mono[] {
+    const types: Mono[] = components.map(() => ERROR);
+    const lambdas: number[] = [];
+    const alone: { readonly variable: Mono; readonly part: TreePart; readonly span: Source.Span }[] = [];
+    const pending: number[] = [];
+    for (const [index, component] of components.entries()) {
+      const sibling = this.#spineSiblings.get(component);
+      if (sibling !== undefined) {
+        sibling.collect(this.#treePart(component, level, sibling.variable));
+        types[index] = sibling.variable;
+        continue;
+      }
+      if (defersAsLambda(component)) {
+        lambdas.push(index);
+        continue;
+      }
+      const part = parts[index];
+      const face = part === undefined ? undefined : this.#prune(part);
+      if (face?.kind === "Variable") {
+        alone.push({ variable: face, part: this.#treePart(component, level, face), span: component.span });
+        types[index] = face;
+        continue;
+      }
+      const type = this.#inferExpr(component, level, part);
+      types[index] = type;
+      const home = this.#numericHome(part);
+      if (home === undefined) {
+        // Numeric Literals §6's function-result report is a literal's
+        // component's own, at any concrete part.
+        if (face !== undefined && this.#refuseFunctionResult(component, face, type, component.span)) {
+          types[index] = face;
+        }
+        continue;
+      }
+      // Entered at its turn, as a call's argument is — one still standing on
+      // an unsolved variable waits for the end.
+      if (this.#prune(type).kind === "Variable") {
+        pending.push(index);
+        continue;
+      }
+      this.#unifyExpected(home, type, component, component.span, true);
+      types[index] = home;
+    }
+    const callbacks: (readonly [Resolved.LambdaExpr, Mono])[] = [];
+    for (const index of lambdas) {
+      const lambda = deferredLambda(components[index]!)!;
+      const part = parts[index];
+      if (part === undefined) continue;
+      this.#landWrittenFace(lambda, part, level);
+      callbacks.push([lambda, part]);
+    }
+    for (const { variable, part, span } of alone) {
+      this.#recordSettled(
+        callbacks,
+        variable,
+        () => "node" in part ? this.#treeValues(part.node) : [part.value],
+        seat,
+      );
+      this.#closeSiblings(literal, variable, [part], level, span);
+    }
+    for (const index of lambdas) types[index] = this.#inferLambdaComponent(components[index]!, level, parts[index]);
+    for (const index of pending) {
+      this.#unifyExpected(parts[index]!, types[index]!, components[index]!, components[index]!.span, true);
+      types[index] = parts[index]!;
+    }
+    return types;
+  }
+
+  /**
+   * A literal's lambda-literal component, its part landing on the lambda
+   * itself: the grouping around it takes the lambda's type rather than closing
+   * against the part as a face would, so the literal meets its seat whole and
+   * a colour it carries joins where the literal does (Effects §13.2).
+   */
+  #inferLambdaComponent(component: Resolved.Expr, level: number, part: Mono | undefined): Mono {
+    const type = this.#inferExpr(deferredLambda(component)!, level, part);
+    for (let group = component; group.kind === "Group"; group = group.expression) {
+      this.#expressionTypes.set(group, type);
+    }
+    return type;
+  }
+
+  /** A part that is a component's **home**: a concrete type of the numeric tower (Numeric Literals §5.1). */
+  #numericHome(part: Mono | undefined): Mono | undefined {
+    const face = this.#concreteFace(part);
+    return face !== undefined && this.#supportsTarget(face, "Num") ? face : undefined;
+  }
+
+  /**
+   * A vector literal. Its elements are **siblings** of one expression tree
+   * (Numeric Literals §5.1, #1062): their home is chosen from all of them at
+   * once, so `[m, n]` is a `Vector(Int)` in either order — the element type a
+   * `Vector(t)` expectation hands them (#1066) where it is a concrete numeric
+   * type, which every element enters. *(Review round 8, MINOR 3.)* They join
+   * one element type, and §13.2's third merge form — "a value carrying both" —
+   * is exactly this: `[spare, b]` fixes `b`'s slot as surely as `if c then
+   * spare else b` does.
+   *
+   * On the component schedule, the lambda-literal elements are checked after
+   * the others have closed, their written faces landing first, and join the
+   * element type as the others did. On a call argument's spine, elements the
+   * call read against a bare type variable are siblings in that variable's
+   * group instead, which is the literal's element type (#1096).
+   */
+  #inferVector(expression: Resolved.VectorExpr, level: number, expected: Mono | undefined): Mono {
+    const face = expected === undefined ? undefined : this.#prune(expected);
+    const element = face?.kind === "Vector" ? face.element : undefined;
+    const node: TreeNode = {
+      expression,
+      result: this.#fresh(level, false),
+      level,
+      face: element,
+      parts: [],
+      siblings: true,
+      elements: true,
+    };
+    const lambdas: Resolved.Expr[] = [];
+    // The call's group the elements joined, where the call read them as siblings.
+    let group: Mono | undefined;
+    for (const value of expression.elements) {
+      const sibling = this.#spineSiblings.get(value);
+      if (sibling !== undefined) {
+        sibling.collect(this.#treePart(value, level, sibling.variable));
+        group = sibling.variable;
+      } else if (defersAsLambda(value)) {
+        lambdas.push(value);
+      } else {
+        node.parts.push(this.#treePart(value, level, element));
+      }
+    }
+    if (element !== undefined) {
+      for (const value of lambdas) this.#landWrittenFace(deferredLambda(value)!, element, level);
+    }
+    // What the elements join at among themselves; the seat then checks it
+    // against its expectation as it checks any value's.
+    let joined: Mono = group ?? node.result;
+    if (node.parts.length > 0) {
+      const home = this.#numericHome(element);
+      const refused = home === undefined ? this.#closeFree(node) : this.#closeFaced(node, home);
+      joined = refused ? ERROR : node.published ?? node.result;
+    }
+    const types = node.parts.map((part) => this.#partType(part));
+    for (const value of lambdas) {
+      const type = this.#inferLambdaComponent(value, level, element);
+      types.push(type);
+      this.#joining(expression.span, () => this.#unifyExpected(joined, type, value, value.span, true));
+    }
+    // And the published element wears the seat's node where an element
+    // carried one, so a call through the vector records the edge.
+    for (const type of types) joined = this.#publishJoinedColours(joined, type);
+    return { kind: "Vector", element: joined };
+  }
+
+  /**
    * One call's argument checking, on Functions §4.3's schedule *(#513, #517)*,
    * with its **sibling arguments** *(#1062)*.
    *
@@ -16083,6 +16778,18 @@ class Checker {
    * `xs.fold(0.0, (acc, x) => acc + x)` checks its callback at `Float`, and
    * `h(n * 1.5, price)` meets at `Dec`. A comparison is such a call; so is a
    * dot call on an open member, its receiver a value among the siblings.
+   *
+   * *(#1096.)* A value deeper on an argument's **spine** joins the groups too:
+   * each argument is read against its parameter type as the call finds it,
+   * before any argument is checked, through its literals' and constructor
+   * applications' written shapes and its forwarding forms' value paths
+   * (`#readSpine`), and a non-lambda expression read against a bare type
+   * variable is a sibling in that variable's group, collected wherever the
+   * elaboration reaches it (`#spineSiblings`) — so `both(price, [n])` meets at
+   * `Dec` in either order. The groups are read once and never revisited. The
+   * lambda literals waiting on the spines (`owner`) land their written faces on
+   * their stand-ins before the groups close, as a deferred argument lands its
+   * face on its parameter (ruling A2).
    *
    * Every other argument is checked against its parameter **at its own turn**,
    * so a later argument reads the instantiation an earlier one solved — the
@@ -16102,7 +16809,8 @@ class Checker {
    *
    * `actuals` is the caller's seat list, filled as the arguments elaborate; a
    * seat already filled when the pass is built — a dot call's receiver, a
-   * pending dot call's measured arguments — is a value of its group.
+   * pending dot call's measured arguments — is a value of its group, and its
+   * spine is not read, having already been elaborated.
    */
   #argumentPass(
     call: Resolved.Expr,
@@ -16114,21 +16822,45 @@ class Checker {
     powerSeat?: PowerSeat,
     /** Seats already elaborated when the pass is built. */
     preset: ReadonlySet<number> = new Set(),
+    /** The lambda literals waiting on the arguments' spines (#1096). */
+    owner?: SpineOwner,
   ): ArgumentPass {
     // Every index is dispositioned exactly once — checked at its seat, or
     // closed with its group.
     const disposed = new Set<number>();
     const collected = new Map<number, TreePart>();
-    const groups = new Map<Mono, number[]>();
+    // A group's members: an argument, by index, or a value deeper on an
+    // argument's spine, whose part is collected where the elaboration reaches it.
+    type Member = number | { part?: TreePart };
+    const groups = new Map<Mono, Member[]>();
     const grouped = new Set<number>();
+    const join = (variable: Mono, member: Member): void => {
+      const group = groups.get(variable);
+      if (group === undefined) groups.set(variable, [member]);
+      else group.push(member);
+    };
+    const read: Resolved.Expr[] = [];
     for (const [index, expression] of expressions.entries()) {
       if (powerSeat?.index === index || defersAsLambda(expression)) continue;
+      // A value an enclosing call read as a sibling on its own spine is that
+      // call's (a constructor application whose shape the call read has no
+      // spines of its own).
+      if (this.#spineSiblings.has(expression)) continue;
       const parameter = this.#prune(parameters[index] ?? ERROR);
-      if (parameter.kind !== "Variable") continue;
-      const group = groups.get(parameter);
-      if (group === undefined) groups.set(parameter, [index]);
-      else group.push(index);
-      grouped.add(index);
+      if (parameter.kind === "Variable") {
+        join(parameter, index);
+        grouped.add(index);
+        continue;
+      }
+      if (preset.has(index)) continue;
+      this.#readSpine(expression, parameter, (value, variable) => {
+        // Read already, by a call this one's application stands on the spine of.
+        if (this.#spineSiblings.has(value)) return;
+        const member: { part?: TreePart } = {};
+        join(variable, member);
+        read.push(value);
+        this.#spineSiblings.set(value, { variable, collect: (part) => member.part = part });
+      });
     }
     let closed = false;
 
@@ -16153,34 +16885,35 @@ class Checker {
       }
     };
 
+    const parts = (members: readonly Member[]): TreePart[] =>
+      members.flatMap((member): TreePart[] => {
+        if (typeof member !== "number") return member.part === undefined ? [] : [member.part];
+        return [collected.get(member) ??
+          { value: { expression: expressions[member]!, type: actuals[member] ?? ERROR } }];
+      });
+
     const closeGroups = (lambdas: ReadonlySet<number> = new Set()): void => {
       if (closed) return;
       closed = true;
       // Which callbacks read a variable a group is about to settle from its
-      // values alone, for the report should a callback's body then disagree.
-      for (const variable of groups.keys()) {
-        if (this.#prune(variable).kind !== "Variable") continue;
-        for (const index of lambdas) {
-          const expression = expressions[index];
-          const face = this.#prune(parameters[index] ?? ERROR);
-          if (expression?.kind !== "Lambda" || face.kind !== "Function") continue;
-          if (!this.#occurs(variable as Variable, face.result)) continue;
-          // The value that establishes the home is the one to name.
-          const values = groups.get(variable)!.flatMap((at) => {
-            const part = collected.get(at);
-            return part === undefined
-              ? [{ expression: expressions[at]!, type: actuals[at] ?? ERROR }]
-              : "node" in part ? this.#treeValues(part.node) : [part.value];
-          });
-          const sibling = this.#chooseHome(values)?.source ?? values[0]?.expression;
-          if (sibling === undefined) continue;
-          this.#siblingSettled.set(expression, {
-            sibling,
-            // Only a parameter written as the variable itself can be annotated
-            // with the wider type.
-            parameters: face.parameters.map((component) => this.#prune(component) === variable),
-          });
-        }
+      // values alone, for the report should a callback's body then disagree:
+      // a deferred argument, through its grouping (#1099), read against its
+      // parameter, and a lambda waiting deeper on a spine, against its
+      // stand-in.
+      const callbacks: (readonly [Resolved.LambdaExpr, Mono])[] = [];
+      for (const index of lambdas) {
+        const expression = expressions[index];
+        const lambda = expression === undefined ? undefined : deferredLambda(expression);
+        if (lambda !== undefined) callbacks.push([lambda, parameters[index] ?? ERROR]);
+      }
+      if (owner !== undefined) callbacks.push(...owner.waiting);
+      for (const [variable, members] of groups) {
+        this.#recordSettled(
+          callbacks,
+          variable,
+          () => parts(members).flatMap((part) => "node" in part ? this.#treeValues(part.node) : [part.value]),
+          "call",
+        );
       }
       // A seat elaborated before the pass was built has had its turn: it is
       // checked before any group closes, so a group reads what it solved —
@@ -16189,22 +16922,32 @@ class Checker {
         const actual = actuals[index];
         if (actual !== undefined && this.#prune(actual).kind !== "Variable") eager(index);
       }
-      for (const [variable, indices] of groups) {
-        const parts = indices.map((index): TreePart =>
-          collected.get(index) ??
-            { value: { expression: expressions[index]!, type: actuals[index] ?? ERROR } }
-        );
-        this.#closeSiblings(call, variable, parts, level, span, givers.get(variable));
-        for (const [position, index] of indices.entries()) {
-          disposed.add(index);
-          actuals[index] = this.#partType(parts[position]!);
+      for (const [variable, members] of groups) {
+        const closing = parts(members);
+        this.#closeSiblings(call, variable, closing, level, span, givers.get(variable));
+        for (const member of members) {
+          if (typeof member !== "number") continue;
+          disposed.add(member);
+          actuals[member] = this.#partType(
+            collected.get(member) ?? closing.find((part) => this.#partExpression(part) === expressions[member])!,
+          );
         }
       }
+      for (const value of read) this.#spineSiblings.delete(value);
     };
 
     return {
       argument: (index: number, expectation: Mono | undefined): Mono => {
         const expression = expressions[index]!;
+        const sibling = grouped.has(index) ? undefined : this.#spineSiblings.get(expression);
+        if (sibling !== undefined) {
+          // An enclosing call's sibling: collected into its group, and standing
+          // here as the variable it was read against.
+          sibling.collect(this.#treePart(expression, level, sibling.variable));
+          actuals[index] = sibling.variable;
+          eager(index);
+          return sibling.variable;
+        }
         if (grouped.has(index)) {
           const part = this.#treePart(expression, level, expectation);
           collected.set(index, part);
@@ -16222,10 +16965,14 @@ class Checker {
         // body is not (#1062, ruling A2). What it writes reaches its siblings'
         // variable before the groups close — `apply2(m, (v: Int) => v + n)`
         // meets at `Int` — and what its body does never chooses their home.
+        // Read through grouping (#1099), and wherever on a spine the lambda
+        // waits (#1096).
         for (const index of deferredLambdas) {
           const expression = expressions[index];
-          if (expression?.kind === "Lambda") this.#landWrittenFace(expression, parameters[index], level);
+          const lambda = expression === undefined ? undefined : deferredLambda(expression);
+          if (lambda !== undefined) this.#landWrittenFace(lambda, parameters[index], level);
         }
+        if (owner !== undefined) this.#landWaiting(owner, level);
         closeGroups(deferredLambdas);
         for (let index = 0; index < actuals.length; index += 1) {
           // The second pass's own arguments have not elaborated yet; their
@@ -16248,13 +16995,116 @@ class Checker {
   }
 
   /**
+   * Reads an argument's **spine** against its parameter type as the call
+   * finds it (Functions §4.3, #1096) — through grouping, the written shapes of
+   * its literals and of the constructor applications whose constructor's type
+   * heads the type they are read against, and the value paths of its
+   * forwarding forms — and hands `sibling` each non-lambda expression it reads
+   * against a bare type variable. A `with` update is read as one value, its
+   * overrides taking their head's types; a literal or constructor application
+   * whose shape the type does not match is one value too. Nothing is
+   * elaborated: a constructor is read through its declared type.
+   */
+  #readSpine(
+    argument: Resolved.Expr,
+    parameter: Mono,
+    sibling: (value: Resolved.Expr, variable: Mono) => void,
+  ): void {
+    const visit = (expression: Resolved.Expr, type: Mono, top: boolean): void => {
+      const read = this.#prune(type);
+      if (expression.kind === "Group") {
+        visit(expression.expression, read, top);
+        return;
+      }
+      if (expression.kind === "Lambda" || read.kind === "Error") return;
+      if (read.kind === "Variable") {
+        if (!top) sibling(expression, read);
+        return;
+      }
+      switch (expression.kind) {
+        case "Tuple":
+          if (read.kind !== "Tuple" || read.elements.length !== expression.elements.length) return;
+          for (const [index, element] of expression.elements.entries()) {
+            visit(element, read.elements[index]!, false);
+          }
+          return;
+        case "Record":
+          if (expression.spread !== undefined || read.kind !== "Record") return;
+          for (const field of expression.fields) {
+            const at = read.fields.get(field.name.text);
+            if (at !== undefined) visit(field.value, at, false);
+          }
+          return;
+        case "Vector":
+          if (read.kind !== "Vector") return;
+          for (const element of expression.elements) visit(element, read.element, false);
+          return;
+        case "Call": {
+          const seats = this.#appliesDataConstructor(expression)
+            ? this.#constructorReading(expression, read)
+            : undefined;
+          for (const [index, argument] of (seats === undefined ? [] : expression.arguments).entries()) {
+            visit(argument, seats![index]!, false);
+          }
+          return;
+        }
+        case "If":
+          if (expression.elseless === true) return;
+          visit(expression.consequence, read, false);
+          visit(expression.alternative, read, false);
+          return;
+        case "Match":
+          for (const arm of [...expression.arms, ...expression.catchArms ?? []]) visit(arm.body, read, false);
+          return;
+        case "Try":
+          visit(expression.body, read, false);
+          for (const arm of expression.arms) visit(arm.body, read, false);
+          return;
+        case "Block": {
+          const final = expression.items.at(-1);
+          if (final?.kind === "ExprItem") visit(final.expression, read, false);
+          return;
+        }
+        default:
+          return;
+      }
+    };
+    visit(argument, parameter, true);
+  }
+
+  /**
+   * A constructor application's parameter types as its reading sees them
+   * (`#readSpine`): its declared type's, with each of the data declaration's
+   * parameters replaced by the part of `read` its result writes there — or
+   * `undefined` where `read` is headed by another type, or the arity differs.
+   * A read, not an instantiation: the constructor is instantiated where it is
+   * elaborated, its result unified with its expectation there (Functions §4.3).
+   */
+  #constructorReading(call: Resolved.CallExpr, read: Mono): readonly Mono[] | undefined {
+    const declared = this.#prune(this.#scheme((call.callee as Resolved.NameExpr).symbol).type);
+    if (declared.kind !== "Function" || declared.parameters.length !== call.arguments.length) return undefined;
+    const result = this.#prune(declared.result);
+    const same = (result.kind === "Union" && read.kind === "Union" && result.union === read.union) ||
+      (result.kind === "NominalRecord" && read.kind === "NominalRecord" && result.record === read.record);
+    if (!same) return undefined;
+    const replacements = new Map<number, Mono>();
+    for (const [index, argument] of result.arguments.entries()) {
+      const variable = this.#prune(argument);
+      if (variable.kind === "Variable") replacements.set(variable.id, read.arguments[index] ?? ERROR);
+    }
+    return declared.parameters.map((parameter) => this.#replaceVariables(parameter, replacements));
+  }
+
+  /**
    * The report for a callback whose body gives a type its call's siblings did
    * not settle at, where they would have widened into it (#1062, ruling A2): a
-   * callback's body chooses no type for the arguments beside it. "`m` settled
+   * callback's body chooses no type for the values beside it. "`m` settled
    * this call's `Nat` before the callback was checked, and the callback's body
-   * returns `Int` — a callback's body chooses no type for the arguments beside
-   * it; write `(m: Int)`, or annotate the callback: `(v: Int) => …`". Or
-   * `undefined` where the report is not owed.
+   * returns `Int` — a callback's body chooses no type for the values beside
+   * it; write `(m: Int)`, or annotate the callback: `(v: Int) => …`" — wherever
+   * on an argument's spine the callback stands (#1096), and, at a literal on
+   * no spine, naming the literal where it names the call: "…settled this
+   * tuple's `Int`…" (#1066). Or `undefined` where the report is not owed.
    */
   #settledCallbackRefusal(
     expression: Resolved.LambdaExpr,
@@ -16286,9 +17136,9 @@ class Checker {
       );
       repairs.push(`annotate the callback: \`(${annotated.join(", ")}) => …\``);
     }
-    return `\`${sibling}\` settled this call's \`${this.#display(settled)}\` before the callback ` +
-      `was checked, and the callback's body returns \`${this.#display(given)}\` — a callback's ` +
-      "body chooses no type for the arguments beside it" +
+    return `\`${sibling}\` settled this ${known.seat}'s \`${this.#display(settled)}\` before the ` +
+      `callback was checked, and the callback's body returns \`${this.#display(given)}\` — a ` +
+      "callback's body chooses no type for the values beside it" +
       (repairs.length === 0 ? "" : `; ${repairs.join(", or ")}`);
   }
 
@@ -21015,6 +21865,7 @@ class Checker {
     // have. Reported here in place of the bare mismatch, and only when the
     // unification really does fail.
     if (this.#reportStandDown(expression, expected, actual, span)) return;
+    if (this.#refuseFunctionResult(expression, expected, actual, span)) return;
     this.#unify(expected, actual, span);
   }
 
