@@ -225,8 +225,8 @@ chosen once for the whole expression — never operation by operation from the i
   tree around it. A non-lambda argument at a seat its callee's signature writes as a
   bare type variable — or a value on its spine read against one — is a sibling group of
   one where nothing else shares the variable, and closes with the call's other siblings.
-  On no spine, a tuple component or record field at a seat its expectation writes as a
-  bare type variable is a group of one whatever other component shares the variable,
+  On no spine, or in a literal whose shape the spine does not read, a tuple component or
+  record field at a seat its expectation writes as a bare type variable is a group of one whatever other component shares the variable,
   and closes after its literal's first pass, in source order (Functions §4.3's component
   schedule).
 - **The home.** Where the seat's expected type is **concrete** — it contains no type
@@ -283,8 +283,8 @@ chosen once for the whole expression — never operation by operation from the i
 - **Once.** The parts elaborate on Functions §4.3's normative schedule, and the home is
   chosen when the last part is in — for siblings at a call, after the first pass and
   before any lambda literal on an argument's spine is checked, so a callback reads the
-  home settled wherever it stands, and at a literal on no spine, likewise after its first
-  pass (Functions §4.3's argument spine and component schedule); a callback's written
+  home settled wherever it stands, and at a literal on no spine, or one whose shape the
+  spine does not read, likewise after its first pass (Functions §4.3's argument spine and component schedule); a callback's written
   parameter and result
   types count among the first pass, its body never (Functions §4.3); trees that close
   at one moment close in source order. The choice
