@@ -2997,6 +2997,8 @@ class Checker {
    * spellings are recorded: a member spelling was never a slip for a logic word.
    */
   readonly #bitwiseLogicWords = new Map<string, string>();
+  /** Place-and-wording keys of the requirement reports made (`#reportRequirement`). */
+  readonly #requirementReports = new Set<string>();
   /** The names applied as a call's callee — `#instantiate`'s `called`. */
   readonly #calledNames = new Set<Resolved.Expr>();
   /** Exact Int expressions that checking injects into an independently known Signed target. */
@@ -21032,7 +21034,7 @@ class Checker {
         const baseList = verbatimConstraintList(bases);
         const head = `\`${variable.rigidName}\` is \`${constraint}\`'s subject, so the body reaches ` +
           `only \`${constraint}\` and its base constraints, but it requires `;
-        this.#diagnostics.add({
+        this.#reportRequirement({
           severity: "error",
           message: sealed !== undefined
             ? `${head}${sealedDemand}`
@@ -21058,7 +21060,7 @@ class Checker {
         // reads (Constraints §6.2, FFI Part 9 §6.2), so the demand is appended
         // and nothing already there moves.
         const headerList = verbatimConstraintList(spellings);
-        this.#diagnostics.add({
+        this.#reportRequirement({
           severity: "error",
           message: sealed !== undefined
             ? `${declaration}, but the body requires ${sealedDemand}`
@@ -21084,7 +21086,7 @@ class Checker {
         const headRewrite = declared.length === 0
           ? "remove the head's binder to let it be inferred"
           : "remove the head's constraint to let it be inferred";
-        this.#diagnostics.add({
+        this.#reportRequirement({
           severity: "error",
           message: sealed !== undefined
             ? `${declaration} on the block head, but ${subject} requires ${sealedDemand} — ${headRewrite}`
@@ -21099,7 +21101,7 @@ class Checker {
       const inferenceRewrite = declared.length === 0
         ? "remove the explicit type parameter to let it be inferred"
         : "remove the constraint annotation to let it be inferred";
-      this.#diagnostics.add({
+      this.#reportRequirement({
         severity: "error",
         message: sealed !== undefined
           ? `${declaration}, but the body requires ${sealedDemand} — ${inferenceRewrite}`
@@ -21707,7 +21709,7 @@ class Checker {
     if (selection.kind === "forbidden") {
       requirement.reported = true;
       const provider = this.#moduleName(selection.provider) ?? selection.provider;
-      this.#diagnostics.add({
+      this.#reportRequirement({
         severity: "error",
         message: `\`${requirement.name}<${this.#display(type)}>\` ${dataSeatRefusal(provider)}`,
         primary: requirement.span,
@@ -21757,7 +21759,7 @@ class Checker {
     }
 
     requirement.reported = true;
-    this.#diagnostics.add({
+    this.#reportRequirement({
       severity: "error",
       message:
         // `type.kind === "Union"` since #147: `Bool` is the common case of a
@@ -21871,6 +21873,20 @@ class Checker {
    * members too, and naming a module the program may not contain would be an
    * offer the reader cannot take.
    */
+  /**
+   * Adds a report about a failed requirement, once per place and wording
+   * (Functions §10's "Where a report stands", #1063). Every demand a use copies
+   * stands at that use, so two of them failing alike — `both(f, g)` over
+   * `<a: Show, b: Show>` — would otherwise say the same sentence twice at one
+   * caret.
+   */
+  #reportRequirement(diagnostic: Diagnostics.Diagnostic): void {
+    const key = `${spanKey(diagnostic.primary)}\u0000${diagnostic.message}`;
+    if (this.#requirementReports.has(key)) return;
+    this.#requirementReports.add(key);
+    this.#diagnostics.add(diagnostic);
+  }
+
   #towerFaceRider(requirement: Requirement, type: Mono): string {
     // Pattern Matching §2.5: the rider rides at its **operation** seat only, and a
     // pattern is not one — "no seat of the numeric lift exists in a pattern". The
@@ -23089,7 +23105,7 @@ class Checker {
       const binder = bounds.length === 0
         ? name
         : `${name}: ${bounds.length === 1 ? bounds[0] : `(${bounds.join(", ")})`}`;
-      this.#diagnostics.add({
+      this.#reportRequirement({
         severity: "error",
         message: sibling
           ? `\`${name}\` is declared on \`${owner.name}\`, and this in \`${named.name}\` needs its ` +
@@ -23222,7 +23238,7 @@ class Checker {
     // anything.
     const literal = variable.requirements.find(({ origin }) => origin === "literal");
     for (const requirement of variable.requirements) requirement.reported = true;
-    this.#diagnostics.add({
+    this.#reportRequirement({
       severity: "error",
       message: `${
         literal?.literal === undefined

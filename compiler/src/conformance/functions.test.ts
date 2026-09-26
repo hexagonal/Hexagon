@@ -199,6 +199,14 @@ describe("Functions specification conformance", () => {
     expect(reports(n + "let f: (Int, Int) -> Int = Signed.subtract\nlet x = f(n, n)")).toEqual([]);
     // Through a function, the call is not the operation: no rider.
     expect(reports(n + "let d(a, b) = a - b\nlet x = d(n, n)")).toEqual([[signed, "d"]]);
+    // Two demands copied at one call that fail alike are one report there.
+    expect(reports(n + "let d2(a, b) = (a - a, b - b)\nlet x = d2(n, n)")).toEqual([[signed, "d2"]]);
+    expect(
+      reports(
+        "let both<a: Show, b: Show>(x: a, y: b): String = show(x) ++ show(y)\n" +
+          "let r = both((v: Int) => v, (v: Int) => v)",
+      ),
+    ).toEqual([["functions have no `Show` instance", "both"]]);
     const bandCall = reports(n + "let h(a, b) = a band b\nlet x = h(n, n)");
     expect(bandCall.map(([, at]) => at)).toEqual(["h"]);
     expect(bandCall[0]![0]).not.toContain("face");
