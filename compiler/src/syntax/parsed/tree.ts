@@ -205,6 +205,12 @@ export interface LetItem {
   readonly exported: boolean;
   readonly name: Name;
   readonly annotation?: TypeAnnotation;
+  /**
+   * The binder list written on the name when no parameter list follows —
+   * `let alias<a: Show>: (a) -> String = describe` (Functions §4.2, #1047). A
+   * header form's list lives on the lambda the parser builds, never here.
+   */
+  readonly typeParameters?: readonly TypeParameter[];
   readonly value: Expr;
   /**
    * The members a `widens` declaration names at its head (Constraints §4.7,

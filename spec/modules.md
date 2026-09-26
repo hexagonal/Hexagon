@@ -162,6 +162,15 @@ writes its type annotation. An exported function annotates every parameter and
 its result. If the function is constrained, it also writes every independent
 constraint in explicit type-parameter binders.
 
+*(#1047.)* **The constraint tier is decided by the published scheme, never by
+the form.** An exported value binding whose scheme carries a constraint — a bare
+reference to a constrained function, `export let alias: (a) -> String =
+describe`, is the case Functions §8.2 leaves — publishes an evidence suffix like
+any function, so it writes its constraints too, on its name (Functions §4.2):
+`export let alias<a: Show>: (a) -> String = describe`. The advice and every rule
+below apply unchanged, with the message naming the value: "exported value
+`alias` must declare every constraint in its signature; write `<a: Show>`".
+
 Constraint lists are maximal under base-constraint entailment: they name the
 strongest required constraints and do not restate their transitive bases. Thus a
 function requiring `Hash` writes `<a: Hash>`, not `<a: (Eq, Hash)>`, because
@@ -548,7 +557,7 @@ Library versus application is therefore not a distinction in Hexagon module sema
 | `export default` | "Hexagon has named exports only" |
 | Exported value without an annotation | "exported value `answer` requires a type annotation" |
 | Exported function with missing parameter/result annotations | "exported function `f` requires a complete signature; add …" |
-| Exported function with inferred but unwritten constraints | "exported function `f` must declare every constraint in its signature; write `<a: C>`" — the list rendered as Functions §5.1 renders a generated binder list (bases removed, alphabetical by declared name, a qualified spelling among its name's letter), each constraint spelled per §4.1.1's advised-spelling paragraph (#715, #716): one the module cannot spell takes the derived-alias qualified form with the route clause appended — "write `<a: (Lib.Heft, Ord)>` — `Heft` is declared in module `Lib`, and this module binds another `Heft`; `import Lib` and spell it `Lib.Heft`" — the route clause rendering the pastable import (Pattern Matching §7.3) — and a same-spelled pair routes each member the module cannot already spell, one clause per declaring module |
+| Exported function — or value binding whose scheme is constrained (§4.1.1, #1047), the message then reading "exported value" — with inferred but unwritten constraints | "exported function `f` must declare every constraint in its signature; write `<a: C>`" — the list rendered as Functions §5.1 renders a generated binder list (bases removed, alphabetical by declared name, a qualified spelling among its name's letter), each constraint spelled per §4.1.1's advised-spelling paragraph (#715, #716): one the module cannot spell takes the derived-alias qualified form with the route clause appended — "write `<a: (Lib.Heft, Ord)>` — `Heft` is declared in module `Lib`, and this module binds another `Heft`; `import Lib` and spell it `Lib.Heft`" — the route clause rendering the pastable import (Pattern Matching §7.3) — and a same-spelled pair routes each member the module cannot already spell, one clause per declaring module |
 | Exported function requiring a constraint with no spelling and no route (the §4.3 gate; §6.5's private base) | no rewrite advised — Constraints §5.1.1's fourth tier (#715, #716): "exported function `g` requires the constraint `Gate`, declared in module `Lib` and not exported; a complete signature cannot be written here — use the constrained operation at a concrete type, keep `g` private, or export `Gate` from `Lib`" — the first exit names no call: no fact the checker holds attributes the demand to one, and a worked attribution that can name the wrong call is the Rewrite Rule's own failure |
 | Exported function restating an entailed base constraint | "exported function `f` must omit base constraint `Base` from `a`; `C` already provides it" |
 | `export opaque` | parse error, Rewrite Rule: "`opaque` already exports the type name; write `opaque record Point = …`" — the rewrite is required, not advisory, and echoes the user's own declaration (`opaque union Handle = …` at a union head). This row presupposes a lawful subject: a crossed head whose subject is unlawful (`export opaque let x = 1`) draws the subject's own redirect below instead — the pair's rewrite would still be ill-formed, and the subject is the fault (ruled on #590) (§4.2) |

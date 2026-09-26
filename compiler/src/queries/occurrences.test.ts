@@ -177,6 +177,26 @@ describe("collectOccurrences", () => {
     ]);
   });
 
+  test("a binder list on a binding's name is indexed like a header's (#1047)", () => {
+    const source = [
+      "constraint Show2<a> =",
+      "    show2(value: a) -> String",
+      "",
+      "let describe<a: Show2>(value: a): String = show2(value)",
+      "let alias<a: Show2>: (a) -> String = describe",
+      "",
+    ].join("\n");
+    const { occurrences } = index([["/main.hex", "module Main\n\n" + source]]);
+    const own = occurrences.get("/main.hex")!;
+    // Without the name's list reaching the walk, a rename of `Show2` would
+    // leave `alias`'s binder spelling the old name.
+    expect(render(own, HEADER + source, (o) => o.target.kind === "constraint")).toEqual([
+      'definition constraint "Show2"',
+      'reference constraint "Show2"',
+      'reference constraint "Show2"',
+    ]);
+  });
+
   test("`derives` is a constraint reference, not a self-reference", () => {
     const source = ["union Colour derives (Eq, Show) =", "    | Red", "    | Green", ""].join("\n");
     const { occurrences } = index([["/main.hex", "module Main\n\n" + source]]);

@@ -3277,6 +3277,12 @@ class Checker {
      * variable's settling can also reach.
      */
     readonly writtenFailed: boolean;
+    /**
+     * Present when the list was written on the name of a binding with no
+     * parameter list (#1047): what that binding's type is decides the rewrite,
+     * since a value that is no function has no parameter or result to use it in.
+     */
+    readonly valueBinding?: "function" | "value";
   }>();
   /**
    * The declared variables an annotation named after their declaration — a
@@ -3285,6 +3291,13 @@ class Checker {
    * binder rewrite has to give those names a type too.
    */
   readonly #namedInBody = new Set<Variable>();
+  /**
+   * The variables a list on a binding's **name** declared (#1047). A refusal
+   * whose exits are "annotate concretely" or "remove the annotation" has to
+   * add the list's own exit at these: either alone leaves the listed variable
+   * unmentioned, which #712 refuses in turn.
+   */
+  readonly #nameListVariables = new Set<Variable>();
   /**
    * The span of the ascribed type currently being elaborated, or `undefined`
    * outside one. Read only by `#annotationType`'s type-variable arm, to mark the
@@ -6954,6 +6967,21 @@ class Checker {
       }
 
       if (item.kind === "Let") {
+        // *(#1047.)* A binder list written on the name of a binding with no
+        // parameter list (`let alias<a: Show>: (a) -> String = describe`) is
+        // declared over the annotation and the value, shadowing as a lambda's
+        // own list does, and is a contract as every written list is
+        // (Functions §4.2). Minted with the binding open, so an evidence route
+        // it fails to reach names this binding.
+        const enclosingLetScope = this.#annotationVariableScope;
+        const letBinders = new Map<string, Variable>();
+        if (item.typeParameters !== undefined) {
+          this.#bindingChain.push({ symbol: item.binding.symbol, name: item.binding.name });
+          this.#declareBinderVariables(item.typeParameters, level, letBinders, undefined);
+          this.#bindingChain.pop();
+          for (const variable of letBinders.values()) this.#nameListVariables.add(variable);
+          this.#annotationVariableScope = new Map([...(enclosingLetScope ?? []), ...letBinders]);
+        }
         // A written face is the other place a signature lives (Effects §2.2).
         // The declaration form has no outer arrow, so `(Tx ->? a) ->! a` — the
         // const ⊔ var shape §2.4 settles — can only be written here, and
@@ -7018,13 +7046,14 @@ class Checker {
         // and still reports "at the offending call in the door's body".
         const doorFrom = this.#seatMark();
         const suppliedFace = annotation !== undefined && expectationLands(item.value)
-          ? this.#inAnnotationPosition(annotation, () =>
-            this.#annotationType(
-              annotation,
-              level + 1,
-              new Map(),
-              this.#annotationVariableScope ?? new Map(),
-            ))
+          ? this.#ownAnnotation(letBinders, () =>
+            this.#inAnnotationPosition(annotation, () =>
+              this.#annotationType(
+                annotation,
+                level + 1,
+                new Map(),
+                this.#annotationVariableScope ?? new Map(),
+              )))
           : undefined;
         this.#bindingChain.push({ symbol: item.binding.symbol, name: item.binding.name });
         const enclosingBindingValue = this.#bindingValue;
@@ -7045,13 +7074,14 @@ class Checker {
         let valueType = inferredValueType;
         if (annotation !== undefined) {
           const annotationType = suppliedFace ??
-            this.#inAnnotationPosition(annotation, () =>
-            this.#annotationType(
-              annotation,
-              level + 1,
-              new Map(),
-              this.#annotationVariableScope ?? new Map(),
-            ));
+            this.#ownAnnotation(letBinders, () =>
+              this.#inAnnotationPosition(annotation, () =>
+                this.#annotationType(
+                  annotation,
+                  level + 1,
+                  new Map(),
+                  this.#annotationVariableScope ?? new Map(),
+                )));
           this.#unifyExpected(
             annotationType,
             inferredValueType,
@@ -7064,6 +7094,26 @@ class Checker {
             : this.#applyWrittenQualifiers(annotationType, valueType);
         }
         this.#closeSignature(enclosingSignature);
+        if (item.typeParameters !== undefined) {
+          this.#annotationVariableScope = enclosingLetScope;
+          // Declared for the binding's own type — the only place a use can
+          // choose them (#712).
+          for (const parameter of item.typeParameters) {
+            const variable = letBinders.get(parameter.name);
+            if (variable === undefined) continue;
+            this.#declaredFor.set(variable, {
+              types: [valueType],
+              span: parameter.span,
+              binder: true,
+              writtenFailed: item.annotation !== undefined && annotationHasErrorType(item.annotation),
+              // A lambda with no binding annotation writes its type as its
+              // parameters and result, so the header's wording fits it.
+              ...(item.annotation === undefined && item.value.kind === "Lambda"
+                ? {}
+                : { valueBinding: this.#prune(valueType).kind === "Function" ? "function" as const : "value" as const }),
+            });
+          }
+        }
         // *(#867.)* **One operation, one colour — the member's contract**
         // (Constraints §4.7). A `widens` door's header writes `:` and its body
         // infers, but the binding it produces shows the declaration's wider
@@ -22897,8 +22947,11 @@ class Checker {
               `\`${variable.rigidName}\` is a declared type variable, but a binding whose ` +
               `type is not a function cannot carry its \`${names.join("`, `")}\` ` +
               `constraint${names.length === 1 ? "" : "s"} — evidence rides only a ` +
-              "function's trailing parameters; annotate at a concrete type, or " +
-              "remove the annotation",
+              "function's trailing parameters; " +
+              (this.#nameListVariables.has(variable)
+                ? `${this.#nameListExit(variable)}, and annotate at a concrete type or ` +
+                  "remove the annotation"
+                : "annotate at a concrete type, or remove the annotation"),
             primary: seatReport,
           });
           variable.instance = ERROR;
@@ -22947,7 +23000,12 @@ class Checker {
               `\`${variable.rigidName}\` is a declared type variable, but this right-hand ` +
               `side is a computation that cannot be generalized in \`${variable.rigidName}\` ` +
               `(${this.#declineReason(variable.rigidName, variable, declined)}); ` +
-              "bind where the type is known, or remove the annotation",
+              // An unconstrained listed variable is not #712's to refuse, so
+              // either exit alone already compiles.
+              (this.#nameListVariables.has(variable) && variable.requirements.length > 0
+                ? `${this.#nameListExit(variable)}, and bind where the type is known or ` +
+                  "remove the annotation"
+                : "bind where the type is known, or remove the annotation"),
             primary: declineReport,
           });
           // The binding has no legal reading, so nothing downstream should try
@@ -23283,6 +23341,34 @@ class Checker {
   }
 
   /**
+   * The exit a list on a binding's name adds to §8.2's refusals (#1047):
+   * remove the variable from the list — and, where the body names it, give
+   * those names a concrete type too, or they meet §4.1's forced-type row.
+   */
+  #nameListExit(variable: Variable): string {
+    const name = variable.rigidName ?? "";
+    return `remove \`${name}\` from the binder list` +
+      (this.#namedInBody.has(variable)
+        ? `, write a concrete type where the body names \`${name}\``
+        : "");
+  }
+
+  /**
+   * Elaborates a binding's own annotation without counting its lookups of the
+   * variables a list on the binding's name declared as *body* names (#1047):
+   * the annotation is where the list is used, as a header's parameter types
+   * are, and only a name written in the value needs its own concrete type.
+   */
+  #ownAnnotation<T>(listed: ReadonlyMap<string, Variable>, elaborate: () => T): T {
+    const before = new Set([...listed.values()].filter((variable) => this.#namedInBody.has(variable)));
+    const result = elaborate();
+    for (const variable of listed.values()) {
+      if (!before.has(variable)) this.#namedInBody.delete(variable);
+    }
+    return result;
+  }
+
+  /**
    * A declared type variable that carries a constraint and occurs nowhere in
    * the type it was declared for *(#712; Ascription §3.1; Functions §10)* —
    * reported at its declaration, and `true` when it was.
@@ -23318,6 +23404,7 @@ class Checker {
         variable.rigidName,
         names,
         declared.binder ? (this.#namedInBody.has(variable) ? "named" : "binder") : "ascription",
+        declared.valueBinding,
       ),
       primary: declared.span ?? variable.requirements[0]!.span,
     });
@@ -27174,21 +27261,24 @@ class Checker {
     let lambda: Resolved.LambdaExpr | undefined;
     if (item.kind === "Fun") lambda = item.value;
     else if (item.value.kind === "Lambda") lambda = item.value;
-    if (lambda === undefined) {
-      if (item.kind === "Let" && item.annotation === undefined) {
-        this.#diagnostics.add({
-          severity: "error",
-          message: `exported value \`${item.binding.name}\` requires a type annotation`,
-          primary: item.binding.span,
-        });
-      }
+    if (lambda === undefined && item.kind === "Let" && item.annotation === undefined) {
+      this.#diagnostics.add({
+        severity: "error",
+        message: `exported value \`${item.binding.name}\` requires a type annotation`,
+        primary: item.binding.span,
+      });
       return;
     }
+    // *(#1047.)* An annotated value binding still owes its constraints: the
+    // tier a term falls under is decided by its published scheme, never its
+    // form, so `export let alias: (a) -> String = describe` writes `<a: Show>`
+    // on its name as a function writes it on its header (Modules §4.1.1).
+    const form = lambda === undefined ? "value" : "function";
 
-    const missingParameters = lambda.parameters
+    const missingParameters = (lambda?.parameters ?? [])
       .filter((parameter) => parameter.annotation === undefined)
       .map((parameter) => `\`${displayParameterName(parameter.name)}\``);
-    const missingReturn = lambda.returnAnnotation === undefined;
+    const missingReturn = lambda !== undefined && lambda.returnAnnotation === undefined;
     if (missingParameters.length > 0 || missingReturn) {
       const missing = [
         ...(missingParameters.length === 0
@@ -27251,7 +27341,7 @@ class Checker {
         this.#diagnostics.add({
           severity: "error",
           message:
-            `exported function \`${item.binding.name}\` requires ` +
+            `exported ${form} \`${item.binding.name}\` requires ` +
             `${this.#sealedConstraintMention(sealed)}; ` +
             "a complete signature cannot be written here — " +
             `${exits.slice(0, -1).join(", ")}, or ${exits.at(-1)}`,
@@ -27274,7 +27364,7 @@ class Checker {
       this.#diagnostics.add({
         severity: "error",
         message:
-          `exported function \`${item.binding.name}\` must declare every constraint in its signature; ` +
+          `exported ${form} \`${item.binding.name}\` must declare every constraint in its signature; ` +
           (item.kind === "Fun" && item.block !== undefined
             ? `declare the constraint on the block head: \`fun<${binder}>\``
             : `write \`<${binder}>\``) +
@@ -27296,7 +27386,8 @@ class Checker {
     const headBinders = head !== undefined && !this.#checkedBlockHeads.has(head.id)
       ? (this.#checkedBlockHeads.add(head.id), head.typeParameters ?? [])
       : [];
-    for (const parameter of [...(lambda.typeParameters ?? []), ...headBinders]) {
+    const written = item.kind === "Let" ? item.typeParameters ?? [] : [];
+    for (const parameter of [...(lambda?.typeParameters ?? []), ...written, ...headBinders]) {
       const maximal = new Set(this.#maximalConstraintNames(parameter.constraints));
       for (const constraint of parameter.constraints) {
         if (maximal.has(constraint)) continue;
@@ -27307,7 +27398,7 @@ class Checker {
         this.#diagnostics.add({
           severity: "error",
           message:
-            `exported function \`${item.binding.name}\` must omit base constraint \`${constraint}\` from ` +
+            `exported ${form} \`${item.binding.name}\` must omit base constraint \`${constraint}\` from ` +
             `\`${parameter.name}\`; \`${provider ?? "another declared constraint"}\` already provides it`,
           primary: parameter.span,
         });
@@ -30067,7 +30158,17 @@ function unmentionedDeclaredMessage(
   name: string,
   constraints: readonly string[],
   spelling: "binder" | "named" | "ascription" | "value",
+  valueBinding?: "function" | "value",
 ): string {
+  // A list on a binding's name (#1047) is used in the binding's type, which has
+  // no parameter list to point at; and where that type is no function, a
+  // constrained variable in it would have no evidence seat either (Functions §8
+  // item 2), so removal is the one rewrite that compiles.
+  const use = valueBinding === undefined
+    ? `use \`${name}\` in a parameter or result type, or `
+    : valueBinding === "function"
+    ? `use \`${name}\` in the binding's type, or `
+    : "";
   // At a value binding a variable carrying a constraint has no evidence seat
   // (Functions §8 item 2), so naming one the declaration uses would only meet
   // the seat's refusal: the concrete type is the one rewrite that compiles.
@@ -30076,9 +30177,9 @@ function unmentionedDeclaredMessage(
     : spelling === "ascription"
     ? "ascribe a concrete type, or name a type variable the declaration uses"
     : spelling === "named"
-    ? `use \`${name}\` in a parameter or result type, or remove \`${name}\` from the binder ` +
+    ? `${use}remove \`${name}\` from the binder ` +
       `list and write a concrete type where the body names \`${name}\``
-    : `use \`${name}\` in a parameter or result type, or remove \`${name}\` from the binder list`;
+    : `${use}remove \`${name}\` from the binder list`;
   return `\`${name}\` is a declared type variable, but this declaration's type does not ` +
     `mention it, so no call can choose it or supply its \`${constraints.join("`, `")}\` ` +
     `evidence; ${rewrite}`;

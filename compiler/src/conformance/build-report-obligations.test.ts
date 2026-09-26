@@ -230,7 +230,7 @@ describe("the zero-entry-point list (§3.4)", () => {
     const module = main([
       "fun plus<a: Num>(x: a, y: a): a = x + y",
       "",
-      "export let add: (a, a) -> a = plus",
+      "export let add<a: Num>: (a, a) -> a = plus",
       "",
     ].join("\n"));
     const add = module.core.items.find(

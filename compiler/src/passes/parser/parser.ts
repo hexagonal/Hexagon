@@ -4134,7 +4134,24 @@ class Parser {
     // This is the one position Functions §4.2 permits `<...>` on a lambda, so a lambda
     // arriving here has its restriction satisfied. A header form (`parameters` present)
     // has its own binders already and never reaches the pending set.
-    if (parameters === undefined) this.#dischargeTypeParameterLambda(body);
+    if (parameters === undefined) {
+      this.#dischargeTypeParameterLambda(body);
+      // *(#1047.)* A binding takes one binder list: on the name, or on the
+      // lambda it binds — never both, since the two would be two spellings of
+      // one declaration.
+      const bound = Parsed.unwrapSyntacticValue(body);
+      if (typeParameters !== undefined && bound.kind === "Lambda" && bound.typeParameters !== undefined) {
+        const first = bound.typeParameters[0];
+        const last = bound.typeParameters.at(-1);
+        this.#errorAt(
+          first === undefined || last === undefined ? bound.span : spanFrom(first.span, last.span),
+          `\`${nameToken.text}\` already writes its binders on the name; a binding takes one binder list`,
+        );
+        // The lambda's list stands, so recovery reads the one spelling §4.2
+        // always had and the name's list draws no second report.
+        typeParameters = undefined;
+      }
+    }
     const value: Parsed.Expr = parameters === undefined
       ? body
       : {
@@ -4153,6 +4170,9 @@ class Parser {
       name: parsedName(nameToken),
       span: spanFrom(itemStart ?? start.span, value.span),
       ...(bindingAnnotation === undefined ? {} : { annotation: bindingAnnotation }),
+      // *(#1047.)* Without a parameter list the binders are the binding's own,
+      // scoped over its annotation and value (Functions §4.2).
+      ...(parameters !== undefined || typeParameters === undefined ? {} : { typeParameters }),
       value,
     };
   }
