@@ -1254,6 +1254,14 @@ interface Requirement {
    */
   usedAs?: string;
   /**
+   * On a copy made at a call, that call: its result and the values it
+   * supplies, a dot call's receiver first. §6's blocked-defaulting report
+   * stands where an annotation can pin the stuck type — at the use when the
+   * call's result carries it, and otherwise at the first value supplied that
+   * does, since an annotation on the result would pin nothing (#1063).
+   */
+  useCall?: RequirementCall;
+  /**
    * Set where a **literal pattern** raised this requirement — Pattern Matching
    * §2.5's delegation, and the one thing it does not delegate.
    *
@@ -1287,6 +1295,12 @@ interface Requirement {
    * let a hand-written component instance be ignored.
    */
   components?: readonly RequirementComponent[];
+}
+
+/** A call a requirement was copied at (`Requirement.useCall`). */
+interface RequirementCall {
+  readonly result: Resolved.Expr;
+  readonly supplied: readonly Resolved.Expr[];
 }
 
 /** One direct component of a structural type, or of a derivation subject. */
@@ -3005,8 +3019,8 @@ class Checker {
   readonly #bitwiseLogicWords = new Map<string, string>();
   /** Place-and-wording keys of the requirement reports made (`#reportRequirement`). */
   readonly #requirementReports = new Set<string>();
-  /** The names applied as a call's callee — `#instantiate`'s `called`. */
-  readonly #calledNames = new Set<Resolved.Expr>();
+  /** The names applied as a call's callee, each to its call — `#instantiate`'s `called`. */
+  readonly #calledNames = new Map<Resolved.Expr, Resolved.CallExpr>();
   /** Exact Int expressions that checking injects into an independently known Signed target. */
   readonly #intWidenings = new WeakMap<Resolved.Expr, Requirement>();
   /** Exact BigInt expressions injected into an independently known FromBigInt target. */
@@ -5603,6 +5617,10 @@ class Checker {
     const calleeType = this.#instantiate(
       scheme, level, requirements, callee.field.span, undefined, true, callee.field.text,
     );
+    this.#stampUseCall(requirements, {
+      result: expression,
+      supplied: [callee.receiver, ...expression.arguments],
+    });
     const { seats, pass } = this.#dotCallSeats(
       expression, callee, level, cachedArguments, calleeType, receiver, false, undefined,
     );
@@ -6302,6 +6320,10 @@ class Checker {
     const calleeType = this.#instantiate(
       scheme, level, requirements, callee.field.span, undefined, true, callee.field.text,
     );
+    this.#stampUseCall(requirements, {
+      result: expression,
+      supplied: [callee.receiver, ...expression.arguments],
+    });
     // *(#808.)* The lift, spelled by the dot: `let whole: BigInt =
     // count.add(count)` is `BigInt` addition, exactly as the operator and the
     // qualified spellings are. The home is what the subject seats expect while
@@ -8652,6 +8674,10 @@ class Checker {
             expression.text,
         );
         this.#nameRequirements.set(expression, requirements);
+        const call = this.#calledNames.get(expression);
+        if (call !== undefined) {
+          this.#stampUseCall(requirements, { result: call, supplied: call.arguments });
+        }
         // Functions §7.4: inside the knot the scheme is a monotype, so the copy
         // above collected nothing. What the reference owes is settled once the
         // component generalizes; `#knotEvidence` reads it back there.
@@ -9477,7 +9503,7 @@ class Checker {
         // Only a callee called by its name: a grouped one, `(Signed.negate)(n)`,
         // joins no expression's tree (Numeric Literals §5.1), so no written face
         // lifts it and a rider offering one would advise what does not compile.
-        if (expression.callee.kind === "Name") this.#calledNames.add(expression.callee);
+        if (expression.callee.kind === "Name") this.#calledNames.set(expression.callee, expression);
         const callee = calleeIsLambda
           ? this.#inferExpr(expression.callee, level, {
             kind: "Function",
@@ -14425,7 +14451,7 @@ class Checker {
     this.#callFrames.set(expression, this.#effectFrames.at(-1));
     // The member is called here, so its own constraint is this operation's
     // demand (`#instantiate`'s `called`).
-    this.#calledNames.add(expression.callee);
+    this.#calledNames.set(expression.callee, expression);
     const callee = this.#inferExpr(expression.callee, level);
     const known = this.#prune(callee);
     const symbol = (expression.callee as Resolved.NameExpr).symbol;
@@ -22571,13 +22597,19 @@ class Checker {
     });
   }
 
+  /** Records the call the copies in `requirements` were made at (`Requirement.useCall`). */
+  #stampUseCall(requirements: readonly Requirement[], call: RequirementCall): void {
+    for (const requirement of requirements) requirement.useCall = call;
+  }
+
   /**
    * A derived requirement stands where `from` does, so it names what `from`'s
-   * use names (`Requirement.usedAs`). Set after `#require`, whose own reports
+   * use names (`Requirement.usedAs`, `Requirement.useCall`). Set after `#require`, whose own reports
    * never read it: only §6's blocked defaulting does, once the module is done.
    */
   #derive(from: Requirement, derived: Requirement): Requirement {
     if (from.usedAs !== undefined) derived.usedAs = from.usedAs;
+    if (from.useCall !== undefined) derived.useCall = from.useCall;
     return derived;
   }
 
@@ -23271,6 +23303,10 @@ class Checker {
     // anything.
     const literal = variable.requirements.find(({ origin }) => origin === "literal");
     for (const requirement of variable.requirements) requirement.reported = true;
+    // At a call whose result does not carry the stuck type, an annotation on
+    // the result pins nothing: the report stands at the first value supplied
+    // that carries it, where one does — `label(None)` at `None`.
+    const supplier = literal === undefined ? this.#stuckSupplier(blocking, variable) : undefined;
     this.#reportRequirement(undefined, {
       severity: "error",
       message: literal?.literal !== undefined
@@ -23278,13 +23314,34 @@ class Checker {
           `\`${blocking.name}\` is not a defaultable constraint; add a type annotation to pin the type`
         // At a use the caret is the binding, so "this expression" would name
         // the function rather than the type its use gives (Functions §10).
-        : blocking.usedAs !== undefined
+        : supplier === undefined && blocking.usedAs !== undefined
         ? `the type this use of \`${blocking.usedAs}\` gives cannot default to \`Int\`: ` +
           `\`${blocking.name}\` is not a defaultable constraint; add a type annotation to pin it`
         : "this expression's type cannot default to `Int`: " +
           `\`${blocking.name}\` is not a defaultable constraint; add a type annotation to pin the type`,
-      primary: literal?.span ?? blocking.span,
+      primary: literal?.span ?? supplier?.span ?? blocking.span,
     });
+  }
+
+  /**
+   * The value supplied to `blocking`'s call that carries `variable`, where
+   * the call's result does not: the first in source order. `undefined` where
+   * the demand was not copied at a call, where the result carries the
+   * variable, or where no supplied value does.
+   */
+  #stuckSupplier(blocking: Requirement, variable: Variable): Resolved.Expr | undefined {
+    const call = blocking.useCall;
+    if (call === undefined) return undefined;
+    // An unrecorded type answers "carries" for the result, so the use keeps
+    // the report, and "does not" for a supplied value, which is then not named.
+    const carries = (expression: Resolved.Expr, unknown: boolean): boolean => {
+      const type = this.#expressionTypes.get(expression);
+      return type === undefined
+        ? unknown
+        : this.#collectVariables(type).some(({ id }) => id === variable.id);
+    };
+    if (carries(call.result, true)) return undefined;
+    return call.supplied.find((expression) => carries(expression, false));
   }
 
   #inputVariables(type: Mono, found = new Set<number>()): Set<number> {

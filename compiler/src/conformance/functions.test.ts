@@ -249,6 +249,30 @@ describe("Functions specification conformance", () => {
       ],
     ]);
     expect(reports("let y = 1 / 2").map(([, at]) => at)).toEqual(["2"]);
+    // Where the call's result does not carry the stuck type, an annotation on
+    // it pins nothing: the report stands at the first value supplied that
+    // carries it — an argument, or a dot call's argument — where one does.
+    const tag = "constraint Tag<a> =\n    tag(x: a) -> String\nhonor Tag<String> =\n    tag(x) = x\n";
+    const blocked = "this expression's type cannot default to `Int`: `Tag` is not a defaultable constraint; add a type annotation to pin the type";
+    expect(reports(tag + "let label<a: Tag>(x: Option(a)): String = \"s\"\nlet v = label(None)"))
+      .toEqual([[blocked, "None"]]);
+    expect(reports(tag + "let t<a: Tag>(x: a): String = \"s\"\nlet v = t(Num.fromNat(1))"))
+      .toEqual([[blocked, "Num.fromNat(1)"]]);
+    expect(reports(
+      tag + "export record R = { n: Int }\nexport let pack<b: Tag>(x: R, y: Option(b)): Int = 1\n" +
+        "let v = R({n = 1}).pack(None)",
+    )).toEqual([[blocked, "None"]]);
+    // A constraint member called by the dot, its receiver's element open
+    // through an instance's argument: `tag` gives a `String`.
+    expect(reports(tag + "honor<a: Tag> Tag<Option(a)> =\n    tag(x) = \"o\"\nlet v = None.tag()"))
+      .toEqual([[blocked, "None"]]);
+    // The repair it names compiles.
+    expect(reports(tag + "let label<a: Tag>(x: Option(a)): String = \"s\"\nlet v = label((None : Option(String)))"))
+      .toEqual([]);
+    // Where the result carries it, the use keeps the report.
+    expect(reports(tag + "let pair<a: Tag>(x: Option(a)): (Option(a), Int) = (x, 1)\nlet v = pair(None)")
+      .map(([message, at]) => [message!.slice(0, message!.indexOf(" gives")), at]))
+      .toEqual([["the type this use of `pair`", "pair"]]);
 
     // Entailment still discharges a copied demand: `Hash` provides `Eq`.
     const accepted = checkSource(
