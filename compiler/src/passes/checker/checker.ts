@@ -2996,6 +2996,14 @@ class Checker {
    */
   #pinSite: Source.Span | undefined;
   /**
+   * The two sides of the annotation seat whose unification is running, if one
+   * is *(#948; Effects §4.2)*. A colour solved there is pinned by the side
+   * that brought the constant: the value where the annotation carried the
+   * variable — `let g: () ->? Unit = save0` stands at `save0` — and the
+   * annotation where it carried the constant, as `let p: () -> Unit = h` does.
+   */
+  #pinSides: { readonly annotation: Source.Span; readonly value: Source.Span } | undefined;
+  /**
    * The argument each lambda a call claimed on its arguments' spines sits in
    * *(#948)*: the lambda meets its stand-in in the call's second pass, and a
    * colour solved there is pinned by that argument whole, as a named value in
@@ -7266,13 +7274,15 @@ class Checker {
                   new Map(),
                   this.#annotationVariableScope ?? new Map(),
                 )));
-          this.#unifyExpected(
-            annotationType,
-            inferredValueType,
-            item.value,
-            annotation.span,
-            true,
-            true,
+          this.#atAnnotationSeat(annotation.span, item.value, () =>
+            this.#unifyExpected(
+              annotationType,
+              inferredValueType,
+              item.value,
+              annotation.span,
+              true,
+              true,
+            )
           );
           valueType = this.#hasNumericWidening(item.value)
             ? annotationType
@@ -7861,13 +7871,15 @@ class Checker {
               new Map(),
               this.#annotationVariableScope ?? new Map(),
             ));
-          this.#unifyExpected(
-            annotationType,
-            inferredValueType,
-            item.value,
-            annotation.span,
-            true,
-            true,
+          this.#atAnnotationSeat(annotation.span, item.value, () =>
+            this.#unifyExpected(
+              annotationType,
+              inferredValueType,
+              item.value,
+              annotation.span,
+              true,
+              true,
+            )
           );
           if (this.#hasNumericWidening(item.value)) valueType = annotationType;
         }
@@ -9223,13 +9235,15 @@ class Checker {
           this.#annotationVariableScope ?? new Map(),
         );
         this.#ascribedTypeSpan = enclosingAscribedType;
-        this.#unifyExpected(
-          annotationType,
-          inferred,
-          expression.expression,
-          expression.annotation.span,
-          true,
-          true,
+        this.#atAnnotationSeat(expression.annotation.span, expression.expression, () =>
+          this.#unifyExpected(
+            annotationType,
+            inferred,
+            expression.expression,
+            expression.annotation.span,
+            true,
+            true,
+          )
         );
         // The widened form is the ascribed one, exactly as at an annotated
         // binding: `(1 : Float)` is the `Float` the writer claimed.
@@ -9435,20 +9449,23 @@ class Checker {
             result = landedResult;
           }
         }
-        if (expression.returnAnnotation !== undefined) {
+        const returnAnnotation = expression.returnAnnotation;
+        if (returnAnnotation !== undefined) {
           const annotationType = returnAnnotationType ?? this.#annotationType(
-            expression.returnAnnotation,
+            returnAnnotation,
             level + 1,
             annotationTails,
             annotationVariables,
           );
-          this.#unifyExpected(
-            annotationType,
-            inferredResult,
-            expression.body,
-            expression.returnAnnotation.span,
-            true,
-            true,
+          this.#atAnnotationSeat(returnAnnotation.span, expression.body, () =>
+            this.#unifyExpected(
+              annotationType,
+              inferredResult,
+              expression.body,
+              returnAnnotation.span,
+              true,
+              true,
+            )
           );
           // The second seat where the published node is the value's rather
           // than the annotation's (§14.3): the body's type is what stands here,
@@ -16771,11 +16788,14 @@ class Checker {
           const type = this.#inferExpr(lambda, level, standIn);
           // Pinned by the argument the lambda sits in (#948).
           const enclosingPin = this.#pinSite;
+          const enclosingSides = this.#pinSides;
           this.#pinSite = this.#spineArguments.get(lambda)?.span ?? enclosingPin;
+          this.#pinSides = undefined;
           try {
             this.#unifyExpected(standIn, type, lambda, lambda.span, true);
           } finally {
             this.#pinSite = enclosingPin;
+            this.#pinSides = enclosingSides;
           }
         },
       })),
@@ -17175,11 +17195,14 @@ class Checker {
       // constructor application included, where the call's span would name
       // every argument at once.
       const enclosingPin = this.#pinSite;
+      const enclosingSides = this.#pinSides;
       this.#pinSite = expression.span;
+      this.#pinSides = undefined;
       try {
         this.#unifyExpected(parameter, actuals[index] ?? ERROR, expression, span, true, parameter.kind !== "Variable" && !receiver);
       } finally {
         this.#pinSite = enclosingPin;
+        this.#pinSides = enclosingSides;
       }
       for (const variable of open) {
         if (this.#prune(variable).kind !== "Variable") givers.set(variable, expression);
@@ -18781,6 +18804,37 @@ class Checker {
     if (pruned.kind !== "Variable") return false;
     if (this.#isLinkedColour(pruned) || this.#ownedByEnclosing(frame, pruned)) return true;
     return this.#knots.some((knot) => this.#knotColour(knot, pruned));
+  }
+
+  /**
+   * Runs an annotation seat's unification with its two sides in hand for
+   * `#bind` (`#pinSides`). The value is what the annotation stands over, read
+   * through grouping and a block to the expression that gives it.
+   */
+  #atAnnotationSeat(annotation: Source.Span, value: Resolved.Expr, unify: () => void): void {
+    let given = value;
+    for (;;) {
+      if (given.kind === "Group") {
+        given = given.expression;
+        continue;
+      }
+      const final = given.kind === "Block" ? given.items.at(-1) : undefined;
+      if (final?.kind === "ExprItem") {
+        given = final.expression;
+        continue;
+      }
+      break;
+    }
+    const enclosing = this.#pinSides;
+    const enclosingSite = this.#pinSite;
+    this.#pinSides = { annotation, value: given.span };
+    this.#pinSite = undefined;
+    try {
+      unify();
+    } finally {
+      this.#pinSides = enclosing;
+      this.#pinSite = enclosingSite;
+    }
   }
 
   /**
@@ -21962,7 +22016,12 @@ class Checker {
       ? {
         kind: "Effect",
         impure: type.impure,
-        solve: { span: this.#pinSite ?? span, sourced: this.#sourcing > 0 },
+        solve: {
+          span: this.#pinSides !== undefined
+            ? (variableOnRight ? this.#pinSides.annotation : this.#pinSides.value)
+            : this.#pinSite ?? span,
+          sourced: this.#sourcing > 0,
+        },
       }
       : type;
     for (const requirement of variable.requirements) this.#validate(requirement);

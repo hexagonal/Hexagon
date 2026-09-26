@@ -3049,6 +3049,41 @@ export let go(a: Step): Unit = a?()
       }]);
     });
 
+    it("stands at the value where the annotation over it carried the variable", () => {
+      // At an annotation seat the pin is the side that brought the constant:
+      // here the annotation borrows `outer`'s colour and the value fixes it,
+      // so the value is marked and the annotation's `->?` is a label (#948).
+      const save0 = "let save0(): Unit = save!(\"x\")\n\n";
+      const cases: readonly (readonly [string, string, "->" | "->!"])[] = [
+        [`${save0}export let outer(action: () ->? Unit): Unit =
+    let g: () ->? Unit = save0
+    action?()
+`, "save0\n", "->!"],
+        [`${save0}export let outer(action: () ->? Unit): Unit =
+    let g = (save0 : () ->? Unit)
+    action?()
+`, "save0 :", "->!"],
+        [`export let outer(action: () ->? Unit): Unit =
+    fun h(): () ->? Unit = () => ()
+    action?()
+`, "() => ()", "->"],
+        [`export let outer(action: () ->? Unit): Unit =
+    fun h(): () ->? Unit =
+        let z = 1
+        () => ()
+    action?()
+`, "() => ()", "->"],
+      ];
+      for (const [source, pin, replacement] of cases) {
+        const arrows = offsets(source, "->?");
+        expect(placed(source)).toEqual([{
+          primary: source.indexOf(pin, source.indexOf("outer")),
+          labels: arrows,
+          edits: arrows.map((arrow) => [arrow, replacement]),
+        }]);
+      }
+    });
+
     it("gives one report for the signatures a join made one variable", () => {
       // `h` owns `cb`'s variable and absorbs `outer`'s: the two are one colour,
       // which a pure argument pins, so both written arrows are the report's.
