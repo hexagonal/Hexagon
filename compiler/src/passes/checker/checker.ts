@@ -7204,9 +7204,12 @@ class Checker {
         // signature, and the *enclosing* signature's when it is a local
         // position borrowing one (§2.2.2). With neither, the arrow is refused
         // where the annotation is elaborated and this is §4.4's recovery.
+        // A refused alias's arrow is §4.4's recovery, not a written `->!`: the
+        // lambda under it takes the recovery, and no `->!` face is checked
+        // against its body (#888).
         this.#pendingOwnEffect = annotation?.kind === "Function"
           ? (annotation.effect === "constant"
-            ? IMPURE
+            ? (annotation.recovered === true ? RECOVERED : IMPURE)
             : annotation.effect === "linked"
               ? (this.#signatureFace?.effect ?? RECOVERED)
               : annotation.effect === undefined
@@ -7215,8 +7218,8 @@ class Checker {
           : undefined;
         if (
           annotation?.kind === "Function" &&
-          annotation.effect === "constant" && annotation.arrowSpan !== undefined &&
-          item.value.kind === "Lambda"
+          annotation.effect === "constant" && annotation.recovered !== true &&
+          annotation.arrowSpan !== undefined && item.value.kind === "Lambda"
         ) {
           this.#constantFaces.push({
             lambda: item.value,
@@ -18839,12 +18842,13 @@ class Checker {
 
   /**
    * The dependencies §4.4's recovery leaves as they were *(#873)*: a colour a
-   * written `->?` owns — a signature's, the body's own or a captured one — and,
-   * while a knot is open and no body's arms are settling it, a sibling's.
+   * written `->?` owns — a signature's, the body's own or a captured one — and
+   * an open knot's, a sibling's. A knot's own arms run after it has closed, so
+   * a member its recovered call makes a source is not left.
    */
   #recoveryLeaves(variable: Variable): boolean {
     if (this.#isLinkedColour(variable)) return true;
-    return this.#settlingArms === 0 && this.#knots.some((knot) => this.#knotColour(knot, variable));
+    return this.#knots.some((knot) => this.#knotColour(knot, variable));
   }
 
   /** Whether a colour is one a written `->?` owns (`#linkedColours`). */
@@ -22000,11 +22004,10 @@ class Checker {
         );
         if (knot !== undefined) {
           const colour = this.#fresh(knot.level, false);
-          // A §4.4 recovery is no demand: it binds nothing it meets, a sibling's
-          // colour included (#873), so the member's body alone decides it.
-          if (!isRecovered(effect)) {
-            knot.demands.push({ demand: effect, colour, span, colourFirst: !variableOnRight });
-          }
+          // A §4.4 recovery binds nothing it meets, a sibling's colour included
+          // (#873): recorded as any demand is, it meets a colour the member's
+          // body decided, and absorbs there.
+          knot.demands.push({ demand: effect, colour, span, colourFirst: !variableOnRight });
           variable.instance = { ...type, effect: colour };
           return;
         }

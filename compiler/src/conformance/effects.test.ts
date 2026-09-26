@@ -3021,6 +3021,39 @@ honor Runner<Job> =
       }
     });
 
+    it("gives a lambda under a refused alias the recovery, never a written `->!` face (#888)", () => {
+      const alias = "`->?` is the caller's colour, and this position has no caller to choose it — " +
+        "an alias is a type fragment, not a signature; write `->!` for a function that " +
+        "pulls the world, or `->` for one that does not";
+      const step = "type Step = () ->? Unit\n\n";
+      expect(check(`${step}export let outer(n: Int): Int =
+    let h: Step = () => ()
+    n
+`)).toEqual([alias]);
+      for (const value of ["() => ()", "() => save!(\"x\")"]) {
+        expect(check(`${step}export let outer(action: () ->? Unit, s: Step): Int =
+    let h: Step = ${value}
+    fun
+        a(m: Int): Int = if m == 0 then b?(0) else a?(m - 1)
+        b(m: Int): Int =
+            action?()
+            h!()
+            m
+    a?(3)
+`)).toEqual([alias]);
+      }
+      expect(check(`${step}constraint Runner<r> =
+    run(runner: r, action: () -> Unit) -> Unit
+
+export record Job = { id: Int }
+
+honor Runner<Job> =
+    run(job, action) =
+        let h: Step = () => ()
+        h!()
+`)).toEqual([alias]);
+    });
+
     it("suppresses the mark a call through a refused alias would owe (#888)", () => {
       expect(check(`type Step = () ->? Unit
 
