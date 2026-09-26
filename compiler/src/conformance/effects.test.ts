@@ -2957,6 +2957,70 @@ export let outer(action: () ->? Unit): R2 = R2({ f = action })
       expect(hover(source, "outer")).toBe("(() ->? Unit) -> R2");
     });
 
+    it("leaves a knot sibling's colour as it was, in either member order", () => {
+      const field = "`->?` is the caller's colour, and this position has no caller to choose it — " +
+        "a `record` field is data, not a signature; write `->!` for a function that pulls " +
+        "the world, or `->` for one that does not";
+      const a = "    a(): Int =\n        let r = R2({ f = b })\n        1\n";
+      const b = "    b(): Unit =\n        let u = a\n        ()\n";
+      for (const members of [[a, b], [b, a]]) {
+        const source = "export record R2 = { f: () ->? Unit }\n\nfun\n" + members.join("");
+        expect(check(source)).toEqual([field]);
+        expect(hover(source, "b()")).toBe("() -> Unit");
+      }
+    });
+
+    it("still makes a body that calls through a recovery a source, with nothing more reported", () => {
+      // The recovery reads locally as the impure constant: a body calling
+      // through it is a source, and its colour is the recovery, so every mark
+      // it feeds is suppressed — in a knot, and at the enclosing call alike.
+      const refused = [inletless];
+      const knot = `export let outer(n: Int): Int =
+    let h: () ->? Unit = () => save!("x")
+    fun
+        a(m: Int): Int = if m == 0 then b!(0) else a!(m - 1)
+        b(m: Int): Int =
+            h!()
+            m
+    a!(n)
+`;
+      expect(check(knot)).toEqual(refused);
+      expect(hover(knot, "a(m")).toBe("Int ->! Int");
+      const plain = `export let outer(n: Int): Int =
+    let h: () ->? Unit = () => save!("x")
+    h!()
+    n
+
+export let user(): Int = outer!(1)
+`;
+      expect(check(plain)).toEqual(refused);
+      expect(hover(plain, "outer")).toBe("Int ->! Int");
+    });
+
+    it("gives a callee's instantiation and a seat's slot the recovery (#888's constraint header)", () => {
+      const alias = "`->?` is the caller's colour, and this position has no caller to choose it — " +
+        "an alias is a type fragment, not a signature; write `->!` for a function that " +
+        "pulls the world, or `->` for one that does not";
+      expect(check(`type Step = () ->? Unit
+
+let apply(f: () ->? Unit): Unit = f?()
+
+export let go(s: Step): Unit = apply!(s)
+`)).toEqual([alias]);
+      for (const mark of ["!", "?"]) {
+        expect(check(`type Step = () ->? Unit
+
+constraint Runner<r> =
+    run(runner: r, action: Step) -> Unit
+
+export record Job = { id: Int }
+
+honor Runner<Job> =
+    run(job, action) = action${mark}()
+`)).toEqual([alias]);
+      }
+    });
+
     it("suppresses the mark a call through a refused alias would owe (#888)", () => {
       expect(check(`type Step = () ->? Unit
 
@@ -3088,6 +3152,13 @@ export let go(a: Step): Unit = a?()
       expect(hovered(inMid, "mid(cb")?.displayedType).toBe("(() ->? Int) ->? Int");
     });
 
+    it("displays a hole where it stands", () => {
+      const source = inMid.replace("let g = action", "let g: _ = action");
+      const hole = hovered(source, "_ = action");
+      expect(hole?.displayedType).toBe("() ->?¹ Unit");
+      expect(hole?.colourOwners).toEqual([owner]);
+    });
+
     it("displays it plainly again once a join makes the two colours one", () => {
       const source = `export let outer(action: () ->? Unit): Int =
     fun mid(cb: () ->? Int): Int =
@@ -3158,6 +3229,45 @@ export let go(a: Step): Unit = a?()
       const cursor = prefix.length + source.indexOf("let z = g") + "let z = g".length;
       const g = session(source).completions("/main.hex", cursor).find(({ name }) => name === "g");
       expect(g?.detail).toBe("() ->?¹ Unit — ->?¹ is outer's colour, captured");
+    });
+
+    it("names the outermost signature where a join made one colour of several", () => {
+      // `h` conducts both `action` and its own `cb`, so `h`'s colour and
+      // `outer`'s are one variable, which both signatures own; the owner line
+      // names `outer`, in hover and in a report's note alike.
+      const source = `export let outer(action: () ->? Unit): Unit =
+    fun h(cb: () ->? Unit): Unit =
+        fun inner(k: () ->? Int): Int =
+            let n: Int = action
+            k?()
+        action?()
+        cb?()
+    fun mid(k: () ->? Int): Int =
+        let g = action
+        k?()
+    let m = mid(() => 1)
+    h?(action)
+`;
+      expect(hovered(source, "g =")?.colourOwners).toEqual([owner]);
+      const report = compileFiles([["/world.js", ""], ["/main.hex", prefix + source]]).diagnostics;
+      expect(report.map(({ message }) => message)).toEqual([
+        "type mismatch: expected Int, found () ->?¹ Unit",
+      ]);
+      expect(report[0]?.notes).toEqual([owner]);
+    });
+
+    it("owes a report's face nothing for a colour in the face's own inlet", () => {
+      const source = inMid.replace("        cb?()\n", `        let k = (f: () ->? Unit): Unit =>
+            action?()
+            f?()
+        let n: Int = k
+        cb?()
+`);
+      const report = compileFiles([["/world.js", ""], ["/main.hex", prefix + source]]).diagnostics;
+      expect(report.map(({ message }) => message)).toEqual([
+        "type mismatch: expected Int, found (() ->? Unit) ->? Unit",
+      ]);
+      expect(report[0]?.notes).toBeUndefined();
     });
 
     it("decorates a diagnostic by its primary span, over settled colours", () => {

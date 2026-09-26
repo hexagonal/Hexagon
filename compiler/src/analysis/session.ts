@@ -556,10 +556,16 @@ export class AnalysisSession {
       offset >= span.start.offset && offset <= span.end.offset
     );
     if (hole === undefined) return undefined;
+    // Displayed where the hole stands (Effects §10, #873).
+    const face = Typed.displayFace(
+      hole.scheme,
+      Typed.colourContextAt(typed, Number(hole.span.fileId), hole.span.start.offset, hole.span.end.offset),
+    );
     return {
       name: "_",
       span: hole.span,
-      displayedType: Typed.displayScheme(hole.scheme),
+      displayedType: face.type,
+      ...(face.owners.length === 0 ? {} : { colourOwners: face.owners }),
     };
   }
 

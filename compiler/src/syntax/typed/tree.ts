@@ -443,17 +443,17 @@ export interface CompanionImport {
   readonly internalNames: Resolved.InternalNameInputs;
 }
 
-/**
- * A `_` in an annotation and the type it elaborated to, generalized over
- * whatever variables survived at the binding — so a hole nothing fixed reads as
- * the variable it is rather than as an internal identity.
- */
 /** One inlet-bearing signature's region, and the colour it owns (§10, #873). */
 export interface ColourScope {
   readonly span: Source.Span;
   readonly variable?: TypeVariableId;
 }
 
+/**
+ * A `_` in an annotation and the type it elaborated to, generalized over
+ * whatever variables survived at the binding — so a hole nothing fixed reads as
+ * the variable it is rather than as an internal identity.
+ */
 export interface TypeHole {
   readonly span: Source.Span;
   readonly scheme: Scheme;

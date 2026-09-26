@@ -3019,6 +3019,8 @@ class Checker {
   readonly #markedColours = new Map<number, Variable>();
   /** The inlets of the type `#display` is rendering (§10, #873). */
   #displayInlets: ReadonlySet<number> | undefined;
+  /** Nonzero while a type is rendered as an identity key, never shown: no marks (§10, #873). */
+  #unmarkedDisplays = 0;
   /**
    * Where a colour variable was pinned to a constant *(#867)*. Recorded at the
    * binding, read by the constraint seat: §13.2 reports a failed seat "at the
@@ -18781,6 +18783,16 @@ class Checker {
     return this.#knots.some((knot) => this.#knotColour(knot, pruned));
   }
 
+  /**
+   * The dependencies §4.4's recovery leaves as they were *(#873)*: a colour a
+   * written `->?` owns — a signature's, the body's own or a captured one — and,
+   * while a knot is open and no body's arms are settling it, a sibling's.
+   */
+  #recoveryLeaves(variable: Variable): boolean {
+    if (this.#isLinkedColour(variable)) return true;
+    return this.#settlingArms === 0 && this.#knots.some((knot) => this.#knotColour(knot, variable));
+  }
+
   /** Whether a colour is one a written `->?` owns (`#linkedColours`). */
   #isLinkedColour(colour: Mono): boolean {
     const pruned = this.#prune(colour);
@@ -20187,6 +20199,20 @@ class Checker {
     const actual = this.#prune(type);
     switch (actual.kind) {
       case "Function": {
+        // §4.4's recovery is not a colour the seat compares: it passes through
+        // as itself, so what a body reads off it is suppressed as everywhere
+        // else and the seat skips the arrow (#888).
+        const written = actual.effect === undefined ? undefined : this.#prune(actual.effect);
+        if (written !== undefined && isRecovered(written)) {
+          return {
+            kind: "Function",
+            parameters: actual.parameters.map((parameter) =>
+              this.#recolour(parameter, level, freshened, shows)
+            ),
+            result: this.#recolour(actual.result, level, freshened, shows),
+            effect: written,
+          };
+        }
         // Every slot the freshening mints is recorded: a **failed** seat settles
         // none of them, and §13.2 makes no mark report against a colour it
         // minted and never settled.
@@ -21378,20 +21404,28 @@ class Checker {
     };
     const actualLeft = this.#prune(left);
     const actualRight = this.#prune(right);
-    // §4.4's recovery **binds nothing it meets** *(#873)*: it absorbs as the
-    // error type does, so a variable it meets — an enclosing signature's
-    // colour, a captured callback's, a knot sibling's — is left as it was, and
-    // no face, colour, or mark outside the refused position changes on the
-    // recovery's account. Bound, it flowed outward: a body handing its own
-    // `->?` callback to a refused `record` field had its face silently
-    // rewritten to the recovered constant.
     if (
       actualLeft === actualRight ||
       actualLeft.kind === "Error" ||
-      actualRight.kind === "Error" ||
-      isRecovered(actualLeft) ||
-      isRecovered(actualRight)
+      actualRight.kind === "Error"
     ) {
+      return;
+    }
+    // §4.4's recovery **binds nothing it meets** *(#873)*: a dependency it
+    // meets — an enclosing signature's colour, a captured callback's, a knot
+    // sibling's — is left as it was, so no face, colour, or mark outside the
+    // refused position changes on the recovery's account. Bound, it flowed
+    // outward: a body handing its own `->?` callback to a refused `record`
+    // field had its face silently rewritten to the recovered constant. Any
+    // other variable is a colour that exists only to read this one — a body's
+    // own colour the recovered call makes a source, a callee's instantiation —
+    // and it takes the recovery, which is how it reads locally as the impure
+    // constant and how what traces to it stays suppressed (§4.4).
+    if (isRecovered(actualLeft) || isRecovered(actualRight)) {
+      const other = isRecovered(actualLeft) ? actualRight : actualLeft;
+      if (other.kind === "Variable" && !this.#recoveryLeaves(other)) {
+        this.#bind(other, RECOVERED, span, other === actualRight);
+      }
       return;
     }
 
@@ -21906,16 +21940,17 @@ class Checker {
         }
       }
       const effect = type.kind === "Function" ? this.#prune(type.effect ?? PURE) : undefined;
-      if (
-        type.kind === "Function" && this.#knotTypeVariables.has(variable) &&
-        effect?.kind === "Effect" && !isRecovered(effect)
-      ) {
+      if (type.kind === "Function" && this.#knotTypeVariables.has(variable) && effect?.kind === "Effect") {
         const knot = this.#knots.find((open) =>
           open.members.some((member) => open.types.get(member.symbol) === variable)
         );
         if (knot !== undefined) {
           const colour = this.#fresh(knot.level, false);
-          knot.demands.push({ demand: effect, colour, span, colourFirst: !variableOnRight });
+          // A §4.4 recovery is no demand: it binds nothing it meets, a sibling's
+          // colour included (#873), so the member's body alone decides it.
+          if (!isRecovered(effect)) {
+            knot.demands.push({ demand: effect, colour, span, colourFirst: !variableOnRight });
+          }
           variable.instance = { ...type, effect: colour };
           return;
         }
@@ -21923,7 +21958,7 @@ class Checker {
     }
     // *(#873.)* A signature's colour solved to a constant is solved to a
     // constant of its own, carrying the act that solved it (`ColourSolve`).
-    variable.instance = type.kind === "Effect" && this.#faceColours.has(variable)
+    variable.instance = type.kind === "Effect" && !isRecovered(type) && this.#faceColours.has(variable)
       ? {
         kind: "Effect",
         impure: type.impure,
@@ -26013,7 +26048,7 @@ class Checker {
     const survivors = this.#collectVariables(type).filter(
       ({ rigidName }) => rigidName === undefined,
     );
-    return survivors.reduce((key, { id }) => `${key}:?${id}`, this.#display(type));
+    return survivors.reduce((key, { id }) => `${key}:?${id}`, this.#displayKey(type));
   }
 
   /** Records an instance in both directions; the one writer of either table. */
@@ -28477,7 +28512,12 @@ class Checker {
       if (holes.has(key)) continue;
       holes.set(key, {
         span,
-        scheme: this.#publicScheme({ variables: this.#collectVariables(type), type }),
+        // A signature's colour is never the hole's own: it stays free, so the
+        // hole displays it as §10 displays a captured colour (#873).
+        scheme: this.#publicScheme({
+          variables: this.#collectVariables(type).filter((variable) => !this.#faceColours.has(variable)),
+          type,
+        }),
       });
     }
     return [...holes.values()];
@@ -29337,7 +29377,21 @@ class Checker {
    */
   #evidenceSlot(requirement: Requirement): string {
     if (requirement.type.kind === "Variable") return `v${requirement.type.id}`;
-    return this.#display(this.#prune(requirement.type));
+    return this.#displayKey(this.#prune(requirement.type));
+  }
+
+  /**
+   * A type rendered as an **identity key** rather than for a reader: exactly
+   * `#display`'s text, without the marks `#arrow` leaves for §10's settled
+   * reading of a report (#873), which would put variable ids into the key.
+   */
+  #displayKey(type: Mono): string {
+    this.#unmarkedDisplays += 1;
+    try {
+      return this.#display(type);
+    } finally {
+      this.#unmarkedDisplays -= 1;
+    }
   }
 
   /**
@@ -30765,6 +30819,8 @@ class Checker {
       );
       const nearestColour = nearest === undefined ? undefined : this.#prune(nearest.effect);
       const owners: string[] = [];
+      const unmark = (text: string): string =>
+        text.replace(COLOUR_MARKED, (_whole, arrow: string) => arrow);
       const strip = (text: string): string =>
         text.replace(COLOUR_MARKED, (_whole, arrow: string, id: string, inlet: string) => {
           const marked = this.#markedColours.get(Number(id));
@@ -30788,11 +30844,13 @@ class Checker {
         ...(diagnostic.labels === undefined
           ? {}
           : { labels: diagnostic.labels.map((label) => ({ ...label, message: strip(label.message) })) }),
+        // A fix is text the writer applies, and a numbered arrow does not lex:
+        // its marks are removed and nothing is numbered.
         ...(diagnostic.fixes === undefined ? {} : {
           fixes: diagnostic.fixes.map((fix) => ({
             ...fix,
-            message: strip(fix.message),
-            edits: fix.edits.map((edit) => ({ ...edit, replacement: strip(edit.replacement) })),
+            message: unmark(fix.message),
+            edits: fix.edits.map((edit) => ({ ...edit, replacement: unmark(edit.replacement) })),
           })),
         }),
       };
@@ -31044,7 +31102,11 @@ class Checker {
     const arrow = linkedArrow(effect.kind === "Variable" ? numbering.get(effect.id) : undefined);
     // A signature's colour may be a captured one, which Effects §10 decides
     // against settled colours (#873): marked here, read by `#settleColourMarks`.
-    if (effect.kind !== "Variable" || !this.#faceColours.has(effect)) return arrow;
+    if (
+      effect.kind !== "Variable" || !this.#faceColours.has(effect) || this.#unmarkedDisplays > 0
+    ) {
+      return arrow;
+    }
     this.#markedColours.set(effect.id, effect);
     return `${arrow}${COLOUR_MARK}${effect.id}${
       this.#displayInlets?.has(effect.id) === true ? "i" : ""
