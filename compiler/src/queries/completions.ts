@@ -34,6 +34,7 @@
 
 import type * as Source from "../support/source.js";
 import type * as Resolved from "../syntax/resolved/index.js";
+import * as Typed from "../syntax/typed/index.js";
 import {
   codePointBefore,
   identifierStartBefore,
@@ -70,6 +71,12 @@ export interface CompletionInput {
   readonly resolved: Resolved.Module;
   readonly facts: ReadonlyMap<number, SymbolFacts>;
   readonly docs: DocumentationIndex;
+  /**
+   * The checked module at the cursor, whose colour scopes decide how a
+   * captured colour displays there (Effects §10, #873). Absent when checking
+   * produced none; the detail is then the location-blind display.
+   */
+  readonly typed?: Pick<Typed.Module, "fileId" | "colourScopes" | "colourOwners">;
 }
 
 export function collectCompletions(input: CompletionInput): readonly Completion[] {
@@ -93,7 +100,7 @@ export function collectCompletions(input: CompletionInput): readonly Completion[
       // binds one — but `__` is refused in every Hexagon name seat (Lexer §3.2),
       // so offering one hands the user a name they cannot type.
       if (isCompilerMinted(binding.name)) continue;
-      found.set(binding.name, ofSymbol(binding.name, binding.symbol, input.facts));
+      found.set(binding.name, ofSymbol(binding.name, binding.symbol, input.facts, cursorColours(input)));
     }
   }
   for (const { name, span } of typeNames(input.resolved)) {
@@ -233,17 +240,33 @@ function membersOf(qualifier: string, input: CompletionInput): readonly Completi
   );
 }
 
+/**
+ * Effects §10 at the completion cursor (#873): the location is where the name
+ * would be written, so the nearest signature is the cursor's.
+ */
+function cursorColours(input: CompletionInput): Typed.ColourContext | undefined {
+  return input.typed === undefined
+    ? undefined
+    : Typed.colourContextAt(input.typed, Number(input.typed.fileId), input.offset, input.offset);
+}
+
 function ofSymbol(
   name: string,
   symbol: Resolved.SymbolId,
   facts: ReadonlyMap<number, SymbolFacts>,
+  colours?: Typed.ColourContext,
 ): Completion {
   const known = facts.get(Number(symbol));
   if (known === undefined) return { name, kind: "value" };
+  // A captured colour numbered here names its owner beside the type, the
+  // detail being one line of plain text.
+  const face = colours === undefined ? undefined : Typed.displayFace(known.scheme, colours);
   return {
     name,
     kind: kindOf(known),
-    detail: known.displayedType,
+    detail: face === undefined
+      ? known.displayedType
+      : [face.type, ...face.owners.map((owner) => owner.replaceAll("`", ""))].join(" — "),
     ...(known.documentation === undefined ? {} : { documentation: known.documentation }),
   };
 }

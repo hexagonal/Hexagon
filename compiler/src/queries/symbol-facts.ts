@@ -29,6 +29,12 @@ export interface SymbolFacts {
   /** The scheme as a reader sees it, for hover text and completion detail. */
   readonly displayedType: string;
   /**
+   * The scheme itself, for a display that depends on where it is shown — a
+   * captured colour is numbered at some locations and not others (Effects §10,
+   * #873).
+   */
+  readonly scheme: Typed.Scheme;
+  /**
    * The declaration's documentation (`spec/doc-comments.md` §8), absent when it
    * carries none. Found by the symbol's binding span, which is a name the doc
    * block records as one of its subjects — see `DocumentationIndex`.
@@ -51,6 +57,7 @@ export function collectSymbolFacts(
         kind: symbol.kind,
         functionValued: symbol.scheme.type.kind === "Function",
         displayedType: Typed.displayScheme(symbol.scheme),
+        scheme: symbol.scheme,
         ...(documentation === undefined ? {} : { documentation }),
       });
     }

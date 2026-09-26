@@ -128,6 +128,17 @@ export class Bag {
     });
   }
 
+  /**
+   * Replaces every diagnostic with what `rewrite` makes of it, in place — for
+   * a report rendered before the fact it depends on had settled (Effects §10's
+   * captured colours, #873).
+   */
+  rewrite(rewrite: (diagnostic: Diagnostic) => Diagnostic): void {
+    this.#diagnostics.forEach((diagnostic, index) => {
+      this.#diagnostics[index] = rewrite(diagnostic);
+    });
+  }
+
   get isEmpty(): boolean {
     return this.#diagnostics.length === 0;
   }

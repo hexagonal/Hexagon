@@ -159,6 +159,14 @@ export interface FunctionTypeAnnotation {
   readonly result: TypeAnnotation;
   /** How the arrow was written (#355); absent is `->`. */
   readonly effect?: "linked" | "constant";
+  /**
+   * Set where the resolver refused a `->?` in a `type` alias body and stored
+   * the impure constant in its place (Effects §4.4). The arrow reads as `->!`
+   * everywhere, and the checker elaborates it as §4.4's marked recovery, so
+   * what it meets through the alias is suppressed rather than re-reported
+   * (#888).
+   */
+  readonly recovered?: true;
   /** The arrow token, so a face fixit replaces exactly it. */
   readonly arrowSpan?: Source.Span;
   readonly span: Source.Span;
