@@ -117,6 +117,15 @@ describe("a constructor application's own expected type (#1066)", () => {
     expect(line).not.toMatch(/[\w)] \* [\w(]/u);
   });
 
+  test("a companion dot call's receiver hands its element to a literal argument", () => {
+    // The receiver's seat is settled before a landing argument elaborates
+    // (Method Syntax §2.2), and a literal or constructor application lands.
+    expect(typeOf("let pairs: Vector((Dec, Dec)) = [(price, price)]\nlet a = pairs.append((n, 0.5))\n", "a"))
+      .toBe("Vector((Dec, Dec))");
+    expect(typeOf("let opts: Vector(Option(Dec)) = [None]\nlet a = opts.append(Some(n))\n", "a"))
+      .toBe("Vector(Option(Dec))");
+  });
+
   test("another head declines, with no propagation artifact", () => {
     expect(refusals("let a: Result(Dec, String) = Some(n)\n"))
       .toEqual(["type mismatch: expected Result(Dec, String), found Option(Int)"]);

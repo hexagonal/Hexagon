@@ -9639,10 +9639,13 @@ class Checker {
         // §4.3's normative elaboration schedule *(#517)*. An application
         // elaborates its **callee first unless the callee is a lambda literal**,
         // then non-lambda arguments in source order, then lambda-literal
-        // arguments in source order. Where the callee's type is a function of
-        // this call's arity, its parameter types supply the arguments pointwise;
-        // constructor applications included, a constructor being a function with
-        // a known type. A callee whose type is still an undetermined variable
+        // arguments in source order — with every lambda literal deeper on an
+        // argument's spine among them, in source order across the whole list
+        // (#1096). Where the callee's type is a function of this call's arity,
+        // its parameter types supply the arguments pointwise; constructor
+        // applications included, a constructor being a function with a known
+        // type, whose result first takes the application's own expectation
+        // (#1066). A callee whose type is still an undetermined variable
         // supplies nothing, and the arguments synthesize exactly as before.
         const arguments_: Mono[] = expression.arguments.map(() => ERROR);
         const deferredLambdas = new Set(
