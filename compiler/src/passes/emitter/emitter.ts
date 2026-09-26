@@ -8041,10 +8041,13 @@ class JavaScriptEmitter {
         return `~${operand(leftExpression, Precedence.Unary)}`;
       case "shiftLeft":
       case "shiftRight": {
+        // The left operand first, as at every other operator: emission order
+        // is the order hoisted evidence is interned in.
+        const left = operand(leftExpression, Precedence.Shift);
         const count = rightExpression === undefined
           ? this.#unit
           : this.#emitExpr(rightExpression, depth, evidenceNames);
-        return `${operand(leftExpression, Precedence.Shift)} ` +
+        return `${left} ` +
           `${expression.member === "shiftLeft" ? "<<" : ">>"} ${this.#spell("BigInt")}(${count})`;
       }
     }
