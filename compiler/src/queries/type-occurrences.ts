@@ -6,6 +6,12 @@ import * as Typed from "../syntax/typed/index.js";
 export interface TypeOccurrence {
   readonly name: string;
   readonly displayedType: string;
+  /**
+   * Who owns each captured colour the display had to number *(#873; Effects
+   * §10)*, one line each — `` `->?¹` is `outer`'s colour, captured ``. Absent
+   * where nothing was.
+   */
+  readonly colourOwners?: readonly string[];
   readonly span: Source.Span;
   /** The value this names, when it names one. Absent for a record field. */
   readonly symbol?: Typed.Symbol["id"];
@@ -26,6 +32,9 @@ export interface TypeOccurrence {
 export function collectTypeOccurrences(module: Typed.Module): readonly TypeOccurrence[] {
   const symbols = new Map(module.symbols.map((symbol) => [symbol.id, symbol]));
   const occurrences = new Map<string, TypeOccurrence>();
+  // Effects §10's location (#873): the occurrence itself.
+  const contextAt = (span: Source.Span): Typed.ColourContext | undefined =>
+    Typed.colourContextAt(module, Number(span.fileId), span.start.offset, span.end.offset);
   const publish = (
     name: string,
     scheme: Typed.Scheme,
@@ -35,9 +44,11 @@ export function collectTypeOccurrences(module: Typed.Module): readonly TypeOccur
     if (span.fileId !== module.fileId) return;
     const key = `${Number(span.fileId)}:${span.start.offset}:${span.end.offset}`;
     if (occurrences.has(key)) return;
+    const face = Typed.displayFace(scheme, contextAt(span));
     occurrences.set(key, {
       name,
-      displayedType: Typed.displayScheme(scheme),
+      displayedType: face.type,
+      ...(face.owners.length === 0 ? {} : { colourOwners: face.owners }),
       span,
       ...(denoted === undefined
         ? {}

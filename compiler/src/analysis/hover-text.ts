@@ -32,9 +32,14 @@ export function hoverMarkdown(hover: Hover): string {
   // A name the session found no identity for — an `honor` member, a record
   // field — is answered by its documentation alone, so there is no word to put
   // in front of it.
-  const heading = hover.target === undefined
+  const named = hover.target === undefined
     ? signature
     : `${describeTarget(hover.target)} ${signature}`;
+  // Effects §10's owner line (#873): a captured colour the type had to number
+  // is named beside it, one line each.
+  const heading = hover.colourOwners === undefined
+    ? named
+    : [named, ...hover.colourOwners].join("\n\n");
   return hover.documentation === undefined
     ? heading
     : `${heading}\n\n${hover.documentation}`;
