@@ -87,7 +87,10 @@ describe("an operator's operands are emitted once", () => {
         "    a(n: BigInt, flag: Bool): Int = if flag then b(n, False) else 0\n" +
         "export let r: Int = a(3n, True)\n",
     );
-    expect(messages(project)).toHaveLength(1);
+    expect(messages(project)).toEqual([
+      "`u` is a declared type variable, but the body requires `BigInt`; change the " +
+        "annotation to `BigInt`, or remove it to let the type be inferred",
+    ]);
     expect(mainText(project)).not.toContain("FromBigInt");
   });
 
