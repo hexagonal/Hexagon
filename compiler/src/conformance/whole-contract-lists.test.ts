@@ -11,7 +11,10 @@
  *
  * Each advised list here is discharged, not asserted: the rewrite is written
  * out verbatim and compiled, since the Rewrite Rule's whole claim is that the
- * next compile accepts it.
+ * next compile accepts it. The one exception is the refused literal pattern,
+ * which pins when a refusal counts as reported. Its list leaves none of this
+ * row's refusals behind, but the literal then meets Pattern Matching §2.5's
+ * refusal, which is another row's.
  */
 
 import { describe, expect, test } from "vitest";
@@ -100,6 +103,8 @@ describe("a function binder's refusals advise one list", () => {
     // The refusal is worded at the end of the module, but the pattern it
     // breaks is judged at once: a broken literal reads as `_` for coverage
     // (Pattern Matching §7.3), so no second report claims `(_, _)` is missing.
+    // Not discharged: under `<a: (Eq, Num, Show)>` the literal meets §2.5's
+    // "`0` is not a pattern at `a`", which is not this row's refusal.
     expect(verdict(
       "export let f<a: Show>(x: a): String =\n" +
       "    match (x, 1)\n" +
@@ -250,6 +255,35 @@ describe("a demand no list can spell leaves no list to advise", () => {
   });
 });
 
+/** Two modules exporting one word for two declarations, and one function over both. */
+const DESCRIBE_ONE = "module Lib1\n\nexport constraint Describe<a: Num> =\n    one(value: a) -> a\n" +
+  "export let useOne<a: Describe>(v: a): a = one(v)\n";
+const DESCRIBE_TWO = "module Lib2\n\nexport constraint Describe<a: Num> =\n    two(value: a) -> a\n" +
+  "export let useTwo<a: Describe>(v: a): a = two(v)\n";
+const DESCRIBE_BOTH = "module Both\n\nimport Lib1\nimport Lib2\n" +
+  "export let useBoth<a: (Lib1.Describe, Lib2.Describe)>(v: a): a = Lib1.useOne(Lib2.useTwo(v))\n";
+
+describe("two demands that share a word", () => {
+  const files = (main: string) => [
+    ["/lib1.hex", DESCRIBE_ONE],
+    ["/lib2.hex", DESCRIBE_TWO],
+    ["/both.hex", DESCRIBE_BOTH],
+    ["/main.hex", "module Main\n\nimport Both\n" + main + KEEP],
+  ] as const;
+
+  test("at one caret, read alike, so they are one report (Functions §10's once per place)", () => {
+    expect(graphDiagnostics(files("let g<a: Ord>(x: a): a = Both.useBoth(x)\n"))).toEqual([
+      "`a` is declared to honor `Ord`, but the body requires `Describe`; " +
+        "write `<a: (Lib1.Describe, Lib2.Describe, Ord)>` — `Describe` is declared in module `Lib1`; " +
+        "`import Lib1` and spell it `Lib1.Describe` — `Describe` is declared in module `Lib2`; " +
+        "`import Lib2` and spell it `Lib2.Describe`, or remove the constraint annotation to let it be inferred",
+    ]);
+    expect(graphDiagnostics(files(
+      "import Lib1\nimport Lib2\nlet g<a: (Lib1.Describe, Lib2.Describe, Ord)>(x: a): a = Both.useBoth(x)\n",
+    ))).toEqual([]);
+  });
+});
+
 /** An exported constraint in another module, reached through a second hop. */
 const HEFT_LIB = [
   "module Lib",
@@ -281,6 +315,29 @@ const TALLY_MID = [
   "export let useTally<a: Tally.Tally>(n: a): a = Tally.useTally(n)",
   "",
 ].join("\n");
+
+describe("the unmentioned row over a same-spelled pair", () => {
+  test("names the pair as the list does, never one word twice", () => {
+    const files = (main: string) => [
+      ["/lib.hex", HEFT_LIB],
+      ["/mid.hex", HEFT_MID],
+      ["/main.hex", "module Main\n\nimport Mid\n" + main + KEEP],
+    ] as const;
+    const local = "constraint Heft<a> =\n    other(value: a) -> a\n";
+    expect(graphDiagnostics(files(
+      local + "fun f<a: Heft>(x: Int): Int =\n    let g = (y: a) => Mid.useHeft(y)\n    x\n",
+    ))).toEqual([
+      "`a` is a declared type variable, but this declaration's type does not mention it, so no call " +
+        "can choose it or supply its `Heft`, `Lib.Heft` evidence; use `a` in a parameter or result type " +
+        "and write `<a: (Heft, Lib.Heft)>` — `Heft` is declared in module `Lib`, and this module binds " +
+        "another `Heft`; `import Lib` and spell it `Lib.Heft`, or remove `a` from the binder list and " +
+        "write a concrete type where the body names `a`",
+    ]);
+    expect(graphDiagnostics(files(
+      "import Lib\n" + local + "fun f<a: (Heft, Lib.Heft)>(x: a): Int =\n    let g = (y: a) => Mid.useHeft(y)\n    0\n",
+    ))).toEqual([]);
+  });
+});
 
 describe("route clauses over a whole list", () => {
   test("only the module the collision named drops its \"declared in\" half", () => {

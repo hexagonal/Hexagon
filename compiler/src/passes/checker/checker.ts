@@ -21433,10 +21433,11 @@ class Checker {
    * entailment-maximal by identity, deduplicated by identity — the written ones
    * in written order, the demanded ones in the order they arrived.
    *
-   * That order is this function's own and reaches only the route clauses, which
-   * follow the demands as they arrived. The *printed* list is ordered by
-   * `advisedConstraintList` or `mergedConstraintList`, which every caller
-   * renders through.
+   * That order reaches the route clauses, which follow the demands as they
+   * arrived, and the written part of a merged list (`mergedConstraintList`),
+   * which keeps the reader's order. Everything else about the *printed* order —
+   * the whole list at a binder, the demanded part of a merged one — is the
+   * alphabetical order the renderers apply.
    */
   #maximalAdvisedSpellings(
     written: readonly { readonly written: string; readonly identity: string }[],
@@ -23506,8 +23507,9 @@ class Checker {
    * defaulting cannot discharge, say nothing while the constraint is silently
    * dropped. A variable its declaration's type does mention, still unquantified
    * here, is a knot's survivor: its knot has already refused, and it is not this
-   * report's (#704). An unconstrained unused variable never arrives — it needs
-   * no evidence, and a zero-information form misleads no one (Constraints §5.4).
+   * report's (#704). An unconstrained unused variable arrives only when the body
+   * demands a constraint of it; one it demands nothing of needs no evidence, and
+   * a zero-information form misleads no one (Constraints §5.4).
    */
   #reportUnmentionedDeclared(variable: Variable): boolean {
     if (variable.rigidName === undefined) return false;
@@ -23533,7 +23535,14 @@ class Checker {
       this.#absorbedRefusals.add(variable);
       const spellings = this.#refusalSpellings(variable.declaredConstraints ?? [], refused);
       const whole = alphabetical([...spellings.written, ...spellings.demanded]);
-      names = whole.map(bareConstraintName);
+      // Named as the list names them where two share a word (§5.1.1's
+      // collision): `Heft`, `Lib.Heft` — never `Heft` twice.
+      const bare = whole.map(bareConstraintName);
+      names = whole.map((spelling, index) =>
+        bare.indexOf(bare[index]!) === bare.lastIndexOf(bare[index]!)
+          ? bare[index]!
+          : spellingText(spelling)
+      );
       // §5.1.1's fourth tier: a constraint no list here can spell leaves no
       // list to write, so the rewrite that would need one is not offered.
       if (whole.some(({ kind }) => kind === "sealed")) {
