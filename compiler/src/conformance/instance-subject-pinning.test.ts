@@ -28,6 +28,10 @@ import { projectDiagnostics } from "../support/test-project.js";
  * compiler does, and the file is the record of *why* it does it. What no longer
  * exists is a lawful program that reaches the ground-head case — under #390 the
  * pin imposes nothing on any head a module may write, and is defence in depth.
+ *
+ * The pin's report carets the call that demanded the instance, which follows the
+ * honor block (Functions §10's "Where a report stands", #1063), so the head's
+ * refusal is listed first.
  */
 
 const HEAD_LAW =
@@ -47,7 +51,7 @@ describe("a ground instance head imposes its arguments", () => {
     // for `Int`.
     expect(
       projectDiagnostics(SH + 'export let g: String = sh(Box({value = "x"}))\n'),
-    ).toEqual(["type mismatch: expected Int, found String", HEAD_LAW]);
+    ).toEqual([HEAD_LAW, "type mismatch: expected Int, found String"]);
   });
 
   test("a declared type variable cannot satisfy a ground head", () => {
@@ -56,9 +60,9 @@ describe("a ground instance head imposes its arguments", () => {
     expect(
       projectDiagnostics(SH + "export fun f<a>(x: Box(a)): String = sh(x)\n"),
     ).toEqual([
+      HEAD_LAW,
       "`a` is a declared type variable, but the body requires `Int`; " +
         "change the annotation to `Int`, or remove it to let the type be inferred",
-      HEAD_LAW,
     ]);
   });
 

@@ -378,6 +378,26 @@ describe("refusals (§2.1, §9)", () => {
     expect(verdict(logic + "let x = p bor q\n")[0]).toContain("logic on `Bool` is spelled `or`");
     expect(verdict(logic + "let x = p bxor q\n")[0]).toContain("logic on `Bool` is spelled `!=`");
     expect(verdict(logic + "let x = bnot p\n")[0]).toContain("logic on `Bool` is spelled `not`");
+    // The logic word is the operator's own seat's: a `Bool` reached as an
+    // instance's argument is no `band` written on `Bool`, and `and` would not
+    // compile on the boxes (#1063's review).
+    const boxed = verdict(
+      "record Box(a) = { item: a }\n" +
+        "honor<a: Bitwise> Bitwise<Box(a)> =\n" +
+        "    bitAnd(l, r) = Box({item = l.item band r.item})\n" +
+        "    bitOr(l, r) = Box({item = l.item bor r.item})\n" +
+        "    bitXor(l, r) = Box({item = l.item bxor r.item})\n" +
+        "    bitNot(v) = Box({item = bnot v.item})\n" +
+        "    shiftLeft(v, c) = Box({item = v.item.shiftLeft(c)})\n" +
+        "    shiftRight(v, c) = Box({item = v.item.shiftRight(c)})\n" +
+        "let x = Box({item = True}) band Box({item = False})\n",
+    );
+    expect(boxed).toHaveLength(1);
+    expect(boxed[0]).not.toContain("logic on `Bool`");
+    // Nor through a call: `h`'s own `band` is not written at `h(True, False)`.
+    const called = verdict("let h(a, b) = a band b\nlet x = h(True, False)\n");
+    expect(called).toHaveLength(1);
+    expect(called[0]).not.toContain("logic on `Bool`");
     const bits = "let i: Int = 6\nlet j: Int = 3\n";
     expect(verdict(bits + "let x = i and j\n")[0]).toContain("the bitwise operation is spelled `band`");
     expect(verdict(bits + "let x = i or j\n")[0]).toContain("the bitwise operation is spelled `bor`");

@@ -366,19 +366,20 @@ describe("a container walk demands of its contents what the identity says", () =
   test("and a `Map`'s key and value are both asked, not hashed", () => {
     // Two reports, one per component: the `Show` arm walks the pair, while the
     // pick the mutation takes walks a `Hash` key and an `Eq` value — both of
-    // which `P` honors, so the whole program was accepted.
+    // which `P` and `Q` honor, so the whole program was accepted. The two are
+    // distinct types so each component's report is its own: one place gives
+    // an identical sentence once (Functions §10).
     const reports = diagnostics(
-      RENDER + SHOWLESS +
-        "let m: Map(P, P) = Map.fromVector([(P({x = 1}), P({x = 2}))])\n" +
+      RENDER + SHOWLESS + "record Q derives (Eq, Hash) = {y: Int}\n" +
+        "let m: Map(P, Q) = Map.fromVector([(P({x = 1}), Q({y = 2}))])\n" +
         "export let r: String = render(m)\n",
     );
-    expect(reports).toHaveLength(2);
-    expect(new Set(reports)).toEqual(
-      new Set([
-        "type `P` has no `Show` instance; it could only be declared in module `Main` " +
-          "(declares `P`) or the module declaring `Show`; add `Show` to the `derives` list of `P`",
-      ]),
-    );
+    expect(reports).toEqual([
+      "type `P` has no `Show` instance; it could only be declared in module `Main` " +
+        "(declares `P`) or the module declaring `Show`; add `Show` to the `derives` list of `P`",
+      "type `Q` has no `Show` instance; it could only be declared in module `Main` " +
+        "(declares `Q`) or the module declaring `Show`; add `Show` to the `derives` list of `Q`",
+    ]);
   });
 
   test("and a `Map` demanded for `Hash` asks its value for `Hash`, not `Eq`", () => {

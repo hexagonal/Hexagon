@@ -129,6 +129,16 @@ describe("ordered intra-prelude visibility", () => {
     )).toBe(true);
   });
 
+  test("a copied demand's data-seat refusal carets the call (#1063)", () => {
+    const text = "module Int\nlet same(x: a, y: a): Bool = x == y\n" +
+      "export let r: Bool = same(Some(True), Some(True))\n";
+    const refused = project([["/Int.hex", text]], ["Int"]).diagnostics.filter(({ message }) =>
+      message.includes("seated after this module")
+    );
+    expect(refused.map(({ primary }) => text.slice(primary.start.offset, primary.end.offset)))
+      .toEqual(["same"]);
+  });
+
   test("Option's data seat does not expose Option's later companion operations", () => {
     const messages = diagnostics([[
       "/Int.hex",
