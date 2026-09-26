@@ -81,6 +81,30 @@ describe("the literal forms hand each component its part (#1066)", () => {
     }
   });
 
+  test("a component meets any part at its turn, as a call's argument meets its parameter", () => {
+    const wrap = "let wrap<a>(x: a): Option(a) = Some(x)\n";
+    expect(typeOf(wrap + "let h<b>(o: Option(Dec), y: b): b = y\nfun outer(p) = h(wrap(p), p + 0.5)\n", "outer"))
+      .toBe("Dec -> Dec");
+    expect(typeOf(wrap + "fun outer(p) =\n    let t: (Option(Dec), _) = (wrap(p), p + 0.5)\n    t\n", "outer"))
+      .toBe("Dec -> (Option(Dec), Dec)");
+    expect(typeOf(wrap + "fun outer(p) =\n    let t: {o: Option(Dec), y: _} = {o = wrap(p), y = p + 0.5}\n    t\n", "outer"))
+      .toBe("Dec -> {o: Option(Dec), y: Dec}");
+  });
+
+  test("an operation standing down as a vector's element is reported as a component's is", () => {
+    const stoodDown = ["`f` is a `Float` and cannot enter `Dec`, so the multiplication could not run at `Dec`"];
+    expect(refusals("let f: Float = 1.5\nlet a: Vector(Dec) = [f * 2, price]\n")).toEqual(stoodDown);
+    expect(refusals("let f: Float = 1.5\nlet a: (Dec, Int) = (f * 2, 1)\n")).toEqual(stoodDown);
+  });
+
+  test("a `with` update's head is read as the overrides leave it", () => {
+    expect(typeOf("let norm(q: Point): Dec = q.x\nfun outer(p) = {p with x = norm(p)}\n", "outer")).toBe("Point -> Point");
+    expect(refusals("fun outer(r) = {r with count = r.total + 1}\n"))
+      .toEqual(["record update cannot add fields; the input has no field `count`"]);
+    expect(typeOf("fun outer(r) = {r with count = r.count + 1}\n", "outer"))
+      .toBe("<a: Num> {count: a, ...b} -> {count: a, ...b}");
+  });
+
   test("a match function as a tuple component lands its part", () => {
     expect(refusals(
       "let pair: ((Int) -> String, Int) = (match\n    k when k < 0 => \"negative\"\n    _ => \"other\"\n, 1)\n",
@@ -126,6 +150,10 @@ describe("a constructor application's own expected type (#1066)", () => {
       .toBe("Vector(Option(Dec))");
   });
 
+  test("a constructor in grouping parentheses is a constructor", () => {
+    expect(typeOf("let a: Option(Dec) = (Some)(n)\n", "a")).toBe("Option(Dec)");
+  });
+
   test("another head declines, with no propagation artifact", () => {
     expect(refusals("let a: Result(Dec, String) = Some(n)\n"))
       .toEqual(["type mismatch: expected Result(Dec, String), found Option(Int)"]);
@@ -155,6 +183,39 @@ describe("a face through a function's result (Numeric Literals §6's function-re
     expect(refusals("let a: (Dec, Int) = (ident(n * 1.5), 1)\n")).toEqual([report]);
     expect(refusals(wrap + "let a: (Option(Dec), Int) = (wrap(n), 1)\n"))
       .toEqual([functionResult("wrap(n)", "Option(Int)", "wrap((n: Dec))")]);
+  });
+
+  test("through a forwarding form's branch, and as a vector's element", () => {
+    const report = functionResult("wrap(n)", "Option(Int)", "wrap((n: Dec))");
+    expect(refusals(wrap + "let a: Option(Dec) = if c then wrap(n) else None\n")).toEqual([report]);
+    expect(refusals(wrap + "let a: (Option(Dec), Int) = (if c then wrap(n) else None, 1)\n")).toEqual([report]);
+    expect(refusals(wrap + "let a: Vector(Option(Dec)) = [wrap(n)]\n")).toEqual([report]);
+  });
+
+  test("names every argument a repair ascribes, where the home's value stands", () => {
+    const pick2 = "let pick2<a>(x: a, y: a): Option(a) = Some(x)\n";
+    expect(refusals(pick2 + "let a: Option(Dec) = pick2(n, m)\n"))
+      .toEqual([functionResult("pick2(n, m)", "Option(Int)", "pick2((n: Dec), m)")]);
+    expect(refusals(pick2 + "let a: Option(Dec) = pick2(n, 0.5)\n"))
+      .toEqual([functionResult("pick2(n, 0.5)", "Option(Float)", "pick2(n, (0.5: Dec))")]);
+    expect(refusals(pick2 + "let a: Option(Dec) = pick2((n: Dec), m)\n")).toEqual([]);
+    expect(refusals(pick2 + "let a: Option(Dec) = pick2(n, (0.5: Dec))\n")).toEqual([]);
+  });
+
+  test("is a seat's own: a type siblings settled among themselves was expected by no one", () => {
+    const mismatch = ["type mismatch: expected Dec, found Int"];
+    expect(refusals(wrap + "let pick<a>(x: a, y: a): a = x\nlet a = pick(Some(price), wrap(n))\n")).toEqual(mismatch);
+    expect(refusals(wrap + "let a = [Some(price), wrap(n)]\n")).toEqual(mismatch);
+    expect(refusals(wrap + "let a = if c then Some(price) else wrap(n)\n")).toEqual(mismatch);
+    // A parameter written as a bare variable supplies no home.
+    expect(refusals(wrap + "let a = prices.append(wrap(n))\n"))
+      .toEqual(["type mismatch: expected Dec, found Option(Int)"]);
+    // Nor does a sibling group an earlier argument settled, through a form.
+    const settledBySibling = refusals(
+      "let h3<a>(v: Vector(a), x: a): a = x\nlet a = h3(prices, if c then ident(n * 1.5) else price)\n",
+    );
+    expect(settledBySibling).toHaveLength(1);
+    expect(settledBySibling[0]).not.toContain("through a function's result");
   });
 
   test("is withheld wherever its repair would not compile", () => {
@@ -271,6 +332,27 @@ describe("the argument's spine (#1096)", () => {
     expect(line).toContain("unscaled: 5n, places: 1");
   });
 
+  test("a value in grouping parentheses is a sibling as written", () => {
+    const signatures =
+      "let both<a>(x: a, y: Vector(a)): a = x\n" +
+      "let pairUp<t>(p: (t, t)): t = p.item1\n" +
+      "let bothO<a>(x: a, o: Option(a)): a = x\n" +
+      "let bothW<a>(x: a, w: Wrapper(a)): a = x\n";
+    for (const call of [
+      "both(price, [(n)])",
+      "pairUp(((n), price))",
+      "pairUp((price, (n)))",
+      "bothO(price, Some((n)))",
+      "bothW(price, Wrapper({value = (n)}))",
+      "both(price, if c then [(n)] else prices)",
+    ]) {
+      expect(typeOf(signatures + `let a = ${call}\n`, "a"), call).toBe("Dec");
+    }
+    expect(refusals("let g<t>(p: ((t) -> t, t)): Int = 1\nlet a = g(((v) => v * price, (n)))\n")).toEqual([
+      settled("n", "Int", "Dec", "write `(n: Dec)`, or annotate the callback: `(v: Dec) => …`"),
+    ]);
+  });
+
   test("the groups are read before the first argument, and never revisited", () => {
     const k = "let k<a, b>(f: (a) -> b, p: (a, b)): Int = 1\nlet k2<a, b>(f: (a) -> b, x: a, y: b): Int = 1\n";
     expect(refusals(k + "let a = k(ident, (n, price))\n")).toEqual(refusals(k + "let a = k2(ident, n, price)\n"));
@@ -321,7 +403,7 @@ describe("the argument's spine (#1096)", () => {
     ] as const) {
       expect(typeOf(program, name), program).toBe(type);
     }
-    expect(refusals("fun outer(h) = h(Point2({x = n, y = price}))\n")).toEqual([]);
+    expect(typeOf("fun outer(h) = h(Point2({x = n, y = price}))\n", "outer")).toBe("(Point2(Dec) -> a) -> a");
   });
 
   test("a waiting lambda's written face lands in such a constructor's own first pass", () => {

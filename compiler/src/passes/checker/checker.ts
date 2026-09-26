@@ -7139,6 +7139,7 @@ class Checker {
             item.value,
             annotation.span,
             true,
+            true,
           );
           valueType = this.#hasNumericWidening(item.value)
             ? annotationType
@@ -7732,6 +7733,7 @@ class Checker {
             inferredValueType,
             item.value,
             annotation.span,
+            true,
             true,
           );
           if (this.#hasNumericWidening(item.value)) valueType = annotationType;
@@ -8961,14 +8963,15 @@ class Checker {
           };
         } else {
           const receiver = this.#inferExpr(expression.spread, level);
-          const actual = this.#prune(receiver);
-          // *(#1066.)* Each override takes its head's type at the field
-          // (Products §3.3), on the component schedule — so a callback among
-          // them waits, and no value joins a call's groups.
-          const headFields = actual.kind === "NominalRecord"
-            ? this.#recordRepresentationVisible(actual.record) ? this.#nominalRecordFields(actual) : undefined
-            : actual.kind === "Record"
-              ? actual.fields
+          // *(#1066.)* Each override takes its head's type at the field, as the
+          // head stands before them (Products §3.3), on the component schedule
+          // — so a callback among them waits, and no value joins a call's
+          // groups.
+          const head = this.#prune(receiver);
+          const headFields = head.kind === "NominalRecord"
+            ? this.#recordRepresentationVisible(head.record) ? this.#nominalRecordFields(head) : undefined
+            : head.kind === "Record"
+              ? head.fields
               : undefined;
           const overrideTypes = this.#inferComponents(
             expression,
@@ -8981,6 +8984,8 @@ class Checker {
             field.name.text,
             overrideTypes[index]!,
           ]));
+          // What the head is once the overrides are in: one may have fixed it.
+          const actual = this.#prune(receiver);
           if (actual.kind === "NominalRecord") {
             if (!this.#recordRepresentationVisible(actual.record)) {
               type = this.#unsupported(
@@ -8989,7 +8994,7 @@ class Checker {
               );
               break;
             }
-            const fields = headFields ?? this.#nominalRecordFields(actual);
+            const fields = this.#nominalRecordFields(actual);
             for (const [name, override] of overrides) {
               const existing = fields.get(name);
               if (existing === undefined) {
@@ -9088,6 +9093,7 @@ class Checker {
           inferred,
           expression.expression,
           expression.annotation.span,
+          true,
           true,
         );
         // The widened form is the ascribed one, exactly as at an annotated
@@ -9293,6 +9299,7 @@ class Checker {
             inferredResult,
             expression.body,
             expression.returnAnnotation.span,
+            true,
             true,
           );
           // The second seat where the published node is the value's rather
@@ -10027,7 +10034,7 @@ class Checker {
         // else, and the publish below rewrites only effect nodes at positions
         // the join has already made prune alike.
         this.#joining(expression.span, () =>
-          this.#unifyExpected(target, value, expression.value, expression.span, true));
+          this.#unifyExpected(target, value, expression.value, expression.span, true, true));
         if (
           expression.target.kind === "Name" &&
           this.#mutableSymbols.has(expression.target.symbol)
@@ -14713,7 +14720,7 @@ class Checker {
       const parameter = known.kind === "Function" ? known.parameters[index] : undefined;
       const type = this.#inferExpr(argument, level, parameter);
       if (parameter !== undefined) {
-        this.#unifyExpected(parameter, type, argument, expression.span, true);
+        this.#unifyExpected(parameter, type, argument, expression.span, true, parameter.kind !== "Variable");
       }
     }
     this.#registerCall(
@@ -14789,7 +14796,7 @@ class Checker {
       const parameter = known.kind === "Function" ? known.parameters[seat] : undefined;
       const type = this.#inferExpr(argument, level, parameter);
       if (parameter !== undefined) {
-        this.#unifyExpected(parameter, type, argument, expression.span, true);
+        this.#unifyExpected(parameter, type, argument, expression.span, true, parameter.kind !== "Variable");
       }
     }
     this.#registerCall(expression, this.#calleeEffect(calleeType, level), calleeLabel(expression));
@@ -15484,9 +15491,12 @@ class Checker {
       this.#unify(face, declared, first.expression.span);
       reported = true;
     } else if (first.owner === undefined && first.note === undefined && !receiver) {
+      // §6's function-result report is a home-supplying seat's own: the face
+      // a sibling group's value settled was expected by no one.
+      const seat = root.face !== undefined && root.face.kind !== "Variable";
       this.#diagnostics.add({
         severity: "error",
-        message: this.#functionResultRefusal(first.expression, face, first.type) ??
+        message: (seat ? this.#functionResultRefusal(first.expression, face, first.type)?.message : undefined) ??
           this.#faceEntryRefusal(first, face),
         primary: first.expression.span,
       });
@@ -15755,16 +15765,19 @@ class Checker {
   /**
    * Numeric Literals §6's **function-result report** *(#1066)* in place of the
    * refusal a check of `value` against `expected` makes, where it is owed —
-   * answering whether it was. The check is made all the same, so what it
-   * unified stays unified; only its report is replaced.
+   * answering whether the check was made here. The check is made all the
+   * same, so what it unified stays unified; only its report is replaced.
    */
   #refuseFunctionResult(value: Resolved.Expr, expected: Mono, actual: Mono, span: Source.Span): boolean {
     const refusal = this.#functionResultRefusal(value, expected, actual);
     if (refusal === undefined) return false;
     const before = this.#diagnostics.count;
     this.#unify(expected, actual, span);
+    // Only a refusal is replaced: a value already refused inside the form
+    // (its type `Error`) meets the seat silently.
+    if (this.#diagnostics.count === before) return true;
     this.#diagnostics.discardSince(before);
-    this.#diagnostics.add({ severity: "error", message: refusal, primary: ungrouped(value).span });
+    this.#diagnostics.add({ severity: "error", message: refusal.message, primary: refusal.call.span });
     return true;
   }
 
@@ -15794,8 +15807,30 @@ class Checker {
    * home of the arguments at the variable's seats, else the first of them.
    * Decided from recorded types, for the report alone.
    */
-  #functionResultRefusal(value: Resolved.Expr, expected: Mono, actual: Mono): string | undefined {
+  #functionResultRefusal(
+    value: Resolved.Expr,
+    expected: Mono,
+    actual: Mono,
+  ): { readonly message: string; readonly call: Resolved.Expr } | undefined {
     const call = ungrouped(value);
+    // A forwarding form hands the type to each value path: the report is the
+    // path's that is such a call.
+    const paths = call.kind === "If" && call.elseless !== true
+      ? [call.consequence, call.alternative]
+      : call.kind === "Match"
+        ? [...call.arms, ...call.catchArms ?? []].map(({ body }) => body)
+        : call.kind === "Try"
+          ? [call.body, ...call.arms.map(({ body }) => body)]
+          : call.kind === "Block" && call.items.at(-1)?.kind === "ExprItem"
+            ? [(call.items.at(-1) as Resolved.ExprItem).expression]
+            : undefined;
+    if (paths !== undefined) {
+      for (const path of paths) {
+        const found = this.#functionResultRefusal(path, expected, this.#typeOf(path));
+        if (found !== undefined) return found;
+      }
+      return undefined;
+    }
     if (call.kind !== "Call" || call.callee.kind !== "Name") return undefined;
     if (this.#appliesDataConstructor(call) || this.#towerCallRung(call) !== undefined) return undefined;
     const face = this.#prune(expected);
@@ -15852,8 +15887,11 @@ class Checker {
       repaired = repaired.slice(0, start) + text + repaired.slice(end);
     }
     const shown = this.#display(actual);
-    return `\`${written}\` is ${/^[AEIOU]/u.test(shown) ? "an" : "a"} \`${shown}\` — the type expected here ` +
-      `does not reach an argument through a function's result; write \`${repaired}\``;
+    return {
+      call,
+      message: `\`${written}\` is ${/^[AEIOU]/u.test(shown) ? "an" : "a"} \`${shown}\` — the type expected ` +
+        `here does not reach an argument through a function's result; write \`${repaired}\``,
+    };
   }
 
   /**
@@ -16439,9 +16477,9 @@ class Checker {
    * bound to a constructor (`let mk = Some`) is called as any function is.
    */
   #appliesDataConstructor(expression: Resolved.Expr): boolean {
-    return expression.kind === "Call" && expression.callee.kind === "Name" &&
-      (this.#constructorUnions.has(expression.callee.symbol) ||
-        this.#recordConstructors.has(expression.callee.symbol));
+    const callee = expression.kind === "Call" ? ungrouped(expression.callee) : undefined;
+    return callee?.kind === "Name" &&
+      (this.#constructorUnions.has(callee.symbol) || this.#recordConstructors.has(callee.symbol));
   }
 
   /** `expectationLands`, and a constructor application, which takes its expectation first (#1066). */
@@ -16548,7 +16586,7 @@ class Checker {
         at: lambda.span.start.offset,
         run: (): void => {
           const type = this.#inferExpr(lambda, level, standIn);
-          this.#unifyExpected(standIn, type, lambda, span, true);
+          this.#unifyExpected(standIn, type, lambda, lambda.span, true);
         },
       })),
     ].sort((left, right) => left.at - right.at);
@@ -16640,23 +16678,14 @@ class Checker {
       }
       const type = this.#inferExpr(component, level, part);
       types[index] = type;
-      const home = this.#numericHome(part);
-      if (home === undefined) {
-        // Numeric Literals §6's function-result report is a literal's
-        // component's own, at any concrete part.
-        if (face !== undefined && this.#refuseFunctionResult(component, face, type, component.span)) {
-          types[index] = face;
-        }
-        continue;
-      }
-      // Entered at its turn, as a call's argument is — one still standing on
+      if (part === undefined) continue;
+      // Checked at its turn, as a call's argument is — one still standing on
       // an unsolved variable waits for the end.
       if (this.#prune(type).kind === "Variable") {
         pending.push(index);
         continue;
       }
-      this.#unifyExpected(home, type, component, component.span, true);
-      types[index] = home;
+      types[index] = this.#checkComponent(component, part, type, level);
     }
     const callbacks: (readonly [Resolved.LambdaExpr, Mono])[] = [];
     for (const index of lambdas) {
@@ -16677,10 +16706,33 @@ class Checker {
     }
     for (const index of lambdas) types[index] = this.#inferLambdaComponent(components[index]!, level, parts[index]);
     for (const index of pending) {
-      this.#unifyExpected(parts[index]!, types[index]!, components[index]!, components[index]!.span, true);
-      types[index] = parts[index]!;
+      types[index] = this.#checkComponent(components[index]!, parts[index]!, types[index]!, level);
     }
     return types;
+  }
+
+  /**
+   * A literal's non-lambda component checked against its part, at its turn,
+   * as a call's argument is checked against its parameter (Functions §4.3's
+   * component schedule). A concrete numeric part is the component's **home**,
+   * which it enters (Numeric Literals §5.1). Any other part is unified with it
+   * with the part's **colours freshened** — the types meet now, while the
+   * colours are left for the seat the whole literal meets, where Effects
+   * §13.2 places a pin or a merge (`#recolour`, the honor seat's technique).
+   *
+   * Answers the component's type in the literal: the part, where the component
+   * entered a home or was refused here — so the seat does not refuse it again
+   * — and its own type otherwise, its colours intact.
+   */
+  #checkComponent(component: Resolved.Expr, part: Mono, type: Mono, level: number): Mono {
+    const home = this.#numericHome(part);
+    if (home !== undefined) {
+      this.#unifyExpected(home, type, component, component.span, true, true);
+      return home;
+    }
+    const before = this.#diagnostics.count;
+    this.#unifyExpected(this.#recolour(part, level), type, component, component.span, true, true);
+    return this.#diagnostics.count > before ? part : type;
   }
 
   /**
@@ -16755,6 +16807,30 @@ class Checker {
       const home = this.#numericHome(element);
       const refused = home === undefined ? this.#closeFree(node) : this.#closeFaced(node, home);
       joined = refused ? ERROR : node.published ?? node.result;
+      const target = element === undefined ? undefined : this.#prune(element);
+      if (home !== undefined && !refused && !this.#sameSeat(joined, home)) {
+        // An element whose operation stood down: its note is spent here, at
+        // the element, as a component's is at its seat (Numeric Literals §6).
+        for (const part of node.parts) {
+          const value = this.#partExpression(part);
+          if (this.#reportStandDown(value, home, this.#partType(part), value.span)) {
+            joined = ERROR;
+            break;
+          }
+        }
+      } else if (home === undefined && target !== undefined && target.kind !== "Variable" && !refused) {
+        // The elements meet a non-numeric part as components do: at their
+        // close, their colours left for the seat (`#checkComponent`).
+        for (const part of node.parts) {
+          const value = this.#partExpression(part);
+          const before = this.#diagnostics.count;
+          this.#unifyExpected(this.#recolour(target, level), this.#partType(part), value, value.span, true, true);
+          if (this.#diagnostics.count > before) {
+            joined = target;
+            break;
+          }
+        }
+      }
     }
     const types = node.parts.map((part) => this.#partType(part));
     for (const value of lambdas) {
@@ -16882,7 +16958,12 @@ class Checker {
       const open = [...groups.keys()].filter((variable) =>
         !givers.has(variable) && this.#prune(variable).kind === "Variable"
       );
-      this.#unifyExpected(parameters[index] ?? ERROR, actuals[index] ?? ERROR, expression, span, true);
+      // A parameter written as a bare variable supplies no home, and a dot
+      // call's receiver meets its seat under the receiver rule (§6).
+      const written = parameters[index] ?? ERROR;
+      const receiver = call.kind === "Call" && call.callee.kind === "Access" &&
+        expressions.length === call.arguments.length + 1 && index === 0;
+      this.#unifyExpected(written, actuals[index] ?? ERROR, expression, span, true, written.kind !== "Variable" && !receiver);
       for (const variable of open) {
         if (this.#prune(variable).kind !== "Variable") givers.set(variable, expression);
       }
@@ -17015,13 +17096,15 @@ class Checker {
   ): void {
     const visit = (expression: Resolved.Expr, type: Mono, top: boolean): void => {
       const read = this.#prune(type);
-      if (expression.kind === "Group") {
-        visit(expression.expression, read, top);
-        return;
-      }
-      if (expression.kind === "Lambda" || read.kind === "Error") return;
+      if (defersAsLambda(expression) || read.kind === "Error") return;
+      // A value is a sibling as written, its grouping included: that is the
+      // expression its literal or constructor elaborates.
       if (read.kind === "Variable") {
         if (!top) sibling(expression, read);
+        return;
+      }
+      if (expression.kind === "Group") {
+        visit(expression.expression, read, top);
         return;
       }
       switch (expression.kind) {
@@ -17084,7 +17167,7 @@ class Checker {
    * elaborated, its result unified with its expectation there (Functions §4.3).
    */
   #constructorReading(call: Resolved.CallExpr, read: Mono): readonly Mono[] | undefined {
-    const declared = this.#prune(this.#scheme((call.callee as Resolved.NameExpr).symbol).type);
+    const declared = this.#prune(this.#scheme((ungrouped(call.callee) as Resolved.NameExpr).symbol).type);
     if (declared.kind !== "Function" || declared.parameters.length !== call.arguments.length) return undefined;
     const result = this.#prune(declared.result);
     const same = (result.kind === "Union" && read.kind === "Union" && result.union === read.union) ||
@@ -21852,6 +21935,14 @@ class Checker {
     expression: Resolved.Expr,
     span: Source.Span,
     allowVariableTarget = false,
+    /**
+     * Whether `expected` is a **seat's own** type — one that supplies a home
+     * (Numeric Literals §5.1): an annotation, an ascription, a parameter not
+     * written as a bare variable, a literal's part, a `var`'s. Only there is
+     * a refused call given §6's function-result report; a type siblings
+     * settled among themselves was expected by no one.
+     */
+    home = false,
   ): void {
     if (
       this.#tryWidenNumeric(
@@ -21868,7 +21959,7 @@ class Checker {
     // have. Reported here in place of the bare mismatch, and only when the
     // unification really does fail.
     if (this.#reportStandDown(expression, expected, actual, span)) return;
-    if (this.#refuseFunctionResult(expression, expected, actual, span)) return;
+    if (home && this.#refuseFunctionResult(expression, expected, actual, span)) return;
     this.#unify(expected, actual, span);
   }
 
