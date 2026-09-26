@@ -208,6 +208,9 @@ describe("the head's variable is one rigid (§12.3)", () => {
    * head, each exceeding it in its own way, are told apart by name.
    */
   test("the report names which member exceeded the head", () => {
+    // Each member's own report, and one head for both: the head is spelled
+    // whole, every demand of the block merged into it, so either report's
+    // advice compiles as written (#1098).
     expect(
       projectDiagnostics("module Main\n\n" + "fun<a: Eq>\n" +
           "    shows(x: a, n: Int): String =\n" +
@@ -217,12 +220,20 @@ describe("the head's variable is one rigid (§12.3)", () => {
       ),
     ).toEqual([
       "`a` is declared to honor `Eq` on the block head, but `shows`'s body requires " +
-        "`Show`; widen the head: `fun<a: (Eq, Show)>`, or remove the head's constraint " +
+        "`Show`; widen the head: `fun<a: (Hash, Show)>`, or remove the head's constraint " +
         "to let it be inferred",
       "`a` is declared to honor `Eq` on the block head, but `hashes`'s body requires " +
-        "`Hash`; widen the head: `fun<a: Hash>`, or remove the head's constraint to let " +
+        "`Hash`; widen the head: `fun<a: (Hash, Show)>`, or remove the head's constraint to let " +
         "it be inferred",
     ]);
+    expect(
+      projectDiagnostics("module Main\n\n" + "fun<a: (Hash, Show)>\n" +
+          "    shows(x: a, n: Int): String =\n" +
+          '        if n <= 0 then show(x) else hashes(x, n - 1)\n' +
+          "    hashes(x: a, n: Int): String =\n" +
+          '        if n <= 0 then "" else Int.show(Hash.hash(x))\n',
+      ),
+    ).toEqual([]);
   });
 
   /**
