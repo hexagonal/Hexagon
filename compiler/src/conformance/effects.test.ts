@@ -16,6 +16,7 @@
 
 import { describe, expect, it } from "vitest";
 import seqSource from "../../../stdlib/Seq.hex?raw";
+import { hoverMarkdown } from "../analysis/hover-text.js";
 import { AnalysisSession } from "../analysis/session.js";
 import { compileFiles } from "../support/test-project.js";
 
@@ -770,10 +771,15 @@ export let step(n: Int): Int =
 export let f(h: ((Int) ->? Int) -> Int): Int = h(step)
 `;
 
-  it("reports at `h`'s nested arrow, and rewrites that arrow", () => {
+  it("reports at the pin, labels `h`'s nested arrow, and rewrites that arrow", () => {
     // `f`'s own outer arrow is `->`, returning `Int`, and it is honest: the
     // arrow that constantified is `h`'s parameter's. The advice to give the
     // *binding* an explicit face would have fixed nothing here.
+    //
+    // Handing `step` to `h` is an act of unification, not an effect the body
+    // performs, so the report stands at that pin with the arrow as its label
+    // (§4.2, #873; ruled for this shape by #948) — the fixit still rewrites
+    // the nested arrow alone.
     expect(effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + nested]])).toEqual([
       "this signature's `->?` promises a colour the caller chooses, but the body " +
       "solves it to the impure constant — a function that performs its own " +
@@ -781,7 +787,7 @@ export let f(h: ((Int) ->? Int) -> Int): Int = h(step)
     ]);
     const [report] = effectSpans([["/world.js", ""], ["/main.hex", "module Main\n\n" + nested]]);
     expect(report).toEqual({
-      primary: "module Main\n\n".length + nested.indexOf("->?"),
+      primary: "module Main\n\n".length + nested.indexOf("h(step)") + "h(".length,
       edits: ["module Main\n\n".length + nested.indexOf("->?")],
     });
   });
@@ -883,19 +889,23 @@ export let z: Int = 1
     // monomorphic `->?` stands is §4.2's pure-direction pin. That report owes
     // nothing to the recovery: the control below draws it with no refused
     // annotation anywhere. `mkBad()` itself is bare (§3.4, #868).
+    //
+    // The refusal is an alias's: written inline, `mkBad`'s return annotation
+    // would borrow `f`'s variable instead of being refused (§2.2.2, #873).
     const pin = "this signature's `->?` promises a colour the caller chooses, but the " +
       "body solves it to the pure constant — the honest face is `->`";
     expect(
-      effectDiagnostics([["/main.hex", "module Main\n\n" + `export let f(g: (() ->? String) -> String): String =
-    let mkBad = (): (() ->? String) => (): String => "x"
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `type Maker = () ->? String
+
+export let f(g: (() ->? String) -> String): String =
+    let mkBad = (): Maker => (): String => "x"
     g(mkBad())
 `]]),
     ).toEqual([
-      pin,
       "`->?` is the caller's colour, and this position has no caller to choose it — " +
-      "nothing a caller of this signature supplies carries `->?`, so nothing " +
-      "instantiates it; " +
+      "an alias is a type fragment, not a signature; " +
       "write `->!` for a function that pulls the world, or `->` for one that does not",
+      pin,
     ]);
     expect(
       effectDiagnostics([["/main.hex", "module Main\n\n" + `export let f(g: (() ->? String) -> String): String =
@@ -2851,6 +2861,504 @@ export let quiet(cb: () ->? Unit): Source =
       ]);
       expect(effectFixes([["/world.js", ""], ["/main.hex", "module Main\n\n" + world + source]]))
         .toEqual(['write `->`: "->"']);
+    });
+  });
+});
+
+describe("#873 colour scope is lexical (#948)", () => {
+  const prefix = "module Main\n\n" + world;
+  const check = (source: string): readonly string[] =>
+    effectDiagnostics([["/world.js", ""], ["/main.hex", prefix + source]]);
+  const hover = (source: string, needle: string): string | undefined =>
+    hoveredType(prefix + source, needle);
+  /** Each report's primary, labels, and fixit edits, as offsets into `source`. */
+  const placed = (source: string) =>
+    compileFiles([["/world.js", ""], ["/main.hex", prefix + source]]).diagnostics.map((diagnostic) => ({
+      primary: diagnostic.primary.start.offset - prefix.length,
+      labels: (diagnostic.labels ?? []).map(({ span }) => span.start.offset - prefix.length),
+      edits: (diagnostic.fixes ?? []).flatMap((fix) =>
+        fix.edits.map(({ span, replacement }) => [span.start.offset - prefix.length, replacement])
+      ),
+    }));
+  /** Every offset at which `needle` occurs in `source`, in order. */
+  const offsets = (source: string, needle: string): number[] => {
+    const found: number[] = [];
+    for (let at = source.indexOf(needle); at !== -1; at = source.indexOf(needle, at + 1)) found.push(at);
+    return found;
+  };
+  const inletless = "`->?` is the caller's colour, and this position has no caller to choose " +
+    "it — nothing a caller of this signature supplies carries `->?`, so nothing instantiates " +
+    "it; write `->!` for a function that pulls the world, or `->` for one that does not";
+  const solvedPure = "this signature's `->?` promises a colour the caller chooses, but the " +
+    "body solves it to the pure constant — the honest face is `->`";
+
+  describe("an inlet-less local header borrows (§2.2.2)", () => {
+    it("reads a nested header's `->?` as the enclosing signature's, as an annotation does", () => {
+      const forms = [
+        "    fun h(): () ->? Unit = () => action?()\n    h()?()\n",
+        "    let h(): () ->? Unit = () => action?()\n    h()?()\n",
+        "    let h: () ->? Unit = () => action?()\n    h?()\n",
+        "    let h = (): () ->? Unit => () => action?()\n    h()?()\n",
+      ];
+      for (const body of forms) {
+        const source = `export let outer(action: () ->? Unit): Unit =\n${body}`;
+        expect(check(source)).toEqual([]);
+        expect(hover(source, "outer")).toBe("(() ->? Unit) ->? Unit");
+      }
+      expect(hover(`export let outer(action: () ->? Unit): Unit =\n${forms[0]}`, "h()"))
+        .toBe("() -> () ->? Unit");
+    });
+
+    it("borrows through an inlet-less signature between, for the nearest one that can own", () => {
+      const source = `export let outer(action: () ->? Unit): Int =
+    let mid(n: Int): Int =
+        fun h(): () ->? Unit = () => action?()
+        h()?()
+        n
+    mid?(1)
+`;
+      expect(check(source)).toEqual([]);
+      expect(hover(source, "mid(n")).toBe("Int ->? Int");
+    });
+
+    it("borrows a header whose spine ends at a tuple, where no inlet-bearing signature is refused", () => {
+      const wrapper = "let wrapper(f: () ->? Unit): () ->? Unit = () => f?()\n";
+      const inside = `${wrapper}export let outer(action: () ->? Unit): Int =
+    let mk3(): (Int, (() ->? Unit) -> (() ->? Unit)) = (1, wrapper)
+    let (n, wrap) = mk3()
+    wrap(action)?()
+    n
+`;
+      expect(check(inside)).toEqual([]);
+      expect(hover(inside, "mk3()")).toBe("() -> (Int, (() ->? Unit) -> () ->? Unit)");
+      expect(check(`${wrapper}export let mk3(): (Int, (() ->? Unit) -> (() ->? Unit)) = (1, wrapper)\n`))
+        .toEqual([inletless, inletless]);
+    });
+
+    it("refuses the header where no enclosing signature can lend a variable", () => {
+      expect(check("export fun h(): () ->? Unit = () => ()\n")).toEqual([inletless]);
+      expect(check(`export let outer(n: Int): Int =
+    let h(): () ->? Unit = () => ()
+    n
+`)).toEqual([inletless]);
+    });
+  });
+
+  describe("a §4.4 recovery binds nothing it meets", () => {
+    it("leaves the enclosing signature's colour as it was", () => {
+      const source = `export record R2 = { f: () ->? Unit }
+export let outer(action: () ->? Unit): R2 = R2({ f = action })
+`;
+      expect(check(source)).toEqual([
+        "`->?` is the caller's colour, and this position has no caller to choose it — " +
+        "a `record` field is data, not a signature; write `->!` for a function that pulls " +
+        "the world, or `->` for one that does not",
+      ]);
+      expect(hover(source, "outer")).toBe("(() ->? Unit) -> R2");
+    });
+
+    it("leaves a knot sibling's colour as it was, in either member order", () => {
+      const field = "`->?` is the caller's colour, and this position has no caller to choose it — " +
+        "a `record` field is data, not a signature; write `->!` for a function that pulls " +
+        "the world, or `->` for one that does not";
+      const a = "    a(): Int =\n        let r = R2({ f = b })\n        1\n";
+      const b = "    b(): Unit =\n        let u = a\n        ()\n";
+      for (const members of [[a, b], [b, a]]) {
+        const source = "export record R2 = { f: () ->? Unit }\n\nfun\n" + members.join("");
+        expect(check(source)).toEqual([field]);
+        expect(hover(source, "b()")).toBe("() -> Unit");
+      }
+    });
+
+    it("still makes a body that calls through a recovery a source, with nothing more reported", () => {
+      // The recovery reads locally as the impure constant: a body calling
+      // through it is a source, and its colour is the recovery, so every mark
+      // it feeds is suppressed — in a knot, and at the enclosing call alike.
+      const refused = [inletless];
+      const knot = `export let outer(n: Int): Int =
+    let h: () ->? Unit = () => save!("x")
+    fun
+        a(m: Int): Int = if m == 0 then b!(0) else a!(m - 1)
+        b(m: Int): Int =
+            h!()
+            m
+    a!(n)
+`;
+      expect(check(knot)).toEqual(refused);
+      expect(hover(knot, "a(m")).toBe("Int ->! Int");
+      const plain = `export let outer(n: Int): Int =
+    let h: () ->? Unit = () => save!("x")
+    h!()
+    n
+
+export let user(): Int = outer!(1)
+`;
+      expect(check(plain)).toEqual(refused);
+      expect(hover(plain, "outer")).toBe("Int ->! Int");
+    });
+
+    it("gives a callee's instantiation and a seat's slot the recovery (#888's constraint header)", () => {
+      const alias = "`->?` is the caller's colour, and this position has no caller to choose it — " +
+        "an alias is a type fragment, not a signature; write `->!` for a function that " +
+        "pulls the world, or `->` for one that does not";
+      expect(check(`type Step = () ->? Unit
+
+let apply(f: () ->? Unit): Unit = f?()
+
+export let go(s: Step): Unit = apply!(s)
+`)).toEqual([alias]);
+      for (const mark of ["!", "?"]) {
+        expect(check(`type Step = () ->? Unit
+
+constraint Runner<r> =
+    run(runner: r, action: Step) -> Unit
+
+export record Job = { id: Int }
+
+honor Runner<Job> =
+    run(job, action) = action${mark}()
+`)).toEqual([alias]);
+      }
+    });
+
+    it("gives a lambda under a refused alias the recovery, never a written `->!` face (#888)", () => {
+      const alias = "`->?` is the caller's colour, and this position has no caller to choose it — " +
+        "an alias is a type fragment, not a signature; write `->!` for a function that " +
+        "pulls the world, or `->` for one that does not";
+      const step = "type Step = () ->? Unit\n\n";
+      expect(check(`${step}export let outer(n: Int): Int =
+    let h: Step = () => ()
+    n
+`)).toEqual([alias]);
+      for (const value of ["() => ()", "() => save!(\"x\")"]) {
+        expect(check(`${step}export let outer(action: () ->? Unit, s: Step): Int =
+    let h: Step = ${value}
+    fun
+        a(m: Int): Int = if m == 0 then b?(0) else a?(m - 1)
+        b(m: Int): Int =
+            action?()
+            h!()
+            m
+    a?(3)
+`)).toEqual([alias]);
+      }
+      expect(check(`${step}constraint Runner<r> =
+    run(runner: r, action: () -> Unit) -> Unit
+
+export record Job = { id: Int }
+
+honor Runner<Job> =
+    run(job, action) =
+        let h: Step = () => ()
+        h!()
+`)).toEqual([alias]);
+    });
+
+    it("suppresses the mark a call through a refused alias would owe (#888)", () => {
+      expect(check(`type Step = () ->? Unit
+
+export let go(a: Step): Unit = a?()
+`)).toEqual([
+        "`->?` is the caller's colour, and this position has no caller to choose it — " +
+        "an alias is a type fragment, not a signature; write `->!` for a function that " +
+        "pulls the world, or `->` for one that does not",
+      ]);
+    });
+  });
+
+  describe("a pin places the face report (§4.2)", () => {
+    it("reports at an annotation that pins a captured helper pure, labelling the enclosing arrow", () => {
+      const source = `export let outer(action: () ->? Unit): Unit =
+    fun h(): Unit = action?()
+    let p: () -> Unit = h
+    ()
+`;
+      expect(check(source)).toEqual([solvedPure]);
+      const arrow = source.indexOf("->?");
+      expect(placed(source)).toEqual([{
+        primary: source.indexOf("() -> Unit"),
+        labels: [arrow],
+        edits: [[arrow, "->"]],
+      }]);
+    });
+
+    it("stands at the value where the annotation over it carried the variable", () => {
+      // At an annotation seat the pin is the side that brought the constant:
+      // here the annotation borrows `outer`'s colour and the value fixes it,
+      // so the value is marked and the annotation's `->?` is a label (#948).
+      const save0 = "let save0(): Unit = save!(\"x\")\n\n";
+      const cases: readonly (readonly [string, string, "->" | "->!"])[] = [
+        [`${save0}export let outer(action: () ->? Unit): Unit =
+    let g: () ->? Unit = save0
+    action?()
+`, "save0\n", "->!"],
+        [`${save0}export let outer(action: () ->? Unit): Unit =
+    let g = (save0 : () ->? Unit)
+    action?()
+`, "save0 :", "->!"],
+        [`export let outer(action: () ->? Unit): Unit =
+    fun h(): () ->? Unit = () => ()
+    action?()
+`, "() => ()", "->"],
+        [`export let outer(action: () ->? Unit): Unit =
+    fun h(): () ->? Unit =
+        let z = 1
+        () => ()
+    action?()
+`, "() => ()", "->"],
+      ];
+      for (const [source, pin, replacement] of cases) {
+        const arrows = offsets(source, "->?");
+        expect(placed(source)).toEqual([{
+          primary: source.indexOf(pin, source.indexOf("outer")),
+          labels: arrows,
+          edits: arrows.map((arrow) => [arrow, replacement]),
+        }]);
+      }
+    });
+
+    it("gives one report for the signatures a join made one variable", () => {
+      // `h` owns `cb`'s variable and absorbs `outer`'s: the two are one colour,
+      // which a pure argument pins, so both written arrows are the report's.
+      const source = `export let outer(action: () ->? Unit): Unit =
+    fun h(cb: () ->? Unit): Unit =
+        action?()
+        cb?()
+    h?(() => ())
+`;
+      expect(check(source)).toEqual([solvedPure]);
+      const arrows = offsets(source, "->?");
+      expect(placed(source)).toEqual([{
+        primary: source.indexOf("() => ()"),
+        labels: arrows,
+        edits: arrows.map((arrow) => [arrow, "->"]),
+      }]);
+    });
+
+    it("stands at the argument handed, a literal or a constructor application whole", () => {
+      // What meets the parameter is the argument (#1105): a name, a lambda,
+      // and a literal or constructor application as one value — a callback
+      // inside one included, though it meets its stand-in in the second pass.
+      const step = "export let step(n: Int): Int =\n    save!(\"x\")\n    n\n\n";
+      const lambda = "(x) =>\n    save!(\"x\")\n    x";
+      const cases: readonly (readonly [string, string, string])[] = [
+        ["((Int) ->? Int)", "step", "step"],
+        ["(Option((Int) ->? Int))", "Some(step)", "Some(step)"],
+        ["(((Int) ->? Int, Int))", "(step, 1)", "(step, 1)"],
+        ["((Int) ->? Int)", lambda, lambda],
+        ["(Option((Int) ->? Int))", `Some(${lambda})`, `Some(${lambda})`],
+        ["(((Int) ->? Int, Int))", "((x) => step!(x), 1)", "((x) => step!(x), 1)"],
+        ["({ g: (Int) ->? Int })", "{ g = (x) => step!(x) }", "{ g = (x) => step!(x) }"],
+      ];
+      for (const [parameter, argument, pin] of cases) {
+        const source = `${step}export let f(h: ${parameter} -> Int): Int = h(${argument})\n`;
+        const arrow = source.indexOf("->?");
+        expect(placed(source)).toEqual([{
+          primary: source.indexOf(pin, source.indexOf("h(")),
+          labels: [arrow],
+          edits: [[arrow, "->!"]],
+        }]);
+      }
+    });
+
+    it("suppresses the marks that read a pinned colour, the call after the pin included", () => {
+      const source = `export let outer(action: () ->? Unit): Unit =
+    let p: () -> Unit = action
+    action?()
+`;
+      expect(check(source)).toEqual([solvedPure]);
+    });
+
+    it("tells a condemned face once when a `fun` knot conducts it (#891)", () => {
+      expect(check(`export let withTransaction: ((String ->? String) ->? String) = (run: String ->? String): String =>
+    ignore(save!("begin"))
+    fun
+        ping(n: Int): String = if n == 0 then run?("x") else pong?(n - 1)
+        pong(n: Int): String = ping?(n)
+    ping?(2)
+`)).toEqual([
+        "this signature's `->?` promises a colour the caller chooses, but the body " +
+        "solves it to the impure constant — a function that performs its own " +
+        "unconditional effects rounds up, and its face is `->!`",
+      ]);
+    });
+  });
+
+  describe("a captured colour's display (§10)", () => {
+    /** The session over one program, for hover and completion at a needle. */
+    const session = (source: string) => {
+      const opened = new AnalysisSession();
+      opened.setFile("/world.js", "");
+      opened.setFile("/main.hex", prefix + source);
+      return opened;
+    };
+    const hovered = (source: string, needle: string) =>
+      session(source).hover("/main.hex", prefix.length + source.indexOf(needle));
+    const owner = "`->?¹` is `outer`'s colour, captured";
+    const inMid = `export let outer(action: () ->? Unit): Int =
+    fun mid(cb: () ->? Int): Int =
+        let g = action
+        cb?()
+    mid(() => 1)
+`;
+
+    it("displays a captured colour plainly where the nearest owner is its owner", () => {
+      const source = `export let outer(action: () ->? Unit): Unit =
+    let g = action
+    g?()
+`;
+      expect(hovered(source, "g =")?.displayedType).toBe("() ->? Unit");
+      expect(hovered(source, "g =")?.colourOwners).toBeUndefined();
+    });
+
+    it("numbers it, alone, where a nearer signature would own a paste, and names the owner", () => {
+      const hover = hovered(inMid, "g =");
+      expect(hover?.displayedType).toBe("() ->?¹ Unit");
+      expect(hover?.colourOwners).toEqual([owner]);
+      expect(hoverMarkdown(hover!)).toBe(`value \`g: () ->?¹ Unit\`\n\n${owner}`);
+      // `mid`'s own face is its own variable, which a paste there would name.
+      expect(hovered(inMid, "mid(cb")?.displayedType).toBe("(() ->? Int) ->? Int");
+    });
+
+    it("displays a hole where it stands", () => {
+      const source = inMid.replace("let g = action", "let g: _ = action");
+      const hole = hovered(source, "_ = action");
+      expect(hole?.displayedType).toBe("() ->?¹ Unit");
+      expect(hole?.colourOwners).toEqual([owner]);
+    });
+
+    it("displays it plainly again once a join makes the two colours one", () => {
+      const source = `export let outer(action: () ->? Unit): Int =
+    fun mid(cb: () ->? Int): Int =
+        let g = action
+        g?()
+        cb?()
+    let k(): Int =
+        action?()
+        1
+    mid?(k)
+`;
+      expect(check(source)).toEqual([]);
+      expect(hovered(source, "g =")?.displayedType).toBe("() ->? Unit");
+    });
+
+    it("owes nothing to a colour standing in the face's own inlet", () => {
+      // A paste of `k`'s face is a signature of its own, whose colour the
+      // body joins to `outer`'s again: faithful, so undecorated.
+      const source = `export let outer(action: () ->? Unit): Int =
+    fun mid(cb: () ->? Int): Int =
+        let k = (f: () ->? Unit): Unit =>
+            action?()
+            f?()
+        cb?()
+    mid(() => 1)
+`;
+      expect(hovered(source, "k =")?.displayedType).toBe("(() ->? Unit) ->? Unit");
+      expect(hovered(source, "k =")?.colourOwners).toBeUndefined();
+    });
+
+    it("names which numbers are captured where the face has colours of its own", () => {
+      const source = `export let outer(action: () ->? Unit): Int =
+    fun h(cb: () ->? Int): Int =
+        action?()
+        1
+    fun mid(k: () ->? Int): Int =
+        let copy = h
+        k?()
+    mid(() => 1)
+`;
+      expect(hovered(source, "h(cb")?.displayedType).toBe("(() ->?¹ Int) ->?² Int");
+      expect(hovered(source, "h(cb")?.colourOwners).toBeUndefined();
+      expect(hovered(source, "copy =")?.displayedType).toBe("(() ->?¹ Int) ->?² Int");
+      expect(hovered(source, "copy =")?.colourOwners).toEqual(["`->?²` is `outer`'s colour, captured"]);
+    });
+
+    it("names the binding a lambda is the value of, and a lambda none names", () => {
+      const inside = (value: string) => `export let outer(n: Int): Int =
+    ${value}(act: () ->? Unit): Int =>
+        fun mid(k: () ->? Int): Int =
+            let g = act
+            k?()
+        mid(() => 1)${value === "let run = " ? "" : ")"}
+    n
+`;
+      expect(hovered(inside("let run = "), "g =")?.colourOwners).toEqual([
+        "`->?¹` is `run`'s colour, captured",
+      ]);
+      expect(hovered(inside("let pair = (1, "), "g =")?.colourOwners).toEqual([
+        "`->?¹` is an enclosing lambda's colour, captured",
+      ]);
+    });
+
+    it("decorates completion detail at the cursor", () => {
+      // Inside `mid`'s body: past its last token the cursor is `outer`'s, and
+      // there the colour is the nearest owner's and displays plainly.
+      const source = inMid.replace("        cb?()\n", "        let z = g\n        cb?()\n");
+      const cursor = prefix.length + source.indexOf("let z = g") + "let z = g".length;
+      const g = session(source).completions("/main.hex", cursor).find(({ name }) => name === "g");
+      expect(g?.detail).toBe("() ->?¹ Unit — ->?¹ is outer's colour, captured");
+    });
+
+    it("names the outermost signature where a join made one colour of several", () => {
+      // `h` conducts both `action` and its own `cb`, so `h`'s colour and
+      // `outer`'s are one variable, which both signatures own; the owner line
+      // names `outer`, in hover and in a report's note alike.
+      const source = `export let outer(action: () ->? Unit): Unit =
+    fun h(cb: () ->? Unit): Unit =
+        fun inner(k: () ->? Int): Int =
+            let n: Int = action
+            k?()
+        action?()
+        cb?()
+    fun mid(k: () ->? Int): Int =
+        let g = action
+        k?()
+    let m = mid(() => 1)
+    h?(action)
+`;
+      expect(hovered(source, "g =")?.colourOwners).toEqual([owner]);
+      const report = compileFiles([["/world.js", ""], ["/main.hex", prefix + source]]).diagnostics;
+      expect(report.map(({ message }) => message)).toEqual([
+        "type mismatch: expected Int, found () ->?¹ Unit",
+      ]);
+      expect(report[0]?.notes).toEqual([owner]);
+    });
+
+    it("owes a report's face nothing for a colour in the face's own inlet", () => {
+      const source = inMid.replace("        cb?()\n", `        let k = (f: () ->? Unit): Unit =>
+            action?()
+            f?()
+        let n: Int = k
+        cb?()
+`);
+      const report = compileFiles([["/world.js", ""], ["/main.hex", prefix + source]]).diagnostics;
+      expect(report.map(({ message }) => message)).toEqual([
+        "type mismatch: expected Int, found (() ->? Unit) ->? Unit",
+      ]);
+      expect(report[0]?.notes).toBeUndefined();
+    });
+
+    it("decorates a diagnostic by its primary span, over settled colours", () => {
+      const mismatch = (face: string) => `type mismatch: expected Int, found ${face}`;
+      const inside = inMid.replace("        cb?()\n", "        let n: Int = g\n        cb?()\n");
+      const report = compileFiles([["/world.js", ""], ["/main.hex", prefix + inside]]).diagnostics;
+      expect(report.map(({ message }) => message)).toEqual([mismatch("() ->?¹ Unit")]);
+      expect(report[0]?.notes).toEqual([owner]);
+      // Rendered before `mid`'s close joined the two colours, read after it.
+      const joined = `export let outer(action: () ->? Unit): Int =
+    fun mid(cb: () ->? Int): Int =
+        let g = action
+        g?()
+        let n: Int = g
+        cb?()
+    let k(): Int =
+        action?()
+        1
+    mid?(k)
+`;
+      const plain = compileFiles([["/world.js", ""], ["/main.hex", prefix + joined]]).diagnostics;
+      expect(plain.map(({ message }) => message)).toEqual([mismatch("() ->? Unit")]);
+      expect(plain[0]?.notes).toBeUndefined();
     });
   });
 });
