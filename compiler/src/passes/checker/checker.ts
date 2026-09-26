@@ -1296,8 +1296,8 @@ interface Requirement {
  */
 interface RequirementUse {
   /**
-   * The binding as the source wrote it at the use, whitespace dropped, so the
-   * report can name what was used: "this expression" at `k` in `k(())` would
+   * The binding as the source wrote it at the use, trivia dropped
+   * (`writtenName`), so the report can name what was used: "this expression" at `k` in `k(())` would
    * name the function, not what it gave.
    */
   readonly usedAs: string;
@@ -1983,6 +1983,45 @@ function ordinaryDecimalSpelling(written: DecimalLiteralParts): string {
 /** A span as a map key: file and both offsets, never the position objects. */
 function spanKey(span: Source.Span): string {
   return `${Number(span.fileId)}:${span.start.offset}:${span.end.offset}`;
+}
+
+/**
+ * A name's spelling as written, without the trivia a dotted path may hold
+ * between its segments: whitespace, line comments, and block comments, which
+ * nest (Comments §2, §3), and the JavaScript block spelling the lexer detects
+ * and refuses. `Frac.\n    divide` and `Frac. // why\n    divide` are both
+ * `Frac.divide`.
+ */
+function writtenName(text: string): string {
+  let written = "";
+  let index = 0;
+  while (index < text.length) {
+    if (text.startsWith("//", index)) {
+      const end = text.indexOf("\n", index);
+      index = end === -1 ? text.length : end;
+    } else if (text.startsWith("(*", index)) {
+      let depth = 0;
+      while (index < text.length) {
+        if (text.startsWith("(*", index)) {
+          depth += 1;
+          index += 2;
+        } else if (text.startsWith("*)", index)) {
+          depth -= 1;
+          index += 2;
+          if (depth === 0) break;
+        } else {
+          index += 1;
+        }
+      }
+    } else if (text.startsWith("/*", index)) {
+      const end = text.indexOf("*/", index + 2);
+      index = end === -1 ? text.length : end + 2;
+    } else {
+      if (!/\s/u.test(text[index]!)) written += text[index];
+      index += 1;
+    }
+  }
+  return written;
 }
 
 /** The logic spelling each bitwise operator is mistaken for on `Bool` (`bitwise.md` §9). */
@@ -8688,10 +8727,11 @@ class Checker {
           {
             // What the source wrote at the use: `text` is the member alone for
             // a prelude constraint's qualified spelling (`Frac.divide`).
-            usedAs: (
-              this.#sourceText?.slice(expression.span.start.offset, expression.span.end.offset) ??
-                expression.text
-            ).replace(/\s+/gu, ""),
+            usedAs: this.#sourceText === undefined
+              ? expression.text
+              : writtenName(
+                this.#sourceText.slice(expression.span.start.offset, expression.span.end.offset),
+              ),
             ...(call === undefined
               ? {}
               : { call: { result: call, supplied: call.arguments } }),

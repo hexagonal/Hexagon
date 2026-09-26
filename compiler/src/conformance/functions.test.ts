@@ -282,10 +282,12 @@ describe("Functions specification conformance", () => {
       .toEqual([("module Main\n\n" + twoSource).lastIndexOf("two(None") + "two(".length]);
     // Two stuck types at one use, alike: one report.
     expect(reports("let k2(u: Unit) = (1 / 2, 3 / 4)\nlet y = k2(())").map(([, at]) => at)).toEqual(["k2"]);
-    // The use is named as written, its layout dropped.
-    expect(reports("let y = Frac.\n    divide(Num.fromNat(1), Num.fromNat(2))").map(([message]) =>
-      message!.slice(0, message!.indexOf(" gives"))
-    )).toContain("the type this use of `Frac.divide`");
+    // The use is named as written, its layout and comments dropped.
+    for (const written of ["Frac.\n    divide", "Frac. // why\n    divide", "Frac.(* a (* b *) *)divide"]) {
+      expect(reports(`let y = ${written}(Num.fromNat(1), Num.fromNat(2))`).map(([message]) =>
+        message!.slice(0, message!.indexOf(" gives"))
+      )).toContain("the type this use of `Frac.divide`");
+    }
     // The repair it names compiles.
     expect(reports(tag + "let label<a: Tag>(x: Option(a)): String = \"s\"\nlet v = label((None : Option(String)))"))
       .toEqual([]);
