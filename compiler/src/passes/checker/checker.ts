@@ -372,7 +372,8 @@ function precedes(left: Source.Span, right: Source.Span): boolean {
  * grammatical error in every message that is not about `action`.
  */
 function indefiniteArticle(name: string): string {
-  return /^[aeiou]/i.test(name) ? "an" : "a";
+  // A `u` read as "you" takes "a": "a `Unit`", "a `Union`", "a `Uint8Array`".
+  return /^(?:[aeio]|u(?!n[io]|s[aeu]|ti|i))/i.test(name) ? "an" : "a";
 }
 
 /**
@@ -929,20 +930,26 @@ interface TreeNode {
   elements?: true;
   /** A `match` whose scrutinee was refused: the form's type is `ERROR`. */
   failed?: true;
+  /**
+   * The expectation left a part open when the node was entered, and its own
+   * parts filled it as they elaborated — a constructor's early unification
+   * (#1107): the part counts as open, no written type having filled it.
+   */
+  filled?: true;
   /** The type the node publishes once closed (Effects §13.2's joined colours). */
   published?: Mono;
 }
 
 /**
  * One value path's refusal against its expression's face (#1107): the
- * diagnostics its check added, `[start, end)` in production order, folded
- * into the expression's first refusal as a label (`#foldRefusals`).
+ * diagnostics its check made at the path itself, by production index, and
+ * what a label at the path says should they fold into the expression's first
+ * refusal (`#foldRefusals`).
  */
 interface PathRefusal {
-  readonly start: number;
-  readonly end: number;
+  readonly indices: readonly number[];
   readonly path: Resolved.Expr;
-  readonly type: Mono;
+  readonly label: string;
 }
 
 /** A dot call's receiver that closed before the dot resolved (Method Syntax §2.2). */
@@ -14690,6 +14697,7 @@ class Checker {
       face: expected,
       parts: [],
     };
+    const open = expected !== undefined && !this.#ground(expected, true);
     this.#expressionTypes.set(expression, node.result);
     const collect = (part: Resolved.Expr, expectation: Mono | undefined): void => {
       node.parts.push(this.#treePart(part, level, expectation));
@@ -14753,6 +14761,7 @@ class Checker {
       default:
         break;
     }
+    if (open && this.#ground(expected!, true)) node.filled = true;
     return node;
   }
 
@@ -15638,7 +15647,7 @@ class Checker {
     // written type says which path is wrong, so they join first, as ever, and
     // a disagreement is the form's (ruling B3 (a)).
     const paths = node.rung === undefined && (node.siblings !== true || node.elements === true) &&
-      (literal || this.#ground(face, true));
+      (literal || (this.#ground(face, true) && node.filled !== true));
     const types = node.parts.map((part) => {
       if ("value" in part) {
         const { expression, type } = part.value;
@@ -15658,7 +15667,10 @@ class Checker {
       // parts chose where the face carries no instance of its rung; one that
       // was refused on its own says nothing more, and joins as a refused path.
       if (!paths) return type;
-      if (this.#diagnostics.count > before) return this.#freshened(face, node.level);
+      if (this.#diagnostics.count > before) {
+        this.#recordRefusal(collected, before, part.node.expression, undefined);
+        return this.#freshened(face, node.level);
+      }
       return this.#checkPath(part.node.expression, face, type, node.level, seat, collected);
     });
     if (refusals === undefined) this.#foldRefusals(collected);
@@ -15741,10 +15753,38 @@ class Checker {
     refusals: PathRefusal[],
   ): Mono {
     const start = this.#diagnostics.count;
+    // What the path is, read before the check can bind or poison it, and
+    // only where it is fully known.
+    const shown = this.#ground(type, true) ? this.#display(type) : undefined;
     const met = this.#meetPath(path, face, type, level, seat);
-    const end = this.#diagnostics.count;
-    if (end > start) refusals.push({ start, end, path, type });
+    this.#recordRefusal(refusals, start, path, shown);
     return met;
+  }
+
+  /**
+   * The reports a path's check made since `start` **at the path itself** —
+   * a demand made elsewhere, validated as the check solved a variable, is
+   * that demand's own report and stays — as one refusal of the path. Its
+   * label says what the path is, where that was known before the check
+   * (`shown`), and is the path's own report otherwise.
+   */
+  #recordRefusal(refusals: PathRefusal[], start: number, path: Resolved.Expr, shown: string | undefined): void {
+    const indices: number[] = [];
+    for (let index = start; index < this.#diagnostics.count; index += 1) {
+      const { primary } = this.#diagnostics.at(index)!;
+      if (
+        primary.fileId === path.span.fileId && path.span.start.offset <= primary.start.offset &&
+        primary.end.offset <= path.span.end.offset
+      ) {
+        indices.push(index);
+      }
+    }
+    if (indices.length === 0) return;
+    const spelled = this.#spelledExpression(path);
+    const label = shown === undefined
+      ? this.#diagnostics.at(indices[0]!)!.message
+      : `${spelled === undefined ? "this" : `\`${spelled}\``} is ${indefiniteArticle(shown)} \`${shown}\``;
+    refusals.push({ indices, path, label });
   }
 
   /** `#checkPath`'s check itself, reporting as it goes. */
@@ -15778,28 +15818,19 @@ class Checker {
 
   /**
    * One expression's refused paths as one report (Numeric Literals §6,
-   * #1107): the first stands, in its own words, and each later one becomes a
-   * label on it, at the path, saying what the path is — so every place is
-   * shown and the explanation is given once.
+   * #1107): the first checked stands, in its own words, and each later one
+   * becomes a label on it, at the path — so every place is shown and the
+   * explanation is given once. A path refused within itself, as a
+   * conflicting operation is, is one of them.
    */
   #foldRefusals(refusals: readonly PathRefusal[]): void {
     const [first, ...rest] = refusals;
     if (first === undefined || rest.length === 0) return;
     this.#diagnostics.fold(
-      first.start,
-      rest.map(({ start, end, path, type }) => ({
-        start,
-        end,
-        label: { span: path.span, message: this.#pathLabel(path, type) },
-      })),
+      first.indices[0]!,
+      rest.flatMap(({ indices }) => indices),
+      rest.map(({ path, label }) => ({ span: path.span, message: label })),
     );
-  }
-
-  /** A folded path's label: "`g` is a `Float`", or "this is …" where it has no one-line spelling. */
-  #pathLabel(path: Resolved.Expr, type: Mono): string {
-    const shown = this.#display(type);
-    const spelled = this.#spelledExpression(path);
-    return `${spelled === undefined ? "this" : `\`${spelled}\``} is ${indefiniteArticle(shown)} \`${shown}\``;
   }
 
   /**

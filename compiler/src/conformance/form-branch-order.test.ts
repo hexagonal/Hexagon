@@ -104,13 +104,15 @@ describe("a form's value paths meet a concrete expectation each at its own turn 
       expect(reports(program), program).toEqual([["o1", declared]]);
     }
     // No written type says which path is wrong: the paths join first, and the
-    // disagreement is the form's, as ever.
+    // disagreement is the form's, as ever — a hole the form's own constructor
+    // filled included.
     const takeA = "let takeA<a>(x: Option(a)): Unit = ()\n";
     for (const [program, at, message] of [
       ["let r: Option(_) = if c then o1 else od\n", "if c then o1 else od", "type mismatch: expected Int, found Dec"],
       ["let r: Option(_) = if c then od else o1\n", "if c then od else o1", decFoundInt],
       [takeA + "let r = takeA(if c then o1 else od)\n", "if c then o1 else od", "type mismatch: expected Int, found Dec"],
       [takeA + "let r = takeA(if c then od else o1)\n", "if c then od else o1", decFoundInt],
+      ["let r: Option(_) = if c then Some(price) else o1\n", "if c then Some(price) else o1", decFoundInt],
       // A `match` joins at its arms, as ever: the later arm.
       ["let r: Option(_) = match c\n    True => o1\n    False => od\n", "od", "type mismatch: expected Int, found Dec"],
     ] as const) {
@@ -122,6 +124,32 @@ describe("a form's value paths meet a concrete expectation each at its own turn 
     expect(reports("let v: Vector(Option(_)) = [od, o1]\n")).toEqual([["o1", decFoundInt]]);
     expect(reports("let od2: Option(Dec) = od\nlet v: Vector(Option(_)) = [o1, od, od2]\n")).toEqual([
       ["od", "type mismatch: expected Int, found Dec", [["od2", "`od2` is an `Option(Dec)`"]]],
+    ]);
+  });
+
+  test("a path's refusal is what its check reports at the path; its label is what the path was", () => {
+    // A demand made elsewhere, validated as a path's check solves a variable,
+    // keeps its own report where it was made.
+    for (const program of [
+      "let h(p) =\n    let q = p + 1\n    let r: String = if c then p else n\n    r\n",
+      "let h(p) =\n    let q = p + 1\n    let r: String = if c then n else p\n    r\n",
+    ]) {
+      expect(reports(program), program).toEqual([
+        ["1", "integer literal cannot have type `String`"],
+        ["n", "type mismatch: expected String, found Int"],
+      ]);
+    }
+    // A label says what the path was before its check, or repeats its report.
+    expect(reports("let r: String = if c then n else 1\n")).toEqual([
+      ["n", "type mismatch: expected String, found Int", [["1", "integer literal cannot have type `String`"]]],
+    ]);
+    expect(reports("let ident<a>(x: a): a = x\nlet r: String = if c then n else ident(1)\n")).toEqual([
+      ["n", "type mismatch: expected String, found Int", [["ident(1)", "integer literal cannot have type `String`"]]],
+    ]);
+    expect(reports("let fr<a>(x: a): Option(Dec) = if c then o1 else x\n"))
+      .toEqual([["o1", decFoundInt, [["x", "`x` is an `a`"]]]]);
+    expect(reports("let u: Unit = ()\nlet r: Option(Dec) = if c then u else u\n")).toEqual([
+      ["u", "type mismatch: expected Option(Dec), found Unit", [["u", "`u` is a `Unit`"]]],
     ]);
   });
 
@@ -183,6 +211,15 @@ describe("a form's value paths meet a concrete expectation each at its own turn 
     ]) {
       expect(reports(program), program).toEqual(conflict);
     }
+    // It is one of the expression's refused paths: the others fold into it.
+    expect(reports("let r: String = if c then price * f else n\n"))
+      .toEqual([[...conflict[0]!, [["n", "`n` is an `Int`"]]]]);
+    expect(reports("let r: Dec = if c then (if c then f else \"x\") + price else \"y\"\n")).toEqual([[
+      "f",
+      "`f` is a `Float` and cannot enter `Dec`, the home `: Dec` writes; convert it explicitly — " +
+        "`Dec.fromFloat(f, places)`",
+      [["\"x\"", "`\"x\"` is a `String`"], ["\"y\"", "`\"y\"` is a `String`"]],
+    ]]);
   });
 
   test("the programs that compiled still compile, at the written type", async () => {
