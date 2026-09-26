@@ -15596,15 +15596,38 @@ class Checker {
 
   /**
    * A faced tree that is not arithmetic — a value or the face outside the
-   * tower — reconciles its parts by ordinary unification, exactly as every
-   * form always joined, and reports as it always did.
+   * tower. Each value path of its forms, and each element of a vector literal,
+   * meets the face **at its own turn** (`#checkPath`, #1107): no path is
+   * measured against another, so which is written first decides nothing, and
+   * each that cannot meet the face is reported at itself. The paths then join
+   * as every form always joined, so the colours still merge at the form
+   * (Effects §13.2). A tower operator's operands reconcile as they always did.
+   *
+   * `seat` is whether the face is a seat's own (`#unifyExpected`'s `home`).
    */
-  #reconcileFaced(node: TreeNode, face: Mono): Mono {
+  #reconcileFaced(
+    node: TreeNode,
+    face: Mono,
+    seat = node.face !== undefined && node.face.kind !== "Variable",
+  ): Mono {
+    // A tower operator's operands, a call's siblings, and a comparison's
+    // operands are not paths; a form's value paths and a vector's elements are.
+    const paths = node.rung === undefined && (node.siblings !== true || node.elements === true);
     const types = node.parts.map((part) => {
-      if ("value" in part) return part.value.type;
-      if (part.node.rung === undefined) return this.#reconcileFaced(part.node, face);
+      if ("value" in part) {
+        const { expression, type } = part.value;
+        return paths ? this.#checkPath(expression, face, type, node.level, seat) : type;
+      }
+      if (part.node.rung === undefined) return this.#reconcileFaced(part.node, face, seat);
+      const before = this.#diagnostics.count;
       this.#closeFaced(part.node, face);
-      return this.#partType({ node: part.node });
+      const type = this.#partType({ node: part.node });
+      // A tower operation on a path is one value of it, at the home its own
+      // parts chose where the face carries no instance of its rung; one that
+      // was refused on its own says nothing more, and joins as a refused path.
+      if (!paths) return type;
+      if (this.#diagnostics.count > before) return this.#freshened(face, node.level);
+      return this.#checkPath(part.node.expression, face, type, node.level, seat);
     });
     const expressions = node.parts.map((part) => this.#partExpression(part));
     this.#recordParts(node);
@@ -15662,6 +15685,44 @@ class Checker {
     this.#unify(node.result, common, span);
     this.#finishNode(node, common);
     return this.#prune(node.result);
+  }
+
+  /**
+   * One value path of a faced form meeting the face at its turn (Functions
+   * §4.3's forwarding forms, #1107), as a literal's component meets its part
+   * (`#checkComponent`). A numeric value at a numeric face enters it as its
+   * home, or is refused with Numeric Literals §6's entry report; any other
+   * value meets the face with its **colours freshened** (Effects §3.4), so the
+   * colours are left to the join, where §13.2 records a merge, and to the seat.
+   *
+   * Answers the path's type for the join: the home where it entered one, the
+   * freshened face where it was refused here — so the join and the seat do not
+   * refuse it again — and its own type otherwise, its colours intact.
+   */
+  #checkPath(path: Resolved.Expr, face: Mono, type: Mono, level: number, seat: boolean): Mono {
+    const actual = this.#prune(type);
+    if (actual.kind === "Error") return type;
+    const home = this.#numericHome(face);
+    if (home !== undefined && this.#supportsTarget(actual, "Num", true)) {
+      if (this.#entersFace(actual, home, path) || this.#standDownNote(path) !== undefined) {
+        this.#unifyExpected(home, type, path, path.span, true, seat);
+      } else if (actual.kind === "Variable") {
+        // A declared variable declines in its own words (#827, ruling 3).
+        this.#unify(home, actual, path.span);
+      } else {
+        this.#diagnostics.add({
+          severity: "error",
+          message: (seat ? this.#functionResultRefusal(path, home, type)?.message : undefined) ??
+            this.#faceEntryRefusal({ expression: path, type }, home),
+          primary: path.span,
+        });
+      }
+      return home;
+    }
+    const before = this.#diagnostics.count;
+    const freshened = this.#freshened(face, level);
+    this.#unifyExpected(freshened, type, path, path.span, true, seat);
+    return this.#diagnostics.count > before ? freshened : type;
   }
 
   /**
@@ -16862,8 +16923,10 @@ class Checker {
    * (Numeric Literals §5.1, #1062): their home is chosen from all of them at
    * once, so `[m, n]` is a `Vector(Int)` in either order — the element type a
    * `Vector(t)` expectation hands them (#1066) where it is a concrete numeric
-   * type, which every element enters. *(Review round 8, MINOR 3.)* They join
-   * one element type, and §13.2's third merge form — "a value carrying both" —
+   * type, which every element enters. A concrete element type outside the
+   * tower is met by each element at its own turn, in any order, and each that
+   * cannot meet it is reported at itself (#1107). *(Review round 8, MINOR 3.)*
+   * They join one element type, and §13.2's third merge form — "a value carrying both" —
    * is exactly this: `[spare, b]` fixes `b`'s slot as surely as `if c then
    * spare else b` does.
    *
@@ -16905,11 +16968,19 @@ class Checker {
     // What the elements join at among themselves; the seat then checks it
     // against its expectation as it checks any value's.
     let joined: Mono = group ?? node.result;
-    if (node.parts.length > 0) {
-      const home = this.#numericHome(element);
+    const target = element === undefined ? undefined : this.#prune(element);
+    const home = this.#numericHome(element);
+    if (
+      node.parts.length > 0 && home === undefined && target !== undefined &&
+      target.kind !== "Variable" && target.kind !== "Error"
+    ) {
+      // The elements meet a non-numeric part as components do, each at its
+      // turn with its colours left for the seat, and then join, so their
+      // colours merge at the literal (`#reconcileFaced`, #1107).
+      joined = this.#reconcileFaced(node, target, true);
+    } else if (node.parts.length > 0) {
       const refused = home === undefined ? this.#closeFree(node) : this.#closeFaced(node, home);
       joined = refused ? ERROR : node.published ?? node.result;
-      const target = element === undefined ? undefined : this.#prune(element);
       if (home !== undefined && !refused && !this.#sameSeat(joined, home)) {
         // An element whose operation stood down: its note is spent here, at
         // the element, as a component's is at its seat (Numeric Literals §6).
@@ -16917,18 +16988,6 @@ class Checker {
           const value = this.#partExpression(part);
           if (this.#reportStandDown(value, home, this.#partType(part), value.span)) {
             joined = ERROR;
-            break;
-          }
-        }
-      } else if (home === undefined && target !== undefined && target.kind !== "Variable" && !refused) {
-        // The elements meet a non-numeric part as components do: at their
-        // close, their colours left for the seat (`#checkComponent`).
-        for (const part of node.parts) {
-          const value = this.#partExpression(part);
-          const before = this.#diagnostics.count;
-          this.#unifyExpected(this.#freshened(target, level), this.#partType(part), value, value.span, true, true);
-          if (this.#diagnostics.count > before) {
-            joined = target;
             break;
           }
         }
