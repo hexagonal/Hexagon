@@ -118,6 +118,11 @@ export interface Hover {
   readonly target?: Target;
   /** Present for values the checker gave a scheme; absent for types themselves. */
   readonly displayedType?: string;
+  /**
+   * The owner of each captured colour the displayed type numbers (Effects §10,
+   * #873), one line each; absent where there is none.
+   */
+  readonly colourOwners?: readonly string[];
   /** The declaration's documentation as Markdown, when it carries any. */
   readonly documentation?: string;
   /** The identifier the answer describes, for the editor to highlight. */
@@ -493,10 +498,14 @@ export class AnalysisSession {
     if (hole !== undefined) return hole;
     if (candidates.length === 0) return this.#documentedName(analysis, normalized, offset);
     const typed = candidates
-      .map((occurrence) => ({
-        occurrence,
-        displayedType: analysis.displayedTypeAt(normalized, occurrence.span),
-      }))
+      .map((occurrence) => {
+        const shown = analysis.typeOccurrenceAt(normalized, occurrence.span);
+        return {
+          occurrence,
+          displayedType: shown?.displayedType,
+          colourOwners: shown?.colourOwners,
+        };
+      })
       .sort((left, right) => Number(right.displayedType !== undefined) - Number(left.displayedType !== undefined));
     const best = typed[0]!;
     const documentation = analysis.documentation.at(best.occurrence.span) ??
@@ -506,6 +515,7 @@ export class AnalysisSession {
       target: best.occurrence.target,
       span: best.occurrence.span,
       ...(best.displayedType === undefined ? {} : { displayedType: best.displayedType }),
+      ...(best.colourOwners === undefined ? {} : { colourOwners: best.colourOwners }),
       ...(documentation === undefined ? {} : { documentation }),
     };
   }
@@ -696,7 +706,8 @@ export class AnalysisSession {
     const analysis = this.#analyze();
     // The module the caret is inside (Modules §2.2): what may be written here is
     // that module's scope, and a file's other modules are strangers to it.
-    const resolved = analysis.moduleAt(normalized, offset)?.resolved;
+    const module = analysis.moduleAt(normalized, offset);
+    const resolved = module?.resolved;
     if (resolved === undefined) return [];
     return collectCompletions({
       text,
@@ -704,6 +715,7 @@ export class AnalysisSession {
       resolved,
       facts: analysis.symbolFacts,
       docs: analysis.documentation,
+      ...(module?.typed === undefined ? {} : { typed: module.typed }),
     });
   }
 
@@ -1894,7 +1906,11 @@ class Analysis {
   }
 
   displayedTypeAt(path: string, span: Source.Span): string | undefined {
-    return this.#typesByPath.get(path)?.get(spanKey(span))?.displayedType;
+    return this.typeOccurrenceAt(path, span)?.displayedType;
+  }
+
+  typeOccurrenceAt(path: string, span: Source.Span): TypeOccurrence | undefined {
+    return this.#typesByPath.get(path)?.get(spanKey(span));
   }
 }
 

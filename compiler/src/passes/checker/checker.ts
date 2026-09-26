@@ -320,6 +320,17 @@ interface ColourSolve {
 }
 
 const PURE: EffectConstant = { kind: "Effect", impure: false };
+
+/**
+ * The mark `#arrow` leaves after a rendered signature colour in a report, and
+ * the pattern `#settleColourMarks` reads it back with *(#873; Effects §10)*:
+ * the arrow as rendered, the colour's id, and `i` where it stood in an inlet of
+ * the displayed type. Private-use code points, which no source text or
+ * rendered type contains.
+ */
+const COLOUR_MARK = "\uE000";
+const COLOUR_MARK_END = "\uE001";
+const COLOUR_MARKED = /(->\?[⁰¹²³⁴⁵⁶⁷⁸⁹]*)\uE000(\d+)(i?)\uE001/g;
 const IMPURE: EffectConstant = { kind: "Effect", impure: true };
 /** §4.4's marked recovery — the impure constant, and known to be one. */
 const RECOVERED: EffectConstant = { kind: "Effect", impure: true, recovered: true };
@@ -2979,6 +2990,22 @@ class Checker {
   /** Nonzero while §3.4's source arm runs: its binds are body-sourced (#873). */
   #sourcing = 0;
   /**
+   * Every open signature's region, colour, and owner *(#873; Effects §10)*,
+   * published as `Typed.Module.colourScopes` and `colourOwners` once every
+   * colour has settled: display decides there whether a captured variable is
+   * the one an inlet-less `->?` at the display location would name.
+   */
+  readonly #colourScopes: {
+    readonly span: Source.Span;
+    readonly effect: Variable;
+    readonly owner: string | undefined;
+    readonly level: number;
+  }[] = [];
+  /** The signature colours `#arrow` marked in a report, by id (§10, #873). */
+  readonly #markedColours = new Map<number, Variable>();
+  /** The inlets of the type `#display` is rendering (§10, #873). */
+  #displayInlets: ReadonlySet<number> | undefined;
+  /**
    * Where a colour variable was pinned to a constant *(#867)*. Recorded at the
    * binding, read by the constraint seat: §13.2 reports a failed seat "at the
    * offending call" and "at the demand that narrowed it", and both are the act
@@ -5267,6 +5294,7 @@ class Checker {
     this.#settleEffects();
     this.#checkPublicSignatures(module.items);
     this.#refuseExportedMemberSpellings(module.items);
+    this.#settleColourMarks();
 
     const listed = new Set(module.symbols.map(({ id }) => id));
     const symbols = [
@@ -5321,6 +5349,7 @@ class Checker {
       comments: module.comments,
       docs: module.docs,
       typeHoles: this.#materializeTypeHoles(),
+      ...this.#materializeColourScopes(),
       companionImports: [...this.#companionImports.values()],
       ...(this.#modulePath === undefined ? {} : { modulePath: this.#modulePath }),
       span: module.span,
@@ -7139,6 +7168,7 @@ class Checker {
           linked ? "open" : "inherit",
           level + 1,
           item.span,
+          item.binding.name,
         );
         if (linked && annotation?.kind === "Function" && annotation.effect === "linked") {
           this.#signatureFace!.outer = annotation.arrowSpan;
@@ -9252,6 +9282,10 @@ class Checker {
           writtenOwn === undefined && ownLinked ? "open" : "inherit",
           level + 1,
           expression.span,
+          // The binding this lambda is the value of, for §10's owner line: a
+          // `fun` member's (taken above) or a `let`'s, and no name otherwise.
+          declaringMember?.name ??
+            (this.#bindingValue?.value === expression ? this.#bindingValue.name : undefined),
         );
         // The colour this lambda's own written header minted, kept for the one
         // reader that needs it: a `widens` door under a linked member wears one
@@ -17702,6 +17736,11 @@ class Checker {
     mode: "open" | "clear" | "inherit",
     level: number,
     declaration: Source.Span,
+    /**
+     * The binding that owns the colour, for §10's owner line *(#873)*; absent
+     * for a lambda no binding names. `declaration` is the signature's region.
+     */
+    owner?: string,
   ): SignatureFace | undefined {
     const previous = this.#signatureFace;
     if (mode === "inherit") return previous;
@@ -17712,6 +17751,7 @@ class Checker {
       this.#signatureFaces.push(this.#signatureFace);
       this.#linkedColours.push(this.#signatureFace.effect);
       this.#faceColours.add(this.#signatureFace.effect);
+      this.#colourScopes.push({ span: declaration, effect: this.#signatureFace.effect, owner, level });
     }
     return previous;
   }
@@ -29336,6 +29376,32 @@ class Checker {
     );
   }
 
+  /**
+   * `#colourScopes` over the settled colours *(#873; Effects §10)*: each
+   * region with the identity its colour ended as, and each identity's owner —
+   * the outermost signature among those a join made one variable, which is the
+   * one with the lowest level at its opening.
+   */
+  #materializeColourScopes(): Pick<Typed.Module, "colourScopes" | "colourOwners"> {
+    const colourScopes: Typed.ColourScope[] = [];
+    const owners = new Map<Typed.TypeVariableId, { owner: string | undefined; level: number }>();
+    for (const { span, effect, owner, level } of this.#colourScopes) {
+      const colour = this.#prune(effect);
+      if (colour.kind !== "Variable") {
+        colourScopes.push({ span });
+        continue;
+      }
+      const variable = Typed.typeVariableId(colour.id);
+      colourScopes.push({ span, variable });
+      const known = owners.get(variable);
+      if (known === undefined || level < known.level) owners.set(variable, { owner, level });
+    }
+    return {
+      colourScopes,
+      colourOwners: new Map([...owners].map(([variable, { owner }]) => [variable, owner])),
+    };
+  }
+
   #publicScheme(scheme: Scheme): Typed.Scheme {
     const variables = scheme.variables
       .map((variable) => this.#prune(variable))
@@ -30597,10 +30663,106 @@ class Checker {
   #display(type: Mono): string {
     this.#nameSurvivingVariables(type);
     const colours = this.#effectVariables(type);
-    return this.#render(
-      type,
-      colours.length <= 1 ? new Map() : new Map(colours.map((id, index) => [id, index + 1])),
-    );
+    const enclosingInlets = this.#displayInlets;
+    this.#displayInlets = this.#spineInletColours(type);
+    try {
+      return this.#render(
+        type,
+        colours.length <= 1 ? new Map() : new Map(colours.map((id, index) => [id, index + 1])),
+      );
+    } finally {
+      this.#displayInlets = enclosingInlets;
+    }
+  }
+
+  /**
+   * The colours standing in a parameter type of some arrow on a displayed
+   * type's application spine — its inlets (Effects §2.2.1) — for §10's probe
+   * (#873): a captured colour among them displays faithfully and is owed no
+   * decoration.
+   */
+  #spineInletColours(type: Mono): ReadonlySet<number> {
+    const found = new Set<number>();
+    for (let arrow = this.#prune(type); arrow.kind === "Function"; arrow = this.#prune(arrow.result)) {
+      for (const parameter of arrow.parameters) this.#effectVariables(parameter, found);
+    }
+    return found;
+  }
+
+  /**
+   * Effects §10 in a diagnostic *(#873)*, once every colour has settled. A
+   * report is rendered where inference stands, but whether a captured colour
+   * is the one an inlet-less `->?` at the report's primary span would name is
+   * a question about settled colours — a later `?` call can still join the two.
+   * So `#arrow` marks every signature colour it renders (`COLOUR_MARK`), and
+   * this reads each mark against the settled colours: a captured colour the
+   * nearest signature at the primary span does not own, and that stands in no
+   * inlet of the displayed type, is numbered — `¹` where it rendered alone —
+   * and a note names its owner. Every mark is then removed, so a report no
+   * captured colour reaches reads exactly as it was rendered.
+   */
+  #settleColourMarks(): void {
+    this.#diagnostics.rewrite((diagnostic) => {
+      const texts = [
+        diagnostic.message,
+        ...(diagnostic.labels ?? []).map(({ message }) => message),
+        ...(diagnostic.notes ?? []),
+        ...(diagnostic.fixes ?? []).flatMap((fix) => [
+          fix.message,
+          ...fix.edits.map(({ replacement }) => replacement),
+        ]),
+      ];
+      if (!texts.some((text) => text.includes(COLOUR_MARK))) return diagnostic;
+      const at = diagnostic.primary;
+      const scopes = this.#colourScopes.filter(({ span }) =>
+        span.fileId === at.fileId && span.start.offset <= at.start.offset &&
+        span.end.offset >= at.end.offset
+      );
+      const nearest = scopes.reduce<(typeof scopes)[number] | undefined>(
+        (inner, scope) =>
+          inner === undefined || scope.span.start.offset > inner.span.start.offset ||
+            (scope.span.start.offset === inner.span.start.offset &&
+              scope.span.end.offset <= inner.span.end.offset)
+            ? scope
+            : inner,
+        undefined,
+      );
+      const nearestColour = nearest === undefined ? undefined : this.#prune(nearest.effect);
+      const owners: string[] = [];
+      const strip = (text: string): string =>
+        text.replace(COLOUR_MARKED, (_whole, arrow: string, id: string, inlet: string) => {
+          const marked = this.#markedColours.get(Number(id));
+          const colour = marked === undefined ? undefined : this.#prune(marked);
+          if (colour?.kind !== "Variable" || inlet === "i" || colour === nearestColour) return arrow;
+          // Captured here: a signature whose region holds the report owns it.
+          const owning = scopes
+            .filter(({ effect }) => this.#prune(effect) === colour)
+            .sort((left, right) => left.level - right.level)[0];
+          if (owning === undefined) return arrow;
+          const numbered = arrow === "->?" ? linkedArrow(1) : arrow;
+          const owner = `\`${numbered}\` is ${
+            owning.owner === undefined ? "an enclosing lambda's" : `\`${owning.owner}\`'s`
+          } colour, captured`;
+          if (!owners.includes(owner)) owners.push(owner);
+          return numbered;
+        });
+      const settled: Diagnostics.Diagnostic = {
+        ...diagnostic,
+        message: strip(diagnostic.message),
+        ...(diagnostic.labels === undefined
+          ? {}
+          : { labels: diagnostic.labels.map((label) => ({ ...label, message: strip(label.message) })) }),
+        ...(diagnostic.fixes === undefined ? {} : {
+          fixes: diagnostic.fixes.map((fix) => ({
+            ...fix,
+            message: strip(fix.message),
+            edits: fix.edits.map((edit) => ({ ...edit, replacement: strip(edit.replacement) })),
+          })),
+        }),
+      };
+      const notes = [...(diagnostic.notes ?? []).map(strip), ...owners];
+      return notes.length === 0 ? settled : { ...settled, notes };
+    });
   }
 
   /**
@@ -30843,7 +31005,14 @@ class Checker {
     if (type.effect === undefined) return PURE_ARROW;
     const effect = this.#shownColour(type.effect);
     if (effect.kind === "Effect") return effect.impure ? IMPURE_ARROW : PURE_ARROW;
-    return linkedArrow(effect.kind === "Variable" ? numbering.get(effect.id) : undefined);
+    const arrow = linkedArrow(effect.kind === "Variable" ? numbering.get(effect.id) : undefined);
+    // A signature's colour may be a captured one, which Effects §10 decides
+    // against settled colours (#873): marked here, read by `#settleColourMarks`.
+    if (effect.kind !== "Variable" || !this.#faceColours.has(effect)) return arrow;
+    this.#markedColours.set(effect.id, effect);
+    return `${arrow}${COLOUR_MARK}${effect.id}${
+      this.#displayInlets?.has(effect.id) === true ? "i" : ""
+    }${COLOUR_MARK_END}`;
   }
 }
 

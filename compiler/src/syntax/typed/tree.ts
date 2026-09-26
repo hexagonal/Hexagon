@@ -371,6 +371,21 @@ export interface Module {
    */
   readonly typeHoles: readonly TypeHole[];
   /**
+   * Every inlet-bearing signature's region in this module, with the colour an
+   * inlet-less `->?` written inside it names *(#873; Effects §2.2.2, §10)* —
+   * the variable's settled identity, absent where the colour settled to a
+   * constant. The innermost region holding a display location is the nearest
+   * enclosing signature that can own a variable there. Metadata, like `docs`.
+   */
+  readonly colourScopes: readonly ColourScope[];
+  /**
+   * The signature that owns each open signature's colour, by the colour's
+   * settled identity *(#873; Effects §10)*: its binding's name, or `undefined`
+   * for a lambda no binding names. Where a join made one variable of several
+   * signatures' colours, the outermost of them.
+   */
+  readonly colourOwners: ReadonlyMap<TypeVariableId, string | undefined>;
+  /**
    * The companion operations this module's dot calls reached in a module it
    * never textually imported (Method Syntax §8.2, #585). Empty for almost every
    * module.
@@ -433,6 +448,12 @@ export interface CompanionImport {
  * whatever variables survived at the binding — so a hole nothing fixed reads as
  * the variable it is rather than as an internal identity.
  */
+/** One inlet-bearing signature's region, and the colour it owns (§10, #873). */
+export interface ColourScope {
+  readonly span: Source.Span;
+  readonly variable?: TypeVariableId;
+}
+
 export interface TypeHole {
   readonly span: Source.Span;
   readonly scheme: Scheme;

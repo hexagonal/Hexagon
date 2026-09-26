@@ -16,6 +16,7 @@
 
 import { describe, expect, it } from "vitest";
 import seqSource from "../../../stdlib/Seq.hex?raw";
+import { hoverMarkdown } from "../analysis/hover-text.js";
 import { AnalysisSession } from "../analysis/session.js";
 import { compileFiles } from "../support/test-project.js";
 
@@ -3020,6 +3021,138 @@ export let go(a: Step): Unit = a?()
         "solves it to the impure constant — a function that performs its own " +
         "unconditional effects rounds up, and its face is `->!`",
       ]);
+    });
+  });
+
+  describe("a captured colour's display (§10)", () => {
+    /** The session over one program, for hover and completion at a needle. */
+    const session = (source: string) => {
+      const opened = new AnalysisSession();
+      opened.setFile("/world.js", "");
+      opened.setFile("/main.hex", prefix + source);
+      return opened;
+    };
+    const hovered = (source: string, needle: string) =>
+      session(source).hover("/main.hex", prefix.length + source.indexOf(needle));
+    const owner = "`->?¹` is `outer`'s colour, captured";
+    const inMid = `export let outer(action: () ->? Unit): Int =
+    fun mid(cb: () ->? Int): Int =
+        let g = action
+        cb?()
+    mid(() => 1)
+`;
+
+    it("displays a captured colour plainly where the nearest owner is its owner", () => {
+      const source = `export let outer(action: () ->? Unit): Unit =
+    let g = action
+    g?()
+`;
+      expect(hovered(source, "g =")?.displayedType).toBe("() ->? Unit");
+      expect(hovered(source, "g =")?.colourOwners).toBeUndefined();
+    });
+
+    it("numbers it, alone, where a nearer signature would own a paste, and names the owner", () => {
+      const hover = hovered(inMid, "g =");
+      expect(hover?.displayedType).toBe("() ->?¹ Unit");
+      expect(hover?.colourOwners).toEqual([owner]);
+      expect(hoverMarkdown(hover!)).toBe(`value \`g: () ->?¹ Unit\`\n\n${owner}`);
+      // `mid`'s own face is its own variable, which a paste there would name.
+      expect(hovered(inMid, "mid(cb")?.displayedType).toBe("(() ->? Int) ->? Int");
+    });
+
+    it("displays it plainly again once a join makes the two colours one", () => {
+      const source = `export let outer(action: () ->? Unit): Int =
+    fun mid(cb: () ->? Int): Int =
+        let g = action
+        g?()
+        cb?()
+    let k(): Int =
+        action?()
+        1
+    mid?(k)
+`;
+      expect(check(source)).toEqual([]);
+      expect(hovered(source, "g =")?.displayedType).toBe("() ->? Unit");
+    });
+
+    it("owes nothing to a colour standing in the face's own inlet", () => {
+      // A paste of `k`'s face is a signature of its own, whose colour the
+      // body joins to `outer`'s again: faithful, so undecorated.
+      const source = `export let outer(action: () ->? Unit): Int =
+    fun mid(cb: () ->? Int): Int =
+        let k = (f: () ->? Unit): Unit =>
+            action?()
+            f?()
+        cb?()
+    mid(() => 1)
+`;
+      expect(hovered(source, "k =")?.displayedType).toBe("(() ->? Unit) ->? Unit");
+      expect(hovered(source, "k =")?.colourOwners).toBeUndefined();
+    });
+
+    it("names which numbers are captured where the face has colours of its own", () => {
+      const source = `export let outer(action: () ->? Unit): Int =
+    fun h(cb: () ->? Int): Int =
+        action?()
+        1
+    fun mid(k: () ->? Int): Int =
+        let copy = h
+        k?()
+    mid(() => 1)
+`;
+      expect(hovered(source, "h(cb")?.displayedType).toBe("(() ->?¹ Int) ->?² Int");
+      expect(hovered(source, "h(cb")?.colourOwners).toBeUndefined();
+      expect(hovered(source, "copy =")?.displayedType).toBe("(() ->?¹ Int) ->?² Int");
+      expect(hovered(source, "copy =")?.colourOwners).toEqual(["`->?²` is `outer`'s colour, captured"]);
+    });
+
+    it("names the binding a lambda is the value of, and a lambda none names", () => {
+      const inside = (value: string) => `export let outer(n: Int): Int =
+    ${value}(act: () ->? Unit): Int =>
+        fun mid(k: () ->? Int): Int =
+            let g = act
+            k?()
+        mid(() => 1)${value === "let run = " ? "" : ")"}
+    n
+`;
+      expect(hovered(inside("let run = "), "g =")?.colourOwners).toEqual([
+        "`->?¹` is `run`'s colour, captured",
+      ]);
+      expect(hovered(inside("let pair = (1, "), "g =")?.colourOwners).toEqual([
+        "`->?¹` is an enclosing lambda's colour, captured",
+      ]);
+    });
+
+    it("decorates completion detail at the cursor", () => {
+      // Inside `mid`'s body: past its last token the cursor is `outer`'s, and
+      // there the colour is the nearest owner's and displays plainly.
+      const source = inMid.replace("        cb?()\n", "        let z = g\n        cb?()\n");
+      const cursor = prefix.length + source.indexOf("let z = g") + "let z = g".length;
+      const g = session(source).completions("/main.hex", cursor).find(({ name }) => name === "g");
+      expect(g?.detail).toBe("() ->?¹ Unit — ->?¹ is outer's colour, captured");
+    });
+
+    it("decorates a diagnostic by its primary span, over settled colours", () => {
+      const mismatch = (face: string) => `type mismatch: expected Int, found ${face}`;
+      const inside = inMid.replace("        cb?()\n", "        let n: Int = g\n        cb?()\n");
+      const report = compileFiles([["/world.js", ""], ["/main.hex", prefix + inside]]).diagnostics;
+      expect(report.map(({ message }) => message)).toEqual([mismatch("() ->?¹ Unit")]);
+      expect(report[0]?.notes).toEqual([owner]);
+      // Rendered before `mid`'s close joined the two colours, read after it.
+      const joined = `export let outer(action: () ->? Unit): Int =
+    fun mid(cb: () ->? Int): Int =
+        let g = action
+        g?()
+        let n: Int = g
+        cb?()
+    let k(): Int =
+        action?()
+        1
+    mid?(k)
+`;
+      const plain = compileFiles([["/world.js", ""], ["/main.hex", prefix + joined]]).diagnostics;
+      expect(plain.map(({ message }) => message)).toEqual([mismatch("() ->? Unit")]);
+      expect(plain[0]?.notes).toBeUndefined();
     });
   });
 });

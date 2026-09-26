@@ -1,5 +1,5 @@
 export * from "./tree.js";
-export { displayScheme } from "./display.js";
+export { type ColourContext, colourContextAt, displayFace, displayScheme } from "./display.js";
 export {
   carriesEffect,
   collectEffectVariables,

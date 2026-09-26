@@ -12,16 +12,106 @@ const NOTHING_NUMBERED: EffectNumbering = new Map();
 
 /** Renders an inferred binding scheme in Hexagon's user-facing type notation. */
 export function displayScheme(scheme: Typed.Scheme): string {
+  return displayFace(scheme).type;
+}
+
+/**
+ * Where a face is displayed, for §10's captured-variable rule *(#873)*: the
+ * colour an inlet-less `->?` written at that location would name — the
+ * nearest enclosing signature that can own a variable — and who owns each
+ * signature's colour.
+ */
+export interface ColourContext {
+  readonly nearest: Typed.TypeVariableId | undefined;
+  readonly owners: ReadonlyMap<Typed.TypeVariableId, string | undefined>;
+}
+
+/**
+ * The colour context at one location of a module *(#873; Effects §10)* — the
+ * innermost inlet-bearing signature whose region holds `[start, end]` in
+ * `fileId` names what an inlet-less `->?` pasted there would mean. `undefined`
+ * where the module captures nothing, so display is exactly as before.
+ */
+export function colourContextAt(
+  module: Pick<Typed.Module, "colourScopes" | "colourOwners">,
+  fileId: number,
+  start: number,
+  end: number,
+): ColourContext | undefined {
+  if (module.colourOwners.size === 0) return undefined;
+  let nearest: Typed.ColourScope | undefined;
+  for (const scope of module.colourScopes) {
+    if (Number(scope.span.fileId) !== fileId) continue;
+    if (scope.span.start.offset > start || scope.span.end.offset < end) continue;
+    if (
+      nearest === undefined || scope.span.start.offset > nearest.span.start.offset ||
+      (scope.span.start.offset === nearest.span.start.offset &&
+        scope.span.end.offset <= nearest.span.end.offset)
+    ) {
+      nearest = scope;
+    }
+  }
+  return { nearest: nearest?.variable, owners: module.colourOwners };
+}
+
+/**
+ * A scheme as displayed at one location *(#873; Effects §10)*: the type, and
+ * one owner line for each captured variable the display had to number.
+ *
+ * A captured variable — a signature's colour the scheme does not quantify —
+ * displays undecorated wherever an inlet-less `->?` pasted at the location
+ * would name it, which is exactly when it is the nearest owner's colour (a
+ * join makes the two one identity). Elsewhere a nearer inlet-bearing
+ * signature stands between, the paste would name that one's colour instead,
+ * and the display numbers the captured one even alone, naming its owner. The
+ * probe is the inlet-less arrow: a captured variable standing in a parameter
+ * type of the face's own spine is an inlet, a paste of the face is a
+ * signature that quantifies a fresh colour the body joins to it again, and
+ * nothing is owed.
+ */
+export function displayFace(
+  scheme: Typed.Scheme,
+  context?: ColourContext,
+): { readonly type: string; readonly owners: readonly string[] } {
   // One scheme is one displayed signature, so the whole of it — constraints
   // included — is what the effect variables are numbered across.
   const colours = effectVariables(scheme);
   const variables = variableNames(scheme, colours);
-  const numbering: EffectNumbering = writesBackUnchanged(scheme, colours)
+  const inlets = spineInlets(scheme.type);
+  const decorated = context === undefined
+    ? []
+    : colours.filter((colour) =>
+      context.owners.has(colour) &&
+      !scheme.variables.includes(colour) &&
+      colour !== context.nearest &&
+      !inlets.has(colour)
+    );
+  const numbering: EffectNumbering = writesBackUnchanged(scheme, colours) && decorated.length === 0
     ? NOTHING_NUMBERED
     : new Map(colours.map((colour, index) => [colour, index + 1]));
   const type = displayType(scheme.type, variables, numbering);
+  return {
+    type: `${displayConstraints(scheme, variables, numbering)}${type}`,
+    owners: decorated.map((colour) => {
+      const owner = context!.owners.get(colour);
+      return `\`${linkedArrow(numbering.get(colour))}\` is ${
+        owner === undefined ? "an enclosing lambda's" : `\`${owner}\`'s`
+      } colour, captured`;
+    }),
+  };
+}
 
-  return `${displayConstraints(scheme, variables, numbering)}${type}`;
+/**
+ * The effect variables standing in a parameter type of some arrow on the
+ * type's application spine — its inlets (Effects §2.2.1), read at the
+ * coarsest: sign and depth discarded.
+ */
+function spineInlets(type: Typed.Type): ReadonlySet<Typed.TypeVariableId> {
+  const found = new Set<Typed.TypeVariableId>();
+  for (let arrow = type; arrow.kind === "Function"; arrow = arrow.result) {
+    for (const parameter of arrow.parameters) collectEffectVariables(parameter, found);
+  }
+  return found;
 }
 
 /**
