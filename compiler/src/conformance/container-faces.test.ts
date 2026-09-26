@@ -173,6 +173,47 @@ describe("a constructor application's own expected type (#1066)", () => {
     )).toEqual(["Option(() -> Unit)"]);
   });
 
+  test("its arguments are handed their parts whole: a callback lands its parameters' written colours", () => {
+    // Effects §3.4 (A′): a carried type lands on a lambda whole, colours
+    // included, while the constructor's own check leaves colours for the seat.
+    const decls = "record Box(a) = {v: a}\nrecord Handler(a) = {run: (a) ->! Unit}\n" +
+      "union Sink(a) = Sink((a) ->! Unit)\n";
+    for (const program of [
+      "let h: Option((() ->! Unit) ->! Unit) = Some((f) => f!())\n",
+      "let h: Box((() ->! Unit) ->! Unit) = Box({v = (f) => f!()})\n",
+      "let h: (Option((() ->! Unit) ->! Unit), Int) = (Some((f) => f!()), 1)\n",
+      "let h: Vector(Option((() ->! Unit) ->! Unit)) = [Some((f) => f!())]\n",
+      "let h: Option(((() ->! Unit) ->! Unit, Int)) = Some(((f) => f!(), 1))\n",
+      "let h: Option(Vector((() ->! Unit) ->! Unit)) = Some([(f) => f!()])\n",
+      "let h: Option((Unit, () ->! Unit) ->! Unit) = Some((u, f) => f!())\n",
+      "let h: Option(((Int) ->! Int) ->! Int) = Some((f) => f!(1) + 1)\n",
+      "let h: Handler(() ->! Unit) = Handler({run = (f) => f!()})\n",
+      "let h: Sink(() ->! Unit) = Sink((f) => f!())\n",
+      "let h: Option(Sink(() ->! Unit)) = Some(Sink((f) => f!()))\n",
+      "let h: Option(Option((() ->! Unit) ->! Unit)) = Some(Some((f) => f!()))\n",
+    ]) {
+      expect(refusals(decls + program), program).toEqual([]);
+    }
+    // And the mark a written colour asks for is still asked.
+    expect(refusals("let h: Option((() ->! Unit) ->! Unit) = Some((f) => f())\n"))
+      .toEqual(["this call runs effects, so `f` wants `!`, not no mark"]);
+  });
+
+  test("a type refused where colours are held back is reported as written", () => {
+    expect(refusals("let optBang(o: Option(() ->! Unit)): Unit = ()\nlet a = optBang(Some(Some(() => ())))\n"))
+      .toEqual(["type mismatch: expected () ->! Unit, found Option(() ->? a)"]);
+    // A literal is refused as a function, wherever the function type is carried.
+    for (const program of [
+      "let a: (() ->! Unit, Int) = (1, 2)\n",
+      "let a: Option(() ->! Unit) = Some(1)\n",
+      "let a: Vector(() ->! Unit) = [1]\n",
+      "let a: Option((() ->! Unit, Int)) = Some((1, 2))\n",
+    ]) {
+      expect(refusals(program), program).toEqual(["functions have no `Num` instance"]);
+    }
+    expect(refusals("let a: (String, Int) = (1, 2)\n")).toEqual(["integer literal cannot have type `String`"]);
+  });
+
   test("another head declines, with no propagation artifact", () => {
     expect(refusals("let a: Result(Dec, String) = Some(n)\n"))
       .toEqual(["type mismatch: expected Result(Dec, String), found Option(Int)"]);

@@ -8690,10 +8690,12 @@ class Checker {
   #inferExpr(expression: Resolved.Expr, level: number, expected?: Mono): Mono {
     if (expression.kind === "Lambda") {
       // A lambda literal waiting for its owner's second pass stands here as
-      // its stand-in (`SpineOwner`, Functions §4.3).
+      // its stand-in (`SpineOwner`, Functions §4.3), taking the parameter types
+      // the form hands it, as the lambda's own landing would.
       const owner = this.#claimedLambdas.get(expression);
       if (owner !== undefined) {
         const standIn = this.#standIn(expression, owner, level);
+        this.#landOnStandIn(standIn, expected, expression.span);
         this.#expressionTypes.set(expression, standIn);
         return standIn;
       }
@@ -9712,10 +9714,15 @@ class Checker {
         // unified with it where both are headed by the constructor's type — the
         // unification the seat's final check performs anyway — so the
         // parameters hand the expectation's parts to the arguments. No other
-        // call unifies its result early (Functions §4.3). The expectation's
-        // colours are freshened (`#recolour`), as a literal's parts are: the
-        // types reach the arguments, and the colours are left for the seat,
-        // where Effects §13.2 places a pin or a merge.
+        // call unifies its result early (Functions §4.3). The colours are the
+        // exception (Effects §3.4): the constructor's own check meets the
+        // expectation with its colours freshened (`#recolour`), as a literal's
+        // part is met, so they are compared where the application meets its
+        // seat, where §4.2 and §13.2 place a pin or a merge — while each
+        // argument is handed its part whole, colours included, read off the
+        // expectation itself, so a lambda literal among them lands its
+        // parameters' written colours.
+        let handed: readonly Mono[] | undefined;
         if (expected !== undefined && !calleeIsLambda && this.#appliesDataConstructor(expression)) {
           const known = this.#prune(callee);
           const result = known.kind === "Function" ? this.#prune(known.result) : undefined;
@@ -9724,7 +9731,8 @@ class Checker {
             (result?.kind === "Union" && face.kind === "Union" && result.union === face.union) ||
             (result?.kind === "NominalRecord" && face.kind === "NominalRecord" && result.record === face.record)
           ) {
-            this.#unify(result, this.#recolour(face, level), expression.span);
+            this.#unify(result, this.#freshened(face, level), expression.span);
+            handed = this.#constructorReading(expression, face);
           }
         }
         // A tower member call of the member's own arity, in any spelling, is an
@@ -9762,7 +9770,7 @@ class Checker {
             if (deferredLambdas.has(index)) continue;
             arguments_[index] = pass === undefined
               ? this.#inferExpr(argument, level)
-              : pass.argument(index, calleeParameters?.[index]);
+              : pass.argument(index, handed?.[index] ?? calleeParameters?.[index]);
           }
           // An expectation has to *be* something by the time it is read, so
           // the whole first pass is checked before the second elaborates: a
@@ -9780,7 +9788,7 @@ class Checker {
                 arguments_[index] = this.#inferExpr(
                   expression.arguments[index]!,
                   level,
-                  calleeParameters?.[index],
+                  handed?.[index] ?? calleeParameters?.[index],
                 );
               },
             })),
@@ -16563,6 +16571,26 @@ class Checker {
     return standIn;
   }
 
+  /**
+   * The parameter types an expectation hands a waiting lambda, landed on its
+   * stand-in as the lambda's own landing would land them: each unannotated
+   * parameter takes its component whole, colours included (Effects §3.4), so
+   * a callback a constructor or literal holds knows its parameters' written
+   * colours though the form's own check meets them freshened. Only where the
+   * expectation is a function type of the lambda's arity; the stand-in's own
+   * colour and result are left to the form and the second pass.
+   */
+  #landOnStandIn(standIn: FunctionMono, expected: Mono | undefined, span: Source.Span): void {
+    const face = expected === undefined ? undefined : this.#prune(expected);
+    if (face?.kind !== "Function" || face.parameters.length !== standIn.parameters.length) return;
+    for (const [index, parameter] of standIn.parameters.entries()) {
+      const target = this.#prune(parameter);
+      if (target.kind === "Variable" && target.rigidName === undefined) {
+        this.#unify(target, face.parameters[index]!, span);
+      }
+    }
+  }
+
   /** The written faces of `owner`'s waiting lambdas, landed on their stand-ins (ruling A2). */
   #landWaiting(owner: SpineOwner, level: number): void {
     for (const [lambda, standIn] of owner.waiting) this.#landWrittenFace(lambda, standIn, level);
@@ -16734,7 +16762,7 @@ class Checker {
       return home;
     }
     const before = this.#diagnostics.count;
-    this.#unifyExpected(this.#recolour(part, level), type, component, component.span, true, true);
+    this.#unifyExpected(this.#freshened(part, level), type, component, component.span, true, true);
     return this.#diagnostics.count > before ? part : type;
   }
 
@@ -16750,6 +16778,21 @@ class Checker {
       this.#expressionTypes.set(group, type);
     }
     return type;
+  }
+
+  /**
+   * The colour each colour `#freshened` minted stands for, so a report that
+   * shows the freshened type while that colour is unsolved shows the colour
+   * the reader wrote (`#arrow`).
+   */
+  readonly #shownColours = new WeakMap<Variable, Mono>();
+
+  /**
+   * A carried type with its colours freshened (Effects §3.4, #1066): the copy
+   * a value's types meet here, its colours met where the whole meets its seat.
+   */
+  #freshened(type: Mono, level: number): Mono {
+    return this.#recolour(type, level, undefined, this.#shownColours);
   }
 
   /** A part that is a component's **home**: a concrete type of the numeric tower (Numeric Literals §5.1). */
@@ -16827,7 +16870,7 @@ class Checker {
         for (const part of node.parts) {
           const value = this.#partExpression(part);
           const before = this.#diagnostics.count;
-          this.#unifyExpected(this.#recolour(target, level), this.#partType(part), value, value.span, true, true);
+          this.#unifyExpected(this.#freshened(target, level), this.#partType(part), value, value.span, true, true);
           if (this.#diagnostics.count > before) {
             joined = target;
             break;
@@ -16965,10 +17008,10 @@ class Checker {
       // argument there is a sibling, closed with its group and never here, so
       // the test only guards — and a dot call's receiver meets its seat under
       // the receiver rule (§6).
-      const written = parameters[index] ?? ERROR;
+      const parameter = parameters[index] ?? ERROR;
       const receiver = call.kind === "Call" && call.callee.kind === "Access" &&
         expressions.length === call.arguments.length + 1 && index === 0;
-      this.#unifyExpected(written, actuals[index] ?? ERROR, expression, span, true, written.kind !== "Variable" && !receiver);
+      this.#unifyExpected(parameter, actuals[index] ?? ERROR, expression, span, true, parameter.kind !== "Variable" && !receiver);
       for (const variable of open) {
         if (this.#prune(variable).kind !== "Variable") givers.set(variable, expression);
       }
@@ -19956,7 +19999,13 @@ class Checker {
    * still unify against the contract's own type nodes, which is Constraints
    * §4.1's checking posture unchanged.
    */
-  #recolour(type: Mono, level: number, freshened?: Variable[]): Mono {
+  #recolour(
+    type: Mono,
+    level: number,
+    freshened?: Variable[],
+    /** Where each minted colour is recorded with the colour it stands for (`#shownColours`). */
+    shows?: WeakMap<Variable, Mono>,
+  ): Mono {
     const actual = this.#prune(type);
     switch (actual.kind) {
       case "Function": {
@@ -19965,12 +20014,13 @@ class Checker {
         // minted and never settled.
         const effect = this.#fresh(level, false);
         freshened?.push(effect);
+        shows?.set(effect, actual.effect ?? PURE);
         return {
           kind: "Function",
           parameters: actual.parameters.map((parameter) =>
-            this.#recolour(parameter, level, freshened)
+            this.#recolour(parameter, level, freshened, shows)
           ),
-          result: this.#recolour(actual.result, level, freshened),
+          result: this.#recolour(actual.result, level, freshened, shows),
           effect,
         };
       }
@@ -19978,7 +20028,7 @@ class Checker {
         if (!this.#carriesArrow(actual)) return actual;
         return {
           kind: "Tuple",
-          elements: actual.elements.map((element) => this.#recolour(element, level, freshened)),
+          elements: actual.elements.map((element) => this.#recolour(element, level, freshened, shows)),
         };
       }
       case "Record": {
@@ -19986,7 +20036,7 @@ class Checker {
         return {
           ...actual,
           fields: new Map(
-            [...actual.fields].map(([name, field]) => [name, this.#recolour(field, level, freshened)]),
+            [...actual.fields].map(([name, field]) => [name, this.#recolour(field, level, freshened, shows)]),
           ),
         };
       }
@@ -19996,7 +20046,7 @@ class Checker {
         if (!this.#carriesArrow(actual)) return actual;
         return {
           ...actual,
-          arguments: actual.arguments.map((argument) => this.#recolour(argument, level, freshened)),
+          arguments: actual.arguments.map((argument) => this.#recolour(argument, level, freshened, shows)),
         };
       }
       case "Vector":
@@ -20005,19 +20055,19 @@ class Checker {
       case "JsSet":
       case "Node": {
         if (!this.#carriesArrow(actual)) return actual;
-        return { ...actual, element: this.#recolour(actual.element, level, freshened) };
+        return { ...actual, element: this.#recolour(actual.element, level, freshened, shows) };
       }
       case "Nullable": {
         if (!this.#carriesArrow(actual)) return actual;
-        return { kind: "Nullable", value: this.#recolour(actual.value, level, freshened) };
+        return { kind: "Nullable", value: this.#recolour(actual.value, level, freshened, shows) };
       }
       case "Map":
       case "JsMap": {
         if (!this.#carriesArrow(actual)) return actual;
         return {
           kind: actual.kind,
-          key: this.#recolour(actual.key, level, freshened),
-          value: this.#recolour(actual.value, level, freshened),
+          key: this.#recolour(actual.key, level, freshened, shows),
+          value: this.#recolour(actual.value, level, freshened, shows),
         };
       }
       default:
@@ -30210,6 +30260,16 @@ class Checker {
    * meaning. A seat that can honestly settle first does so before reporting
    * (Numeric Literals §6's own settle-then-name sequence).
    */
+  /**
+   * A colour as a report shows it: a colour `#freshened` minted and nothing
+   * has solved shows the colour it stands for, the one the reader wrote.
+   */
+  #shownColour(colour: Mono): Mono {
+    const actual = this.#prune(colour);
+    const stands = actual.kind === "Variable" ? this.#shownColours.get(actual) : undefined;
+    return stands === undefined ? actual : this.#shownColour(stands);
+  }
+
   #display(type: Mono): string {
     this.#nameSurvivingVariables(type);
     const colours = this.#effectVariables(type);
@@ -30400,7 +30460,7 @@ class Checker {
     if (actual.kind === "Function") {
       for (const parameter of actual.parameters) this.#effectVariables(parameter, found);
       if (actual.effect !== undefined) {
-        const effect = this.#prune(actual.effect);
+        const effect = this.#shownColour(actual.effect);
         if (effect.kind === "Variable") found.add(effect.id);
       }
       this.#effectVariables(actual.result, found);
@@ -30442,7 +30502,7 @@ class Checker {
    */
   #arrow(type: FunctionMono, numbering: ReadonlyMap<number, number>): string {
     if (type.effect === undefined) return PURE_ARROW;
-    const effect = this.#prune(type.effect);
+    const effect = this.#shownColour(type.effect);
     if (effect.kind === "Effect") return effect.impure ? IMPURE_ARROW : PURE_ARROW;
     return linkedArrow(effect.kind === "Variable" ? numbering.get(effect.id) : undefined);
   }
