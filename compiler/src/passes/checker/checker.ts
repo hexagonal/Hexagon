@@ -933,6 +933,18 @@ interface TreeNode {
   published?: Mono;
 }
 
+/**
+ * One value path's refusal against its expression's face (#1107): the
+ * diagnostics its check added, `[start, end)` in production order, folded
+ * into the expression's first refusal as a label (`#foldRefusals`).
+ */
+interface PathRefusal {
+  readonly start: number;
+  readonly end: number;
+  readonly path: Resolved.Expr;
+  readonly type: Mono;
+}
+
 /** A dot call's receiver that closed before the dot resolved (Method Syntax §2.2). */
 interface ClosedReceiver {
   readonly call: Resolved.CallExpr;
@@ -15603,22 +15615,42 @@ class Checker {
    * as every form always joined, so the colours still merge at the form
    * (Effects §13.2). A tower operator's operands reconcile as they always did.
    *
+   * Several paths refused are one report, at the first, the others its
+   * labels (`#foldRefusals`); `refusals` collects them for an enclosing
+   * expression, which folds them itself. A vector literal's elements
+   * (`literal`) meet even a face left open, the first filling it, as a
+   * literal's components do.
+   *
    * `seat` is whether the face is a seat's own (`#unifyExpected`'s `home`).
    */
   #reconcileFaced(
     node: TreeNode,
     face: Mono,
     seat = node.face !== undefined && node.face.kind !== "Variable",
+    refusals?: PathRefusal[],
+    literal = false,
   ): Mono {
-    // A tower operator's operands, a call's siblings, and a comparison's
-    // operands are not paths; a form's value paths and a vector's elements are.
-    const paths = node.rung === undefined && (node.siblings !== true || node.elements === true);
+    const collected = refusals ?? [];
+    // A form's value paths and a vector's elements are paths; a tower
+    // operator's operands are not (a call's siblings and a comparison's
+    // operands close elsewhere). They meet the face one by one only where it
+    // leaves them nothing to fill in: where a part is open (`Option(_)`), no
+    // written type says which path is wrong, so they join first, as ever, and
+    // a disagreement is the form's (ruling B3 (a)).
+    const paths = node.rung === undefined && (node.siblings !== true || node.elements === true) &&
+      (literal || this.#ground(face, true));
     const types = node.parts.map((part) => {
       if ("value" in part) {
         const { expression, type } = part.value;
-        return paths ? this.#checkPath(expression, face, type, node.level, seat) : type;
+        return paths ? this.#checkPath(expression, face, type, node.level, seat, collected) : type;
       }
-      if (part.node.rung === undefined) return this.#reconcileFaced(part.node, face, seat);
+      if (part.node.failed === true) {
+        // A refused `match` is one `ERROR` value to the tree around it: its
+        // arms join among themselves, and nothing it holds meets the face.
+        this.#closeFree(part.node);
+        return ERROR;
+      }
+      if (part.node.rung === undefined) return this.#reconcileFaced(part.node, face, seat, collected);
       const before = this.#diagnostics.count;
       this.#closeFaced(part.node, face);
       const type = this.#partType({ node: part.node });
@@ -15627,8 +15659,9 @@ class Checker {
       // was refused on its own says nothing more, and joins as a refused path.
       if (!paths) return type;
       if (this.#diagnostics.count > before) return this.#freshened(face, node.level);
-      return this.#checkPath(part.node.expression, face, type, node.level, seat);
+      return this.#checkPath(part.node.expression, face, type, node.level, seat, collected);
     });
+    if (refusals === undefined) this.#foldRefusals(collected);
     const expressions = node.parts.map((part) => this.#partExpression(part));
     this.#recordParts(node);
     if (node.rung === undefined) return this.#joinForm(node, face, types, expressions);
@@ -15699,7 +15732,23 @@ class Checker {
    * freshened face where it was refused here — so the join and the seat do not
    * refuse it again — and its own type otherwise, its colours intact.
    */
-  #checkPath(path: Resolved.Expr, face: Mono, type: Mono, level: number, seat: boolean): Mono {
+  #checkPath(
+    path: Resolved.Expr,
+    face: Mono,
+    type: Mono,
+    level: number,
+    seat: boolean,
+    refusals: PathRefusal[],
+  ): Mono {
+    const start = this.#diagnostics.count;
+    const met = this.#meetPath(path, face, type, level, seat);
+    const end = this.#diagnostics.count;
+    if (end > start) refusals.push({ start, end, path, type });
+    return met;
+  }
+
+  /** `#checkPath`'s check itself, reporting as it goes. */
+  #meetPath(path: Resolved.Expr, face: Mono, type: Mono, level: number, seat: boolean): Mono {
     const actual = this.#prune(type);
     if (actual.kind === "Error") return type;
     const home = this.#numericHome(face);
@@ -15720,9 +15769,37 @@ class Checker {
       return home;
     }
     const before = this.#diagnostics.count;
-    const freshened = this.#freshened(face, level);
-    this.#unifyExpected(freshened, type, path, path.span, true, seat);
-    return this.#diagnostics.count > before ? freshened : type;
+    this.#unifyExpected(this.#freshened(face, level), type, path, path.span, true, seat);
+    // A refused check may still have bound the copy's colours (a function
+    // type's effect slot unifies past a failed parameter), so the path joins
+    // as a copy of its own.
+    return this.#diagnostics.count > before ? this.#freshened(face, level) : type;
+  }
+
+  /**
+   * One expression's refused paths as one report (Numeric Literals §6,
+   * #1107): the first stands, in its own words, and each later one becomes a
+   * label on it, at the path, saying what the path is — so every place is
+   * shown and the explanation is given once.
+   */
+  #foldRefusals(refusals: readonly PathRefusal[]): void {
+    const [first, ...rest] = refusals;
+    if (first === undefined || rest.length === 0) return;
+    this.#diagnostics.fold(
+      first.start,
+      rest.map(({ start, end, path, type }) => ({
+        start,
+        end,
+        label: { span: path.span, message: this.#pathLabel(path, type) },
+      })),
+    );
+  }
+
+  /** A folded path's label: "`g` is a `Float`", or "this is …" where it has no one-line spelling. */
+  #pathLabel(path: Resolved.Expr, type: Mono): string {
+    const shown = this.#display(type);
+    const spelled = this.#spelledExpression(path);
+    return `${spelled === undefined ? "this" : `\`${spelled}\``} is ${indefiniteArticle(shown)} \`${shown}\``;
   }
 
   /**
@@ -15885,7 +15962,8 @@ class Checker {
       return `type mismatch: expected ${home}, found ${this.#display(value.type)}`;
     }
     const door = this.#numericDoor(spelled, value.type, face);
-    return `\`${spelled}\` is a \`${this.#display(value.type)}\` and cannot enter ` +
+    const shown = this.#display(value.type);
+    return `\`${spelled}\` is ${indefiniteArticle(shown)} \`${shown}\` and cannot enter ` +
       `\`${home}\`, the home \`: ${home}\` writes` +
       (door === undefined ? "" : `; convert it explicitly — \`${door}\``);
   }
@@ -16080,33 +16158,39 @@ class Checker {
     }
   }
 
-  /** Whether `type` holds no type variable (colours aside): a concrete type (Numeric Literals §5.1). */
-  #ground(type: Mono): boolean {
+  /**
+   * Whether `type` holds no type variable (colours aside): a concrete type
+   * (Numeric Literals §5.1). With `declared`, a declared variable counts as
+   * written, since nothing a value does can solve it: the type then leaves
+   * nothing to fill in (Functions §4.3's forwarding forms, #1107).
+   */
+  #ground(type: Mono, declared = false): boolean {
+    const ground = (inner: Mono): boolean => this.#ground(inner, declared);
     const actual = this.#prune(type);
     switch (actual.kind) {
       case "Variable":
-        return false;
+        return declared && actual.rigidName !== undefined;
       case "Tuple":
-        return actual.elements.every((element) => this.#ground(element));
+        return actual.elements.every(ground);
       case "Record":
-        return actual.tail === undefined && [...actual.fields.values()].every((field) => this.#ground(field));
+        return (actual.tail === undefined || ground(actual.tail)) && [...actual.fields.values()].every(ground);
       case "Union":
       case "NominalRecord":
       case "ExternType":
-        return actual.arguments.every((argument) => this.#ground(argument));
+        return actual.arguments.every(ground);
       case "Vector":
       case "Set":
       case "Array":
       case "JsSet":
       case "Node":
-        return this.#ground(actual.element);
+        return ground(actual.element);
       case "Map":
       case "JsMap":
-        return this.#ground(actual.key) && this.#ground(actual.value);
+        return ground(actual.key) && ground(actual.value);
       case "Nullable":
-        return this.#ground(actual.value);
+        return ground(actual.value);
       case "Function":
-        return actual.parameters.every((parameter) => this.#ground(parameter)) && this.#ground(actual.result);
+        return actual.parameters.every(ground) && ground(actual.result);
       default:
         return true;
     }
@@ -16970,14 +17054,22 @@ class Checker {
     let joined: Mono = group ?? node.result;
     const target = element === undefined ? undefined : this.#prune(element);
     const home = this.#numericHome(element);
-    if (
-      node.parts.length > 0 && home === undefined && target !== undefined &&
-      target.kind !== "Variable" && target.kind !== "Error"
-    ) {
-      // The elements meet a non-numeric part as components do, each at its
-      // turn with its colours left for the seat, and then join, so their
-      // colours merge at the literal (`#reconcileFaced`, #1107).
-      joined = this.#reconcileFaced(node, target, true);
+    // A part outside the tower, which each element meets at its own turn,
+    // lambda literals included (#1107) — the first to meet a part left open
+    // filling it, as a tuple's components do (Functions §4.3's component
+    // schedule).
+    const outside = home === undefined && target !== undefined && target.kind !== "Variable" &&
+        target.kind !== "Error"
+      ? target
+      : undefined;
+    // The elements refused against it, folded into one report once the
+    // lambda literals are in too.
+    const refusals: PathRefusal[] = [];
+    if (node.parts.length > 0 && outside !== undefined) {
+      // The elements meet it as components do, their colours left for the
+      // seat, and then join, so their colours merge at the literal
+      // (`#reconcileFaced`).
+      joined = this.#reconcileFaced(node, outside, true, refusals, true);
     } else if (node.parts.length > 0) {
       const refused = home === undefined ? this.#closeFree(node) : this.#closeFaced(node, home);
       joined = refused ? ERROR : node.published ?? node.result;
@@ -16997,8 +17089,10 @@ class Checker {
     for (const value of lambdas) {
       const type = this.#inferLambdaComponent(value, level, element);
       types.push(type);
-      this.#joining(expression.span, () => this.#unifyExpected(joined, type, value, value.span, true));
+      const met = outside === undefined ? type : this.#checkPath(value, outside, type, level, true, refusals);
+      this.#joining(expression.span, () => this.#unifyExpected(joined, met, value, value.span, true));
     }
+    this.#foldRefusals(refusals);
     // And the published element wears the seat's node where an element
     // carried one, so a call through the vector records the edge.
     for (const type of types) joined = this.#publishJoinedColours(joined, type);

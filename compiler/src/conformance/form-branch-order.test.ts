@@ -12,9 +12,10 @@ import { compileMain, runMain } from "../support/test-project.js";
  * `match` or `try`, a `try`'s body and a block's final expression meet that
  * type on their own — types at the path, colours freshened — and then join,
  * so the colours still merge at the form (Effects §13.2). No path is measured
- * against another: which is written first decides nothing, and every path
- * that cannot meet the type is reported at itself (ruling (i)). A vector
- * literal's elements meet a part outside the tower the same way.
+ * against another: which is written first decides nothing. Where several
+ * cannot meet it, the expression gives one report, at the first, each other
+ * a label on it (ruling N3, option 3). A vector literal's elements meet a
+ * part outside the tower the same way.
  */
 
 const HEADER = "module Main\n\nimport Rat\n\n";
@@ -29,13 +30,21 @@ const FIXTURES =
   "let o2: Option(Int) = None\n" +
   "let od: Option(Dec) = Some(price)\n" +
   "let wrap<a>(x: a): Option(a) = Some(x)\n" +
+  "let incInt(x: Int): Int = x + 1\n" +
   "exception Oops\n";
 
-/** Each report as `[the text its primary spans, its message]`. */
-function reports(source: string): readonly (readonly [string, string])[] {
+/**
+ * Each report as `[the text its primary spans, its message]`, and, where it
+ * carries labels, `[…, [[the text a label spans, its message], …]]`.
+ */
+function reports(source: string): readonly (readonly unknown[])[] {
   const text = HEADER + FIXTURES + source;
-  return compileMain(text).diagnostics.map(({ primary, message }) =>
-    [text.slice(primary.start.offset, primary.end.offset), message] as const
+  const at = (span: { start: { offset: number }; end: { offset: number } }): string =>
+    text.slice(span.start.offset, span.end.offset);
+  return compileMain(text).diagnostics.map(({ primary, message, labels }) =>
+    labels === undefined || labels.length === 0
+      ? [at(primary), message]
+      : [at(primary), message, labels.map((label) => [at(label.span), label.message])]
   );
 }
 
@@ -83,11 +92,44 @@ describe("a form's value paths meet a concrete expectation each at its own turn 
     }
   });
 
-  test("every path that cannot meet the type is reported at itself (ruling (i))", () => {
-    expect(reports("let r: Option(Dec) = if c then o1 else o2\n"))
-      .toEqual([["o1", decFoundInt], ["o2", decFoundInt]]);
-    expect(reports("let r: Option(Dec) = match n\n    0 => od\n    1 => o1\n    _ => o2\n"))
-      .toEqual([["o1", decFoundInt], ["o2", decFoundInt]]);
+  test("a declared variable counts as written; a part left open keeps the join (ruling B3 (a))", () => {
+    const declared = "`a` is a declared type variable, but the body requires `Int`; change the annotation to " +
+      "`Int`, or remove it to let the type be inferred";
+    for (const program of [
+      "fun gk<a>(o: Option(a)): Option(a) = if c then o1 else o\n",
+      "fun gk<a>(o: Option(a)): Option(a) = if c then o else o1\n",
+      "fun gv<a>(o: Option(a)): Vector(Option(a)) = [o1, o]\n",
+      "fun gv<a>(o: Option(a)): Vector(Option(a)) = [o, o1]\n",
+    ]) {
+      expect(reports(program), program).toEqual([["o1", declared]]);
+    }
+    // No written type says which path is wrong: the paths join first, and the
+    // disagreement is the form's, as ever.
+    const takeA = "let takeA<a>(x: Option(a)): Unit = ()\n";
+    for (const [program, at, message] of [
+      ["let r: Option(_) = if c then o1 else od\n", "if c then o1 else od", "type mismatch: expected Int, found Dec"],
+      ["let r: Option(_) = if c then od else o1\n", "if c then od else o1", decFoundInt],
+      [takeA + "let r = takeA(if c then o1 else od)\n", "if c then o1 else od", "type mismatch: expected Int, found Dec"],
+      [takeA + "let r = takeA(if c then od else o1)\n", "if c then od else o1", decFoundInt],
+      // A `match` joins at its arms, as ever: the later arm.
+      ["let r: Option(_) = match c\n    True => o1\n    False => od\n", "od", "type mismatch: expected Int, found Dec"],
+    ] as const) {
+      expect(reports(program), program).toEqual([[at, message]]);
+    }
+    // A vector literal's elements are a literal's components: the first to
+    // meet the open part fills it, as a tuple's components do.
+    expect(reports("let v: Vector(Option(_)) = [o1, od]\n")).toEqual([["od", "type mismatch: expected Int, found Dec"]]);
+    expect(reports("let v: Vector(Option(_)) = [od, o1]\n")).toEqual([["o1", decFoundInt]]);
+    expect(reports("let od2: Option(Dec) = od\nlet v: Vector(Option(_)) = [o1, od, od2]\n")).toEqual([
+      ["od", "type mismatch: expected Int, found Dec", [["od2", "`od2` is an `Option(Dec)`"]]],
+    ]);
+  });
+
+  test("several paths refused are one report, at the first, the others its labels", () => {
+    const folded = [["o1", decFoundInt, [["o2", "`o2` is an `Option(Int)`"]]]];
+    expect(reports("let r: Option(Dec) = if c then o1 else o2\n")).toEqual(folded);
+    expect(reports("let r: Option(Dec) = match n\n    0 => od\n    1 => o1\n    _ => o2\n")).toEqual(folded);
+    expect(reports("let r: Option(Dec) = if c then (if c then o1 else od) else o2\n")).toEqual(folded);
   });
 
   test("a function's call on any path draws the function-result report", () => {
@@ -100,9 +142,28 @@ describe("a form's value paths meet a concrete expectation each at its own turn 
       expect(reports(program), program).toEqual([["wrap(n)", report]]);
     }
     expect(reports("let r: Option(Dec) = match c\n    True => wrap(n)\n    False => wrap(m)\n")).toEqual([
-      ["wrap(n)", report],
-      ["wrap(m)", functionResult("wrap(m)", "Option(Nat)", "wrap((m: Dec))")],
+      ["wrap(n)", report, [["wrap(m)", "`wrap(m)` is an `Option(Nat)`"]]],
     ]);
+  });
+
+  test("the function-result report is a seat's own: a face siblings settled was expected by no one", () => {
+    expect(reports(
+      "let h3<t>(x: t, v: Vector(t), y: t): t = x\nlet ods: Vector(Option(Dec)) = [od]\n" +
+        "let r = h3(if c then wrap(n) else od, ods, od)\n",
+    )).toEqual([["wrap(n)", decFoundInt]]);
+  });
+
+  test("a waiting lambda of the wrong arity on a path is refused at itself", () => {
+    expect(reports("let takeF(f: (Int) -> Int): Unit = ()\nlet r = takeF(if c then (x, y) => x else incInt)\n"))
+      .toEqual([["(x, y) => x", "function arity mismatch: 1 and 2"]]);
+  });
+
+  test("a declared variable is refused once, where it first declines", () => {
+    expect(reports("let fr<a>(x: a, y: a): Option(Dec) = if c then x else y\n")).toEqual([[
+      "x",
+      "`a` is a declared type variable, but the body requires `Option(Dec)`; change the annotation to " +
+        "`Option(Dec)`, or remove it to let the type be inferred",
+    ]]);
   });
 
   test("a gated tower operation on a path is one value of it", () => {
@@ -141,23 +202,37 @@ describe("a tree holding a value outside the tower meets a numeric face path by 
     const entry = "`f` is a `Float` and cannot enter `Dec`, the home `: Dec` writes; convert it explicitly — " +
       "`Dec.fromFloat(f, places)`";
     const string = "type mismatch: expected Dec, found String";
-    expect(reports("let r: Dec = if c then \"x\" else f\n")).toEqual([["\"x\"", string], ["f", entry]]);
-    expect(reports("let r: Dec = if c then f else \"x\"\n")).toEqual([["f", entry], ["\"x\"", string]]);
+    // The first path refused carries the report; the other is its label.
+    expect(reports("let r: Dec = if c then \"x\" else f\n"))
+      .toEqual([["\"x\"", string, [["f", "`f` is a `Float`"]]]]);
+    expect(reports("let r: Dec = if c then f else \"x\"\n"))
+      .toEqual([["f", entry, [["\"x\"", "`\"x\"` is a `String`"]]]]);
+    expect(reports("let r: Dec = if c then f else if c then g else \"x\"\n"))
+      .toEqual([["f", entry, [["g", "`g` is a `Float`"], ["\"x\"", "`\"x\"` is a `String`"]]]]);
     expect(reports("let r: Dec = if c then \"x\" else n\n")).toEqual([["\"x\"", string]]);
     expect(reports("let r: Dec = if c then n else \"x\"\n")).toEqual([["\"x\"", string]]);
     expect(reports("let ident<a>(x: a): a = x\nlet r: Dec = if c then ident(n * 1.5) else \"x\"\n")).toEqual([
-      ["ident(n * 1.5)", functionResult("ident(n * 1.5)", "Float", "ident((n * 1.5: Dec))")],
-      ["\"x\"", string],
+      [
+        "ident(n * 1.5)",
+        functionResult("ident(n * 1.5)", "Float", "ident((n * 1.5: Dec))"),
+        [["\"x\"", "`\"x\"` is a `String`"]],
+      ],
     ]);
+    // At a dot call's receiver too, where neither receiver report is owed.
+    expect(reports("let r: Dec = (if c then f else \"x\").add(price)\n"))
+      .toEqual([["f", entry, [["\"x\"", "`\"x\"` is a `String`"]]]]);
     // A numeric tree's declining values are one home refused (#827): once.
     expect(reports("let r: Dec = if c then f else g\n")).toEqual([["f", entry]]);
   });
 
   test("a declared variable declines in its own words; an operation that stood down says nothing more", () => {
     expect(reports("let fd<a: Num>(x: a): Dec = if c then x else \"x\"\n")).toEqual([
-      ["x", "`a` is a declared type variable, but the body requires `Dec`; change the annotation to `Dec`, " +
-        "or remove it to let the type be inferred"],
-      ["\"x\"", "type mismatch: expected Dec, found String"],
+      [
+        "x",
+        "`a` is a declared type variable, but the body requires `Dec`; change the annotation to `Dec`, " +
+          "or remove it to let the type be inferred",
+        [["\"x\"", "`\"x\"` is a `String`"]],
+      ],
     ]);
     // A path whose operation stood down is refused at itself, with #808's
     // report, once; a numeric tree's is given at its seat, as ever.
@@ -165,9 +240,10 @@ describe("a tree holding a value outside the tower meets a numeric face path by 
       "n * f",
       "`f` is a `Float` and cannot enter `Dec`, so the multiplication could not run at `Dec`",
     ] as const;
-    const string = ["\"x\"", "type mismatch: expected Dec, found String"] as const;
-    expect(reports("let r: Dec = if c then n * f else \"x\"\n")).toEqual([stoodDown, string]);
-    expect(reports("let r: Dec = if c then \"x\" else n * f\n")).toEqual([string, stoodDown]);
+    expect(reports("let r: Dec = if c then n * f else \"x\"\n"))
+      .toEqual([[...stoodDown, [["\"x\"", "`\"x\"` is a `String`"]]]]);
+    expect(reports("let r: Dec = if c then \"x\" else n * f\n"))
+      .toEqual([["\"x\"", "type mismatch: expected Dec, found String", [["n * f", "`n * f` is a `Float`"]]]]);
     expect(reports("let r: Dec = if c then n * f else price\n")).toEqual([["Dec", stoodDown[1]]]);
   });
 });
@@ -183,12 +259,24 @@ describe("a vector literal's elements meet a part outside the tower each at its 
     ]) {
       expect(reports(program), program).toEqual([["o1", decFoundInt]]);
     }
+    // Lambda-literal elements too, checked after the others (#1066's schedule).
+    for (const program of [
+      "let v: Vector((Int) -> Option(Dec)) = [(x) => o1, (x) => od]\n",
+      "let v: Vector((Int) -> Option(Dec)) = [(x) => od, (x) => o1]\n",
+    ]) {
+      expect(reports(program), program).toEqual([["(x) => o1", decFoundInt]]);
+    }
+    expect(reports("let v: Vector((Int) -> Option(Dec)) = [(x) => o1, (x) => o2]\n"))
+      .toEqual([["(x) => o1", decFoundInt, [["(x) => o2", "`(x) => o2` is a `(Int) -> Option(Int)`"]]]]);
+    expect(reports("let v: Vector(Option(Dec)) = [o1, od, o2]\n"))
+      .toEqual([["o1", decFoundInt, [["o2", "`o2` is an `Option(Int)`"]]]]);
+    // A refused `match` is one `ERROR` value: nothing it holds meets the part.
+    expect(reports("let v: Vector(Option(Dec)) = [match zzz\n    _ => o1]\n").map(([at]) => at))
+      .toEqual(["zzz", "zzz"]);
     expect(reports("let v: Vector(Option(Dec)) = [wrap(n), od]\n"))
       .toEqual([["wrap(n)", functionResult("wrap(n)", "Option(Int)", "wrap((n: Dec))")]]);
-    expect(reports("let v: Vector(String) = [1, n]\n")).toEqual([
-      ["1", "integer literal cannot have type `String`"],
-      ["n", "type mismatch: expected String, found Int"],
-    ]);
+    expect(reports("let v: Vector(String) = [1, n]\n"))
+      .toEqual([["1", "integer literal cannot have type `String`", [["n", "`n` is an `Int`"]]]]);
   });
 });
 
@@ -205,6 +293,18 @@ describe("the colours still meet where they met (Effects §3.4, §13.2)", () => 
     expect(reports(world + "let p: Option(() -> Unit) = if c then None else Some(impure)\n")).toEqual(atSeat);
     expect(reports(world + "let v: Vector(Option(() -> Unit)) = [Some(impure), None]\n"))
       .toEqual([["Vector(Option(() -> Unit))", refusal]]);
+    // A path refused for its type says nothing more about its colour, at the
+    // form or at the seat, in either order.
+    const impureI = 'let impureI(x: Int): Option(Int) =\n    save!("x")\n    Some(x)\n' +
+      "let pureD(x: Int): Option(Dec) = od\n";
+    for (const program of [
+      "let v: Vector((Int) -> Option(Dec)) = [impureI]\n",
+      "let p: (Int) -> Option(Dec) = if c then impureI else pureD\n",
+      "let p: (Int) -> Option(Dec) = if c then pureD else impureI\n",
+      "let t: ((Int) -> Option(Dec), Int) = (impureI, 1)\n",
+    ]) {
+      expect(reports(world + impureI + program), program).toEqual([["impureI", decFoundInt]]);
+    }
     // Two colours merged at the form are still the form's to report (#1109
     // owns the wording).
     expect(reports(world + "let p: () -> Unit = if c then pureU else impure\n").map(([at]) => at))

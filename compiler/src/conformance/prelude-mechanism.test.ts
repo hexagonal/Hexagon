@@ -215,8 +215,9 @@ describe("ordered intra-prelude visibility", () => {
    * own `Ordering` occludes `Ordering.hex`'s — and the reports land in
    * `Hex.Rat` and `Hex.Dec`, which honor `Ord` and so name the type by its bare
    * spelling. Each value path of their `compare` bodies meets the contract's
-   * `Ordering` on its own (Functions §4.3, #1107): three paths in `Hex.Rat`
-   * and ten in `Hex.Dec`, one report each.
+   * `Ordering` on its own (Functions §4.3, #1107), and each body's refused
+   * paths are one report: ten paths in `Hex.Dec`, three in `Hex.Rat`, the
+   * first of each carrying the others as labels.
    */
   test("a substituted prelude member is felt by the rest of `Hex`", () => {
     const compiled = project([
@@ -225,8 +226,11 @@ describe("ordered intra-prelude visibility", () => {
       ENTRY,
     ], ["Prelude"]);
     const abroad = compiled.diagnostics.filter(({ primary }) => Number(primary.fileId) >= 2);
-    expect(abroad.map(({ message }) => message))
-      .toEqual(Array(13).fill("type mismatch: expected Ordering, found Ordering"));
+    expect(abroad.map(({ message, labels }) => [message, labels?.length ?? 0]))
+      .toEqual([
+        ["type mismatch: expected Ordering, found Ordering", 9],
+        ["type mismatch: expected Ordering, found Ordering", 2],
+      ]);
   });
 
   test("visibility is strictly backward, so a cycle cannot be written", () => {

@@ -153,6 +153,23 @@ export class Bag {
   }
 
   /**
+   * Folds several parts' refusals of one expression into one report (Numeric
+   * Literals §6, #1107): the diagnostics added in each of `folded`'s ranges —
+   * `[start, end)` in production order, each after `target` — are dropped,
+   * and each range's `label` is added to the diagnostic at `target`, which
+   * stays. So the count never falls below what it was before `target` was
+   * added, and a check that read it earlier still sees its report.
+   */
+  fold(target: number, folded: readonly { readonly start: number; readonly end: number; readonly label: Label }[]): void {
+    const kept = this.#diagnostics[target];
+    if (kept === undefined || folded.length === 0) return;
+    this.#diagnostics[target] = { ...kept, labels: [...(kept.labels ?? []), ...folded.map(({ label }) => label)] };
+    for (const { start, end } of [...folded].sort((left, right) => right.start - left.start)) {
+      if (start > target) this.#diagnostics.splice(start, end - start);
+    }
+  }
+
+  /**
    * Returns diagnostics in source order while preserving production order for
    * diagnostics at the same location. This makes host output deterministic
    * without requiring passes to coordinate how they discover failures.
