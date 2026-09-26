@@ -21435,25 +21435,15 @@ class Checker {
    *
    * That order reaches the route clauses, which follow the demands as they
    * arrived, and the written part of a merged list (`mergedConstraintList`),
-   * which keeps the reader's order. Everything else about the *printed* order —
-   * the whole list at a binder, the demanded part of a merged one — is the
-   * alphabetical order the renderers apply.
+   * which keeps the reader's order. Everywhere else the *printed* order is the
+   * alphabetical one the renderers apply — and since that sort is stable, this
+   * order still settles a same-named pair's tie there (`advisedConstraintList`).
    */
   #maximalAdvisedSpellings(
     written: readonly { readonly written: string; readonly identity: string }[],
     demands: readonly Requirement[],
   ): AdvisedSpellings {
-    const entries = [
-      ...written,
-      ...demands.map((demand) => ({ written: undefined, demand, identity: demand.identity })),
-    ];
-    const kept = entries.filter((entry, index) =>
-      entries.findIndex(({ identity }) => identity === entry.identity) === index &&
-      !entries.some((other) =>
-        other.identity !== entry.identity &&
-        this.#entailmentPath(other.identity, entry.identity) !== undefined
-      )
-    );
+    const kept = this.#maximalAdvisedEntries(written, demands);
     return {
       written: kept.flatMap((entry) =>
         entry.written === undefined ? [] : [{ kind: "spelled", text: entry.written } as const]
@@ -21471,6 +21461,31 @@ class Checker {
         ),
       ),
     };
+  }
+
+  /**
+   * The sieve itself, and its one home: the written entries and the demands,
+   * deduplicated by identity and kept only where no other entry entails them —
+   * the written ones in written order, then the demands as they arrived.
+   */
+  #maximalAdvisedEntries(
+    written: readonly { readonly written: string; readonly identity: string }[],
+    demands: readonly Requirement[],
+  ): readonly (
+    | { readonly written: string; readonly demand?: undefined; readonly identity: string }
+    | { readonly written: undefined; readonly demand: Requirement; readonly identity: string }
+  )[] {
+    const entries = [
+      ...written,
+      ...demands.map((demand) => ({ written: undefined, demand, identity: demand.identity })),
+    ];
+    return entries.filter((entry, index) =>
+      entries.findIndex(({ identity }) => identity === entry.identity) === index &&
+      !entries.some((other) =>
+        other.identity !== entry.identity &&
+        this.#entailmentPath(other.identity, entry.identity) !== undefined
+      )
+    );
   }
 
   #maximalConstraintNames(
@@ -23453,7 +23468,11 @@ class Checker {
         for (const requirement of actual.requirements) requirement.reported = true;
         this.#diagnostics.add({
           severity: "error",
-          message: unmentionedDeclaredMessage(actual.rigidName ?? "", names, "value"),
+          message: unmentionedDeclaredMessage(
+            actual.rigidName ?? "",
+            names.map((constraint) => `\`${constraint}\``),
+            "value",
+          ),
           primary: actual.ascribedAt,
         });
         actual.instance = ERROR;
@@ -23525,7 +23544,7 @@ class Checker {
     // exactly where `a` was meant to occur: its own report stands alone.
     if (declared.writtenFailed) return true;
     const refused = this.#refusedDemands(variable);
-    let names = [...new Set(variable.requirements.map(({ name }) => name))];
+    let names: readonly string[] = [...new Set(variable.requirements.map(({ name }) => `\`${name}\``))];
     let widen: string | null | undefined;
     if (refused.length > 0) {
       // The body demands more than the list declares, and §4.2's refusal of it
@@ -23533,16 +23552,10 @@ class Checker {
       // is the whole list's, and using the variable is advised together with
       // that list, which alone would lead straight into the refusal.
       this.#absorbedRefusals.add(variable);
-      const spellings = this.#refusalSpellings(variable.declaredConstraints ?? [], refused);
+      const declaredConstraints = variable.declaredConstraints ?? [];
+      const spellings = this.#refusalSpellings(declaredConstraints, refused);
       const whole = alphabetical([...spellings.written, ...spellings.demanded]);
-      // Named as the list names them where two share a word (§5.1.1's
-      // collision): `Heft`, `Lib.Heft` — never `Heft` twice.
-      const bare = whole.map(bareConstraintName);
-      names = whole.map((spelling, index) =>
-        bare.indexOf(bare[index]!) === bare.lastIndexOf(bare[index]!)
-          ? bare[index]!
-          : spellingText(spelling)
-      );
+      names = this.#evidenceMentions(declaredConstraints, refused);
       // §5.1.1's fourth tier: a constraint no list here can spell leaves no
       // list to write, so the rewrite that would need one is not offered.
       if (whole.some(({ kind }) => kind === "sealed")) {
@@ -23567,6 +23580,35 @@ class Checker {
       primary: declared.span ?? variable.requirements[0]?.span ?? refused[0]!.span,
     });
     return true;
+  }
+
+  /**
+   * The constraints an unmentioned variable's evidence clause names once the
+   * body has demanded more than its list: the same entries the advised list
+   * holds (`#maximalAdvisedEntries`), alphabetical by declared name. A written
+   * one keeps the author's word and a demanded one its declared name — except
+   * where two share a word, which Constraints §5.1.1's disambiguation bullet
+   * resolves: each is qualified by its declaring module, a sealed one included.
+   */
+  #evidenceMentions(
+    declared: readonly Typed.ConstraintName[],
+    demands: readonly Requirement[],
+  ): readonly string[] {
+    const entries = this.#maximalAdvisedEntries(
+      declared.map((constraint) => ({ written: constraint, identity: this.#constraintIdentity(constraint) })),
+      demands,
+    ).map((entry) => {
+      const declaredName = this.#canonicalConstraintName(
+        entry.written ?? entry.demand.name,
+        entry.identity,
+      );
+      return { word: entry.written ?? declaredName, declaredName, identity: entry.identity };
+    }).sort((left, right) => compareSpellingKeys(left.declaredName, right.declaredName));
+    return entries.map(({ word, declaredName, identity }) =>
+      entries.filter((other) => other.declaredName === declaredName).length > 1
+        ? this.#qualifiedConstraintMention(declaredName, identity)
+        : `\`${word}\``
+    );
   }
 
   /**
@@ -30307,10 +30349,14 @@ function openRowInPayloadMessage(alias: string | undefined): string {
  * Functions §10's unmentioned-variable row *(#712)*. One wording for every
  * declaring spelling — a block head and a fused `fun`'s binder must agree, the
  * fused list *is* its head's (§4.2) — with the rewrite each spelling admits,
- * every one of which compiles (the Rewrite Rule). A binder's constraints are all
- * written ones (a body demand the list does not entail is §4.2's own refusal,
- * never attached), so removing the binder removes them; where the body names
- * the variable, those names need a concrete type too.
+ * every one of which compiles (the Rewrite Rule). A binder's constraints are its
+ * written ones and the demands its list refused, which this row absorbs (§4.2's
+ * refusal is not made separately), so removing the binder removes them; where
+ * the body names the variable, those names need a concrete type too.
+ *
+ * `constraints` are mentions, each already quoted. Where one is qualified — two
+ * that share a word, Constraints §5.1.1 — the clause turns round to take the
+ * qualified phrases: "supply its evidence for this module's `Heft` and …".
  */
 function unmentionedDeclaredMessage(
   name: string,
@@ -30346,9 +30392,11 @@ function unmentionedDeclaredMessage(
     ? `${use}remove \`${name}\` from the binder ` +
       `list and write a concrete type where the body names \`${name}\``
     : `${use}remove \`${name}\` from the binder list`;
+  const evidence = constraints.some((mention) => !mention.startsWith("`"))
+    ? `its evidence for ${englishList(constraints)}`
+    : `its ${constraints.join(", ")} evidence`;
   return `\`${name}\` is a declared type variable, but this declaration's type does not ` +
-    `mention it, so no call can choose it or supply its \`${constraints.join("`, `")}\` ` +
-    `evidence; ${rewrite}`;
+    `mention it, so no call can choose it or supply ${evidence}; ${rewrite}`;
 }
 
 /** Whether a lambda's written parameter or return annotations failed to resolve. */

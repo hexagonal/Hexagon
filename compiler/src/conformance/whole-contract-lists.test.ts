@@ -317,7 +317,10 @@ const TALLY_MID = [
 ].join("\n");
 
 describe("the unmentioned row over a same-spelled pair", () => {
-  test("names the pair as the list does, never one word twice", () => {
+  // Constraints §5.1.1's disambiguation bullet: a message that mentions two
+  // same-named constraints qualifies each by its declaring module, as the
+  // contract row does — never the one word twice.
+  test("qualifies each by its declaring module", () => {
     const files = (main: string) => [
       ["/lib.hex", HEFT_LIB],
       ["/mid.hex", HEFT_MID],
@@ -328,7 +331,8 @@ describe("the unmentioned row over a same-spelled pair", () => {
       local + "fun f<a: Heft>(x: Int): Int =\n    let g = (y: a) => Mid.useHeft(y)\n    x\n",
     ))).toEqual([
       "`a` is a declared type variable, but this declaration's type does not mention it, so no call " +
-        "can choose it or supply its `Heft`, `Lib.Heft` evidence; use `a` in a parameter or result type " +
+        "can choose it or supply its evidence for this module's `Heft` and the `Heft` declared in module " +
+        "`Lib`; use `a` in a parameter or result type " +
         "and write `<a: (Heft, Lib.Heft)>` — `Heft` is declared in module `Lib`, and this module binds " +
         "another `Heft`; `import Lib` and spell it `Lib.Heft`, or remove `a` from the binder list and " +
         "write a concrete type where the body names `a`",
@@ -336,6 +340,39 @@ describe("the unmentioned row over a same-spelled pair", () => {
     expect(graphDiagnostics(files(
       "import Lib\n" + local + "fun f<a: (Heft, Lib.Heft)>(x: a): Int =\n    let g = (y: a) => Mid.useHeft(y)\n    0\n",
     ))).toEqual([]);
+  });
+});
+
+describe("the unmentioned row's evidence clause", () => {
+  test("qualifies a sealed constraint too, which no list spelling could name", () => {
+    const sealedHeft = "module Lib\n\nconstraint Heft<a> =\n    heft(value: a) -> a\n" +
+      "honor Heft<Int> =\n    heft(n) = n\nexport let use<a: Heft>(x: a): a = heft(x)\n";
+    expect(graphDiagnostics([
+      ["/lib.hex", sealedHeft],
+      ["/main.hex",
+        "module Main\n\nimport Lib\nconstraint Heft<a> =\n    other(value: a) -> a\n" +
+        "fun f<a: Heft>(x: Int): Int =\n    let g = (y: a) => Lib.use(y)\n    x\n" + KEEP],
+    ])).toEqual([
+      "`a` is a declared type variable, but this declaration's type does not mention it, so no call " +
+        "can choose it or supply its evidence for this module's `Heft` and the `Heft` declared in module " +
+        "`Lib`; remove `a` from the binder list and write a concrete type where the body names `a`",
+    ]);
+  });
+
+  test("names a written constraint by the author's word, whether or not the body demanded more", () => {
+    const files = (body: string) => [
+      ["/lib.hex", HEFT_LIB],
+      ["/main.hex",
+        "module Main\n\nimport Lib\nfun f<a: Lib.Heft>(x: Int): Int =\n" +
+        `    let g = (y: a) => ${body}\n    x\n` + KEEP],
+    ] as const;
+    const unmentioned = (evidence: string, widen: string) =>
+      "`a` is a declared type variable, but this declaration's type does not mention it, so no call " +
+        `can choose it or supply its ${evidence} evidence; use \`a\` in a parameter or result type${widen}, ` +
+        "or remove `a` from the binder list and write a concrete type where the body names `a`";
+    expect(graphDiagnostics(files("Lib.useHeft(y)"))).toEqual([unmentioned("`Lib.Heft`", "")]);
+    expect(graphDiagnostics(files("show(y)")))
+      .toEqual([unmentioned("`Lib.Heft`, `Show`", " and write `<a: (Lib.Heft, Show)>`")]);
   });
 });
 
