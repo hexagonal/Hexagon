@@ -354,7 +354,7 @@ describe("a faced tree is refused once, naming the value that declined (#827)", 
     }
     // A gated call that does select a home is a value like any other.
     expect(refusals("let x: Nat = if c then n - i else m\n")).toEqual([
-      "`n - i` is a `Int` and cannot enter `Nat`, the home `: Nat` writes",
+      "`n - i` is an `Int` and cannot enter `Nat`, the home `: Nat` writes",
     ]);
   });
 

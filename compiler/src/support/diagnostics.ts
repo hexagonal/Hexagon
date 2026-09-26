@@ -152,6 +152,28 @@ export class Bag {
     this.#diagnostics.length = Math.min(count, this.#diagnostics.length);
   }
 
+  /** The diagnostic added `index`-th, in production order. */
+  at(index: number): Diagnostic | undefined {
+    return this.#diagnostics[index];
+  }
+
+  /**
+   * Folds several parts' refusals of one expression into one report (Numeric
+   * Literals §6, #1107): the diagnostics at `dropped` — production indices,
+   * each after `target` — go, and `labels` are added to the diagnostic at
+   * `target`, which stays. So the count never falls below what it was just
+   * after `target` was added, and a check that read it earlier still sees
+   * its report.
+   */
+  fold(target: number, dropped: readonly number[], labels: readonly Label[]): void {
+    const kept = this.#diagnostics[target];
+    if (kept === undefined || labels.length === 0) return;
+    this.#diagnostics[target] = { ...kept, labels: [...(kept.labels ?? []), ...labels] };
+    for (const index of [...dropped].sort((left, right) => right - left)) {
+      if (index > target) this.#diagnostics.splice(index, 1);
+    }
+  }
+
   /**
    * Returns diagnostics in source order while preserving production order for
    * diagnostics at the same location. This makes host output deterministic
