@@ -602,7 +602,14 @@ Notes:
 
 Diagnostics obey the Rewrite Rule (Declarations Preamble §1.1): where a legal spelling of the intent exists, the error names it.
 
-**Where a report stands** *(#1063)*. A report about a constraint demand carets where this program's source made it (Numeric Literals §6's blocked defaulting instead stands where an annotation can pin the stuck type) — the use, for the demands a binding's scheme copies there (never the callee's declaration, which may be in another module), and the demand it was reached from, for one reached through a structural component or an instance's argument — and says only what is true there, once (demands that fail alike at one place are one report, unless they refuse two declared variables, each repaired at its own binder), so wording about the seat that made a demand ("integer literal cannot have type `X`", the literal Numeric Literals §6 and Ascription §5 name, the numeric tower riders, `bitwise.md` §9's logic word) is never said at a use, except of a constraint member's own constraint where the member is **called** in a spelling that joins an expression's tree (Numeric Literals §5.1), which is its operation (`n.subtract(n)`, `Signed.subtract(n, n)` and `n |> Signed.negate` are as `n - n` is; `(Signed.negate)(n)` and `let f = Signed.subtract` are no operation).
+**Where a report stands** *(#1063)*. A report about a constraint demand carets where this program's source made the demand, and says only what is true there.
+
+- **A copy at a use.** Using a binding copies its scheme's demands to the use: the call, the reference, the dot call or the pattern. A report about one carets the use, never the callee's declaration, which may be in another module.
+- **A derived demand.** A demand reached through a structural type's component, or through an instance's argument, carets the demand it was reached from.
+- **Seat wording.** Wording about the seat that made a demand is never said at a use. That wording is "integer literal cannot have type `X`", the literal that Numeric Literals §6 and Ascription §5 name, the numeric tower riders, and `bitwise.md` §9's logic word.
+- **A called member.** One copy stands at its seat: a constraint member's own constraint, where the member is called in a spelling that joins an expression's tree (Numeric Literals §5.1). `n.subtract(n)`, `Signed.subtract(n, n)` and `n |> Signed.negate` are the operation, as `n - n` is. `(Signed.negate)(n)` and `let f = Signed.subtract` are not.
+- **Once per place.** Demands that fail alike at one place are one report. The exception is refusals of two declared variables, since each is repaired at its own binder.
+- **Blocked defaulting.** Numeric Literals §6's blocked-defaulting report stands where an annotation can pin the stuck type, which may be a value the call supplies rather than the use.
 
 | Situation | Error |
 |---|---|
