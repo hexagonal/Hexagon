@@ -14509,16 +14509,19 @@ class Checker {
   }
 
   /** A tree's values, in source order, with every interior node walked. */
-  #treeValues(node: TreeNode): { readonly expression: Resolved.Expr; readonly type: Mono }[] {
-    // A refused `match` is one `ERROR` value to the tree around it: its own
-    // arms joined among themselves, and nothing it holds votes outside it.
-    return node.parts.flatMap((part) =>
-      !("node" in part)
-        ? [part.value]
-        : part.node.failed === true
-          ? [{ expression: part.node.expression, type: ERROR }]
-          : this.#treeValues(part.node)
-    );
+  #treeValues(
+    node: TreeNode,
+    values: { readonly expression: Resolved.Expr; readonly type: Mono }[] = [],
+  ): { readonly expression: Resolved.Expr; readonly type: Mono }[] {
+    // Into one array, so a chain's walk is linear in its length (#1072).
+    for (const part of node.parts) {
+      if (!("node" in part)) values.push(part.value);
+      // A refused `match` is one `ERROR` value to the tree around it: its own
+      // arms joined among themselves, and nothing it holds votes outside it.
+      else if (part.node.failed === true) values.push({ expression: part.node.expression, type: ERROR });
+      else this.#treeValues(part.node, values);
+    }
+    return values;
   }
 
   /** The type a part stands at once its node has closed. */
@@ -28754,13 +28757,13 @@ class Checker {
             expression,
             "Bitwise",
             "bitNot",
-            [expression.operand],
+            [this.#materializeExpr(expression.operand)],
           )
           : this.#materializeConstraintCall(
             expression,
             "Signed",
             "negate",
-            [expression.operand],
+            [this.#materializeExpr(expression.operand)],
           );
       case "Binary":
         return this.#materializeBinary(expression, type);
@@ -28894,7 +28897,7 @@ class Checker {
           expression,
           detail[0],
           detail[1],
-          [expression.left, expression.right],
+          [left, right],
         );
   }
 
@@ -28902,7 +28905,7 @@ class Checker {
     expression: Resolved.Expr,
     constraint: Typed.ConstraintName,
     member: Typed.ConstraintMember,
-    arguments_: readonly Resolved.Expr[],
+    arguments_: readonly Typed.Expr[],
   ): Typed.ConstraintCallExpr {
     const requirement = this.#requirements.get(expression)?.[0];
     return {
@@ -28918,7 +28921,7 @@ class Checker {
               span: expression.span,
             }
           : this.#publicRequirement(requirement),
-      arguments: arguments_.map((argument) => this.#materializeExpr(argument)),
+      arguments: arguments_,
       type: this.#publicType(this.#typeOf(expression)),
       span: expression.span,
     };

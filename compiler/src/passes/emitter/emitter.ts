@@ -7900,10 +7900,13 @@ class JavaScriptEmitter {
     depth: number,
     evidenceNames: EvidenceNames,
   ): string {
-    const arguments_ = expression.arguments.map((argument) =>
-      this.#emitExpr(argument, depth, evidenceNames),
-    );
+    // Emitted only on the routes that print them as call arguments: the
+    // inlined operator below emits each operand itself, and emitting them here
+    // too would double the work at every level of a chain.
+    const emitArguments = (): string[] =>
+      expression.arguments.map((argument) => this.#emitExpr(argument, depth, evidenceNames));
     if (expression.evidence.kind === "Dictionary") {
+      const arguments_ = emitArguments();
       const dictionary = this.#dictionary(
         expression.evidence.variable,
         dictionarySeat(expression.evidence, expression.constraint),
@@ -7941,6 +7944,7 @@ class JavaScriptEmitter {
       ? undefined
       : candidate;
     if (instance === undefined) {
+      const arguments_ = emitArguments();
       // `bitwise.md` §6: at `Int` the operator spelling of a `Bitwise` member
       // is the member seat's direct call, as every other spelling is — never
       // the slot read `**` still takes there (#810).
