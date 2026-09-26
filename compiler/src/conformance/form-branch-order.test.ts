@@ -113,11 +113,21 @@ describe("a form's value paths meet a concrete expectation each at its own turn 
       [takeA + "let r = takeA(if c then o1 else od)\n", "if c then o1 else od", "type mismatch: expected Int, found Dec"],
       [takeA + "let r = takeA(if c then od else o1)\n", "if c then od else o1", decFoundInt],
       ["let r: Option(_) = if c then Some(price) else o1\n", "if c then Some(price) else o1", decFoundInt],
+      [
+        "let r: Option(_) = if c then (if c then od else o1) else Some(price)\n",
+        "if c then od else o1",
+        decFoundInt,
+      ],
       // A `match` joins at its arms, as ever: the later arm.
       ["let r: Option(_) = match c\n    True => o1\n    False => od\n", "od", "type mismatch: expected Int, found Dec"],
     ] as const) {
       expect(reports(program), program).toEqual([[at, message]]);
     }
+    // A form that joins takes the forms on its paths with it.
+    expect(reports("let r: Option(_) = if c then Some(price) else (if c then o1 else od)\n")).toEqual([
+      ["if c then Some(price) else (if c then o1 else od)", decFoundInt],
+      ["if c then o1 else od", "type mismatch: expected Int, found Dec"],
+    ]);
     // A vector literal's elements are a literal's components: the first to
     // meet the open part fills it, as a tuple's components do.
     expect(reports("let v: Vector(Option(_)) = [o1, od]\n")).toEqual([["od", "type mismatch: expected Int, found Dec"]]);
@@ -147,7 +157,14 @@ describe("a form's value paths meet a concrete expectation each at its own turn 
       ["n", "type mismatch: expected String, found Int", [["ident(1)", "integer literal cannot have type `String`"]]],
     ]);
     expect(reports("let fr<a>(x: a): Option(Dec) = if c then o1 else x\n"))
-      .toEqual([["o1", decFoundInt, [["x", "`x` is an `a`"]]]]);
+      .toEqual([["o1", decFoundInt, [["x", "`x` is an `a`, a declared type variable"]]]]);
+    // Distinct declared variables fold too; each label says it is one.
+    expect(reports("let fd<a: Num, b: Num>(x: a, y: b): Dec = if c then x else if c then y else \"x\"\n")).toEqual([[
+      "x",
+      "`a` is a declared type variable, but the body requires `Dec`; change the annotation to `Dec`, " +
+        "or remove it to let the type be inferred",
+      [["y", "`y` is a `b`, a declared type variable"], ["\"x\"", "`\"x\"` is a `String`"]],
+    ]]);
     expect(reports("let u: Unit = ()\nlet r: Option(Dec) = if c then u else u\n")).toEqual([
       ["u", "type mismatch: expected Option(Dec), found Unit", [["u", "`u` is a `Unit`"]]],
     ]);
@@ -214,6 +231,19 @@ describe("a form's value paths meet a concrete expectation each at its own turn 
     // It is one of the expression's refused paths: the others fold into it.
     expect(reports("let r: String = if c then price * f else n\n"))
       .toEqual([[...conflict[0]!, [["n", "`n` is an `Int`"]]]]);
+    // A folded report's own labels move with it, in either order.
+    expect(reports("let r: Dec = if c then \"y\" else (if c then f else \"x\") + price\n")).toEqual([[
+      "\"y\"",
+      "type mismatch: expected Dec, found String",
+      [
+        [
+          "(if c then f else \"x\") + price",
+          "`f` is a `Float` and cannot enter `Dec`, the home `: Dec` writes; convert it explicitly — " +
+            "`Dec.fromFloat(f, places)`",
+        ],
+        ["\"x\"", "`\"x\"` is a `String`"],
+      ],
+    ]]);
     expect(reports("let r: Dec = if c then (if c then f else \"x\") + price else \"y\"\n")).toEqual([[
       "f",
       "`f` is a `Float` and cannot enter `Dec`, the home `: Dec` writes; convert it explicitly — " +

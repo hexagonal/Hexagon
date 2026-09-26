@@ -15638,6 +15638,7 @@ class Checker {
     seat = node.face !== undefined && node.face.kind !== "Variable",
     refusals?: PathRefusal[],
     literal = false,
+    joinsAbove = false,
   ): Mono {
     const collected = refusals ?? [];
     // A form's value paths and a vector's elements are paths; a tower
@@ -15646,8 +15647,12 @@ class Checker {
     // leaves them nothing to fill in: where a part is open (`Option(_)`), no
     // written type says which path is wrong, so they join first, as ever, and
     // a disagreement is the form's (ruling B3 (a)).
+    // A form that joins — its face left open, or filled by its own paths —
+    // takes every form on its paths with it: their paths are its paths.
+    const joins = joinsAbove ||
+      (node.rung === undefined && !literal && (!this.#ground(face, true) || node.filled === true));
     const paths = node.rung === undefined && (node.siblings !== true || node.elements === true) &&
-      (literal || (this.#ground(face, true) && node.filled !== true));
+      (literal || !joins);
     const types = node.parts.map((part) => {
       if ("value" in part) {
         const { expression, type } = part.value;
@@ -15659,7 +15664,7 @@ class Checker {
         this.#closeFree(part.node);
         return ERROR;
       }
-      if (part.node.rung === undefined) return this.#reconcileFaced(part.node, face, seat, collected);
+      if (part.node.rung === undefined) return this.#reconcileFaced(part.node, face, seat, collected, false, joins);
       const before = this.#diagnostics.count;
       this.#closeFaced(part.node, face);
       const type = this.#partType({ node: part.node });
@@ -15755,7 +15760,9 @@ class Checker {
     const start = this.#diagnostics.count;
     // What the path is, read before the check can bind or poison it, and
     // only where it is fully known.
-    const shown = this.#ground(type, true) ? this.#display(type) : undefined;
+    const shown = this.#ground(type, true)
+      ? { text: this.#display(type), declared: this.#prune(type).kind === "Variable" }
+      : undefined;
     const met = this.#meetPath(path, face, type, level, seat);
     this.#recordRefusal(refusals, start, path, shown);
     return met;
@@ -15766,9 +15773,15 @@ class Checker {
    * a demand made elsewhere, validated as the check solved a variable, is
    * that demand's own report and stays — as one refusal of the path. Its
    * label says what the path is, where that was known before the check
-   * (`shown`), and is the path's own report otherwise.
+   * (`shown`) — a declared variable naming itself one — and is the path's
+   * own report otherwise.
    */
-  #recordRefusal(refusals: PathRefusal[], start: number, path: Resolved.Expr, shown: string | undefined): void {
+  #recordRefusal(
+    refusals: PathRefusal[],
+    start: number,
+    path: Resolved.Expr,
+    shown: { readonly text: string; readonly declared: boolean } | undefined,
+  ): void {
     const indices: number[] = [];
     for (let index = start; index < this.#diagnostics.count; index += 1) {
       const { primary } = this.#diagnostics.at(index)!;
@@ -15781,9 +15794,12 @@ class Checker {
     }
     if (indices.length === 0) return;
     const spelled = this.#spelledExpression(path);
+    // A declared variable says so: the report it folds into names another
+    // variable's repair, and this one needs the same at its own binder.
     const label = shown === undefined
       ? this.#diagnostics.at(indices[0]!)!.message
-      : `${spelled === undefined ? "this" : `\`${spelled}\``} is ${indefiniteArticle(shown)} \`${shown}\``;
+      : `${spelled === undefined ? "this" : `\`${spelled}\``} is ${indefiniteArticle(shown.text)} \`${shown.text}\`` +
+        (shown.declared ? ", a declared type variable" : "");
     refusals.push({ indices, path, label });
   }
 
@@ -15826,10 +15842,15 @@ class Checker {
   #foldRefusals(refusals: readonly PathRefusal[]): void {
     const [first, ...rest] = refusals;
     if (first === undefined || rest.length === 0) return;
+    // A folded report may carry labels of its own — an inner expression's
+    // folded paths — and they move with it, so no place is lost.
     this.#diagnostics.fold(
       first.indices[0]!,
       rest.flatMap(({ indices }) => indices),
-      rest.map(({ path, label }) => ({ span: path.span, message: label })),
+      rest.flatMap(({ indices, path, label }) => [
+        { span: path.span, message: label },
+        ...indices.flatMap((index) => this.#diagnostics.at(index)!.labels ?? []),
+      ]),
     );
   }
 
