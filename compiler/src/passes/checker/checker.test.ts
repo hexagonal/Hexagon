@@ -1239,17 +1239,19 @@ describe("check", () => {
     // Rigidity makes the demand reportable — at the body expression that made
     // it, naming the header rewrite — instead of silently binding `a` to the
     // first use's type: interpolation demands `Show`, arithmetic demands
-    // `Num`, and the header declares only `Describe`.
+    // `Num`, and the header declares only `Describe`. Both reports advise the
+    // whole header (#1098): the written `Describe` holds its place, and the
+    // demands follow it alphabetically.
     expect(module.diagnostics).toMatchObject([
       {
         message:
           "`a` is declared to honor `Describe`, but the body requires `Show`; " +
-          "write `<a: (Describe, Show)>` on the `honor` header",
+          "write `<a: (Describe, Num, Show)>` on the `honor` header",
       },
       {
         message:
           "`a` is declared to honor `Describe`, but the body requires `Num`; " +
-          "write `<a: (Describe, Num)>` on the `honor` header",
+          "write `<a: (Describe, Num, Show)>` on the `honor` header",
       },
     ]);
   });

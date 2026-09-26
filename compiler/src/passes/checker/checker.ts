@@ -1443,13 +1443,14 @@ function compareSpellingKeys(left: string, right: string): number {
  * A constraint list rendered **verbatim**, in the order its spellings arrived:
  * §4.2's conjunction form, or the bare name where there is only one.
  *
- * The form every advised list takes, and the *order* only the fixits that merge
- * into a declaration the reader already wrote take — a constraint's base list
- * and an `honor` header's binder. Their written conjunction order is ABI
- * (Constraints §6.2's slots, FFI Part 9 §6.2's same-named tie), so a fixit that
- * re-sorted one would move the reader's own dictionary to look tidier. A fixit
- * that writes a binder list *whole* has no such reader's order to preserve and
- * goes through `advisedConstraintList` instead.
+ * The form every advised list takes. Its *order* is kept only for the written
+ * entries of a fixit that merges into a declaration the reader already wrote —
+ * a constraint's base list and an `honor` header's binder (`mergedConstraintList`).
+ * Their written conjunction order is ABI (Constraints §6.2's slots, FFI Part 9
+ * §6.2's same-named tie), so a fixit that re-sorted one would move the reader's
+ * own dictionary to look tidier. A fixit that writes a binder list *whole* has
+ * no such reader's order to preserve and goes through `advisedConstraintList`
+ * instead.
  */
 function verbatimConstraintList(spellings: readonly ConstraintSpelling[]): string {
   return spellings.length === 1
@@ -1492,7 +1493,7 @@ function verbatimConstraintList(spellings: readonly ConstraintSpelling[]): strin
  * The sort is **stable and has no second key**, which is how a §5.1.1
  * same-named pair keeps the one order it is allowed to have. Two declarations
  * under one word compare equal here and hold their incoming positions, and the
- * incoming order is the written one at the refusal seat — the demand appended
+ * incoming order is the written one at the refusal seat — the demands appended
  * to the author's own list (`#maximalAdvisedSpellings`). Reordering a written
  * same-named conjunction would move the evidence suffix's positional tie (FFI
  * Part 9 §6.2, §11), so `<a: Lib.Heft>` refused for this module's `Heft`
@@ -1507,11 +1508,36 @@ function verbatimConstraintList(spellings: readonly ConstraintSpelling[]): strin
  * constraint refusals, which are one report each at their own spans.
  */
 function advisedConstraintList(spellings: readonly ConstraintSpelling[]): string {
-  return verbatimConstraintList(
-    [...spellings].sort((left, right) =>
-      compareSpellingKeys(bareConstraintName(left), bareConstraintName(right))
-    ),
+  return verbatimConstraintList(alphabetical(spellings));
+}
+
+/** Functions §5.1's order, stable: see `advisedConstraintList`. */
+function alphabetical(spellings: readonly ConstraintSpelling[]): readonly ConstraintSpelling[] {
+  return [...spellings].sort((left, right) =>
+    compareSpellingKeys(bareConstraintName(left), bareConstraintName(right))
   );
+}
+
+/**
+ * A refusal's advised list, split where its two orders meet: the entries the
+ * author wrote, and the constraints the body demanded beyond them — both
+ * entailment-maximal against the whole (`#maximalAdvisedSpellings`).
+ */
+interface AdvisedSpellings {
+  readonly written: readonly ConstraintSpelling[];
+  readonly demanded: readonly ConstraintSpelling[];
+}
+
+/**
+ * The list a refusal **merges into a declaration the reader wrote** — an
+ * `honor` header's binder, a constraint's base list — whose written order is
+ * ABI (see `verbatimConstraintList`): the written entries hold their places,
+ * and the demanded constraints follow them alphabetically (Constraints §8),
+ * since the order the body happened to demand them in is not the reader's, and
+ * two spellings of one program would demand them differently.
+ */
+function mergedConstraintList(spellings: AdvisedSpellings): string {
+  return verbatimConstraintList([...spellings.written, ...alphabetical(spellings.demanded)]);
 }
 
 /** One constructor a witness named without a pastable spelling (§7.3 tier 3). */
@@ -3070,6 +3096,31 @@ class Checker {
   readonly #bitwiseLogicWords = new Map<string, string>();
   /** Place-and-wording keys of the requirement reports made (`#reportRequirement`). */
   readonly #requirementReports = new Set<string>();
+  /**
+   * Functions §4.2's contract refusals, decided as each demand arrives and
+   * worded at the end of the module (`#reportContractRefusals`), in arrival
+   * order: the list a refusal advises is **whole** (#1098), so no refusal can
+   * be worded before its variable's last demand is known.
+   */
+  readonly #contractRefusals: { readonly variable: Variable; readonly requirement: Requirement }[] = [];
+  /**
+   * The variables whose contract refusals the unmentioned-variable row has
+   * absorbed (Functions §10): that row, at the declaration, is the whole report.
+   */
+  readonly #absorbedRefusals = new Set<Variable>();
+  /** Whether `#reportContractRefusals` has run; see `#acceptRequirement`. */
+  #refusalsWorded = false;
+  /**
+   * How many reports have been decided: the diagnostics added, and the
+   * contract refusals refused but not yet worded (`#contractRefusals`). Every
+   * "did that just report?" test reads this, so a refusal counts where it is
+   * decided, exactly as it did when it was worded there. It only grows: the
+   * refusals stay counted once they are worded at the end of the module,
+   * which no such test spans.
+   */
+  get #reportCount(): number {
+    return this.#diagnostics.count + this.#contractRefusals.length;
+  }
   /**
    * Each name applied as a call's callee, through any grouping, to its call.
    * Only a name that is the callee itself is *called* (`#instantiate`'s
@@ -5130,6 +5181,10 @@ class Checker {
     // survivor, before the remaining variables settle.
     this.#resolveDotCallGoals(-1);
     this.#defaultRemainingVariables();
+    // After the unmentioned-variable row, which absorbs the refusals of the
+    // variables it refuses. Inference and defaulting are done, so every
+    // demand the bodies make is known.
+    this.#reportContractRefusals();
     this.#checkEvidenceRoutes();
     // Pattern Matching §2.5's restriction is judged on the **resolved** type, so
     // the literals whose position was a variable wait until here — past the
@@ -6479,7 +6534,7 @@ class Checker {
         ),
       });
     }
-    const reconciled = this.#diagnostics.count;
+    const reconciled = this.#reportCount;
     const result = this.#checkDotSeats(expression, calleeType, seats, pass, level);
     if (declined !== undefined && home !== undefined) {
       // The note the member spelling never took *(#821, and #819's first
@@ -6491,7 +6546,7 @@ class Checker {
         home,
         result,
         MEMBER_OPERATION_NOUNS.get(candidate.member) ?? `\`${candidate.member}\` operation`,
-        this.#diagnostics.count > reconciled,
+        this.#reportCount > reconciled,
       ));
     }
     this.#dotCalls.set(expression, {
@@ -11109,7 +11164,7 @@ class Checker {
    * waits for inference and defaulting in `#checkPendingLiteralRestrictions`.
    */
   #inferIntegerPattern(pattern: Resolved.IntegerPattern, expected: Mono): void {
-    const before = this.#diagnostics.count;
+    const before = this.#reportCount;
     // Stamped on all three, and read by one sentence (`Requirement.patternSeat`):
     // the failed-constraint report here is the comparison's, less Method Syntax
     // §9 row 15's written-face rider. Set around the demands rather than after
@@ -11126,7 +11181,7 @@ class Checker {
     this.#literalPatternSeat = false;
     const actual = this.#prune(expected);
     this.#integerPatterns.set(pattern, { type: actual, num, eq });
-    if (this.#diagnostics.count > before || actual.kind === "Error") {
+    if (this.#reportCount > before || actual.kind === "Error") {
       // §7.3's fourth tier: a literal the position's type cannot carry failed to
       // type, so it widens no witness and shadows no arm below it.
       this.#brokenPatterns.add(pattern);
@@ -12358,15 +12413,16 @@ class Checker {
    * The route clauses one report owes for the spellings that took tier 3 — the
    * witness grammar of Pattern Matching §7.3, one clause per declaring module.
    *
-   * `home` is the law's **elision licence**: where the message has already named
-   * the declaring module — the refusal arms do, in their collision
-   * qualification — the clause drops its "declared in" half and states the edit
-   * alone; where it has not, as at the completeness advice, the clause stands
-   * whole.
+   * `named` is the law's **elision licence**: the path of a declaring module
+   * the message has already named — the refusal arms do, in their collision
+   * qualification — whose clause drops its "declared in" half and states the
+   * edit alone. Every other clause, and every clause where the message has
+   * named none, as at the completeness advice, stands whole: a whole list can
+   * route a demand from a module the qualification did not name.
    */
   #constraintRouteClauses(
     spellings: readonly ConstraintSpelling[],
-    home: boolean,
+    named?: string,
   ): string {
     const byModule = new Map<
       string,
@@ -12379,7 +12435,7 @@ class Checker {
       byModule.set(spelling.path, group);
     }
     return [...byModule].map(([path, { alias, names }]) =>
-      ` — ${this.#constraintRouteClause(path, alias, names, home)}`
+      ` — ${this.#constraintRouteClause(path, alias, names, path !== named)}`
     ).join("");
   }
 
@@ -15420,7 +15476,7 @@ class Checker {
       0,
       types.findIndex((type, index) => !this.#operandReaches(type, face, expressions[index])),
     );
-    const reconciled = this.#diagnostics.count;
+    const reconciled = this.#reportCount;
     let common = types[0] ?? ERROR;
     if (types.length === 2) {
       const [left, right] = types as [Mono, Mono];
@@ -15451,7 +15507,7 @@ class Checker {
         ranType: common,
         spelled: this.#writtenOperand(expressions[declinedIndex]!),
         operation: OPERATION_NOUNS[expression.operator] ?? "operation",
-        reported: this.#diagnostics.count > reconciled,
+        reported: this.#reportCount > reconciled,
       });
     }
     this.#unify(node.result, common, span);
@@ -16394,7 +16450,7 @@ class Checker {
           if ("node" in part) this.#closeFree(part.node);
           continue;
         }
-        const before = this.#diagnostics.count;
+        const before = this.#reportCount;
         if ("node" in part) {
           if (face === undefined) this.#closeFree(part.node);
           else this.#closeFaced(part.node, face);
@@ -16415,7 +16471,7 @@ class Checker {
           span,
           target.kind !== "Variable" || this.#declaredInScope(target),
         );
-        refused = this.#diagnostics.count > before;
+        refused = this.#reportCount > before;
       }
       return;
     }
@@ -19844,7 +19900,7 @@ class Checker {
     // readings agree; should one ever, a pattern could be granted maximal cover
     // with no surviving diagnostic to explain the silence, and this read is
     // where that would have to become "reported, and still reported".
-    const before = this.#diagnostics.count;
+    const before = this.#reportCount;
     this.#unify(
       expected,
       actual,
@@ -19855,7 +19911,7 @@ class Checker {
         ? () => this.#decimalPatternMessage(pattern, expected)
         : undefined,
     );
-    if (this.#diagnostics.count > before) this.#brokenPatterns.add(pattern);
+    if (this.#reportCount > before) this.#brokenPatterns.add(pattern);
   }
 
   /**
@@ -20130,9 +20186,9 @@ class Checker {
     message?: () => string | undefined,
   ): void {
     const unifyChild = (left: Mono, right: Mono): boolean => {
-      const before = this.#diagnostics.count;
+      const before = this.#reportCount;
       this.#unify(left, right, span, message);
-      return message !== undefined && this.#diagnostics.count > before;
+      return message !== undefined && this.#reportCount > before;
     };
     const actualLeft = this.#prune(left);
     const actualRight = this.#prune(right);
@@ -20354,9 +20410,9 @@ class Checker {
     for (const [name, type] of left.fields) {
       const other = right.fields.get(name);
       if (other !== undefined) {
-        const before = this.#diagnostics.count;
+        const before = this.#reportCount;
         this.#unify(type, other, span, message);
-        if (message !== undefined && this.#diagnostics.count > before) return;
+        if (message !== undefined && this.#reportCount > before) return;
       }
     }
     const leftOnly = new Map([...left.fields].filter(([name]) => !right.fields.has(name)));
@@ -21127,142 +21183,20 @@ class Checker {
       // Keyed on the **declaration**, not the word (#716). A third demand for a
       // third `Describe` is a third refusal, and suppressing it on the spelling
       // would drop a report for a constraint nothing else in the family names.
-      if (variable.rejectedConstraints.has(requirement.identity)) {
-        requirement.reported = true;
-        return;
+      if (!variable.rejectedConstraints.has(requirement.identity)) {
+        variable.rejectedConstraints.add(requirement.identity);
+        // Refused here, and worded when the module closes: the rewrite names
+        // every constraint the body demands of the variable, and the demands
+        // after this one are not known yet (#1098).
+        this.#contractRefusals.push({ variable, requirement });
+        // The checks after the sweep can still reach `#require` by elaborating
+        // a type. No program in the suite is refused there, but a refusal made
+        // there would otherwise never be worded, so it is worded at once, from
+        // the demands known by then.
+        if (this.#refusalsWorded && !this.#absorbedRefusals.has(variable)) {
+          this.#reportContractRefusal(variable, requirement, this.#refusedDemands(variable));
+        }
       }
-      variable.rejectedConstraints.add(requirement.identity);
-      // Maximality between the written list and the demand is a question about
-      // declarations (§5.1.1): a same-spelled shadow's bases absorb nothing,
-      // because they are not the required declaration's bases (#715). The
-      // written side keeps the word the author wrote — it is spellable by
-      // construction — and only the required side is spelled by the law.
-      const requiredName = this.#canonicalConstraintName(
-        requirement.name,
-        requirement.identity,
-      );
-      const spellings = this.#refusalSpellings(declared, requirement, requiredName);
-      // The binder this refusal writes **whole** — the author's list replaced by
-      // it — takes Functions §5.1's order. The two arms that print it are the
-      // function binder's and the block head's; the `honor`-header arm below
-      // merges into a declaration whose conjunction order is ABI, and renders
-      // its own verbatim list there.
-      const constraintList = advisedConstraintList(spellings);
-      // §5.1.1's collision resolution, and only that: the sides qualify when
-      // they share a word and not a declaration, and every other report keeps
-      // the bare name it always printed.
-      const collision = declared.some((constraint) =>
-        constraint === requiredName &&
-        this.#constraintIdentity(constraint) !== requirement.identity
-      );
-      const requiredMention = collision
-        ? this.#qualifiedConstraintMention(requiredName, requirement.identity)
-        : `\`${requirement.name}\``;
-      const declaration = declared.length === 0
-        ? `\`${variable.rigidName}\` is declared without constraints`
-        : `\`${variable.rigidName}\` is declared to honor ${
-          this.#formatConstraintNames(declared, collision ? requiredName : undefined)
-        }`;
-      // §5.1.1's fourth tier: no spelling and no route, so no rewrite. The
-      // report names the gate and leaves the seat's own standing exit.
-      const sealed = spellings.find((spelling) => spelling.kind === "sealed");
-      const sealedDemand = sealed === undefined
-        ? ""
-        : `${this.#sealedConstraintMention(sealed)}; no constraint list here can name it`;
-      // The clause the routed spellings owe. The refusal arms have already named
-      // the declaring module in their collision qualification, so the clause
-      // drops its "declared in" half (§5.1.1's elision licence); with no
-      // collision to qualify, nothing has named it and the clause stands whole.
-      const routes = this.#constraintRouteClauses(spellings, !collision);
-      // Three binder positions share this rejection, and each names the rewrite
-      // that is actually legal at its declaration site — a constraint cannot
-      // list itself as a base, and an `honor` binder's constraints are written,
-      // never inferred, so the function-binder wording misleads at both.
-      if (this.#constraintSubjectVariables.has(variable.id)) {
-        const constraint = declared[0]!;
-        const bases = this.#subjectBaseSpellings(constraint, requirement, requiredName);
-        // Verbatim: the rewrite **merges into the base list the author wrote**,
-        // whose order is the dictionary's slot order (Constraints §6.2), so the
-        // demand is appended and nothing already there moves.
-        const baseList = verbatimConstraintList(bases);
-        const head = `\`${variable.rigidName}\` is \`${constraint}\`'s subject, so the body reaches ` +
-          `only \`${constraint}\` and its base constraints, but it requires `;
-        this.#reportRequirement(variable, {
-          severity: "error",
-          message: sealed !== undefined
-            ? `${head}${sealedDemand}`
-            // The "add" clause carries the qualification the sentence has just
-            // minted, wherever there is one. Bare, it names the word this very
-            // declaration is written under — and the row's own rationale is
-            // that a constraint cannot list itself as a base, so the reader is
-            // handed a sentence that reads as self-reference. Non-collision
-            // messages keep the bare name they always printed.
-            : `${head}${requiredMention}; add ${
-              collision ? requiredMention : `\`${requiredName}\``
-            } as a base constraint — ` +
-              `write \`constraint ${constraint}<${variable.rigidName}: ${baseList}>\`` +
-              this.#constraintRouteClauses(bases, !collision),
-          primary: requirement.span,
-        });
-        requirement.reported = true;
-        return;
-      }
-      if (this.#honorBinderVariables.has(variable.id)) {
-        // Verbatim: the rewrite **merges into the binder the author wrote** on
-        // the `honor` header, whose written conjunction order the dictionary
-        // reads (Constraints §6.2, FFI Part 9 §6.2), so the demand is appended
-        // and nothing already there moves.
-        const headerList = verbatimConstraintList(spellings);
-        this.#reportRequirement(variable, {
-          severity: "error",
-          message: sealed !== undefined
-            ? `${declaration}, but the body requires ${sealedDemand}`
-            // The seat comes before the clause here, and only here: the seat
-            // names *where* the rewrite goes, and a route clause between the
-            // two would part the binder from its header.
-            : `${declaration}, but the body requires ${requiredMention}; ` +
-              `write \`<${variable.rigidName}: ${headerList}>\` on the \`honor\` header${routes}`,
-          primary: requirement.span,
-        });
-        requirement.reported = true;
-        return;
-      }
-      // *(#700.)* A variable declared on a `fun` **block head** is one list over
-      // several members, so the refusal respells to the head and names the
-      // member whose body exceeded it. The fused spelling's wording is
-      // untouched: this arm keys on the *owner* being a head, which is the same
-      // attribution §10's rigid-vs-rigid message qualifies a side by.
-      if (this.#declaredHeadOwners.get(variable.id)?.kind === "block") {
-        const subject = requirement.demandedBy === undefined
-          ? "the body"
-          : `\`${requirement.demandedBy}\`'s body`;
-        const headRewrite = declared.length === 0
-          ? "remove the head's binder to let it be inferred"
-          : "remove the head's constraint to let it be inferred";
-        this.#reportRequirement(variable, {
-          severity: "error",
-          message: sealed !== undefined
-            ? `${declaration} on the block head, but ${subject} requires ${sealedDemand} — ${headRewrite}`
-            : `${declaration} on the block head, but ${subject} requires ` +
-              `${requiredMention}; widen the head: ` +
-              `\`fun<${variable.rigidName}: ${constraintList}>\`${routes}, or ${headRewrite}`,
-          primary: requirement.span,
-        });
-        requirement.reported = true;
-        return;
-      }
-      const inferenceRewrite = declared.length === 0
-        ? "remove the explicit type parameter to let it be inferred"
-        : "remove the constraint annotation to let it be inferred";
-      this.#reportRequirement(variable, {
-        severity: "error",
-        message: sealed !== undefined
-          ? `${declaration}, but the body requires ${sealedDemand} — ${inferenceRewrite}`
-          : `${declaration}, but the body requires ` +
-            `${requiredMention}; write \`<${variable.rigidName}: ${constraintList}>\`${routes}, ` +
-            `or ${inferenceRewrite}`,
-        primary: requirement.span,
-      });
       requirement.reported = true;
       return;
     }
@@ -21270,25 +21204,205 @@ class Checker {
   }
 
   /**
-   * The refusal family's advised list: the written constraints and the demand
+   * Words Functions §4.2's contract refusals, now that every demand is known
+   * (#1098). Each demand keeps its own report at its own caret, in the order
+   * the demands arrived, and every report about one variable advises the same
+   * list — the **whole** one — so applying it leaves no second refusal behind.
+   * A variable the unmentioned-variable row refused is skipped: that row, at
+   * the declaration, is its whole report (Functions §10).
+   */
+  #reportContractRefusals(): void {
+    this.#refusalsWorded = true;
+    for (const { variable, requirement } of this.#contractRefusals) {
+      if (this.#absorbedRefusals.has(variable)) continue;
+      this.#reportContractRefusal(variable, requirement, this.#refusedDemands(variable));
+    }
+  }
+
+  /** Every demand refused on `variable`, in the order they arrived. */
+  #refusedDemands(variable: Variable): readonly Requirement[] {
+    return this.#contractRefusals.flatMap(({ variable: refusedOn, requirement }) =>
+      refusedOn === variable ? [requirement] : []
+    );
+  }
+
+  /**
+   * One contract refusal: `requirement` is the demand this report is about and
+   * carets, and `demands` is every demand refused on `variable`, from which
+   * the advised list is built.
+   */
+  #reportContractRefusal(
+    variable: Variable,
+    requirement: Requirement,
+    demands: readonly Requirement[],
+  ): void {
+    const declared = variable.declaredConstraints ?? [];
+    // Maximality between the written list and the demands is a question about
+    // declarations (§5.1.1): a same-spelled shadow's bases absorb nothing,
+    // because they are not the required declaration's bases (#715). The
+    // written side keeps the word the author wrote — it is spellable by
+    // construction — and only the required side is spelled by the law.
+    const requiredName = this.#canonicalConstraintName(
+      requirement.name,
+      requirement.identity,
+    );
+    const spellings = this.#refusalSpellings(declared, demands);
+    // §5.1.1's collision resolution, and only that: the sides qualify when
+    // they share a word and not a declaration, and every other report keeps
+    // the bare name it always printed.
+    const collision = declared.some((constraint) =>
+      constraint === requiredName &&
+      this.#constraintIdentity(constraint) !== requirement.identity
+    );
+    const requiredMention = collision
+      ? this.#qualifiedConstraintMention(requiredName, requirement.identity)
+      : `\`${requirement.name}\``;
+    const declaration = declared.length === 0
+      ? `\`${variable.rigidName}\` is declared without constraints`
+      : `\`${variable.rigidName}\` is declared to honor ${
+        this.#formatConstraintNames(declared, collision ? requiredName : undefined)
+      }`;
+    // The refusal arms have already named the declaring module in their
+    // collision qualification, so that module's route clause drops its
+    // "declared in" half (§5.1.1's elision licence); every other clause, and
+    // every clause where nothing collided, stands whole.
+    const named = collision
+      ? this.#constraintsByIdentity.get(requirement.identity)?.declaringPath
+      : undefined;
+    // Three binder positions share this rejection, and each names the rewrite
+    // that is actually legal at its declaration site — a constraint cannot
+    // list itself as a base, and an `honor` binder's constraints are written,
+    // never inferred, so the function-binder wording misleads at both.
+    if (this.#constraintSubjectVariables.has(variable.id)) {
+      const constraint = declared[0]!;
+      const bases = this.#subjectBaseSpellings(constraint, demands);
+      const sealedDemand = this.#sealedDemand(bases, requirement, requiredMention);
+      const head = `\`${variable.rigidName}\` is \`${constraint}\`'s subject, so the body reaches ` +
+        `only \`${constraint}\` and its base constraints, but it requires `;
+      this.#reportRequirement(variable, {
+        severity: "error",
+        message: sealedDemand !== undefined
+          ? `${head}${sealedDemand}`
+          // The "add" clause carries the qualification the sentence has just
+          // minted, wherever there is one. Bare, it names the word this very
+          // declaration is written under — and the row's own rationale is
+          // that a constraint cannot list itself as a base, so the reader is
+          // handed a sentence that reads as self-reference. Non-collision
+          // messages keep the bare name they always printed.
+          : `${head}${requiredMention}; add ${
+            collision ? requiredMention : `\`${requiredName}\``
+          } as a base constraint — ` +
+            // Verbatim: the rewrite **merges into the base list the author
+            // wrote**, whose order is the dictionary's slot order (Constraints
+            // §6.2), so the demands follow it and nothing already there moves.
+            `write \`constraint ${constraint}<${variable.rigidName}: ${mergedConstraintList(bases)}>\`` +
+            this.#constraintRouteClauses([...bases.written, ...bases.demanded], named),
+        primary: requirement.span,
+      });
+      return;
+    }
+    const sealedDemand = this.#sealedDemand(spellings, requirement, requiredMention);
+    const routes = this.#constraintRouteClauses([...spellings.written, ...spellings.demanded], named);
+    if (this.#honorBinderVariables.has(variable.id)) {
+      this.#reportRequirement(variable, {
+        severity: "error",
+        message: sealedDemand !== undefined
+          ? `${declaration}, but the body requires ${sealedDemand}`
+          // The seat comes before the clause here, and only here: the seat
+          // names *where* the rewrite goes, and a route clause between the
+          // two would part the binder from its header.
+          //
+          // Verbatim: the rewrite **merges into the binder the author wrote**
+          // on the `honor` header, whose written conjunction order the
+          // dictionary reads (Constraints §6.2, FFI Part 9 §6.2), so the
+          // demands follow it and nothing already there moves.
+          : `${declaration}, but the body requires ${requiredMention}; ` +
+            `write \`<${variable.rigidName}: ${mergedConstraintList(spellings)}>\` on the \`honor\` header${routes}`,
+        primary: requirement.span,
+      });
+      return;
+    }
+    // The binder this refusal writes **whole** — the author's list replaced by
+    // it — takes Functions §5.1's order.
+    const constraintList = advisedConstraintList([...spellings.written, ...spellings.demanded]);
+    // *(#700.)* A variable declared on a `fun` **block head** is one list over
+    // several members, so the refusal respells to the head and names the
+    // member whose body exceeded it. The fused spelling's wording is
+    // untouched: this arm keys on the *owner* being a head, which is the same
+    // attribution §10's rigid-vs-rigid message qualifies a side by.
+    if (this.#declaredHeadOwners.get(variable.id)?.kind === "block") {
+      const subject = requirement.demandedBy === undefined
+        ? "the body"
+        : `\`${requirement.demandedBy}\`'s body`;
+      const headRewrite = declared.length === 0
+        ? "remove the head's binder to let it be inferred"
+        : "remove the head's constraint to let it be inferred";
+      this.#reportRequirement(variable, {
+        severity: "error",
+        message: sealedDemand !== undefined
+          ? `${declaration} on the block head, but ${subject} requires ${sealedDemand} — ${headRewrite}`
+          : `${declaration} on the block head, but ${subject} requires ` +
+            `${requiredMention}; widen the head: ` +
+            `\`fun<${variable.rigidName}: ${constraintList}>\`${routes}, or ${headRewrite}`,
+        primary: requirement.span,
+      });
+      return;
+    }
+    const inferenceRewrite = declared.length === 0
+      ? "remove the explicit type parameter to let it be inferred"
+      : "remove the constraint annotation to let it be inferred";
+    this.#reportRequirement(variable, {
+      severity: "error",
+      message: sealedDemand !== undefined
+        ? `${declaration}, but the body requires ${sealedDemand} — ${inferenceRewrite}`
+        : `${declaration}, but the body requires ` +
+          `${requiredMention}; write \`<${variable.rigidName}: ${constraintList}>\`${routes}, ` +
+          `or ${inferenceRewrite}`,
+      primary: requirement.span,
+    });
+  }
+
+  /**
+   * §5.1.1's fourth tier, for one refusal: where some constraint of the whole
+   * list has no spelling and no route, no list can be written, so the report
+   * names that constraint and offers no rewrite — `undefined` where every one
+   * is spellable. The demand this report is about names itself when it is the
+   * sealed one; any other names the sealed one beside its own, since that is
+   * why its list is not offered.
+   */
+  #sealedDemand(
+    spellings: AdvisedSpellings,
+    requirement: Requirement,
+    requiredMention: string,
+  ): string | undefined {
+    const all = [...spellings.written, ...spellings.demanded];
+    const own = all.find((spelling) =>
+      spelling.kind === "sealed" && spelling.identity === requirement.identity
+    );
+    const sealed = own ?? all.find((spelling) => spelling.kind === "sealed");
+    if (sealed === undefined || sealed.kind !== "sealed") return undefined;
+    const mention = `${this.#sealedConstraintMention(sealed)}; no constraint list here can name it`;
+    return own === undefined ? `${requiredMention}, and also ${mention}` : mention;
+  }
+
+  /**
+   * The refusal family's advised list: the written constraints and the demands
    * they do not entail, sieved by **identity** and spelled by §5.1.1's law.
    *
    * The written entries keep the words the author wrote — a spelling in the
    * source resolves here by definition, and respelling it would move the
-   * author's own text — so only the demand walks the tiers.
+   * author's own text — so only the demands walk the tiers.
    */
   #refusalSpellings(
     declared: readonly Typed.ConstraintName[],
-    requirement: Requirement,
-    requiredName: string,
-  ): readonly ConstraintSpelling[] {
+    demands: readonly Requirement[],
+  ): AdvisedSpellings {
     return this.#maximalAdvisedSpellings(
       declared.map((constraint) => ({
         written: constraint,
         identity: this.#constraintIdentity(constraint),
       })),
-      requirement,
-      requiredName,
+      demands,
     );
   }
 
@@ -21299,54 +21413,78 @@ class Checker {
    */
   #subjectBaseSpellings(
     constraint: string,
-    requirement: Requirement,
-    requiredName: string,
-  ): readonly ConstraintSpelling[] {
+    demands: readonly Requirement[],
+  ): AdvisedSpellings {
     const identity = this.#constraintIdentity(constraint);
-    return this.#maximalAdvisedSpellings(
+    const { written, demanded } = this.#maximalAdvisedSpellings(
       this.#baseConstraintsOf(identity).map((base) => ({
         written: base.name,
         identity: base.identity,
       })),
-      requirement,
-      requiredName,
-    ).filter((spelling) => spelling.kind !== "spelled" || spelling.text !== constraint);
+      demands,
+    );
+    const other = (spelling: ConstraintSpelling) =>
+      spelling.kind !== "spelled" || spelling.text !== constraint;
+    return { written: written.filter(other), demanded: demanded.filter(other) };
   }
 
   /**
-   * One advised list's **members**: written entries plus the demand,
-   * entailment-maximal by identity, deduplicated by identity, in written order
-   * with the demand last.
+   * One advised list's **members**: written entries plus the demands,
+   * entailment-maximal by identity, deduplicated by identity — the written ones
+   * in written order, the demanded ones in the order they arrived.
    *
-   * That order is this function's own and reaches only the route clauses, which
-   * follow the demands as they arrived. The *printed* list is ordered by
-   * `advisedConstraintList`, which every caller renders through.
+   * That order reaches the route clauses, which follow the demands as they
+   * arrived, and the written part of a merged list (`mergedConstraintList`),
+   * which keeps the reader's order. Everywhere else the *printed* order is the
+   * alphabetical one the renderers apply — and since that sort is stable, this
+   * order still settles a same-named pair's tie there (`advisedConstraintList`).
    */
   #maximalAdvisedSpellings(
     written: readonly { readonly written: string; readonly identity: string }[],
-    requirement: Requirement,
-    requiredName: string,
-  ): readonly ConstraintSpelling[] {
+    demands: readonly Requirement[],
+  ): AdvisedSpellings {
+    const kept = this.#maximalAdvisedEntries(written, demands);
+    return {
+      written: kept.flatMap((entry) =>
+        entry.written === undefined ? [] : [{ kind: "spelled", text: entry.written } as const]
+      ),
+      // One call for all of them, so a route's alias is minted once however
+      // many demands take it.
+      demanded: this.#constraintSpellings(
+        kept.flatMap((entry) =>
+          "demand" in entry && entry.demand !== undefined
+            ? [{
+              name: this.#canonicalConstraintName(entry.demand.name, entry.demand.identity),
+              identity: entry.identity,
+            }]
+            : []
+        ),
+      ),
+    };
+  }
+
+  /**
+   * The sieve itself, and its one home: the written entries and the demands,
+   * deduplicated by identity and kept only where no other entry entails them —
+   * the written ones in written order, then the demands as they arrived.
+   */
+  #maximalAdvisedEntries(
+    written: readonly { readonly written: string; readonly identity: string }[],
+    demands: readonly Requirement[],
+  ): readonly (
+    | { readonly written: string; readonly demand?: undefined; readonly identity: string }
+    | { readonly written: undefined; readonly demand: Requirement; readonly identity: string }
+  )[] {
     const entries = [
       ...written,
-      { written: undefined, identity: requirement.identity },
+      ...demands.map((demand) => ({ written: undefined, demand, identity: demand.identity })),
     ];
-    const kept = entries.filter((entry, index) =>
+    return entries.filter((entry, index) =>
       entries.findIndex(({ identity }) => identity === entry.identity) === index &&
       !entries.some((other) =>
         other.identity !== entry.identity &&
         this.#entailmentPath(other.identity, entry.identity) !== undefined
       )
-    );
-    const advised = this.#constraintSpellings(
-      kept.filter((entry) => entry.written === undefined)
-        .map(({ identity }) => ({ name: requiredName, identity })),
-    );
-    let next = 0;
-    return kept.map((entry) =>
-      entry.written === undefined
-        ? advised[next++]!
-        : { kind: "spelled", text: entry.written } as const
     );
   }
 
@@ -23302,7 +23440,10 @@ class Checker {
         continue;
       }
       seen.add(actual.id);
-      if (actual.requirements.length === 0) continue;
+      // A demand refused against the variable's list is one it carries too:
+      // an unconstrained `<a>` the body demands `Num` of is as unmentioned as
+      // a `<a: Num>` (Functions §10).
+      if (actual.requirements.length === 0 && actual.rejectedConstraints.size === 0) continue;
       if (this.#reportUnmentionedDeclared(actual)) continue;
       // **A declared variable is never proposed `Int`** *(#704; Numeric
       // Literals §4)*, as GHC never defaults a signature's variable. One that
@@ -23327,7 +23468,11 @@ class Checker {
         for (const requirement of actual.requirements) requirement.reported = true;
         this.#diagnostics.add({
           severity: "error",
-          message: unmentionedDeclaredMessage(actual.rigidName ?? "", names, "value"),
+          message: unmentionedDeclaredMessage(
+            actual.rigidName ?? "",
+            names.map((constraint) => `\`${constraint}\``),
+            "value",
+          ),
           primary: actual.ascribedAt,
         });
         actual.instance = ERROR;
@@ -23381,8 +23526,9 @@ class Checker {
    * defaulting cannot discharge, say nothing while the constraint is silently
    * dropped. A variable its declaration's type does mention, still unquantified
    * here, is a knot's survivor: its knot has already refused, and it is not this
-   * report's (#704). An unconstrained unused variable never arrives — it needs
-   * no evidence, and a zero-information form misleads no one (Constraints §5.4).
+   * report's (#704). An unconstrained unused variable arrives only when the body
+   * demands a constraint of it; one it demands nothing of needs no evidence, and
+   * a zero-information form misleads no one (Constraints §5.4).
    */
   #reportUnmentionedDeclared(variable: Variable): boolean {
     if (variable.rigidName === undefined) return false;
@@ -23397,7 +23543,31 @@ class Checker {
     // A type the author wrote but the resolver could not (`x: Nope(a)`) may be
     // exactly where `a` was meant to occur: its own report stands alone.
     if (declared.writtenFailed) return true;
-    const names = [...new Set(variable.requirements.map(({ name }) => name))];
+    const refused = this.#refusedDemands(variable);
+    let names: readonly string[] = [...new Set(variable.requirements.map(({ name }) => `\`${name}\``))];
+    let widen: string | null | undefined;
+    if (refused.length > 0) {
+      // The body demands more than the list declares, and §4.2's refusal of it
+      // is absorbed here: this row is the whole report. So the evidence named
+      // is the whole list's, and using the variable is advised together with
+      // that list, which alone would lead straight into the refusal.
+      this.#absorbedRefusals.add(variable);
+      const declaredConstraints = variable.declaredConstraints ?? [];
+      const spellings = this.#refusalSpellings(declaredConstraints, refused);
+      const whole = alphabetical([...spellings.written, ...spellings.demanded]);
+      names = this.#evidenceMentions(declaredConstraints, refused);
+      // §5.1.1's fourth tier: a constraint no list here can spell leaves no
+      // list to write, so the rewrite that would need one is not offered.
+      if (whole.some(({ kind }) => kind === "sealed")) {
+        widen = null;
+      } else {
+        const list = `${variable.rigidName}: ${verbatimConstraintList(whole)}`;
+        const routes = this.#constraintRouteClauses(whole);
+        widen = this.#declaredHeadOwners.get(variable.id)?.kind === "block"
+          ? ` and widen the head to \`fun<${list}>\`${routes}`
+          : ` and write \`<${list}>\`${routes}`;
+      }
+    }
     this.#diagnostics.add({
       severity: "error",
       message: unmentionedDeclaredMessage(
@@ -23405,10 +23575,40 @@ class Checker {
         names,
         declared.binder ? (this.#namedInBody.has(variable) ? "named" : "binder") : "ascription",
         declared.valueBinding,
+        widen,
       ),
-      primary: declared.span ?? variable.requirements[0]!.span,
+      primary: declared.span ?? variable.requirements[0]?.span ?? refused[0]!.span,
     });
     return true;
+  }
+
+  /**
+   * The constraints an unmentioned variable's evidence clause names once the
+   * body has demanded more than its list: the same entries the advised list
+   * holds (`#maximalAdvisedEntries`), alphabetical by declared name. A written
+   * one keeps the author's word and a demanded one its declared name — except
+   * where two share a word, which Constraints §5.1.1's disambiguation bullet
+   * resolves: each is qualified by its declaring module, a sealed one included.
+   */
+  #evidenceMentions(
+    declared: readonly Typed.ConstraintName[],
+    demands: readonly Requirement[],
+  ): readonly string[] {
+    const entries = this.#maximalAdvisedEntries(
+      declared.map((constraint) => ({ written: constraint, identity: this.#constraintIdentity(constraint) })),
+      demands,
+    ).map((entry) => {
+      const declaredName = this.#canonicalConstraintName(
+        entry.written ?? entry.demand.name,
+        entry.identity,
+      );
+      return { word: entry.written ?? declaredName, declaredName, identity: entry.identity };
+    }).sort((left, right) => compareSpellingKeys(left.declaredName, right.declaredName));
+    return entries.map(({ word, declaredName, identity }) =>
+      entries.filter((other) => other.declaredName === declaredName).length > 1
+        ? this.#qualifiedConstraintMention(declaredName, identity)
+        : `\`${word}\``
+    );
   }
 
   /**
@@ -27370,7 +27570,7 @@ class Checker {
             : `write \`<${binder}>\``) +
           // This message has named no declaring module, so the clauses stand
           // whole (§5.1.1's elision licence, read the other way).
-          this.#constraintRouteClauses(spellings, true),
+          this.#constraintRouteClauses(spellings),
         primary: item.binding.span,
         incompleteSignature: true,
       });
@@ -30149,25 +30349,37 @@ function openRowInPayloadMessage(alias: string | undefined): string {
  * Functions §10's unmentioned-variable row *(#712)*. One wording for every
  * declaring spelling — a block head and a fused `fun`'s binder must agree, the
  * fused list *is* its head's (§4.2) — with the rewrite each spelling admits,
- * every one of which compiles (the Rewrite Rule). A binder's constraints are all
- * written ones (a body demand the list does not entail is §4.2's own refusal,
- * never attached), so removing the binder removes them; where the body names
- * the variable, those names need a concrete type too.
+ * every one of which compiles (the Rewrite Rule). A binder's constraints are its
+ * written ones and the demands its list refused, which this row absorbs (§4.2's
+ * refusal is not made separately), so removing the binder removes them; where
+ * the body names the variable, those names need a concrete type too.
+ *
+ * `constraints` are mentions, each already quoted. Where one is qualified — two
+ * that share a word, Constraints §5.1.1 — the clause turns round to take the
+ * qualified phrases: "supply its evidence for this module's `Heft` and …".
  */
 function unmentionedDeclaredMessage(
   name: string,
   constraints: readonly string[],
   spelling: "binder" | "named" | "ascription" | "value",
   valueBinding?: "function" | "value",
+  /**
+   * Where the body demands more than the list declares (Functions §10): the
+   * clause that writes the whole list beside the first rewrite, or `null`
+   * where no list can spell it and that rewrite is not offered.
+   */
+  widen?: string | null,
 ): string {
   // A list on a binding's name (#1047) is used in the binding's type, which has
   // no parameter list to point at; and where that type is no function, a
   // constrained variable in it would have no evidence seat either (Functions §8
   // item 2), so removal is the one rewrite that compiles.
-  const use = valueBinding === undefined
-    ? `use \`${name}\` in a parameter or result type, or `
+  const use = widen === null
+    ? ""
+    : valueBinding === undefined
+    ? `use \`${name}\` in a parameter or result type${widen ?? ""}, or `
     : valueBinding === "function"
-    ? `use \`${name}\` in the binding's type, or `
+    ? `use \`${name}\` in the binding's type${widen ?? ""}, or `
     : "";
   // At a value binding a variable carrying a constraint has no evidence seat
   // (Functions §8 item 2), so naming one the declaration uses would only meet
@@ -30180,9 +30392,11 @@ function unmentionedDeclaredMessage(
     ? `${use}remove \`${name}\` from the binder ` +
       `list and write a concrete type where the body names \`${name}\``
     : `${use}remove \`${name}\` from the binder list`;
+  const evidence = constraints.some((mention) => !mention.startsWith("`"))
+    ? `its evidence for ${englishList(constraints)}`
+    : `its ${constraints.join(", ")} evidence`;
   return `\`${name}\` is a declared type variable, but this declaration's type does not ` +
-    `mention it, so no call can choose it or supply its \`${constraints.join("`, `")}\` ` +
-    `evidence; ${rewrite}`;
+    `mention it, so no call can choose it or supply ${evidence}; ${rewrite}`;
 }
 
 /** Whether a lambda's written parameter or return annotations failed to resolve. */
