@@ -787,7 +787,7 @@ export let f(h: ((Int) ->? Int) -> Int): Int = h(step)
     ]);
     const [report] = effectSpans([["/world.js", ""], ["/main.hex", "module Main\n\n" + nested]]);
     expect(report).toEqual({
-      primary: "module Main\n\n".length + nested.indexOf("h(step)"),
+      primary: "module Main\n\n".length + nested.indexOf("h(step)") + "h(".length,
       edits: ["module Main\n\n".length + nested.indexOf("->?")],
     });
   });
@@ -2995,10 +2995,38 @@ export let go(a: Step): Unit = a?()
     h?(() => ())
 `;
       expect(check(source)).toEqual([solvedPure]);
-      const [report] = placed(source);
       const arrows = offsets(source, "->?");
-      expect(report?.labels).toEqual(arrows);
-      expect(report?.edits).toEqual(arrows.map((arrow) => [arrow, "->"]));
+      expect(placed(source)).toEqual([{
+        primary: source.indexOf("() => ()"),
+        labels: arrows,
+        edits: arrows.map((arrow) => [arrow, "->"]),
+      }]);
+    });
+
+    it("stands at the argument handed, a literal or a constructor application whole", () => {
+      // What meets the parameter is the argument (#1105): a name, a lambda,
+      // and a literal or constructor application as one value — a callback
+      // inside one included, though it meets its stand-in in the second pass.
+      const step = "export let step(n: Int): Int =\n    save!(\"x\")\n    n\n\n";
+      const lambda = "(x) =>\n    save!(\"x\")\n    x";
+      const cases: readonly (readonly [string, string, string])[] = [
+        ["((Int) ->? Int)", "step", "step"],
+        ["(Option((Int) ->? Int))", "Some(step)", "Some(step)"],
+        ["(((Int) ->? Int, Int))", "(step, 1)", "(step, 1)"],
+        ["((Int) ->? Int)", lambda, lambda],
+        ["(Option((Int) ->? Int))", `Some(${lambda})`, `Some(${lambda})`],
+        ["(((Int) ->? Int, Int))", "((x) => step!(x), 1)", "((x) => step!(x), 1)"],
+        ["({ g: (Int) ->? Int })", "{ g = (x) => step!(x) }", "{ g = (x) => step!(x) }"],
+      ];
+      for (const [parameter, argument, pin] of cases) {
+        const source = `${step}export let f(h: ${parameter} -> Int): Int = h(${argument})\n`;
+        const arrow = source.indexOf("->?");
+        expect(placed(source)).toEqual([{
+          primary: source.indexOf(pin, source.indexOf("h(")),
+          labels: [arrow],
+          edits: [[arrow, "->!"]],
+        }]);
+      }
     });
 
     it("suppresses the marks that read a pinned colour, the call after the pin included", () => {

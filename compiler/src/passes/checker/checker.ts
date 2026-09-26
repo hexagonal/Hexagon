@@ -2990,6 +2990,20 @@ class Checker {
   /** Nonzero while §3.4's source arm runs: its binds are body-sourced (#873). */
   #sourcing = 0;
   /**
+   * The argument whose unification with its parameter is running, if one is
+   * *(#948)*: a signature's colour solved there is pinned by that argument,
+   * which is narrower than the call's span the unification carries.
+   */
+  #pinSite: Source.Span | undefined;
+  /**
+   * The argument each lambda a call claimed on its arguments' spines sits in
+   * *(#948)*: the lambda meets its stand-in in the call's second pass, and a
+   * colour solved there is pinned by that argument whole, as a named value in
+   * the same place is — `h(Some((x) => …))` stands at `Some(…)`, as
+   * `h(Some(step))` does.
+   */
+  readonly #spineArguments = new WeakMap<Resolved.LambdaExpr, Resolved.Expr>();
+  /**
    * Every open signature's region, colour, and owner *(#873; Effects §10)*,
    * published as `Typed.Module.colourScopes` and `colourOwners` once every
    * colour has settled: display decides there whether a captured variable is
@@ -16640,6 +16654,7 @@ class Checker {
    */
   #claimSpine(arguments_: readonly Resolved.Expr[]): SpineOwner {
     const owner: SpineOwner = { claimed: [], waiting: new Map() };
+    let argument: Resolved.Expr | undefined;
     const visit = (expression: Resolved.Expr, top: boolean): void => {
       switch (expression.kind) {
         case "Group":
@@ -16649,6 +16664,7 @@ class Checker {
           if (!top && !this.#claimedLambdas.has(expression)) {
             this.#claimedLambdas.set(expression, owner);
             owner.claimed.push(expression);
+            if (argument !== undefined) this.#spineArguments.set(expression, argument);
           }
           return;
         case "Tuple":
@@ -16684,7 +16700,10 @@ class Checker {
           return;
       }
     };
-    for (const argument of arguments_) visit(argument, true);
+    for (const each of arguments_) {
+      argument = each;
+      visit(each, true);
+    }
     return owner;
   }
 
@@ -16748,7 +16767,14 @@ class Checker {
         at: lambda.span.start.offset,
         run: (): void => {
           const type = this.#inferExpr(lambda, level, standIn);
-          this.#unifyExpected(standIn, type, lambda, lambda.span, true);
+          // Pinned by the argument the lambda sits in (#948).
+          const enclosingPin = this.#pinSite;
+          this.#pinSite = this.#spineArguments.get(lambda)?.span ?? enclosingPin;
+          try {
+            this.#unifyExpected(standIn, type, lambda, lambda.span, true);
+          } finally {
+            this.#pinSite = enclosingPin;
+          }
         },
       })),
     ].sort((left, right) => left.at - right.at);
@@ -17142,7 +17168,17 @@ class Checker {
       const parameter = parameters[index] ?? ERROR;
       const receiver = call.kind === "Call" && call.callee.kind === "Access" &&
         expressions.length === call.arguments.length + 1 && index === 0;
-      this.#unifyExpected(parameter, actuals[index] ?? ERROR, expression, span, true, parameter.kind !== "Variable" && !receiver);
+      // The argument is the pin a colour it solves is reported at (Effects §4.2,
+      // #948): the whole value handed to this parameter, a literal or a
+      // constructor application included, where the call's span would name
+      // every argument at once.
+      const enclosingPin = this.#pinSite;
+      this.#pinSite = expression.span;
+      try {
+        this.#unifyExpected(parameter, actuals[index] ?? ERROR, expression, span, true, parameter.kind !== "Variable" && !receiver);
+      } finally {
+        this.#pinSite = enclosingPin;
+      }
       for (const variable of open) {
         if (this.#prune(variable).kind !== "Variable") givers.set(variable, expression);
       }
@@ -21891,7 +21927,7 @@ class Checker {
       ? {
         kind: "Effect",
         impure: type.impure,
-        solve: { span, sourced: this.#sourcing > 0 },
+        solve: { span: this.#pinSite ?? span, sourced: this.#sourcing > 0 },
       }
       : type;
     for (const requirement of variable.requirements) this.#validate(requirement);
