@@ -68,6 +68,7 @@ Point                          -- nullary: no parens at all
 
 - `union Shape = ...` introduces the type constant `Shape` (or type constructor, if parameterised). Opaque to unification: `Shape` unifies with `Shape` and with nothing else; `Tree(a)` unifies with `Tree(b)` by unifying `a := b`. No unfolding, no structural comparison, ever.
 - Constructor types are as given in §2.2, with the union's type parameters generalised: each *use* of `Some` instantiates a fresh `a`, standard let-polymorphism.
+- An application's expected type reaches its arguments: where it is headed by the union, the instantiated result type is unified with it before the arguments are checked (Functions §4.3, #1066), so `let a: Option(Dec) = Some(n)` checks `n` against `Dec`. The declaration's parameters carry no constraint (Declarations Preamble §2.2), so the instantiation this fixes selects no evidence.
 - There is no subtyping among unions, no constructor-set inclusion, no "this function accepts any union containing `Circle`". If that itch ever needs scratching it is a polymorphic-variants feature and is **out**, per the overview's rows-for-records-only call.
 
 ---
