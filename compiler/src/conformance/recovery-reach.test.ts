@@ -228,8 +228,8 @@ export let go(s: Step): Unit =
     }
   });
 
-  test("and among a vector literal's elements", () => {
-    for (const elements of ["[s, save0]", "[save0, s]"]) {
+  test("and among a vector literal's elements, lambdas included", () => {
+    for (const elements of ["[s, save0]", "[save0, s]", '[() => s(), () => save!("y")]', '[() => save!("y"), () => s()]']) {
       expect(reports(`export let go(s: Step): Unit =
     match ${elements}
         [g, _] => g()
@@ -279,6 +279,60 @@ export let go(s: Step): Unit =
     action?()
 `;
       expect(reports(source)).toEqual([REFUSAL, [form, ...pin]]);
+    }
+  });
+
+  test("under a written vector face, the elements join in either order (review round 2)", () => {
+    // Each element meets the face on its own (#1107) and then they join one
+    // another, each bringing its recovery as a marked variable: the report is
+    // the one the alias-free literal draws, whichever element comes first.
+    const purity = "a `->` arrow promises purity, and this function performs effects — the demand " +
+      "is written `->`, the function's face `->?` or `->!`";
+    const impureField = "this position's arrow is the impure constant — its colour is fixed where the " +
+      "type is declared, and this function's face is the pure `->`; the demand cannot weaken — " +
+      "change the position's declared arrow, or supply the effectful function the position promises";
+    const solvedImpure = "this signature's `->?` promises a colour the caller chooses, but the body " +
+      "solves it to the impure constant — a function that performs its own unconditional effects " +
+      "rounds up, and its face is `->!`";
+    const at = (face: string, elements: string): string =>
+      `export let outer(action: () ->? Unit, s: Step): Unit =
+    let v: Vector(${face}) = ${elements}
+    action?()
+`;
+    for (const [face, first, second, report] of [
+      ["() -> Unit", "[s, save0]", "[save0, s]", ["Vector(() -> Unit)", purity]],
+      ["() ->! Unit", "[s, () => ()]", "[() => (), s]", ["Vector(() ->! Unit)", impureField]],
+      ["() ->! Unit", "[s, action]", "[action, s]", ["Vector(() ->! Unit)", solvedImpure]],
+      ["() ->? Unit", "[s, save0]", "[save0, s]", undefined],
+    ] as const) {
+      for (const elements of [first, second]) {
+        expect(reports(at(face, elements))).toEqual([
+          REFUSAL,
+          report ?? [elements, solvedImpure],
+        ]);
+      }
+    }
+    // The pure lambda decides a `->` face's colour with the recovery, as it
+    // would alone.
+    for (const elements of ["[s, () => ()]", "[() => (), s]"]) {
+      expect(reports(at("() -> Unit", elements))).toEqual([REFUSAL]);
+    }
+    // At an argument and a return annotation, as at a binding.
+    for (const elements of ["[s, save0]", "[save0, s]"]) {
+      expect(reports(`export let takeV(v: Vector(() -> Unit)): Unit = ()
+export let outer(s: Step): Unit = takeV(${elements})
+`)).toEqual([REFUSAL, [`takeV(${elements})`, purity]]);
+      expect(reports(`export let go(s: Step): Vector(() -> Unit) = ${elements}\n`))
+        .toEqual([REFUSAL, ["Vector(() -> Unit)", purity]]);
+    }
+    // Three elements: the later two meet each other through the recovery's
+    // marked colour, and the pin stands where the alias-free literal puts it.
+    for (const [elements, pinned] of [
+      ["[s, action, save0]", "save0"],
+      ["[action, s, save0]", "save0"],
+      ["[s, save0, action]", "action"],
+    ] as const) {
+      expect(reports(at("() ->? Unit", elements))).toEqual([REFUSAL, [pinned, solvedImpure]]);
     }
   });
 

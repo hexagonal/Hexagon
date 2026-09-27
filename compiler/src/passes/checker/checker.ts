@@ -15640,7 +15640,6 @@ class Checker {
     }));
     let published: Mono = at;
     for (const path of paths) published = this.#publishJoinedColours(published, path.type);
-    for (const path of paths) published = this.#realOverRecovered(published, path.type);
     node.published = published;
     this.#expressionTypes.set(expression, published);
   }
@@ -16526,11 +16525,18 @@ class Checker {
   #joinForm(
     node: TreeNode,
     face: Mono,
-    types: readonly Mono[],
+    joined: readonly Mono[],
     expressions: readonly Resolved.Expr[],
   ): Mono {
     const expression = node.expression;
     const span = expression.span;
+    // The paths join one another here, each having met the face on its own
+    // (#1107), so each brings a recovery as a marked variable, as a free tree's
+    // values bring theirs to its home (`#markedRecoveries`, #1115): brought as
+    // the constant, the first path's recovery absorbed every colour the later
+    // paths brought — `let v: Vector(() -> Unit) = [s, save0]` lost the report
+    // `[save0, s]` made (review round 2, MAJOR).
+    const types = joined.map((type) => this.#markedRecoveries(type, node.level));
     let result = types[0] ?? ERROR;
     if (expression.kind === "If" && types.length === 2) {
       const [consequence, alternative] = types as [Mono, Mono];
@@ -17391,7 +17397,10 @@ class Checker {
       const type = this.#inferLambdaComponent(value, level, element);
       types.push(type);
       const met = outside === undefined ? type : this.#checkPath(value, outside, type, level, true, refusals);
-      this.#joining(expression.span, () => this.#unifyExpected(joined, met, value, value.span, true));
+      // A lambda element joins the others last, bringing a recovery as they did
+      // (#1115).
+      const brought = this.#markedRecoveries(met, level);
+      this.#joining(expression.span, () => this.#unifyExpected(joined, brought, value, value.span, true));
     }
     this.#foldRefusals(refusals);
     // And the published element wears the seat's node where an element
@@ -18368,29 +18377,6 @@ class Checker {
     return this.#republishColours(published, other, new Set(), (own, against) =>
       this.#preferSeatColour(own, against)
     );
-  }
-
-  /**
-   * A form's joined type with each arrow colour that is §4.4's recovery replaced
-   * by the real colour another path carries there *(#1115)*. A free tree's
-   * values never bring the recovery to their home (`#markedRecoveries`); this is
-   * for the paths that join one another directly — a faced form's, each having
-   * met the face on its own (#1107) — where two constants meet by unifying,
-   * which the recovery absorbs, binding nothing. The join then published the
-   * first path's colour whichever that was, and under `let g: () ->? Unit`, `if
-   * c then s else save0` left the written `->?` as it was where `if c then
-   * save0 else s` pinned it. At a merge the recovery is no information: a real
-   * colour — either constant, or a variable — decides the position.
-   */
-  #realOverRecovered(published: Mono, other: Mono): Mono {
-    if (!this.#recoveryMet) return published;
-    return this.#republishColours(published, other, new Set(), (own, against) => {
-      const ownColour = this.#prune(own ?? PURE);
-      const otherColour = this.#prune(against ?? PURE);
-      return isRecovered(ownColour) && !isRecovered(otherColour) && otherColour.kind !== "Error"
-        ? against
-        : own;
-    });
   }
 
   /**
