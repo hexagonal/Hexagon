@@ -29,7 +29,8 @@ const FIXTURES =
   'let save0(): Unit = save!("x")\n' +
   "let noop(): Unit = ()\n" +
   "export let apply2(f: () ->? Unit, g: () ->? Unit): Unit =\n    f?()\n    g?()\n" +
-  "export let pureOnly(f: () -> Unit): Unit = f()\n";
+  "export let pureOnly(f: () -> Unit): Unit = f()\n" +
+  "export let impureOnly(f: () ->! Unit): Unit = f!()\n";
 
 const files = (source: string): [string, string][] => [
   ["/main.hex", HEADER + FIXTURES + source],
@@ -171,11 +172,12 @@ let k = pick(noop)
     expect(reports(source)).toEqual([]);
     expect(hovered(source, "k =")).toBe("() -> Unit");
     // Purity is the silent one: a face with no colour publishes no line (§10),
-    // so the only colour lines are the fixtures' `save` and `apply2`.
+    // so the only colour lines are the fixtures' `save`, `apply2`, and `impureOnly`.
     const main = compileFiles(files(source)).modules.find((module) => module.source.path === "/main.hex");
     expect((main?.declarations.text ?? "").match(/Hexagon:.*/gu)).toEqual([
       "Hexagon: `String ->! Unit` */",
       "Hexagon: `(() ->? Unit, () ->? Unit) ->? Unit` */",
+      "Hexagon: `(() ->! Unit) ->! Unit` */",
     ]);
   });
 
@@ -216,6 +218,39 @@ describe("only a decided colour is re-opened (R.b)", () => {
     }
   });
 
+  test("the pin travels into an alias, a destructure, and a match, whichever comes first", () => {
+    const k = (lines: readonly string[]): string =>
+      "export let outer(action: () ->? Unit): Unit =\n    let k = (p) =>\n" +
+      lines.map((line) => `        ${line}\n`).join("") + "        ()\n    ()\n";
+    const refusedBothWays = (first: readonly string[], second: readonly string[]): void => {
+      const one = reports(k(first)).map(([, message]) => message);
+      const two = reports(k(second)).map(([, message]) => message);
+      expect([first, one]).toEqual([first, two]);
+      expect(one).toHaveLength(1);
+    };
+    refusedBothWays(["pureOnly(p)", "let f = p", "apply2?(action, f)"], ["let f = p", "pureOnly(p)", "apply2?(action, f)"]);
+    refusedBothWays(["pureOnly(p)", "let f = p", "impureOnly!(f)"], ["let f = p", "pureOnly(p)", "impureOnly!(f)"]);
+    refusedBothWays(
+      ["let w: (() -> Unit, Int) = p", "let (a, b) = p", "apply2?(action, a)"],
+      ["let (a, b) = p", "apply2?(action, a)", "let w: (() -> Unit, Int) = p"],
+    );
+    refusedBothWays(
+      ["let w: Option(() -> Unit) = p", "match p\n            Some(f) => apply2?(action, f)\n            None => ()"],
+      ["match p\n            Some(f) => apply2?(action, f)\n            None => ()", "let w: Option(() -> Unit) = p"],
+    );
+  });
+
+  test("a parameter joined with a pure function stays open for its other uses, in either order", () => {
+    const k = (first: string, second: string): string =>
+      `export let outer(action: () ->? Unit): Unit =\n    let k = (cb) =>\n        ${first}\n        ${second}\n        ()\n    ()\n`;
+    for (const join of ["let g = if True then cb else noop", "let g = [cb, noop]"]) {
+      for (const use of ["apply2?(action, cb)", "impureOnly!(cb)"]) {
+        expect([join, use, reports(k(join, use))]).toEqual([join, use, []]);
+        expect([use, join, reports(k(use, join))]).toEqual([use, join, []]);
+      }
+    }
+  });
+
   test("writing the parameter's type decides it, and it fits", () => {
     const written = `export let outer(action: () ->? Unit): Unit =
     let k = (cb: () -> Unit) =>
@@ -224,6 +259,31 @@ describe("only a decided colour is re-opened (R.b)", () => {
     ()
 `;
     expect(reports(written)).toEqual([]);
+  });
+});
+
+describe("reports read the colours as they stand", () => {
+  test("a callback joined with a pure function shows as its own `->?`, in either order", () => {
+    for (const join of ["apply2?(action, noop)", "apply2?(noop, action)"]) {
+      expect(reports(`export let outer(action: () ->? Unit): Unit =\n    ${join}\n    let x: Int = action\n    ()\n`))
+        .toEqual([["Int", "type mismatch: expected Int, found () ->? Unit"]]);
+    }
+  });
+
+  test("an opening spends no letter a type's own variables would take", () => {
+    expect(reports("let x: Int = (noop, 1)\n"))
+      .toEqual([["Int", "type mismatch: expected Int, found (() -> Unit, a)"]]);
+  });
+
+  test("at a parameter's arrow, a function's demand and a position's supply are read the right way round", () => {
+    expect(reports("let g: (() ->! Unit) -> Unit = pureOnly\n")).toEqual([["(() ->! Unit) -> Unit", PURITY]]);
+    expect(reports("let g: (() -> Unit) -> Unit = impureOnly\n").map(([, message]) => message))
+      .toContain(FIXED_BEFORE);
+  });
+
+  test("the recovery decides a colour it shares with a pure function at module level too (#1115 D2)", () => {
+    const source = "type Step = () ->? Unit\nlet s: Step = noop\nexport let r: Unit = apply2!(s, noop)\n";
+    expect(reports(source).map(([at]) => at)).toEqual(["->?"]);
   });
 });
 

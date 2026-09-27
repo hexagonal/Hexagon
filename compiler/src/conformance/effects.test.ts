@@ -2153,12 +2153,12 @@ export let asPure: ((() -> String) -> Int) = stored
 export let asImpure: ((() ->! String) -> Int) = stored
 `]]),
     ).toEqual([
-      // §4.3's reverse sentence, as #1119 leaves it: the pure arrow is nested,
-      // fixed by the first face before the second meets it.
-      "this position's arrow is the impure constant, and the pure `->` meeting it " +
-      "was fixed before it arrived — inside a value already built, or by another " +
-      "use — so it cannot fit as a pure function fits where it is used; write the " +
-      "arrow where it was fixed",
+      // The first face pinned `stored`'s callback slot pure, so `stored` now
+      // demands a pure callback — read at a parameter's arrow the way round a
+      // demand is (Effects §4.3, #1119): the `->` is the demand, and the
+      // effectful callbacks the second face promises to supply meet it.
+      "a `->` arrow promises purity, and this function performs effects — the " +
+      "demand is written `->`, the function's face `->?` or `->!`",
     ]);
   });
 });
