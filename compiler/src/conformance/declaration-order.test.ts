@@ -1,6 +1,5 @@
 import { describe, expect, test } from "vitest";
 
-import { PROVIDED_ROW_ALIASES } from "../passes/resolver/resolver.js";
 import { STDLIB_SOURCES } from "../stdlib-sources.js";
 import { compileFiles, projectDiagnostics, runProject } from "../support/test-project.js";
 
@@ -571,10 +570,10 @@ describe("an import straddles the reading laws it imports (Modules §3, #465, #7
      *
      * §3.3's surfaces are wider than a named import's, and every one of them is
      * a spelling the line does bind: the exporter's terms, the members of
-     * constraints it declares, the members of instances it honors at a type of
-     * its own (§5.3), and the provided row (Collections Part 5 §4). A
-     * constructor pattern reads `terms` alone, a constraint member not being a
-     * constructor.
+     * constraints it declares, and the members of instances it honors at a
+     * type of its own (§5.3) — a companion's `Iterable` row among them
+     * (Collections Part 5 §4). A constructor pattern reads `terms` alone, a
+     * constraint member not being a constructor.
      */
 
     const NOT_EXPORTED = (alias: string, name: string): string =>
@@ -665,14 +664,13 @@ describe("an import straddles the reading laws it imports (Modules §3, #465, #7
       expect(exports.boxed).toBe("Box(4)");
     });
 
-    test("...and so does a provided row, which no source `honor` backs", () => {
-      // The last of §3.3's surfaces, and the one nothing else in this file could
-      // reach: `Vector.toSeq` is the row Collections Part 5 §4 seats at the
-      // companion, spelled through an explicit import of the very file the
+    test("...and so does a companion's own `Iterable` row", () => {
+      // `Vector.toSeq` is the member of the row `Hex.Vector` honors at its own
+      // type (#1141), spelled through an explicit import of the very file the
       // prelude seated — the Playground's shape. It is a member the exporter
-      // neither exports nor declares nor honors in text, and it still resolves
-      // below the item, so above the item it is a later declaration like any
-      // other. Without the surface consulted, this use resolves *silently*.
+      // neither exports nor declares, and it still resolves below the item, so
+      // above the item it is a later declaration like any other. Without the
+      // honored surface consulted, this use resolves *silently*.
       expect(diagnostics([
         ["/Vector.hex", STDLIB_SOURCES["Vector"]!],
         ["/main.hex",
@@ -681,30 +679,45 @@ describe("an import straddles the reading laws it imports (Modules §3, #465, #7
       ], new Set(["Vector"]))).toEqual([MOVE_IMPORT("Vector.toSeq")]);
     });
 
-    test("...at the seven aliases a row is seated at, and nowhere else", () => {
+    test("...at the companions that honor `Iterable`, and nowhere else", () => {
       // A seated file is not a row. These fixtures are explicitly granted their
-      // registered prelude seats, so `Int` and `Debug` are
-      // addressable the same way `Vector` is — and neither carries a row, so
-      // `Int.toSeq` is bound by no line and the item-shaped repair would be the
-      // §3 lie again, one surface further in.
+      // registered prelude seats, so `Int`, `Debug` and `Seq` are addressable
+      // the same way `Vector` is — and none honors `Iterable` at a type of its
+      // own, so `Int.toSeq` is bound by no line and the item-shaped repair would
+      // be the §3 lie again, one surface further in. `Seq`'s row is written in
+      // `Iterable.hex`, the constraint's home, so `Seq.toSeq` is one of these.
       const seated = (alias: string) =>
         [`/${alias}.hex`, STDLIB_SOURCES[alias]!] as const;
 
-      for (const alias of ["Int", "Debug"]) {
+      for (const alias of ["Int", "Debug", "Seq"]) {
         const trust = new Set([alias]);
         const above = diagnostics([seated(alias), ["/main.hex",
           "module Main\n\n" + `export let n: Int = ${alias}.toSeq(1)\n` +
           `import ${alias}\n`]], trust);
 
-        expect(above).toEqual([NOT_EXPORTED(alias, "toSeq")]);
+        // `Seq`'s miss carries its curated route (Collections Part 5 §4); the
+        // others are the plain does-not-export.
+        expect(above).toEqual([
+          alias === "Seq"
+            ? "`Seq` has no `toSeq` — its `Iterable` instance is declared in module " +
+              "`Iterable`; use `Iterable.toSeq`, or call `toSeq` by the dot"
+            : NOT_EXPORTED(alias, "toSeq"),
+        ]);
         expect(diagnostics([seated(alias), ["/main.hex",
           "module Main\n\n" + `import ${alias}\n` +
           `export let n: Int = ${alias}.toSeq(1)\n`]], trust)).toEqual(above);
       }
 
-      // Driven by the set the resolver reads, so an alias added to it without a
-      // row to seat there fails here rather than in somebody's error message.
-      for (const alias of PROVIDED_ROW_ALIASES) {
+      // Driven by the companions' own text, so a companion that gains or loses
+      // its row fails here rather than in somebody's error message.
+      const honoring = Object.keys(STDLIB_SOURCES).filter((alias) =>
+        alias !== "Iterable" &&
+        new RegExp(`^honor Iterable<${alias}\\b`, "mu").test(STDLIB_SOURCES[alias]!)
+      );
+      expect(honoring.sort()).toEqual(
+        ["Array", "JsMap", "JsSet", "Map", "Range", "Set", "String", "Vector"],
+      );
+      for (const alias of honoring) {
         const use = `export let n: Int = ${alias}.toSeq(subject).length()\n`;
         const item = `import ${alias}\n`;
 

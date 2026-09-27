@@ -94,8 +94,9 @@ export const NON_REDECLARABLE_CONSTRAINTS: readonly string[] =
  * declaration existed to read. `stdlib/Iterable.hex` is that declaration now,
  * so the name claims `toSeq` here exactly as the other twelve claim theirs.
  * `Iterable` is deliberately *not* given a `#checkPreludeHonor` signature arm:
- * its provided rows have no source form (Collections Part 5 §4), and the real
- * declaration is visible in every compile that has a prelude at all.
+ * every standard instance of it is prelude source (Collections Part 5 §4), so
+ * none exists in a compile without a prelude, and the real declaration is
+ * visible in every compile that has one.
  */
 export const PRE_REGISTERED_CONSTRAINT_MEMBERS: Readonly<
   Record<string, readonly string[]>

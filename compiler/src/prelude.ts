@@ -86,10 +86,12 @@ export interface PreludeModule {
  * `Iterable.hex` is the one declaration that cannot sit with
  * the others: `toSeq(xs: c): Seq(Item)` names `Seq`, so the same
  * signature-types rule that puts `Show.hex` first puts this one after
- * `Seq.hex` — the latest seat any constraint declaration takes, and the reason
- * Collections Part 5 §4's provided rows have no source form. `Seq.hex` cannot
- * honor a constraint whose name is not yet in scope, and seating `Iterable.hex`
- * earlier is a genuine cycle rather than a reordering.
+ * `Seq.hex` — the latest seat any constraint declaration takes. It is also why
+ * `Seq`'s own row is written here rather than in its companion (Collections
+ * Part 5 §4): `Seq.hex` cannot honor a constraint whose name is not yet in
+ * scope, and seating `Iterable.hex` earlier is a genuine cycle rather than a
+ * reordering. Every other standard row is its type's companion's, seated after
+ * this file.
  *
  * ## Then the data modules
  *
@@ -143,10 +145,12 @@ export interface PreludeModule {
  * `spec/string-text-processing.md` §11 requires.
  *
  * `Vector.hex` needs a great deal: `first`/`last`/`get` answer with `Option`,
- * and `toSeq`/`fromSeq` name `Seq`.
+ * `toSeq`/`fromSeq` name `Seq`, and its `honor Iterable<Vector(a)>` needs
+ * `Iterable.hex` (#1141).
  *
  * `Map.hex` needs the most of anything before it — `Hash` for its keyed trio,
- * `Option` for `get`, `Seq` for `entries` and the two projections over it, and
+ * `Option` for `get`, `Seq` for `entries` and the two projections over it,
+ * `Iterable` for the instance whose member is `entries` (#1141), and
  * `Vector` itself for `fromVector`, which is Collections Part 4 §3.2's
  * definitional equivalence and the one edge that fixes the order rather than
  * merely permitting it. It held the last seat from the Map step (#370), having
@@ -154,8 +158,9 @@ export interface PreludeModule {
  *
  * `Set.hex` displaces `Map.hex` from the last seat in turn (#373). It needs
  * exactly what `Map.hex` needs — `Hash` for its keyed trio, `Option` for the
- * unexported `storedMember` row that `intersect` probes with, `Seq` for `toSeq`
- * and the whole algebra folded over it, and `Vector` for `fromVector` — and it
+ * unexported `storedMember` row that `intersect` probes with, `Seq` and
+ * `Iterable` for `toSeq` and the whole algebra folded over it, and `Vector`
+ * for `fromVector` — and it
  * needs nothing from `Map.hex` at all: the two companions are siblings over one
  * runtime module, not layers.
  *

@@ -11,6 +11,22 @@ import { compileProject } from "../../project.js";
 import { check } from "./checker.js";
 
 describe("check", () => {
+  /**
+   * Constraints §5.3's one-report rule (#1131) where the compilation has no
+   * module paths — a pass-level module, no prelude: the clause still says the
+   * slot is filled, and names no module it cannot spell.
+   */
+  test("an orphan on a filled slot with no module path says only that it is declared", () => {
+    expect(checkModule(
+      "honor Show<Int> =\n    show(n) = \"a\"\n\n" +
+        "honor Show<Int> =\n    show(n) = \"b\"\n",
+    ).diagnostics.map(({ message }) => message)).toEqual([
+      "orphan instance: this module declares neither `Show` nor the instance subject",
+      "orphan instance: this module declares neither `Show` nor the instance subject; " +
+        "`Show<Int>` is already declared",
+    ]);
+  });
+
   test("checks monomorphic extern schemes and opaque foreign types", () => {
     const module = checkSource(
       "extern from \"tiny-json\"\n" +

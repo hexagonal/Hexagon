@@ -423,16 +423,17 @@ describe("seeding is universal, so coherence reports are too", () => {
    * rejected; but *whether it was also told the instance already exists* used to
    * depend on whether the module happened to import `Prelude` — evidence it had
    * only by accident. Now the collision is reported whatever the import list
-   * says. Both messages are errors, so no program changes status.
+   * says, as the orphan report's own clause naming the occupant's home
+   * (Collections Part 5 §7.3, #1131). No program changes status.
    */
-  test("an orphan honor of a prelude instance also collides with it", () => {
+  test("an orphan honor of a prelude instance is told it already exists", () => {
     expect(diagnostics([[
       "/main.hex",
       "module Main\n\n" + "honor Eq<Ordering> =\n" +
       "    equals(a, b) = True\n",
     ]])).toEqual([
-      "orphan instance: this module declares neither `Eq` nor the instance subject",
-      "duplicate instance of `Eq<Ordering>`",
+      "orphan instance: this module declares neither `Eq` nor the instance subject; " +
+        "`Eq<Ordering>` is already declared in module `Ordering`",
     ]);
   });
 

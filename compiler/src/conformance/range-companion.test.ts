@@ -359,6 +359,9 @@ describe("the type and its face", () => {
   test("a program's own `Iterable<Range>` is an orphan", () => {
     expect(diagnostics(
       "honor Iterable<Range> =\n    type Item = Int\n    toSeq(r) = Seq.empty\n",
-    )).toContain("orphan instance: this module declares neither `Iterable` nor the instance subject");
+    )).toEqual([
+      "orphan instance: this module declares neither `Iterable` nor the instance subject; " +
+        "`Iterable<Range>` is already declared in module `Range`",
+    ]);
   });
 });

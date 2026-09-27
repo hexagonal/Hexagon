@@ -272,8 +272,10 @@ describe("class 3 — a bound `undefined`, the silent-wrong-value class", () => 
 });
 
 describe("class 4 — `exception Boolean` beside a `Seq` boundary", () => {
+  // The exported `Seq` parameter is what puts the inbound adapter in this
+  // module: its boundary wrapper builds the sequence from the caller's array.
   const PROGRAM = "export exception Boolean(value: Int)\n" +
-    "export let count(): Int = Seq.length(Vector.toSeq([1, 2, 3]))\n";
+    "export let count(xs: Seq(Int)): Int = Seq.length(xs)\n";
 
   test("the inbound adapter's coercion qualifies", () => {
     const text = javascript([["/main.hex", "module Main\n\n" + PROGRAM]]);
@@ -288,7 +290,7 @@ describe("class 4 — `exception Boolean` beside a `Seq` boundary", () => {
   test("executed: `Seq.length` of a three-element sequence answers 3", async () => {
     const exports = await runProject([["/main.hex", "module Main\n\n" + PROGRAM]]);
 
-    expect((exports["count"] as () => number)()).toBe(3);
+    expect((exports["count"] as (xs: readonly number[]) => number)([1, 2, 3])).toBe(3);
   });
 
   test("the negative baseline: unqualified, the same call answers 0", async () => {
@@ -823,7 +825,7 @@ const ALL_CONTESTED = [
   "    for i in 1..n",
   "        sum := sum + i",
   "    sum",
-  "export let counted(): Int = Seq.length(Vector.toSeq([1, 2, 3]))",
+  "export let counted(xs: Seq(Int)): Int = Seq.length(xs)",
   "export let memo(): Seq(Int) = Seq.memoize(Vector.toSeq([1, 2]))",
   "export let unit(): Unit = ()",
   "export let shown(x: Int): String = \"value ${x}\"",
@@ -905,7 +907,7 @@ describe("completeness — the worst-contested module writes no bare global", ()
 
     expect(thrown(exports["raise"] as () => number)).toMatchObject({ name: "Boom" });
     expect((exports["loop"] as (n: number) => number)(4)).toBe(10);
-    expect((exports["counted"] as () => number)()).toBe(3);
+    expect((exports["counted"] as (xs: readonly number[]) => number)([1, 2, 3])).toBe(3);
     expect((exports["unit"] as () => unknown)()).toBeUndefined();
     expect((exports["shown"] as (x: number) => string)(7)).toBe("value 7");
     expect(exports["vs"]).toBe("[1, 2, 3]");

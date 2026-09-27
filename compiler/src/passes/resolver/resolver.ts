@@ -2103,7 +2103,7 @@ class Resolver {
     // spelling to the read below, which reports against the same interface.
     const exporter = this.#moduleAliases.get(qualifier.text);
     if (exporter === undefined) return false;
-    if (!this.#aliasOffers(exporter, qualifier.text, field, position)) return false;
+    if (!this.#aliasOffers(exporter, field, position)) return false;
     const spelling = `${qualifier.text}.${field.text}`;
     this.#diagnostics.add({
       severity: "error",
@@ -2122,12 +2122,11 @@ class Resolver {
    *
    * The surfaces are the ones the reads below this line consult, and in two
    * shapes because two reads exist. Term position takes Modules §3.3/§5.3 whole:
-   * the exporter's terms, the members of constraints it declares, the members of
-   * instances it honors at a type of its own, and the provided row (Collections
-   * Part 5 §4) that rides the prelude companion. A **constructor** pattern reads
-   * `terms` alone — §5.4 puts pattern and value position in one scope, but a
-   * constraint member is not a constructor, so the member surfaces answer
-   * nothing there.
+   * the exporter's terms, the members of constraints it declares, and the
+   * members of instances it honors at a type of its own. A **constructor**
+   * pattern reads `terms` alone — §5.4 puts pattern and value position in one
+   * scope, but a constraint member is not a constructor, so the member surfaces
+   * answer nothing there.
    *
    * A superset of what those reads resolve, never a subset. A `false` here sends
    * the spelling on to be read *above* its import, so a surface missed here is a
@@ -2139,29 +2138,30 @@ class Resolver {
    * of which surfaces exist. Over-claiming is cheap only where the spelling has
    * a binding either way: claim a name no surface offers and the message is back
    * to promising a repair that fixes nothing, which is the whole point of asking.
-   * `PROVIDED_ROW_ALIASES` is where that line ran once — the seating alone
-   * admits every registered prelude alias, and only four of
-   * them carry a row.
    */
   #aliasOffers(
     iface: ModuleInterface,
-    alias: string,
     field: Parsed.Name,
     position: "term" | "constructor",
   ): boolean {
     if (iface.terms.has(field.text)) return true;
     if (position === "constructor") return false;
     if (iface.constraintMembers.has(field.text)) return true;
-    if (this.#honoredMemberCandidates(iface, field.text).length > 0) return true;
-    if (field.text !== "toSeq" || !PROVIDED_ROW_ALIASES.has(alias)) return false;
-    // The seating test `#providedRowMemberAccess` makes, and for its reason: a
-    // project's own `import Mine as Vector` is not the companion, and
-    // the same file reached two ways yields two interfaces, so the comparison is
-    // by `fileId`. The alias filter above it is what keeps this from claiming
-    // `Int.toSeq` — every registered prelude alias is seated,
-    // and only four of them carry a row.
-    const companion = this.#preludeModuleAliases.get(alias);
-    return companion !== undefined && companion.module.fileId === iface.module.fileId;
+    return this.#honoredMemberCandidates(iface, field.text).length > 0;
+  }
+
+  /**
+   * The registered name of the prelude member `iface` is, or `undefined` for
+   * every other module — a project's own `module Seq` included, since the seat
+   * is compilation fact, not text. Compared by `fileId`, because the same file
+   * reached two ways yields two interfaces (an explicit `import Hex.Seq as S`
+   * is still the seated file).
+   */
+  #preludeMemberName(iface: ModuleInterface): string | undefined {
+    for (const [name, member] of this.#preludeModuleAliases) {
+      if (member.module.fileId === iface.module.fileId) return name;
+    }
+    return undefined;
   }
 
   /**
@@ -4665,12 +4665,7 @@ class Resolver {
                 importedModule,
                 expression.receiver.name.text,
                 expression.field,
-              ) ??
-                this.#providedRowMemberAccess(
-                  importedModule,
-                  expression.receiver.name.text,
-                  expression.field,
-                );
+              );
               if (honored !== undefined) return honored;
               const pattern = importedModule.patterns.get(expression.field.text);
               this.#diagnostics.add({
@@ -4680,7 +4675,7 @@ class Resolver {
                     `\`${expression.field.text}\` is a pattern, written ` +
                     `\`(${pattern.componentNames.join(", ")})${expression.field.text}\``
                   : curatedCompanionMiss(
-                  importedModule.module.companionPrimitive,
+                  this.#preludeMemberName(importedModule),
                   expression.field.text,
                 ) ??
                   `module \`${expression.receiver.name.text}\` does not export \`${expression.field.text}\``,
@@ -4834,7 +4829,7 @@ class Resolver {
     // so it has to ask the question expression position asks. `Rat.fromInt` is
     // the case that separates the two — an honored `Num` member, which `terms`
     // alone does not hold.
-    if (!this.#aliasOffers(module, qualifier.text, name, "term")) {
+    if (!this.#aliasOffers(module, name, "term")) {
       this.#diagnostics.add({
         severity: "error",
         message: `module \`${qualifier.text}\` does not export \`${name.text}\``,
@@ -7506,131 +7501,6 @@ class Resolver {
   }
 
   /**
-   * Consequence 4 of the members-as-values ruling, as Modules §5.3 graduates it:
-   * **qualified access reaches an honoring module's members.**
-   *
-   * `Rat.add(r1, r2)` denotes `Num<Rat>`'s member; `Bool.show(flag)` denotes
-   * derived `Show<Bool>`'s. The governing principle is uniform access — a
-   * consumer's `M.f(…)` survives `f` migrating between a plain module function
-   * and a constraint member, in either direction, with no call site changing —
-   * which is why this read comes *after* `terms` and after the module's own
-   * declared members, and never merges with either.
-   *
-   * Only instances at a type the module **declares**: an instance merely passing
-   * through its import graph is not its member to offer. A module honoring one
-   * constraint at several of its own types makes the spelling ambiguous and
-   * takes §5.5's refusal posture, naming each honored type and the routes that
-   * are not ambiguous.
-   */
-  /**
-   * The same Modules §5.3 uniform-access read, for a **provided row** — an
-   * instance no module's text declares (Collections Part 5 §4).
-   *
-   * `#honoredMemberAccess` above answers from `iface.instances`, which is built
-   * from `honor` items, so it cannot answer here: the four provided `Iterable`
-   * rows have no source form (#353's ruling 1 — `Seq`'s would be a seat cycle and
-   * `Vector`'s a structural head, both refused). What is *not* different is what
-   * the reader is owed. `Vector.toSeq(v)` is the honored-member read of the row
-   * at `Vector`, exactly as `Int.show(5)` is the read of `stdlib/Int.hex`'s
-   * `honor Show<Int>`, and it stays a correct spelling now that the companions
-   * no longer plain-export the name (Part 5 §2.3's sole-exporter bullet).
-   *
-   * Homed at the companion, never at `Iterable.hex`: `Iterable.toSeq` is the
-   * *declaration's* qualified spelling and already answers through
-   * `constraintMembers` one branch earlier, polymorphically. These pin the
-   * subject, which is what makes `Map.toSeq(v)` at a vector a type error rather
-   * than a synonym.
-   *
-   * `Range` has no row here: its companion honors `Iterable<Range>` in source
-   * (#1073), so `Range.toSeq(r)` is `#honoredMemberAccess`'s read.
-   *
-   * *(#1076.)* The captured `Array`, `JsMap`, and `JsSet` have no arm: their
-   * companions honor `Iterable` in source, so `Array.toSeq(xs)` is Modules
-   * §5.3's honored-member read at a type the companion's public row declares
-   * (`#honoredMemberCandidates`), as `Range.toSeq(r)` is.
-   */
-  #providedRowMemberAccess(
-    iface: ModuleInterface,
-    alias: string,
-    field: Parsed.Name,
-  ): Resolved.Expr | undefined {
-    if (field.text !== "toSeq") return undefined;
-    // The alias must be one a row is seated at before anything else is asked, so
-    // that this reader and `#aliasOffers` answer the same set. The arms below
-    // are the same four, and reaching the tail `return undefined` for an alias
-    // this admitted would be the drift the shared constant exists to prevent.
-    if (!PROVIDED_ROW_ALIASES.has(alias)) return undefined;
-    // Keyed on the *module*, never on the spelling: a user's own
-    // `import Mine as Vector` shadows the prelude alias, and the row
-    // belongs to the prelude companion or to nothing.
-    //
-    // Compared by `fileId` rather than by object identity, because reaching the
-    // same module two ways yields two interfaces. An explicit
-    // `import Vector` of the very file the prelude
-    // seated — what the Playground's hosted equipment does — resolves through
-    // `#moduleAliases`, and identity would reject the module it is *about*.
-    const companion = this.#preludeModuleAliases.get(alias);
-    if (companion === undefined) return undefined;
-    if (companion.module.fileId !== iface.module.fileId) return undefined;
-    const declaring = this.#preludeModuleAliases.get("Iterable");
-    const symbol = declaring?.constraintMembers.get("toSeq");
-    if (symbol === undefined) return undefined;
-    const local = this.#reachPreludeTerm(symbol.id);
-    if (local === undefined) return undefined;
-    const span = field.span;
-    const variable = (name: string): Resolved.TypeAnnotation => ({
-      kind: "TypeVariable",
-      name,
-      span,
-    });
-    const parameter = (name: string): Resolved.TypeParameter => ({
-      name,
-      constraints: [],
-      span,
-    });
-    const pin = (
-      annotation: Resolved.TypeAnnotation,
-      names: readonly string[],
-    ): Resolved.Expr => {
-      this.#importedSymbols.set(symbol.id, symbol);
-      return {
-        kind: "Name",
-        symbol: symbol.id,
-        text: local,
-        instanceSubject: { annotation, typeParameters: names.map(parameter) },
-        span,
-      };
-    };
-    if (alias === "Vector") {
-      return pin({ kind: "Vector", element: variable("a"), span }, ["a"]);
-    }
-    if (alias === "Set") {
-      return pin({ kind: "Set", element: variable("a"), span }, ["a"]);
-    }
-    if (alias === "Map") {
-      return pin(
-        { kind: "Map", key: variable("k"), value: variable("v"), span },
-        ["k", "v"],
-      );
-    }
-    if (alias === "Seq") {
-      const record = iface.records.get("Seq");
-      if (record === undefined) return undefined;
-      return pin(
-        {
-          kind: "RecordDeclaration",
-          record: record.id,
-          name: "Seq",
-          arguments: [variable("a")],
-          span,
-        },
-        ["a"],
-      );
-    }
-    return undefined;
-  }
-
-  /**
    * The instances `alias.field` could be reading, before any of the choosing:
    * every instance the module honors at a type it declares whose constraint has
    * a member of the name.
@@ -7683,6 +7553,23 @@ class Resolver {
     });
   }
 
+  /**
+   * Consequence 4 of the members-as-values ruling, as Modules §5.3 graduates it:
+   * **qualified access reaches an honoring module's members.**
+   *
+   * `Rat.add(r1, r2)` denotes `Num<Rat>`'s member; `Bool.show(flag)` denotes
+   * derived `Show<Bool>`'s. The governing principle is uniform access — a
+   * consumer's `M.f(…)` survives `f` migrating between a plain module function
+   * and a constraint member, in either direction, with no call site changing —
+   * which is why this read comes *after* `terms` and after the module's own
+   * declared members, and never merges with either.
+   *
+   * Only instances at a type the module **declares**: an instance merely passing
+   * through its import graph is not its member to offer. A module honoring one
+   * constraint at several of its own types makes the spelling ambiguous and
+   * takes §5.5's refusal posture, naming each honored type and the routes that
+   * are not ambiguous.
+   */
   #honoredMemberAccess(
     iface: ModuleInterface,
     alias: string,
@@ -8343,30 +8230,6 @@ function isResolvedTypeAlias(
 }
 
 /**
- * The prelude companions a **provided `Iterable` row** is seated at (Collections
- * Part 5 §4), by the alias that names them.
- *
- * The row has no source form to read the set off — that is what makes it
- * *provided* — so the set is written once here and consulted by both readers:
- * `#providedRowMemberAccess`, which pins the subject each one rides, and
- * `#aliasOffers`, which asks only whether the alias offers `toSeq` at all. Two
- * derivations would drift the moment one grew an entry, and the drift is not
- * symmetric: the offer side over-claiming means a `toSeq` above an import draws
- * "move the import above this use" for a member moving it does not reach, which
- * is the promise Modules §3 scopes to what an import *binds*.
- *
- * Every registered prelude member contributes an alias
- * this question can be asked at — `Int`, `Debug`, and the rest are seated files
- * too — so the guard cannot be the seating alone.
- */
-export const PROVIDED_ROW_ALIASES: ReadonlySet<string> = new Set([
-  "Vector",
-  "Set",
-  "Map",
-  "Seq",
-]);
-
-/**
  * The **open unions** of the prelude (Modules §5.5, #742): the three whose
  * constructors are seeded into a consumer's bare term scope, in expressions and
  * in patterns alike.
@@ -8438,16 +8301,22 @@ const STRUCTURAL_CONSTRAINT_IDENTITIES: ReadonlySet<string> = new Set(
 );
 
 /**
- * The operations a primitive companion is asked for and deliberately does not
- * have, with the sentence that says why (Integral §8's diagnostics row).
+ * The operations a prelude companion is asked for and deliberately does not
+ * have, with the sentence that says where to go instead, keyed by the prelude
+ * member's registered name.
  *
- * A name-not-found hint is cheap, and this one is worth its keep: the obvious
- * hand-rolled `a * b / gcd(a, b)` at `Int` overflows the safe range for
- * ordinary inputs, silently, which is exactly the mistake the missing member is
- * refusing to make. The row survived the re-homing (#344) — the spelling now
- * misses as an ordinary does-not-export at a real module rather than at the
- * wired route — because the obligation is the row, not the mechanism that
- * carried it.
+ * A name-not-found hint is cheap, and each row is worth its keep:
+ *
+ * - `Int.lcm` (Integral §8's diagnostics row): the obvious hand-rolled
+ *   `a * b / gcd(a, b)` at `Int` overflows the safe range for ordinary inputs,
+ *   silently, which is exactly the mistake the missing member is refusing to
+ *   make. The row survived the re-homing (#344) — the spelling now misses as an
+ *   ordinary does-not-export at a real module rather than at the wired route —
+ *   because the obligation is the row, not the mechanism that carried it.
+ * - `Seq.toSeq` (Collections Part 5 §4, #1141): every other collection's
+ *   `toSeq` reads through its companion, so the spelling is the one a reader
+ *   reaches for by analogy; `Seq`'s row is `Iterable.hex`'s, because `Seq.hex`
+ *   seats before the constraint.
  */
 const CURATED_COMPANION_MISSES: ReadonlyMap<string, string> = new Map([
   [
@@ -8455,15 +8324,20 @@ const CURATED_COMPANION_MISSES: ReadonlyMap<string, string> = new Map([
     "`Int` has no `lcm` — its results overflow `Int`'s safe range for ordinary " +
       "inputs; use `BigInt.lcm`",
   ],
+  [
+    "Seq.toSeq",
+    "`Seq` has no `toSeq` — its `Iterable` instance is declared in module " +
+      "`Iterable`; use `Iterable.toSeq`, or call `toSeq` by the dot",
+  ],
 ]);
 
 function curatedCompanionMiss(
-  companion: string | undefined,
+  member: string | undefined,
   field: string,
 ): string | undefined {
-  return companion === undefined
+  return member === undefined
     ? undefined
-    : CURATED_COMPANION_MISSES.get(`${companion}.${field}`);
+    : CURATED_COMPANION_MISSES.get(`${member}.${field}`);
 }
 
 /** One `honor` declaration's binding of one member spelling (Constraints §4.6). */

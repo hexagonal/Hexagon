@@ -353,8 +353,8 @@ export function isIntrinsicScheme(specifier: string): boolean {
  * ordinary Hexagon in `stdlib/Array.hex`. The sentence above is exactly why:
  * `vectorToArray` is keyed because a source body could not name its own result,
  * and the mirror of that argument is false. An `Array(a)` has no *producer*,
- * but it has a *traversal* — §8.1's provided `Iterable` row, which §8.2 emits
- * as native `for...of` — and `stdlib/Array.hex` is seated after
+ * but it has a *traversal* — the file's own `Iterable` instance (§8.1), which
+ * §8.2 emits as native `for...of` — and `stdlib/Array.hex` is seated after
  * `stdlib/Vector.hex` in the prelude order, so `Vector.append` is in scope
  * there. A `for` over the borrow folding `append` is therefore expressible, at
  * the same complexity and the same emitted shape a key would produce — the

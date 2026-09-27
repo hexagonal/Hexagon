@@ -227,12 +227,13 @@ describe("one declaration under either spelling", () => {
 
     // The second module honors a constraint it did not declare for a subject it
     // did not declare, so it earns Constraints §5.3's orphan error on its own
-    // account; the duplicate is then reported twice, once at that head and once
-    // at the importer that reaches both. All three are the control's, in order.
+    // account, naming the home whose instance fills the slot (#1131); the
+    // duplicate is then reported at the importer that reaches both. Both are
+    // the control's, in order.
     expect(messages(qualifiedHome)).toEqual(messages(allBare));
     expect(messages(qualifiedHome)).toEqual([
-      "orphan instance: this module declares neither `Describe` nor the instance subject",
-      "duplicate instance of `Describe<Box>`",
+      "orphan instance: this module declares neither `Describe` nor the instance subject; " +
+        "`Describe<Box>` is already declared in module `Home`",
       "duplicate instance of `Describe<Box>`",
     ]);
   });
@@ -277,8 +278,8 @@ describe("one declaration under either spelling", () => {
       message.replaceAll("`D.Describe", "`Describe")
     )).toEqual(messages(allBare));
     expect(messages(qualifiedElsewhere)).toEqual([
-      "orphan instance: this module declares neither `D.Describe` nor the instance subject",
-      "duplicate instance of `D.Describe<Box>`",
+      "orphan instance: this module declares neither `D.Describe` nor the instance subject; " +
+        "`D.Describe<Box>` is already declared in module `Home`",
       "duplicate instance of `D.Describe<Box>`",
     ]);
   });

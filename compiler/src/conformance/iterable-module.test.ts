@@ -10,19 +10,17 @@ import { compileFiles, projectDiagnostics, runMain } from "../support/test-proje
  * constraint** (Part 5 §1). `Iterable` was pre-registered by name with no
  * declaration behind it, so its members were reachable only through a user's
  * own `constraint Iterable<c> = ...` — the thing §5.1.1 calls a compiler gap
- * rather than a spec freedom. The declaring module closes it, and the nine
- * provided rows of §4 stop being a hard-wired dispatch table beside the
- * constraint system and become ordinary coherence slots inside it.
+ * rather than a spec freedom. The declaring module closes it, and the rows of
+ * §4 stop being a hard-wired dispatch table beside the constraint system and
+ * become ordinary coherence slots inside it — each of them, since #1141, an
+ * `honor` block in its type's companion (`Seq`'s in `Iterable.hex` itself).
  *
- * What that buys is testable, and is what this file tests: `toSeq` is one bare
- * name with one exporter that works at every provided type; the per-type
- * qualified spellings survive as Modules §5.3 uniform-access reads even though
- * no companion exports them; the `Item` projection instantiates to the right
- * element type at each row; and the slots are occupied, which is what lets the
- * orphan report say the prelude already fills them.
- *
- * The rows keep **no source form** (§4). Nothing below writes one, and the
- * refusals that make writing one impossible are asserted rather than assumed.
+ * What that buys is testable, and is what this file tests: `toSeq` is one
+ * member name that works at every standard type; the per-type qualified
+ * spellings read as Modules §5.3 honored members even though no companion
+ * exports them; the `Item` projection instantiates to the right element type
+ * at each row; and the slots are occupied, which is what lets an orphan report
+ * say who already fills them.
  */
 
 const mainOf = async (source: string): Promise<unknown> => {
@@ -66,7 +64,7 @@ describe("the declaration lands, and the twin is refused", () => {
   });
 });
 
-describe("the provided rows: bare `toSeq` and the `Item` projection", () => {
+describe("the standard rows: `toSeq` and the `Item` projection", () => {
   /**
    * Each row's element type is asserted through a *use* that only typechecks at
    * that type, never by reading the projection back: `++` needs `Concat`, `+`
@@ -119,14 +117,8 @@ describe("the provided rows: bare `toSeq` and the `Item` projection", () => {
    * The behavioural half alone **cannot fail for that property**: a row that
    * re-wrapped the sequence in a fresh adapter spine would sum to 3 just the
    * same, and "pay nothing" is exactly what a sum cannot observe. So the
-   * emitted slot is read as well. `__source => __source` is the claim;
-   * `__seqFromIterable` in that position would be the defect.
-   *
-   * The sequence is built from `Seq`'s own producers rather than with
-   * `Vector.toSeq`, and that is what makes the negative assertion mean
-   * anything: a `Vector` read in the same fixture emits the *vector* row, whose
-   * slot is legitimately `__seqFromIterable`, and the two rows' dictionaries
-   * are indistinguishable by text.
+   * emitted member is read as well: `Iterable.hex`'s `toSeq(s) = s` (#1141),
+   * which the use imports rather than rebuilding.
    */
   test("Seq(a) is the identity, not a re-wrapping", async () => {
     const source =
@@ -135,10 +127,13 @@ describe("the provided rows: bare `toSeq` and the `Item` projection", () => {
       "    Seq.fold(Iterable.toSeq(sequence), 0, (acc, n) => acc + n)\n";
     const project = compileFiles([["/main.hex", "module Main\n\n" + source]]);
     expect(project.diagnostics).toEqual([]);
-    const javascript = project.modules
-      .find(({ source: file }) => file.path === "/main.hex")!.javascript.text;
-    expect(javascript).toContain("({ toSeq: __source => __source })");
-    expect(javascript).not.toContain("({ toSeq: __seqFromIterable })");
+    const text = (path: string) =>
+      project.modules.find(({ source: file }) => file.path === path)!.javascript.text;
+    expect(text("/main.hex")).toContain(
+      'import { __Iterable_Seq_toSeq as toSeq } from "./Hex/Iterable.js";',
+    );
+    expect(text("/main.hex")).not.toContain("seqFromIterable");
+    expect(text("/Hex/Iterable.hex")).toContain("const __Iterable_Seq_toSeq = s => s;");
     expect(await mainOf(source)).toBe(3);
   });
 
@@ -241,7 +236,7 @@ describe("the provided rows: bare `toSeq` and the `Item` projection", () => {
    * asks for no evidence and emits a native `for…of`, exactly as it did before
    * the rows existed.
    */
-  test("`for..in` over a provided type still erases to a native loop", () => {
+  test("`for..in` over a companion's type still erases to a native loop", () => {
     const project = compileFiles([[
       "/main.hex",
       "module Main\n\n" + "export let main(): Int =\n" +
@@ -262,9 +257,8 @@ describe("the qualified spellings survive the retirement (Modules §5.3)", () =>
   /**
    * The companions no longer *export* `toSeq` — Constraints §4.6 forbids a
    * module-level binding of a member's spelling beside the instance — and every
-   * per-type spelling still reads. For Vector, Set, and Map that is the
-   * uniform-access read of a provided row; String now takes the ordinary
-   * source-instance path, homed at its companion like `Int.show`.
+   * per-type spelling still reads: each is the honored-member read of the
+   * companion's own source instance, homed there like `Int.show` (#1141).
    */
   test("Vector, Set, Map and String all answer their qualified read", async () => {
     expect(await mainOf(
@@ -524,73 +518,61 @@ describe("the `for p in e` failure taxonomy (Part 5 §3.2/§3.3)", () => {
   });
 });
 
-describe("provided rows occupy real slots (Part 5 §7.3)", () => {
+describe("an orphan row on a filled slot draws one report (Part 5 §7.3, #1131)", () => {
   /**
    * The slot being genuinely occupied is what this asserts, and the message is
-   * how it shows. A user `honor Iterable<Vector(a)>` fails the orphan rule
-   * first — the file declares neither `Iterable` nor `Vector` — and the report
-   * appends the fact worth knowing rather than leaving the user to guess why no
-   * module may supply it.
+   * how it shows. A program's `honor Iterable<Vector(a)>` fails the orphan rule
+   * — the file declares neither `Iterable` nor `Vector` — and the report
+   * appends the fact worth knowing, naming the module whose `honor` already
+   * fills the slot, rather than leaving the user to guess why no module may
+   * supply it.
    *
-   * A duplicate-instance error proper is deliberately *absent*: §7.3 pins it as
-   * unreachable for a prelude pair from user code, since satisfying the orphan
-   * rule would mean editing the prelude.
+   * A duplicate report does not follow. The orphan refusal is the verdict, and
+   * the duplicate would only restate it; every standard row is source now, so
+   * the one rule covers all nine.
    */
-  test("the orphan report names the row the prelude already provides", () => {
-    const messages = projectDiagnostics("module Main\n\n" + "honor Iterable<Vector(a)> =\n" +
-        "    type Item = a\n" +
-        "    toSeq(xs) = Vector.toSeq(xs)\n",
-    );
-    expect(messages).toContain(
-      "orphan instance: this module declares neither `Iterable` nor the instance " +
-        "subject; the prelude already provides `Iterable<Vector(a)>`",
-    );
-    expect(messages.some((message) => message.startsWith("duplicate instance"))).toBe(false);
-  });
-
-  /**
-   * The two FFI Part 10 rows and `Array`'s used to be found by the same
-   * appendix (#396). They are source rows in their companions now (#1076), so
-   * a program's own row there is the orphan it is at `String` and `Range`, and
-   * the appendix has nothing provided to name. (#1131: the duplicate report
-   * that follows it is filed.)
-   */
-  test("the captured collections' rows are their companions', not provided", () => {
-    for (const [head, item] of [["JsMap(k, v)", "(k, v)"], ["JsSet(a)", "a"], ["Array(a)", "a"]]) {
-      const messages = projectDiagnostics("module Main\n\n" + `honor Iterable<${head}> =\n` +
-          `    type Item = ${item}\n` +
-          "    toSeq(xs) = Seq.empty\n",
-      );
-      expect(messages).toContain(
-        "orphan instance: this module declares neither `Iterable` nor the instance subject",
-      );
-      expect(messages.join("\n")).not.toContain("already provides");
-    }
-  });
-
-  /**
-   * No source form, from the other side. `Vector(a)` is a lawful head since its
-   * companion declares it (#1071; Constraints §4.4), so what refuses a
-   * program's `Iterable<Vector(a)>` now is the orphan rule — the program owns
-   * neither half — and the hint names the row already there. Its home is
-   * `Hex.Vector`, where the Iterable arc will write it.
-   */
-  test("a program's row at a collection is an orphan, and the hint names the provided row", () => {
-    expect(projectDiagnostics("module Main\n\n" + "honor Iterable<Vector(a)> =\n" +
-        "    type Item = a\n" +
-        "    toSeq(xs) = Vector.toSeq(xs)\n",
+  test.each([
+    ["Vector(a)", "a", "Vector"],
+    ["Map(k, v)", "(k, v)", "Map"],
+    ["Set(a)", "a", "Set"],
+    ["Seq(a)", "a", "Iterable"],
+    ["Range", "Int", "Range"],
+    ["String", "String", "String"],
+    ["Array(a)", "a", "Array"],
+    ["JsMap(k, v)", "(k, v)", "JsMap"],
+    ["JsSet(a)", "a", "JsSet"],
+  ])("a program's `Iterable<%s>` names the row already declared", (head, item, home) => {
+    expect(projectDiagnostics("module Main\n\n" + `honor Iterable<${head}> =\n` +
+        `    type Item = ${item}\n` +
+        "    toSeq(xs) = Seq.empty\n",
     )).toEqual([
       "orphan instance: this module declares neither `Iterable` nor the instance " +
-        "subject; the prelude already provides `Iterable<Vector(a)>`",
+        `subject; \`Iterable<${head}>\` is already declared in module \`${home}\``,
+    ]);
+  });
+
+  /**
+   * The clause names wherever the occupant was declared, this module included:
+   * a second orphan row at one slot is refused as an orphan, pointing at the
+   * first, and draws no duplicate report beside it.
+   */
+  test("a second orphan row names this module", () => {
+    expect(projectDiagnostics("module Main\n\n" +
+        "honor Iterable<Option(a)> =\n    type Item = a\n    toSeq(xs) = Seq.empty\n\n" +
+        "honor Iterable<Option(a)> =\n    type Item = a\n    toSeq(xs) = Seq.empty\n",
+    )).toEqual([
+      "orphan instance: this module declares neither `Iterable` nor the instance subject",
+      "orphan instance: this module declares neither `Iterable` nor the instance " +
+        "subject; `Iterable<Option(a)>` is already declared in this module",
     ]);
   });
 
   /**
    * The table's public door still opens. A user collection needs exactly one
-   * small `honor` block (§8.1's recipe), and the orphan hint does not fire for
-   * it — the slot is the user's, not the prelude's.
+   * small `honor` block (§8.1's recipe), and no report fires for it — the
+   * slot is the user's, not the prelude's.
    */
-  test("a user row at a user nominal is accepted, and the hint stays silent", async () => {
+  test("a user row at a user nominal is accepted, and nothing is reported", async () => {
     expect(await mainOf(
       "record Bag(a) = {items: Vector(a)}\n" +
         "honor Iterable<Bag(a)> =\n" +

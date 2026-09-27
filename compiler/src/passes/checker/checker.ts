@@ -34,6 +34,7 @@ import {
   isPublicTypeKind,
   publicTypeKey,
   publicTypeKind,
+  type PublicTypeKind,
 } from "../../intrinsics.js";
 import { PRIMITIVE_COMPANION_MODULES } from "../../prelude.js";
 import { relativeSpecifier } from "../../support/paths.js";
@@ -4212,14 +4213,12 @@ class Checker {
   >();
   readonly #instances = new Map<string, Resolved.HonorItem>();
   /**
-   * Which of `#instances`' entries are Collections Part 5 §4's provided rows.
-   *
-   * Read at exactly two places, and both are about the rows having no source:
-   * `#validate` marks their discharge *structural* rather than handing emission
-   * a dictionary name no module exports, and the orphan report asks whether the
-   * slot a user tried to fill is one the prelude already holds (§7.3).
+   * The module each of `#instances`' entries was declared in, by path, where the
+   * compilation has paths. Read by one report: an orphan `honor` on a slot
+   * already filled names the declaration that fills it (Collections Part 5 §7.3,
+   * #1131).
    */
-  readonly #providedIterableRows = new Set<Resolved.HonorItem>();
+  readonly #instanceHomes = new WeakMap<Resolved.HonorItem, string>();
   /** Instance declarations licensed for String's allocation-free direct loop. */
   readonly #canonicalStringIterableInstances = new WeakSet<Resolved.HonorItem>();
   readonly #instanceIdentities = new Map<string, string>();
@@ -4717,16 +4716,9 @@ class Checker {
         this.#indexForbiddenInstanceProvider(provider);
       }
     }
-    // Collections Part 5 §4's provided rows, in the same evidence universe as
-    // every other instance and seeded from the same place. They arrive after
-    // the two import channels because they are neither: no module declares
-    // them, so there is nothing for a duplicate check to be *against* — a user
-    // `honor Iterable<Vector(a)>` is refused by the orphan rule long before it
-    // could reach a slot (§7.3).
-    this.#seedProvidedIterableRows(module);
     for (const item of module.items) {
       if (item.kind === "Honor") {
-        this.#checkInstanceHead(item, module.items);
+        const folded = this.#checkInstanceHead(item, module.items);
         // An instance's parameters are declared type variables, exactly as a
         // lambda's `<a: Render>` binders are: rigid, so `#bind` keeps them as
         // their class's representative and rejects binding them to a concrete
@@ -4826,7 +4818,7 @@ class Checker {
         this.#storeInstanceImpliedTypes(item, typeParameters, true);
         const key = this.#instanceKey(item.constraintIdentity, subject);
         const occupant = this.#instances.get(key);
-        if (this.#compilerProvidedSlot(item, instanceSubject, occupant)) {
+        if (this.#compilerProvidedSlot(item, instanceSubject)) {
           this.#diagnostics.add({
             severity: "error",
             message: `duplicate instance of \`${item.constraint}<${this.#display(subject)}>\`: ` +
@@ -4839,31 +4831,13 @@ class Checker {
           // name bare: there is one constraint to name, and qualifying it by
           // declaring module would print the same module twice.
           //
-          // Silent when the occupant is a provided row: Collections Part 5 §7.3
-          // pins that a duplicate-instance error proper is *unreachable* for a
-          // prelude pair from user code, because satisfying the orphan rule
-          // would mean editing the prelude. The orphan report is the one that
-          // fires, and `#providedRowNote` appends the fact the user needs.
-          //
-          // **The one silent path this opens, for whoever edits the prelude
-          // next.** From user code the suppression is unreachable: a user file
-          // declares neither `Iterable` nor any provided row's subject, so it
-          // fails the orphan rule and gets the report either way — and at
-          // `Vector(a)`, `Map(k, v)`, or `Set(a)` even the standard library is
-          // stopped before this, by `#compilerProvidedSlot` (#1071). Inside
-          // `stdlib/Iterable.hex` both guards lift at once: it *declares* the
-          // constraint, so `ownsConstraint` holds and no orphan error fires, and
-          // a nominal head slips past the head check — so a hand-written
-          // `honor Iterable<Seq(a)>` there would collide with the seeded `Seq`
-          // row and be **dropped without a diagnostic**. Nothing writes one
-          // today, and nothing should: the rows have no source form by ruling
-          // (§4), which is what this whole branch is downstream of. If that ever
-          // changes, this suppression is where the silence lives.
-          //
-          // Deliberately not fixed by narrowing the condition. A report here
-          // would have to name a duplicate of an instance with no source span
-          // to point at, and inventing one is worse than the comment.
-          if (!this.#providedIterableRows.has(occupant)) {
+          // Silent after an orphan report that named this occupant
+          // (Constraints §5.3, #1131). The orphan refusal is the verdict on this
+          // `honor`, and it has already said the slot is filled and by whom
+          // (`#occupiedSlotNote`), so a second report here would only restate
+          // it. A lawful `honor` has no orphan report to fold into, and gets
+          // this one.
+          if (!folded) {
             this.#diagnostics.add({
               severity: "error",
               message: `duplicate instance of \`${item.constraint}<${this.#display(subject)}>\``,
@@ -4876,6 +4850,7 @@ class Checker {
             key,
             `${Number(module.fileId)}:${item.dictionary}`,
           );
+          if (module.path !== undefined) this.#instanceHomes.set(item, module.path);
         }
       }
     }
@@ -6822,24 +6797,20 @@ class Checker {
    * *(#1071, ruled 2026-09-26.)* Whether a lawful `honor` at a public door
    * row's type lands on a slot the **compiler** fills: `#selectEvidence`'s
    * structural answers (`Eq`, `Ord`, `Show`, `Hash`, `Concat` at the kinds that
-   * have them) or a provided `Iterable` row (Collections Part 5 §4). An instance
-   * there is one or the other, never both (Intrinsics §3.3): a provided row
-   * moves into source by being deleted in the same change, and a source row
-   * beside it would be dead, or dropped, or — for `Hash` — an emission fault.
+   * have them). An instance there is one or the other, never both
+   * (Intrinsics §3.3): a compiler-filled slot moves into source by being
+   * deleted in the same change, and a source row beside it would be dead, or —
+   * for `Hash` — an emission fault. The `Iterable` rows were the other kind of
+   * compiler-filled slot, and every one of them is source now (#1141).
    *
    * Only standard-library source can write one: a program owns neither half of
    * such a head, so the orphan rule answers it first and this stays silent.
    */
-  #compilerProvidedSlot(
-    item: Resolved.HonorItem,
-    subject: Mono,
-    occupant: Resolved.HonorItem | undefined,
-  ): boolean {
+  #compilerProvidedSlot(item: Resolved.HonorItem, subject: Mono): boolean {
     if (!isPublicTypeKind(item.subject.kind)) return false;
     const lawful = this.#localConstraints.has(item.constraint) ||
       this.#ownPublicKinds.has(item.subject.kind);
     if (!lawful) return false;
-    if (occupant !== undefined && this.#providedIterableRows.has(occupant)) return true;
     return this.#selectEvidence(subject, item.constraintIdentity, item.constraint).kind ===
       "components";
   }
@@ -6856,10 +6827,16 @@ class Checker {
       this.#ownPublicKinds.has(subject.kind);
   }
 
+  /**
+   * The instance-head laws, and the orphan rule. Answers whether the orphan
+   * report fired *and named the instance already filling the slot* — the one
+   * case a duplicate report is folded into it (#1131), so a fold never happens
+   * without the clause that makes the second report redundant.
+   */
   #checkInstanceHead(
     item: Resolved.HonorItem,
     moduleItems: readonly Resolved.Item[],
-  ): void {
+  ): boolean {
     const subject = item.subject;
     // *(#1071.)* A type a public door row declares — `Vector`, `Map`, `Set` —
     // is a nominal constructor for this law like any declared one: the row is
@@ -6941,57 +6918,59 @@ class Checker {
           candidate.record === subject.record)
       );
     if (!ownsConstraint && !ownsSubject) {
+      const occupied = this.#occupiedSlotNote(item);
       this.#diagnostics.add({
         severity: "error",
         message: `orphan instance: this module declares neither \`${item.constraint}\` nor the instance subject` +
-          this.#providedRowNote(item),
+          occupied,
         primary: item.span,
       });
+      return occupied !== "";
     }
+    return false;
   }
 
   /**
-   * Collections Part 5 §7.3: when the slot a user tried to fill is one the
-   * prelude already holds, the orphan error appends the fact.
+   * Collections Part 5 §7.3 (#1131): when the slot an orphan `honor` tried to
+   * fill is already filled, the orphan error appends the fact and names the
+   * module that declares it.
    *
-   * The orphan rule fires *first* for a provided row — the user's file declares
-   * neither `Iterable` nor `Vector` — so a duplicate-instance error proper is
-   * unreachable from user code for these pairs, and the useful thing to say is
-   * not "this is illegal here" but "this already exists". The head is rendered
-   * from the registered row's own subject, so the message names `Vector(a)`
-   * rather than whatever the user wrote.
+   * The orphan refusal is the verdict — the file declares neither half of the
+   * head, so no edit to it makes the `honor` legal — and the useful thing to
+   * add is not "this is also a duplicate" but "this already exists, there". So
+   * the duplicate report the slot would otherwise draw is folded into this one
+   * (the `Honor` arm of pass 1). The head is rendered from the occupant's own
+   * subject, so the message names `Vector(a)` rather than whatever the user
+   * wrote.
    */
-  #providedRowNote(item: Resolved.HonorItem): string {
+  #occupiedSlotNote(item: Resolved.HonorItem): string {
     // Read off the **annotation**, not the elaborated subject: head checking
     // runs before pass 1 stores the `Mono`, so `#instanceSubjects` is still
-    // empty here. The key below is the same one `#subjectKey` mints, which is
-    // what keeps this asking about the slot selection would actually use.
+    // empty here for this item. The key below is the one `#resolvedSubjectKey`
+    // mints for the same head — the public kinds through the one shared
+    // `publicKindKey` — which is what keeps this asking about the slot selection
+    // would actually use. Every kind the head law admits has one.
     const subject = item.subject;
-    const key = subject.kind === "Vector"
-      ? "vector"
-      : subject.kind === "Map"
-      ? "map"
-      : subject.kind === "Set"
-      ? "set"
-      : subject.kind === "Array"
-      ? "array"
-      : subject.kind === "JsMap"
-      ? "jsmap"
-      : subject.kind === "JsSet"
-      ? "jsset"
-      : subject.kind === "Range"
-      ? "range"
+    const key = isPublicTypeKind(subject.kind)
+      ? publicKindKey(subject.kind)
       : subject.kind === "Primitive"
       ? `primitive:${subject.name}`
       : subject.kind === "RecordDeclaration"
       ? `record:${Number(subject.record)}`
+      : subject.kind === "Union"
+      ? `union:${Number(subject.union)}`
       : undefined;
     if (key === undefined) return "";
-    const row = this.#instances.get(`${item.constraintIdentity}:${key}`);
-    if (row === undefined || !this.#providedIterableRows.has(row)) return "";
-    const head = this.#instanceSubjects.get(row);
+    const occupant = this.#instances.get(`${item.constraintIdentity}:${key}`);
+    if (occupant === undefined) return "";
+    const head = this.#instanceSubjects.get(occupant);
     if (head === undefined) return "";
-    return `; the prelude already provides \`${item.constraint}<${this.#display(head)}>\``;
+    const declared = `; \`${item.constraint}<${this.#display(head)}>\` is already declared`;
+    const home = this.#instanceHomes.get(occupant);
+    if (home === undefined) return declared;
+    if (home === this.#modulePath) return `${declared} in this module`;
+    const name = this.#moduleName(home);
+    return name === undefined ? declared : `${declared} in module \`${name}\``;
   }
 
   #inferItems(
@@ -9692,11 +9671,11 @@ class Checker {
         let element: Mono = ERROR;
         // The arms below are the **erasure of Collections Part 5 §4's rows at
         // the built-in kinds, not a mechanism beside them** (#353, ruling 2).
-        // Each such row is a real coherence slot — provided by
-        // `#seedProvidedIterableRows` for `Vector`, `Map` and `Set`, written in
-        // the companion's source for `Range` (#1073) and the captured `Array`,
-        // `JsMap` and `JsSet` (#1076), and what `toSeq(xs)` and `Vector.toSeq(xs)`
-        // both discharge against — and reading the element type straight off the
+        // Each such row is a real coherence slot — written in the type's
+        // companion (`Vector`, `Map` and `Set` since #1141, `Range` since #1073,
+        // the captured `Array`, `JsMap` and `JsSet` since #1076), and what
+        // `toSeq(xs)` and `Vector.toSeq(xs)` both discharge against — and
+        // reading the element type straight off the
         // constructor here computes exactly what looking the row up and
         // substituting would: `Vector(a)` implies `Item = a`, and `Map(k, v)`
         // implies `(k, v)`. The shortcut is licensed by the binder ban
@@ -9710,8 +9689,9 @@ class Checker {
         //
         // `for x in` over a `Seq` stays compiler-owned in *emission* (ruling
         // R3): the emitter's constant-stack `next` loop, not a dictionary call.
-        // The `Seq` row exists all the same — it is the identity, and `toSeq`
-        // at a sequence resolves through it — but the loop never asks for it.
+        // The `Seq` row exists all the same — `Iterable.hex`'s identity, and
+        // `toSeq` at a sequence resolves through it — but the loop never asks
+        // for it.
         const sequenceElement = this.#asSequence(actual);
         if (actual.kind === "Range") {
           element = primitive("Int");
@@ -11844,13 +11824,7 @@ class Checker {
     if (subject.kind === "Constructor") return `primitive:${subject.name}`;
     if (subject.kind === "NominalRecord") return `record:${Number(subject.record)}`;
     if (subject.kind === "Union") return `union:${Number(subject.union)}`;
-    if (subject.kind === "Range") return "range";
-    if (subject.kind === "Vector") return "vector";
-    if (subject.kind === "Map") return "map";
-    if (subject.kind === "Set") return "set";
-    if (subject.kind === "Array") return "array";
-    if (subject.kind === "JsMap") return "jsmap";
-    if (subject.kind === "JsSet") return "jsset";
+    if (isPublicTypeKind(subject.kind)) return publicKindKey(subject.kind);
     return undefined;
   }
 
@@ -24559,27 +24533,13 @@ class Checker {
     if (selection.kind === "instance") {
       const instance = selection.instance;
       this.#pinInstanceSubject(instance, type, requirement.span);
-      // A provided row (Part 5 §4) has no module to have exported a dictionary,
-      // so it takes the structural channel instead of the instance one: the
-      // slot is rendered inline at the use, exactly as `Bool`'s four and the
-      // container walks are. This is ruling 2 of #353 — the table is the
-      // semantics and static dispatch is its *erasure*, not a mechanism beside
-      // it — and it is why the row can sit in a real coherence slot without
-      // inventing an import channel for a name no module writes. `components`
-      // is empty because the row satisfies the constraint outright: iterating
-      // a `Vector(a)` demands nothing of `a`.
-      if (this.#providedIterableRows.has(instance)) {
-        requirement.components = [];
-        requirement.structural = true;
-      } else {
-        requirement.dictionary = instance.dictionary;
-        requirement.dictionaryArguments = this.#instanceArguments(instance, type, requirement);
-        if (
-          requirement.origin === "iteration" &&
-          this.#canonicalStringIterableInstances.has(instance)
-        ) {
-          requirement.canonicalStringIterable = true;
-        }
+      requirement.dictionary = instance.dictionary;
+      requirement.dictionaryArguments = this.#instanceArguments(instance, type, requirement);
+      if (
+        requirement.origin === "iteration" &&
+        this.#canonicalStringIterableInstances.has(instance)
+      ) {
+        requirement.canonicalStringIterable = true;
       }
       if (requirement.impliedTypes !== undefined) {
         const bindings = this.#instanceImpliedTypes.get(instance);
@@ -25416,11 +25376,11 @@ class Checker {
           match(argument, actual.arguments[index] ?? ERROR)
         );
       }
-      // The structural constructors, which only the provided `Iterable` rows
-      // put in the table (#353). Without these the match returns empty at a
-      // `Vector(a)` head and `Item` unifies against the *formal* binder rather
-      // than the element — the projection would type as a rigid variable and
-      // every `toSeq(v)` would be a mismatch.
+      // The built-in kinds, which the companions' `honor` blocks put in the
+      // table (#353; in source since #1076 and #1141). Without these the match
+      // returns empty at a `Vector(a)` head and `Item` unifies against the
+      // *formal* binder rather than the element — the projection would type as
+      // a rigid variable and every `toSeq(v)` would be a mismatch.
       if (formal.kind === "Vector" && actual.kind === "Vector") {
         match(formal.element, actual.element);
       }
@@ -27254,6 +27214,9 @@ class Checker {
     }
     this.#admitInstance(key, imported.constraintIdentity, subject, instance);
     this.#instanceIdentities.set(key, imported.identity);
+    if (imported.declaringPath !== undefined) {
+      this.#instanceHomes.set(instance, imported.declaringPath);
+    }
   }
 
   /**
@@ -27273,155 +27236,6 @@ class Checker {
       this.#instanceKey(provider.constraintIdentity, subject),
       provider.path,
     );
-  }
-
-  /**
-   * Collections Part 5 §4's four provided rows, seeded into the ordinary
-   * evidence universe.
-   *
-   * **The table is the constraint** (Part 5 §1). The rows are compiler-provided
-   * and have **no source form** (§4, and #353's ruling 1): `Seq`'s row cannot be
-   * source because `Seq.hex` seats before `Iterable.hex` and a cycle is the only
-   * other ordering; `Vector`'s could since #1071 — `Hex.Vector` declares the
-   * type and is its home — but it moves into source only by this row being
-   * deleted in the same change (`#compilerProvidedSlot` refuses both at once);
-   * `Map`'s and `Set`'s follow. `Range`'s moved at #1073 and the captured
-   * `Array`, `JsMap`, and `JsSet` rows at #1076, each into its own companion.
-   * What they are *not* is a second mechanism beside the constraint
-   * system — they occupy real coherence slots here, which is what makes §7.3's
-   * orphan hint have something to find, `toSeq` resolve at a concrete provided
-   * type, and Modules §5.3's `Vector.toSeq` read honest.
-   *
-   * Seeded internally rather than through `#seedImportedInstance`, deliberately.
-   * That path rebuilds the subject and the implied types by *elaborating
-   * annotations*, which is where an instance grows a second representation of
-   * its binders (#392, still open). Here the subject Mono and the `Item` binding
-   * are built together from one freshly minted rigid variable and stored
-   * directly, so the two can no more disagree than a value can differ from
-   * itself — which is #388's lesson applied ahead of the defect rather than
-   * after it.
-   */
-  #seedProvidedIterableRows(module: Resolved.Module): void {
-    const declaration = this.#constraintsByIdentity.get(
-      preRegisteredConstraintIdentity("Iterable"),
-    );
-    // No declaration in view is a compile with no prelude at all — the unit
-    // harnesses. A row whose constraint cannot be named would be evidence for
-    // a requirement nothing can raise.
-    if (declaration === undefined) return;
-    const span = declaration.span;
-    const identity = preRegisteredConstraintIdentity("Iterable");
-    const variable = (name: string): Variable => {
-      const fresh = this.#fresh(0, false, name);
-      this.#quantified.add(fresh.id);
-      this.#honorBinderVariables.add(fresh.id);
-      return fresh;
-    };
-    const annotation = (name: string): Resolved.TypeAnnotation => ({
-      kind: "TypeVariable",
-      name,
-      span,
-    });
-    const seed = (
-      head: string,
-      binders: readonly string[],
-      subject: (parameters: ReadonlyMap<string, Variable>) => Mono,
-      item: (parameters: ReadonlyMap<string, Variable>) => Mono,
-      subjectAnnotation: Resolved.TypeAnnotation,
-    ): void => {
-      const parameters = new Map(binders.map((name) => [name, variable(name)] as const));
-      const instance: Resolved.HonorItem = {
-        kind: "Honor",
-        constraint: "Iterable",
-        constraintIdentity: identity,
-        typeParameters: binders.map((name) => ({ name, constraints: [], span })),
-        subject: subjectAnnotation,
-        derived: false,
-        // Never emitted, and never reached: `#validate` marks a provided row's
-        // requirement structural, so elaboration renders the dictionary inline
-        // (`#derivedDictionary`'s `Iterable` arm) instead of naming a const no
-        // module exports. The name is here because the field is not optional,
-        // and it is `__`-prefixed so a stray emission would be a loud
-        // ReferenceError rather than a silent capture of a user identifier.
-        dictionary: `__provided_Iterable_${head}`,
-        memberSeats: [],
-        impliedTypes: [],
-        members: [],
-        span,
-      };
-      this.#instanceTypeParameters.set(instance, new Map(parameters));
-      const subjectType = subject(parameters);
-      this.#instanceSubjects.set(instance, subjectType);
-      this.#instanceImpliedTypes.set(instance, new Map([["Item", item(parameters)]]));
-      this.#providedIterableRows.add(instance);
-      const key = this.#instanceKey(identity, subjectType);
-      if (this.#instances.has(key)) return;
-      this.#admitInstance(key, identity, subjectType, instance);
-    };
-
-    // `Range` is not seeded: its companion declares `Iterable<Range>` in source
-    // (`stdlib/Range.hex`, #1073), and a provided row at the same slot would be
-    // refused as a duplicate the compiler provides. Nor are the captured
-    // `Array`, `JsMap`, and `JsSet`, for the same reason (#1076).
-    seed(
-      "Vector",
-      ["a"],
-      (parameters) => ({ kind: "Vector", element: parameters.get("a")! }),
-      (parameters) => parameters.get("a")!,
-      { kind: "Vector", element: annotation("a"), span },
-    );
-    seed(
-      "Map",
-      ["k", "v"],
-      (parameters) => ({
-        kind: "Map",
-        key: parameters.get("k")!,
-        value: parameters.get("v")!,
-      }),
-      (parameters) => ({
-        kind: "Tuple",
-        elements: [parameters.get("k")!, parameters.get("v")!],
-      }),
-      { kind: "Map", key: annotation("k"), value: annotation("v"), span },
-    );
-    seed(
-      "Set",
-      ["a"],
-      (parameters) => ({ kind: "Set", element: parameters.get("a")! }),
-      (parameters) => parameters.get("a")!,
-      { kind: "Set", element: annotation("a"), span },
-    );
-    // The identity row (§4), and it is *lawful* because `Seq` traversal is pure:
-    // a persistent pure sequence is re-traversable, so the sequence view of
-    // itself is itself. The unsound twin — identity handed to an effectful
-    // producer — is not forbidden by convention but unspellable, since members
-    // are pure (Effects §5) and `Stream.toSeq` is therefore structurally
-    // inexpressible (`stream.md` §4–§5).
-    //
-    // Absent inside `stdlib/Seq.hex` itself, where the record is the module's
-    // own rather than a prelude one. Nothing there can raise the requirement:
-    // `Iterable.hex` seats *after* `Seq.hex`, so the member is not in scope.
-    const sequence = module.preludeRecords.get("Seq");
-    if (sequence !== undefined) {
-      seed(
-        "Seq",
-        ["a"],
-        (parameters) => ({
-          kind: "NominalRecord",
-          record: sequence,
-          name: "Seq",
-          arguments: [parameters.get("a")!],
-        }),
-        (parameters) => parameters.get("a")!,
-        {
-          kind: "RecordDeclaration",
-          record: sequence,
-          name: "Seq",
-          arguments: [annotation("a")],
-          span,
-        },
-      );
-    }
   }
 
   /**
@@ -27468,10 +27282,12 @@ class Checker {
     // The structural constructors, keyed on the **head alone** like every other
     // row (#353). Falling through to `#display` below would key on the whole
     // type, so `Vector(Int)` and `Vector(String)` would take different slots —
-    // which is not coherence, it is a cache. Nothing keyed here before the
-    // provided `Iterable` rows arrived: `Eq`/`Ord`/`Show`/`Hash` at these
-    // constructors are satisfied structurally and never enter the table, and a
-    // source `honor` cannot name a structural head at all (Constraints §5.4).
+    // which is not coherence, it is a cache. Nothing keyed at these kinds
+    // before the `Iterable` rows arrived: `Eq`/`Ord`/`Show`/`Hash` there are
+    // satisfied structurally and never enter the table, and an `honor` head
+    // names the kind only in a module owning one half of it — the companion
+    // whose public row declares it, or a constraint's declaring module
+    // (#1071).
     const survivors = this.#collectVariables(type).filter(
       ({ rigidName }) => rigidName === undefined,
     );
@@ -33997,6 +33813,16 @@ function impliedTypeBinderMessage(constraint: string, identity: string): string 
   return identity === preRegisteredConstraintIdentity("Iterable")
     ? `${reason}; take a \`Seq(a)\` parameter instead`
     : reason;
+}
+
+/**
+ * The coherence key's type half at a public kind (#1071): the kind's name,
+ * lowercased. One function for both readers — `#resolvedSubjectKey`, which
+ * keys the table, and `#occupiedSlotNote`, which reads a written head before
+ * it is elaborated — so the two cannot key one head differently.
+ */
+function publicKindKey(kind: PublicTypeKind): string {
+  return kind.toLowerCase();
 }
 
 /**

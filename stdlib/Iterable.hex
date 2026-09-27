@@ -1,5 +1,12 @@
 module Iterable
 
+// The constraint, and one instance: `Seq`'s. Every other standard type honors
+// `Iterable` in its own companion, but `Seq.hex` seats before this file and so
+// cannot name the constraint, which makes this, the constraint's home, the row's
+// one legal home (Collections Part 5 section 4). The row is the identity, and it
+// is lawful because a `Seq` is pure and persistent: traversing it again replays
+// the same elements, so the sequence view of a sequence is itself.
+
 (** The iteration capability: `for..in` steps through the values of any type
     honoring `Iterable`, and `toSeq` is that type's conversion to the common
     `Seq` currency. *)
@@ -9,3 +16,7 @@ export constraint Iterable<c> =
     type Item
     (** The elements of `xs` as a sequence, in the type's traversal order. *)
     toSeq(xs: c) -> Seq(Item)
+
+honor Iterable<Seq(a)> =
+    type Item = a
+    toSeq(s) = s

@@ -143,13 +143,13 @@ describe("the judgment over the pre-registered constraints", () => {
     ]));
   });
 
-  test("provided `Iterable` rows are not candidates, while String's source row is", () => {
+  test("`Iterable`'s one fundamental candidate is String's source row", () => {
     const compiled = project([["/main.hex", "module Main\n\n" + "export let x: Int = 1\n"]]);
 
-    // The compiler-provided collection rows still contribute no planner
-    // candidate. `String` is different now because its fixed companion writes
-    // an ordinary source instance, so it participates like that companion's
-    // other fundamental instances.
+    // The collection rows are at no fundamental, so they contribute no planner
+    // candidate wherever they are written. `String` is a fundamental, and its
+    // fixed companion writes an ordinary source instance, so it participates
+    // like that companion's other fundamental instances.
     for (const type of ["Nat", "Int", "Float", "BigInt", "Bool", "Unit"]) {
       expect(compiled.fundamentalInstances.has(`hex:Iterable|${type}`)).toBe(false);
     }
@@ -189,6 +189,8 @@ describe("the program table is what makes a prelude module's plan the consumer's
     // `Nat.hex` cannot see `Float`'s, and the four constraint declarations
     // before them see no companion at all. Every one of these would plan a
     // smaller edition set for its own exports than a consumer recomputes.
+    // (`Iterable.hex` is absent because this program no longer reaches it: a
+    // `toSeq` at a collection imports the companion's member since #1141.)
     expect(shortfalls.map(({ path }) => path)).toEqual([
       "/Hex/Pow.hex",
       "/Hex/Hash.hex",
@@ -200,7 +202,6 @@ describe("the program table is what makes a prelude module's plan the consumer's
       "/Hex/BigInt.hex",
       "/Hex/Seq.hex",
       "/Hex/Option.hex",
-      "/Hex/Iterable.hex",
       "/Hex/Runtime/VectorTrie.hex",
       "/Hex/Vector.hex",
     ]);

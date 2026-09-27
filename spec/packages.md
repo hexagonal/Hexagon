@@ -318,9 +318,10 @@ import MyApp.Geometry                        -- ERROR: no module MyApp.Geometry;
 -- (f) Coherence and the orphan rule across packages (§5.1)
 -- Acme: module Shape — export union Shape = …; honor Show<Shape> = …
 -- project: module Main — import Shape; honor Show<Shape> = …
-                                             -- ERROR at program check: duplicate instance of
-                                             --   Show<Shape>: declared in module Shape and in
-                                             --   module Main (Main also violates the orphan rule)
+                                             -- ERROR: orphan instance — Main declares neither
+                                             --   Show nor Shape; Show<Shape> is already declared
+                                             --   in module Acme.Shape (Constraints §5.3: the
+                                             --   orphan's own report, no duplicate beside it)
 
 -- (g) Emission layout (§6)
 -- project: module Main; module Render.Geometry; Acme: module Geometry
