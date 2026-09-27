@@ -113,6 +113,19 @@ describe("a binding may not generalize over an unsettled implied type", () => {
     expect(reports("let t(x) = (Iterable.toSeq(x), first(x))\n"))
       .toEqual([["Iterable.toSeq", LEFT_OPEN("t", "x")]]);
   });
+  test("a knot names the member the demand is in", () => {
+    expect(reports(
+      "fun\n" +
+        "    b(x) = if True then 1 else a(x)\n" +
+        "    a(y) = Seq.length(Iterable.toSeq(y)) + b(y)\n",
+    )).toEqual([["Iterable.toSeq", LEFT_OPEN("a", "y")]]);
+  });
+
+  test("the value is named through parentheses", () => {
+    expect(reports("let t(x) = Iterable.toSeq((x))\n"))
+      .toEqual([["Iterable.toSeq", LEFT_OPEN("t", "x")]]);
+  });
+
 });
 
 describe("the deadline is the owner's close", () => {
@@ -243,6 +256,20 @@ describe("the deadline is the owner's close", () => {
     ]]);
   });
 
+  test("a knot holding its subject back is refused at its close", () => {
+    // `inner` reaches `outer` with a value whose type no member's signature
+    // can supply evidence for, so the knot holds `x`'s type back rather than
+    // generalizing it. The knot is the owner: its close is the deadline.
+    const knot =
+      "fun bottom(n: Int): a = bottom(n)\n" +
+      "fun\n" +
+      "    outer(x, n: Int) = if n == 0 then Iterable.toSeq(x) else inner(n)\n" +
+      "    inner(n: Int) = outer(bottom(n), n - 1)\n";
+    expect(reports(knot + "let w: Seq(Int) = outer([\"a\", \"b\"], 0)\n"))
+      .toEqual([["Iterable.toSeq", LEFT_OPEN("outer", "x")]]);
+    expect(reports(knot)).toEqual([["Iterable.toSeq", LEFT_OPEN("outer", "x")]]);
+  });
+
   test("a subject in no binding's type keeps the ambiguity report", () => {
     expect(reports(
       "fun bottom(n: Int): a = bottom(n)\n" +
@@ -290,33 +317,6 @@ describe("a declared variable is never settled", () => {
       "first",
       `\`b\` has the generic type \`c\`, and ${REASON("Coll")}`,
     ]]);
-  });
-
-  test("a knot holding its subject back is refused at its close", () => {
-    // `inner` reaches `outer` with a value whose type no member's signature
-    // can supply evidence for, so the knot holds `x`'s type back rather than
-    // generalizing it. The knot is the owner: its close is the deadline.
-    const knot =
-      "fun bottom(n: Int): a = bottom(n)\n" +
-      "fun\n" +
-      "    outer(x, n: Int) = if n == 0 then Iterable.toSeq(x) else inner(n)\n" +
-      "    inner(n: Int) = outer(bottom(n), n - 1)\n";
-    expect(reports(knot + "let w: Seq(Int) = outer([\"a\", \"b\"], 0)\n"))
-      .toEqual([["Iterable.toSeq", LEFT_OPEN("outer", "x")]]);
-    expect(reports(knot)).toEqual([["Iterable.toSeq", LEFT_OPEN("outer", "x")]]);
-  });
-
-  test("a knot names the member the demand is in", () => {
-    expect(reports(
-      "fun\n" +
-        "    b(x) = if True then 1 else a(x)\n" +
-        "    a(y) = Seq.length(Iterable.toSeq(y)) + b(y)\n",
-    )).toEqual([["Iterable.toSeq", LEFT_OPEN("a", "y")]]);
-  });
-
-  test("the value is named through parentheses", () => {
-    expect(reports("let t(x) = Iterable.toSeq((x))\n"))
-      .toEqual([["Iterable.toSeq", LEFT_OPEN("t", "x")]]);
   });
 
   test("with no name to give, the variable is named", () => {
