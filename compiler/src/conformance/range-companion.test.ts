@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 
+import { STDLIB_SOURCES } from "../stdlib-sources";
 import { compileFiles, compileMain, runMain } from "../support/test-project.js";
 
 /**
@@ -84,6 +85,21 @@ describe("the constructors", () => {
         "export let picked: String = spell(pick(True)(3, 1))\n",
     );
     expect(exports["picked"]).toBe("3,2,1,");
+  });
+
+  /**
+   * `Range.hex` exports no `Range`-first function today, so the companion tie
+   * is exercised with one appended in its real seat: a subject-first export is a
+   * dot call on a range, as `Vector.hex`'s are on a vector (Method Syntax §4.1).
+   */
+  test("the companion's subject-first export is a dot call on a range", () => {
+    const project = compileFiles([
+      ["/main.hex", "module Main\n\nexport let n: Int = (1..3).width()\n"],
+      ["/Range.hex", STDLIB_SOURCES["Range"]! + "\nexport fun width(values: Range): Int = 1\n"],
+    ], { trustedStandardLibraryModules: new Set(["Range"]) });
+    expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
+    const main = project.modules.find(({ name }) => name === "Main");
+    expect(main?.javascript.text).toContain("const n = width(__range(1, 3));");
   });
 
   test("a written call stays a call to the member; `..` keeps its local helper", () => {
@@ -280,6 +296,23 @@ describe("the type and its face", () => {
         'import type * as R from "./Hex/Range.js";\n' +
         "export declare function f(r: R.Range): R.Range;\n" +
         "export declare const bare: Range;\n",
+    );
+  });
+
+  /**
+   * The seats whose published type is the *body's* — a function's return, an
+   * annotated `let` — take the written qualifier, as a nominal's do: the body
+   * `1..3` carries none, and the face is the author's.
+   */
+  test("a written return and an annotated `let` keep their qualifier", () => {
+    expect(declarations(
+      "import Hex.Range as R\n" +
+        "export fun g(): R.Range = 1..3\n" +
+        "export let h: R.Range = 1..3\n",
+    )).toBe(
+      'import type * as R from "./Hex/Range.js";\n' +
+        "export declare function g(): R.Range;\n" +
+        "export declare const h: R.Range;\n",
     );
   });
 

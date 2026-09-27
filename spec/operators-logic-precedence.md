@@ -348,7 +348,7 @@ The Loops spec deferred `..`'s precedence here with recorded intent; that intent
 - **Non-associative and non-chaining:** `1..2..3` is a parse error — final phrasing (owed to Loops §10.2): "`..` does not chain; a range has exactly two endpoints."
 - Comparisons apply to a `Range` value only via whatever instances `Range` has (`Ord` it has not — Loops §3.6), so the level-10/level-11 boundary almost never matters; it exists so `x in 1..10` reads unambiguously in any future syntax that combines them.
 
-Everything else about ranges — inclusivity, emptiness, `Int`-onlyness, laziness, `range`/`rangeDown` — lives in the Loops spec and is not restated.
+Everything else about ranges — inclusivity, emptiness, `Int`-onlyness, laziness, `Range.up`/`Range.down` — lives in the Loops spec and is not restated.
 
 ---
 
