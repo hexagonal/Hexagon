@@ -253,14 +253,22 @@ Readable-JS doctrine: the general mechanism exists; the common case erases.
 | Hexagon | JS |
 |---|---|
 | `for x in 1..10` (syntactic ascending range in the head) | `for (let x = 1; x <= 10; x++) { ... }` |
-| `for x in lo..hi` (syntactic range, non-literal bounds) | `for (let x = lo; x <= hi; x++)` — with `hi` bound to a `const` first if it is a non-trivial expression (evaluate once, §2.3) |
+| `for x in lo..hi` (syntactic range, non-literal bounds) | `for (let x = lo; x <= hi; x++)` — with a non-trivial `hi` bound to a `const` before the loop (evaluate once, §2.3), and a non-trivial `lo` bound to its own `const` before that (start before end, §2.3) |
 | `for x in rangeDown(hi, lo)` (syntactic) | `for (let x = hi; x >= lo; x--)` (same once-evaluation rule) |
 | `for p in e` over a directly iterable provided type | `for (const p of e)`-shaped — a destructuring head where `p` destructures, e.g. `for (const [k, v] of m.entries())` (Collections Part 4 §11) |
 | `for p in e` through a user `Iterable` instance | statically resolved `toSeq` call producing a `Seq`, then `for (const p of s)`-shaped iteration (Collections Part 5 §9) |
 | `while cond` | `while (cond) { ... }` |
 | `Range` as a first-class value (escapes a loop head) | a small range object implementing the JS iterable protocol, materialised on demand (same on-demand doctrine as constructors, Unions §6.4) |
 
-- The counting-loop erasure is **mandatory**, not an optimisation option — it is the readable-JS goal at the language's most common loop, same status as `fromNat` erasure (Numeric Literals §5). "Syntactic range" means the loop head's expression is literally a `..` application / `range(...)` / `rangeDown(...)` call; a `Range` arriving through a variable takes the general `for..of` path.
+- The counting-loop erasure is **mandatory**, not an optimisation option — it is the readable-JS goal at the language's most common loop, same status as `fromNat` erasure (Numeric Literals §5). "Syntactic range" means the loop head's expression is literally a `..` application / `range(...)` / `rangeDown(...)` call, read through grouping parentheses and an ascription as every rule that reads what an expression means reads it (Functions §8); a `Range` arriving through a variable takes the general `for..of` path.
+- A bound is **trivial** when it is an integer literal or a name nothing can rebind — a `let` (another module's, read through its qualifier, included), a parameter, a pattern binder — and a trivial `hi` stays in the test, read at every iteration. Every other bound is non-trivial, a `var` among them: the body may assign it, and the loop runs to the value the head read (§2.3). `lo` is read once in any form; it moves out only ahead of a non-trivial `hi`, and only when it is non-trivial itself, so that it still runs first:
+
+  ```js
+  const __start = lo();
+  const __end = hi();
+  for (let x = __start; x <= __end; x++) { ... }
+  ```
+- **The head is evaluated outside the loop variable's scope** (§2.1, §2.3). JavaScript evaluates a `for..of` head inside the variable's scope, and a counting loop's test runs inside it, so a head that mentions the variable's name — `for n in 1..n`, `for xs in xs` — is read into a `const` before the loop: a counting loop's mentioning bound alone (`const __end = n;` then `for (let n = 1; n <= __end; n++)`), a `for..of` source whole (`const __source = xs;` then `for (const xs of __source)`).
 - Provided directly iterable representations take the native path (`Vector` per Collections Part 3, `Seq` per §6.5, materialised `Range` objects, plus the other rows enumerated by Collections Part 5 §9). A user instance instead emits its statically resolved `toSeq` call once and traverses the resulting `Seq`; the user's value need not itself implement JavaScript's iterable protocol. Both paths preserve §2.3's once-evaluation rule.
 - Loop bodies emit as ordinary JS blocks; `var`/`:=` inside them emit per Statements §8 (`let` / `=`), which is sound *because* bodies are blocks, not closures — the same coupling recorded in Statements §8 holds here.
 - `.d.ts` impact: `Seq(a)` ↔ `Iterable<a>`; `Range` faces as **`Hex.Range`** — a branded interface extending `Iterable<number>` (FFI Part 1 §8.1) — if it ever crosses the boundary; loops themselves are function-internal and never do. *(Corrected in place 2026-08-02, #128 ruling: this bullet read "opaque branded interface". In this corpus "opaque branded" names FFI Part 7 §5's non-exported `unique symbol`, which is **not** the mechanism — the `Hex.*` brand is FFI Part 1 §8.3's structural phantom marker, chosen so values from separately compiled Hexagon programs stay mutually assignable. §12's decisions-log row already said "branded" without the word; this bullet was the file's sole offender.)*
@@ -366,6 +374,15 @@ for x in 1..10                 -- x : Int — `..` unifies both literal tyvars w
 for (k, v) in m                -- m : Map(String, Int); k : String, v : Int
     ...
 -- emits: for (const [k, v] of m.entries()) { ... }
+
+-- (k) A computed end is read once, before the loop; a computed start before it
+fun total(lo: () ->! Int, hi: () ->! Int) =
+    var t = 0
+    for i in lo!()..hi!()
+        t := t + i
+    t
+-- emits: const __start = lo(); const __end = hi();
+--        for (let i = __start; i <= __end; i++) { t = t + i; }
 ```
 
 ---

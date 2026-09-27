@@ -921,6 +921,9 @@ late pedagogy pass, not a commitment to the current order.
   element type, and `Seq(a)` is the reusable iteration parameter.
 - The Patterns chapter's complete grammar supersedes the loops spec's original bare-name
   head: tuple, record, and other irrefutable patterns are legal.
+- A syntactic range head emits a counting loop, `for (let i = 1; i <= n; i++)`. A literal
+  or immutable name stays in the test; any other end is read once into a `const __end`
+  before the loop.
 
 ### Sequences
 

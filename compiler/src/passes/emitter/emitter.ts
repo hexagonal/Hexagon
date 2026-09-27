@@ -6119,6 +6119,72 @@ class JavaScriptEmitter {
     evidenceNames: EvidenceNames,
   ): string[] {
     const prefix = indent(depth);
+    // A bare binder names the loop's own variable; any other pattern takes a
+    // fresh `__item` apart inside the body, where its binders live.
+    const binder = expression.pattern.kind === "Binding"
+      ? this.#identifier(
+        expression.pattern.binding.symbol,
+        expression.pattern.binding.name,
+      )
+      : undefined;
+    const counting = countingBounds(expression.iterable);
+    const head = counting !== undefined
+      ? this.#countingHead(counting, binder, depth, evidenceNames)
+      : this.#iterationHead(expression, binder, depth, evidenceNames);
+    if (expression.pattern.kind === "Binding") {
+      const body = expression.body.items.flatMap((item) =>
+        this.#emitItem(item, depth + 1, evidenceNames, false)
+      );
+      return [
+        ...head.before,
+        `${prefix}${head.header} {`,
+        ...body,
+        `${prefix}}`,
+      ];
+    }
+
+    const views: PatternViewContext = { byPosition: new Map(), uses: [] };
+    const plan = this.#emitPatternPlan(
+      expression.pattern,
+      head.item,
+      evidenceNames,
+      false,
+      undefined,
+      views,
+    );
+    const bindings = plan.bindings.map((binding) =>
+      `${indent(depth + 1)}${binding}`
+    );
+    const body = expression.body.items.flatMap((item) =>
+      this.#emitItem(item, depth + 1, evidenceNames, false)
+    );
+    return [
+      ...head.before,
+      `${prefix}${head.header} {`,
+      ...this.#patternViewLines(views, depth + 1),
+      ...bindings,
+      ...body,
+      `${prefix}}`,
+    ];
+  }
+
+  /**
+   * The general loop head: `for (const x of source)` over whatever the source's
+   * `Iterable` row iterates (Loops §8).
+   *
+   * **The source is read outside the loop variable's scope** (Loops §2.1, §2.3,
+   * #1127). JavaScript evaluates a `for…of` head inside the loop variable's
+   * dead zone, where Hexagon evaluates it before the variable exists, so
+   * `for xs in xs` emitted as `for (const xs of xs)` throws a `ReferenceError`
+   * on entry. A head that mentions the variable's name is read into a `const`
+   * first; every other head stays in the loop.
+   */
+  #iterationHead(
+    expression: Core.ForExpr,
+    binder: string | undefined,
+    depth: number,
+    evidenceNames: EvidenceNames,
+  ): LoopHead {
     const source = this.#emitExpr(expression.iterable, depth, evidenceNames);
     // `for x in` over a `Seq` is compiler-owned (ruling R3) and lowers through
     // the outbound driver — a `while` over `pull`, so a long sequence runs in
@@ -6138,44 +6204,83 @@ class JavaScriptEmitter {
         expression.span,
         evidenceNames,
       );
-    if (expression.pattern.kind === "Binding") {
-      const name = this.#identifier(
-        expression.pattern.binding.symbol,
-        expression.pattern.binding.name,
-      );
-      const body = expression.body.items.flatMap((item) =>
-        this.#emitItem(item, depth + 1, evidenceNames, false)
-      );
-      return [
-        `${prefix}for (const ${name} of ${iterable}) {`,
-        ...body,
-        `${prefix}}`,
-      ];
+    const item = binder ?? this.#generatedNames.fresh("item");
+    if (!mentionsIdentifier(iterable, item)) {
+      return { before: [], header: `for (const ${item} of ${iterable})`, item };
     }
+    const read = this.#generatedNames.fresh("source");
+    return {
+      before: [`${indent(depth)}const ${read} = ${iterable};`],
+      header: `for (const ${item} of ${read})`,
+      item,
+    };
+  }
 
-    const itemName = this.#generatedNames.fresh("item");
-    const views: PatternViewContext = { byPosition: new Map(), uses: [] };
-    const plan = this.#emitPatternPlan(
-      expression.pattern,
-      itemName,
-      evidenceNames,
-      false,
-      undefined,
-      views,
-    );
-    const bindings = plan.bindings.map((binding) =>
-      `${indent(depth + 1)}${binding}`
-    );
-    const body = expression.body.items.flatMap((item) =>
-      this.#emitItem(item, depth + 1, evidenceNames, false)
-    );
-    return [
-      `${prefix}for (const ${itemName} of ${iterable}) {`,
-      ...this.#patternViewLines(views, depth + 1),
-      ...bindings,
-      ...body,
-      `${prefix}}`,
-    ];
+  /**
+   * Loops §8's counting loop: a syntactic range in the head never builds a
+   * `Range`, and the loop counts — `for (let i = 1; i <= n; i++)`. Mandatory,
+   * not an optimisation (Loops §8).
+   *
+   * Each bound is still evaluated once, start before end (Loops §2.3). The end
+   * stays in the test only where reading it again at every iteration is free
+   * and cannot see a change (`#rereadable`); any other end is read once into a
+   * `const` before the loop, which is also where a reader expects a value that
+   * does not change. Declaring it there moves it ahead of the start, so a start
+   * that is not itself a plain read moves out first, into its own `const`.
+   *
+   * A bound that mentions the loop variable's name is read before the loop too:
+   * inside the loop, the name is the counter (#1127).
+   */
+  #countingHead(
+    bounds: CountingBounds,
+    binder: string | undefined,
+    depth: number,
+    evidenceNames: EvidenceNames,
+  ): LoopHead {
+    const prefix = indent(depth);
+    const start = this.#emitExpr(bounds.start, depth, evidenceNames);
+    const end = this.#emitExpr(bounds.end, depth, evidenceNames);
+    const item = binder ?? this.#generatedNames.fresh("item");
+    const endRereadable = this.#rereadable(bounds.end, end);
+    const startOutside = mentionsIdentifier(start, item) ||
+      (!endRereadable && !this.#rereadable(bounds.start, start));
+    const endOutside = !endRereadable || mentionsIdentifier(end, item);
+    const before: string[] = [];
+    let first = start;
+    let last = end;
+    if (startOutside) {
+      first = this.#generatedNames.fresh("start");
+      before.push(`${prefix}const ${first} = ${start};`);
+    }
+    if (endOutside) {
+      last = this.#generatedNames.fresh("end");
+      before.push(`${prefix}const ${last} = ${end};`);
+    }
+    return {
+      before,
+      header: `for (let ${item} = ${first}; ${item} <= ${last}; ${item}++)`,
+      item,
+    };
+  }
+
+  /**
+   * Whether a counting loop's bound may be read afresh at every test: an
+   * integer literal, or a name nothing can rebind — a `let`, a parameter, a
+   * pattern binder. A `var` is not one (the body may assign it), nor is a
+   * foreign binding, whose value JavaScript may change underneath the loop.
+   *
+   * The literal is read off the emitted text, whatever node produced it: `-2`
+   * arrives as a negation, and emits as the constant it is. A name must also
+   * emit as a read — its identifier, or a module namespace's member
+   * (`Config.limit`), whose binding is as fixed as a local one. A reference
+   * that emits as a call is evaluated once like any other expression.
+   */
+  #rereadable(bound: Core.Expr, text: string): boolean {
+    if (/^-?(?:0[xob][0-9a-f]+|[0-9]+)$/i.test(text)) return true;
+    if (bound.kind !== "Name") return false;
+    const kind = this.#symbols.get(bound.symbol)?.kind;
+    return (kind === "let" || kind === "parameter" || kind === "pattern") &&
+      text.split(".").every(isSafeIdentifier);
   }
 
   /**
@@ -16636,6 +16741,55 @@ export function emittedModuleSpecifier(specifier: string): string {
 
 function indent(depth: number): string {
   return "  ".repeat(depth);
+}
+
+/** A `for` head as emitted: the statements that run first, then the header. */
+interface LoopHead {
+  readonly before: readonly string[];
+  /** `for (…)`, without its body. */
+  readonly header: string;
+  /** The JavaScript name each iteration's element is bound to. */
+  readonly item: string;
+}
+
+interface CountingBounds {
+  readonly start: Core.Expr;
+  readonly end: Core.Expr;
+}
+
+/**
+ * The bounds of a head Loops §8 erases to a counting loop, or `undefined`.
+ *
+ * The licence is the head's syntax: a `..` written there, read through the
+ * grouping parentheses and ascription that elaboration has already removed. A
+ * `Range` that arrives any other way — a variable, a call — is a value, and
+ * iterates as one.
+ */
+function countingBounds(iterable: Core.Expr): CountingBounds | undefined {
+  return iterable.kind === "Range"
+    ? { start: iterable.start, end: iterable.end }
+    : undefined;
+}
+
+/**
+ * Whether emitted JavaScript `text` mentions `name` as a whole identifier.
+ *
+ * Deliberately coarse: an occurrence inside a string literal or as a property
+ * name counts too. A false positive costs one `const` the loop did not need; a
+ * false negative would read the loop variable before it exists.
+ */
+function mentionsIdentifier(text: string, name: string): boolean {
+  for (let at = text.indexOf(name); at !== -1; at = text.indexOf(name, at + 1)) {
+    const before = [...text.slice(Math.max(0, at - 2), at)].at(-1);
+    const after = text.codePointAt(at + name.length);
+    if (
+      (before === undefined || !isJavaScriptIdentifierContinue(before)) &&
+      (after === undefined || !isJavaScriptIdentifierContinue(String.fromCodePoint(after)))
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**

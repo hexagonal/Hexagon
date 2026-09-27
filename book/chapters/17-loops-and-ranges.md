@@ -171,8 +171,24 @@ for (let number = 1; number <= limit; number++) {
 }
 ```
 
-The end expression is evaluated once when necessary. General iterable loops emit as
-JavaScript `for...of`, while `while` remains an ordinary JavaScript `while`. A `Range`
+A literal or an immutable name such as `limit` stays in the test. Any other end, such
+as a call, arithmetic, or a `var` the body might change, is evaluated once, into a
+`const` before the loop:
+
+```hexagon
+for row in 1..rowCount(table)
+    total := total + row
+```
+
+```js
+const __end = rowCount(table);
+for (let row = 1; row <= __end; row++) {
+  total = total + row;
+}
+```
+
+General iterable loops emit as JavaScript `for...of`, while `while` remains an ordinary
+JavaScript `while`. A `Range`
 stored as a value becomes a small iterable object only when that representation is
 needed.
 
