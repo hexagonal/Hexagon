@@ -237,8 +237,9 @@ chosen once for the whole expression — never operation by operation from the i
   every index. A key type still a type variable is a seat of the kind "The home" below
   describes: it supplies no home, and only a declared variable the body can name is a
   target for a conversion into it, as at `Map.get`'s variable key seat — an inference
-  variable is unified with, whatever evidence it already carries. A sequence's index has two readings, a position and a slice, and its own
-  type chooses between them, so it closes first, like a dot call's receiver — except
+  variable is unified with, whatever evidence it already carries. A sequence's index
+  has two readings, a position and a slice, and its own type chooses between them, so
+  it closes first, like a dot call's receiver — except
   where its written shape has already chosen: a tower operation at its root, through
   grouping parentheses, written as an operator or as a member called bare, qualified
   through its constraint, or as a pipe stage, is never a `Range`, so it is a position,
