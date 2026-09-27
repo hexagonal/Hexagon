@@ -1,10 +1,12 @@
 # Source-defined standard Iterable instances — proposal for Fable
 
-**Status:** Partially adopted; 2026-09-16. `Iterable<String>` has been adopted
-normatively in Collections Part 5 and implemented as the first source-owned
-slice; `Range` followed (#1073), then the foreign slice — `Array`, `JsMap`, and
-`JsSet` (#1076). The domestic rows (`Vector`, `Map`, `Set`, `Seq`) are still
-proposed and this note remains non-normative for them.
+**Status:** Adopted in full; 2026-09-16 to 2026-09-28. `Iterable<String>` was
+adopted normatively in Collections Part 5 and implemented as the first
+source-owned slice; `Range` followed (#1073), then the foreign slice — `Array`,
+`JsMap`, and `JsSet` (#1076) — and last the domestic rows (#1141): `Vector`,
+`Map` and `Set` in their companions, `Seq` in `Iterable.hex` (the loading
+dependency resolved by placing the row at the constraint's home). Collections
+Part 5 §4 is normative for every row; this note is the record of the design.
 **Sequence:** Follow the effects arc. Foreign collection instances depend on
 separate adoption and implementation of the snapshot direction agreed in
 discussion; the normative FFI specifications described borrowed views when this was written; #876 and #875 have since made `Array`, `JsMap`, and `JsSet` captured foreign collections.

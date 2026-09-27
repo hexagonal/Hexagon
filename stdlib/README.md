@@ -32,7 +32,8 @@ emitted one (Packages §6).
   `Integral.div`, `Real.abs`, `Real.sign` and `Iterable.toSeq` spellable everywhere; all twelve are
   prelude members, in the seats-before-uses order `compiler/src/prelude.ts`
   records. `Iterable.hex` seats after `Seq.hex`, whose type its member signature
-  names. Since #742 only `show` of those members is in bare scope — Modules
+  names, and so also holds `Seq`'s identity row, `honor Iterable<Seq(a)>`:
+  `Seq.hex` cannot name the constraint. Since #742 only `show` of those members is in bare scope — Modules
   §5.5 seeds nothing in the term namespace by default, and every other member is
   reached by the dot where it is subject-first and qualified always.
 - `Sign.hex` declares the `Sign` union, with constructors `Sign.Negative`,
@@ -55,7 +56,10 @@ emitted one (Packages §6).
   each declaring its representation-sensitive operations through the intrinsic
   door (`spec/intrinsics.md` §3.2) onto the runtime tries
   (`Runtime/VectorTrie.hex`, `Runtime/HashTrie.hex`); everything above those
-  declarations is ordinary Hexagon. `Vector.hex` carries one door row that is
+  declarations is ordinary Hexagon, each file's `honor Iterable` included —
+  written over a traversal it already has (`elements` for the vector and the
+  set, `entries` for the map), so `toSeq` is that instance's member rather than
+  an export. `Vector.hex` carries one door row that is
   not one of Collections Part 3 §7's seven: `toArray`, FFI Part 2 §9's outbound
   conversion, which §9.1's obligation 2 places at this door and in this file —
   eager, fresh, shallow and total, with nothing above it to write in Hexagon

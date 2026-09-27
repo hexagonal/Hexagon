@@ -295,9 +295,10 @@ The agreed delivery order is:
    row. Private storage intrinsics and justified native optimizations remain
    permitted. Resolve the `Seq`/`Iterable` loading dependency, `Range`'s source
    home, and the `JsMap.entries` delegation cycle as that proposal requires.
-   *(Progress: `String`, `Range` (#1073), and the foreign `Array`, `JsMap`,
-   `JsSet` (#1076) are source-owned, the last three with the `entries` cycle
-   resolved; `Vector`, `Map`, `Set`, and `Seq` remain provided.)*
+   *(Met: `String`, `Range` (#1073), the foreign `Array`, `JsMap`, `JsSet`
+   (#1076), with the `entries` cycle resolved, and `Vector`, `Map`, `Set` and
+   `Seq` (#1141) are source-owned; the `Seq`/`Iterable` dependency is resolved
+   by writing `Seq`'s row in `Iterable.hex`. No provided row remains.)*
 4. **Review and promote Friendly Sequences.** After those implementation gates
    and §6's design obligations are satisfied, promote the rule into Functions,
    Collections Part 5, Loops, and the affected annotation/generalization

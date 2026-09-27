@@ -225,7 +225,7 @@ User-facing docs carry the practical consequence in one line: **need an order? s
 
 ### 7.2 `Iterable` instances and loop heads
 
-Provided (Part 2 §4.4 wording; rows in the Loops §5 table):
+Declared in source, each by its companion's `honor` block (`stdlib/Map.hex`, `stdlib/Set.hex`; rows in the Collections Part 5 §4 table). `Map`'s member is written as `entries`, so the synonym holds by construction; `Set`'s is its element traversal:
 
 | Instance | Implied type | `toSeq` (the member) |
 |---|---|---|
