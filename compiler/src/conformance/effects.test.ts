@@ -953,15 +953,17 @@ export let withTransaction: ((String ->? String) ${arrow} String) = (run: String
     ).toEqual([]);
   });
 
-  it("refuses a `->!` face over a body that performs no unconditional effect", () => {
+  it("accepts a `->!` face over a body that performs no unconditional effect (#1119)", () => {
+    // A face may claim more effect than its body performs, never less: `->!`
+    // is an allowance, and every call through `apply` wears `!`.
     const source = `${world}
 export let apply: ((String ->? String) ->! String) = (run: String ->? String): String => run?("body")
+export let go(): String = apply!((s) => s)
 `;
-    expect(effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + source]])).toEqual([
-      "this face is the impure constant `->!`, but the body performs no " +
-      "unconditional effect — it is effect-polymorphic, and its face is `->?`",
-    ]);
-    expect(effectFixes([["/world.js", ""], ["/main.hex", "module Main\n\n" + source]])).toEqual(['write `->?`: "->?"']);
+    expect(effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + source]])).toEqual([]);
+    expect(effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" +
+      source.replace("apply!((s) => s)", "apply((s) => s)")]]))
+      .toEqual(["this call runs effects, so `apply` wants `!`, not no mark"]);
   });
 
   it("demands `!` at every call site, pure callback or not", () => {
@@ -2843,13 +2845,14 @@ export let quiet(cb: () ->? Unit): Source =
       expect(check(source)).toEqual([]);
     });
 
-    it("advises `->` for a `->!` face over a body that performs nothing (§4.2)", () => {
-      const source = "let f: (() ->! Int) = () => 1\n";
-      expect(check(source)).toEqual([
-        "this face is the impure constant `->!`, but the body performs no effect — its face is `->`",
+    it("accepts a `->!` face over a body that performs nothing (#1119)", () => {
+      // A face may claim more effect than its body performs: `f` wears `->!`,
+      // and a call to it is `!`. The pure direction stays exact (§4.2).
+      expect(check("let f: (() ->! Int) = () => 1\nlet n: Int = f!()\n")).toEqual([]);
+      expect(check("let f: (() -> Int) = () =>\n    save!(\"x\")\n    1\n")).toEqual([
+        "this call performs effects, and the enclosing function's face is the pure arrow `->` — " +
+        "a pure face cannot run effects",
       ]);
-      expect(effectFixes([["/world.js", ""], ["/main.hex", "module Main\n\n" + world + source]]))
-        .toEqual(['write `->`: "->"']);
     });
   });
 });

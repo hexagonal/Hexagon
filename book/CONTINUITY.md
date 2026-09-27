@@ -964,9 +964,7 @@ late pedagogy pass, not a commitment to the current order.
   changing its own colour and with nothing to write; the reverse stays an error. The
   chapter credits Koka's "opening" for the idea. Its two taught edges: a parameter
   with no written type takes its colour from all its uses, and a pure function
-  already inside a value keeps that value's type. A type written directly over a
-  lambda is that lambda's face, so `->!` over a pure lambda is refused as
-  over-claiming.
+  already inside a value keeps that value's type.
 - Colour scope is lexical: a helper nested in a body (a `fun`, a local `let`, a lambda,
   a nested `fun` block) conducts a captured callback's colour with `?` and never
   generalizes it; pinning the helper pins the enclosing callback, reported at the pin.
@@ -976,8 +974,9 @@ late pedagogy pass, not a commitment to the current order.
   display is plain.
 - Enforcement is symmetric and error-grade: wrong or missing marks at calls are
   errors in every direction, and a pure face over a body that performs effects is
-  an error at the offending call. (The specification checks faces in both
-  directions; the chapter stages the pure-face direction.)
+  an error at the offending call. (A face may claim more effect than its body
+  performs — the specification checks the pure direction only, #1119 — and the
+  chapter does not stage the allowance.)
 - Operators, indexing, `for` heads, and interpolation have no mark seat, so
   everything they reach is pure: the prelude's members write `->`, and their `honor`
   bodies check pure. A user constraint's member header is an effect contract.

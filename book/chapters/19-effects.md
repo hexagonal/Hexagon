@@ -241,11 +241,6 @@ let handler = if verbose then Some(() => save!("x")) else quiet    // refused
 `quiet` was built as an `Option(() -> Unit)`, and that type is fixed. Write
 `Some(() => ())` in the branch itself, where the function is used, and it fits.
 
-Last, a type written directly over a lambda is that lambda's own face.
-`let h: () ->! Unit = () => ()` claims an effect the lambda does not have, and the checker
-suggests `->` instead. The claim was never needed: a pure `h` already fits anywhere a
-`() ->! Unit` is expected.
-
 ### `->?` needs something to link to
 
 `->?` means *my caller chooses*, so it is only legal where there is a caller who can:

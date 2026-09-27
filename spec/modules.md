@@ -260,8 +260,8 @@ from the body for exports and private bindings alike (Functions §4.1; Effects
 function-typed parameter's written annotation carries its arrow, and that
 arrow is part of the signature (`transform: a ->? b` links, `step: a -> b`
 demands). Tooling renders the inferred face (Effects §10's display
-obligation); the face itself is checked against the body in both directions
-(Effects §4.2).
+obligation); the face itself is checked against the body, which it may never
+claim less than (Effects §4.2).
 
 ### 4.2 `opaque`
 

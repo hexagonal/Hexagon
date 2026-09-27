@@ -395,8 +395,6 @@ interface EffectFrame {
   readonly enclosing: EffectFrame | undefined;
   /** Call colours awaiting `own ⊒ colour`, settled after inference. */
   readonly absorbed: { readonly effect: Mono; readonly span: Source.Span }[];
-  /** Set when an absorbed colour was the impure *constant* — ruling 9's tell. */
-  sourced: boolean;
 }
 
 /** Whether `left` stands before `right` in source order. */
@@ -3284,11 +3282,6 @@ class Checker {
    * `->?` on the outer arrow.
    */
   readonly #memberColours = new Map<Resolved.SymbolId, Variable>();
-  /** Written `->!` faces awaiting ruling 9's symmetric half. */
-  readonly #constantFaces: {
-    readonly lambda: Resolved.LambdaExpr;
-    readonly arrowSpan: Source.Span;
-  }[] = [];
 
   readonly #expressionTypes = new WeakMap<Resolved.Expr, Mono>();
   /** Suffix constructions are ordinary build calls after pattern selection. */
@@ -7315,16 +7308,6 @@ class Checker {
                 ? PURE
                 : IMPURE)
           : undefined;
-        if (
-          annotation?.kind === "Function" &&
-          annotation.effect === "constant" && annotation.recovered !== true &&
-          annotation.arrowSpan !== undefined && item.value.kind === "Lambda"
-        ) {
-          this.#constantFaces.push({
-            lambda: item.value,
-            arrowSpan: annotation.arrowSpan,
-          });
-        }
         // §4.3's first supplying seat: **an annotated `let`/`fun` right-hand
         // side** — the annotation is the expectation. It is elaborated here,
         // ahead of the value, only where an expectation can land (a lambda is
@@ -7522,7 +7505,6 @@ class Checker {
             inlet,
             enclosing: this.#effectFrames.at(-1),
             absorbed: [],
-            sourced: false,
           };
           this.#effectFrames.push(frame);
           this.#frameByLambda.set(defaultValue, frame);
@@ -7850,7 +7832,6 @@ class Checker {
             inlet: contract.inlet,
             enclosing: enclosingFrame,
             absorbed: [],
-            sourced: false,
           };
           this.#effectFrames.push(frame);
           this.#frameByLambda.set(member.value, frame);
@@ -9473,7 +9454,6 @@ class Checker {
           inlet: ownLinked || inheritedInlet || enclosingFrame?.inlet === true,
           enclosing: enclosingFrame,
           absorbed: [],
-          sourced: false,
         };
         this.#effectFrames.push(effectFrame);
         this.#frameByLambda.set(expression, effectFrame);
@@ -19056,7 +19036,6 @@ class Checker {
     for (const { effect, span } of ordered) {
       const absorbed = this.#prune(effect);
       if (!isImpure(absorbed)) continue;
-      frame.sourced = true;
       const own = this.#prune(frame.own);
       if (isImpure(own)) continue;
       if (isRecovered(absorbed) && own.kind === "Variable") {
@@ -21220,7 +21199,9 @@ class Checker {
 
   /** The reports, once every body has closed and every colour is final. */
   #settleEffects(): void {
-    this.#checkConstantFaces();
+    // A written `->!` over a body that performs no unconditional effect is no
+    // report (#1119, ruling (c)): a face may claim more effect than its body
+    // performs, never less — `->` stays an exact promise, `->!` an allowance.
     this.#checkSignatureFaces();
     this.#checkMarks();
   }
@@ -21560,32 +21541,6 @@ class Checker {
       Number(left.fileId) - Number(right.fileId) ||
       left.start.offset - right.start.offset
     );
-  }
-
-  /** Ruling 9's symmetric half: `->!` claimed where nothing is unconditionally done. */
-  #checkConstantFaces(): void {
-    for (const { lambda, arrowSpan } of this.#constantFaces) {
-      const frame = this.#frameByLambda.get(lambda);
-      if (frame === undefined || frame.sourced) continue;
-      // A body that conducts is effect-polymorphic; one that conducts nothing
-      // is pure, not polymorphic, and the advice names the face it has
-      // (§4.2, #868).
-      const conducts = frame.absorbed.some(({ effect }) => this.#isLinkedColour(effect));
-      const face = conducts ? "->?" : "->";
-      this.#diagnostics.add({
-        severity: "error",
-        message: conducts
-          ? "this face is the impure constant `->!`, but the body performs no " +
-            "unconditional effect — it is effect-polymorphic, and its face is `->?`"
-          : "this face is the impure constant `->!`, but the body performs no " +
-            "effect — its face is `->`",
-        primary: arrowSpan,
-        fixes: [{
-          message: `write \`${face}\``,
-          edits: [{ span: arrowSpan, replacement: face }],
-        }],
-      });
-    }
   }
 
   #fresh(

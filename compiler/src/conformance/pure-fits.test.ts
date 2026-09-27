@@ -19,8 +19,9 @@ import { compileFiles } from "../support/test-project.js";
  *   is re-opened, so a parameter with no written type is inferred from all its
  *   uses together, in whatever order they come;
  * - R.c: the outermost arrow only — a value already built keeps its type;
- * - R.d: a binding annotation directly over a lambda literal is that lambda's
- *   face, checked as one (§4.2).
+ * - a written face may claim more effect than its body performs, never less:
+ *   `->` is an exact promise, `->!` and `->?` allowances (ruling (c), in place
+ *   of R.d).
  */
 
 const HEADER = "module Main\n\n";
@@ -300,12 +301,25 @@ describe("the outermost arrow only (R.c)", () => {
   });
 });
 
-describe("a binding annotation directly over a lambda is that lambda's face (R.d)", () => {
-  test("`->!` over a pure lambda over-claims; over a pure name it is a use, and fits", () => {
-    expect(reports("export let go(): Unit =\n    let h: () ->! Unit = () => ()\n    h!()\n")).toEqual([
-      ["->!", "this face is the impure constant `->!`, but the body performs no effect — its face is `->`"],
-    ]);
-    expect(reports("export let go(): Unit =\n    let h: () ->! Unit = noop\n    h!()\n")).toEqual([]);
+describe("a written face may claim more effect than its body performs, never less (ruling (c))", () => {
+  test("`->!` over a pure lambda, over a pure name, as an ascription, or as a result type", () => {
+    for (const source of [
+      "export let go(): Unit =\n    let h: () ->! Unit = () => ()\n    h!()\n",
+      "export let go(): Unit =\n    let h: () ->! Unit = noop\n    h!()\n",
+      "export let go(): Unit =\n    let h = ((() => ()) : () ->! Unit)\n    h!()\n",
+      "let mk(): () ->! Unit = () => ()\nexport let go(): Unit = mk()!()\n",
+      "let stub: (Int) ->! Int = (n) => n\nexport let use(): Int = stub!(1)\n",
+    ]) {
+      expect([source, reports(source)]).toEqual([source, []]);
+    }
+    // The face is the colour the calls read: a bare call through it is refused.
+    expect(reports("export let go(): Unit =\n    let h: () ->! Unit = () => ()\n    h()\n"))
+      .toEqual([["h()", "this call runs effects, so `h` wants `!`, not no mark"]]);
+  });
+
+  test("never less: a `->` face over an effectful body is still refused", () => {
+    expect(reports("export let go(): Unit =\n    let h: () -> Unit = () => save!(\"x\")\n    h()\n").map(([, m]) => m))
+      .toEqual(["this call performs effects, and the enclosing function's face is the pure arrow `->` — a pure face cannot run effects"]);
   });
 
   test("the linked face #947 asked for is still honoured, and no longer needed", () => {
