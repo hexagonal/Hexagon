@@ -390,6 +390,36 @@ describe("a trusted replacement invalidates from its own seat", () => {
     expect(standardLibraryCacheStatistics().seatsReused - warm.seatsReused).toBe(0);
   });
 
+  /**
+   * `Array`'s row has the second data seat (#1076), just before `Vector`, so
+   * the same two rules hold at it: a changed `Array.hex` is checked ahead of
+   * every seat and rebuilds the chain, and the same text supplied from another
+   * file rebuilds from the data seat on — `Vector`'s — not from `Array.hex`'s
+   * own later seat.
+   */
+  test("`Array`'s data seat holds the cache to the same two rules", () => {
+    const array = PRELUDE_MODULES.find(({ name }) => name === "Array")!;
+    const vector = PRELUDE_MODULES.find(({ name }) => name === "Vector")!;
+    const rebuilt = (member: { readonly name: string; readonly source: string }): number => {
+      resetStandardLibraryCache();
+      compileFiles([main("export let n: Int = 1\n")]);
+      const warm = standardLibraryCacheStatistics();
+      expect(messagesOf(replacing(member))).toEqual([]);
+      return standardLibraryCacheStatistics().seatsChecked - warm.seatsChecked;
+    };
+    const fromArray = rebuilt(array);
+    expect(fromArray).toBe(rebuilt(vector));
+    expect(fromArray).toBeLessThan(SEATS);
+
+    const edited = { name: array.name, source: `${array.source}\nlet unused: Int = 1\n` };
+    resetStandardLibraryCache();
+    compileFiles([main("export let n: Int = 1\n")]);
+    const warm = standardLibraryCacheStatistics();
+    expect(messagesOf(replacing(edited))).toEqual([]);
+    expect(standardLibraryCacheStatistics().seatsReused - warm.seatsReused).toBe(0);
+    resetStandardLibraryCache();
+  });
+
   test("a replacement that reports is not kept, and neither is anything after it", () => {
     resetStandardLibraryCache();
     compileFiles([main("export let n: Int = 1\n")]);

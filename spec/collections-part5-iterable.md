@@ -1,6 +1,6 @@
 # Hexagon Spec: Collections Part 5 — `Iterable` & Collections Closeout
 
-**Status:** Decided (July 2026); pre-landing corrections incorporated in place (§18); `Iterable<String>` source ownership adopted September 2026 (§18.4). Fifth and final part of the Collections effort. The authoritative operational specification of v1 `Iterable`: the resolution and typing of `for p in e`, the finalized standard-instance table (one source-owned String row, five other collections-owned provided rows, and three FFI-owned provided rows), table-opening for user instances, static-resolution emission, the collections/stdlib boundary, and the transients decision. Written against Collections Parts 1–4, Constraints, Loops/Ranges/Iteration, Pattern Matching, and Modules; none re-litigated.
+**Status:** Decided (July 2026); pre-landing corrections incorporated in place (§18); `Iterable<String>` source ownership adopted September 2026 (§18.4). Fifth and final part of the Collections effort. The authoritative operational specification of v1 `Iterable`: the resolution and typing of `for p in e`, the finalized standard-instance table (source-owned `String` and `Range` rows, four collections-owned provided rows, and three FFI-owned source rows), table-opening for user instances, static-resolution emission, the collections/stdlib boundary, and the transients decision. Written against Collections Parts 1–4, Constraints, Loops/Ranges/Iteration, Pattern Matching, and Modules; none re-litigated.
 **Scope:** The `for p in e` resolution algorithm and four-way failure taxonomy (unsolved inference variable vs declared type variable; the two-legal-homes user-nominal message); the standard instance table (§4); `Iterable<String>` with `Item = String`, its authoritative source declaration in `String.hex`, and the `String.toSeq`/`String.fromSeq` conversion pair (`fromSeq` = concatenation, full contract §5.3); the collection-conversion-suite domain (finite collections; `Range` and `Seq` exempt with reasons); `toSeq` as a real prelude term (the `Iterable` member); user-instance mechanics, discoverability, and provided-instance collisions; the "writing your own collection" recipe, normative, with `Bag(a)`; static-resolution emission; the combinator-surface boundary; transients runtime-internal only.
 **Not in scope:** The `Iterable` declaration and type-member grammar (Part 2 §5–§8 — consumed, not restated); the v2 implied-types remainder (deferred `Item(α)` goals, `Item(c)` reference syntax, member obligations, `Iterable` binders, `derive via` — Part 2 §11, Part 1 §6.3); the combinator families themselves (`stdlib-roadmap.md` ledger, decided at the stdlib listing; boundary drawn in §10); `AsyncSeq` and any `for await` form (Loops §11.4); **everything normative about the foreign collections `Array(a)`, `JsMap(k, v)`, `JsSet(a)`** — types, capture and borrow contracts, observation semantics, conversions, emission, `.d.ts` faces (FFI Parts 2 and 10; §4 records their instance rows, §6 the discharged `Array` ownership); the foreign (`.d.ts`) representation of constraints on exported polymorphic functions (FFI spec; see §9.3); String text-processing operations beyond this document's iteration and `fromSeq` contracts (`string-text-processing.md`).
 **Companions:** Collections Part 1 (§6.1/§6.5 made normative here; §9.5/§9.6 closed); Collections Part 2 (§8 declaration; §7.2 binder ban; §9 diagnostics extended); Collections Part 3 (§8 `Iterable<Vector>` row; §9 linear idiom cashed by §5 here); Collections Part 4 (§7.2 rows; §13.1/§13.4 closed here); Loops/Ranges/Iteration (§2.3 desugaring; §5 table finalized as §4 here; §6 `Seq`; §7.1 judgment made normative as instance lookup); Pattern Matching (§5 five-positions gate); Modules (§7 instance globality and orphan rule; §7.6 discoverability); Constraints (§5.1 coherence; §2.2 members); FFI Part 2 (§§6, 8–9: the `Array(a)` obligation discharged); FFI Part 3 (`Seq(a)` boundary crossing); FFI Part 10 (§6 `JsMap`/`JsSet` rows); Primitive Types (§5.1 String indexing).
@@ -89,9 +89,11 @@ This is the complete v1 table. `String` is declared by an ordinary source
 `honor` block in its fixed primitive companion (§5), and `Range` by one in its
 companion, `stdlib/Range.hex`, which declares the type; the other four core rows
 remain compiler/runtime-provided (Part 2 §4.4 wording — specified normatively,
-no source form). The final three are FFI-owned provided rows over captured
-foreign collections (#876, #875). Source ownership changes neither lookup nor
-the public member spellings.
+no source form). The final three are FFI-owned rows over captured foreign
+collections (#876, #875), each declared by a source `honor` block in the
+companion that declares its type — `stdlib/Array.hex`, `stdlib/JsMap.hex`,
+`stdlib/JsSet.hex` — over a private traversal door (Intrinsics §3.2, §3.3).
+Source ownership changes neither lookup nor the public member spellings.
 
 | Type | `type Item` | `toSeq` (the member) | Fixed by |
 |---|---|---|---|
@@ -101,9 +103,9 @@ the public member spellings.
 | `Map(k, v)` | `(k, v)` | ≡ `entries` | Part 4 §7.2 |
 | `Set(a)` | `a` | element traversal | Part 4 §7.2 |
 | `String` | `String` (one codepoint) | the source instance's codepoint sequence, §5.2 | **`stdlib/String.hex`; §5 here** |
-| `Array(a)` | `a` | ≡ `Array.toSeq` (FFI Part 2 §9's named conversion) — over the captured array, a stable value (#876) | FFI Part 2 §8 |
-| `JsMap(k, v)` | `(k, v)` | ≡ `entries` — over the captured map, a stable value (#875) | FFI Part 10 §6 |
-| `JsSet(a)` | `a` | ≡ `JsSet.toSeq` — over the captured set, a stable value (#875) | FFI Part 10 §6 |
+| `Array(a)` | `a` | ≡ `Array.toSeq` (FFI Part 2 §9's named conversion) — over the captured array, a stable value (#876) | **`stdlib/Array.hex`**; FFI Part 2 §8 |
+| `JsMap(k, v)` | `(k, v)` | ≡ `entries` — over the captured map, a stable value (#875) | **`stdlib/JsMap.hex`**; FFI Part 10 §6 |
+| `JsSet(a)` | `a` | ≡ `JsSet.toSeq` — over the captured set, a stable value (#875) | **`stdlib/JsSet.hex`**; FFI Part 10 §6 |
 
 Notes:
 
@@ -171,7 +173,7 @@ String Text Processing §7. It supplements rather than replaces `fromSeq`.
 The *direction* — the foreign door is iterable — was decided here as a binding obligation on the v1 FFI spec (`Iterable<Array(a)>` with `type Item = a` and the member `toSeq` behaving as `Array.toSeq`) and was never FFI's to reopen. Everything that gives the row meaning was FFI's to define, and FFI Part 2 has discharged it in full; nothing about `Array` iteration remains open, and none of it is restated here:
 
 - **Stability and observation.** FFI Part 2 §6.2 fixes the capture contract *(#876; formerly a borrowed stability contract)*: an `Array(a)` is Hexagon's own snapshot of the foreign array, made at the crossing. §6.5 there resolves the observation question this section deliberately left to it — every observation, iteration included, is of that stable value, so native `for...of` emission is licensed (§8.2 there).
-- **The instance.** FFI Part 2 §8 provides `Iterable<Array(a)>` under exactly the obligated shape; the row appears in §4 here. Suite membership is decided: `Array(a)` joins the finite-collection conversion suite (§8.3 there; doctrine §1 here).
+- **The instance.** FFI Part 2 §8 declares `Iterable<Array(a)>` under exactly the obligated shape, and `stdlib/Array.hex` honors it; the row appears in §4 here. Suite membership is decided: `Array(a)` joins the finite-collection conversion suite (§8.3 there; doctrine §1 here).
 - **The conversion surface.** FFI Part 2 §9 fixes the four names — `Array.toSeq` / `Array.fromSeq` / `Array.toVector` / `Vector.toArray` — with their laziness/freshness and shallow-element semantics.
 
 The resolution algorithm (§3), the recipe (§8), and the domestic emission rules (§9) were designed to be, and are, unaffected by the discharge.
@@ -399,7 +401,7 @@ Rejected per §7.2: for a home-module instance the pattern is structurally unnec
 | 3 | Normative 8-step algorithm for `for p in e`; pattern heads per Pattern Matching's five positions, irrefutability-gated; body `Unit`; source evaluated once | §3.1 |
 | 4 | **Inference-vs-declared diagnostic split**: unsolved inference variable → annotate; declared type variable → `Seq(a)` parameter hint | §3.2 |
 | 5 | User-nominal not-iterable error names **both legal homes** (the Modules §7.6 discoverability obligation's loop-side face), leading with the actionable one | §3.3 |
-| 6 | The v1 core table is exactly six rows: source-owned `String` and `Range`, plus provided `Vector`, `Seq`, `Map`, and `Set`; the FFI-owned captured foreign collections add provided `Array(a)` (obligated §6.1, discharged FFI Part 2 §8; #876), `JsMap(k, v)`, and `JsSet(a)` (FFI Part 10 §6; #875); nothing else iterable in v1 | §4–§6 |
+| 6 | The v1 core table is exactly six rows: source-owned `String` and `Range`, plus provided `Vector`, `Seq`, `Map`, and `Set`; the FFI-owned captured foreign collections add source-owned `Array(a)` (obligated §6.1, discharged FFI Part 2 §8; #876), `JsMap(k, v)`, and `JsSet(a)` (FFI Part 10 §6; #875), each in its declaring companion; nothing else iterable in v1 | §4–§6 |
 | 7 | **`Iterable<String>`: `Item = String`, one codepoint per item** — Loops §11.6 closed; graphemes stay named-function territory | §5.1 |
 | 8 | `String.toSeq` lazy codepoint view; **no `codepoints` synonym** | §5.2, §13.1 |
 | 9 | **`String.fromSeq` ships: concatenation**, full contract — `""` on empty, traversal order, any-length elements, no normalization, eager, linear with join-not-fold implementation note, one-sided round-trip law | §5.3 |
