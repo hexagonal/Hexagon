@@ -212,7 +212,7 @@ describe("the seats an object literal needs handling at", () => {
     // discarded construction is parenthesized — the repair the emitter already
     // made for a record literal in the same seat.
     expect(javascript).toContain('({ tag: "Circle", radius: 1.0 });');
-    expect(javascript).toContain('const __match_1 = { tag: "Circle", radius: 3.0 };');
+    expect(javascript).toContain('const __match = { tag: "Circle", radius: 3.0 };');
     expect(javascript).toContain('scrutinizeOne({ tag: "Circle", radius: 4.0 })');
     expect(javascript).toContain('const field = { shape: { tag: "Circle", radius: 5.0 } };');
 

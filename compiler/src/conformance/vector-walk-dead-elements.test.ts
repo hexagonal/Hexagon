@@ -343,9 +343,9 @@ describe("a planner edition at `Unit` collapses, and its siblings do not", () =>
         "__trieSize(__left) === __trieSize(__right), ",
     );
     // The other six editions keep their element reads. `Int`'s is the spot
-    // check, and its binder numbering is the one the claim-but-do-not-spell
-    // rule protects: the `Unit` edition is minted last and still claims `_7`.
-    expect(emitted).toContain("if (!(__leftElement_2 === __rightElement_2)) return false;");
+    // check, under the bare binders: each walk numbers them in a scope of its
+    // own (#1129), whatever the editions beside it claim.
+    expect(emitted).toContain("if (!(__leftElement === __rightElement)) return false;");
     expect(emitted).not.toContain("if (!(true))");
     const module = await runMain("module Main\n\n" + source);
     expect(module.blanksAgree).toBe(true);
@@ -364,22 +364,18 @@ describe("every element operation that reads its operands is untouched", () => {
       "    x == y",
       "",
     ].join("\n"));
-    expect(emitted).toContain(
-      "const __rightStep = __right[Symbol.iterator](); for (const __leftElement of __left) { " +
-        "const __rightElement = __rightStep.next().value; " +
-        "if (!(__leftElement === __rightElement)) return false; }",
-    );
-    expect(emitted).toContain(
-      "const __rightStep_1 = __right[Symbol.iterator](); for (const __leftElement_1 of __left) { " +
-        "const __rightElement_1 = __rightStep_1.next().value; " +
-        "if (!(__leftElement_1 === __rightElement_1)) return false; }",
-    );
+    // Both walks, each under the bare binders of its own scope (#1129), and
+    // each twice: `equals` and the `notEquals` that negates it.
+    const walk = "const __rightStep = __right[Symbol.iterator](); for (const __leftElement of __left) { " +
+      "const __rightElement = __rightStep.next().value; " +
+      "if (!(__leftElement === __rightElement)) return false; }";
+    expect(emitted.split(walk)).toHaveLength(5);
   });
 
   test("a collapsed dictionary does not renumber the live ones beside it", () => {
-    // The `Unit` walk is minted first here and still claims the unsuffixed
-    // binders, so `Int`'s remain `_1` and `String`'s `_2` exactly as they were
-    // before the collapse. Releasing the names would have shifted both.
+    // The `Unit` walk is minted first here and claims binders it never spells.
+    // Every walk numbers its binders in a scope of its own (#1129), so `Int`'s
+    // and `String`'s are the bare ones whatever the collapsed walk claimed.
     const emitted = javascript([
       "export let mixBlanks(x: Vector(Unit), y: Vector(Unit)): Bool =",
       "    x == y",
@@ -392,10 +388,9 @@ describe("every element operation that reads its operands is untouched", () => {
       "",
     ].join("\n"));
     expect(emitted).not.toContain("if (!(true))");
-    expect(emitted).toContain("const __rightElement_1 = __rightStep_1.next().value;");
-    expect(emitted).toContain("const __rightElement_2 = __rightStep_2.next().value;");
-    // Nothing reclaimed the names the collapsed walk gave up.
-    expect(emitted).not.toContain("const __rightElement = __rightStep.next().value;");
+    // `Int`'s and `String`'s, each in `equals` and in `notEquals`.
+    expect(emitted.split("const __rightElement = __rightStep.next().value;")).toHaveLength(5);
+    expect(emitted).not.toContain("__rightElement_1");
   });
 
   test("`Vector(Int)` compare keeps its right-hand binding", () => {
