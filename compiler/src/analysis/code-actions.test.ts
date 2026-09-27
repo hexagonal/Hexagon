@@ -533,13 +533,14 @@ describe("code actions: infer return type", () => {
       .toBe("`y` has no type yet, so the result type of `m` is not settled");
   });
 
-  test("borrowing is not always containment: a constraint's implied type", () => {
-    // The reading that first suggests itself — does the result contain the
-    // parameter's own variable? — is too narrow to be safe. An implied type
-    // member (Collections Part 2 §5) makes the result a projection variable
-    // that appears in no parameter's type at all, while being wholly determined
-    // by one: `x` is one fresh variable and the result is another, unified only
-    // once the subject reaches a concrete instance.
+  test("an implied type a binding leaves open turns the action off at the refusal (#190)", () => {
+    // A constraint's implied type makes the result a variable no parameter's
+    // type mentions while one parameter wholly determines it — `x` is one
+    // variable and the result another, unified only once the subject reaches an
+    // instance. A binding that leaves the subject open is refused (Collections
+    // Part 2 §7.2.1), so there is no result type to write, bare parameter or
+    // declared one. The declared one is #190's case: it was offered `: b`, which
+    // the instance's `Int` then blamed.
     const source = "module Main\n\n" + [
       "constraint Source<a> =",
       "    type Item",
@@ -555,16 +556,23 @@ describe("code actions: infer return type", () => {
       "",
     ].join("\n");
     const { session } = sessionOf({ "/main.hex": source });
-    // No parameter's type mentions the projection, so there is no parameter to
-    // send the user to and the sentence stays general. Annotating `x` does not
-    // settle it either — see #190, which is why this reaches only the bare
-    // case and the all-annotated one is still open.
     expect(sole(actionsOn(session, "/main.hex", source, "peek")).disabled)
-      .toBe("the signature of `peek` is not complete yet, so its result type is not settled");
+      .toBe(
+        "the body of `peek` has an error to fix first: `Source` declares an implied type and " +
+          "cannot constrain a type variable in v1, but `peek` leaves the type of `x` open; annotate `x`",
+      );
 
-    // And what it averts: the projection is `Int`, so `: a` is blamed as soon
-    // as the parameter is written — and the user has no generic completion to
-    // reach for, because a binder may not carry a projection in this slice.
+    const declared = source.replace("export fun peek(x) = get(x)", "export fun peek(x: a) = get(x)");
+    const { session: generic } = sessionOf({ "/main.hex": declared });
+    expect(sole(actionsOn(generic, "/main.hex", declared, "peek")).disabled)
+      .toBe(
+        "the body of `peek` has an error to fix first: `x` has the generic type `a`, and `Source` " +
+          "declares an implied type and cannot constrain a type variable in v1",
+      );
+
+    // A concrete subject settles the implied type at `Int`, so a result the
+    // user writes as a variable is blamed — there is no generic completion to
+    // reach for, because no binder may carry a projection in v1.
     // `source` already carries the header; prefixing a second one made the file
     // two modules of one name at one layout address, and only one of a pair can
     // be compiled (Packages §6) — so the report below was reached by whichever

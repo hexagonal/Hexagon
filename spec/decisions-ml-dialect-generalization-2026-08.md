@@ -167,7 +167,7 @@ A binding may end up with a scheme quantifying some variables while others sit u
 - **No currying / n-ary arity**: about function shape and emission; orthogonal.
 - **Higher-kinded types**: the variance analysis ranges over the fixed, fully applied constructors of §5; no abstraction over constructors is introduced anywhere in this ruling.
 - **Exceptions**: payloads admit no type variables (Exceptions §2), so no throw carries a polymorphic value past the checker — leg 1 of §4.2 holds against them.
-- **Implied type members** (Collections Part 2): unreferenceable in type expressions in v1 (§7.3 there), so no occurrence of a variable can hide inside one.
+- **Implied type members** (Collections Part 2): unreferenceable in type expressions in v1 (§7.3 there), pinned to their subject's level until they are settled, and settled by the close of the region that owns their subject (§7.2.1 there) — so no variable this rule could quantify is tied to its subject by an unsettled implied type. Clause (a) reads constraint *arguments*; an implied type's variable is not one, and without the pin and the deadline it would generalize on its own while its subject was held back.
 
 ---
 

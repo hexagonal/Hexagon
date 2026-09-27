@@ -1,7 +1,7 @@
 # Hexagon Spec: Collections Part 2 — The `Hash` Constraint & Constraint Type Members
 
 **Status:** Decided (July 2026). Two halves, one document: the formal spec of the `Hash` constraint (§2–§4), and the grammar and rules for implied `type` members in `constraint`/`honor` bodies (§5–§8), including the `Iterable` prelude declaration (§8). Written against Collections Part 1 and the Constraints spec (`honor` keyword); neither is re-litigated here.
-**Scope:** The `Hash` declaration, member, codomain, law, and determinism contract; the provided (compiler/runtime) instance set for `Hash`; the derivable-only rule and its enforcement, including the Eq-agreement rule; the wrapper-key pattern; the `type`-member grammar on both declaration and instance sides; identity and scoping of implied type names; the **projection-bearing constraint** definition and the v1 binder ban; the `Iterable` prelude declaration.
+**Scope:** The `Hash` declaration, member, codomain, law, and determinism contract; the provided (compiler/runtime) instance set for `Hash`; the derivable-only rule and its enforcement, including the Eq-agreement rule; the wrapper-key pattern; the `type`-member grammar on both declaration and instance sides; identity and scoping of implied type names; the **projection-bearing constraint** definition and the v1 binder ban, written and inferred; the `Iterable` prelude declaration.
 **Not in scope:** `Hash` instances for `Vector`/`Map`/`Set` (Part 3 §8, Part 4 §8.4, under §4.4's wording here); table-opening semantics, resolution, diagnostics, and the standard-instance table for `Iterable` (Part 5 — the *declaration* lives here, everything operational there); the v2 implied-types remainder (§11); the `CiString` wrapper's name and folding semantics (`stdlib-roadmap.md`).
 **Companions:** Collections Part 1 (§4 key model, §6 restricted `Iterable` — both made formal here); Constraints (§2 member grammar, §4 instance mechanics, §4.5 derivation, §7 prelude registration, §8 diagnostics); Collections Parts 3–5; Loops/Ranges/Iteration (§5 iterable table = §8's instance table; §7 the `Seq(a)` idiom); Declarations Preamble (module-level `type`); Modules (§6.4 qualified homes; §7 instance globality); Products/Unions (structural-instance pattern extended to `Hash`); `stdlib-roadmap.md` (routed items, §12).
 
@@ -15,7 +15,7 @@
 - **The hash/equality law holds by construction, not by trust.** Every `Hash<T>` a *user* can derive requires a compiler-derived `Eq<T>` (§4.3), so the pair is structurally consistent by construction; every compiler/runtime-provided `Hash` is specified normatively together with its `Eq` (§2.5, §4.4), and the spec text carrying the instance carries the law. v1 has no way to obtain a lawless `Hash`.
 - **Hash values are observable but not portable.** `hash` is an ordinary callable member (§2.2), deterministic and unseeded — but the stdlib's hash-backed collections place entries by *seeded* internal mixing, and iteration order is promised only within one program execution (§2.4).
 - **One keyword, three positions.** The `type` keyword serves the module-level alias (Declarations Preamble §4), the `constraint` body, and the `honor` block; position fully disambiguates — the Rust precedent.
-- **The v1 boundary is drawn at projection, not at `Iterable`.** What v1 lacks is the inference machinery for *projecting* an implied type out of an unsolved variable (`Item(α)` deferred goals). The restriction therefore bans exactly that — projection-bearing constraints on type-variable binders (§7) — uniformly, with no special-cased names.
+- **The v1 boundary is drawn at projection, not at `Iterable`.** What v1 lacks is the inference machinery for *projecting* an implied type out of a type variable — a symbolic `Item(α)` carried in a generic signature. v1 settles every implied type from a known outer constructor, inside the region that owns its subject (§7.2.1). The restriction therefore bans exactly the rest — projection-bearing constraints on type variables, whether a binder is written or inference would build it (§7) — uniformly, with no special-cased names.
 
 ---
 
@@ -219,13 +219,13 @@ Consequently:
 
 > A **projection-bearing constraint** is a constraint that declares at least one implied type member.
 
-The name states the reason for the rule it serves: what such a constraint adds to the system is a *projection* (from a type to its member's binding), and projection out of an unsolved type variable is precisely the inference machinery (`Item(α)` deferred goals) that v1 does not have and v2 owns (Part 1 §6.2/§6.3).
+The name states the reason for the rule it serves: what such a constraint adds to the system is a *projection* (from a type to its member's binding), and projection out of a type variable — an `Item(α)` goal carried in a generic signature — is precisely the inference machinery that v1 does not have and v2 owns (Part 1 §6.2/§6.3). What v1 has is the ordinary deferred demand: an implied type is settled as soon as its subject's outer constructor is known (§7.2).
 
 ### 7.2 The binder ban
 
-> **A projection-bearing constraint cannot be imposed on a type-variable binder in v1.**
+> **A projection-bearing constraint cannot be imposed on a type variable in v1 — by a written binder or by inference.**
 
-This is uniform over every binder position: function type parameters (`let f<c: Iterable>(...)` — error), `honor` prefix binders (`honor<a: Iterable> ...` — error), constraint subject binders, i.e. base constraint position (`constraint Foo<c: Iterable>` — error), and conjunctions (`<a: (Eq, Iterable)>` — error on the `Iterable` conjunct). There are no other binder positions (data-declaration headers take no constraints, Declarations Preamble §2.2).
+For written binders, this is uniform over every binder position: function type parameters (`let f<c: Iterable>(...)` — error), `honor` prefix binders (`honor<a: Iterable> ...` — error), constraint subject binders, i.e. base constraint position (`constraint Foo<c: Iterable>` — error), and conjunctions (`<a: (Eq, Iterable)>` — error on the `Iterable` conjunct). There are no other binder positions (data-declaration headers take no constraints, Declarations Preamble §2.2).
 
 What remains — and suffices for Part 1 §6.1's floor — is everything that never projects from a variable:
 
@@ -235,6 +235,44 @@ What remains — and suffices for Part 1 §6.1's floor — is everything that ne
 - **The `for..in` judgment consuming its instance table**: Part 5's business.
 
 Functions generic over "any iterable" remain unwritable in v1; `Seq(a)` parameters remain the idiom (Loops §7.1 seam, unchanged), and the ban's diagnostic points there (§9).
+
+#### 7.2.1 Inferred binders
+
+An unannotated binding generalizes (Functions §8), and a variable carrying a projection-bearing demand would generalize into the binder no one may write: `let t(x) = Iterable.toSeq(x)` would be generic over the type of `x`, and every use of `t` would copy the demand without the implied type that ties the result to it. The ban therefore covers every type variable a binding owns, inferred or declared:
+
+- **A demand is settled once its subject is known.** A demand of a projection-bearing constraint — a call of one of its members, or a reference to one — is settled as soon as its subject's outer constructor is known, anywhere in the region that owns the subject's type variable, before or after the demand in the text. Settling selects the instance and unifies each implied type with that instance's binding (Part 5 §2.2), exactly as when the subject was known at the demand. Two demands of one constraint on one subject are one demand: one instance, so one binding for each implied type (§5.4).
+- **An implied type is pinned to its subject.** Until the demand is settled, each implied type lives at its subject's level — Method Syntax §3.1's pinning rule — so no binding nested inside the subject's owner can generalize it. Without the pin, `let items = Iterable.toSeq(xs)` would generalize its element type at `items`, and whether a later line settling `xs` reached a use of `items` would depend on which line came first.
+- **The deadline is the owner's close.** A demand whose subject is still a type variable when its owner region is finalized is refused there. Owner and deadline are the dot's (Method Syntax §3.1): the owner is the region of the subject's type variable — normally the binding that would generalize it, or the `fun` block whose members share it, not the innermost binding around the demand — and the deadline holds even where the value restriction keeps the variable back instead of generalizing it (Functions §8 items 2 and 7). So a demand made inside the binding that holds its subject back is refused at that binding's close, not left for a first use: the binding owned the variable when the demand was made. A variable an earlier binding held back already belongs to the enclosing region — the module, at module level — as a monomorphic variable any later line may fix, and a demand on it is settled or refused at that region's close, as a dot call on it is.
+- **A declared variable is never settled.** A variable a written annotation or binder introduces is rigid (Functions §4.1) — a parameter's, a function's, a constraint's subject, an `honor` block's — so a projection-bearing demand on one is refused, in the declared-variable form. Where the variable's written binder list already named the constraint, the binder-ban report above is the whole answer and this one is silent.
+- **Where the report stands.** At the demand, one such report per variable, naming the binding and — where the value the member is applied to is a name — that name (§9). A declared variable's other refused demands keep their own rows (Functions §10's contract and unmentioned-variable rows), which name no projection-bearing constraint. An inferred variable its owner's type does not mention — no later line can reach it, so nothing settles it after its owner closes — or one the module holds that no use settles, is Numeric Literals §4's ambiguity error at the module's close, worded by its §6, unchanged. An instantiation of a generic binding's type is such an inferred variable, a declared one's included: `let y: c = …` generalizes over `c`, and `Iterable.toSeq(y)` demands `Iterable` of a fresh copy.
+- **A loop head is not such a demand.** `for x in e` decides at its head (Part 5 §3.1 step 2): Loops §2.3's desugaring names the member, but the head needs its element type to check the loop's pattern, and it is refused there if `e`'s outer constructor is unknown.
+- **No advice names a projection-bearing constraint.** Such a demand never joins a contract refusal's advised list (Functions §4.2) or an exported binding's required binder list (Modules §4.1.1): advice to write it would itself be refused by this section.
+
+```
+let t(x) = Iterable.toSeq(x)             -- error: `t` leaves the type of `x` open
+let t(x: c) = Iterable.toSeq(x)          -- error: `x` has the generic type `c`
+let t = Iterable.toSeq                   -- error: `t` leaves open which type `Iterable.toSeq` is used at
+
+let f(xs) =
+    let items = Iterable.toSeq(xs)       -- settled two lines down
+    let firsts: Seq(String) = items      -- `items` is not generic: its element is pinned to `xs`
+    let known: Vector(String) = xs
+    items                                -- f : (Vector(String)) -> Seq(String)
+
+let outer(xs) =
+    let inner() = Iterable.toSeq(xs)     -- xs belongs to outer, which settles it
+    let known: Vector(String) = xs
+    inner()
+
+let pick(f) = f
+let held = pick((x) => Iterable.toSeq(x))   -- error at `held`: held back, not left for a first use
+
+let h = pick((x) => x)                      -- held back: one type, fixed by its first use
+let u(y) = Iterable.toSeq(h(y))             -- the module holds y's type, so u's close does not decide it
+let words: Seq(String) = u(["a", "b"])      -- this first use settles it; u stays single-typed
+```
+
+The dot never reaches this rule: a dot call on a receiver whose outer constructor is unknown at its deadline is field access (Method Syntax §3.5), so no projection-bearing demand is made through it.
 
 ### 7.3 The reference ban
 
@@ -260,7 +298,7 @@ constraint Iterable<c> =
 **The implied type is named `Item`.** Rationale, kept against re-litigation: `Item` is the ordinary full word; it is the exact Rust precedent for this exact slot (`Iterator`'s `type Item`); and the eventual v2 reference syntax `Item(c)` reads as plain English. Rejected: **`Elem`** (a truncation with Haskell-shelf lineage — `Foldable`/MonoTraversable's `Elem`; an abbreviation would be off-doctrine in the most prominent implied type in the language), **`Element`** (the Swift spelling — full-word virtue, but longer while buying nothing `Item` lacks). "Element type" remains the correct *prose* phrase for the concept (Loops §7.1's ε is untouched); `Item` is the member's name.
 
 - The compiler-known iterable table (Loops §5) **is defined as this constraint's instance table**: one row per instance, element column = the instance's `Item` binding, strategy column = its `toSeq`. The definitive v1 table of standard instances — source-owned `String` plus the remaining provided rows, including FFI-owned `Array(a)`, `JsMap(k, v)`, and `JsSet(a)` — is **Part 5 §4**; it is not repeated here.
-- `Iterable` is projection-bearing, so §7.2 applies: it cannot constrain a binder in v1. The Loops §7.1 discipline — `Iterable` never appearing in inferred signatures, hovers, or unsatisfied-constraint errors — is thereby preserved *by construction* rather than by suppression: no binder can introduce it, so inference can never surface it.
+- `Iterable` is projection-bearing, so §7.2 applies: it cannot constrain a type variable in v1, written or inferred. The Loops §7.1 discipline — `Iterable` never appearing in inferred signatures, hovers, or unsatisfied-constraint errors — is thereby preserved *by construction* rather than by suppression: no written binder can introduce it, and no binding generalizes a variable carrying it (§7.2.1), so inference can never surface it.
 - **Operational semantics are Part 5's**: `for x in e` resolution (head-constructor-known lookup, unsolved-tyvar annotation-required error, non-iterable error + hints), table-opening for user instances, orphan-rule application to those instances, and emission. This document owns the declaration and the grammar it exercises; nothing operational is decided here beyond what Part 1 §6.1 already fixed.
 
 ---
@@ -285,6 +323,8 @@ Noun policy: the noun for the `type`-declared member is **implied type**; the in
 | `derive` for a non-derivable constraint | "…only `Eq`, `Ord`, `Show`, and `Hash` have derivable forms" | §3.1, Constraints §8 |
 | `derives Hash` on an `exception` | "exceptions have no derived instances" (existing) | §4.2 |
 | Projection-bearing constraint on a binder | "`Iterable` declares an implied type and cannot constrain a type variable; take a `Seq(a)` parameter instead" (the `Seq` hint appears when the constraint is `Iterable`; for user constraints, the first clause alone) | §7.2 |
+| Projection-bearing demand on a type variable its binding leaves open at the deadline — generalized or held back | "`Iterable` declares an implied type and cannot constrain a type variable in v1, but `t` leaves the type of `x` open; annotate `x`, or take a `Seq(a)` parameter instead" — naming the value the member is applied to where it is a name; otherwise "…but `t` leaves open which type `Iterable.toSeq` is used at; add a type annotation, or take a `Seq(a)` parameter instead". The `Seq` hint appears when the constraint is `Iterable` | §7.2.1 |
+| Projection-bearing demand on a declared type variable | "`x` has the generic type `c`, and `Iterable` declares an implied type and cannot constrain a type variable in v1; take a `Seq(a)` parameter instead" — where the member is applied to no name, "`c` is a declared type variable, and…". The `Seq` hint as above; silent where the variable's written binder list drew the binder-ban row | §7.2.1 |
 | Attempted implied-type reference in a type expression (applied/qualified form, or unresolvable bare name matching a known implied type) | "`Item` is an implied type of `Iterable` and cannot appear in type expressions" | §7.3 |
 | Duplicate type member within a constraint | hard error, duplicate-member family | §5.1 |
 | Missing type-member binding in `honor` | "the `Iterable<Bag(a)>` instance is missing `type Item`" | §5.3 |
@@ -320,6 +360,14 @@ Restricting §5's grammar to the prelude, or hardcoding the binder ban to the na
 ### 10.6 Normative 32-bit `hash` codomain
 
 Pinning the signed-32-bit range as a promise rather than an informative note. Rejected for v1: no consumer needs it, and a promise once made is permanent. Revisit only under concrete interop pressure (§12.2).
+
+### 10.7 Other answers to inferred binders (§7.2.1)
+
+- **Carrying the implied type through generalization**, so that `let t(x) = Iterable.toSeq(x)` keeps its link. Rejected: the scheme would be one no source can write (the binder is banned, and §7.3 reserves `Item(c)`), no hover can display faithfully (Functions §5.1), and no export can declare (Modules §4.1.1), while a loop in the same body would still demand a known constructor (Part 5 §1). It is v2's machinery (§11) without v2's syntax.
+- **Declining to generalize the variable**, leaving its first use to fix it. Rejected: a function's type would be decided by its first caller.
+- **Settling at the demand**, or at the close of the innermost binding around it. Rejected: acceptance would depend on the order of independent statements — the defect class Method Syntax §11.3 and §11.10 reject for the dot.
+- **Waiting, at the binding that holds a demand's subject back, for the variable's first use.** Rejected: the value restriction lets a first use supply a type, but the relaxed rule (Functions §8 item 7) reads constraints only through their arguments, so the implied type's variable would generalize on its own; waiting would need an exception carved into that rule. The owner's close settles the demand before the rule runs. (A variable an *earlier* binding held back is the enclosing region's, and waits for that region's close, as §7.2.1 says; no binding closing in between generalizes its implied types, since they are pinned to it.)
+- **Refusing, at the close of the binding that makes the demand, a variable an earlier binding held back.** Rejected: that is the per-binding deadline Method Syntax §11.10 rejects for the dot, and it would make `Iterable.toSeq(h(y))` and `h(y).toSeq()` disagree.
 
 ---
 
