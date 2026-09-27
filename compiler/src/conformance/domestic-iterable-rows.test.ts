@@ -250,15 +250,38 @@ describe("`Seq`'s row, in `Iterable.hex`", () => {
    * spelling that costs is `Seq.toSeq(s)`, which resolved only through the
    * provided-row table. `Seq.hex` honors nothing, so the qualifier names a
    * module with no such member; the dot call and the constraint's own spelling
-   * are unaffected, being reads of the instance wherever it is declared.
+   * are unaffected, being reads of the instance wherever it is declared. The
+   * refusal names both (James's ruling (b), 2026-09-28): it is the spelling a
+   * reader reaches for by analogy with `Vector.toSeq`.
    */
-  test("`Seq.toSeq` is refused; `q.toSeq()` and `Iterable.toSeq(q)` resolve", () => {
-    expect(diagnostics("export let a(q: Seq(Int)): Seq(Int) = Seq.toSeq(q)\n"))
-      .toEqual(["module `Seq` does not export `toSeq`"]);
+  test("`Seq.toSeq` is refused, naming the two routes; both resolve", () => {
+    expect(diagnostics("export let a(q: Seq(Int)): Seq(Int) = Seq.toSeq(q)\n")).toEqual([
+      "`Seq` has no `toSeq` — its `Iterable` instance is declared in module " +
+        "`Iterable`; use `Iterable.toSeq`, or call `toSeq` by the dot",
+    ]);
     expect(diagnostics(
       "export let b(q: Seq(Int)): Seq(Int) = q.toSeq()\n" +
         "export let c(q: Seq(Int)): Seq(Int) = Iterable.toSeq(q)\n",
     )).toEqual([]);
+  });
+
+  /**
+   * The hint is the prelude seat's, not the spelling's: a project's own
+   * `module Seq` that lacks the member is refused plainly, and an alias of the
+   * seated file keeps the hint.
+   */
+  test("the hint follows the seated module, not the name", () => {
+    const own = compileFiles([
+      ["/seq.hex", "module Seq\n\nexport let size: Int = 0\n"],
+      ["/main.hex", "module Main\n\nimport Seq\n\nexport let n: Int = Seq.toSeq\n"],
+    ]).diagnostics.map(({ message }) => message);
+    expect(own).toContain("module `Seq` does not export `toSeq`");
+    expect(own.join("\n")).not.toContain("has no `toSeq`");
+    expect(diagnostics("import Hex.Seq as S\n\nexport let a(q: Seq(Int)): Seq(Int) = S.toSeq(q)\n"))
+      .toEqual([
+        "`Seq` has no `toSeq` — its `Iterable` instance is declared in module " +
+          "`Iterable`; use `Iterable.toSeq`, or call `toSeq` by the dot",
+      ]);
   });
 
   /**

@@ -695,7 +695,14 @@ describe("an import straddles the reading laws it imports (Modules §3, #465, #7
           "module Main\n\n" + `export let n: Int = ${alias}.toSeq(1)\n` +
           `import ${alias}\n`]], trust);
 
-        expect(above).toEqual([NOT_EXPORTED(alias, "toSeq")]);
+        // `Seq`'s miss carries its curated route (Collections Part 5 §4); the
+        // others are the plain does-not-export.
+        expect(above).toEqual([
+          alias === "Seq"
+            ? "`Seq` has no `toSeq` — its `Iterable` instance is declared in module " +
+              "`Iterable`; use `Iterable.toSeq`, or call `toSeq` by the dot"
+            : NOT_EXPORTED(alias, "toSeq"),
+        ]);
         expect(diagnostics([seated(alias), ["/main.hex",
           "module Main\n\n" + `import ${alias}\n` +
           `export let n: Int = ${alias}.toSeq(1)\n`]], trust)).toEqual(above);

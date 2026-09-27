@@ -2151,6 +2151,20 @@ class Resolver {
   }
 
   /**
+   * The registered name of the prelude member `iface` is, or `undefined` for
+   * every other module — a project's own `module Seq` included, since the seat
+   * is compilation fact, not text. Compared by `fileId`, because the same file
+   * reached two ways yields two interfaces (an explicit `import Hex.Seq as S`
+   * is still the seated file).
+   */
+  #preludeMemberName(iface: ModuleInterface): string | undefined {
+    for (const [name, member] of this.#preludeModuleAliases) {
+      if (member.module.fileId === iface.module.fileId) return name;
+    }
+    return undefined;
+  }
+
+  /**
    * Makes a prelude term reachable from emitted code, returning the name to
    * spell it by, or `undefined` if the symbol is not a prelude term.
    *
@@ -4661,7 +4675,7 @@ class Resolver {
                     `\`${expression.field.text}\` is a pattern, written ` +
                     `\`(${pattern.componentNames.join(", ")})${expression.field.text}\``
                   : curatedCompanionMiss(
-                  importedModule.module.companionPrimitive,
+                  this.#preludeMemberName(importedModule),
                   expression.field.text,
                 ) ??
                   `module \`${expression.receiver.name.text}\` does not export \`${expression.field.text}\``,
@@ -8287,16 +8301,22 @@ const STRUCTURAL_CONSTRAINT_IDENTITIES: ReadonlySet<string> = new Set(
 );
 
 /**
- * The operations a primitive companion is asked for and deliberately does not
- * have, with the sentence that says why (Integral §8's diagnostics row).
+ * The operations a prelude companion is asked for and deliberately does not
+ * have, with the sentence that says where to go instead, keyed by the prelude
+ * member's registered name.
  *
- * A name-not-found hint is cheap, and this one is worth its keep: the obvious
- * hand-rolled `a * b / gcd(a, b)` at `Int` overflows the safe range for
- * ordinary inputs, silently, which is exactly the mistake the missing member is
- * refusing to make. The row survived the re-homing (#344) — the spelling now
- * misses as an ordinary does-not-export at a real module rather than at the
- * wired route — because the obligation is the row, not the mechanism that
- * carried it.
+ * A name-not-found hint is cheap, and each row is worth its keep:
+ *
+ * - `Int.lcm` (Integral §8's diagnostics row): the obvious hand-rolled
+ *   `a * b / gcd(a, b)` at `Int` overflows the safe range for ordinary inputs,
+ *   silently, which is exactly the mistake the missing member is refusing to
+ *   make. The row survived the re-homing (#344) — the spelling now misses as an
+ *   ordinary does-not-export at a real module rather than at the wired route —
+ *   because the obligation is the row, not the mechanism that carried it.
+ * - `Seq.toSeq` (Collections Part 5 §4, #1141): every other collection's
+ *   `toSeq` reads through its companion, so the spelling is the one a reader
+ *   reaches for by analogy; `Seq`'s row is `Iterable.hex`'s, because `Seq.hex`
+ *   seats before the constraint.
  */
 const CURATED_COMPANION_MISSES: ReadonlyMap<string, string> = new Map([
   [
@@ -8304,15 +8324,20 @@ const CURATED_COMPANION_MISSES: ReadonlyMap<string, string> = new Map([
     "`Int` has no `lcm` — its results overflow `Int`'s safe range for ordinary " +
       "inputs; use `BigInt.lcm`",
   ],
+  [
+    "Seq.toSeq",
+    "`Seq` has no `toSeq` — its `Iterable` instance is declared in module " +
+      "`Iterable`; use `Iterable.toSeq`, or call `toSeq` by the dot",
+  ],
 ]);
 
 function curatedCompanionMiss(
-  companion: string | undefined,
+  member: string | undefined,
   field: string,
 ): string | undefined {
-  return companion === undefined
+  return member === undefined
     ? undefined
-    : CURATED_COMPANION_MISSES.get(`${companion}.${field}`);
+    : CURATED_COMPANION_MISSES.get(`${member}.${field}`);
 }
 
 /** One `honor` declaration's binding of one member spelling (Constraints §4.6). */
