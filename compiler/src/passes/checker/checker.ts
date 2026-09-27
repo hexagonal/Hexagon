@@ -9673,14 +9673,7 @@ class Checker {
         break;
       }
       case "For": {
-        // Read as a `let` reads its right-hand side, one level in, so the
-        // iterable's own openings close before the loop variable is bound.
-        const iterable = this.#inferExpr(expression.iterable, level + 1);
-        this.#closeOpenings(level);
-        // And then brought back to the loop's level, as nothing here
-        // generalizes it: a `let` in the body must not read its variables as
-        // its own.
-        this.#lowerLevels(iterable, level);
+        const iterable = this.#inferExpr(expression.iterable, level);
         let actual = this.#prune(iterable);
         if (actual.kind === "Variable" && actual.literalOnly) {
           this.#bind(actual, primitive("Int"), expression.iterable.span);
@@ -16684,13 +16677,7 @@ class Checker {
     node: TreeNode,
     collect: (part: Resolved.Expr, expectation: Mono | undefined) => void,
   ): void {
-    // Read as a `let` reads its right-hand side, one level in, so the
-    // scrutinee's own openings close before any arm binds its parts (#1119).
-    const scrutinee = this.#inferExpr(expression.scrutinee, level + 1);
-    this.#closeOpenings(level);
-    // And then brought back to the match's level, as nothing here generalizes
-    // it: a `let` in an arm must not read its variables as its own.
-    this.#lowerLevels(scrutinee, level);
+    const scrutinee = this.#inferExpr(expression.scrutinee, level);
     // Read once, before any arm: one arm's body cannot settle what another
     // arm's pattern binds (#1119 R.b).
     this.#settleArms(expression.arms, scrutinee);

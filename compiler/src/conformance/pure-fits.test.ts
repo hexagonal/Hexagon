@@ -455,14 +455,40 @@ describe("knots, and the value a `match` or a `for` reads (R.b, review round 4)"
     expect(Date.now() - start).toBeLessThan(3000);
   });
 
-  test("a `match` or a `for` over a value written in place reads it as a `let` does", () => {
+  test("a `match` or a `for` reads a value written in place at the form's own level", () => {
+    // Held after review round 6: read one level in, the value's colours
+    // escaped to a `let` inside and generalized there. The cost, recorded for
+    // #1135: an arm that pins the part pure and hands it beside a `->?` is
+    // refused where the same value bound by a `let` first fits.
+    const outer = (lines: readonly string[]): string =>
+      "export let outer(action: () ->? Unit): Unit =\n" + lines.map((line) => `    ${line}\n`).join("") + "    ()\n";
+    const pinned = ["        pureOnly(f)", "        apply2?(action, f)"];
+    expect(reports(outer(["let t = Some(noop)", "match t", "    Some(f) =>", ...pinned, "    None => ()"]))).toEqual([]);
+    expect(reports(outer(["match Some(noop)", "    Some(f) => apply2?(action, f)", "    None => ()"]))).toEqual([]);
     for (const lines of [
-      ["match Some(noop)", "    Some(f) =>", "        pureOnly(f)", "        apply2?(action, f)", "    None => ()"],
-      ["for f in [noop]", "    pureOnly(f)", "    apply2?(action, f)"],
-      ["let t = Some(noop)", "match t", "    Some(f) =>", "        pureOnly(f)", "        apply2?(action, f)", "    None => ()"],
+      ["match Some(noop)", "    Some(f) =>", ...pinned, "    None => ()"],
+      ["for f in [noop]", ...pinned.map((line) => line.slice(4))],
     ]) {
-      const source = "export let outer(action: () ->? Unit): Unit =\n" + lines.map((line) => `    ${line}\n`).join("") + "    ()\n";
-      expect([lines[0], reports(source)]).toEqual([lines[0], []]);
+      expect([lines[0], reports(outer(lines)).map(([, message]) => message)]).toEqual([lines[0], [SOLVED_PURE]]);
+    }
+  });
+
+  test("a `let` inside an arm or a loop body never generalizes the form's colours", () => {
+    // Review round 6: an impure function reached a `->` function this way.
+    const world = 'extern from "./world.js"\n' +
+      "    export fun setFn(map: JsMap(Int, (() ->! Unit) ->! Unit), key: Int, value: (() ->! Unit) ->! Unit) ->! Unit\n" +
+      "    export fun impure1(f: () ->! Unit) ->! Unit\n" +
+      "export let call1(f: () ->? Unit): Unit = f?()\n" +
+      "export let usePure(m: JsMap(Int, (() -> Unit) -> Unit)): Unit =\n" +
+      "    match JsMap.get(m, 1)\n        Some(h) => h(() => ())\n        None => ()\n";
+    const use = ["let g = m", "setFn!(g, 1, impure1)", "usePure(g)"];
+    for (const source of [
+      "export let bad(): Unit =\n    for m in [JsMap.fromSeq(Seq.singleton((1, call1)))]\n" +
+        use.map((line) => `        ${line}\n`).join(""),
+      "export let bad(): Unit =\n    match (JsMap.fromSeq(Seq.singleton((1, call1))), 0)\n        (m, _) =>\n" +
+        use.map((line) => `            ${line}\n`).join(""),
+    ]) {
+      expect(reports(world + source).map(([, message]) => message)).toContain(PURITY);
     }
   });
 
