@@ -365,8 +365,6 @@ fun insert(
 // present one has its value replaced, with the stored key kept.
 // (`placed` rather than `hash`: the prelude's `Hash` member of that name is in
 // scope here, and a `let` may not rebind it.)
-// (The arms' binders are all spelled apart — #367 again: two arms of one `match`
-// that bind the same name emit colliding `const`s.)
 let set<k: Hash>(trie: HashTrie(k, v), key: k, value: v): HashTrie(k, v) =
     match trie.root
         // A first entry into an empty trie is placed at once rather than left
@@ -518,11 +516,6 @@ union Frames(k, v) =
 // The recursion here is not the walk's length: every recursive call either
 // descends one trie level or pops one exhausted frame, and both are bounded by
 // the depth, so this is stack-safe however many entries the trie holds.
-// (The two arms' binders are spelled apart — `pairAt`/`slotAt` rather than
-// `index` twice — because two arms of one `match` that bind the same name emit
-// colliding `const`s into one JavaScript `switch` block. That is a compiler
-// defect (#367) and not a rule of the language; this file works around it
-// rather than waiting on it.)
 fun advance(frames: Frames(k, v)): Option(((k, v), Frames(k, v))) =
     match frames
         NoFrames => None

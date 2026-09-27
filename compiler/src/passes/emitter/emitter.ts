@@ -4472,7 +4472,12 @@ class JavaScriptEmitter {
       });
     }
     if (item.kind === "Honor") {
-      return this.#generatedNames.within(() => this.#emitHonor(item, depth, evidenceNames));
+      // A parameterized instance is a factory function, so the names it mints
+      // are its own (#1129). A ground one's lines are module-level `const`s,
+      // so anything it mints is the module's.
+      return item.typeParameters.some(({ constraints }) => constraints.length > 0)
+        ? this.#generatedNames.within(() => this.#emitHonor(item, depth, evidenceNames))
+        : this.#emitHonor(item, depth, evidenceNames);
     }
     if (item.kind === "ExprItem") {
       return returnFinal
@@ -4786,9 +4791,8 @@ class JavaScriptEmitter {
   }
 
   /**
-   * An instance's dictionary, in its own scope of generated names (#1129): a
-   * parameterized one is a factory function, and every name a ground one mints
-   * is declared inside one of its members' functions.
+   * An instance's dictionary: a `const` at a ground instance, and a factory
+   * function over its evidence parameters otherwise.
    */
   #emitHonor(
     item: Core.HonorItem,
@@ -7338,31 +7342,48 @@ class JavaScriptEmitter {
         ];
     for (const arm of expression.arms) {
       const pattern = arm.pattern;
+      // The arm's label, then its own statements: its binders and its body.
+      let label: string;
+      const body: string[] = [];
       if (pattern.kind === "Constructor") {
         // `case true:` / `case "up":` where the constructor *is* a literal — the
         // `Bool` pin and Foreign Enums §2.4's members alike; the tag otherwise.
         const literal = this.#constructorLiteral(pattern.symbol);
-        lines.push(`${armIndent}case ${literal ?? JSON.stringify(pattern.tag)}:`);
+        label = `case ${literal ?? JSON.stringify(pattern.tag)}:`;
         const metadata = this.#constructors.get(pattern.symbol)?.constructor;
         pattern.arguments.forEach((argument, index) => {
           if (matchName === undefined) return;
           const field = metadata?.slots[index]?.field ?? `item${index + 1}`;
           const destructuring = this.#emitPattern(argument);
           if (destructuring !== "") {
-            lines.push(`${bodyIndent}const ${destructuring} = ${matchName}.${field};`);
+            body.push(`${bodyIndent}const ${destructuring} = ${matchName}.${field};`);
           }
         });
-        lines.push(...this.#emitArmBody(arm.body, bodyDepth, bodyIndent, evidenceNames));
       } else {
-        lines.push(`${armIndent}default:`);
+        label = "default:";
         if (pattern.kind === "Binding") {
           const name = this.#identifier(
             pattern.binding.symbol,
             pattern.binding.name,
           );
-          lines.push(`${bodyIndent}const ${name} = ${matchName};`);
+          body.push(`${bodyIndent}const ${name} = ${matchName};`);
         }
-        lines.push(...this.#emitArmBody(arm.body, bodyDepth, bodyIndent, evidenceNames));
+      }
+      body.push(...this.#emitArmBody(arm.body, bodyDepth, bodyIndent, evidenceNames));
+      // Unions §6.3 (#367): JavaScript scopes a `case` clause's declarations to
+      // the whole `switch`, where Hexagon scopes an arm's binders to that arm.
+      // Two arms binding one name would redeclare it — a `SyntaxError` at load
+      // — and an arm binding a name another arm reads from outside would leave
+      // that read in the declaration's dead zone. So an arm that declares
+      // anything, a binder or a statement of its own body, takes a block of
+      // its own, as a person writes it; an arm that declares nothing stays
+      // bare. (Every such declaration is a `const` today: the one statement
+      // that opens with a `let`, a `match … catch`, can be an arm's body only
+      // through a block, which emits as an arrow of its own.)
+      if (declaresAt(body, bodyIndent)) {
+        lines.push(`${armIndent}${label} {`, ...body, `${armIndent}}`);
+      } else {
+        lines.push(`${armIndent}${label}`, ...body);
       }
     }
     if (expression.arms.every((arm) => arm.pattern.kind === "Constructor")) {
@@ -9551,9 +9572,7 @@ class JavaScriptEmitter {
    * that immediately selects and applies one member — §9.1's peephole, which
    * reads the slot's arrow and reduces it — and a use site that needs the whole
    * record cannot disagree about what the dictionary contains. Every derived
-   * body is rendered here exactly once whichever face the caller takes: the
-   * walks mint fresh binder names as they go, so a second rendering would move
-   * every later name in the module.
+   * body is rendered here exactly once whichever face the caller takes.
    */
   #derivedSlots(
     constraint: Typed.ConstraintName,
@@ -9849,12 +9868,10 @@ class JavaScriptEmitter {
    * constraint plus its type and components (`structuralEvidenceKey`).
    *
    * `initializer` is a thunk and not a string because the literal must be
-   * rendered **exactly** when it is interned. Rendering it unconditionally would
-   * mint the walks' fresh binder names at every use site, moving every later
-   * generated name in the module for a rendering that is then thrown away; and
-   * rendering it *after* interning would put a component's own binding after the
-   * binding that reads it, which is the one thing §5's insertion-order-is-
-   * dependency-order argument needs to stay true.
+   * rendered **exactly** when it is interned: a site whose binding already
+   * exists renders nothing, and rendering it *after* interning would put a
+   * component's own binding after the binding that reads it, which is the one
+   * thing §5's insertion-order-is-dependency-order argument needs to stay true.
    *
    * Refused in an eagerly-read position (`#eagerEvidenceDepth`) for the reason
    * that field records: §5 places the hoisted block after the instances, so a
@@ -13320,6 +13337,18 @@ function isUnit(type: Typed.Type): boolean {
 }
 
 /**
+ * Whether these statement lines declare a binding at `indent` itself — at the
+ * top of the block they are placed in, not inside a block nested in one of
+ * them. Every statement the emitter writes into a block starts at the block's
+ * indent, and it declares with `const` and `let` alone.
+ */
+function declaresAt(lines: readonly string[], indent: string): boolean {
+  return lines.some((line) =>
+    line.startsWith(`${indent}const `) || line.startsWith(`${indent}let `)
+  );
+}
+
+/**
  * Whether emitted statements end in an unconditional exit, so that appending a
  * `break` would be unreachable. Conservative: anything else is treated as
  * falling through.
@@ -15521,20 +15550,22 @@ function componentDispatch(
  *   helper, a runtime or inherited-default import's local, a hoisted
  *   dictionary — claims in the module scope all the same (`fixed`, `hoisted`,
  *   the `claim…` family).
- * - A claim avoids the module scope and every function scope still open, so a
- *   nested function never hides a name its enclosing functions hold, and a
- *   module name never hides a local that is live where it is minted. (No
- *   helper or import stem spells a local's stem today, so that last half is a
- *   guard no program reaches.)
+ * - A claim avoids the module scope and every function scope still open. So a
+ *   nested function never hides a name its enclosing functions already hold —
+ *   the only ones it could read — and a local live where a module binding is
+ *   minted never hides that binding. (The second half is a guard no program
+ *   reaches: no helper, import, or hoisted-dictionary stem spells a local's —
+ *   a dictionary's begins uppercase.)
  * - A function scope is dropped when its function has been emitted, so the next
  *   sibling starts from its parent's names again.
  *
  * That is sound because a generated name is referenced only by text emitted
- * after its claim: a later claim that reuses a closed sibling's spelling can
- * shadow nothing the sibling reads, and the sibling's own declaration is out of
- * scope everywhere else. Within one function nothing changes — two loops with a
- * computed end in one function are `__end` and `__end_1`, as a person would
- * also need two names.
+ * after its claim. A later claim that reuses a closed function's spelling — a
+ * sibling's, or a nested function's emitted before its parent claimed the same
+ * stem — can shadow nothing that function reads, since its text was finished
+ * first, and that function's own declaration is out of scope everywhere else.
+ * Within one function nothing changes — two loops with a computed end in one
+ * function are `__end` and `__end_1`, as a person would also need two names.
  */
 class GeneratedNames {
   readonly #module: Set<string>;

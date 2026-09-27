@@ -48,9 +48,9 @@ import { compileMain, runMain } from "../support/test-project.js";
  * The controls carry the weight here, because this is a cosmetic change to a
  * shared walk: a `Vector` over any type whose equality reads its operands must
  * emit exactly what it always did, and a module mixing a collapsed dictionary
- * with live ones must not renumber the live ones — the walk still *claims* the
- * binder names it no longer spells, precisely so the `_1` suffixes elsewhere in
- * the module do not shift.
+ * with live ones must not renumber the live ones. Each walk numbers its binders
+ * in a scope of its own (#1129), so the names a collapsed walk claims and never
+ * spells cannot reach the walks beside it.
  *
  * Every program is textually distinct on purpose: two programs whose emitted JS
  * is byte-identical share one `data:` URL module instance, so a copy of another
@@ -345,7 +345,9 @@ describe("a planner edition at `Unit` collapses, and its siblings do not", () =>
     // The other six editions keep their element reads. `Int`'s is the spot
     // check, under the bare binders: each walk numbers them in a scope of its
     // own (#1129), whatever the editions beside it claim.
-    expect(emitted).toContain("if (!(__leftElement === __rightElement)) return false;");
+    expect(emitted).toMatch(
+      /const __Eq_Vector_Int = [^\n]*if \(!\(__leftElement === __rightElement\)\) return false;/u,
+    );
     expect(emitted).not.toContain("if (!(true))");
     const module = await runMain("module Main\n\n" + source);
     expect(module.blanksAgree).toBe(true);

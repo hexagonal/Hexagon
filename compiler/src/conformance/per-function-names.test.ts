@@ -11,13 +11,13 @@ import { compileFiles, compileMain, runMain, runProject } from "../support/test-
  * `fun` or a lambda, and any function the emitter writes — an immediately-
  * invoked arrow, an eta-expansion wrapper, a derived walk, an instance factory.
  *
- * What stays apart is what could clash: a nested function avoids every name its
- * enclosing functions hold, a module-level temporary is reserved in every
- * function after it, and a module-level binding the emitter mints from inside a
- * function — a hoisted dictionary, an import's local — is numbered across the
- * whole module. The executed tests are the ones that pin what the text alone
- * cannot: each function reads its own name, and a module never declares one
- * twice.
+ * What stays apart is what could clash: a nested function avoids every name
+ * its enclosing functions already hold, a module-level temporary is reserved in
+ * every function after it, and a module-level binding the emitter mints from
+ * inside a function — a hoisted dictionary, an import's local — is numbered
+ * across the whole module. The executed tests are the ones that pin what the
+ * text alone cannot: each function reads its own name, and a module never
+ * declares one twice.
  */
 
 function javascript(source: string): string {
