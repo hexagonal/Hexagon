@@ -4472,9 +4472,9 @@ class JavaScriptEmitter {
       });
     }
     if (item.kind === "Honor") {
-      // A parameterized instance is a factory function, so the names it mints
-      // are its own (#1129). A ground one's lines are module-level `const`s,
-      // so anything it mints is the module's.
+      // An instance with evidence parameters is a factory function over them,
+      // so the names it mints are its own (#1129). Any other instance's lines
+      // are module-level `const`s, so anything it mints is the module's.
       return item.typeParameters.some(({ constraints }) => constraints.length > 0)
         ? this.#generatedNames.within(() => this.#emitHonor(item, depth, evidenceNames))
         : this.#emitHonor(item, depth, evidenceNames);
@@ -7377,9 +7377,12 @@ class JavaScriptEmitter {
       // that read in the declaration's dead zone. So an arm that declares
       // anything, a binder or a statement of its own body, takes a block of
       // its own, as a person writes it; an arm that declares nothing stays
-      // bare. (Every such declaration is a `const` today: the one statement
-      // that opens with a `let`, a `match … catch`, can be an arm's body only
-      // through a block, which emits as an arrow of its own.)
+      // bare. (The `let` half of that test is redundant today: an arm that
+      // writes a `let` at its top level — a lifted if-chain `match`'s pattern
+      // views — writes that `match`'s own `const` there too, and the one
+      // statement that would open with a `let` alone, a `match … catch`, can
+      // be an arm's body only through a block, which emits as an arrow of its
+      // own.)
       if (declaresAt(body, bodyIndent)) {
         lines.push(`${armIndent}${label} {`, ...body, `${armIndent}}`);
       } else {
