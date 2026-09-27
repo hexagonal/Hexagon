@@ -119,6 +119,7 @@ All other rows (get/set O(log₃₂ n), both ends O(1) amortized, `++` linear) s
 ### 5.1 The bracket
 
 - `xs[i]` with `xs : Vector(a)`, `i : Int` — **1-based**; yields the element; **throws `IndexError`** when `i < 1` or `i > xs.length()`. `xs[i]` asserts "element `i` exists" and fails loudly at the fault site.
+- **The index is a seat, checked as `Vector.at`'s `Int` argument is** (Numeric Literals §5.1, #1133). The bracket has two readings, a position and a slice (§6), and the index's own type chooses, so the index closes first: a `Range` slices, and any other value enters the `Int` position by exact unification or one of §5.1's three conversions — `xs[k]` widens a `k: Nat`. Where the index's written shape has already chosen, it takes the `Int` face first: a tower operation is never a `Range`, so `xs[k - 1]` is a position and subtracts at `Int`, as `Vector.at(xs, k - 1)` does. A value no conversion takes into `Int` is refused with `Int` named as the type expected.
 - `[]` is **read-only** — it never appears in a write position (there is no assignment-to-index grammar in Hexagon at all; updates are `Vector.set`).
 - **Negative indices are absent — decided.** `xs[-1]` throws `IndexError` like any other out-of-bounds value. Reasoning recorded in §11.1 (silent-wrap drift hazard; the `0` dead zone is one value wide under 1-based indexing; slices cannot follow coherently). The end-relative want is served by `at` (§5.3), `last`, and `dropLast`.
 - Emission: monomorphic `xs[i]` emits a runtime indexed read with the bounds check that produces `IndexError`. JS returns `undefined` out of bounds, so a check exists either way; the throwing form wins on type cleanliness — `xs[i] : a` with no hole.
@@ -281,7 +282,7 @@ emoji split in two); grapheme clusters are culturally defined and
 version-sensitive. Codepoints own the short surface permanently. Grapheme-aware
 operations, if ever, are named stdlib functions, never `[]`.
 
-- `s[i]` — the codepoint at 1-based index `i`, **as a one-codepoint `String`** (there is no `Char` type; Primitive Types is explicit). Throws `IndexError` out of bounds; same payload.
+- `s[i]` — the codepoint at 1-based index `i`, **as a one-codepoint `String`** (there is no `Char` type; Primitive Types is explicit). Throws `IndexError` out of bounds; same payload. The index is §5.1's seat: `s[k]` and `s[k - 1]` take a `k: Nat`.
 - `String.get(s, i): Option(String)` — total sibling.
 - `String.at(s, i): String` — signed sibling, identical §5.3 semantics (equation included), codepoint-addressed.
 - `s[lo..hi]` — clamping codepoint window; descending `Range` throws `SliceError`; identical §6 rules.

@@ -5963,15 +5963,8 @@ class JavaScriptEmitter {
     // A widening that emits nothing is its value's text, so it binds as its
     // value does — asked here rather than of the free `expressionPrecedence`,
     // which cannot see an inlined door beneath it (`1.5 * h.toInt32()`).
-    if (
-      expression.kind === "WidenNat" || expression.kind === "WidenInt" ||
-      expression.kind === "WidenBigInt"
-    ) {
-      const widened = primitiveInstance(expression.evidence);
-      if (widened !== undefined && (expression.kind === "WidenBigInt" || widened !== "BigInt")) {
-        return this.#emittedPrecedence(expression.value);
-      }
-    }
+    const widened = silentWidening(expression);
+    if (widened !== undefined) return this.#emittedPrecedence(widened);
     // A receiver member's `Unit` call emits under `void` in value position
     // (`#emitCall`), which binds as a unary operator, not as a call.
     if (
@@ -6304,11 +6297,15 @@ class JavaScriptEmitter {
    * emit as a read — its identifier, or a module namespace's member
    * (`Config.limit`), whose binding is as fixed as a local one. A reference
    * that emits as a call is evaluated once like any other expression.
+   *
+   * A widening that writes nothing is its value's text, and is read through
+   * (#1133): `1..n` for an `n: Nat` counts to `n` itself.
    */
   #rereadable(bound: Core.Expr, text: string): boolean {
     if (/^-?(?:0[xob][0-9a-f]+|[0-9]+)$/i.test(text)) return true;
-    if (bound.kind !== "Name") return false;
-    const kind = this.#symbols.get(bound.symbol)?.kind;
+    const read = silentWidening(bound) ?? bound;
+    if (read.kind !== "Name") return false;
+    const kind = this.#symbols.get(read.symbol)?.kind;
     return (kind === "let" || kind === "parameter" || kind === "pattern") &&
       text.split(".").every(isSafeIdentifier);
   }
@@ -13679,11 +13676,8 @@ function expressionPrecedence(expression: Core.Expr): Precedence {
     case "WidenNat":
     case "WidenInt":
     case "WidenBigInt": {
-      const widened = primitiveInstance(expression.evidence);
-      return widened !== undefined &&
-          (expression.kind === "WidenBigInt" || widened !== "BigInt")
-        ? expressionPrecedence(expression.value)
-        : Precedence.Call;
+      const widened = silentWidening(expression);
+      return widened === undefined ? Precedence.Call : expressionPrecedence(widened);
     }
     case "Name":
     case "CollectionOperation":
@@ -15258,6 +15252,25 @@ const MIGRATED_COMPANIONS: ReadonlySet<string> = new Set(
 function primitiveInstance(evidence: Core.Evidence): Typed.PrimitiveName | undefined {
   if (evidence.kind === "Primitive") return evidence.instance;
   return evidence.kind === "Instance" ? evidence.primitive : undefined;
+}
+
+/**
+ * The value a widening converts, where the widening writes nothing of its own,
+ * or `undefined`. A widening into a primitive the value already is at run time
+ * is its value's text: a `Nat` or an `Int` into any JS number, a `BigInt` into
+ * `BigInt`. Into `BigInt` from a number it writes `BigInt(…)`.
+ */
+function silentWidening(expression: Core.Expr): Core.Expr | undefined {
+  if (
+    expression.kind !== "WidenNat" && expression.kind !== "WidenInt" &&
+    expression.kind !== "WidenBigInt"
+  ) {
+    return undefined;
+  }
+  const widened = primitiveInstance(expression.evidence);
+  return widened !== undefined && (expression.kind === "WidenBigInt" || widened !== "BigInt")
+    ? expression.value
+    : undefined;
 }
 
 /**

@@ -92,6 +92,8 @@ Map.fromVector(xs) ≡ Map.fromSeq(Vector.toSeq(xs))
 
 `m[k]` with `m : Map(k, v)`, `k : k`, requires `<k: Hash>` — yields the value; **throws `KeyError`** when the key is absent. The Part 1 §3.3 accessor pair, instantiated: brackets assert presence and fail loudly at the fault site. Read-only, as everywhere — `[]` never appears in write position; updates are `Map.set`.
 
+The key is a seat, checked as `Map.get`'s is (Numeric Literals §5.1, #1133): a map has no slice, so the map's key type faces every index, and a value enters it by exact unification or one of §5.1's three conversions. On a `Map(Int, v)`, `m[n]` widens an `n: Nat` and `m[n - 1]` subtracts at `Int`; on a `Map(Rat, v)`, `m[n]` looks up `Rat.fromNat(n)`. A key no conversion reaches is refused with the map's key type named as the type expected.
+
 Grammar: this is the same postfix bracket Operators §10 fixed and Part 3 §5 consumed; the element expression's type (`Int` vs `Range` vs the map's key type) selects the meaning during checking, not parsing. No new syntax.
 
 ### 4.2 `Map.get` — the total sibling

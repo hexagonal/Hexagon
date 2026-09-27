@@ -64,6 +64,8 @@ Range.up(1, 4) // the same Range as 1..4
 
 Both endpoints are included. The operator binds more loosely than arithmetic, so
 `1..limit + 1` ends at `limit + 1`. Ranges do not chain: `1..2..3` is an error.
+Each endpoint is an `Int`, exactly as each argument of `Range.up` is, so anything
+`Range.up` accepts can stand on either side of `..`, a `Nat` count included.
 
 An ascending range whose first value is greater than its last is empty:
 
