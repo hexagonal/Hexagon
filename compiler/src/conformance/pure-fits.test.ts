@@ -252,6 +252,52 @@ describe("only a decided colour is re-opened (R.b)", () => {
     }
   });
 
+  test("the pin travels into a join with a decided pure function, whichever side and line come first", () => {
+    const k = (lines: readonly string[]): string =>
+      "let pickTwo(x: a, y: a): a = x\nexport let outer(action: () ->? Unit): Unit =\n    let k = (cb) =>\n" +
+      lines.map((line) => `        ${line}\n`).join("") + "        ()\n    ()\n";
+    for (const join of [
+      "let g = if True then noop else cb",
+      "let g = if True then cb else noop",
+      "let g = pickTwo(noop, cb)",
+      "let g = pickTwo(cb, noop)",
+    ]) {
+      for (const use of ["apply2?(action, g)", "impureOnly!(g)"]) {
+        for (const lines of [["pureOnly(cb)", join, use], [join, use, "pureOnly(cb)"]]) {
+          expect([lines, reports(k(lines)).length]).toEqual([lines, 1]);
+        }
+      }
+    }
+  });
+
+  test("a pin ends with its binding's scope: a function's scheme is decided when its body closes", () => {
+    for (const k of [
+      "let k = (f) =>\n    pureOnly(f)\n    f\n",
+      "let k(f: () -> Unit): () -> Unit = f\n",
+    ]) {
+      expect(reports(`${k}export let outer(action: () ->? Unit): Unit = apply2?(action, k(noop))\n`)).toEqual([]);
+    }
+    // A function that hands back a binding still in scope keeps its pin, in either order.
+    for (const lines of [
+      ["pureOnly(cb)", "let get = () => cb", "apply2?(action, get())"],
+      ["let get = () => cb", "apply2?(action, get())", "pureOnly(cb)"],
+    ]) {
+      const source = "export let outer(action: () ->? Unit): Unit =\n    let k = (cb) =>\n" +
+        lines.map((line) => `        ${line}\n`).join("") + "        ()\n    ()\n";
+      expect([lines, reports(source).length]).toEqual([lines, 1]);
+    }
+  });
+
+  test("a lambda written where it is passed takes its parameter's type from the callee", () => {
+    const takes = "export let takesD(f: (() -> Unit) ->? Unit): Unit = f?(noop)\n";
+    expect(reports(`${takes}export let outer(action: () ->? Unit): Unit = takesD?((cb) => apply2?(action, cb))\n`))
+      .toEqual([]);
+    expect(reports(`${takes}export let outer(action: () ->? Unit): Unit =\n    let h = (cb) => apply2?(action, cb)\n    takesD?(h)\n`))
+      .toHaveLength(1);
+    expect(reports(`${takes}export let outer(action: () ->? Unit): Unit =\n    let h = (cb: () -> Unit) => apply2?(action, cb)\n    takesD?(h)\n`))
+      .toEqual([]);
+  });
+
   test("writing the parameter's type decides it, and it fits", () => {
     const written = `export let outer(action: () ->? Unit): Unit =
     let k = (cb: () -> Unit) =>
@@ -278,8 +324,7 @@ describe("reports read the colours as they stand", () => {
 
   test("at a parameter's arrow, a function's demand and a position's supply are read the right way round", () => {
     expect(reports("let g: (() ->! Unit) -> Unit = pureOnly\n")).toEqual([["(() ->! Unit) -> Unit", PURITY]]);
-    expect(reports("let g: (() -> Unit) -> Unit = impureOnly\n").map(([, message]) => message))
-      .toContain(FIXED_BEFORE);
+    expect(reports("let g: (() -> Unit) ->! Unit = impureOnly\n")).toEqual([["(() -> Unit) ->! Unit", FIXED_BEFORE]]);
   });
 
   test("the recovery decides a colour it shares with a pure function at module level too (#1115 D2)", () => {

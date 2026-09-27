@@ -974,9 +974,8 @@ late pedagogy pass, not a commitment to the current order.
   display is plain.
 - Enforcement is symmetric and error-grade: wrong or missing marks at calls are
   errors in every direction, and a pure face over a body that performs effects is
-  an error at the offending call. (A face may claim more effect than its body
-  performs — the specification checks the pure direction only, #1119 — and the
-  chapter does not stage the allowance.)
+  an error at the offending call. (A face never claims less than its body does and
+  may claim more, #1119; the chapter does not stage the allowance.)
 - Operators, indexing, `for` heads, and interpolation have no mark seat, so
   everything they reach is pure: the prelude's members write `->`, and their `honor`
   bodies check pure. A user constraint's member header is an effect contract.

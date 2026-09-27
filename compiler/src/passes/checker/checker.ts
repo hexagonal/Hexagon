@@ -1442,6 +1442,12 @@ interface Scheme {
   /** That constraint's subject, held rather than positionally implied. */
   readonly constraintSubject?: Variable;
   readonly impliedTypes?: ReadonlyMap<string, Variable>;
+  /**
+   * The level the scheme was generalized at (#1119 R.b): a pin standing for a
+   * binding deeper than this ended with that binding's scope, and an
+   * instantiation copies it as the constant it is (`#instantiate`).
+   */
+  readonly pinLevel?: number;
 }
 
 const ERROR: ErrorMono = { kind: "Error" };
@@ -3042,6 +3048,8 @@ class Checker {
   readonly #openedColours = new WeakSet<Variable>();
   /** Whether `#unify` stands inside an odd number of parameter positions, where demand and supply turn over. */
   #parameterParity = false;
+  /** Nonzero while `#unify` meets two arrows' colours one of which reaches a pin (#1119 R.b). */
+  #joiningPin = 0;
   /** Every opened colour not yet settled, for the binding that minted it to close (`#generalize`). */
   #openedPending: Variable[] = [];
   /**
@@ -3056,14 +3064,14 @@ class Checker {
    * unknown where they were bound — no written type, no expectation landed —
    * so their colour is inferred from their uses (#1119 R.b, `#inferredFromUses`).
    */
-  readonly #inferredBindings = new Set<Resolved.SymbolId>();
+  readonly #inferredBindings = new Map<Resolved.SymbolId, number>();
   /**
    * `let` bindings whose function type borrows its outer arrow from the
    * enclosing environment — `let f = cb` for a parameter with no written type —
    * so its colour is that parameter's, inferred from all its uses together, and
    * a use of the binding is not opened (#1119 R.b).
    */
-  readonly #borrowedBindings = new Set<Resolved.SymbolId>();
+  readonly #borrowedBindings = new Map<Resolved.SymbolId, number>();
   /** Lambdas that are a declaration's own value — a `let`'s, a `fun` member's, a pattern's `view` or `build` — never opened. */
   readonly #unopenedLambdas = new WeakSet<Resolved.Expr>();
   /**
@@ -9515,7 +9523,7 @@ class Checker {
           // Decided now or never (#1119 R.b): a type still unknown here is
           // inferred from the body's uses, and what a demand there pins pure is
           // that inference, not a pure function the parameter was handed.
-          if (this.#prune(parameterType).kind === "Variable") this.#inferredBindings.add(parameter.symbol);
+          if (this.#prune(parameterType).kind === "Variable") this.#inferredBindings.set(parameter.symbol, level + 1);
           return parameterType;
         });
         const savedVariableScope = this.#annotationVariableScope;
@@ -10581,11 +10589,10 @@ class Checker {
     }
 
     this.#expressionTypes.set(expression, type);
-    if (
-      expression.kind === "Name" && this.#inferredFromUses(expression.symbol) &&
-      this.#calledNames.get(expression)?.callee !== expression
-    ) {
-      return this.#pinnedCopy(type, level);
+    const inferredAt = expression.kind === "Name" ? this.#inferredFromUses(expression.symbol) : undefined;
+    if (inferredAt !== undefined && this.#calledNames.get(expression)?.callee !== expression) {
+      // The pins stand at the binding's own level, and end with its scope.
+      return this.#pinnedCopy(type, inferredAt);
     }
     return this.#opensAt(expression, type) ? this.#openAt(type, level) : type;
   }
@@ -12126,7 +12133,7 @@ class Checker {
     }
     if (pattern.kind === "Binding") {
       this.#schemes.set(pattern.binding.symbol, { variables: [], type: expected });
-      this.#noteEntry(pattern.binding.symbol, expected);
+      this.#noteEntry(pattern.binding.symbol, expected, level);
       return;
     }
     if (pattern.kind === "As") {
@@ -12134,7 +12141,7 @@ class Checker {
         this.#inferMatchPattern(pattern.pattern, expected, level)
       );
       this.#schemes.set(pattern.binding.symbol, { variables: [], type: expected });
-      this.#noteEntry(pattern.binding.symbol, expected);
+      this.#noteEntry(pattern.binding.symbol, expected, level);
       return;
     }
     if (pattern.kind === "Or") {
@@ -17450,8 +17457,9 @@ class Checker {
    * variable — as a parameter is recorded: its type known where it is bound,
    * or inferred from its uses (#1119 R.b).
    */
-  #noteEntry(symbol: Resolved.SymbolId, type: Mono): void {
-    if (this.#prune(type).kind === "Variable") this.#inferredBindings.add(symbol);
+  #noteEntry(symbol: Resolved.SymbolId, type: Mono, level: number): void {
+    // Unknown where it is bound, or read through a pin its scrutinee carries.
+    if (this.#prune(type).kind === "Variable" || this.#borrows(type, -1)) this.#inferredBindings.set(symbol, level);
   }
 
   /**
@@ -17553,17 +17561,26 @@ class Checker {
   }
 
   /**
-   * Whether a binding's colour is inferred from its uses rather than decided
-   * (#1119 R.b): a lambda parameter or pattern variable whose type was unknown
-   * where it was bound, or a `let` that borrows one's arrow.
+   * The level of a binding whose colour is inferred from its uses rather than
+   * decided (#1119 R.b) — a lambda parameter or pattern variable whose type was
+   * unknown where it was bound, or a `let` that borrows one's arrow — and
+   * `undefined` for a binding whose colour is decided.
    */
-  #inferredFromUses(symbol: Resolved.SymbolId): boolean {
-    return this.#inferredBindings.has(symbol) || this.#borrowedBindings.has(symbol);
+  #inferredFromUses(symbol: Resolved.SymbolId): number | undefined {
+    return this.#inferredBindings.get(symbol) ?? this.#borrowedBindings.get(symbol);
+  }
+
+  /** Whether a colour's chain, unpruned, passes through a pin (#1119 R.b). */
+  #reachesPin(colour: Mono | undefined): boolean {
+    for (let node = colour; node?.kind === "Variable"; node = node.instance) {
+      if (this.#pinnedPure.has(node)) return true;
+    }
+    return false;
   }
 
   /** Records a `let` binding whose outer arrow the environment lends (`#borrowedBindings`). */
   #noteBorrowed(symbol: Resolved.SymbolId, type: Mono, level: number): void {
-    if (this.#borrows(type, level)) this.#borrowedBindings.add(symbol);
+    if (this.#borrows(type, level)) this.#borrowedBindings.set(symbol, level);
   }
 
   /**
@@ -22283,8 +22300,15 @@ class Checker {
       if (actualLeft.effect !== undefined || actualRight.effect !== undefined) {
         // An absent slot is the pure constant, so an inferred function type
         // meets a compiler-synthesized one without either side needing a slot
-        // it was never given.
-        unifyChild(actualLeft.effect ?? PURE, actualRight.effect ?? PURE);
+        // it was never given. An opening joined with a pinned colour takes the
+        // pin (#1119 R.b): pruning would hand it the bare constant.
+        const pinned = this.#reachesPin(actualLeft.effect) || this.#reachesPin(actualRight.effect);
+        if (pinned) this.#joiningPin += 1;
+        try {
+          unifyChild(actualLeft.effect ?? PURE, actualRight.effect ?? PURE);
+        } finally {
+          if (pinned) this.#joiningPin -= 1;
+        }
       }
       return;
     } else if (actualLeft.kind === "Tuple" && actualRight.kind === "Tuple") {
@@ -22744,7 +22768,10 @@ class Checker {
       // decision (#1119 R.b): what reads through it is not opened. An opening
       // nothing real reached, met by a pure demand, is no pin: it is a decided
       // pure function's own colour, come back to what it was.
-      if (!type.impure && !(this.#openedColours.has(variable) && this.#takesOpening(variable))) {
+      if (
+        !type.impure &&
+        !(this.#joiningPin === 0 && this.#openedColours.has(variable) && this.#takesOpening(variable))
+      ) {
         this.#pinnedPure.add(variable);
       }
     }
@@ -25477,7 +25504,7 @@ class Checker {
       variables = quantified;
     }
     for (const variable of variables) this.#quantified.add(variable.id);
-    return { variables, type };
+    return { variables, type, pinLevel: level };
   }
 
   /**
@@ -26334,14 +26361,17 @@ class Checker {
       }
       // So is a colour a unification pinned pure (#1119 R.b), after the seat's
       // own nodes: the pin is what tells a use the colour was imposed, and a
-      // copy of the constant would read as decided.
+      // copy of the constant would read as decided. A pin for a binding the
+      // scheme's own body held ended with that body: its function is decided.
       if (this.#prune(effect).kind === "Effect") {
         for (
           let node: Mono | undefined = effect;
           node !== undefined && node.kind === "Variable";
           node = node.instance
         ) {
-          if (this.#pinnedPure.has(node)) return node;
+          if (this.#pinnedPure.has(node) && (scheme.pinLevel === undefined || node.level <= scheme.pinLevel)) {
+            return node;
+          }
         }
       }
       return copy(effect);
