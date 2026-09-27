@@ -428,8 +428,8 @@ export interface IntrinsicTypeEntry {
   readonly representation?: { readonly module: string; readonly record: string };
 }
 
-/** The built-in kinds a public type key names (#1071). */
-export type PublicTypeKind = "Vector" | "Map" | "Set";
+/** The built-in kinds a public type key names (#1071; `Range`, #1073). */
+export type PublicTypeKind = "Vector" | "Map" | "Set" | "Range";
 
 export type IntrinsicEntry = IntrinsicOperationEntry | IntrinsicTypeEntry;
 
@@ -474,12 +474,18 @@ const INTRINSIC_TYPES: readonly (readonly [string, IntrinsicTypeEntry])[] = [
       representation: { module: "Runtime.HashTrie", record: "HashSet" },
     },
   ],
+  // *(#1073.)* The first public row of arity 0. Its values are the emitter's
+  // range objects, not a Hexagon record, so there is no representation to name
+  // and no claim to check.
+  ["range", { grade: "type", arity: 0, declarers: ["Range"], reach: "public", kind: "Range" }],
 ];
 
 /** The inventory's **operation** rows, key to parameter count. */
 const INTRINSIC_OPERATIONS: readonly (readonly [string, number])[] = [
   ["seqMemoize", 1],
   ["streamFromSeq", 1],
+  ["rangeDown", 2],
+  ["rangeToSeq", 1],
   ["vectorLength", 1],
   ["vectorAppend", 2],
   ["vectorPrepend", 2],

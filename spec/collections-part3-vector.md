@@ -184,7 +184,7 @@ O(log₃₂ n) per §4 — and the returned window is **trimmed**: while its liv
 
 ### 6.3 Descending ranges: `SliceError` — windows have no direction
 
-The forced corner: `Range` is first-class and opaque with a hidden direction (Loops §3.1), so `xs[rangeDown(5, 2)]` typechecks and must mean something.
+The forced corner: `Range` is first-class and opaque with a hidden direction (Loops §3.1), so `xs[Range.down(5, 2)]` typechecks and must mean something.
 
 > **A descending `Range` in slice position throws `SliceError`.**
 
@@ -200,7 +200,7 @@ exception SliceError(start: Int, end: Int)
 
 A distinct exception, not an `IndexError` — on payload grounds, decisively: in a descending-window slice **no index is out of bounds and no single index is wrong**; `IndexError(index, size)` cannot describe the fault without lying in a slot. `SliceError` carries the range's endpoints as the caller supplied them. (C# `Span` precedent: reversed ranges throw rather than reverse or clamp.)
 
-**"Never an error" is scoped to magnitude: out-of-window clamps; direction throws.** The only way to reach `SliceError` is a descending `Range` value (`rangeDown` or a function returning one); no `..` literal can.
+**"Never an error" is scoped to magnitude: out-of-window clamps; direction throws.** The only way to reach `SliceError` is a descending `Range` value (`Range.down` or a function returning one); no `..` literal can.
 
 ### 6.4 String slices
 
@@ -419,7 +419,7 @@ Vector.set(xs, 9, 0)                  -- throws IndexError(9, 3)
 -- (g) Slices: magnitude clamps, direction throws
 xs[2..99]                             -- [20, 30]
 xs[3..1]                              -- []       (empty ascending range)
-xs[rangeDown(3, 1)]                   -- throws SliceError(3, 1)
+xs[Range.down(3, 1)]                  -- throws SliceError(3, 1)
 
 -- (h) Drop family: total
 Vector.dropFirst([])                  -- []
@@ -440,5 +440,5 @@ s[2]                                  -- "é"  (codepoint, 1-based)
 s[9]                                  -- throws IndexError(9, 5)
 String.at(s, -1)                      -- "o"
 s[2..4]                               -- "éll"
-s[rangeDown(4, 2)]                    -- throws SliceError(4, 2)
+s[Range.down(4, 2)]                   -- throws SliceError(4, 2)
 ```

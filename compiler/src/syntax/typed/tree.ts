@@ -57,6 +57,8 @@ export interface PrimitiveType {
 
 export interface RangeType {
   readonly kind: "Range";
+  /** See `TypeQualifier`; absent for an occurrence the source wrote bare (#1073). */
+  readonly qualifier?: TypeQualifier;
 }
 
 export interface VectorType {

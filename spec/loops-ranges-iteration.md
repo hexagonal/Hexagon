@@ -1,9 +1,9 @@
 # Hexagon Spec: Loops, Ranges & Iteration
 
 **Status:** Decided (July 2026); §8's `.d.ts`-impact bullet corrected in place 2026-08-02 under the #128 ruling — `Hex.Range` is a *branded* interface, the brand being FFI Part 1 §8.3's structural phantom marker rather than Part 7 §5's `unique symbol`; the face itself is unchanged. Hanging-questions section (§11) retains the deliberately open items with their owners; resolved items keep their numbers as anchors. Nothing in §11 blocks implementation of §1–§10.
-**Scope:** The `for..in` loop, the `while` loop, the `Range` type and the `..` operator, `range`/`rangeDown`, the `Seq(a)` type and its functional-cursor protocol, loop typing (`Unit` bodies), desugaring, and JS emission.
+**Scope:** The `for..in` loop, the `while` loop, the `Range` type and the `..` operator, `Range.up`/`Range.down`, the `Seq(a)` type and its functional-cursor protocol, loop typing (`Unit` bodies), desugaring, and JS emission.
 **Not in scope:** `Iterable`'s declaration and type-member grammar (Collections Part 2 §8); `Iterable` resolution, diagnostics, table-opening, and the definitive instance table (Collections Part 5 §§2–4); indexing and slicing (Collections Parts 3–4); `..` precedence (Operators §9); the `Seq` combinator ship-list (`stdlib-roadmap.md`); boundary adaptation of foreign iterables and exported sequences (FFI Part 3); `break`/`continue` (deferred, §9.4); generators (§11.3); `AsyncSeq(a)` (future async spec, §11.4).
-**Companions:** Statements, Blocks & Mutability (§3.2 discard rule, §6 `var`/`:=`, §7.4 constraints discharged here), Pattern Matching (§5 irrefutability gate, §6 loop-head position), Collections Part 2 (§8 `Iterable` declaration), Collections Part 5 (operational `Iterable`), Operators (§9 `..` precedence), Lexer (§5 numeric-literal rules), Primitive Types (`Bool` conditions, no truthiness; `Int`; §5.1 String), FFI Part 1 (§8.1 `Hex.Range`), FFI Part 3 (`Seq` boundary), `stdlib-roadmap.md` (Seq combinators; `Range` `Eq`/`Show`).
+**Companions:** Statements, Blocks & Mutability (§3.2 discard rule, §6 `var`/`:=`, §7.4 constraints discharged here), Pattern Matching (§5 irrefutability gate, §6 loop-head position), Collections Part 2 (§8 `Iterable` declaration), Collections Part 5 (operational `Iterable`), Operators (§9 `..` precedence), Lexer (§5 numeric-literal rules), Primitive Types (`Bool` conditions, no truthiness; `Int`; §5.1 String), FFI Part 1 (§8.1 `Range`'s face), FFI Part 3 (`Seq` boundary), `stdlib-roadmap.md` (Seq combinators; `Range` `Eq`/`Show`).
 
 ---
 
@@ -78,31 +78,31 @@ for i in 1..n        -- the counting loop
 - `Range` is monomorphic over `Int` in v1. No Float ranges, no ranges over arbitrary `Ord` types (no use case until `Char`-like types exist; pre-registered rejection for v1). A `Range(a)` over `<a: (Signed, Ord)>` is specifically rejected: fractional ranges inherit IEEE accumulation drift in loop bounds (Haskell's `[0.1, 0.2 .. 1.0]` overshoot is the cautionary precedent), while `Int`-only ranges have an exact element count and make the §8 counting-loop emission (`x <= hi`) trivially correct.
 - **Interaction with polymorphic literals and widening:** the *literals* in `1..10` are polymorphic as always (`fromNat(k) : α, Num α` — Numeric Literals machinery, untouched), but `..` demands `Int` operands, so each `α` unifies with `Int` on the spot. Defaulting never runs; the constraint discharges at the `Int` instance; `fromNat` erases (Numeric Literals §5). Consequently `1..10 : Range` and the loop variable is `Int`, unconditionally. When that established `Int` later meets an independently established `Float` accumulator, Numeric Literals §5.1 widens it contextually through `Float.fromInt`; the range itself remains monomorphic (acceptance test §10.3(i)).
 - Ranges are **inclusive at both ends**, always. There is no exclusive-end variant and no half-open syntax (`..<`, `...`) in v1: with 1-based indexing, the half-open idiom's *raison d'être* (`0..<len`) does not arise — the natural loops are `1..n` and `1..length(xs)`, both inclusive. Pre-registered rejection; revisit only with field evidence.
-- Conceptually a `Range` is `(start, end, direction)` where direction ∈ {ascending, descending}; direction is **not user-visible** in v1 (no field access on `Range`; it is opaque). `..` always builds ascending; `rangeDown` builds descending (§3.3).
+- Conceptually a `Range` is `(start, end, direction)` where direction ∈ {ascending, descending}; direction is **not user-visible** in v1 (no field access on `Range`; it is opaque). `..` always builds ascending; `Range.down` builds descending (§3.3).
 - `Range` is iterable with element type `Int` (§7; instance row Collections Part 5 §4).
 
-### 3.2 `range` — the prelude twin
+### 3.2 `Range.up` — the function twin
 
 ```
-range : (Int, Int) -> Range
-range(1, 10)         -- identical to 1..10
+Range.up : (Int, Int) -> Range
+Range.up(1, 10)      -- identical to 1..10
 ```
 
-`lo..hi` and `range(lo, hi)` denote the same value; the operator is the idiomatic spelling, the function is the first-class one (pass it, partially configure it, and it is where a future step parameter would live — §11.5). Both are inclusive.
+`lo..hi` and `Range.up(lo, hi)` denote the same value; the operator is the idiomatic spelling, the function is the first-class one (pass it, partially configure it, and it is where a future step parameter would live — §11.5). Both are inclusive. Both constructors live in `Range`'s companion, `stdlib/Range.hex`, which also declares the type (its public intrinsic row, Intrinsics §3.3) and honors `Iterable<Range>` (Collections Part 5 §4); they are reached qualified, as the prelude spends no bare vocabulary on them (Modules §5.5).
 
-### 3.3 `rangeDown`
+### 3.3 `Range.down`
 
 ```
-rangeDown : (Int, Int) -> Range
-rangeDown(10, 1)     -- 10,9,...,1
+Range.down : (Int, Int) -> Range
+Range.down(10, 1)    -- 10,9,...,1
 ```
 
-Descending iteration is **never inferred from operand order** (§3.4); it is always the separately-named `rangeDown(hi, lo)`, first argument the larger. No operator spelling in v1.
+Descending iteration is **never inferred from operand order** (§3.4); it is always the separately-named `Range.down(hi, lo)`, first argument the larger. No operator spelling in v1.
 
 ### 3.4 Empty ranges (decided, with rationale — do not re-litigate)
 
 - Ascending: **`lo > hi` ⇒ the empty range.** Not an error, not a descending range. Rationale: "do this n times" is `for i in 1..n`, and `n = 0` must mean zero iterations. Familiar from Rust/Kotlin/Python's ordering behavior.
-- Descending: the mirror rule — for `rangeDown(hi, lo)`, **`hi < lo` ⇒ empty**.
+- Descending: the mirror rule — for `Range.down(hi, lo)`, **`hi < lo` ⇒ empty**.
 - `lo == hi` is the one-element range in both directions.
 - Iterating an empty range executes the body zero times; the loop is still `Unit`, no special case.
 
@@ -254,13 +254,13 @@ Readable-JS doctrine: the general mechanism exists; the common case erases.
 |---|---|
 | `for x in 1..10` (syntactic ascending range in the head) | `for (let x = 1; x <= 10; x++) { ... }` |
 | `for x in lo..hi` (syntactic range, non-literal bounds) | `for (let x = lo; x <= hi; x++)` — with a non-trivial `hi` bound to a `const` before the loop (evaluate once, §2.3), and, when `hi` moves, a non-trivial `lo` bound to its own `const` ahead of it (start before end, §2.3) |
-| `for x in rangeDown(hi, lo)` (syntactic) | `for (let x = hi; x >= lo; x--)` (same once-evaluation rule) |
+| `for x in Range.down(hi, lo)` (syntactic) | `for (let x = hi; x >= lo; x--)` (same once-evaluation rule) |
 | `for p in e` over a directly iterable provided type | `for (const p of e)`-shaped — a destructuring head where `p` destructures, e.g. `for (const [k, v] of m.entries())` (Collections Part 4 §11) |
 | `for p in e` through a user `Iterable` instance | statically resolved `toSeq` call producing a `Seq`, then `for (const p of s)`-shaped iteration (Collections Part 5 §9) |
 | `while cond` | `while (cond) { ... }` |
 | `Range` as a first-class value (escapes a loop head) | a small range object implementing the JS iterable protocol, materialised on demand (same on-demand doctrine as constructors, Unions §6.4) |
 
-- The counting-loop erasure is **mandatory**, not an optimisation option — it is the readable-JS goal at the language's most common loop, same status as `fromNat` erasure (Numeric Literals §5). "Syntactic range" means the loop head's expression is literally a `..` application / `range(...)` / `rangeDown(...)` call, read through grouping parentheses and an ascription as every rule that reads what an expression means reads it (Functions §8); a `Range` arriving through a variable takes the general `for..of` path.
+- The counting-loop erasure is **mandatory**, not an optimisation option — it is the readable-JS goal at the language's most common loop, same status as `fromNat` erasure (Numeric Literals §5). "Syntactic range" means the loop head's expression is literally a `..` application or a call to `Range.up` or `Range.down`, read through grouping parentheses and an ascription as every rule that reads what an expression means reads it (Functions §8). The calls are recognised by the binding the name resolves to, never by its spelling: a module's own `up` is an ordinary call. A `Range` arriving any other way — through a variable, from some other call — takes the general `for..of` path. The bounds of `Range.down(hi, lo)` are its arguments in order, so `hi` is the start and is evaluated first.
 - A bound is **trivial** when it is an integer literal, negated or not, or a name nothing can rebind — a `let` (another module's, read through its qualifier, included), a parameter, a pattern binder — and a trivial `hi` stays in the test, read at every iteration. Every other bound is non-trivial, a `var` among them: the body may assign it, and the loop runs to the value the head read (§2.3). `lo` is read once in any form; it moves out only ahead of a non-trivial `hi`, and only when it is non-trivial itself, so that it still runs first:
 
   ```js
@@ -271,7 +271,7 @@ Readable-JS doctrine: the general mechanism exists; the common case erases.
 - **The head is evaluated outside the loop variable's scope** (§2.1, §2.3). JavaScript evaluates a `for..of` head inside the variable's scope, and a counting loop's test runs inside it, so a head that mentions the variable's name — `for n in 1..n`, `for xs in xs` — is read into a `const` before the loop: a counting loop's mentioning bound alone (`const __end = n;` then `for (let n = 1; n <= __end; n++)`), a `for..of` source whole (`const __source = xs;` then `for (const xs of __source)`).
 - Provided directly iterable representations take the native path (`Vector` per Collections Part 3, `Seq` per §6.5, materialised `Range` objects, plus the other rows enumerated by Collections Part 5 §9). A user instance instead emits its statically resolved `toSeq` call once and traverses the resulting `Seq`; the user's value need not itself implement JavaScript's iterable protocol. Both paths preserve §2.3's once-evaluation rule.
 - Loop bodies emit as ordinary JS blocks; `var`/`:=` inside them emit per Statements §8 (`let` / `=`), which is sound *because* bodies are blocks, not closures — the same coupling recorded in Statements §8 holds here.
-- `.d.ts` impact: `Seq(a)` ↔ `Iterable<a>`; `Range` faces as **`Hex.Range`** — a branded interface extending `Iterable<number>` (FFI Part 1 §8.1) — if it ever crosses the boundary; loops themselves are function-internal and never do. *(Corrected in place 2026-08-02, #128 ruling: this bullet read "opaque branded interface". In this corpus "opaque branded" names FFI Part 7 §5's non-exported `unique symbol`, which is **not** the mechanism — the `Hex.*` brand is FFI Part 1 §8.3's structural phantom marker, chosen so values from separately compiled Hexagon programs stay mutually assignable. §12's decisions-log row already said "branded" without the word; this bullet was the file's sole offender.)*
+- `.d.ts` impact: `Seq(a)` ↔ `Iterable<a>`; `Range` faces as **`Range`**, imported from its companion's declaration file, whose seat aliases the runtime declaration module's branded interface extending `Iterable<number>` (FFI Part 1 §8.1) — if it ever crosses the boundary; loops themselves are function-internal and never do. *(Corrected in place 2026-08-02, #128 ruling: this bullet read "opaque branded interface". In this corpus "opaque branded" names FFI Part 7 §5's non-exported `unique symbol`, which is **not** the mechanism — the `Hex.*` brand is FFI Part 1 §8.3's structural phantom marker, chosen so values from separately compiled Hexagon programs stay mutually assignable. §12's decisions-log row already said "branded" without the word; this bullet was the file's sole offender.)*
 
 ---
 
@@ -393,7 +393,7 @@ fun total(lo: () ->! Int, hi: () ->! Int) =
 2. *(resolved)* **Derivation timing.** No longer an independent question: the declaration shipped with Collections Part 2; only the §11.1 v2 remainder is sequenced later, by its owner.
 3. **Generators (`seq { ... }` / `yield`).** Coroutine feature, big surface, own spec. `Seq` the type needs none of it; nobody should assume that `Seq` introduces `yield`.
 4. **`AsyncSeq(a)`.** Not a v1 feature. Direction recorded for a future async spec: `next : AsyncSeq(a) -> Promise(Option((a, AsyncSeq(a))))`, mapping onto JS's `AsyncIterator` as `Seq` maps onto `Iterator`; the eventual `for await`-style consumption form belongs to that spec. Core async (`Promise(a)`, `async fun`, `await`) needs no machinery from this spec and no implied types.
-5. **Range step.** `range(lo, hi, step)` vs `(1..10).by(2)` vs nothing. No v1 client; decide when field evidence arrives (likely alongside the break/continue deepdive, since both are "loop ergonomics under load").
+5. **Range step.** `Range.up(lo, hi, step)` vs `(1..10).by(2)` vs nothing. No v1 client; decide when field evidence arrives (likely alongside the break/continue deepdive, since both are "loop ergonomics under load").
 6. *(resolved)* **`String` iteration.** Decided: `String` is iterable with **one-codepoint `String`** items, in codepoint order; the conversion pair is `String.toSeq`/`String.fromSeq`. Owner: Collections Part 5 §5 (Primitive Types §5.1 conforms).
 7. *(resolved)* **Slicing and indexing.** `Vector` and `String` are decided by Collections Part 3 §§5–6/§9; captured `Array` is decided by FFI Part 2 §6.3; Map key access is Collections Part 4 §4. This spec's surviving contribution stands: `Range` is a first-class value fit to appear inside `[]`.
 8. **Break/continue deepdive** — §9.4, revisit-bar shared with compound assignment (Statements §6.4).
@@ -409,7 +409,7 @@ fun total(lo: () ->! Int, hi: () ->! Int) =
 | Reference desugaring: `var` cursor + `Seq.next` pulls; `toSeq` is the `Iterable` constraint member; iterated expression evaluated once | §2.3 |
 | `x..y` operator → concrete lazy `Range`; `Int`-only; inclusive both ends; no half-open form | §3.1 |
 | Literals in `..` stay polymorphic but unify with `Int` at the operator; no defaulting; loop variable is always `Int`; an independently established `Float` accumulator contextually widens that value through `fromInt` | §3.1, §10.3(i) |
-| `range(lo, hi)` prelude twin; `rangeDown(hi, lo)` for descending; direction never inferred from operand order | §3.2–3.4 |
+| `Range.up(lo, hi)` function twin; `Range.down(hi, lo)` for descending, both in `Range`'s companion; direction never inferred from operand order | §3.2–3.4 |
 | Ascending `lo > hi` ⇒ empty; descending `hi < lo` ⇒ empty; `lo == hi` ⇒ one element | §3.4 |
 | `..` precedence decided as recorded intent (looser than arithmetic, non-chaining) — Operators §9 owns | §3.5 |
 | `while cond` + block; condition grammar = `if`'s, by reference; `Bool`, no truthiness; `Unit`; `while True` legal (respelled per #147), no `Never` type invented | §4 |
@@ -419,7 +419,7 @@ fun total(lo: () ->! Int, hi: () ->! Int) =
 | *(2026-07-28, defect 12 ruling)* The iterable face is carried by the `Seq` value itself (FFI Part 3 §9.4); export-boundary memoization's mechanism specified there; internal traversal never uses the face | §6.4, §6.5 |
 | `Iterable` is the real constraint in v1: judgment = global-instance lookup; `toSeq` an ordinary member; user `honor` instances lawful; projection-bearing, so no generic binders and no `Item(c)` in source; non-leakage by construction; operational spec owned by Collections Part 5 | §7 |
 | v2 remainder re-scoped: deferred `Item(α)` goals, `Item(c)` syntax, member obligations, `derive via` — Collections Part 2 §11 owns | §7.2, §11.1 |
-| Emission: counting-loop erasure for syntactic ranges (mandatory), `for..of` general case (destructuring heads for patterns), `while` verbatim, on-demand `Range` objects; `Range` faces as branded `Hex.Range` extending `Iterable<number>` | §8 |
+| Emission: counting-loop erasure for syntactic ranges (mandatory), `for..of` general case (destructuring heads for patterns), `while` verbatim, on-demand `Range` objects; `Range` faces by name from its companion, aliasing the branded interface extending `Iterable<number>` | §8 |
 | Rejections: C-`for`, `do..while`, `loop`, break/continue (deepdive owed, decision surface recorded), `Iterator` constraint (never), half-open/Float/`Ord` ranges; bare-name-only heads superseded | §9 |
 | Numeric-literal digit-after-`.` rule owned by Lexer §5; `1.`/`.5` errors with fixits; frees `1..10` | §10.1 |
 | `String` iterable, one-codepoint items — Collections Part 5 §5 owns | §11.6 |

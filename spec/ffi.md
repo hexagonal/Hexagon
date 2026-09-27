@@ -96,7 +96,7 @@ Final names and faces only; the authoritative full table is **Part 1 §4.1**, de
 | `Nullable(a)` | `a \| null \| undefined` (zero wrapper) | the same union | Part 2 |
 | `Array(a)` | captured JS array — Hexagon's copy, made at the crossing (#876) | `ReadonlyArray<a>` | Part 2 §6 |
 | `Seq(a)` | runtime sequence / inbound memoizing adapter | `Iterable<a>` (export is stronger: replayable) | Part 3 |
-| `Vector` / persistent `Map` / `Set` / `Range` | runtime objects, identity crossing | `Hex.Vector<a>` / `Hex.Map<k,v>` / `Hex.Set<a>` / `Hex.Range` | Part 1 §8 |
+| `Vector` / persistent `Map` / `Set` / `Range` | runtime objects, identity crossing | `Vector<a>` / `Map<k,v>` / `Set<a>` / `Range`, from their companions, aliasing the `Hex.*` interfaces | Part 1 §8 |
 | `JsMap(k,v)` / `JsSet(a)` | captured native `Map`/`Set` — Hexagon's copy, made at the crossing (#875) | `ReadonlyMap<k,v>` / `ReadonlySet<a>` | Part 10 |
 | `JsValue` | any JS value, identity | `unknown` | Part 11 |
 | opaque families (opaque record/union, extern `type`, extern class) | erased/foreign value, identity | generated private-symbol brand — save Part 7 §2.3-pinned types, whose declaration seat is the pin's alias (#622) | Part 7 §5 |
@@ -194,7 +194,7 @@ Each row: the observable claim an implementation must satisfy, and the owner who
 
 > **First-free numeric suffix probing on the generated import alias:** try `Hex`, then `Hex_1`, `Hex_2`, …, taking the first candidate that collides with **no top-level identifier the module's items can put in that `.d.ts` file, regardless of TypeScript namespace** (exported types, exported terms, generated brand symbols, other generated aliases, and Part 7 §1.1's contested vocabulary (#662) — one flat check, since a namespace import alias occupies both TS spaces and per-namespace subtlety buys nothing). **Only the generated import alias is ever renamed; a user export is never renamed.** `Hex` remains the normal spelling — the probe moves past it only in the rare module that itself emits a top-level `Hex`. The suffix takes an underscore — `Hex_1`, never `Hex1` — the emitted JavaScript's own idiom.
 
-The scheme is deterministic (a pure function of that identifier set, which Part 7 §2.4 fixes before rendering) and is recorded in Part 7 §2.1 (§10.4), which states the underscore suffix for every compiler-chosen `.d.ts` spelling and records the refusal of the doubled form.
+The scheme is deterministic (a pure function of that identifier set, which Part 7 §2.4 fixes before rendering) and is recorded in Part 7 §2.1 (§10.4), which states the underscore suffix for every compiler-chosen `.d.ts` spelling and records the refusal of the doubled form. The `Hex` alias itself no longer needs it: since #1073 only the collection companions' declaration files import the runtime declaration module, and nothing in them contests the name (Part 1 §8.3 obligation 2).
 
 ### 11.2 Foreign-enum `fromJsT` versus Part 11's decoding doctrine — resolved
 

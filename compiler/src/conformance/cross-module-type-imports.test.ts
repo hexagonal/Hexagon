@@ -216,7 +216,7 @@ describe("a source-written import owns every name it binds", () => {
 });
 
 describe("placement", () => {
-  test("the runtime import, then §2.4's lines, then the module's own items", async () => {
+  test("the prelude's lines, then the module's own imports, then its items", async () => {
     const compiled = project([
       ["/lib.hex", "module Lib\n\n" + "export union Color = Red | Green\n"],
       [
@@ -231,10 +231,10 @@ describe("placement", () => {
     // items. `tsc` cannot decide this — an ESM import is legal anywhere at top
     // level — so the order is pinned by the text.
     expect(text).toBe(
-      'import type * as Hex from "./hex.js";\n' +
-        'import type { Option } from "./Hex/Option.js";\n' +
+      'import type { Option } from "./Hex/Option.js";\n' +
+        'import type { Range } from "./Hex/Range.js";\n' +
         'import type { Color } from "./Lib.js";\n' +
-        "export declare const f: (c: Color, v: Hex.Range) => Option<number>;\n",
+        "export declare const f: (c: Color, v: Range) => Option<number>;\n",
     );
     expect(await typeScriptErrors({
       ...declarationSet(compiled),

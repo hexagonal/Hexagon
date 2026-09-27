@@ -464,18 +464,6 @@ describe("compiler-chosen spellings never contest the vocabulary (§1.1 half 1)"
     );
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
   });
-
-  test("the runtime alias probe reads the vocabulary too", () => {
-    // Inert today — `Hex`, `Hex_1`, … can never land on a lib spelling — and
-    // asserted anyway at the one place it is observable: the alias is *not*
-    // pushed aside by a contested name it could never collide with. A probe that
-    // read a different universe from its neighbours is the drift the single list
-    // exists to prevent, and this is the direction that drift would show in.
-    expect(declarations(project({
-      "/main.hex": "export record Iterable = {x: Int}\n" +
-        "export let rows: Range = 1..3\n",
-    }))).toContain('import type * as Hex from "./hex.js";');
-  });
 });
 
 describe("the negatives — nothing else moves", () => {
@@ -534,7 +522,7 @@ describe("the negatives — nothing else moves", () => {
       "/main.hex": "export record Iterable = {x: Int}\n" +
         "export let rows: Range = 1..3\n",
     });
-    expect(declarations(compiled)).toContain("export declare const rows: Hex.Range;");
+    expect(declarations(compiled)).toContain("export declare const rows: Range;");
     expect(compiled.runtimeDeclarations?.text).toBe(
       'export interface Vector<a> extends Iterable<a> { readonly "~hex": "Vector"; }\n' +
         'export interface Set<a> extends Iterable<a> { readonly "~hex": "Set"; }\n' +
@@ -610,41 +598,11 @@ describe("the preview shows what would ship (§14.6)", () => {
     expect(preview(compiled)).toBe(declarations(compiled));
   });
 
-  test("the inline runtime namespace qualifies too — it shares the pane", () => {
-    // The preview's own exposure, which the shipped files do not have: §8.3
-    // obligation 6 declares `Hex` inline, so `interface Vector<a> extends
-    // Iterable<a>` sits in the same scope as the user's `Iterable` and is
-    // captured (measured, TS2315). The shipped `.d.ts` reaches those four
-    // interfaces through a file of their own and is unaffected.
-    const text = preview(project({
-      "/main.hex": "export record Iterable = {x: Int}\n" +
-        "export let rows: Range = 1..3\n",
-    }));
-
-    expect(text).not.toMatch(/(?<!globalThis\.)\bIterable</u);
-    expect(text).toContain(
-      '  interface Vector<a> extends globalThis.Iterable<a> { readonly "~hex": "Vector"; }',
-    );
-    expect(text).toContain(
-      '  interface Map<k, v> extends globalThis.Iterable<[k, v]> { readonly "~hex": "Map"; }',
-    );
-  });
-
-  test("an uncontested preview keeps the bare namespace body", () => {
-    const text = preview(project({ "/main.hex": "export let rows: Range = 1..3\n" }));
-
-    expect(text).not.toContain("globalThis");
-    expect(text).toContain(
-      '  interface Vector<a> extends Iterable<a> { readonly "~hex": "Vector"; }',
-    );
-  });
-
   test("the contested preview text compiles on its own", async () => {
     expect(
       await typeScriptErrors({
         "preview.ts": preview(project({
-          "/main.hex": "export record Iterable = {x: Int}\n" +
-            "export let rows: Range = 1..3\n" + SEQ_FACE,
+          "/main.hex": "export record Iterable = {x: Int}\n" + SEQ_FACE,
         })),
       }),
     ).toEqual([]);
