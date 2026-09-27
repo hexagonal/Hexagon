@@ -298,7 +298,7 @@ Readable-JS doctrine: the general mechanism exists; the common case erases.
 | `e` in `for p in e` has a concrete non-iterable type, not a user nominal | "`τ` is not iterable" (+ conversion hint where one exists, e.g. `toSeq`) |
 | `e`'s type is a user nominal with no instance | the two-legal-homes message: name the `honor Iterable<T>` home and the conversion/`Seq(a)` alternatives (Collections Part 5 §3.3) |
 | `e`'s type is an unsolved inference variable | "cannot determine what `e` iterates over; add a type annotation" (§7.1) |
-| `e`'s type is a rigid (binder-bound) variable | "`e` has the generic type `c`, and `Iterable` cannot constrain a type variable in v1; take a `Seq(a)` parameter instead" (Collections Part 5 §3.2) |
+| `e`'s type is a rigid (binder-bound) variable | "`e` has the generic type `c`, and `Iterable` declares an implied type and cannot constrain a type variable in v1; take a `Seq(a)` parameter instead" (Collections Part 5 §3.2) |
 | Assignment to a loop binder | "`x` is a loop variable and cannot be assigned; declare a `var`" |
 | Refutable pattern in the loop head | the standard Pattern Matching §5 irrefutability error (loop heads are a binding position; no loop-specific dialect) |
 | Non-`Bool` `while` condition | ordinary type error; never suggest truthiness |

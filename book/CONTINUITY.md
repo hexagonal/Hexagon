@@ -1068,7 +1068,7 @@ late pedagogy pass, not a commitment to the current order.
 - Implied types share the constraint instance's one coherence slot and orphan rule.
 - External `Item(T)`/`Constraint.Item(T)` forms and `<c: Iterable>` binders are rejected,
   and an unannotated function is never made generic over such a constraint's subject
-  (`let items(source) = Iterable.toSeq(source)` is refused); concrete operations and
+  (`let items(xs) = Iterable.toSeq(xs)` is refused); concrete operations and
   loops remain legal, while reusable consumers take `Seq(a)`.
 - Implied types erase before JavaScript and TypeScript boundaries.
 - Chapters 22–23 form the sixth drafting group. Their review is recorded in

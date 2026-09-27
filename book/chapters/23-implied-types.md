@@ -202,15 +202,15 @@ let collect<c: Iterable>(source: c) = ... // error
 or inference would build it for a function left unannotated:
 
 ```hexagon
-let items(source) = Iterable.toSeq(source) // error: `items` leaves the type of `source` open
+let items(xs) = Iterable.toSeq(xs) // error: `items` leaves the type of `xs` open
 ```
 
 If `c` is still unknown, determining and carrying its `Item` would require a more
 powerful form of type-level projection. Hexagon keeps that machinery out of inference.
 The type need not be written on the parameter itself: it only has to be known by the
 end of the function's definition, so a later line of the same body may settle it. What
-a function may not do is leave it for its callers to decide. The diagnostic points reusable iteration code toward the concrete currency already
-established:
+a function may not do is leave it for its callers to decide. The diagnostic points
+reusable iteration code toward the concrete currency already established:
 
 ```hexagon
 let collect(source: Seq(a)): Vector(a) = Vector.fromSeq(source)

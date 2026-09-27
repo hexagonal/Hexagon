@@ -128,6 +128,75 @@ describe("the deadline is the owner's close", () => {
       .toEqual([["Seq(Int)", "type mismatch: expected Int, found String"]]);
   });
 
+  test("the element type is pinned to its subject, so statement order decides nothing", () => {
+    // A use of `items` before the line that settles `xs` meets the same element
+    // type the settling fixes: `items` is not generic (Method Syntax §3.1's
+    // pinning rule, Collections Part 2 §7.2.1).
+    const before =
+      "let f(xs) =\n" +
+      "    let items = Iterable.toSeq(xs)\n" +
+      "    let r: Seq(Int) = items\n" +
+      "    let known: Vector(String) = xs\n" +
+      "    r\n";
+    expect(reports(before)).toEqual([["Iterable.toSeq", "type mismatch: expected Int, found String"]]);
+    expect(reports(before.replace("Seq(Int)", "Seq(String)"))).toEqual([]);
+    const nested =
+      "let outer(xs) =\n" +
+      "    let inner() = Iterable.toSeq(xs)\n" +
+      "    let a: Seq(Int) = inner()\n" +
+      "    let known: Vector(String) = xs\n" +
+      "    a\n";
+    expect(reports(nested)).toEqual([["Iterable.toSeq", "type mismatch: expected Int, found String"]]);
+    expect(reports(nested.replace("Seq(Int)", "Seq(String)"))).toEqual([]);
+  });
+
+  test("the pin follows its subject when the subject is later found to be an enclosing function's", () => {
+    // `y` is `inner`'s when the demand is made, and joins `outer`'s `xs` a line
+    // later — through a vector, or directly in either direction. The element
+    // type must sink with it, or `inner` would generalize it at its close.
+    for (const joined of ["xs == [y]", "xs == y", "y == xs"]) {
+      expect(reports(
+        "let outer(xs) =\n" +
+          "    let inner(y) =\n" +
+          "        let items = Iterable.toSeq(y)\n" +
+          `        let same = ${joined}\n` +
+          "        items\n" +
+          "    let r: Seq(Int) = inner(\"a\")\n" +
+          "    r\n",
+      )).toEqual([["Seq(Int)", "type mismatch: expected Int, found String"]]);
+    }
+  });
+
+  test("two demands on one subject are one demand", () => {
+    const helper =
+      "let f(xs) =\n" +
+      "    let a = Iterable.toSeq(xs)\n" +
+      "    let b = Iterable.toSeq(xs)\n" +
+      "    let known: Vector(String) = xs\n" +
+      "    b\n";
+    expect(reports(helper + "export let s: Seq(String) = f([\"a\"])\n")).toEqual([]);
+    expect(reports(helper + "export let s: Seq(Int) = f([\"a\"])\n"))
+      .toEqual([["Seq(Int)", "type mismatch: expected Int, found String"]]);
+  });
+
+  test("only the variables the closing binding owns are refused there", () => {
+    // `inner` closes over `xs` and also returns it: the subject is `outer`'s,
+    // so `inner`'s close refuses nothing, and `outer` settles it.
+    expect(reports(
+      "let outer(xs) =\n" +
+        "    let inner() = (Iterable.toSeq(xs), xs)\n" +
+        "    let known: Vector(String) = xs\n" +
+        "    inner()\n",
+    )).toEqual([]);
+    // A dot call the deadline resolves settles the subject before the refusal
+    // is decided: `y` becomes `String` only when `n.show()` resolves.
+    expect(reports(
+      "let t(n, y) =\n" +
+        "    let z = if True then y else n.show()\n" +
+        "    (Iterable.toSeq(y), n + 1)\n",
+    )).toEqual([]);
+  });
+
   test("an inner binding's demand on its enclosing function's variable waits for that function", () => {
     expect(reports(
       "let outer(xs) =\n" +
@@ -148,6 +217,30 @@ describe("the deadline is the owner's close", () => {
     // holds it back.
     expect(reports("let r = {f = (x) => Iterable.toSeq(x)}\n"))
       .toEqual([["Iterable.toSeq", LEFT_OPEN("r", "x")]]);
+  });
+
+  test("a variable an earlier binding held back is the module's, and its first use settles it", () => {
+    // `h` holds its variable back, so `y`'s type belongs to the module when `t`
+    // demands `Iterable` of it; `t` stays single-typed and the first use
+    // settles it — as the dot does with `h(y).toSeq()`.
+    const held =
+      "let pick(f) = f\n" +
+      "let h = pick((x) => x)\n" +
+      "let t(y) = Iterable.toSeq(h(y))\n";
+    expect(reports(held + "export let s: Seq(String) = t([\"a\", \"b\"])\n")).toEqual([]);
+    expect(reports(held + "export let s: Seq(Int) = t([\"a\", \"b\"])\n"))
+      .toEqual([["Seq(Int)", "type mismatch: expected Int, found String"]]);
+    expect(reports(
+      held +
+        "export let s: Seq(String) = t([\"a\", \"b\"])\n" +
+        "export let u: Seq(String) = t(\"ab\")\n",
+    )).toEqual([["t(\"ab\")", "type mismatch: expected Vector(String), found String"]]);
+    // No use settles it: the module's close is Numeric Literals §4's ambiguity.
+    expect(reports(held)).toEqual([[
+      "h(y)",
+      "this expression's type cannot default to `Int`: `Iterable` is not a defaultable constraint; " +
+        "add a type annotation to pin the type",
+    ]]);
   });
 
   test("a subject in no binding's type keeps the ambiguity report", () => {
@@ -199,6 +292,19 @@ describe("a declared variable is never settled", () => {
     ]]);
   });
 
+  test("a knot names the member the demand is in", () => {
+    expect(reports(
+      "fun\n" +
+        "    b(x) = if True then 1 else a(x)\n" +
+        "    a(y) = Seq.length(Iterable.toSeq(y)) + b(y)\n",
+    )).toEqual([["Iterable.toSeq", LEFT_OPEN("a", "y")]]);
+  });
+
+  test("the value is named through parentheses", () => {
+    expect(reports("let t(x) = Iterable.toSeq((x))\n"))
+      .toEqual([["Iterable.toSeq", LEFT_OPEN("t", "x")]]);
+  });
+
   test("with no name to give, the variable is named", () => {
     expect(reports("let t: (c) -> Seq(d) = Iterable.toSeq\n")).toEqual([[
       "Iterable.toSeq",
@@ -211,6 +317,44 @@ describe("a declared variable is never settled", () => {
       "c: Iterable",
       `${REASON("Iterable")}; take a \`Seq(a)\` parameter instead`,
     ]]);
+    // For that constraint only, and in either order of the demands.
+    for (const body of ["(first(x), Iterable.toSeq(x))", "(Iterable.toSeq(x), first(x))"]) {
+      expect(reports(`let t<c: Coll>(x: c) = ${body}\n`)).toEqual([
+        ["c: Coll", REASON("Coll")],
+        ["Iterable.toSeq", `\`x\` has the generic type \`c\`, and ${REASON("Iterable")}; take a \`Seq(a)\` parameter instead`],
+      ]);
+    }
+  });
+
+  test("the unmentioned-variable row names no projection-bearing constraint", () => {
+    const BOTTOM = "fun bottom(n: Int): a = bottom(n)\n";
+    const OPEN_C = `\`c\` is a declared type variable, and ${REASON("Iterable")}; take a \`Seq(a)\` parameter instead`;
+    // The only demand is projection-bearing: §7.2.1's report is the whole answer.
+    expect(reports(
+      BOTTOM +
+        "let t<c>(n: Int): Int =\n" +
+        "    let y: c = bottom(n)\n" +
+        "    Seq.length(Iterable.toSeq(y))\n",
+    )).toEqual([["Iterable.toSeq", OPEN_C]]);
+    expect(reports(BOTTOM + "let t(n: Int): Int = Seq.length(Iterable.toSeq((bottom(n) : c)))\n"))
+      .toEqual([["Iterable.toSeq", OPEN_C]]);
+    // Another demand keeps the row, whose advised list leaves `Iterable` out.
+    expect(reports(
+      BOTTOM +
+        "let t<c: Eq>(n: Int): Int =\n" +
+        "    let y: c = bottom(n)\n" +
+        "    let s = show(y)\n" +
+        "    Seq.length(Iterable.toSeq(y))\n",
+    )).toEqual([
+      [
+        "c: Eq",
+        "`c` is a declared type variable, but this declaration's type does not mention it, so no call " +
+          "can choose it or supply its `Eq`, `Show` evidence; use `c` in a parameter or result type and " +
+          "write `<c: (Eq, Show)>`, or remove `c` from the binder list and write a concrete type where " +
+          "the body names `c`",
+      ],
+      ["Iterable.toSeq", OPEN_C],
+    ]);
   });
 
   test("a written list is never advised to name the constraint", () => {

@@ -15,7 +15,7 @@
 - **The hash/equality law holds by construction, not by trust.** Every `Hash<T>` a *user* can derive requires a compiler-derived `Eq<T>` (§4.3), so the pair is structurally consistent by construction; every compiler/runtime-provided `Hash` is specified normatively together with its `Eq` (§2.5, §4.4), and the spec text carrying the instance carries the law. v1 has no way to obtain a lawless `Hash`.
 - **Hash values are observable but not portable.** `hash` is an ordinary callable member (§2.2), deterministic and unseeded — but the stdlib's hash-backed collections place entries by *seeded* internal mixing, and iteration order is promised only within one program execution (§2.4).
 - **One keyword, three positions.** The `type` keyword serves the module-level alias (Declarations Preamble §4), the `constraint` body, and the `honor` block; position fully disambiguates — the Rust precedent.
-- **The v1 boundary is drawn at projection, not at `Iterable`.** What v1 lacks is the inference machinery for *projecting* an implied type out of a type variable — a symbolic `Item(α)` carried in a generic signature. v1 settles every implied type from a known outer constructor, inside the binding that owns its subject (§7.2). The restriction therefore bans exactly the rest — projection-bearing constraints on type variables, whether a binder is written or inference would build it (§7) — uniformly, with no special-cased names.
+- **The v1 boundary is drawn at projection, not at `Iterable`.** What v1 lacks is the inference machinery for *projecting* an implied type out of a type variable — a symbolic `Item(α)` carried in a generic signature. v1 settles every implied type from a known outer constructor, inside the region that owns its subject (§7.2.1). The restriction therefore bans exactly the rest — projection-bearing constraints on type variables, whether a binder is written or inference would build it (§7) — uniformly, with no special-cased names.
 
 ---
 
@@ -240,10 +240,12 @@ Functions generic over "any iterable" remain unwritable in v1; `Seq(a)` paramete
 
 An unannotated binding generalizes (Functions §8), and a variable carrying a projection-bearing demand would generalize into the binder no one may write: `let t(x) = Iterable.toSeq(x)` would be generic over the type of `x`, and every use of `t` would copy the demand without the implied type that ties the result to it. The ban therefore covers every type variable a binding owns, inferred or declared:
 
-- **A demand is settled once its subject is known.** A demand of a projection-bearing constraint — a call of one of its members, or a reference to one — is settled as soon as its subject's outer constructor is known, anywhere in the region that owns the subject's type variable, before or after the demand in the text. Settling selects the instance and unifies each implied type with that instance's binding (Part 5 §2.2), exactly as when the subject was known at the demand.
-- **The deadline is the owner's close.** A demand whose subject is still a type variable when its owner region is finalized is refused there. Owner and deadline are the dot's (Method Syntax §3.1): the owner is the region of the subject's type variable — normally the binding that would generalize it, not the innermost binding around the demand — and the deadline holds even where the value restriction keeps the variable back instead of generalizing it (Functions §8 items 2 and 7). A projection-bearing demand never waits for a held-back variable's first use: its implied type is already part of the binding's type, and it must be settled by the time the binding's own variables are decided.
+- **A demand is settled once its subject is known.** A demand of a projection-bearing constraint — a call of one of its members, or a reference to one — is settled as soon as its subject's outer constructor is known, anywhere in the region that owns the subject's type variable, before or after the demand in the text. Settling selects the instance and unifies each implied type with that instance's binding (Part 5 §2.2), exactly as when the subject was known at the demand. Two demands of one constraint on one subject are one demand: one instance, so one binding for each implied type (§5.4).
+- **An implied type is pinned to its subject.** Until the demand is settled, each implied type lives at its subject's level — Method Syntax §3.1's pinning rule — so no binding nested inside the subject's owner can generalize it. Without the pin, `let items = Iterable.toSeq(xs)` would generalize its element type at `items`, and whether a later line settling `xs` reached a use of `items` would depend on which line came first.
+- **The deadline is the owner's close.** A demand whose subject is still a type variable when its owner region is finalized is refused there. Owner and deadline are the dot's (Method Syntax §3.1): the owner is the region of the subject's type variable — normally the binding that would generalize it, not the innermost binding around the demand — and the deadline holds even where the value restriction keeps the variable back instead of generalizing it (Functions §8 items 2 and 7). So a demand made inside the binding that holds its subject back is refused at that binding's close, not left for a first use: the binding owned the variable when the demand was made. A variable an earlier binding held back already belongs to the enclosing region — the module, at module level — as a monomorphic variable any later line may fix, and a demand on it is settled or refused at that region's close, as a dot call on it is.
 - **A declared variable is never settled.** A variable a written annotation or binder introduces is rigid (Functions §4.1) — a parameter's, a function's, a constraint's subject, an `honor` block's — so a projection-bearing demand on one is refused, in the declared-variable form. Where the variable's written binder list already named the constraint, the binder-ban report above is the whole answer and this one is silent.
-- **Where the report stands.** At the demand, one report per variable, naming the binding and — where the value the member is applied to is a name — that name (§9). A variable that appears in no binding's type is Numeric Literals §4's ambiguity error, worded by its §6, unchanged.
+- **Where the report stands.** At the demand, one such report per variable, naming the binding and — where the value the member is applied to is a name — that name (§9). A declared variable's other refused demands keep their own rows (Functions §10's contract and unmentioned-variable rows), which name no projection-bearing constraint. An inferred variable that appears in no binding's type, or one the module holds that no use settles, is Numeric Literals §4's ambiguity error, worded by its §6, unchanged.
+- **A loop head is not such a demand.** `for x in e` decides at its head (Part 5 §3.1 step 2): Loops §2.3's desugaring names the member, but the head needs its element type to check the loop's pattern, and it is refused there if `e`'s outer constructor is unknown.
 - **No advice names a projection-bearing constraint.** Such a demand never joins a contract refusal's advised list (Functions §4.2) or an exported binding's required binder list (Modules §4.1.1): advice to write it would itself be refused by this section.
 
 ```
@@ -252,7 +254,8 @@ let t(x: c) = Iterable.toSeq(x)          -- error: `x` has the generic type `c`
 let t = Iterable.toSeq                   -- error: `t` leaves open which type `Iterable.toSeq` is used at
 
 let f(xs) =
-    let items = Iterable.toSeq(xs)       -- settled by the next line
+    let items = Iterable.toSeq(xs)       -- settled two lines down
+    let firsts: Seq(String) = items      -- `items` is not generic: its element is pinned to `xs`
     let known: Vector(String) = xs
     items                                -- f : (Vector(String)) -> Seq(String)
 
@@ -263,6 +266,10 @@ let outer(xs) =
 
 let pick(f) = f
 let held = pick((x) => Iterable.toSeq(x))   -- error at `held`: held back, not left for a first use
+
+let h = pick((x) => x)                      -- held back: one type, fixed by its first use
+let u(y) = Iterable.toSeq(h(y))             -- the module holds y's type, so u's close does not decide it
+let words: Seq(String) = u(["a", "b"])      -- this first use settles it; u stays single-typed
 ```
 
 The dot never reaches this rule: a dot call on a receiver whose outer constructor is unknown at its deadline is field access (Method Syntax §3.5), so no projection-bearing demand is made through it.
@@ -359,7 +366,8 @@ Pinning the signed-32-bit range as a promise rather than an informative note. Re
 - **Carrying the implied type through generalization**, so that `let t(x) = Iterable.toSeq(x)` keeps its link. Rejected: the scheme would be one no source can write (the binder is banned, and §7.3 reserves `Item(c)`), no hover can display faithfully (Functions §5.1), and no export can declare (Modules §4.1.1), while a loop in the same body would still demand a known constructor (Part 5 §1). It is v2's machinery (§11) without v2's syntax.
 - **Declining to generalize the variable**, leaving its first use to fix it. Rejected: a function's type would be decided by its first caller.
 - **Settling at the demand**, or at the close of the innermost binding around it. Rejected: acceptance would depend on the order of independent statements — the defect class Method Syntax §11.3 and §11.10 reject for the dot.
-- **Waiting for a held-back variable's first use.** Rejected: the value restriction lets a first use supply a type, but the relaxed rule (Functions §8 item 7) reads constraints only through their arguments, so the implied type's variable would generalize on its own; waiting would need an exception carved into that rule. The owner's close settles the demand before the rule runs.
+- **Waiting, at the binding that holds a demand's subject back, for the variable's first use.** Rejected: the value restriction lets a first use supply a type, but the relaxed rule (Functions §8 item 7) reads constraints only through their arguments, so the implied type's variable would generalize on its own; waiting would need an exception carved into that rule. The owner's close settles the demand before the rule runs. (A variable an *earlier* binding held back is the enclosing region's, and waits for that region's close, as §7.2.1 says; no binding closing in between generalizes its implied types, since they are pinned to it.)
+- **Refusing, at the close of the binding that makes the demand, a variable an earlier binding held back.** Rejected: that is the per-binding deadline Method Syntax §11.10 rejects for the dot, and it would make `Iterable.toSeq(h(y))` and `h(y).toSeq()` disagree.
 
 ---
 

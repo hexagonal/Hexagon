@@ -8285,6 +8285,7 @@ class Checker {
             undefined,
             undefined,
             bySymbol.get(symbol)!.binding.name,
+            members,
           ),
         );
       }
@@ -9681,7 +9682,7 @@ class Checker {
               // that is not a bare reference has no name to spell, so it gets
               // the neutral subject rather than a manufactured one.
               iterable.kind === "Name" ? `\`${iterable.text}\`` : "this value"
-            } has the generic type \`${actual.rigidName}\`, and \`Iterable\` cannot constrain a type variable in v1; take a \`Seq(a)\` parameter instead`,
+            } has the generic type \`${actual.rigidName}\`, and \`Iterable\` declares an implied type and cannot constrain a type variable in v1; take a \`Seq(a)\` parameter instead`,
             primary: iterable.span,
           });
         } else if (actual.kind === "Variable") {
@@ -22134,7 +22135,7 @@ class Checker {
       return;
     }
     if (type.kind === "Variable") {
-      type.level = Math.min(type.level, variable.level);
+      this.#lowerLevels(type, variable.level);
       type.literalOnly &&= variable.literalOnly;
       for (const requirement of variable.requirements) {
         this.#acceptRequirement(type, requirement);
@@ -22263,7 +22264,15 @@ class Checker {
     const actual = this.#prune(type);
     switch (actual.kind) {
       case "Variable":
-        if (actual.level > level) actual.level = level;
+        if (actual.level > level) {
+          actual.level = level;
+          // The pin moves with its subject (`#attachRequirement`).
+          for (const requirement of actual.requirements) {
+            for (const projection of requirement.impliedTypes?.values() ?? []) {
+              this.#lowerLevels(projection, level);
+            }
+          }
+        }
         return;
       case "Tuple":
         for (const element of actual.elements) this.#lowerLevels(element, level);
@@ -22656,12 +22665,35 @@ class Checker {
    * instead, off the final list, by `#keptRequirements`.
    */
   #attachRequirement(variable: Variable, requirement: Requirement): void {
-    const entailed = variable.requirements.some(
+    const entailing = variable.requirements.find(
       (candidate) =>
         this.#entailmentPath(candidate.identity, requirement.identity) !== undefined,
     );
-    if (entailed) return;
+    if (entailing !== undefined) {
+      // One subject, one constraint, one instance, so one binding for each
+      // implied type (Collections Part 2 §5.4's functional dependency). The
+      // demand kept on the variable is the one selection will settle, so a
+      // second demand's implied types are that demand's — dropped unlinked,
+      // the second `Iterable.toSeq(xs)` in a body typed its result with an
+      // element nothing ever fixed.
+      if (entailing.identity === requirement.identity) {
+        for (const [name, projection] of requirement.impliedTypes ?? []) {
+          const kept = entailing.impliedTypes?.get(name);
+          if (kept !== undefined) this.#unify(kept, projection, requirement.span);
+        }
+      }
+      return;
+    }
     variable.requirements.push(requirement);
+    // Method Syntax §3.1's **pinning rule**, as Collections Part 2 §7.2.1 takes
+    // it: an implied type is entangled with its subject, so it lives at the
+    // subject's level and no binding nested inside the subject's owner can
+    // quantify it. Without the pin, `let items = Iterable.toSeq(xs)` inside a
+    // function generalized the element type at `items` before a later line
+    // settled `xs`, and acceptance depended on which line came first.
+    for (const projection of requirement.impliedTypes?.values() ?? []) {
+      this.#lowerLevels(projection, variable.level);
+    }
   }
 
   /**
@@ -22732,7 +22764,14 @@ class Checker {
   #reportContractRefusals(): void {
     this.#refusalsWorded = true;
     for (const { variable, requirement } of this.#contractRefusals) {
-      if (this.#absorbedRefusals.has(variable)) continue;
+      // The unmentioned-variable row absorbs every refusal it can advise on;
+      // a projection-bearing one it cannot (Collections Part 2 §7.2.1).
+      if (
+        this.#absorbedRefusals.has(variable) &&
+        !this.#projectionBearingConstraints.has(requirement.identity)
+      ) {
+        continue;
+      }
       this.#reportContractRefusal(variable, requirement, this.#refusedDemands(variable));
     }
   }
@@ -22765,15 +22804,7 @@ class Checker {
     // §7.2.1's declared-variable report rather than advice to extend the list —
     // once per variable, and not at all where the list itself drew the ban.
     if (this.#projectionBearingConstraints.has(requirement.identity)) {
-      if (this.#projectionRefusedVariables.has(variable)) return;
-      this.#projectionRefusedVariables.add(variable);
-      if (!this.#bannedProjectionBinders.has(`${variable.id}:${requirement.identity}`)) {
-        this.#diagnostics.add({
-          severity: "error",
-          message: this.#unsettledProjectionMessage(variable, requirement, undefined),
-          primary: requirement.span,
-        });
-      }
+      this.#refuseDeclaredProjection(variable, requirement);
       return;
     }
     const declared = variable.declaredConstraints ?? [];
@@ -24528,7 +24559,11 @@ class Checker {
    * refused against the list (`#reportContractRefusal`), in this rule's words.
    * Returns whether any variable was refused.
    */
-  #refuseUnsettledProjections(variables: readonly Variable[], owner: string | undefined): boolean {
+  #refuseUnsettledProjections(
+    variables: readonly Variable[],
+    owner: string | undefined,
+    knot: ReadonlySet<Resolved.SymbolId> | undefined,
+  ): boolean {
     let refused = false;
     for (const variable of variables) {
       const pending = variable.requirements.filter((requirement) =>
@@ -24538,9 +24573,15 @@ class Checker {
       refused = true;
       const first = pending.find(({ reported }) => !reported);
       if (first !== undefined) {
+        // In a knot the members share their unsettled variables, so the one
+        // being generalized first is not necessarily the one that made the
+        // demand; the chain the demand was made in says which member did.
+        const member = knot === undefined
+          ? undefined
+          : this.#requirementChains.get(first)?.findLast(({ symbol }) => knot.has(symbol))?.name;
         this.#diagnostics.add({
           severity: "error",
-          message: this.#unsettledProjectionMessage(variable, first, owner),
+          message: this.#unsettledProjectionMessage(variable, first, member ?? owner),
           primary: first.span,
         });
       }
@@ -24548,6 +24589,26 @@ class Checker {
       variable.instance = ERROR;
     }
     return refused;
+  }
+
+  /**
+   * Collections Part 2 §7.2.1's report for a projection-bearing demand on a
+   * **declared** variable, reached from the rows that word a declared
+   * variable's refused demands (`#reportContractRefusal`,
+   * `#reportUnmentionedDeclared`): once per variable, and never where the
+   * variable's written list named this constraint and drew the binder ban —
+   * that report is the whole answer. The ban is checked first, so a banned
+   * demand arriving before another does not silence it.
+   */
+  #refuseDeclaredProjection(variable: Variable, requirement: Requirement): void {
+    if (this.#bannedProjectionBinders.has(`${variable.id}:${requirement.identity}`)) return;
+    if (this.#projectionRefusedVariables.has(variable)) return;
+    this.#projectionRefusedVariables.add(variable);
+    this.#diagnostics.add({
+      severity: "error",
+      message: this.#unsettledProjectionMessage(variable, requirement, undefined),
+      primary: requirement.span,
+    });
   }
 
   /**
@@ -24587,7 +24648,8 @@ class Checker {
    * has none.
    */
   #projectionSubjectName(variable: Variable, requirement: Requirement): string | undefined {
-    for (const expression of requirement.use?.call?.supplied ?? []) {
+    for (const supplied of requirement.use?.call?.supplied ?? []) {
+      const expression = ungrouped(supplied);
       if (expression.kind !== "Name") continue;
       const type = this.#expressionTypes.get(expression);
       if (type === undefined) continue;
@@ -24616,6 +24678,11 @@ class Checker {
     evaluated?: Mono,
     /** The binding's name, which Collections Part 2 §7.2.1's report names. */
     owner?: string,
+    /**
+     * A `fun` knot's members, whose shared variables every member's scheme
+     * reaches: §7.2.1's report names the member the demand was made in.
+     */
+    knot?: ReadonlySet<Resolved.SymbolId>,
   ): Scheme {
     // The deadline (§3.1): no DotCall goal may escape its owner region's
     // finalisation, and the defaulting step below must see the receivers those
@@ -24660,7 +24727,7 @@ class Checker {
     // Collections Part 2 §7.2.1: the owner's close is a projection-bearing
     // demand's deadline, whatever the value restriction would do with the
     // variable next — so this runs before either arm below decides.
-    if (this.#refuseUnsettledProjections(variables, owner)) {
+    if (this.#refuseUnsettledProjections(variables, owner, knot)) {
       variables = this.#collectVariables(type).filter(
         (variable) => variable.level > level,
       );
@@ -25194,8 +25261,21 @@ class Checker {
     // A type the author wrote but the resolver could not (`x: Nope(a)`) may be
     // exactly where `a` was meant to occur: its own report stands alone.
     if (declared.writtenFailed) return true;
+    // A projection-bearing demand has its own report (Collections Part 2
+    // §7.2.1), and no evidence clause or advised list may name it: supplying
+    // that evidence means a binder the ban refuses. One the variable carries
+    // is worded here; one its list refused is worded with the list's
+    // refusals, which this row does not absorb.
+    const projection = variable.requirements.find(({ identity }) =>
+      this.#projectionBearingConstraints.has(identity)
+    );
+    if (projection !== undefined) this.#refuseDeclaredProjection(variable, projection);
     const refused = this.#refusedDemands(variable);
-    let names: readonly string[] = [...new Set(variable.requirements.map(({ name }) => `\`${name}\``))];
+    const carried = variable.requirements.filter(({ identity }) =>
+      !this.#projectionBearingConstraints.has(identity)
+    );
+    if (carried.length === 0 && refused.length === 0) return true;
+    let names: readonly string[] = [...new Set(carried.map(({ name }) => `\`${name}\``))];
     let widen: string | null | undefined;
     if (refused.length > 0) {
       // The body demands more than the list declares, and §4.2's refusal of it
@@ -25228,7 +25308,7 @@ class Checker {
         declared.valueBinding,
         widen,
       ),
-      primary: declared.span ?? variable.requirements[0]?.span ?? refused[0]!.span,
+      primary: declared.span ?? carried[0]?.span ?? refused[0]!.span,
     });
     return true;
   }
