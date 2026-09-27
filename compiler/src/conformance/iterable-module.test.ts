@@ -549,27 +549,23 @@ describe("provided rows occupy real slots (Part 5 §7.3)", () => {
   });
 
   /**
-   * The same fact at the two FFI Part 10 rows (#396). Worth its own case rather
-   * than folded into the `Vector` one: the appendix reads the row back out of
-   * the instance table through `#subjectKey`, so a row seeded under a key
-   * selection does not mint would leave the sentence silent — and silence is
-   * what the `Vector` assertion above cannot distinguish from a missing row.
+   * The two FFI Part 10 rows and `Array`'s used to be found by the same
+   * appendix (#396). They are source rows in their companions now (#1076), so
+   * a program's own row there is the orphan it is at `String` and `Range`, and
+   * the appendix has nothing provided to name. (#1131: the duplicate report
+   * that follows it is filed.)
    */
-  test("the borrowed views' rows are found by the same orphan appendix", () => {
-    expect(projectDiagnostics("module Main\n\n" + "honor Iterable<JsMap(k, v)> =\n" +
-        "    type Item = (k, v)\n" +
-        "    toSeq(xs) = Seq.empty\n",
-    )).toContain(
-      "orphan instance: this module declares neither `Iterable` nor the instance " +
-        "subject; the prelude already provides `Iterable<JsMap(k, v)>`",
-    );
-    expect(projectDiagnostics("module Main\n\n" + "honor Iterable<JsSet(a)> =\n" +
-        "    type Item = a\n" +
-        "    toSeq(xs) = Seq.empty\n",
-    )).toContain(
-      "orphan instance: this module declares neither `Iterable` nor the instance " +
-        "subject; the prelude already provides `Iterable<JsSet(a)>`",
-    );
+  test("the captured collections' rows are their companions', not provided", () => {
+    for (const [head, item] of [["JsMap(k, v)", "(k, v)"], ["JsSet(a)", "a"], ["Array(a)", "a"]]) {
+      const messages = projectDiagnostics("module Main\n\n" + `honor Iterable<${head}> =\n` +
+          `    type Item = ${item}\n` +
+          "    toSeq(xs) = Seq.empty\n",
+      );
+      expect(messages).toContain(
+        "orphan instance: this module declares neither `Iterable` nor the instance subject",
+      );
+      expect(messages.join("\n")).not.toContain("already provides");
+    }
   });
 
   /**

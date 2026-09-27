@@ -2,8 +2,9 @@
 
 **Status:** Partially adopted; 2026-09-16. `Iterable<String>` has been adopted
 normatively in Collections Part 5 and implemented as the first source-owned
-slice. The remaining rows are still proposed and this note remains
-non-normative for them.
+slice; `Range` followed (#1073), then the foreign slice — `Array`, `JsMap`, and
+`JsSet` (#1076). The domestic rows (`Vector`, `Map`, `Set`, `Seq`) are still
+proposed and this note remains non-normative for them.
 **Sequence:** Follow the effects arc. Foreign collection instances depend on
 separate adoption and implementation of the snapshot direction agreed in
 discussion; the normative FFI specifications described borrowed views when this was written; #876 and #875 have since made `Array`, `JsMap`, and `JsSet` captured foreign collections.
@@ -156,7 +157,13 @@ Two concrete dependencies must be addressed rather than hidden by the migration:
   `Iterable.toSeq`. Defining the new member by calling that unchanged operation
   would recurse. The foreign collection migration must first establish a lower
   traversal helper or primitive over the snapshot, then make both public
-  spellings reach that traversal without a cycle.
+  spellings reach that traversal without a cycle. *(Resolved at #1076: each of
+  the three companions keeps an unexported traversal door — `arrayToSeq`,
+  `jsMapToSeq`, `jsSetToSeq`, the native iterator's inbound adapter — beneath
+  its `honor`; `entries` calls the member, the member calls the door. `Array`'s
+  door is a choice rather than a necessity — a Hexagon walk over `length` and
+  the bracket exists, but only as a slower, bounds-checked one — ruled by James
+  2026-09-27.)*
 
 ## 5. Adoption and verification
 

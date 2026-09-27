@@ -1,13 +1,15 @@
 module Array
 
 // The public companion of the captured foreign `Array(a)` (FFI Part 2
-// section 6).
+// section 6), and the module that declares it.
 //
-// `Array(a)` is compiler-owned: no `.hex` file declares it, because a value
-// made at the boundary has no Hexagon declaration site, exactly as `JsValue`
-// has none. This module is its companion by being the module
-// addressable under the name (Method Syntax section 4.1), the same way
-// `Vector.hex` is `Vector`'s and `JsValue.hex` is `JsValue`'s.
+// The type row declares `Array` itself (`spec/intrinsics.md` section 3.3). Its
+// values are native JavaScript arrays, not a Hexagon record, so the row names no
+// representation and writes no variance claim: `Array(a)` is invariant. The
+// row is seen earlier than the rest of this file. `Vector.toArray` names the
+// type, and `toVector` below builds a `Vector`, so the row takes a data seat
+// just before `Vector.hex` and the file its full seat after it (Modules
+// section 5.5), as `Option`'s union does.
 //
 // Everything here is a **read of a value**: the array Hexagon holds is its own
 // copy, made as the foreign array crossed, and no foreign code can reach it
@@ -26,11 +28,26 @@ module Array
 // section 9's conversion into a persistent vector.
 
 extern from "hex:intrinsic"
+    (** A JavaScript array Hexagon holds as its own copy, captured as a foreign
+        array crossed or built fresh. No foreign code can reach the copy and
+        Hexagon has no way to change it, so it never changes. Elements are
+        indexed from 1. *)
+    export type array as Array(a)
+
     (** How many elements `values` holds. It is the captured array's own
         `length` — the source's length at the moment of capture, which never
         changes — read in constant time and without touching a single element:
         nothing here scans. *)
     export fun arrayLength as length(values: Array(a)) -> Int
+
+    // Unexported, beneath the `Iterable` instance at the end of the file:
+    // section 8.1's row, whose member is `Array.toSeq` (section 9) — a lazy
+    // walk of the captured array that allocates no copy and, because the array
+    // never changes, sees the same elements whenever it is forced
+    // (section 6.5). The walk is the native array iterator's, which is why it
+    // is a door row: a Hexagon body could only map a range through the
+    // bounds-checked bracket, a slower walk of the same elements.
+    fun arrayToSeq as nativeToSeq(values: Array(a)) -> Seq(a)
 
 (** The element at 1-based `index`, or `None` when there is none. The total
     accessor: out of bounds is an answer, not a fault. `values[index]` is its
@@ -46,7 +63,7 @@ export let get(values: Array(a), index: Int): Option(a) =
 // is keyed because a source body could not name its own result: an `Array(a)`
 // has no Hexagon producer at all, no literal and no constructor (section 6.1).
 // Read the other way that argument fails. A captured array has no producer but
-// it does have a traversal — section 8.1's provided `Iterable` row, which
+// it does have a traversal — this file's `Iterable` instance below, whose loop
 // section 8.2 emits as native `for...of` — and a `Vector(a)` has the producer
 // the result needs, `append`, in scope because this module is seated after
 // `Vector.hex`. So the fold below is expressible at the same complexity and in
@@ -73,3 +90,7 @@ export let toVector(values: Array(a)): Vector(a) =
     for value in values
         collected := collected.append(value)
     collected
+
+honor Iterable<Array(a)> =
+    type Item = a
+    toSeq(values) = nativeToSeq(values)

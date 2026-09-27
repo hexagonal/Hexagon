@@ -1238,11 +1238,19 @@ export function compileProject(
     if (unit === undefined) return undefined;
     // The union alone, derives stripped: derivation is an implementation
     // obligation, checked at the member's full seat with the rest of its body.
-    const projectedItems: Parsed.Item[] = unit.parsed.items.flatMap((item): Parsed.Item[] =>
-      item.kind === "Union" && item.name.text === name && !item.opaque
-        ? [{ ...item, derives: [] }]
-        : []
-    );
+    // Or *(#1076)* the public type row alone, its door block narrowed to it:
+    // the row binds the name to its key's kind and brings nothing else.
+    const projectedItems: Parsed.Item[] = unit.parsed.items.flatMap((item): Parsed.Item[] => {
+      if (item.kind === "Union") {
+        return item.name.text === name && !item.opaque ? [{ ...item, derives: [] }] : [];
+      }
+      if (item.kind !== "ExternBlock" || item.specifier !== "hex:intrinsic") return [];
+      const rows = item.declarations.filter((declaration) =>
+        declaration.kind === "ExternType" && declaration.exported &&
+        declaration.localName.text === name
+      );
+      return rows.length === 0 ? [] : [{ ...item, declarations: rows }];
+    });
     if (projectedItems.length === 0) return undefined;
     const projection: Parsed.Module = { ...unit.parsed, items: projectedItems };
     const injected = injectedSeats.has(target);

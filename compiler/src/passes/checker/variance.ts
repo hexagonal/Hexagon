@@ -52,10 +52,6 @@ export interface Occurrence {
  *   home; both citations are live, so there is nothing here to correct.)*
  *   - `Node(+a)`: the hidden fixed-32 immutable slot type, read-only from
  *     Hexagon; its disposition is owned by #223, the reopener for this row.
- * - `Array`, `JsMap`, and `JsSet` remain **invariant**. All three are captured
- *   foreign collections now, but no ruling has replaced their existing claim
- *   rows; invariant remains the conservative default rather than a statement
- *   about their current representations.
  * - `Nullable(+a)` is **trusted covariant**. It is representation-direct and
  *   holds no mutable storage. The trusted representation and its primitive
  *   implementations satisfy the same intrinsic-parametricity obligation as the
@@ -69,6 +65,11 @@ export interface Occurrence {
  * at the row against that record's computed variance (the checker's
  * `#verifyVarianceClaims`). `VarianceTable.kindClaim` reads it by the key.
  *
+ * Nor are the captured `Array`, `JsMap`, and `JsSet` *(#1076)*. Their companions
+ * declare them by public rows too, which name no representation and write no
+ * sigil, so each is invariant by the opaque-declaration rule — the claim their
+ * rows here used to state, now stated once, at the declaration.
+ *
  * `Seq` is **not** here. It has a declaration site, and the ruling's transitional
  * `Seq(+a)` row was retired by writing the sigil into `stdlib/Seq.hex` — a
  * written sigil supersedes a row, and after the sweep exactly one claim source
@@ -77,10 +78,7 @@ export interface Occurrence {
  */
 export const COMPILER_CLAIMS: ReadonlyMap<string, readonly Variance[]> = new Map([
   ["Node", ["co"]],
-  ["Array", ["inv"]],
   ["Nullable", ["co"]],
-  ["JsMap", ["inv", "inv"]],
-  ["JsSet", ["inv"]],
 ]);
 
 export function flip(variance: Variance): Variance {
@@ -278,7 +276,8 @@ export class VarianceTable {
    * compiler-known constructor's variance asks, so none of them has to know
    * where the answer lives.
    *
-   * *(#1071.)* A **public** key's kind — `Vector`, `Map`, `Set` — answers with
+   * *(#1071.)* A **public** key's kind — `Vector`, `Map`, `Set`, and the
+   * captured `Array`, `JsMap`, `JsSet` (#1076) — answers with
    * its door row's written claim, by the key's reserved identity, exactly as a
    * confined row's slot does (`externClaim`): the row is the type's declaration
    * and a written sigil is where its claim lives. Where the row is not in view —

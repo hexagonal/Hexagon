@@ -9623,17 +9623,14 @@ class JavaScriptEmitter {
     if (constraint === "Iterable") {
       // Collections Part 5 §4's provided rows, rendered rather than imported
       // (#353). Every one of them is one slot, and every slot but `Seq`'s is
-      // the same expression: an emitted `Vector`, `Map`, `Set`, `Range`,
-      // `Array`, `JsMap` and `JsSet` are all iterable
-      // values, and `seqFromIterable` is the compiler's one constructor of a
-      // `Seq` over one. The per-type meanings §4's table names are already
-      // carried by the emitted iterators — a map's yields its entries, a set's
-      // its elements (not the `Unit`s beneath them). The two borrowed views need
-      // no arm of their own for the same reason they need no adaptation: a native `Map`'s
-      // entries are two-element arrays, which *is* the tuple representation, and
-      // a native `Set` yields its elements (FFI Part 10 §6.3), in the insertion
-      // order the foreign object itself contracts for (§6.2). String's
-      // source-owned row reaches the same adapter through `stringToSeq` instead.
+      // the same expression: an emitted `Vector`, `Map` and `Set` are all
+      // iterable values, and `seqFromIterable` is the compiler's one
+      // constructor of a `Seq` over one. The per-type meanings §4's table names
+      // are already carried by the emitted iterators — a map's yields its
+      // entries, a set's its elements (not the `Unit`s beneath them). The
+      // source-owned rows — `String`'s, `Range`'s (#1073), and the captured
+      // `Array`'s, `JsMap`'s and `JsSet`'s (#1076) — reach the same adapter
+      // through their own private traversal doors instead.
       //
       // `Seq`'s row is the **identity**, not the adapter: rebuilding a spine
       // over a sequence that already has one would be a second memo for values
@@ -11337,6 +11334,15 @@ class JavaScriptEmitter {
       // (#1073), so its traversal is the inbound adapter over it, as a string's is.
       case "rangeToSeq":
         return this.#useHelper("seqFromIterable");
+      // The captured foreign collections (#1076) are native iterables — an
+      // array yields its elements, a `Map` its entries as two-element arrays,
+      // which *is* the tuple representation, and a `Set` its elements, each in
+      // the order the native object contracts for (FFI Part 10 §6.2) — so each
+      // traversal is the same inbound adapter.
+      case "arrayToSeq":
+      case "jsMapToSeq":
+      case "jsSetToSeq":
+        return this.#useHelper("seqFromIterable");
       case "rangeDown":
         return this.#useHelper("rangeDown");
       case "stringConcat":
@@ -12074,9 +12080,11 @@ class DeclarationEmitter {
     // The runtime alias joins the probe's universe in the one kind of file that
     // spells it: a collection companion's, whose public row's seat is its only
     // reference to the runtime declaration module (FFI Part 1 §8.3 obligation 2).
-    // It is generated rather than source-derived, so `declarationTopLevelNames`
-    // does not carry it. Anywhere else `Hex` is a name like any other, and a
-    // foreign type so named keeps its spelling.
+    // The captured collections' seats name their read-only faces instead
+    // (#1076), and reserving the alias there costs nothing: those files' names
+    // are fixed, and none is `Hex`. It is generated rather than source-derived,
+    // so `declarationTopLevelNames` does not carry it. Anywhere else `Hex` is a
+    // name like any other, and a foreign type so named keeps its spelling.
     const spellsRuntime = module.items.some((item) =>
       item.kind === "ExternBlock" &&
       item.declarations.some((declaration) =>
@@ -12953,10 +12961,29 @@ function isPublicRow(declaration: { readonly externType: Resolved.ExternTypeId }
 }
 
 /**
+ * *(#1076.)* The TypeScript type a **pinned** public kind faces as (FFI Part 7
+ * §2.3): the captured `Array`, `JsMap`, and `JsSet` are native JavaScript
+ * collections, so each faces as TypeScript's own read-only view of itself and
+ * names nothing Hexagon owns. `undefined` for a kind that faces by name.
+ */
+function pinnedKindFace(
+  kind: PublicTypeKind,
+): "ReadonlyArray" | "ReadonlyMap" | "ReadonlySet" | undefined {
+  switch (kind) {
+    case "Array": return "ReadonlyArray";
+    case "JsMap": return "ReadonlyMap";
+    case "JsSet": return "ReadonlySet";
+    default: return undefined;
+  }
+}
+
+/**
  * *(#1071.)* A public row's declaration seat (FFI Part 7 §2.1): the name,
  * exported as an alias of the runtime declaration module's branded interface at
  * the row's own parameters — `export type Vector<a> = Hex.Vector<a>;`. The
- * reference is what owes the file its `Hex` namespace import.
+ * reference is what owes the file its `Hex` namespace import. A pinned kind's
+ * seat aliases its face instead — `export type Array<a> = ReadonlyArray<a>;`
+ * (§2.3, #1076) — and imports nothing.
  */
 function publicRowSeat(
   declaration: Typed.ExternTypeDeclaration,
@@ -12966,7 +12993,11 @@ function publicRowSeat(
   const kind = publicTypeKind(Number(declaration.externType))!;
   const binders = (declaration.parameters ?? []).map(({ name }) => name);
   const head = binders.length === 0 ? declaration.localName : `${declaration.localName}<${binders.join(", ")}>`;
-  return `${prefix}type ${head} = ${faces.runtime.reference(kind, ...binders)};`;
+  const pinned = pinnedKindFace(kind);
+  if (pinned !== undefined) {
+    return `${prefix}type ${head} = ${faces.vocabulary.spell(pinned)}<${binders.join(", ")}>;`;
+  }
+  return `${prefix}type ${head} = ${faces.runtime.reference(kind as RuntimeFaceName, ...binders)};`;
 }
 
 interface PatternPlan {

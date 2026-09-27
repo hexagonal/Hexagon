@@ -580,18 +580,34 @@ describe("§5.3 the compiler-side claim table", () => {
         sigilled.add(match[1]!);
       }
     }
+    // A public row that writes no sigil claims invariance where it stands, so
+    // it is a claim source too (#1076): `Array`, `JsMap`, and `JsSet` retired
+    // their table rows at their companions' rows.
+    for (const source of Object.values(STDLIB_SOURCES)) {
+      for (const match of source.matchAll(
+        /\bexport\s+type\s+[a-z][A-Za-z0-9]*\s+as\s+([A-Z][A-Za-z0-9_]*)\s*\(/gu,
+      )) {
+        sigilled.add(match[1]!);
+      }
+    }
     expect(sigilled).toContain("Seq");
-    for (const constructor of ["Vector", "Map", "Set"]) expect(sigilled).toContain(constructor);
+    for (const constructor of ["Vector", "Map", "Set", "Array", "JsMap", "JsSet"]) {
+      expect(sigilled).toContain(constructor);
+    }
     for (const constructor of sigilled) {
       expect(COMPILER_CLAIMS.has(constructor)).toBe(false);
     }
   });
 
-  test("the captured foreign collections remain invariant, while Nullable is covariant", () => {
-    expect(COMPILER_CLAIMS.get("Array")).toEqual(["inv"]);
+  /**
+   * *(#1076.)* The captured foreign collections' claims left this table for
+   * their companions' public rows, which write no sigil, so each stays
+   * invariant (`foreign-type-rows.test.ts` reads the rows' claims). Two
+   * constructors still have no declaration to carry theirs.
+   */
+  test("only Node and Nullable keep a compiler-side claim, and both are covariant", () => {
+    expect([...COMPILER_CLAIMS.keys()].sort()).toEqual(["Node", "Nullable"]);
     expect(COMPILER_CLAIMS.get("Nullable")).toEqual(["co"]);
-    expect(COMPILER_CLAIMS.get("JsMap")).toEqual(["inv", "inv"]);
-    expect(COMPILER_CLAIMS.get("JsSet")).toEqual(["inv"]);
   });
 
   test("every claim is consulted, and says what its source says", () => {

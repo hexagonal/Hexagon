@@ -1167,10 +1167,11 @@ describe("the faces and the emitted text the new surfaces produce", () => {
     // passes, because it yields the same values in the same order — so the
     // claim that it is *the same walk* is one only the emitted body can carry.
     // The body is exactly the member call: nothing wraps it, nothing maps over
-    // it, and no second `Seq` is constructed.
+    // it, and no second `Seq` is constructed. Since #1076 the member is this
+    // module's own instance's, over its unexported traversal door.
     const entriesBody = /^const entries = .*$/mu.exec(codeOnly(text))?.[0];
-    expect(entriesBody).toBe(
-      "const entries = map => toSeq(map, ({ toSeq: __seqFromIterable }));",
-    );
+    expect(entriesBody).toBe("const entries = map => __Iterable_JsMap_toSeq(map);");
+    expect(text).toContain("const __Iterable_JsMap_toSeq = map => nativeToSeq(map);");
+    expect(text).toContain("const nativeToSeq = __seqFromIterable;");
   });
 });

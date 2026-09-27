@@ -2499,15 +2499,15 @@ const BUILTIN_COMPANIONS: ReadonlyMap<string, string> = new Map([
   // fused call form "stopped being an error entirely" only where this tie exists.
   ["Array", "builtin:Array"],
   // `Nullable(a)` is representation-direct but otherwise the same companion
-  // case as `Array(a)`: the compiler owns the type and `stdlib/Nullable.hex`
+  // case as `JsValue`: the compiler owns the type and `stdlib/Nullable.hex`
   // supplies the module addressable under its name. Absorbing spellings are
   // pruned before this table is read, so `Nullable(JsValue)` keeps `JsValue`'s
   // companion and a both-nullish enum keeps its declaration's companion.
   ["Nullable", "builtin:Nullable"],
-  // The two borrowed collection views (FFI Part 10 §3) join last and on the same
-  // footing (#792): neither type has a declaration site, so `stdlib/JsMap.hex`
-  // and `stdlib/JsSet.hex` are their companions by being the modules addressable
-  // under the names. `m.size()` *is* `JsMap.size(m)` and `s.contains(x)` *is*
+  // The two other captured collections (FFI Part 10 §3) join last and on the
+  // same footing (#792): `stdlib/JsMap.hex` and `stdlib/JsSet.hex` are their
+  // companions by being the modules addressable under the names — and, since
+  // #1076, the modules whose public rows declare them, as `Array.hex` is. `m.size()` *is* `JsMap.size(m)` and `s.contains(x)` *is*
   // `JsSet.contains(s, x)`, exactly as `xs.length()` is `Array.length(xs)`.
   ["JsMap", "builtin:JsMap"],
   ["JsSet", "builtin:JsSet"],
@@ -2909,10 +2909,11 @@ function headBinderNames(subject: Resolved.TypeAnnotation): readonly string[] {
 /**
  * An instance head's constructor arguments: a declared nominal's, and *(#1071)*
  * a public door row's kind's slots — `Vector(a)`'s element, `Map(k, v)`'s key
- * and value — since the row makes each a declared type the head law reads like
- * any other. Empty for every other head. The one reading behind both the head
- * law (`#checkInstanceHead`) and the binders a head introduces
- * (`headBinderNames`), so the two cannot disagree about what a head binds.
+ * and value, and the captured collections' alike (#1076) — since the row makes
+ * each a declared type the head law reads like any other. Empty for every other
+ * head. The one reading behind both the head law (`#checkInstanceHead`) and the
+ * binders a head introduces (`headBinderNames`), so the two cannot disagree
+ * about what a head binds.
  */
 function headArguments(subject: Resolved.TypeAnnotation): readonly Resolved.TypeAnnotation[] {
   switch (subject.kind) {
@@ -2921,8 +2922,11 @@ function headArguments(subject: Resolved.TypeAnnotation): readonly Resolved.Type
       return subject.arguments;
     case "Vector":
     case "Set":
+    case "Array":
+    case "JsSet":
       return [subject.element];
     case "Map":
+    case "JsMap":
       return [subject.key, subject.value];
     default:
       return [];
@@ -9045,6 +9049,11 @@ class Checker {
           // polymorphic export the resolver found it through. Pinning the
           // subject is what makes that sentence true of the type as well as of
           // the reader's expectation.
+          //
+          // Every variable the head binds is fresh at the use, the `<...>`
+          // prefix's and the head's own alike (#390): `honor Iterable<Array(a)>`
+          // binds `a` with no prefix at all, so `Array.toSeq(xs)` reads the
+          // member at `Array` of any element (#1076).
           expression.instanceSubject === undefined
             ? undefined
             : this.#annotationType(
@@ -9052,9 +9061,10 @@ class Checker {
                 level,
                 new Map(),
                 new Map(
-                  expression.instanceSubject.typeParameters.map(({ name }) =>
-                    [name, this.#fresh(level, false)] as const
-                  ),
+                  [
+                    ...expression.instanceSubject.typeParameters.map(({ name }) => name),
+                    ...headBinderNames(expression.instanceSubject.annotation),
+                  ].map((name) => [name, this.#fresh(level, false)] as const),
                 ),
               ),
           call?.callee === expression,
@@ -9680,14 +9690,16 @@ class Checker {
           actual = this.#prune(iterable);
         }
         let element: Mono = ERROR;
-        // The arms below are the **erasure of Collections Part 5 §4's provided
-        // rows, not a mechanism beside them** (#353, ruling 2). Each such row is a
-        // real coherence slot — registered by `#seedProvidedIterableRows`, and
-        // what `toSeq(xs)` and `Vector.toSeq(xs)` both discharge against — and
-        // reading the element type straight off the constructor here computes
-        // exactly what looking the row up and substituting would: `Vector(a)`
-        // implies `Item = a`, and `Map(k, v)` implies `(k, v)`. The shortcut is
-        // licensed by the binder ban
+        // The arms below are the **erasure of Collections Part 5 §4's rows at
+        // the built-in kinds, not a mechanism beside them** (#353, ruling 2).
+        // Each such row is a real coherence slot — provided by
+        // `#seedProvidedIterableRows` for `Vector`, `Map` and `Set`, written in
+        // the companion's source for `Range` (#1073) and the captured `Array`,
+        // `JsMap` and `JsSet` (#1076), and what `toSeq(xs)` and `Vector.toSeq(xs)`
+        // both discharge against — and reading the element type straight off the
+        // constructor here computes exactly what looking the row up and
+        // substituting would: `Vector(a)` implies `Item = a`, and `Map(k, v)`
+        // implies `(k, v)`. The shortcut is licensed by the binder ban
         // (Part 2 §7.2), which makes every `for..in` head monomorphic in its
         // outer constructor, so static resolution is total (§9.1) and the
         // lookup could never answer differently. A user nominal has no arm and
@@ -27264,7 +27276,7 @@ class Checker {
   }
 
   /**
-   * Collections Part 5 §4's eight provided rows, seeded into the ordinary
+   * Collections Part 5 §4's four provided rows, seeded into the ordinary
    * evidence universe.
    *
    * **The table is the constraint** (Part 5 §1). The rows are compiler-provided
@@ -27273,7 +27285,9 @@ class Checker {
    * other ordering; `Vector`'s could since #1071 — `Hex.Vector` declares the
    * type and is its home — but it moves into source only by this row being
    * deleted in the same change (`#compilerProvidedSlot` refuses both at once);
-   * the rest follow. What they are *not* is a second mechanism beside the constraint
+   * `Map`'s and `Set`'s follow. `Range`'s moved at #1073 and the captured
+   * `Array`, `JsMap`, and `JsSet` rows at #1076, each into its own companion.
+   * What they are *not* is a second mechanism beside the constraint
    * system — they occupy real coherence slots here, which is what makes §7.3's
    * orphan hint have something to find, `toSeq` resolve at a concrete provided
    * type, and Modules §5.3's `Vector.toSeq` read honest.
@@ -27286,14 +27300,6 @@ class Checker {
    * directly, so the two can no more disagree than a value can differ from
    * itself — which is #388's lesson applied ahead of the defect rather than
    * after it.
-   *
-   * All eight rows are seeded. The last two to arrive were FFI Part 10's borrowed
-   * views, `JsMap(k, v)` and `JsSet(a)`, which waited on the types having a
-   * representation to key a slot on at all (#396); their `Item` bindings are
-   * Part 10 §6.1's, `(k, v)` and `a`. They are FFI-owned rows in the table
-   * (Part 10 §10) but ordinary rows here: nothing about the seeding distinguishes
-   * a borrowed view from a persistent collection, because the coherence slot does
-   * not care where the value's storage lives.
    */
   #seedProvidedIterableRows(module: Resolved.Module): void {
     const declaration = this.#constraintsByIdentity.get(
@@ -27355,7 +27361,8 @@ class Checker {
 
     // `Range` is not seeded: its companion declares `Iterable<Range>` in source
     // (`stdlib/Range.hex`, #1073), and a provided row at the same slot would be
-    // refused as a duplicate the compiler provides.
+    // refused as a duplicate the compiler provides. Nor are the captured
+    // `Array`, `JsMap`, and `JsSet`, for the same reason (#1076).
     seed(
       "Vector",
       ["a"],
@@ -27383,40 +27390,6 @@ class Checker {
       (parameters) => ({ kind: "Set", element: parameters.get("a")! }),
       (parameters) => parameters.get("a")!,
       { kind: "Set", element: annotation("a"), span },
-    );
-    seed(
-      "Array",
-      ["a"],
-      (parameters) => ({ kind: "Array", element: parameters.get("a")! }),
-      (parameters) => parameters.get("a")!,
-      { kind: "Array", element: annotation("a"), span },
-    );
-    // The two FFI-owned rows (FFI Part 10 §6.1). `JsMap` yields `(k, v)` and
-    // needs no adaptation to: a native `Map`'s entries are two-element arrays,
-    // which *is* the tuple representation (§6.3). Native insertion order is the
-    // foreign object's own contract, inherited (§6.2) — stronger than the
-    // persistent collections' arbitrary-but-stable order, and nothing here has
-    // to arrange it.
-    seed(
-      "JsMap",
-      ["k", "v"],
-      (parameters) => ({
-        kind: "JsMap",
-        key: parameters.get("k")!,
-        value: parameters.get("v")!,
-      }),
-      (parameters) => ({
-        kind: "Tuple",
-        elements: [parameters.get("k")!, parameters.get("v")!],
-      }),
-      { kind: "JsMap", key: annotation("k"), value: annotation("v"), span },
-    );
-    seed(
-      "JsSet",
-      ["a"],
-      (parameters) => ({ kind: "JsSet", element: parameters.get("a")! }),
-      (parameters) => parameters.get("a")!,
-      { kind: "JsSet", element: annotation("a"), span },
     );
     // The identity row (§4), and it is *lawful* because `Seq` traversal is pure:
     // a persistent pure sequence is re-traversable, so the sequence view of

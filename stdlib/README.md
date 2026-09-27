@@ -61,34 +61,37 @@ emitted one (Packages §6).
   eager, fresh, shallow and total, with nothing above it to write in Hexagon
   because the contract has no guard. `Seq.hex` declares `Seq(a)` itself and its
   combinator core.
-- `Array.hex` is FFI Part 2's companion of the borrowed `Array(a)` — a
-  zero-copy readonly view of a JavaScript array that foreign code owns. It is
-  the companion for `JsValue.hex`'s reason: the type is compiler-owned and has
-  no Hexagon declaration site, so the module addressable under the name is what
-  answers for it. Its surface is the minimal decode loop plus one conversion:
+- `Array.hex` is FFI Part 2's companion of the captured `Array(a)` — a
+  JavaScript array Hexagon holds as its own copy, made as the foreign array
+  crossed or built fresh, and readonly from Hexagon. It declares the type by a
+  public intrinsic `type` row (`spec/intrinsics.md` §3.3), whose data seat just
+  before `Vector.hex` lets `Vector.toArray` name it, and it honors `Iterable`
+  at the type over an unexported traversal door, so `Array.toSeq` is that
+  instance's member. Its surface is the minimal decode loop plus one conversion:
   `length` (§6.3's door row, the native `.length` read), and `get`, which is
   ordinary Hexagon over that row and the bracket. The asserting read `xs[i]` is
   an *expression form* and so is the emitter's lowering rather than an export
   here, exactly as `Vector`'s bracket and `Map`'s are; out of bounds it raises
   `Vector.hex`'s `IndexError`, the one such declaration in the corpus. There is
   no mutation surface and no `set`. The conversion is `toVector`, FFI Part 2
-  §9's escape from the borrow — eager, a stable persistent snapshot, shallow
-  and total — and it takes **no door row**: a `for` over the borrow folding
+  §9's conversion into a persistent vector — eager, a stable persistent
+  snapshot, shallow and total — and it takes **no door row**: a `for` over the
+  captured array folding
   `Vector.append` expresses it at the same complexity, so §5.1's Hexagon-first
   doctrine keeps it in source. The asymmetry with `Vector.toArray`, which *is*
   keyed, is §6.1's: an `Array(a)` has no Hexagon producer, so the outbound body
   could not name its result, while the inbound one has both a traversal and a
   producer.
 - `JsMap.hex` and `JsSet.hex` are FFI Part 10's companions of the other two
-  borrowed views — zero-copy readonly views of a native JavaScript `Map` and
-  `Set` that foreign code owns. They are companions for `Array.hex`'s reason:
-  neither type has a Hexagon declaration site, so the module addressable under
-  the name is what answers for it. Their whole surface is Part 10 §3's read-and-
-  construct set — `size`, `get`, `containsKey`, `entries` and `fromSeq` at the
-  map; `size`, `contains` and `fromSeq` at the set — with `toSeq` reached
-  through the provided `Iterable` row rather than exported here, as the dot call
-  `m.toSeq()` or qualified as `JsMap.toSeq(m)`. `entries` is that same walk under
-  a second name, not a second traversal.
+  captured collections — a native JavaScript `Map` and `Set` Hexagon holds as
+  its own copy, readonly from Hexagon. Each declares its type by a public
+  intrinsic `type` row, as `Array.hex` does. Their whole surface is Part 10 §3's
+  read-and-construct set — `size`, `get`, `containsKey`, `entries` and `fromSeq`
+  at the map; `size`, `contains` and `fromSeq` at the set — with `toSeq` the
+  member of each file's own `Iterable` instance, over an unexported traversal
+  door, rather than an export, reached as the dot call `m.toSeq()` or qualified
+  as `JsMap.toSeq(m)`. `entries` is that same walk under a second name, not a
+  second traversal.
 
   **No `Hash` appears in either file**, which is the design and not an omission
   (§4.3): a lookup here is the native collection's SameValueZero — reference
