@@ -179,14 +179,12 @@ export function planFundamentalSpecializations(
  * the edition no longer takes. Type and evidence now agree at every seat, so
  * every type-directed arm fires where a ground program's fires it.
  *
- * The parity that buys is structural, not textual, and the difference is worth
- * knowing before someone pins it. An edition's dictionary has the ground
- * program's name, shape and inline arms — `__Ord_Int_Int` is character-for-
- * character the ground one — but a dictionary carrying *internal* temporaries
- * picks up the #425 collision-only suffixes once seven of them share a module's
- * name allocator: an edition's `__Eq_Vector_Int` says `__rightStep_2` where the
- * ground program says `__rightStep`. Block-scoped inside its own IIFE, so
- * cosmetic — but a verbatim edition-against-ground comparison will trip on it.
+ * The parity that buys is structural, and it reaches the text of a dictionary's
+ * internal temporaries too. An edition's dictionary has the ground program's
+ * name, shape and inline arms — `__Ord_Int_Int` is character-for-character the
+ * ground one — and each derived walk numbers its binders in a scope of its own
+ * (#1129), so an edition's `__Eq_Vector_Int` says `__rightStep` where the ground
+ * program does, however many editions share the module.
  *
  * What a substituted dictionary parameter *becomes* is `editionEvidence`'s
  * question, and it is answered by the constraint's identity as much as by the

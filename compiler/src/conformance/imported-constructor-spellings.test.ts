@@ -101,7 +101,7 @@ describe("an arm reached through the door matches the declared tag", () => {
     expect(javascript).toContain('import * as Shapes from "./Shapes.js";');
     expect(javascript).toContain(
       "  switch (__match.tag) {\n" +
-      "    case \"Circle\":\n",
+      "    case \"Circle\": {\n",
     );
     // The alias never reaches a case label: the tag is the declaration's, and
     // the module alias is a compile-time path, not a value (#468, §3.1).
