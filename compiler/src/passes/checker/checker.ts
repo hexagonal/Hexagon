@@ -10302,13 +10302,15 @@ class Checker {
       }
       case "Index": {
         const receiver = this.#prune(this.#inferExpr(expression.receiver, level));
-        const index = this.#prune(this.#inferExpr(expression.index, level));
+        const index = this.#prune(
+          this.#inferExpr(expression.index, level, this.#indexFace(receiver, expression.index)),
+        );
         if (receiver.kind === "Vector") {
           if (index.kind === "Range") {
             type = receiver;
             this.#indexOperations.set(expression, "VectorSlice");
           } else {
-            this.#unify(index, primitive("Int"), expression.index.span);
+            this.#checkIndex(primitive("Int"), index, expression.index);
             type = receiver.element;
             this.#indexOperations.set(expression, "VectorElement");
           }
@@ -10317,12 +10319,12 @@ class Checker {
             type = primitive("String");
             this.#indexOperations.set(expression, "StringSlice");
           } else {
-            this.#unify(index, primitive("Int"), expression.index.span);
+            this.#checkIndex(primitive("Int"), index, expression.index);
             type = primitive("String");
             this.#indexOperations.set(expression, "StringElement");
           }
         } else if (receiver.kind === "Map") {
-          this.#unify(index, receiver.key, expression.index.span);
+          this.#checkIndex(receiver.key, index, expression.index);
           const requirements = [
             this.#require("Hash", receiver.key, expression.span),
           ];
@@ -10343,10 +10345,10 @@ class Checker {
           // There is deliberately **no `Range` arm** here. `JsMap` has no
           // slicing (§4.5), so a `Range`-typed element is an ordinary key
           // lookup when `k` is `Range` and the ordinary element-type mismatch
-          // otherwise — both of which fall straight out of this one
-          // unification. A `Range` branch would be writing the competing
-          // slice reading §4.3 says does not exist here.
-          this.#unify(index, receiver.key, expression.index.span);
+          // otherwise — both of which fall straight out of this one seat
+          // check. A `Range` branch would be writing the competing slice
+          // reading §4.3 says does not exist here.
+          this.#checkIndex(receiver.key, index, expression.index);
           type = receiver.value;
           this.#indexOperations.set(expression, "JsMapElement");
         } else if (receiver.kind === "JsSet") {
@@ -10384,7 +10386,7 @@ class Checker {
                 `\`${receiverSpelling(expression.receiver)}[i]\` read one element`,
             );
           } else {
-            this.#unify(index, primitive("Int"), expression.index.span);
+            this.#checkIndex(primitive("Int"), index, expression.index);
             type = receiver.element;
             this.#indexOperations.set(expression, "ArrayElement");
           }
@@ -16679,10 +16681,22 @@ class Checker {
       return this.#inferExpr(call, level, expected);
     }
 
+    // `lo..hi` is checked as `Range.up(lo, hi)` is (Loops §3.2, #1133): each
+    // operand is an `Int` seat, a tree of its own faced by `Int`, which an
+    // established `Nat` widens into and `1..(n - 1)` subtracts at.
+    if (expression.operator === "Range") {
+      const int = primitive("Int");
+      for (const operand of [expression.left, expression.right]) {
+        const type = this.#inferExpr(operand, level, int);
+        this.#unifyExpected(int, type, operand, operand.span, true, true);
+      }
+      return { kind: "Range" };
+    }
+
     // Every arithmetic operator is an interior node of an expression tree and
     // never reaches here (`#inferTree`, Numeric Literals §5.1's expression
     // home, #1062). What remains are the operators that name no algebra: the
-    // logical four, `Range`, and `Concat`, whose operands synthesize.
+    // logical four and `Concat`, whose operands synthesize.
     const left = this.#inferExpr(expression.left, level);
     const right = this.#inferExpr(expression.right, level);
 
@@ -16720,17 +16734,64 @@ class Checker {
       return bool;
     }
 
-    if (expression.operator === "Range") {
-      this.#unify(left, primitive("Int"), expression.left.span);
-      this.#unify(right, primitive("Int"), expression.right.span);
-      return { kind: "Range" };
-    }
     // `Concat`: both operands share one type, and the operation's evidence is
     // selected at it.
     this.#unify(left, right, expression.span);
     const requirement = this.#require("Concat", left, expression.span);
     this.#requirements.set(expression, [requirement]);
     return left;
+  }
+
+  /**
+   * The type a bracket's index is checked at before it is elaborated
+   * *(#1133)*, or `undefined` where it closes on its own.
+   *
+   * The bracket is checked as its notional function's argument is: a
+   * position as `Vector.at`'s `Int`, a key as `Map.get`'s. A key is a map's
+   * only reading, so the key type faces every index. A sequence's index has
+   * two readings, a position or a slice, and its own type chooses between
+   * them, so it closes first (Numeric Literals §5.1) — except where its
+   * written shape has already chosen: a tower operation at its root, in any
+   * spelling but the dot (whose receiver closes first, and whose name need
+   * not be a tower member's), is never a `Range`, so `xs[k - 1]` is a
+   * position and runs at `Int`, as `Vector.at(xs, k - 1)` does.
+   */
+  #indexFace(receiver: Mono, index: Resolved.Expr): Mono | undefined {
+    if (receiver.kind === "Map" || receiver.kind === "JsMap") return receiver.key;
+    const positional = receiver.kind === "Vector" || receiver.kind === "Array" ||
+      (receiver.kind === "Constructor" && receiver.name === "String");
+    return positional && this.#arithmeticShaped(index) ? primitive("Int") : undefined;
+  }
+
+  /** Whether `expression`, through its parentheses, is a tower operation (#1133). */
+  #arithmeticShaped(expression: Resolved.Expr): boolean {
+    let shaped = expression;
+    while (shaped.kind === "Group") shaped = shaped.expression;
+    if (shaped.kind === "Binary" && shaped.operator === "Pipe") shaped = this.#pipeCall(shaped);
+    switch (shaped.kind) {
+      case "Binary":
+      case "Unary":
+        return this.#isTreeInterior(shaped);
+      case "Call":
+        return this.#towerCallRung(shaped) !== undefined;
+      default:
+        return false;
+    }
+  }
+
+  /**
+   * A bracket's index at its seat *(#1133)*: a position's `Int`, or a map's
+   * key type. An ordinary seat, so an established `Nat` widens into it (§5.1)
+   * and a refusal names the seat's type as the one expected.
+   *
+   * A key's type is the map's, settled by the receiver as `Map.get`'s sibling
+   * settles its variable key seat, so it is expected by no written type and is
+   * owed no function-result report (Numeric Literals §6). A position's `Int`
+   * could not be owed one either: a call whose result would enter `Int` holds
+   * a `Nat`, which widens.
+   */
+  #checkIndex(seat: Mono, actual: Mono, index: Resolved.Expr): void {
+    this.#unifyExpected(seat, actual, index, index.span, true);
   }
 
   /**

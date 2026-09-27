@@ -71,6 +71,8 @@ The complete v1 surfaces. Lookup operations carry **no `Hash` constraint** — e
 
 Grammar is unchanged: the same postfix bracket (Operators §10), meaning selected during checking by receiver and element types. `[]` remains a compiler-owned structural form; granting it to the compiler-known `JsMap` creates no user-extensible bracket surface.
 
+The key is Collections Part 4 §4.1's seat, checked as `JsMap.get`'s is: the map's key type faces it, so `jsMap[n]` on a `JsMap(Int, v)` widens an `n: Nat`, and a key no conversion reaches is refused with the key type named as the type expected.
+
 ### 4.2 The lowering (normative)
 
 For both `jsMap[k]` **and** `JsMap.get(jsMap, k)`:

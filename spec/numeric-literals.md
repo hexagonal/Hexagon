@@ -218,7 +218,9 @@ chosen once for the whole expression — never operation by operation from the i
   expression, a lambda's body, an assignment's right-hand side, a tuple component, a
   record field — each unless it is a sibling on an argument's spine (above) —
   `**`'s exponent seat and a shift's count (each faced by its written
-  `Int`), a condition, a scrutinee, a guard, a block's non-final item — and a dot call's
+  `Int`), each operand of `..` (faced by `Int`, as `Range.up`'s parameters are, Loops
+  §3.1), a bracket's index (below), a condition, a scrutinee, a guard, a block's
+  non-final item — and a dot call's
   receiver, which closes before the dot resolves, since the dot must know what its
   receiver is to know what it calls: it takes from outside only its own seat's expected
   type, as Method Syntax §2.2's receiver rule forwards it, and never the home of the
@@ -229,14 +231,29 @@ chosen once for the whole expression — never operation by operation from the i
   record field at a seat its expectation writes as a bare type variable is a group of one whatever other component shares the variable,
   and closes after its literal's first pass, in source order (Functions §4.3's component
   schedule).
+- **A bracket's index** *(#1133)* is checked as its notional function's argument is: a
+  key at its map's key type, as `Map.get`'s is, and a position at `Int`, as `Vector.at`'s
+  is (Collections Part 3 §5.1). A key is a map's only reading, so the key type faces
+  every index. A sequence's index has two readings, a position and a slice, and its own
+  type chooses between them, so it closes first, like a dot call's receiver — except
+  where its written shape has already chosen: a tower operation at its root, through
+  grouping parentheses, written as an operator or as a member called bare, qualified
+  through its constraint, or as a pipe stage, is never a `Range`, so it is a position,
+  faced by `Int`: `xs[k - 1]` runs at `Int` for a `k: Nat`, as `Vector.at(xs, k - 1)`
+  does. A dot call spells nothing decisive — its receiver closes first, and its name need
+  not be a tower member's — and neither does a forwarding form, whose values may be
+  ranges. An index that closed on its own meets its seat as any finished value does: a
+  `Range` slices, and anything else enters the position by exact unification or one of
+  the three conversions, so `xs[k]` widens a `k: Nat`.
 - **The home.** Where the seat's expected type is **concrete** — it contains no type
   variable — when the tree's last part is in, it is the home: the expected-type lift
   below. The seats that supply one are an annotated binding, an ascription, a
   parameter's type — a constructor's parameter type instantiated from the application's
   own expected type (Functions §4.3, #1066) — a lambda's landed result component, the
   `:=` right-hand side (whose expected type is the `var`'s), whatever a forwarding form
-  hands on, and the part a tuple, record, or vector literal hands each of its components
-  (Functions §4.3). A seat whose type is a type variable supplies no home: the tree's
+  hands on, the part a tuple, record, or vector literal hands each of its components
+  (Functions §4.3), and the `Int` of `..`'s operands and of a faced index, and a map's key
+  type (above). A seat whose type is a type variable supplies no home: the tree's
   home is chosen from its values, and its finished value then meets the seat as any
   value does — by exact unification or one of the three conversions, a declared variable
   the body can name being an established target (`fun widen<t: Num>(value: Nat): t =
