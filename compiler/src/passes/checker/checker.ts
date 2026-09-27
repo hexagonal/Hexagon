@@ -314,16 +314,16 @@ interface EffectConstant {
  * supplied argument. The two place their reports differently: a body-sourced
  * constant stands at the signature's written arrow, a pinned one at the pin.
  */
+interface ColourSolve {
+  readonly span: Source.Span;
+  readonly sourced: boolean;
+}
+
 /**
  * What stands at one effect slot of a walked type, given the slot's colour on
  * each side — `#republishColours`' one variable part.
  */
 type ColourPreference = (own: Mono | undefined, other: Mono | undefined) => Mono | undefined;
-
-interface ColourSolve {
-  readonly span: Source.Span;
-  readonly sourced: boolean;
-}
 
 const PURE: EffectConstant = { kind: "Effect", impure: false };
 
@@ -3023,6 +3023,19 @@ class Checker {
    * carried across a variable-to-variable bind.
    */
   readonly #recoveryTouched = new WeakSet<Variable>();
+  /**
+   * Whether this module has elaborated a §4.4 recovery (`#recovery`) — until it
+   * has, nothing is marked and no type carries one, so the walks that serve it
+   * are skipped (#1115). An imported colour is never one: a module boundary
+   * carries the impure constant, unmarked.
+   */
+  #recoveryMet = false;
+
+  /** §4.4's recovery, where a refused `->?` is elaborated. */
+  #recovery(): EffectConstant {
+    this.#recoveryMet = true;
+    return RECOVERED;
+  }
   /** Nonzero while §3.4's source arm runs: its binds are body-sourced (#873). */
   #sourcing = 0;
   /**
@@ -7245,9 +7258,9 @@ class Checker {
         // against its body (#888).
         this.#pendingOwnEffect = annotation?.kind === "Function"
           ? (annotation.effect === "constant"
-            ? (annotation.recovered === true ? RECOVERED : IMPURE)
+            ? (annotation.recovered === true ? this.#recovery() : IMPURE)
             : annotation.effect === "linked"
-              ? (this.#signatureFace?.effect ?? RECOVERED)
+              ? (this.#signatureFace?.effect ?? this.#recovery())
               : annotation.effect === undefined
                 ? PURE
                 : IMPURE)
@@ -7923,7 +7936,11 @@ class Checker {
               true,
             )
           );
-          if (this.#hasNumericWidening(item.value)) valueType = annotationType;
+          // Declared at a refused `->?` the annotation wrote, as an annotated
+          // `let` is (#1115).
+          valueType = this.#hasNumericWidening(item.value)
+            ? annotationType
+            : this.#writtenRecoveries(annotationType, valueType);
         }
         // A `var` holds one value of one type for as long as it is in scope, so
         // its variables belong to the environment and must sit at the block's
@@ -15206,6 +15223,7 @@ class Checker {
           undefined,
           owner ?? span,
           tree,
+          node.level,
         );
         return;
       }
@@ -15263,7 +15281,7 @@ class Checker {
         this.#applyHome(part.node, chosen === undefined ? { home: at } : chosen, here, reportAt, tree);
         continue;
       }
-      this.#enterHome(part.value, at, chosen?.source, here, reportAt, tree);
+      this.#enterHome(part.value, at, chosen?.source, here, reportAt, tree, node.level);
     }
     this.#finishNode(node, at);
   }
@@ -15282,6 +15300,8 @@ class Checker {
     merge: Source.Span | undefined,
     owner: Source.Span | undefined,
     tree: { refused: boolean },
+    /** The tree's level, where a recovered colour the value brings is minted a variable. */
+    level: number,
   ): void {
     const span = owner ?? value.expression.span;
     const enter = (): void => {
@@ -15301,10 +15321,86 @@ class Checker {
         tree.refused = true;
         return;
       }
-      this.#unifyExpected(home, value.type, value.expression, span, true);
+      this.#unifyExpected(home, this.#markedRecoveries(value.type, level), value.expression, span, true);
     };
     if (merge !== undefined) this.#joining(merge, enter);
     else enter();
+  }
+
+  /**
+   * `type` with each arrow colour that is §4.4's recovery replaced by a fresh
+   * variable the recovery has marked (#1115) — what a value brings to a home it
+   * shares with the others of its tree. Brought as the constant, the recovery
+   * became the home wherever its value entered first, and absorbed every colour
+   * a later value brought: `if c then s else (if d then (() => ()) else
+   * save0)` lost the inner clash its reverse reported (review round 1, MAJOR
+   * 2). As a marked variable it takes the first
+   * real colour any value brings, in any order and at any depth, and is the
+   * recovery only where none does (`#recoveryTouched`). A type with no
+   * recovery in it is returned as it is.
+   */
+  #markedRecoveries(type: Mono, level: number): Mono {
+    if (!this.#recoveryMet || !this.#carriesArrow(type)) return type;
+    const actual = this.#prune(type);
+    const each = (parts: readonly Mono[]): Mono[] | undefined => {
+      const marked = parts.map((part) => this.#markedRecoveries(part, level));
+      return marked.every((part, index) => part === parts[index]) ? undefined : marked;
+    };
+    switch (actual.kind) {
+      case "Function": {
+        const parameters = each(actual.parameters);
+        const result = this.#markedRecoveries(actual.result, level);
+        const written = actual.effect === undefined ? undefined : this.#prune(actual.effect);
+        let effect = actual.effect;
+        if (written !== undefined && isRecovered(written)) {
+          const marked = this.#fresh(level, false);
+          this.#recoveryTouched.add(marked);
+          // A report that shows the value while its colour is unsolved shows
+          // the recovery it stands for (`#arrow`).
+          this.#shownColours.set(marked, written);
+          effect = marked;
+        }
+        if (parameters === undefined && result === actual.result && effect === actual.effect) return type;
+        return { ...actual, parameters: parameters ?? actual.parameters, result, ...(effect === undefined ? {} : { effect }) };
+      }
+      case "Tuple": {
+        const elements = each(actual.elements);
+        return elements === undefined ? type : { ...actual, elements };
+      }
+      case "Record": {
+        const names = [...actual.fields.keys()];
+        const fields = each([...actual.fields.values()]);
+        return fields === undefined
+          ? type
+          : { ...actual, fields: new Map(names.map((name, index) => [name, fields[index]!])) };
+      }
+      case "Union":
+      case "NominalRecord":
+      case "ExternType": {
+        const args = each(actual.arguments);
+        return args === undefined ? type : ({ ...actual, arguments: args } as Mono);
+      }
+      case "Vector":
+      case "Set":
+      case "Array":
+      case "JsSet":
+      case "Node": {
+        const element = this.#markedRecoveries(actual.element, level);
+        return element === actual.element ? type : { ...actual, element };
+      }
+      case "Nullable": {
+        const value = this.#markedRecoveries(actual.value, level);
+        return value === actual.value ? type : { ...actual, value };
+      }
+      case "Map":
+      case "JsMap": {
+        const key = this.#markedRecoveries(actual.key, level);
+        const value = this.#markedRecoveries(actual.value, level);
+        return key === actual.key && value === actual.value ? type : { ...actual, key, value };
+      }
+      default:
+        return type;
+    }
   }
 
   /**
@@ -17301,9 +17397,6 @@ class Checker {
     // And the published element wears the seat's node where an element
     // carried one, so a call through the vector records the edge.
     for (const type of types) joined = this.#publishJoinedColours(joined, type);
-    // Its elements are siblings, which `#finishNode` does not publish, so a real
-    // colour one element carries is preferred to the recovery here (#1115).
-    for (const type of types) joined = this.#realOverRecovered(joined, type);
     return { kind: "Vector", element: joined };
   }
 
@@ -17842,13 +17935,7 @@ class Checker {
       siblings: true,
     };
     this.#closeFree(node);
-    // The siblings join as a form's paths do, which `#finishNode` does not
-    // publish for siblings: a real colour one of them carries is preferred to
-    // the recovery, so `first(s, save0)` is as impure as `first(save0, s)`
-    // (#1115).
-    let joined: Mono = node.result;
-    for (const part of parts) joined = this.#realOverRecovered(joined, this.#partType(part));
-    this.#unify(target, joined, span);
+    this.#unify(target, node.result, span);
   }
 
   /**
@@ -17924,7 +18011,7 @@ class Checker {
       // rest of the body checkable. It is recovery, not a reading: the
       // diagnostic above is the ruling, and `RECOVERED` is how the obligations
       // this colour goes on to feed know not to re-litigate it (§4.4).
-      return RECOVERED;
+      return this.#recovery();
     }
     if (arrowSpan !== undefined) face.arrows.push(arrowSpan);
     return face.effect;
@@ -18285,15 +18372,18 @@ class Checker {
 
   /**
    * A form's joined type with each arrow colour that is §4.4's recovery replaced
-   * by the real colour another path carries there *(#1115)*. A path's colours
-   * are decided by the time it joins — a function's colour at its body's close
-   * (§2.6) — and two constants meet by unifying, which the recovery absorbs,
-   * binding nothing; so the join published the first path's colour whichever
-   * that was, and `if c then s else save0` read as the recovery where `if c then
-   * save0 else s` read as `->!`. At a merge the recovery is no information: a
-   * real colour — either constant, or a variable — decides the position.
+   * by the real colour another path carries there *(#1115)*. A free tree's
+   * values never bring the recovery to their home (`#markedRecoveries`); this is
+   * for the paths that join one another directly — a faced form's, each having
+   * met the face on its own (#1107) — where two constants meet by unifying,
+   * which the recovery absorbs, binding nothing. The join then published the
+   * first path's colour whichever that was, and under `let g: () ->? Unit`, `if
+   * c then s else save0` left the written `->?` as it was where `if c then
+   * save0 else s` pinned it. At a merge the recovery is no information: a real
+   * colour — either constant, or a variable — decides the position.
    */
   #realOverRecovered(published: Mono, other: Mono): Mono {
+    if (!this.#recoveryMet) return published;
     return this.#republishColours(published, other, new Set(), (own, against) => {
       const ownColour = this.#prune(own ?? PURE);
       const otherColour = this.#prune(against ?? PURE);
@@ -18549,14 +18639,25 @@ class Checker {
    * for a call the recovery alone made effectful — a `?` demanded of a call
    * whose mark the recovery's reading answers. Every argument the call was
    * handed has met its colour by the time its body closes, so nothing real is
-   * still on its way.
+   * still on its way. (A colour an enclosing body owns is defaulted here too, by
+   * §3.4's clause at calls — the recovery settles it no earlier than that does.)
    */
   #settleRecoveredCalls(frame: EffectFrame): void {
     for (const { effect } of frame.absorbed) {
       const colour = this.#prune(effect);
       if (colour.kind !== "Variable" || this.#isDependency(frame, colour)) continue;
-      if (this.#recoveryTouched.has(colour)) colour.instance = RECOVERED;
+      if (this.#takesRecovery(colour)) colour.instance = RECOVERED;
     }
+  }
+
+  /**
+   * Whether a colour, still a variable where it settles, is the recovery's
+   * (#1115): marked by it, and no dependency the recovery leaves — a colour a
+   * written `->?` joined after the mark is that signature's, never the
+   * recovery's (review round 1, BLOCKER 1).
+   */
+  #takesRecovery(colour: Variable): boolean {
+    return this.#recoveryTouched.has(colour) && !this.#recoveryLeaves(colour);
   }
 
   /**
@@ -19137,7 +19238,7 @@ class Checker {
    * every body settles its own calls' (`#settleRecoveredCalls`).
    */
   #defaultColour(colour: Variable): EffectConstant {
-    return this.#recoveryTouched.has(colour) ? RECOVERED : PURE;
+    return this.#takesRecovery(colour) ? RECOVERED : PURE;
   }
 
   /**
@@ -22287,8 +22388,10 @@ class Checker {
       if (owner !== undefined) this.#pinnedVars.set(type.id, owner);
       this.#recordJoinedColour(variable, type);
       if (this.#faceColours.has(variable)) this.#faceColours.add(type);
-      // The recovery's mark moves with the representative (#1115) — except onto
-      // a dependency the recovery leaves, whose own colour decides.
+      // The recovery's mark moves with the representative (#1115). A dependency
+      // the recovery leaves, on either side, makes the one colour that
+      // dependency's; where the mark is read, `#takesRecovery` asks that of the
+      // colour as it then stands.
       if (this.#recoveryTouched.has(variable) && !this.#recoveryLeaves(type)) {
         this.#recoveryTouched.add(type);
       }
@@ -24645,9 +24748,9 @@ class Checker {
     // A colour §4.4's recovery reached and nothing real did is the recovery
     // before it can be quantified *(#1115)*: quantified, every use instantiates a
     // copy the recovery never met, and `let k = pick(s)` read as a pure `k`.
-    for (const variable of this.#collectVariables(type)) {
-      if (variable.level > level && this.#recoveryTouched.has(variable)) {
-        variable.instance = RECOVERED;
+    if (this.#recoveryMet) {
+      for (const variable of this.#collectVariables(type)) {
+        if (variable.level > level && this.#takesRecovery(variable)) variable.instance = RECOVERED;
       }
     }
     let variables = this.#collectVariables(type).filter(
@@ -25878,7 +25981,7 @@ class Checker {
     }
     if (annotation.kind === "Function") {
       const effect = annotation.recovered === true
-        ? RECOVERED
+        ? this.#recovery()
         : this.#writtenEffect(annotation.effect, annotation.arrowSpan);
       const elaborated: FunctionMono = {
         kind: "Function",

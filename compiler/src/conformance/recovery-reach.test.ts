@@ -153,6 +153,15 @@ honor Runner<Job> =
     ()
 `, "p:")).toBe("(() ->! Unit, Int)");
   });
+
+  test("an annotated `var` is declared at it as an annotated `let` is", () => {
+    expect(reports(`export let outer(action: () ->? Unit): Unit =
+    var r: Option(Step) = Some(action)
+    match r
+        Some(g) => g!()
+        None => ()
+`)).toEqual([REFUSAL]);
+  });
 });
 
 describe("a shared colour takes the recovery only where nothing real reaches it (#1115, D2)", () => {
@@ -226,6 +235,71 @@ export let go(s: Step): Unit =
         [g, _] => g()
         _ => ()
 `)).toEqual([REFUSAL, wantsBang("`g`", "g()")]);
+    }
+  });
+
+  test("a written `->?` that joins a colour the recovery reached first keeps its face", () => {
+    // `pick(s)`'s colour is the recovery's before `action`'s written `->?`
+    // joins it; the one colour is then the signature's, and the face it
+    // publishes is the one it writes (review round 1, BLOCKER 1).
+    const face = "(() ->? Unit, () ->! Unit) ->? Unit";
+    for (const body of [
+      "apply2?(action, pick(s))",
+      "\n    let g = if True then action else pick(s)\n    g?()",
+      "\n    let run = () => apply2?(action, pick(s))\n    run?()",
+    ]) {
+      const source = `export let outer(action: () ->? Unit, s: Step): Unit = ${body}\n`;
+      expect(reports(source)).toEqual([REFUSAL]);
+      expect(hovered(source, "outer(")).toBe(face);
+    }
+    expect(published("export let outer(action: () ->? Unit, s: Step): Unit = apply2?(action, pick(s))\n", "outer"))
+      .toBe(`/** Hexagon: \`${face}\` */`);
+    const knot = `export let outer(action: () ->? Unit, s: Step): Unit =
+    fun
+        a(m: Int): Unit = if m == 0 then apply2?(action, pick(s)) else b?(m)
+        b(m: Int): Unit = a?(m - 1)
+    a?(1)
+`;
+    expect(reports(knot)).toEqual([REFUSAL]);
+    expect(hovered(knot, "outer(")).toBe(face);
+  });
+
+  test("under a written face, a form's real path pins it in either order", () => {
+    // The paths meet the face one at a time (#1107) and then join: the join
+    // publishes `save0`'s `->!`, not the recovery `s` brings, and the written
+    // `->?` it reaches is pinned whichever path is written first.
+    const pin = [
+      "this signature's `->?` promises a colour the caller chooses, but the body solves it " +
+      "to the impure constant — a function that performs its own unconditional effects " +
+      "rounds up, and its face is `->!`",
+    ];
+    for (const form of ["if True then s else save0", "if True then save0 else s"]) {
+      const source = `export let outer(action: () ->? Unit, s: Step): Unit =
+    let g: () ->? Unit = ${form}
+    action?()
+`;
+      expect(reports(source)).toEqual([REFUSAL, [form, ...pin]]);
+    }
+  });
+
+  test("at any depth of a form, a later path's real clash is reported in either order", () => {
+    // The recovery a first path brings is no home the later paths are absorbed
+    // into (review round 1, MAJOR 2): the inner `if`'s pure and impure paths
+    // still clash, whichever side of the outer form the recovery stands on.
+    const clash = [
+      "if False then (() => ()) else save0",
+      "a `->` arrow promises purity, and this function performs effects — the demand is " +
+      "written `->`, the function's face `->?` or `->!`",
+    ] as const;
+    for (const form of [
+      "if True then s else (if False then (() => ()) else save0)",
+      "if True then (if False then (() => ()) else save0) else s",
+      "try s catch\n        _ => (if False then (() => ()) else save0)",
+    ]) {
+      expect(reports(`export let go(s: Step): Unit =
+    let g = ${form}
+    g()
+`)).toEqual([REFUSAL, clash]);
     }
   });
 
