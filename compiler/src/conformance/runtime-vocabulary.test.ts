@@ -141,10 +141,14 @@ describe("class 1 — `record Error` and `record Object` beside a raise", () => 
 });
 
 describe("class 2 — `record Symbol` beside a `for` loop", () => {
+  // The range is a value, so the loop iterates the `__range` object and its
+  // `Symbol.iterator` key. A `..` written in the head itself would erase to a
+  // counting loop that names no global at all (Loops §8).
   const PROGRAM = "export record Symbol = {code: Int}\n" +
     "export let total(n: Int): Int =\n" +
     "    var sum = 0\n" +
-    "    for i in 1..n\n" +
+    "    let steps = 1..n\n" +
+    "    for i in steps\n" +
     "        sum := sum + i\n" +
     "    sum\n";
 
@@ -173,7 +177,8 @@ describe("class 2 — `record Symbol` beside a `for` loop", () => {
         "const Symbol = __record => __record;\n" +
         "export const total = n => {\n" +
         "  let sum = 0;\n" +
-        "  for (const i of __range(1, n)) sum = sum + i;\n" +
+        "  const steps = __range(1, n);\n" +
+        "  for (const i of steps) sum = sum + i;\n" +
         "  return sum;\n" +
         "};\n",
     );
