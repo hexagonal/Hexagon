@@ -17954,9 +17954,7 @@ class Checker {
    * that only openings reached is pure, the recovery deciding one it shares
    * (§4.4); one the environment still sees waits for its own binding, and one a
    * real colour claimed leaves the list. A binding's generalization runs it
-   * before building the scheme, and so do a `match` and a `for` over the value
-   * they read, so that the value's own openings are closed before its parts
-   * are bound — as they are through a `let`.
+   * before building the scheme.
    */
   #closeOpenings(level: number): void {
     // Openings a join has made one colour wait as one entry, so the list is as

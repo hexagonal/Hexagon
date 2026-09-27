@@ -492,7 +492,7 @@ describe("knots, and the value a `match` or a `for` reads (R.b, review round 4)"
     }
   });
 
-  test("the value read one level in comes back to the form's level: a `let` inside never generalizes it", () => {
+  test("a `let` inside an arm or a loop body never generalizes the value's types", () => {
     // Review round 5: left one level in, `g` generalized to `JsMap(k, v)` and
     // read a `String` back as an `Int`; the literal's `Nat` defaulted to `Int`.
     const setStr = 'extern from "./world.js"\n    export fun setStr(map: JsMap(Int, String), key: Int, value: String) ->! Unit\n';
