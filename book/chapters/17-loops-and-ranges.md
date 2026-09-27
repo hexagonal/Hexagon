@@ -188,9 +188,8 @@ for (let row = 1; row <= __end; row++) {
 ```
 
 General iterable loops emit as JavaScript `for...of`, while `while` remains an ordinary
-JavaScript `while`. A `Range`
-stored as a value becomes a small iterable object only when that representation is
-needed.
+JavaScript `while`. A `Range` stored as a value becomes a small iterable object only
+when that representation is needed.
 
 Loops are internal control flow and add nothing to `.d.ts` output. Their source types
 still matter: `Seq(a)` crosses the TypeScript boundary as `Iterable<a>`, a topic the

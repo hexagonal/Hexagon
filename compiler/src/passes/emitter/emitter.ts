@@ -6226,7 +6226,7 @@ class JavaScriptEmitter {
    * and cannot see a change (`#rereadable`); any other end is read once into a
    * `const` before the loop, which is also where a reader expects a value that
    * does not change. Declaring it there moves it ahead of the start, so a start
-   * that is not itself a plain read moves out first, into its own `const`.
+   * that is not itself rereadable moves out first, into its own `const`.
    *
    * A bound that mentions the loop variable's name is read before the loop too:
    * inside the loop, the name is the counter (#1127).

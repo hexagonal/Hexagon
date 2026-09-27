@@ -183,6 +183,22 @@ describe("the counting loop's shape (Loops §8)", () => {
     ));
   });
 
+  test("a foreign binding is read once: JavaScript may change it", () => {
+    const text = javascript(
+      'extern from "./m.js"\n    let limit: Int\n\n' +
+        "export let total(): Int =\n" +
+        "    var t = 0\n" +
+        "    for i in 1..limit\n" +
+        "        t := t + i\n" +
+        "    t\n",
+    );
+
+    expect(text).toContain(lines(
+      "  const __end = limit;",
+      "  for (let i = 1; i <= __end; i++) {",
+    ));
+  });
+
   test("a computed start moves out first, ahead of a computed end", () => {
     const text = javascript(
       "export let total(lo: () ->! Int, hi: () ->! Int): Int =\n" +
@@ -334,12 +350,15 @@ describe("the counting loop runs as the range would (Loops §2.3, §3.4)", () =>
   });
 
   test("a `var` end the body reassigns does not move the end", async () => {
+    // The end grows once, not on every iteration: re-read, it would run to 6
+    // (21) and fail, where growing it every time would never stop.
     const exports = await run(
       "export let total(n0: Int): Int =\n" +
         "    var n = n0\n" +
         "    var t = 0\n" +
         "    for i in 1..n\n" +
-        "        n := n + 1\n" +
+        "        if i == 1 then\n" +
+        "            n := n + 2\n" +
         "        t := t + i\n" +
         "    t\n",
     );
@@ -390,6 +409,21 @@ describe("a loop variable may shadow a name its own head reads (#1127)", () => {
     expect(((await run(source))["total"] as (n: number) => number)(8)).toBe(27);
   });
 
+  test("only the mentioning bound moves: a computed start stays in the loop", async () => {
+    const source = "export let total(lo: () ->! Int, n: Int): Int =\n" +
+      "    var t = 0\n" +
+      "    for n in lo!()..n\n" +
+      "        t := t + n\n" +
+      "    t\n";
+
+    expect(javascript(source)).toContain(lines(
+      "  const __end = n;",
+      "  for (let n = lo(); n <= __end; n++) {",
+    ));
+    expect(((await run(source))["total"] as (lo: () => number, n: number) => number)(() => 2, 4))
+      .toBe(9);
+  });
+
   test("a `Vector` head", async () => {
     const source = "let total(xs: Vector(Int)): Int =\n" +
       "    var t = 0\n" +
@@ -434,6 +468,25 @@ describe("a loop variable may shadow a name its own head reads (#1127)", () => {
     expect(((await run(source))["run"] as () => number)()).toBe(6);
   });
 
+  test("a user `Iterable` head", async () => {
+    const source = "export record Bag = {items: Vector(Int)}\n" +
+      "honor Iterable<Bag> =\n" +
+      "    type Item = Int\n" +
+      "    toSeq(bag) = bag.items.toSeq()\n" +
+      "let total(bag: Bag): Int =\n" +
+      "    var t = 0\n" +
+      "    for bag in bag\n" +
+      "        t := t + bag\n" +
+      "    t\n" +
+      "export let run(): Int = total(Bag({items = [1, 2, 3]}))\n";
+
+    expect(javascript(source)).toContain(lines(
+      "  const __source = __Iterable_Bag.toSeq(bag);",
+      "  for (const bag of __source) {",
+    ));
+    expect(((await run(source))["run"] as () => number)()).toBe(6);
+  });
+
   test("a head that does not mention the loop variable stays in the loop", () => {
     const text = javascript(
       "export let count(s: String): Int =\n" +
@@ -444,7 +497,24 @@ describe("a loop variable may shadow a name its own head reads (#1127)", () => {
     );
 
     expect(text).toContain("  for (const c of s) {");
-    expect(text).not.toContain("__source");
+    expect(text).not.toContain("const __source");
+  });
+
+  test("a user instance's `toSeq` call stays in the head (Collections Part 5 §9.2)", () => {
+    const text = javascript(
+      "export record Bag = {items: Vector(Int)}\n" +
+        "honor Iterable<Bag> =\n" +
+        "    type Item = Int\n" +
+        "    toSeq(bag) = bag.items.toSeq()\n" +
+        "export let total(bag: Bag): Int =\n" +
+        "    var t = 0\n" +
+        "    for x in bag\n" +
+        "        t := t + x\n" +
+        "    t\n",
+    );
+
+    expect(text).toContain("  for (const x of __Iterable_Bag.toSeq(bag)) {");
+    expect(text).not.toContain("const __source");
   });
 
   test("the negative baseline: in the loop, the head throws before its first iteration", async () => {

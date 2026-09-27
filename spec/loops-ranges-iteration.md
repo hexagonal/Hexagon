@@ -253,7 +253,7 @@ Readable-JS doctrine: the general mechanism exists; the common case erases.
 | Hexagon | JS |
 |---|---|
 | `for x in 1..10` (syntactic ascending range in the head) | `for (let x = 1; x <= 10; x++) { ... }` |
-| `for x in lo..hi` (syntactic range, non-literal bounds) | `for (let x = lo; x <= hi; x++)` — with a non-trivial `hi` bound to a `const` before the loop (evaluate once, §2.3), and a non-trivial `lo` bound to its own `const` before that (start before end, §2.3) |
+| `for x in lo..hi` (syntactic range, non-literal bounds) | `for (let x = lo; x <= hi; x++)` — with a non-trivial `hi` bound to a `const` before the loop (evaluate once, §2.3), and, when `hi` moves, a non-trivial `lo` bound to its own `const` ahead of it (start before end, §2.3) |
 | `for x in rangeDown(hi, lo)` (syntactic) | `for (let x = hi; x >= lo; x--)` (same once-evaluation rule) |
 | `for p in e` over a directly iterable provided type | `for (const p of e)`-shaped — a destructuring head where `p` destructures, e.g. `for (const [k, v] of m.entries())` (Collections Part 4 §11) |
 | `for p in e` through a user `Iterable` instance | statically resolved `toSeq` call producing a `Seq`, then `for (const p of s)`-shaped iteration (Collections Part 5 §9) |
@@ -261,7 +261,7 @@ Readable-JS doctrine: the general mechanism exists; the common case erases.
 | `Range` as a first-class value (escapes a loop head) | a small range object implementing the JS iterable protocol, materialised on demand (same on-demand doctrine as constructors, Unions §6.4) |
 
 - The counting-loop erasure is **mandatory**, not an optimisation option — it is the readable-JS goal at the language's most common loop, same status as `fromNat` erasure (Numeric Literals §5). "Syntactic range" means the loop head's expression is literally a `..` application / `range(...)` / `rangeDown(...)` call, read through grouping parentheses and an ascription as every rule that reads what an expression means reads it (Functions §8); a `Range` arriving through a variable takes the general `for..of` path.
-- A bound is **trivial** when it is an integer literal or a name nothing can rebind — a `let` (another module's, read through its qualifier, included), a parameter, a pattern binder — and a trivial `hi` stays in the test, read at every iteration. Every other bound is non-trivial, a `var` among them: the body may assign it, and the loop runs to the value the head read (§2.3). `lo` is read once in any form; it moves out only ahead of a non-trivial `hi`, and only when it is non-trivial itself, so that it still runs first:
+- A bound is **trivial** when it is an integer literal, negated or not, or a name nothing can rebind — a `let` (another module's, read through its qualifier, included), a parameter, a pattern binder — and a trivial `hi` stays in the test, read at every iteration. Every other bound is non-trivial, a `var` among them: the body may assign it, and the loop runs to the value the head read (§2.3). `lo` is read once in any form; it moves out only ahead of a non-trivial `hi`, and only when it is non-trivial itself, so that it still runs first:
 
   ```js
   const __start = lo();

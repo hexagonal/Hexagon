@@ -280,11 +280,11 @@ Loops §8 is restated **by reference and unchanged** — in particular the count
 | `Map` with tuple head | `for (const [k, v] of m.entries())`-shaped (Part 4 §11) |
 | `String` | `for (const c of s)` — native JS string iteration is codepoint-wise, which is exactly §5.1's semantics; zero helpers (strings are immutable, so no observation question arises) |
 | `Range` value through a variable | general path over the materialised range object (Loops §8, unchanged) |
-| **User instance** | statically resolved `toSeq` call: `const s = Bag_toSeq(bag); for (const x of s)`-shaped — a fresh name for the once-evaluated source (Loops §2.3), then the general path over the emitted `Seq` |
+| **User instance** | statically resolved `toSeq` call in the head: `for (const x of __Iterable_Bag.toSeq(bag))`-shaped — a `for..of` head is evaluated once (Loops §2.3), and it is read into a `const` first only where it mentions the loop variable's name (Loops §8) — then the general path over the emitted `Seq` |
 
 (`Array(a)`, `JsMap`, and `JsSet` emission is owned by FFI Parts 2 and 10, which license native iteration over the captured collections (#876, #875) — §6.)
 
-The user-instance call is the ordinary emitted module function (here `Bag_toSeq`, the instance's `toSeq` body), never dictionary access. Where the instance's `toSeq` is a trivial delegation, the emitter may inline through it; observable behaviour per Loops §2.3 either way.
+The user-instance call is statically resolved: it names the instance's emitted object (here `__Iterable_Bag`, whose `toSeq` is the instance's `toSeq` body), so the member keeps its name, and no dictionary is passed or selected at runtime. Where the instance's `toSeq` is a trivial delegation, the emitter may inline through it; observable behaviour per Loops §2.3 either way.
 
 `String`'s source ownership is deliberately not an abstraction tax. Its
 canonical source instance must retain the pre-migration lowering: a direct
@@ -462,7 +462,7 @@ let bag = Bag.fromSeq(Vector.toSeq([1, 2, 2, 3]))   -- fromSeq needs Hash<Int>: 
 var total = 0
 for x in bag                                -- iteration needs no Hash
     total := total + x                        -- total = 8
--- emits: const s = Bag_toSeq(bag); for (const x of s) { total = total + x; }
+-- emits: for (const x of __Iterable_Bag.toSeq(bag)) { total = total + x; }
 
 -- (e) Rigid vs unsolved: two different errors
 fun f(xs: c) =
@@ -500,7 +500,7 @@ honor Iterable<Bag(a)> = ...                -- second declaration in module Bag
 -- (i) Once-evaluation of the source
 for x in expensive()                        -- expensive() called exactly once
     ...
--- emits: const s = expensive_result_path; for (const x of s) { ... }
+-- emits: for (const x of expensive()) { ... }  -- the head is evaluated once; no temporary
 
 -- (j) Infinite Seq: lazy pull, no divergence before the loop
 -- nats: an infinite Seq of 1, 2, 3, ... (producer illustrative — any infinite
