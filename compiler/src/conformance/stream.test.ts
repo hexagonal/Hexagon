@@ -282,22 +282,17 @@ describe("§2.5 the field's arrow is the impure constant", () => {
     ], { trustedStandardLibraryModules: new Set(["Stream"]) }).diagnostics.map(({ message }) => message);
   }
 
-  it("refuses a pure lambda at `next` with the reverse-demand sentence", () => {
-    // The demand wrote no `->` anywhere, so §4.3's forward report — whose every
-    // clause names one — would misdescribe the program. This is the sentence
-    // #364 added for exactly this direction.
+  it("accepts a pure lambda at `next`: a pure function fits the `->!` field (#1119)", () => {
+    // The field keeps its constant, so pulling still wears `!`; a pure `next`
+    // makes a stream that never asks the world anything — an empty one here,
+    // no genuine source (§2), and no way to launder one into a `Seq`.
     const declaration = "export let map(source: Stream(a), transform: a ->? b): Stream(b) =";
     const mutated = streamSource.replace(
       declaration,
       "export let empty: Stream(a) = Stream({ next = () => None })\n\n" + declaration,
     );
     expect(mutated).not.toBe(streamSource);
-    expect(withStream(mutated)).toEqual([
-      "this position's arrow is the impure constant — its colour is fixed " +
-      "where the type is declared, and this function's face is the pure `->`; " +
-      "the demand cannot weaken — change the position's declared arrow, or " +
-      "supply the effectful function the position promises",
-    ]);
+    expect(withStream(mutated)).toEqual([]);
   });
 
   it("compiles the shipped module clean, which is the acceptance test", () => {

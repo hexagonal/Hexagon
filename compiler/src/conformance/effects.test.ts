@@ -889,13 +889,12 @@ export let z: Int = 1
     // meets the recovery and pins nothing. Read as the lambda's colour, it drew
     // §4.2's pure-direction pin, whose "the honest face is `->`" the alias's own
     // `->!` fixit turns into the opposite report. The control below, with no
-    // refused annotation anywhere, still draws the pin. `mkBad()` itself is
-    // bare (§3.4, #868).
+    // refused annotation anywhere, pins nothing either since #1119: a pure
+    // function fits wherever a function is expected, a linked parameter
+    // included. `mkBad()` itself is bare (§3.4, #868).
     //
     // The refusal is an alias's: written inline, `mkBad`'s return annotation
     // would borrow `f`'s variable instead of being refused (§2.2.2, #873).
-    const pin = "this signature's `->?` promises a colour the caller chooses, but the " +
-      "body solves it to the pure constant — the honest face is `->`";
     expect(
       effectDiagnostics([["/main.hex", "module Main\n\n" + `type Maker = () ->? String
 
@@ -912,7 +911,7 @@ export let f(g: (() ->? String) -> String): String =
       effectDiagnostics([["/main.hex", "module Main\n\n" + `export let f(g: (() ->? String) -> String): String =
     g((): String => "x")
 `]]),
-    ).toEqual([pin]);
+    ).toEqual([]);
   });
 });
 
@@ -954,15 +953,17 @@ export let withTransaction: ((String ->? String) ${arrow} String) = (run: String
     ).toEqual([]);
   });
 
-  it("refuses a `->!` face over a body that performs no unconditional effect", () => {
+  it("accepts a `->!` face over a body that performs no unconditional effect (#1119)", () => {
+    // A face may claim more effect than its body performs, never less: `->!`
+    // is an allowance, and every call through `apply` wears `!`.
     const source = `${world}
 export let apply: ((String ->? String) ->! String) = (run: String ->? String): String => run?("body")
+export let go(): String = apply!((s) => s)
 `;
-    expect(effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + source]])).toEqual([
-      "this face is the impure constant `->!`, but the body performs no " +
-      "unconditional effect — it is effect-polymorphic, and its face is `->?`",
-    ]);
-    expect(effectFixes([["/world.js", ""], ["/main.hex", "module Main\n\n" + source]])).toEqual(['write `->?`: "->?"']);
+    expect(effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + source]])).toEqual([]);
+    expect(effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" +
+      source.replace("apply!((s) => s)", "apply((s) => s)")]]))
+      .toEqual(["this call runs effects, so `apply` wants `!`, not no mark"]);
   });
 
   it("demands `!` at every call site, pure callback or not", () => {
@@ -1855,19 +1856,18 @@ export let pureUse: Int = both(() => "a", () => "b")
 export let impureUse: Int = both!(() => readLine!(), () => readLine!())
 `]]),
       ).toEqual([]);
-      // Mixing the colours in one call is §4.3's pure demand, not a join: the
-      // pure lambda pins the shared variable, and the impure one then meets a
-      // `->`. Pinned on both spellings because "the extern behaves like the
-      // written signature" is the claim, and a difference here would be one.
-      expect(
-        effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `${source}
-export let mixed: Int = both!(() => "a", () => readLine!())
+      // Mixing the colours in one call is a join (#1119): the pure lambda fits
+      // the shared variable and adds nothing to it, so the impure one decides
+      // and the call wears `!`, in either argument order. Pinned on both
+      // spellings because "the extern behaves like the written signature" is
+      // the claim, and a difference here would be one.
+      for (const call of ['both!(() => "a", () => readLine!())', 'both!(() => readLine!(), () => "a")']) {
+        expect(
+          effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `${source}
+export let mixed: Int = ${call}
 `]]),
-      ).toEqual([
-        "a `->` arrow promises purity, and this function performs effects — " +
-        "the demand is written `->`, the function's face `->?` or `->!`",
-        "this call is pure, so `both` wants no mark, not `!`",
-      ]);
+        ).toEqual([]);
+      }
     }
   });
 
@@ -2128,8 +2128,10 @@ let stored = pick(store)
     // Before #868 `store`'s outer colour stayed a variable, occurring only at
     // the root, and item 7 generalized it at `stored` — two faces, two
     // instantiations. §3.4 now defaults it pure before `store` generalizes, so
-    // there is no variable to generalize: the pure face is accepted and the
-    // `->!` one is the reverse demand's refusal (§4.3).
+    // there is no variable to generalize, and both faces are accepted: the pure
+    // one as written, the `->!` one because a pure function fits wherever a
+    // function is expected (§2.6, #1119) — `stored`'s outer arrow is decided,
+    // and a use opens it.
     expect(
       effectDiagnostics([["/main.hex", "module Main\n\n" + `${inletFace}
 export let asPure: ((() -> String) -> Int) = stored
@@ -2139,12 +2141,7 @@ export let asPure: ((() -> String) -> Int) = stored
       effectDiagnostics([["/main.hex", "module Main\n\n" + `${inletFace}
 export let asImpure: ((() -> String) ->! Int) = stored
 `]]),
-    ).toEqual([
-      "this position's arrow is the impure constant — its colour is fixed where the " +
-      "type is declared, and this function's face is the pure `->`; the demand cannot " +
-      "weaken — change the position's declared arrow, or supply the effectful function " +
-      "the position promises",
-    ]);
+    ).toEqual([]);
   });
 
   it("still refuses to weaken the callback's colour, which is not covariant-only", () => {
@@ -2158,10 +2155,12 @@ export let asPure: ((() -> String) -> Int) = stored
 export let asImpure: ((() ->! String) -> Int) = stored
 `]]),
     ).toEqual([
-      "this position's arrow is the impure constant — its colour is fixed where " +
-      "the type is declared, and this function's face is the pure `->`; the " +
-      "demand cannot weaken — change the position's declared arrow, or supply " +
-      "the effectful function the position promises",
+      // The first face pinned `stored`'s callback slot pure, so `stored` now
+      // demands a pure callback — read at a parameter's arrow the way round a
+      // demand is (Effects §4.3, #1119): the `->` is the demand, and the
+      // effectful callbacks the second face promises to supply meet it.
+      "a `->` arrow promises purity, and this function performs effects — the " +
+      "demand is written `->`, the function's face `->?` or `->!`",
     ]);
   });
 });
@@ -2513,13 +2512,6 @@ export let pair(value: a): (a, a) = (value, value)
 });
 
 describe("#355 the pure demand", () => {
-  /** The reverse direction's sentence (#364; Effects §4.3/§9). */
-  const reverseDemand =
-    "this position's arrow is the impure constant — its colour is fixed where " +
-    "the type is declared, and this function's face is the pure `->`; the " +
-    "demand cannot weaken — change the position's declared arrow, or supply " +
-    "the effectful function the position promises";
-
   it("refuses an impure function where `->` is demanded", () => {
     expect(
       effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `${world}
@@ -2532,29 +2524,28 @@ export let go(document: String): Unit = strict(save, document)
     ]);
   });
 
-  it("refuses a pure function where a `->!` data field is demanded", () => {
-    // The reverse direction, in the position §2.5 keeps constant on its own
-    // account: a record declaration has no signature, so the field's arrow can
-    // only be a constant and a pure function cannot weaken it. Under the §4.3
-    // message every clause named a `->` this program does not contain.
+  it("accepts a pure function where a `->!` data field is demanded (#1119)", () => {
+    // §4.3's reverse direction is no failure: a pure function fits wherever a
+    // function is expected, and the field keeps the constant §2.5 gives it.
+    // `step` is written `->`, so its colour is decided and its use opens it.
     expect(
       effectDiagnostics([["/main.hex", "module Main\n\n" + `
 export record Source = { step: () ->! String }
 export let hold(step: () -> String): Source = Source({ step = step })
 `]]),
-    ).toEqual([reverseDemand]);
+    ).toEqual([]);
   });
 
-  it("refuses a pure function at a written `->!` face", () => {
-    // The other constant position, written: since #405 there is no rule that
-    // re-reads an arrow as the constant, so a binding that means the constant
-    // spells it (§2.3).
+  it("accepts a pure function at a written `->!` face (#1119)", () => {
+    // The other constant position, written: the binding means the constant and
+    // spells it (§2.3), and a pure function fits it. `held` wears `->!`, so
+    // every call through it is `!`, whatever `pureStep` does.
     expect(
       effectDiagnostics([["/main.hex", "module Main\n\n" + `
 export let pureStep(): String = "x"
 export let held: (() ->! String) = pureStep
 `]]),
-    ).toEqual([reverseDemand]);
+    ).toEqual([]);
   });
 
   it("keeps `Seq`'s producer pure by construction — branch (ii)", () => {
@@ -2770,21 +2761,18 @@ export let total(value: Int, cb: () ->? Unit): Int =
     });
 
     it("compares a `->!` demand with a pure sibling after the defaulting — the demand never chooses", () => {
+      // The sibling's colour is decided at the knot's close, and only then do
+      // the demands it met read it (§3.4). A pure sibling met as a value fits
+      // wherever it was used (#1119): the `->!` field, and the branch joining it
+      // with an impure lambda, accept it in either member order — and neither
+      // chose its colour, which stays pure.
       const box = "    a(): Unit =\n        let s = Box({ step = b })\n        ()\n";
       const branch = "    a(): Unit =\n        let k = if True then b else () => save!(\"x\")\n        ()\n";
       const quiet = "    b(): Unit =\n        let unused = a\n        ()\n";
-      const reverse = "this position's arrow is the impure constant — its colour is fixed where the " +
-        "type is declared, and this function's face is the pure `->`; the demand cannot " +
-        "weaken — change the position's declared arrow, or supply the effectful function " +
-        "the position promises";
-      // The branch joins a pure sibling with an impure lambda: the same report
-      // the lone-binding program draws, at the `if`, in either order.
-      const forward = "a `->` arrow promises purity, and this function performs effects — the " +
-        "demand is written `->`, the function's face `->?` or `->!`";
-      for (const [caller, report] of [[box, reverse], [branch, forward]] as const) {
+      for (const caller of [box, branch]) {
         for (const members of [[caller, quiet], [quiet, caller]]) {
           const knot = "export record Box = { step: () ->! Unit }\nfun\n" + members.join("");
-          expect(check(knot)).toEqual([report]);
+          expect(check(knot)).toEqual([]);
           expect(hover(knot, "b()")).toBe("() -> Unit");
         }
       }
@@ -2824,12 +2812,12 @@ export let total(value: Int, cb: () ->? Unit): Int =
   });
 
   describe("a function's colour is what its body does (§2.6)", () => {
-    it("pins a monomorphic `->?` with a pure lambda, and takes the written face as the repair", () => {
+    it("fits a pure lambda to a monomorphic `->?`, the written face no longer needed (#1119)", () => {
+      // A pure function fits wherever a function is expected: beside `cb` the
+      // lambda adds nothing to the colour the two share, which stays `cb`'s.
+      // The written face #947 asked for is still honoured, and now optional.
       const both = "let both(first: () ->? Unit, second: () ->? Unit): Int = 1\n";
-      expect(check(`${both}export let useBoth(cb: () ->? Unit): Int = both(cb, () => ())\n`)).toEqual([
-        "this signature's `->?` promises a colour the caller chooses, but the body " +
-        "solves it to the pure constant — the honest face is `->`",
-      ]);
+      expect(check(`${both}export let useBoth(cb: () ->? Unit): Int = both(cb, () => ())\n`)).toEqual([]);
       expect(check(`${both}export let useBoth(cb: () ->? Unit): Int =
     let noop: () ->? Unit = () => ()
     both(cb, noop)
@@ -2840,28 +2828,31 @@ export let total(value: Int, cb: () ->? Unit): Int =
 `;
       expect(check(orNoop)).toEqual([]);
       expect(hover(orNoop, "orNoop")).toBe("(Bool, () ->? Unit) -> () ->? Unit");
+      const direct = `export let orNoop(flag: Bool, cb: () ->? Unit): (() ->? Unit) =
+    if flag then cb else () => ()
+`;
+      expect(check(direct)).toEqual([]);
+      expect(hover(direct, "orNoop")).toBe("(Bool, () ->? Unit) -> () ->? Unit");
     });
 
-    it("refuses a pure lambda where a `->!` field is demanded, inside an inlet-bearing body too", () => {
-      expect(check(`export record Source = { step: () ->! String }
+    it("fits a pure lambda where a `->!` field is demanded, inside an inlet-bearing body too (#1119)", () => {
+      const source = `export record Source = { step: () ->! String }
 export let quiet(cb: () ->? Unit): Source =
     cb?()
     Source({ step = () => "x" })
-`)).toEqual([
-        "this position's arrow is the impure constant — its colour is fixed where the " +
-        "type is declared, and this function's face is the pure `->`; the demand cannot " +
-        "weaken — change the position's declared arrow, or supply the effectful function " +
-        "the position promises",
-      ]);
+`;
+      // The lambda's own colour is its body's; the field keeps its constant.
+      expect(check(source)).toEqual([]);
     });
 
-    it("advises `->` for a `->!` face over a body that performs nothing (§4.2)", () => {
-      const source = "let f: (() ->! Int) = () => 1\n";
-      expect(check(source)).toEqual([
-        "this face is the impure constant `->!`, but the body performs no effect — its face is `->`",
+    it("accepts a `->!` face over a body that performs nothing (#1119)", () => {
+      // A face may claim more effect than its body performs: `f` wears `->!`,
+      // and a call to it is `!`. The pure direction stays exact (§4.2).
+      expect(check("let f: (() ->! Int) = () => 1\nlet n: Int = f!()\n")).toEqual([]);
+      expect(check("let f: (() -> Int) = () =>\n    save!(\"x\")\n    1\n")).toEqual([
+        "this call performs effects, and the enclosing function's face is the pure arrow `->` — " +
+        "a pure face cannot run effects",
       ]);
-      expect(effectFixes([["/world.js", ""], ["/main.hex", "module Main\n\n" + world + source]]))
-        .toEqual(['write `->`: "->"']);
     });
   });
 });
@@ -3097,16 +3088,6 @@ export let go(a: Step): Unit = a?()
     let g = (save0 : () ->? Unit)
     action?()
 `, "save0 :", "->!"],
-        [`export let outer(action: () ->? Unit): Unit =
-    fun h(): () ->? Unit = () => ()
-    action?()
-`, "() => ()", "->"],
-        [`export let outer(action: () ->? Unit): Unit =
-    fun h(): () ->? Unit =
-        let z = 1
-        () => ()
-    action?()
-`, "() => ()", "->"],
       ];
       for (const [source, pin, replacement] of cases) {
         const arrows = offsets(source, "->?");
@@ -3116,21 +3097,32 @@ export let go(a: Step): Unit = a?()
           edits: arrows.map((arrow) => [arrow, replacement]),
         }]);
       }
+      // A pure value under the borrowed `->?` fixes nothing since #1119: a pure
+      // function fits wherever a function is expected, a return annotation's
+      // borrowed colour included.
+      for (const body of ["() => ()", "\n        let z = 1\n        () => ()"]) {
+        expect(check(`export let outer(action: () ->? Unit): Unit =
+    fun h(): () ->? Unit = ${body}
+    action?()
+`)).toEqual([]);
+      }
     });
 
     it("gives one report for the signatures a join made one variable", () => {
       // `h` owns `cb`'s variable and absorbs `outer`'s: the two are one colour,
-      // which a pure argument pins, so both written arrows are the report's.
+      // which a `->` annotation pins, so both written arrows are the report's.
+      // (A pure argument no longer pins it: `h?(() => ())` fits, #1119.)
       const source = `export let outer(action: () ->? Unit): Unit =
     fun h(cb: () ->? Unit): Unit =
         action?()
         cb?()
+    let q: (() -> Unit) -> Unit = h
     h?(() => ())
 `;
       expect(check(source)).toEqual([solvedPure]);
       const arrows = offsets(source, "->?");
       expect(placed(source)).toEqual([{
-        primary: source.indexOf("() => ()"),
+        primary: source.indexOf("(() -> Unit) -> Unit"),
         labels: arrows,
         edits: arrows.map((arrow) => [arrow, "->"]),
       }]);

@@ -1344,15 +1344,30 @@ describe("Effects §13.2: broader acceptance, the raise, the annotation, and the
     expect(messages(source)[0]).toContain("may perform effects whatever the caller supplies");
   });
 
-  test("a merge alone narrowing a handed slot, with no pure upper arrow met", () => {
-    // James, 2026-09-10: the narrower-acceptance row in its **merge form**, the
-    // merge its pin — never in preference to a conflict that is available.
+  test("a merge with a named pure function narrows nothing (#1119)", () => {
+    // A pure function fits wherever a function is expected, so `pureFn` meets
+    // the handed slot with its arrow opened and fixes nothing: the merged
+    // colour is `k`'s. The difference James retained on 2026-09-10 — a named
+    // function refused where an inline lambda was accepted — is gone.
     expect(messages(
       "constraint Maker<a> =\n    make(seed: a, k: () ->! Unit) -> (() ->! Unit)\n" +
       "export record S = { n: Int }\n" +
       "let pureFn(): Unit = ()\n" +
       "let c: Bool = True\n" +
       "honor Maker<S> =\n    make(seed, k) = if c then k else pureFn\n",
+    )).toEqual([]);
+  });
+
+  test("the merge form survives where the merged colour was pinned pure before the merge", () => {
+    // What a merge can still narrow is a colour that is not decided: a
+    // parameter with no written type, pinned pure by another use (#1119 R.b).
+    // Joined with the handed slot, it fixes that slot, and the merge is the pin.
+    expect(messages(
+      "constraint Maker<a> =\n    make(seed: a, k: () ->! Unit) -> (() ->! Unit)\n" +
+      "export record S = { n: Int }\n" +
+      "let c: Bool = True\n" +
+      "honor Maker<S> =\n    make(seed, k) =\n        let pin = (h) =>\n" +
+      "            let p: () -> Unit = h\n            if c then k else h\n        pin(() => ())\n",
     )).toEqual([
       "this expression merges the callback with a pure function, and `make`'s " +
       "contract accepts a `k` that performs effects, and this instance accepts " +
@@ -1362,13 +1377,11 @@ describe("Effects §13.2: broader acceptance, the raise, the annotation, and the
     ]);
   });
 
-  test("and its inline-lambda counterpart is accepted — the inherited difference", () => {
-    // James, 2026-09-10: **retained** and recorded as inherited inference
-    // behaviour with a refactoring cost — a named function's colour was
-    // defaulted pure before its generalization where a lambda's is still a
-    // variable the seat has not defaulted. Extracting the lambda into a named
-    // function can change the verdict; the paired requirement below promises
-    // equivalent *explanations*, never identical acceptance.
+  test("and its inline-lambda counterpart is accepted, as the named one is", () => {
+    // The inline lambda's colour is a variable the seat has not defaulted; the
+    // named function's is decided and opened at the use (#1119). Both fix
+    // nothing, and extracting the lambda into a named function changes no
+    // verdict.
     expect(messages(
       "constraint Maker<a> =\n    make(seed: a, k: () ->! Unit) -> (() ->! Unit)\n" +
       "export record S = { n: Int }\n" +
@@ -1377,7 +1390,7 @@ describe("Effects §13.2: broader acceptance, the raise, the annotation, and the
     )).toEqual([]);
   });
 
-  test("and the boundary is inline versus bound, not lambda versus named", () => {
+  test("and every spelling agrees: inline, bound, and named (#1119)", () => {
     // *(Review round 4, MINOR 2.)* §3.4 says where the defaulting happens: "at
     // body close for a lone binding … and for a lambda that is **no binding's
     // right-hand side**, where the binding whose body holds it closes". A `let
@@ -1393,16 +1406,12 @@ describe("Effects §13.2: broader acceptance, the raise, the annotation, and the
       "export record S = { n: Int }\n" +
       "let c: Bool = True\n" +
       "honor Maker<S> =\n    make(seed, k) =\n" + bind + `        if c then k else ${other}\n`;
-    const merged = "this expression merges the callback with a pure function, and `make`'s " +
-      "contract accepts a `k` that performs effects, and this instance accepts " +
-      "only a pure one — an instance accepts everything its contract promises " +
-      "to accept — do not merge `k` with a pure function here, or, if the " +
-      "constraint is yours, write the member's callback parameter `->`";
-    // Inline: accepted, as the pair above pins it.
+    // Inline: accepted, as the pair above pins it. Bound to a name, either
+    // spelling: accepted too since #1119 — the name's colour is decided pure,
+    // and its use opens it. The merge form stays for a colour pinned first.
     expect(messages(narrower("", "(() => ())"))).toEqual([]);
-    // Bound to a name, either spelling: refused, and with the same sentence.
-    expect(messages(narrower("        let g = () => ()\n", "g"))).toEqual([merged]);
-    expect(messages(narrower("        let g(): Unit = ()\n", "g"))).toEqual([merged]);
+    expect(messages(narrower("        let g = () => ()\n", "g"))).toEqual([]);
+    expect(messages(narrower("        let g(): Unit = ()\n", "g"))).toEqual([]);
   });
 
   test("the paired requirement: named and inline coincide where both are refused", () => {
@@ -2989,30 +2998,23 @@ describe("Effects §13.2: the merge's branch order, and each slot's own reach", 
     }
   });
 
-  test("and the retained acceptance difference is the same in both branch orders", () => {
-    // §13.2's recorded refactoring cost, unmoved: where the merged colour meets
-    // **no** pure upper arrow, the named and `let`-bound spellings are refused
-    // in the row's merge form and the inline one is accepted. That difference is
-    // inherited inference behaviour, and it must not depend on which branch the
-    // writer put first either.
+  test("and every spelling is accepted alike, in both branch orders (#1119)", () => {
+    // Where the merged colour meets **no** pure upper arrow, the named, the
+    // `let`-bound, and the inline spellings are all accepted: a pure function
+    // fits wherever a function is expected, and fixes nothing it meets. The
+    // refactoring cost §13.2 once recorded is gone, whichever branch is first.
     const alone = (merge: string, bind: string) =>
       "constraint Maker<a> =\n    make(seed: a, k: () ->! Unit) -> (() ->! Unit)\n" +
       "export record S = { n: Int }\nlet c: Bool = True\nlet spare(): Unit = ()\n" +
       "honor Maker<S> =\n    make(seed, k) =\n" + bind + `        ${merge}\n`;
     for (const [other, bind] of SPELLINGS) {
       for (const merge of orders("k", other)) {
-        const source = alone(merge, bind);
-        if (other === "(() => ())") {
-          expect(messages(source)).toEqual([]);
-          continue;
-        }
-        expect(messages(source)).toEqual([mergeNarrower("make", "k", true)]);
-        expect(primaries(source)).toEqual([merge]);
+        expect([merge, messages(alone(merge, bind))]).toEqual([merge, []]);
       }
     }
   });
 
-  test("a linked slot a merge solved pure conducts nothing", () => {
+  test("a linked slot a pin solved pure conducts nothing", () => {
     // *(Review round 8, INFO 4.)* §13.2's one *joining* clause at a seat asks
     // its question of a colour still a **variable**: a chain that has reached a
     // constant stands at no `->?` inlet. The guard had no witness while the seat
@@ -3028,11 +3030,23 @@ describe("Effects §13.2: the merge's branch order, and each slot's own reach", 
       `        let f = ${merge}\n` +
       "        f()\n" +
       "        b?()\n";
+    // A pure function merged in no longer solves the slot (#1119): `a` stays
+    // linked, and the call on the merge is the conduit it now is.
     for (const merge of orders("a", "spare")) {
       const source = linked(merge);
-      expect(messages(source)).toEqual([mergeNarrower("go", "a", false)]);
-      expect(primaries(source)).toEqual([merge]);
+      expect(messages(source)).toEqual([
+        "this call is as effectful as the enclosing instantiation makes it, so `f` wants `?`, not no mark",
+      ]);
+      expect(messages(source.replace("        f()\n", "        f?()\n"))).toEqual([]);
     }
+    // The guard's witness is now an annotation's pin: the refusal stays on the
+    // annotation that narrowed `a`, never on `b?()`, which conducts correctly.
+    const pinned =
+      "constraint C<r> =\n    go(runner: r, b: () ->? Unit, a: () ->? Unit) ->? Unit\n" +
+      "record R = { id: Int }\n" +
+      "honor C<R> =\n    go(runner, b, a) =\n        let f: () -> Unit = a\n        f()\n        b?()\n";
+    expect(messages(pinned)).toHaveLength(1);
+    expect(primaries(pinned)).toEqual(["() -> Unit"]);
     // The same body with neither slot merged conducts both and is accepted.
     expect(messages(
       "constraint C<r> =\n    go(runner: r, b: () ->? Unit, a: () ->? Unit) ->? Unit\n" +
@@ -3110,7 +3124,7 @@ describe("Effects §13.2: each slot's own merge, and its own reach", () => {
     "honor C<R> =\n    go(runner, d, b) =\n" +
     lines.map((line) => `        ${line}\n`).join("");
 
-  test("two callbacks each merged pure: the report stands on its own slot's merge", () => {
+  test("two callbacks each merged with a pure function: each slot keeps its own reach", () => {
     // *(Review round 8, MEDIUM 2c.)* `#colourKey` pools **every** slot a merge
     // solved pure under the one pure constant, so the entry read whole answers
     // about a set of callbacks: the refusal named `d` and pointed at the
@@ -3121,10 +3135,11 @@ describe("Effects §13.2: each slot's own merge, and its own reach", () => {
       "let f = if c then d else spare",
       "let g = if c then b else spare",
     ] as const;
+    // Since #1119 the pure function fits each slot and narrows neither, so the
+    // body with no call is accepted in either order.
     for (const [first, second] of [merges, [merges[1], merges[0]]] as const) {
       const source = PAIR("!", [first, second, "ignore(f)", "ignore(g)", "() => ()"]);
-      expect(messages(source)).toEqual([mergeNarrower("go", "d", true)]);
-      expect(primaries(source)).toEqual(["if c then d else spare"]);
+      expect(messages(source)).toEqual([]);
     }
     // And with a **call** on one of the two, which is what read the pooled entry
     // whole: `b`'s slot reaches the returned arrow's pure ceiling through the
@@ -3132,10 +3147,21 @@ describe("Effects §13.2: each slot's own merge, and its own reach", () => {
     // reach — naming `b`, standing at `g()`, and labelling `d`'s merge. `d`'s
     // failure is first in walk order and its own merged colour meets no pure
     // upper arrow, so §13.2's merge form on `d`'s own merge is the one report.
+    // With `d` narrowing nothing, the one failure is `b`'s own: its call under
+    // the returned pure arrow, labelled with `b`'s merge and never `d`'s.
     const called = PAIR("!", [...merges, "ignore(f)", "() => g()"]);
-    expect(messages(called)).toEqual([mergeNarrower("go", "d", true)]);
-    expect(primaries(called)).toEqual(["if c then d else spare"]);
-    expect(labels(called)).toEqual([['the contract\'s failing arrow: "->!"']]);
+    expect(messages(called)).toEqual([
+      "this call performs effects the contract hands the body, and `go`'s " +
+      "contract returns a `->` function — an instance performs no more than " +
+      "its contract permits, and `b` may perform effects whatever the caller " +
+      "supplies — do not call `b` here, or, if the constraint is yours, write " +
+      "`->!` on the arrow the contract returns",
+    ]);
+    expect(primaries(called)).toEqual(["g()"]);
+    expect(labels(called)).toEqual([[
+      'the contract\'s failing arrow: "->"',
+      "the merge that joined the handed callback in: " + JSON.stringify("if c then b else spare"),
+    ]]);
   });
 
   test("and a conflict's merge related location is the merge on its own slot", () => {
@@ -3405,34 +3431,40 @@ describe("Effects §13.2: a `var`'s re-assignment is the merge, past the table",
     // Under a `->!` header nothing the body calls is refused, so the merge
     // alone narrows the slot — and for a `var` the merge is the assignment.
     // The `if` form is written beside each one: same row, same sentence, same
-    // single related location, and only the span of the merge differs.
-    for (
-      const [pure, bind] of [
-        ["spare", ""],
-        ["g", "        let g = () => ()\n"],
-      ] as const
-    ) {
+    // single related location, and only the span of the merge differs. What
+    // narrows is a colour pinned pure before the merge — a parameter with no
+    // written type (#1119 R.b); a named pure function fits and narrows nothing.
+    const shapesOf = (first: string, second: string, indent: string) => {
+      const joined = `if c then { cb = ${first} } else { cb = ${second} }`;
+      return [
+        {
+          merge: `z := { cb = ${second} }`,
+          source: `${indent}var z = { cb = ${first} }\n${indent}z := { cb = ${second} }\n` +
+            `${indent}ignore(z)\n`,
+        },
+        {
+          merge: `v := [${second}]`,
+          source: `${indent}var v = [${first}]\n${indent}v := [${second}]\n${indent}ignore(v)\n`,
+        },
+        // The `if` counterpart is the third shape, measured beside the two.
+        { merge: joined, source: `${indent}let z = ${joined}\n${indent}ignore(z)\n` },
+      ];
+    };
+    for (const [pure, bind] of [["spare", ""], ["g", "        let g = () => ()\n"]] as const) {
       for (const slotFirst of [true, false]) {
         const [first, second] = slotFirst ? ["b", pure] : [pure, "b"];
-        const shapes = [
-          {
-            merge: `z := { cb = ${second} }`,
-            source: `        var z = { cb = ${first} }\n        z := { cb = ${second} }\n` +
-              "        ignore(z)\n",
-          },
-          {
-            merge: `v := [${second}]`,
-            source: `        var v = [${first}]\n        v := [${second}]\n        ignore(v)\n`,
-          },
-        ];
-        // The `if` counterpart is the third shape, measured beside the two.
-        const joined = `if c then { cb = ${first} } else { cb = ${second} }`;
-        shapes.push({
-          merge: joined,
-          source: `        let z = ${joined}\n        ignore(z)\n`,
-        });
-        for (const { merge, source } of shapes) {
-          const seat = seen(IMPURE + bind + source);
+        for (const { merge, source } of shapesOf(first, second, "        ")) {
+          expect([merge, seen(IMPURE + bind + source).messages]).toEqual([merge, []]);
+        }
+      }
+    }
+    {
+      const open = "        let pin = (h) =>\n            let p: () -> Unit = h\n";
+      const close = "        pin(() => ())\n";
+      for (const slotFirst of [true, false]) {
+        const [first, second] = slotFirst ? ["b", "h"] : ["h", "b"];
+        for (const { merge, source: shape } of shapesOf(first, second, "            ")) {
+          const seat = seen(IMPURE + open + shape + close);
           expect([merge, seat.messages])
             .toEqual([merge, [mergeNarrower("go", "b", true)]]);
           expect([merge, seat.primaries]).toEqual([merge, [merge]]);
@@ -3453,14 +3485,11 @@ describe("Effects §13.2: a `var`'s re-assignment is the merge, past the table",
     }
   });
 
-  test("and the inline lambda's retained acceptance difference is the `if`'s, exactly", () => {
-    // §13.2's "inherited inference behaviour": a named function's colour was
-    // defaulted pure before its generalization (§3.4), an inline lambda's is
-    // still a variable the seat has not defaulted, so the merge meets no
-    // constant and the program is accepted. That difference is the `if` form's
-    // already — the suite records it as a refactoring cost, not as a seat
-    // distinction — and the re-assignment must inherit it rather than invent
-    // an answer of its own.
+  test("and the inline lambda is accepted in every shape, as the named function is", () => {
+    // An inline lambda's colour is still a variable the seat has not defaulted,
+    // so the merge meets no constant; a named function's is decided and opened
+    // at its use (#1119) — both are accepted, in the re-assignment exactly as
+    // in the `if` form, and the refactoring cost §13.2 once recorded is gone.
     for (
       const source of [
         "        var z = { cb = (() => ()) }\n        z := { cb = b }\n        ignore(z)\n",
@@ -3520,6 +3549,9 @@ describe("Effects §13.2: a `var`'s re-assignment is the merge, past the table",
   });
 
   test("a `:=` §6.3 refuses still classifies as a merge, and that is the better advice", () => {
+    // Since #1119 a named pure function narrows nothing it is merged with, so
+    // the witness merges a colour pinned pure first — a parameter with no
+    // written type, pinned by an annotation.
     // *(Review round 11, MINOR 1.)* `#joining` wraps the unification of **every**
     // `Assignment`, and the target's mutability is tested after it — so a
     // re-assignment the language refuses still reaches the merge boundary, and
@@ -3533,13 +3565,14 @@ describe("Effects §13.2: a `var`'s re-assignment is the merge, past the table",
     // anywhere, while the merge form names what the program actually did.
     for (
       const [order, first, second] of [
-        ["the handed slot joined second", "spare", "b"],
-        ["the handed slot joined first", "b", "spare"],
+        ["the handed slot joined second", "h", "b"],
+        ["the handed slot joined first", "b", "h"],
       ] as const
     ) {
       const seat = seen(
-        IMPURE + `        let p = { cb = ${first} }\n` +
-          `        p := { cb = ${second} }\n        ignore(p)\n`,
+        IMPURE + "        let pin = (h) =>\n            let q: () -> Unit = h\n" +
+          `            let p = { cb = ${first} }\n` +
+          `            p := { cb = ${second} }\n            ignore(p)\n        pin(() => ())\n`,
       );
       expect([order, seat.messages]).toEqual([order, [
         "`p` is not mutable; declare it with `var` if you need to update it",
@@ -3582,7 +3615,9 @@ describe("Effects §13.2: the merge record is every slot's, and it is the seat's
     // slot and arm 3 hands in `b`'s: with the short-circuit, `b`'s merge went
     // unrecorded, its report fell through to the demand limb, and the advice
     // named a `->` demand this program does not contain. `d` is written `->`,
-    // so only `b` fails and the report must stand on the LATER slot's merge.
+    // so only `b` fails, and the report must carry the LATER slot's merge.
+    // Since #1119 `spare` narrows nothing, so the one failure is `b`'s call
+    // under the returned `->`, the whole `match` its merge label.
     const source =
       "constraint C<r> =\n" +
       "    go(runner: r, d: () -> Unit, b: () ->! Unit) ->! (() -> Unit)\n" +
@@ -3594,11 +3629,19 @@ describe("Effects §13.2: the merge record is every slot's, and it is the seat's
       "        let g = match t\n" +
       "            A => d\n            B => spare\n            Z => b\n" +
       "        () => g()\n";
-    expect(messages(source)).toEqual([mergeNarrower("go", "b", true)]);
-    // The whole `match` — the expression that did the joining.
-    expect(primaries(source).map((text) => text.trimEnd())).toEqual([
-      "match t\n            A => d\n            B => spare\n            Z => b",
+    expect(messages(source)).toEqual([
+      "this call performs effects the contract hands the body, and `go`'s " +
+      "contract returns a `->` function — an instance performs no more than " +
+      "its contract permits, and `b` may perform effects whatever the caller " +
+      "supplies — do not call `b` here, or, if the constraint is yours, write " +
+      "`->!` on the arrow the contract returns",
     ]);
+    expect(primaries(source)).toEqual(["g()"]);
+    // The whole `match` — the expression that did the joining.
+    expect(labels(source).map((row) => row.map((text) => text.replace(/\s+/gu, " ")))).toEqual([[
+      'the contract\'s failing arrow: "->"',
+      'the merge that joined the handed callback in: "match t\\n A => d\\n B => spare\\n Z => b\\n "',
+    ]]);
     // The `if` counterpart — two merges in one body, the report on the second —
     // is pinned by "a merge on ANOTHER slot reclassifies nothing" above.
   });
@@ -3698,6 +3741,10 @@ describe("Effects §13.2: the publish walk moves a colour, never a type and neve
     // own under `->`, a mark report under `->!`. "Never a type change" is the
     // whole licence for running this walk on every joining form in every body,
     // so the verdict and the face are both pinned, exactly.
+    //
+    // Since #1119 a named pure function merged with the raised slot fits it —
+    // the join succeeds and `f` is impure — so the witness merges a colour
+    // pinned pure first: a parameter with no written type, pinned by `p`.
     const raisedFirst = (arrow: string): string =>
       "constraint C<r> =\n" +
       `    go(runner: r, b: () ->! Unit) ${arrow} Unit\n` +
@@ -3705,8 +3752,11 @@ describe("Effects §13.2: the publish walk moves a colour, never a type and neve
       "honor C<R> =\n    go(runner, b) =\n" +
       "        let q: () ->! Unit = b\n" +
       "        ignore(q)\n" +
-      "        let f = if c then spare else b\n" +
-      "        f()\n";
+      "        let pin = (h) =>\n" +
+      "            let p: () -> Unit = h\n" +
+      "            let f = if c then h else b\n" +
+      "            f()\n" +
+      "        pin(() => ())\n";
     for (const arrow of ["->", "->!"]) {
       const source = raisedFirst(arrow);
       // The verdict: §4.3's row for the merge the program really wrote, and
@@ -3832,11 +3882,8 @@ honor C<R> =
                 let unused = a
                 1
         k!()
-`)).toEqual([
-      "this position's arrow is the impure constant — its colour is fixed where the " +
-      "type is declared, and this function's face is the pure `->`; the demand cannot " +
-      "weaken — change the position's declared arrow, or supply the effectful function " +
-      "the position promises",
-    ]);
+`)).toEqual([]);
+    // The sibling stays pure — the field chose nothing — and fits the field,
+    // as a pure function fits wherever a function is expected (#1119).
   });
 });

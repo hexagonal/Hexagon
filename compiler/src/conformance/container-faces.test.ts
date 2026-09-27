@@ -485,9 +485,17 @@ describe("the argument's spine (#1096)", () => {
   });
 
   test("a stand-in's colour is held until the body closes", () => {
-    const demand = refusals("let runBang(h: () ->! Unit): Unit = ()\nlet a = runBang(() => ())\n");
-    expect(demand).toHaveLength(1);
+    // Directly and inside a constructor, a waiting lambda's colour is its
+    // body's, decided at its close and met there: a pure one fits a `->!`
+    // parameter either way (#1119), and an effectful one is refused by a `->`
+    // parameter either way, with the same report.
+    expect(refusals("let runBang(h: () ->! Unit): Unit = ()\nlet a = runBang(() => ())\n")).toEqual([]);
     expect(refusals("let optBang(o: Option(() ->! Unit)): Unit = ()\nlet a = optBang(Some(() => ()))\n"))
+      .toEqual([]);
+    const effectful = "extern from \"./io.js\"\n    fun save(s: String) ->! Unit\n";
+    const demand = refusals(effectful + "let runPure(h: () -> Unit): Unit = ()\nlet a = runPure(() => save!(\"x\"))\n");
+    expect(demand).toHaveLength(1);
+    expect(refusals(effectful + "let optPure(o: Option(() -> Unit)): Unit = ()\nlet a = optPure(Some(() => save!(\"x\")))\n"))
       .toEqual(demand);
   });
 
