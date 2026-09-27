@@ -33026,12 +33026,6 @@ function impliedTypeBinderMessage(constraint: string, identity: string): string 
 }
 
 /**
- * The refusal for a use of a prelude member's implementation from a module
- * seated between that member's data seat and its full seat (Modules §5.5):
- * only the member's data is visible there. Reachable from standard-library
- * source alone, which is the only source with a seat.
- */
-/**
  * The coherence key's type half at a public kind (#1071): the kind's name,
  * lowercased. One function for both readers — `#resolvedSubjectKey`, which
  * keys the table, and `#occupiedSlotNote`, which reads a written head before
@@ -33041,6 +33035,12 @@ function publicKindKey(kind: PublicTypeKind): string {
   return kind.toLowerCase();
 }
 
+/**
+ * The refusal for a use of a prelude member's implementation from a module
+ * seated between that member's data seat and its full seat (Modules §5.5):
+ * only the member's data is visible there. Reachable from standard-library
+ * source alone, which is the only source with a seat.
+ */
 function dataSeatRefusal(provider: string): string {
   return `needs \`${provider}\`'s full implementation, which is seated after this module; ` +
     `only \`${provider}\`'s data is visible here (Modules §5.5)`;
