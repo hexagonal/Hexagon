@@ -29,6 +29,10 @@ function elements(value: unknown): unknown[] {
 const VECTOR_LITERAL_IMPORT =
   'import { empty as __trieEmpty, append as __trieAppend } from "./Hex/Runtime/VectorTrie.js";';
 
+/** `Vector.toSeq`, the member seat of `Hex.Vector`'s own `Iterable` row (#1141). */
+const VECTOR_TO_SEQ_IMPORT =
+  'import { __Iterable_Vector_toSeq as toSeq } from "./Hex/Vector.js";';
+
 /**
  * Conformance for what a module's synthesized and explicit prelude imports put
  * on its public ESM surface (#263).
@@ -129,14 +133,14 @@ describe("the synthesized prelude import is what Core references", () => {
     const source =
       "export let out: Vector(Int) =\n" +
       "    Vector.fromSeq(Vector.toSeq([1, 2, 3]).map(x => x * 2))\n";
-    // No `Iterable.js` line since #444: `Vector.toSeq(...)` is a source-written
-    // member call at a concrete head, and `Iterable<Vector(a)>` is a provided
-    // row whose evidence is compiler-built, so the call reads the member off
-    // Dictionary Sharing §3.4's hoisted binding rather than importing the
-    // forwarder (Constraints §6.1's third arm).
+    // No `Iterable.js` line: `Vector.toSeq(...)` is a source-written member
+    // call at a concrete head, so it imports the companion's instance member
+    // seat directly (#444, #1141) rather than the constraint's forwarder
+    // (Constraints §6.1's third arm).
     expect(importLines(emitted([["/main.hex", "module Main\n\n" + source]], "/main.hex"))).toEqual([
       'import { fromSeq } from "./Hex/Vector.js";',
       'import { map } from "./Hex/Seq.js";',
+      VECTOR_TO_SEQ_IMPORT,
       VECTOR_LITERAL_IMPORT,
     ]);
     const main = await runProject([["/main.hex", "module Main\n\n" + source]]);
@@ -162,6 +166,7 @@ describe("the synthesized prelude import is what Core references", () => {
     expect(importLines(javascript)).toEqual([
       'import { map } from "./Hex/Seq.js";',
       'import { fromSeq } from "./Hex/Vector.js";',
+      VECTOR_TO_SEQ_IMPORT,
       VECTOR_LITERAL_IMPORT,
     ]);
     const main = await runProject([["/main.hex", "module Main\n\n" + source]]);
@@ -195,6 +200,7 @@ describe("the synthesized prelude import is what Core references", () => {
     expect(importLines(javascript)).toEqual([
       'import { fromSeq } from "./Hex/Vector.js";',
       'import { prepend, map as __prelude_map } from "./Hex/Seq.js";',
+      VECTOR_TO_SEQ_IMPORT,
       VECTOR_LITERAL_IMPORT,
     ]);
     const main = await runProject([["/main.hex", "module Main\n\n" + source]]);
@@ -221,6 +227,7 @@ describe("the synthesized prelude import is what Core references", () => {
     expect(importLines(javascript)).toEqual([
       'import { fromSeq } from "./Hex/Vector.js";',
       'import { map as __prelude_map } from "./Hex/Seq.js";',
+      VECTOR_TO_SEQ_IMPORT,
       VECTOR_LITERAL_IMPORT,
       'import { map } from "lib";',
     ]);
@@ -345,12 +352,12 @@ describe("an explicit import of a prelude module carries no evidence", () => {
     expect(messages(orphan)).toEqual([
       "orphan instance: this module declares neither `Eq` nor the instance subject",
     ]);
-    // `Ordering` is on the channel, so its orphan still collides — the asymmetry
-    // is `Bool`'s filter, not the explicit import.
+    // `Ordering` is on the channel, so its orphan still finds the occupant —
+    // the asymmetry is `Bool`'s filter, not the explicit import.
     expect(messages('import Ordering\nhonor Eq<Ordering> =\n    equals(a, b) = True\n'))
       .toEqual([
-        "orphan instance: this module declares neither `Eq` nor the instance subject",
-        "duplicate instance of `Eq<Ordering>`",
+        "orphan instance: this module declares neither `Eq` nor the instance subject; " +
+          "`Eq<Ordering>` is already declared in module `Ordering`",
       ]);
   });
 });

@@ -203,27 +203,21 @@ describe("emitJavaScript", () => {
 
     expect(text("/main.hex")).not.toContain("const __persistentCollections");
     expect(text("/Hex/Vector.hex")).not.toContain("const __persistentCollections");
-    // No `toSeq` in the import list since #353: `Vector.toSeq` is the provided
-    // row's member, not an export of the companion, and a provided row is
-    // rendered inline rather than imported (Collections Part 5 §4).
+    // `Vector.toSeq` is the member of the companion's own `Iterable` row
+    // (#1141), not an export of it, so it arrives as the instance's member seat
+    // on a separate import line, and nothing is imported from `Iterable.js`.
     expect(text("/main.hex")).toContain(
       'import { set, fromSeq, at } from "./Hex/Vector.js";',
     );
-    // The forwarder is gone since #444: `Vector.toSeq(updated)` is a
-    // source-written member call at a concrete head, and the head's ground
-    // demand is compiler-built — a provided row, rendered rather than declared
-    // — so Constraints §6.1's third arm reads the member off the §3.4 binding.
-    // No module exports a seat for a row no module declares.
-    expect(text("/main.hex")).not.toContain('from "./Hex/Iterable.js";');
-    // Ground, so the row's dictionary is Dictionary Sharing §3.4's hoisted
-    // module constant since #446 rather than a literal rebuilt at the call.
     expect(text("/main.hex")).toContain(
-      "const __Iterable_Vector_Int = ({ toSeq: __seqFromIterable });",
+      'import { __Iterable_Vector_toSeq as toSeq } from "./Hex/Vector.js";',
     );
-    expect(text("/main.hex")).toContain("__Iterable_Vector_Int.toSeq(updated)");
+    expect(text("/main.hex")).not.toContain('from "./Hex/Iterable.js";');
+    expect(text("/main.hex")).toContain("const replayed = fromSeq(toSeq(updated));");
+    expect(text("/main.hex")).not.toContain("seqFromIterable");
     // `fromSeq` lowers to the outbound driver in the module whose door declares
     // it; the inbound adapter is there too, because the unexported `elements`
-    // row still crosses the same boundary.
+    // row, the member's body, crosses the same boundary.
     expect(text("/Hex/Vector.hex")).toContain("function __seqFromIterable");
     expect(text("/Hex/Vector.hex")).toContain("function __seqToIterable");
     expect(text("/Hex/Vector.hex")).toContain(
@@ -416,7 +410,7 @@ describe("emitJavaScript", () => {
     ]);
   });
 
-  test("iterates provided collections and concrete user Iterable instances", () => {
+  test("iterates standard collections and concrete user Iterable instances", () => {
     const module = preludeSource(
       // No local `constraint Iterable` since #353: the prelude declares it, and
       // redeclaring it is refused. The instance below is unchanged, which is

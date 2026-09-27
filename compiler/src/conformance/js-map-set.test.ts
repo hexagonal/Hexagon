@@ -419,10 +419,10 @@ describe("arity, and what outranks the intrinsic", () => {
 
   /**
    * The occlusion is not merely a naming question: a user `JsSet` is *not*
-   * iterable, because the provided row is keyed on the intrinsic constructor
-   * and the user declaration is a different type entirely.
+   * iterable, because the companion's row is keyed on the intrinsic
+   * constructor and the user declaration is a different type entirely.
    */
-  test("a user type of the name does not inherit the provided row", () => {
+  test("a user type of the name does not inherit the companion's row", () => {
     expect(projectDiagnostics("module Main\n\n" + "record JsSet(a) = { only: a }\n" +
         "export fun scan(): Unit =\n" +
         "    for item in JsSet({ only = 1 })\n" +
@@ -895,8 +895,8 @@ describe("the two failure doors (Part 10 §4.4)", () => {
 
 describe("the qualified and dot spellings (Part 10 §3, §6.1)", () => {
   /**
-   * `JsMap.toSeq` and `JsSet.toSeq` are the **provided row's member reached
-   * qualified** — no export of either companion, and until #792 no spelling at
+   * `JsMap.toSeq` and `JsSet.toSeq` are the **companion's own row's member
+   * reached qualified** — no export of either companion, and until #792 no spelling at
    * all, because there was no module for the qualifier to name. `JsMap.entries`
    * is that same walk under a second name (§6.3), so the two must agree pair for
    * pair rather than merely in a summary.
@@ -934,8 +934,8 @@ describe("the qualified and dot spellings (Part 10 §3, §6.1)", () => {
    * Companion dispatch, exactly as `xs.length()` is `Array.length(xs)` (Method
    * Syntax §4.1): `stdlib/JsMap.hex` and `stdlib/JsSet.hex` are the modules
    * addressable under the names, so every operation is reachable by the dot —
-   * `toSeq` included, which arrives through the provided row rather than through
-   * an export.
+   * `toSeq` included, which arrives through the companion's `Iterable` row
+   * rather than through an export.
    */
   test("`m.size()`, `m.get(k)`, `m.toSeq()` and `s.contains(x)` are dot calls", async () => {
     const exports = await run(

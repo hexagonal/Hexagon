@@ -914,7 +914,13 @@ test("§9 (f) — a duplicate instance across packages is reported at the progra
       ]),
     ],
   });
-  expect(messagesOf(project).some((message) => message.includes("duplicate"))).toBe(true);
+  // `Main` is also an orphan here, so the collision shows as that report's
+  // clause, naming the dependency's module by its package (Collections Part 5
+  // §7.3, #1131).
+  expect(messagesOf(project)).toEqual([
+    "orphan instance: this module declares neither `Show` nor the instance subject; " +
+      "`Show<Shape>` is already declared in module `Acme.Shape`",
+  ]);
 });
 
 /** §9 (g): the emitted layout, and what a dependency's module addresses. */

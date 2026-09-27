@@ -221,7 +221,7 @@ describe("the companion is the type's home (Constraints §4.4, §5.3)", () => {
   /**
    * The home, from the other side: the companion itself may honor a constraint
    * it does not declare at its own type, because its row *is* the declaration
-   * the orphan rule asks for — the seat `honor Iterable<Vector(a)>` will take.
+   * the orphan rule asks for — the seat `honor Iterable<Vector(a)>` takes.
    * The same honor in a program is an orphan. `Concat` at `Map` is used because
    * no compiler-provided row stands in that slot.
    */
@@ -233,12 +233,11 @@ describe("the companion is the type's home (Constraints §4.4, §5.3)", () => {
   });
 
   /**
-   * *(Ruled 2026-09-26.)* A slot the compiler fills — structurally, or by a
-   * provided `Iterable` row — takes no source instance beside it: an instance
-   * there is one or the other (Intrinsics §3.3), and moving one into source
-   * deletes the compiler's in the same change. Only the standard library can
-   * write one, so the refusal is a guard on our own edits. Before it, `Show`
-   * was accepted and never used, `Iterable` was dropped without a word, and
+   * *(Ruled 2026-09-26.)* A slot the compiler fills structurally takes no
+   * source instance beside it: an instance there is one or the other
+   * (Intrinsics §3.3), and moving one into source deletes the compiler's in the
+   * same change. Only the standard library can write one, so the refusal is a
+   * guard on our own edits. Before it, `Show` was accepted and never used, and
    * `Hash` passed the checker and faulted in emission.
    *
    * `Hash` also pins the companion's hand-written-`Hash` privilege (Constraints
@@ -249,19 +248,24 @@ describe("the companion is the type's home (Constraints §4.4, §5.3)", () => {
     ["Vector", "Show<Vector(a)>", "honor Show<Vector(a)> =\n    show(x) = \"v\"\n"],
     ["Vector", "Hash<Vector(a)>", "honor<a: Hash> Hash<Vector(a)> =\n    hash(x) = 0\n"],
     ["Vector", "Concat<Vector(a)>", "honor Concat<Vector(a)> =\n    concat(left, right) = left\n"],
-    [
-      "Vector",
-      "Iterable<Vector(a)>",
-      "honor Iterable<Vector(a)> =\n    type Item = a\n    toSeq(x) = elements(x)\n",
-    ],
-    [
-      "Set",
-      "Iterable<Set(a)>",
-      "honor Iterable<Set(a)> =\n    type Item = a\n    toSeq(x) = Seq.empty\n",
-    ],
   ])("the companion `%s` may not honor `%s`, a slot the compiler fills", (companion, head, honor) => {
     expect(inCompanion(companion, `\n${honor}`))
       .toEqual([`duplicate instance of \`${head}\`: the compiler provides it`]);
+  });
+
+  /**
+   * `Iterable` is no longer such a slot at any of the three (#1141): each
+   * companion writes its own row, so a second row there is an ordinary
+   * duplicate of the first. (Each later prelude module that imports both rows
+   * repeats the report; only the standard library can write this.)
+   */
+  test.each([
+    ["Vector", "Iterable<Vector(a)>", "honor Iterable<Vector(a)> =\n    type Item = a\n    toSeq(x) = elements(x)\n"],
+    ["Map", "Iterable<Map(k, v)>", "honor Iterable<Map(k, v)> =\n    type Item = (k, v)\n    toSeq(x) = entries(x)\n"],
+    ["Set", "Iterable<Set(a)>", "honor Iterable<Set(a)> =\n    type Item = a\n    toSeq(x) = elements(x)\n"],
+  ])("a second `Iterable` row in the companion `%s` is a plain duplicate", (companion, head, honor) => {
+    expect(new Set(inCompanion(companion, `\n${honor}`)))
+      .toEqual(new Set([`duplicate instance of \`${head}\``]));
   });
 
   /**

@@ -284,13 +284,15 @@ describe("pre-registered constraints have one identity, held by the compiler", (
   test("the same pre-registered constraint is one constraint across modules", () => {
     // The other side of §5.1.1: identity must be *shared* by every reference to
     // one declaration, so two modules honoring `Eq` for the same type still
-    // collide. `Ordering` is the prelude's, honored by the prelude already.
+    // collide. `Ordering` is the prelude's, honored by the prelude already; the
+    // collision shows as the orphan report naming that occupant (#1131).
     const compiled = compileFiles([["/main.hex",
       "module Main\n\n" + "honor Eq<Ordering> =\n    equals(x, y) = True\n",
     ]]);
 
-    expect(compiled.diagnostics.map(({ message }) => message)).toContain(
-      "duplicate instance of `Eq<Ordering>`",
-    );
+    expect(compiled.diagnostics.map(({ message }) => message)).toEqual([
+      "orphan instance: this module declares neither `Eq` nor the instance subject; " +
+        "`Eq<Ordering>` is already declared in module `Ordering`",
+    ]);
   });
 });

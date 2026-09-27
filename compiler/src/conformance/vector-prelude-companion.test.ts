@@ -204,9 +204,10 @@ describe("the module", () => {
       "const fromSeq = __values => __vectorOf(__seqToIterable(__values));",
     );
     // The eager/lazy bridge still crosses the door, but unexported and under a
-    // plain name since #353: `Iterable<Vector(a)>` is a provided row, so `toSeq`
-    // at a vector is the constraint member and Constraints §4.6 forbids a
-    // module-level binding of a member's spelling beside the instance.
+    // plain name: `toSeq` at a vector is the member of the companion's own
+    // `Iterable<Vector(a)>` (#1141), whose body is this row, and Constraints
+    // §4.6 forbids a module-level binding of a member's spelling beside the
+    // instance.
     expect(javascript).toContain("const elements = __seqFromIterable;");
     expect(javascript).not.toContain("const toSeq =");
     expect(javascript).not.toContain("export { toSeq };");
@@ -616,9 +617,10 @@ describe("two prelude members exporting one bare name", () => {
     ]], "/main.hex");
 
     expect(javascript).toContain('import { length } from "./Hex/Seq.js";');
-    // `Vector.toSeq` no longer comes from `Vector.js` (#353) — it is the
-    // provided row's member, so the companion contributes only the collided
-    // `length`, under its distinguished local.
+    // `Vector.toSeq` is not an export of `Vector.js` — it is the member of the
+    // companion's `Iterable` row, imported as the instance's own seat — so the
+    // plain-export line carries only the collided `length`, under its
+    // distinguished local.
     expect(javascript).toContain(
       'import { length as __prelude_length } from "./Hex/Vector.js";',
     );

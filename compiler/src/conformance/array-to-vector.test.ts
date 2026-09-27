@@ -503,8 +503,8 @@ describe("what makes the Hexagon body possible (`stdlib-roadmap.md` §5.1)", () 
    * **These pin a premise, not a behaviour.** §5.1 sends an operation to source
    * whenever Hexagon expresses it at equivalent complexity, so the shipped shape
    * rests on two facts about the language rather than on anything the operation
-   * does: `Array(a)` carries §8.1's provided `Iterable` row, so `for value in
-   * xs` compiles over a borrowed array and emits §8.2's native `for...of`; and
+   * does: `Array(a)` carries its companion's `Iterable` row (§8.1), so `for
+   * value in xs` compiles over a borrowed array and emits §8.2's native `for...of`; and
    * `stdlib/Array.hex` is seated after `stdlib/Vector.hex` in the prelude order,
    * so `Vector.append` is in scope in the file where the body lives.
    *

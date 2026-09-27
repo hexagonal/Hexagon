@@ -333,21 +333,20 @@ describe("the companions honor Iterable in source", () => {
   });
 
   /**
-   * A program's own row at the three is an orphan, and the hint no longer says
-   * the prelude provides one: the slot is the companion's source row now.
-   * #1131 (open) is why the duplicate report follows the orphan one, as it does
-   * at `String` and `Range`.
+   * A program's own row at the three is an orphan, and the one report names
+   * the companion whose source row fills the slot (Collections Part 5 §7.3,
+   * #1131).
    */
   test.each([
-    ["Array(a)", "a"],
-    ["JsMap(k, v)", "(k, v)"],
-    ["JsSet(a)", "a"],
-  ])("a program's own `Iterable<%s>` is an orphan", (head, item) => {
-    const reported = diagnostics(`honor Iterable<${head}> =\n    type Item = ${item}\n    toSeq(x) = Seq.empty\n`);
-    expect(reported[0]).toBe(
-      "orphan instance: this module declares neither `Iterable` nor the instance subject",
-    );
-    expect(reported.join("\n")).not.toContain("already provides");
+    ["Array(a)", "a", "Array"],
+    ["JsMap(k, v)", "(k, v)", "JsMap"],
+    ["JsSet(a)", "a", "JsSet"],
+  ])("a program's own `Iterable<%s>` is an orphan", (head, item, home) => {
+    expect(diagnostics(`honor Iterable<${head}> =\n    type Item = ${item}\n    toSeq(x) = Seq.empty\n`))
+      .toEqual([
+        "orphan instance: this module declares neither `Iterable` nor the instance subject; " +
+          `\`Iterable<${head}>\` is already declared in module \`${home}\``,
+      ]);
   });
 });
 

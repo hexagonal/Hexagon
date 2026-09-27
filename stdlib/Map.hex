@@ -79,8 +79,8 @@ export let keys(map: Map(k, v)): Seq(k) = entries(map).map(entryKey)
 (** The values of `map`, positionally matching `keys`. *)
 export let values(map: Map(k, v)): Seq(v) = entries(map).map(entryValue)
 
-// `toSeq` is not bound here, and cannot be: `Iterable<Map(k, v)>` is a provided
-// row (Collections Part 5 section 4) whose member *is* `entries`, and a
+// `toSeq` is not bound here, and cannot be: it is the member of this file's
+// `Iterable<Map(k, v)>` at the end, whose body *is* `entries`, and a
 // module-level binding of a member's spelling beside the instance is the
 // Constraints section 4.6 rebinding error. `entries` keeps its own name — it is
 // entrenched domain vocabulary with `keys`/`values` siblings (Part 5
@@ -108,3 +108,7 @@ export let fromSeq<k: Hash>(pairs: Seq((k, v))): Map(k, v) = fromEntries(pairs)
 (** The pairs of `pairs` collected into a map, left to right. *)
 export let fromVector<k: Hash>(pairs: Vector((k, v))): Map(k, v) =
     fromEntries(pairs.toSeq())
+
+honor Iterable<Map(k, v)> =
+    type Item = (k, v)
+    toSeq(map) = entries(map)

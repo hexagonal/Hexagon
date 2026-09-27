@@ -9620,26 +9620,6 @@ class JavaScriptEmitter {
         this.#derivedShow(type, "__value", evidenceNames, components),
       )];
     }
-    if (constraint === "Iterable") {
-      // Collections Part 5 §4's provided rows, rendered rather than imported
-      // (#353). Every one of them is one slot, and every slot but `Seq`'s is
-      // the same expression: an emitted `Vector`, `Map` and `Set` are all
-      // iterable values, and `seqFromIterable` is the compiler's one
-      // constructor of a `Seq` over one. The per-type meanings §4's table names
-      // are already carried by the emitted iterators — a map's yields its
-      // entries, a set's its elements (not the `Unit`s beneath them). The
-      // source-owned rows — `String`'s, `Range`'s (#1073), and the captured
-      // `Array`'s, `JsMap`'s and `JsSet`'s (#1076) — reach the same adapter
-      // through their own private traversal doors instead.
-      //
-      // `Seq`'s row is the **identity**, not the adapter: rebuilding a spine
-      // over a sequence that already has one would be a second memo for values
-      // it already memoizes, and the row exists precisely so that normalizing a
-      // `Seq` with `toSeq` costs nothing (§4's purity note).
-      return this.#isSequence(type)
-        ? [derivedArrow("toSeq", ["__source"], "__source")]
-        : [{ name: "toSeq", rendered: this.#useHelper("seqFromIterable") }];
-    }
     if (constraint === "Concat" && type.kind === "Vector") {
       // The Operators §7 instance, and the whole of it: `concat` is the trie
       // operation itself, so `++` at `Vector(a)` is documented-linear (Part 1
@@ -9945,14 +9925,12 @@ class JavaScriptEmitter {
    * makes a pre-registered name non-redeclarable, so within one program the
    * name determines the declaration. `S|` because `#validate` marks a
    * requirement structural only at `Eq`, `Ord`, `Show`, `Hash` and `Concat` —
-   * spellings its gates name outright — or for a provided `Iterable` row, which
-   * `#seedProvidedIterableRows` mints at `preRegisteredConstraintIdentity`, and
-   * because the planner's `Unit`/`Bool` arms sit behind
-   * `isPreRegisteredIdentity` (`editionEvidence`); `P|` because `Primitive`
-   * evidence is minted in exactly two places and both are pre-registered —
-   * elaboration's `evidence`, for a requirement at a primitive that selected
-   * no instance, and `editionEvidence`'s tail, which a declared identity
-   * returns before ever reaching. Named here rather than deferred to
+   * spellings its gates name outright — and because the planner's `Unit`/`Bool`
+   * arms sit behind `isPreRegisteredIdentity` (`editionEvidence`); `P|` because
+   * `Primitive` evidence is minted in exactly two places and both are
+   * pre-registered — elaboration's `evidence`, for a requirement at a primitive
+   * that selected no instance, and `editionEvidence`'s tail, which a declared
+   * identity returns before ever reaching. Named here rather than deferred to
    * `#sourceInstanceDictionary`: that is a *lookup*, and its `undefined` is
    * what selects this fallback, not what limits who can arrive at it.
    *
@@ -15354,7 +15332,7 @@ export function serializeDictionaryEvidence(evidence: Core.DictionaryEvidence): 
  * body's evidence parameter. But it is not sufficient on its own, because a
  * structural node's rendering is a *walk over its type*, not an application of
  * its components: a node the checker recorded no component demand for (the
- * `Bool` pin, `Concat<Vector(a)>`, and the `Iterable` provided rows)
+ * `Bool` pin, and `Concat<Vector(a)>`)
  * vacuously satisfies "all components ground" while the walk beneath it still
  * reaches `#dictionary` at every `Variable` it meets — a free evidence
  * parameter, in a module-level initializer. So the type must be variable-free

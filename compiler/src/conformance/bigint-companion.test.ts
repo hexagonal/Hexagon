@@ -561,7 +561,8 @@ describe("the orphan rule reads for a primitive as it does for a nominal (§5.3)
     expect(projectDiagnostics("module Main\n\n" + "honor Show<BigInt> =\n" +
       '    show(value) = "mine"\n',
     )).toContain(
-      "orphan instance: this module declares neither `Show` nor the instance subject",
+      "orphan instance: this module declares neither `Show` nor the instance subject; " +
+        "`Show<BigInt>` is already declared in module `BigInt`",
     );
   });
 

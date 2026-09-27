@@ -285,13 +285,14 @@ describe("the live name-reads see pre-registered names only", () => {
   });
 
   /**
-   * The `S|name|` read. `#validate` marks a requirement structural at six
+   * The `S|name|` read. `#validate` marks a requirement structural at five
    * spellings and no others — the four `STRUCTURAL_CONSTRAINTS` over tuples,
-   * structural records, vectors, sets, maps and the `Bool` pin, `Concat` over a
-   * vector spine, and the provided `Iterable` rows — and every one of the six
-   * is pre-registered, so the name in the key determines the declaration.
+   * structural records, vectors, sets, maps and the `Bool` pin, and `Concat`
+   * over a vector spine — and every one of the five is pre-registered, so the
+   * name in the key determines the declaration. (`Iterable` was a sixth until
+   * its last provided rows moved into source, #1141.)
    *
-   * Asserted as an equality rather than a subset: a seventh spelling reaching
+   * Asserted as an equality rather than a subset: a sixth spelling reaching
    * this seat is a decision about the key, and it should have to be made here.
    *
    * Not because a gate losing its name check would otherwise go unnoticed —
@@ -306,9 +307,9 @@ describe("the live name-reads see pre-registered names only", () => {
 
     expect(structural.length).toBeGreaterThan(0);
     expect([...new Set(structural.map(({ name }) => name))].sort())
-      .toEqual(["Concat", "Eq", "Hash", "Iterable", "Ord", "Show"]);
+      .toEqual(["Concat", "Eq", "Hash", "Ord", "Show"]);
     expect([...new Set(structural.map(({ identity }) => identity))].sort())
-      .toEqual(["hex:Concat", "hex:Eq", "hex:Hash", "hex:Iterable", "hex:Ord", "hex:Show"]);
+      .toEqual(["hex:Concat", "hex:Eq", "hex:Hash", "hex:Ord", "hex:Show"]);
     expect(structural.every(({ identity }) => preRegistered(identity))).toBe(true);
   });
 
