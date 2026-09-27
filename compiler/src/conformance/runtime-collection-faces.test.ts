@@ -301,6 +301,19 @@ describe("one type-only import of the runtime declaration module (obligation 2)"
   // A program's own `Hex` — a namespace import alias or a type — contests
   // nothing: no program file spells the runtime namespace, so there is no
   // generated alias for it to move (#1073).
+  // Nor is `Hex` reserved in a program's file: a foreign type so named, minted
+  // as an import local, keeps its own spelling (#1073).
+  test("a foreign type named `Hex` is imported under its own name", () => {
+    const compiled = project({
+      "/src/third.hex": "export record Hex = { digits: String }\n",
+      "/src/other.hex": "import Third\nexport type Box = Third.Hex\n",
+      "/src/main.hex": "import Other\nexport fun f(b: Other.Box): Int = 0\n",
+    });
+    const text = declarationsOf(compiled, "/src/main.hex");
+    expect(text).toContain('import type { Hex } from "./Third.js";');
+    expect(text).toContain("export declare function f(b: Hex): number;");
+  });
+
   test("a program's own `Hex` keeps its spelling, and nothing moves", () => {
     const compiled = project({
       "/src/main.hex": "import Other as Hex\n" +

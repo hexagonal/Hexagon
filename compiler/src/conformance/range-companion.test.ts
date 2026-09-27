@@ -239,6 +239,46 @@ describe("the counting loop over `Range.up` / `Range.down` (Loops §8)", () => {
     expect(text).toContain("  for (const i of up(1, n)) {");
   });
 
+  test("the same binding through an import alias counts", () => {
+    const text = javascript(
+      "import Hex.Range as R\n" +
+        "export fun total(n: Int): Int =\n" +
+        "    var t = 0\n" +
+        "    for i in R.down(n, 1)\n" +
+        "        t := t + i\n" +
+        "    t\n",
+    );
+    expect(text).toContain("  for (let i = n; i >= 1; i--) {");
+  });
+
+  test("a copy of the constructor is a value, never the licence", () => {
+    const text = javascript(
+      "export fun total(n: Int): Int =\n" +
+        "    let d = Range.down\n" +
+        "    var t = 0\n" +
+        "    for i in d(n, 1)\n" +
+        "        t := t + i\n" +
+        "    t\n",
+    );
+    expect(text).toContain("  for (const i of d(n, 1)) {");
+  });
+
+  test("a program's own module `Range` is not the companion (Modules §5.4)", () => {
+    const project = compileFiles([
+      ["/range.hex", "module Range\n\nexport fun up(lo: Int, hi: Int): Vector(Int) = [lo, hi]\n"],
+      ["/main.hex", "module Main\n\nimport Range\n\n" +
+        "export fun total(n: Int): Int =\n" +
+        "    var t = 0\n" +
+        "    for i in Range.up(1, n)\n" +
+        "        t := t + i\n" +
+        "    t\n"],
+    ]);
+    expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
+    const text = project.modules.find(({ name }) => name === "Main")!.javascript.text;
+    expect(text).toMatch(/ {2}for \(const i of [\w.]*up\(1, n\)\) \{/u);
+    expect(text).not.toContain("for (let i");
+  });
+
   test("a `Range.down` value iterates as one", () => {
     const text = javascript(
       "export fun total(n: Int): Int =\n" +

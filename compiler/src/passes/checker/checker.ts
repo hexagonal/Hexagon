@@ -3326,9 +3326,10 @@ class Checker {
    * enclosing dot must therefore abandon rather than dispatch on the type the
    * refusal left behind — one refusal is the whole verdict.
    *
-   * Two sources, one rule. A receiver that refused under a forwarded face
-   * *(#821)*; and the enclosing call this set itself made the checker abandon,
-   * so that the abandonment propagates outward instead of suppressing one level.
+   * Three sources, one rule. A receiver that refused under a forwarded face
+   * *(#821)*; a receiver whose tree refused at its close *(#1062)*; and the
+   * enclosing call this set itself made the checker abandon, so that the
+   * abandonment propagates outward instead of suppressing one level.
    * Without them the enclosing dot falls through to the ordinary application
    * path, which re-elaborates the callee and repeats the sentence — once per
    * level of nesting.
@@ -5780,6 +5781,8 @@ class Checker {
       // `s.contains(x)` are ordinary companion dispatch.
       actual.kind === "JsMap" ||
       actual.kind === "JsSet" ||
+      // `Range` joins with its own companion (#1073, `BUILTIN_COMPANIONS`):
+      // `stdlib/Range.hex` honors `Iterable<Range>`, so `r.toSeq()` is its member.
       actual.kind === "Range" ||
       // An extern nominal type joins with its binding module as companion
       // (Method Syntax §4.1's extern row; FFI Part 5 §9, #982): `url.hostname()`
@@ -9686,29 +9689,20 @@ class Checker {
           ) {
             this.#dotCallArguments(expression, level, undefined);
             // The abandonment has to carry, or it suppresses one level only.
-            // This call is itself a receiver — `r.toSeq().take(2).length()` —
-            // and the dot one level out would arrive at an unmarked expression
-            // typed `Error`, find nothing to dispatch on, and hand it to the
-            // ordinary application path, which elaborates the callee again and
-            // repeats the sentence `#dispatchDotCall` already said once. Marking
+            // This call is itself a receiver — `(n * 1.5).multiply(price)
+            // .add(price)` — and the dot one level out would arrive at an
+            // unmarked expression typed `Error`, find nothing to dispatch on,
+            // and hand it to the ordinary application path, which elaborates the
+            // callee again and repeats the refusal already said once. Marking
             // the enclosing call makes the gate reach the whole chain: one
-            // refusal, however deep the nesting (Method Syntax §9 row 17).
+            // refusal, however deep the nesting (Method Syntax §9 row 16).
             //
             // The mark stops **cascade** reports as well as duplicate ones, and
             // that reach is deliberate. The chain types `Error`, so nothing its
-            // type would have decided is reported: `r.toSeq().take(2).length()
-            // + "x"` says the `toSeq` refusal and stops, where the unmarked
-            // `Error` also drew "an operand of type `String` cannot enter `Int`"
-            // and `String`'s missing `Num` instance — two verdicts about an
-            // addition whose left operand the reader has just been told to
-            // rewrite. They are not noise: the same program with the offer
-            // applied, `Seq.length(Seq.take(Iterable.toSeq(r), 2)) + "x"`,
-            // reports `type mismatch: expected Int, found String` (measured).
-            // They are unreadable while that operand's type is a refusal, the
-            // first report is the one to act on, and what the addition has to
-            // say returns on the next compile. §9 row 17's "no second report
-            // about the call follows, however the call is nested" is the rule
-            // this answers to.
+            // type would have decided is reported: what an enclosing operation
+            // has to say about the chain's value is unreadable while that value
+            // is a refusal, the first report is the one to act on, and the rest
+            // returns on the next compile.
             this.#refusedReceivers.add(expression);
             type = ERROR;
             break;
@@ -14682,7 +14676,7 @@ class Checker {
     const refused = face !== undefined ? this.#closeFaced(node, face) : this.#closeFree(node);
     if (refused && this.#receiverRoot === expression) {
       // A refused receiver takes its dot call with it: dispatching on what the
-      // refusal left behind would report again (Method Syntax §9 row 17).
+      // refusal left behind would report again (Method Syntax §9 row 16).
       this.#refusedReceivers.add(expression);
     }
     return node.failed === true || refused ? ERROR : node.published ?? node.result;

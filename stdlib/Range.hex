@@ -9,7 +9,7 @@ module Range
 // range, which `..` never builds, and the traversal of an opaque value.
 extern from "hex:intrinsic"
     (** An inclusive progression of `Int` values, ascending or descending. It
-        is a description, not a collection: `1..1_000_000` allocates nothing. *)
+        is a description, not a collection: `1..1_000_000` holds no elements. *)
     export type range as Range
 
     (** The descending range from `hi` down to `lo`, both included. Empty when

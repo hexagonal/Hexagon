@@ -2425,7 +2425,7 @@ export const STDLIB_SOURCES: Readonly<Record<string, string>> = {
     + "// range, which `..` never builds, and the traversal of an opaque value.\n"
     + "extern from \"hex:intrinsic\"\n"
     + "    (** An inclusive progression of `Int` values, ascending or descending. It\n"
-    + "        is a description, not a collection: `1..1_000_000` allocates nothing. *)\n"
+    + "        is a description, not a collection: `1..1_000_000` holds no elements. *)\n"
     + "    export type range as Range\n"
     + "\n"
     + "    (** The descending range from `hi` down to `lo`, both included. Empty when\n"

@@ -12005,16 +12005,19 @@ class DeclarationEmitter {
     // imported under `Iterable` here and capture this file's `Seq` faces.
     const probed = new Set([...universe, ...CONTESTED_VOCABULARY]);
     const runtime = new RuntimeFaces();
-    // The runtime alias joins the probe's universe: it is a top-level
-    // identifier of a companion's file that `declarationTopLevelNames`
-    // deliberately does not carry, being generated rather than source-derived.
-    //
-    // That universe is a documented *superset* of what the file emits, and it is
-    // one here too — a declaration that reaches no `.d.ts` row still spends its
-    // name. Cosmetic, and it errs the safe way: the cost of over-claiming is a
-    // moved generated spelling, the cost of under-claiming is a `.d.ts` that
-    // does not compile.
-    const taken = new Set([...probed, runtime.alias]);
+    // The runtime alias joins the probe's universe in the one kind of file that
+    // spells it: a collection companion's, whose public row's seat is its only
+    // reference to the runtime declaration module (FFI Part 1 §8.3 obligation 2).
+    // It is generated rather than source-derived, so `declarationTopLevelNames`
+    // does not carry it. Anywhere else `Hex` is a name like any other, and a
+    // foreign type so named keeps its spelling.
+    const spellsRuntime = module.items.some((item) =>
+      item.kind === "ExternBlock" &&
+      item.declarations.some((declaration) =>
+        declaration.kind === "ExternType" && isPublicRow(declaration)
+      )
+    );
+    const taken = new Set([...probed, ...(spellsRuntime ? [runtime.alias] : [])]);
     this.#faces = {
       prelude,
       runtime,
