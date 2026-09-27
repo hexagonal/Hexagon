@@ -229,9 +229,12 @@ worked out from everything the function does with it: hand it to something that 
 purity, and it is pure — and then handing it beside the caller's `->?` callback claims
 that callback is pure too, which the checker reports, whichever of the two lines comes
 first. Give the parameter its type, `(step: () -> Unit) =>`, and its purity is settled:
-it fits everywhere, like any other pure function. A lambda written right where it is
-passed gets its parameters' types from what it is passed to, so they are settled already;
-the same lambda pulled out into a `let` of its own has only its body to go on.
+it fits everywhere, like any other pure function. Anything you build from the untyped
+parameter — a `let` that renames it, a record that holds it, a function that returns it —
+shares its fate, whatever order the lines come in. A lambda written right where it is
+passed gets its parameters' types from what it is passed to; where that function's own
+signature spells the type out in full, they are settled already. The same lambda pulled
+out into a `let` of its own has only its body to go on.
 
 A pure function already packed inside a value keeps the type the value was built with:
 

@@ -963,8 +963,10 @@ late pedagogy pass, not a commitment to the current order.
   (`Button`'s `onClick`), beside an effectful function (the merge is `->!`) — without
   changing its own colour and with nothing to write; the reverse stays an error. The
   chapter credits Koka's "opening" for the idea. Its two taught edges: a parameter
-  with no written type takes its colour from all its uses, and a pure function
-  already inside a value keeps that value's type.
+  with no written type takes its colour from all its uses (and so does anything built
+  from it; a lambda argument's parameter is settled only where the callee's signature
+  spells its type in full), and a pure function already inside a value keeps that
+  value's type.
 - Colour scope is lexical: a helper nested in a body (a `fun`, a local `let`, a lambda,
   a nested `fun` block) conducts a captured callback's colour with `?` and never
   generalizes it; pinning the helper pins the enclosing callback, reported at the pin.

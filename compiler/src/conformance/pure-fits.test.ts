@@ -15,8 +15,10 @@ import { compileFiles } from "../support/test-project.js";
  * refinements, each pinned below:
  *
  * - R.a: `->!` positions accept a pure function too;
- * - R.b: only a colour that is decided — by a body's close or a written face —
- *   is re-opened, so a parameter with no written type is inferred from all its
+ * - R.b: only a colour the program's text decides is re-opened — a function's
+ *   own, a written type, a name no local binding introduces, a value made only
+ *   from these and settled where it is bound — so a parameter with no written
+ *   type, a `var`, and whatever is made from one are inferred from all their
  *   uses together, in whatever order they come;
  * - R.c: the outermost arrow only — a value already built keeps its type;
  * - a written face may claim more effect than its body performs, never less:
@@ -191,7 +193,7 @@ let k = pick(noop)
   });
 });
 
-describe("only a decided colour is re-opened (R.b)", () => {
+describe("only a colour the program's text decides is re-opened (R.b)", () => {
   const uses = (first: string, second: string): string =>
     `export let outer(action: () ->? Unit): Unit =
     let k = (cb) =>
@@ -219,7 +221,7 @@ describe("only a decided colour is re-opened (R.b)", () => {
     }
   });
 
-  test("the pin travels into an alias, a destructure, and a match, whichever comes first", () => {
+  test("an alias, a destructure, and a match made from one are inferred too, whichever comes first", () => {
     const k = (lines: readonly string[]): string =>
       "export let outer(action: () ->? Unit): Unit =\n    let k = (p) =>\n" +
       lines.map((line) => `        ${line}\n`).join("") + "        ()\n    ()\n";
@@ -252,7 +254,7 @@ describe("only a decided colour is re-opened (R.b)", () => {
     }
   });
 
-  test("the pin travels into a join with a decided pure function, whichever side and line come first", () => {
+  test("so is a join of one with a decided pure function, whichever side and line come first", () => {
     const k = (lines: readonly string[]): string =>
       "let pickTwo(x: a, y: a): a = x\nexport let outer(action: () ->? Unit): Unit =\n    let k = (cb) =>\n" +
       lines.map((line) => `        ${line}\n`).join("") + "        ()\n    ()\n";
@@ -270,14 +272,14 @@ describe("only a decided colour is re-opened (R.b)", () => {
     }
   });
 
-  test("a pin ends with its binding's scope: a function's scheme is decided when its body closes", () => {
+  test("a function whose own body pinned its parameter is decided like any other", () => {
     for (const k of [
       "let k = (f) =>\n    pureOnly(f)\n    f\n",
       "let k(f: () -> Unit): () -> Unit = f\n",
     ]) {
       expect(reports(`${k}export let outer(action: () ->? Unit): Unit = apply2?(action, k(noop))\n`)).toEqual([]);
     }
-    // A function that hands back a binding still in scope keeps its pin, in either order.
+    // A function that hands back an untyped parameter is made from it, in either order.
     for (const lines of [
       ["pureOnly(cb)", "let get = () => cb", "apply2?(action, get())"],
       ["let get = () => cb", "apply2?(action, get())", "pureOnly(cb)"],
@@ -307,6 +309,169 @@ describe("only a decided colour is re-opened (R.b)", () => {
 `;
     expect(reports(written)).toEqual([]);
   });
+});
+
+describe("what the program's text decides, in any line order (R.b)", () => {
+  const body = (lines: readonly string[], prefix = ""): string =>
+    prefix + "export let outer(action: () ->? Unit): Unit =\n" +
+    lines.map((line) => `    ${line}\n`).join("") + "    ()\n";
+  const inK = (lines: readonly string[]): string[] => ["let k = (cb) =>", ...lines.map((line) => `    ${line}`), "    ()"];
+  /**
+   * One route's verdict, the same in every line order: `"fits"`, or `"refused"`
+   * with the lie-of-generality report among each order's reports. What else a
+   * refused program reports may follow which unification failed first, as it
+   * always has; the verdict may not.
+   */
+  const verdict = (orders: readonly (readonly string[])[], prefix = ""): "fits" | "refused" => {
+    const answers = orders.map((lines) => reports(body(lines, prefix)).map(([, message]) => message));
+    const fits = answers.map((answer) => answer.length === 0);
+    expect([orders[0], fits]).toEqual([orders[0], orders.map(() => fits[0])]);
+    if (fits[0]) return "fits";
+    for (const [index, answer] of answers.entries()) {
+      expect([orders[index], answer.includes(SOLVED_PURE)]).toEqual([orders[index], true]);
+    }
+    return "refused";
+  };
+
+  test("a lambda's colour and a named function's are their marks', whatever they capture", () => {
+    const pin = "pureOnly(cb)";
+    for (const [make, use] of [
+      ["let run = () => cb()", "apply2?(action, run)"],
+      ["let make = () => () => cb()", "apply2?(action, make())"],
+    ] as const) {
+      expect(verdict([inK([pin, make, use]), inK([make, pin, use]), inK([make, use, pin])])).toEqual("fits");
+    }
+    expect(verdict([inK([pin, "apply2?(action, () => cb())"]), inK(["apply2?(action, () => cb())", pin])]))
+      .toEqual("fits");
+    // A returned lambda that marks a call `?` takes its colour from what it calls.
+    expect(verdict([
+      inK([pin, "let make = () => () => cb?()", "apply2?(action, make())"]),
+      inK(["let make = () => () => cb?()", "apply2?(action, make())", pin]),
+    ])).toEqual("refused");
+  });
+
+  test("a value made only from the text fits: a call on decided arguments, a field, an alias", () => {
+    for (const lines of [
+      ["let f = pickUp(noop)", "apply2?(action, f)"],
+      ["let r = { f = noop }", "apply2?(action, r.f)"],
+      ["let f = () => ()", "let g = f", "apply2?(action, g)"],
+      ["let t = (noop, 1)", "let (a, b) = t", "apply2?(action, a)"],
+    ]) {
+      expect([lines, reports(body(lines, "let pickUp(value: a): a = value\n"))]).toEqual([lines, []]);
+    }
+  });
+
+  test("a capture made before the pin is made from the parameter, in either order", () => {
+    for (const [make, use] of [
+      ["let get = () => cb", "apply2?(action, get())"],
+      ["let r = { f = cb }", "apply2?(action, r.f)"],
+      ["let t = Some(cb)", "match t\n            Some(f) => apply2?(action, f)\n            None => ()"],
+      ["let t = (cb, 1)", "let (a, b) = t\n        apply2?(action, a)"],
+    ] as const) {
+      const answer = verdict([
+        inK(["pureOnly(cb)", make, use]),
+        inK([make, "pureOnly(cb)", use]),
+        inK([make, use, "pureOnly(cb)"]),
+      ]);
+      expect([make, answer]).toEqual([make, "refused"]);
+    }
+  });
+
+  test("a `var` is inferred from its uses, in either order", () => {
+    const answer = verdict([
+      ["var z = { f = noop }", "pureOnly(z.f)", "apply2?(action, z.f)"],
+      ["var z = { f = noop }", "apply2?(action, z.f)", "pureOnly(z.f)"],
+    ]);
+    expect(answer).toEqual("refused");
+  });
+
+  test("a binding whose type later lines fill is inferred from its uses, in either order", () => {
+    const use = ["match JsMap.get(m, 1)", "    Some(f) => apply2?(action, f)", "    None => ()"];
+    const fill = "let ok: JsMap(Int, () -> Unit) = m";
+    for (const made of ["let m = JsMap.fromSeq(Seq.empty)", "let (m, n) = (JsMap.fromSeq(Seq.empty), 1)"]) {
+      const answer = verdict([[made, fill, ...use], [made, ...use, fill]]);
+      expect([made, answer]).toEqual([made, "refused"]);
+    }
+  });
+
+  test("a `match` over an unsettled scrutinee makes every arm's variables inferred, whatever the arms' order", () => {
+    const scrutinee = "match JsMap.get(JsMap.fromSeq(Seq.empty), 1)";
+    const answer = verdict([
+      [scrutinee, "    Some(f) when True => pureOnly(f)", "    Some(g) => apply2?(action, g)", "    None => ()"],
+      [scrutinee, "    Some(g) when True => apply2?(action, g)", "    Some(f) => pureOnly(f)", "    None => ()"],
+    ]);
+    expect(answer).toEqual("refused");
+  });
+
+  test("a lambda argument's parameter is decided only where the callee's signature spells its type whole", () => {
+    const signatures =
+      "export let applyWith(x: a, f: (a) ->? Unit, g: () ->? Unit): Unit =\n    f?(x)\n    g?()\n" +
+      "export let withRelease(x: a, body: (() -> Unit) ->? Unit): Unit = body?(noop)\n" +
+      "export let pureOnly2(f: (Int, (() -> Unit) -> Unit) -> Unit): Unit = ()\n";
+    // Spelled whole in the signature: decided, in either order.
+    expect(verdict([
+      inK(["pureOnly(cb)", "withRelease?(cb, (release) => apply2?(action, release))"]),
+      inK(["withRelease?(cb, (release) => apply2?(action, release))", "pureOnly(cb)"]),
+    ], signatures)).toEqual("fits");
+    // A variable an argument fills, or a callee inferred from its uses: not decided, in either order.
+    expect(verdict([
+      inK(["pureOnly(cb)", "applyWith?(cb, (h) => apply2?(action, h), noop)"]),
+      inK(["applyWith?(cb, (h) => apply2?(action, h), noop)", "pureOnly(cb)"]),
+    ], signatures)).toEqual("refused");
+    expect(verdict([
+      inK(["pureOnly2(cb)", "cb(1, (g) => apply2?(action, g))"]),
+      inK(["cb(1, (g) => apply2?(action, g))", "pureOnly2(cb)"]),
+    ], signatures)).toEqual("refused");
+  });
+});
+
+/**
+ * **Order-freedom, exhaustively** (R.b). A parameter with no written type is
+ * pinned pure by one of six routes and reaches a `->?` beside the caller's
+ * callback by one of twelve; every line order of each pair gets one answer, and
+ * since the parameter is pinned and used beside a `->?`, that answer is a report.
+ */
+describe("every pin and every route from an untyped parameter, in every line order (R.b)", () => {
+  const prefix = "let pickUp(x: a): a = x\n" +
+    "export let pureOnlyPair(p: (() -> Unit, Int)): Unit = ()\n" +
+    "export record Box = { step: () -> Unit }\n";
+  const pins: Record<string, readonly string[]> = {
+    call: ["pureOnly(cb)"],
+    annotation: ["let q: () -> Unit = cb"],
+    ascription: ["let q = (cb : () -> Unit)"],
+    "nested annotation": ["let w: Option(() -> Unit) = Some(cb)"],
+    "declared field": ["let bx = Box({ step = cb })"],
+    "tuple demand": ["pureOnlyPair((cb, 1))"],
+  };
+  const routes: Record<string, readonly [readonly string[], readonly string[]]> = {
+    direct: [[], ["apply2?(action, cb)"]],
+    alias: [["let f = cb"], ["apply2?(action, f)"]],
+    thunk: [["let get = () => cb"], ["apply2?(action, get())"]],
+    function: [["let m = (x: Int) => cb"], ["apply2?(action, m(1))"]],
+    record: [["let r = { f = cb }"], ["apply2?(action, r.f)"]],
+    option: [["let t = Some(cb)"], ["match t", "    Some(f) => apply2?(action, f)", "    None => ()"]],
+    tuple: [["let t = (cb, 1)"], ["let (a, b) = t", "apply2?(action, a)"]],
+    generic: [["let g = pickUp(cb)"], ["apply2?(action, g)"]],
+    join: [["let g = if True then cb else noop"], ["apply2?(action, g)"]],
+    nested: [["let h = () =>", "    let inner = cb", "    inner"], ["apply2?(action, h())"]],
+    var: [["var z = { f = cb }"], ["apply2?(action, z.f)"]],
+    curried: [["let c = (x: Int) => (y: Int) => cb"], ["apply2?(action, c(1)(2))"]],
+  };
+  for (const [pinName, pin] of Object.entries(pins)) {
+    test(`pinned by ${pinName}`, () => {
+      for (const [routeName, [made, use]] of Object.entries(routes)) {
+        const orders = made.length === 0
+          ? [[...pin, ...use], [...use, ...pin]]
+          : [[...pin, ...made, ...use], [...made, ...pin, ...use], [...made, ...use, ...pin]];
+        const verdicts = orders.map((lines) => {
+          const source = prefix + "export let outer(action: () ->? Unit): Unit =\n    let k = (cb) =>\n" +
+            lines.map((line) => `        ${line}\n`).join("") + "        ()\n    ()\n";
+          return reports(source).length > 0;
+        });
+        expect([routeName, verdicts]).toEqual([routeName, orders.map(() => true)]);
+      }
+    });
+  }
 });
 
 describe("reports read the colours as they stand", () => {
