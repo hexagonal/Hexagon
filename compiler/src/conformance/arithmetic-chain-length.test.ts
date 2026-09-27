@@ -67,17 +67,6 @@ describe("a long arithmetic chain compiles in linear time", () => {
 });
 
 describe("an operator's operands are emitted once", () => {
-  test("so an operand's fresh names are not spent twice", () => {
-    const { project } = timed(
-      "let x =\n    (try n\n    catch\n        _ => n) + (try 0\n    catch\n        _ => 0)\n",
-    );
-    expect(messages(project)).toEqual([]);
-    const text = mainText(project);
-    expect(text).toContain("catch (__error)");
-    expect(text).toContain("catch (__error_1)");
-    expect(text).not.toContain("__error_2");
-  });
-
   test("so a refused program imports nothing for an operation it never emits", () => {
     const { project } = timed(
       "fun\n" +

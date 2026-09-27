@@ -612,7 +612,7 @@ describe("emitJavaScript", () => {
       'else if (__match.tag === "Box" && __match.side.tag === "Right")',
     );
     expect(javascript).toContain("let amount;");
-    expect(javascript).toContain("amount = __match_1.value;");
+    expect(javascript).toContain("amount = __match.value;");
   });
 
   test("emits negative, or, and single-constructor binding patterns", () => {
@@ -633,7 +633,7 @@ describe("emitJavaScript", () => {
     const javascript = emitJavaScript(module).text;
     expect(javascript).toContain('if (__match.tag === "Circle")');
     expect(javascript).toContain('else if (__match.tag === "Rectangle")');
-    expect(javascript).toContain("if (__match_1 === -1)");
+    expect(javascript).toContain("if (__match === -1)");
     // The single-constructor binding pattern destructures the erased literal
     // itself (#770): the construction is what it always was, minus the call.
     expect(javascript).toContain('const { value } = { tag: "UserId", value: 42 };');
@@ -663,8 +663,8 @@ describe("emitJavaScript", () => {
     )).text;
     expect(structural).toContain("if (__match[0] === true)");
     expect(structural).toContain("const count = __match[1];");
-    expect(structural).toContain("if (__match_1.active === true)");
-    expect(structural).toContain("const name = __match_1.name;");
+    expect(structural).toContain("if (__match.active === true)");
+    expect(structural).toContain("const name = __match.name;");
   });
 
   test("emits matching record fields as JavaScript shorthand", () => {

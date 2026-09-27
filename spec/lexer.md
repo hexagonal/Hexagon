@@ -222,7 +222,17 @@ that order. Dictionary Sharing §5 retains its jointly-assigned first pass and
 later hoisted pass; both respect the fixed reservations and skip occupied
 suffix candidates. Allocation order must not depend on hash-table iteration,
 parallel execution, or unrelated modules. Separate lexical scopes may reuse
-names where doing so cannot capture a reference.
+names where doing so cannot capture a reference. The emitter takes that
+licence per function, as a person writing the output would: a generated local
+is allocated against the module's names and those of every function enclosing
+it, never a sibling's, so two functions that each need a loop's end both bind
+`__end`, while two such loops in one function bind `__end` and `__end_1`
+(#1129). Every function in the emitted JavaScript counts, whoever wrote it — a
+source `fun` or lambda, and any function the compiler writes: an
+immediately-invoked arrow, an eta-expansion wrapper, a derived walk, an
+instance factory. A module-level binding the compiler mints — a helper, an
+import's local, a hoisted dictionary — is allocated against the whole module
+wherever emission reaches it, and past every local live at that point.
 
 An imported export's spelling and its local alias are different seats: read the
 exported spelling from the resolved interface, and alias only the local on a

@@ -4472,160 +4472,12 @@ class JavaScriptEmitter {
       });
     }
     if (item.kind === "Honor") {
-      this.#noteHonorParameters(item.typeParameters);
-      const { names: parameters, localEvidence } = this.#evidenceParameters(
-        item.typeParameters.flatMap((parameter) =>
-          parameter.constraints.map(({ name, identity }) => ({
-            constraint: name,
-            identity,
-            variable: parameter.variable,
-          }))
-        ),
-        evidenceNames,
-      );
-      const localDictionary = parameters.length === 0
-        ? item.dictionary
-        : this.#generatedNames.fresh("instance");
-      // The checker's answer, carried on the item. It used to be looked up in a
-      // module-local table keyed by the constraint's *name*, which returned
-      // nothing the moment the declaration could be an imported one — and the
-      // miss was silent, leaving a body that reaches the instance under
-      // construction with no evidence for it (§6.5, #276).
-      if (item.constraintSubject !== undefined) {
-        localEvidence.set(
-          evidenceKey(item.constraintSubject, item.constraintIdentity),
-          localDictionary,
-        );
-      }
-      // Dictionary Sharing §3.2: self-evidence at the factory's **identity
-      // arrangement** — this instance's dictionary applied to the factory's own
-      // parameters, in order — is the local record under construction, not a
-      // fresh application. Legal precisely because every reader sits inside a
-      // member's closure body and so is never evaluated during the factory's
-      // application; a recursive traversal therefore allocates zero additional
-      // dictionaries rather than one shared one, and the shape holds even when
-      // the instantiation is not ground.
-      //
-      // Registered as the arrangement's rendering, which is what makes "in
-      // order" load-bearing without a second comparison: a deeper (`Weird`) or
-      // permuted (`Swap`) self-demand, and a *different* instance over the same
-      // parameters (mutual recursion), all render to something else and fall
-      // through to §3.3 unchanged.
-      if (parameters.length > 0) {
-        localEvidence.set(
-          selfEvidenceKey(`${item.dictionary}(${parameters.join(", ")})`),
-          localDictionary,
-        );
-      }
-      // The one part of a dictionary that is read while the `const` initializes:
-      // members and inherited defaults are lambdas, so the dictionaries they
-      // name are read at call time and order nothing (Constraints §6.3). That is
-      // also why it is the one position where a ground application must not
-      // hoist — see `#eagerEvidenceDepth`.
-      this.#eagerEvidenceDepth += 1;
-      const baseEvidence = item.baseConstraints.map(({ slot, name, evidence }) => ({
-        slot,
-        rendered: this.#emitEvidence(evidence, name, item.span, localEvidence),
-      }));
-      this.#eagerEvidenceDepth -= 1;
-      if (parameters.length === 0) {
-        this.#directEvidence.set(item, baseEvidence.map(({ rendered }) => rendered));
-      }
-      // Constraints §6.2: the slot was minted from the extending declaration's
-      // base list, in the checker, by the one function the *reading* side mints
-      // through as well. Nothing is derived from a name here — a name is what
-      // an importer's alias moves.
-      const baseConstraints = baseEvidence.map(({ slot, rendered }) =>
-        objectProperty(slot, rendered)
-      );
-      const members: MemberImplementation[] = item.derived
-        ? this.#derivedMembers(item, localEvidence)
-        : item.members.map((member) => ({
-            name: member.name,
-            rendered: this.#emitExpr(member.value, depth, localEvidence),
-          }));
-      // §6.5: a default inherited from an *exported* constraint is a reference
-      // to the home module's helper, applied at call time. Deferring is not
-      // cosmetic — `localDictionary` is the const currently being initialized,
-      // so reading it eagerly here would hit the temporal dead zone.
-      const inheritedDefaults = item.inheritedDefaults.map((inherited) => {
-        this.#usedDefaultHelpers.add(inherited.member);
-        const parameters_ = Array.from(
-          { length: inherited.arity },
-          (_, index) => `__arg${index}`,
-        );
-        return {
-          name: inherited.name,
-          rendered: `${arrowParameters(parameters_)} => ${
-            this.#defaultHelperLocal(inherited.member, inherited.name)
-          }(${[localDictionary, ...parameters_].join(", ")})`,
-        };
-      });
-      const completedMembers =
-        !item.derived && item.constraint === "Eq" &&
-          !item.members.some(({ name }) => name === "notEquals")
-          ? [
-              ...members,
-              ...inheritedDefaults,
-              {
-                name: "notEquals",
-                rendered: `(__left, __right) => !${localDictionary}.equals(__left, __right)`,
-              },
-            ]
-          : [...members, ...inheritedDefaults];
-      if (this.#exportInstanceEvidence) {
-        this.#exportEvidence(item.dictionary, item.exportedDictionary ?? item.dictionary);
-      }
-      // Constraints §6.1: at a **ground** instance every member's implementation
-      // hoists to its own module-level binding — the instance's member seat —
-      // and the record's slots reference the seats by name. That is §4.6's law
-      // reaching emission: a member definition *is* a module-level binding, and
-      // now emits as one, which is what a concrete member call routes to.
-      //
-      // Default versus override never reaches this shape. The three ways a slot
-      // arrives — supplied, a §6.5 helper wrapper, the `Eq` completion above —
-      // are three renderings of one completed member set (§2), and each takes a
-      // seat on the same terms. A **parameterized** instance has none: its
-      // members close over the factory's evidence parameters, so `seats` is
-      // empty and the record carries its lambdas inline exactly as before.
-      const seats = parameters.length === 0 ? item.memberSeats : [];
-      const seatLines: string[] = [];
-      const seatedSlots: string[] = [];
-      const seated = new Set<string>();
-      for (const { member, seat, exportedSeat } of seats) {
-        const implementation = completedMembers.find(({ name }) => name === member);
-        if (implementation === undefined) continue;
-        seated.add(member);
-        // §6.3's rider: the seat is emitted before the record that references
-        // it, which costs nothing because a seat is a lambda and evaluates
-        // nothing — and the record's slot reads stay call-time either way.
-        seatLines.push(`${prefix}const ${seat} = ${implementation.rendered};`);
-        seatedSlots.push(objectProperty(member, seat));
-        // §8: the seats travel the declared-instance plumbing sweep under their
-        // generated spellings, so a consumer's concrete call can import them.
-        if (this.#exportInstanceEvidence) this.#exportEvidence(seat, exportedSeat ?? seat);
-      }
-      const slots = [
-        ...baseConstraints,
-        ...seatedSlots,
-        // A slot the seat list does not name is one the constraint declaration
-        // does not declare — an extra member, which the checker has already
-        // refused. It keeps its inline rendering so a diagnosed module still
-        // emits the record it emitted before.
-        ...completedMembers
-          .filter(({ name }) => !seated.has(name))
-          .map(({ name, rendered }) => objectProperty(name, rendered)),
-      ];
-      const value = `{ ${slots.join(", ")} }`;
-      if (parameters.length === 0) {
-        return [...seatLines, `${prefix}const ${item.dictionary} = ${value};`];
-      }
-      return [
-        `${prefix}const ${item.dictionary} = ${arrowParameters(parameters)} => {`,
-        `${indent(depth + 1)}const ${localDictionary} = ${value};`,
-        `${indent(depth + 1)}return ${localDictionary};`,
-        `${prefix}};`,
-      ];
+      // An instance with evidence parameters is a factory function over them,
+      // so the names it mints are its own (#1129). Any other instance's lines
+      // are module-level `const`s, so anything it mints is the module's.
+      return item.typeParameters.some(({ constraints }) => constraints.length > 0)
+        ? this.#generatedNames.within(() => this.#emitHonor(item, depth, evidenceNames))
+        : this.#emitHonor(item, depth, evidenceNames);
     }
     if (item.kind === "ExprItem") {
       return returnFinal
@@ -4935,6 +4787,172 @@ class JavaScriptEmitter {
     return [
       `${prefix}const ${name} = ${value};`,
       ...this.#emitSpecializations(item, depth),
+    ];
+  }
+
+  /**
+   * An instance's dictionary: a `const` at a ground instance, and a factory
+   * function over its evidence parameters otherwise.
+   */
+  #emitHonor(
+    item: Core.HonorItem,
+    depth: number,
+    evidenceNames: EvidenceNames,
+  ): string[] {
+    const prefix = indent(depth);
+    this.#noteHonorParameters(item.typeParameters);
+    const { names: parameters, localEvidence } = this.#evidenceParameters(
+      item.typeParameters.flatMap((parameter) =>
+        parameter.constraints.map(({ name, identity }) => ({
+          constraint: name,
+          identity,
+          variable: parameter.variable,
+        }))
+      ),
+      evidenceNames,
+    );
+    const localDictionary = parameters.length === 0
+      ? item.dictionary
+      : this.#generatedNames.fresh("instance");
+    // The checker's answer, carried on the item. It used to be looked up in a
+    // module-local table keyed by the constraint's *name*, which returned
+    // nothing the moment the declaration could be an imported one — and the
+    // miss was silent, leaving a body that reaches the instance under
+    // construction with no evidence for it (§6.5, #276).
+    if (item.constraintSubject !== undefined) {
+      localEvidence.set(
+        evidenceKey(item.constraintSubject, item.constraintIdentity),
+        localDictionary,
+      );
+    }
+    // Dictionary Sharing §3.2: self-evidence at the factory's **identity
+    // arrangement** — this instance's dictionary applied to the factory's own
+    // parameters, in order — is the local record under construction, not a
+    // fresh application. Legal precisely because every reader sits inside a
+    // member's closure body and so is never evaluated during the factory's
+    // application; a recursive traversal therefore allocates zero additional
+    // dictionaries rather than one shared one, and the shape holds even when
+    // the instantiation is not ground.
+    //
+    // Registered as the arrangement's rendering, which is what makes "in
+    // order" load-bearing without a second comparison: a deeper (`Weird`) or
+    // permuted (`Swap`) self-demand, and a *different* instance over the same
+    // parameters (mutual recursion), all render to something else and fall
+    // through to §3.3 unchanged.
+    if (parameters.length > 0) {
+      localEvidence.set(
+        selfEvidenceKey(`${item.dictionary}(${parameters.join(", ")})`),
+        localDictionary,
+      );
+    }
+    // The one part of a dictionary that is read while the `const` initializes:
+    // members and inherited defaults are lambdas, so the dictionaries they
+    // name are read at call time and order nothing (Constraints §6.3). That is
+    // also why it is the one position where a ground application must not
+    // hoist — see `#eagerEvidenceDepth`.
+    this.#eagerEvidenceDepth += 1;
+    const baseEvidence = item.baseConstraints.map(({ slot, name, evidence }) => ({
+      slot,
+      rendered: this.#emitEvidence(evidence, name, item.span, localEvidence),
+    }));
+    this.#eagerEvidenceDepth -= 1;
+    if (parameters.length === 0) {
+      this.#directEvidence.set(item, baseEvidence.map(({ rendered }) => rendered));
+    }
+    // Constraints §6.2: the slot was minted from the extending declaration's
+    // base list, in the checker, by the one function the *reading* side mints
+    // through as well. Nothing is derived from a name here — a name is what
+    // an importer's alias moves.
+    const baseConstraints = baseEvidence.map(({ slot, rendered }) =>
+      objectProperty(slot, rendered)
+    );
+    const members: MemberImplementation[] = item.derived
+      ? this.#derivedMembers(item, localEvidence)
+      : item.members.map((member) => ({
+          name: member.name,
+          rendered: this.#emitExpr(member.value, depth, localEvidence),
+        }));
+    // §6.5: a default inherited from an *exported* constraint is a reference
+    // to the home module's helper, applied at call time. Deferring is not
+    // cosmetic — `localDictionary` is the const currently being initialized,
+    // so reading it eagerly here would hit the temporal dead zone.
+    const inheritedDefaults = item.inheritedDefaults.map((inherited) => {
+      this.#usedDefaultHelpers.add(inherited.member);
+      const parameters_ = Array.from(
+        { length: inherited.arity },
+        (_, index) => `__arg${index}`,
+      );
+      return {
+        name: inherited.name,
+        rendered: `${arrowParameters(parameters_)} => ${
+          this.#defaultHelperLocal(inherited.member, inherited.name)
+        }(${[localDictionary, ...parameters_].join(", ")})`,
+      };
+    });
+    const completedMembers =
+      !item.derived && item.constraint === "Eq" &&
+        !item.members.some(({ name }) => name === "notEquals")
+        ? [
+            ...members,
+            ...inheritedDefaults,
+            {
+              name: "notEquals",
+              rendered: `(__left, __right) => !${localDictionary}.equals(__left, __right)`,
+            },
+          ]
+        : [...members, ...inheritedDefaults];
+    if (this.#exportInstanceEvidence) {
+      this.#exportEvidence(item.dictionary, item.exportedDictionary ?? item.dictionary);
+    }
+    // Constraints §6.1: at a **ground** instance every member's implementation
+    // hoists to its own module-level binding — the instance's member seat —
+    // and the record's slots reference the seats by name. That is §4.6's law
+    // reaching emission: a member definition *is* a module-level binding, and
+    // now emits as one, which is what a concrete member call routes to.
+    //
+    // Default versus override never reaches this shape. The three ways a slot
+    // arrives — supplied, a §6.5 helper wrapper, the `Eq` completion above —
+    // are three renderings of one completed member set (§2), and each takes a
+    // seat on the same terms. A **parameterized** instance has none: its
+    // members close over the factory's evidence parameters, so `seats` is
+    // empty and the record carries its lambdas inline exactly as before.
+    const seats = parameters.length === 0 ? item.memberSeats : [];
+    const seatLines: string[] = [];
+    const seatedSlots: string[] = [];
+    const seated = new Set<string>();
+    for (const { member, seat, exportedSeat } of seats) {
+      const implementation = completedMembers.find(({ name }) => name === member);
+      if (implementation === undefined) continue;
+      seated.add(member);
+      // §6.3's rider: the seat is emitted before the record that references
+      // it, which costs nothing because a seat is a lambda and evaluates
+      // nothing — and the record's slot reads stay call-time either way.
+      seatLines.push(`${prefix}const ${seat} = ${implementation.rendered};`);
+      seatedSlots.push(objectProperty(member, seat));
+      // §8: the seats travel the declared-instance plumbing sweep under their
+      // generated spellings, so a consumer's concrete call can import them.
+      if (this.#exportInstanceEvidence) this.#exportEvidence(seat, exportedSeat ?? seat);
+    }
+    const slots = [
+      ...baseConstraints,
+      ...seatedSlots,
+      // A slot the seat list does not name is one the constraint declaration
+      // does not declare — an extra member, which the checker has already
+      // refused. It keeps its inline rendering so a diagnosed module still
+      // emits the record it emitted before.
+      ...completedMembers
+        .filter(({ name }) => !seated.has(name))
+        .map(({ name, rendered }) => objectProperty(name, rendered)),
+    ];
+    const value = `{ ${slots.join(", ")} }`;
+    if (parameters.length === 0) {
+      return [...seatLines, `${prefix}const ${item.dictionary} = ${value};`];
+    }
+    return [
+      `${prefix}const ${item.dictionary} = ${arrowParameters(parameters)} => {`,
+      `${indent(depth + 1)}const ${localDictionary} = ${value};`,
+      `${indent(depth + 1)}return ${localDictionary};`,
+      `${prefix}};`,
     ];
   }
 
@@ -5290,13 +5308,12 @@ class JavaScriptEmitter {
     ];
     const prefix = indent(depth);
     const head = `${prefix}function ${name}(${parameters.join(", ")}) {`;
-    const body = item.value.body.kind === "Block"
-      ? this.#emitBlockItems(
-          item.value.body.items,
-          depth + 1,
-          localEvidence,
-        )
-      : this.#emitReturn(item.value.body, depth + 1, localEvidence);
+    const lambda = item.value;
+    const body = this.#generatedNames.within(() =>
+      lambda.body.kind === "Block"
+        ? this.#emitBlockItems(lambda.body.items, depth + 1, localEvidence)
+        : this.#emitReturn(lambda.body, depth + 1, localEvidence)
+    );
     return [head, ...body, `${prefix}}`];
   }
 
@@ -5606,11 +5623,15 @@ class JavaScriptEmitter {
         return `${condition} ? ${consequence} : ${alternative}`;
       }
       case "While": {
-        const lines = this.#emitWhile(expression, depth + 1, evidenceNames);
+        const lines = this.#generatedNames.within(() =>
+          this.#emitWhile(expression, depth + 1, evidenceNames)
+        );
         return `(() => {\n${lines.join("\n")}\n${indent(depth)}})()`;
       }
       case "For": {
-        const lines = this.#emitFor(expression, depth + 1, evidenceNames);
+        const lines = this.#generatedNames.within(() =>
+          this.#emitFor(expression, depth + 1, evidenceNames)
+        );
         return `(() => {\n${lines.join("\n")}\n${indent(depth)}})()`;
       }
       case "Match":
@@ -5757,6 +5778,18 @@ class JavaScriptEmitter {
     evidenceNames: EvidenceNames,
     dictionaryParameters: readonly string[],
   ): string {
+    return this.#generatedNames.within(() =>
+      this.#emitLambdaIn(expression, depth, evidenceNames, dictionaryParameters)
+    );
+  }
+
+  /** `#emitLambda` inside the lambda's own scope of generated names (#1129). */
+  #emitLambdaIn(
+    expression: Core.LambdaExpr,
+    depth: number,
+    evidenceNames: EvidenceNames,
+    dictionaryParameters: readonly string[],
+  ): string {
     const parameters = [
       ...expression.parameters.map((parameter) =>
         this.#identifier(parameter.symbol, parameter.name),
@@ -5796,10 +5829,8 @@ class JavaScriptEmitter {
     depth: number,
     evidenceNames: EvidenceNames,
   ): string {
-    const lines = this.#emitBlockItems(
-      expression.items,
-      depth + 1,
-      evidenceNames,
+    const lines = this.#generatedNames.within(() =>
+      this.#emitBlockItems(expression.items, depth + 1, evidenceNames)
     );
     return `(() => {\n${lines.join("\n")}\n${indent(depth)}})()`;
   }
@@ -7087,15 +7118,22 @@ class JavaScriptEmitter {
     depth: number,
     evidenceNames: EvidenceNames,
   ): string {
-    const lines = this.#emitReturningMatch(
-      expression,
-      depth + 1,
-      evidenceNames,
+    const lines = this.#generatedNames.within(() =>
+      this.#emitReturningMatch(expression, depth + 1, evidenceNames)
     );
     return `(() => {\n${lines.join("\n")}\n${indent(depth)}})()`;
   }
 
   #emitTry(
+    expression: Core.TryExpr,
+    depth: number,
+    evidenceNames: EvidenceNames,
+  ): string {
+    return this.#generatedNames.within(() => this.#emitTryIn(expression, depth, evidenceNames));
+  }
+
+  /** `#emitTry` inside its arrow's own scope of generated names (#1129). */
+  #emitTryIn(
     expression: Core.TryExpr,
     depth: number,
     evidenceNames: EvidenceNames,
@@ -7304,31 +7342,51 @@ class JavaScriptEmitter {
         ];
     for (const arm of expression.arms) {
       const pattern = arm.pattern;
+      // The arm's label, then its own statements: its binders and its body.
+      let label: string;
+      const body: string[] = [];
       if (pattern.kind === "Constructor") {
         // `case true:` / `case "up":` where the constructor *is* a literal — the
         // `Bool` pin and Foreign Enums §2.4's members alike; the tag otherwise.
         const literal = this.#constructorLiteral(pattern.symbol);
-        lines.push(`${armIndent}case ${literal ?? JSON.stringify(pattern.tag)}:`);
+        label = `case ${literal ?? JSON.stringify(pattern.tag)}:`;
         const metadata = this.#constructors.get(pattern.symbol)?.constructor;
         pattern.arguments.forEach((argument, index) => {
           if (matchName === undefined) return;
           const field = metadata?.slots[index]?.field ?? `item${index + 1}`;
           const destructuring = this.#emitPattern(argument);
           if (destructuring !== "") {
-            lines.push(`${bodyIndent}const ${destructuring} = ${matchName}.${field};`);
+            body.push(`${bodyIndent}const ${destructuring} = ${matchName}.${field};`);
           }
         });
-        lines.push(...this.#emitArmBody(arm.body, bodyDepth, bodyIndent, evidenceNames));
       } else {
-        lines.push(`${armIndent}default:`);
+        label = "default:";
         if (pattern.kind === "Binding") {
           const name = this.#identifier(
             pattern.binding.symbol,
             pattern.binding.name,
           );
-          lines.push(`${bodyIndent}const ${name} = ${matchName};`);
+          body.push(`${bodyIndent}const ${name} = ${matchName};`);
         }
-        lines.push(...this.#emitArmBody(arm.body, bodyDepth, bodyIndent, evidenceNames));
+      }
+      body.push(...this.#emitArmBody(arm.body, bodyDepth, bodyIndent, evidenceNames));
+      // Unions §6.3 (#367): JavaScript scopes a `case` clause's declarations to
+      // the whole `switch`, where Hexagon scopes an arm's binders to that arm.
+      // Two arms binding one name would redeclare it — a `SyntaxError` at load
+      // — and an arm binding a name another arm reads from outside would leave
+      // that read in the declaration's dead zone. So an arm that declares
+      // anything, a binder or a statement of its own body, takes a block of
+      // its own, as a person writes it; an arm that declares nothing stays
+      // bare. (The `let` half of that test is redundant today: an arm that
+      // writes a `let` at its top level — a lifted if-chain `match`'s pattern
+      // views — writes that `match`'s own `const` there too, and the one
+      // statement that would open with a `let` alone, a `match … catch`, can
+      // be an arm's body only through a block, which emits as an arrow of its
+      // own.)
+      if (declaresAt(body, bodyIndent)) {
+        lines.push(`${armIndent}${label} {`, ...body, `${armIndent}}`);
+      } else {
+        lines.push(`${armIndent}${label}`, ...body);
       }
     }
     if (expression.arms.every((arm) => arm.pattern.kind === "Constructor")) {
@@ -8186,29 +8244,32 @@ class JavaScriptEmitter {
     }
 
     const prefix = indent(depth + 1);
-    const operandNames = expression.operands.map(() =>
-      this.#generatedNames.fresh("compare")
-    );
-    const lines = [
-      `${prefix}const ${operandNames[0]} = ${this.#emitExpr(expression.operands[0]!, depth + 1, evidenceNames)};`,
-    ];
-    for (let index = 0; index < expression.steps.length; index += 1) {
-      const operandName = operandNames[index + 1]!;
-      lines.push(
-        `${prefix}const ${operandName} = ${this.#emitExpr(expression.operands[index + 1]!, depth + 1, evidenceNames)};`,
+    const lines = this.#generatedNames.within(() => {
+      const operandNames = expression.operands.map(() =>
+        this.#generatedNames.fresh("compare")
       );
-      const test = this.#emitComparisonStep(
-        expression.steps[index]!,
-        operandNames[index]!,
-        operandName,
-        evidenceNames,
-      );
-      lines.push(
-        index === expression.steps.length - 1
-          ? `${prefix}return ${test};`
-          : `${prefix}if (!(${test})) return false;`,
-      );
-    }
+      const chain = [
+        `${prefix}const ${operandNames[0]} = ${this.#emitExpr(expression.operands[0]!, depth + 1, evidenceNames)};`,
+      ];
+      for (let index = 0; index < expression.steps.length; index += 1) {
+        const operandName = operandNames[index + 1]!;
+        chain.push(
+          `${prefix}const ${operandName} = ${this.#emitExpr(expression.operands[index + 1]!, depth + 1, evidenceNames)};`,
+        );
+        const test = this.#emitComparisonStep(
+          expression.steps[index]!,
+          operandNames[index]!,
+          operandName,
+          evidenceNames,
+        );
+        chain.push(
+          index === expression.steps.length - 1
+            ? `${prefix}return ${test};`
+            : `${prefix}if (!(${test})) return false;`,
+        );
+      }
+      return chain;
+    });
     return `(() => {\n${lines.join("\n")}\n${indent(depth)}})()`;
   }
 
@@ -8561,13 +8622,17 @@ class JavaScriptEmitter {
       // iterable expression is evaluated — so a fixed `__element` faults on
       // `hash` at `Vector(Vector(a))`, where the inner walk's source *is* the
       // outer walk's binder. Pre-dates the trie; the representation had nothing
-      // to do with it.
-      const element = this.#generatedNames.fresh("element");
-      const accumulator = this.#generatedNames.fresh("hash");
-      const elementHash = component("element", type.element, element);
-      return `(() => { let ${accumulator} = 0; for (const ${element} of ${value}) ` +
-        `${accumulator} = ${this.#useHelper("mixHash")}(${accumulator}, ${elementHash}); ` +
-        `return ${accumulator}; })()`;
+      // to do with it. The walk is a function, so it numbers its binders in a
+      // scope of its own (#1129) — and a nested walk's scope opens inside this
+      // one, which is what keeps the two levels apart.
+      return this.#generatedNames.within(() => {
+        const element = this.#generatedNames.fresh("element");
+        const accumulator = this.#generatedNames.fresh("hash");
+        const elementHash = component("element", type.element, element);
+        return `(() => { let ${accumulator} = 0; for (const ${element} of ${value}) ` +
+          `${accumulator} = ${this.#useHelper("mixHash")}(${accumulator}, ${elementHash}); ` +
+          `return ${accumulator}; })()`;
+      });
     }
     if (type.kind === "Set") {
       // Through `#subDictionary` at every element kind, a variable's included
@@ -8794,31 +8859,34 @@ class JavaScriptEmitter {
       // exhaustion is the comparison.
       // Fresh binders per level, for `#derivedEquals`' reason: a nested vector
       // order runs this walk inside itself, and shared names are a TDZ fault.
-      const leftElement = this.#generatedNames.fresh("leftElement");
-      const rightElement = this.#generatedNames.fresh("rightElement");
-      const iterator = this.#generatedNames.fresh("rightStep");
-      const step = this.#generatedNames.fresh("step");
-      const order = this.#generatedNames.fresh("order");
-      const elementOrder = component("element", type.element, leftElement, rightElement);
-      // #680, the same elision as `#derivedEquals`': an element order that
-      // ignores its right-hand operand — `Unit`'s inlines to the `Equal`
-      // constant — leaves this read discarded. Only the binding goes. The loop
-      // itself is load-bearing whatever the element says, because exhaustion is
-      // what decides a vector order: `.next()` still has to run, `done` still
-      // decides `Greater`, and the tail check still separates `Equal` from
-      // `Less`. Collapsing an always-`Equal` walk to a length comparison would
-      // be a different emission rather than a deletion, so it is not taken here.
-      const readsRight = elementOrder.includes(rightElement);
-      const rightBinding = readsRight ? `const ${rightElement} = ${step}.value; ` : "";
-      return "(() => { " +
-        `const ${iterator} = ${right}[${this.#spell("Symbol")}.iterator](); ` +
-        `for (const ${leftElement} of ${left}) { ` +
-        `const ${step} = ${iterator}.next(); ` +
-        `if (${step}.done) return ${greater()}; ` +
-        `${rightBinding}` +
-        `const ${order} = ${elementOrder}; ` +
-        `if (${order}.tag !== "Equal") return ${order}; } ` +
-        `return ${iterator}.next().done ? ${equal()} : ${less()}; })()`;
+      // A scope of its own, for `#derivedHash`' reason (#1129).
+      return this.#generatedNames.within(() => {
+        const leftElement = this.#generatedNames.fresh("leftElement");
+        const rightElement = this.#generatedNames.fresh("rightElement");
+        const iterator = this.#generatedNames.fresh("rightStep");
+        const step = this.#generatedNames.fresh("step");
+        const order = this.#generatedNames.fresh("order");
+        const elementOrder = component("element", type.element, leftElement, rightElement);
+        // #680, the same elision as `#derivedEquals`': an element order that
+        // ignores its right-hand operand — `Unit`'s inlines to the `Equal`
+        // constant — leaves this read discarded. Only the binding goes. The loop
+        // itself is load-bearing whatever the element says, because exhaustion is
+        // what decides a vector order: `.next()` still has to run, `done` still
+        // decides `Greater`, and the tail check still separates `Equal` from
+        // `Less`. Collapsing an always-`Equal` walk to a length comparison would
+        // be a different emission rather than a deletion, so it is not taken here.
+        const readsRight = elementOrder.includes(rightElement);
+        const rightBinding = readsRight ? `const ${rightElement} = ${step}.value; ` : "";
+        return "(() => { " +
+          `const ${iterator} = ${right}[${this.#spell("Symbol")}.iterator](); ` +
+          `for (const ${leftElement} of ${left}) { ` +
+          `const ${step} = ${iterator}.next(); ` +
+          `if (${step}.done) return ${greater()}; ` +
+          `${rightBinding}` +
+          `const ${order} = ${elementOrder}; ` +
+          `if (${order}.tag !== "Equal") return ${order}; } ` +
+          `return ${iterator}.next().done ? ${equal()} : ${less()}; })()`;
+      });
     }
     if (type.kind === "Record") {
       return lexicographicComparison(
@@ -9067,41 +9135,42 @@ class JavaScriptEmitter {
       // walk inside itself (Constraints §4.3's parameterized instance, resolved
       // twice), and reused names put the inner `const` in the outer's scope —
       // where the outer's own initializer already read it. That is a TDZ
-      // `ReferenceError` at run time on a program that compiled clean.
-      const leftElement = this.#generatedNames.fresh("leftElement");
-      const rightElement = this.#generatedNames.fresh("rightElement");
-      const step = this.#generatedNames.fresh("rightStep");
-      const elementEquals = component("element", type.element, leftElement, rightElement);
-      const size = `${this.#useVectorRuntime("size")}(${left}) === ` +
-        `${this.#useVectorRuntime("size")}(${right})`;
-      // #680. An element equality that ignores its operands makes the machinery
-      // around it dead, and `Unit`'s does: it inlines to `true`, so base emitted
-      // a discarded `.next()` read and a guard testing a literal, once per
-      // element, forever false. The three names above are still *claimed* even
-      // where nothing is emitted — `#claim` is what decides the `_1` suffixes,
-      // so releasing them here would renumber the binders of every other
-      // dictionary in the module, which is a change to emission that is not
-      // dead.
-      //
-      // `true` is the identity of the fold, so the loop cannot do anything: the
-      // equality is its size check and nothing more. Any other operand-free
-      // element expression keeps its loop — it may still decide the answer —
-      // and only sheds the right-hand binding it does not read.
-      if (elementEquals === "true") return size;
-      // Conservative by construction: a name that merely *contains* this
-      // binder — a nested walk's `__rightElement_1` — counts as a mention, so
-      // the walk keeps a binding it might not need rather than dropping one it
-      // does.
-      const readsRight = elementEquals.includes(rightElement);
-      const iterator = readsRight
-        ? `const ${step} = ${right}[${this.#spell("Symbol")}.iterator](); `
-        : "";
-      const advance = readsRight ? `const ${rightElement} = ${step}.next().value; ` : "";
-      return `${size} && ` +
-        `(() => { ${iterator}` +
-        `for (const ${leftElement} of ${left}) { ` +
-        `${advance}` +
-        `if (!(${elementEquals})) return false; } return true; })()`;
+      // `ReferenceError` at run time on a program that compiled clean. A scope
+      // of its own, for `#derivedHash`' reason (#1129).
+      return this.#generatedNames.within(() => {
+        const leftElement = this.#generatedNames.fresh("leftElement");
+        const rightElement = this.#generatedNames.fresh("rightElement");
+        const step = this.#generatedNames.fresh("rightStep");
+        const elementEquals = component("element", type.element, leftElement, rightElement);
+        const size = `${this.#useVectorRuntime("size")}(${left}) === ` +
+          `${this.#useVectorRuntime("size")}(${right})`;
+        // #680. An element equality that ignores its operands makes the machinery
+        // around it dead, and `Unit`'s does: it inlines to `true`, so base emitted
+        // a discarded `.next()` read and a guard testing a literal, once per
+        // element, forever false. The three names above are claimed even where
+        // nothing is emitted, and cost nothing outside this walk: its scope
+        // releases them either way (#1129).
+        //
+        // `true` is the identity of the fold, so the loop cannot do anything: the
+        // equality is its size check and nothing more. Any other operand-free
+        // element expression keeps its loop — it may still decide the answer —
+        // and only sheds the right-hand binding it does not read.
+        if (elementEquals === "true") return size;
+        // Conservative by construction: a name that merely *contains* this
+        // binder — a nested walk's `__rightElement_1` — counts as a mention, so
+        // the walk keeps a binding it might not need rather than dropping one it
+        // does.
+        const readsRight = elementEquals.includes(rightElement);
+        const iterator = readsRight
+          ? `const ${step} = ${right}[${this.#spell("Symbol")}.iterator](); `
+          : "";
+        const advance = readsRight ? `const ${rightElement} = ${step}.next().value; ` : "";
+        return `${size} && ` +
+          `(() => { ${iterator}` +
+          `for (const ${leftElement} of ${left}) { ` +
+          `${advance}` +
+          `if (!(${elementEquals})) return false; } return true; })()`;
+      });
     }
     if (type.kind === "Set") {
       // `Hash` at both the `Eq` and the `Hash` node: a set's equality is its
@@ -9506,9 +9575,7 @@ class JavaScriptEmitter {
    * that immediately selects and applies one member — §9.1's peephole, which
    * reads the slot's arrow and reduces it — and a use site that needs the whole
    * record cannot disagree about what the dictionary contains. Every derived
-   * body is rendered here exactly once whichever face the caller takes: the
-   * walks mint fresh binder names as they go, so a second rendering would move
-   * every later name in the module.
+   * body is rendered here exactly once whichever face the caller takes.
    */
   #derivedSlots(
     constraint: Typed.ConstraintName,
@@ -9780,7 +9847,7 @@ class JavaScriptEmitter {
     // dictionary local, so a hoisted binding never lands on a seat the resolver
     // already assigned (`nameDictionaries`), and two hoisted bindings whose
     // flattened spellings coincide separate by suffix.
-    const name = this.#generatedNames.fresh(
+    const name = this.#generatedNames.hoisted(
       [
         evidence.dictionary.startsWith("__")
           ? evidence.dictionary.slice(2)
@@ -9804,12 +9871,10 @@ class JavaScriptEmitter {
    * constraint plus its type and components (`structuralEvidenceKey`).
    *
    * `initializer` is a thunk and not a string because the literal must be
-   * rendered **exactly** when it is interned. Rendering it unconditionally would
-   * mint the walks' fresh binder names at every use site, moving every later
-   * generated name in the module for a rendering that is then thrown away; and
-   * rendering it *after* interning would put a component's own binding after the
-   * binding that reads it, which is the one thing §5's insertion-order-is-
-   * dependency-order argument needs to stay true.
+   * rendered **exactly** when it is interned: a site whose binding already
+   * exists renders nothing, and rendering it *after* interning would put a
+   * component's own binding after the binding that reads it, which is the one
+   * thing §5's insertion-order-is-dependency-order argument needs to stay true.
    *
    * Refused in an eagerly-read position (`#eagerEvidenceDepth`) for the reason
    * that field records: §5 places the hoisted block after the instances, so a
@@ -9827,7 +9892,7 @@ class JavaScriptEmitter {
     const existing = this.#hoistedEvidence.get(key);
     if (existing !== undefined) return existing.name;
     const rendered = initializer();
-    const name = this.#generatedNames.fresh(
+    const name = this.#generatedNames.hoisted(
       [constraint, ...flattenTypeSpelling(evidence.type)].join("_"),
     );
     this.#hoistedEvidence.set(key, { name, initializer: rendered });
@@ -10285,7 +10350,7 @@ class JavaScriptEmitter {
   #defaultHelperLocal(symbol: Resolved.SymbolId, member: string): string {
     const existing = this.#defaultHelperLocals.get(symbol);
     if (existing !== undefined) return existing;
-    const local = this.#generatedNames.fresh(`default_${member}`);
+    const local = this.#generatedNames.hoisted(`default_${member}`);
     this.#defaultHelperLocals.set(symbol, local);
     return local;
   }
@@ -10658,7 +10723,7 @@ class JavaScriptEmitter {
     if (!this.#releasesUnapplied(expression)) return undefined;
     const signature = expression.type as Typed.FunctionType;
     const plan = this.#capturePlans.planFor(signature.parameters[0]!)!;
-    const released = this.#generatedNames.fresh("released");
+    const released = this.#generatedNames.within(() => this.#generatedNames.fresh("released"));
     return `${released} => ${
       this.#useHelper("capture")
     }(${this.#capturePlanName()}, ${plan}, ${released})`;
@@ -11004,8 +11069,12 @@ class JavaScriptEmitter {
       );
       return base;
     }
-    const parameters = expression.type.parameters.map((_, index) =>
-      this.#generatedNames.fresh(`arg${index}`)
+    // The wrapper is a function, so its parameters are numbered in a scope of
+    // their own (#1129) — a sibling wrapper reuses `__arg0` — and every name
+    // `base` reads is still held while they are claimed.
+    const { parameters: parameterTypes } = expression.type;
+    const parameters = this.#generatedNames.within(() =>
+      parameterTypes.map((_, index) => this.#generatedNames.fresh(`arg${index}`))
     );
     return `${arrowParameters([...parameters, ...residualParameters])} => ` +
       `${base}(${[...parameters, ...dictionaries].join(", ")})`;
@@ -13271,6 +13340,18 @@ function isUnit(type: Typed.Type): boolean {
 }
 
 /**
+ * Whether these statement lines declare a binding at `indent` itself — at the
+ * top of the block they are placed in, not inside a block nested in one of
+ * them. Every statement the emitter writes into a block starts at the block's
+ * indent, and it declares with `const` and `let` alone.
+ */
+function declaresAt(lines: readonly string[], indent: string): boolean {
+  return lines.some((line) =>
+    line.startsWith(`${indent}const `) || line.startsWith(`${indent}let `)
+  );
+}
+
+/**
  * Whether emitted statements end in an unconditional exit, so that appending a
  * `break` would be unreachable. Conservative: anything else is treated as
  * falling through.
@@ -15457,8 +15538,41 @@ function componentDispatch(
   return evidence?.kind === "Instance" && evidence.primitive === undefined;
 }
 
+/**
+ * The emitter's generated names (Lexer §3.2's `__` family), numbered **per
+ * function** rather than per module (#1129).
+ *
+ * A function is already a scope, so a person writing two functions that each
+ * need an `end` writes `end` in both; the mint does the same. It keeps a stack
+ * of function scopes, innermost last, under the module scope:
+ *
+ * - `fresh` claims in the innermost function being emitted — or in the module
+ *   scope when none is, since a name minted at the top level is a module
+ *   binding and every function can see it.
+ * - A module-level binding minted while a function is being emitted — a
+ *   helper, a runtime or inherited-default import's local, a hoisted
+ *   dictionary — claims in the module scope all the same (`fixed`, `hoisted`,
+ *   the `claim…` family).
+ * - A claim avoids the module scope and every function scope still open. So a
+ *   nested function never hides a name its enclosing functions already hold —
+ *   the only ones it could read — and a local live where a module binding is
+ *   minted never hides that binding. (The second half is a guard no program
+ *   reaches: no helper, import, or hoisted-dictionary stem spells a local's —
+ *   a dictionary's begins uppercase.)
+ * - A function scope is dropped when its function has been emitted, so the next
+ *   sibling starts from its parent's names again.
+ *
+ * That is sound because a generated name is referenced only by text emitted
+ * after its claim. A later claim that reuses a closed function's spelling — a
+ * sibling's, or a nested function's emitted before its parent claimed the same
+ * stem — can shadow nothing that function reads, since its text was finished
+ * first, and that function's own declaration is out of scope everywhere else.
+ * Within one function nothing changes — two loops with a computed end in one
+ * function are `__end` and `__end_1`, as a person would also need two names.
+ */
 class GeneratedNames {
-  readonly #used: Set<string>;
+  readonly #module: Set<string>;
+  readonly #functions: Set<string>[] = [];
 
   constructor(existing: Iterable<string>) {
     // The reserved captures are seeded whether or not this module is contested
@@ -15466,7 +15580,20 @@ class GeneratedNames {
     // minted name would redeclare, and seeding them unconditionally keeps the
     // mint's answers a function of the module's own names rather than of a
     // condition settled elsewhere.
-    this.#used = new Set([...RESERVED_CAPTURES.map(reservedCapture), ...existing]);
+    this.#module = new Set([...RESERVED_CAPTURES.map(reservedCapture), ...existing]);
+  }
+
+  /**
+   * Emits one function's body in its own scope: what `fresh` claims inside is
+   * released when the body is done, for the next sibling to reuse.
+   */
+  within<T>(emit: () => T): T {
+    this.#functions.push(new Set());
+    try {
+      return emit();
+    } finally {
+      this.#functions.pop();
+    }
   }
 
   /**
@@ -15474,18 +15601,48 @@ class GeneratedNames {
    * function, a runtime import's local.
    */
   fixed(stem: string): string {
-    return this.#claim(stem);
+    return this.#claim(stem, this.#module);
   }
 
   /**
-   * A new binder under this stem. The first one gets the bare spelling and the
-   * next takes the probe's `_1` — the *same* mechanism as `fixed`, since a
-   * second `fresh("match")` is exactly an occupied preferred spelling (#425).
-   * The counter this replaced started at 0 and glued its digit on, so the first
-   * `match` was `__match0` and the first `arg0` was `__arg00`.
+   * A new binder under this stem, local to the function being emitted. The
+   * first one gets the bare spelling and the next takes the probe's `_1` — the
+   * *same* mechanism as `fixed`, since a second `fresh("match")` is exactly an
+   * occupied preferred spelling (#425). The counter this replaced started at 0
+   * and glued its digit on, so the first `match` was `__match0` and the first
+   * `arg0` was `__arg00`.
    */
   fresh(stem: string): string {
-    return this.#claim(stem);
+    return this.#claim(stem, this.#functions.at(-1) ?? this.#module);
+  }
+
+  /**
+   * A new **module-level** binding under this stem, minted wherever emission
+   * is — a hoisted dictionary, an inherited default's import local. `fresh`'s
+   * probe, claimed in the module scope, so no function emitted after it can
+   * hide it.
+   */
+  hoisted(stem: string): string {
+    return this.#claim(stem, this.#module);
+  }
+
+  /**
+   * A public spelling **only if it can be had bare** — free here, and neither
+   * runtime vocabulary nor a reserved word — else `undefined`, claiming
+   * nothing. For a seat with a better fallback than the probe: a foreign class's
+   * minted local, whose fallback is its fixed `__class_<Type>` (FFI Part 5 §7).
+   */
+  claimBare(name: string): string | undefined {
+    // A foreign `__` spelling would sit inside the compiler's reserved family
+    // (Lexer §3.2), where it could take a helper's or another class's name.
+    if (
+      name.startsWith("__") || this.#taken(name) || MINTED_LOCAL_HAZARDS.has(name) ||
+      reservedWords.has(name)
+    ) {
+      return undefined;
+    }
+    this.#module.add(name);
+    return name;
   }
 
   /**
@@ -15506,30 +15663,11 @@ class GeneratedNames {
    * class where a source-written import local moves only for the second (rule 4)
    * and the module qualifies around the first (rule 2).
    */
-  /**
-   * A public spelling **only if it can be had bare** — free here, and neither
-   * runtime vocabulary nor a reserved word — else `undefined`, claiming
-   * nothing. For a seat with a better fallback than the probe: a foreign class's
-   * minted local, whose fallback is its fixed `__class_<Type>` (FFI Part 5 §7).
-   */
-  claimBare(name: string): string | undefined {
-    // A foreign `__` spelling would sit inside the compiler's reserved family
-    // (Lexer §3.2), where it could take a helper's or another class's name.
-    if (
-      name.startsWith("__") || this.#used.has(name) || MINTED_LOCAL_HAZARDS.has(name) ||
-      reservedWords.has(name)
-    ) {
-      return undefined;
-    }
-    this.#used.add(name);
-    return name;
-  }
-
   claimPublic(name: string): string {
-    if (this.#used.has(name) || MINTED_LOCAL_HAZARDS.has(name) || reservedWords.has(name)) {
-      return this.#claim(name);
+    if (this.#taken(name) || MINTED_LOCAL_HAZARDS.has(name) || reservedWords.has(name)) {
+      return this.#claim(name, this.#module);
     }
-    this.#used.add(name);
+    this.#module.add(name);
     return name;
   }
 
@@ -15541,11 +15679,16 @@ class GeneratedNames {
    * re-prefixing would spell `____Show_Int_show`.
    */
   claimGenerated(name: string): string {
-    if (!this.#used.has(name)) {
-      this.#used.add(name);
+    if (!this.#taken(name)) {
+      this.#module.add(name);
       return name;
     }
-    return this.#claim(name.startsWith("__") ? name.slice(2) : name);
+    return this.#claim(name.startsWith("__") ? name.slice(2) : name, this.#module);
+  }
+
+  /** Held by the module or by a function whose body is still being emitted. */
+  #taken(name: string): boolean {
+    return this.#module.has(name) || this.#functions.some((scope) => scope.has(name));
   }
 
   /**
@@ -15553,12 +15696,12 @@ class GeneratedNames {
    * preferred spelling is `__<stem>`, and an occupied one probes numeric
    * suffixes from 1 — `__vectorSlice_1`, then `__vectorSlice_2` (#425).
    */
-  #claim(stem: string): string {
+  #claim(stem: string, scope: Set<string>): string {
     const base = `__${stem}`;
     let name = base;
     let suffix = 1;
-    while (this.#used.has(name)) name = `${base}_${suffix++}`;
-    this.#used.add(name);
+    while (this.#taken(name)) name = `${base}_${suffix++}`;
+    scope.add(name);
     return name;
   }
 }
