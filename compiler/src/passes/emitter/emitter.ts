@@ -1501,6 +1501,8 @@ interface PreludeIds {
   readonly ignore: Resolved.SymbolId | undefined;
   readonly jsValueFrom: Resolved.SymbolId | undefined;
   readonly jsError: Resolved.SymbolId | undefined;
+  readonly rangeUp: Resolved.SymbolId | undefined;
+  readonly rangeDown: Resolved.SymbolId | undefined;
 }
 
 /**
@@ -1636,6 +1638,11 @@ function preludeIds(module: Core.Module): PreludeIds {
     // binding exists for a foreign caller reaching the export, and this entry is
     // what keeps a Hexagon call site from paying for it.
     jsValueFrom: preludeExport(module, "JsValue", "from"),
+    // `Range.up` and `Range.down` as this module reached them (#1073): a loop
+    // head calling either counts natively, as `lo..hi` does (Loops §8). The
+    // resolved binding, so a module's own `up` or `down` is an ordinary call.
+    rangeUp: preludeExport(module, "Range", "up"),
+    rangeDown: preludeExport(module, "Range", "down"),
     // The exception door (Exceptions §6.2, #509). Read off `visibleExceptions`
     // rather than off the synthesized import the two entries above read, and the
     // difference is load-bearing: an exception reaches a module as a *pattern*
@@ -1832,9 +1839,6 @@ class VocabularyFaces {
     return this.#qualified.has(name) ? `globalThis.${name}` : name;
   }
 }
-
-/** The inert vocabulary a file with no universe to consult holds: always bare. */
-const BARE_VOCABULARY = new VocabularyFaces(new Set());
 
 /**
  * Unit's own spelling (Products §2.6), and the one runtime-vocabulary member
@@ -2041,18 +2045,17 @@ export function runtimeGlobalsText(): string {
  * accompanies these: the declared floor is a consuming `lib` of es2015 or
  * later, stated rather than silently widened (§8.3).
  *
- * `Iterable` is a parameter because these lines are *faces*, and the preview
- * writes them into the module's own pane where a user's `Iterable` can capture
- * them — measured, `TS2315` on the `extends` clause. The shipped runtime module
- * is a file of its own whose four top-level names are fixed, so it never
- * qualifies and passes the bare spelling.
+ * `Iterable` is spelled bare: the runtime declaration module is a file of its
+ * own whose four top-level names are fixed, so nothing in it can capture the
+ * global. No program file spells these interfaces since every one is its
+ * companion's type (#1071, #1073); the companions' seats alias them.
  */
-function runtimeFaceDeclarations(iterable: string): readonly string[] {
+function runtimeFaceDeclarations(): readonly string[] {
   return [
-    `export interface Vector<a> extends ${iterable}<a> { readonly "~hex": "Vector"; }`,
-    `export interface Set<a> extends ${iterable}<a> { readonly "~hex": "Set"; }`,
-    `export interface Map<k, v> extends ${iterable}<[k, v]> { readonly "~hex": "Map"; }`,
-    `export interface Range extends ${iterable}<number> { readonly "~hex": "Range"; }`,
+    `export interface Vector<a> extends Iterable<a> { readonly "~hex": "Vector"; }`,
+    `export interface Set<a> extends Iterable<a> { readonly "~hex": "Set"; }`,
+    `export interface Map<k, v> extends Iterable<[k, v]> { readonly "~hex": "Map"; }`,
+    `export interface Range extends Iterable<number> { readonly "~hex": "Range"; }`,
   ];
 }
 
@@ -2071,29 +2074,7 @@ const DEFAULT_RUNTIME_GLOBALS_SPECIFIER = `./${RUNTIME_DECLARATIONS_STEM}`;
 
 /** The text of a program's runtime declaration module (FFI Part 1 §8.3). */
 export function runtimeDeclarationsText(): string {
-  return `${runtimeFaceDeclarations(BARE_VOCABULARY.spell("Iterable")).join("\n")}\n`;
-}
-
-/**
- * The same four interfaces as a namespace body, for the TypeScript preview.
- *
- * The preview is one pane of text with nothing to import from, so §8.3
- * obligation 6 has it declare the namespace inline instead. Members of an
- * ambient namespace are exported implicitly; the `export` keyword is dropped
- * because writing it inside `declare namespace` is redundant, and the bodies
- * are otherwise character-for-character the normative ones — including §1.1's
- * qualification, since sharing the pane is exactly what exposes them to it.
- */
-function runtimeNamespaceDeclaration(
-  alias: string,
-  vocabulary: VocabularyFaces,
-): readonly string[] {
-  return [
-    `declare namespace ${alias} {`,
-    ...runtimeFaceDeclarations(vocabulary.spell("Iterable"))
-      .map((line) => `  ${line.replace(/^export /, "")}`),
-    "}",
-  ];
+  return `${runtimeFaceDeclarations().join("\n")}\n`;
 }
 
 /** The four faces §8.3 governs; every other row of the §4.1 table is elsewhere. */
@@ -2103,18 +2084,14 @@ type RuntimeFaceName = "Vector" | "Set" | "Map" | "Range";
  * One declaration file's use of the runtime faces: the alias they are spelled
  * through, and whether any was actually reached.
  *
- * The alias is settled *before* rendering rather than patched in afterwards,
- * which is what lets `reference` return finished text. That is possible because
- * §10's probe runs over the file's top-level identifiers, and those are a
- * property of the module, not of the rendering — see `declarationTopLevelNames`.
+ * Only a collection companion's own seat reaches them — `export type Range =
+ * Hex.Range;` — since every face names its type by its Hexagon name (#1071,
+ * #1073). A companion's top-level names are fixed and none is `Hex`, so the
+ * alias is fixed too; no program file can contest it.
  */
 class RuntimeFaces {
-  readonly alias: string;
+  readonly alias = "Hex";
   #used = false;
-
-  constructor(alias: string) {
-    this.alias = alias;
-  }
 
   /** Whether any face was rendered — the whole of "emitted only when needed". */
   get used(): boolean {
@@ -2727,6 +2704,14 @@ function faceQualifiers(type: Typed.Type, into: FaceQualifier[]): void {
       }
       faceQualifiers(type.element, into);
       return;
+    case "Range":
+      if (type.qualifier !== undefined) {
+        into.push({
+          qualifier: type.qualifier,
+          key: nominalHomeKey("externType", publicTypeKey("Range").id),
+        });
+      }
+      return;
     case "Array":
     case "JsSet":
     case "Node":
@@ -2887,20 +2872,20 @@ function declarationAliasPlan(
 }
 
 /**
- * Every top-level identifier a generated `.d.ts` for this module can spell, as
- * the `Hex` alias probe's collision universe (FFI Part 1 §10).
+ * Every top-level identifier a generated `.d.ts` for this module can spell: the
+ * collision universe of the spellings the declaration emitter mints (FFI Part 1
+ * §10) — the imported types' locals (Part 7 §2.4) and the vocabulary's
+ * qualification (Part 7 §1.1).
  *
  * §10 probes "every top-level identifier emitted in that `.d.ts`, regardless of
- * TypeScript namespace", and §8.3 obligation 2 names the class this must not
- * miss: the emitter already writes `import type * as Json from "./tiny-json.js"`
- * for a source-level namespace import, so a module importing under the alias
- * `Hex` forces `Hex_1`. That collision predates this ruling.
+ * TypeScript namespace", which includes the type-only import aliases a
+ * source-level namespace import contributes (`import type * as Json from
+ * "./tiny-json.js"`).
  *
  * **`namespaceAliases` is the one part the caller supplies**, because it is the
  * one member of this universe that is not over-claimed (§2.4). An alias reaches
  * the `.d.ts` only where some occurrence qualifies through it, and one that does
- * not contests nothing there; forcing `Hex_1` for an alias absent from the file
- * is exactly the failure the amended obligation 2 spells out. The declaration
+ * not contests nothing there. The declaration
  * emitter passes the qualifying aliases under their *emitted* spellings; the
  * preview, which writes every alias line unconditionally and is out of §2.4's
  * scope, passes them all.
@@ -2908,8 +2893,8 @@ function declarationAliasPlan(
  * The set is deliberately a superset of the *source-derived* names a file can
  * emit. Whether a declaration reaches the file depends on its being exported
  * and on its kind, and re-deciding that here would be a second copy of `emit`'s
- * conditions, drifting from the first. Over-claiming only ever moves the
- * generated alias, which no user name depends on; under-claiming emits a
+ * conditions, drifting from the first. Over-claiming only ever moves a
+ * generated spelling, which no user name depends on; under-claiming emits a
  * `.d.ts` that does not compile.
  *
  * The names the emitter *generates* are left out, and that is the one place this
@@ -2998,21 +2983,6 @@ function allNamespaceAliases(module: Core.Module): readonly string[] {
   return module.items.flatMap((item) =>
     item.kind === "Import" && item.form.kind === "Namespace" ? [item.form.alias] : []
   );
-}
-
-/**
- * The generated namespace alias: first free of `Hex`, `Hex_1`, `Hex_2`, …
- * (FFI Part 1 §10, Part 12 §11.1). Only the generated import is renamed; a user
- * name always keeps its spelling, and the suffix takes an underscore — the
- * emitted JavaScript's own idiom, never `Hex1` (#619).
- */
-function runtimeFacesAlias(module: Core.Module, universe?: ReadonlySet<string>): string {
-  const taken = universe ?? declarationTopLevelNames(module);
-  if (!taken.has("Hex")) return "Hex";
-  for (let suffix = 1; ; suffix += 1) {
-    const candidate = `Hex_${suffix}`;
-    if (!taken.has(candidate)) return candidate;
-  }
 }
 
 class JavaScriptEmitter {
@@ -6127,7 +6097,7 @@ class JavaScriptEmitter {
         expression.pattern.binding.name,
       )
       : undefined;
-    const counting = countingBounds(expression.iterable);
+    const counting = this.#countingBounds(expression.iterable);
     const head = counting !== undefined
       ? this.#countingHead(counting, binder, depth, evidenceNames)
       : this.#iterationHead(expression, binder, depth, evidenceNames);
@@ -6217,9 +6187,37 @@ class JavaScriptEmitter {
   }
 
   /**
+   * The bounds of a head Loops §8 erases to a counting loop, or `undefined`.
+   *
+   * The licence is the head's syntax: a `..` written there, or a call to
+   * `Range.up` or `Range.down` (#1073), read through the grouping parentheses
+   * and ascription that elaboration has already removed. The calls are
+   * recognised by their resolved binding, never their spelling, so a module's
+   * own `up` is an ordinary call. A `Range` that arrives any other way — a
+   * variable, some other call — is a value, and iterates as one.
+   */
+  #countingBounds(iterable: Core.Expr): CountingBounds | undefined {
+    if (iterable.kind === "Range") {
+      return { start: iterable.start, end: iterable.end, descending: false };
+    }
+    if (
+      iterable.kind !== "Call" || iterable.callee.kind !== "Name" ||
+      iterable.arguments.length !== 2
+    ) {
+      return undefined;
+    }
+    const [first, second] = iterable.arguments as readonly [Core.Expr, Core.Expr];
+    const symbol = iterable.callee.symbol;
+    if (symbol === this.#prelude.rangeUp) return { start: first, end: second, descending: false };
+    if (symbol === this.#prelude.rangeDown) return { start: first, end: second, descending: true };
+    return undefined;
+  }
+
+  /**
    * Loops §8's counting loop: a syntactic range in the head never builds a
-   * `Range`, and the loop counts — `for (let i = 1; i <= n; i++)`. Mandatory,
-   * not an optimisation (Loops §8).
+   * `Range`, and the loop counts — `for (let i = 1; i <= n; i++)`, or
+   * `for (let i = n; i >= 1; i--)` down. Mandatory, not an optimisation
+   * (Loops §8).
    *
    * Each bound is still evaluated once, start before end (Loops §2.3). The end
    * stays in the test only where reading it again at every iteration is free
@@ -6256,9 +6254,10 @@ class JavaScriptEmitter {
       last = this.#generatedNames.fresh("end");
       before.push(`${prefix}const ${last} = ${end};`);
     }
+    const [test, step] = bounds.descending ? [">=", "--"] : ["<=", "++"];
     return {
       before,
-      header: `for (let ${item} = ${first}; ${item} <= ${last}; ${item}++)`,
+      header: `for (let ${item} = ${first}; ${item} ${test} ${last}; ${item}${step})`,
       item,
     };
   }
@@ -11268,6 +11267,12 @@ class JavaScriptEmitter {
       // identified the canonical source instance (§9.2).
       case "stringToSeq":
         return this.#useHelper("seqFromIterable");
+      // A range object is its own JavaScript iterable, ascending or descending
+      // (#1073), so its traversal is the inbound adapter over it, as a string's is.
+      case "rangeToSeq":
+        return this.#useHelper("seqFromIterable");
+      case "rangeDown":
+        return this.#useHelper("rangeDown");
       case "stringConcat":
         return "(__a, __b) => __a + __b";
       case "stringEquals":
@@ -11997,16 +12002,12 @@ class DeclarationEmitter {
     // compiler mints can take a lib spelling a face needs. It bites at rung 5 —
     // a minted local's first candidate is the foreign type's *own name*, so a
     // module exporting a record genuinely named `Iterable` would otherwise be
-    // imported under `Iterable` here and capture this file's `Seq` faces. The
-    // other two probes below can only ever produce `Hex_n` and `Name_n`, so the
-    // vocabulary is inert for them; they read it anyway, because a probe that
-    // reads a different universe from its neighbours is the drift this rule's
-    // single list exists to prevent.
+    // imported under `Iterable` here and capture this file's `Seq` faces.
     const probed = new Set([...universe, ...CONTESTED_VOCABULARY]);
-    const runtime = new RuntimeFaces(runtimeFacesAlias(module, probed));
-    // The settled runtime alias joins the probe's universe: it is a top-level
-    // identifier of this file that `declarationTopLevelNames` deliberately does
-    // not carry, being generated rather than source-derived.
+    const runtime = new RuntimeFaces();
+    // The runtime alias joins the probe's universe: it is a top-level
+    // identifier of a companion's file that `declarationTopLevelNames`
+    // deliberately does not carry, being generated rather than source-derived.
     //
     // That universe is a documented *superset* of what the file emits, and it is
     // one here too — a declaration that reaches no `.d.ts` row still spends its
@@ -12492,13 +12493,8 @@ class TypeScriptPreviewEmitter {
     const universe = declarationTopLevelNames(module);
     this.#faces = {
       prelude: preludeIds(module),
-      runtime: new RuntimeFaces(
-        runtimeFacesAlias(module, new Set([...universe, ...CONTESTED_VOCABULARY])),
-      ),
-      // §1.1 qualifies here too, and the preview is the one file where the
-      // *runtime* faces are exposed to the capture as well: the pane declares
-      // `Hex` inline, so `interface Vector<a> extends Iterable<a>` shares a
-      // scope with the user's own `Iterable` (measured, `TS2315`).
+      runtime: new RuntimeFaces(),
+      // §1.1 qualifies here too.
       vocabulary: new VocabularyFaces(universe),
       // Inert: §2.4's Scope keeps the preview on bare names. It is one pane of
       // text with nothing to import from, so every rung declines and the sink
@@ -12792,17 +12788,6 @@ class TypeScriptPreviewEmitter {
       isExternalModule = true;
     }
 
-    // The preview is one pane of inspection-only text with no file to import
-    // from, so §8.3 obligation 6 has it declare the namespace inline instead —
-    // the same four interfaces, which is what keeps a value typed through the
-    // preview and one typed through an imported `hex.d.ts` mutually assignable.
-    // The header goes first to read like one, not because TypeScript needs it
-    // there: a type reference may precede its declaration in the same file.
-    if (this.#faces.runtime.used) {
-      declarations.unshift(
-        ...runtimeNamespaceDeclaration(this.#faces.runtime.alias, this.#faces.vocabulary),
-      );
-    }
     if (!isExternalModule) declarations.push("export {};");
 
     return {
@@ -13361,6 +13346,7 @@ type Helper =
   | "exception"
   | "floatEquals"
   | "range"
+  | "rangeDown"
   | "seqFromIterable"
   | "seqInbound"
   | "seqIterate"
@@ -13423,6 +13409,7 @@ const HELPER_DEPENDENCIES: Readonly<Record<Helper, readonly Helper[]>> = {
   exception: [],
   floatEquals: [],
   range: [],
+  rangeDown: [],
   seqFromIterable: ["seqIterate"],
   seqInbound: ["seqFromIterable"],
   seqIterate: ["seqFromIterable", "seqToIterable"],
@@ -14019,6 +14006,18 @@ function renderHelper(
         "  return { start: __start, end: __end, descending: false,",
         `    *[${spell("Symbol")}.iterator]() {`,
         "      for (let __value = __start; __value <= __end; __value += 1) yield __value;",
+        "    },",
+        "  };",
+        "}",
+      ];
+    // `Range.down`'s door (#1073): the same object counting the other way, its
+    // endpoints as supplied, so a slice's `SliceError` reports what was written.
+    case "rangeDown":
+      return [
+        `function ${name}(__start, __end) {`,
+        "  return { start: __start, end: __end, descending: true,",
+        `    *[${spell("Symbol")}.iterator]() {`,
+        "      for (let __value = __start; __value >= __end; __value -= 1) yield __value;",
         "    },",
         "  };",
         "}",
@@ -16174,14 +16173,15 @@ function renderType(
     // time (§8.4 item 1). `Seq` keeps the structural `Iterable<a>` below: its
     // parameter positions must admit arbitrary foreign iterables (§8.2).
     //
-    // *(#1071.)* `Vector`, `Map`, and `Set` are declared by their companions'
-    // public door rows now, so a face names each by its Hexagon name through
-    // §2.4's sink, like any module-owned type: the declaring companion's own
-    // declaration file answers at rung 1, and every other file takes a
-    // type-only named import of it (Part 7 §2.1). The branded interface stays
-    // in the runtime declaration module, where the companion's seat aliases it.
+    // *(#1071, #1073.)* `Vector`, `Map`, `Set`, and `Range` are declared by
+    // their companions' public door rows, so a face names each by its Hexagon
+    // name through §2.4's sink, like any module-owned type: the declaring
+    // companion's own declaration file answers at rung 1, and every other file
+    // takes a type-only named import of it (Part 7 §2.1). The branded interface
+    // stays in the runtime declaration module, where the companion's seat
+    // aliases it.
     case "Range":
-      return faces.runtime.reference("Range");
+      return publicKindFace("Range", [], type.qualifier, variables, faces);
     case "Vector":
     case "Set":
       return publicKindFace(type.kind, [type.element], type.qualifier, variables, faces);
@@ -16753,22 +16753,11 @@ interface LoopHead {
 }
 
 interface CountingBounds {
+  /** The first value counted: `lo` ascending, `hi` descending. */
   readonly start: Core.Expr;
+  /** The last value counted, inclusive. */
   readonly end: Core.Expr;
-}
-
-/**
- * The bounds of a head Loops §8 erases to a counting loop, or `undefined`.
- *
- * The licence is the head's syntax: a `..` written there, read through the
- * grouping parentheses and ascription that elaboration has already removed. A
- * `Range` that arrives any other way — a variable, a call — is a value, and
- * iterates as one.
- */
-function countingBounds(iterable: Core.Expr): CountingBounds | undefined {
-  return iterable.kind === "Range"
-    ? { start: iterable.start, end: iterable.end }
-    : undefined;
+  readonly descending: boolean;
 }
 
 /**

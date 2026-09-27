@@ -23,6 +23,7 @@ import {
   intrinsicTypeId,
   publicTypeKey,
   publicTypeKind,
+  isPublicTypeKind,
   isIntrinsicScheme,
   nearestIntrinsicKey,
 } from "../../intrinsics.js";
@@ -6608,9 +6609,6 @@ class Resolver {
         span: annotation.span,
       };
     }
-    if (annotation.name.text === "Range") {
-      return { kind: "Range", span: annotation.span };
-    }
 
     const owners = this.#impliedTypeOwners.get(name);
     if (owners !== undefined) {
@@ -6942,6 +6940,7 @@ class Resolver {
     // FFI Part 7 §2.4 rung 3: an occurrence written through a source import
     // alias carries it, as a nominal's does.
     const written = qualifier === undefined ? {} : { qualifier };
+    if (kind === "Range") return { kind, ...written, span };
     return kind === "Map"
       ? { kind: "Map", key: at(0), value: at(1), ...written, span }
       : { kind, element: at(0), ...written, span };
@@ -7556,9 +7555,8 @@ class Resolver {
    * subject, which is what makes `Map.toSeq(v)` at a vector a type error rather
    * than a synonym.
    *
-   * `Range` has no row here because it has no companion module to home one at
-   * (Part 5 §14.3 leaves `Range.toSeq` to the stdlib listing); the bare member
-   * reaches a range perfectly well.
+   * `Range` has no row here: its companion honors `Iterable<Range>` in source
+   * (#1073), so `Range.toSeq(r)` is `#honoredMemberAccess`'s read.
    *
    * `Array` is the one head that *has* a companion and still has no row here.
    * The reason this comment used to give — that no `Array.hex` existed to hang
@@ -7691,7 +7689,14 @@ class Resolver {
       (subject.kind === "Union" &&
         [...iface.unions.values()].some(({ id }) => id === subject.union)) ||
       (subject.kind === "Primitive" &&
-        subject.name === iface.module.companionPrimitive);
+        subject.name === iface.module.companionPrimitive) ||
+      // A public door row declares its kind in the companion that writes it
+      // (#1071), so `Range.toSeq(r)` reads `stdlib/Range.hex`'s own
+      // `honor Iterable<Range>` (#1073).
+      (isPublicTypeKind(subject.kind) &&
+        [...iface.externTypes.values()].some(({ externType }) =>
+          publicTypeKind(Number(externType)) === subject.kind
+        ));
     return iface.instances.flatMap((instance) => {
       if (!declares(instance.subject)) return [];
       const declaration = iface.visibleConstraints.find(

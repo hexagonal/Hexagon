@@ -845,13 +845,11 @@ describe("§6 slicing over the trie", () => {
   });
 
   /**
-   * §6.3's direction check survived the move to the trie, and is still
-   * unreachable from Hexagon: the only descending `Range` comes from
-   * `rangeDown` or a function returning one, and v1 has no such producer — the
-   * emitter's `range` helper hardcodes `descending: false`. So what is pinned
-   * is the guard's presence and its payload's shape, ahead of the clamping,
-   * which is the ordering §6.3 requires: direction faults *before* magnitude
-   * clamps, so a descending window never quietly answers empty.
+   * §6.3's direction check survived the move to the trie. What is pinned here is
+   * the guard's presence and its payload's shape, ahead of the clamping, which is
+   * the ordering §6.3 requires: direction faults *before* magnitude clamps, so a
+   * descending window never quietly answers empty. `Range.down` reaches it
+   * (#1073); `range-companion.test.ts` runs it.
    */
   test("the descending guard still precedes the clamping", () => {
     const javascript = mainJavaScript(

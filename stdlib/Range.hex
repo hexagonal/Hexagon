@@ -1,0 +1,27 @@
+module Range
+
+// The Range companion: the type `lo..hi` builds, its two named constructors,
+// and its place in the iteration table.
+//
+// The type row declares `Range` itself (`spec/intrinsics.md` section 3.3). Its
+// values are the emitter's range objects, which carry their own traversal, so
+// the two doors below are the whole of what Hexagon cannot write: a descending
+// range, which `..` never builds, and the traversal of an opaque value.
+extern from "hex:intrinsic"
+    (** An inclusive progression of `Int` values, ascending or descending. It
+        is a description, not a collection: `1..1_000_000` allocates nothing. *)
+    export type range as Range
+
+    (** The descending range from `hi` down to `lo`, both included. Empty when
+        `hi < lo`: direction is never read from the order of the bounds. *)
+    export fun rangeDown as down(hi: Int, lo: Int) -> Range
+
+    fun rangeToSeq as nativeToSeq(values: Range) -> Seq(Int)
+
+(** The ascending range from `lo` up to `hi`, both included: the same value as
+    `lo..hi`, as a function. Empty when `lo > hi`. *)
+export fun up(lo: Int, hi: Int): Range = lo..hi
+
+honor Iterable<Range> =
+    type Item = Int
+    toSeq(values) = nativeToSeq(values)

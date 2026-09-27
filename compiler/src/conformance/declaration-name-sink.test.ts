@@ -703,7 +703,7 @@ describe("the opaque brands are in every universe the file probes", () => {
 });
 
 describe("placement, and one probe for both minting rungs", () => {
-  test("the runtime import, then rung 4's lines, then rung 5's, then the module's own", async () => {
+  test("rung 4's lines, then rung 5's, then the module's own", async () => {
     const compiled = project([
       ["/lib.hex", "module Lib\n\n" + "export record Point = {n: Int}\n"],
       [
@@ -724,11 +724,11 @@ describe("placement, and one probe for both minting rungs", () => {
     // `tsc` cannot decide this — an ESM import is legal anywhere at top level —
     // so the order is pinned by the text.
     expect(declarations(compiled)).toBe(
-      'import type * as Hex from "./hex.js";\n' +
-        'import type { Option } from "./Hex/Option.js";\n' +
+      'import type { Option } from "./Hex/Option.js";\n' +
+        'import type { Range } from "./Hex/Range.js";\n' +
         'import type { Point } from "./Lib.js";\n' +
         'import type { Color } from "./Other.js";\n' +
-        "export declare function f(c: Color, w: Point, v: Hex.Range): Option<number>;\n",
+        "export declare function f(c: Color, w: Point, v: Range): Option<number>;\n",
     );
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
   });

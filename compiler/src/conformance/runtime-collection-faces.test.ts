@@ -32,9 +32,14 @@ import { typeScriptErrors } from "../support/typescript-check.js";
  * companion's declaration file, and that file's seat aliases the branded
  * interface (`export type Vector<a> = Hex.Vector<a>;`, FFI Part 7 §2.1). The
  * interfaces, the brand, and the runtime declaration module are unchanged; what
- * moved is where a face spells them. `Range` keeps the `Hex.Range` spelling
- * until its own row lands (#1073), which is why the namespace-import cases
- * below are written over it.
+ * moved is where a face spells them.
+ *
+ * *(#1073.)* `Range` joins them, declared by `stdlib/Range.hex`'s row, so no
+ * program's own file spells `Hex.*` any more: the four companions' seats are
+ * the runtime declaration module's only importers. Their names are fixed, so
+ * the import's alias is always `Hex` (obligation 2's probe is retired), and the
+ * preview, naming every face by its bare name, declares no namespace
+ * (obligation 6's inline header is retired).
  */
 
 /**
@@ -141,6 +146,7 @@ describe("the four faces are the branded `Hex.*` interfaces (obligation 1)", () 
       ["Hex/Vector.d.ts", "export type Vector<a> = Hex.Vector<a>;"],
       ["Hex/Map.d.ts", "export type Map<k, v> = Hex.Map<k, v>;"],
       ["Hex/Set.d.ts", "export type Set<a> = Hex.Set<a>;"],
+      ["Hex/Range.d.ts", "export type Range = Hex.Range;"],
     ] as const) {
       const lines = files[file]!.split("\n");
       expect(lines[0]).toBe('import type * as Hex from "../hex.js";');
@@ -155,10 +161,11 @@ describe("the four faces are the branded `Hex.*` interfaces (obligation 1)", () 
     expect(files["Hex/Vector.d.ts"]).not.toContain("./Vector.js");
   });
 
-  test("`Range` faces as `Hex.Range`, not a bare `Iterable<number>`", () => {
-    const text = declarations("export let span: Range = 0..3\n");
-    expect(text).toContain("export declare const span: Hex.Range;");
-    expect(text).not.toContain("Iterable<number>");
+  test("`Range` faces as `Range`, imported from its companion, not a bare `Iterable<number>`", () => {
+    expect(declarations("export let span: Range = 0..3\n")).toBe(
+      'import type { Range } from "./Hex/Range.js";\n' +
+        "export declare const span: Range;\n",
+    );
   });
 
   test("a face nested in another type is rendered the same way", () => {
@@ -235,11 +242,14 @@ describe("the four faces are the branded `Hex.*` interfaces (obligation 1)", () 
 });
 
 describe("one type-only import of the runtime declaration module (obligation 2)", () => {
-  test("exactly one import, however many faces the file mentions", () => {
-    const text = declarationsOf(project({ "/src/main.hex": ALL_FOUR_FACES }), "/src/main.hex");
-    expect(text.split("\n").filter((line) => line.includes("hex.js"))).toEqual([
-      'import type * as Hex from "./hex.js";',
-    ]);
+  test("a program's file imports it never; each companion's, exactly once", () => {
+    const compiled = project({ "/src/main.hex": ALL_FOUR_FACES });
+    expect(declarationsOf(compiled, "/src/main.hex")).not.toContain("hex.js");
+    const files = declarationSet(compiled);
+    for (const companion of ["Vector", "Map", "Set", "Range"]) {
+      expect(files[`Hex/${companion}.d.ts`]!.split("\n").filter((line) => line.includes("hex.js")))
+        .toEqual(['import type * as Hex from "../hex.js";']);
+    }
   });
 
   test("a file mentioning no face carries no import", () => {
@@ -271,24 +281,6 @@ describe("one type-only import of the runtime declaration module (obligation 2)"
     expect(declarations("union Holder = Held(rows: Vector(Int))\n")).toBe("export {};\n");
   });
 
-  // The cases from here to the section's end are written over `Range`, the one
-  // face a program's own file still spells through the namespace (#1071).
-  test("the import leads the file, ahead of the module's own imports", () => {
-    const compiled = project({
-      "/src/main.hex": "import Other\n" +
-        "export let seat(x: Other.Row): Range = Other.rows\n",
-      "/src/other.hex": "export record Row = { n: Int }\nexport let rows: Range = 0..1\n",
-    });
-    // The source line keeps its **source position** (FFI Part 7 §2.4's
-    // Placement) — it is the module's own import, not the compiler's — and the
-    // runtime import precedes it because that one is the compiler's.
-    expect(declarationsOf(compiled, "/src/main.hex")).toBe(
-      'import type * as Hex from "./hex.js";\n' +
-        'import type * as Other from "./Other.js";\n' +
-        "export declare const seat: (x: Other.Row) => Hex.Range;\n",
-    );
-  });
-
   // An import no face reached through contributes no line, whichever form the
   // source wrote (FFI Part 7 §2.4): the module below imports `Other` for its
   // *terms*, which is the whole of the companion idiom, and the declaration file
@@ -301,66 +293,27 @@ describe("one type-only import of the runtime declaration module (obligation 2)"
       "/src/other.hex": "export let rows: Range = 0..1\n",
     });
     expect(declarationsOf(compiled, "/src/main.hex")).toBe(
-      'import type * as Hex from "./hex.js";\n' +
-        "export declare const rows: Hex.Range;\n",
+      'import type { Range } from "./Hex/Range.js";\n' +
+        "export declare const rows: Range;\n",
     );
   });
 
-  // §8.3 obligation 2 names this collision class explicitly, and records that
-  // it is live before the ruling rather than created by it: the emitter has
-  // always written `import type * as <alias>` for a source-level namespace
-  // import, so the §10 probe has to see those aliases and not only the
-  // module's declared names.
-  //
-  // *Amended with FFI Part 7 §2.4:* it forces `Hex_1` **where the file carries
-  // that alias's line**, which is where some occurrence qualifies through it.
-  // The face below does, so the collision is real and the generated alias moves.
-  test("a source namespace import aliased `Hex` pushes the generated alias to `Hex_1`", () => {
+  // A program's own `Hex` — a namespace import alias or a type — contests
+  // nothing: no program file spells the runtime namespace, so there is no
+  // generated alias for it to move (#1073).
+  test("a program's own `Hex` keeps its spelling, and nothing moves", () => {
     const compiled = project({
       "/src/main.hex": "import Other as Hex\n" +
         "export let seat(x: Hex.Row): Range = Hex.rows\n",
       "/src/other.hex": "export record Row = { n: Int }\nexport let rows: Range = 0..1\n",
     });
-    expect(declarationsOf(compiled, "/src/main.hex")).toBe(
-      'import type * as Hex_1 from "./hex.js";\n' +
-        'import type * as Hex from "./Other.js";\n' +
-        "export declare const seat: (x: Hex.Row) => Hex_1.Range;\n",
+    const text = declarationsOf(compiled, "/src/main.hex");
+    expect(text).toContain(
+      'import type { Range } from "./Hex/Range.js";\n' +
+        'import type * as Hex from "./Other.js";\n',
     );
-  });
-
-  // The other half of the amendment, and the reason the alias set is the one
-  // member of the universe that is not over-claimed: an alias absent from the
-  // `.d.ts` contests nothing in it, so the generated alias keeps `Hex`.
-  test("a source alias `Hex` no face qualifies through contests nothing", () => {
-    const compiled = project({
-      "/src/main.hex": "import Other as Hex\n" +
-        "export let rows: Range = Hex.rows\n",
-      "/src/other.hex": "export let rows: Range = 0..1\n",
-    });
-    expect(declarationsOf(compiled, "/src/main.hex")).toBe(
-      'import type * as Hex from "./hex.js";\n' +
-        "export declare const rows: Hex.Range;\n",
-    );
-  });
-
-  test("a user type named `Hex` pushes it too, and keeps its own spelling", () => {
-    const text = declarations(
-      "export record Hex = { digits: String }\n" +
-        "export let rows: Range = 0..1\n",
-    );
-    expect(text).toContain('import type * as Hex_1 from "./hex.js";');
-    expect(text).toContain("export type Hex = { digits: string };");
-    expect(text).toContain("export declare const rows: Hex_1.Range;");
-  });
-
-  test("the probe keeps counting: `Hex` and `Hex_1` both taken gives `Hex_2`", () => {
-    const text = declarations(
-      "export record Hex = { digits: String }\n" +
-        "export record Hex_1 = { digits: String }\n" +
-        "export let rows: Range = 0..1\n",
-    );
-    expect(text).toContain('import type * as Hex_2 from "./hex.js";');
-    expect(text).toContain("export declare const rows: Hex_2.Range;");
+    expect(text).toContain("export declare const seat: (x: Hex.Row) => Range;");
+    expect(text).not.toContain("hex.js");
   });
 });
 
@@ -395,12 +348,15 @@ describe("the program-scoped runtime declaration module (obligation 3)", () => {
       "/most.hex": "module Deep.Deeper.Most\n\nexport let most: Range = 0..3\n",
     });
     expect(compiled.runtimeDeclarations?.path).toBe("/hex.d.ts");
-    expect(declarationsOf(compiled, "/main.hex"))
-      .toContain('from "./hex.js";');
-    expect(declarationsOf(compiled, "/inner.hex"))
-      .toContain('from "../hex.js";');
-    expect(declarationsOf(compiled, "/most.hex"))
-      .toContain('from "../../hex.js";');
+    // The importer is the companion, one level down under `Hex/`; a program's
+    // modules name `Range` from it at their own depths and never the runtime.
+    expect(declarationSet(compiled)["Hex/Range.d.ts"]).toContain('from "../hex.js";');
+    expect(declarationsOf(compiled, "/main.hex")).toContain('from "./Hex/Range.js";');
+    expect(declarationsOf(compiled, "/inner.hex")).toContain('from "../Hex/Range.js";');
+    expect(declarationsOf(compiled, "/most.hex")).toContain('from "../../Hex/Range.js";');
+    for (const path of ["/main.hex", "/inner.hex", "/most.hex"]) {
+      expect(declarationsOf(compiled, path)).not.toContain("hex.js");
+    }
   });
 
   // The mirror of the retired "moves the root" test: #829 fixes the runtime
@@ -414,7 +370,7 @@ describe("the program-scoped runtime declaration module (obligation 3)", () => {
       "/tools/aside.hex": "export let n: Int = 1\n",
     });
     expect(compiled.runtimeDeclarations?.path).toBe("/hex.d.ts");
-    expect(declarationsOf(compiled, "/src/main.hex")).toContain('from "./hex.js";');
+    expect(declarationSet(compiled)["Hex/Range.d.ts"]).toContain('from "../hex.js";');
   });
 
   test("a user module claiming the name at the root wins; the generated file moves", () => {
@@ -423,7 +379,7 @@ describe("the program-scoped runtime declaration module (obligation 3)", () => {
       "/src/main.hex": "export let rows: Range = 0..1\n",
     });
     expect(compiled.runtimeDeclarations?.path).toBe("/hex1.d.ts");
-    expect(declarationsOf(compiled, "/src/main.hex")).toContain('from "./hex1.js";');
+    expect(declarationSet(compiled)["Hex/Range.d.ts"]).toContain('from "../hex1.js";');
     // Only the generated file moves. The user module keeps its own emission.
     expect(declarationsOf(compiled, "/src/hex.hex")).toBe("export declare const n: number;\n");
   });
@@ -474,36 +430,26 @@ describe("what the ruling leaves alone (obligation 4)", () => {
   });
 });
 
-describe("the preview declares the namespace inline (obligation 6)", () => {
-  test("the header appears, with the same four interface bodies", () => {
-    const text = preview("export let rows: Range = 0..1\n");
-    expect(text).toContain("declare namespace Hex {");
-    expect(text).toContain('interface Vector<a> extends Iterable<a> { readonly "~hex": "Vector"; }');
-    expect(text).toContain("declare const rows: Hex.Range;");
-    // The pane has no file to import from, so it must not pretend otherwise.
+describe("the preview names every face as it ships (obligation 6)", () => {
+  /**
+   * *(#1071, #1073.)* A collection face previews as it ships — `Vector<number>`,
+   * `Range`, by name — and, the pane having nothing to import from, as a bare
+   * name, which is §2.4's Scope note for every module-owned type (#622's
+   * shows-what-ships). No face is spelled through `Hex.*`, so the pane declares
+   * no namespace.
+   */
+  test("a collection face previews by name, as it ships, and owes no header", () => {
+    const text = preview("export let rows: Vector(Int) = [1]\nexport let span: Range = 0..1\n");
+    expect(text).toContain("declare const rows: Vector<number>;");
+    expect(text).toContain("declare const span: Range;");
+    expect(text).not.toContain("namespace");
     expect(text).not.toContain("hex.js");
   });
 
-  /**
-   * *(#1071.)* A collection face previews as it ships — `Vector<number>`, by
-   * name — and, the pane having nothing to import from, as a bare name, which is
-   * §2.4's Scope note for every module-owned type (#622's shows-what-ships).
-   */
-  test("a collection face previews by name, as it ships, and owes no header", () => {
-    const text = preview("export let rows: Vector(Int) = [1]\n");
-    expect(text).toContain("declare const rows: Vector<number>;");
+  test("a program's own `Hex` previews as written", () => {
+    const text = preview("export record Hex = { digits: String }\nexport let span: Range = 0..1\n");
+    expect(text).toContain("type Hex = { digits: string };");
     expect(text).not.toContain("namespace");
-  });
-
-  test("a preview mentioning no face carries no header", () => {
-    expect(preview("export let version: String = \"1.0\"\n")).not.toContain("namespace");
-  });
-
-  test("the preview's alias is probed the same way", () => {
-    expect(preview(
-      "export record Hex = { digits: String }\n" +
-        "export let rows: Range = 0..1\n",
-    )).toContain("declare namespace Hex_1 {");
   });
 });
 
@@ -619,15 +565,6 @@ describe("tsc accepts the emitted program (obligation 5)", () => {
           "export function hand(v: Theirs.Vector<number>): Mine.Vector<number> { return v; }\n",
       }),
     ).toEqual([]);
-  });
-
-  // Over `Range`, the one face a preview still spells through its inline
-  // namespace: a collection face previews by bare name, as every module-owned
-  // type does (§2.4's Scope note), and so resolves in no pane of its own.
-  test("the preview text compiles on its own, with nothing to resolve", async () => {
-    expect(await typeScriptErrors({
-      "preview.ts": preview("export let span: Range = 0..3\nexport fun over(r: Range): Int = 0\n"),
-    })).toEqual([]);
   });
 
   // §8.3 decides the floor rather than repairing it with a `/// <reference lib>`
