@@ -176,7 +176,10 @@ strongest required constraints and do not restate their transitive bases. Thus a
 function requiring `Hash` writes `<a: Hash>`, not `<a: (Eq, Hash)>`, because
 `Hash` already provides `Eq`. The compiler rejects missing value, parameter, or
 result annotations, inferred-but-unwritten public constraints, and redundant
-base constraints.
+base constraints. A projection-bearing constraint is never among the required
+ones: a binding cannot become generic over a variable carrying one (Collections
+Part 2 §7.2.1), and that refusal stands instead of advice to write a binder the
+ban would refuse.
 
 "Every independent constraint" quantifies over constraints, not type variables.
 An unconstrained type variable requires no binder: `export let id(x: a): a = x`

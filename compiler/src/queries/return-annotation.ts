@@ -183,28 +183,14 @@ export function planReturnAnnotation(
  * takes the blame for a signature the user never wrote.
  *
  * The test is **not** whether the result structurally contains the parameter's
- * own variable, which is the reading that first suggests itself and is too
- * narrow to be safe. A constraint with an implied type member (Collections
- * Part 2 §5) makes the result a *projection* variable that appears in no
- * parameter's type at all while being wholly determined by one:
- *
- *     constraint Source<a> =
- *         type Item
- *         get(value: a) -> Item
- *
- *     export fun peek(x) = get(x)
- *
- * `x` is one fresh variable and the result is another, unified only once the
- * subject reaches a concrete instance. Nothing structural relates them, and
- * `: a` is written and then blamed the moment `x: Box` is typed. Borrowing is
- * not always containment, so containment cannot be the question.
- *
- * This closes the bare case and **not** the projection in general: annotate the
- * subject — `peek(x: a) = get(x)` — and the gate below turns the question off
- * while the projection is exactly as unsettled as before. Telling the two apart
- * needs the checker to say which variables are projections, which it knows and
- * does not emit; #190 carries the proposal. What is here is a rule about
- * parameters, and it is honest only about parameters.
+ * own variable. The rule asks what the user has spelled, not what the types
+ * happen to share, so it needs no account of how a result variable comes to
+ * depend on a parameter. The one way that dependency could hide from
+ * containment — a constraint's implied type, which makes the result a variable
+ * no parameter's type mentions — never reaches here: a binding that leaves an
+ * implied type unsettled is refused (Collections Part 2 §7.2.1), whether its
+ * parameter is bare (`peek(x) = get(x)`) or declared (`peek(x: a) = get(x)`),
+ * and `unsettledBy` has turned the action off at that error (#190).
  *
  * What is asked instead: **while any parameter is still bare, does the result
  * mention a variable the user has not already spelled?** A variable standing in
@@ -255,9 +241,9 @@ function unsettledByABareParameter(
       return inferred !== undefined && variablesOf(inferred, new Set()).has(variable);
     });
     // No parameter's type mentions it, and the signature is still unfinished, so
-    // the result stands on something the tree cannot point at — a constraint's
-    // implied type is one way (see the note above). The sentence stays general
-    // rather than blaming a parameter that is not the reason.
+    // the result stands on something the tree cannot point at — the element of
+    // an empty vector, say. The sentence stays general rather than blaming a
+    // parameter that is not the reason.
     return owner === undefined
       ? `the signature of \`${name}\` is not complete yet, so its result type is not settled`
       : `\`${displayParameterName(owner.name)}\` has no type yet, ` +

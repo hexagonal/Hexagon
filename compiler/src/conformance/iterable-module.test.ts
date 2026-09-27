@@ -484,8 +484,8 @@ describe("the `for p in e` failure taxonomy (Part 5 §3.2/§3.3)", () => {
         "    for item in items\n" +
         "        ()\n",
     )).toContain(
-      "`items` has the generic type `c`, and `Iterable` cannot constrain a " +
-        "type variable in v1; take a `Seq(a)` parameter instead",
+      "`items` has the generic type `c`, and `Iterable` declares an implied type and cannot " +
+        "constrain a type variable in v1; take a `Seq(a)` parameter instead",
     );
 
     // Unchanged by the split, which is the point of splitting rather than rewording.

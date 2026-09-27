@@ -230,8 +230,8 @@ constraint Iterable<c> =
 
 - `toSeq` is an **ordinary constraint member** — reached at concrete types by the dot (`range.toSeq()`) or qualified (`Iterable.toSeq(range)`), not seeded bare (Collections Part 5 §2.3; Modules §5.5); the §2.3 desugaring names it.
 - The table is **open to users in v1**: a user nominal type joins via a lawful `honor Iterable<T>` instance in one of its two legal homes (Collections Part 5 §7; orphan rule per Modules §7). The full resolution algorithm, failure taxonomy, table-opening rules, and finalized rows are owned by **Collections Part 5 §§2–4**.
-- The v1 restriction: `Iterable` is **projection-bearing** and therefore **cannot constrain a generic binder**, and `Item`/`Item(c)` cannot appear in source type expressions (Collections Part 2 §7.2–§7.3). Functions generic over "any iterable" are not writable in v1; the idiom is to **take a `Seq(a)` parameter** and let callers convert (`for x in xs` where `xs : Seq(a)` infers fine — `Seq`'s instance has a variable element).
-- Consequently `Iterable` never appears in inferred signatures, hovers, or unsatisfied-constraint errors in v1 — non-leakage holds **by construction** (no binder can introduce it), not by suppression (Collections Part 2 §8).
+- The v1 restriction: `Iterable` is **projection-bearing** and therefore **cannot constrain a type variable**, whether a binder is written or inference would build one, and `Item`/`Item(c)` cannot appear in source type expressions (Collections Part 2 §7.2–§7.3). Functions generic over "any iterable" are not writable in v1; the idiom is to **take a `Seq(a)` parameter** and let callers convert (`for x in xs` where `xs : Seq(a)` infers fine — `Seq`'s instance has a variable element).
+- Consequently `Iterable` never appears in inferred signatures, hovers, or unsatisfied-constraint errors in v1 — non-leakage holds **by construction** (no written binder can introduce it, and no binding generalizes a variable carrying it — Collections Part 2 §7.2.1), not by suppression (Collections Part 2 §8).
 - When the checker sees `for p in e` with `e : τ` and τ is an unsolved inference variable, the error is **annotation-required**; a declared type variable instead gets the `Seq(a)` rewrite hint — the split diagnostics are Collections Part 5 §3.2 (§10.2 here summarizes).
 ### 7.2 The v2 remainder (implied types)
 
@@ -253,14 +253,22 @@ Readable-JS doctrine: the general mechanism exists; the common case erases.
 | Hexagon | JS |
 |---|---|
 | `for x in 1..10` (syntactic ascending range in the head) | `for (let x = 1; x <= 10; x++) { ... }` |
-| `for x in lo..hi` (syntactic range, non-literal bounds) | `for (let x = lo; x <= hi; x++)` — with `hi` bound to a `const` first if it is a non-trivial expression (evaluate once, §2.3) |
+| `for x in lo..hi` (syntactic range, non-literal bounds) | `for (let x = lo; x <= hi; x++)` — with a non-trivial `hi` bound to a `const` before the loop (evaluate once, §2.3), and, when `hi` moves, a non-trivial `lo` bound to its own `const` ahead of it (start before end, §2.3) |
 | `for x in rangeDown(hi, lo)` (syntactic) | `for (let x = hi; x >= lo; x--)` (same once-evaluation rule) |
 | `for p in e` over a directly iterable provided type | `for (const p of e)`-shaped — a destructuring head where `p` destructures, e.g. `for (const [k, v] of m.entries())` (Collections Part 4 §11) |
 | `for p in e` through a user `Iterable` instance | statically resolved `toSeq` call producing a `Seq`, then `for (const p of s)`-shaped iteration (Collections Part 5 §9) |
 | `while cond` | `while (cond) { ... }` |
 | `Range` as a first-class value (escapes a loop head) | a small range object implementing the JS iterable protocol, materialised on demand (same on-demand doctrine as constructors, Unions §6.4) |
 
-- The counting-loop erasure is **mandatory**, not an optimisation option — it is the readable-JS goal at the language's most common loop, same status as `fromNat` erasure (Numeric Literals §5). "Syntactic range" means the loop head's expression is literally a `..` application / `range(...)` / `rangeDown(...)` call; a `Range` arriving through a variable takes the general `for..of` path.
+- The counting-loop erasure is **mandatory**, not an optimisation option — it is the readable-JS goal at the language's most common loop, same status as `fromNat` erasure (Numeric Literals §5). "Syntactic range" means the loop head's expression is literally a `..` application / `range(...)` / `rangeDown(...)` call, read through grouping parentheses and an ascription as every rule that reads what an expression means reads it (Functions §8); a `Range` arriving through a variable takes the general `for..of` path.
+- A bound is **trivial** when it is an integer literal, negated or not, or a name nothing can rebind — a `let` (another module's, read through its qualifier, included), a parameter, a pattern binder — and a trivial `hi` stays in the test, read at every iteration. Every other bound is non-trivial, a `var` among them: the body may assign it, and the loop runs to the value the head read (§2.3). `lo` is read once in any form; it moves out only ahead of a non-trivial `hi`, and only when it is non-trivial itself, so that it still runs first:
+
+  ```js
+  const __start = lo();
+  const __end = hi();
+  for (let x = __start; x <= __end; x++) { ... }
+  ```
+- **The head is evaluated outside the loop variable's scope** (§2.1, §2.3). JavaScript evaluates a `for..of` head inside the variable's scope, and a counting loop's test runs inside it, so a head that mentions the variable's name — `for n in 1..n`, `for xs in xs` — is read into a `const` before the loop: a counting loop's mentioning bound alone (`const __end = n;` then `for (let n = 1; n <= __end; n++)`), a `for..of` source whole (`const __source = xs;` then `for (const xs of __source)`).
 - Provided directly iterable representations take the native path (`Vector` per Collections Part 3, `Seq` per §6.5, materialised `Range` objects, plus the other rows enumerated by Collections Part 5 §9). A user instance instead emits its statically resolved `toSeq` call once and traverses the resulting `Seq`; the user's value need not itself implement JavaScript's iterable protocol. Both paths preserve §2.3's once-evaluation rule.
 - Loop bodies emit as ordinary JS blocks; `var`/`:=` inside them emit per Statements §8 (`let` / `=`), which is sound *because* bodies are blocks, not closures — the same coupling recorded in Statements §8 holds here.
 - `.d.ts` impact: `Seq(a)` ↔ `Iterable<a>`; `Range` faces as **`Hex.Range`** — a branded interface extending `Iterable<number>` (FFI Part 1 §8.1) — if it ever crosses the boundary; loops themselves are function-internal and never do. *(Corrected in place 2026-08-02, #128 ruling: this bullet read "opaque branded interface". In this corpus "opaque branded" names FFI Part 7 §5's non-exported `unique symbol`, which is **not** the mechanism — the `Hex.*` brand is FFI Part 1 §8.3's structural phantom marker, chosen so values from separately compiled Hexagon programs stay mutually assignable. §12's decisions-log row already said "branded" without the word; this bullet was the file's sole offender.)*
@@ -298,7 +306,7 @@ Readable-JS doctrine: the general mechanism exists; the common case erases.
 | `e` in `for p in e` has a concrete non-iterable type, not a user nominal | "`τ` is not iterable" (+ conversion hint where one exists, e.g. `toSeq`) |
 | `e`'s type is a user nominal with no instance | the two-legal-homes message: name the `honor Iterable<T>` home and the conversion/`Seq(a)` alternatives (Collections Part 5 §3.3) |
 | `e`'s type is an unsolved inference variable | "cannot determine what `e` iterates over; add a type annotation" (§7.1) |
-| `e`'s type is a rigid (binder-bound) variable | "`e` has the generic type `c`, and `Iterable` cannot constrain a type variable in v1; take a `Seq(a)` parameter instead" (Collections Part 5 §3.2) |
+| `e`'s type is a rigid (binder-bound) variable | "`e` has the generic type `c`, and `Iterable` declares an implied type and cannot constrain a type variable in v1; take a `Seq(a)` parameter instead" (Collections Part 5 §3.2) |
 | Assignment to a loop binder | "`x` is a loop variable and cannot be assigned; declare a `var`" |
 | Refutable pattern in the loop head | the standard Pattern Matching §5 irrefutability error (loop heads are a binding position; no loop-specific dialect) |
 | Non-`Bool` `while` condition | ordinary type error; never suggest truthiness |
@@ -366,6 +374,15 @@ for x in 1..10                 -- x : Int — `..` unifies both literal tyvars w
 for (k, v) in m                -- m : Map(String, Int); k : String, v : Int
     ...
 -- emits: for (const [k, v] of m.entries()) { ... }
+
+-- (k) A computed end is read once, before the loop; a computed start before it
+fun total(lo: () ->! Int, hi: () ->! Int) =
+    var t = 0
+    for i in lo!()..hi!()
+        t := t + i
+    t
+-- emits: const __start = lo(); const __end = hi();
+--        for (let i = __start; i <= __end; i++) { t = t + i; }
 ```
 
 ---

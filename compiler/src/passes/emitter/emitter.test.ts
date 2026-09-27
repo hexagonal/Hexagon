@@ -507,7 +507,7 @@ describe("emitJavaScript", () => {
     expect(emitJavaScript(module).text).toContain("const é = 1;\nconst é = 2;");
   });
 
-  test("emits Range and String for loops as native for-of loops", () => {
+  test("emits a range head as a counting loop and a String head as a native for-of loop", () => {
     const module = coreSource(
       "fun visit(): Unit =\n" +
         "    for number in 1..3\n" +
@@ -518,9 +518,10 @@ describe("emitJavaScript", () => {
 
     expect(module.diagnostics).toEqual([]);
     const javascript = emitJavaScript(module).text;
-    expect(javascript).toContain("for (const number of __range(1, 3)) {");
+    expect(javascript).toContain("for (let number = 1; number <= 3; number++) {");
     expect(javascript).toContain('for (const character of "ab") {');
     expect(javascript).not.toContain("__item");
+    expect(javascript).not.toContain("__range");
   });
 
   test("lowers Seq dot calls and pipelines through prelude companion dispatch", () => {
