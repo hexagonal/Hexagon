@@ -465,6 +465,46 @@ describe("knots, and the value a `match` or a `for` reads (R.b, review round 4)"
       expect([lines[0], reports(source)]).toEqual([lines[0], []]);
     }
   });
+
+  test("the value read one level in comes back to the form's level: a `let` inside never generalizes it", () => {
+    // Review round 5: left one level in, `g` generalized to `JsMap(k, v)` and
+    // read a `String` back as an `Int`; the literal's `Nat` defaulted to `Int`.
+    const setStr = 'extern from "./world.js"\n    export fun setStr(map: JsMap(Int, String), key: Int, value: String) ->! Unit\n';
+    const readBack = (indent: string): string =>
+      [
+        "let g = m",
+        'setStr!(g, 1, "x")',
+        "match JsMap.get(g, 1)",
+        "    Some(n) => out := n + 1",
+        "    None => ()",
+      ].map((line) => `${indent}${line}\n`).join("");
+    const viaFor = setStr + "let bad(): Int =\n    var out = 0\n    for m in [JsMap.fromSeq(Seq.empty)]\n" +
+      readBack("        ") + "    out\n";
+    const viaMatch = setStr + "let bad(): Int =\n    var out = 0\n" + [
+      "match Some(JsMap.fromSeq(Seq.empty))",
+      "    o =>",
+      "        let g = o",
+      "        match g",
+      '            Some(w) => setStr!(w, 1, "x")',
+      "            None => ()",
+      "        match g",
+      "            Some(r) =>",
+      "                match JsMap.get(r, 1)",
+      "                    Some(n) => out := n + 1",
+      "                    None => ()",
+      "            None => ()",
+    ].map((line) => `    ${line}\n`).join("") + "    out\n";
+    for (const source of [viaFor, viaMatch]) {
+      expect(reports(source).map(([, message]) => message)).toContain("type mismatch: expected Int, found String");
+    }
+    const nat = "let useNat(v: Nat): Nat = v\nexport let total(): Nat =\n    var sum = 0\n";
+    expect(reports(nat + "    for i in [1, 2, 3]\n        let j = i\n        sum := sum + useNat(j)\n    sum\n"))
+      .toEqual([]);
+    expect(reports(
+      nat + "    match (1, 2)\n        p =>\n            let q = p\n            match q\n" +
+        "                (a, b) => sum := sum + useNat(a)\n    sum\n",
+    )).toEqual([]);
+  });
 });
 
 /**
