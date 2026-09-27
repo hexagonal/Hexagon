@@ -3144,9 +3144,8 @@ class Checker {
   readonly #fromTextBindings = new Map<Resolved.SymbolId, boolean>();
   #madeFromTextExpressions = new WeakMap<Resolved.Expr, boolean>();
   readonly #decidedBindings = new Map<Resolved.SymbolId, boolean>();
-  /** The bindings `#fromText` is inside, and how often it assumed one of them clean. */
-  readonly #fromTextVisiting = new Set<Resolved.SymbolId>();
-  #fromTextAssumed = 0;
+  /** Every binding a memo above has read, so that a change to one forgets them (`#resource`). */
+  readonly #consultedSources = new Set<Resolved.SymbolId>();
   /** Lambdas that are a declaration's own value — a `let`'s, a `fun` member's, a pattern's `view` or `build` — never opened. */
   readonly #unopenedLambdas = new WeakSet<Resolved.Expr>();
   /**
@@ -9674,7 +9673,10 @@ class Checker {
         break;
       }
       case "For": {
-        const iterable = this.#inferExpr(expression.iterable, level);
+        // Read as a `let` reads its right-hand side, one level in, so the
+        // iterable's own openings close before the loop variable is bound.
+        const iterable = this.#inferExpr(expression.iterable, level + 1);
+        this.#closeOpenings(level);
         let actual = this.#prune(iterable);
         if (actual.kind === "Variable" && actual.literalOnly) {
           this.#bind(actual, primitive("Int"), expression.iterable.span);
@@ -16678,7 +16680,10 @@ class Checker {
     node: TreeNode,
     collect: (part: Resolved.Expr, expectation: Mono | undefined) => void,
   ): void {
-    const scrutinee = this.#inferExpr(expression.scrutinee, level);
+    // Read as a `let` reads its right-hand side, one level in, so the
+    // scrutinee's own openings close before any arm binds its parts (#1119).
+    const scrutinee = this.#inferExpr(expression.scrutinee, level + 1);
+    this.#closeOpenings(level);
     // Read once, before any arm: one arm's body cannot settle what another
     // arm's pattern binds (#1119 R.b).
     this.#settleArms(expression.arms, scrutinee);
@@ -17412,6 +17417,7 @@ class Checker {
 
   /** Whether a use of a binding reads a colour the text decides (`#decidedValue`). */
   #decidedBinding(symbol: Resolved.SymbolId): boolean {
+    this.#consultedSources.add(symbol);
     const source = this.#bindingSources.get(symbol);
     switch (source?.kind) {
       case undefined:
@@ -17481,10 +17487,17 @@ class Checker {
   #madeFromText(expression: Resolved.Expr): boolean {
     const known = this.#madeFromTextExpressions.get(expression);
     if (known !== undefined) return known;
+    const made = this.#freeNames(expression).every((symbol) => this.#fromText(symbol));
+    this.#madeFromTextExpressions.set(expression, made);
+    return made;
+  }
+
+  /** The bindings an expression names and does not bind itself, each once. */
+  #freeNames(expression: Resolved.Expr): Resolved.SymbolId[] {
     const bound = new Set<Resolved.SymbolId>();
-    const names: Resolved.NameExpr[] = [];
+    const named = new Set<Resolved.SymbolId>();
     this.#walkSyntax(expression, {
-      name: (name) => names.push(name),
+      name: (name) => named.add(name.symbol),
       lambda: (lambda) => {
         for (const parameter of lambda.parameters) bound.add(parameter.symbol);
       },
@@ -17495,49 +17508,113 @@ class Checker {
         for (const symbol of patternSymbols(pattern)) bound.add(symbol);
       },
     });
-    const assumedBefore = this.#fromTextAssumed;
-    const made = names.every((name) => bound.has(name.symbol) || this.#fromText(name.symbol));
-    if (!made || this.#fromTextAssumed === assumedBefore) this.#madeFromTextExpressions.set(expression, made);
-    return made;
+    return [...named].filter((symbol) => !bound.has(symbol));
   }
 
-  /** Whether a binding's value is made only from what the text decides (`#madeFromText`). */
+  /**
+   * Whether a binding's value is made only from what the text decides
+   * (`#madeFromText`). A binding whose source settles it alone — a written
+   * type, an inferred one, a type left open where it was bound, a name no
+   * local binding introduces — answers at once; the rest read the bindings
+   * their source names. Those reads can meet in a cycle, a knot's members
+   * naming each other, so they are taken a strongly-connected component at a
+   * time (Tarjan, without recursion): a component is made from the text
+   * unless something it reaches is not, and its answer is kept for every
+   * member, so each binding is read once.
+   */
   #fromText(symbol: Resolved.SymbolId): boolean {
+    const settled = this.#fromTextAlone(symbol);
+    if (settled !== undefined) return settled;
+    const order = new Map<Resolved.SymbolId, number>();
+    const low = new Map<Resolved.SymbolId, number>();
+    const clean = new Map<Resolved.SymbolId, boolean>();
+    const stack: Resolved.SymbolId[] = [];
+    const onStack = new Set<Resolved.SymbolId>();
+    const frames: { readonly node: Resolved.SymbolId; readonly next: Resolved.SymbolId[] }[] = [];
+    const open = (node: Resolved.SymbolId): void => {
+      order.set(node, order.size);
+      low.set(node, order.get(node)!);
+      clean.set(node, true);
+      stack.push(node);
+      onStack.add(node);
+      const source = this.#bindingSources.get(node)!;
+      const read = source.kind === "part" ? source.source! : (source as { readonly value: Resolved.Expr }).value;
+      frames.push({ node, next: this.#freeNames(read) });
+    };
+    open(symbol);
+    while (frames.length > 0) {
+      const frame = frames.at(-1)!;
+      const successor = frame.next.pop();
+      if (successor !== undefined) {
+        const alone = this.#fromTextAlone(successor);
+        if (alone !== undefined) {
+          if (!alone) clean.set(frame.node, false);
+        } else if (!order.has(successor)) {
+          open(successor);
+        } else if (onStack.has(successor)) {
+          low.set(frame.node, Math.min(low.get(frame.node)!, order.get(successor)!));
+        }
+        continue;
+      }
+      frames.pop();
+      const parent = frames.at(-1);
+      if (low.get(frame.node) === order.get(frame.node)) {
+        const component: Resolved.SymbolId[] = [];
+        let member: Resolved.SymbolId;
+        do {
+          member = stack.pop()!;
+          onStack.delete(member);
+          component.push(member);
+        } while (member !== frame.node);
+        const made = component.every((node) => clean.get(node));
+        for (const node of component) this.#fromTextBindings.set(node, made);
+        if (parent !== undefined && !made) clean.set(parent.node, false);
+      } else if (parent !== undefined) {
+        low.set(parent.node, Math.min(low.get(parent.node)!, low.get(frame.node)!));
+      }
+    }
+    return this.#fromTextBindings.get(symbol)!;
+  }
+
+  /**
+   * `#fromText`'s answer where the binding's source settles it alone, or
+   * where it is already known; `undefined` where the source's names must be
+   * read. Every binding asked about is recorded (`#resource`).
+   */
+  #fromTextAlone(symbol: Resolved.SymbolId): boolean | undefined {
+    this.#consultedSources.add(symbol);
     const source = this.#bindingSources.get(symbol);
     if (source === undefined) {
-      // Not this module's: an import, a constructor, a prelude name.
+      // Not a local binding: an import, a constructor, a prelude name.
       const kind = this.#symbolKinds.get(symbol);
       return kind !== "parameter" && kind !== "var" && kind !== "pattern";
     }
-    if (source.kind === "written") return true;
-    if (source.kind === "inferred") return false;
-    if (source.kind !== "function" && source.open === true) return false;
-    const known = this.#fromTextBindings.get(symbol);
-    if (known !== undefined) return known;
-    // A knot's members read each other: inside the walk, one assumed clean
-    // stays so unless something else is not, and nothing is remembered that
-    // leaned on the assumption.
-    if (this.#fromTextVisiting.has(symbol)) {
-      this.#fromTextAssumed += 1;
-      return true;
+    switch (source.kind) {
+      case "written":
+        return true;
+      case "inferred":
+        return false;
+      case "part":
+        if (source.source === undefined || source.open === true) return false;
+        break;
+      case "value":
+        if (source.open === true) return false;
+        break;
+      case "function":
+        break;
     }
-    this.#fromTextVisiting.add(symbol);
-    const assumedBefore = this.#fromTextAssumed;
-    let made: boolean;
-    try {
-      made = source.kind === "part"
-        ? source.source !== undefined && this.#madeFromText(source.source)
-        : this.#madeFromText(source.value);
-    } finally {
-      this.#fromTextVisiting.delete(symbol);
-    }
-    if (!made || this.#fromTextAssumed === assumedBefore) this.#fromTextBindings.set(symbol, made);
-    return made;
+    return this.#fromTextBindings.get(symbol);
   }
 
-  /** Records a binding's source anew, and forgets every reading that took the old one. */
+  /**
+   * Records a binding's source anew. A binding changes its source only where
+   * it is made — before any use reads it — so nothing remembered took the old
+   * one; where something did, every reading is forgotten.
+   */
   #resource(symbol: Resolved.SymbolId, source: BindingSource): void {
     this.#bindingSources.set(symbol, source);
+    if (!this.#consultedSources.has(symbol)) return;
+    this.#consultedSources.clear();
     this.#fromTextBindings.clear();
     this.#decidedBindings.clear();
     this.#madeFromTextExpressions = new WeakMap();
@@ -17591,12 +17668,16 @@ class Checker {
    * A lambda written as a call's argument, whose parameter has no written type,
    * takes that parameter's type from the callee's signature (§4.3's landing).
    * Where the callee is a name the text decides (`#fromText`) and its
-   * signature, as generalized, writes that parameter's type whole — no variable
-   * an argument or a later line could fill — the parameter's type is the
-   * callee's text, and it is decided as a written one is (#1119 R.b).
+   * generalized signature spells that parameter's type whole — no variable an
+   * argument or a later line could fill — the parameter's type is the callee's
+   * text, and it is decided as a written one is (#1119 R.b). A member of a knot
+   * still open has no generalized signature: the type the knot is inferring
+   * holds whatever its siblings' bodies have said so far, which follows the
+   * order the members are written in, so nothing lands from it.
    */
   #landFromSignature(callee: Resolved.NameExpr, arguments_: readonly Resolved.Expr[]): void {
     if (!this.#fromText(callee.symbol)) return;
+    if (this.#knots.some((knot) => knot.types.has(callee.symbol))) return;
     const scheme = this.#schemes.get(callee.symbol);
     const signature = scheme === undefined ? undefined : this.#prune(scheme.type);
     if (signature?.kind !== "Function") return;
@@ -17800,6 +17881,33 @@ class Checker {
       case "ErrorExpr":
         return;
     }
+  }
+
+  /**
+   * Closes the openings a value made at a level above `level` (#1119): each
+   * that only openings reached is pure, the recovery deciding one it shares
+   * (§4.4); one the environment still sees waits for its own binding, and one a
+   * real colour claimed leaves the list. A binding's generalization runs it
+   * before building the scheme, and so do a `match` and a `for` over the value
+   * they read, so that the value's own openings are closed before its parts
+   * are bound — as they are through a `let`.
+   */
+  #closeOpenings(level: number): void {
+    // Openings a join has made one colour wait as one entry, so the list is as
+    // long as the colours still open, not as the uses that minted them.
+    const waiting = new Set<Variable>();
+    this.#openedPending = this.#openedPending.filter((opened) => {
+      const colour = this.#prune(opened);
+      if (colour.kind !== "Variable") return false;
+      if (colour.level <= level) {
+        if (waiting.has(colour)) return false;
+        waiting.add(colour);
+        return true;
+      }
+      if (this.#takesRecovery(colour)) colour.instance = RECOVERED;
+      else if (this.#takesOpening(colour)) colour.instance = PURE;
+      return false;
+    });
   }
 
   /** A part that is a component's **home**: a concrete type of the numeric tower (Numeric Literals §5.1). */
@@ -25482,14 +25590,7 @@ class Checker {
     // One the environment still sees waits for its own binding; one a real
     // colour claimed never closes, and leaves the list. The recovery decides a
     // colour it shares with an opening (§4.4), as it does at a body's close.
-    this.#openedPending = this.#openedPending.filter((opened) => {
-      const colour = this.#prune(opened);
-      if (colour.kind !== "Variable") return false;
-      if (colour.level <= level) return true;
-      if (this.#takesRecovery(colour)) colour.instance = RECOVERED;
-      else if (this.#takesOpening(colour)) colour.instance = PURE;
-      return false;
-    });
+    this.#closeOpenings(level);
     let variables = this.#collectVariables(type).filter(
       (variable) => variable.level > level,
     );

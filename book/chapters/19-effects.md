@@ -233,8 +233,9 @@ it fits everywhere, like any other pure function. Anything you build from the un
 parameter — a `let` that renames it, a record that holds it, a function that returns it —
 shares its fate, whatever order the lines come in. A lambda written right where it is
 passed gets its parameters' types from what it is passed to; where that function's own
-signature spells the type out in full, they are settled already. The same lambda pulled
-out into a `let` of its own has only its body to go on.
+signature spells the type out in full, they are settled already — unless the two functions
+are defined together in one `fun` block, where neither is finished while the other is
+being read. The same lambda pulled out into a `let` of its own has only its body to go on.
 
 A pure function already packed inside a value keeps the type the value was built with:
 

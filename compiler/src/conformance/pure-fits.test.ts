@@ -425,6 +425,48 @@ describe("what the program's text decides, in any line order (R.b)", () => {
   });
 });
 
+describe("knots, and the value a `match` or a `for` reads (R.b, review round 4)", () => {
+  test("nothing lands from a knot member while its knot is open, whichever member is written first", () => {
+    const a = [
+      "    a(g: (() -> Unit) ->? Unit, action: () ->? Unit, n: Int): Unit =",
+      "        g?(noop)",
+      "        if n == 0 then () else b?(action, n - 1)",
+    ];
+    const b = ["    b(action: () ->? Unit, n: Int): Unit = a?((release) => apply2?(action, release), action, n)"];
+    const one = reports(["fun", ...a, ...b].join("\n") + "\n").length > 0;
+    const two = reports(["fun", ...b, ...a].join("\n") + "\n").length > 0;
+    expect([one, two]).toEqual([true, true]);
+    // Written on the lambda, the parameter's type is decided, in either order.
+    const typed = ["    b(action: () ->? Unit, n: Int): Unit = a?((release: () -> Unit) => apply2?(action, release), action, n)"];
+    expect(reports(["fun", ...a, ...typed].join("\n") + "\n")).toEqual([]);
+    expect(reports(["fun", ...typed, ...a].join("\n") + "\n")).toEqual([]);
+  });
+
+  test("a knot's members are read once each: a large knot compiles in time", () => {
+    const n = 18;
+    const members = Array.from({ length: n }, (_, i) =>
+      `    m${i}(x: Int): Int = if x == 0 then m${(i + 1) % n}(x - 1) else if x == 1 then m${(i + 2) % n}(x - 2) else m${(i + 3) % n}(x - 3)`
+    );
+    // A synchronous compile outlives any test timeout, so the time is read
+    // outright: each member read once is milliseconds; read along every path
+    // through the knot, as before round 4, it was minutes.
+    const start = Date.now();
+    expect(reports(["fun", ...members].join("\n") + "\n")).toEqual([]);
+    expect(Date.now() - start).toBeLessThan(3000);
+  });
+
+  test("a `match` or a `for` over a value written in place reads it as a `let` does", () => {
+    for (const lines of [
+      ["match Some(noop)", "    Some(f) =>", "        pureOnly(f)", "        apply2?(action, f)", "    None => ()"],
+      ["for f in [noop]", "    pureOnly(f)", "    apply2?(action, f)"],
+      ["let t = Some(noop)", "match t", "    Some(f) =>", "        pureOnly(f)", "        apply2?(action, f)", "    None => ()"],
+    ]) {
+      const source = "export let outer(action: () ->? Unit): Unit =\n" + lines.map((line) => `    ${line}\n`).join("") + "    ()\n";
+      expect([lines[0], reports(source)]).toEqual([lines[0], []]);
+    }
+  });
+});
+
 /**
  * **Order-freedom, exhaustively** (R.b). A parameter with no written type is
  * pinned pure by one of six routes and reaches a `->?` beside the caller's
