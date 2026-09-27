@@ -354,7 +354,7 @@ New rows first; inherited rows by reference (unchanged, listed for the consolida
 | `for x in xs`, `xs : c` a rigid declared variable | "`xs` has the generic type `c`, and `Iterable` declares an implied type and cannot constrain a type variable in v1; take a `Seq(a)` parameter instead" | **§3.2 (new split)** |
 | Non-iterable concrete type, not user-nominal | "`Int` is not iterable" (+ conversion hint where one exists) | §3.2 |
 | Non-iterable user nominal type | two-legal-homes form: the type's home module with the `honor` fixit, the prelude as the only other legal home, and the `toSeq`/`Seq(a)` alternatives | **§3.3 (new)** |
-| `Seq.toSeq`, the one companion spelling with no row behind it (§4) | curated hint: "`Seq` has no `toSeq` — its `Iterable` instance is declared in module `Iterable`; use `Iterable.toSeq`, or call `toSeq` by the dot" — at the standard library's `Seq` only, never a project's own `module Seq` | **§4 (new)** |
+| `Seq.toSeq`, the one standard iterable type whose module has no `toSeq` (§4) | curated hint: "`Seq` has no `toSeq` — its `Iterable` instance is declared in module `Iterable`; use `Iterable.toSeq`, or call `toSeq` by the dot" — at the standard library's `Seq` only, never a project's own `module Seq` | **§4 (new)** |
 | Orphan `honor` at a filled slot (every standard row's included) | the orphan-rule error + "`Iterable<Vector(a)>` is already declared in module `Vector`"; no duplicate report beside it | **§7.3 (new clause)** |
 | Projection-bearing constraint on a binder | Part 2 §9 row, unchanged | Part 2 §7.2 |
 | `Item` in a type expression | Part 2 §9 row, unchanged | Part 2 §7.3 |
