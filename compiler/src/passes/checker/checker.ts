@@ -395,8 +395,107 @@ interface EffectFrame {
   readonly enclosing: EffectFrame | undefined;
   /** Call colours awaiting `own ⊒ colour`, settled after inference. */
   readonly absorbed: { readonly effect: Mono; readonly span: Source.Span }[];
-  /** Set when an absorbed colour was the impure *constant* — ruling 9's tell. */
-  sourced: boolean;
+}
+
+/**
+ * Where a binding takes its value from, as the program's text says (#1119 R.b;
+ * `Checker.#bindingSources`).
+ */
+type BindingSource =
+  /** A written type, whole — no hole in it: the text decides every arrow. */
+  | { readonly kind: "written" }
+  /** A parameter with no written type, or a `var`: inferred from its uses. */
+  | { readonly kind: "inferred" }
+  /**
+   * A `let` with no written type: whatever its right-hand side is. `open` is
+   * set where its type kept a part no generalization settled, `outerOpen`
+   * where that part is its outer arrow (`Checker.#settleSource`).
+   */
+  | { readonly kind: "value"; readonly value: Resolved.Expr; readonly open?: boolean; readonly outerOpen?: boolean }
+  /** A function definition: its colour is what its body does, decided at its close. */
+  | { readonly kind: "function"; readonly value: Resolved.LambdaExpr }
+  /** A part of a value a pattern takes apart; `undefined` where no text names that value. */
+  | {
+    readonly kind: "part";
+    readonly source: Resolved.Expr | undefined;
+    readonly open?: boolean;
+    readonly outerOpen?: boolean;
+  };
+
+/**
+ * Whether a written type is whole *(#1119 R.b)*: no hole, no implied type, no
+ * open record row — nothing left for inference to fill — so every arrow in it
+ * is the text's.
+ */
+function annotationWhole(annotation: Resolved.TypeAnnotation): boolean {
+  switch (annotation.kind) {
+    case "Hole":
+    case "ImpliedType":
+    case "ErrorType":
+      return false;
+    case "Function":
+      return annotation.parameters.every(annotationWhole) && annotationWhole(annotation.result);
+    case "Vector":
+    case "Set":
+    case "Array":
+    case "JsSet":
+    case "Node":
+      return annotationWhole(annotation.element);
+    case "Nullable":
+      return annotationWhole(annotation.value);
+    case "Map":
+    case "JsMap":
+      return annotationWhole(annotation.key) && annotationWhole(annotation.value);
+    case "Tuple":
+      return annotation.elements.every(annotationWhole);
+    case "Record":
+      return !annotation.open && annotation.fields.every((field) => annotationWhole(field.annotation));
+    case "Union":
+    case "RecordDeclaration":
+    case "ExternType":
+      return annotation.arguments.every(annotationWhole);
+    case "Primitive":
+    case "Range":
+    case "JsValue":
+    case "TypeVariable":
+      return true;
+  }
+}
+
+/** What `Checker.#walkSyntax` reports as it walks (#1119 R.b). */
+interface SyntaxVisitor {
+  readonly expression?: (expression: Resolved.Expr) => void;
+  readonly name?: (name: Resolved.NameExpr) => void;
+  readonly lambda?: (lambda: Resolved.LambdaExpr) => void;
+  readonly item?: (item: Resolved.Item) => void;
+  readonly pattern?: (pattern: Resolved.Pattern, source: Resolved.Expr | undefined) => void;
+}
+
+/** Every binding a pattern introduces. */
+function patternSymbols(pattern: Resolved.Pattern): Resolved.SymbolId[] {
+  switch (pattern.kind) {
+    case "Binding":
+      return [pattern.binding.symbol];
+    case "As":
+      return [pattern.binding.symbol, ...patternSymbols(pattern.pattern)];
+    case "Or":
+      return pattern.alternatives.flatMap(patternSymbols);
+    case "Vector":
+      return [
+        ...pattern.elements.flatMap(patternSymbols),
+        ...(pattern.rest?.pattern === undefined ? [] : patternSymbols(pattern.rest.pattern)),
+      ];
+    case "Tuple":
+      return pattern.elements.flatMap(patternSymbols);
+    case "Record":
+      return pattern.fields.flatMap((field) => patternSymbols(field.pattern));
+    case "Constructor":
+      return pattern.arguments.flatMap(patternSymbols);
+    case "Declared":
+      return pattern.components.flatMap(patternSymbols);
+    default:
+      return [];
+  }
 }
 
 /** Whether `left` stands before `right` in source order. */
@@ -2757,6 +2856,14 @@ interface Knot {
     readonly span: Source.Span;
     /** Whether the colour stood on the left of the unification, to keep its orientation. */
     readonly colourFirst: boolean;
+    /**
+     * Whether the colour is a value's own — a member's or a held lambda's —
+     * rather than a colour a held body's call absorbed, a parameter's slot. A
+     * value's colour the bodies decide pure fits wherever it was used (#1119).
+     */
+    readonly own: boolean;
+    /** Whether a joining form met it, where both sides are values and neither is the demand. */
+    readonly joined: boolean;
   }[];
   /**
    * The lambdas the knot holds, which it treats as members *(#947)*: their
@@ -3012,6 +3119,40 @@ class Checker {
    */
   readonly #recoveryTouched = new WeakSet<Variable>();
   /**
+   * The colours a use of a pure function minted *(#1119; Effects §3.4)*: a
+   * pure function fits wherever a function is expected, so each use reads its
+   * outer arrow as a fresh colour (`#openAt`) that ordinary unification then
+   * decides. The mark is kept on the representative and carried across a
+   * variable-to-variable bind, as §4.4's recovery's is: a colour only openings
+   * reached is pure where it settles (`#takesOpening`) — where its body closes,
+   * or where the binding whose right-hand side minted it generalizes — so an
+   * opening never survives into a scheme and no second variable appears.
+   */
+  readonly #openedColours = new WeakSet<Variable>();
+  /** Whether `#unify` stands inside an odd number of parameter positions, where demand and supply turn over. */
+  #parameterParity = false;
+  /** Every opened colour not yet settled, for the binding that minted it to close (`#generalize`). */
+  #openedPending: Variable[] = [];
+  /**
+   * Where each binding of this module takes its value from, read from the
+   * program's text before anything is inferred (#1119 R.b): a written type, a
+   * parameter or `var` with none, a `let`'s right-hand side, a function
+   * definition, or the value a pattern takes apart. A use re-opens a pure outer
+   * arrow only where the text decides it (`#decidedValue`), so whether it does
+   * never depends on which line inference met first.
+   */
+  readonly #bindingSources = new Map<Resolved.SymbolId, BindingSource>();
+  /** Every expression elaborated as a call's callee: applied, never handed anywhere, so never opened. */
+  readonly #callees = new WeakSet<Resolved.Expr>();
+  /** Memos for `#fromText`, `#madeFromText`, and `#decidedBinding`, forgotten whenever a source changes (`#resource`). */
+  readonly #fromTextBindings = new Map<Resolved.SymbolId, boolean>();
+  #madeFromTextExpressions = new WeakMap<Resolved.Expr, boolean>();
+  readonly #decidedBindings = new Map<Resolved.SymbolId, boolean>();
+  /** Every binding a memo above has read, so that a change to one forgets them (`#resource`). */
+  readonly #consultedSources = new Set<Resolved.SymbolId>();
+  /** Lambdas that are a declaration's own value — a `let`'s, a `fun` member's, a pattern's `view` or `build` — never opened. */
+  readonly #unopenedLambdas = new WeakSet<Resolved.Expr>();
+  /**
    * Whether this module has elaborated a §4.4 recovery (`#recovery`) — until it
    * has, nothing is marked and no type carries one, so the walks that serve it
    * are skipped (#1115). An imported colour is never one: a module boundary
@@ -3227,11 +3368,6 @@ class Checker {
    * `->?` on the outer arrow.
    */
   readonly #memberColours = new Map<Resolved.SymbolId, Variable>();
-  /** Written `->!` faces awaiting ruling 9's symmetric half. */
-  readonly #constantFaces: {
-    readonly lambda: Resolved.LambdaExpr;
-    readonly arrowSpan: Source.Span;
-  }[] = [];
 
   readonly #expressionTypes = new WeakMap<Resolved.Expr, Mono>();
   /** Suffix constructions are ordinary build calls after pattern selection. */
@@ -4433,6 +4569,7 @@ class Checker {
       }
     }
     for (const symbol of module.symbols) this.#symbolKinds.set(symbol.id, symbol.kind);
+    for (const item of module.items) this.#sourceItem(item);
     // See `#declaredUnions`: an annotation elaborated before the registration
     // below still has to be able to look a union declaration up.
     for (const union of module.unions) this.#declaredUnions.set(union.id, union);
@@ -6966,6 +7103,9 @@ class Checker {
         if (item.build !== undefined && buildSlot !== undefined) {
           this.#schemes.set(item.build.binding.symbol, { variables: [], type: buildSlot });
         }
+        // A pattern's two directions are its declaration's own values (#1119).
+        this.#unopenedLambdas.add(item.view.value);
+        if (item.build !== undefined) this.#unopenedLambdas.add(item.build.value);
         const inferredView = this.#inferExpr(item.view.value, level + 1, viewExpected);
         this.#unify(viewSlot, inferredView, item.view.span, () =>
           item.head === undefined
@@ -7137,16 +7277,6 @@ class Checker {
                 ? PURE
                 : IMPURE)
           : undefined;
-        if (
-          annotation?.kind === "Function" &&
-          annotation.effect === "constant" && annotation.recovered !== true &&
-          annotation.arrowSpan !== undefined && item.value.kind === "Lambda"
-        ) {
-          this.#constantFaces.push({
-            lambda: item.value,
-            arrowSpan: annotation.arrowSpan,
-          });
-        }
         // §4.3's first supplying seat: **an annotated `let`/`fun` right-hand
         // side** — the annotation is the expectation. It is elaborated here,
         // ahead of the value, only where an expectation can land (a lambda is
@@ -7266,6 +7396,7 @@ class Checker {
           item.binding.name,
         );
         this.#schemes.set(item.binding.symbol, scheme);
+        this.#settleSource(item.binding.symbol, scheme.type, scheme.variables);
         continue;
       }
       if (item.kind === "Import" || item.kind === "ExternBlock" || item.kind === "ExternImport") continue;
@@ -7343,7 +7474,6 @@ class Checker {
             inlet,
             enclosing: this.#effectFrames.at(-1),
             absorbed: [],
-            sourced: false,
           };
           this.#effectFrames.push(frame);
           this.#frameByLambda.set(defaultValue, frame);
@@ -7671,7 +7801,6 @@ class Checker {
             inlet: contract.inlet,
             enclosing: enclosingFrame,
             absorbed: [],
-            sourced: false,
           };
           this.#effectFrames.push(frame);
           this.#frameByLambda.set(member.value, frame);
@@ -9243,6 +9372,9 @@ class Checker {
         // this head's and no nested lambda's; taking it here is what scopes it.
         const declaringMember = this.#declaringMember;
         this.#declaringMember = undefined;
+        if (declaringMember !== undefined || this.#bindingValue?.value === expression) {
+          this.#unopenedLambdas.add(expression);
+        }
         // A lambda is a signature, wherever it stands: a `->?` refused inside
         // one is refused for want of an *inlet*, not for want of a signature,
         // and §4.4's clause has to say so even when the lambda sits in a
@@ -9297,7 +9429,6 @@ class Checker {
           inlet: ownLinked || inheritedInlet || enclosingFrame?.inlet === true,
           enclosing: enclosingFrame,
           absorbed: [],
-          sourced: false,
         };
         this.#effectFrames.push(effectFrame);
         this.#frameByLambda.set(expression, effectFrame);
@@ -9819,6 +9950,8 @@ class Checker {
         let applied: Resolved.Expr = expression.callee;
         while (applied.kind === "Group") applied = applied.expression;
         if (applied.kind === "Name") this.#calledNames.set(applied, expression);
+        this.#callees.add(applied);
+        if (applied.kind === "Name") this.#landFromSignature(applied, expression.arguments);
         const callee = calleeIsLambda
           ? this.#inferExpr(expression.callee, level, {
             kind: "Function",
@@ -10416,7 +10549,7 @@ class Checker {
     }
 
     this.#expressionTypes.set(expression, type);
-    return type;
+    return this.#opensAt(expression) ? this.#openAt(type, level) : type;
   }
 
   /**
@@ -11074,20 +11207,22 @@ class Checker {
       return;
     }
     if (pattern.kind === "Binding") {
-      this.#schemes.set(
-        pattern.binding.symbol,
-        this.#generalize(expected, level, generalizable, undefined, evaluated, pattern.binding.name),
-      );
+      {
+        const scheme = this.#generalize(expected, level, generalizable, undefined, evaluated, pattern.binding.name);
+        this.#schemes.set(pattern.binding.symbol, scheme);
+        this.#settleSource(pattern.binding.symbol, scheme.type, scheme.variables);
+      }
       return;
     }
     if (pattern.kind === "As") {
       this.#insideWrapper(false, () =>
         this.#inferPattern(pattern.pattern, expected, level, generalizable, evaluated)
       );
-      this.#schemes.set(
-        pattern.binding.symbol,
-        this.#generalize(expected, level, generalizable, undefined, evaluated, pattern.binding.name),
-      );
+      {
+        const scheme = this.#generalize(expected, level, generalizable, undefined, evaluated, pattern.binding.name);
+        this.#schemes.set(pattern.binding.symbol, scheme);
+        this.#settleSource(pattern.binding.symbol, scheme.type, scheme.variables);
+      }
       return;
     }
     if (pattern.kind === "Or") {
@@ -11953,6 +12088,7 @@ class Checker {
     }
     if (pattern.kind === "Binding") {
       this.#schemes.set(pattern.binding.symbol, { variables: [], type: expected });
+      this.#settleSource(pattern.binding.symbol, expected, []);
       return;
     }
     if (pattern.kind === "As") {
@@ -11960,6 +12096,7 @@ class Checker {
         this.#inferMatchPattern(pattern.pattern, expected, level)
       );
       this.#schemes.set(pattern.binding.symbol, { variables: [], type: expected });
+      this.#settleSource(pattern.binding.symbol, expected, []);
       return;
     }
     if (pattern.kind === "Or") {
@@ -14829,6 +14966,7 @@ class Checker {
     // The member is called here, so its own constraint is this operation's
     // demand (`#instantiate`'s `called`).
     this.#calledNames.set(expression.callee, expression);
+    this.#callees.add(expression.callee);
     const callee = this.#inferExpr(expression.callee, level);
     const known = this.#prune(callee);
     const symbol = (expression.callee as Resolved.NameExpr).symbol;
@@ -16554,6 +16692,9 @@ class Checker {
     collect: (part: Resolved.Expr, expectation: Mono | undefined) => void,
   ): void {
     const scrutinee = this.#inferExpr(expression.scrutinee, level);
+    // Read once, before any arm: one arm's body cannot settle what another
+    // arm's pattern binds (#1119 R.b).
+    this.#settleArms(expression.arms, scrutinee);
     const outerArmTop = this.#matchArmTop;
     const outerCollisionFixes = this.#matchPatternCollisionFixes;
     this.#matchPatternCollisionFixes = new Map();
@@ -17263,6 +17404,586 @@ class Checker {
    */
   #freshened(type: Mono, level: number): Mono {
     return this.#recolour(type, level, undefined, this.#shownColours);
+  }
+
+  /**
+   * **A pure function fits wherever a function is expected** *(#1119; Effects
+   * §3.4)*. At a use, a function whose outer arrow is the pure constant is read
+   * with that arrow as a fresh colour, which the seat it meets then decides by
+   * ordinary unification: a `->?` there makes it that variable, a `->!` the
+   * impure constant, a `->` pure, and a colour nothing real reaches is pure
+   * again where it settles. This is Koka's re-opening at instantiation
+   * (`Type/Operations.hs`, `extend`) at two points: the outermost arrow only,
+   * an impure arrow left as it is (the top of the lattice has nothing above it)
+   * and a variable left alone. The function's own colour is untouched — it is
+   * still what its body does (§2.6), and it is what hover shows — and the copy
+   * shares every component but the one slot, so nothing about the value moves.
+   */
+  #openAt(type: Mono, level: number): Mono {
+    const actual = this.#prune(type);
+    if (actual.kind !== "Function") return type;
+    const colour = actual.effect === undefined ? PURE : this.#prune(actual.effect);
+    if (colour.kind !== "Effect" || colour.impure) return type;
+    const opened = this.#fresh(level, false);
+    this.#openedColours.add(opened);
+    this.#openedPending.push(opened);
+    // A report showing it while nothing has solved it shows the arrow written.
+    this.#shownColours.set(opened, PURE);
+    return { ...actual, effect: opened };
+  }
+
+  /**
+   * Whether an expression's value is opened where it is used (`#openAt`): only
+   * where the program's text decides its colour *(#1119 R.b;
+   * `#decidedValue`)*, never where inference is still working it out from a
+   * binding's uses. A callee is applied, not handed anywhere: nothing meets its
+   * arrow. A forwarding form and a block take their paths' openings as they are.
+   */
+  #opensAt(expression: Resolved.Expr): boolean {
+    switch (expression.kind) {
+      case "Name":
+      case "Call":
+      case "Access":
+      case "Ascription":
+        return !this.#callees.has(expression) && this.#decidedValue(expression);
+      case "Lambda":
+        return !this.#unopenedLambdas.has(expression);
+      default:
+        return false;
+    }
+  }
+
+  /**
+   * Whether the program's text decides a value's outer colour *(#1119 R.b)*:
+   * a lambda or a named function (its colour is what its body's marks say,
+   * decided where the body closes), a written type, or a value made only from
+   * bindings the text decides (`#madeFromText`). A parameter with no written
+   * type and a `var` are inferred from their uses, and so is anything made
+   * from one. Read from syntax, from declarations, and from a binding's type
+   * where the binding is made — which, for a value so made, the text fixes —
+   * it cannot depend on the order the program's lines come in.
+   */
+  #decidedValue(expression: Resolved.Expr): boolean {
+    switch (expression.kind) {
+      case "Name":
+        return this.#decidedBinding(expression.symbol);
+      case "Lambda":
+        return true;
+      case "Group":
+        return this.#decidedValue(expression.expression);
+      case "Ascription":
+        return annotationWhole(expression.annotation) || this.#decidedValue(expression.expression);
+      case "Call": {
+        if (this.#madeFromText(expression)) return true;
+        // A function's result, where its own text decides the result's colour
+        // whatever it captured or is handed: a written result arrow that is a
+        // constant, or a lambda it returns whose body marks no call `?`.
+        const callee = expression.callee;
+        const source = callee.kind === "Name" ? this.#bindingSources.get(callee.symbol) : undefined;
+        if (source?.kind !== "function") return false;
+        const written = source.value.returnAnnotation;
+        return written === undefined
+          ? this.#returnsMarkedLambda(source.value.body)
+          : written.kind === "Function" && written.effect !== "linked" && annotationWhole(written);
+      }
+      case "Access":
+        return this.#madeFromText(expression.receiver);
+      default:
+        return this.#madeFromText(expression);
+    }
+  }
+
+  /** Whether a use of a binding reads a colour the text decides (`#decidedValue`). */
+  #decidedBinding(symbol: Resolved.SymbolId): boolean {
+    this.#consultedSources.add(symbol);
+    const source = this.#bindingSources.get(symbol);
+    switch (source?.kind) {
+      case undefined:
+        return this.#fromText(symbol);
+      case "written":
+      case "function":
+        return true;
+      case "inferred":
+        return false;
+      case "value":
+      case "part": {
+        if (source.outerOpen === true) return false;
+        const known = this.#decidedBindings.get(symbol);
+        if (known !== undefined) return known;
+        // A `let` reads only bindings made before it, so the walk ends; a
+        // pattern's part is decided only as its whole value is made.
+        const decided = source.kind === "value"
+          ? this.#decidedValue(source.value)
+          : source.source !== undefined && this.#madeFromText(source.source);
+        this.#decidedBindings.set(symbol, decided);
+        return decided;
+      }
+    }
+  }
+
+  /**
+   * Whether every value path of a body ends in a lambda literal whose colour
+   * its marks fix: no call beneath it marked `?`, so it is the pure or the
+   * impure constant whatever the arguments or the captures turn out to be.
+   */
+  #returnsMarkedLambda(expression: Resolved.Expr): boolean {
+    switch (expression.kind) {
+      case "Block": {
+        const last = expression.items.at(-1);
+        return last?.kind === "ExprItem" && this.#returnsMarkedLambda(last.expression);
+      }
+      case "If":
+        return this.#returnsMarkedLambda(expression.consequence) &&
+          this.#returnsMarkedLambda(expression.alternative);
+      case "Match":
+        return expression.arms.every((arm) => this.#returnsMarkedLambda(arm.body)) &&
+          (expression.catchArms ?? []).every((arm) => this.#returnsMarkedLambda(arm.body));
+      case "Group":
+        return this.#returnsMarkedLambda(expression.expression);
+      case "Lambda": {
+        let linked = false;
+        this.#walkSyntax(expression, {
+          expression: (inner) => {
+            if ((inner.kind === "Call" || inner.kind === "Binary" || inner.kind === "PatternConstruction") &&
+              inner.mark === "question") linked = true;
+          },
+        });
+        return !linked;
+      }
+      default:
+        return false;
+    }
+  }
+
+  /**
+   * Whether an expression is made only from bindings whose values the text
+   * decides *(#1119 R.b)*: every name it uses and does not bind itself is a
+   * module's, an import's, or a written binding, or a `let`, a function, or a
+   * pattern's part so made, whose type was settled where it was made. One free
+   * parameter with no written type, or one `var`, and it is not.
+   */
+  #madeFromText(expression: Resolved.Expr): boolean {
+    const known = this.#madeFromTextExpressions.get(expression);
+    if (known !== undefined) return known;
+    const made = this.#freeNames(expression).every((symbol) => this.#fromText(symbol));
+    this.#madeFromTextExpressions.set(expression, made);
+    return made;
+  }
+
+  /** The bindings an expression names and does not bind itself, each once. */
+  #freeNames(expression: Resolved.Expr): Resolved.SymbolId[] {
+    const bound = new Set<Resolved.SymbolId>();
+    const named = new Set<Resolved.SymbolId>();
+    this.#walkSyntax(expression, {
+      name: (name) => named.add(name.symbol),
+      lambda: (lambda) => {
+        for (const parameter of lambda.parameters) bound.add(parameter.symbol);
+      },
+      item: (item) => {
+        if (item.kind === "Let" || item.kind === "Var" || item.kind === "Fun") bound.add(item.binding.symbol);
+      },
+      pattern: (pattern) => {
+        for (const symbol of patternSymbols(pattern)) bound.add(symbol);
+      },
+    });
+    return [...named].filter((symbol) => !bound.has(symbol));
+  }
+
+  /**
+   * Whether a binding's value is made only from what the text decides
+   * (`#madeFromText`). A binding whose source settles it alone — a written
+   * type, an inferred one, a type left open where it was bound, a name no
+   * local binding introduces — answers at once; the rest read the bindings
+   * their source names. Those reads can meet in a cycle, a knot's members
+   * naming each other, so they are taken a strongly-connected component at a
+   * time (Tarjan, without recursion): a component is made from the text
+   * unless something it reaches is not, and its answer is kept for every
+   * member, so each binding is read once.
+   */
+  #fromText(symbol: Resolved.SymbolId): boolean {
+    const settled = this.#fromTextAlone(symbol);
+    if (settled !== undefined) return settled;
+    const order = new Map<Resolved.SymbolId, number>();
+    const low = new Map<Resolved.SymbolId, number>();
+    const clean = new Map<Resolved.SymbolId, boolean>();
+    const stack: Resolved.SymbolId[] = [];
+    const onStack = new Set<Resolved.SymbolId>();
+    const frames: { readonly node: Resolved.SymbolId; readonly next: Resolved.SymbolId[] }[] = [];
+    const open = (node: Resolved.SymbolId): void => {
+      order.set(node, order.size);
+      low.set(node, order.get(node)!);
+      clean.set(node, true);
+      stack.push(node);
+      onStack.add(node);
+      const source = this.#bindingSources.get(node)!;
+      const read = source.kind === "part" ? source.source! : (source as { readonly value: Resolved.Expr }).value;
+      frames.push({ node, next: this.#freeNames(read) });
+    };
+    open(symbol);
+    while (frames.length > 0) {
+      const frame = frames.at(-1)!;
+      const successor = frame.next.pop();
+      if (successor !== undefined) {
+        const alone = this.#fromTextAlone(successor);
+        if (alone !== undefined) {
+          if (!alone) clean.set(frame.node, false);
+        } else if (!order.has(successor)) {
+          open(successor);
+        } else if (onStack.has(successor)) {
+          low.set(frame.node, Math.min(low.get(frame.node)!, order.get(successor)!));
+        }
+        continue;
+      }
+      frames.pop();
+      const parent = frames.at(-1);
+      if (low.get(frame.node) === order.get(frame.node)) {
+        const component: Resolved.SymbolId[] = [];
+        let member: Resolved.SymbolId;
+        do {
+          member = stack.pop()!;
+          onStack.delete(member);
+          component.push(member);
+        } while (member !== frame.node);
+        const made = component.every((node) => clean.get(node));
+        for (const node of component) this.#fromTextBindings.set(node, made);
+        if (parent !== undefined && !made) clean.set(parent.node, false);
+      } else if (parent !== undefined) {
+        low.set(parent.node, Math.min(low.get(parent.node)!, low.get(frame.node)!));
+      }
+    }
+    return this.#fromTextBindings.get(symbol)!;
+  }
+
+  /**
+   * `#fromText`'s answer where the binding's source settles it alone, or
+   * where it is already known; `undefined` where the source's names must be
+   * read. Every binding asked about is recorded (`#resource`).
+   */
+  #fromTextAlone(symbol: Resolved.SymbolId): boolean | undefined {
+    this.#consultedSources.add(symbol);
+    const source = this.#bindingSources.get(symbol);
+    if (source === undefined) {
+      // Not a local binding: an import, a constructor, a prelude name.
+      const kind = this.#symbolKinds.get(symbol);
+      return kind !== "parameter" && kind !== "var" && kind !== "pattern";
+    }
+    switch (source.kind) {
+      case "written":
+        return true;
+      case "inferred":
+        return false;
+      case "part":
+        if (source.source === undefined || source.open === true) return false;
+        break;
+      case "value":
+        if (source.open === true) return false;
+        break;
+      case "function":
+        break;
+    }
+    return this.#fromTextBindings.get(symbol);
+  }
+
+  /**
+   * Records a binding's source anew. A binding changes its source only where
+   * it is made — before any use reads it — so nothing remembered took the old
+   * one; where something did, every reading is forgotten.
+   */
+  #resource(symbol: Resolved.SymbolId, source: BindingSource): void {
+    this.#bindingSources.set(symbol, source);
+    if (!this.#consultedSources.has(symbol)) return;
+    this.#consultedSources.clear();
+    this.#fromTextBindings.clear();
+    this.#decidedBindings.clear();
+    this.#madeFromTextExpressions = new WeakMap();
+  }
+
+  /**
+   * A binding whose type, where it is bound, still has a part inference has
+   * not settled — a variable no generalization quantified, which the lines
+   * after it may fill — is inferred from its uses, whatever its text
+   * (#1119 R.b). Read where the binding is made, from a value the text decides,
+   * it is the same whatever order those lines come in. The outer arrow alone is
+   * what a use of the binding re-opens; a part left open elsewhere reaches only
+   * what is made from the binding's parts.
+   */
+  #settleSource(symbol: Resolved.SymbolId, type: Mono, quantified: readonly Variable[]): void {
+    const source = this.#bindingSources.get(symbol);
+    if (source?.kind !== "value" && source?.kind !== "part") return;
+    const kept = new Set(quantified.map((variable) => variable.id));
+    const unsettled = (part: Mono): boolean =>
+      this.#collectVariables(part).some((variable) =>
+        variable.instance === undefined && variable.rigidName === undefined && !kept.has(variable.id)
+      );
+    if (!unsettled(type)) return;
+    const actual = this.#prune(type);
+    const outerOpen = actual.kind === "Variable"
+      ? unsettled(actual)
+      : actual.kind === "Function" && actual.effect !== undefined && unsettled(actual.effect);
+    this.#resource(symbol, { ...source, open: true, outerOpen });
+  }
+
+  /**
+   * A `match` whose scrutinee's type, where the match reads it, still has a
+   * part unsettled: every arm's pattern variable is inferred from its uses
+   * (`#settleSource`), read once before any arm, so no arm's body settles
+   * what another arm's pattern binds.
+   */
+  #settleArms(arms: readonly Resolved.MatchArm[], scrutinee: Mono): void {
+    const open = this.#collectVariables(scrutinee).some((variable) =>
+      variable.instance === undefined && variable.rigidName === undefined
+    );
+    if (!open) return;
+    for (const arm of arms) {
+      for (const symbol of patternSymbols(arm.pattern)) {
+        const source = this.#bindingSources.get(symbol);
+        if (source?.kind === "part") this.#resource(symbol, { ...source, open: true, outerOpen: true });
+      }
+    }
+  }
+
+  /**
+   * A lambda written as a call's argument, whose parameter has no written type,
+   * takes that parameter's type from the callee's signature (§4.3's landing).
+   * Where the callee is a name the text decides (`#fromText`) and its
+   * generalized signature spells that parameter's type whole — no variable an
+   * argument or a later line could fill — the parameter's type is the callee's
+   * text, and it is decided as a written one is (#1119 R.b). A member of a knot
+   * still open has no generalized signature: the type the knot is inferring
+   * holds whatever its siblings' bodies have said so far, which follows the
+   * order the members are written in, so nothing lands from it.
+   */
+  #landFromSignature(callee: Resolved.NameExpr, arguments_: readonly Resolved.Expr[]): void {
+    if (!this.#fromText(callee.symbol)) return;
+    if (this.#knots.some((knot) => knot.types.has(callee.symbol))) return;
+    const scheme = this.#schemes.get(callee.symbol);
+    const signature = scheme === undefined ? undefined : this.#prune(scheme.type);
+    if (signature?.kind !== "Function") return;
+    for (const [index, argument] of arguments_.entries()) {
+      let lambda: Resolved.Expr = argument;
+      while (lambda.kind === "Group") lambda = lambda.expression;
+      const slot = signature.parameters[index];
+      const expected = slot === undefined ? undefined : this.#prune(slot);
+      if (
+        lambda.kind !== "Lambda" || expected?.kind !== "Function" ||
+        expected.parameters.length !== lambda.parameters.length
+      ) continue;
+      for (const [position, parameter] of lambda.parameters.entries()) {
+        if (parameter.annotation !== undefined) continue;
+        if (this.#collectVariables(expected.parameters[position]!).length > 0) continue;
+        this.#resource(parameter.symbol, { kind: "written" });
+      }
+    }
+  }
+
+  /**
+   * Records where every binding an item introduces takes its value from
+   * (`#bindingSources`), before anything is inferred.
+   */
+  #sourceItem(item: Resolved.Item): void {
+    const register = (inner: Resolved.Item): void => {
+      if (inner.kind === "Let") {
+        this.#bindingSources.set(
+          inner.binding.symbol,
+          inner.annotation !== undefined && annotationWhole(inner.annotation)
+            ? { kind: "written" }
+            : inner.value.kind === "Lambda"
+            ? { kind: "function", value: inner.value }
+            : { kind: "value", value: inner.value },
+        );
+      } else if (inner.kind === "Var") {
+        this.#bindingSources.set(inner.binding.symbol, { kind: "inferred" });
+      } else if (inner.kind === "Fun") {
+        this.#bindingSources.set(inner.binding.symbol, { kind: "function", value: inner.value });
+      }
+    };
+    register(item);
+    this.#walkItem(item, {
+      item: register,
+      lambda: (lambda) => {
+        for (const parameter of lambda.parameters) {
+          this.#bindingSources.set(
+            parameter.symbol,
+            parameter.annotation !== undefined && annotationWhole(parameter.annotation)
+              ? { kind: "written" }
+              : { kind: "inferred" },
+          );
+        }
+      },
+      pattern: (pattern, source) => {
+        for (const symbol of patternSymbols(pattern)) this.#bindingSources.set(symbol, { kind: "part", source });
+      },
+    });
+  }
+
+  /** Walks an item's expressions (`#walkSyntax`). */
+  #walkItem(item: Resolved.Item, visit: SyntaxVisitor): void {
+    switch (item.kind) {
+      case "Let":
+      case "Var":
+      case "Fun":
+        this.#walkSyntax(item.value, visit);
+        return;
+      case "LetPattern":
+        visit.pattern?.(item.pattern, item.value);
+        this.#walkSyntax(item.value, visit);
+        return;
+      case "ExprItem":
+        this.#walkSyntax(item.expression, visit);
+        return;
+      case "PatternDeclaration":
+        this.#walkSyntax(item.view.value, visit);
+        if (item.build !== undefined) this.#walkSyntax(item.build.value, visit);
+        return;
+      case "Honor":
+        for (const member of item.members) this.#walkSyntax(member.value, visit);
+        return;
+      case "ConstraintDeclaration":
+        for (const member of item.members) {
+          if (member.defaultValue !== undefined) this.#walkSyntax(member.defaultValue, visit);
+        }
+        return;
+      default:
+        return;
+    }
+  }
+
+  /**
+   * Walks the resolved tree beneath an expression for the text-only reads of
+   * #1119 R.b: every subexpression, name, lambda, block item, and pattern with
+   * the value it takes apart — a `let`'s right-hand side, a `match`'s
+   * scrutinee, a loop's iterable, and none for a caught exception.
+   */
+  #walkSyntax(expression: Resolved.Expr, visit: SyntaxVisitor): void {
+    visit.expression?.(expression);
+    const walk = (inner: Resolved.Expr): void => this.#walkSyntax(inner, visit);
+    const arms = (list: readonly Resolved.MatchArm[], source: Resolved.Expr | undefined): void => {
+      for (const arm of list) {
+        visit.pattern?.(arm.pattern, source);
+        if (arm.guard !== undefined) walk(arm.guard);
+        walk(arm.body);
+      }
+    };
+    switch (expression.kind) {
+      case "Name":
+        visit.name?.(expression);
+        return;
+      case "String":
+        for (const part of expression.parts) if (part.kind === "Interpolation") walk(part.expression);
+        return;
+      case "Vector":
+      case "Tuple":
+        for (const element of expression.elements) walk(element);
+        return;
+      case "PatternConstruction":
+        for (const component of expression.components) walk(component);
+        return;
+      case "Record":
+        if (expression.spread !== undefined) walk(expression.spread);
+        for (const field of expression.fields) walk(field.value);
+        return;
+      case "Group":
+      case "Ascription":
+        walk(expression.expression);
+        return;
+      case "Block":
+        for (const item of expression.items) {
+          visit.item?.(item);
+          this.#walkItem(item, visit);
+        }
+        return;
+      case "Lambda":
+        visit.lambda?.(expression);
+        walk(expression.body);
+        return;
+      case "If":
+        walk(expression.condition);
+        walk(expression.consequence);
+        walk(expression.alternative);
+        return;
+      case "While":
+        walk(expression.condition);
+        walk(expression.body);
+        return;
+      case "For":
+        visit.pattern?.(expression.pattern, expression.iterable);
+        walk(expression.iterable);
+        walk(expression.body);
+        return;
+      case "Match":
+        walk(expression.scrutinee);
+        arms(expression.arms, expression.scrutinee);
+        arms(expression.catchArms ?? [], undefined);
+        return;
+      case "Try":
+        walk(expression.body);
+        arms(expression.arms, undefined);
+        return;
+      case "Throw":
+        walk(expression.exception);
+        return;
+      case "Call":
+        walk(expression.callee);
+        for (const argument of expression.arguments) walk(argument);
+        return;
+      case "Access":
+        walk(expression.receiver);
+        return;
+      case "Index":
+        walk(expression.receiver);
+        walk(expression.index);
+        return;
+      case "Hash":
+        walk(expression.value);
+        return;
+      case "Unary":
+        walk(expression.operand);
+        return;
+      case "Binary":
+        walk(expression.left);
+        walk(expression.right);
+        return;
+      case "Comparison":
+        for (const operand of expression.operands) walk(operand);
+        return;
+      case "Assignment":
+        walk(expression.target);
+        walk(expression.value);
+        return;
+      case "Unit":
+      case "Integer":
+      case "BigInt":
+      case "Dec":
+      case "Float":
+      case "CollectionOperation":
+      case "ErrorExpr":
+        return;
+    }
+  }
+
+  /**
+   * Closes the openings a value made at a level above `level` (#1119): each
+   * that only openings reached is pure, the recovery deciding one it shares
+   * (§4.4); one the environment still sees waits for its own binding, and one a
+   * real colour claimed leaves the list. A binding's generalization runs it
+   * before building the scheme.
+   */
+  #closeOpenings(level: number): void {
+    // Openings a join has made one colour wait as one entry, so the list is as
+    // long as the colours still open, not as the uses that minted them.
+    const waiting = new Set<Variable>();
+    this.#openedPending = this.#openedPending.filter((opened) => {
+      const colour = this.#prune(opened);
+      if (colour.kind !== "Variable") return false;
+      if (colour.level <= level) {
+        if (waiting.has(colour)) return false;
+        waiting.add(colour);
+        return true;
+      }
+      if (this.#takesRecovery(colour)) colour.instance = RECOVERED;
+      else if (this.#takesOpening(colour)) colour.instance = PURE;
+      return false;
+    });
   }
 
   /** A part that is a component's **home**: a concrete type of the numeric tower (Numeric Literals §5.1). */
@@ -18595,7 +19316,22 @@ class Checker {
       const colour = this.#prune(effect);
       if (colour.kind !== "Variable" || this.#isDependency(frame, colour)) continue;
       if (this.#takesRecovery(colour)) colour.instance = RECOVERED;
+      else if (this.#takesOpening(colour)) colour.instance = PURE;
     }
+  }
+
+  /**
+   * Whether a colour, still a variable where it settles, is only openings'
+   * *(#1119)*: marked by one, and no dependency a real colour holds — a written
+   * `->?`'s, a knot's, or a seat's slot. A pure contribution is no information,
+   * so what only pure functions reached is pure.
+   */
+  #takesOpening(colour: Variable): boolean {
+    if (!this.#openedColours.has(colour) || this.#recoveryLeaves(colour)) return false;
+    if (this.#seatSlots !== undefined && [...this.#seatSlots].some((slot) => this.#prune(slot) === colour)) {
+      return false;
+    }
+    return true;
   }
 
   /**
@@ -18634,6 +19370,17 @@ class Checker {
       if (frame.absorbed.some(({ effect }) => this.#knotColour(knot, effect))) return knot;
     }
     return undefined;
+  }
+
+  /** Whether a knot's colour is a value's own: a member's or a held lambda's (`Knot.demands`). */
+  #knotOwnColour(knot: Knot, colour: Mono): boolean {
+    const pruned = this.#prune(colour);
+    if (knot.frames.some((frame) => this.#prune(frame.own) === pruned)) return true;
+    return knot.members.some((member) => {
+      const type = knot.types.get(member.symbol);
+      const face = type === undefined ? undefined : this.#prune(type);
+      return face?.kind === "Function" && this.#prune(face.effect ?? PURE) === pruned;
+    });
   }
 
   /** Whether a colour is a member's, or a deferred frame's, of an open knot. */
@@ -18685,7 +19432,6 @@ class Checker {
     for (const { effect, span } of ordered) {
       const absorbed = this.#prune(effect);
       if (!isImpure(absorbed)) continue;
-      frame.sourced = true;
       const own = this.#prune(frame.own);
       if (isImpure(own)) continue;
       if (isRecovered(absorbed) && own.kind === "Variable") {
@@ -18890,7 +19636,14 @@ class Checker {
    * after the members' named-frame defaulting too.
    */
   #compareKnotDemands(knot: Knot): void {
-    for (const { demand, colour, span, colourFirst } of knot.demands) {
+    for (const { demand, colour, span, colourFirst, own, joined } of knot.demands) {
+      // A value's colour the bodies made pure fits wherever the value was used
+      // (#1119): decided now, and a use opens it — at a demand, where the value
+      // stands right of the unification, and at a join, where either side is a
+      // value. A colour on the left elsewhere is the one being decided — a
+      // member's own body sourcing it, at a seat — and is compared as it was.
+      const settled = this.#prune(colour);
+      if (own && (joined || !colourFirst) && settled.kind === "Effect" && !settled.impure) continue;
       if (colourFirst) this.#unify(colour, demand, span);
       else this.#unify(demand, colour, span);
     }
@@ -20842,7 +21595,9 @@ class Checker {
 
   /** The reports, once every body has closed and every colour is final. */
   #settleEffects(): void {
-    this.#checkConstantFaces();
+    // A written `->!` over a body that performs no unconditional effect is no
+    // report (#1119, ruling (c)): a face may claim more effect than its body
+    // performs, never less — `->` stays an exact promise, `->!` an allowance.
     this.#checkSignatureFaces();
     this.#checkMarks();
   }
@@ -21182,32 +21937,6 @@ class Checker {
       Number(left.fileId) - Number(right.fileId) ||
       left.start.offset - right.start.offset
     );
-  }
-
-  /** Ruling 9's symmetric half: `->!` claimed where nothing is unconditionally done. */
-  #checkConstantFaces(): void {
-    for (const { lambda, arrowSpan } of this.#constantFaces) {
-      const frame = this.#frameByLambda.get(lambda);
-      if (frame === undefined || frame.sourced) continue;
-      // A body that conducts is effect-polymorphic; one that conducts nothing
-      // is pure, not polymorphic, and the advice names the face it has
-      // (§4.2, #868).
-      const conducts = frame.absorbed.some(({ effect }) => this.#isLinkedColour(effect));
-      const face = conducts ? "->?" : "->";
-      this.#diagnostics.add({
-        severity: "error",
-        message: conducts
-          ? "this face is the impure constant `->!`, but the body performs no " +
-            "unconditional effect — it is effect-polymorphic, and its face is `->?`"
-          : "this face is the impure constant `->!`, but the body performs no " +
-            "effect — its face is `->`",
-        primary: arrowSpan,
-        fixes: [{
-          message: `write \`${face}\``,
-          edits: [{ span: arrowSpan, replacement: face }],
-        }],
-      });
-    }
   }
 
   #fresh(
@@ -21915,7 +22644,10 @@ class Checker {
       // else, because every other direction is instantiation.
       this.#diagnostics.add({
         severity: "error",
-        message: message?.() ?? effectMismatchMessage(actualLeft, actualRight),
+        message: message?.() ??
+          (this.#parameterParity
+            ? effectMismatchMessage(actualRight, actualLeft)
+            : effectMismatchMessage(actualLeft, actualRight)),
         primary: span,
       });
       return;
@@ -21933,10 +22665,18 @@ class Checker {
         });
         return;
       }
-      for (const [index, parameter] of actualLeft.parameters.entries()) {
-        const other = actualRight.parameters[index];
-        if (other === undefined) continue;
-        if (unifyChild(parameter, other)) return;
+      // At a parameter the roles turn over: the arrow a function writes on
+      // its parameter is its demand on what it is handed, and the position's
+      // is what it will supply (Effects §4.3, #1119) — for the report's words.
+      this.#parameterParity = !this.#parameterParity;
+      try {
+        for (const [index, parameter] of actualLeft.parameters.entries()) {
+          const other = actualRight.parameters[index];
+          if (other === undefined) continue;
+          if (unifyChild(parameter, other)) return;
+        }
+      } finally {
+        this.#parameterParity = !this.#parameterParity;
       }
       if (unifyChild(actualLeft.result, actualRight.result)) return;
       if (actualLeft.effect !== undefined || actualRight.effect !== undefined) {
@@ -22346,6 +23086,8 @@ class Checker {
       if (this.#recoveryTouched.has(variable) && !this.#recoveryLeaves(type)) {
         this.#recoveryTouched.add(type);
       }
+      // So does an opening's (#1119).
+      if (this.#openedColours.has(variable)) this.#openedColours.add(type);
       variable.instance = type;
       return;
     }
@@ -22406,7 +23148,14 @@ class Checker {
       if (type.kind === "Effect" && !isRecovered(type)) {
         const knot = this.#knots.find((open) => this.#knotColour(open, variable));
         if (knot !== undefined) {
-          knot.demands.push({ demand: type, colour: variable, span, colourFirst: !variableOnRight });
+          knot.demands.push({
+            demand: type,
+            colour: variable,
+            span,
+            colourFirst: !variableOnRight,
+            own: this.#knotOwnColour(knot, variable),
+            joined: this.#mergeSite !== undefined,
+          });
           return;
         }
       }
@@ -22420,7 +23169,14 @@ class Checker {
           // A §4.4 recovery binds nothing it meets, a sibling's colour included
           // (#873): recorded as any demand is, it meets a colour the member's
           // body decided, and absorbs there.
-          knot.demands.push({ demand: effect, colour, span, colourFirst: !variableOnRight });
+          knot.demands.push({
+            demand: effect,
+            colour,
+            span,
+            colourFirst: !variableOnRight,
+            own: true,
+            joined: this.#mergeSite !== undefined,
+          });
           variable.instance = { ...type, effect: colour };
           return;
         }
@@ -22480,10 +23236,17 @@ class Checker {
         for (const field of actual.fields.values()) this.#lowerLevels(field, level);
         if (actual.tail !== undefined) this.#lowerLevels(actual.tail, level);
         return;
-      case "Function":
+      case "Function": {
         for (const parameter of actual.parameters) this.#lowerLevels(parameter, level);
         this.#lowerLevels(actual.result, level);
+        // An opened colour the environment can now see is the environment's,
+        // so no binding inside it closes it (#1119).
+        const colour = actual.effect === undefined ? undefined : this.#prune(actual.effect);
+        if (colour?.kind === "Variable" && colour.level > level && this.#openedColours.has(colour)) {
+          colour.level = level;
+        }
         return;
+      }
       case "Union":
       case "NominalRecord":
       case "ExternType":
@@ -24895,6 +25658,15 @@ class Checker {
         if (variable.level > level && this.#takesRecovery(variable)) variable.instance = RECOVERED;
       }
     }
+    // A colour only openings reached is pure before it can be quantified
+    // (#1119): quantified, it would be the second variable no signature spells.
+    // Every one the right-hand side minted closes here, in its type or left
+    // inside it where no later statement can reach it — a level above the
+    // binding's is the right-hand side's own.
+    // One the environment still sees waits for its own binding; one a real
+    // colour claimed never closes, and leaves the list. The recovery decides a
+    // colour it shares with an opening (§4.4), as it does at a body's close.
+    this.#closeOpenings(level);
     let variables = this.#collectVariables(type).filter(
       (variable) => variable.level > level,
     );
@@ -25677,7 +26449,9 @@ class Checker {
     let index = 0;
     for (const variable of variables) {
       if (variable.rigidName !== undefined || variable.displayName !== undefined) continue;
-      if (colours.has(variable.id)) continue;
+      // An opening shows as the arrow it came from (`#shownColour`) — a colour
+      // still, never a name (#1119).
+      if (colours.has(variable.id) || this.#openedColours.has(variable)) continue;
       let name = inferredTypeVariableName(index++);
       while (taken.has(name)) name = inferredTypeVariableName(index++);
       taken.add(name);
@@ -31528,6 +32302,11 @@ class Checker {
     if (seen.has(actual)) return actual;
     seen.add(actual);
     const stands = actual.kind === "Variable" ? this.#shownColours.get(actual) : undefined;
+    // An opening a real colour has claimed — a written `->?`, a knot's, a
+    // seat's — is that colour now, whichever side of the join it stood (#1119).
+    if (actual.kind === "Variable" && this.#openedColours.has(actual) && !this.#takesOpening(actual)) {
+      return actual;
+    }
     return stands === undefined ? actual : this.#shownColour(stands, seen);
   }
 
@@ -31906,23 +32685,34 @@ function markFixMessage(required: "bang" | "question" | undefined): string {
  * `left` is the demand and `right` the supply, the convention `#unify`'s own
  * "expected … found …" fallback already keeps. The direction decides the
  * sentence, and it has to: the §4.3 report speaks of a written `->` *demand* in
- * every clause, and in the reverse direction — a pure function refused where a
- * `->?` data field, a result-only face, or a written `->!` demands the impure
- * constant — the demand wrote no `->`, so each clause misdescribes the program.
+ * every clause, and in the reverse direction — a pure arrow meeting the impure
+ * constant, which since #1119 happens only where the pure arrow was fixed before
+ * it arrived (`REVERSE_DEMAND_MESSAGE`) — the demand wrote no `->`, so each
+ * clause would misdescribe the program.
  */
 function effectMismatchMessage(left: Mono, right: Mono): string {
   const impure = (side: Mono): boolean => side.kind === "Effect" && side.impure;
   if (left.kind === "Effect" && right.kind === "Effect" && impure(left)) {
-    return "this position's arrow is the impure constant — its colour is fixed " +
-      "where the type is declared, and this function's face is the pure `->`; " +
-      "the demand cannot weaken — change the position's declared arrow, or " +
-      "supply the effectful function the position promises";
+    return REVERSE_DEMAND_MESSAGE;
   }
   return impure(left) || impure(right)
     ? "a `->` arrow promises purity, and this function performs effects — the " +
       "demand is written `->`, the function's face `->?` or `->!`"
     : "effect mismatch between these arrows";
 }
+
+/**
+ * The reverse direction's one remaining sentence *(#1119; Effects §4.3)*. A pure
+ * function fits wherever a function is expected, so a pure arrow meets the
+ * impure constant and fails only where it was fixed before it arrived: nested
+ * inside a value already built — the outermost arrow is the one a use re-opens
+ * — or a colour its other uses pinned, which a use never re-opens (R.b).
+ */
+const REVERSE_DEMAND_MESSAGE =
+  "this position's arrow is the impure constant, and the pure `->` meeting it " +
+  "was fixed before it arrived — inside a value already built, or by another " +
+  "use — so it cannot fit as a pure function fits where it is used; write the " +
+  "arrow where it was fixed";
 
 /** Rewrites first-argument pipe insertion before either side is inferred. */
 function rewritePipe(expression: Resolved.BinaryExpr): Resolved.CallExpr {

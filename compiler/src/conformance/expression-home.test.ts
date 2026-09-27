@@ -646,15 +646,13 @@ describe("calls join the tree (#1062, part 2)", () => {
     const frac = refusals(apply + "let w = apply2(m, (v: _ : Frac) => v)\n");
     expect(frac).toHaveLength(1);
     expect(frac[0]).toContain("type `Nat` has no `Frac` instance");
-    // An arrow's colour is reported as the lambda's own reading finds it, as on
-    // `main`; an early reading would call the `->?` orphaned instead.
+    // An arrow's colour is read as the lambda's own reading finds it; an early
+    // reading would call the `->?` orphaned. Since #1119 `spare` fits the
+    // lambda's own `->?` and pins nothing, so the program compiles.
     expect(refusals(
       "let spare(): Unit = ()\nlet applyF(x: a, g: (a) -> Int): Int = g(x)\n" +
         "let w = applyF(spare, (k: () ->? Unit) => 1)\n",
-    )).toEqual([
-      "this signature's `->?` promises a colour the caller chooses, but the body solves it " +
-        "to the pure constant — the honest face is `->`",
-    ]);
+    )).toEqual([]);
     // A malformed annotation reports once.
     expect(refusals(apply + "let w = apply2(m, (v: Zork) => v)\n")).toEqual(["unknown type `Zork`"]);
   });

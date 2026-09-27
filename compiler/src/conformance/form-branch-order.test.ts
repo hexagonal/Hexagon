@@ -372,9 +372,15 @@ describe("the colours still meet where they met (Effects §3.4, §13.2)", () => 
     ]) {
       expect(reports(world + impureI + program), program).toEqual([["impureI", decFoundInt]]);
     }
-    // Two colours merged at the form are still the form's to report (#1109
-    // owns the wording).
-    expect(reports(world + "let p: () -> Unit = if c then pureU else impure\n").map(([at]) => at))
-      .toEqual(["if c then pureU else impure"]);
+    // Two colours merged at the form no longer clash (#1119): the pure path
+    // fits beside the impure one, the form is impure, and it meets the written
+    // `->` at the seat as `Some(impure)` does — one report, at the seat, in
+    // either branch order.
+    for (const program of [
+      "let p: () -> Unit = if c then pureU else impure\n",
+      "let p: () -> Unit = if c then impure else pureU\n",
+    ]) {
+      expect(reports(world + program), program).toEqual([["() -> Unit", refusal]]);
+    }
   });
 });
