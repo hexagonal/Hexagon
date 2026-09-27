@@ -881,14 +881,16 @@ export let z: Int = 1
     ]);
   });
 
-  it("reports no constantified face for the recovery, only the pin the body made", () => {
+  it("reports no constantified face for the recovery, and no pin its result makes", () => {
     // The fourth: a recovered arrow binds nothing it meets (§4.4), so it cannot
-    // be what reaches `g`'s linked parameter. What does reach it is the
-    // returned lambda's own colour — pure, because a function's colour is what
-    // its body does (§2.6, #947) — and handing a pure function where the
-    // monomorphic `->?` stands is §4.2's pure-direction pin. That report owes
-    // nothing to the recovery: the control below draws it with no refused
-    // annotation anywhere. `mkBad()` itself is bare (§3.4, #868).
+    // be what reaches `g`'s linked parameter. `mkBad`'s result is the `Maker`
+    // its return annotation declares — the recovery, not the returned lambda's
+    // pure colour (§4.4's "where the recovery stands", #1115) — so `g(mkBad())`
+    // meets the recovery and pins nothing. Read as the lambda's colour, it drew
+    // §4.2's pure-direction pin, whose "the honest face is `->`" the alias's own
+    // `->!` fixit turns into the opposite report. The control below, with no
+    // refused annotation anywhere, still draws the pin. `mkBad()` itself is
+    // bare (§3.4, #868).
     //
     // The refusal is an alias's: written inline, `mkBad`'s return annotation
     // would borrow `f`'s variable instead of being refused (§2.2.2, #873).
@@ -905,7 +907,6 @@ export let f(g: (() ->? String) -> String): String =
       "`->?` is the caller's colour, and this position has no caller to choose it — " +
       "an alias is a type fragment, not a signature; " +
       "write `->!` for a function that pulls the world, or `->` for one that does not",
-      pin,
     ]);
     expect(
       effectDiagnostics([["/main.hex", "module Main\n\n" + `export let f(g: (() ->? String) -> String): String =
