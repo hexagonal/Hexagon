@@ -139,8 +139,10 @@ withTransaction : (String ->? String) ->! String
 
 Every call to `withTransaction` wears `!`, because it writes whatever the callback does.
 But a *pure* callback is still accepted, and stays pure in the caller's accounting.
-Rounding that inner arrow up too would refuse pure callbacks outright — purity-as-
-polymorphism works through variables, and `->!` is not one.
+Rounding that inner arrow up to `->!` would say every callback is effectful. A pure one
+would still be let in — a later section shows why — but on a function whose own arrow is
+not already `!`, the claim costs every caller a mark: `run(action: () ->! Unit)` charges
+`run!(noop)` for effects `noop` never performs. `->?` keeps the caller's own answer.
 
 ### Building a closure is not running it
 
@@ -159,21 +161,90 @@ callbacks of its own. The `?` belongs where the closure is *invoked*.
 
 This is one rule, and it covers lambdas too: **a function's colour is what its body
 does.** The body decides when it closes, and nothing the function later meets can change
-that. A pure lambda is pure wherever you hand it. Put it in a record field declared
-`->!` and it is refused, because the field promises an effect the lambda does not have.
-Hand it where a callback's `->?` is shared with another parameter, and it pins that
-colour pure — which the checker reports as a `->?` that promises more than the body
-delivers. Where you mean a do-nothing function to stand in for the caller's colour,
-say so with a written face:
+that. A pure lambda is pure wherever you hand it — which leaves one question: where are
+you allowed to hand it?
+
+### A pure function fits anywhere
+
+Anywhere a function is expected. A function that touches nothing can run wherever running
+*something* is allowed, and nobody can tell the difference, so Hexagon lets it in:
+
+> **A pure function fits wherever a function is expected.**
+
+It fits beside a callback whose colour the caller chooses:
 
 ```hexagon
 export let orNoop(flag: Bool, action: () ->? Unit): (() ->? Unit) =
-    let noop: () ->? Unit = () => ()
-    if flag then action else noop
+    if flag then action else () => ()
 ```
 
-Inside `orNoop`, `noop`'s `->?` has no parameter of its own, so it names `orNoop`'s
-colour, and a written `->?` is a claim the checker keeps.
+`orNoop` hands back either the caller's `action` or a function that does nothing. The
+`if` keeps the caller's colour, `() ->? Unit`, because the do-nothing branch adds nothing
+to it. A caller who passes a pure `action` gets a pure function back; one who passes an
+effectful `action` gets an effectful one.
+
+It fits where an effect is declared:
+
+```hexagon
+export record Button = { label: String, onClick: () ->! Unit }
+
+export let comingSoon: Button = Button({ label = "Soon", onClick = () => () })
+```
+
+The field says a click *may* touch the world, and a click that does nothing keeps that
+promise easily. The field is still `->!`, so every call through it wears the mark —
+`(button.onClick)!()` — whichever function happens to be inside.
+
+And it fits beside an effectful function, whichever comes first:
+
+```hexagon
+let announce = if verbose then () => save!("starting") else () => ()
+```
+
+`announce` is `() ->! Unit`: one of its paths writes to the world, and the quiet one fits
+beside it. The same holds for a vector holding both kinds, and for a pure and an
+effectful callback handed together to one `->?`.
+
+Three things stay exactly as they were:
+
+- **The function keeps its own colour.** The do-nothing lambda is still pure, and a named
+  pure function still shows its plain `->` on hover. Nothing is written back onto the
+  function; each place that uses it simply lets that one use take the colour the place
+  needs.
+- **The other direction is still an error.** An effectful function cannot go where
+  purity is promised: a `->` parameter still refuses a function that touches the world,
+  because running it there would break the promise.
+- **There is nothing new to write.** No new arrow, annotation, or mark: the rule works
+  entirely through inference.
+
+The idea comes from Koka, the research language whose effect system Hexagon's two points
+simplify. Koka quietly *opens* a pure function each time it is used, so that it fits an
+effectful slot; Hexagon does the same, and the opening never shows in a type.
+
+The fit has two edges, and both come from the same fact: it happens where a function is
+*used*, and only for a function whose purity is already settled.
+
+A parameter you leave without a type has no body to settle its colour. Its colour is
+worked out from everything the function does with it: hand it to something that demands
+purity, and it is pure — and then handing it beside the caller's `->?` callback claims
+that callback is pure too, which the checker reports, whichever of the two lines comes
+first. Give the parameter its type, `(step: () -> Unit) =>`, and its purity is settled:
+it fits everywhere, like any other pure function.
+
+A pure function already packed inside a value keeps the type the value was built with:
+
+```hexagon
+let quiet = Some(() => ())
+let handler = if verbose then Some(() => save!("x")) else quiet    // refused
+```
+
+`quiet` was built as an `Option(() -> Unit)`, and that type is fixed. Write
+`Some(() => ())` in the branch itself, where the function is used, and it fits.
+
+Last, a type written directly over a lambda is that lambda's own face.
+`let h: () ->! Unit = () => ()` claims an effect the lambda does not have, and the checker
+suggests `->` instead. The claim was never needed: a pure `h` already fits anywhere a
+`() ->! Unit` is expected.
 
 ### `->?` needs something to link to
 
@@ -390,6 +461,9 @@ loophole.
   offers the caller a slot; elsewhere it is refused rather than re-read;
 - a function's colour is what its body does, lambdas included: building a closure is
   pure, and nothing a function is handed to can change its colour afterwards;
+- a pure function fits wherever a function is expected — beside a `->?` callback, in a
+  `->!` field, beside an effectful function — without changing its own colour, and with
+  nothing to write; an effectful function where purity is promised is still an error;
 - a helper nested in a body conducts the colour it captures, with `?`, without taking
   the callback as a parameter — colour scope is lexical, and a captured colour is never
   the helper's to generalize;

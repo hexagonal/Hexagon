@@ -954,8 +954,16 @@ late pedagogy pass, not a commitment to the current order.
   and is an error where nothing can link to it — never a silent re-reading.
 - A function's colour is what its body does, lambdas included, decided before
   anything it meets: a closure builder such as `defer` is pure (`->`) and its call
-  bare; a pure lambda at a `->!` field is refused; a do-nothing function meant to
-  carry the caller's colour writes a `->?` face (`let noop: () ->? Unit = () => ()`).
+  bare.
+- A pure function fits wherever a function is expected — beside a `->?` callback
+  (`if flag then action else () => ()` keeps the caller's colour), in a `->!` field
+  (`Button`'s `onClick`), beside an effectful function (the merge is `->!`) — without
+  changing its own colour and with nothing to write; the reverse stays an error. The
+  chapter credits Koka's "opening" for the idea. Its two taught edges: a parameter
+  with no written type takes its colour from all its uses, and a pure function
+  already inside a value keeps that value's type. A type written directly over a
+  lambda is that lambda's face, so `->!` over a pure lambda is refused as
+  over-claiming.
 - Colour scope is lexical: a helper nested in a body (a `fun`, a local `let`, a lambda,
   a nested `fun` block) conducts a captured callback's colour with `?` and never
   generalizes it; pinning the helper pins the enclosing callback, reported at the pin.

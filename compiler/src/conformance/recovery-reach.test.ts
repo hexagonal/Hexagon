@@ -288,9 +288,6 @@ export let go(s: Step): Unit =
     // the one the alias-free literal draws, whichever element comes first.
     const purity = "a `->` arrow promises purity, and this function performs effects — the demand " +
       "is written `->`, the function's face `->?` or `->!`";
-    const impureField = "this position's arrow is the impure constant — its colour is fixed where the " +
-      "type is declared, and this function's face is the pure `->`; the demand cannot weaken — " +
-      "change the position's declared arrow, or supply the effectful function the position promises";
     const solvedImpure = "this signature's `->?` promises a colour the caller chooses, but the body " +
       "solves it to the impure constant — a function that performs its own unconditional effects " +
       "rounds up, and its face is `->!`";
@@ -301,7 +298,6 @@ export let go(s: Step): Unit =
 `;
     for (const [face, first, second, report] of [
       ["() -> Unit", "[s, save0]", "[save0, s]", ["Vector(() -> Unit)", purity]],
-      ["() ->! Unit", "[s, () => ()]", "[() => (), s]", ["Vector(() ->! Unit)", impureField]],
       ["() ->! Unit", "[s, action]", "[action, s]", ["Vector(() ->! Unit)", solvedImpure]],
       ["() ->? Unit", "[s, save0]", "[save0, s]", undefined],
     ] as const) {
@@ -311,6 +307,11 @@ export let go(s: Step): Unit =
           report ?? [elements, solvedImpure],
         ]);
       }
+    }
+    // A pure lambda fits a `->!` face beside the recovery, as it would alone
+    // (#1119): the one report is the alias's.
+    for (const elements of ["[s, () => ()]", "[() => (), s]"]) {
+      expect(reports(at("() ->! Unit", elements))).toEqual([REFUSAL]);
     }
     // The pure lambda decides a `->` face's colour with the recovery, as it
     // would alone.
@@ -336,15 +337,12 @@ export let outer(s: Step): Unit = takeV(${elements})
     }
   });
 
-  test("at any depth of a form, a later path's real clash is reported in either order", () => {
+  test("at any depth of a form, a later path's real colour decides in either order", () => {
     // The recovery a first path brings is no home the later paths are absorbed
-    // into (review round 1, MAJOR 2): the inner `if`'s pure and impure paths
-    // still clash, whichever side of the outer form the recovery stands on.
-    const clash = [
-      "if False then (() => ()) else save0",
-      "a `->` arrow promises purity, and this function performs effects — the demand is " +
-      "written `->`, the function's face `->?` or `->!`",
-    ] as const;
+    // into (review round 1, MAJOR 2): the inner `if`'s impure path decides the
+    // whole form — its pure path fits beside it (#1119) — whichever side of the
+    // outer form the recovery stands on, so the bare call on it is the report.
+    const clash = ["g()", "this call runs effects, so `g` wants `!`, not no mark"] as const;
     for (const form of [
       "if True then s else (if False then (() => ()) else save0)",
       "if True then (if False then (() => ()) else save0) else s",
@@ -357,18 +355,19 @@ export let outer(s: Step): Unit = takeV(${elements})
     }
   });
 
-  test("a pure function decides a colour it shares with the recovery, in either order", () => {
+  test("the recovery decides a colour it shares with a pure function, in either order (#1119)", () => {
+    // A pure function adds nothing to a colour it shares, so what the recovery
+    // reached and nothing real did is the recovery: `apply2!` and `g!()` owe
+    // no mark report, whichever order the two arrive in. (Before #1119 the
+    // pure one decided, #1115 D2 (a).)
     for (const call of ["apply2!(s, () => ())", "apply2!(() => (), s)"]) {
-      expect(reports(`export let go(s: Step): Unit = ${call}\n`)).toEqual([
-        REFUSAL,
-        wantsNoMark("`apply2`"),
-      ]);
+      expect(reports(`export let go(s: Step): Unit = ${call}\n`)).toEqual([REFUSAL]);
     }
     for (const form of ["if True then s else (() => ())", "if True then (() => ()) else s"]) {
       expect(reports(`export let go(s: Step): Unit =
     let g = ${form}
     g!()
-`)).toEqual([REFUSAL, wantsNoMark("`g`")]);
+`)).toEqual([REFUSAL]);
     }
   });
 

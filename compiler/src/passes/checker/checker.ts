@@ -2761,6 +2761,14 @@ interface Knot {
     readonly span: Source.Span;
     /** Whether the colour stood on the left of the unification, to keep its orientation. */
     readonly colourFirst: boolean;
+    /**
+     * Whether the colour is a value's own — a member's or a held lambda's —
+     * rather than a colour a held body's call absorbed, a parameter's slot. A
+     * value's colour the bodies decide pure fits wherever it was used (#1119).
+     */
+    readonly own: boolean;
+    /** Whether a joining form met it, where both sides are values and neither is the demand. */
+    readonly joined: boolean;
   }[];
   /**
    * The lambdas the knot holds, which it treats as members *(#947)*: their
@@ -3023,6 +3031,39 @@ class Checker {
    * carried across a variable-to-variable bind.
    */
   readonly #recoveryTouched = new WeakSet<Variable>();
+  /**
+   * The colours a use of a pure function minted *(#1119; Effects §3.4)*: a
+   * pure function fits wherever a function is expected, so each use reads its
+   * outer arrow as a fresh colour (`#openAt`) that ordinary unification then
+   * decides. The mark is kept on the representative and carried across a
+   * variable-to-variable bind, as §4.4's recovery's is: a colour only openings
+   * reached is pure where it settles (`#takesOpening`) — where its body closes,
+   * or where the binding whose right-hand side minted it generalizes — so an
+   * opening never survives into a scheme and no second variable appears.
+   */
+  readonly #openedColours = new WeakSet<Variable>();
+  /** Every opened colour not yet settled, for the binding that minted it to close (`#generalize`). */
+  #openedPending: Variable[] = [];
+  /**
+   * The colours an act of unification bound to the pure constant — a demand,
+   * an annotation, a supplied argument — as against a body's close deciding
+   * them. A pure colour reached through one is imposed, not decided, and is
+   * not opened (`#decidedPure`, #1119 R.b).
+   */
+  readonly #pinnedPure = new WeakSet<Variable>();
+  /** Lambda parameters and pattern variables whose type was a decided pure function when bound (#1119 R.b). */
+  readonly #parameterEntryPure = new Set<Resolved.SymbolId>();
+  /** Pattern variables of a `match` arm, decided or not where they are bound (`#noteEntry`). */
+  readonly #entryBindings = new Set<Resolved.SymbolId>();
+  /**
+   * `let` bindings whose function type borrows its outer arrow from the
+   * enclosing environment — `let f = cb` for a parameter with no written type —
+   * so its colour is that parameter's, inferred from all its uses together, and
+   * a use of the binding is not opened (#1119 R.b).
+   */
+  readonly #borrowedBindings = new Set<Resolved.SymbolId>();
+  /** Lambdas that are a declaration's own value — a `let`'s, a `fun` member's, a pattern's `view` or `build` — never opened. */
+  readonly #unopenedLambdas = new WeakSet<Resolved.Expr>();
   /**
    * Whether this module has elaborated a §4.4 recovery (`#recovery`) — until it
    * has, nothing is marked and no type carries one, so the walks that serve it
@@ -7094,6 +7135,9 @@ class Checker {
         if (item.build !== undefined && buildSlot !== undefined) {
           this.#schemes.set(item.build.binding.symbol, { variables: [], type: buildSlot });
         }
+        // A pattern's two directions are its declaration's own values (#1119).
+        this.#unopenedLambdas.add(item.view.value);
+        if (item.build !== undefined) this.#unopenedLambdas.add(item.build.value);
         const inferredView = this.#inferExpr(item.view.value, level + 1, viewExpected);
         this.#unify(viewSlot, inferredView, item.view.span, () =>
           item.head === undefined
@@ -7392,6 +7436,7 @@ class Checker {
           item.annotation?.span,
         );
         this.#schemes.set(item.binding.symbol, scheme);
+        this.#noteBorrowed(item.binding.symbol, valueType, level);
         continue;
       }
       if (item.kind === "Import" || item.kind === "ExternBlock" || item.kind === "ExternImport") continue;
@@ -9347,6 +9392,9 @@ class Checker {
         // this head's and no nested lambda's; taking it here is what scopes it.
         const declaringMember = this.#declaringMember;
         this.#declaringMember = undefined;
+        if (declaringMember !== undefined || this.#bindingValue?.value === expression) {
+          this.#unopenedLambdas.add(expression);
+        }
         // A lambda is a signature, wherever it stands: a `->?` refused inside
         // one is refused for want of an *inlet*, not for want of a signature,
         // and §4.4's clause has to say so even when the lambda sits in a
@@ -9460,6 +9508,9 @@ class Checker {
           // lambda parameter still undetermined at dispatch is the program no
           // seat determined, and the constraint-operations advice points nowhere.
           this.#lambdaParameters.add(parameter.symbol);
+          // Decided now or never (#1119 R.b): what a later demand pins pure is
+          // the parameter's inferred colour, not a pure function it was handed.
+          if (this.#pureWhenBound(parameterType)) this.#parameterEntryPure.add(parameter.symbol);
           return parameterType;
         });
         const savedVariableScope = this.#annotationVariableScope;
@@ -10525,7 +10576,7 @@ class Checker {
     }
 
     this.#expressionTypes.set(expression, type);
-    return type;
+    return this.#opensAt(expression, type) ? this.#openAt(type, level) : type;
   }
 
   /**
@@ -11187,6 +11238,7 @@ class Checker {
         pattern.binding.symbol,
         this.#generalize(expected, level, generalizable, undefined, evaluated),
       );
+      this.#noteBorrowed(pattern.binding.symbol, expected, level);
       return;
     }
     if (pattern.kind === "As") {
@@ -11197,6 +11249,7 @@ class Checker {
         pattern.binding.symbol,
         this.#generalize(expected, level, generalizable, undefined, evaluated),
       );
+      this.#noteBorrowed(pattern.binding.symbol, expected, level);
       return;
     }
     if (pattern.kind === "Or") {
@@ -12061,6 +12114,7 @@ class Checker {
     }
     if (pattern.kind === "Binding") {
       this.#schemes.set(pattern.binding.symbol, { variables: [], type: expected });
+      this.#noteEntry(pattern.binding.symbol, expected);
       return;
     }
     if (pattern.kind === "As") {
@@ -12068,6 +12122,7 @@ class Checker {
         this.#inferMatchPattern(pattern.pattern, expected, level)
       );
       this.#schemes.set(pattern.binding.symbol, { variables: [], type: expected });
+      this.#noteEntry(pattern.binding.symbol, expected);
       return;
     }
     if (pattern.kind === "Or") {
@@ -17303,6 +17358,120 @@ class Checker {
     return this.#recolour(type, level, undefined, this.#shownColours);
   }
 
+  /**
+   * **A pure function fits wherever a function is expected** *(#1119; Effects
+   * §3.4)*. At a use, a function whose outer arrow is the pure constant is read
+   * with that arrow as a fresh colour, which the seat it meets then decides by
+   * ordinary unification: a `->?` there makes it that variable, a `->!` the
+   * impure constant, a `->` pure, and a colour nothing real reaches is pure
+   * again where it settles. This is Koka's re-opening at instantiation
+   * (`Type/Operations.hs`, `extend`) at two points: the outermost arrow only,
+   * an impure arrow left as it is (the top of the lattice has nothing above it)
+   * and a variable left alone. The function's own colour is untouched — it is
+   * still what its body does (§2.6), and it is what hover shows — and the copy
+   * shares every component but the one slot, so nothing about the value moves.
+   */
+  #openAt(type: Mono, level: number): Mono {
+    const actual = this.#prune(type);
+    if (actual.kind !== "Function") return type;
+    const colour = actual.effect === undefined ? PURE : this.#prune(actual.effect);
+    if (colour.kind !== "Effect" || colour.impure) return type;
+    const opened = this.#fresh(level, false);
+    this.#openedColours.add(opened);
+    this.#openedPending.push(opened);
+    // A report showing it while nothing has solved it shows the arrow written.
+    this.#shownColours.set(opened, PURE);
+    return { ...actual, effect: opened };
+  }
+
+  /**
+   * Whether an expression's value is opened where it is used (`#openAt`), and
+   * only where its colour is **decided** *(#1119 R.b)* — by a body's close, a
+   * written face, a callee's declared result, or a record's declared field —
+   * never where a demand brought the colour to it: a parameter with no written
+   * type is inferred from all its uses together, whatever order they come in.
+   * A forwarding form and a block take their paths' openings as they are.
+   */
+  #opensAt(expression: Resolved.Expr, type: Mono): boolean {
+    switch (expression.kind) {
+      case "Name":
+        // A callee is applied, not handed anywhere: nothing meets its arrow.
+        if (this.#calledNames.get(expression)?.callee === expression) return false;
+        if (this.#lambdaParameters.has(expression.symbol) || this.#entryBindings.has(expression.symbol)) {
+          return this.#parameterEntryPure.has(expression.symbol);
+        }
+        return !this.#borrowedBindings.has(expression.symbol);
+      case "Lambda":
+        return !this.#unopenedLambdas.has(expression) && this.#decidedPure(type);
+      case "Call":
+      case "Access":
+      case "Ascription":
+        return this.#decidedPure(type);
+      default:
+        return false;
+    }
+  }
+
+  /**
+   * Whether a value's outer arrow is pure by a decision rather than by a pin
+   * *(#1119 R.b)*: the function type reached without passing through a type
+   * variable — written, copied from a scheme, or built by a lambda — and its
+   * colour the pure constant, or a colour a body's close settled pure, never
+   * one a unification bound (`#pinnedPure`). With `level`, a binding's own
+   * right-hand side may reach it through variables it minted, and a variable
+   * at or below `level` is the environment's, so the colour is borrowed.
+   */
+  #decidedPure(type: Mono, level?: number): boolean {
+    let node: Mono = type;
+    while (node.kind === "Variable") {
+      if (level === undefined || node.level <= level || node.instance === undefined) return false;
+      node = node.instance;
+    }
+    if (node.kind !== "Function") return false;
+    let colour: Mono | undefined = node.effect;
+    while (colour?.kind === "Variable") {
+      if (colour.instance === undefined || this.#pinnedPure.has(colour)) return false;
+      if (level !== undefined && colour.level <= level) return false;
+      colour = colour.instance;
+    }
+    return colour === undefined || (colour.kind === "Effect" && !colour.impure);
+  }
+
+  /**
+   * Records a binding that is not generalized — a `match` arm's pattern
+   * variable — as a parameter is recorded: its colour is decided when it is
+   * bound, or it is inferred from its uses (#1119 R.b).
+   */
+  #noteEntry(symbol: Resolved.SymbolId, type: Mono): void {
+    this.#entryBindings.add(symbol);
+    if (this.#pureWhenBound(type)) this.#parameterEntryPure.add(symbol);
+  }
+
+  /**
+   * Whether a binding's type, as it stands where the binding is made, is a
+   * pure function — read through its variables, since a type known at that
+   * moment is the binding's own, but never through a colour a unification
+   * pinned pure (#1119 R.b). A parameter is bound before its body, so what the
+   * body later pins is never read here.
+   */
+  #pureWhenBound(type: Mono): boolean {
+    const actual = this.#prune(type);
+    if (actual.kind !== "Function") return false;
+    let colour: Mono | undefined = actual.effect;
+    while (colour?.kind === "Variable") {
+      if (colour.instance === undefined || this.#pinnedPure.has(colour)) return false;
+      colour = colour.instance;
+    }
+    return colour === undefined || (colour.kind === "Effect" && !colour.impure);
+  }
+
+  /** Records a `let` binding whose outer arrow the environment lends (`#borrowedBindings`). */
+  #noteBorrowed(symbol: Resolved.SymbolId, type: Mono, level: number): void {
+    // Whether or not it is a function yet: `let f = cb` before anything is
+    // known of `cb` borrows as surely as after.
+    if (!this.#decidedPure(type, level)) this.#borrowedBindings.add(symbol);
+  }
+
   /** A part that is a component's **home**: a concrete type of the numeric tower (Numeric Literals §5.1). */
   #numericHome(part: Mono | undefined): Mono | undefined {
     const face = this.#concreteFace(part);
@@ -18633,7 +18802,22 @@ class Checker {
       const colour = this.#prune(effect);
       if (colour.kind !== "Variable" || this.#isDependency(frame, colour)) continue;
       if (this.#takesRecovery(colour)) colour.instance = RECOVERED;
+      else if (this.#takesOpening(colour)) colour.instance = PURE;
     }
+  }
+
+  /**
+   * Whether a colour, still a variable where it settles, is only openings'
+   * *(#1119)*: marked by one, and no dependency a real colour holds — a written
+   * `->?`'s, a knot's, or a seat's slot. A pure contribution is no information,
+   * so what only pure functions reached is pure.
+   */
+  #takesOpening(colour: Variable): boolean {
+    if (!this.#openedColours.has(colour) || this.#recoveryLeaves(colour)) return false;
+    if (this.#seatSlots !== undefined && [...this.#seatSlots].some((slot) => this.#prune(slot) === colour)) {
+      return false;
+    }
+    return true;
   }
 
   /**
@@ -18672,6 +18856,17 @@ class Checker {
       if (frame.absorbed.some(({ effect }) => this.#knotColour(knot, effect))) return knot;
     }
     return undefined;
+  }
+
+  /** Whether a knot's colour is a value's own: a member's or a held lambda's (`Knot.demands`). */
+  #knotOwnColour(knot: Knot, colour: Mono): boolean {
+    const pruned = this.#prune(colour);
+    if (knot.frames.some((frame) => this.#prune(frame.own) === pruned)) return true;
+    return knot.members.some((member) => {
+      const type = knot.types.get(member.symbol);
+      const face = type === undefined ? undefined : this.#prune(type);
+      return face?.kind === "Function" && this.#prune(face.effect ?? PURE) === pruned;
+    });
   }
 
   /** Whether a colour is a member's, or a deferred frame's, of an open knot. */
@@ -18928,7 +19123,14 @@ class Checker {
    * after the members' named-frame defaulting too.
    */
   #compareKnotDemands(knot: Knot): void {
-    for (const { demand, colour, span, colourFirst } of knot.demands) {
+    for (const { demand, colour, span, colourFirst, own, joined } of knot.demands) {
+      // A value's colour the bodies made pure fits wherever the value was used
+      // (#1119): decided now, and a use opens it — at a demand, where the value
+      // stands right of the unification, and at a join, where either side is a
+      // value. A colour on the left elsewhere is the one being decided — a
+      // member's own body sourcing it, at a seat — and is compared as it was.
+      const settled = this.#prune(colour);
+      if (own && (joined || !colourFirst) && settled.kind === "Effect" && !settled.impure) continue;
       if (colourFirst) this.#unify(colour, demand, span);
       else this.#unify(demand, colour, span);
     }
@@ -22381,6 +22583,8 @@ class Checker {
       if (this.#recoveryTouched.has(variable) && !this.#recoveryLeaves(type)) {
         this.#recoveryTouched.add(type);
       }
+      // So does an opening's (#1119).
+      if (this.#openedColours.has(variable)) this.#openedColours.add(type);
       variable.instance = type;
       return;
     }
@@ -22432,6 +22636,9 @@ class Checker {
       // at the binding, so that a join reached through a record field, a tuple
       // element or a vector element is the merge its enclosing form is.
       this.#recordJoinedColour(variable, type);
+      // A pure colour an act of unification brought is a pin, never a
+      // decision (#1119 R.b): what reads through it is not opened.
+      if (!type.impure) this.#pinnedPure.add(variable);
     }
     // *(#947.)* While a knot is open, a demand never binds a sibling's colour:
     // it is recorded and compared at the knot's close (Effects §3.4). A demand
@@ -22441,7 +22648,14 @@ class Checker {
       if (type.kind === "Effect" && !isRecovered(type)) {
         const knot = this.#knots.find((open) => this.#knotColour(open, variable));
         if (knot !== undefined) {
-          knot.demands.push({ demand: type, colour: variable, span, colourFirst: !variableOnRight });
+          knot.demands.push({
+            demand: type,
+            colour: variable,
+            span,
+            colourFirst: !variableOnRight,
+            own: this.#knotOwnColour(knot, variable),
+            joined: this.#mergeSite !== undefined,
+          });
           return;
         }
       }
@@ -22455,7 +22669,14 @@ class Checker {
           // A §4.4 recovery binds nothing it meets, a sibling's colour included
           // (#873): recorded as any demand is, it meets a colour the member's
           // body decided, and absorbs there.
-          knot.demands.push({ demand: effect, colour, span, colourFirst: !variableOnRight });
+          knot.demands.push({
+            demand: effect,
+            colour,
+            span,
+            colourFirst: !variableOnRight,
+            own: true,
+            joined: this.#mergeSite !== undefined,
+          });
           variable.instance = { ...type, effect: colour };
           return;
         }
@@ -24739,6 +24960,20 @@ class Checker {
         if (variable.level > level && this.#takesRecovery(variable)) variable.instance = RECOVERED;
       }
     }
+    // A colour only openings reached is pure before it can be quantified
+    // (#1119): quantified, it would be the second variable no signature spells.
+    // Every one the right-hand side minted closes here, in its type or left
+    // inside it where no later statement can reach it — a level above the
+    // binding's is the right-hand side's own.
+    this.#openedPending = this.#openedPending.filter((opened) => {
+      const colour = this.#prune(opened);
+      if (colour.kind !== "Variable") return false;
+      if (colour.level > level && this.#takesOpening(colour)) {
+        colour.instance = PURE;
+        return false;
+      }
+      return true;
+    });
     let variables = this.#collectVariables(type).filter(
       (variable) => variable.level > level,
     );
@@ -31767,23 +32002,34 @@ function markFixMessage(required: "bang" | "question" | undefined): string {
  * `left` is the demand and `right` the supply, the convention `#unify`'s own
  * "expected … found …" fallback already keeps. The direction decides the
  * sentence, and it has to: the §4.3 report speaks of a written `->` *demand* in
- * every clause, and in the reverse direction — a pure function refused where a
- * `->?` data field, a result-only face, or a written `->!` demands the impure
- * constant — the demand wrote no `->`, so each clause misdescribes the program.
+ * every clause, and in the reverse direction — a pure arrow meeting the impure
+ * constant, which since #1119 happens only where the pure arrow was fixed before
+ * it arrived (`REVERSE_DEMAND_MESSAGE`) — the demand wrote no `->`, so each
+ * clause would misdescribe the program.
  */
 function effectMismatchMessage(left: Mono, right: Mono): string {
   const impure = (side: Mono): boolean => side.kind === "Effect" && side.impure;
   if (left.kind === "Effect" && right.kind === "Effect" && impure(left)) {
-    return "this position's arrow is the impure constant — its colour is fixed " +
-      "where the type is declared, and this function's face is the pure `->`; " +
-      "the demand cannot weaken — change the position's declared arrow, or " +
-      "supply the effectful function the position promises";
+    return REVERSE_DEMAND_MESSAGE;
   }
   return impure(left) || impure(right)
     ? "a `->` arrow promises purity, and this function performs effects — the " +
       "demand is written `->`, the function's face `->?` or `->!`"
     : "effect mismatch between these arrows";
 }
+
+/**
+ * The reverse direction's one remaining sentence *(#1119; Effects §4.3)*. A pure
+ * function fits wherever a function is expected, so a pure arrow meets the
+ * impure constant and fails only where it was fixed before it arrived: nested
+ * inside a value already built — the outermost arrow is the one a use re-opens
+ * — or a colour its other uses pinned, which a use never re-opens (R.b).
+ */
+const REVERSE_DEMAND_MESSAGE =
+  "this position's arrow is the impure constant, and the pure `->` meeting it " +
+  "was fixed before it arrived — inside a value already built, or by another " +
+  "use — so it cannot fit as a pure function fits where it is used; write the " +
+  "arrow where it was fixed";
 
 /** Rewrites first-argument pipe insertion before either side is inferred. */
 function rewritePipe(expression: Resolved.BinaryExpr): Resolved.CallExpr {
