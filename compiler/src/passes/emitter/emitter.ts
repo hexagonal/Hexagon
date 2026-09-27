@@ -944,7 +944,7 @@ function componentEvidence(
  * built *from* these slots and from nothing else.
  *
  * `arrow` is absent for a slot whose value is not an arrow this emitter wrote —
- * a helper reference (`toSeq: __seqFromIterable`), a nested record (`Hash`'s
+ * a runtime reference (`concat: __trieConcat`), a nested record (`Hash`'s
  * `eq`). There is nothing to beta-reduce there.
  */
 type DerivedSlot = {

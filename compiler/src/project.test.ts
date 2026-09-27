@@ -895,7 +895,7 @@ test("§9 (d) — a named project qualifying its own module is refused", () => {
 });
 
 /** §9 (f): coherence reads the whole graph, in two packages as in one. */
-test("§9 (f) — a duplicate instance across packages is reported at the program check", () => {
+test("§9 (f) — an instance across packages fills the slot an orphan names", () => {
   const file = sourceFiles();
   const project = compileProject([
     file(

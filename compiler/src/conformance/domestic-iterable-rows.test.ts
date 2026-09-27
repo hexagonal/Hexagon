@@ -199,6 +199,26 @@ describe("emission", () => {
   });
 
   /**
+   * A loop alone never asks for the row, so a module that only loops over a
+   * map or a set imports nothing from its companion (Vector's twin of this is
+   * `iterable-module.test.ts`'s native-loop pin).
+   */
+  test("a lone map or set loop imports nothing from the companion", () => {
+    const text = compiled(
+      "export let total(m: Map(String, Int), s: Set(Int)): Int =\n" +
+        "    var t = 0\n" +
+        "    for (k, y) in m\n        t := t + y\n" +
+        "    for x in s\n        t := t + x\n" +
+        "    t\n",
+    )("/main.hex");
+    expect(text).not.toContain("./Hex/Map.js");
+    expect(text).not.toContain("./Hex/Set.js");
+    expect(text).not.toContain("./Hex/Iterable.js");
+    expect(text).toContain("for (const __item of m) {");
+    expect(text).toContain("for (const x of s) {");
+  });
+
+  /**
    * Each member is its door, and the doors are what they were: `Vector`'s the
    * inbound adapter over the vector's own traversal, `Map`'s and `Set`'s the
    * runtime's walks. `Seq`'s is the identity, so normalizing a sequence costs a

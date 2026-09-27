@@ -448,7 +448,7 @@ The orphan rule's home module (Constraints §5.3) is defined: **the module whose
 
 ### 7.3 Duplicate-instance reporting point
 
-Same-module duplicates error at the second declaration (unchanged). Cross-module duplicates error **at whole-program check, when the second module enters the import graph**, naming both modules and both declaration sites: "duplicate instance of `Ord<String>`: declared in module `A` and in module `B`" — each with a secondary label at its declaration, which hosts render as file and line (the module names the home; the label says where the text is, since a module's file is not derivable from its name — §2). The error is attributed to the program, not to either innocent-looking module — which is precisely why the orphan rule exists to make it nearly unreachable. Where one of the two is itself an orphan, its own module reports only the orphan refusal, naming the other's module (Constraints §5.3); the duplicate is still reported wherever a module reaches both.
+Same-module duplicates error at the second declaration (unchanged). Cross-module duplicates error **at whole-program check, when the second module enters the import graph**, naming both modules and both declaration sites: "duplicate instance of `Ord<String>`: declared in module `A` and in module `B`" — each with a secondary label at its declaration, which hosts render as file and line (the module names the home; the label says where the text is, since a module's file is not derivable from its name — §2). The error is attributed to the program, not to either innocent-looking module — which is precisely why the orphan rule exists to make it nearly unreachable. Where one of the two is itself an orphan, its own module reports only the orphan refusal, naming the other's module (Constraints §5.3); the duplicate is still reported in every other module that reaches both.
 
 ### 7.4 Instances on private types
 
@@ -698,12 +698,14 @@ import "./config"                            -- ERROR (parse): Hexagon has no ef
 
 -- (j) Cross-module duplicate instance
 -- module A: honor Show<Weird> = ...         -- (module A declares Weird: home, legal)
--- module B: honor Show<Weird> = ...         -- ERROR at program check: duplicate
+-- module B: import A; honor Show<Weird> = ...
+                                             -- ERROR in B: orphan instance — B declares
+                                             --   neither Show nor Weird; Show<Weird> is
+                                             --   already declared in module A (Constraints
+                                             --   §5.3: B's one report)
+-- module C: import A; import B              -- ERROR at program check: duplicate
                                              -- instance of Show<Weird>: declared in
                                              -- module A and in module B (labels at both)
-                                             -- (module B also violates the orphan rule,
-                                             --   and its own report is that refusal,
-                                             --   naming module A — Constraints §5.3)
 
 -- (k) Emission: the module form lowers to JavaScript's namespace import
 import Geometry as Geo

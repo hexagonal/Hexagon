@@ -34,6 +34,7 @@ import {
   isPublicTypeKind,
   publicTypeKey,
   publicTypeKind,
+  type PublicTypeKind,
 } from "../../intrinsics.js";
 import { PRIMITIVE_COMPANION_MODULES } from "../../prelude.js";
 import { relativeSpecifier } from "../../support/paths.js";
@@ -4580,7 +4581,7 @@ class Checker {
     }
     for (const item of module.items) {
       if (item.kind === "Honor") {
-        const orphan = this.#checkInstanceHead(item, module.items);
+        const folded = this.#checkInstanceHead(item, module.items);
         // An instance's parameters are declared type variables, exactly as a
         // lambda's `<a: Render>` binders are: rigid, so `#bind` keeps them as
         // their class's representative and rejects binding them to a concrete
@@ -4693,12 +4694,13 @@ class Checker {
           // name bare: there is one constraint to name, and qualifying it by
           // declaring module would print the same module twice.
           //
-          // Silent after an orphan report (Collections Part 5 §7.3, #1131). The
-          // orphan refusal is the verdict on this `honor`, and it has already
-          // named the declaration that fills the slot (`#occupiedSlotNote`), so
-          // a second report here would only restate it. A lawful `honor` has no
-          // orphan report to fold into, and gets this one.
-          if (!orphan) {
+          // Silent after an orphan report that named this occupant
+          // (Constraints §5.3, #1131). The orphan refusal is the verdict on this
+          // `honor`, and it has already said the slot is filled and by whom
+          // (`#occupiedSlotNote`), so a second report here would only restate
+          // it. A lawful `honor` has no orphan report to fold into, and gets
+          // this one.
+          if (!folded) {
             this.#diagnostics.add({
               severity: "error",
               message: `duplicate instance of \`${item.constraint}<${this.#display(subject)}>\``,
@@ -6690,7 +6692,9 @@ class Checker {
 
   /**
    * The instance-head laws, and the orphan rule. Answers whether the orphan
-   * report fired, which is what folds a duplicate report into it (#1131).
+   * report fired *and named the instance already filling the slot* — the one
+   * case a duplicate report is folded into it (#1131), so a fold never happens
+   * without the clause that makes the second report redundant.
    */
   #checkInstanceHead(
     item: Resolved.HonorItem,
@@ -6777,13 +6781,14 @@ class Checker {
           candidate.record === subject.record)
       );
     if (!ownsConstraint && !ownsSubject) {
+      const occupied = this.#occupiedSlotNote(item);
       this.#diagnostics.add({
         severity: "error",
         message: `orphan instance: this module declares neither \`${item.constraint}\` nor the instance subject` +
-          this.#occupiedSlotNote(item),
+          occupied,
         primary: item.span,
       });
-      return true;
+      return occupied !== "";
     }
     return false;
   }
@@ -6805,11 +6810,12 @@ class Checker {
     // Read off the **annotation**, not the elaborated subject: head checking
     // runs before pass 1 stores the `Mono`, so `#instanceSubjects` is still
     // empty here for this item. The key below is the one `#resolvedSubjectKey`
-    // mints for the same head, which is what keeps this asking about the slot
-    // selection would actually use. Every kind the head law admits has one.
+    // mints for the same head — the public kinds through the one shared
+    // `publicKindKey` — which is what keeps this asking about the slot selection
+    // would actually use. Every kind the head law admits has one.
     const subject = item.subject;
     const key = isPublicTypeKind(subject.kind)
-      ? subject.kind.toLowerCase()
+      ? publicKindKey(subject.kind)
       : subject.kind === "Primitive"
       ? `primitive:${subject.name}`
       : subject.kind === "RecordDeclaration"
@@ -11683,13 +11689,7 @@ class Checker {
     if (subject.kind === "Constructor") return `primitive:${subject.name}`;
     if (subject.kind === "NominalRecord") return `record:${Number(subject.record)}`;
     if (subject.kind === "Union") return `union:${Number(subject.union)}`;
-    if (subject.kind === "Range") return "range";
-    if (subject.kind === "Vector") return "vector";
-    if (subject.kind === "Map") return "map";
-    if (subject.kind === "Set") return "set";
-    if (subject.kind === "Array") return "array";
-    if (subject.kind === "JsMap") return "jsmap";
-    if (subject.kind === "JsSet") return "jsset";
+    if (isPublicTypeKind(subject.kind)) return publicKindKey(subject.kind);
     return undefined;
   }
 
@@ -26510,8 +26510,9 @@ class Checker {
     // type, so `Vector(Int)` and `Vector(String)` would take different slots —
     // which is not coherence, it is a cache. Nothing keyed at these kinds
     // before the `Iterable` rows arrived: `Eq`/`Ord`/`Show`/`Hash` there are
-    // satisfied structurally and never enter the table, and only a companion
-    // whose public row declares the kind may name it in an `honor` head
+    // satisfied structurally and never enter the table, and an `honor` head
+    // names the kind only in a module owning one half of it — the companion
+    // whose public row declares it, or a constraint's declaring module
     // (#1071).
     const survivors = this.#collectVariables(type).filter(
       ({ rigidName }) => rigidName === undefined,
@@ -33030,6 +33031,16 @@ function impliedTypeBinderMessage(constraint: string, identity: string): string 
  * only the member's data is visible there. Reachable from standard-library
  * source alone, which is the only source with a seat.
  */
+/**
+ * The coherence key's type half at a public kind (#1071): the kind's name,
+ * lowercased. One function for both readers — `#resolvedSubjectKey`, which
+ * keys the table, and `#occupiedSlotNote`, which reads a written head before
+ * it is elaborated — so the two cannot key one head differently.
+ */
+function publicKindKey(kind: PublicTypeKind): string {
+  return kind.toLowerCase();
+}
+
 function dataSeatRefusal(provider: string): string {
   return `needs \`${provider}\`'s full implementation, which is seated after this module; ` +
     `only \`${provider}\`'s data is visible here (Modules §5.5)`;

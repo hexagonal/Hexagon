@@ -211,11 +211,11 @@ Instances are global over the import graph (Modules §7.1). For the home-module 
 
 ### 7.3 Collisions at a filled slot
 
-Every standard row occupies an ordinary coherence slot, declared by the module §4 names. A user `honor Iterable<Vector(a)>` fails the **orphan rule** — the user's file declares neither `Iterable` nor `Vector` — and because an instance the program sees already fills the slot, the orphan error names it and the module that declares it: *"orphan instance: this module declares neither `Iterable` nor the instance subject; `Iterable<Vector(a)>` is already declared in module `Vector`."*
+Every standard row occupies an ordinary coherence slot, declared by the module §4 names. A user `honor Iterable<Vector(a)>` fails the **orphan rule** — the user's file declares neither `Iterable` nor `Vector` — and because an instance the module sees already fills the slot, the orphan error names it and the module that declares it: *"orphan instance: this module declares neither `Iterable` nor the instance subject; `Iterable<Vector(a)>` is already declared in module `Vector`."*
 
 That one report is the whole verdict. No duplicate-instance report follows it: the orphan refusal already says the `honor` cannot stand, and its clause already says why no module the user owns could supply the instance, so a second report would only restate the first. The rule is the orphan rule's (Constraints §5.3), not `Iterable`'s: any orphan `honor` on a filled slot takes it, naming the occupant's module as the reader spells it (Modules §7.6 — a prelude module by its bare name) or "this module" when an earlier `honor` in the same file filled the slot.
 
-A duplicate-instance error proper arises only between two `honor`s that each satisfy the orphan rule. At a standard row that means standard-library source, where a second row in a companion is an ordinary duplicate. User-vs-user duplicates follow Modules §7.3 unchanged: same module at the second declaration, cross-module at whole-program check naming both sites.
+The fold is at the orphan's own declaration only. Any other module that reaches both instances still reports the duplicate (Modules §7.3), as does a second `honor` that satisfies the orphan rule where it is written — at a standard row that means standard-library source, a second row in a companion. Duplicates follow Modules §7.3: same module at the second declaration, cross-module at whole-program check naming both sites.
 
 ---
 
@@ -422,7 +422,7 @@ Rejected per §7.2: for a home-module instance the pattern is structurally unnec
 | 9 | **`String.fromSeq` ships: concatenation**, full contract — `""` on empty, traversal order, any-length elements, no normalization, eager, linear with join-not-fold implementation note, one-sided round-trip law | §5.3 |
 | 10 | **Conversion-suite domain fixed: finite collection types.** `String` joins; `Range` exempt (not a collection); `Seq` is the currency itself; `Array` membership → FFI; third parties via the recipe | §1, §5.3 |
 | 11 | **`Iterable<Array(a)>` decided as a binding v1 FFI obligation** (`Item = a`, member `toSeq` behaving as `Array.toSeq`); row meaning, conversions, observation semantics, and emission owned by FFI — discharged in full by FFI Part 2 | §6, §13.5 |
-| 12 | An orphan `honor` on a filled slot is one report: the orphan error naming the occupant's module; the duplicate report is folded into it (#1131). Duplicate-proper arises only between two lawful `honor`s | §7.3 |
+| 12 | An orphan `honor` on a filled slot is one report: the orphan error naming the occupant's module; the duplicate report is folded into it there (#1131); a module reaching both still reports the duplicate | §7.3 |
 | 13 | Recipe normative (the instance's `toSeq` member as the conversion + `fromSeq` exported + honest constraint placement); effect-import pattern deliberately untaught; user collections inherit and must state their order contract | §8 |
 | 14 | **Emission: static instance resolution is total** (consequence of the binder ban); Loops §8 erasure mandatory and untouched; source-owned `String` must retain native `for..of` with no adapter/dictionary/call overhead, while explicit `toSeq` retains the same lazy adapter and complexity; no `Iterable`/`Item`/instance machinery in `.d.ts` — other constraints' foreign representation deferred to FFI | §9 |
 | 15 | Collections/stdlib boundary fixed: structure in Parts 1–5, combinator families (and their v1 ship-list) in the stdlib listing under the Part 1 §3 doctrine | §10 |
