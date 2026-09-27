@@ -2400,15 +2400,15 @@ const BUILTIN_COMPANIONS: ReadonlyMap<string, string> = new Map([
   // fused call form "stopped being an error entirely" only where this tie exists.
   ["Array", "builtin:Array"],
   // `Nullable(a)` is representation-direct but otherwise the same companion
-  // case as `Array(a)`: the compiler owns the type and `stdlib/Nullable.hex`
+  // case as `JsValue`: the compiler owns the type and `stdlib/Nullable.hex`
   // supplies the module addressable under its name. Absorbing spellings are
   // pruned before this table is read, so `Nullable(JsValue)` keeps `JsValue`'s
   // companion and a both-nullish enum keeps its declaration's companion.
   ["Nullable", "builtin:Nullable"],
-  // The two borrowed collection views (FFI Part 10 §3) join last and on the same
-  // footing (#792): neither type has a declaration site, so `stdlib/JsMap.hex`
-  // and `stdlib/JsSet.hex` are their companions by being the modules addressable
-  // under the names. `m.size()` *is* `JsMap.size(m)` and `s.contains(x)` *is*
+  // The two other captured collections (FFI Part 10 §3) join last and on the
+  // same footing (#792): `stdlib/JsMap.hex` and `stdlib/JsSet.hex` are their
+  // companions by being the modules addressable under the names — and, since
+  // #1076, the modules whose public rows declare them, as `Array.hex` is. `m.size()` *is* `JsMap.size(m)` and `s.contains(x)` *is*
   // `JsSet.contains(s, x)`, exactly as `xs.length()` is `Array.length(xs)`.
   ["JsMap", "builtin:JsMap"],
   ["JsSet", "builtin:JsSet"],

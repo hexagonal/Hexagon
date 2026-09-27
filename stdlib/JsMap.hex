@@ -21,9 +21,9 @@ module JsMap
 // do not. The foreign door does not consult `Hash`, so it demands none.
 
 extern from "hex:intrinsic"
-    (** A JavaScript `Map` Hexagon holds as its own copy, made as the foreign
-        map crossed. No foreign code can reach the copy and Hexagon has no way
-        to change it, so it never changes. Keys are compared by JavaScript's own
+    (** A JavaScript `Map` Hexagon holds as its own copy, captured as a foreign
+        map crossed or built fresh. No foreign code can reach the copy and
+        Hexagon has no way to change it, so it never changes. Keys are compared by JavaScript's own
         equality, not by `Hash`. *)
     export type jsMap as JsMap(k, v)
 

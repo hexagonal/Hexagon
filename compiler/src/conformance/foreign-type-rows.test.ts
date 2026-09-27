@@ -372,6 +372,27 @@ test("a program's own constraint is honored at the captured collections", async 
 });
 
 /**
+ * A missing instance at the three names the companion as a home, as it does
+ * at `Vector` (#1071): the declaring module is the type's home now, stated as
+ * a fact and never offered, since no program file may write an instance there.
+ */
+test("a missing instance names the companion as the type's home", () => {
+  expect(diagnostics("let same(xs: Array(Int)): Bool = xs == xs\n")).toEqual([
+    "type `Array(Int)` has no `Eq` instance; its only legal homes are the module declaring " +
+      "`Eq` and the prelude module declaring `Array`, both outside project source, so this " +
+      "pair's honored set is closed — change the type, or go through the operations those " +
+      "homes export",
+  ]);
+  expect(diagnostics(
+    "constraint Describe<t> =\n    describe(x: t) -> String\n\n" +
+      "let d(m: JsMap(Int, Int)): String = describe(m)\n",
+  )).toEqual([
+    "type `JsMap(Int, Int)` has no `Describe` instance; it could only be declared in module " +
+      "`Main` (declares `Describe`) or the prelude module declaring `JsMap`",
+  ]);
+});
+
+/**
  * Modules §5.3's qualified read of an honored member pins the member at the
  * head, and every variable the head binds is fresh at the use — the head's own
  * as well as the `<...>` prefix's (#390). Before #1076 only the prefix's were,

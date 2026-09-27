@@ -120,7 +120,7 @@ export interface JsMapTypeAnnotation {
   readonly span: Source.Span;
 }
 
-/** `JsSet(a)` — the borrowed view of a native JS `Set` (FFI Part 10 §1). */
+/** `JsSet(a)` — a captured native JS `Set` (FFI Part 10 §1), declared like `JsMap(k, v)`. */
 export interface JsSetTypeAnnotation {
   readonly kind: "JsSet";
   readonly element: TypeAnnotation;
@@ -129,9 +129,8 @@ export interface JsSetTypeAnnotation {
 
 /**
  * `JsValue` — any JavaScript value, about which Hexagon asserts nothing (FFI
- * Part 11 §2). A boundary intrinsic like `Array(a)`, and the only nullary one:
- * no `.hex` module declares it, and the value crossing is the foreign value
- * itself, by identity and zero-copy.
+ * Part 11 §2). A boundary intrinsic: no `.hex` module declares it, and the value
+ * crossing is the foreign value itself, by identity and zero-copy.
  */
 export interface JsValueTypeAnnotation {
   readonly kind: "JsValue";

@@ -28,9 +28,10 @@ module Array
 // section 9's conversion into a persistent vector.
 
 extern from "hex:intrinsic"
-    (** A JavaScript array Hexagon holds as its own copy, made as the foreign
-        array crossed. No foreign code can reach the copy and Hexagon has no way
-        to change it, so it never changes. Elements are indexed from 1. *)
+    (** A JavaScript array Hexagon holds as its own copy, captured as a foreign
+        array crossed or built fresh. No foreign code can reach the copy and
+        Hexagon has no way to change it, so it never changes. Elements are
+        indexed from 1. *)
     export type array as Array(a)
 
     (** How many elements `values` holds. It is the captured array's own

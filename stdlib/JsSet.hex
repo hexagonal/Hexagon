@@ -21,9 +21,9 @@ module JsSet
 // is `contains` and there is no second Boolean read.
 
 extern from "hex:intrinsic"
-    (** A JavaScript `Set` Hexagon holds as its own copy, made as the foreign
-        set crossed. No foreign code can reach the copy and Hexagon has no way
-        to change it, so it never changes. Elements are compared by
+    (** A JavaScript `Set` Hexagon holds as its own copy, captured as a foreign
+        set crossed or built fresh. No foreign code can reach the copy and
+        Hexagon has no way to change it, so it never changes. Elements are compared by
         JavaScript's own equality, not by `Hash`. *)
     export type jsSet as JsSet(a)
 
