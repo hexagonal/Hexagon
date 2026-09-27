@@ -16,8 +16,10 @@ export exception SliceError(start: Int, end: Int)
 // the eager/lazy bridge — the seven operations after the type row. The eighth is
 // a different document's: `toArray` is FFI Part 2 section 9's outbound
 // conversion, and it is declared here because section 9.1's obligation 2 says
-// the intrinsic door is its mechanism and this file its home. Everything below
-// the block is ordinary Hexagon over these.
+// the intrinsic door is its mechanism and this file its home. `Array` is
+// declared by `Array.hex`, seated after this file; the data seat of its type
+// row, just before this one, is what lets `toArray` name it (Modules
+// section 5.5). Everything below the block is ordinary Hexagon over these.
 //
 // The type row declares `Vector` itself (`spec/intrinsics.md` section 3.3): the
 // type is this module's own, its values are the runtime's `TrieVector` records,

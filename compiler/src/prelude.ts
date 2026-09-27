@@ -176,8 +176,11 @@ export interface PreludeModule {
  * Neither module seeds a bare term name.
  *
  * `Array.hex` follows them in the FFI block (#511). It is FFI Part 2's companion, not
- * Part 11's, and it needs exactly one thing: `get` answers with an `Option`, so
- * it sits after `Option.hex`. Everything else about the seat is deliberate
+ * Part 11's, and what it needs is forced: `get` answers with an `Option`,
+ * `toVector` builds a `Vector`, and its `honor Iterable<Array(a)>` needs
+ * `Iterable.hex` (#1076), so it sits after all three. Its type row is seen
+ * earlier, at its data seat before `Vector.hex` (`PRELUDE_DATA_SEATS`), because
+ * `Vector.toArray` names the type. The rest of the seat is deliberate
  * rather than forced. It is **late** because its two exports are `length` and
  * `get`, and a prelude module sees the members before it: seated early, every
  * later companion declaring either word would be weighing its own spelling
@@ -185,23 +188,21 @@ export interface PreludeModule {
  * module that spells either word. (Since #742 that arithmetic decides only how
  * many routes a refusal enumerates — nothing is seeded bare either way — so the
  * seat is now a courtesy to the reader rather than a load-bearing fact.)
- * Nothing forces it
- * before `JsValue.hex` either: `Array(a)` is a compiler-owned type with no
- * declaration site, so `JsValue.toArray`'s `Result(Array(JsValue), …)` spells
- * the type through the fallback (Modules §5.5) and not through this module.
- * It sits here because a reader meeting the boundary companions meets them
- * together.
+ * `JsValue.toArray`'s `Result(Array(JsValue), …)` needs only the row, which
+ * the data seat gives everything after `Vector.hex`, so nothing forces this
+ * file before `JsValue.hex` either. It sits here because a reader meeting the
+ * boundary companions meets them together.
  *
  * `JsMap.hex` and `JsSet.hex` follow it immediately (#792), and they are FFI
- * Part 10's companions of the other two borrowed views. Their seats are forced
- * by the same reading as `Array.hex`'s, one signature at a time: `JsMap.get`
- * answers with an `Option`, both `fromSeq` rows name `Seq`, and `JsMap.entries`
- * is `Iterable`'s member reached qualified, so all three of `Option.hex`,
- * `Seq.hex` and `Iterable.hex` must already be seated — which the tail beside
- * `Array.hex` satisfies with room to spare. Nothing forces them relative to the
- * Part 11 block below, and nothing in that block names either type: like
- * `Array(a)`, both are compiler-owned with no declaration site, so only these
- * files and a user's own annotation can spell them. They sit beside `Array.hex`
+ * Part 10's companions of the other two captured collections. Their seats are
+ * forced by the same reading as `Array.hex`'s, one signature at a time:
+ * `JsMap.get` answers with an `Option`, both `fromSeq` rows name `Seq`, and
+ * each file honors `Iterable` at its own type (#1076), so all three of
+ * `Option.hex`, `Seq.hex` and `Iterable.hex` must already be seated — which the
+ * tail beside `Array.hex` satisfies with room to spare. Each declares its own
+ * type by a public row, and no prelude module before it spells either, so
+ * neither needs a data seat. Nothing forces them relative to the Part 11 block
+ * below, and nothing in that block names either type. They sit beside `Array.hex`
  * for its reason — a reader meeting the boundary companions meets them
  * together — and the vocabulary the pair spends is the same courtesy it is
  * there: `size`, `get`, `containsKey`, `entries`, `contains` and `fromSeq` are
@@ -306,11 +307,12 @@ export const PRELUDE_MODULES: readonly PreludeModule[] = [
 /**
  * The prelude members whose **data** is seated earlier than their full
  * implementation (Modules §5.5). Each entry names a member of
- * `PRELUDE_MODULES` and the same-named, non-opaque `union` it declares, and seats
- * that union just before `before`: the modules from `before`'s seat up to the
- * member's own see the declaration's type and public constructors, and none of
- * its functions or instances; the member's full seat is its place in the list
- * above.
+ * `PRELUDE_MODULES` and the same-named declaration it seats just before
+ * `before` — a non-opaque `union`, or *(#1076)* a public intrinsic `type` row —
+ * so that the modules from `before`'s seat up to the member's own see the
+ * declaration's type, and a union's public constructors, and none of the
+ * member's functions or instances; the member's full seat is its place in the
+ * list above.
  *
  * `Option` is the one entry, and its two seats are forced from both sides. Its
  * data is needed early — `Int.checkedAdd`, `Nat.fromInt` and `BigInt.toInt`
@@ -323,9 +325,18 @@ export const PRELUDE_MODULES: readonly PreludeModule[] = [
  * this is the same fact about order the list above states for every other
  * member.
  *
- * The union is checked on its own, ahead of every prelude module and so against
- * none of them: a data seat's union may name no other prelude type. `Option`'s
- * names only its parameter.
+ * `Array` is the second entry, and its seats are forced the same way (#1076).
+ * Its type is needed early — `Vector.toArray` answers with an `Array` — while
+ * its full implementation is needed late, because `Array.toVector` builds a
+ * `Vector`. So the public row `export type array as Array(a)` takes a data seat
+ * just before `Vector.hex`, and the rest of `Array.hex` keeps its seat in the
+ * FFI block. The row is a name for the key's kind and nothing more: what the
+ * modules between the seats gain is the spelling, never the companion.
+ *
+ * The declaration is checked on its own, ahead of every prelude module and so
+ * against none of them: a data seat's declaration may name no other prelude
+ * type. `Option`'s union names only its parameter, and `Array`'s row only its
+ * own.
  */
 export const PRELUDE_DATA_SEATS: readonly {
   /** The member's declared name, which is also its data declaration's name. */
@@ -334,6 +345,7 @@ export const PRELUDE_DATA_SEATS: readonly {
   readonly before: string;
 }[] = [
   { name: "Option", before: "Int" },
+  { name: "Array", before: "Vector" },
 ];
 
 /**

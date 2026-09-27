@@ -1,10 +1,12 @@
 module JsSet
 
-// The public companion of the captured foreign `JsSet(a)` (FFI Part 10).
+// The public companion of the captured foreign `JsSet(a)` (FFI Part 10), and
+// the module that declares it.
 //
-// `JsSet(a)` is compiler-owned: no `.hex` file declares it, so this module is
-// its companion by being the module addressable under the name (Method Syntax
-// section 4.1), exactly as `JsMap.hex` is `JsMap`'s.
+// The type row declares `JsSet` itself (`spec/intrinsics.md` section 3.3), as
+// `JsMap.hex`'s declares `JsMap`. Its values are native `Set` objects, so the
+// row names no representation and writes no variance claim: `JsSet(a)` is
+// invariant.
 //
 // Everything here reads a native `Set` that Hexagon holds as its own copy, made
 // as the foreign set crossed (section 2), or builds one fresh from a sequence
@@ -19,6 +21,12 @@ module JsSet
 // is `contains` and there is no second Boolean read.
 
 extern from "hex:intrinsic"
+    (** A JavaScript `Set` Hexagon holds as its own copy, made as the foreign
+        set crossed. No foreign code can reach the copy and Hexagon has no way
+        to change it, so it never changes. Elements are compared by
+        JavaScript's own equality, not by `Hash`. *)
+    export type jsSet as JsSet(a)
+
     (** How many elements `s` holds: the captured set's own `size`, which is
         the source's size at the moment of capture and never changes. A read of
         a value, which the compiler may share or hoist freely (section 2). *)
@@ -40,12 +48,20 @@ extern from "hex:intrinsic"
         its source once, so an infinite sequence does not terminate. *)
     export fun jsSetFromSeq as fromSeq(elements: Seq(a)) -> JsSet(a)
 
-// `toSeq` is not bound here, and cannot be: `Iterable<JsSet(a)>` is a provided
-// row (Collections Part 5 section 4) whose member *is* the traversal, and a
-// module-level binding of a member's spelling beside the instance is the
-// Constraints section 4.6 rebinding error. The walk is published all the same —
-// as the dot call `s.toSeq()` and as `JsSet.toSeq(s)` qualified, both of which
-// read the row. It is lazy over the captured set and allocates no second copy;
-// it may be forced at any time and observes the same elements, because the set
-// cannot change (section 6.3). Unlike `JsMap`, there is no second name for
-// it — the persistent `Set` has no `elements` export to mirror.
+    // Unexported, beneath the `Iterable` instance at the end of the file
+    // (section 6.1's row), and the whole of the set's traversal: `toSeq` is the
+    // instance's member, reached as the dot call `s.toSeq()` and as
+    // `JsSet.toSeq(s)` qualified, and never bound as a plain export too — a
+    // module-level binding of a member's spelling beside the instance is the
+    // Constraints section 4.6 rebinding error. The walk is the native `Set`
+    // iterator's, in the captured set's insertion order, lazy and allocating no
+    // second copy; it may be forced at any time and observes the same
+    // elements, because the set cannot change (section 6.3). Hexagon has no
+    // other way to walk a native set, which is why it is a door row. Unlike
+    // `JsMap`, there is no second name for it — the persistent `Set` has no
+    // `elements` export to mirror.
+    fun jsSetToSeq as nativeToSeq(s: JsSet(a)) -> Seq(a)
+
+honor Iterable<JsSet(a)> =
+    type Item = a
+    toSeq(s) = nativeToSeq(s)

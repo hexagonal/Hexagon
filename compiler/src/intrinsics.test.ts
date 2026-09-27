@@ -71,7 +71,7 @@ describe("the inventory and its lowerings agree", () => {
     const types = intrinsicKeys("type");
     expect(operations.filter((key) => types.includes(key))).toEqual([]);
     expect(new Set([...operations, ...types])).toEqual(new Set(INTRINSIC_INVENTORY.keys()));
-    expect(types).toEqual(["buffer", "vector", "map", "set", "range"]);
+    expect(types).toEqual(["buffer", "vector", "map", "set", "range", "array", "jsMap", "jsSet"]);
   });
 
   /**

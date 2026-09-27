@@ -412,10 +412,12 @@ describe("the vocabulary this module spends (Modules §5.5)", () => {
   });
 
   /**
-   * And nothing else leaves the module. The one door row's key (`arrayLength`)
-   * is not a name a program can spell, and there is no fourth export hiding
-   * behind the three above — `toVector` is ordinary Hexagon here and has no key
-   * of its own to leak.
+   * And nothing else leaves the module. The door rows' keys (`arrayLength`,
+   * `arrayToSeq`) are not names a program can spell, the traversal beneath the
+   * `Iterable` instance is unexported (#1076), and there is no fourth function
+   * hiding behind the three above — `toVector` is ordinary Hexagon here and has
+   * no key of its own to leak. `Array.toSeq` is the instance's member, not an
+   * export (§8.1).
    */
   test("the module exports exactly `length`, `get` and `toVector`", () => {
     expect(projectDiagnostics("module Main\n\n" + "export let n(xs: Array(Int)): Int = Array.length(xs)\n"))
@@ -426,6 +428,8 @@ describe("the vocabulary this module spends (Modules §5.5)", () => {
       .toEqual([]);
     expect(projectDiagnostics("module Main\n\n" + "export let n(xs: Array(Int)): Int = Array.arrayLength(xs)\n"))
       .toEqual(["module `Array` does not export `arrayLength`"]);
+    expect(projectDiagnostics("module Main\n\n" + "export let n(xs: Array(Int)): Seq(Int) = Array.nativeToSeq(xs)\n"))
+      .toEqual(["module `Array` does not export `nativeToSeq`"]);
   });
 });
 
@@ -434,13 +438,15 @@ describe("the vocabulary this module spends (Modules §5.5)", () => {
  * where their absence used to be pinned. #238 landed `Vector.toArray` through
  * the intrinsic door and `Array.toVector` followed as ordinary Hexagon in this
  * module (`stdlib-roadmap.md` §5.1 — a `for` over the borrow is expressible, so
- * it stays in source), so the absences below are two operations, not four. Each
- * operation's own contract is its own file's — `vector-to-array.test.ts` for
- * the outbound crossing (eager, fresh, shallow, total, §6.2-stable) and
- * `array-to-vector.test.ts` for the inbound one (eager, a stable persistent
- * snapshot, shallow, total, §6.4's holes) — and neither is restated here.
+ * it stays in source). `Array.toSeq` followed at #1076 as the member of the
+ * module's own `Iterable<Array(a)>` (§8.1), so `Array.fromSeq` is the one
+ * conversion still absent. Each operation's own contract is its own file's —
+ * `vector-to-array.test.ts` for the outbound crossing (eager, fresh, shallow,
+ * total, §6.2-stable), `array-to-vector.test.ts` for the inbound one (eager, a
+ * stable persistent snapshot, shallow, total, §6.4's holes), and
+ * `foreign-type-rows.test.ts` for the walk — and none is restated here.
  */
-describe("two of §9's four conversions have shipped", () => {
+describe("three of §9's four conversions have shipped", () => {
   test("`Vector.toArray` compiles, and is no longer one of the absences", () => {
     expect(projectDiagnostics("module Main\n\n" + "export let a(v: Vector(Int)): Array(Int) = Vector.toArray(v)\n"))
       .toEqual([]);
@@ -450,12 +456,17 @@ describe("two of §9's four conversions have shipped", () => {
     expect(projectDiagnostics("module Main\n\n" + "export let a(xs: Array(Int)): Vector(Int) = Array.toVector(xs)\n"))
       .toEqual([]);
   });
+
+  /** §8.1's row moved into `stdlib/Array.hex` (#1076), and `Array.toSeq` is its member. */
+  test("`Array.toSeq` compiles, and is no longer one of the absences", () => {
+    expect(projectDiagnostics("module Main\n\n" + "export let a(xs: Array(Int)): Seq(Int) = Array.toSeq(xs)\n"))
+      .toEqual([]);
+  });
 });
 
 describe("what this slice does not ship is absent, not stubbed (§9.1)", () => {
   test.each([
     ["at", "export let a(xs: Array(Int)): Int = Array.at(xs, 1)\n"],
-    ["toSeq", "export let a(xs: Array(Int)): Seq(Int) = Array.toSeq(xs)\n"],
     ["fromSeq", "export let a(s: Seq(Int)): Array(Int) = Array.fromSeq(s)\n"],
   ])("`Array.%s` is the ordinary unknown-export error", (name, source) => {
     expect(projectDiagnostics("module Main\n\n" + source))

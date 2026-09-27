@@ -255,7 +255,7 @@ export function isIntrinsicScheme(specifier: string): boolean {
  *   **unexported** representation-honest identity, sitting beneath the verdict
  *   that earns it exactly as its five siblings do — the borrowed view *is* the same
  *   array (§4.2's zero-copy clause), so the crossing has nothing to do.
- * - **`arrayLength` is `stdlib/Array.hex`'s one row** (FFI Part 2 §6.3), and it
+ * - **`arrayLength` is `stdlib/Array.hex`'s one accessor row** (FFI Part 2 §6.3), and it
  *   lowers to the native `.length` read that §6.3's emission bullet names. Its
  *   sibling accessors need no key: `get` is ordinary Hexagon over this row and
  *   the bracket, and the bracket itself is an *expression form* — the emitter's
@@ -294,6 +294,18 @@ export function isIntrinsicScheme(specifier: string): boolean {
  *   host explicitly trusting its own copy of either registered member
  *   may bind either spelling at module level, and a captured `Map` would make
  *   `fromSeq` construct the user's value.
+ *
+ * *(#1076, the foreign `Iterable` slice.)* `arrayToSeq`, `jsMapToSeq` and
+ * `jsSetToSeq` are the traversals beneath the three companions' own
+ * `honor Iterable<…>` blocks, each unexported, and each the inbound adapter over
+ * the captured collection's native iterator — `stringToSeq` and `rangeToSeq`
+ * once more. A native `Map` or `Set` has no Hexagon walk at all: its companion
+ * reads only `size`, membership, and a present key's value. An array has one —
+ * `length` and the bracket — but only as a range mapped through a bounds-checked
+ * read per element, three layers where the native iterator is one, so the
+ * representation ground of `stdlib-roadmap.md` §5.1 keys all three (James,
+ * 2026-09-27). The captured value never changes (FFI Part 2 §6.5, Part 10 §6.3),
+ * so the lazy sequence may be forced at any time and sees the same elements.
  *
  * *(#509, the `JsError` door.)* The `jsError*` family is `stdlib/JsError.hex`'s
  * (FFI Part 11 §7), three rows for the two total conservative accessors, and
@@ -428,8 +440,11 @@ export interface IntrinsicTypeEntry {
   readonly representation?: { readonly module: string; readonly record: string };
 }
 
-/** The built-in kinds a public type key names (#1071; `Range`, #1073). */
-export type PublicTypeKind = "Vector" | "Map" | "Set" | "Range";
+/**
+ * The built-in kinds a public type key names (#1071; `Range`, #1073; the
+ * captured foreign collections, #1076).
+ */
+export type PublicTypeKind = "Vector" | "Map" | "Set" | "Range" | "Array" | "JsMap" | "JsSet";
 
 export type IntrinsicEntry = IntrinsicOperationEntry | IntrinsicTypeEntry;
 
@@ -478,6 +493,13 @@ const INTRINSIC_TYPES: readonly (readonly [string, IntrinsicTypeEntry])[] = [
   // range objects, not a Hexagon record, so there is no representation to name
   // and no claim to check.
   ["range", { grade: "type", arity: 0, declarers: ["Range"], reach: "public", kind: "Range" }],
+  // *(#1076.)* The captured foreign collections (FFI Part 2 §6, Part 10). Each
+  // value is a native array, `Map`, or `Set`, not a Hexagon record, so there is
+  // no representation to name, and the rows write no claim: the three types
+  // stay invariant.
+  ["array", { grade: "type", arity: 1, declarers: ["Array"], reach: "public", kind: "Array" }],
+  ["jsMap", { grade: "type", arity: 2, declarers: ["JsMap"], reach: "public", kind: "JsMap" }],
+  ["jsSet", { grade: "type", arity: 1, declarers: ["JsSet"], reach: "public", kind: "JsSet" }],
 ];
 
 /** The inventory's **operation** rows, key to parameter count. */
@@ -629,13 +651,16 @@ const INTRINSIC_OPERATIONS: readonly (readonly [string, number])[] = [
   ["jsValueIsArray", 1],
   ["jsValueAsArrayUnchecked", 1],
   ["arrayLength", 1],
+  ["arrayToSeq", 1],
   ["jsMapSize", 1],
   ["jsMapHas", 2],
   ["jsMapGetUnchecked", 2],
   ["jsMapFromSeq", 1],
+  ["jsMapToSeq", 1],
   ["jsSetSize", 1],
   ["jsSetHas", 2],
   ["jsSetFromSeq", 1],
+  ["jsSetToSeq", 1],
   ["jsErrorReadMessage", 1],
   ["jsErrorReadStack", 1],
   ["jsErrorRender", 1],

@@ -109,9 +109,9 @@ export interface ArrayTypeAnnotation {
 }
 
 /**
- * `JsMap(k, v)` — the borrowed view of a native JS `Map` (FFI Part 10 §1). A
- * boundary intrinsic like `Array(a)`: no `.hex` module declares it, and the
- * value crossing is the foreign object itself, zero-copy.
+ * `JsMap(k, v)` — a captured native JS `Map` (FFI Part 10 §1). Like `Array(a)`,
+ * its companion declares it by a public intrinsic `type` row naming this kind
+ * (#1076, `spec/intrinsics.md` §3.3).
  */
 export interface JsMapTypeAnnotation {
   readonly kind: "JsMap";

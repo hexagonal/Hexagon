@@ -3,10 +3,10 @@ module JsValue
 // The public companion of `JsValue` — the type of a JavaScript value about
 // which Hexagon asserts nothing (FFI Part 11 section 2).
 //
-// `JsValue` is compiler-owned: no `.hex` file declares it, because a value that
-// crosses by identity has no Hexagon declaration site, exactly as `Array(a)` has
-// none. This module is its companion by being the module addressable under the
-// name (Method Syntax section 4.1), the same way `Vector.hex` is `Vector`'s.
+// `JsValue` is compiler-owned: no `.hex` file declares it, because it has no
+// instance to home and no parameter to claim, which is all a declaration would
+// give it (`spec/intrinsics.md` section 3.3). This module is its companion by
+// being the module addressable under the name (Method Syntax section 4.1).
 //
 // `JsPathSegment` and `JsConversionReason` are declared next door, in modules
 // named for themselves, because section 12's extension makes their constructors

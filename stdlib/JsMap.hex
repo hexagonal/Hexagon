@@ -1,12 +1,12 @@
 module JsMap
 
-// The public companion of the captured foreign `JsMap(k, v)` (FFI Part 10).
+// The public companion of the captured foreign `JsMap(k, v)` (FFI Part 10), and
+// the module that declares it.
 //
-// `JsMap(k, v)` is compiler-owned: no `.hex` file declares it, because a value
-// made at the boundary has no Hexagon declaration site, exactly as `Array(a)`
-// has none and `JsValue` has none. This module is its companion by
-// being the module addressable under the name (Method Syntax section 4.1), the
-// same way `Array.hex` is `Array`'s.
+// The type row declares `JsMap` itself (`spec/intrinsics.md` section 3.3), as
+// `Array.hex`'s declares `Array`. Its values are native `Map` objects, so the
+// row names no representation and writes no variance claim: `JsMap(k, v)` is
+// invariant in both parameters.
 //
 // Everything here reads a native `Map` that Hexagon holds as its own copy, made
 // as the foreign map crossed (section 2), or builds one fresh from a sequence
@@ -21,6 +21,12 @@ module JsMap
 // do not. The foreign door does not consult `Hash`, so it demands none.
 
 extern from "hex:intrinsic"
+    (** A JavaScript `Map` Hexagon holds as its own copy, made as the foreign
+        map crossed. No foreign code can reach the copy and Hexagon has no way
+        to change it, so it never changes. Keys are compared by JavaScript's own
+        equality, not by `Hash`. *)
+    export type jsMap as JsMap(k, v)
+
     (** How many entries `map` holds: the captured map's own `size`, which is
         the source's size at the moment of capture and never changes. A read of
         a value, which the compiler may share or hoist freely (section 2). *)
@@ -50,6 +56,13 @@ extern from "hex:intrinsic"
         does not terminate. *)
     export fun jsMapFromSeq as fromSeq(pairs: Seq((k, v))) -> JsMap(k, v)
 
+    // Unexported, beneath the `Iterable` instance at the end of the file
+    // (section 6.1's row). The walk is the native `Map` iterator's, in the
+    // captured map's insertion order, and it yields each entry as a two-element
+    // array, which *is* the tuple representation (section 6.3). Hexagon has no
+    // other way to walk a native map, which is why it is a door row.
+    fun jsMapToSeq as nativeToSeq(map: JsMap(k, v)) -> Seq((k, v))
+
 (** The value `map` binds `key` to, or `None` when it binds none. The total
     accessor: an absent key is an answer, not a fault.
 
@@ -71,14 +84,17 @@ export let get(map: JsMap(k, v), key: k): Option(v) =
 
     This is `toSeq` under a second name and nothing else — the same walk, not a
     second traversal (section 6.3). It exists because the persistent `Map` has
-    `entries` and the mirror costs one alias. `toSeq` itself is not bound here
-    and cannot be: `Iterable<JsMap(k, v)>` is a provided row (Collections Part 5
-    section 4) whose member *is* the traversal, and a module-level binding of a
-    member's spelling beside the instance is the Constraints section 4.6
-    rebinding error. The suite spelling reaches the same walk through the
-    member, as the dot call `map.toSeq()` or qualified as `JsMap.toSeq(map)`.
+    `entries` and the mirror costs one alias. `toSeq` itself is the member of
+    this file's `Iterable<JsMap(k, v)>` below, reached as the dot call
+    `map.toSeq()` or qualified as `JsMap.toSeq(map)`; a module-level binding of
+    the member's spelling beside the instance would be the Constraints
+    section 4.6 rebinding error.
 
     The sequence is lazy over the captured map and allocates no second copy.
     It may be forced at any time and observes the same entries, because the
     map cannot change (section 6.3). *)
 export let entries(map: JsMap(k, v)): Seq((k, v)) = Iterable.toSeq(map)
+
+honor Iterable<JsMap(k, v)> =
+    type Item = (k, v)
+    toSeq(map) = nativeToSeq(map)

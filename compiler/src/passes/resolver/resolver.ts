@@ -2140,7 +2140,7 @@ class Resolver {
    * a binding either way: claim a name no surface offers and the message is back
    * to promising a repair that fixes nothing, which is the whole point of asking.
    * `PROVIDED_ROW_ALIASES` is where that line ran once — the seating alone
-   * admits every registered prelude alias, and only six of
+   * admits every registered prelude alias, and only four of
    * them carry a row.
    */
   #aliasOffers(
@@ -2159,7 +2159,7 @@ class Resolver {
     // the same file reached two ways yields two interfaces, so the comparison is
     // by `fileId`. The alias filter above it is what keeps this from claiming
     // `Int.toSeq` — every registered prelude alias is seated,
-    // and only six of them carry a row.
+    // and only four of them carry a row.
     const companion = this.#preludeModuleAliases.get(alias);
     return companion !== undefined && companion.module.fileId === iface.module.fileId;
   }
@@ -6543,12 +6543,10 @@ class Resolver {
       // `Seq` is gone from this list: it is a prelude *declaration* now (Loops
       // §6.6), reached through the record table above — and so are `Vector`,
       // `Map`, and `Set` (#1071), whose companions declare them by public door
-      // rows the prelude seeds like any declared type. The names left are the
-      // boundary intrinsics that no `.hex` module declares — `JsMap` and
-      // `JsSet` (FFI Part 10 §1) among them, reached here for the same reason
-      // `Array` is: a captured foreign collection has no Hexagon declaration
-      // site until its own row lands (#1076).
-      if (name === "Array" || name === "Nullable" || name === "JsSet") {
+      // rows the prelude seeds like any declared type, and the captured
+      // `Array`, `JsMap`, and `JsSet` (#1076) the same way. The names left are
+      // the boundary types that no `.hex` module declares (Modules §5.5).
+      if (name === "Nullable") {
         if (annotation.arguments.length !== 1) {
           this.#diagnostics.add({
             severity: "error",
@@ -6563,25 +6561,7 @@ class Resolver {
         // Part 2 §2.1) is the checker's one seat — `Checker#prune` — because
         // the equation has to hold of a type however it arrives, and an
         // annotation is only one of the ways.
-        if (name === "Nullable") return { kind: "Nullable", value: argument, span: annotation.span };
-        if (name === "JsSet") return { kind: "JsSet", element: argument, span: annotation.span };
-        return { kind: "Array", element: argument, span: annotation.span };
-      }
-      if (name === "JsMap") {
-        if (annotation.arguments.length !== 2) {
-          this.#diagnostics.add({
-            severity: "error",
-            message: `type \`${name}\` expects 2 arguments, but ${annotation.arguments.length} were provided`,
-            primary: annotation.span,
-          });
-        }
-        const key = annotation.arguments[0] === undefined
-          ? { kind: "ErrorType" as const, span: annotation.span }
-          : this.#resolveTypeAnnotation(annotation.arguments[0], typeParameters, impliedContext, substitutions);
-        const value = annotation.arguments[1] === undefined
-          ? { kind: "ErrorType" as const, span: annotation.span }
-          : this.#resolveTypeAnnotation(annotation.arguments[1], typeParameters, impliedContext, substitutions);
-        return { kind: "JsMap", key, value, span: annotation.span };
+        return { kind: "Nullable", value: argument, span: annotation.span };
       }
       // `JsValue` takes no parameters (FFI Part 11 §2), so an applied spelling
       // gets the boundary family's arity diagnostic rather than the
@@ -6910,8 +6890,9 @@ class Resolver {
    * *(#1071.)* A **public** door row's spelling, resolved: the built-in kind its
    * key names (`spec/intrinsics.md` §3.3). The kind is the key's one identity —
    * the language's own `Vector`, `Map`, or `Set`, which a vector literal is
-   * typed at in every module whatever is in scope there — so the row binds its
-   * name to it and mints nothing beside it. Every route a declared type is
+   * typed at in every module whatever is in scope there, and since #1076 the
+   * captured `Array`, `JsMap`, and `JsSet` — so the row binds its name to it
+   * and mints nothing beside it. Every route a declared type is
    * reached by comes here: the declaring module's own spelling, the prelude's
    * seed of it, a qualified `Vector.Vector(Int)`, and the companion fallback.
    *
@@ -6941,6 +6922,11 @@ class Resolver {
     // alias carries it, as a nominal's does.
     const written = qualifier === undefined ? {} : { qualifier };
     if (kind === "Range") return { kind, ...written, span };
+    // *(#1076.)* The captured foreign collections carry no qualifier: their
+    // faces are pinned to TypeScript's own read-only types (FFI Part 7 §2.3),
+    // so there is no declaration file for a qualifier to route an import to.
+    if (kind === "JsMap") return { kind, key: at(0), value: at(1), span };
+    if (kind === "Array" || kind === "JsSet") return { kind, element: at(0), span };
     return kind === "Map"
       ? { kind: "Map", key: at(0), value: at(1), ...written, span }
       : { kind, element: at(0), ...written, span };
@@ -7541,7 +7527,7 @@ class Resolver {
    * instance no module's text declares (Collections Part 5 §4).
    *
    * `#honoredMemberAccess` above answers from `iface.instances`, which is built
-   * from `honor` items, so it cannot answer here: the eight provided `Iterable`
+   * from `honor` items, so it cannot answer here: the four provided `Iterable`
    * rows have no source form (#353's ruling 1 — `Seq`'s would be a seat cycle and
    * `Vector`'s a structural head, both refused). What is *not* different is what
    * the reader is owed. `Vector.toSeq(v)` is the honored-member read of the row
@@ -7558,14 +7544,10 @@ class Resolver {
    * `Range` has no row here: its companion honors `Iterable<Range>` in source
    * (#1073), so `Range.toSeq(r)` is `#honoredMemberAccess`'s read.
    *
-   * `Array` is the one head that *has* a companion and still has no row here.
-   * The reason this comment used to give — that no `Array.hex` existed to hang
-   * one on — expired at #511, which shipped the file; `Array.toSeq(xs)` is
-   * therefore ``module `Array` does not export `toSeq` `` today, while
-   * `xs.toSeq()` and `Iterable.toSeq(xs)` both walk the row. Adding the arm is
-   * the same two lines `JsMap` and `JsSet` took at #792 and wants only the
-   * decision that FFI Part 2 §9's `Array.toSeq` is the row's member rather than
-   * an export the companion owes; it is filed rather than taken here.
+   * *(#1076.)* The captured `Array`, `JsMap`, and `JsSet` have no arm: their
+   * companions honor `Iterable` in source, so `Array.toSeq(xs)` is Modules
+   * §5.3's honored-member read at a type the companion's public row declares
+   * (`#honoredMemberCandidates`), as `Range.toSeq(r)` is.
    */
   #providedRowMemberAccess(
     iface: ModuleInterface,
@@ -7575,7 +7557,7 @@ class Resolver {
     if (field.text !== "toSeq") return undefined;
     // The alias must be one a row is seated at before anything else is asked, so
     // that this reader and `#aliasOffers` answer the same set. The arms below
-    // are the same six, and reaching the tail `return undefined` for an alias
+    // are the same four, and reaching the tail `return undefined` for an alias
     // this admitted would be the drift the shared constant exists to prevent.
     if (!PROVIDED_ROW_ALIASES.has(alias)) return undefined;
     // Keyed on the *module*, never on the spelling: a user's own
@@ -7630,15 +7612,6 @@ class Resolver {
         { kind: "Map", key: variable("k"), value: variable("v"), span },
         ["k", "v"],
       );
-    }
-    if (alias === "JsMap") {
-      return pin(
-        { kind: "JsMap", key: variable("k"), value: variable("v"), span },
-        ["k", "v"],
-      );
-    }
-    if (alias === "JsSet") {
-      return pin({ kind: "JsSet", element: variable("a"), span }, ["a"]);
     }
     if (alias === "Seq") {
       const record = iface.records.get("Seq");
@@ -8391,12 +8364,6 @@ export const PROVIDED_ROW_ALIASES: ReadonlySet<string> = new Set([
   "Set",
   "Map",
   "Seq",
-  // FFI Part 10 §6.1's two rows (#792). They are here rather than absent for the
-  // ordinary reason the others are: the borrowed views now have companions
-  // (`stdlib/JsMap.hex`, `stdlib/JsSet.hex`), so `JsMap.toSeq(m)` has a module
-  // to be addressed through and the row is what it reaches.
-  "JsMap",
-  "JsSet",
 ]);
 
 /**
