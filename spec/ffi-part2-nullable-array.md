@@ -176,7 +176,7 @@ Array.get   : (Array(a), Int) -> Option(a)
 xs[lo..hi]                            -- eager shallow slice: a fresh JS array
 ```
 
-- `xs[i]` is **1-based and read-only**; there is no assignment-to-index grammar, and no `set` exists. Out-of-bounds throws `IndexError` (Collections Part 3's declaration), asserting at the fault site.
+- `xs[i]` is **1-based and read-only**; there is no assignment-to-index grammar, and no `set` exists. Out-of-bounds throws `IndexError` (Collections Part 3's declaration), asserting at the fault site. The index is Collections Part 3 §5.1's seat, checked as `Array.at`'s `Int` argument is: `xs[k]` and `xs[k - 1]` take a `k: Nat`.
 - `at` and `get` carry their Vector contracts: `at` is the bracket's signed sibling (from-end addressing, throws), `get` answers with `Option`.
 - **Slicing is eager and shallow and returns a fresh JS array** — a captured value from birth (§6.2), sharing no storage with the array it was cut from. Elements are preserved by value and identity (Part 1 §5.1); windows clamp, and a directed window throws `SliceError`, per the Vector window doctrine.
 - **No mutation surface exists**, on any accessor or result.

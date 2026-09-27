@@ -916,14 +916,16 @@ late pedagogy pass, not a commitment to the current order.
 - `for`/`while` bodies and complete loop expressions have type `Unit`.
 - `..` and `Range.up` are inclusive ascending `Int` ranges; reversed bounds are empty.
   `Range.down` is explicitly descending and follows the mirrored empty-range rule.
+  `..`'s endpoints are checked as `Range.up`'s arguments are, so a `Nat` widens in
+  (#1133).
 - There is no `break` or `continue`.
 - Iteration resolves statically from a known outer type. Each concrete iterable has one
   element type, and `Seq(a)` is the reusable iteration parameter.
 - The Patterns chapter's complete grammar supersedes the loops spec's original bare-name
   head: tuple, record, and other irrefutable patterns are legal.
 - A syntactic range head emits a counting loop, `for (let i = 1; i <= n; i++)`. A literal
-  or immutable name stays in the test; any other end is read once into a `const __end`
-  before the loop.
+  or immutable name stays in the test, read through a widening that writes nothing (an
+  `n: Nat` bound); any other end is read once into a `const __end` before the loop.
 
 ### Sequences
 

@@ -76,7 +76,7 @@ for i in 1..n        -- the counting loop
 
 - `x..y` is a binary operator on `Int`s producing a value of the concrete type **`Range`**: a lightweight, immutable, *lazy* description of a bounded integer progression. It is **not** a `Vector` — `for i in 1..1_000_000` allocates nothing.
 - `Range` is monomorphic over `Int` in v1. No Float ranges, no ranges over arbitrary `Ord` types (no use case until `Char`-like types exist; pre-registered rejection for v1). A `Range(a)` over `<a: (Signed, Ord)>` is specifically rejected: fractional ranges inherit IEEE accumulation drift in loop bounds (Haskell's `[0.1, 0.2 .. 1.0]` overshoot is the cautionary precedent), while `Int`-only ranges have an exact element count and make the §8 counting-loop emission (`x <= hi`) trivially correct.
-- **Interaction with polymorphic literals and widening:** the *literals* in `1..10` are polymorphic as always (`fromNat(k) : α, Num α` — Numeric Literals machinery, untouched), but `..` demands `Int` operands, so each `α` unifies with `Int` on the spot. Defaulting never runs; the constraint discharges at the `Int` instance; `fromNat` erases (Numeric Literals §5). Consequently `1..10 : Range` and the loop variable is `Int`, unconditionally. When that established `Int` later meets an independently established `Float` accumulator, Numeric Literals §5.1 widens it contextually through `Float.fromInt`; the range itself remains monomorphic (acceptance test §10.3(i)).
+- **Interaction with polymorphic literals and widening:** each operand of `..` is an `Int` seat, as each of `Range.up`'s parameters is (§3.2): a tree of its own, faced by `Int` (Numeric Literals §5.1's seat list, #1133). The *literals* in `1..10` are polymorphic as always (`fromNat(k) : α, Num α` — Numeric Literals machinery, untouched) and take the face, so defaulting never runs; the constraint discharges at the `Int` instance; `fromNat` erases (Numeric Literals §5). An established `Nat` widens into the seat through `Num.fromNat`, so `for i in 1..n` counts for an `n: Nat`, and arithmetic in an operand runs at `Int`: `1..(n - 1)` subtracts at `Int`, as `Range.up(1, n - 1)` does. A value no conversion takes into `Int` — a `BigInt`, a `Float`, a `Dec` — is refused with `Int` named as the type expected. Consequently `1..10 : Range` and the loop variable is `Int`, unconditionally. When that established `Int` later meets an independently established `Float` accumulator, Numeric Literals §5.1 widens it contextually through `Float.fromInt`; the range itself remains monomorphic (acceptance test §10.3(i)).
 - Ranges are **inclusive at both ends**, always. There is no exclusive-end variant and no half-open syntax (`..<`, `...`) in v1: with 1-based indexing, the half-open idiom's *raison d'être* (`0..<len`) does not arise — the natural loops are `1..n` and `1..length(xs)`, both inclusive. Pre-registered rejection; revisit only with field evidence.
 - Conceptually a `Range` is `(start, end, direction)` where direction ∈ {ascending, descending}; direction is **not user-visible** in v1 (no field access on `Range`; it is opaque). `..` always builds ascending; `Range.down` builds descending (§3.3).
 - `Range` is iterable with element type `Int` (§7; instance row Collections Part 5 §4).
@@ -88,7 +88,7 @@ Range.up : (Int, Int) -> Range
 Range.up(1, 10)      -- identical to 1..10
 ```
 
-`lo..hi` and `Range.up(lo, hi)` denote the same value; the operator is the idiomatic spelling, the function is the first-class one (pass it, partially configure it, and it is where a future step parameter would live — §11.5). Both are inclusive. Both constructors live in `Range`'s companion, `stdlib/Range.hex`, which also declares the type (its public intrinsic row, Intrinsics §3.3) and honors `Iterable<Range>` (Collections Part 5 §4); they are reached qualified, as the prelude spends no bare vocabulary on them (Modules §5.5).
+`lo..hi` and `Range.up(lo, hi)` denote the same value, and are checked alike (§3.1); the operator is the idiomatic spelling, the function is the first-class one (pass it, partially configure it, and it is where a future step parameter would live — §11.5). Both are inclusive. Both constructors live in `Range`'s companion, `stdlib/Range.hex`, which also declares the type (its public intrinsic row, Intrinsics §3.3) and honors `Iterable<Range>` (Collections Part 5 §4); they are reached qualified, as the prelude spends no bare vocabulary on them (Modules §5.5).
 
 ### 3.3 `Range.down`
 
@@ -261,7 +261,7 @@ Readable-JS doctrine: the general mechanism exists; the common case erases.
 | `Range` as a first-class value (escapes a loop head) | a small range object implementing the JS iterable protocol, materialised on demand (same on-demand doctrine as constructors, Unions §6.4) |
 
 - The counting-loop erasure is **mandatory**, not an optimisation option — it is the readable-JS goal at the language's most common loop, same status as `fromNat` erasure (Numeric Literals §5). "Syntactic range" means the loop head's expression is literally a `..` application or a call to `Range.up` or `Range.down`, read through grouping parentheses and an ascription as every rule that reads what an expression means reads it (Functions §8). The calls are recognised by the binding the name resolves to, never by its spelling: a module's own `up` is an ordinary call. A `Range` arriving any other way — through a variable, from some other call — takes the general `for..of` path. The bounds of `Range.down(hi, lo)` are its arguments in order, so `hi` is the start and is evaluated first.
-- A bound is **trivial** when it is an integer literal, negated or not, or a name nothing can rebind — a `let` (another module's, read through its qualifier, included), a parameter, a pattern binder — and a trivial `hi` stays in the test, read at every iteration. Every other bound is non-trivial, a `var` among them: the body may assign it, and the loop runs to the value the head read (§2.3). `lo` is read once in any form; it moves out only ahead of a non-trivial `hi`, and only when it is non-trivial itself, so that it still runs first:
+- A bound is **trivial** when it is an integer literal, negated or not, or a name nothing can rebind — a `let` (another module's, read through its qualifier, included), a parameter, a pattern binder — and a trivial `hi` stays in the test, read at every iteration. A conversion that writes nothing is read through, since what the loop reads is the name it emits: `Nat`'s widening into `Int` erases (Numeric Literals §5.1), so `1..n` for an `n: Nat` counts to `n` itself. Every other bound is non-trivial, a `var` among them: the body may assign it, and the loop runs to the value the head read (§2.3). `lo` is read once in any form; it moves out only ahead of a non-trivial `hi`, and only when it is non-trivial itself, so that it still runs first:
 
   ```js
   const __start = lo();
@@ -365,7 +365,7 @@ for x in r                     -- general path: r materialised as an iterable ob
 
 -- (i) Literals in `..` pin to Int; later arithmetic may widen that Int
 var total = 0.0                -- total : Float (monomorphic Float literal)
-for x in 1..10                 -- x : Int — `..` unifies both literal tyvars with Int
+for x in 1..10                 -- x : Int — `..`'s Int seats take both literal tyvars
     total := total + x           -- x widens through Float.fromInt; emitted JS stays
                                -- `total = total + x`
 -- total : Float; range emission unaffected: for (let x = 1; x <= 10; x++)
@@ -383,6 +383,15 @@ fun total(lo: () ->! Int, hi: () ->! Int) =
     t
 -- emits: const __start = lo(); const __end = hi();
 --        for (let i = __start; i <= __end; i++) { t = t + i; }
+
+-- (l) An established Nat widens into `..`'s Int seats; arithmetic there runs at Int
+fun below(n: Nat): Int =
+    var t = 0
+    for i in 1..(n - 1)          -- n widens to Int, then subtracts: Range.up(1, n - 1)
+        t := t + i
+    t
+-- emits: const __end = n - 1; for (let i = 1; i <= __end; i++) { t = t + i; }
+-- and `for i in 1..n` at `n: Nat` emits for (let i = 1; i <= n; i++): the widening erases
 ```
 
 ---
@@ -408,7 +417,7 @@ fun total(lo: () ->! Int, hi: () ->! Int) =
 | Body block checks against `Unit`, no carve-out; §3.2 discard error with loop provenance; loop expression is `Unit` | §2.2 |
 | Reference desugaring: `var` cursor + `Seq.next` pulls; `toSeq` is the `Iterable` constraint member; iterated expression evaluated once | §2.3 |
 | `x..y` operator → concrete lazy `Range`; `Int`-only; inclusive both ends; no half-open form | §3.1 |
-| Literals in `..` stay polymorphic but unify with `Int` at the operator; no defaulting; loop variable is always `Int`; an independently established `Float` accumulator contextually widens that value through `fromInt` | §3.1, §10.3(i) |
+| Each operand of `..` is an `Int` seat, as `Range.up`'s parameters are: literals take it, with no defaulting; an established `Nat` widens in, and an operand's arithmetic runs at `Int`; loop variable is always `Int`; an independently established `Float` accumulator contextually widens that value through `fromInt` | §3.1, §10.3(i), §10.3(l) |
 | `Range.up(lo, hi)` function twin; `Range.down(hi, lo)` for descending, both in `Range`'s companion; direction never inferred from operand order | §3.2–3.4 |
 | Ascending `lo > hi` ⇒ empty; descending `hi < lo` ⇒ empty; `lo == hi` ⇒ one element | §3.4 |
 | `..` precedence decided as recorded intent (looser than arithmetic, non-chaining) — Operators §9 owns | §3.5 |
@@ -419,7 +428,7 @@ fun total(lo: () ->! Int, hi: () ->! Int) =
 | *(2026-07-28, defect 12 ruling)* The iterable face is carried by the `Seq` value itself (FFI Part 3 §9.4); export-boundary memoization's mechanism specified there; internal traversal never uses the face | §6.4, §6.5 |
 | `Iterable` is the real constraint in v1: judgment = global-instance lookup; `toSeq` an ordinary member; user `honor` instances lawful; projection-bearing, so no generic binders and no `Item(c)` in source; non-leakage by construction; operational spec owned by Collections Part 5 | §7 |
 | v2 remainder re-scoped: deferred `Item(α)` goals, `Item(c)` syntax, member obligations, `derive via` — Collections Part 2 §11 owns | §7.2, §11.1 |
-| Emission: counting-loop erasure for syntactic ranges (mandatory), `for..of` general case (destructuring heads for patterns), `while` verbatim, on-demand `Range` objects; `Range` faces by name from its companion, aliasing the branded interface extending `Iterable<number>` | §8 |
+| Emission: counting-loop erasure for syntactic ranges (mandatory; a trivial bound read through a conversion that writes nothing), `for..of` general case (destructuring heads for patterns), `while` verbatim, on-demand `Range` objects; `Range` faces by name from its companion, aliasing the branded interface extending `Iterable<number>` | §8 |
 | Rejections: C-`for`, `do..while`, `loop`, break/continue (deepdive owed, decision surface recorded), `Iterator` constraint (never), half-open/Float/`Ord` ranges; bare-name-only heads superseded | §9 |
 | Numeric-literal digit-after-`.` rule owned by Lexer §5; `1.`/`.5` errors with fixits; frees `1..10` | §10.1 |
 | `String` iterable, one-codepoint items — Collections Part 5 §5 owns | §11.6 |

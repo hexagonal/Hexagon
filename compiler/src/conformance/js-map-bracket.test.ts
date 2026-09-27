@@ -465,14 +465,15 @@ describe("what the bracket is not (§4.3, §4.5, §11)", () => {
    * And the refusal on the other side of §4.5: a `Range` element on a map whose
    * key type is not `Range` is the **ordinary element-type mismatch**, not a
    * slicing diagnostic and not a bespoke one. The message is the unifier's own,
-   * which is the evidence that no slicing arm was written.
+   * which is the evidence that no slicing arm was written, and it names the key
+   * type as the one the seat expected (#1133).
    */
   test("a `Range` element on a `JsMap(String, v)` is an ordinary type mismatch", () => {
     expect(
       projectDiagnostics(
         "module Main\n\n" + "export let read(m: JsMap(String, Int)): Int = m[1..3]\n",
       ),
-    ).toEqual(["type mismatch: expected Range, found String"]);
+    ).toEqual(["type mismatch: expected String, found Range"]);
     // Nothing offers a slice, an `at`, or a window.
     expect(
       projectDiagnostics(
