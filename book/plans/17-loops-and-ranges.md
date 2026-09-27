@@ -22,7 +22,7 @@ why a generic function should accept `Seq(a)` rather than an unknown iterable ty
 
 1. `for pattern in expression` evaluates its source once.
 2. Loops and their bodies are `Unit`-typed.
-3. `Range`, `..`, `range`, and `rangeDown` are inclusive and integer-only.
+3. `Range`, `..`, `Range.up`, and `Range.down` are inclusive and integer-only.
 4. Reversed bounds produce empty ranges rather than changing direction.
 5. `while` reevaluates a `Bool` condition before every iteration.
 6. Loop patterns use the established pattern language and must be irrefutable.

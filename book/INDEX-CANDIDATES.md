@@ -79,7 +79,7 @@ Related forms and likely lookup terms should point to one another.
 | decimal places | Chapter 2, “`Dec`: exact decimals with retained places” | Fractional digit count, retained zeros, numerical equality; see **primitive types** |
 | primitive types | Chapter 2, opening definition — fundamental prelude values, including opaque Dec | Chapter 24, native values; Chapter 25, TypeScript faces; see **Bool** and **Unit** for the rows defined elsewhere |
 | polymorphic recursion | Chapter 6, “Recursive calls keep one type” | — |
-| range | Chapter 17, “Ranges are inclusive integer progressions” | `..`, `range`, and `rangeDown` |
+| range | Chapter 17, “Ranges are inclusive integer progressions” | `..`, `Range.up`, and `Range.down` |
 | record | Chapter 9, opening definition | See **record, structural** and **record, nominal** |
 | record, nominal | Chapter 9, “A declaration gives a record identity” | Chapter 9 throughout |
 | record, structural | Chapter 9, opening definition | Chapter 9 throughout |

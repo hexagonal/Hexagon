@@ -59,7 +59,7 @@ result to `ignore`.
 ```hexagon
 1..4       // 1, 2, 3, 4
 first..last
-range(1, 4) // the same Range as 1..4
+Range.up(1, 4) // the same Range as 1..4
 ```
 
 Both endpoints are included. The operator binds more loosely than arithmetic, so
@@ -75,10 +75,10 @@ It does not silently become descending. Use the named function when direction sh
 be downward:
 
 ```hexagon
-rangeDown(5, 1) // 5, 4, 3, 2, 1
+Range.down(5, 1) // 5, 4, 3, 2, 1
 ```
 
-The mirror rule applies: `rangeDown(1, 5)` is empty. Equal endpoints make a one-element
+The mirror rule applies: `Range.down(1, 5)` is empty. Equal endpoints make a one-element
 range in either direction.
 
 Ranges are integer-only. There are no floating-point ranges whose repeated steps might
@@ -187,9 +187,10 @@ for (let row = 1; row <= __end; row++) {
 }
 ```
 
-General iterable loops emit as JavaScript `for...of`, while `while` remains an ordinary
-JavaScript `while`. A `Range` stored as a value becomes a small iterable object only
-when that representation is needed.
+A loop head written `Range.down(limit, 1)` counts down the same way:
+`for (let row = limit; row >= 1; row--)`. General iterable loops emit as JavaScript
+`for...of`, while `while` remains an ordinary JavaScript `while`. A `Range` stored as a
+value becomes a small iterable object only when that representation is needed.
 
 Loops are internal control flow and add nothing to `.d.ts` output. Their source types
 still matter: `Seq(a)` crosses the TypeScript boundary as `Iterable<a>`, a topic the
@@ -199,8 +200,8 @@ next chapter can explain in context.
 
 - `for pattern in source` evaluates the source once and visits its elements in order;
 - loop bodies and complete loops have type `Unit`;
-- `start..end` and `range(start, end)` make inclusive ascending integer ranges;
-- reversed ascending bounds are empty, while `rangeDown` is explicitly descending;
+- `start..end` and `Range.up(start, end)` make inclusive ascending integer ranges;
+- reversed ascending bounds are empty, while `Range.down` is explicitly descending;
 - `while` retests a `Bool` condition before every iteration;
 - loop patterns use the ordinary pattern language and must be irrefutable;
 - concrete source types determine their element types statically;

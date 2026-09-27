@@ -72,6 +72,8 @@ export interface PrimitiveTypeAnnotation {
 
 export interface RangeTypeAnnotation {
   readonly kind: "Range";
+  /** See `TypeQualifier`; absent for an occurrence the source wrote bare (#1073). */
+  readonly qualifier?: TypeQualifier;
   readonly span: Source.Span;
 }
 

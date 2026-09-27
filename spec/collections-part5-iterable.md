@@ -86,7 +86,8 @@ The prelude home is not user-editable, but naming it makes the two-home rule acc
 ## 4. Standard instances: the finalized v1 table
 
 This is the complete v1 table. `String` is declared by an ordinary source
-`honor` block in its fixed primitive companion (§5); the other five core rows
+`honor` block in its fixed primitive companion (§5), and `Range` by one in its
+companion, `stdlib/Range.hex`, which declares the type; the other four core rows
 remain compiler/runtime-provided (Part 2 §4.4 wording — specified normatively,
 no source form). The final three are FFI-owned provided rows over captured
 foreign collections (#876, #875). Source ownership changes neither lookup nor
@@ -94,7 +95,7 @@ the public member spellings.
 
 | Type | `type Item` | `toSeq` (the member) | Fixed by |
 |---|---|---|---|
-| `Range` | `Int` | the range's progression (ascending or descending per the value; Loops §3) | Loops §3/§5 |
+| `Range` | `Int` | the range's progression (ascending or descending per the value; Loops §3) | **`stdlib/Range.hex`**; Loops §3/§5 |
 | `Vector(a)` | `a` | the Part 3 §7.2 conversion | Part 3 §8 |
 | `Seq(a)` | `a` | identity | Loops §6 |
 | `Map(k, v)` | `(k, v)` | ≡ `entries` | Part 4 §7.2 |
@@ -275,7 +276,7 @@ Loops §8 is restated **by reference and unchanged** — in particular the count
 
 | Case | Emission |
 |---|---|
-| Syntactic range head (`1..n`, `range(...)`, `rangeDown(...)`) | native counting loop — Loops §8, mandatory, unchanged |
+| Syntactic range head (`1..n`, `Range.up(...)`, `Range.down(...)`) | native counting loop — Loops §8, mandatory, unchanged |
 | `Vector` / `Map` / `Set` / `Seq` | `for (const x of e)` — every emitted value is a JS iterable (Loops §6.5, Part 3, Part 4 §11) |
 | `Map` with tuple head | `for (const [k, v] of m.entries())`-shaped (Part 4 §11) |
 | `String` | `for (const c of s)` — native JS string iteration is codepoint-wise, which is exactly §5.1's semantics; zero helpers (strings are immutable, so no observation question arises) |
@@ -383,7 +384,7 @@ Rejected per §7.2: for a home-module instance the pattern is structurally unnec
    and the text-processing companion surface** — sequence-first `join`
    supplements §5.3's `fromSeq`; the dedicated String specification owns the
    remaining operations.
-3. **Public `Range.toSeq`** → stdlib listing, candidate at most (§1, §4).
+3. *(discharged)* **Public `Range.toSeq`** — `Range.toSeq(r)` is the companion's honored member (Modules §5.3), since `stdlib/Range.hex` honors `Iterable<Range>` in source.
 4. **The v2 implied-types remainder** — deferred `Item(α)` goals, `Item(c)` reference syntax, obligations on type members, `Iterable` binders, `derive via`, `Hash` on user collection types → unchanged, per Part 2 §11 / Part 1 §6.3; nothing here moves it.
 5. **`AsyncSeq` and asynchronous iteration** → the async spec (Loops §11.4, unchanged; it does not depend on anything here).
 
@@ -398,7 +399,7 @@ Rejected per §7.2: for a home-module instance the pattern is structurally unnec
 | 3 | Normative 8-step algorithm for `for p in e`; pattern heads per Pattern Matching's five positions, irrefutability-gated; body `Unit`; source evaluated once | §3.1 |
 | 4 | **Inference-vs-declared diagnostic split**: unsolved inference variable → annotate; declared type variable → `Seq(a)` parameter hint | §3.2 |
 | 5 | User-nominal not-iterable error names **both legal homes** (the Modules §7.6 discoverability obligation's loop-side face), leading with the actionable one | §3.3 |
-| 6 | The v1 core table is exactly six rows: source-owned `String`, plus provided `Range`, `Vector`, `Seq`, `Map`, and `Set`; the FFI-owned captured foreign collections add provided `Array(a)` (obligated §6.1, discharged FFI Part 2 §8; #876), `JsMap(k, v)`, and `JsSet(a)` (FFI Part 10 §6; #875); nothing else iterable in v1 | §4–§6 |
+| 6 | The v1 core table is exactly six rows: source-owned `String` and `Range`, plus provided `Vector`, `Seq`, `Map`, and `Set`; the FFI-owned captured foreign collections add provided `Array(a)` (obligated §6.1, discharged FFI Part 2 §8; #876), `JsMap(k, v)`, and `JsSet(a)` (FFI Part 10 §6; #875); nothing else iterable in v1 | §4–§6 |
 | 7 | **`Iterable<String>`: `Item = String`, one codepoint per item** — Loops §11.6 closed; graphemes stay named-function territory | §5.1 |
 | 8 | `String.toSeq` lazy codepoint view; **no `codepoints` synonym** | §5.2, §13.1 |
 | 9 | **`String.fromSeq` ships: concatenation**, full contract — `""` on empty, traversal order, any-length elements, no normalization, eager, linear with join-not-fold implementation note, one-sided round-trip law | §5.3 |

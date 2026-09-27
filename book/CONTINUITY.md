@@ -376,7 +376,7 @@ late pedagogy pass, not a commitment to the current order.
 - Establishes `Seq(a)` as lazy, immutable, and possibly infinite; `Seq.next` as a
   persistent functional cursor; transformation callbacks as pure by construction;
   and `Seq` as the common iteration and collection-conversion currency, reached from
-  any iterable value by the `toSeq` member — the dot, or `Iterable.toSeq(…)` for a range.
+  any iterable value by the `toSeq` member, reached by the dot.
 - Prepares persistent collections and the `Iterable` recipe while avoiding a library
   API catalogue. Opens the purity seam the Effects chapter closes: the strict
   consumers are named as the one honest seat for an effectful callback, marks
@@ -914,8 +914,8 @@ late pedagogy pass, not a commitment to the current order.
 - `for pattern in source` evaluates its source once; the pattern must be irrefutable
   and its binders are immutable head binders.
 - `for`/`while` bodies and complete loop expressions have type `Unit`.
-- `..` and `range` are inclusive ascending `Int` ranges; reversed bounds are empty.
-  `rangeDown` is explicitly descending and follows the mirrored empty-range rule.
+- `..` and `Range.up` are inclusive ascending `Int` ranges; reversed bounds are empty.
+  `Range.down` is explicitly descending and follows the mirrored empty-range rule.
 - There is no `break` or `continue`.
 - Iteration resolves statically from a known outer type. Each concrete iterable has one
   element type, and `Seq(a)` is the reusable iteration parameter.
@@ -935,8 +935,8 @@ late pedagogy pass, not a commitment to the current order.
   (`fold`, `forEach`, `find`, `any`, `all`) are the one seat for an effectful
   callback; their marks are deferred to the Effects chapter.
 - `x.toSeq()` is the universal conversion — the member of the prelude's `Iterable`
-  constraint, reached by the dot, or as `Iterable.toSeq(x)` where the value has no
-  companion (a range); the prelude seeds only sixteen names bare (the six open
+  constraint, reached by the dot on every iterable, a range included; the prelude
+  seeds only sixteen names bare (the six open
   constructors, the exceptions, `ignore`, `show`), so `log` is `Debug.log` and every
   collection operation is a dot or qualified call — and the per-collection `toSeq`
   spellings are its qualified reads; companion `toSeq`/`fromSeq` pairs connect collections without making the
@@ -1063,7 +1063,7 @@ late pedagogy pass, not a commitment to the current order.
 - Persistent collection `.d.ts` faces are `Vector<a>`, `Map<k, v>`, and `Set<a>`, by
   name, imported from `./Hex/Vector.js` and its siblings, whose seats alias the branded
   `Hex.*` interfaces in `hex.d.ts` (#1071); never native mutable collection types.
-  `Range` still faces as `Hex.Range` until its own companion declares it.
+  `Range` faces the same way, as `Range` from `./Hex/Range.js` (#1073).
 
 ### Implied Types
 

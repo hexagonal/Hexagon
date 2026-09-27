@@ -282,6 +282,7 @@ export const PRELUDE_MODULES: readonly PreludeModule[] = [
   "Seq",
   "Option",
   "Iterable",
+  "Range",
   "Result",
   "Vector",
   "String",

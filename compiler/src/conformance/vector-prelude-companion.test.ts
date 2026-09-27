@@ -104,6 +104,7 @@ describe("the module", () => {
       // names `Seq`, and honoring the reverse order is a genuine cycle — which
       // is why Collections Part 5 §4's rows have no source form.
       "Iterable",
+      "Range",
       "Result",
       "Vector",
       // #924's text surface consumes `Iterable.toSeq` and builds eager vectors,
@@ -288,13 +289,8 @@ describe("consumers see nothing new (§8.2)", () => {
 
   /**
    * `SliceError` is the other declaration, and the slice helper's direction
-   * check still raises it — but no Hexagon program can reach that check:
-   * Collections Part 3 §6.3 says the only descending `Range` comes from
-   * `rangeDown` or a function returning one, and the emitter's `range` helper
-   * hardcodes `descending: false` because v1 has no such producer. An empty
-   * *ascending* window clamps, which is §6's other half and is what
-   * `vector.test.ts` pins. So what is asserted here is the exception's reach,
-   * not its raising.
+   * check raises it for a `Range.down` window (`range-companion.test.ts`). An
+   * empty *ascending* window clamps instead, which is §6's other half.
    */
   test("an empty ascending window clamps rather than raising", async () => {
     const main = await runProject([[

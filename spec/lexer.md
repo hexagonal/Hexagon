@@ -338,7 +338,7 @@ position; the lexer does not emit contextual-keyword token kinds. And `null` is 
 
 ### 4.3 Words that are not keywords
 
-`throw`, `ignore`, `range`, `rangeDown`, `show`, `main`, `async`, `await`,
+`throw`, `ignore`, `show`, `main`, `async`, `await`,
 `break`, `continue`, `yield`, `pure`, and `conduit` are ordinary non-uppercase-start names. Some are prelude
 functions, some name rejected or deferred forms, and some have no meaning at all.
 Library membership never turns a name into a keyword.
