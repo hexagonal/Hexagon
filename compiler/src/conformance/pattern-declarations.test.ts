@@ -530,13 +530,22 @@ describe("pattern declaration boundary and home regressions", () => {
     ]);
   });
 
-  test("a nested component mismatch keeps the member diagnostic", () => {
+  test("a result of the wrong shape keeps the member diagnostic; a nested component is refused at itself", () => {
     expect(messages(
-      "pattern nested(values: Vector(Int)): Int\n" +
-        "    view(value) = [\"wrong\"]\n",
+      "pattern nested(values: Int): Int\n" +
+        "    view(value) = \"wrong\"\n",
     )).toEqual([
-      "`view` does not match pattern `nested`'s head; expected (Int) -> Vector(Int), found (Int) -> Vector(String)",
+      "`view` does not match pattern `nested`'s head; expected (Int) -> Int, found (Int) -> String",
     ]);
+    // The head hands the body its component type, and a vector literal hands
+    // each element its part (Functions §4.3, #1066): the element meets it at
+    // its own turn, as a tuple's component does (#1107).
+    for (const body of ["[\"wrong\"]", "[1, \"wrong\"]", "[\"wrong\", 1]"]) {
+      expect(messages(
+        "pattern nested(values: Vector(Int)): Int\n" +
+          `    view(value) = ${body}\n`,
+      ), body).toEqual(["type mismatch: expected Int, found String"]);
+    }
   });
 
   test("an exported pattern refuses a private nominal in its face", () => {

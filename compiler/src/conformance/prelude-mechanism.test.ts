@@ -212,9 +212,12 @@ describe("ordered intra-prelude visibility", () => {
    * A prelude member is not private to the prelude: since #829 every module of
    * `Hex` is compiled against it, so substituting one is felt beyond it. The
    * specimen is the same fixture the case above uses — a `Prelude.hex` whose
-   * own `Ordering` occludes `Ordering.hex`'s — and the report lands in
-   * `Hex.Rat`, which honors `Ord<Rat>` and so names the type by its bare
-   * spelling.
+   * own `Ordering` occludes `Ordering.hex`'s — and the reports land in
+   * `Hex.Rat` and `Hex.Dec`, which honor `Ord` and so name the type by its bare
+   * spelling. Each value path of their `compare` bodies meets the contract's
+   * `Ordering` on its own (Functions §4.3, #1107), and each body's refused
+   * paths are one report: ten paths in `Hex.Dec`, three in `Hex.Rat`, the
+   * first of each carrying the others as labels.
    */
   test("a substituted prelude member is felt by the rest of `Hex`", () => {
     const compiled = project([
@@ -223,10 +226,10 @@ describe("ordered intra-prelude visibility", () => {
       ENTRY,
     ], ["Prelude"]);
     const abroad = compiled.diagnostics.filter(({ primary }) => Number(primary.fileId) >= 2);
-    expect(abroad.map(({ message }) => message))
+    expect(abroad.map(({ message, labels }) => [message, labels?.length ?? 0]))
       .toEqual([
-        "type mismatch: expected Ordering, found Ordering",
-        "type mismatch: expected Ordering, found Ordering",
+        ["type mismatch: expected Ordering, found Ordering", 9],
+        ["type mismatch: expected Ordering, found Ordering", 2],
       ]);
   });
 
