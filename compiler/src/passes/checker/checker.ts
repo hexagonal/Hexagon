@@ -4170,6 +4170,16 @@ class Checker {
   readonly #reachableConstraintHelpers = new Set<string>();
   /** Identities of constraints carrying implied type members; see §7's binder ban. */
   readonly #projectionBearingConstraints = new Set<string>();
+  /**
+   * Each `(variable, constraint)` whose **written** binder named a
+   * projection-bearing constraint and drew the binder ban (Collections Part 2
+   * §7.2), keyed `variable id:constraint identity`. A demand of that constraint
+   * on that variable is the same fact again, so §7.2.1's report stays silent
+   * for it: the ban at the binder is the whole answer.
+   */
+  readonly #bannedProjectionBinders = new Set<string>();
+  /** Declared variables §7.2.1 has refused at a contract refusal: one report each. */
+  readonly #projectionRefusedVariables = new Set<Variable>();
   readonly #instanceTypeParameters = new WeakMap<
     Resolved.HonorItem,
     ReadonlyMap<string, Variable>
@@ -4634,11 +4644,7 @@ class Checker {
               continue;
             }
             if (this.#bearsProjection(constraint)) {
-              this.#diagnostics.add({
-                severity: "error",
-                message: impliedTypeBinderMessage(constraint, this.#constraintIdentity(constraint)),
-                primary: parameter.span,
-              });
+              this.#refuseProjectionBinder(constraint, variable, parameter.span);
               continue;
             }
             // The "annotation" origin mirrors the lambda binder's call and is
@@ -5010,11 +5016,7 @@ class Checker {
                 continue;
               }
               if (this.#bearsProjection(constraint)) {
-                this.#diagnostics.add({
-                  severity: "error",
-                  message: impliedTypeBinderMessage(constraint, this.#constraintIdentity(constraint)),
-                  primary: parameter.span,
-                });
+                this.#refuseProjectionBinder(constraint, variable, parameter.span);
                 continue;
               }
               this.#require(constraint, variable, parameter.span, "annotation");
@@ -7142,10 +7144,10 @@ class Checker {
         }
         // The two directions are inferred as one group. Generalization waits
         // until both have imposed their subject and component equations.
-        const viewScheme = this.#generalize(viewType, level, true, item.head?.span);
+        const viewScheme = this.#generalize(viewType, level, true, item.head?.span, undefined, item.name);
         const buildScheme = inferredBuild === undefined
           ? undefined
-          : this.#generalize(inferredBuild, level, true, item.head?.span);
+          : this.#generalize(inferredBuild, level, true, item.head?.span, undefined, item.name);
         this.#schemes.set(item.view.binding.symbol, viewScheme);
         if (item.build !== undefined && buildScheme !== undefined) {
           this.#schemes.set(item.build.binding.symbol, buildScheme);
@@ -7357,6 +7359,8 @@ class Checker {
           level,
           this.#isValue(item.value),
           item.annotation?.span,
+          undefined,
+          item.binding.name,
         );
         this.#schemes.set(item.binding.symbol, scheme);
         continue;
@@ -8117,11 +8121,7 @@ class Checker {
           continue;
         }
         if (this.#bearsProjection(constraint)) {
-          this.#diagnostics.add({
-            severity: "error",
-            message: impliedTypeBinderMessage(constraint, this.#constraintIdentity(constraint)),
-            primary: parameter.span,
-          });
+          this.#refuseProjectionBinder(constraint, variable, parameter.span);
           continue;
         }
         // The binder's written list is its declaration, not a demand.
@@ -8278,7 +8278,14 @@ class Checker {
       for (const symbol of ordered) {
         this.#schemes.set(
           symbol,
-          this.#generalize(recursiveTypes.get(symbol)!, level, true, undefined),
+          this.#generalize(
+            recursiveTypes.get(symbol)!,
+            level,
+            true,
+            undefined,
+            undefined,
+            bySymbol.get(symbol)!.binding.name,
+          ),
         );
       }
     }
@@ -11142,7 +11149,7 @@ class Checker {
     if (pattern.kind === "Binding") {
       this.#schemes.set(
         pattern.binding.symbol,
-        this.#generalize(expected, level, generalizable, undefined, evaluated),
+        this.#generalize(expected, level, generalizable, undefined, evaluated, pattern.binding.name),
       );
       return;
     }
@@ -11152,7 +11159,7 @@ class Checker {
       );
       this.#schemes.set(
         pattern.binding.symbol,
-        this.#generalize(expected, level, generalizable, undefined, evaluated),
+        this.#generalize(expected, level, generalizable, undefined, evaluated, pattern.binding.name),
       );
       return;
     }
@@ -11179,6 +11186,7 @@ class Checker {
             generalizable,
             undefined,
             evaluated,
+            binding.name,
           ),
         );
       }
@@ -22729,10 +22737,16 @@ class Checker {
     }
   }
 
-  /** Every demand refused on `variable`, in the order they arrived. */
+  /**
+   * Every demand refused on `variable`, in the order they arrived — the
+   * advised list's material. A projection-bearing demand is not advised: a
+   * list naming it is one the binder ban refuses (Collections Part 2 §7.2.1).
+   */
   #refusedDemands(variable: Variable): readonly Requirement[] {
     return this.#contractRefusals.flatMap(({ variable: refusedOn, requirement }) =>
-      refusedOn === variable ? [requirement] : []
+      refusedOn === variable && !this.#projectionBearingConstraints.has(requirement.identity)
+        ? [requirement]
+        : []
     );
   }
 
@@ -22746,6 +22760,22 @@ class Checker {
     requirement: Requirement,
     demands: readonly Requirement[],
   ): void {
+    // A projection-bearing demand on a variable a written list declares can
+    // never be settled, whatever the list says, so it takes Collections Part 2
+    // §7.2.1's declared-variable report rather than advice to extend the list —
+    // once per variable, and not at all where the list itself drew the ban.
+    if (this.#projectionBearingConstraints.has(requirement.identity)) {
+      if (this.#projectionRefusedVariables.has(variable)) return;
+      this.#projectionRefusedVariables.add(variable);
+      if (!this.#bannedProjectionBinders.has(`${variable.id}:${requirement.identity}`)) {
+        this.#diagnostics.add({
+          severity: "error",
+          message: this.#unsettledProjectionMessage(variable, requirement, undefined),
+          primary: requirement.span,
+        });
+      }
+      return;
+    }
     const declared = variable.declaredConstraints ?? [];
     // Maximality between the written list and the demands is a question about
     // declarations (§5.1.1): a same-spelled shadow's bases absorb nothing,
@@ -23319,6 +23349,21 @@ class Checker {
     return this.#projectionBearingConstraints.has(
       this.#constraintIdentity(constraint),
     );
+  }
+
+  /**
+   * The binder ban at a written binder (Collections Part 2 §7.2), recorded so
+   * the body's demand of the same constraint on the same variable adds no
+   * second report at the deadline (§7.2.1).
+   */
+  #refuseProjectionBinder(constraint: string, variable: Variable, span: Source.Span): void {
+    const identity = this.#constraintIdentity(constraint);
+    this.#bannedProjectionBinders.add(`${variable.id}:${identity}`);
+    this.#diagnostics.add({
+      severity: "error",
+      message: impliedTypeBinderMessage(constraint, identity),
+      primary: span,
+    });
   }
 
   /**
@@ -24466,6 +24511,92 @@ class Checker {
     return actual;
   }
 
+  /**
+   * **A projection-bearing demand is settled by its owner's close**
+   * *(Collections Part 2 §7.2.1)*. Each variable here is one this binding owns
+   * — the deadline is the dot's (Method Syntax §3.1), the region of the
+   * variable and not the innermost binding around the demand — and a demand
+   * still waiting on one has no reading left: quantified, every use would copy
+   * it without the implied type that ties the binding's type to it (#1070);
+   * held back, the relaxed rule would quantify that implied type on its own,
+   * since clause (a) reads constraints only through their arguments.
+   *
+   * One report per variable, at the first demand it carries — a later demand
+   * of the same constraint is entailed and never joins it — and the variable
+   * becomes an error so nothing downstream reports it again. A variable a
+   * written list declares never reaches here: its projection-bearing demand is
+   * refused against the list (`#reportContractRefusal`), in this rule's words.
+   * Returns whether any variable was refused.
+   */
+  #refuseUnsettledProjections(variables: readonly Variable[], owner: string | undefined): boolean {
+    let refused = false;
+    for (const variable of variables) {
+      const pending = variable.requirements.filter((requirement) =>
+        this.#projectionBearingConstraints.has(requirement.identity)
+      );
+      if (pending.length === 0) continue;
+      refused = true;
+      const first = pending.find(({ reported }) => !reported);
+      if (first !== undefined) {
+        this.#diagnostics.add({
+          severity: "error",
+          message: this.#unsettledProjectionMessage(variable, first, owner),
+          primary: first.span,
+        });
+      }
+      for (const requirement of variable.requirements) requirement.reported = true;
+      variable.instance = ERROR;
+    }
+    return refused;
+  }
+
+  /**
+   * Collections Part 2 §9's two deadline rows. The binder ban's own reason
+   * leads, as at a written binder; what follows says which binding left the
+   * subject open and how to close it, naming the value the member was applied
+   * to where the source wrote a name there.
+   */
+  #unsettledProjectionMessage(
+    variable: Variable,
+    requirement: Requirement,
+    owner: string | undefined,
+  ): string {
+    const reason =
+      `\`${requirement.name}\` declares an implied type and cannot constrain a type variable in v1`;
+    const iterable = requirement.identity === preRegisteredConstraintIdentity("Iterable");
+    const subject = this.#projectionSubjectName(variable, requirement);
+    if (variable.rigidName !== undefined) {
+      const declared = subject === undefined
+        ? `\`${variable.rigidName}\` is a declared type variable`
+        : `${subject} has the generic type \`${variable.rigidName}\``;
+      return `${declared}, and ${reason}` + (iterable ? "; take a `Seq(a)` parameter instead" : "");
+    }
+    const binding = owner === undefined ? "this definition" : `\`${owner}\``;
+    const open = subject !== undefined
+      ? `${binding} leaves the type of ${subject} open; annotate ${subject}`
+      : `${binding} leaves open which type ${
+        requirement.use === undefined ? "this" : `\`${requirement.use.usedAs}\``
+      } is used at; add a type annotation`;
+    return `${reason}, but ${open}` + (iterable ? ", or take a `Seq(a)` parameter instead" : "");
+  }
+
+  /**
+   * The value a projection-bearing demand's subject is, where the source wrote
+   * a name there: `x` in `Iterable.toSeq(x)`. Read off the call the demand was
+   * copied at, so a reference that is not applied (`let t = Iterable.toSeq`)
+   * has none.
+   */
+  #projectionSubjectName(variable: Variable, requirement: Requirement): string | undefined {
+    for (const expression of requirement.use?.call?.supplied ?? []) {
+      if (expression.kind !== "Name") continue;
+      const type = this.#expressionTypes.get(expression);
+      if (type === undefined) continue;
+      const actual = this.#prune(type);
+      if (actual.kind === "Variable" && actual.id === variable.id) return `\`${expression.text}\``;
+    }
+    return undefined;
+  }
+
   #generalize(
     type: Mono,
     level: number,
@@ -24483,6 +24614,8 @@ class Checker {
      * shape Constraints §6.1 records so it is not rebuilt.
      */
     evaluated?: Mono,
+    /** The binding's name, which Collections Part 2 §7.2.1's report names. */
+    owner?: string,
   ): Scheme {
     // The deadline (§3.1): no DotCall goal may escape its owner region's
     // finalisation, and the defaulting step below must see the receivers those
@@ -24524,6 +24657,14 @@ class Checker {
     variables = this.#collectVariables(type).filter(
       (variable) => variable.level > level,
     );
+    // Collections Part 2 §7.2.1: the owner's close is a projection-bearing
+    // demand's deadline, whatever the value restriction would do with the
+    // variable next — so this runs before either arm below decides.
+    if (this.#refuseUnsettledProjections(variables, owner)) {
+      variables = this.#collectVariables(type).filter(
+        (variable) => variable.level > level,
+      );
+    }
     // **A colour the seat bounded is a dependency** *(#885; Effects §3.4's
     // fifth)*. The ordering has recorded the bound; the *join* is delivered by
     // the seat, after the comparison — so a colour quantified here would hand
@@ -25849,11 +25990,7 @@ class Checker {
           continue;
         }
         if (this.#bearsProjection(constraint)) {
-          this.#diagnostics.add({
-            severity: "error",
-            message: impliedTypeBinderMessage(constraint, this.#constraintIdentity(constraint)),
-            primary: annotation.span,
-          });
+          this.#refuseProjectionBinder(constraint, variable, annotation.span);
           continue;
         }
         this.#require(constraint, variable, annotation.span, "annotation");

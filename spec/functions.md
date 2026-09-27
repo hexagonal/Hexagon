@@ -158,7 +158,10 @@ let plus = <a: Num>(x: a, y: a): a => x + y      -- equivalent, same AST node
   the variable, merged with the declared ones, so that applying it leaves none
   of these refusals behind (§10's row). Another row may still refuse the
   program. The refusal is therefore decided once the body is checked, and not
-  as each demand arrives.
+  as each demand arrives. A projection-bearing constraint never joins the
+  advised list: a demand of one on a declared variable is refused by
+  Collections Part 2 §7.2.1 instead, since a list naming it would be refused by
+  the binder ban.
 - Exported functions must write their constraint binders. Their lists contain
   every independent public constraint and omit constraints entailed as bases
   of another listed constraint; Modules §4.1.1 owns the export rule, and
