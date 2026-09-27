@@ -189,14 +189,18 @@ describe("a position is checked as `Vector.at`'s `Int` (Collections Part 3 §5.1
       .toEqual(["`x` is a `Float` and cannot enter `Int`, so the multiplication could not run at `Int`"]);
   });
 
-  test("a negation and a longer chain are arithmetic too", async () => {
+  test("a negation, `bnot`, a qualified shift and a longer chain are arithmetic too", async () => {
     const exports = await run(
       "let xs: Vector(String) = [\"a\", \"b\", \"c\"]\n" +
         "export fun chain(k: Nat): String = xs[k * 2 - 3]\n" +
         "export let spelled: String = chain(3)\n",
     );
     expect(exports["spelled"]).toBe("c");
-    expect(diagnostics("export fun r(xs: Vector(Int), k: Nat): Int = xs[-k]\n")).toEqual([]);
+    expect(diagnostics(
+      "export fun negated(xs: Vector(Int), k: Nat): Int = xs[-k]\n" +
+        "export fun complement(xs: Vector(Int), k: Nat): Int = xs[bnot k]\n" +
+        "export fun shifted(xs: Vector(Int), k: Nat): Int = xs[Bitwise.shiftLeft(k, 1)]\n",
+    )).toEqual([]);
   });
 });
 
@@ -231,6 +235,44 @@ describe("a key is checked at the map's key type, as `Map.get`'s is (Collections
       "export fun r<k: (Num, Hash)>(m: Map(k, String), j: Nat): String = m[j]\n" +
         "export fun g<k: (Num, Hash)>(m: Map(k, String), j: Nat): Option(String) = Map.get(m, j)\n",
     )).toEqual([]);
+  });
+
+  test("an inferred key variable is unified with, as at `Map.get`, whichever line gave it `Num` first", () => {
+    const refusal = ["type mismatch: expected Nat, found Float"];
+    const call = "let m: Nat = 2\nlet found = look(2.5, m)\n";
+    // `a + 1` gives `a` its `Num` before the bracket is checked, or after it.
+    const before = (read: string): string =>
+      "fun look(a, k: Nat) =\n" +
+      "    let t = a + 1\n" +
+      "    let mm = Map.fromVector([(a, \"x\")])\n" +
+      `    ${read}\n` + call;
+    const after = (read: string): string =>
+      "fun look(a, k: Nat) =\n" +
+      "    let mm = Map.fromVector([(a, \"x\")])\n" +
+      `    let v = ${read}\n` +
+      "    let t = a + 1\n" +
+      "    v\n" + call;
+    expect(diagnostics(before("mm[k]"))).toEqual(refusal);
+    expect(diagnostics(after("mm[k]"))).toEqual(refusal);
+    expect(diagnostics(before("Map.get(mm, k)"))).toEqual(refusal);
+    expect(diagnostics(after("Map.get(mm, k)"))).toEqual(refusal);
+  });
+
+  test("the key type faces the whole index, as `Map.get`'s does", () => {
+    expect(diagnostics(
+      "export fun decimal(mm: Map(Dec, String)): String = mm[1.5]\n" +
+        "export fun decimalTwin(mm: Map(Dec, String)): Option(String) = Map.get(mm, 1.5)\n" +
+        // A dot call's receiver takes its seat's expected type (Method Syntax
+        // §2.2), so at a key the face reaches `k`; at a position, which has no
+        // face until the index has closed, the same index is refused (above).
+        "export fun dot(mm: Map(Int, String), k: Nat): String = mm[k.subtract(1)]\n" +
+        "export fun dotTwin(mm: Map(Int, String), k: Nat): Option(String) = Map.get(mm, k.subtract(1))\n",
+    )).toEqual([]);
+  });
+
+  test("a `Nat` widens into a `BigInt` key through a written conversion", () => {
+    const text = javascript("export fun r(mm: Map(BigInt, String), k: Nat): String = mm[k]\n");
+    expect(text).toMatch(/return __mapIndex\(mm, BigInt\(k\), \w+\);/u);
   });
 
   test("the map settles the key's type, so the refusal is `JsMap.get`'s, with no function-result report", () => {

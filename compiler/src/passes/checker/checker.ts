@@ -16785,13 +16785,24 @@ class Checker {
    * and a refusal names the seat's type as the one expected.
    *
    * A key's type is the map's, settled by the receiver as `Map.get`'s sibling
-   * settles its variable key seat, so it is expected by no written type and is
-   * owed no function-result report (Numeric Literals §6). A position's `Int`
-   * could not be owed one either: a call whose result would enter `Int` holds
-   * a `Nat`, which widens.
+   * settles its variable key seat, and it is a target on the terms that seat's
+   * is (`#closeSiblings`): a concrete type, or a declared variable the body can
+   * name. An inference variable is unified with, whatever evidence it carries
+   * already, or whether the index widened would turn on which line gave it
+   * that evidence first. Expected by no written type, a key is owed no
+   * function-result report (Numeric Literals §6). A position's `Int` could not
+   * be owed one either: a call whose result would enter `Int` holds a `Nat`,
+   * which widens.
    */
   #checkIndex(seat: Mono, actual: Mono, index: Resolved.Expr): void {
-    this.#unifyExpected(seat, actual, index, index.span, true);
+    const target = this.#prune(seat);
+    this.#unifyExpected(
+      seat,
+      actual,
+      index,
+      index.span,
+      target.kind !== "Variable" || this.#declaredInScope(target),
+    );
   }
 
   /**
