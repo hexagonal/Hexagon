@@ -8400,7 +8400,19 @@ class Checker {
         if (variable.level <= level) continue;
         if (variable.requirements.length === 0) continue;
         if (supplied.has(variable.id)) continue;
-        variable.level = level;
+        // A projection-bearing demand has no pinning-or-defaulting to land
+        // on: the knot holds the variable, so its close is the demand's
+        // deadline, and `#generalize` refuses it there (Collections Part 2
+        // §7.2.1). Demoted, it would slip past that deadline while its
+        // implied type, left behind at the knot's level, was quantified.
+        if (
+          variable.requirements.some(({ identity }) =>
+            this.#projectionBearingConstraints.has(identity)
+          )
+        ) {
+          continue;
+        }
+        this.#lowerLevels(variable, level);
       }
     }
   }

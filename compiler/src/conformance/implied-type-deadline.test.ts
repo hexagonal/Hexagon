@@ -292,6 +292,20 @@ describe("a declared variable is never settled", () => {
     ]]);
   });
 
+  test("a knot holding its subject back is refused at its close", () => {
+    // `inner` reaches `outer` with a value whose type no member's signature
+    // can supply evidence for, so the knot holds `x`'s type back rather than
+    // generalizing it. The knot is the owner: its close is the deadline.
+    const knot =
+      "fun bottom(n: Int): a = bottom(n)\n" +
+      "fun\n" +
+      "    outer(x, n: Int) = if n == 0 then Iterable.toSeq(x) else inner(n)\n" +
+      "    inner(n: Int) = outer(bottom(n), n - 1)\n";
+    expect(reports(knot + "let w: Seq(Int) = outer([\"a\", \"b\"], 0)\n"))
+      .toEqual([["Iterable.toSeq", LEFT_OPEN("outer", "x")]]);
+    expect(reports(knot)).toEqual([["Iterable.toSeq", LEFT_OPEN("outer", "x")]]);
+  });
+
   test("a knot names the member the demand is in", () => {
     expect(reports(
       "fun\n" +
