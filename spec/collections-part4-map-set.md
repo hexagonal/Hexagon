@@ -62,7 +62,7 @@ let s      = Set.fromVector([1, 2, 3])                -- Set(Int)
 
 ### 3.2 `fromVector` — the convenience constructor
 
-`Set.fromVector<a: Hash>(xs: Vector(a)): Set(a)` and `Map.fromVector<k: Hash>(xs: Vector((k, v))): Map(k, v)` are **core** (not stdlib-listing). One hop from the vector literal is the practical construction idiom; without it the honest spelling is `Set.fromSeq(Vector.toSeq([1, 2, 3]))`, which taxes every call site for a purity the doctrine never demanded — `Seq` is the universal *currency* (Part 1 §5), not a toll booth.
+`Set.fromVector<a: Hash>(xs: Vector(a)): Set(a)` and `Map.fromVector<k: Hash>(xs: Vector((k, v))): Map(k, v)` are **core** (not stdlib-listing). One hop from the vector literal is the practical construction idiom. `Set.fromSeq([1, 2, 3])` reaches the same set through the `Seq` seat's adaptation (Part 5 §3.4), and `fromVector` names the direct construction without the sequence's hop — `Seq` is the universal *currency* (Part 1 §5), not a toll booth.
 
 Definitional equivalences (no special semantics, including duplicate handling):
 

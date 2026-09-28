@@ -3,7 +3,7 @@
 **Status:** Decided (July 2026); pre-landing corrections incorporated in place (§18); `Iterable<String>` source ownership adopted September 2026 (§18.4); `Seq` seats — an iterable adapted where a sequence is expected, and a loop head over a source not yet known — adopted September 2026 (§3.4–§3.6). Fifth and final part of the Collections effort. The authoritative operational specification of v1 `Iterable`: the resolution and typing of `for p in e`, the finalized standard-instance table (nine rows, every one a source `honor` block: six core rows and three FFI-owned ones), table-opening for user instances, static-resolution emission, the collections/stdlib boundary, and the transients decision. Written against Collections Parts 1–4, Constraints, Loops/Ranges/Iteration, Pattern Matching, and Modules; none re-litigated.
 **Scope:** The `for p in e` resolution algorithm and its failure taxonomy (a declared type variable's `Seq(a)` rewrite; the two-legal-homes user-nominal message); `Seq` seats — the adaptation of an iterable value where a sequence is expected, a source whose head is not yet known, and what never adapts (§3.4–§3.6); the standard instance table (§4); `Iterable<String>` with `Item = String`, its authoritative source declaration in `String.hex`, and the `String.toSeq`/`String.fromSeq` conversion pair (`fromSeq` = concatenation, full contract §5.3); the collection-conversion-suite domain (finite collections; `Range` and `Seq` exempt with reasons); `toSeq` as a real prelude term (the `Iterable` member); user-instance mechanics, discoverability, and collisions at filled slots; the "writing your own collection" recipe, normative, with `Bag(a)`; static-resolution emission; the combinator-surface boundary; transients runtime-internal only.
 **Not in scope:** The `Iterable` declaration and type-member grammar (Part 2 §5–§8 — consumed, not restated); the v2 implied-types remainder (deferred `Item(α)` goals, `Item(c)` reference syntax, member obligations, `Iterable` binders, `derive via` — Part 2 §11, Part 1 §6.3); the combinator families themselves (`stdlib-roadmap.md` ledger, decided at the stdlib listing; boundary drawn in §10); `AsyncSeq` and any `for await` form (Loops §11.4); **everything normative about the foreign collections `Array(a)`, `JsMap(k, v)`, `JsSet(a)`** — types, capture and borrow contracts, observation semantics, conversions, emission, `.d.ts` faces (FFI Parts 2 and 10; §4 records their instance rows, §6 the discharged `Array` ownership); the foreign (`.d.ts`) representation of constraints on exported polymorphic functions (FFI spec; see §9.3); String text-processing operations beyond this document's iteration and `fromSeq` contracts (`string-text-processing.md`).
-**Companions:** Collections Part 1 (§6.1/§6.5 made normative here; §9.5/§9.6 closed); Collections Part 2 (§8 declaration; §7.2 binder ban; §9 diagnostics extended); Collections Part 3 (§8 `Iterable<Vector>` row; §9 linear idiom cashed by §5 here); Collections Part 4 (§7.2 rows; §13.1/§13.4 closed here); Loops/Ranges/Iteration (§2.3 desugaring; §5 table finalized as §4 here; §6 `Seq`; §7.1 judgment made normative as instance lookup); Pattern Matching (§5 five-positions gate); Modules (§7 instance globality and orphan rule; §7.6 discoverability); Constraints (§5.1 coherence; §2.2 members); FFI Part 2 (§§6, 8–9: the `Array(a)` obligation discharged); FFI Part 3 (`Seq(a)` boundary crossing); FFI Part 10 (§6 `JsMap`/`JsSet` rows); Primitive Types (§5.1 String indexing).
+**Companions:** Functions (§4's specified conversions; §4.3's seats, channels, and an argument's own turn; §8 item 2); Method Syntax (§3's deadline; §10's doctrine); Ascription (§3); Collections Part 1 (§6.1/§6.5 made normative here; §9.5/§9.6 closed); Collections Part 2 (§8 declaration; §7.2 binder ban; §9 diagnostics extended); Collections Part 3 (§8 `Iterable<Vector>` row; §9 linear idiom cashed by §5 here); Collections Part 4 (§7.2 rows; §13.1/§13.4 closed here); Loops/Ranges/Iteration (§2.3 desugaring; §5 table finalized as §4 here; §6 `Seq`; §7.1 judgment made normative as instance lookup); Pattern Matching (§5 five-positions gate); Modules (§7 instance globality and orphan rule; §7.6 discoverability); Constraints (§5.1 coherence; §2.2 members); FFI Part 2 (§§6, 8–9: the `Array(a)` obligation discharged); FFI Part 3 (`Seq(a)` boundary crossing); FFI Part 10 (§6 `JsMap`/`JsSet` rows); Primitive Types (§5.1 String indexing).
 
 ---
 
@@ -57,7 +57,7 @@ Two consumers need a sequence: a `for` head (§3.1) and a seat whose expected ty
 For `for p in e` with body `b`:
 
 1. Typecheck `e` **once**, yielding τ. (`e` is evaluated once at runtime, before iteration — Loops §2.3, unchanged.)
-2. Resolve τ's **outer type constructor**. A declared type variable fails per §3.2. An unsolved inference variable **waits**: the loop makes τ's `Iterable` demand now, as a `Seq` seat does (§3.5), and the demand's `Item` stands as ε for steps 5–7; steps 3–4 run when τ's head is established — by its owner region's close at the latest, where a head nothing established is `Seq` (§3.5). Whether a loop is accepted therefore never depends on whether an earlier or a later statement describes its source (#1118).
+2. Resolve τ's **outer type constructor**. A declared type variable fails per §3.2. An unsolved inference variable **waits**: the loop makes τ's `Iterable` demand now, as a `Seq` seat does (§3.5), and the demand's `Item` stands as ε for steps 5–7; steps 3–4 run when τ's head is established — by its owner region's close at the latest, where a head nothing established is `Seq` (§3.5). Whether the loop's head is accepted therefore never depends on whether an earlier or a later statement describes its source (#1118).
 3. Look up the unique global `Iterable` instance for that constructor (§2.2). If none exists, fail per §3.2.
 4. Substitute τ's arguments into the instance's `Item` binding, yielding the element type ε — for a source that waited, unifying it with the demand's `Item`.
 5. Check the loop pattern `p` against ε. `p` is a full pattern; its binders are **head binders** (Statements §5, via Pattern Matching's loop-head position).
@@ -107,10 +107,10 @@ let colors(): Seq(String) =
 - **An argument** at a parameter headed by `Seq` when the call is checked — by the callee's written signature or an instantiated inferred one, a constructor's parameter included. Qualified calls, aliases with known signatures, pipes, and dot calls in their resolved argument positions are calls alike; a dot call that resolves late meets its arguments where it resolves, as its widening does (Method Syntax §3.4).
 - **An immutable binding's annotation**, and an expression ascription's written type (Ascription spec §3).
 - **A declared result** — a function's return annotation — and a lambda's body where the function type it lands on supplies a `Seq` result.
-- **A constraint member's body** against its contract's `Seq` result (Functions §4.3's member seat), save §3.6's one exclusion.
+- **A constraint member's body** against its contract's `Seq` result (Functions §4.3's member seat).
 - **The parts an expected type reaches** through Functions §4.3's channels: a forwarding form's value paths (grouping, a block's final expression, both branches of `if`, the arm bodies of `match` and `try`, a `try`'s body block); a constructor application's arguments, where the application's expected type solves their parameters (`let o: Option(Seq(String)) = Some(words)`); a literal form's parts — tuple components, record fields, a vector literal's elements, a `with` update's overrides (`let p: (Seq(String), Int) = (words, 1)`); and the values on an argument's spine (`usePair((words, 1))`).
 
-The consumer's type is read as resolution has fixed it: adaptation never takes part in choosing a callee, resolving a dot, or selecting an overloaded meaning. A `var`'s annotation and an assignment's right-hand side are not sequence seats — `var s: Seq(String) = words` is refused — though numeric widening reaches the assignment boundary (Numeric Literals §5.1).
+Inside an `Iterable` instance's own `toSeq`, every one of these seats keeps §3.6's one exclusion. The consumer's type is read as resolution has fixed it: adaptation never takes part in choosing a callee, resolving a dot, or selecting an overloaded meaning. A `var`'s annotation and an assignment's right-hand side are not sequence seats — `var s: Seq(String) = words` is refused — though numeric widening reaches the assignment boundary (Numeric Literals §5.1).
 
 **The adaptation.** At the seat's final check (Functions §4.3's ordering pin), on the normative schedule:
 
@@ -122,7 +122,7 @@ The consumer's type is read as resolution has fixed it: adaptation never takes p
 
 Instance identity, prerequisites, visibility, and provider availability are exactly those of the explicit member call: an adaptation grants no access to an implementation or provider the explicit call could not reach, and a plain function named `toSeq` establishes no `Iterable` capability.
 
-**A form's paths under an open element.** Where the seat's head is `Seq` and its element is open — a generic `Seq(a)` parameter, `Seq(_)` — the paths of a forwarding form first agree on their **element types**, each path's own or its instance's `Item`, joined as Functions §4.3 joins the paths of a form whose expectation leaves a part open (#1107) and reported where that join reports: at an `if`, the `if`; at a `match` or `try`, each later arm that disagrees; among a vector literal's elements read against `Vector(Seq(_))`, the later element. Each path is then adapted on its own, and only the selected path's conversion runs. A path whose head has no instance is refused where it stands (step 4), not joined; a path whose head is not yet known contributes only its pending `Item` (§3.5), never takes a sibling's head, and is decided at the close like any unknown source.
+**A form's paths under an open element.** Where the seat's head is `Seq` and its element, or a part of it, is open — a generic `Seq(a)` parameter, `Seq(_)`, `Seq(Option(_))` — the paths of a forwarding form first agree on their **element types**, each path's own or its instance's `Item`, joined as Functions §4.3 joins the paths of a form whose expectation leaves a part open (#1107) and reported where that join reports: at an `if`, the `if`; at a `match` or `try`, each later arm that disagrees; among a vector literal's elements read against `Vector(Seq(_))`, the later element. Each path is then adapted on its own, and only the selected path's conversion runs. A path whose head has no instance is refused where it stands (step 4), not joined; a path whose head is not yet known contributes only its pending `Item` (§3.5), never takes a sibling's head, and is decided at the close like any unknown source.
 
 ```
 Seq.length(if useFirst then names else moreNames)
@@ -138,7 +138,7 @@ Seq.length(if useFirst then names else moreNames)
 
 ### 3.5 A source whose head is not yet known
 
-**The element is linked at once; the head waits.** A source whose type is still a variable at a `Seq` seat or a loop head — an unannotated parameter nothing has yet described — makes there, at its own turn, the demand the explicit call makes: `Iterable` on the source, its `Item` the expected element. It is the subject's one demand (Part 2 §7.2.1), which every seat, loop head, and explicit call on the source joins. So the element is known whatever collection the source turns out to be: after `sumInts(v)` (`sumInts : (Seq(Int)) -> Int`), `Seq.map(v, …)`'s callback reads `Int`. At an argument the demand is made at the argument's turn, not at the call's end, where an argument whose type is still a variable otherwise meets its parameter (Functions §4.3). Only the head waits: when the owner region establishes it, §3.4's steps 3–5 decide then, so `String.fromSeq(xs)` beside `Vector.length(xs)` converts `xs` in either statement order. The conversion, where there is one, is elaborated once, when the head is known; the value is never checked again.
+**The element is linked at once; the head waits.** A source whose type is still a variable at a `Seq` seat or a loop head — an unannotated parameter nothing has yet described — makes there, at its own turn, the demand the explicit call makes: `Iterable` on the source, its `Item` the expected element. It is the subject's one demand (Part 2 §7.2.1), which every seat, loop head, and explicit call on the source joins. So the element is known whatever collection the source turns out to be: after `sumInts(v)` (`sumInts : (Seq(Int)) -> Int`), `Seq.map(v, …)`'s callback reads `Int`. At an argument the demand is made at the argument's turn, not where an argument whose type is still a variable otherwise meets its parameter — when the first pass ends, or at the call's end (Functions §4.3). Only the head waits: when the owner region establishes it, §3.4's steps 3–5 decide then, so `String.fromSeq(xs)` beside `Vector.length(xs)` converts `xs` in either statement order. The conversion, where there is one, is elaborated once, when the head is known; the value is never checked again. A head that arrives after its seat's turn with no instance, or with an `Item` that disagrees with the element the seat linked, is reported at the seat that made the demand, in the seat's own wording — a report stands where its demand was made (Functions §10) — so its place never depends on statement order: `sumInts(v)` followed by `let k: Vector(String) = v` is refused at `v` in `sumInts(v)`, as the two lines swapped are.
 
 **The default.** If the head is still unknown when the owner region closes, the source **is** the sequence a seat asked for: it takes the `Seq` reading, one defaulting step — `let f(xs) = String.fromSeq(xs)` is `(Seq(String)) -> String` — and an explicit `Iterable.toSeq` demand on the same subject settles with it. The default belongs to seats and loop heads: an explicit call alone on a subject nothing describes keeps Part 2 §7.2.1's refusal (`let t(x) = Iterable.toSeq(x)` is refused). Owner and deadline are the dot's (Method Syntax §3.1).
 
@@ -165,7 +165,7 @@ The repair is to annotate the source (`v: Seq(Int)`), or to spell the call quali
 
 ### 3.6 What an adaptation means, and what never adapts
 
-**An adaptation is its explicit call.** An inserted conversion behaves exactly like an explicit call to the resolved `Iterable.toSeq` at the same seat: the source is evaluated once, and runtime evaluation order, exceptions, traversal order, laziness, and cost are the explicit call's. No eager traversal, copying, memoization, or further foreign snapshot is added; a foreign collection's sequence observes the captured contents its boundary contract established (FFI Part 1 §2.2). `Iterable.toSeq`'s contract is pure (Effects §13), each instance body is checked against it, and an adaptation adds no effect mark and hides no effect of evaluating its source. The effectful `Stream` has no `Iterable` instance (`stream.md` §4.5) and never adapts. An adaptation is an application for generalization too: a right-hand side with one anywhere on its value tree generalizes as its explicit spelling does (Functions §8 item 2).
+**An adaptation is its explicit call.** An inserted conversion behaves exactly like an explicit call to the resolved `Iterable.toSeq` at the same seat: the source is evaluated once, and runtime evaluation order, exceptions, traversal order, laziness, and cost are the explicit call's. No eager traversal, copying, memoization, or further foreign snapshot is added; a foreign collection's sequence observes the captured contents its boundary contract established (FFI Part 1 §2.2). `Iterable.toSeq`'s contract is pure (Effects §13), each instance body is checked against it, and an adaptation adds no effect mark and hides no effect of evaluating its source. The effectful `Stream` has no `Iterable` instance (`stream.md` §4.5) and never adapts. An adaptation is an application for generalization too: a right-hand side with one anywhere on its value tree generalizes as its explicit spelling does (Functions §8 item 2). (The word is this section's: FFI's boundary adapters, which wrap a value crossing to or from JavaScript — FFI Part 3 — are unrelated.)
 
 **What never adapts:**
 
@@ -174,7 +174,7 @@ The repair is to annotate the source (`v: Seq(Int)`), or to spell the call quali
 - **Functions.** An existing function returning a vector is not a function returning a sequence. A newly written lambda's body checked against a known `Seq` result is the ordinary body seat.
 - **Method search.** A vector does not acquire `Seq`'s operations: a resolved `Seq.map(values, transform)` adapts its argument, while `values.map(transform)` resolves at `Vector` and never reaches `Seq.map`.
 - **Other destinations.** There is no reverse conversion, no automatic collection materialization, no chain of conversions, no subtyping, and no change to `widens`.
-- **An instance's own subject, in its own `toSeq`.** Inside an `Iterable` instance's `toSeq`, a value whose head is the instance's subject head is never adapted — `b` itself, a `Bag(Int)` inside `honor Iterable<Bag(a)>`, a child `k: Bag(a)` in a tree's flatten (`Seq.flatMap(kids, (k) => k)`) — since the only conversion there would be the member being defined, a call to itself the program never wrote. It is refused, with the rewrite named (§12): convert its contents (`toSeq(b) = b.items`), or write the call where recursion on a smaller value is meant. The exclusion is the member's own body, not what it calls: a helper whose written result is `Seq(a)` — `let flat(b: Bag(a)): Seq(a) = b`, called as `toSeq(b) = flat(b)` — adapts `b` through the instance being defined, exactly as `Iterable.toSeq(b)` written in `flat` would; the recursion is the program's, visible at a named function, and its repair is the same, `b.items`.
+- **An instance's own subject, in its own `toSeq`.** Inside an `Iterable` instance's `toSeq`, a value whose head is the instance's subject head is never adapted, at any `Seq` seat of the member's body — `s` itself, a `Stack(Int)` inside `honor Iterable<Stack(a)>` (with `record Stack(a) = {items: Vector(a)}`), or a child `k: Tree(a)` in a tree's flatten (`Seq.flatMap(kids, (k) => k)`) — since the only conversion there would be the member being defined, a call to itself the program never wrote. It is refused, with the rewrite named (§12): convert its contents (`toSeq(s) = s.items`), or write the call where recursion on a smaller value is meant. The exclusion is the member's own body, not what it calls: a helper whose written result is `Seq(a)` — `let flat(s: Stack(a)): Seq(a) = s`, called as `toSeq(s) = flat(s)` — adapts `s` through the instance being defined, exactly as `Iterable.toSeq(s)` written in `flat` would; the recursion is the program's, visible at a named function, and its repair is the same, `s.items`.
 
 Every lawful instance follows the same rule: a `String` supplies codepoint strings, a `Map` its entry tuples, a `Set` its specified traversal order, and no consumer has an exception of its own. An exhaustive consumer of an infinite sequence can still fail to terminate. An explicit `toSeq` keeps its uses — a sequence wanted where no seat asks for one, or `Seq`'s operations chosen by the dot — and every existing spelling of it stays.
 
@@ -367,7 +367,7 @@ fun sum<c: Iterable>(xs: c): Int = ...
 
 -- The idiom:
 fun sum(xs: Seq(Int)): Int = ...
-sum(Bag.toSeq(bag))          -- 8
+sum(bag)                     -- 8: the Seq seat adapts through Bag's instance (§3.4)
 ```
 
 What the example fixes, normatively:
@@ -453,7 +453,9 @@ New rows first; inherited rows by reference (unchanged, listed for the consolida
 | A `Seq` seat's source whose `Item` disagrees with the expected element | the seat's ordinary mismatch, adding the sequence the source supplies: "type mismatch: expected `Seq(String)`, found `Vector(Int)`, which supplies `Seq(Int)`" | §3.4, §3.6 |
 | A form's paths under an open `Seq` element whose elements disagree | Functions §4.3's join report, where the join reports it (the `if`; a later arm; a later element), naming the element types | §3.4 |
 | An existing structure at a `Seq`-bearing type (`Option(Vector(String))` at `Option(Seq(String))`) | the seat's ordinary mismatch; nothing inside an existing value adapts | §3.6 |
-| A value of an `Iterable` instance's own subject at a `Seq` seat inside its own `toSeq` | the seat's ordinary mismatch + "inside `Iterable<Bag(a)>`'s own `toSeq`, a `Bag(a)` is not converted to a sequence, since that would call the member being defined; convert its contents, or write `Iterable.toSeq(…)` where recursion on a smaller value is meant" | §3.6 |
+| A value of an `Iterable` instance's own subject at a `Seq` seat inside its own `toSeq` | the seat's ordinary mismatch + "inside `Iterable<Stack(a)>`'s own `toSeq`, a `Stack(a)` is not converted to a sequence, since that would call the member being defined; convert its contents, or write `Iterable.toSeq(…)` where recursion on a smaller value is meant" | §3.6 |
+| A dot call or a `match` on a source whose head waits (`v.map(match …)`, `match v`) | Pattern Matching §6.1's refusal with its rider, adding this rule's repairs: annotate the source (`v: Seq(Int)`), or spell the call qualified (`Seq.map(v, match …)`) | §3.5 |
+| A waiting source's late head with no instance, or an `Item` disagreeing with the linked element | the seat's row above, at the seat that made the demand, whichever statement came first | §3.5 |
 | Non-iterable concrete type, not user-nominal | "`Int` is not iterable" (+ conversion hint where one exists) | §3.2 |
 | Non-iterable user nominal type | two-legal-homes form: the type's home module with the `honor` fixit, the prelude as the only other legal home, and the `toSeq`/`Seq(a)` alternatives | **§3.3 (new)** |
 | `Seq.toSeq`, the one standard iterable type whose module has no `toSeq` (§4) | curated hint: "`Seq` has no `toSeq` — its `Iterable` instance is declared in module `Iterable`; use `Iterable.toSeq`, or call `toSeq` by the dot" — at the standard library's `Seq` only, never a project's own `module Seq` | **§4 (new)** |
@@ -518,7 +520,7 @@ Rejected per §7.2: for a home-module instance the pattern is structurally unnec
 | 1 | Iterable(τ)=ε defined as global-instance lookup on τ's outer constructor; the Loops table is the instance table, operationally | §2.2 |
 | 2 | `toSeq` is the member, reached by the dot and qualified (not seeded bare — Modules §5.5); Loops §2.3's desugaring names it; qualified home `Iterable.toSeq`, an export of the declaring module; companions supply theirs as instance members, never as plain exports, and `Seq.iterate` (the producer) is unrelated | §2.3 |
 | 3 | Normative 8-step algorithm for `for p in e`; pattern heads per Pattern Matching's five positions, irrefutability-gated; body `Unit`; source evaluated once | §3.1 |
-| 4 | **Inference-vs-declared split**: a declared type variable → `Seq(a)` parameter hint; an unsolved inference variable is no longer refused at the head — it waits for its owner's close (row 18) | §3.2 |
+| 4 | **Inference-vs-declared split**: a declared type variable → `Seq(a)` parameter hint; an unsolved inference variable is not refused at the head: it waits for its owner's close (row 18) | §3.2 |
 | 5 | User-nominal not-iterable error names **both legal homes** (the Modules §7.6 discoverability obligation's loop-side face), leading with the actionable one | §3.3 |
 | 6 | The v1 core table is exactly six rows, each a source `honor` block: `String` in its primitive companion; `Range`, `Vector`, `Map`, and `Set` in the companions declaring them; `Seq` in `Iterable.hex`, its own companion seating before the constraint (so no `Seq.toSeq`); the FFI-owned captured foreign collections add `Array(a)` (obligated §6.1, discharged FFI Part 2 §8; #876), `JsMap(k, v)`, and `JsSet(a)` (FFI Part 10 §6; #875), each in its declaring companion; nothing else iterable in v1 | §4–§6 |
 | 7 | **`Iterable<String>`: `Item = String`, one codepoint per item** — Loops §11.6 closed; graphemes stay named-function territory | §5.1 |
@@ -532,7 +534,7 @@ Rejected per §7.2: for a home-module instance the pattern is structurally unnec
 | 15 | Collections/stdlib boundary fixed: structure in Parts 1–5, combinator families (and their v1 ship-list) in the stdlib listing under the Part 1 §3 doctrine | §10 |
 | 16 | **Transients runtime-internal only; no public API in v1**; v2 revisit-bar = userland benchmarks | §11 |
 | 17 | **`Seq` seats adapt**: a value of another known head meeting a seat headed by `Seq` converts through its instance's `toSeq`, a specified conversion (Functions §4) decided at the seat's final check; every channel an expected type already takes adapts, an existing value never; `var` and `:=` are not sequence seats | §3.4 |
-| 18 | **A source whose head is not yet known** makes its `Iterable` demand at its own turn, linking its element at once; its head is decided at its owner region's close, and one nothing describes takes the `Seq` reading — seats and loop heads alike (#1118), while an explicit `Iterable.toSeq` alone keeps its refusal; the close runs dot goals and `Seq` defaults to one fixpoint before the row fallback | §3.1, §3.5 |
+| 18 | **A source whose head is not yet known** makes its `Iterable` demand at its own turn, linking its element at once; its head is decided when it is known — by its owner region's close at the latest — and one nothing describes takes the `Seq` reading — seats and loop heads alike (#1118), while an explicit `Iterable.toSeq` alone keeps its refusal; the close runs dot goals and `Seq` defaults to one fixpoint before the row fallback | §3.1, §3.5 |
 | 19 | **A form's paths under an open `Seq` element** join their element types (reported where #1107's join reports), then each adapts on its own; a path of unknown head contributes only its element | §3.4 |
 | 20 | **Nothing converts inside an `Iterable` instance's own `toSeq`** a value headed by its own subject; a helper one call removed adapts, its recursion visible | §3.6 |
 | 21 | **An adaptation is its explicit call**: evaluation, laziness, cost, effects, emission, and generalization are the explicit spelling's | §3.6, §9.1 |
@@ -675,7 +677,7 @@ words.map(f)                                -- Vector.map; never Seq.map by adap
 -- (o) A source whose head is not yet known (§3.5)
 let f1(xs) = String.fromSeq(xs)             -- f1 : (Seq(String)) -> String
 let f2(xs) =
-    let s = String.fromSeq(xs)              -- decided at f2's close, in either statement order
+    let s = String.fromSeq(xs)              -- decided when the head arrives, in either statement order
     Vector.length(xs)                       -- f2 : (Vector(String)) -> Int, xs adapted
 fun f3(v) =
     let total = sumInts(v)                  -- the element is linked here: Int
@@ -683,13 +685,32 @@ fun f3(v) =
         n when n < 0 => "negative"
         _ => "other")
 let t(x) = Iterable.toSeq(x)                -- ERROR: an explicit call alone keeps its refusal
+fun go(v) =
+    let total = sumInts(v)
+    v.map(match                             -- ERROR: the dot waits on v's head, so the arms
+        n when n < 0 => "negative"          --   see a variable (Pattern Matching §6.1); annotate
+        _ => "other")                       --   `v: Seq(Int)`, or write Seq.map(v, match …)
+fun z(xs, ys) =
+    let s = String.fromSeq(xs)              -- xs waits
+    xs.zip(ys)                              -- a goal on a waiting receiver
+-- at z's close xs takes Seq(String), the goal resolves to Seq.zip and meets ys at a
+-- Seq parameter, ys waits in turn and takes Seq(b):
+-- z : (Seq(String), Seq(b)) -> Seq((String, b))
+fun late(v) =
+    let total = sumInts(v)                  -- ERROR here, at v: expected Seq(Int), found
+    let k: Vector(String) = v               --   Vector(String), which supplies Seq(String) —
+    total                                   --   the same place with the two lines swapped
 
 -- (p) An instance's own subject, in its own toSeq (§3.6)
-honor Iterable<Bag(a)> =
+record Stack(a) = {items: Vector(a)}
+honor Iterable<Stack(a)> =
     type Item = a
-    toSeq(b) = b                            -- ERROR: a Bag(a) is not converted inside
-                                            --   Iterable<Bag(a)>'s own toSeq; convert its
-                                            --   contents (b.items) or write the call
+    toSeq(s) = s                            -- ERROR: a Stack(a) is not converted inside
+                                            --   Iterable<Stack(a)>'s own toSeq; convert its
+                                            --   contents (s.items) or write the call
+-- toSeq(s) = s.items adapts the Vector; a helper `let flat(s: Stack(a)): Seq(a) = s`
+-- called as toSeq(s) = flat(s) adapts through the instance being defined (recursion
+-- the program wrote, visible at flat)
 ```
 
 ---
