@@ -187,8 +187,55 @@ let count(values: Seq(a)): Int =
     total
 ```
 
-Callers decide how to convert their concrete source. The function itself does not need
-to know how that source provides iteration.
+The function does not need to know how its caller's source provides iteration, and
+the caller does not need to convert it.
+
+## A sequence parameter accepts any iterable value
+
+Where a value meets a place that expects a `Seq` — a parameter, an annotation, a
+declared result — and the value is some other iterable, Hexagon inserts the `toSeq`
+call itself:
+
+```hexagon
+let names: Vector(String) = ["Ada", "Grace"]
+let people = count(names)
+let joined = String.fromSeq(names)
+```
+
+`count(names)` means `count(Vector.toSeq(names))`, and it means nothing else: the same
+instance's `toSeq`, evaluated once, lazily, at the explicit call's cost. The value's
+own type chooses the conversion — a vector supplies its elements, a set its members, a
+map its entry pairs, a string its codepoints — and a written type asking for a sequence
+decides where it happens. Nothing else does:
+
+```hexagon
+let view: Seq(String) = names
+let same = names
+```
+
+`view` is a sequence, and `same` is still a `Vector(String)`, because nothing asked for
+anything else. The branches of an `if` may be different collections, provided their
+elements agree: `Seq.length(if short then names else moreNames)` adapts whichever
+branch runs, and a `Vector(Int)` beside a `Set(String)` is refused at the `if`, since no
+one sequence holds both.
+
+The conversion is deliberately narrow. It never changes elements: a `Vector(Int)`
+supplies a `Seq(Int)`, never a `Seq(Float)`. It never reaches inside a value already
+built: an `Option(Vector(String))` you hold is not an `Option(Seq(String))`, though
+`Some(names)` written where an `Option(Seq(String))` is expected adapts `names` as it
+goes in. It never changes what a dot call finds: `names.append("Alan")` is still the
+vector's own operation. And a `var` is never a place that asks for a sequence.
+
+A parameter that nothing describes is the sequence it was asked to be. This function's
+type is `(Seq(String)) -> String`:
+
+```hexagon
+let joinAll(parts) = String.fromSeq(parts)
+```
+
+If a later line of the body showed `parts` to be a vector, the vector would be
+converted where the sequence was asked for; the parameter's type is settled when the
+function's definition ends, whichever line comes first.
 
 ## JavaScript iteration needs an honest adapter
 
@@ -222,7 +269,10 @@ an immutable model that can be reasoned about locally.
 - loops pull elements through the same external-iteration model;
 - `toSeq` converts any iterable value into the common currency, by the dot, and the
   companions' `toSeq`/`fromSeq` pairs connect collections without a library
-  catalogue; and
+  catalogue;
+- a place that expects a `Seq` — a parameter, an annotation, a declared result —
+  inserts that `toSeq` call itself, never converting elements or values already built;
+  and
 - `Seq(a)` crosses the JavaScript boundary as `Iterable<a>` while retaining persistent
   Hexagon semantics.
 

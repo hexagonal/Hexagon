@@ -145,8 +145,8 @@ statically from the source's concrete type; it does not search at runtime for
 something that happens to look iterable.
 
 For a reusable function that consumes a sequence of values, accept `Seq(a)`. It states
-the element type directly and lets each caller convert its concrete source at the
-boundary:
+the element type directly, and each caller passes its concrete source as it is — the
+Sequences chapter shows the conversion that place performs:
 
 ```hexagon
 let consume(source: Seq(a)): Unit =

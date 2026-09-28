@@ -1424,6 +1424,11 @@ interface Requirement {
    * reach — `Signed`, `Frac` and `Bitwise` — are an operator's, and a
    * **called** constraint member's own constraint, the one copy that keeps
    * it: `n.subtract(n)` is where the subtraction is.
+   *
+   * `"conversion"` is a `Seq` seat's own demand (Collections Part 5 §3.4): the
+   * `Iterable` a value must honor to be adapted into the sequence the seat
+   * expects. Its failures are the seat's mismatch, worded against the seat's
+   * type (`sequenceSeat`), because the seat is what the program wrote.
    */
   readonly origin:
     | "annotation"
@@ -1431,8 +1436,14 @@ interface Requirement {
     | "operation"
     | "interpolation"
     | "iteration"
+    | "conversion"
     | "use"
     | "derived";
+  /**
+   * A `"conversion"` demand's seat type — the `Seq(…)` the value was adapted
+   * into — so a late head is refused in the seat's words (Part 5 §3.5, §12).
+   */
+  readonly sequenceSeat?: Mono;
   /**
    * The `fun` member whose body raised this requirement, where one did (#700).
    *
@@ -3384,6 +3395,32 @@ class Checker {
   readonly #requirements = new WeakMap<object, readonly Requirement[]>();
   /** Exact Nat expressions that checking injects into an independently known Num target. */
   readonly #natWidenings = new WeakMap<Resolved.Expr, Requirement>();
+  /**
+   * Friendly Sequences (Collections Part 5 §3.4): each value a `Seq` seat
+   * adapts, with the `Iterable` demand the adaptation is. Materialized as the
+   * explicit call — `Iterable.toSeq(value)` — once the demand has settled; a
+   * demand that settles at `Seq` is the identity and inserts nothing.
+   */
+  readonly #adaptations = new WeakMap<Resolved.Expr, Requirement>();
+  /**
+   * Part 5 §3.5: sources whose head a `Seq` seat or a loop head is waiting for.
+   * The owner region's close gives each one still unknown its `Seq` reading
+   * (`#settleSequenceDefaults`), inside the dot goals' fixpoint.
+   */
+  readonly #waitingSources: { readonly variable: Variable; readonly element: Mono; readonly span: Source.Span }[] = [];
+  /**
+   * The parts of a `:=` target's type while its right-hand side elaborates.
+   * An assignment is not a sequence seat (Functions §4.3), so nothing its face
+   * reaches — a forwarded path, a literal's part, a constructor's argument —
+   * adapts either.
+   */
+  #assignmentFaces: Set<Mono> | undefined;
+  /**
+   * Part 5 §3.6's one exclusion: the subject key and display of the `Iterable`
+   * instance whose own `toSeq` body is being checked, where a value headed by
+   * that subject is never adapted.
+   */
+  #ownToSeq: { readonly key: string; readonly subject: Mono } | undefined;
   /**
    * The logic spelling each bitwise operator would have been on `Bool`
    * (`bitwise.md` §9) — `and` for `band`, and so on — keyed by the operator's
@@ -6416,10 +6453,12 @@ class Checker {
    * receiver whose constraint set is non-empty and entirely defaultable settles
    * to `Int` *before* any row is imposed, so `42.show()` is `Show`'s member at
    * `Int` exactly as bare `show(42)` is. Settling is the head-known trigger, so
-   * the fixpoint runs again before the survivors take the fallback.
+   * the fixpoint runs again before the survivors take the fallback. Between the
+   * two, the waiting sequence sources this boundary owns take their `Seq`
+   * defaults (Collections Part 5 §3.5; §3.3's amended fixpoint).
    */
   #resolveDotCallGoals(level: number): void {
-    if (this.#dotCallGoals.length === 0) return;
+    if (this.#dotCallGoals.length === 0 && this.#waitingSources.length === 0) return;
     const owned = (goal: DotCallGoal): boolean => {
       const receiver = this.#prune(goal.receiver);
       return receiver.kind !== "Variable" || receiver.level > level;
@@ -6437,18 +6476,27 @@ class Checker {
         }
       }
     };
-    fixpoint();
-    for (const goal of this.#dotCallGoals) {
-      if (!owned(goal)) continue;
-      const receiver = this.#prune(goal.receiver);
-      if (
-        receiver.kind === "Variable" && receiver.rigidName === undefined &&
-        this.#canDefaultToInt(receiver)
-      ) {
-        this.#bind(receiver, primitive("Int"), goal.callee.field.span);
+    // Collections Part 5 §3.5's close: the goals and their `Int` step reach
+    // quiescence first, and only then does a waiting sequence source whose head
+    // is still unknown take its `Seq` reading — which may make a receiver
+    // head-known, or bring a new waiting source as a goal resolves and meets its
+    // arguments, so the whole runs again before any goal takes the fallback.
+    // The `Int` step never meets a waiting source: its `Iterable` demand is not
+    // defaultable.
+    do {
+      fixpoint();
+      for (const goal of this.#dotCallGoals) {
+        if (!owned(goal)) continue;
+        const receiver = this.#prune(goal.receiver);
+        if (
+          receiver.kind === "Variable" && receiver.rigidName === undefined &&
+          this.#canDefaultToInt(receiver)
+        ) {
+          this.#bind(receiver, primitive("Int"), goal.callee.field.span);
+        }
       }
-    }
-    fixpoint();
+      fixpoint();
+    } while (this.#settleSequenceDefaults(level));
     for (const goal of [...this.#dotCallGoals]) {
       if (!owned(goal)) continue;
       this.#dotCallGoals.splice(this.#dotCallGoals.indexOf(goal), 1);
@@ -7341,7 +7389,7 @@ class Checker {
               true,
             )
           );
-          valueType = this.#hasNumericWidening(item.value)
+          valueType = this.#hasConversion(item.value)
             ? annotationType
             : this.#writtenRecoveries(
               annotationType,
@@ -7815,14 +7863,32 @@ class Checker {
           const from = this.#seatMark();
           this.#seatBodies += 1;
           const deferredFrom = this.#deferredFrames.length;
-          const body = this.#inferExpr(
-            member.value.body,
-            level + 1,
-            expectedFunction.result,
-          );
-          this.#seatBodies -= 1;
-          if (member.derived === true) this.#suppressMarkObligations -= 1;
-          this.#unify(expectedFunction.result, body, member.span);
+          // Collections Part 5 §3.6: inside an `Iterable` instance's own
+          // `toSeq`, a value headed by the instance's subject is never adapted.
+          const enclosingOwnToSeq = this.#ownToSeq;
+          if (
+            item.constraintIdentity === preRegisteredConstraintIdentity("Iterable") &&
+            member.name === "toSeq"
+          ) {
+            this.#ownToSeq = { key: this.#subjectKey(instanceSubject), subject: instanceSubject };
+          }
+          let body: Mono;
+          try {
+            body = this.#inferExpr(
+              member.value.body,
+              level + 1,
+              expectedFunction.result,
+            );
+            this.#seatBodies -= 1;
+            if (member.derived === true) this.#suppressMarkObligations -= 1;
+            // The member's body meets its contract's result as a sequence seat
+            // does (Collections Part 5 §3.4); no other conversion reaches it.
+            if (!this.#adaptSequence(expectedFunction.result, body, member.value.body, member.span)) {
+              this.#unify(expectedFunction.result, body, member.span);
+            }
+          } finally {
+            this.#ownToSeq = enclosingOwnToSeq;
+          }
           this.#effectFrames.pop();
           // Absorb, then compare, then default: the seat reads a colour nothing
           // constrained as the variable it is (§13.2), and the pure default is
@@ -7932,6 +7998,7 @@ class Checker {
               new Map(),
               this.#annotationVariableScope ?? new Map(),
             ));
+          // A `var`'s annotation is no sequence seat (Collections Part 5 §3.4).
           this.#atAnnotationSeat(annotation.span, item.value, () =>
             this.#unifyExpected(
               annotationType,
@@ -7940,11 +8007,12 @@ class Checker {
               annotation.span,
               true,
               true,
+              false,
             )
           );
           // Declared at a refused `->?` the annotation wrote, as an annotated
           // `let` is (#1115).
-          valueType = this.#hasNumericWidening(item.value)
+          valueType = this.#hasConversion(item.value)
             ? annotationType
             : this.#writtenRecoveries(annotationType, valueType);
         }
@@ -9351,7 +9419,7 @@ class Checker {
         // The widened form is the ascribed one, exactly as at an annotated
         // binding: `(1 : Float)` is the `Float` the writer claimed; and a refused
         // `->?` the ascription wrote is its recovery, as there (#1115).
-        type = this.#hasNumericWidening(expression.expression)
+        type = this.#hasConversion(expression.expression)
           ? annotationType
           : this.#writtenRecoveries(annotationType, inferred);
         break;
@@ -9544,7 +9612,19 @@ class Checker {
         const landedResult = expression.returnAnnotation === undefined
           ? this.#concreteFace(landing?.result)
           : undefined;
+        // And a sequence seat (Collections Part 5 §3.4): a landed result headed by
+        // `Seq`, its element known or not, adapts the body's value into it.
+        const landedSequence = expression.returnAnnotation === undefined &&
+            landing !== undefined && this.#asSequence(this.#prune(landing.result)) !== undefined &&
+            this.#adaptsAt(landing.result)
+          ? landing.result
+          : undefined;
         if (
+          landedSequence !== undefined &&
+          this.#adaptSequence(landedSequence, inferredResult, expression.body, expression.body.span)
+        ) {
+          result = landedSequence;
+        } else if (
           landedResult !== undefined &&
           this.#tryWidenNumeric(expression.body, inferredResult, landedResult, expression.body.span)
         ) {
@@ -9578,7 +9658,7 @@ class Checker {
           // The second seat where the published node is the value's rather
           // than the annotation's (§14.3): the body's type is what stands here,
           // and a `B.Row` a body reached for is not this signature's spelling.
-          result = this.#hasNumericWidening(expression.body)
+          result = this.#hasConversion(expression.body)
             ? annotationType
             : this.#writtenRecoveries(
               annotationType,
@@ -9777,12 +9857,31 @@ class Checker {
             } has the generic type \`${actual.rigidName}\`, and \`Iterable\` declares an implied type and cannot constrain a type variable in v1; take a \`Seq(a)\` parameter instead`,
             primary: iterable.span,
           });
-        } else if (actual.kind === "Variable") {
+        } else if (actual.kind === "Variable" && this.#iterableDeclaration() === undefined) {
+          // Only a module seated before `Iterable.hex` reaches this: there is no
+          // demand to wait on.
           this.#diagnostics.add({
             severity: "error",
             message: "cannot determine how to iterate this value; add a `Range`, `String`, or `Seq(a)` type annotation",
             primary: expression.iterable.span,
           });
+        } else if (actual.kind === "Variable") {
+          // Collections Part 5 §3.1 step 2 (#1118): a source not yet known
+          // **waits**. The head makes the subject's one `Iterable` demand now,
+          // its `Item` the pattern's type, and the head is decided when it is
+          // known — by the owner region's close at the latest, where a head
+          // nothing established is `Seq` (§3.5) — so no statement order decides
+          // whether the loop is accepted.
+          element = this.#fresh(level, false);
+          const requirement = this.#require(
+            "Iterable",
+            actual,
+            expression.iterable.span,
+            "iteration",
+            new Map([["Item", element]]),
+          );
+          if (!requirement.reported) this.#iterations.set(expression, requirement);
+          this.#waitingSources.push({ variable: actual, element, span: expression.iterable.span });
         } else if (actual.kind !== "Error") {
           element = this.#fresh(level, false);
           const requirement = this.#require(
@@ -10303,11 +10402,20 @@ class Checker {
         const target = this.#inferExpr(expression.target, level);
         // The assignment boundary is a seat faced by the `var`'s type (Numeric
         // Literals §5.1, #1062): an arithmetic right-hand side runs there.
-        const value = this.#inferExpr(
-          expression.value,
-          level,
-          this.#prune(target).kind === "Function" ? undefined : target,
-        );
+        // Nor is it a sequence seat (Functions §4.3): nothing the target's face
+        // reaches adapts, however it is handed on.
+        const enclosingAssignmentFaces = this.#assignmentFaces;
+        this.#assignmentFaces = this.#faceParts(target, new Set(enclosingAssignmentFaces));
+        let value: Mono;
+        try {
+          value = this.#inferExpr(
+            expression.value,
+            level,
+            this.#prune(target).kind === "Function" ? undefined : target,
+          );
+        } finally {
+          this.#assignmentFaces = enclosingAssignmentFaces;
+        }
         // **A re-assignment is a merge** *(Effects §13.2)*. A `var` has one
         // monotype, and the assigned value's type is unified with it; where two
         // function colours meet in that unification the re-assignment has
@@ -10323,7 +10431,7 @@ class Checker {
         // else, and the publish below rewrites only effect nodes at positions
         // the join has already made prune alike.
         this.#joining(expression.span, () =>
-          this.#unifyExpected(target, value, expression.value, expression.span, true, true));
+          this.#unifyExpected(target, value, expression.value, expression.span, true, true, false));
         if (
           expression.target.kind === "Name" &&
           this.#mutableSymbols.has(expression.target.symbol)
@@ -15938,9 +16046,15 @@ class Checker {
       (node.rung === undefined && !literal && (!this.#ground(face, true) || node.filled === true));
     const paths = node.rung === undefined && (node.siblings !== true || node.elements === true) &&
       (literal || !joins);
+    // Collections Part 5 §3.4 (#1107's join, read at the element): under a seat
+    // headed by `Seq` whose element is left open, a joining form's paths join
+    // their **element types**, each path adapted on its own first.
+    const elementJoin = joins && !literal && node.rung === undefined && node.siblings !== true &&
+      seat && this.#asSequence(this.#prune(face)) !== undefined && this.#adaptsAt(face);
     const types = node.parts.map((part) => {
       if ("value" in part) {
         const { expression, type } = part.value;
+        if (elementJoin) return this.#sequencePath(expression, type, face, node.level);
         return paths ? this.#checkPath(expression, face, type, node.level, seat, collected) : type;
       }
       if (part.node.failed === true) {
@@ -16110,11 +16224,16 @@ class Checker {
       return home;
     }
     const before = this.#diagnostics.count;
-    this.#unifyExpected(this.#freshened(face, level), type, path, path.span, true, seat);
+    this.#unifyExpected(
+      this.#freshened(face, level), type, path, path.span, true, seat, seat && this.#adaptsAt(face),
+    );
     // A refused check may still have bound the copy's colours (a function
     // type's effect slot unifies past a failed parameter), so the path joins
-    // as a copy of its own.
-    return this.#diagnostics.count > before ? this.#freshened(face, level) : type;
+    // as a copy of its own — and an adapted path joins as the sequence it
+    // became (Collections Part 5 §3.4).
+    return this.#diagnostics.count > before || this.#adaptations.has(path)
+      ? this.#freshened(face, level)
+      : type;
   }
 
   /**
@@ -17395,8 +17514,11 @@ class Checker {
       return home;
     }
     const before = this.#diagnostics.count;
-    this.#unifyExpected(this.#freshened(part, level), type, component, component.span, true, true);
-    return this.#diagnostics.count > before ? part : type;
+    this.#unifyExpected(
+      this.#freshened(part, level), type, component, component.span, true, true, this.#adaptsAt(part),
+    );
+    // An adapted component is the part it became (Collections Part 5 §3.4).
+    return this.#diagnostics.count > before || this.#adaptations.has(component) ? part : type;
   }
 
   /**
@@ -18243,8 +18365,20 @@ class Checker {
       const enclosingSides = this.#pinSides;
       this.#pinSite = expression.span;
       this.#pinSides = undefined;
+      // A sequence seat (Collections Part 5 §3.4) wherever the parameter is known
+      // as the argument meets it — a constructor's, too, where its expected type
+      // solved it (Functions §4.3) — but never a dot call's receiver.
+      const seated = this.#prune(parameter);
       try {
-        this.#unifyExpected(parameter, actuals[index] ?? ERROR, expression, span, true, parameter.kind !== "Variable" && !receiver);
+        this.#unifyExpected(
+          parameter,
+          actuals[index] ?? ERROR,
+          expression,
+          span,
+          true,
+          parameter.kind !== "Variable" && !receiver,
+          seated.kind !== "Variable" && !receiver && this.#adaptsAt(seated),
+        );
       } finally {
         this.#pinSite = enclosingPin;
         this.#pinSides = enclosingSides;
@@ -18326,7 +18460,12 @@ class Checker {
         }
         const type = this.#inferExpr(expression, level, expectation);
         actuals[index] = type;
-        if (this.#prune(type).kind !== "Variable") eager(index);
+        // Collections Part 5 §3.5 (Functions §4.3's departure): a source still a
+        // variable at a `Seq` parameter makes its `Iterable` demand now, so a
+        // callback beside it reads its element; only its head waits.
+        const waitsAsSource = expectation !== undefined &&
+          this.#asSequence(this.#prune(expectation)) !== undefined;
+        if (this.#prune(type).kind !== "Variable" || waitsAsSource) eager(index);
         return type;
       },
       establishFirstPass: (deferredLambdas: ReadonlySet<number>): void => {
@@ -23473,6 +23612,8 @@ class Checker {
     identity: string = this.#constraintIdentity(name),
     /** A copy's use, or a derived requirement's whole's (`Requirement.use`). */
     use?: RequirementUse,
+    /** A `"conversion"` demand's seat type (`Requirement.sequenceSeat`). */
+    sequenceSeat?: Mono,
   ): Requirement {
     const demandedBy = this.#annotationOwner;
     const requirement: Requirement = {
@@ -23482,6 +23623,7 @@ class Checker {
       span,
       origin,
       ...(use === undefined ? {} : { use }),
+      ...(sequenceSeat === undefined ? {} : { sequenceSeat }),
       ...(demandedBy?.kind === "member" ? { demandedBy: demandedBy.name } : {}),
       ...(impliedTypes === undefined ? {} : { impliedTypes }),
       ...(this.#literalPatternSeat ? { patternSeat: true as const } : {}),
@@ -23572,6 +23714,15 @@ class Checker {
   #hasNumericWidening(expression: Resolved.Expr): boolean {
     return this.#natWidenings.has(expression) || this.#intWidenings.has(expression) ||
       this.#bigIntWidenings.has(expression) || this.#decimalPromotions.has(expression);
+  }
+
+  /**
+   * Whether a seat elaborated a specified conversion into this value (Functions
+   * §4): a numeric widening, or a sequence adaptation (Collections Part 5
+   * §3.4). Where it did, the seat's type is what stands there.
+   */
+  #hasConversion(expression: Resolved.Expr): boolean {
+    return this.#hasNumericWidening(expression) || this.#adaptations.has(expression);
   }
 
   /**
@@ -23696,7 +23847,14 @@ class Checker {
      * settled among themselves was expected by no one.
      */
     home = false,
+    /**
+     * Whether this seat is a **sequence seat** (Collections Part 5 §3.4): a
+     * seat's own type, but never a `var`'s or an assignment's, and never one a
+     * `:=` target handed on (`#adaptsAt`).
+     */
+    adapt = home,
   ): void {
+    if (adapt && this.#adaptSequence(expected, actual, expression, span)) return;
     if (
       this.#tryWidenNumeric(
         expression,
@@ -23714,6 +23872,176 @@ class Checker {
     if (this.#reportStandDown(expression, expected, actual, span)) return;
     if (home && this.#refuseFunctionResult(expression, expected, actual, span)) return;
     this.#unify(expected, actual, span);
+  }
+
+  /**
+   * **Friendly Sequences** (Collections Part 5 §3.4): a value meeting a seat
+   * whose type is headed by `Seq` is adapted through its `Iterable` instance —
+   * the specified conversion the seat elaborates (Functions §4), decided here,
+   * at the seat's final check, once.
+   *
+   * `true` where the adaptation took the value: adapted at a known head, left
+   * waiting for a head not yet known (§3.5), or refused in the seat's words
+   * (a declared variable; an instance's own subject inside its `toSeq`, §3.6).
+   * `false` where the ordinary check stands — the seat is not headed by `Seq`,
+   * the value already is a `Seq`, or its head has no `Iterable` instance, whose
+   * refusal is the seat's ordinary mismatch.
+   *
+   * The demand is the explicit call's (`Iterable.toSeq`), with the seat's
+   * element as its `Item`, so the element links at once whatever the head
+   * turns out to be; `#materializeAdaptation` writes the call once the demand
+   * has settled, and a demand that settles at `Seq` writes nothing.
+   */
+  #adaptSequence(
+    expected: Mono,
+    actual: Mono,
+    expression: Resolved.Expr,
+    span: Source.Span,
+  ): boolean {
+    const seat = this.#prune(expected);
+    const element = this.#asSequence(seat);
+    if (element === undefined || this.#iterableDeclaration() === undefined) return false;
+    const source = this.#prune(actual);
+    if (source.kind === "Error" || this.#asSequence(source) !== undefined) return false;
+    if (source.kind === "Variable") {
+      // An integer literal is no collection; its own refusal stands.
+      if (source.literalOnly) return false;
+      if (source.rigidName !== undefined) {
+        // §3.5: a declared variable provides no head and never will. Refused as
+        // the explicit call is, with §3.2's rewrite.
+        const value = ungrouped(expression);
+        this.#diagnostics.add({
+          severity: "error",
+          message: `${
+            value.kind === "Name" ? `\`${value.text}\`` : "this value"
+          } has the generic type \`${source.rigidName}\`, and \`Iterable\` declares an implied type and cannot constrain a type variable in v1; take a \`Seq(a)\` parameter instead`,
+          primary: span,
+        });
+        return true;
+      }
+      // §3.5: the element links now; the head waits for the owner's close.
+      this.#adaptations.set(expression, this.#sequenceDemand(source, element, seat, span));
+      this.#waitingSources.push({ variable: source, element, span });
+      return true;
+    }
+    if (this.#ownToSeq !== undefined && this.#subjectKey(source) === this.#ownToSeq.key) {
+      this.#diagnostics.add({
+        severity: "error",
+        message: `type mismatch: expected ${this.#display(seat)}, found ${this.#display(source)}; ` +
+          `inside \`Iterable<${this.#display(this.#ownToSeq.subject)}>\`'s own \`toSeq\`, ` +
+          `a \`${this.#display(source)}\` is not converted to a sequence, since that would call ` +
+          "the member being defined; convert its contents, or write `Iterable.toSeq(…)` " +
+          "where recursion on a smaller value is meant",
+        primary: span,
+      });
+      return true;
+    }
+    if (!this.#instances.has(this.#instanceKeyFor("Iterable", source))) return false;
+    this.#adaptations.set(expression, this.#sequenceDemand(source, element, seat, span));
+    return true;
+  }
+
+  /**
+   * One value path of a form joining under an open `Seq` element (Collections
+   * Part 5 §3.4), answered as the `Seq` it becomes, so the form's join is the
+   * join of the paths' **elements** and reports where #1107's join reports. A
+   * `Seq` path contributes itself; a path of another known head is adapted
+   * through its instance, contributing its `Item`; a path whose head is not yet
+   * known contributes only its pending `Item` (§3.5) and never a sibling's
+   * head; a path with no instance is refused where it stands and joins as the
+   * face, so the join says nothing more of it.
+   */
+  #sequencePath(path: Resolved.Expr, type: Mono, face: Mono, level: number): Mono {
+    const source = this.#prune(type);
+    if (source.kind === "Error" || this.#asSequence(source) !== undefined) return type;
+    const seat = this.#prune(face);
+    const element = this.#fresh(level, false);
+    const known = source.kind !== "Variable" &&
+      this.#instances.has(this.#instanceKeyFor("Iterable", source)) &&
+      !(this.#ownToSeq !== undefined && this.#subjectKey(source) === this.#ownToSeq.key);
+    const waiting = source.kind === "Variable" && !source.literalOnly && source.rigidName === undefined;
+    if (!known && !waiting) {
+      // The seat's refusal, at the path, in its own words.
+      const before = this.#diagnostics.count;
+      if (!this.#adaptSequence(seat, type, path, path.span)) {
+        this.#unify(this.#freshened(seat, level), type, path.span);
+      }
+      return this.#diagnostics.count > before ? this.#freshened(seat, level) : type;
+    }
+    this.#adaptations.set(path, this.#sequenceDemand(source, element, seat, path.span));
+    if (source.kind === "Variable") {
+      this.#waitingSources.push({ variable: source, element, span: path.span });
+    }
+    return this.#sequence(element, path.span);
+  }
+
+  /** A `Seq` seat's `Iterable` demand on `source`, its `Item` the seat's element. */
+  #sequenceDemand(source: Mono, element: Mono, seat: Mono, span: Source.Span): Requirement {
+    return this.#require(
+      "Iterable",
+      source,
+      span,
+      "conversion",
+      new Map([["Item", element]]),
+      undefined,
+      undefined,
+      seat,
+    );
+  }
+
+  /** The prelude `Iterable` declaration, where this module is seated after it. */
+  #iterableDeclaration(): Resolved.ConstraintItem | undefined {
+    return this.#constraintsByIdentity.get(preRegisteredConstraintIdentity("Iterable"));
+  }
+
+  /**
+   * Whether a value checked against `face` meets a sequence seat — false for a
+   * part of a `:=` target's type (Functions §4.3: an assignment is not a
+   * sequence seat, nor is anything its face reaches).
+   */
+  #adaptsAt(face: Mono): boolean {
+    return this.#assignmentFaces?.has(this.#prune(face)) !== true;
+  }
+
+  /** Every node of a type, pruned, for `#assignmentFaces`. */
+  #faceParts(type: Mono, found = new Set<Mono>()): Set<Mono> {
+    const actual = this.#prune(type);
+    if (found.has(actual)) return found;
+    found.add(actual);
+    const children: Mono[] =
+      actual.kind === "Tuple" ? [...actual.elements]
+      : actual.kind === "Record" ? [...actual.fields.values()]
+      : actual.kind === "Function" ? [...actual.parameters, actual.result]
+      : actual.kind === "Union" || actual.kind === "NominalRecord" || actual.kind === "ExternType"
+      ? [...actual.arguments]
+      : actual.kind === "Vector" || actual.kind === "Set" || actual.kind === "Array" ||
+          actual.kind === "JsSet" || actual.kind === "Node"
+      ? [actual.element]
+      : actual.kind === "Nullable" ? [actual.value]
+      : actual.kind === "Map" || actual.kind === "JsMap" ? [actual.key, actual.value]
+      : [];
+    for (const child of children) this.#faceParts(child, found);
+    return found;
+  }
+
+  /**
+   * Part 5 §3.5's default, taken at the owner region's close: a waiting source
+   * whose head is still unknown **is** the sequence its seat asked for. One
+   * decision on a variable nothing informed — nothing before it committed the
+   * source to any head. Answers whether any source took it, so the goals'
+   * fixpoint runs again (a waiting source may be a dot call's receiver).
+   */
+  #settleSequenceDefaults(level: number): boolean {
+    let settled = false;
+    for (const waiting of [...this.#waitingSources]) {
+      const variable = this.#prune(waiting.variable);
+      if (variable.kind === "Variable" && variable.level <= level) continue;
+      this.#waitingSources.splice(this.#waitingSources.indexOf(waiting), 1);
+      if (variable.kind !== "Variable") continue;
+      this.#unify(variable, this.#sequence(waiting.element, waiting.span), waiting.span);
+      settled = true;
+    }
+    return settled;
   }
 
   /**
@@ -24726,10 +25054,17 @@ class Checker {
         for (const [name, projection] of requirement.impliedTypes) {
           const binding = bindings?.get(name);
           if (binding !== undefined) {
+            const supplied = this.#replaceVariables(binding, replacements);
+            const seat = requirement.origin === "conversion" ? requirement.sequenceSeat : undefined;
             this.#unify(
               projection,
-              this.#replaceVariables(binding, replacements),
+              supplied,
               requirement.span,
+              // A `Seq` seat's element against what the source supplies, in the
+              // seat's words (Collections Part 5 §12).
+              seat === undefined ? undefined : () =>
+                `type mismatch: expected ${this.#display(seat)}, found ${this.#display(type)}, ` +
+                `which supplies ${this.#display(this.#sequence(supplied, requirement.span))}`,
             );
           }
         }
@@ -24744,7 +25079,11 @@ class Checker {
         // `type.kind === "Union"` since #147: `Bool` is the common case of a
         // literal landing on a type with no `Num`, and it stopped being a
         // `Constructor` when it left the primitive set.
-        requirement.origin === "literal" &&
+        requirement.origin === "conversion" && requirement.sequenceSeat !== undefined
+          // A late head at a `Seq` seat with no instance: the seat's mismatch
+          // (Collections Part 5 §3.5, §12).
+          ? `type mismatch: expected ${this.#display(requirement.sequenceSeat)}, found ${this.#display(type)}`
+          : requirement.origin === "literal" &&
           (type.kind === "Constructor" || type.kind === "Union")
           ? `integer literal cannot have type \`${type.name}\``
           : type.kind === "Function"
@@ -25789,6 +26128,19 @@ class Checker {
     // finalisation, and the defaulting step below must see the receivers those
     // goals settle.
     this.#resolveDotCallGoals(level);
+    // Method Syntax §3.1's pinning rule, kept as receivers move (#1154): a goal
+    // this boundary does not own pins every variable it mentions to its
+    // receiver's region **as that region is now**. A unification that sank the
+    // receiver outward after the goal was made — `let same = [x, n]` — sinks
+    // what the goal will settle with it, or this binding would quantify the
+    // goal's result, and every use made before the deadline would keep a copy
+    // the settlement never reaches.
+    for (const goal of this.#dotCallGoals) {
+      const receiver = this.#prune(goal.receiver);
+      if (receiver.kind !== "Variable") continue;
+      this.#lowerLevels(goal.result, receiver.level);
+      for (const argument of goal.argumentTypes) this.#lowerLevels(argument, receiver.level);
+    }
     // Then the bodies held for those goals (#378): every colour the goals
     // registered is in, so the held bodies decide before anything is built.
     this.#settleHolds(level);
@@ -30394,6 +30746,13 @@ class Checker {
   }
 
   #isValue(expression: Resolved.Expr): boolean {
+    // Functions §8 item 2: a value a `Seq` seat adapts is the explicit call it
+    // elaborates, and a call is no value. A source still waiting for its head
+    // is counted as one too; only a demand settled at `Seq` inserts nothing.
+    const adaptation = this.#adaptations.get(expression);
+    if (adaptation !== undefined && this.#asSequence(this.#prune(adaptation.type)) === undefined) {
+      return false;
+    }
     switch (expression.kind) {
       case "Unit":
       case "Integer":
@@ -31640,6 +31999,8 @@ class Checker {
     const promotion = this.#decimalPromotions.get(expression);
     if (promotion !== undefined) return this.#materializeDecimalPromotion(expression, promotion);
     const value = this.#materializeUnwidenedExpr(expression);
+    const adaptation = this.#adaptations.get(expression);
+    if (adaptation !== undefined) return this.#materializeAdaptation(expression, value, adaptation);
     const natWidening = this.#natWidenings.get(expression);
     if (natWidening !== undefined) {
       const requirement = this.#publicRequirement(natWidening);
@@ -31670,6 +32031,56 @@ class Checker {
       value,
       requirement,
       type: requirement.type,
+      span: expression.span,
+    };
+  }
+
+  /**
+   * A sequence adaptation (Collections Part 5 §3.6): **its explicit call**,
+   * `Iterable.toSeq(value)`, written as that call's own node — the member
+   * named, the settled instance as its evidence — so emission, evaluation and
+   * cost are the explicit spelling's by construction. A demand that settled at
+   * `Seq` is the identity and writes nothing; one refused writes the value, its
+   * report already made.
+   */
+  /**
+   * The heads `for` iterates with no `Iterable` evidence when they are known at
+   * the loop (the arms of `inferExpr`'s `For` case): a `Seq`, a `Range`, and the
+   * built-in collections.
+   */
+  #iteratesNatively(head: Mono): boolean {
+    return this.#asSequence(head) !== undefined || head.kind === "Range" ||
+      head.kind === "Vector" || head.kind === "Set" || head.kind === "Array" ||
+      head.kind === "JsSet" || head.kind === "Map" || head.kind === "JsMap";
+  }
+
+  #materializeAdaptation(
+    expression: Resolved.Expr,
+    value: Typed.Expr,
+    requirement: Requirement,
+  ): Typed.Expr {
+    const subject = this.#prune(requirement.type);
+    const member = this.#iterableDeclaration()?.members.find(({ binding }) => binding.name === "toSeq");
+    if (
+      requirement.reported || member === undefined || subject.kind === "Variable" ||
+      subject.kind === "Error" || this.#asSequence(subject) !== undefined
+    ) return value;
+    const sequence = this.#sequence(requirement.impliedTypes?.get("Item") ?? ERROR, expression.span);
+    // The member is named at the value's start, with no width of its own, so a
+    // position inside the value finds the value and never the inserted name.
+    const at: Source.Span = { ...expression.span, end: expression.span.start };
+    return {
+      kind: "Call",
+      callee: {
+        kind: "Name",
+        symbol: member.binding.symbol,
+        text: member.binding.name,
+        type: this.#publicType({ kind: "Function", parameters: [subject], result: sequence }),
+        span: at,
+      },
+      arguments: [value],
+      requirements: this.#evidenceRequirements([requirement]),
+      type: this.#publicType(sequence),
       span: expression.span,
     };
   }
@@ -31839,7 +32250,13 @@ class Checker {
           span: expression.span,
         };
       case "For": {
-        const iteration = this.#iterations.get(expression);
+        const settled = this.#iterations.get(expression);
+        // A head that arrived after the loop (§3.5) at a built-in kind iterates
+        // natively, exactly as the same head known at the loop does, which asks
+        // for no evidence at all.
+        const iteration = settled !== undefined && this.#iteratesNatively(this.#prune(settled.type))
+          ? undefined
+          : settled;
         return {
           kind: "For",
           pattern: this.#materializePattern(expression.pattern),

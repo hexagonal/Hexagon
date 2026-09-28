@@ -265,7 +265,9 @@ describe("a held colour is not generalized before it settles", () => {
   // #378 again. So until the goal settles its uses share one colour, as a
   // knot-held lambda's do — ruled on #1148; the Effects redesign's joins may
   // lift it (#1144). Settling the receiver first, or annotating it, keeps the
-  // polymorphism.
+  // polymorphism. A `Seq` seat does not settle it — a source whose head is
+  // unknown waits for its owner's close there (Collections Part 5 §3.5) — so the
+  // settling line joins it with a sequence instead.
   const act = (settle: string, annotate: string): string =>
     `let run(source${annotate}) =\n${settle}` +
     "    let act = (cb: () ->? Unit) =>\n" +
@@ -285,7 +287,7 @@ describe("a held colour is not generalized before it settles", () => {
   });
 
   test("settling the receiver first, or annotating it, keeps it polymorphic", () => {
-    expect(refusals(act("    let pinned: Seq(String) = source\n", ""))).toEqual([]);
+    expect(refusals(act("    let pinned = [source, Iterable.toSeq([\"a\"])]\n", ""))).toEqual([]);
     expect(refusals(act("", ": Seq(String)"))).toEqual([]);
   });
 });

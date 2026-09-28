@@ -216,11 +216,12 @@ reusable iteration code toward the concrete currency already established:
 let collect(source: Seq(a)): Vector(a) = Vector.fromSeq(source)
 ```
 
-Callers convert at the boundary:
+Callers pass their values as they are, and the `Seq` parameter converts each through
+its own instance — the resolution this chapter describes, at a type that is known:
 
 ```hexagon
-collect(Bag.toSeq(bag))
-collect(Map.toSeq(scores))
+collect(bag)
+collect(scores)
 ```
 
 Implied types therefore remain an advanced extension of instances rather than a
