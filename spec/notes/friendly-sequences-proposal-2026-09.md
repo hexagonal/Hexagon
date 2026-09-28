@@ -279,7 +279,12 @@ The following are excluded:
   there would be the member being defined, a call to itself the source never
   wrote. It is refused as today, with the rewrite named: convert
   its contents (`toSeq(b) = b.items`), or write the call where recursion on a
-  smaller value is meant.
+  smaller value is meant. The exclusion is the member's own body, not what it
+  calls: a helper whose written result is `Seq(a)` — `let flat(b: Bag(a)):
+  Seq(a) = b`, called as `toSeq(b) = flat(b)` — adapts `b` through the instance
+  being defined, exactly as `Iterable.toSeq(b)` written in `flat` would, and the
+  recursion is the program's, visible at a named function; the repair is the
+  same, `b.items`.
 
 All lawful instances follow the same rule. Strings supply codepoint strings;
 maps supply entry tuples; sets preserve their specified traversal order. There
