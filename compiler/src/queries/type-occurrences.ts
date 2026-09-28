@@ -172,6 +172,9 @@ export function collectTypeOccurrences(module: Typed.Module): readonly TypeOccur
   const visitExpr = (expression: Typed.Expr): void => {
     switch (expression.kind) {
       case "Name":
+        // A name no source wrote — a sequence adaptation's inserted `toSeq`
+        // (Collections Part 5 §3.6), which has no width — is no occurrence.
+        if (expression.span.start.offset === expression.span.end.offset) return;
         publishSymbol(
           expression.symbol,
           expression.text,

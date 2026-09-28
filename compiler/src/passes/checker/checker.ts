@@ -1445,6 +1445,14 @@ interface Requirement {
    */
   readonly sequenceSeat?: Mono;
   /**
+   * A `"conversion"` demand made inside an `Iterable` instance's own `toSeq`
+   * (Part 5 §3.6): that instance's subject, so a head arriving late is refused
+   * there as a head known at the seat is.
+   */
+  ownToSeq?: { readonly key: string; readonly subject: Mono };
+  /** The value a `"conversion"` or loop demand was made on, where it is a name. */
+  sourceName?: string;
+  /**
    * The `fun` member whose body raised this requirement, where one did (#700).
    *
    * Read by one report: a variable declared on a **block head** is shared by
@@ -1489,6 +1497,8 @@ interface Requirement {
   dictionaryArguments?: readonly Requirement[];
   /** Selected the source instance declared by the fixed `String` companion. */
   canonicalStringIterable?: true;
+  /** The instance validation selected, for the demands this one absorbed (#1125). */
+  selected?: Resolved.HonorItem;
   /**
    * The requirement raised for each direct component of a structurally
    * satisfied type, kept rather than discarded (#278). Emission renders this
@@ -2756,8 +2766,9 @@ interface DotCallGoal {
   readonly expression: Resolved.CallExpr;
   readonly callee: Resolved.AccessExpr;
   readonly receiver: Mono;
+  /** Inferred where the call is written; pinned to the receiver's region at each generalization (#1154). */
   readonly argumentTypes: readonly Mono[];
-  /** Pinned to the receiver's region, per §3.1's pinning rule. */
+  /** Made in the receiver's region, per §3.1's pinning rule, and re-pinned as the receiver moves (#1154). */
   readonly result: Mono;
   readonly level: number;
   /**
@@ -2769,6 +2780,8 @@ interface DotCallGoal {
   readonly expected: Mono | undefined;
   /** The binding chain the call was written in: its demands are made there (#1048). */
   readonly chain: readonly ChainEntry[];
+  /** The `toSeq` body the call was written in, if any (Collections Part 5 §3.6). */
+  readonly ownToSeq?: { readonly key: string; readonly subject: Mono };
 }
 
 /** One member of a `fun` block's strongly-connected component (Functions §7.4). */
@@ -3395,6 +3408,12 @@ class Checker {
   readonly #requirements = new WeakMap<object, readonly Requirement[]>();
   /** Exact Nat expressions that checking injects into an independently known Num target. */
   readonly #natWidenings = new WeakMap<Resolved.Expr, Requirement>();
+  /**
+   * The demands a variable's kept demand absorbed (#1125): each is still the
+   * evidence of the call that made it, so it settles when the kept one does —
+   * selected where that one was, reported where that one was.
+   */
+  readonly #absorbedDemands = new WeakMap<Requirement, Requirement[]>();
   /**
    * Friendly Sequences (Collections Part 5 §3.4): each value a `Seq` seat
    * adapts, with the `Iterable` demand the adaptation is. Materialized as the
@@ -5923,6 +5942,7 @@ class Checker {
       this.#dotCallGoals.push({
         expression, callee, receiver, argumentTypes, result, level, expected,
         chain: [...(this.#chainOverride ?? this.#bindingChain)],
+        ...(this.#ownToSeq === undefined ? {} : { ownToSeq: this.#ownToSeq }),
       });
       return result;
     }
@@ -6496,11 +6516,48 @@ class Checker {
         }
       }
       fixpoint();
+      // The defaults read ownership as the goals do: a waiting source a pending
+      // goal mentions belongs to that goal's region (#1154).
+      this.#pinPendingGoals();
     } while (this.#settleSequenceDefaults(level));
     for (const goal of [...this.#dotCallGoals]) {
       if (!owned(goal)) continue;
       this.#dotCallGoals.splice(this.#dotCallGoals.indexOf(goal), 1);
       this.#fallbackDotCallGoal(goal);
+    }
+  }
+
+  /**
+   * Method Syntax §3.1's pinning rule, as the receivers stand now (#1154): a
+   * pending goal pins every type variable it mentions — its result and its
+   * argument types — to its receiver's region. The result is made there when
+   * the goal is made, but a later unification can sink the receiver outward
+   * (`let same = [x, n]`), and the argument types are inferred where the call
+   * is written; unpinned, a binding closing in between quantifies what the goal
+   * will settle, and a use made before the deadline keeps a copy the settlement
+   * never reaches. (A colour inside an argument's function type stays where
+   * `#lowerLevels` leaves colours.)
+   *
+   * A fixpoint over the receivers' levels: a goal's result or argument can be
+   * another goal's receiver, so sinking one can sink another's region.
+   */
+  #pinPendingGoals(): void {
+    const levels = (): string =>
+      this.#dotCallGoals.map((goal) => {
+        const receiver = this.#prune(goal.receiver);
+        return receiver.kind === "Variable" ? receiver.level : "known";
+      }).join();
+    for (let before = "", after = levels(); before !== after;) {
+      before = after;
+      for (const goal of this.#dotCallGoals) {
+        const receiver = this.#prune(goal.receiver);
+        // A head-known receiver has no region to pin to: its goal belongs to
+        // this boundary and settles in the resolution that follows the pins.
+        if (receiver.kind !== "Variable") continue;
+        this.#lowerLevels(goal.result, receiver.level);
+        for (const argument of goal.argumentTypes) this.#lowerLevels(argument, receiver.level);
+      }
+      after = levels();
     }
   }
 
@@ -6521,14 +6578,23 @@ class Checker {
   }
 
   #settleDotCallGoalMade(goal: DotCallGoal): void {
-    const type = this.#dispatchDotCall(
-      goal.expression,
-      goal.callee,
-      goal.receiver,
-      goal.level,
-      goal.argumentTypes,
-      goal.expected,
-    );
+    // Its arguments meet their seats now, inside the body they were written in
+    // (Collections Part 5 §3.6).
+    const enclosingOwnToSeq = this.#ownToSeq;
+    this.#ownToSeq = goal.ownToSeq;
+    let type: Mono | undefined;
+    try {
+      type = this.#dispatchDotCall(
+        goal.expression,
+        goal.callee,
+        goal.receiver,
+        goal.level,
+        goal.argumentTypes,
+        goal.expected,
+      );
+    } finally {
+      this.#ownToSeq = enclosingOwnToSeq;
+    }
     this.#unify(goal.result, type ?? ERROR, goal.expression.span);
     this.#expressionTypes.set(goal.expression, this.#prune(goal.result));
   }
@@ -8012,7 +8078,7 @@ class Checker {
           );
           // Declared at a refused `->?` the annotation wrote, as an annotated
           // `let` is (#1115).
-          valueType = this.#hasConversion(item.value)
+          valueType = this.#hasNumericWidening(item.value)
             ? annotationType
             : this.#writtenRecoveries(annotationType, valueType);
         }
@@ -9880,6 +9946,7 @@ class Checker {
             "iteration",
             new Map([["Item", element]]),
           );
+          if (expression.iterable.kind === "Name") requirement.sourceName = expression.iterable.text;
           if (!requirement.reported) this.#iterations.set(expression, requirement);
           this.#waitingSources.push({ variable: actual, element, span: expression.iterable.span });
         } else if (actual.kind !== "Error") {
@@ -23920,24 +23987,20 @@ class Checker {
         return true;
       }
       // §3.5: the element links now; the head waits for the owner's close.
-      this.#adaptations.set(expression, this.#sequenceDemand(source, element, seat, span));
+      this.#adaptations.set(expression, this.#sequenceDemand(source, element, seat, span, expression));
       this.#waitingSources.push({ variable: source, element, span });
       return true;
     }
     if (this.#ownToSeq !== undefined && this.#subjectKey(source) === this.#ownToSeq.key) {
       this.#diagnostics.add({
         severity: "error",
-        message: `type mismatch: expected ${this.#display(seat)}, found ${this.#display(source)}; ` +
-          `inside \`Iterable<${this.#display(this.#ownToSeq.subject)}>\`'s own \`toSeq\`, ` +
-          `a \`${this.#display(source)}\` is not converted to a sequence, since that would call ` +
-          "the member being defined; convert its contents, or write `Iterable.toSeq(…)` " +
-          "where recursion on a smaller value is meant",
+        message: this.#selfAdaptationMessage(seat, source, this.#ownToSeq.subject),
         primary: span,
       });
       return true;
     }
     if (!this.#instances.has(this.#instanceKeyFor("Iterable", source))) return false;
-    this.#adaptations.set(expression, this.#sequenceDemand(source, element, seat, span));
+    this.#adaptations.set(expression, this.#sequenceDemand(source, element, seat, span, expression));
     return true;
   }
 
@@ -23955,7 +24018,6 @@ class Checker {
     const source = this.#prune(type);
     if (source.kind === "Error" || this.#asSequence(source) !== undefined) return type;
     const seat = this.#prune(face);
-    const element = this.#fresh(level, false);
     const known = source.kind !== "Variable" &&
       this.#instances.has(this.#instanceKeyFor("Iterable", source)) &&
       !(this.#ownToSeq !== undefined && this.#subjectKey(source) === this.#ownToSeq.key);
@@ -23968,16 +24030,36 @@ class Checker {
       }
       return this.#diagnostics.count > before ? this.#freshened(seat, level) : type;
     }
-    this.#adaptations.set(path, this.#sequenceDemand(source, element, seat, path.span));
+    const element = this.#fresh(level, false);
+    this.#adaptations.set(path, this.#sequenceDemand(source, element, seat, path.span, path));
     if (source.kind === "Variable") {
       this.#waitingSources.push({ variable: source, element, span: path.span });
     }
     return this.#sequence(element, path.span);
   }
 
-  /** A `Seq` seat's `Iterable` demand on `source`, its `Item` the seat's element. */
-  #sequenceDemand(source: Mono, element: Mono, seat: Mono, span: Source.Span): Requirement {
-    return this.#require(
+  /** Part 5 §3.6's refusal, §12's wording. */
+  #selfAdaptationMessage(seat: Mono, source: Mono, subject: Mono): string {
+    return `type mismatch: expected ${this.#display(seat)}, found ${this.#display(source)}; ` +
+      `inside \`Iterable<${this.#display(subject)}>\`'s own \`toSeq\`, ` +
+      `a \`${this.#display(source)}\` is not converted to a sequence, since that would call ` +
+      "the member being defined; convert its contents, or write `Iterable.toSeq(…)` " +
+      "where recursion on a smaller value is meant";
+  }
+
+  /**
+   * A `Seq` seat's `Iterable` demand on `source`, its `Item` the seat's element.
+   * Stamped with the `toSeq` body it was made in (§3.6) and the value's name,
+   * for a head that arrives after the seat.
+   */
+  #sequenceDemand(
+    source: Mono,
+    element: Mono,
+    seat: Mono,
+    span: Source.Span,
+    expression: Resolved.Expr,
+  ): Requirement {
+    const requirement = this.#require(
       "Iterable",
       source,
       span,
@@ -23987,6 +24069,12 @@ class Checker {
       undefined,
       seat,
     );
+    const value = ungrouped(expression);
+    if (value.kind === "Name") requirement.sourceName = value.text;
+    if (this.#ownToSeq !== undefined && requirement.validated !== true && !requirement.reported) {
+      requirement.ownToSeq = this.#ownToSeq;
+    }
+    return requirement;
   }
 
   /** The prelude `Iterable` declaration, where this module is seated after it. */
@@ -24037,7 +24125,9 @@ class Checker {
       const variable = this.#prune(waiting.variable);
       if (variable.kind === "Variable" && variable.level <= level) continue;
       this.#waitingSources.splice(this.#waitingSources.indexOf(waiting), 1);
-      if (variable.kind !== "Variable") continue;
+      // A head that arrived is decided; a declared variable is never a head, and
+      // its demand is refused at the close as the explicit call's is (§3.5).
+      if (variable.kind !== "Variable" || variable.rigidName !== undefined) continue;
       this.#unify(variable, this.#sequence(waiting.element, waiting.span), waiting.span);
       settled = true;
     }
@@ -24125,6 +24215,13 @@ class Checker {
           if (kept !== undefined) this.#unify(kept, projection, requirement.span);
         }
       }
+      // Dropped from the variable, but not from the call that made it: that
+      // call's evidence is this requirement, so it settles with the one kept
+      // (#1125). What it had absorbed in turn comes with it.
+      const absorbed = this.#absorbedDemands.get(entailing) ?? [];
+      absorbed.push(requirement, ...(this.#absorbedDemands.get(requirement) ?? []));
+      this.#absorbedDemands.set(entailing, absorbed);
+      this.#absorbedDemands.delete(requirement);
       return;
     }
     variable.requirements.push(requirement);
@@ -24939,6 +25036,52 @@ class Checker {
     } finally {
       this.#chainOverride = enclosing;
     }
+    this.#settleAbsorbed(requirement);
+  }
+
+  /**
+   * The demands `requirement` absorbed, settled as it settled (#1125). One
+   * refused kept demand refuses them, the report already made once. A demand of
+   * the same constraint shares its selection — the same subject, so the same
+   * instance — and a base constraint the kept one entails is validated in its
+   * own right. Two kinds keep what they had: a literal's demand, which Pattern
+   * Matching §2.5 validates per literal itself, and a demand at a primitive,
+   * whose evidence is the primitive's own; a loop head there only learns
+   * whether its instance is the canonical `String` one, for its native loop.
+   */
+  #settleAbsorbed(requirement: Requirement): void {
+    const absorbed = this.#absorbedDemands.get(requirement);
+    if (absorbed === undefined || (requirement.validated !== true && !requirement.reported)) return;
+    this.#absorbedDemands.delete(requirement);
+    for (const dropped of absorbed) {
+      if (dropped.origin === "literal" || dropped.patternSeat === true) continue;
+      if (requirement.reported) {
+        dropped.reported = true;
+        continue;
+      }
+      if (this.#prune(dropped.type).kind === "Constructor") {
+        if (
+          dropped.origin === "iteration" && dropped.identity === requirement.identity &&
+          requirement.selected !== undefined &&
+          this.#canonicalStringIterableInstances.has(requirement.selected)
+        ) {
+          dropped.canonicalStringIterable = true;
+        }
+        continue;
+      }
+      if (dropped.identity !== requirement.identity) {
+        this.#validate(dropped);
+        continue;
+      }
+      dropped.validated = true;
+      if (requirement.selected !== undefined) dropped.selected = requirement.selected;
+      if (requirement.dictionary !== undefined) dropped.dictionary = requirement.dictionary;
+      if (requirement.dictionaryArguments !== undefined) {
+        dropped.dictionaryArguments = requirement.dictionaryArguments;
+      }
+      if (requirement.structural === true) dropped.structural = true;
+      if (requirement.components !== undefined) dropped.components = requirement.components;
+    }
   }
 
   /** `#validate` itself, run in the chain the requirement was made in (#1048). */
@@ -25039,7 +25182,22 @@ class Checker {
     }
     if (selection.kind === "instance") {
       const instance = selection.instance;
+      // A head that arrived late at a seat inside its own instance's `toSeq`
+      // (Collections Part 5 §3.6), refused as the head known at the seat is.
+      if (
+        requirement.ownToSeq !== undefined && requirement.sequenceSeat !== undefined &&
+        this.#subjectKey(type) === requirement.ownToSeq.key
+      ) {
+        requirement.reported = true;
+        this.#reportRequirement(undefined, {
+          severity: "error",
+          message: this.#selfAdaptationMessage(requirement.sequenceSeat, type, requirement.ownToSeq.subject),
+          primary: requirement.span,
+        });
+        return;
+      }
       this.#pinInstanceSubject(instance, type, requirement.span);
+      requirement.selected = instance;
       requirement.dictionary = instance.dictionary;
       requirement.dictionaryArguments = this.#instanceArguments(instance, type, requirement);
       if (
@@ -26025,7 +26183,10 @@ class Checker {
           primary: first.span,
         });
       }
-      for (const requirement of variable.requirements) requirement.reported = true;
+      for (const requirement of variable.requirements) {
+        requirement.reported = true;
+        this.#settleAbsorbed(requirement);
+      }
       variable.instance = ERROR;
     }
     return refused;
@@ -26088,6 +26249,7 @@ class Checker {
    * has none.
    */
   #projectionSubjectName(variable: Variable, requirement: Requirement): string | undefined {
+    if (requirement.sourceName !== undefined) return `\`${requirement.sourceName}\``;
     for (const supplied of requirement.use?.call?.supplied ?? []) {
       const expression = ungrouped(supplied);
       if (expression.kind !== "Name") continue;
@@ -26126,21 +26288,14 @@ class Checker {
   ): Scheme {
     // The deadline (§3.1): no DotCall goal may escape its owner region's
     // finalisation, and the defaulting step below must see the receivers those
-    // goals settle.
+    // goals settle. The pins first (#1154), so a goal written inside a pending
+    // goal's argument belongs to that goal's region when ownership is decided.
+    // Nothing quantified here needs the second pass — a goal still pending
+    // after the resolution was pinned at or below this level by the first —
+    // but it keeps the levels current for the held bodies settled next.
+    this.#pinPendingGoals();
     this.#resolveDotCallGoals(level);
-    // Method Syntax §3.1's pinning rule, kept as receivers move (#1154): a goal
-    // this boundary does not own pins every variable it mentions to its
-    // receiver's region **as that region is now**. A unification that sank the
-    // receiver outward after the goal was made — `let same = [x, n]` — sinks
-    // what the goal will settle with it, or this binding would quantify the
-    // goal's result, and every use made before the deadline would keep a copy
-    // the settlement never reaches.
-    for (const goal of this.#dotCallGoals) {
-      const receiver = this.#prune(goal.receiver);
-      if (receiver.kind !== "Variable") continue;
-      this.#lowerLevels(goal.result, receiver.level);
-      for (const argument of goal.argumentTypes) this.#lowerLevels(argument, receiver.level);
-    }
+    this.#pinPendingGoals();
     // Then the bodies held for those goals (#378): every colour the goals
     // registered is in, so the held bodies decide before anything is built.
     this.#settleHolds(level);
@@ -32036,14 +32191,6 @@ class Checker {
   }
 
   /**
-   * A sequence adaptation (Collections Part 5 §3.6): **its explicit call**,
-   * `Iterable.toSeq(value)`, written as that call's own node — the member
-   * named, the settled instance as its evidence — so emission, evaluation and
-   * cost are the explicit spelling's by construction. A demand that settled at
-   * `Seq` is the identity and writes nothing; one refused writes the value, its
-   * report already made.
-   */
-  /**
    * The heads `for` iterates with no `Iterable` evidence when they are known at
    * the loop (the arms of `inferExpr`'s `For` case): a `Seq`, a `Range`, and the
    * built-in collections.
@@ -32054,6 +32201,14 @@ class Checker {
       head.kind === "JsSet" || head.kind === "Map" || head.kind === "JsMap";
   }
 
+  /**
+   * A sequence adaptation (Collections Part 5 §3.6): **its explicit call**,
+   * `Iterable.toSeq(value)`, written as that call's own node — the member
+   * named, the settled instance as its evidence — so emission, evaluation and
+   * cost are the explicit spelling's by construction. A demand that settled at
+   * `Seq` is the identity and writes nothing; one refused writes the value, its
+   * report already made.
+   */
   #materializeAdaptation(
     expression: Resolved.Expr,
     value: Typed.Expr,

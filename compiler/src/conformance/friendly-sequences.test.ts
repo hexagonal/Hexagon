@@ -370,3 +370,153 @@ describe("at run time an adaptation is its explicit call (Part 5 §3.6)", () => 
     expect((run["loops"] as (n: number) => number)(5)).toBe(12);
   });
 });
+
+describe("several demands on one waiting source settle as one (#1125)", () => {
+  const stack = "record Stack(a) = {items: Vector(a)}\n" +
+    "honor Iterable<Stack(a)> =\n    type Item = a\n    toSeq(s) = s.items\n";
+  const exported = async (body: string): Promise<unknown> =>
+    (await runProject([["/main.hex", "module Main\n\n" + body]]))["r"];
+
+  test("a loop, a seat, and a late `Vector` head", async () => {
+    expect(await exported(
+      "let f(xs) =\n    var t = 0\n    for x in xs\n        t := t + 1\n" +
+        "    let b = Seq.length(xs)\n    let n = Vector.length(xs)\n    b + t\n" +
+        "export let r: Int = f([\"a\", \"b\"])\n",
+    )).toBe(4);
+  });
+
+  test("two seats, a seat and a loop, and two loops, at a late user head", async () => {
+    const f = (body: string): string =>
+      stack + `let f(xs) =\n${body}    let n: Stack(Int) = xs\n    total\n` +
+      "export let r: Int = f(Stack({items = [1, 2]}))\n";
+    expect(await exported(f("    let total = Seq.length(xs) + Seq.length(xs)\n"))).toBe(4);
+    expect(await exported(f(
+      "    var t = Seq.length(xs)\n    for x in xs\n        t := t + x\n    let total = t\n",
+    ))).toBe(5);
+    expect(await exported(f(
+      "    var t = 0\n    for x in xs\n        t := t + x\n    for y in xs\n        t := t + y\n" +
+        "    let total = t\n",
+    ))).toBe(6);
+  });
+
+  test("an explicit call and a seat", async () => {
+    expect(await exported(
+      "let f(xs) =\n    let s = Iterable.toSeq(xs)\n    let b = Seq.length(xs)\n" +
+        "    let n = Vector.length(xs)\n    b + Seq.length(s)\n" +
+        "export let r: Int = f([\"a\", \"b\"])\n",
+    )).toBe(4);
+  });
+
+  test("a late head with no instance is refused once", () => {
+    expect(refusals(
+      "let f(xs) =\n    let a = String.fromSeq(xs)\n    let b = Seq.length(xs)\n" +
+        "    let k: Int = xs\n    b\n",
+    )).toEqual(["type mismatch: expected Seq(String), found Int"]);
+  });
+
+  test("a seat and a loop at a late `String` head: the loop stays native", () => {
+    expect(emitted(
+      "let f(s) =\n    let b = Seq.length(s)\n    var n = 0\n    for c in s\n        n := n + 1\n" +
+        "    let known: String = s\n    n + b\n",
+    )).toContain("for (const c of s) {");
+  });
+});
+
+describe("the exclusion holds however late the head arrives (Part 5 §3.6)", () => {
+  const refusal = "type mismatch: expected Seq(a), found Stack(a); inside `Iterable<Stack(a)>`'s own " +
+    "`toSeq`, a `Stack(a)` is not converted to a sequence, since that would call the member being " +
+    "defined; convert its contents, or write `Iterable.toSeq(…)` where recursion on a smaller " +
+    "value is meant";
+  const honor = (arm: string, fill: string): string =>
+    "record Stack(a) = {items: Vector(a)}\n" +
+    "export record Box = {n: Int}\n" +
+    "export let count(box: Box, xs: Seq(a)): Int = Seq.length(xs)\n" +
+    "honor Iterable<Stack(a)> =\n    type Item = a\n    toSeq(s) =\n" +
+    "        var holder = Vector.empty\n" +
+    `        let n = match Vector.first(holder)\n            Some(b) => ${arm}\n            None => 0\n` +
+    `        holder := ${fill}\n        s.items\n`;
+
+  test("a dot call that resolves after the body", () => {
+    expect(refusals(honor("b.count(s)", "[Box({n = 1})]"))).toEqual([refusal]);
+  });
+
+  test("a waiting source whose head is the subject", () => {
+    expect(refusals(honor("Seq.length(b)", "[s]"))).toEqual([refusal]);
+  });
+
+  test("a helper one call removed still adapts (D8)", () => {
+    expect(typeOf(
+      "record Stack(a) = {items: Vector(a)}\nlet flat(s: Stack(a)): Seq(a) = s\n" +
+        "honor Iterable<Stack(a)> =\n    type Item = a\n    toSeq(s) = s.items\n",
+      "flat",
+    )).toBe("Stack(a) -> Seq(a)");
+  });
+});
+
+describe("ownership and declared variables at the close (Part 5 §3.5)", () => {
+  test("a waiting source a pending goal mentions belongs to that goal's region", () => {
+    expect(typeOf(
+      "export record Box = {n: Int}\n" +
+        "export let pick(box: Box, xs: Vector(String)): Int = Vector.length(xs)\n" +
+        "let both(a: t, b: t, k: Int): Int = k\n" +
+        "let outer(n) =\n    let inner(x, ys) =\n        let r = x.pick(ys)\n" +
+        "        let s = Seq.length(ys)\n        both(x, n, r + s)\n" +
+        "    let known: Box = n\n    inner(n, [\"a\"])\n",
+      "outer",
+    )).toBe("Box -> Int");
+  });
+
+  test("a declared variable arriving late is refused as one known at the seat, in either order", () => {
+    const refused = "`ys` has the generic type `c`, and `Iterable` declares an implied type and cannot " +
+      "constrain a type variable in v1; take a `Seq(a)` parameter instead";
+    expect(refusals(
+      "fun h(ys, xs: c): Int =\n    let n = Seq.length(ys)\n    let same = [ys, xs]\n    n\n",
+    )).toEqual([refused]);
+    expect(refusals(
+      "fun h(ys, xs: c): Int =\n    let same = [ys, xs]\n    let n = Seq.length(ys)\n    n\n",
+    )).toEqual([refused]);
+  });
+});
+
+describe("the rest of what never adapts, and what it costs", () => {
+  test("a `Stream`, an existing function, and an unmet prerequisite", () => {
+    expect(refusals(
+      "let s: Stream(Int) = Stream.fromSeq(Vector.toSeq([1]))\nlet n = Seq.length(s)\n",
+    )).toEqual(["type mismatch: expected Seq(a), found Stream(Int)"]);
+    expect(refusals("let mk(): Vector(String) = [\"a\"]\nlet g: () -> Seq(String) = mk\n"))
+      .toEqual(["type mismatch: expected Seq(String), found Vector(String)"]);
+    expect(refusals(
+      "record Tag(a) = {items: Vector(a)}\nhonor<a: Show> Iterable<Tag(a)> =\n    type Item = a\n" +
+        "    toSeq(t) = t.items\nlet n = Seq.length(Tag({items = [(x) => x + 1]}))\n",
+    )).toEqual(["functions have no `Show` instance"]);
+  });
+
+  test("a path with no instance under an open element is refused where it stands", () => {
+    expect(refusals("let c = 1 > 2\nlet n = Seq.length(if c then True else [1])\n"))
+      .toEqual(["type mismatch: expected Seq(a), found Bool"]);
+  });
+
+  test("a `match` on a waiting source reads it open", () => {
+    expect(refusals("fun go(v) =\n    let t = sumInts(v)\n    match v\n        s => 1\n")).toEqual([
+      "cannot match on a value of abstract type `a`; the parameter's type is not determined here; " +
+        "give the parameter a type — bind the function with its own annotated `let`, or use it " +
+        "where its parameter type is known",
+    ]);
+  });
+
+  test("an adapted binding is no value (Functions §8 item 2)", () => {
+    expect(refusals(
+      "let vfs: Vector((a) -> Int) = Vector.empty\nlet fs: Seq((a) -> Int) = vfs\n",
+    )).toEqual([
+      "`a` is a declared type variable, but this right-hand side is a computation that cannot be " +
+        "generalized in `a` (`a` occurs in argument position); bind where the type is known, or " +
+        "remove the annotation",
+    ]);
+  });
+
+  test("the source is evaluated once, inside the one call", () => {
+    expect(emitted("let mk(): Vector(String) = [\"a\"]\nlet joined = String.fromSeq(mk())\n"))
+      .toContain("const joined = fromSeq(toSeq(mk()));");
+  });
+});
+
