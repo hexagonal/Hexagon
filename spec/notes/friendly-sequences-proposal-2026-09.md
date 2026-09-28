@@ -1,10 +1,11 @@
 # Friendly Sequences — proposal
 
 **Status:** Proposed, non-normative. Written 2026-09-06; revised 2026-09-23
-following the simplified design discussion. The requirements below specify the
-proposed behaviour, not current compiler support. Keep this document in
-`spec/notes` until the implementation prerequisites in §8 are complete and the
-inference obligations in §6 have been reviewed. Promotion is a separate step.
+following the simplified design discussion; §6's obligations reviewed
+2026-09-28, with its four rulings folded into §2–§6. The requirements below
+specify the proposed behaviour, not current compiler support. §8's three
+implementation gates are met; #378 (§8) must land before the rule is
+implemented. Promotion is a separate step.
 
 This revision supersedes the earlier framing of this note. Generic implied
 types remain abandoned; no part of that investigation is revived here.
@@ -75,7 +76,9 @@ let colors(): Seq(String) =
 Existing expected-type forwarding from [Functions §4.3](../functions.md)
 applies within these contexts: grouping, final expressions of blocks,
 conditional and match result branches, and lambda bodies where the known
-function expectation supplies a sequence result. It does not invent new
+function expectation supplies a sequence result — and the channels Functions
+§4.3 already gives an expected type: a constructor application's arguments, a
+literal form's parts, an argument's spine (§6.4). It does not invent new
 forwarding through arbitrary data structures. The result declaration above is
 one direct way to supply the body expectation, not a restriction to named
 functions.
@@ -110,6 +113,23 @@ value. Each branch is checked against it independently. Only the selected
 branch is evaluated, and its conversion occurs there. Both branches may instead
 be different iterable collection types with the same element type.
 
+The destination's **head** is what must be supplied independently; its element
+may be left open, as a generic `Seq(a)` parameter leaves it. Then the paths first
+agree on their **element types** — each path's own, or its `Iterable` instance's
+`Item` — joined as Functions §4.3 joins the paths of a form whose expectation
+leaves a part open (#1107): a disagreement is reported at the form, and no path
+is blamed for its position. Each path is then adapted on its own:
+
+```hex
+Seq.length(if useFirst then names else moreNames)
+// names : Vector(String), moreNames : Set(String) — the elements agree on
+// String, so a = String, and each branch converts through its own instance
+```
+
+`Vector(Int)` against `Set(String)` is refused at the `if`: no one `Seq` holds
+both. The same holds for `match` and `try` arms, and for the elements of a
+vector literal read against `Vector(Seq(_))`.
+
 Without an independently supplied sequence expectation, a sequence-valued
 branch does not authorize conversion of its sibling. Ordinary branch inference
 and unification apply; inference does not invent `Seq` as a common collection
@@ -138,9 +158,23 @@ schedule:
    Otherwise report the mismatch; there is no second conversion route.
 
 `Vector(a)` has a known constructor even when its element type is generic.
-A source that is only an unresolved or declared type variable does not provide
-an instance head. This rule neither infers a generic `Iterable` bound nor adds
-support for symbolic associated-type projections.
+
+**A source whose type is not yet known at the seat** — an unannotated parameter
+nothing has described yet — is decided when its owner region closes, not at the
+seat. The seat makes the demand the explicit call makes: `Iterable` on the
+source, its `Item` the expected element type, settled at the owner region's
+close exactly as `Iterable.toSeq(xs)`'s is (Collections Part 2 §7.2.1; Method
+Syntax §3.1's deadline). If the region establishes the source's head, steps 3–5
+decide at that moment — so `String.fromSeq(xs)` followed by `Vector.length(xs)`
+converts `xs`, in either statement order. If the head is still unknown at the
+close, the source **is** the sequence the seat asks for: it takes the `Seq`
+reading, one defaulting step, which is the typing the checker gives such a
+source today (`let f(xs) = String.fromSeq(xs)` is `(Seq(String)) -> String`). A
+source that is a **declared** type variable provides no head and never will: it
+is refused as the explicit call is, with the rewrite to a `Seq(a)` parameter.
+This rule neither infers a generic `Iterable` bound nor adds support for
+symbolic associated-type projections: the demand is the one v1 already settles
+by its deadline, and the default replaces only its refusal.
 
 A destination `Seq(?a)` is sufficient: a `Vector(String)` source can establish
 `?a = String`. A destination that is only `?t` is not sufficient. A later
@@ -158,7 +192,11 @@ A plain function named `toSeq` does not establish `Iterable` capability.
 For `for pattern in source`, the loop itself supplies the sequence requirement.
 Establish the source type and resolve its instance as in §3. The instance's
 `Item` supplies the loop's element type; no element annotation is required.
-An existing `Seq` passes through unchanged. Loop pattern checking,
+An existing `Seq` passes through unchanged. A source whose type is not yet known
+at the loop head is decided at its owner region's close, as §3 decides any
+seat's, so a loop over an unannotated parameter no longer depends on whether a
+later or an earlier statement describes it (#1118); one nothing describes is a
+`Seq`. Loop pattern checking,
 irrefutability, scope, body type, and result type remain as specified by
 [Collections Part 5 §3](../collections-part5-iterable.md) and
 [Loops §2](../loops-ranges-iteration.md).
@@ -195,8 +233,10 @@ The following are excluded:
   sequence-element expectation is pushed inward to retarget collection
   literals. Existing literal typing otherwise remains unchanged.
 - **Structural conversion:** an existing `Option(Vector(a))` does not become
-  `Option(Seq(a))`. A newly written constructor argument whose own parameter
-  expects `Seq(a)` is an ordinary eligible argument.
+  `Option(Seq(a))`. A newly written constructor argument whose parameter is
+  `Seq(a)` — by its signature, or by the constructor's expected type (Functions
+  §4.3) — is an ordinary eligible argument, as is a newly written literal's part
+  (§6.4).
 - **Function conversion:** an existing function returning a vector does not
   become a function returning a sequence. Checking a newly written lambda
   body against a known sequence result is the ordinary body case in §2.
@@ -224,28 +264,213 @@ sequence demand; it must not introduce conversion search into unification.
 The local type-preservation argument is simple: the selected instance supplies
 `toSeq: c -> Seq(Item)`, the expression has type `c`, and ordinary unification
 establishes `Item = a`. The inserted application therefore has type `Seq(a)`.
-**That argument alone is not a proof of principal inference.**
+That argument alone is not a proof of principal inference. The design review
+below accounts for the five obligations the promotion owes; it was carried out
+against the checker on `108a58ac`, with the probes and a prototype of §3's
+unknown-source rule named in §6.6.
 
-Before promotion, the design review must account for:
+### 6.1 Principal inference, rigid variables, constraint inference
 
-- Principal inference in the presence of the specified contextual elaboration,
-  rigid annotation variables, and existing constraint inference.
-- The interaction with the existing annotation/derivability doctrine: an
-  annotated binding can deliberately request a converted value while an
-  unannotated binding retains the collection. State the precise compatibility
-  or necessary focused amendment in the owning specification; do not silently
-  claim that this behaviour is ordinary unification alone.
-- Generalization and the value restriction: an inserted conversion is a real
-  application, not a representation cast. Apply the existing rules to the
-  elaborated expression; no variable gains polymorphism by hiding that call.
-- A precise insertion point that preserves source constructor inference while
-  allowing expected sequence types to reach eligible branches and bodies.
-- Independence from incidental traversal of the checker, with no replay after
-  later constraints, guessed collection heads, or new deferred projections.
+**What the rule adds to the type system: nothing.** Every adaptation is an
+application of a constraint member at an instance resolved at a known head, its
+`Item` substituted there; no variable acquires an `Iterable` bound, no
+projection is left symbolic, no subtyping or conversion search enters
+unification. The elaborated program is an ordinary program of the language, and
+its schemes are the ones inference derives for that program.
 
-If satisfying these obligations requires reviving the abandoned generic
-implied-types machinery, return the design for reconsideration rather than
-expanding its scope under this proposal.
+**What it keeps.** An adaptation fires only where the source's head is known,
+is not `Seq`, and meets a `Seq`-headed destination — exactly where the checker
+reports a mismatch today. A source nothing describes takes, at its owner's
+close, the `Seq` reading, which is the unification the seat performs today. So
+every program accepted today is accepted with the same types, with one
+exception, recorded because it is the price of §3's timing: a judgment that
+reads the source's type **before** the owner's close sees it open where today it
+saw `Seq`. The one such judgment known is a dot call on the source whose
+arguments need its element type while they elaborate —
+
+```hex
+fun go(v) =
+    let total = sumInts(v)          // sumInts : (Seq(Int)) -> Int
+    v.map(match
+        n when n < 0 => "negative"
+        _ => "other")
+```
+
+— accepted today, refused under §3 (the dot waits for `v`, and the match
+function's arms meet an unknown type, Pattern Matching §6.1). The repair is to
+annotate `v`. A prototype of §3's rule produced this shape nowhere in the
+compiler's 7049 tests (the standard library included), the book's 483 code
+blocks, or the playground's examples; the only changes were a pinned refusal
+the rule retires (a loop over an unknown value) and a lost effect, which is
+#378 (§8).
+
+**What is not claimed: principality of the source program.** `let f(xs) =
+String.fromSeq(xs)` has two typings, `(Seq(String)) -> String` and
+`(Vector(String)) -> String`, and their common generalization would be an
+`Iterable`-bounded variable with a projected element — the abandoned generic
+implied types. The checker gives the `Seq` one, by §3's default. This is the
+concession Numeric Literals §5.1 already makes (`let g(v) = useFloat(v)` is
+`(Float) -> Float`, not "any type that widens to `Float`"), and it is taken on
+the same terms: the typing is the one the normative schedule determines,
+uniquely.
+
+**The deferred decision is the Deferred-Goals Doctrine's kind** (Method Syntax
+§10), itemised as the dot call's is: one source variable per demand; one member;
+resolution by the coherence-keyed instance table, never a search; no survival
+past the owner's finalisation (the default, then ordinary unification); and
+principal types preserved in the doctrine's sense — the unresolved form's
+defined meaning, the `Seq` reading, is the language's meaning without the
+feature, and resolution when the head arrives agrees with resolution at the
+deadline, head-knownness being monotone under unification. The demand itself is
+the one `Iterable.toSeq(xs)` makes today (#1070); the default at the close
+replaces only its refusal.
+
+**Rigid variables.** A source that is a declared variable is refused, as the
+explicit call is (Collections Part 2 §7.2.1; Part 5 §3.2's rewrite to a
+`Seq(a)` parameter). A declared variable in the element passes through ordinary
+unification — `let f(xs: Vector(a)): Seq(a) = xs` adapts, and `Item = a` meets
+the result's `a` — so rigidity never selects between readings: only the source's
+head does. **Constraint inference**: the instance's prerequisites are the
+explicit call's, accumulating on variables as any demand does, and never
+selecting among instances.
+
+### 6.2 Annotations and derivability
+
+Functions §4's preamble says annotations "never change what inference *could*
+derive except by restricting it". Numeric Literals §5.1 already makes that
+sentence untrue as written — `let x: Float = n` (`n : Int`) binds `x : Float`,
+where `let x = n` binds `Int` — and this rule adds a second case: `let view:
+Seq(String) = words` binds a `Seq`, `let view = words` a `Vector`.
+
+The doctrine's own statement already carries the idea that reconciles both
+(annotations closure doc §2.4): the claim is about derivation power, and "the
+type the written form supplies is one inference works with wherever the same
+information arrives by any other route". An annotated binding is one supplying
+seat among several; the conversion it elaborates is the one every seat with the
+same expected type elaborates (`String.fromSeq(words)` converts `words` the same
+way), and the explicit call — `Iterable.toSeq(words)`, `Float.fromInt(n)` — is
+always an equivalent spelling. So no program is typable only because a type was
+written, and no annotation supplies a scheme.
+
+Promotion amends Functions §4's preamble and closure doc §2.4 together, for both
+conversions, rather than claiming the behaviour is ordinary unification. The
+amendment names them as **specified conversions** — a closed list, the language's
+own, so that an annotation is never read as licensing conversion in general:
+
+> They never change what inference *could* derive except by restricting it — or
+> by being a seat. A written type is a seat's expected type, and a value meets it
+> exactly as it would meet that type at any other seat: where the language
+> specifies a conversion into that type — Numeric Literals §5.1's three
+> widenings, a sequence's adaptation — the written type elaborates that
+> specified conversion into the value it faces, and no other conversion ever
+> happens. No program is typable only because a type was written — the explicit
+> conversion is always another spelling — and no annotation ever supplies a
+> scheme.
+
+Closure doc §2.4 gains the matching sentence: an annotated binding is one
+supplying seat among several, and the specified conversions are the same at
+every seat.
+
+### 6.3 Generalization and the value restriction
+
+An inserted conversion is an application. An adapted right-hand side therefore
+generalizes exactly as its explicit spelling `Iterable.toSeq(e)` does — under
+Functions §8 item 7's relaxed rule, never item 2's value list, whose read-through
+covers pure wrappers (grouping, ascription, a one-item layout block) and not an
+elaborated call.
+
+In the everyday case the verdict is the one the value reading would give:
+`Seq` is covariant (generalization closure doc §5.5), so an unconstrained element
+variable generalizes either way (`let e: Seq(a) = Vector.empty` is
+`Seq(a)`), and a non-function binding never quantifies a constrained variable
+(the evidence-seat rule), so a constrained one is declined either way. The two
+readings differ only for an element type with a variable in a contravariant or
+invariant position (`Seq((a) -> Int)`); there the explicit spelling's answer —
+the variable declined, or §8's hard error at an annotated binding — is the one
+taken. No variable gains polymorphism by hiding the call, and none is lost that
+the explicit call keeps.
+
+*Implementation note.* The checker's value classifier reads the resolved tree,
+where a conversion kept in a side table (as numeric widenings are) is
+invisible; the adaptation must be visible to it. Numeric widenings are invisible
+to it today, harmlessly, their results carrying no type variable.
+
+### 6.4 The insertion point
+
+The adaptation is elaborated at the **seat's final check**: where a value that
+has closed meets its seat's expected type — the point Numeric Literals §5.1's
+value widening is elaborated. The destination is read as the schedule has
+solved it at that moment (§3); a dot call that resolves late still meets its
+arguments there, as its widening does.
+
+**Source constructor inference is preserved by the existing channels, with no
+new rule.** A `Seq` expectation never fixes a source's constructor while the
+source elaborates: a lambda declines it (not a function type), a constructor
+application unifies its result early only where the heads match (Functions §4.3),
+a literal form hands parts only where its written shape matches (a vector
+literal meets `Vector(t)`, never `Seq(t)`), and no other call's result meets its
+expected type ahead of its arguments. The expectation reaches the source only as
+the value it must adapt into.
+
+**Forwarding forms**: a closed destination (`Seq(String)`) meets each path at
+its own turn, as #1107 does; an open element is §2.1's element join, then each
+path's adaptation. **Siblings**: a value at a callee's bare type variable never
+adapts, whatever the group holds — no path, argument or element establishes `Seq`
+for another (`pick(seq, vec)` at `pick<a>(x: a, y: a)` stays refused).
+
+**Every channel an expected type already takes adapts**, as it widens: a
+constructor argument whose parameter the expectation solves (`let o:
+Option(Seq(String)) = Some(words)`), a literal form's parts (`let p:
+(Seq(String), Int) = (words, 1)`, a record field, a vector literal's elements),
+an argument's spine (`usePair((words, 1))`), and a dot call's arguments where it
+resolves late. Nothing is invented: these are Functions §4.3's channels, read
+from written shapes, never from inferred types. What never adapts is an
+**existing** value — an `Option(Vector(String))` already held does not become an
+`Option(Seq(String))` (§5): only a newly written literal or constructor
+application adapts, part by part.
+
+**Profile.** A prototype of §3 at the seat's final check — the known-head
+adaptation and the unknown-source rule, over every channel above but a vector
+literal's elements — was measured on `108a58ac` with #378's fix under it: the
+book's and playground's 499 programs, which use no adaptation, check in the same
+time with the rule off and on (2543 ms against 2409 ms, within noise); a module of
+400 functions, each with five adaptation sites and an unknown source, checks
+about 25% faster written implicitly than with explicit `.toSeq()` (151 ms against
+203 ms — the explicit spelling is a dot call the checker resolves, the adaptation
+an instance lookup), and scales linearly. At run time an adaptation is its
+explicit call (§5): the collection's lazy view, and a native loop where §4
+keeps one.
+
+### 6.5 Independence from the checker's traversal
+
+Each seat decides once. A source whose head is known when the seat is checked
+is decided there; one whose head is not is decided at its owner region's close
+(§3), from its final type, so no statement order within the region changes the
+verdict — the loop head included (#1118). Nothing replays: a later constraint
+never revisits a decision made, and none is made before its information can
+arrive. No head is guessed: an unknown source keeps no provisional reading, and
+its default is taken only at the close. No projection is deferred beyond the one
+v1 already settles by that deadline.
+
+What remains order-sensitive is Functions §4.3's schedule residue, unchanged:
+the destination is read as the schedule solved it when the seat is checked, so a
+`Seq` a later sibling establishes for an earlier seat does not reach it (§3), as
+for widening.
+
+### 6.6 Evidence and what promotion amends
+
+The review ran against `108a58ac`: probe programs for each paragraph above, and
+a prototype of §3's unknown-source rule measured against the compiler suite, the
+book's code blocks and the playground (§6.1). The prototype also found #378
+live: a dot call settled after its body had closed lost its effect. #378's fix
+(PR #1148) holds such a body until the goal's deadline, and is a prerequisite
+of the implementation (§8).
+
+Promotion amends: Functions §4's preamble and closure doc §2.4 (§6.2); Functions
+§4.3's seats, forwarding forms and channels (§2, §2.1, §6.4); Functions §8
+item 2 (§6.3); Collections Part 2 §7.2.1 (the default at the close, §3);
+Collections Part 5 §3.1–§3.2 and Loops §7.1 (the loop head, §4); Method Syntax
+§10's list of deferred decisions (§6.1).
 
 ## 7. Acceptance evidence
 
@@ -272,6 +497,18 @@ from executable conformance. The implementation acceptance suite must cover:
    instances distinguished by provenance rather than spelling.
 10. Foreign snapshots remaining stable after mutation on the JavaScript side,
     including lazy sequences retained beyond the crossing that captured them.
+11. An unknown source decided at its owner's close (§3), in either statement
+    order — `String.fromSeq(xs)` beside `Vector.length(xs)`, a loop head beside
+    it (#1118) — the `Seq` default where nothing describes it, a declared
+    variable refused with the `Seq(a)` rewrite, and the one shape it refuses that
+    today accepts (§6.1's match function through a dot call) pinned with its
+    repair.
+12. A form's paths under an open `Seq` element (§2.1): mixed collections agreeing
+    on their elements adapt, in either path order; disagreeing elements are one
+    report at the form.
+13. Every channel of §6.4, an existing value refused at each, and the profile's
+    two criteria: no measurable cost where nothing adapts, and an implicit
+    adaptation checking no slower than its explicit spelling.
 
 ## 8. Prerequisites and promotion
 
@@ -283,11 +520,28 @@ The agreed delivery order is:
    [Array](../ffi-part2-nullable-array.md), and
    [JsMap/JsSet](../ffi-part10-js-map-set.md). Domestic immutable collections
    do not need new snapshots to make their traversal pure.
+   *(Met: the capture walk of #945 copies at every declared crossing — extern
+   parameters and results, `extern let`, Part 5's receiver members, exported
+   functions' wrappers, callbacks' conversion wrappers, `JsValue.toArray` and
+   `JsValue.from`. Verified by execution on `108a58ac`: a `Seq` taken over a
+   captured `Array`, `JsMap` or `JsSet` — lazily, returned to JavaScript, or
+   held by a callback's result — traverses the snapshot after the foreign
+   original changes, and no captured storage is reachable by property from a
+   `Seq`'s JavaScript face. Two residues are not holes this rule can use: #992
+   (Part 9's handle wrappers, whose positions do not exist yet) and #984 (a walk
+   budget exhausted silently by an absurdly deep type).)*
 2. **Effect marking aligned with the contract/implementation distinction.**
    Constraint members state their effect contracts; instance bodies infer
    their effects and are checked against those contracts. See the
    [effect-contract proposal](constraint-effects-proposal-fable-2026-09.md)
    and its promotion record pointing to [Effects §13](../effects.md).
+   *(Met: #867, #868, #869 and #947. `Iterable.toSeq`'s contract is `->`, and
+   an `honor Iterable` body that performs effects is refused at the seat —
+   directly, through a held `->!` field, or in a lazy `Seq`'s pull. The Effects
+   redesign (#1144) keeps a `->` member a pure contract. Implementation
+   prerequisite, found by this review: **#378** — a dot call settled after its
+   body closed lost its effect, a loss §3's timing would multiply — fixed by
+   PR #1148 before the rule is implemented.)*
 3. **Standard Iterable instances authoritative in Hexagon source.** Complete
    the [source-defined Iterable proposal](source-defined-iterable-proposal-2026-09.md):
    each standard collection's canonical home owns its `honor Iterable` block
