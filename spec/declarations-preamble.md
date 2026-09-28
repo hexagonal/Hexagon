@@ -35,7 +35,7 @@ Operational form, binding on every spec session:
 Any feature that wants the inferencer to postpone a decision cites this doctrine and demonstrates compliance on all four points, or returns to design. The doctrine describes machinery the corpus already has — which is the mark of a doctrine rather than a patch. Its owned instances, cited not reproduced:
 
 - **literal defaulting** — `numeric-literals.md` §4 (deterministic rule at generalisation);
-- **the compiler-known `Iterable` table** — `loops-ranges-iteration.md` §7 (unsolved boundary tyvar is an annotation-required error, never a search);
+- **the waiting sequence source** — `collections-part5-iterable.md` §3.5 (a `Seq` seat's or loop head's source whose head is not yet known: decided when its head arrives, and a `Seq` by default at its owner's close — never a search; compliance itemised at `method-syntax.md` §10);
 - **the projection-bearing-constraint ban** — `collections-part2-hash-and-type-members.md` §7 (v1 refuses the goal category it cannot yet resolve this way);
 - **DotCall** — `method-syntax.md` (its §10 itemizes the feature's compliance; its resolution machinery lives there).
 
