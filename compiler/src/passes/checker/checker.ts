@@ -15975,9 +15975,17 @@ class Checker {
         this.#enterFace(part.node, face, here);
         continue;
       }
+      // A sequence seat's demand stands at the value it was made on, as a
+      // path's does (§3.5).
       const enter = (): void =>
         this.#unifyExpected(
-          face, part.value.type, part.value.expression, span, true, false, sequenceSeat,
+          face,
+          part.value.type,
+          part.value.expression,
+          sequenceSeat ? part.value.expression.span : span,
+          true,
+          false,
+          sequenceSeat,
         );
       if (here !== undefined) this.#joining(here, enter);
       else enter();
@@ -23315,7 +23323,10 @@ class Checker {
         "default to `Int`",
       primary: span,
     });
-    for (const requirement of variable.requirements) requirement.reported = true;
+    for (const requirement of variable.requirements) {
+      requirement.reported = true;
+      this.#settleAbsorbed(requirement);
+    }
     variable.instance = ERROR;
   }
 
@@ -24317,6 +24328,7 @@ class Checker {
         }
       }
       requirement.reported = true;
+      this.#settleAbsorbed(requirement);
       return;
     }
     this.#attachRequirement(variable, requirement);
@@ -25069,26 +25081,32 @@ class Checker {
   }
 
   /**
-   * The demands `requirement` absorbed, settled as it settled (#1125). One
-   * refused kept demand refuses them, the report already made once. A demand of
-   * the same constraint shares its selection — the same subject, so the same
-   * instance — and a base constraint the kept one entails is validated in its
-   * own right. Two kinds keep what they had: a literal's demand, which Pattern
-   * Matching §2.5 validates per literal itself, and a demand at a primitive,
-   * whose evidence is the primitive's own; a loop head there only learns
-   * whether its instance is the canonical `String` one, for its native loop.
+   * The demands `requirement` absorbed, settled as it settled (#1125). A kept
+   * demand refused refuses them, the report made once. A demand of the same
+   * constraint shares the kept one's selection — the same subject, so the same
+   * instance — and a base constraint it entails is validated in its own right.
+   * Two keep what they had: a literal **pattern**'s demand, which Pattern
+   * Matching §2.5 validates per literal itself, and a pre-registered
+   * constraint's demand at a primitive, which the emitter answers by type from
+   * the primitive's companion — a loop head there learning only whether its
+   * instance is the canonical `String` one, for its native loop. A `Seq` seat's
+   * demand inside an `Iterable` instance's own `toSeq` is refused at its
+   * subject as its own would be (Collections Part 5 §3.6).
    */
   #settleAbsorbed(requirement: Requirement): void {
     const absorbed = this.#absorbedDemands.get(requirement);
     if (absorbed === undefined || (requirement.validated !== true && !requirement.reported)) return;
     this.#absorbedDemands.delete(requirement);
     for (const dropped of absorbed) {
-      if (dropped.origin === "literal" || dropped.patternSeat === true) continue;
+      if (dropped.patternSeat === true) continue;
       if (requirement.reported) {
         dropped.reported = true;
         continue;
       }
-      if (this.#prune(dropped.type).kind === "Constructor") {
+      if (
+        this.#prune(dropped.type).kind === "Constructor" &&
+        isPreRegisteredIdentity(dropped.identity)
+      ) {
         if (
           dropped.origin === "iteration" && dropped.identity === requirement.identity &&
           requirement.selected !== undefined &&
@@ -27009,7 +27027,10 @@ class Checker {
     // is in the callee's body, where no annotation of this program's pins
     // anything.
     const literal = variable.requirements.find(({ origin }) => origin === "literal");
-    for (const requirement of variable.requirements) requirement.reported = true;
+    for (const requirement of variable.requirements) {
+      requirement.reported = true;
+      this.#settleAbsorbed(requirement);
+    }
     // At a call whose result does not carry the stuck type, an annotation on
     // the result pins nothing: the report stands at the first value supplied
     // that carries it, where one does — `label(None)` at `None`.

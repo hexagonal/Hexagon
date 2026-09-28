@@ -570,3 +570,57 @@ describe("an unknown value on a form's path, or grouped, waits too (Part 5 §3.5
   });
 });
 
+describe("the waiting path through a form's face (Part 5 §3.5)", () => {
+  const refused = "type mismatch: expected Vector(String), found Seq(String)";
+
+  test("an assignment's face never makes its unknown values wait", () => {
+    expect(refusals(
+      "let f(c: Bool, xs, ys) =\n    var s = Vector.toSeq(words)\n    s := if c then xs else ys\n" +
+        "    let a: Vector(String) = xs\n    Seq.length(s)\n",
+    )).toEqual([refused]);
+    expect(refusals(
+      "let f(xs) =\n    var s = Vector.toSeq(words)\n    s := (xs)\n" +
+        "    let a: Vector(String) = xs\n    Seq.length(s)\n",
+    )).toEqual([refused]);
+  });
+
+  test("nor does a callee's bare type variable, however it was solved", () => {
+    expect(refusals(
+      "let g(xs: Vector(a), y: a): Int = 0\n" +
+        "let f(seqs: Vector(Seq(String)), zs) =\n    let n = g(seqs, (zs))\n" +
+        "    let a: Vector(String) = zs\n    n\n",
+    )).toEqual([refused]);
+    expect(refusals(
+      "let apply2(x: a, h: (a) -> Int): Int = h(x)\n" +
+        "let f(c: Bool, xs, ys) =\n" +
+        "    let n = apply2(if c then xs else ys, (s: Seq(String)) => Seq.length(s))\n" +
+        "    let a: Vector(String) = xs\n    n\n",
+    )).toEqual([refused]);
+  });
+
+  test("a late head that does not fit is refused at its own path, whatever its sibling", () => {
+    const at = (body: string): readonly string[] =>
+      compile(body).diagnostics.map(({ message, primary }) =>
+        // Spans count lines from 0, and the fixtures end in a newline: body lines from 1.
+        `${message} @${primary.start.line - fixtures.split("\n").length + 2}:${primary.start.column}`
+      );
+    expect(at(
+      "let f(c: Bool, xs, ys) =\n    let n = Seq.length(if c then xs else ys)\n" +
+        "    let a: Vector(String) = xs\n    let b: Int = ys\n    n\n",
+    )).toEqual(["type mismatch: expected Seq(String), found Int @2:41"]);
+    expect(at(
+      "let f(c: Bool, ys) =\n    let n = Seq.length(if c then words else ys)\n" +
+        "    let b: Int = ys\n    n\n",
+    )).toEqual(["type mismatch: expected Seq(String), found Int @2:44"]);
+  });
+
+  test("each waiting path runs its own conversion", async () => {
+    const exports = await runProject([["/main.hex", fixtures +
+      "let f(c: Bool, xs, ys) =\n    let n = Seq.length(if c then xs else ys)\n" +
+      "    let a: Vector(String) = xs\n    let b: Set(String) = ys\n    n\n" +
+      "export let run(c: Bool): Int = f(c, [\"a\", \"b\"], Set.fromVector([\"x\", \"y\", \"z\"]))\n"]]);
+    const run = exports["run"] as (c: boolean) => number;
+    expect([run(true), run(false)]).toEqual([2, 3]);
+  });
+});
+
