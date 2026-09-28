@@ -244,8 +244,9 @@ consumers a simple signature:
 let countItems(items: Seq(a)): Int = ...
 ```
 
-Callers convert at the edge instead of requiring the function to abstract over every
-possible collection representation.
+Callers pass their collections as they are — `countItems(scores)` converts `scores` at
+the parameter, as the Sequences chapter showed — instead of requiring the function to
+abstract over every possible collection representation.
 
 ## User-defined collections can join ordinary loops
 

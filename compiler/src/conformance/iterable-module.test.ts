@@ -482,14 +482,12 @@ describe("the `for p in e` failure taxonomy (Part 5 §3.2/§3.3)", () => {
         "constrain a type variable in v1; take a `Seq(a)` parameter instead",
     );
 
-    // Unchanged by the split, which is the point of splitting rather than rewording.
-    expect(projectDiagnostics("module Main\n\n" + "export let visit = (items) =>\n" +
+    // An unsolved one is no failure at all: its head waits for its owner's close,
+    // and a head nothing established is `Seq` (Part 5 §3.1 step 2, §3.5; #1118).
+    expect(projectDiagnostics("module Main\n\n" + "let visit = (items) =>\n" +
         "    for item in items\n" +
         "        ()\n",
-    )).toContain(
-      "cannot determine how to iterate this value; add a `Range`, `String`, " +
-        "or `Seq(a)` type annotation",
-    );
+    )).toEqual([]);
   });
 
   /**

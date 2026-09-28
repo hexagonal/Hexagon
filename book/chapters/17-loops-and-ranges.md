@@ -142,11 +142,14 @@ develops `Seq` fully; only its role as an iterable source is needed here.
 Every iterable type has one element type. A `Range` produces `Int`, a `String`
 produces `String`, and `Seq(a)` produces `a`. Hexagon determines that relationship
 statically from the source's concrete type; it does not search at runtime for
-something that happens to look iterable.
+something that happens to look iterable. A loop over a parameter that nothing has
+described yet is not refused at the loop: the source's type is settled by the end of the
+function's definition — from a later line, or, if nothing says otherwise, as a `Seq`,
+the lazy sequence the Sequences chapter introduces.
 
 For a reusable function that consumes a sequence of values, accept `Seq(a)`. It states
-the element type directly and lets each caller convert its concrete source at the
-boundary:
+the element type directly, and each caller passes its concrete source as it is — the
+Sequences chapter shows the conversion that place performs:
 
 ```hexagon
 let consume(source: Seq(a)): Unit =

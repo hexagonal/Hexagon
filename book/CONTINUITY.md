@@ -377,6 +377,10 @@ late pedagogy pass, not a commitment to the current order.
   persistent functional cursor; transformation callbacks as pure by construction;
   and `Seq` as the common iteration and collection-conversion currency, reached from
   any iterable value by the `toSeq` member, reached by the dot.
+- Establishes that a place expecting a `Seq` (parameter, annotation, declared result)
+  inserts the value's own `toSeq` — never element conversion, never inside a value
+  already built, never a dot call's target, never a `var` — and that a parameter
+  nothing describes is a `Seq` (Collections Part 5 §3.4–§3.6).
 - Prepares persistent collections and the `Iterable` recipe while avoiding a library
   API catalogue. Opens the purity seam the Effects chapter closes: the strict
   consumers are named as the one honest seat for an effectful callback, marks
@@ -920,7 +924,9 @@ late pedagogy pass, not a commitment to the current order.
   (#1133).
 - There is no `break` or `continue`.
 - Iteration resolves statically from a known outer type. Each concrete iterable has one
-  element type, and `Seq(a)` is the reusable iteration parameter.
+  element type, and `Seq(a)` is the reusable iteration parameter; callers pass their
+  collections to it unconverted. A loop over a source not yet known waits for the
+  function's definition to end, and one nothing describes is a `Seq`.
 - The Patterns chapter's complete grammar supersedes the loops spec's original bare-name
   head: tuple, record, and other irrefutable patterns are legal.
 - A syntactic range head emits a counting loop, `for (let i = 1; i <= n; i++)`. A literal
