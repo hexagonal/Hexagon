@@ -4121,8 +4121,8 @@ class Checker {
    * *(#378)*, held as a knot holds a lambda (Effects §3.4's knot bullet): the
    * goal settles at its owner region's deadline, and only then can the call's
    * colour reach the body's. A body that calls a held one is held beside it,
-   * and a `fun` knot whose bodies wait for a goal owned outside the block is
-   * held whole. Each hold is shaped as a knot — its frames, the demands their
+   * and a `fun` knot whose bodies wait for a goal, or call a held body, is held
+   * whole. Bodies inside a constraint seat are neither held nor guarded (#1147). Each hold is shaped as a knot — its frames, the demands their
    * colours met meanwhile, and the level no binding inside the owner may
    * quantify them at — and settles in `#generalize` right after the goals do
    * (`#settleHolds`). Kept apart from `#knots`, which is a stack a `fun` block

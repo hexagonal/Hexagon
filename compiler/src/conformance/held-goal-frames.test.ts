@@ -16,7 +16,7 @@
  * goals' deadline, right after they settle, and a demand its colour meets in
  * the meantime is recorded and compared then, never choosing it. A body that
  * calls a held one is held with it, and a `fun` knot whose bodies wait for a
- * goal owned outside the block is held whole. The specimens below either lost
+ * goal, or call a held body, is held whole. The specimens below either lost
  * an effect before the hold or are what the hold must leave as it was.
  */
 
@@ -259,11 +259,42 @@ describe("bodies that reach several holds settle together", () => {
   });
 });
 
+describe("a held colour is not generalized before it settles", () => {
+  // A lambda waiting for a goal cannot be quantified: each use would take a
+  // copy of its colour that the goal's call, settling later, never reaches —
+  // #378 again. So until the goal settles its uses share one colour, as a
+  // knot-held lambda's do — ruled on #1148; the Effects redesign's joins may
+  // lift it (#1144). Settling the receiver first, or annotating it, keeps the
+  // polymorphism.
+  const act = (settle: string, annotate: string): string =>
+    `let run(source${annotate}) =\n${settle}` +
+    "    let act = (cb: () ->? Unit) =>\n" +
+    "        cb?()\n" +
+    "        source.length()\n" +
+    "    let x = act!(() => save!(\"a\"))\n" +
+    "    let y = act(() => ())\n" +
+    (settle === "" && annotate === "" ? "    let pinned: Seq(String) = source\n" : "") +
+    "    y\n";
+
+  test("a waiting lambda used at two colours is refused", () => {
+    expect(refusals(act("", ""))).toEqual([
+      "this signature's `->?` promises a colour the caller chooses, but the body solves it to the " +
+        "impure constant — a function that performs its own unconditional effects rounds up, and " +
+        "its face is `->!`",
+    ]);
+  });
+
+  test("settling the receiver first, or annotating it, keeps it polymorphic", () => {
+    expect(refusals(act("    let pinned: Seq(String) = source\n", ""))).toEqual([]);
+    expect(refusals(act("", ": Seq(String)"))).toEqual([]);
+  });
+});
+
 describe("what a held colour meets before it settles is compared after", () => {
   test("the goals a knot settles at its close meet its members' colours as the knot does", () => {
-    // Settled while the knot is live again, a sibling's colour meeting the
-    // `->` parameter of `map` is a recorded demand: `b` keeps `->!`, and the
-    // report stands at the demand.
+    // The knot waits for `xs`'s goal, so it is held whole: a sibling's colour
+    // meeting the `->` parameter of `map` meanwhile is a recorded demand, `b`
+    // keeps `->!`, and the report stands at the demand.
     expect(refusals(
       "fun\n" +
         "    a(xs, n: Int): Unit =\n" +
