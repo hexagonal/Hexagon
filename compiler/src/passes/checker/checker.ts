@@ -4113,6 +4113,23 @@ class Checker {
    */
   readonly #knots: Knot[] = [];
   /**
+   * The bodies that closed while a dot call written in them was still a goal
+   * *(#378)*, held as a knot holds a lambda (Effects §3.4's knot bullet): the
+   * goal settles at its owner region's deadline, and only then can the call's
+   * colour reach the body's. Each hold is shaped as a knot with no members —
+   * its frames, the demands their colours met meanwhile, and the level no
+   * binding inside the owner may quantify them at — and settles in
+   * `#generalize` right after the goals do (`#settleHolds`). Kept apart from
+   * `#knots`, which is a stack a `fun` block pops.
+   */
+  readonly #holds: Knot[] = [];
+  /**
+   * The frames whose colour has been decided — the tripwire #378 asked for: a
+   * call registered into one after the fact would be a colour its body never
+   * absorbed, so it is an internal error rather than a silent loss.
+   */
+  readonly #settledFrames = new WeakSet<EffectFrame>();
+  /**
    * Every reference that resolved *inside* a knot, and the member it named.
    *
    * A knot member's scheme is a bare monotype while the component is being
@@ -5450,6 +5467,7 @@ class Checker {
     // become known: it takes the defaulting step and the fallback like any other
     // survivor, before the remaining variables settle.
     this.#resolveDotCallGoals(-1);
+    this.#settleHolds(-1);
     this.#defaultRemainingVariables();
     // After the unmentioned-variable row, which absorbs the refusals of the
     // variables it refuses. Inference and defaulting are done, so every
@@ -8278,6 +8296,14 @@ class Checker {
       // discharges its fence here rather than where it reported.
       if (knot.refused) this.#errorKnotHeads(knot);
       this.#pinUnreachableKnotEvidence(knot, recursiveTypes, level);
+      // The goals first (#378). The members' parameters are this region's, so
+      // their deadline is the members' generalization just below — but a goal
+      // that settles registers its call into a member's body, which the knot is
+      // about to decide. Settling is type-level (dispatch reads a receiver's
+      // head, never a colour), so doing it first chooses no colour; the bodies
+      // held for those goals then settle with them.
+      this.#resolveDotCallGoals(level);
+      this.#settleHolds(level);
       // The members' colours and their sibling-call obligations settle here,
       // over the whole component, now that no sibling is live (§3.4, #868).
       this.#settleKnot(knot);
@@ -9578,7 +9604,15 @@ class Checker {
           // before the sibling is: it waits for the knot, its colour sunk to
           // the knot's level so no binding around it generalizes it meanwhile.
           const holding = this.#holdingKnot(effectFrame);
-          if (holding === undefined) {
+          const waiting = holding === undefined ? this.#pendingGoalLevel(effectFrame) : undefined;
+          if (waiting !== undefined) {
+            // A dot call written here is still a goal (#378): the call its
+            // resolution registers may be the one that makes this body a
+            // source, so its colour waits for the goal's deadline. (A body
+            // that calls a held one needs no hold of its own: the held colour
+            // is a dependency, `#isDependency`, so no arm here decides it.)
+            this.#holdFrame(effectFrame, waiting);
+          } else if (holding === undefined) {
             this.#settleFrame(effectFrame);
           } else {
             // Held as a member is (§3.4's knot bullet, #947): its colour and
@@ -19237,6 +19271,11 @@ class Checker {
     const frame = this.#callFrames.has(expression)
       ? this.#callFrames.get(expression)
       : this.#effectFrames.at(-1);
+    if (frame !== undefined && this.#settledFrames.has(frame)) {
+      throw new Error(
+        "internal error: a call was registered into a body whose colour is already decided (#378)",
+      );
+    }
     frame?.absorbed.push({ effect, span: expression.span });
     // The same record, flat *(#867)*. A constraint seat reports at "the first
     // call in source order whose colour is the condemned variable", and that
@@ -19267,6 +19306,10 @@ class Checker {
    * defaulting waits for the seat (§13.2).
    */
   #settleFrame(frame: EffectFrame, atSeat = false): void {
+    // A body inside a constraint seat is not held and not guarded (#378): the
+    // seat settles its bodies on its own schedule (§13.2), and a goal settling
+    // there after the fact is the residue #1145's rewrite of the seat carries.
+    if (!atSeat) this.#settledFrames.add(frame);
     this.#settleRecoveredCalls(frame);
     this.#sourceArm(frame);
     this.#conduitArm(frame, atSeat);
@@ -19332,6 +19375,60 @@ class Checker {
       if (colour.kind !== "Variable" || this.#isDependency(frame, colour)) continue;
       if (held?.(colour) === true) continue;
       colour.instance = PURE;
+    }
+  }
+
+  /**
+   * The level of the outermost receiver among the dot-call goals written in
+   * this body and still pending *(#378)* — the region whose deadline settles
+   * the last of them — or `undefined` where none is.
+   */
+  #pendingGoalLevel(frame: EffectFrame): number | undefined {
+    let level: number | undefined;
+    for (const goal of this.#dotCallGoals) {
+      if (this.#callFrames.get(goal.expression) !== frame) continue;
+      const receiver = this.#prune(goal.receiver);
+      const at = receiver.kind === "Variable" ? receiver.level : goal.level;
+      level = level === undefined ? at : Math.min(level, at);
+    }
+    return level;
+  }
+
+  /**
+   * Holds a closed body until its goals' deadline *(#378)*. Sunk to that level,
+   * nothing around it generalizes its colours meanwhile — the move the knot
+   * makes for a lambda it holds.
+   */
+  #holdFrame(frame: EffectFrame, level: number): void {
+    const hold: Knot = {
+      members: [],
+      host: undefined,
+      references: [],
+      refused: false,
+      types: new Map(),
+      frames: [frame],
+      level,
+      demands: [],
+      held: new Set([frame]),
+    };
+    this.#holds.push(hold);
+    this.#lowerLevels(frame.own, level);
+    for (const { effect } of frame.absorbed) this.#lowerLevels(effect, level);
+  }
+
+  /**
+   * Settles every hold the region finalising at `level` owns *(#378)*, after
+   * its goals have: the goals are all type-level — dispatch reads a receiver's
+   * head, never a colour — so the colours they register are all in by now,
+   * and each held body takes the knot's arms and defaulting, then meets the
+   * demands recorded meanwhile.
+   */
+  #settleHolds(level: number): void {
+    for (const hold of [...this.#holds]) {
+      if (hold.level <= level) continue;
+      this.#holds.splice(this.#holds.indexOf(hold), 1);
+      this.#settleKnot(hold);
+      this.#compareKnotDemands(hold);
     }
   }
 
@@ -19560,6 +19657,7 @@ class Checker {
    */
   #settleKnot(knot: Knot): void {
     const frames = knot.frames;
+    for (const frame of frames) this.#settledFrames.add(frame);
     // A call only §4.4's recovery reached is the recovery before the arms read
     // it, as at a lone body's close (#1115): a member calling through it is
     // then a source, and a sibling calling that member is one in turn.
@@ -19928,7 +20026,8 @@ class Checker {
     const pruned = this.#prune(colour);
     if (pruned.kind !== "Variable") return false;
     if (this.#isLinkedColour(pruned) || this.#ownedByEnclosing(frame, pruned)) return true;
-    return this.#knots.some((knot) => this.#knotColour(knot, pruned));
+    return this.#knots.some((knot) => this.#knotColour(knot, pruned)) ||
+      this.#holds.some((hold) => this.#knotColour(hold, pruned));
   }
 
   /**
@@ -23118,9 +23217,10 @@ class Checker {
     // it is recorded and compared at the knot's close (Effects §3.4). A demand
     // that binds a member's whole monotype before its body exists binds a copy
     // whose colour is fresh, the demand's own arrow recorded the same way.
-    if (this.#knots.length > 0 && this.#settlingArms === 0) {
+    if ((this.#knots.length > 0 || this.#holds.length > 0) && this.#settlingArms === 0) {
       if (type.kind === "Effect" && !isRecovered(type)) {
-        const knot = this.#knots.find((open) => this.#knotColour(open, variable));
+        const knot = this.#knots.find((open) => this.#knotColour(open, variable)) ??
+          this.#holds.find((hold) => this.#knotColour(hold, variable));
         if (knot !== undefined) {
           knot.demands.push({
             demand: type,
@@ -25610,6 +25710,9 @@ class Checker {
     // finalisation, and the defaulting step below must see the receivers those
     // goals settle.
     this.#resolveDotCallGoals(level);
+    // Then the bodies held for those goals (#378): every colour the goals
+    // registered is in, so the held bodies decide before anything is built.
+    this.#settleHolds(level);
     // A colour §4.4's recovery reached and nothing real did is the recovery
     // before it can be quantified *(#1115)*: quantified, every use instantiates a
     // copy the recovery never met, and `let k = pick(s)` read as a pure `k`.
