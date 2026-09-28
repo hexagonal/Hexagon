@@ -1478,6 +1478,8 @@ interface Requirement {
   dictionaryArguments?: readonly Requirement[];
   /** Selected the source instance declared by the fixed `String` companion. */
   canonicalStringIterable?: true;
+  /** The instance validation selected, for the demands this one absorbed (#1125). */
+  selected?: Resolved.HonorItem;
   /**
    * The requirement raised for each direct component of a structurally
    * satisfied type, kept rather than discarded (#278). Emission renders this
@@ -3384,6 +3386,12 @@ class Checker {
   readonly #requirements = new WeakMap<object, readonly Requirement[]>();
   /** Exact Nat expressions that checking injects into an independently known Num target. */
   readonly #natWidenings = new WeakMap<Resolved.Expr, Requirement>();
+  /**
+   * The demands a variable's kept demand absorbed (#1125): each is still the
+   * evidence of the call that made it, so it settles when the kept one does —
+   * selected where that one was, reported where that one was.
+   */
+  readonly #absorbedDemands = new WeakMap<Requirement, Requirement[]>();
   /**
    * The logic spelling each bitwise operator would have been on `Bool`
    * (`bitwise.md` §9) — `and` for `band`, and so on — keyed by the operator's
@@ -23797,6 +23805,13 @@ class Checker {
           if (kept !== undefined) this.#unify(kept, projection, requirement.span);
         }
       }
+      // Dropped from the variable, but not from the call that made it: that
+      // call's evidence is this requirement, so it settles with the one kept
+      // (#1125). What it had absorbed in turn comes with it.
+      const absorbed = this.#absorbedDemands.get(entailing) ?? [];
+      absorbed.push(requirement, ...(this.#absorbedDemands.get(requirement) ?? []));
+      this.#absorbedDemands.set(entailing, absorbed);
+      this.#absorbedDemands.delete(requirement);
       return;
     }
     variable.requirements.push(requirement);
@@ -24611,6 +24626,52 @@ class Checker {
     } finally {
       this.#chainOverride = enclosing;
     }
+    this.#settleAbsorbed(requirement);
+  }
+
+  /**
+   * The demands `requirement` absorbed, settled as it settled (#1125). One
+   * refused kept demand refuses them, the report already made once. A demand of
+   * the same constraint shares its selection — the same subject, so the same
+   * instance — and a base constraint the kept one entails is validated in its
+   * own right. Two kinds keep what they had: a literal's demand, which Pattern
+   * Matching §2.5 validates per literal itself, and a demand at a primitive,
+   * whose evidence is the primitive's own; a loop head there only learns
+   * whether its instance is the canonical `String` one, for its native loop.
+   */
+  #settleAbsorbed(requirement: Requirement): void {
+    const absorbed = this.#absorbedDemands.get(requirement);
+    if (absorbed === undefined || (requirement.validated !== true && !requirement.reported)) return;
+    this.#absorbedDemands.delete(requirement);
+    for (const dropped of absorbed) {
+      if (dropped.origin === "literal" || dropped.patternSeat === true) continue;
+      if (requirement.reported) {
+        dropped.reported = true;
+        continue;
+      }
+      if (this.#prune(dropped.type).kind === "Constructor") {
+        if (
+          dropped.origin === "iteration" && dropped.identity === requirement.identity &&
+          requirement.selected !== undefined &&
+          this.#canonicalStringIterableInstances.has(requirement.selected)
+        ) {
+          dropped.canonicalStringIterable = true;
+        }
+        continue;
+      }
+      if (dropped.identity !== requirement.identity) {
+        this.#validate(dropped);
+        continue;
+      }
+      dropped.validated = true;
+      if (requirement.selected !== undefined) dropped.selected = requirement.selected;
+      if (requirement.dictionary !== undefined) dropped.dictionary = requirement.dictionary;
+      if (requirement.dictionaryArguments !== undefined) {
+        dropped.dictionaryArguments = requirement.dictionaryArguments;
+      }
+      if (requirement.structural === true) dropped.structural = true;
+      if (requirement.components !== undefined) dropped.components = requirement.components;
+    }
   }
 
   /** `#validate` itself, run in the chain the requirement was made in (#1048). */
@@ -24712,6 +24773,7 @@ class Checker {
     if (selection.kind === "instance") {
       const instance = selection.instance;
       this.#pinInstanceSubject(instance, type, requirement.span);
+      requirement.selected = instance;
       requirement.dictionary = instance.dictionary;
       requirement.dictionaryArguments = this.#instanceArguments(instance, type, requirement);
       if (
@@ -25686,7 +25748,10 @@ class Checker {
           primary: first.span,
         });
       }
-      for (const requirement of variable.requirements) requirement.reported = true;
+      for (const requirement of variable.requirements) {
+        requirement.reported = true;
+        this.#settleAbsorbed(requirement);
+      }
       variable.instance = ERROR;
     }
     return refused;
