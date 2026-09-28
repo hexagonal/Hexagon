@@ -57,6 +57,7 @@ The proposed supplying contexts are:
 | An argument to a known function parameter `Seq(a)` | The resolved parameter type |
 | An immutable binding annotated `Seq(a)` | The binding annotation |
 | A function body with a declared result `Seq(a)` | The result declaration |
+| A constraint member's body whose contract's result is `Seq(a)` | The member header (Functions §4.3's fifth seat; §5's one exclusion) |
 
 A known parameter type may come from an instantiated inferred signature; it
 need not be written on the callee. Constructor parameters are function
@@ -272,9 +273,11 @@ The following are excluded:
 - **Other destinations:** no reverse conversion, automatic collection
   materialization, conversion chains, subtyping, or changes to `widens`.
 - **An instance converting its own subject:** inside an `Iterable` instance's
-  own `toSeq`, a value of that instance's subject type is never adapted — the
-  only conversion there would be the member being defined, a call to itself the
-  source never wrote. It is refused as today, with the rewrite named: convert
+  own `toSeq`, a value whose head is the instance's subject head is never adapted
+  — `b` itself, a `Bag(Int)` inside `honor Iterable<Bag(a)>`, a child `k: Bag(a)`
+  in a tree's flatten (`Seq.flatMap(kids, (k) => k)`) — since the only conversion
+  there would be the member being defined, a call to itself the source never
+  wrote. It is refused as today, with the rewrite named: convert
   its contents (`toSeq(b) = b.items`), or write the call where recursion on a
   smaller value is meant.
 
@@ -356,8 +359,11 @@ uniquely.
 
 **The deferred decision is the Deferred-Goals Doctrine's kind** (Method Syntax
 §10), itemised as the dot call's is: one source variable per demand; one member;
-resolution by the coherence-keyed instance table, never a search; no survival
-past the owner's finalisation (the default, then ordinary unification); and
+resolution by the coherence-keyed instance table, never a search; a finite,
+deterministic rule — §3's close order, in which the `Seq` default and the dot's
+`Int` step never apply to one variable (a waiting source's `Iterable` demand
+blocks `Int`); no survival past the owner's finalisation (the default, then
+ordinary unification); and
 principal types preserved in the doctrine's sense — the unresolved form's
 defined meaning, the `Seq` reading, is the language's meaning without the
 feature, and resolution when the head arrives agrees with resolution at the
@@ -406,9 +412,9 @@ own, so that an annotation is never read as licensing conversion in general:
 > specifies a conversion into that type at that seat — Numeric Literals §5.1's
 > three widenings, an iterable's adaptation to `Seq` — the written type
 > elaborates that specified conversion into the value it faces, and no other
-> conversion ever happens. Every program stays typable with the written type
-> deleted and the conversion written out, and no annotation ever supplies a
-> scheme.
+> conversion ever happens. Where a written type elaborates a specified
+> conversion, the program stays typable with the type deleted and the conversion
+> written out; and no annotation ever supplies a scheme.
 
 "At that seat" is load-bearing: the specified conversions are not uniform
 across seats — `var s: Seq(String) = words` does not adapt (§2), though numeric
@@ -454,9 +460,9 @@ closed meets its seat's expected type — the point Numeric Literals §5.1's val
 widening is elaborated. The destination is read as the schedule has solved it at
 that moment (§3); a dot call that resolves late still meets its arguments there,
 as its widening does. One departure: a source whose type is still a variable
-meets its seat at **its own turn**, not at the end of its call's argument pass
+meets its seat at **its own turn**, not at the call's end, after its callbacks,
 where such an argument's check otherwise waits — its demand links the element
-then (§3), and only the head waits for the close. The conversion itself, where
+then (§3), so the callbacks read it, and only the head waits for the close. The conversion itself, where
 there is one, is elaborated once, when the head is known; the value is never
 checked again.
 
@@ -524,18 +530,19 @@ it as the schedule has solved it.
 
 **Where a conversion may look** (friendly-numerics §4). The rule clears the three
 bounds every conversion clears. *One expression, one home*: §2.1's element join
-is its analogue, the paths' elements chosen together, once, and each path then
-entering or refused by name. *A written face binds*: a written `Seq` seat — an
+is its analogue, the paths' elements chosen together, once — a disagreement
+reported where #1107's join reports it, and only a path with no instance refused
+where it stands. *A written face binds*: a written `Seq` seat — an
 annotation, a parameter, a declared result — is the face the value meets, and
 a value that cannot enter it is refused, never read at another type. *Inferred
 types choose where, never what*: an adaptation's reading follows from its
 source's head once that head is final, as a dot call's member follows from its
-receiver's — at the seat where the head is known, or at the region's deadline
-where it arrives later, the dot's own shape (Method Syntax §3). Nothing is
+receiver's — at the seat where the head is known, or when it arrives later, by
+the region's deadline at the latest, the dot's own shape (Method Syntax §3). Nothing is
 elaborated twice, speculated and undone, or read ahead by a pass; the one
 default is taken where no information exists. Promotion states the deadline case
-in §4's third rule, one sentence: a part closes first at its region's deadline
-where its type arrives later, as a dot call's receiver does.
+in §4's third rule, one sentence: a part whose type arrives later closes first
+by its region's deadline, as a dot call's receiver does.
 
 ### 6.6 Evidence and what promotion amends
 
@@ -547,8 +554,10 @@ lost its effect. #378's fix (#1148, `231bae63`) holds such a body until the
 goal's deadline; with it under the prototype, the effect is kept.
 
 Promotion amends: Functions §4's preamble, closure doc §2.4 and its §9.11 test
-(§6.2); Functions §4.3's seats, forwarding forms, channels and the argument
-pass's timing for a waiting source (§2, §2.1, §6.4); Functions §8 item 2
+(§6.2); Functions §4.3's seats, forwarding forms and channels, and the timing
+of a waiting source's argument — both the baseline wait, which today is checker
+behaviour the section never states, and this rule's departure from it (§2, §2.1,
+§6.4); Functions §8 item 2
 (§6.3); friendly-numerics §4's third rule (§6.5); Collections Part 2 §7.2.1 —
 the default at the close, and its bullet that a loop head is not such a demand
 (§3, §4); Collections Part 5 §3.1–§3.2 and Loops §7.1 (the loop head, §4);
@@ -597,10 +606,10 @@ from executable conformance. The implementation acceptance suite must cover:
 13. Every channel of §6.4, an existing value refused at each, and the profile's
     two criteria: no measurable cost where nothing adapts, and an implicit
     adaptation checking no slower than its explicit spelling.
-14. An `Iterable` instance's own subject never adapted inside its own `toSeq`
-    (§5) — `toSeq(b) = b` and `toSeq(b) = Seq.map(b, f)` refused with the rewrite
-    — while `toSeq(b) = b.items` adapts, and an explicit recursive call is
-    accepted.
+14. A value headed by an `Iterable` instance's own subject never adapted inside
+    its own `toSeq` (§5) — `toSeq(b) = b`, `toSeq(b) = Seq.map(b, f)` and a
+    child in `Seq.flatMap(kids, (k) => k)` refused with the rewrite — while
+    `toSeq(b) = b.items` adapts, and an explicit recursive call is accepted.
 
 ## 8. Prerequisites and promotion
 
