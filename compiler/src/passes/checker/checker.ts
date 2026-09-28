@@ -1912,15 +1912,6 @@ const STRUCTURAL_IDENTITIES: ReadonlySet<string> = new Set(
 );
 
 /**
- * The pre-registered constraints' identities: the ones a demand at a primitive
- * is answered for by type, the emitter reading the companion's source instance
- * (#1125's carve-out in `#settleAbsorbed`).
- */
-const PRE_REGISTERED_IDENTITIES: ReadonlySet<string> = new Set(
-  PRE_REGISTERED_CONSTRAINTS.map(preRegisteredConstraintIdentity),
-);
-
-/**
  * The four constraints a `derives` clause may name (Constraints §4.5), **as
  * identities** — the channel Modules §7.6's derivation-fixit bullet pins in so
  * many words (#644): "read by identity, never spelling".
@@ -24662,7 +24653,7 @@ class Checker {
       }
       if (
         this.#prune(dropped.type).kind === "Constructor" &&
-        PRE_REGISTERED_IDENTITIES.has(dropped.identity)
+        isPreRegisteredIdentity(dropped.identity)
       ) continue;
       if (dropped.identity !== requirement.identity) {
         this.#validate(dropped);
