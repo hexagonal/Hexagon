@@ -2745,8 +2745,9 @@ interface DotCallGoal {
   readonly expression: Resolved.CallExpr;
   readonly callee: Resolved.AccessExpr;
   readonly receiver: Mono;
+  /** Inferred where the call is written; pinned to the receiver's region at each generalization (#1154). */
   readonly argumentTypes: readonly Mono[];
-  /** Pinned to the receiver's region, per §3.1's pinning rule. */
+  /** Made in the receiver's region, per §3.1's pinning rule, and re-pinned as the receiver moves (#1154). */
   readonly result: Mono;
   readonly level: number;
   /**
@@ -6453,6 +6454,39 @@ class Checker {
       if (!owned(goal)) continue;
       this.#dotCallGoals.splice(this.#dotCallGoals.indexOf(goal), 1);
       this.#fallbackDotCallGoal(goal);
+    }
+  }
+
+  /**
+   * Method Syntax §3.1's pinning rule, as the receivers stand now (#1154): a
+   * pending goal pins every type variable it mentions — its result and its
+   * argument types — to its receiver's region. The result is made there when
+   * the goal is made, but a later unification can sink the receiver outward
+   * (`let same = [x, n]`), and the argument types are inferred where the call
+   * is written; unpinned, a binding closing in between quantifies what the goal
+   * will settle, and a use made before the deadline keeps a copy the settlement
+   * never reaches. (A colour inside an argument's function type stays where
+   * `#lowerLevels` leaves colours.)
+   *
+   * A fixpoint over the receivers' levels: a goal's result or argument can be
+   * another goal's receiver, so sinking one can sink another's region.
+   */
+  #pinPendingGoals(): void {
+    const levels = (): string =>
+      this.#dotCallGoals.map((goal) => {
+        const receiver = this.#prune(goal.receiver);
+        return receiver.kind === "Variable" ? receiver.level : "known";
+      }).join();
+    for (let before = "", after = levels(); before !== after;) {
+      before = after;
+      for (const goal of this.#dotCallGoals) {
+        const receiver = this.#prune(goal.receiver);
+        // Defensive: a head-known goal is resolved before any boundary closes.
+        if (receiver.kind !== "Variable") continue;
+        this.#lowerLevels(goal.result, receiver.level);
+        for (const argument of goal.argumentTypes) this.#lowerLevels(argument, receiver.level);
+      }
+      after = levels();
     }
   }
 
@@ -25787,21 +25821,12 @@ class Checker {
   ): Scheme {
     // The deadline (§3.1): no DotCall goal may escape its owner region's
     // finalisation, and the defaulting step below must see the receivers those
-    // goals settle.
+    // goals settle. The pins first (#1154), so a goal written inside a pending
+    // goal's argument belongs to that goal's region when ownership is decided;
+    // then again, for what the resolution itself moved.
+    this.#pinPendingGoals();
     this.#resolveDotCallGoals(level);
-    // Method Syntax §3.1's pinning rule, kept as receivers move (#1154): a goal
-    // this boundary does not own pins every variable it mentions to its
-    // receiver's region **as that region is now**. A unification that sank the
-    // receiver outward after the goal was made — `let same = [x, n]` — sinks
-    // what the goal will settle with it, or this binding would quantify the
-    // goal's result, and every use made before the deadline would keep a copy
-    // the settlement never reaches.
-    for (const goal of this.#dotCallGoals) {
-      const receiver = this.#prune(goal.receiver);
-      if (receiver.kind !== "Variable") continue;
-      this.#lowerLevels(goal.result, receiver.level);
-      for (const argument of goal.argumentTypes) this.#lowerLevels(argument, receiver.level);
-    }
+    this.#pinPendingGoals();
     // Then the bodies held for those goals (#378): every colour the goals
     // registered is in, so the held bodies decide before anything is built.
     this.#settleHolds(level);

@@ -89,3 +89,72 @@ describe("a goal whose receiver moved out settles into the uses made before it",
     )).toBe("{make: () -> a, ...b} -> () -> a");
   });
 });
+
+describe("a goal's argument types are pinned to its receiver's region", () => {
+  test("even where the receiver never moves", () => {
+    expect(refusals(
+      "let run(n) =\n" +
+        "    let helper = (y) => n.compare(y)\n" +
+        "    let bad = helper(\"s\")\n" +
+        "    let k = n + 1\n" +
+        "    helper\n",
+    )).toEqual(["type mismatch: expected Int, found String"]);
+  });
+
+  test("a callback's colour is compared, not quantified away", () => {
+    expect(refusals(
+      "let run(s) =\n" +
+        "    let helper = (cb) =>\n" +
+        "        let u = s.map(cb)\n" +
+        "        cb\n" +
+        "    let bad = helper((i) => save!(\"x\"))\n" +
+        "    let t: Seq(Int) = s\n" +
+        "    bad\n",
+    )).toEqual(refusals(
+      "let run(s: Seq(Int)) =\n" +
+        "    let helper = (cb) =>\n" +
+        "        let u = s.map(cb)\n" +
+        "        cb\n" +
+        "    let bad = helper((i) => save!(\"x\"))\n" +
+        "    bad\n",
+    ));
+  });
+
+  test("a goal written inside a pending goal's callback belongs to that goal's region", () => {
+    expect(typeOf(
+      "let run(s) =\n" +
+        "    let t = s.map((i) => i.show())\n" +
+        "    let u: Seq(Int) = s\n" +
+        "    t\n",
+      "run",
+    )).toBe("Seq(Int) -> Seq(String)");
+    expect(typeOf(
+      "let run(s) =\n" +
+        "    let go = () => s.forEach!((y) => y.put!())\n" +
+        "    let t: Seq(Int) = s\n" +
+        "    go\n",
+      "run",
+    )).toBe("Seq(Int) -> () ->! Unit");
+  });
+});
+
+describe("the pin holds however the goal settles", () => {
+  test("settled opportunistically, after a use", () => {
+    expect(typeOf(
+      "let run(n) =\n" +
+        "    let helper(x) =\n" +
+        "        let act = () => x.show()\n" +
+        "        let same = [x, n]\n" +
+        "        act\n" +
+        "    let early = helper(n)\n" +
+        "    let k: Int = n\n" +
+        "    early\n",
+      "run",
+    )).toBe("Int -> () -> String");
+  });
+
+  test("a chain, whose second receiver is the first goal's result", () => {
+    expect(typeOf(moved("() => x.show().length()"), "run")).toBe("Int -> () -> Int");
+  });
+});
+
