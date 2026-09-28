@@ -55,7 +55,7 @@ Every normative owner appears exactly once. The explicitly marked router and gui
 | Collections | `collections-part2-hash-and-type-members.md` | `Hash`, constraint `type` members |
 | Collections | `collections-part3-vector.md` | `Vector(a)` full spec |
 | Collections | `collections-part4-map-set.md` | persistent `Map`/`Set`, brackets/`KeyError`, JS-boundary semantics |
-| Collections | `collections-part5-iterable.md` | user `Iterable`, instance table, `String` iteration, closeout |
+| Collections | `collections-part5-iterable.md` | user `Iterable`, instance table, `String` iteration, `Seq` seats (an iterable adapts where a sequence is expected), closeout |
 | Closure docs | `decisions-batch-2026-07.md` | six cross-spec decisions (incl. SameValueZero `Eq<Float>`) until hosted |
 | Closure docs | `decisions-sol-review-2026-07.md` | seven review resolutions (incl. Rewrite Rule §E) until hosted |
 | Closure docs | `decisions-ml-dialect-bool-2026-07.md` | the ML-dialect doctrine pivot and the `Bool`-as-prelude-union ruling (#147) until hosted |

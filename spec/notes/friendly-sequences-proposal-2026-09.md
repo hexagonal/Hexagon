@@ -1,11 +1,20 @@
 # Friendly Sequences — proposal
 
-**Status:** Proposed, non-normative. Written 2026-09-06; revised 2026-09-23
-following the simplified design discussion; §6's obligations reviewed
-2026-09-28, with its rulings folded into §2–§7. The requirements below
-specify the proposed behaviour, not current compiler support. §8's three
-implementation gates are met, and #378, the prerequisite the review found, has
-landed (#1148). Promotion is a separate step.
+**Status:** Adopted; promoted 2026-09-28. Written 2026-09-06; revised
+2026-09-23 following the simplified design discussion; §6's obligations
+reviewed 2026-09-28, with its rulings folded into §2–§7. This note is the
+record of the design; the normative rule lives in its owners. **Promotion
+record:** §1–§5 are Collections Part 5 §3 (§3.1's loop head, §3.4 the seats and
+the adaptation, §3.5 a source whose head is not yet known and the close, §3.6
+meaning and exclusions), with Part 2 §7.2.1's deadline and demand bullets and
+Loops §7.1; §6.1's deferred-goal itemisation is Method Syntax §10, and the
+Deferred-Goals Doctrine's permanent list (Declarations Preamble §1.2) names the
+waiting sequence source; §6.2 is Functions §4's preamble and annotations
+closure doc §2.4 and §9.11; §6.3 is Functions §8 item 2 and Ascription §3;
+§6.4's timing, channels and forwarding are Functions §4.3; §6.5's deadline
+sentence is friendly-numerics §4's third rule. Collections Part 5 §17 and
+Functions §4.3's conformance obligations carry the goldens; §7 here remains the
+implementation's acceptance list (#1152).
 
 This revision supersedes the earlier framing of this note. Generic implied
 types remain abandoned; no part of that investigation is revived here.
@@ -663,6 +672,7 @@ The agreed delivery order is:
    and §6's design obligations are satisfied, promote the rule into Functions,
    Collections Part 5, Loops, and the affected annotation/generalization
    owners. Then implement and verify the full bounded rule.
+   *(Promoted: see the status line's record. Implementation: #1152.)*
 
 This is a dependency plan, not a claim that all earlier implementation work is
 missing. As inspected on 2026-09-23, the constraint is already declared in
@@ -676,5 +686,5 @@ conformance. Verify completion against the implementation when advancing a gate.
 In particular, “source-defined `Iterable.toSeq`” means the actual instance
 member bodies in collection homes, not moving the constraint out of
 `Iterable.hex` or adding ordinary exported functions alongside its members.
-Until promotion, this note supersedes no normative rule requiring explicit
-conversion and authorizes no compiler change.
+With promotion, the owners named in the status line are normative; where this
+note's wording and theirs differ, theirs governs.
