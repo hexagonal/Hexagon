@@ -3386,6 +3386,12 @@ class Checker {
   /** Exact Nat expressions that checking injects into an independently known Num target. */
   readonly #natWidenings = new WeakMap<Resolved.Expr, Requirement>();
   /**
+   * The demands a variable's kept demand absorbed (#1125): each is still the
+   * evidence of the call that made it, so it settles when the kept one does —
+   * selected where that one was, reported where that one was.
+   */
+  readonly #absorbedDemands = new WeakMap<Requirement, Requirement[]>();
+  /**
    * The logic spelling each bitwise operator would have been on `Bool`
    * (`bitwise.md` §9) — `and` for `band`, and so on — keyed by the operator's
    * span, because a concrete requirement is validated, and so reported, inside
@@ -23136,7 +23142,10 @@ class Checker {
         "default to `Int`",
       primary: span,
     });
-    for (const requirement of variable.requirements) requirement.reported = true;
+    for (const requirement of variable.requirements) {
+      requirement.reported = true;
+      this.#settleAbsorbed(requirement);
+    }
     variable.instance = ERROR;
   }
 
@@ -23832,6 +23841,13 @@ class Checker {
           if (kept !== undefined) this.#unify(kept, projection, requirement.span);
         }
       }
+      // Dropped from the variable, but not from the call that made it: that
+      // call's evidence is this requirement, so it settles with the one kept
+      // (#1125). What it had absorbed in turn comes with it.
+      const absorbed = this.#absorbedDemands.get(entailing) ?? [];
+      absorbed.push(requirement, ...(this.#absorbedDemands.get(requirement) ?? []));
+      this.#absorbedDemands.set(entailing, absorbed);
+      this.#absorbedDemands.delete(requirement);
       return;
     }
     variable.requirements.push(requirement);
@@ -23898,6 +23914,7 @@ class Checker {
         }
       }
       requirement.reported = true;
+      this.#settleAbsorbed(requirement);
       return;
     }
     this.#attachRequirement(variable, requirement);
@@ -24645,6 +24662,45 @@ class Checker {
       this.#validateMade(requirement);
     } finally {
       this.#chainOverride = enclosing;
+    }
+    this.#settleAbsorbed(requirement);
+  }
+
+  /**
+   * The demands `requirement` absorbed, settled as it settled (#1125). A kept
+   * demand refused refuses them, the report made once. A demand of the same
+   * constraint shares the kept one's selection — the same subject, so the same
+   * instance — and a base constraint it entails is validated in its own right.
+   * Two keep what they had: a literal **pattern**'s demand, which Pattern
+   * Matching §2.5 validates per literal itself, and a pre-registered
+   * constraint's demand at a primitive, which the emitter answers by type from
+   * the primitive's companion.
+   */
+  #settleAbsorbed(requirement: Requirement): void {
+    const absorbed = this.#absorbedDemands.get(requirement);
+    if (absorbed === undefined || (requirement.validated !== true && !requirement.reported)) return;
+    this.#absorbedDemands.delete(requirement);
+    for (const dropped of absorbed) {
+      if (dropped.patternSeat === true) continue;
+      if (requirement.reported) {
+        dropped.reported = true;
+        continue;
+      }
+      if (
+        this.#prune(dropped.type).kind === "Constructor" &&
+        isPreRegisteredIdentity(dropped.identity)
+      ) continue;
+      if (dropped.identity !== requirement.identity) {
+        this.#validate(dropped);
+        continue;
+      }
+      dropped.validated = true;
+      if (requirement.dictionary !== undefined) dropped.dictionary = requirement.dictionary;
+      if (requirement.dictionaryArguments !== undefined) {
+        dropped.dictionaryArguments = requirement.dictionaryArguments;
+      }
+      if (requirement.structural === true) dropped.structural = true;
+      if (requirement.components !== undefined) dropped.components = requirement.components;
     }
   }
 
@@ -25721,7 +25777,10 @@ class Checker {
           primary: first.span,
         });
       }
-      for (const requirement of variable.requirements) requirement.reported = true;
+      for (const requirement of variable.requirements) {
+        requirement.reported = true;
+        this.#settleAbsorbed(requirement);
+      }
       variable.instance = ERROR;
     }
     return refused;
@@ -26524,7 +26583,10 @@ class Checker {
     // is in the callee's body, where no annotation of this program's pins
     // anything.
     const literal = variable.requirements.find(({ origin }) => origin === "literal");
-    for (const requirement of variable.requirements) requirement.reported = true;
+    for (const requirement of variable.requirements) {
+      requirement.reported = true;
+      this.#settleAbsorbed(requirement);
+    }
     // At a call whose result does not carry the stuck type, an annotation on
     // the result pins nothing: the report stands at the first value supplied
     // that carries it, where one does — `label(None)` at `None`.
