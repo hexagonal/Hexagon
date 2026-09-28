@@ -1478,8 +1478,6 @@ interface Requirement {
   dictionaryArguments?: readonly Requirement[];
   /** Selected the source instance declared by the fixed `String` companion. */
   canonicalStringIterable?: true;
-  /** The instance validation selected, for the demands this one absorbed (#1125). */
-  selected?: Resolved.HonorItem;
   /**
    * The requirement raised for each direct component of a structurally
    * satisfied type, kept rather than discarded (#278). Emission renders this
@@ -1911,6 +1909,15 @@ const PERMITTED_LITERAL_PRIMITIVES: ReadonlySet<Typed.PrimitiveName> = new Set([
  */
 const STRUCTURAL_IDENTITIES: ReadonlySet<string> = new Set(
   STRUCTURAL_CONSTRAINTS.map(preRegisteredConstraintIdentity),
+);
+
+/**
+ * The pre-registered constraints' identities: the ones a demand at a primitive
+ * is answered for by type, the emitter reading the companion's source instance
+ * (#1125's carve-out in `#settleAbsorbed`).
+ */
+const PRE_REGISTERED_IDENTITIES: ReadonlySet<string> = new Set(
+  PRE_REGISTERED_CONSTRAINTS.map(preRegisteredConstraintIdentity),
 );
 
 /**
@@ -23109,7 +23116,10 @@ class Checker {
         "default to `Int`",
       primary: span,
     });
-    for (const requirement of variable.requirements) requirement.reported = true;
+    for (const requirement of variable.requirements) {
+      requirement.reported = true;
+      this.#settleAbsorbed(requirement);
+    }
     variable.instance = ERROR;
   }
 
@@ -23878,6 +23888,7 @@ class Checker {
         }
       }
       requirement.reported = true;
+      this.#settleAbsorbed(requirement);
       return;
     }
     this.#attachRequirement(variable, requirement);
@@ -24630,41 +24641,34 @@ class Checker {
   }
 
   /**
-   * The demands `requirement` absorbed, settled as it settled (#1125). One
-   * refused kept demand refuses them, the report already made once. A demand of
-   * the same constraint shares its selection — the same subject, so the same
-   * instance — and a base constraint the kept one entails is validated in its
-   * own right. Two kinds keep what they had: a literal's demand, which Pattern
-   * Matching §2.5 validates per literal itself, and a demand at a primitive,
-   * whose evidence is the primitive's own; a loop head there only learns
-   * whether its instance is the canonical `String` one, for its native loop.
+   * The demands `requirement` absorbed, settled as it settled (#1125). A kept
+   * demand refused refuses them, the report made once. A demand of the same
+   * constraint shares the kept one's selection — the same subject, so the same
+   * instance — and a base constraint it entails is validated in its own right.
+   * Two keep what they had: a literal **pattern**'s demand, which Pattern
+   * Matching §2.5 validates per literal itself, and a pre-registered
+   * constraint's demand at a primitive, which the emitter answers by type from
+   * the primitive's companion.
    */
   #settleAbsorbed(requirement: Requirement): void {
     const absorbed = this.#absorbedDemands.get(requirement);
     if (absorbed === undefined || (requirement.validated !== true && !requirement.reported)) return;
     this.#absorbedDemands.delete(requirement);
     for (const dropped of absorbed) {
-      if (dropped.origin === "literal" || dropped.patternSeat === true) continue;
+      if (dropped.patternSeat === true) continue;
       if (requirement.reported) {
         dropped.reported = true;
         continue;
       }
-      if (this.#prune(dropped.type).kind === "Constructor") {
-        if (
-          dropped.origin === "iteration" && dropped.identity === requirement.identity &&
-          requirement.selected !== undefined &&
-          this.#canonicalStringIterableInstances.has(requirement.selected)
-        ) {
-          dropped.canonicalStringIterable = true;
-        }
-        continue;
-      }
+      if (
+        this.#prune(dropped.type).kind === "Constructor" &&
+        PRE_REGISTERED_IDENTITIES.has(dropped.identity)
+      ) continue;
       if (dropped.identity !== requirement.identity) {
         this.#validate(dropped);
         continue;
       }
       dropped.validated = true;
-      if (requirement.selected !== undefined) dropped.selected = requirement.selected;
       if (requirement.dictionary !== undefined) dropped.dictionary = requirement.dictionary;
       if (requirement.dictionaryArguments !== undefined) {
         dropped.dictionaryArguments = requirement.dictionaryArguments;
@@ -24773,7 +24777,6 @@ class Checker {
     if (selection.kind === "instance") {
       const instance = selection.instance;
       this.#pinInstanceSubject(instance, type, requirement.span);
-      requirement.selected = instance;
       requirement.dictionary = instance.dictionary;
       requirement.dictionaryArguments = this.#instanceArguments(instance, type, requirement);
       if (
@@ -26548,7 +26551,10 @@ class Checker {
     // is in the callee's body, where no annotation of this program's pins
     // anything.
     const literal = variable.requirements.find(({ origin }) => origin === "literal");
-    for (const requirement of variable.requirements) requirement.reported = true;
+    for (const requirement of variable.requirements) {
+      requirement.reported = true;
+      this.#settleAbsorbed(requirement);
+    }
     // At a call whose result does not carry the stuck type, an annotation on
     // the result pins nothing: the report stands at the first value supplied
     // that carries it, where one does — `label(None)` at `None`.

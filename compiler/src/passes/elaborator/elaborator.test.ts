@@ -204,7 +204,9 @@ describe("elaborate", () => {
         // literal-only variable raises two identical `Ord` requirements, and
         // `#attachRequirement` keeps the first and drops the second as already
         // provided — so only the first is discharged against the instance
-        // table, and the second falls to the elaborator's by-type fallback.
+        // table, and the second, a pre-registered constraint's demand at a
+        // primitive, keeps the elaborator's by-type fallback (#1125 settles every
+        // other absorbed demand with the one kept).
         // Both name the same instance and both emit the same operator; the
         // difference became visible only when the wired `Int` row retired and
         // the fallback stopped being the *same* object as the resolution.
