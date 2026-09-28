@@ -2842,8 +2842,12 @@ interface Knot {
    * close rather than each at its body's (Effects §3.4's knot bullet, #868).
    */
   readonly frames: EffectFrame[];
-  /** The level the members' monotypes stand at; a deferred colour sinks to it. */
-  readonly level: number;
+  /**
+   * The level the members' monotypes stand at; a deferred colour sinks to it.
+   * A hold's moves further out when a goal it waits for turns out to be owned
+   * there (`#settleHolds`, #378).
+   */
+  level: number;
   /**
    * The demands met by a colour of this knot while it is open *(#947)*: a `->`
    * or `->!` a sibling was handed to as a value. Recorded instead of bound, and
@@ -4116,11 +4120,13 @@ class Checker {
    * The bodies that closed while a dot call written in them was still a goal
    * *(#378)*, held as a knot holds a lambda (Effects §3.4's knot bullet): the
    * goal settles at its owner region's deadline, and only then can the call's
-   * colour reach the body's. Each hold is shaped as a knot with no members —
-   * its frames, the demands their colours met meanwhile, and the level no
-   * binding inside the owner may quantify them at — and settles in
-   * `#generalize` right after the goals do (`#settleHolds`). Kept apart from
-   * `#knots`, which is a stack a `fun` block pops.
+   * colour reach the body's. A body that calls a held one is held beside it,
+   * and a `fun` knot whose bodies wait for a goal owned outside the block is
+   * held whole. Each hold is shaped as a knot — its frames, the demands their
+   * colours met meanwhile, and the level no binding inside the owner may
+   * quantify them at — and settles in `#generalize` right after the goals do
+   * (`#settleHolds`). Kept apart from `#knots`, which is a stack a `fun` block
+   * pops.
    */
   readonly #holds: Knot[] = [];
   /**
@@ -8296,17 +8302,25 @@ class Checker {
       // discharges its fence here rather than where it reported.
       if (knot.refused) this.#errorKnotHeads(knot);
       this.#pinUnreachableKnotEvidence(knot, recursiveTypes, level);
-      // The goals first (#378). The members' parameters are this region's, so
-      // their deadline is the members' generalization just below — but a goal
-      // that settles registers its call into a member's body, which the knot is
-      // about to decide. Settling is type-level (dispatch reads a receiver's
-      // head, never a colour), so doing it first chooses no colour; the bodies
-      // held for those goals then settle with them.
-      this.#resolveDotCallGoals(level);
-      this.#settleHolds(level);
-      // The members' colours and their sibling-call obligations settle here,
-      // over the whole component, now that no sibling is live (§3.4, #868).
-      this.#settleKnot(knot);
+      // A member, or a lambda the knot holds, may still wait for a dot-call
+      // goal — its members' own parameters' goals settle at their
+      // generalization just below, a receiver from outside the block's later —
+      // or call a body held for one (#378). Then the knot is held as a whole,
+      // with those bodies, until the goal's deadline: its members' colours
+      // sunk so their generalization leaves them to it, and a demand met on
+      // one meanwhile recorded and compared when the hold settles, as while
+      // the knot was open (§3.4).
+      const waiting = this.#heldGoalLevel(knot);
+      const reached = [...new Set(knot.frames.flatMap((frame) => this.#holdsReached(frame)))];
+      const held = waiting !== undefined || reached.length > 0;
+      if (!held) {
+        // The members' colours and their sibling-call obligations settle here,
+        // over the whole component, now that no sibling is live (§3.4, #868).
+        this.#settleKnot(knot);
+      } else {
+        this.#holds.push(knot);
+        this.#joinHolds(knot, reached, waiting);
+      }
       // The knot's close is where a `fun` member's colour is generalized, and
       // so where §3.4's defaulting reaches it (§4.1: "a knot sibling's is
       // checked at the knot's close, when it is no longer undetermined"). Every
@@ -8315,7 +8329,7 @@ class Checker {
       for (const symbol of ordered) {
         this.#defaultNamedFrame(bySymbol.get(symbol)!.value);
       }
-      this.#compareKnotDemands(knot);
+      if (!held) this.#compareKnotDemands(knot);
       for (const symbol of ordered) {
         this.#schemes.set(
           symbol,
@@ -9605,13 +9619,14 @@ class Checker {
           // the knot's level so no binding around it generalizes it meanwhile.
           const holding = this.#holdingKnot(effectFrame);
           const waiting = holding === undefined ? this.#pendingGoalLevel(effectFrame) : undefined;
-          if (waiting !== undefined) {
-            // A dot call written here is still a goal (#378): the call its
-            // resolution registers may be the one that makes this body a
-            // source, so its colour waits for the goal's deadline. (A body
-            // that calls a held one needs no hold of its own: the held colour
-            // is a dependency, `#isDependency`, so no arm here decides it.)
-            this.#holdFrame(effectFrame, waiting);
+          const reached = holding === undefined ? this.#holdsReached(effectFrame) : [];
+          if (waiting !== undefined || reached.length > 0) {
+            // A dot call written here is still a goal, or a call here reaches
+            // a body held for one (#378): the call a goal's resolution
+            // registers may be the one that makes that body a source, so this
+            // body's colour waits with it and settles beside it, the knot's
+            // arms telling a held callee's colour from a signature's.
+            this.#holdFrame(effectFrame, reached, waiting);
           } else if (holding === undefined) {
             this.#settleFrame(effectFrame);
           } else {
@@ -9619,8 +9634,7 @@ class Checker {
             // its calls' are decided at the knot's close, and what they meet
             // before then is recorded and compared there, never choosing them.
             // Sunk to the knot's level, nothing around it generalizes them.
-            this.#lowerLevels(effectFrame.own, holding.level);
-            for (const { effect } of effectFrame.absorbed) this.#lowerLevels(effect, holding.level);
+            this.#sinkFrame(effectFrame, holding.level);
             holding.frames.push(effectFrame);
             holding.held.add(effectFrame);
           }
@@ -19394,24 +19408,81 @@ class Checker {
     return level;
   }
 
+  /** The outermost level any body a hold (or knot) holds still waits at (#378). */
+  #heldGoalLevel(hold: Knot): number | undefined {
+    let level: number | undefined;
+    for (const frame of hold.frames) {
+      const at = this.#pendingGoalLevel(frame);
+      if (at !== undefined) level = level === undefined ? at : Math.min(level, at);
+    }
+    return level;
+  }
+
+  /** The holds whose colours this body's calls reach (#378). */
+  #holdsReached(frame: EffectFrame): Knot[] {
+    return this.#holds.filter((hold) =>
+      frame.absorbed.some(({ effect }) => this.#knotColour(hold, effect))
+    );
+  }
+
   /**
-   * Holds a closed body until its goals' deadline *(#378)*. Sunk to that level,
-   * nothing around it generalizes its colours meanwhile — the move the knot
-   * makes for a lambda it holds.
+   * Holds a closed body until its goals' deadline *(#378)*: in the one hold
+   * its calls reach — several are merged, their bodies' colours being decided
+   * together now — or in a new one. A hold is shaped as a knot with no members:
+   * the knot's frames, `held` set, recorded demands and level are what the
+   * arms and the demand comparison read, and the rest stays empty.
    */
-  #holdFrame(frame: EffectFrame, level: number): void {
-    const hold: Knot = {
-      members: [],
-      host: undefined,
-      references: [],
-      refused: false,
-      types: new Map(),
-      frames: [frame],
-      level,
-      demands: [],
-      held: new Set([frame]),
-    };
-    this.#holds.push(hold);
+  #holdFrame(frame: EffectFrame, reached: readonly Knot[], waiting: number | undefined): void {
+    let hold = reached[0];
+    if (hold === undefined) {
+      hold = {
+        members: [],
+        host: undefined,
+        references: [],
+        refused: false,
+        types: new Map(),
+        frames: [],
+        level: waiting!,
+        demands: [],
+        held: new Set(),
+      };
+      this.#holds.push(hold);
+    }
+    hold.frames.push(frame);
+    hold.held.add(frame);
+    this.#joinHolds(hold, reached.slice(1), waiting);
+  }
+
+  /**
+   * Merges `others` into `into` — their bodies' colours are decided together
+   * now, by the knot's sibling-aware arms, so that one never joins another's
+   * as a conduit — and sinks the whole to the outermost level any of them, or
+   * `waiting`, stands at (#378).
+   */
+  #joinHolds(into: Knot, others: readonly Knot[], waiting: number | undefined): void {
+    let level = waiting === undefined ? into.level : Math.min(into.level, waiting);
+    for (const other of others) {
+      if (other === into) continue;
+      into.frames.push(...other.frames);
+      for (const held of other.held) into.held.add(held);
+      into.demands.push(...other.demands);
+      level = Math.min(level, other.level);
+      this.#holds.splice(this.#holds.indexOf(other), 1);
+    }
+    this.#sinkHeld(into, level);
+  }
+
+  /**
+   * Sinks every colour a hold keeps to `level`, which becomes its level: no
+   * binding inside the owning region may quantify one before the hold settles.
+   */
+  #sinkHeld(hold: Knot, level: number): void {
+    hold.level = level;
+    for (const frame of hold.frames) this.#sinkFrame(frame, level);
+  }
+
+  /** Sinks a body's own colour and its calls' to `level` (§3.4's knot bullet, #378). */
+  #sinkFrame(frame: EffectFrame, level: number): void {
     this.#lowerLevels(frame.own, level);
     for (const { effect } of frame.absorbed) this.#lowerLevels(effect, level);
   }
@@ -19426,6 +19497,15 @@ class Checker {
   #settleHolds(level: number): void {
     for (const hold of [...this.#holds]) {
       if (hold.level <= level) continue;
+      // A goal can move out after its body was held — its receiver unified
+      // with a variable an enclosing region owns — and every goal this region
+      // owned has settled by now, so one still pending is owned further out:
+      // the hold moves to that deadline instead of settling early.
+      const waiting = this.#heldGoalLevel(hold);
+      if (waiting !== undefined) {
+        this.#sinkHeld(hold, waiting);
+        continue;
+      }
       this.#holds.splice(this.#holds.indexOf(hold), 1);
       this.#settleKnot(hold);
       this.#compareKnotDemands(hold);
@@ -20026,8 +20106,7 @@ class Checker {
     const pruned = this.#prune(colour);
     if (pruned.kind !== "Variable") return false;
     if (this.#isLinkedColour(pruned) || this.#ownedByEnclosing(frame, pruned)) return true;
-    return this.#knots.some((knot) => this.#knotColour(knot, pruned)) ||
-      this.#holds.some((hold) => this.#knotColour(hold, pruned));
+    return this.#knots.some((knot) => this.#knotColour(knot, pruned));
   }
 
   /**

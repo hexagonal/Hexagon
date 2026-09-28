@@ -15,8 +15,9 @@
  * sibling (§3.4's knot bullet): its colour and its calls' are decided at the
  * goals' deadline, right after they settle, and a demand its colour meets in
  * the meantime is recorded and compared then, never choosing it. A body that
- * calls a held one is held with it. Every specimen below lost its effect before
- * the hold.
+ * calls a held one is held with it, and a `fun` knot whose bodies wait for a
+ * goal owned outside the block is held whole. The specimens below either lost
+ * an effect before the hold or are what the hold must leave as it was.
  */
 
 import { describe, expect, test } from "vitest";
@@ -114,7 +115,170 @@ describe("a goal that settles after its body closes keeps its colour", () => {
   });
 });
 
+describe("a goal owned further out holds the body until that region closes", () => {
+  test("a `fun` member whose goal is on a receiver from outside its block", () => {
+    expect(typeOf(
+      "let run(source) =\n" +
+        "    fun go() = source.forEach!((value) => save!(value))\n" +
+        "    let pinned: Seq(String) = source\n" +
+        "    go\n",
+      "run",
+    )).toBe("Seq(String) -> () ->! Unit");
+    expect(typeOf(
+      "fun outer(v) =\n" +
+        "    fun inner() = v.forEach!((value) => save!(value))\n" +
+        "    let pinned: Seq(String) = v\n" +
+        "    inner\n",
+      "outer",
+    )).toBe("Seq(String) -> () ->! Unit");
+  });
+
+  test("a nested `fun` whose receiver only defaulting settles", () => {
+    const nested = store.replace(
+      "let f(n) =\n    let k = n + 1\n    n.put!()\n",
+      "let f(n) =\n    fun g() = n.put!()\n    let k = n + 1\n    g\n",
+    );
+    expect(typeOf(nested, "f")).toBe("Int -> () ->! Unit");
+  });
+
+  test("a lambda a knot holds, waiting on a receiver from outside the block", () => {
+    expect(typeOf(
+      "let run(source) =\n" +
+        "    fun\n" +
+        "        ping(n: Int): Int =\n" +
+        "            let act = () =>\n" +
+        "                source.forEach!((value) => save!(value))\n" +
+        "                pong!(n)\n" +
+        "            act!()\n" +
+        "        pong(n: Int): Int = if n > 0 then ping!(n - 1) else 0\n" +
+        "    let pinned: Seq(String) = source\n" +
+        "    ping!(1)\n",
+      "run",
+    )).toBe("Seq(String) ->! Int");
+  });
+
+  test("a goal whose receiver moved out after the body was held", () => {
+    expect(typeOf(
+      "let run(source) =\n" +
+        "    let helper(x) =\n" +
+        "        let act = () => x.forEach!((value) => save!(value))\n" +
+        "        let same = [x, source]\n" +
+        "        act\n" +
+        "    let pinned: Seq(String) = source\n" +
+        "    helper(source)\n",
+      "run",
+    )).toBe("Seq(String) -> () ->! Unit");
+  });
+});
+
+describe("a body that calls a held one settles beside it", () => {
+  test("a held pure callee beside a written `->?` conduit stays pure", () => {
+    expect(typeOf(
+      "let run(source, cb: () ->? Unit) =\n" +
+        "    let a = () => source.size()\n" +
+        "    let n = a()\n" +
+        "    cb?()\n" +
+        "    n\n",
+      "run",
+    )).toBe("({size: () -> a, ...b}, () ->? Unit) ->? a");
+  });
+
+  test("a pure and an impure held callee keep their own colours", () => {
+    expect(typeOf(
+      "let outer(source) =\n" +
+        "    let a = () => source.forEach!((value) => save!(value))\n" +
+        "    let b = () => source.length()\n" +
+        "    a!()\n" +
+        "    let k = b()\n" +
+        "    let pinned: Seq(String) = source\n" +
+        "    k\n",
+      "outer",
+    )).toBe("Seq(String) ->! Int");
+  });
+
+  test("an impure held callee leaves a written `->?` beside it as written", () => {
+    expect(typeOf(
+      "let outer(source, cb: () ->? Unit) =\n" +
+        "    let a = () => source.forEach!((value) => save!(value))\n" +
+        "    a!()\n" +
+        "    cb?()\n" +
+        "    let pinned: Seq(String) = source\n" +
+        "    ()\n",
+      "outer",
+    )).toBe("(Seq(String), () ->? Unit) ->! Unit");
+  });
+});
+
+describe("bodies that reach several holds settle together", () => {
+  test("two held pure callees beside a written `->?` conduit stay pure", () => {
+    // Settled in one hold, neither callee is the caller's conduit.
+    expect(typeOf(
+      "let run(s1, s2, cb: () ->? Unit) =\n" +
+        "    let a = () => s1.size()\n" +
+        "    let b = () => s2.size()\n" +
+        "    let n = a()\n" +
+        "    let m = b()\n" +
+        "    cb?()\n" +
+        "    n\n",
+      "run",
+    )).toBe("({size: () -> a, ...b}, {size: () -> c, ...d}, () ->? Unit) ->? a");
+  });
+
+  test("a pure held callee and an impure one, in either order", () => {
+    expect(typeOf(
+      "let run(s1, s2) =\n" +
+        "    let a = () => s1.length()\n" +
+        "    let b = () => s2.forEach!((v) => save!(v))\n" +
+        "    let c = () =>\n" +
+        "        let k = a()\n" +
+        "        b!()\n" +
+        "        k\n" +
+        "    let p1: Seq(String) = s1\n" +
+        "    let p2: Seq(String) = s2\n" +
+        "    c\n",
+      "run",
+    )).toBe("(Seq(String), Seq(String)) -> () ->! Int");
+  });
+
+  test("a knot whose member calls a held body settles with it", () => {
+    const knot = (member: string): string =>
+      "let run(source) =\n" +
+      "    let a = () => source.forEach!((v) => save!(v))\n" +
+      "    fun\n" +
+      `        ping(n: Int): Int =\n${member}` +
+      "        pong(n: Int): Int = if n > 0 then ping!(n - 1) else 0\n" +
+      "    let pinned: Seq(String) = source\n" +
+      "    ping!(1)\n";
+    expect(typeOf(knot("            a!()\n            pong!(n)\n"), "run")).toBe("Seq(String) ->! Int");
+    expect(typeOf(knot(
+      "            let c = () =>\n" +
+        "                a!()\n" +
+        "                pong!(n)\n" +
+        "            c!()\n",
+    ), "run")).toBe("Seq(String) ->! Int");
+  });
+});
+
 describe("what a held colour meets before it settles is compared after", () => {
+  test("the goals a knot settles at its close meet its members' colours as the knot does", () => {
+    // Settled while the knot is live again, a sibling's colour meeting the
+    // `->` parameter of `map` is a recorded demand: `b` keeps `->!`, and the
+    // report stands at the demand.
+    expect(refusals(
+      "fun\n" +
+        "    a(xs, n: Int): Unit =\n" +
+        "        ignore(xs.map(b))\n" +
+        "    b(s: String): Int =\n" +
+        "        save!(s)\n" +
+        "        a!(Seq.singleton(s), 1)\n" +
+        "        0\n",
+    )).toEqual([
+      "a `->` arrow promises purity, and this function performs effects — the demand is " +
+        "written `->`, the function's face `->?` or `->!`",
+      "this call is pure, so `a` wants no mark, not `!`",
+    ]);
+  });
+
   test("a `->` demand is refused at the demand", () => {
     expect(refusals(heldLambda("let quiet: () -> Unit = act\n    quiet"))).toEqual([
       "a `->` arrow promises purity, and this function performs effects — the demand is " +
