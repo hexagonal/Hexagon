@@ -31,7 +31,7 @@ opaque record Stream(+a) = { next: () ->! Option(a) }
 export let next(source: Stream(a)): Option(a) = (source.next)!()
 ```
 
-- The field arrow is a data-position `->!`: **the impure constant, and the only arrow this position admits** (`effects.md` §2.5) — a data declaration has no signature variable, so `->?` there is refused rather than re-read (§2.2.1, §4.4). Pulling performs effects, by declaration.
+- The field arrow is a data-position `->!`: **the impure constant, and the only arrow this position admits** (`effects.md` §2.5) — a data declaration has no signature, so nothing is handed to it, and `->?` there is refused rather than re-read (§2.2.1, §4.4). Pulling performs effects, by declaration.
 - `Some(value)`: the next element; the stream has advanced. `None`: exhausted. Pulling an exhausted stream yields `None` again; a source must be written to that contract.
 - The exported `next` is thin over the field, and its inferred face is `Stream(a) ->! Option(a)` — the first pull is unconditional. Every call to it wears `!`. Inside the home module — where the opaque type's field is visible and shares its spelling with the companion export — the fused `source.next(...)` is Method Syntax §6's field/method collision, a hard error naming both claimants; the field read is therefore spelled `(source.next)!()`, the parenthesized form §6 itself offers for a callable field. Outside the home module no field is visible (Method Syntax §6's visibility scoping), so `stream.next!()` dispatches to this companion operation cleanly.
 - **The `Option` at every pull is accepted for v1**, ambient sources included. An ambient source (entropy, a clock) never ends, so its consumers unwrap `Some` forever; a total variant would need either a second nominal type or partiality by `throw`, both worse than one honest protocol. Revisit bar: field evidence that ambient-source unwrapping dominates real `Stream` code.
@@ -49,7 +49,7 @@ export let next(source: Stream(a)): Option(a) = (source.next)!()
 
 ## 4. The v1 surface
 
-Consumption drives the world, so consumers wear `->!`. Building a derived stream touches nothing, so the wiring stays silent — `map(randoms, double)` is a bare call in every body, inlet-bearing ones included *(#868)*; effects surface where pulls happen: `next!`, `collect!`, `fold!`, `forEach!`, `find!`.
+Consumption drives the world, so consumers wear `->!`. Building a derived stream touches nothing, so the wiring stays silent — `map(randoms, double)` is a bare call in every body; effects surface where pulls happen: `next!`, `collect!`, `fold!`, `forEach!`, `find!`.
 
 ### 4.1 `next`
 
@@ -58,12 +58,12 @@ Consumption drives the world, so consumers wear `->!`. Building a derived stream
 ### 4.2 Derived streams: `map`, `filter`
 
 ```
-export let map(source: Stream(a), transform: a ->? b): Stream(b)
-export let filter(source: Stream(a), keep: a ->? Bool): Stream(a)
+export let map(source: Stream(a), transform: a ->! b): Stream(b)
+export let filter(source: Stream(a), keep: a ->! Bool): Stream(a)
 ```
 
-- Both construct a new `Stream` whose stored closure pulls `next!(source)` and applies the callback with `?`. The body itself is neither a source nor a conduit — evaluation builds a value and touches nothing — so the declaration's own colour is unconstrained and **defaults to pure** before generalization (Effects §3.4's third arm, #868): `map : (Stream(a), a ->? b) -> Stream(b)`, the callback's variable forwarded by the stored closure's `?` call (whose own arrow is the field's constant, next bullet) and the outer arrow pure. At the call this is exactly `compose`'s case (Effects §3.3): **bare in every body** — the slogan's, with no inlet-bearing exception left.
-- The stored closure's own colour is the conservative join — it performs the unconditional pull and forwards the callback's colour — which is the impure constant, matching the field it is stored into (`effects.md` §2.4, §2.5). Both are writable in ordinary Hexagon: their state is the source itself.
+- Both construct a new `Stream` whose stored closure pulls `next!(source)` and applies the callback with `!`. The body itself is neither a source nor a conduit — evaluation builds a value and touches nothing — so the declaration's own colour is unconstrained and **defaults to pure** before generalization (Effects §3.4's third arm): `map : (Stream(a), a ->! b) -> Stream(b)`, the callback's colour run by the stored closure (whose own arrow is the field's constant, next bullet) and the outer arrow pure. At the call this is exactly `compose`'s case (Effects §3.3): **bare in every body**.
+- The stored closure's own colour is the impure constant — it performs the unconditional pull, which absorbs the callback's colour — matching the field it is stored into (`effects.md` §2.4, §2.5). Both are writable in ordinary Hexagon: their state is the source itself.
 - A derived stream shares its source's cursor: pulling the derivation advances the underlying stream. There is no independence to promise and none is promised.
 - **No `take`, no `drop`.** A count-limited *transformer* needs a counter surviving between pulls — cross-call state, inexpressible (§3) and not worth an intrinsic: bounded consumption is what `collect` is for. Record against casual re-litigation; an intrinsic-door `take` may be proposed with field evidence.
 
@@ -80,15 +80,15 @@ A pure sequence driven as a stream: each pull takes one step of the `Seq` and ho
 
 ```
 export let collect(source: Stream(a), count: Int): Vector(a)
-export let fold(source: Stream(a), initial: b, combine: (b, a) ->? b): b
-export let forEach(source: Stream(a), action: a ->? Unit): Unit
-export let find(source: Stream(a), matches: a ->? Bool): Option(a)
+export let fold(source: Stream(a), initial: b, combine: (b, a) ->! b): b
+export let forEach(source: Stream(a), action: a ->! Unit): Unit
+export let find(source: Stream(a), matches: a ->! Bool): Option(a)
 ```
 
-- Every consumer's inferred outer face is `->!` — the pull is unconditional — so every consumption is spelled: `collect!(randoms, 10)`. `Stream.fold`'s face, `(Stream(a), b, (b, a) ->? b) ->! b`, is the arrow trio's canonical worked example: linked callback, constant-impure self (`effects.md` §2.4) — and the callback's `->?` is the inlet that makes the face legal (`effects.md` §2.2.1).
+- Every consumer's inferred outer face is `->!` — the pull is unconditional — so every consumption is spelled: `collect!(randoms, 10)`. `Stream.fold`'s face, `(Stream(a), b, (b, a) ->! b) ->! b`, is the canonical example of a function that touches the world on its own account while taking a callback that accepts any function: the pull's impure constant absorbs the callback's colour (`effects.md` §2.3, §2.4).
 - `collect` pulls at most `count` elements (fewer if the stream ends) into a `Vector(a)` — **the frozen sample**: pure data, the stream's one bridge back to the pure world. A `count` of zero or less collects nothing, on `Seq.take`'s convention.
 - `fold` and `forEach` drive to exhaustion and so **do not return on an ambient source**; their doc comments must say so (the `Seq` consumers' precedent). `find` stops at the first match, so it is safe on an ambient source that contains one.
-- The callbacks are linked `->?` — each consumer's own inlet, which is what makes the face legal (`effects.md` §2.2.1) — and bodies mark them `?`. A pure callback keeps the consumption exactly as effectful as the pulls — `!` either way — and an impure callback adds nothing to the spelling: the face already rounds up (`effects.md` §2.4).
+- The callbacks are written `->!` — each has its own colour and accepts any function (`effects.md` §2.4) — and bodies mark their calls `!`. A pure callback keeps the consumption exactly as effectful as the pulls — `!` either way — and an effectful callback adds nothing to the spelling: the pull's impure constant absorbs it (`effects.md` §2.4).
 
 ### 4.5 What the surface refuses
 
@@ -127,7 +127,7 @@ A foreign iterator-shaped source crosses at a `Stream(a)` position **raw**: prot
 | `Stream(+a) = { next: () ->! Option(a) }`; field arrow the impure constant, written; exported `next` face `->!`; `Option`-per-pull accepted for v1 with revisit bar | §2 |
 | Construction is external: externs, the intrinsic door, or derivation — cross-call state is inexpressible in pure Hexagon | §3 |
 | `Random`/`Clock` are the first customers; seeded PRNG is `Seq.unfold`, entropy is `Stream`, samples are `collect!`ed data | §3, §4.4 |
-| v1 surface: `next`, `map`, `filter`, `fromSeq`, `collect`, `fold`, `forEach`, `find`; wiring bare in every body (the under-an-inlet conduct withdrawn, #868 — Effects §3.3/§3.4), consumption `!` | §4 |
+| v1 surface: `next`, `map`, `filter`, `fromSeq`, `collect`, `fold`, `forEach`, `find`; wiring bare in every body (Effects §3.3/§3.4), consumption `!` | §4 |
 | No `Iterable` instance; no `for..in`; no `take`/`drop`; no `any`/`all`/`length` in v1 | §4.2, §4.5 |
 | Replay structurally absent: no `memoize`, no `toSeq`; entropy replay unspellable | §5 |
 | Boundary: raw protocol-to-protocol crossing at `Stream` positions; the launder stays at `Seq` positions | §6 |

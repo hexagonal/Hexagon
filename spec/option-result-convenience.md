@@ -22,15 +22,16 @@ possibleName |> Option.defaultValue("Guest")
 possibleName.defaultValue("Guest")
 ```
 
-Callback-taking functions use the existing linked `->?` effect mechanism.
+Callback-taking functions take `->!` callbacks and follow what they are handed (Effects §2.4).
 Passing a pure callback yields a pure call; passing an effectful callback
 requires the appropriate effect mark on the outer call. Conditional execution
 does not remove that static effect requirement: an effectful callback still
 requires `!` at a concrete call even when this execution takes the branch that
 skips that callback. The mark permits effects; it does not promise that an effect
 occurs during that execution. Which branch skips it is defined per function below.
-Propagation through another effect-polymorphic function uses the
-existing `?` form. These functions introduce no new effect inference rules.
+Handing a callback on to another callback-taking function needs nothing
+special: each callback has its own colour (Effects §2.4). These functions
+introduce no new effect inference rules.
 
 The selected callback is called exactly once; the other branch does not invoke
 it. Ordinary argument evaluation still applies before the function runs,
@@ -46,14 +47,14 @@ exception-to-data operation.
 The following definitions specify behavior and source-level signatures:
 
 ```hexagon
-export let map(source: Option(a), transform: a ->? b): Option(b) =
+export let map(source: Option(a), transform: a ->! b): Option(b) =
     match source
-        Some(value) => Some(transform?(value))
+        Some(value) => Some(transform!(value))
         None => None
 
-export let flatMap(source: Option(a), transform: a ->? Option(b)): Option(b) =
+export let flatMap(source: Option(a), transform: a ->! Option(b)): Option(b) =
     match source
-        Some(value) => transform?(value)
+        Some(value) => transform!(value)
         None => None
 
 export let defaultValue(source: Option(a), fallback: a): a =
@@ -61,10 +62,10 @@ export let defaultValue(source: Option(a), fallback: a): a =
         Some(value) => value
         None => fallback
 
-export let defaultWith(source: Option(a), fallback: () ->? a): a =
+export let defaultWith(source: Option(a), fallback: () ->! a): a =
     match source
         Some(value) => value
-        None => fallback?()
+        None => fallback!()
 
 export let toSeq(source: Option(a)): Seq(a) =
     match source
@@ -94,30 +95,30 @@ Seq-expected position. Those would require their own contracts.
 ## 3. Result
 
 ```hexagon
-export let map(source: Result(a, e), transform: a ->? b): Result(b, e) =
+export let map(source: Result(a, e), transform: a ->! b): Result(b, e) =
     match source
-        Ok(value) => Ok(transform?(value))
+        Ok(value) => Ok(transform!(value))
         Err(error) => Err(error)
 
-export let flatMap(source: Result(a, e), transform: a ->? Result(b, e)): Result(b, e) =
+export let flatMap(source: Result(a, e), transform: a ->! Result(b, e)): Result(b, e) =
     match source
-        Ok(value) => transform?(value)
+        Ok(value) => transform!(value)
         Err(error) => Err(error)
 
-export let mapError(source: Result(a, e), transform: e ->? f): Result(a, f) =
+export let mapError(source: Result(a, e), transform: e ->! f): Result(a, f) =
     match source
         Ok(value) => Ok(value)
-        Err(error) => Err(transform?(error))
+        Err(error) => Err(transform!(error))
 
 export let defaultValue(source: Result(a, e), fallback: a): a =
     match source
         Ok(value) => value
         Err(_) => fallback
 
-export let defaultWith(source: Result(a, e), fallback: e ->? a): a =
+export let defaultWith(source: Result(a, e), fallback: e ->! a): a =
     match source
         Ok(value) => value
-        Err(error) => fallback?(error)
+        Err(error) => fallback!(error)
 ```
 
 - map changes only the success payload type. flatMap can produce success or
@@ -160,7 +161,7 @@ Implementation and review must cover:
 3. Observable eager fallback-expression evaluation versus conditional invocation
    of defaultWith, without confusing callback-expression evaluation with calling
    the callback.
-4. Pure and effectful callback calls, propagation through `?`, and rejection of
+4. Pure and effectful callback calls, callbacks handed on, and rejection of
    missing or inappropriate call marks under the existing effect rules.
 5. Exception propagation from selected callbacks and no callback execution on
    the opposite branch.
