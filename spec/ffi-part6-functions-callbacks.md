@@ -222,7 +222,7 @@ removeListener!(target, onEvent)         -- same JS identity; actually deregiste
 -- (b) Extra JS callback arguments are harmless
 -- foreign: array.forEach(cb) invokes cb(value, index, array)
 extern from "helpers"
-    fun each(values: Array(Int), callback: Int ->? Unit) ->? Unit
+    fun each(values: Array(Int), callback: Int ->! Unit) ->? Unit
 each!(xs, n => JsArray.push!(total, n))  -- index/array ignored by representation
 
 -- (c) Meaningful callback result preserved

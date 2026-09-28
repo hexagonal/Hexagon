@@ -565,8 +565,8 @@ The Comments spec is authoritative; this section fixes token interaction.
 | Separators and labels | `,` `:` `;` |
 | Access and spread | `.` `...` |
 | Declaration/arm punctuation | `=` `=>` *(the term-level arrow: a lambda's and a `match`/`catch` arm's. It is not a type token — Effects §2)* |
-| Type arrows | `->` `->?` `->!` *(roles: Effects §2 — `->` pure, `->?` this signature's linked effect variable, `->!` the impure constant. One arrow carrying the call trichotomy's own marks; `->` is corrected into this inventory for #355, and `->?`/`->!` replace `=>`/`=>!` in type position for #405)* |
-| Call marks | `!` `?` *(the effects ruling's marks, #355; grammar — glued on both sides, against the callee and against the argument list's `(`, or glued at a `\|>` stage's end — is the parser's, Effects §3.2)* |
+| Type arrows | `->` `->!` `->?` *(roles: Effects §2 — `->` pure, `->!` may touch the world, `->?` only as effectful as what the signature is handed. `->` is corrected into this inventory for #355, and `->!`/`->?` replace `=>!`/`=>` in type position for #405)* |
+| Call marks | `!` `?` *(the effects ruling's marks, #355; grammar — glued on both sides, against the callee and against the argument list's `(`, or glued at a `\|>` stage's end — is the parser's, Effects §3.2. `!` is the one call mark; `?` still lexes in a mark's seat so that the parser can refuse it with the fixit to the mark the call requires, Effects §4.1)* |
 | Arithmetic and concatenation | `+` `-` `*` `/` `**` `++` |
 | Comparison | `==` `!=` `<` `>` `<=` `>=` |
 | Range | `..` |

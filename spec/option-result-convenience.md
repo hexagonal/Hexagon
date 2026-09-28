@@ -22,7 +22,7 @@ possibleName |> Option.defaultValue("Guest")
 possibleName.defaultValue("Guest")
 ```
 
-Callback-taking functions use the existing linked `->?` effect mechanism.
+Callback-taking functions take `->!` callbacks and follow what they are handed (Effects §2.4).
 Passing a pure callback yields a pure call; passing an effectful callback
 requires the appropriate effect mark on the outer call. Conditional execution
 does not remove that static effect requirement: an effectful callback still
@@ -46,14 +46,14 @@ exception-to-data operation.
 The following definitions specify behavior and source-level signatures:
 
 ```hexagon
-export let map(source: Option(a), transform: a ->? b): Option(b) =
+export let map(source: Option(a), transform: a ->! b): Option(b) =
     match source
-        Some(value) => Some(transform?(value))
+        Some(value) => Some(transform!(value))
         None => None
 
-export let flatMap(source: Option(a), transform: a ->? Option(b)): Option(b) =
+export let flatMap(source: Option(a), transform: a ->! Option(b)): Option(b) =
     match source
-        Some(value) => transform?(value)
+        Some(value) => transform!(value)
         None => None
 
 export let defaultValue(source: Option(a), fallback: a): a =
@@ -61,10 +61,10 @@ export let defaultValue(source: Option(a), fallback: a): a =
         Some(value) => value
         None => fallback
 
-export let defaultWith(source: Option(a), fallback: () ->? a): a =
+export let defaultWith(source: Option(a), fallback: () ->! a): a =
     match source
         Some(value) => value
-        None => fallback?()
+        None => fallback!()
 
 export let toSeq(source: Option(a)): Seq(a) =
     match source
@@ -94,30 +94,30 @@ Seq-expected position. Those would require their own contracts.
 ## 3. Result
 
 ```hexagon
-export let map(source: Result(a, e), transform: a ->? b): Result(b, e) =
+export let map(source: Result(a, e), transform: a ->! b): Result(b, e) =
     match source
-        Ok(value) => Ok(transform?(value))
+        Ok(value) => Ok(transform!(value))
         Err(error) => Err(error)
 
-export let flatMap(source: Result(a, e), transform: a ->? Result(b, e)): Result(b, e) =
+export let flatMap(source: Result(a, e), transform: a ->! Result(b, e)): Result(b, e) =
     match source
-        Ok(value) => transform?(value)
+        Ok(value) => transform!(value)
         Err(error) => Err(error)
 
-export let mapError(source: Result(a, e), transform: e ->? f): Result(a, f) =
+export let mapError(source: Result(a, e), transform: e ->! f): Result(a, f) =
     match source
         Ok(value) => Ok(value)
-        Err(error) => Err(transform?(error))
+        Err(error) => Err(transform!(error))
 
 export let defaultValue(source: Result(a, e), fallback: a): a =
     match source
         Ok(value) => value
         Err(_) => fallback
 
-export let defaultWith(source: Result(a, e), fallback: e ->? a): a =
+export let defaultWith(source: Result(a, e), fallback: e ->! a): a =
     match source
         Ok(value) => value
-        Err(error) => fallback?(error)
+        Err(error) => fallback!(error)
 ```
 
 - map changes only the success payload type. flatMap can produce success or

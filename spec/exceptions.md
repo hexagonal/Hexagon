@@ -103,7 +103,7 @@ The one addition: **`JsError(e)`** is a legal arm — a prelude exception (§6) 
 - **Reachability is still checked and still a hard error** (Unions §4.3 transfers): a constructor arm already covered above, or any arm after `_`/bare-variable, or a constructor arm after a `JsError` arm *only if* — no: `JsError` covers only the foreign branch, so domestic arms after it are fine; but a second `JsError` arm, or anything after `_`, is unreachable. Over the full grammar the logic is Pattern Matching §7.2's — or-patterns folded in, guarded arms unable to subsume — and it remains exact; do not approximate.
 - **Guards** (Pattern Matching §3) run against the caught exception after the arm's pattern matches, outside any protection: a guard that throws propagates outward, exactly like a body — the emission gets this for free, guards running inside the JS catch block (§7.4). A failed guard falls through to the next arm; no arm left means the implicit rethrow, as always.
 - The try-body is evaluated once; exceptions thrown *inside a catch arm's body* are not caught by the same `catch` (they propagate outward) — standard, but stated because JS's `try`/`catch` behaves identically and the emission (§7.4) gets it for free.
-- **Colours: nothing here owns an effect rule.** The try-body and every arm body are ordinary expression positions — their call marks join into the enclosing body's colour exactly as any other subexpression's do, and a `?` call inside either conducts the callee's variable — the enclosing signature's own, or one captured from further out — as usual (Effects §3.1). Catching never launders an effect, and throwing never creates one (§1).
+- **Colours: nothing here owns an effect rule.** The try-body and every arm body are ordinary expression positions — their calls join into the enclosing body's colour exactly as any other subexpression's do, and a call inside either on a callback's colour — the enclosing signature's own, or one captured from further out — conducts it and wears `!`, as usual (Effects §3.1, §3.4). Catching never launders an effect, and throwing never creates one (§1).
 
 ### 5.4 The match catch expression *(#500)*
 
@@ -251,12 +251,12 @@ Per §6.1. Declared in the prelude; FFI Part 11 finalizes its `JsValue` payload 
 ### 8.2 `Result.attempt`
 
 ```
-Result.attempt : (() ->? a) ->? Result(a, Exn)
+Result.attempt : (() ->! a) ->? Result(a, Exn)
 ```
 
 Runs the thunk; `Ok(value)` on normal return, `Err(exn)` on any throw — Hexagon or foreign (foreign arrives as the `JsError`-branch value, i.e. `Err(JsError(e))` observationally). This is the bridge from the exception world back to the data world, expected to be the single most-used exception function in practice; it is ordinary Hexagon (a `try`/`catch` with a `_` arm) and may be written in the stdlib, not compiler magic. The inverse direction is `throw` composed on `match`/`Err` and needs no dedicated function.
 
-The arrows are linked (Effects §2.2): the thunk's `->?` is the signature's inlet, and `attempt` is a conduit — its body is a `?` call on the thunk under a catch-all — so running `attempt` is exactly as effectful as the thunk it is handed. Instantiated pure, the whole call is pure and bare; instantiated impure, it wears `!`. A pure-only face would refuse exactly the boundary-wrapping calls this function exists for.
+The thunk is a callback with its own colour (Effects §2.4), and `attempt` is a conduit — its body is a `!` call on the thunk under a catch-all — so running `attempt` is exactly as effectful as the thunk it is handed. Handed a pure thunk, the call is pure and bare; handed one that may touch the world, it wears `!`. A pure-only face would refuse exactly the boundary-wrapping calls this function exists for.
 
 *(Naming note: subject-first convention doesn't bite — the thunk is the only argument.)*
 
@@ -322,9 +322,9 @@ The arrows are linked (Effects §2.2): the thunk's `->?` is the signature's inle
 | Nullary exceptions construct fresh (stack capture); union shared-constant trick not applied | §7.3 |
 | Two-stage catch discrimination (brand, then name); `err != null` guard; `_` catches truly everything | §7.4 |
 | `.d.ts`: `Error & {$hex: true; name: "..."; ...}`; brand included; exported constructor functions (nullary included, fresh per call); `Exn` at the boundary is `Error` | §7.5; FFI Part 7 §6 |
-| Prelude: `JsError`, `Result.attempt : (() ->? a) ->? Result(a, Exn)` (stdlib, not magic) | §8 |
+| Prelude: `JsError`, `Result.attempt : (() ->! a) ->? Result(a, Exn)` (stdlib, not magic) | §8 |
 | Throwing is not an effect — the cut restated from this side; `throw` is `->` pure; `try`/`catch` colours by ordinary join; exceptions-as-tracked-effect and throw-pure/catch-impure both rejected, reasons recorded; catch-in-pure bounds the Effects §7 reordering licence (observable throws pin order) | §1, §3, §5.3 |
-| `Result.attempt`'s arrows link — the thunk's `->?` is the inlet, `attempt` a conduit | §8.2 |
+| `Result.attempt` follows its thunk — the thunk a `->!` callback, `attempt` a conduit | §8.2 |
 | `finally`: resolved to never (supersedes the deferral row above) — keyword reserved permanently, purely for the diagnostic; resources are the v2 `use` story | §5.1, §9, §10.1 |
 | *(#876)* No captured foreign collection in an exception payload — hard error at the declaration, rewrite `Vector`; the rule is what keeps abstract `Exn` identity-crossing at every boundary position | §2 |
 | Boundary guards (#478): `.is` on every exported exception constructor (TS predicate to the §7.5 face); `isHexError` per exception-exporting module (stage-1 test); fixed generated face, collision = Part 8 §6.2-family hard error; `JsError` excluded (virtual wrapping); guards certify the brand only; nothing exists Hexagon-side | §7.6 |

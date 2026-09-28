@@ -49,7 +49,7 @@ Every normative owner appears exactly once. The explicitly marked router and gui
 | Control | `loops-ranges-iteration.md` | `for`/`while`, `Range`, `Seq` semantics, `Iterable` machinery |
 | Control | `method-syntax.md` | dot calls, `CompanionOf`, DotCall goals, Deferred-Goals Doctrine (interim host) |
 | Control | `division-remainder.md` | division/remainder/modulo semantics |
-| Effects | `effects.md` | the effect discipline (#355): the two-point lattice, the arrow trio, call marks, enforcement, trusted purity claims, the `Seq`/`Stream` posture |
+| Effects | `effects.md` | the effect discipline: the two-point lattice, the three arrows, one colour per callback, the two call marks, enforcement, trusted purity claims, the `Seq`/`Stream` posture, effect contracts |
 | Effects | `stream.md` | `Stream(a)`, the impure sequence: type, protocol, v1 module surface |
 | Collections | `collections-part1-decisions.md` | foundational decisions: `Vector` choice, naming doctrine, accessor pair |
 | Collections | `collections-part2-hash-and-type-members.md` | `Hash`, constraint `type` members |

@@ -18,7 +18,7 @@ Four commitments, each a ruling of #927, shape everything below:
 - **The engine is one construction** (§6): one Thompson NFA, a lazy DFA for the scan and a Pike VM for captures and as the always-linear fallback. Derivative-based matching was rejected because captures would then be a second semantic definition of the pattern beside the one the DFA implements.
 - **The surface is pure and the engine is not** (§7): the engine is written `->!` wherever it touches a buffer's contents, and purity is claimed once, at two sealed `->` rows whose lowerings are its compiled bodies — Effects §6.2's species (d), owned scratch, with the lazy-DFA cache and the resolved classes (§6.2) the two owned memos a compiled `Regex` carries. A `Regex` is a value: comparing, sharing, hoisting, and dropping a search are the compiler's to do as with any pure call.
 
-The surface is small by design (§4): one `compile`, flags inline in the pattern, `Result` where a pattern can be wrong, a lazy `Seq(Match)` where there are many matches, and a `Match ->? String` function where a replacement needs the match — no replacement-token language.
+The surface is small by design (§4): one `compile`, flags inline in the pattern, `Result` where a pattern can be wrong, a lazy `Seq(Match)` where there are many matches, and a `Match ->! String` function where a replacement needs the match — no replacement-token language.
 
 ## 2. The pattern language
 
@@ -289,13 +289,13 @@ Regex.findAll(regex: Regex, text: String): Seq(Match)
 ```
 Regex.replace(regex: Regex, text: String, replacement: String): String
 Regex.replaceFirst(regex: Regex, text: String, replacement: String): String
-Regex.replaceWith(regex: Regex, text: String, replacement: Match ->? String): String
-Regex.replaceFirstWith(regex: Regex, text: String, replacement: Match ->? String): String
+Regex.replaceWith(regex: Regex, text: String, replacement: Match ->! String): String
+Regex.replaceFirstWith(regex: Regex, text: String, replacement: Match ->! String): String
 Regex.split(regex: Regex, text: String): Vector(String)
 ```
 
 - `replace` and `replaceFirst` replace every match of §3.5's enumeration, or the first, with `replacement` **unchanged** — a literal, with no `$1`, `${name}`, or `\1` interpretation, the String companion's rule (`string-text-processing.md` §6). Unmatched text keeps its spelling; inserted text is never searched again; no match leaves the input unchanged.
-- `replaceWith` and `replaceFirstWith` compute each replacement from its `Match` — group text, positions, the subject — which is the whole of what a token language would have said, in Hexagon. The callback is a linked `->?` conduit on the `Seq` consumers' precedent (Effects §2.2.1): pure in, pure and bare out; impure in, and the call wears `!`; a callback carrying a variable of the caller's own signature, and the call wears `?` (Effects §4.1). This amends Decision 7, which wrote the parameter `Match -> String`: the conduit makes an effectful replacer ordinary under `?` where the pure arrow would make it a type error (§13). The callback is invoked once per replaced match, in order, and never for a match it does not replace; an exception it throws propagates from the call, and no partial result escapes.
+- `replaceWith` and `replaceFirstWith` compute each replacement from its `Match` — group text, positions, the subject — which is the whole of what a token language would have said, in Hexagon. The callback is a `->!` callback on the `Seq` consumers' precedent, with a colour of its own (Effects §2.4): pure in, pure and bare out; anything else in, and the call wears `!` (Effects §4.1). This amends Decision 7, which wrote the parameter `Match -> String`: the callback makes an effectful replacer ordinary under `!` where the pure arrow would make it a type error (§13). The callback is invoked once per replaced match, in order, and never for a match it does not replace; an exception it throws propagates from the call, and no partial result escapes.
 - `split` answers the pieces of `text` between the matches of §3.5's enumeration — assembled in one pass over the subject, as are the unmatched runs of the `replace` family (§6.4) —, preserving empty pieces at both ends and between adjacent matches, so that `String.join(regex.split(text).toSeq(), sep)` reconstructs `text` when every match spelled `sep`. On the empty pattern it agrees with `String.split(text, "")`; a pattern that matches nowhere answers `[text]`.
 
 ### 4.5 `Match` accessors
@@ -506,7 +506,7 @@ Each below needs its own ruling; none is implied by this document.
 | Empty-match iteration = RE2/Go's rule; `split` agrees with `String.split` on `""` | §3.5 |
 | `Regex` opaque over `Program`, no `Eq`/`Hash`, `Show` = source; `Match` opaque — `whole`, `groups`, `names` — holding its `Group`s with texts cut by the engine, eager cut accepted, accessors are reads — a field read, one vector read, one name-table lookup; `Group` transparent | §4.1, §4.5 |
 | Surface: `compile`, `escape`, `source`, `groupCount`, `groupIndex`, `isMatch`, `find`, `findFrom`, `findAll`, `replace`/`replaceFirst`/`replaceWith`/`replaceFirstWith`, `split` | §4.2–§4.4 |
-| Decision 7 amended: replacement callbacks are `Match ->? String` conduits where it wrote `Match -> String`; an effectful replacer is ordinary under `?` rather than a type error | §4.4 |
+| Decision 7 amended: replacement callbacks are `Match ->! String` callbacks where it wrote `Match -> String`; an effectful replacer is ordinary under `!` rather than a type error | §4.4 |
 | Refusals: no token language, no flags argument, no `RegExp` conversion, no `Eq`/`Hash`, no re-export of `RegexError`, no `Vector`/`count` conveniences | §4.6 |
 | `Regex.Syntax` door-free and pure; flags resolved in the tree; property values canonical; explicit ranges normalized; one tree per construct; no source spans in v1 | §5 |
 | Decision 4 amended: the Unicode-table keys and the resolution they serve move from `Regex.Syntax` to the engine; the parser keeps the names as a generated table | §5, §7 |
