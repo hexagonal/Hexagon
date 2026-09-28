@@ -6517,7 +6517,9 @@ class Checker {
       }
       fixpoint();
       // The defaults read ownership as the goals do: a waiting source a pending
-      // goal mentions belongs to that goal's region (#1154).
+      // goal mentions belongs to that goal's region (#1154). `#generalize` has
+      // pinned already; this keeps the pins current for what a goal resolved in
+      // this pass moved, before a default reads them.
       this.#pinPendingGoals();
     } while (this.#settleSequenceDefaults(level));
     for (const goal of [...this.#dotCallGoals]) {
@@ -15964,13 +15966,19 @@ class Checker {
     const span = node.expression.span;
     const here = this.#mergeSpan(node, merge);
     this.#unify(node.result, face, span);
+    // A value still unsolved meets a `Seq` seat's face as a waiting source
+    // (Collections Part 5 §3.5), never unified with the sequence on the spot.
+    const sequenceSeat = node.face !== undefined && node.face.kind !== "Variable" &&
+      this.#asSequence(this.#prune(face)) !== undefined && this.#adaptsAt(face);
     for (const part of node.parts) {
       if ("node" in part) {
         this.#enterFace(part.node, face, here);
         continue;
       }
       const enter = (): void =>
-        this.#unifyExpected(face, part.value.type, part.value.expression, span, true);
+        this.#unifyExpected(
+          face, part.value.type, part.value.expression, span, true, false, sequenceSeat,
+        );
       if (here !== undefined) this.#joining(here, enter);
       else enter();
     }
@@ -24038,6 +24046,27 @@ class Checker {
     return this.#sequence(element, path.span);
   }
 
+  /**
+   * Part 5 §3.6 for a head that arrived late: a `"conversion"` demand made
+   * inside an `Iterable` instance's own `toSeq` whose subject turned out to be
+   * that instance's is refused there, in the seat's words — whether it was
+   * validated itself or absorbed by another demand on the same source.
+   */
+  #refusesOwnSubject(requirement: Requirement): boolean {
+    const own = requirement.ownToSeq;
+    const seat = requirement.sequenceSeat;
+    if (own === undefined || seat === undefined) return false;
+    const type = this.#prune(requirement.type);
+    if (type.kind === "Variable" || this.#subjectKey(type) !== own.key) return false;
+    requirement.reported = true;
+    this.#reportRequirement(undefined, {
+      severity: "error",
+      message: this.#selfAdaptationMessage(seat, type, own.subject),
+      primary: requirement.span,
+    });
+    return true;
+  }
+
   /** Part 5 §3.6's refusal, §12's wording. */
   #selfAdaptationMessage(seat: Mono, source: Mono, subject: Mono): string {
     return `type mismatch: expected ${this.#display(seat)}, found ${this.#display(source)}; ` +
@@ -25073,6 +25102,7 @@ class Checker {
         this.#validate(dropped);
         continue;
       }
+      if (this.#refusesOwnSubject(dropped)) continue;
       dropped.validated = true;
       if (requirement.selected !== undefined) dropped.selected = requirement.selected;
       if (requirement.dictionary !== undefined) dropped.dictionary = requirement.dictionary;
@@ -25184,18 +25214,7 @@ class Checker {
       const instance = selection.instance;
       // A head that arrived late at a seat inside its own instance's `toSeq`
       // (Collections Part 5 §3.6), refused as the head known at the seat is.
-      if (
-        requirement.ownToSeq !== undefined && requirement.sequenceSeat !== undefined &&
-        this.#subjectKey(type) === requirement.ownToSeq.key
-      ) {
-        requirement.reported = true;
-        this.#reportRequirement(undefined, {
-          severity: "error",
-          message: this.#selfAdaptationMessage(requirement.sequenceSeat, type, requirement.ownToSeq.subject),
-          primary: requirement.span,
-        });
-        return;
-      }
+      if (this.#refusesOwnSubject(requirement)) return;
       this.#pinInstanceSubject(instance, type, requirement.span);
       requirement.selected = instance;
       requirement.dictionary = instance.dictionary;

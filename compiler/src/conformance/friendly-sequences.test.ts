@@ -445,11 +445,10 @@ describe("the exclusion holds however late the head arrives (Part 5 §3.6)", () 
   });
 
   test("a helper one call removed still adapts (D8)", () => {
-    expect(typeOf(
+    expect(emitted(
       "record Stack(a) = {items: Vector(a)}\nlet flat(s: Stack(a)): Seq(a) = s\n" +
-        "honor Iterable<Stack(a)> =\n    type Item = a\n    toSeq(s) = s.items\n",
-      "flat",
-    )).toBe("Stack(a) -> Seq(a)");
+        "honor Iterable<Stack(a)> =\n    type Item = a\n    toSeq(s) = flat(s)\n",
+    )).toContain("const flat = s => __Iterable_Stack_toSeq(s);");
   });
 });
 
@@ -517,6 +516,57 @@ describe("the rest of what never adapts, and what it costs", () => {
   test("the source is evaluated once, inside the one call", () => {
     expect(emitted("let mk(): Vector(String) = [\"a\"]\nlet joined = String.fromSeq(mk())\n"))
       .toContain("const joined = fromSeq(toSeq(mk()));");
+  });
+});
+
+describe("an unknown value on a form's path, or grouped, waits too (Part 5 §3.5)", () => {
+  test("both branches unknown, described afterwards", () => {
+    expect(typeOf(
+      "let f(c: Bool, xs, ys) =\n    let n = Seq.length(if c then xs else ys)\n" +
+        "    let a: Vector(String) = xs\n    let b: Set(String) = ys\n    n\n",
+      "f",
+    )).toBe("(Bool, Vector(String), Set(String)) -> Int");
+    expect(typeOf(
+      "let f(c: Bool, xs, ys) =\n    let a: Vector(String) = xs\n    let b: Set(String) = ys\n" +
+        "    Seq.length(if c then xs else ys)\n",
+      "f",
+    )).toBe("(Bool, Vector(String), Set(String)) -> Int");
+    expect(typeOf(
+      "let f(c: Bool, xs, ys) =\n    let s: Seq(String) = if c then xs else ys\n" +
+        "    let a: Vector(String) = xs\n    Seq.length(s)\n",
+      "f",
+    )).toBe("(Bool, Vector(String), Seq(String)) -> Int");
+    expect(typeOf(
+      "let f(c: Bool, xs, ys) =\n    let s = String.fromSeq(match c\n        True => xs\n" +
+        "        False => ys)\n    let a: Vector(String) = xs\n    s\n",
+      "f",
+    )).toBe("(Bool, Vector(String), Seq(String)) -> String");
+  });
+
+  test("a grouped unknown value, in either order", () => {
+    expect(typeOf("let f(xs) =\n    let s = Seq.length((xs))\n    Vector.length(xs)\n", "f"))
+      .toBe("Vector(a) -> Int");
+    expect(typeOf("let f(xs) =\n    let n = Vector.length(xs)\n    Seq.length((xs))\n", "f"))
+      .toBe("Vector(a) -> Int");
+    expect(typeOf("let f(xs) =\n    let s = String.fromSeq((xs))\n    Vector.length(xs)\n", "f"))
+      .toBe("Vector(String) -> Int");
+  });
+
+  test("an absorbed seat inside the instance's own `toSeq` is refused as its own would be", () => {
+    expect(refusals(
+      "record Stack(a) = {items: Vector(a)}\n" +
+        "honor Iterable<Stack(a)> =\n    type Item = a\n    toSeq(s) =\n" +
+        "        var holder = Vector.empty\n" +
+        "        let n = match Vector.first(holder)\n            Some(b) =>\n" +
+        "                var t = 0\n                for x in b\n                    t := t + 1\n" +
+        "                t + Seq.length(b)\n            None => 0\n" +
+        "        holder := [s]\n        s.items\n",
+    )).toEqual([
+      "type mismatch: expected Seq(a), found Stack(a); inside `Iterable<Stack(a)>`'s own `toSeq`, " +
+        "a `Stack(a)` is not converted to a sequence, since that would call the member being " +
+        "defined; convert its contents, or write `Iterable.toSeq(…)` where recursion on a smaller " +
+        "value is meant",
+    ]);
   });
 });
 
