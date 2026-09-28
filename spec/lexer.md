@@ -566,7 +566,7 @@ The Comments spec is authoritative; this section fixes token interaction.
 | Access and spread | `.` `...` |
 | Declaration/arm punctuation | `=` `=>` *(the term-level arrow: a lambda's and a `match`/`catch` arm's. It is not a type token — Effects §2)* |
 | Type arrows | `->` `->!` `->?` *(roles: Effects §2 — `->` pure, `->!` may touch the world, `->?` only as effectful as what the signature is handed. `->` is corrected into this inventory for #355, and `->!`/`->?` replace `=>!`/`=>` in type position for #405)* |
-| Call marks | `!` `?` *(the effects ruling's marks, #355; grammar — glued on both sides, against the callee and against the argument list's `(`, or glued at a `\|>` stage's end — is the parser's, Effects §3.2. `!` is the one call mark; `?` still lexes in a mark's seat so that the parser can refuse it with the fixit to the mark the call requires, Effects §4.1)* |
+| Call mark | `!` *(the effects ruling's one mark, #355, #1144; grammar — glued on both sides, against the callee and against the argument list's `(`, or glued at a `\|>` stage's end — is the parser's, Effects §3.2)* |
 | Arithmetic and concatenation | `+` `-` `*` `/` `**` `++` |
 | Comparison | `==` `!=` `<` `>` `<=` `>=` |
 | Range | `..` |
@@ -618,24 +618,21 @@ spellings `/*` and `*/` join this family with Comments §3.1's redirects *(#171)
 
 ### 8.3 Not tokens
 
-The following are deliberately absent: `%`, `^`, `&`, `~`, `@`, `#`,
+The following are deliberately absent: `%`, `^`, `&`, `~`, `@`, `#`, `?`,
 backtick, backslash outside a string, `&&`, `||`, `::`, `??`, `?.`, `..<`,
 compound assignments, increment/decrement, and every user-invented punctuation run.
 `&`, `^`, and `~` stay absent with the bitwise operations in the language: those
 operations are the words `band`, `bxor`, and `bnot` (`bitwise.md`), and each character takes
 the redirect of §10.
-*(Corrected for #355 — this list previously included `->`, bare `!`, and `?`,
-all three now §8.1 tokens: `->` had already shipped, and `!`/`?` are the call
-marks. `??` and `?.` remain absent — maximal munch does not combine two marks or
-a mark and a dot into an unlisted token; the leading mark of such a run falls
-outside a mark's grammatical seats and is refused there by the parser unless
-it is the trailing suffix-construction mark of Pattern Declarations §14. In
-that form a following dot is a separate postfix token, so `(x)name?.field`
-is marked construction followed by field access, never optional chaining.
-Two adjacent marks still form no valid suffix construction. For #405
-the marked type arrows `->?` and `->!` join §8.1 and `=>!` leaves it; a mark
-following `->` is part of that one token and never a mark token in its own
-right, so `->!` is not an arrow beside a stray bang.)*
+*(`->` and bare `!` are §8.1 tokens: `->` the type arrow, `!` the one call
+mark. `?` is a token only inside `->?`, which maximal munch reads whole; alone
+it spells nothing, so `f?(x)`, `??`, and `?.` are unknown-character runs, not
+optional chaining. Maximal munch does not combine a mark and a dot into an
+unlisted token: `(x)name!.field` is a marked construction followed by field
+access, and two adjacent marks form no valid suffix construction. The marked
+type arrows `->?` and `->!` are §8.1 tokens and `=>!` is not; a mark following
+`->` is part of that one token and never a mark token in its own right, so
+`->!` is not an arrow beside a stray bang.)*
 
 Where every character of a run is independently valid (`+=`, `->`, `--`), the lexer
 may emit those valid component tokens and let the parser issue the form-specific
@@ -763,7 +760,7 @@ a && b              -- write `a and b`
 | Complete escape set; source newlines normalize to semantic LF | §6.2 |
 | Comments are trivia; nested forms and diagnostics inherited unchanged | §7 |
 | Closed punctuation/operator inventory and maximal-munch rules | §8 |
-| `->` corrected into the inventory (shipped with function-type annotations; Effects §2 names its role); the call marks `!`/`?` added for #355; the marked type arrows `->?`/`->!` replace `=>`/`=>!` for #405, leaving `=>` a term-level token only; a mark never begins a token, so `!->` is impossible by munch; prefix-`!` keeps the `not` redirect, parser-selected | §8.1–§8.3, §10 (#355, #405) |
+| `->` corrected into the inventory (shipped with function-type annotations; Effects §2 names its role); the call mark `!` added for #355 (`?` is no token, #1144); the marked type arrows `->?`/`->!` replace `=>`/`=>!` for #405, leaving `=>` a term-level token only; a mark never begins a token, so `!->` is impossible by munch; prefix-`!` keeps the `not` redirect, parser-selected | §8.1–§8.3, §10 (#355, #405) |
 | Exact physical token families; virtual layout tokens excluded | §9 |
 | No warning tier; malformed tokens advance and recover | §10 |
 | `pure` and `conduit` leave the contextual table — ordinary names again; the arrow a callable extern row writes says what they claimed (FFI Part 4 §4.5, #869) | §4.2 |

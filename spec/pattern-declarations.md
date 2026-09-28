@@ -567,8 +567,7 @@ required everywhere else — the impure constant, or a colour that depends on
 what the build is handed — with Effects §3's ordinary call-site rules. A
 build that depends on its arguments' functions, instantiated at pure ones,
 uses the bare form. Wrong or missing marks receive the ordinary call-mark
-diagnostic and a repair at the suffix's mark position; a `?` there is Effects
-§4.1's retired-mark refusal.
+diagnostic and a repair at the suffix's mark position.
 
 This changes no declaration rule: `view` remains pure, `build` may have any
 ordinary function effect permitted by its type, and a match-only pattern still

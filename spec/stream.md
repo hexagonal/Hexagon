@@ -49,7 +49,7 @@ export let next(source: Stream(a)): Option(a) = (source.next)!()
 
 ## 4. The v1 surface
 
-Consumption drives the world, so consumers wear `->!`. Building a derived stream touches nothing, so the wiring stays silent — `map(randoms, double)` is a bare call in every body, inlet-bearing ones included *(#868)*; effects surface where pulls happen: `next!`, `collect!`, `fold!`, `forEach!`, `find!`.
+Consumption drives the world, so consumers wear `->!`. Building a derived stream touches nothing, so the wiring stays silent — `map(randoms, double)` is a bare call in every body; effects surface where pulls happen: `next!`, `collect!`, `fold!`, `forEach!`, `find!`.
 
 ### 4.1 `next`
 
@@ -85,7 +85,7 @@ export let forEach(source: Stream(a), action: a ->! Unit): Unit
 export let find(source: Stream(a), matches: a ->! Bool): Option(a)
 ```
 
-- Every consumer's inferred outer face is `->!` — the pull is unconditional — so every consumption is spelled: `collect!(randoms, 10)`. `Stream.fold`'s face, `(Stream(a), b, (b, a) ->! b) ->! b`, is the three arrows' canonical worked example: a callback that accepts any function, and a self that touches the world on its own account (`effects.md` §2.3, §2.4).
+- Every consumer's inferred outer face is `->!` — the pull is unconditional — so every consumption is spelled: `collect!(randoms, 10)`. `Stream.fold`'s face, `(Stream(a), b, (b, a) ->! b) ->! b`, is the canonical example of a function that touches the world on its own account while taking a callback that accepts any function: the pull's impure constant absorbs the callback's colour (`effects.md` §2.3, §2.4).
 - `collect` pulls at most `count` elements (fewer if the stream ends) into a `Vector(a)` — **the frozen sample**: pure data, the stream's one bridge back to the pure world. A `count` of zero or less collects nothing, on `Seq.take`'s convention.
 - `fold` and `forEach` drive to exhaustion and so **do not return on an ambient source**; their doc comments must say so (the `Seq` consumers' precedent). `find` stops at the first match, so it is safe on an ambient source that contains one.
 - The callbacks are written `->!` — each has its own colour and accepts any function (`effects.md` §2.4) — and bodies mark their calls `!`. A pure callback keeps the consumption exactly as effectful as the pulls — `!` either way — and an effectful callback adds nothing to the spelling: the pull's impure constant absorbs it (`effects.md` §2.4).

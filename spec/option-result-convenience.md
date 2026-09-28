@@ -29,8 +29,9 @@ does not remove that static effect requirement: an effectful callback still
 requires `!` at a concrete call even when this execution takes the branch that
 skips that callback. The mark permits effects; it does not promise that an effect
 occurs during that execution. Which branch skips it is defined per function below.
-Propagation through another effect-polymorphic function uses the
-existing `?` form. These functions introduce no new effect inference rules.
+Handing a callback on to another callback-taking function needs nothing
+special: each callback has its own colour (Effects §2.4). These functions
+introduce no new effect inference rules.
 
 The selected callback is called exactly once; the other branch does not invoke
 it. Ordinary argument evaluation still applies before the function runs,
@@ -160,7 +161,7 @@ Implementation and review must cover:
 3. Observable eager fallback-expression evaluation versus conditional invocation
    of defaultWith, without confusing callback-expression evaluation with calling
    the callback.
-4. Pure and effectful callback calls, propagation through `?`, and rejection of
+4. Pure and effectful callback calls, callbacks handed on, and rejection of
    missing or inappropriate call marks under the existing effect rules.
 5. Exception propagation from selected callbacks and no callback execution on
    the opposite branch.
