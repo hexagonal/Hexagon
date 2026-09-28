@@ -1,20 +1,20 @@
 # Friendly Sequences — proposal
 
-**Status:** Adopted; promoted 2026-09-28. Written 2026-09-06; revised 2026-09-23
-following the simplified design discussion; §6's obligations reviewed
-2026-09-28, with its rulings folded into §2–§7. This note is the record of the
-design; the normative rule lives in its owners. **Promotion record:** §1–§5 are
-Collections Part 5 §3 (§3.1's loop head, §3.4 the seats and the adaptation,
-§3.5 a source whose head is not yet known and the close, §3.6 meaning and
-exclusions), with Part 2 §7.2.1's deadline and demand bullets and Loops §7.1;
-§6.1's deferred-goal itemisation is Method Syntax §10; §6.2 is Functions §4's
-preamble and annotations closure doc §2.4 and §9.11; §6.3 is Functions §8
-item 2 and Ascription §3; §6.4's timing, channels and forwarding are Functions
-§4.3; §6.5's deadline sentence is friendly-numerics §4's third rule, and the
-Deferred-Goals Doctrine's permanent list (Declarations Preamble §1.2) names
-the waiting sequence source. Collections Part 5
-§17 and Functions §4.3's conformance obligations carry the goldens; §7 here
-remains the implementation's acceptance list (#1152).
+**Status:** Adopted; promoted 2026-09-28. Written 2026-09-06; revised
+2026-09-23 following the simplified design discussion; §6's obligations
+reviewed 2026-09-28, with its rulings folded into §2–§7. This note is the
+record of the design; the normative rule lives in its owners. **Promotion
+record:** §1–§5 are Collections Part 5 §3 (§3.1's loop head, §3.4 the seats and
+the adaptation, §3.5 a source whose head is not yet known and the close, §3.6
+meaning and exclusions), with Part 2 §7.2.1's deadline and demand bullets and
+Loops §7.1; §6.1's deferred-goal itemisation is Method Syntax §10, and the
+Deferred-Goals Doctrine's permanent list (Declarations Preamble §1.2) names the
+waiting sequence source; §6.2 is Functions §4's preamble and annotations
+closure doc §2.4 and §9.11; §6.3 is Functions §8 item 2 and Ascription §3;
+§6.4's timing, channels and forwarding are Functions §4.3; §6.5's deadline
+sentence is friendly-numerics §4's third rule. Collections Part 5 §17 and
+Functions §4.3's conformance obligations carry the goldens; §7 here remains the
+implementation's acceptance list (#1152).
 
 This revision supersedes the earlier framing of this note. Generic implied
 types remain abandoned; no part of that investigation is revived here.
