@@ -6481,7 +6481,8 @@ class Checker {
       before = after;
       for (const goal of this.#dotCallGoals) {
         const receiver = this.#prune(goal.receiver);
-        // Defensive: a head-known goal is resolved before any boundary closes.
+        // A head-known receiver has no region to pin to: its goal belongs to
+        // this boundary and settles in the resolution that follows the pins.
         if (receiver.kind !== "Variable") continue;
         this.#lowerLevels(goal.result, receiver.level);
         for (const argument of goal.argumentTypes) this.#lowerLevels(argument, receiver.level);
@@ -25822,8 +25823,10 @@ class Checker {
     // The deadline (§3.1): no DotCall goal may escape its owner region's
     // finalisation, and the defaulting step below must see the receivers those
     // goals settle. The pins first (#1154), so a goal written inside a pending
-    // goal's argument belongs to that goal's region when ownership is decided;
-    // then again, for what the resolution itself moved.
+    // goal's argument belongs to that goal's region when ownership is decided.
+    // Nothing quantified here needs the second pass — a goal still pending
+    // after the resolution was pinned at or below this level by the first —
+    // but it keeps the levels current for the held bodies settled next.
     this.#pinPendingGoals();
     this.#resolveDotCallGoals(level);
     this.#pinPendingGoals();

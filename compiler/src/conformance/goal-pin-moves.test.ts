@@ -102,6 +102,18 @@ describe("a goal's argument types are pinned to its receiver's region", () => {
   });
 
   test("a callback's colour is compared, not quantified away", () => {
+    const control = refusals(
+      "let run(s: Seq(Int)) =\n" +
+        "    let helper = (cb) =>\n" +
+        "        let u = s.map(cb)\n" +
+        "        cb\n" +
+        "    let bad = helper((i) => save!(\"x\"))\n" +
+        "    bad\n",
+    );
+    expect(control).toEqual([
+      "a `->` arrow promises purity, and this function performs effects — the demand is written " +
+        "`->`, the function's face `->?` or `->!`",
+    ]);
     expect(refusals(
       "let run(s) =\n" +
         "    let helper = (cb) =>\n" +
@@ -110,14 +122,7 @@ describe("a goal's argument types are pinned to its receiver's region", () => {
         "    let bad = helper((i) => save!(\"x\"))\n" +
         "    let t: Seq(Int) = s\n" +
         "    bad\n",
-    )).toEqual(refusals(
-      "let run(s: Seq(Int)) =\n" +
-        "    let helper = (cb) =>\n" +
-        "        let u = s.map(cb)\n" +
-        "        cb\n" +
-        "    let bad = helper((i) => save!(\"x\"))\n" +
-        "    bad\n",
-    ));
+    )).toEqual(control);
   });
 
   test("a goal written inside a pending goal's callback belongs to that goal's region", () => {
@@ -155,6 +160,22 @@ describe("the pin holds however the goal settles", () => {
 
   test("a chain, whose second receiver is the first goal's result", () => {
     expect(typeOf(moved("() => x.show().length()"), "run")).toBe("Int -> () -> Int");
+  });
+
+  test("a chain tied in reverse: each pin can sink the next goal's region", () => {
+    expect(typeOf(
+      "let run(n) =\n" +
+        "    let helper(x, y, z) =\n" +
+        "        let a = () => y.length()\n" +
+        "        let b = z.show()\n" +
+        "        let c = x.add(1)\n" +
+        "        let tie1 = [b, y]\n" +
+        "        let tie2 = [c, z]\n" +
+        "        (a, [x, n])\n" +
+        "    let k = n + 1\n" +
+        "    helper(n, \"s\", 1).item1\n",
+      "run",
+    )).toBe("Int -> () -> Int");
   });
 });
 
