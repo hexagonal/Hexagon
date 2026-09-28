@@ -25789,6 +25789,19 @@ class Checker {
     // finalisation, and the defaulting step below must see the receivers those
     // goals settle.
     this.#resolveDotCallGoals(level);
+    // Method Syntax §3.1's pinning rule, kept as receivers move (#1154): a goal
+    // this boundary does not own pins every variable it mentions to its
+    // receiver's region **as that region is now**. A unification that sank the
+    // receiver outward after the goal was made — `let same = [x, n]` — sinks
+    // what the goal will settle with it, or this binding would quantify the
+    // goal's result, and every use made before the deadline would keep a copy
+    // the settlement never reaches.
+    for (const goal of this.#dotCallGoals) {
+      const receiver = this.#prune(goal.receiver);
+      if (receiver.kind !== "Variable") continue;
+      this.#lowerLevels(goal.result, receiver.level);
+      for (const argument of goal.argumentTypes) this.#lowerLevels(argument, receiver.level);
+    }
     // Then the bodies held for those goals (#378): every colour the goals
     // registered is in, so the held bodies decide before anything is built.
     this.#settleHolds(level);
