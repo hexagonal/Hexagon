@@ -3087,6 +3087,11 @@ class Checker {
     { readonly span: Source.Span; readonly order: number; readonly target: Mono }
   >();
   #bindCount = 0;
+  /**
+   * Where each variable first met another, on either side of the bind: a seat
+   * report whose arrow no constant pinned stands there (`#colourMeeting`).
+   */
+  readonly #firstMeetings = new WeakMap<Variable, Source.Span>();
   /** The meetings of colours outside the join fragment, waiting for their level to close (Effects §3.4). */
   #hardCases: HardCase[] = [];
   /**
@@ -19310,14 +19315,17 @@ class Checker {
   #conduitArmBody(frame: EffectFrame, deferred: ((colour: Variable) => boolean) | undefined): void {
     if (isImpure(this.#prune(frame.own))) return;
     const conducted: { readonly colour: Variable; readonly span: Source.Span }[] = [];
+    let solved: { readonly colour: Mono; readonly span: Source.Span } | undefined;
     for (const { effect, span } of frame.absorbed) {
+      const now = this.#prune(effect);
+      if (now.kind === "Effect" && now.solve !== undefined) solved ??= { colour: now, span };
       for (const colour of this.#colourParts(effect)) {
         if (deferred?.(colour) === true) continue;
         if (!conducted.some((entry) => entry.colour === colour)) conducted.push({ colour, span });
       }
     }
-    if (conducted.length === 0) return;
-    this.#conduct(frame, conducted);
+    if (conducted.length === 0 && solved === undefined) return;
+    this.#conduct(frame, conducted, solved);
   }
 
   /**
@@ -19326,14 +19334,23 @@ class Checker {
    * face pins each pure; a written `->?` face must already follow each, and one
    * it is not handed is §4.2's report.
    */
-  #conduct(frame: EffectFrame, conducted: readonly { readonly colour: Variable; readonly span: Source.Span }[]): void {
+  #conduct(
+    frame: EffectFrame,
+    conducted: readonly { readonly colour: Variable; readonly span: Source.Span }[],
+    solved?: { readonly colour: Mono; readonly span: Source.Span },
+  ): void {
     const own = this.#prune(frame.own);
     if (isImpure(own)) return;
     if (own.kind === "Variable" && !this.#isDependency(frame, own)) {
       const joined = this.#join(conducted.map(({ colour }) => colour).filter((colour) => colour !== own));
       if (joined !== PURE) this.#unify(own, joined, conducted[0]!.span);
+      // A body pure only because what it runs was solved pure keeps that
+      // solve's identity, so a failed seat or a lie of generality reaches the
+      // marks read off it (§13.2; #873).
+      else if (solved !== undefined) this.#unify(own, solved.colour, solved.span);
       return;
     }
+    if (conducted.length === 0) return;
     const followed = this.#colourParts(own);
     for (const { colour, span } of conducted) {
       if (followed.includes(this.#prune(colour) as Variable)) continue;
@@ -19394,10 +19411,17 @@ class Checker {
       frames.find((frame) => this.#prune(frame.own) === colour);
     const runs = new Map<EffectFrame, Set<Variable>>();
     const edges = new Map<EffectFrame, Set<EffectFrame>>();
+    // A solved constant a member runs, kept by identity as a lone body keeps
+    // it (`#conduitArmBody`), and carried to the siblings that call it.
+    const solved = new Map<EffectFrame, { readonly colour: Mono; readonly span: Source.Span }>();
     for (const frame of frames) {
       const own = new Set<Variable>();
       const calls = new Set<EffectFrame>();
-      for (const { effect } of frame.absorbed) {
+      for (const { effect, span } of frame.absorbed) {
+        const now = this.#prune(effect);
+        if (now.kind === "Effect" && now.solve !== undefined && !solved.has(frame)) {
+          solved.set(frame, { colour: now, span });
+        }
         for (const colour of this.#colourParts(effect)) {
           const sibling = siblingOf(colour);
           if (sibling !== undefined) {
@@ -19420,6 +19444,11 @@ class Checker {
             own.add(colour);
             growing = true;
           }
+          const theirs = solved.get(sibling);
+          if (theirs !== undefined && !solved.has(frame)) {
+            solved.set(frame, theirs);
+            growing = true;
+          }
         }
       }
     }
@@ -19430,7 +19459,7 @@ class Checker {
         const span = frame.absorbed[0]?.span;
         if (span === undefined) continue;
         const conducted = [...runs.get(frame)!].map((colour) => ({ colour, span }));
-        if (conducted.length > 0) this.#conduct(frame, conducted);
+        if (conducted.length > 0 || solved.has(frame)) this.#conduct(frame, conducted, solved.get(frame));
       }
     } finally {
       this.#settlingArms -= 1;
@@ -19598,10 +19627,16 @@ class Checker {
       for (const arrow of arrows) {
         const demanded = contractPoint(arrow.contract);
         const solved = bodyPoint(arrow.body);
-        const more = !Colour.atMost(solved, demanded) && arrow.sign !== "contra";
-        const less = !Colour.atMost(demanded, solved) && arrow.sign !== "co";
+        const above = !Colour.atMost(solved, demanded);
+        const below = !Colour.atMost(demanded, solved);
+        // An invariant arrow inside a parameter the body fixes to the other
+        // constant, either way, is one it accepts less at (§13.2); elsewhere an
+        // invariant arrow reads as its two limbs.
+        const inParameter = arrow.sign === "inv" && arrow.place.parameter !== undefined;
+        const more = above && arrow.sign !== "contra" && !inParameter;
+        const less = (below && arrow.sign !== "co") || (above && inParameter);
         if (!more && !less) continue;
-        this.#reportSeat(contract, body, arrow, more ? "more" : "less", bodyPoint);
+        this.#reportSeat(contract, body, arrow, more ? "more" : "less", bodyPoint, above);
         return;
       }
     }
@@ -19613,7 +19648,10 @@ class Checker {
     const fixed = new Map<Variable, Mono[]>();
     for (const arrow of arrows) {
       if (arrow.sign === "co") continue;
+      // Only the seat's own slots are fixed: a callback colour the body wrote
+      // itself is its face, exact, and accepts what the contract hands it.
       for (const part of this.#colourParts(arrow.body)) {
+        if (!this.#seatHeld.has(part) || this.#isLinkedColour(part)) continue;
         const colours = fixed.get(part) ?? [];
         colours.push(arrow.contract);
         fixed.set(part, colours);
@@ -19622,6 +19660,9 @@ class Checker {
     for (const [variable, colours] of fixed) {
       const now = this.#prune(variable);
       if (now.kind !== "Variable") continue;
+      // The seat's hold ends where it fixes the slot: a merged slot takes the
+      // join of its arrows' colours outright.
+      this.#seatHeld.delete(now);
       this.#settlingArms += 1;
       try {
         this.#unify(now, this.#join(colours), body.seat);
@@ -19774,33 +19815,19 @@ class Checker {
     arrow: SeatArrow,
     direction: "more" | "less",
     bodyPoint: (colour: Mono) => Colour.ColourPoint,
+    raised = false,
   ): void {
-    this.#suppressMarksOn([...body.slots, ...this.#colourParts(body.type.effect ?? PURE)]);
+    const solved = new Set<Mono>();
+    for (const slot of body.slots) {
+      const now = this.#prune(slot);
+      if (now.kind === "Effect" && now.solve !== undefined) solved.add(now);
+    }
+    this.#suppressMarksOn([...body.slots, ...this.#colourParts(body.type.effect ?? PURE)], solved);
     const member = `\`${contract.member}\``;
     const at = this.#seatPosition(contract, arrow.place);
     const arrowSpan = this.#writtenArrowSpans.get(arrow.arrow);
     const labels = arrowSpan === undefined ? [] : [{ span: arrowSpan, message: "the contract's failing arrow" }];
     const follows = this.#prune(arrow.contract).kind !== "Effect";
-    if (direction === "more" && arrow.sign === "inv" && at.form !== "outer" && at.form !== "result") {
-      // The body raised an invariant arrow rather than performing an effect —
-      // a `->!` demand, or its own annotation — and an invariant position
-      // admits no widening either way.
-      const named = at.form === "parameter"
-        ? arrow.place.depth === 1 ? `\`${at.name}\`` : `the function inside \`${at.name}\``
-        : "the function inside its result";
-      const clause = at.form === "parameter"
-        ? `${member}'s contract writes \`->\` inside the parameter \`${at.name}\``
-        : `${member}'s contract writes \`->\` inside its result`;
-      this.#diagnostics.add({
-        severity: "error",
-        message: `this instance demands a function that may perform effects where ${clause} — an ` +
-          `invariant position admits no widening — do not require effects of ${named} here, or, if ` +
-          `the constraint is yours, ${this.#seatAdviceArrow(contract, arrow.place, "->!")}`,
-        primary: this.#colourPin(arrow.body) ?? body.seat,
-        ...(arrowSpan === undefined ? {} : { labels: [{ span: arrowSpan, message: "the contract's invariant arrow" }] }),
-      });
-      return;
-    }
     if (direction === "more") {
       const written = follows ? "->?" : "->";
       const clause = at.form === "outer"
@@ -19824,29 +19851,37 @@ class Checker {
         severity: "error",
         message: `${subject}, and ${clause} — ${guarantee}, or, if the constraint is yours, ` +
           this.#seatAdviceArrow(contract, arrow.place, "->!"),
-        primary: this.#offendingCall(body, arrow, bodyPoint) ?? body.seat,
+        // An invariant arrow the body raised without a call — an annotation,
+        // or a `->!` demand — stands at what raised it.
+        primary: this.#offendingCall(body, arrow, bodyPoint) ?? this.#colourPin(arrow.body) ?? body.seat,
         ...(labels.length === 0 ? {} : { labels }),
       });
       return;
     }
     const callback = at.form === "parameter" && arrow.place.depth === 1;
+    // Narrowed, the body accepts only a pure function where the contract
+    // accepts any; raised — an invariant arrow the body fixed impure — only
+    // one that may touch the world where the contract's is pure.
+    const kind = raised ? "a pure function" : "a function that may touch the world";
     const accepts = callback
       ? `any \`${at.name}\``
       : at.form === "parameter"
-      ? `a function that may touch the world inside the parameter \`${at.name}\``
-      : "a function that may touch the world inside its result";
+      ? `${kind} inside the parameter \`${at.name}\``
+      : `${kind} inside its result`;
+    const written = raised ? "->!" : "->";
     const rewrite = callback
-      ? `write the member's \`${at.name}\` arrow \`->\``
+      ? `write the member's \`${at.name}\` arrow \`${written}\``
       : at.form === "parameter"
-      ? `write that arrow \`->\` inside the parameter \`${at.name}\``
-      : "write that arrow `->` inside its result";
+      ? `write that arrow \`${written}\` inside the parameter \`${at.name}\``
+      : `write that arrow \`${written}\` inside its result`;
     const limb = callback ? `do not narrow \`${at.name}\` here` : "do not narrow that function here";
+    const only = raised ? "only one that may touch the world" : "only a pure one";
     this.#diagnostics.add({
       severity: "error",
-      message: `${member}'s contract accepts ${accepts}, and this instance accepts only a pure one — ` +
+      message: `${member}'s contract accepts ${accepts}, and this instance accepts ${only} — ` +
         `an instance accepts everything its contract promises to accept — ${limb}, or, if the ` +
         `constraint is yours, ${rewrite}`,
-      primary: this.#colourPin(arrow.body) ?? body.seat,
+      primary: this.#colourPin(arrow.body) ?? (raised ? this.#colourMeeting(arrow.body) : undefined) ?? body.seat,
       ...(labels.length === 0 ? {} : { labels }),
     });
   }
@@ -19869,7 +19904,11 @@ class Checker {
       if (failing.kind === "Effect") return pruned.kind === "Effect";
       return this.#colourParts(pruned).some((part) => this.#colourParts(failing).includes(part));
     };
-    const candidates = arrow.place.depth === 0 && body.frame !== undefined
+    // A slot's colour is carried by every call on it, a lambda's inside the
+    // body included, and the first in source order stands (§13.2). The body's
+    // own effect is its own frame's first, where it has one: an impure call in
+    // a lambda the body never runs is not what the outer arrow reads.
+    const candidates = arrow.place.depth === 0 && body.frame !== undefined && failing.kind === "Effect"
       ? body.frame.absorbed
       : body.calls;
     let earliest: Source.Span | undefined;
@@ -20438,7 +20477,9 @@ class Checker {
         face.arrows.filter(({ colour: arrow }) => {
           const settled = this.#prune(arrow);
           return settled.kind === "Effect" && Colour.isBottom(settled) &&
-            face.handed.flat().every((callback) => callbacks.includes(callback) || this.#prune(callback.colour) === PURE);
+            face.handed.flat().every((callback) =>
+              callbacks.includes(callback) || Colour.isBottom(this.#pointAt(callback.colour, () => Colour.IMPURE_POINT))
+            );
         }).map(({ span }) => span)
       );
       this.#reportLieOfGenerality(colour, callbacks, follows);
@@ -21766,6 +21807,8 @@ class Checker {
       // a slack meeting a callback's colour is that colour's.
       if (this.#openedColours.has(variable) && !this.#heldDependency(type)) this.#openedColours.add(type);
       this.#binds.set(variable, { span, order: this.#bindCount++, target: type });
+      if (!this.#firstMeetings.has(variable)) this.#firstMeetings.set(variable, span);
+      if (!this.#firstMeetings.has(type)) this.#firstMeetings.set(type, span);
       variable.instance = type;
       return;
     }
@@ -21859,8 +21902,10 @@ class Checker {
     }
     if (type.kind !== "Effect") this.#binds.set(variable, { span, order: this.#bindCount++, target: type });
     // *(#873.)* A signature's colour solved to a constant is solved to a
-    // constant of its own, carrying the act that solved it (`ColourSolve`).
-    variable.instance = type.kind === "Effect" && this.#faceColours.has(variable)
+    // constant of its own, carrying the act that solved it (`ColourSolve`); so
+    // is a seat's slot, so a failed seat can hold back the marks read off it
+    // however their chains were compressed (§13.2).
+    variable.instance = type.kind === "Effect" && (this.#faceColours.has(variable) || this.#seatHeld.has(variable))
       ? {
         ...type,
         solve: {
@@ -21912,6 +21957,8 @@ class Checker {
     }
     this.#lowerLevels(join, variable.level);
     this.#binds.set(variable, { span, order: this.#bindCount++, target: join });
+    if (!this.#firstMeetings.has(variable)) this.#firstMeetings.set(variable, span);
+    for (const part of join.parts) if (!this.#firstMeetings.has(part)) this.#firstMeetings.set(part, span);
     variable.instance = join;
   }
 
@@ -21925,6 +21972,20 @@ class Checker {
       if (node.kind !== "Variable") return undefined;
       const pin = this.#colourPins.get(node);
       if (pin !== undefined) return pin;
+      node = node.instance;
+    }
+    return undefined;
+  }
+
+  /**
+   * Where a colour was first joined to another, for a seat report whose arrow
+   * no constant pinned (§13.2): an invariant arrow the body raised by handing
+   * it a callback stands at the unification that did it.
+   */
+  #colourMeeting(colour: Mono): Source.Span | undefined {
+    for (let node: Mono | undefined = colour; node?.kind === "Variable";) {
+      const met = this.#firstMeetings.get(node);
+      if (met !== undefined) return met;
       node = node.instance;
     }
     return undefined;
@@ -27117,8 +27178,10 @@ class Checker {
       const to = wider.parameters[offset + 1]!;
       if (this.#sameSeat(from, to)) continue;
       if (!this.#acceptsExactly(from, to)) {
-        return `\`${this.#display(from)}\` does not reach the seat ` +
-          `\`${this.#display(to)}\` exactly`;
+        // Two parameter seats: a callback's own arrows show its colour as
+        // `->!` (Effects §10).
+        return `\`${this.#display(from, "callback")}\` does not reach the seat ` +
+          `\`${this.#display(to, "callback")}\` exactly`;
       }
       widened = true;
     }
@@ -31146,12 +31209,12 @@ class Checker {
    * `#display` is called mid-inference, where a display that *settled* would be
    * a display that mutates the program's meaning.
    */
-  #display(type: Mono): string {
+  #display(type: Mono, place: "spine" | "callback" = "spine"): string {
     this.#nameSurvivingVariables(type);
     const enclosing = this.#displayOwned;
     this.#displayOwned = this.#callbackOwnColours(type);
     try {
-      return this.#render(type, "spine");
+      return this.#render(type, place);
     } finally {
       this.#displayOwned = enclosing;
     }
