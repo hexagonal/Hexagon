@@ -15942,13 +15942,26 @@ function defaultHelperName(member: string): string {
   return `__default_${member}`;
 }
 
-/** Lexer §3.2's probe: the preferred spelling, then numeric suffixes from 1. */
-function probeInternalName(name: string, taken: ReadonlySet<string>): string {
+/**
+ * Lexer §3.2's probe: the preferred spelling, then numeric suffixes from 1,
+ * past `taken` and past every *other* sibling's preferred spelling.
+ *
+ * `siblings` is the rank's preferred spellings whole, `name`'s own among them,
+ * so one set serves every name in the rank and the plan stays linear in a
+ * module's exports (#1162). That is why the preferred spelling is tried against
+ * `taken` alone: it is the one spelling of `siblings` that can be `name`'s own,
+ * and a suffixed spelling is always some other name's.
+ */
+function probeInternalName(
+  name: string,
+  taken: ReadonlySet<string>,
+  siblings: ReadonlySet<string>,
+): string {
   const base = `__${name}`;
-  let spelling = base;
+  if (!taken.has(base)) return base;
   let suffix = 1;
-  while (taken.has(spelling)) spelling = `${base}_${suffix++}`;
-  return spelling;
+  while (taken.has(`${base}_${suffix}`) || siblings.has(`${base}_${suffix}`)) suffix++;
+  return `${base}_${suffix}`;
 }
 
 /**
@@ -15966,13 +15979,14 @@ function probeInternalName(name: string, taken: ReadonlySet<string>): string {
  * Three families, ranked, each probing past a set the other side can compute:
  *
  * 1. **Helpers** keep `__default_<member>` outright — see `defaultHelperName`.
- * 2. **Forwarders** prefer `__<member>` and probe past the helpers and past
- *    every *other* member's preferred spelling. The second clause is what keeps
- *    a forwarder that has been pushed off its preferred name from landing on a
- *    sibling's: members `log` (defaulted), `default_log`, and `default_log_1`
- *    is the shape.
- * 3. **Terms** prefer `__<term>` and probe past the helpers, the *resolved*
- *    forwarders, and every other term's preferred spelling.
+ * 2. **Forwarders** prefer `__<member>` and probe past the pattern exports
+ *    (`fixed`), the helpers, and every *other* member's preferred spelling. The
+ *    last clause is what keeps a forwarder that has been pushed off its
+ *    preferred name from landing on a sibling's: members `log` (defaulted),
+ *    `default_log`, and `default_log_1` is the shape.
+ * 3. **Terms** prefer `__<term>` and probe past the pattern exports, the
+ *    helpers, the *resolved* forwarders, and every other term's preferred
+ *    spelling.
  *
  * That closes the namespace. Two preferred spellings never collide, because two
  * module-scope names never do. A probed spelling never sits on a preferred one
@@ -15995,20 +16009,22 @@ function internalNamePlan(
       .filter(({ defaulted }) => defaulted)
       .map(({ name }) => defaultHelperName(name)),
   );
+  const preferred = (names: readonly string[]): ReadonlySet<string> =>
+    new Set(names.map((name) => `__${name}`));
   const plan = new Map<string, string>();
-  const forwarders = new Set<string>();
   const memberNames = inputs.members.map(({ name }) => name);
+  const memberSiblings = preferred(memberNames);
+  const aboveMembers = new Set([...inputs.fixed, ...helpers]);
+  const forwarders: string[] = [];
   for (const name of memberNames) {
-    const taken = new Set([...inputs.fixed, ...helpers]);
-    for (const other of memberNames) if (other !== name) taken.add(`__${other}`);
-    const spelling = probeInternalName(name, taken);
+    const spelling = probeInternalName(name, aboveMembers, memberSiblings);
     plan.set(name, spelling);
-    forwarders.add(spelling);
+    forwarders.push(spelling);
   }
+  const termSiblings = preferred(inputs.terms);
+  const aboveTerms = new Set([...aboveMembers, ...forwarders]);
   for (const name of inputs.terms) {
-    const taken = new Set([...inputs.fixed, ...helpers, ...forwarders]);
-    for (const other of inputs.terms) if (other !== name) taken.add(`__${other}`);
-    plan.set(name, probeInternalName(name, taken));
+    plan.set(name, probeInternalName(name, aboveTerms, termSiblings));
   }
   return plan;
 }
