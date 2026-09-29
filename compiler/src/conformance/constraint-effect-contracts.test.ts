@@ -809,16 +809,16 @@ describe("Effects §13.2: where a seat's refusal stands", () => {
     )).toEqual([pureReturns("make")]);
   });
 
-  test("the seat itself is the primary where no call carries the colour", () => {
-    // `make(seed, k) = k` calls nothing: the refusal is anchored at the member
-    // line, relating the contract's failing arrow, the `->` inside
-    // `(() -> Unit)`, whose written token is recorded like every other arrow's.
+  test("where no call carries the colour, the report stands at what hands the function back", () => {
+    // `make(seed, k) = k` calls nothing: the refusal stands at the body
+    // expression that hands `k` back (§9), in the position form, relating the
+    // contract's failing arrow, the `->` inside `(() -> Unit)`.
     const source =
       "constraint Maker<a> =\n    make(seed: a, k: () ->! Unit) -> (() -> Unit)\n" +
       "export record S = { n: Int }\n" +
       "honor Maker<S> =\n    make(seed, k) = k\n";
     expect(messages(source)).toEqual([pureReturns("make")]);
-    expect(primaries(source)).toEqual(["make(seed, k) = k"]);
+    expect(primaries(source)).toEqual(["k"]);
     expect(labels(source)).toEqual([["the contract's failing arrow: \"->\""]]);
   });
 
@@ -829,7 +829,7 @@ describe("Effects §13.2: where a seat's refusal stands", () => {
       "let c: Bool = True\n" +
       "honor Maker<S> =\n    make(seed, k) = if c then k else (() => ())\n";
     expect(messages(source)).toEqual([pureReturns("make")]);
-    expect(primaries(source)).toEqual(["make(seed, k) = if c then k else (() => ())"]);
+    expect(primaries(source)).toEqual(["if c then k else (() => ())"]);
     expect(labels(source)).toEqual([["the contract's failing arrow: \"->\""]]);
   });
 
@@ -1246,7 +1246,8 @@ describe("Effects §13.2: accepting more, annotations, and merges", () => {
   test("named and inline coincide where both are refused", () => {
     // The contract returns a pure `->`, which `k` fails whatever it is merged
     // with: same row, same primary, whichever spelling the pure function takes.
-    // No call carries the colour, so the report stands at the member line.
+    // No call carries the colour, so the report stands at the merge that hands
+    // the function back.
     const paired = (other: string) =>
       "constraint Maker<a> =\n    make(seed: a, k: () ->! Unit) -> (() -> Unit)\n" +
       "export record S = { n: Int }\n" +
@@ -1255,8 +1256,8 @@ describe("Effects §13.2: accepting more, annotations, and merges", () => {
       `honor Maker<S> =\n    make(seed, k) = if c then k else ${other}\n`;
     expect(messages(paired("pureFn"))).toEqual([pureReturns("make")]);
     expect(messages(paired("(() => ())"))).toEqual([pureReturns("make")]);
-    expect(primaries(paired("pureFn"))).toEqual(["make(seed, k) = if c then k else pureFn"]);
-    expect(primaries(paired("(() => ())"))).toEqual(["make(seed, k) = if c then k else (() => ())"]);
+    expect(primaries(paired("pureFn"))).toEqual(["if c then k else pureFn"]);
+    expect(primaries(paired("(() => ())"))).toEqual(["if c then k else (() => ())"]);
     // And a lambda bound to a name: the same row, at the member line.
     const bound =
       "constraint Maker<a> =\n    make(seed: a, k: () ->! Unit) -> (() -> Unit)\n" +
@@ -1265,7 +1266,7 @@ describe("Effects §13.2: accepting more, annotations, and merges", () => {
       "honor Maker<S> =\n    make(seed, k) =\n        let g = () => ()\n" +
       "        if c then k else g\n";
     expect(messages(bound)).toEqual([pureReturns("make")]);
-    expect(primaries(bound)).toEqual(["make(seed, k) =\n        let g = () => ()\n        if c then k else g"]);
+    expect(primaries(bound)).toEqual(["if c then k else g"]);
   });
 
   test("and where the failing `->` is the OUTER arrow", () => {
@@ -1328,13 +1329,24 @@ describe("Effects §13.2: accepting more, annotations, and merges", () => {
     }
   });
 
-  test("and plain forwarding stands at the member line", () => {
+  test("a function handed back inside data stands at what hands it back too", () => {
     const source =
-      "constraint Maker<a> =\n    make(seed: a, k: () ->! Unit) -> (() -> Unit)\n" +
+      "constraint Maker<a> =\n    make(seed: a, k: () ->! Unit) -> Vector(() -> Unit)\n" +
       "export record S = { n: Int }\n" +
-      "honor Maker<S> =\n    make(seed, k) = k\n";
-    expect(messages(source)).toEqual([pureReturns("make")]);
-    expect(primaries(source)).toEqual(["make(seed, k) = k"]);
+      "honor Maker<S> =\n    make(seed, k) = [k]\n";
+    expect(messages(source)).toEqual([pureInside("make", "its result")]);
+    expect(primaries(source)).toEqual(["[k]"]);
+  });
+
+  test("and where nothing hands the function back, at the member line", () => {
+    // `k` is supplied to `use`'s pure slot: no call carries its colour and the
+    // body hands nothing back, so the report falls back to the member line.
+    const source =
+      "constraint Maker<a> =\n    make(seed: a, k: () ->! Unit, use: (() -> Unit) -> Unit) -> Unit\n" +
+      "export record S = { n: Int }\n" +
+      "honor Maker<S> =\n    make(seed, k, use) = use(k)\n";
+    expect(messages(source)).toEqual([pureInside("make", "the parameter `use`")]);
+    expect(primaries(source)).toEqual(["make(seed, k, use) = use(k)"]);
   });
 });
 
@@ -1904,8 +1916,8 @@ describe("Constraints §8: a member header's arrow seat, and what recovery leaks
     // at the member name.
     const source = "constraint C<a> =\n    m(x: a) => String\n";
     expect(messages(source)).toEqual([
-      "Hexagon's type arrows are `->`, `->?`, `->!`; `=>` is the lambda arrow " +
-      "— for a function type write `Int -> Int` (or `->?` / `->!` for its colour)",
+      "Hexagon's type arrows are `->`, `->!`, `->?`; `=>` is the lambda arrow " +
+      "— for a function type write `Int -> Int` (or `->!` / `->?` for its colour)",
     ]);
     expect(primaries(source)).toEqual(["=>"]);
     expect(fixes(source)).toEqual(['write `->`: "->"']);
@@ -2572,7 +2584,7 @@ describe("Effects §13.2: a merge with a pure function, in either branch order",
   test("the three spellings coincide in both branch orders, at a NESTED arrow", () => {
     // The failing `->` is the one the contract **returns**, not the member's
     // own outer one. No call carries the colour, so the report stands at the
-    // member line.
+    // merge that hands the function back.
     const nested = (merge: string, bind: string) =>
       "constraint Maker<a> =\n    make(seed: a, k: () ->! Unit) -> (() -> Unit)\n" +
       "export record S = { n: Int }\nlet c: Bool = True\nlet spare(): Unit = ()\n" +
@@ -2581,7 +2593,7 @@ describe("Effects §13.2: a merge with a pure function, in either branch order",
       for (const merge of orders("k", other)) {
         const seat = seen(nested(merge, bind));
         expect(seat.messages).toEqual([pureReturns("make")]);
-        expect(seat.primaries).toEqual([`make(seed, k) =\n${bind}        ${merge}`]);
+        expect(seat.primaries).toEqual([merge]);
         expect(seat.labels).toEqual([['the contract\'s failing arrow: "->"']]);
       }
     }

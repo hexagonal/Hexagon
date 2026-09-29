@@ -375,12 +375,6 @@ export interface Module {
    */
   readonly typeHoles: readonly TypeHole[];
   /**
-   * Every signature's region in this module that has a callback of its own,
-   * with each callback's colour as it settled *(Effects §10)*, absent where the
-   * colour settled to a constant. Metadata, like `docs`.
-   */
-  readonly colourScopes: readonly ColourScope[];
-  /**
    * Whose callback each settled callback colour is, in a report's words —
    * "`outer`'s `action`" — so a face depending on a captured colour can name
    * its owner *(Effects §10)*. Where a join made one variable of several
@@ -443,12 +437,6 @@ export interface CompanionImport {
    * the exporter published.
    */
   readonly internalNames: Resolved.InternalNameInputs;
-}
-
-/** One inlet-bearing signature's region, and the colour it owns (§10, #873). */
-export interface ColourScope {
-  readonly span: Source.Span;
-  readonly variable?: TypeVariableId;
 }
 
 /**

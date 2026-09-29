@@ -20,10 +20,7 @@ export interface ColourContext {
  * `undefined` where the module has no callback colour to name.
  */
 export function colourContextAt(
-  module: Pick<Typed.Module, "colourScopes" | "colourOwners">,
-  _fileId: number,
-  _start: number,
-  _end: number,
+  module: Pick<Typed.Module, "colourOwners">,
 ): ColourContext | undefined {
   if (module.colourOwners.size === 0) return undefined;
   return { owners: module.colourOwners };

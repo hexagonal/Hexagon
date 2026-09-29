@@ -142,8 +142,8 @@ const markSeat =
 
 /** Effects §9's type-arrow row: `=>` written where a type arrow belongs (#410). */
 const typeArrowRedirect =
-  "Hexagon's type arrows are `->`, `->?`, `->!`; `=>` is the lambda arrow — " +
-  "for a function type write `Int -> Int` (or `->?` / `->!` for its colour)";
+  "Hexagon's type arrows are `->`, `->!`, `->?`; `=>` is the lambda arrow — " +
+  "for a function type write `Int -> Int` (or `->!` / `->?` for its colour)";
 
 describe("the discipline, unconditional", () => {
   it("compiles the whole prelude and runtime clean", () => {
@@ -761,6 +761,52 @@ export let f: ((String -> String) -> String) = (run: String -> String): String =
 `]]),
     ).toEqual([]);
   });
+
+  it("a lambda a written `->?` result returns answers to that `->?` at its offending call", () => {
+    const at = (source: string) => {
+      const text = "module Main\n\n" + world + source;
+      return compileFiles([["/world.js", ""], ["/main.hex", text]]).diagnostics.map((diagnostic) => [
+        text.slice(diagnostic.primary.start.offset, diagnostic.primary.end.offset),
+        diagnostic.message,
+        (diagnostic.labels ?? []).map(({ span }) => text.slice(span.start.offset, span.end.offset)),
+      ]);
+    };
+    const promise = "and this face's `->?` promises the function is only as effectful as what it is handed — write `->!`";
+    // On its own account, at the call, however deep the returned lambda stands.
+    for (const result of ["() ->? Unit = () =>", "() -> () ->? Unit = () => () =>"]) {
+      expect(at(`export let mk(cb: () ->! Unit): ${result} save!("x")\n`)).toEqual([
+        ["save!(\"x\")", `this call touches the world on its own account, ${promise}`, ["->?"]],
+      ]);
+    }
+    // Running a captured colour, at the call, with §4.2's captured clause.
+    expect(at(`export let outer(action: () ->! Unit): Unit =
+    let mk(cb: () ->! Unit): () ->? Unit = () =>
+        action!()
+    let x = mk(() => save!("y"))
+    ()
+`)).toEqual([["action!()", `this call runs \`outer\`'s \`action\`, which this signature is not handed, ${promise}`, ["->?"]]]);
+  });
+
+  it("a refused `->?` reads as its fix, `->!`, where callers meet it", () => {
+    // The refused arrow is §4.2's one report: callers' marks are read against
+    // the face the fix writes, as §4.4's refused `->?` reads as its fixit.
+    const refusedResult = `export let mk(cb: () ->! Unit): () ->? Unit = () => save!("x")
+export let use(): Unit = mk(noop)()
+`;
+    expect(effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + world + "let noop(): Unit = ()\n" + refusedResult]]))
+      .toEqual([
+        "this call touches the world on its own account, and this face's `->?` promises the function is only as effectful as what it is handed — write `->!`",
+        "this call may touch the world, so this call wants `!`, not no mark",
+      ]);
+    expect(hoveredType("module Main\n\n" + world + "let noop(): Unit = ()\n" + refusedResult, "mk(")).toBe("(() ->! Unit) -> () ->! Unit");
+    const refusedOuter = `export let outer(action: () ->! Unit): Unit =
+    let mk: (() ->! Unit) ->? Unit = (cb) => action!()
+    mk!(() => ())
+`;
+    expect(effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + world + refusedOuter]])).toEqual([
+      "this call runs `outer`'s `action`, which this signature is not handed, and this face's `->?` promises the function is only as effectful as what it is handed — write `->!`",
+    ]);
+  });
 });
 
 describe("Effects §3.4 — a parameter with no written type is decided by its call marks", () => {
@@ -803,6 +849,24 @@ let relay(f: () ->! Unit, g): Unit = g!(f)
         "this call is pure, so `f` wants no mark, not `!`",
       ]);
     }
+  });
+
+  it("a claim made in a nested body is the enclosing parameter's, and never generalizes there", () => {
+    // `h` runs `action`, a colour of `outer`'s environment: `h` does not
+    // quantify it, so `h`'s `!` claims it and `outer` follows it.
+    const world = 'extern from "./world.js"\n    export fun save(document: String) ->! Unit\n';
+    for (const helper of ["let h() = action!()", "let h = () => action!()", "let h() = apply2!(action, action)"]) {
+      const source = `${world}let outer(action): Unit =
+    ${helper}
+    h!()
+let user(): Unit = outer!(() => save!("x"))
+`;
+      expect([helper, effectDiagnostics([["/world.js", ""], ["/main.hex", text(source)]])]).toEqual([helper, []]);
+      expect([helper, hoveredType(text(source), "outer(")]).toEqual([helper, "(() ->! Unit) ->? Unit"]);
+    }
+    expect(check("let outer(action): Unit =\n    let h() = action!()\n    h()\n")).toEqual([
+      "this call may touch the world, so `h` wants `!`, not no mark",
+    ]);
   });
 });
 
@@ -875,6 +939,45 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
         ()
     ()
 `)).toEqual([]);
+  });
+
+  it("is refused in a `fun` block as in a lone body", () => {
+    const tie = "`f`'s colour is tied to `g`'s here, and no written type can say that — write `f`'s type";
+    for (const head of ["fun\n    a", "let a"]) {
+      const indent = head.startsWith("fun") ? "        " : "    ";
+      expect(tieReports(`${head}(c: Bool, f, g): Unit =\n${indent}let h = if c then f else g\n${indent}h!()\n`)
+        .map(({ message }) => message)).toEqual([tie]);
+    }
+  });
+
+  it("to an enclosing untyped callback, decided where that callback's body closes", () => {
+    // Claimed there, `g`'s colour is a callback's, and the merge ties `f` to
+    // it; unclaimed, `g` is pure, and a colour pinned to a constant is no tie.
+    expect(tieReports(`let outer(g, c: Bool): Unit =
+    g!()
+    let inner = (f) => if c then g else f
+    ()
+`).map(({ message }) => message)).toEqual([
+      "`f`'s colour is tied to `g`'s here, and no written type can say that — write `f`'s type",
+    ]);
+    expect(tieReports(`let outer(g, c: Bool): Unit =
+    let inner = (f) => if c then g else f
+    ()
+`)).toEqual([]);
+  });
+
+  it("names the owner where the two parameters are spelled alike, and its reading keeps the result's", () => {
+    // `inner`'s result is the join of `outer`'s `f` and its own: reading `f`
+    // as its fix changes the parameter, never the function `inner` returns.
+    const source = `export let outer(f: () ->! Unit, c: Bool): Unit =
+    let g = f
+    let inner(f) = if c then g else f
+    inner(() => ())!()
+`;
+    expect(tieReports(source).map(({ message }) => message)).toEqual([
+      "`f`'s colour is tied to `outer`'s `f` here, and no written type can say that — write `f`'s type",
+    ]);
+    expect(tieReports(source.replace("inner(f)", "inner(f: () ->! Unit)"))).toEqual([]);
   });
 });
 
@@ -1054,6 +1157,20 @@ export let stamped(values: Vector(String)): Vector(String) =
 });
 
 describe("#355 grammar — where a mark may stand", () => {
+  it("reads a retired `?` in the mark seat as the seat, so the mark's fixit rewrites it", () => {
+    // `?` is no token (§3.1): the lexer reports it, and the mark report's fixit
+    // replaces it rather than writing `!` beside it.
+    const text = "module Main\n\n" + world + 'export let run(): Unit = save?("x")\n';
+    const diagnostics = compileFiles([["/world.js", ""], ["/main.hex", text]]).diagnostics;
+    expect(diagnostics.map(({ message }) => message)).toEqual([
+      'invalid character "?" (U+003F)',
+      "this call may touch the world, so `save` wants `!`, not no mark",
+    ]);
+    const edits = diagnostics.flatMap(({ fixes }) => (fixes ?? []).flatMap((fix) => fix.edits));
+    expect(edits.map(({ span, replacement }) => [text.slice(span.start.offset, span.end.offset), replacement]))
+      .toEqual([["?", "!"]]);
+  });
+
   it("carries a bare pipe stage's mark onto the call the rewrite makes", () => {
     expect(
       effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `${world}
@@ -1494,8 +1611,8 @@ export let t: String = trim("x")
 export let t: String = trim("x")
 `]]),
     ).toEqual([
-      "Hexagon's type arrows are `->`, `->?`, `->!`; `=>` is the lambda arrow — " +
-      "for a function type write `Int -> Int` (or `->?` / `->!` for its colour)",
+      "Hexagon's type arrows are `->`, `->!`, `->?`; `=>` is the lambda arrow — " +
+      "for a function type write `Int -> Int` (or `->!` / `->?` for its colour)",
       wants("trim"),
     ]);
   });
@@ -2578,6 +2695,19 @@ describe("#947 closure construction stays pure, and knots settle at their close"
     `this call may touch the world, so \`${callee}\` wants \`!\`, not no mark`;
   const wantsBare = (callee: string, mark: string): string =>
     `this call is pure, so \`${callee}\` wants no mark, not \`${mark}\``;
+
+  it("places a pin a knot recorded where a lone body places it: at the argument", () => {
+    const source = `export let pureOnly(f: () -> Unit): Unit = f()
+fun
+    a(cb: () ->! Unit, n: Int): Unit = if n == 0 then cb!() else b(cb, n - 1)
+    b(cb: () ->! Unit, n: Int): Unit = pureOnly(() => a!(cb, n))
+`;
+    const text = "module Main\n\n" + world + source;
+    const lie = compileFiles([["/world.js", ""], ["/main.hex", text]]).diagnostics
+      .find(({ message }) => message.startsWith("the parameter `cb` is written `->!`"));
+    expect(lie === undefined ? undefined : text.slice(lie.primary.start.offset, lie.primary.end.offset))
+      .toBe("() => a!(cb, n)");
+  });
 
   it("reads a sibling call's mark as an outside call's, the knot's colours being monotypes", () => {
     // Within the knot a member's colours are monotypes (Functions §7.4): a

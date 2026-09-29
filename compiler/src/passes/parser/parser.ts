@@ -6516,7 +6516,14 @@ class Parser {
     mark?: Parsed.CallMark,
     markSpan: Source.Span = callee.span,
   ): Parsed.Expr {
-    this.#advance();
+    const opening = this.#advance();
+    // A retired `?` in the mark seat lexes as no token (it is an invalid
+    // character); kept as the seat's span, a mark fixit rewrites it rather
+    // than writing a mark beside it.
+    const retired = mark === undefined && opening.span.start.offset === callee.span.end.offset + 1 &&
+        this.#text[callee.span.end.offset] === "?"
+      ? { ...callee.span, start: callee.span.end, end: opening.span.start }
+      : undefined;
     const args: Parsed.Expr[] = [];
     const stops = new Set<TokenKind>(["Comma", "RightParen", "Eof"]);
 
@@ -6533,7 +6540,7 @@ class Parser {
       kind: "Call",
       callee,
       arguments: args,
-      ...(mark === undefined ? {} : { mark, markSpan }),
+      ...(mark === undefined ? (retired === undefined ? {} : { markSpan: retired }) : { mark, markSpan }),
       span: spanFrom(callee.span, closing?.span ?? args.at(-1)?.span ?? callee.span),
     };
   }
@@ -7388,8 +7395,8 @@ class Parser {
     this.#diagnostics.add({
       severity: "error",
       message:
-        "Hexagon's type arrows are `->`, `->?`, `->!`; `=>` is the lambda arrow — " +
-        "for a function type write `Int -> Int` (or `->?` / `->!` for its colour)",
+        "Hexagon's type arrows are `->`, `->!`, `->?`; `=>` is the lambda arrow — " +
+        "for a function type write `Int -> Int` (or `->!` / `->?` for its colour)",
       primary: span,
       fixes: [{ message: `write \`${replacement}\``, edits: [{ span, replacement }] }],
     });
