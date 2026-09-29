@@ -2536,6 +2536,31 @@ describe("#947 closure construction stays pure, and knots settle at their close"
   const wantsBare = (callee: string, mark: string): string =>
     `this call is pure, so \`${callee}\` wants no mark, not \`${mark}\``;
 
+  it("reads a sibling call's mark as an outside call's, the knot's colours being monotypes", () => {
+    // Within the knot a member's colours are monotypes (Functions §7.4): a
+    // sibling call wears the member's colour, `!` where it depends on the
+    // member's callbacks, as §3.4's `even`/`odd` do. Widening only adds
+    // callbacks to a colour that already depends on some, so the sibling
+    // call's mark is the one the widened face gives (§3.4's step 6). A
+    // sibling handing `b` an impure function pins its monomorphic colour,
+    // and the face published then follows `a` alone.
+    const knot = (sibling: string, outside: string): string => `fun
+    m(a: () ->! Unit, b: () ->! Unit, n: Int): Unit =
+        a!()
+        if n > 0 then s!(n - 1) else ()
+    s(n: Int): Unit = ${sibling}
+export let outside(): Unit = ${outside}
+`;
+    const noop = "let noop(): Unit = ()\nlet save0(): Unit = save!(\"x\")\n";
+    expect(check(noop + knot("m!(noop, noop, n)", "m!(noop, save0, 1)"))).toEqual([]);
+    expect(check(noop + knot("m(noop, noop, n)", "m!(noop, save0, 1)"))).toEqual([wantsBang("m")]);
+    expect(check(noop + knot("m!(noop, noop, n)", "m(noop, noop, 1)"))).toEqual([]);
+    expect(check(noop + knot("m!(noop, save0, n)", "m(noop, save0, 1)"))).toEqual([]);
+    expect(hover(noop + knot("m!(noop, noop, n)", "m(noop, noop, 1)"), "m(a")).toBe(
+      "(() ->! Unit, () ->! Unit, Int) ->? Unit",
+    );
+  });
+
   it("defaults `store`'s outer colour pure and keeps the parameter's variable", () => {
     const source = "let store(callback: () ->! String): Int = 1\n" +
       "export let keep(callback: () ->! String): Int = store(callback)\n";
