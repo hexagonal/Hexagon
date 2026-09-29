@@ -763,6 +763,49 @@ export let f: ((String -> String) -> String) = (run: String -> String): String =
   });
 });
 
+describe("Effects §3.4 — a parameter with no written type is decided by its call marks", () => {
+  const fixtures = "export let apply2(f: () ->! Unit, g: () ->! Unit): Unit =\n    f!()\n    g!()\n" +
+    "export let pureOnly(f: () -> Unit): Unit = f()\n";
+  const text = (source: string): string => "module Main\n\n" + fixtures + source;
+  const check = (source: string): readonly string[] => effectDiagnostics([["/main.hex", text(source)]]);
+
+  it("a `!` call claims the parameter's colour, and one no `!` claims is pure", () => {
+    // §3.4's own examples, each with the face the spec gives it.
+    const source = `let twice(f) =
+    f!()
+    f!()
+let twicePure(f) =
+    f()
+    f()
+let fwd(x, cb) = apply2!(x, cb)
+let fwdPure(cb) = apply2(() => (), cb)
+let relay(f: () ->! Unit, g): Unit = g!(f)
+`;
+    expect(check(source)).toEqual([]);
+    expect(hoveredType(text(source), "twice(")).toBe("(() ->! Unit) ->? Unit");
+    expect(hoveredType(text(source), "twicePure(")).toBe("(() -> Unit) -> Unit");
+    expect(hoveredType(text(source), "fwd(")).toBe("(() ->! Unit, () ->! Unit) ->? Unit");
+    expect(hoveredType(text(source), "fwdPure(")).toBe("(() -> Unit) -> Unit");
+    expect(hoveredType(text(source), "relay(")).toBe("(() ->! Unit, (() ->! Unit) ->! Unit) ->? Unit");
+  });
+
+  it("a claimed colour is a callback's: a bare call on it is the missing-mark report", () => {
+    expect(check("let mixed(f) =\n    f!()\n    f()\n")).toEqual([
+      "this call may touch the world, so `f` wants `!`, not no mark",
+    ]);
+  });
+
+  it("a claimed colour something else pins pure is pure, and the `!` is the mark report", () => {
+    // `pinned(f)`: the `->` demand decides the colour, and there is no written
+    // arrow for a lie-of-generality report to name.
+    for (const lines of [["pureOnly(f)", "f!()"], ["f!()", "pureOnly(f)"]]) {
+      expect(check(`let pinned(f) =\n    ${lines[0]}\n    ${lines[1]}\n`)).toEqual([
+        "this call is pure, so `f` wants no mark, not `!`",
+      ]);
+    }
+  });
+});
+
 describe("Effects §3.4 — a tie between callbacks is refused, where it was made", () => {
   const fixtures = "export let tieTwo(x: a, y: a): Unit = ()\n" +
     "export let pureOnly(f: () -> Unit): Unit = f()\n" +
