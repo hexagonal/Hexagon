@@ -2959,6 +2959,11 @@ ${use}
     g()`);
     expect(check(unheld)).toEqual([]);
     expect(hover(unheld, "make() =")).toBe("() -> (() -> Unit, Int)");
+    const go = (result: string): string => make(`let go = () => run!(() => ())
+    ${result}`, "    ()");
+    expect(hover(go("Some(go)"), "make() =")).toBe("() -> Option(() -> Unit)");
+    expect(hover(go("{ g = go }"), "make() =")).toBe("() -> {g: () -> Unit}");
+    expect(hover(go("[go]"), "make() =")).toBe("() -> Vector(() -> Unit)");
     // Each function the result carries keeps the colour only where its own
     // parameters hold it: `go` holds none, so it is pure, and the caller's
     // effectful callback to `r` does not reach it.
