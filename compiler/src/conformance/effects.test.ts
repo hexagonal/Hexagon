@@ -807,6 +807,46 @@ export let use(): Unit = mk(noop)()
       "this call runs `outer`'s `action`, which this signature is not handed, and this face's `->?` promises the function is only as effectful as what it is handed — write `->!`",
     ]);
   });
+
+  it("any function value meeting a written `->?` is compared with it, never merged, whatever its shape", () => {
+    // §4.2: a named local, a merge, a captured parameter, an annotation over a
+    // lambda — each is compared with what the arrow is handed, and the report
+    // stands at the first call that runs the colour it is not handed, or at
+    // the value where no call does; the arrow then reads as `->!`.
+    const at = (source: string) => {
+      const text = "module Main\n\n" + world + "let noop(): Unit = ()\n" + source;
+      return compileFiles([["/world.js", ""], ["/main.hex", text]]).diagnostics.map((diagnostic) => [
+        text.slice(diagnostic.primary.start.offset, diagnostic.primary.end.offset),
+        diagnostic.message.split(", and this face's")[0],
+      ]);
+    };
+    const runs = "runs `outer`'s `action`, which this signature is not handed";
+    const shapes: [string, readonly (readonly [string, string])[]][] = [
+      ["let h(cb: () ->! Unit): () ->? Unit =\n        let g = () => action!()\n        g", [["action!()", `this call ${runs}`]]],
+      ["let h(cb: () ->! Unit): () ->? Unit =\n        let g() = action!()\n        g", [["action!()", `this call ${runs}`]]],
+      ["let h(cb: () ->! Unit): () ->? Unit = if c then (() => action!()) else (() => cb!())", [["action!()", `this call ${runs}`]]],
+      ["let h: (() ->! Unit) -> () ->? Unit = (cb) => () => action!()", [["action!()", `this call ${runs}`]]],
+      ["let h(cb: () ->! Unit): () ->? Unit = action", [["action", `this function ${runs}`]]],
+    ];
+    for (const [helper, expected] of shapes) {
+      const source = `export let outer(action: () ->! Unit, c: Bool): Unit =\n    ${helper}\n    h(() => ())!()\n`;
+      expect([helper, at(source)]).toEqual([helper, expected]);
+      expect([helper, hoveredType("module Main\n\n" + world + "let noop(): Unit = ()\n" + source, "outer(")])
+        .toEqual([helper, "(() ->! Unit, Bool) ->! Unit"]);
+    }
+    // What the arrow is handed fits, however the value is spelled.
+    expect(at(`export let h(c: Bool, cb: () ->! Unit): () ->? Unit = if c then cb else noop
+export let u(): Unit = h(True, noop)()
+`)).toEqual([]);
+    expect(at(`export let h(cb: () ->! Unit): () ->? Unit =
+    let g = () => cb!()
+    g
+`)).toEqual([]);
+    // A function handed back whole that touches the world: the no-call form.
+    expect(at(`export let save0(): Unit = save!("z")
+export let h(cb: () ->! Unit): () ->? Unit = save0
+`)).toEqual([["save0", "this function touches the world on its own account"]]);
+  });
 });
 
 describe("Effects §3.4 — a parameter with no written type is decided by its call marks", () => {
@@ -964,6 +1004,59 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
     let inner = (f) => if c then g else f
     ()
 `)).toEqual([]);
+  });
+
+  it("is refused in a lambda a knot holds, reading its member's claims", () => {
+    expect(tieReports(`fun
+    a(g, c: Bool, n: Int): Unit =
+        g!()
+        let inner = (f) =>
+            b!(g, c, n - 1)
+            if c then g else f
+        ()
+    b(g, c: Bool, n: Int): Unit = if n == 0 then () else a!(g, c, n)
+`).map(({ message }) => message)).toEqual([
+      "`f`'s colour is tied to `g`'s here, and no written type can say that — write `f`'s type",
+    ]);
+  });
+
+  it("reads siblings as the fix's face: each its own colour, and the function runs their join", () => {
+    // With the fix applied `pick` is `(Bool, () ->! Unit, () ->! Unit) ->? Unit`:
+    // a call handing it an impure function wears `!`, and a forwarder meets no
+    // second tie.
+    const source = `let pick(c: Bool, f, g): Unit =
+    let h = if c then f else g
+    h!()
+let use(): Unit = pick!(True, () => save!("x"), () => ())
+let fwd(a, b) = pick!(True, a, b)
+`;
+    expect(tieReports(`extern from "./world.js"\n    export fun save(document: String) ->! Unit\n` + source)
+      .map(({ message }) => message)).toEqual([
+        "`f`'s colour is tied to `g`'s here, and no written type can say that — write `f`'s type",
+      ]);
+  });
+
+  it("writes every tied parameter's type, and the repaired program compiles", () => {
+    const repaired = (source: string): { fixes: readonly string[]; after: readonly string[] } => {
+      const text = "module Main\n\n" + fixtures + source;
+      const diagnostics = compileFiles([["/main.hex", text]]).diagnostics;
+      const edits = diagnostics.flatMap(({ fixes }) => (fixes ?? []).flatMap((fix) => fix.edits))
+        .sort((left, right) => right.span.start.offset - left.span.start.offset);
+      let fixed = text;
+      for (const edit of edits) {
+        fixed = fixed.slice(0, edit.span.start.offset) + edit.replacement + fixed.slice(edit.span.end.offset);
+      }
+      return {
+        fixes: diagnostics.flatMap(({ fixes }) => (fixes ?? []).map((fix) => fix.message)),
+        after: compileFiles([["/main.hex", fixed]]).diagnostics.map(({ message }) => message),
+      };
+    };
+    expect(repaired("let pick(c: Bool, f, g): Unit =\n    let h = if c then f else g\n    h!()\n"))
+      .toEqual({ fixes: ["write the types of `f` and `g`"], after: [] });
+    expect(repaired("let outer(g, c: Bool): Unit =\n    g!()\n    let inner = (f) => if c then g else f\n    ()\n"))
+      .toEqual({ fixes: ["write the types of `f` and `g`"], after: [] });
+    expect(repaired("export let outer(action: () ->! Unit, c: Bool): Unit =\n    let inner = (f) => if c then action else f\n    ()\n"))
+      .toEqual({ fixes: ["write `f`'s type"], after: [] });
   });
 
   it("names the owner where the two parameters are spelled alike, and its reading keeps the result's", () => {

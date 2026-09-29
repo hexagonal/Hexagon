@@ -369,9 +369,18 @@ interface SignatureFace {
    * report and its fixit, with the application it follows where it stands on
    * the spine itself.
    */
-  readonly arrows: { readonly span: Source.Span; readonly colour: Mono; readonly application?: number }[];
+  readonly arrows: FaceArrow[];
   /** The spine applications whose written `->?` §4.2 refused: they read as `->!` from outside. */
   readonly refused?: Set<number>;
+  /**
+   * The function values met at this face's written `->?` arrows, compared
+   * against what the face is handed and never merged into it (§4.2):
+   * `#checkFaceFits` reads them once their colours settle.
+   */
+  fits?: FaceFit[];
+  /** The body the face is the signature of, and its frame, where the offending call is searched. */
+  body?: Source.Span;
+  frame?: EffectFrame;
   /** The written outer arrow, where the signature writes one (a binding annotation, a member, a row). */
   outer?: Source.Span | undefined;
   /** The signature's region, where a report stands when no arrow token is available. */
@@ -381,6 +390,27 @@ interface SignatureFace {
   readonly level: number;
   /** Whether the signature stands inside a body: a local one with no callbacks takes §4.4's local clause. */
   readonly local: boolean;
+}
+
+/** One written `->?` of a face. */
+interface FaceArrow {
+  readonly span: Source.Span;
+  readonly colour: Mono;
+  /** The spine application it follows, where it stands on the spine itself. */
+  readonly application?: number;
+}
+
+/**
+ * A function value met at a written `->?` (Effects §4.2): its colour `value`
+ * must be covered by what the arrow's join is handed, and is compared, never
+ * merged into it.
+ */
+interface FaceFit {
+  readonly arrow: FaceArrow;
+  readonly value: Mono;
+  /** Where the value stands, for the no-call form of the report. */
+  readonly at: Source.Span;
+  checked: boolean;
 }
 
 /** One callback parameter's colour (Effects §2.4). */
@@ -439,7 +469,12 @@ interface EffectFrame {
    * Ties of nested bodies to this body's untyped parameters, which its close
    * decides: each is checked once that is settled (Effects §3.4).
    */
-  deferredTies?: { readonly frame: EffectFrame; readonly parameter: EffectFrame["untyped"][number] }[];
+  deferredTies?: {
+    readonly frame: EffectFrame;
+    readonly parameter: EffectFrame["untyped"][number];
+    /** The enclosing parameter it waits on, whose type the fix writes too. */
+    readonly with: EffectFrame["untyped"][number];
+  }[];
   /** Call colours awaiting `own ⊒ colour`, settled after inference, with the mark each call wore. */
   readonly absorbed: AbsorbedColour[];
   /**
@@ -572,6 +607,12 @@ function patternSymbols(pattern: Resolved.Pattern): Resolved.SymbolId[] {
     default:
       return [];
   }
+}
+
+/** Whether `inner` lies inside `outer`, in the same file. */
+function spanWithin(inner: Source.Span, outer: Source.Span): boolean {
+  return Number(inner.fileId) === Number(outer.fileId) &&
+    inner.start.offset >= outer.start.offset && inner.end.offset <= outer.end.offset;
 }
 
 /** Whether `left` stands before `right` in source order. */
@@ -3200,6 +3241,8 @@ class Checker {
   readonly #answersTo = new WeakMap<Resolved.LambdaExpr, SignatureFace>();
   /** The written face of the binding being generalized, whose refused arrows read as `->!` (`#readRefusedArrows`). */
   #generalizingFace: SignatureFace | undefined;
+  /** Each written `->?`'s function node, with its face and arrow: a value meeting one is fitted (`#unify`). */
+  readonly #faceArrowNodes = new WeakMap<Mono, { readonly face: SignatureFace; readonly arrow: FaceArrow }>();
   /** Each lambda's function type, and the body it types, for a refused tie's reading (`#readRefusedTies`). */
   readonly #frameOfType = new WeakMap<Mono, EffectFrame>();
   /**
@@ -7140,7 +7183,9 @@ class Checker {
           ? this.#signatureFaces.at(-1)
           : undefined;
         // The face the binding publishes, whose refused arrows read as `->!`.
-        const annotationFace = this.#pendingOwnFace;
+        const annotationFace = supplied?.kind === "Function" && annotation?.kind === "Function"
+          ? this.#signatureFaces.at(-1)
+          : undefined;
         this.#bindingChain.push({ symbol: item.binding.symbol, name: item.binding.name });
         const enclosingBindingValue = this.#bindingValue;
         this.#bindingValue = {
@@ -7157,6 +7202,13 @@ class Checker {
         }
         this.#pendingOwnEffect = undefined;
         this.#pendingOwnFace = undefined;
+        // The body the annotation's face is the signature of, where its
+        // reports search for the offending call.
+        if (annotationFace !== undefined && annotationFace.body === undefined) {
+          annotationFace.body = item.value.span;
+          const frame = item.value.kind === "Lambda" ? this.#frameByLambda.get(item.value) : undefined;
+          if (frame !== undefined) annotationFace.frame = frame;
+        }
         let valueType = inferredValueType;
         if (annotation !== undefined) {
           const annotationType = suppliedFace ??
@@ -9195,6 +9247,12 @@ class Checker {
         };
         this.#effectFrames.push(effectFrame);
         this.#frameByLambda.set(expression, effectFrame);
+        // The body the face is the signature of, where its reports search.
+        for (const signature of [face, writtenFace]) {
+          if (signature === undefined || signature.body !== undefined) continue;
+          signature.body = expression.span;
+          signature.frame = effectFrame;
+        }
         const annotationTails = new Map<string, Variable>();
         // Inherit the enclosing definition's type variables so a nested lambda's
         // annotations may name them (lexical scoping); its own `<...>` binders below
@@ -19055,7 +19113,7 @@ class Checker {
     }
     // Nested bodies' ties to this body's untyped parameters, now decided.
     for (const deferred of frame.deferredTies ?? []) {
-      this.#refuseTie(deferred.frame, deferred.parameter, new Set(), new Set());
+      this.#refuseTie(deferred.frame, deferred.parameter, new Set(), new Set(), deferred.with);
     }
   }
 
@@ -19067,7 +19125,12 @@ class Checker {
     frame: EffectFrame,
     parameter: EffectFrame["untyped"][number],
     colour: Mono,
-  ): { readonly others: EffectFrame["untyped"]; readonly phrase: string; readonly from?: Mono; readonly waits?: EffectFrame } | undefined {
+  ): {
+    readonly others: EffectFrame["untyped"];
+    readonly phrase: string;
+    readonly from?: Mono;
+    readonly waits?: { readonly frame: EffectFrame; readonly parameter: EffectFrame["untyped"][number] };
+  } | undefined {
     const others = frame.untyped.filter((other) => {
       if (other === parameter || other.ownAtClose === true) return false;
       const theirs = this.#prune(other.type);
@@ -19082,7 +19145,12 @@ class Checker {
       for (const outer of open.untyped) {
         const spine = this.#spineColours(outer.type).flatMap(({ arrow }) => this.#colourParts(arrow));
         if (!parts.some((part) => spine.includes(part))) continue;
-        return { others: [], phrase: this.#namedAcross(outer.name, parameter.name, open.owner), from: outer.type, waits: open };
+        return {
+          others: [],
+          phrase: this.#namedAcross(outer.name, parameter.name, open.owner),
+          from: outer.type,
+          waits: { frame: open, parameter: outer },
+        };
       }
     }
     const tie = this.#tiedTo(colour, parameter.name);
@@ -19101,6 +19169,7 @@ class Checker {
     parameter: EffectFrame["untyped"][number],
     reported: Set<Mono>,
     named: Set<EffectFrame["untyped"][number]>,
+    enclosing?: EffectFrame["untyped"][number],
   ): void {
     const type = this.#prune(parameter.type);
     if (type.kind !== "Function") return;
@@ -19109,28 +19178,40 @@ class Checker {
     const tie = this.#tieOf(frame, parameter, colour);
     if (tie === undefined) return;
     if (tie.waits !== undefined) {
-      (tie.waits.deferredTies ??= []).push({ frame, parameter });
+      (tie.waits.frame.deferredTies ??= []).push({ frame, parameter, with: tie.waits.parameter });
       return;
     }
     const others = tie.others;
     reported.add(colour);
     for (const other of others) named.add(other);
-    const reading = this.#blackBoxReading(type);
+    // The fix writes every tied parameter's type (Effects §3.4): this one's,
+    // its siblings', and an enclosing callback's it waited on. Where any of
+    // them is not plain, there is no fixit.
+    const tied = [parameter, ...others, ...(enclosing === undefined ? [] : [enclosing])];
+    const readings = tied.map((each) => {
+      const eachType = this.#prune(each.type);
+      return eachType.kind === "Function" ? this.#blackBoxReading(eachType) : undefined;
+    });
     this.#diagnostics.add({
       severity: "error",
       message: `\`${parameter.name}\`'s colour is tied to ${tie.phrase} here, and no written type can say ` +
         `that — write \`${parameter.name}\`'s type`,
       primary: (tie.from === undefined ? undefined : this.#tieSpan(parameter.type, tie.from)) ?? parameter.span,
-      labels: [parameter, ...others].map(({ name, span }) => ({
+      labels: tied.map(({ name, span }) => ({
         span,
         message: `\`${name}\` has no written type`,
       })),
-      ...(reading === undefined
+      ...(readings.some((reading) => reading === undefined)
         ? {}
         : {
             fixes: [{
-              message: `write \`${parameter.name}\`'s type`,
-              edits: [{ span: { ...parameter.span, start: parameter.span.end }, replacement: `: ${reading}` }],
+              message: tied.length === 1
+                ? `write \`${parameter.name}\`'s type`
+                : `write the types of ${tied.map(({ name }) => `\`${name}\``).join(" and ")}`,
+              edits: tied.map((each, index) => ({
+                span: { ...each.span, start: each.span.end },
+                replacement: `: ${readings[index]!}`,
+              })),
             }],
           }),
     });
@@ -19521,6 +19602,70 @@ class Checker {
    * callbacks do, at the offending call, with a label at the `->?` and a fixit
    * rewriting it to `->!`.
    */
+  /**
+   * §4.2 at a written `->?` a function value met: every colour the value runs
+   * must be one the arrow's join is handed. A colour it is not handed — the
+   * world on the function's own account, a captured colour, a callback handed
+   * later — is the face report, once per arrow, at the first call in source
+   * order in the functions the body hands back that runs it, or, where none
+   * does, at the value in its no-call form; the arrow then reads as `->!`.
+   * A fit whose colours still wait is read when they settle (`last`).
+   */
+  #checkFaceFits(face: SignatureFace, last: boolean): void {
+    const reported = new Set<FaceArrow>();
+    for (const fit of face.fits ?? []) {
+      if (fit.checked || reported.has(fit.arrow)) continue;
+      const handed = this.#colourParts(fit.arrow.colour);
+      const value = this.#prune(fit.value);
+      const waits = (part: Variable): boolean =>
+        this.#knots.some((knot) => this.#knotColour(knot, part)) ||
+        this.#holds.some((hold) => this.#knotColour(hold, part));
+      let offence: { readonly part?: Variable } | undefined = isImpure(value) ? {} : undefined;
+      let waiting = false;
+      if (offence === undefined) {
+        for (const part of this.#colourParts(value)) {
+          if (handed.includes(part)) continue;
+          if (waits(part)) {
+            waiting = true;
+            continue;
+          }
+          if (this.#isLinkedColour(part) || this.#seatHeld.has(part) || this.#scopesByColour.get(part).length > 0) {
+            offence = { part };
+            break;
+          }
+        }
+      }
+      if (offence === undefined && waiting && !last) continue;
+      fit.checked = true;
+      if (offence === undefined) continue;
+      reported.add(fit.arrow);
+      const runs = (colour: Mono): boolean => {
+        const now = this.#prune(colour);
+        return offence!.part === undefined
+          ? isImpure(now)
+          : this.#colourParts(now).includes(offence!.part);
+      };
+      const own = new Set(face.frame?.absorbed.map(({ span }) => span) ?? []);
+      const call = face.body === undefined
+        ? undefined
+        : this.#absorbedCalls
+          .filter(({ effect, span }) => !own.has(span) && spanWithin(span, face.body!) && runs(effect))
+          .sort((left, right) => precedes(left.span, right.span) ? -1 : 1)[0];
+      const scope = offence.part === undefined ? undefined : this.#scopesByColour.get(offence.part)[0];
+      const subject = call === undefined ? "this function" : "this call";
+      this.#reportFollowsFace(
+        face,
+        call?.span ?? fit.at,
+        offence.part === undefined
+          ? `${subject} touches the world on its own account`
+          : scope?.owner === undefined || scope.parameter === undefined
+          ? `${subject} runs a colour this signature is not handed`
+          : `${subject} runs \`${scope.owner}\`'s \`${scope.parameter}\`, which this signature is not handed`,
+        fit.arrow.span,
+      );
+    }
+  }
+
   #reportFollowsFace(face: SignatureFace, span: Source.Span, subject: string, at?: Source.Span): void {
     const arrow = at ?? face.outer ?? face.arrows[0]?.span;
     // The refused arrow reads as its fix, `->!`, where the function is seen
@@ -20713,6 +20858,7 @@ class Checker {
     const pinned = new Map<EffectConstant, CallbackColour[]>();
     const reported = new Set<string>();
     const keyOf = (span: Source.Span): string => `${Number(span.fileId)}:${span.start.offset}:${span.end.offset}`;
+    for (const face of this.#signatureFaces) this.#checkFaceFits(face, true);
     for (const face of this.#signatureFaces) {
       for (const { span, colour } of face.arrows) {
         const settled = this.#prune(colour);
@@ -21661,6 +21807,22 @@ class Checker {
         this.#parameterParity = !this.#parameterParity;
       }
       if (unifyChild(actualLeft.result, actualRight.result)) return;
+      // A function value meeting a written `->?` is fitted to it, never
+      // merged into it (Effects §4.2): its colour is compared with what the
+      // face is handed once it settles (`#checkFaceFits`).
+      const leftFace = this.#faceArrowNodes.get(actualLeft);
+      const rightFace = this.#faceArrowNodes.get(actualRight);
+      if ((leftFace === undefined) !== (rightFace === undefined)) {
+        const written = (leftFace ?? rightFace)!;
+        const value = leftFace === undefined ? actualLeft.effect ?? PURE : actualRight.effect ?? PURE;
+        (written.face.fits ??= []).push({
+          arrow: written.arrow,
+          value,
+          at: this.#pinSides?.value ?? span,
+          checked: false,
+        });
+        return;
+      }
       if (actualLeft.effect !== undefined || actualRight.effect !== undefined) {
         // An absent slot is the pure constant, so an inferred function type
         // meets a compiler-synthesized one without either side needing a slot
@@ -25031,6 +25193,7 @@ class Checker {
     // leaves the list.
     this.#closeOpenings(level);
     // A finished face depends on all of its callbacks or on none (§2.4).
+    if (this.#generalizingFace !== undefined) this.#checkFaceFits(this.#generalizingFace, false);
     type = this.#readRefusedTies(type, level);
     type = this.#widenFace(type, level);
     type = this.#readRefusedArrows(type);
@@ -26338,6 +26501,7 @@ class Checker {
         parameters = annotation.parameters.map(elaborate);
         resultRole = role;
       }
+      const writtenRole = this.#arrowRole;
       const effect = this.#writtenEffect(annotation.effect, annotation.arrowSpan);
       const elaborated: FunctionMono = {
         kind: "Function",
@@ -26345,6 +26509,11 @@ class Checker {
         result: this.#inRole(resultRole, () => elaborate(annotation.result)),
         ...(effect === undefined ? {} : { effect }),
       };
+      // A written `->?` the face kept: what meets it is fitted (§4.2).
+      if (annotation.effect === "linked" && (writtenRole?.kind === "spine" || writtenRole?.kind === "component")) {
+        const arrow = writtenRole.face.arrows.find(({ span, colour }) => colour === effect && span === annotation.arrowSpan);
+        if (arrow !== undefined) this.#faceArrowNodes.set(elaborated, { face: writtenRole.face, arrow });
+      }
       // The arrow's own token, kept beside the node it produced *(#867)*. A
       // constraint seat's report names an arrow the contract wrote, and where
       // no call in the body carries the condemned colour that arrow is the
