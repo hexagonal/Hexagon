@@ -808,6 +808,64 @@ export let use(): Unit = mk(noop)()
     ]);
   });
 
+  it("a colour still to be decided is compared once it is, and the published arrow carries it until then", () => {
+    const text = (source: string) => "module Main\n\n" + world + "let noop(): Unit = ()\n" + source;
+    const at = (source: string) => compileFiles([["/world.js", ""], ["/main.hex", text(source)]]).diagnostics
+      .map((diagnostic) => [
+        text(source).slice(diagnostic.primary.start.offset, diagnostic.primary.end.offset),
+        diagnostic.message.split(", and this face's")[0],
+      ]);
+    // An enclosing body's untyped callback: decided by its claims at its close.
+    for (const value of ["let g = () => action!()\n        g", "() => action!()"]) {
+      expect(at(`let outer(action): Unit =
+    action!()
+    let h(cb: () ->! Unit): () ->? Unit =
+        ${value}
+    h(() => ())!()
+`)).toEqual([["action!()", "this call runs `outer`'s `action`, which this signature is not handed"]]);
+    }
+    // Unclaimed, it is pure: nothing to report.
+    expect(at(`let outer(action): Unit =
+    let h(cb: () ->! Unit): () ->? Unit =
+        let g = () => action()
+        g
+    h(() => ())()
+`)).toEqual([]);
+    // A knot's colour, decided at the knot's close: the callers follow it.
+    for (const value of ["() => b!(n)", "\n            let g = () => b!(n)\n            g"]) {
+      const source = `fun
+    a(n: Int): Unit =
+        let h(cb: () ->! Unit): () ->? Unit = ${value}
+        h(() => ())!()
+    b(n: Int): Unit = if n == 0 then save!("x") else a!(n - 1)
+`;
+      expect(at(source)).toEqual([["b!(n)", "this call touches the world on its own account"]]);
+      expect(hoveredType(text(source), "a(n")).toBe("Int ->! Unit");
+    }
+  });
+
+  it("searches only the functions the value hands back, and stands at the value where none runs it", () => {
+    const text = (source: string) => "module Main\n\n" + world + source;
+    const at = (source: string) => compileFiles([["/world.js", ""], ["/main.hex", text(source)]]).diagnostics
+      .map((diagnostic) => text(source).slice(diagnostic.primary.start.offset, diagnostic.primary.end.offset));
+    expect(at(`export let h(cb: () ->! Unit): () ->? Unit =
+    let unrelated = () => save!("a")
+    unrelated!()
+    let g = () => audit!("b")
+    g
+`)).toEqual(['audit!("b")']);
+    expect(at(`let outer(action: () ->! Unit): Unit =
+    let h(cb: () ->! Unit): () ->? Unit =
+        let g = action
+        g
+    ()
+`)).toEqual(["g"]);
+    // An arrow a pin itself made impure is one report, not two.
+    expect(at(`let apply(f: (() ->! Unit) ->! (() ->! Unit)): Unit = f!(() => ())!()
+export let u(): Unit = apply!((cb: () ->! Unit): () ->? Unit => cb)
+`)).toEqual(["cb"]);
+  });
+
   it("any function value meeting a written `->?` is compared with it, never merged, whatever its shape", () => {
     // §4.2: a named local, a merge, a captured parameter, an annotation over a
     // lambda — each is compared with what the arrow is handed, and the report
