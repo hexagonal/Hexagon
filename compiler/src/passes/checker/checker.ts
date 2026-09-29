@@ -25481,17 +25481,11 @@ class Checker {
         return elements === actual.elements ? type : { kind: "Tuple", elements };
       }
       case "Record": {
-        // A solved row is read through, so a field unification added to the
-        // record is published as one written in it.
-        const fields = new Map(actual.fields);
-        let tail = actual.tail;
-        for (let rest = tail && this.#prune(tail); rest?.kind === "Record"; rest = tail && this.#prune(tail)) {
-          for (const [name, field] of rest.fields) fields.set(name, field);
-          tail = rest.tail;
-        }
-        const published = new Map([...fields].map(([name, field]) => [name, each(field)]));
-        if ([...published].every(([name, field]) => field === actual.fields.get(name))) return type;
-        return { kind: "Record", fields: published, ...(tail === undefined ? {} : { tail }) };
+        // A row tail is left as it stands, as `#replaceVariables` leaves it:
+        // reading a solved one through would respell the record's open row.
+        const fields = new Map([...actual.fields].map(([name, field]) => [name, each(field)]));
+        if ([...fields].every(([name, field]) => field === actual.fields.get(name))) return type;
+        return { kind: "Record", fields, ...(actual.tail === undefined ? {} : { tail: actual.tail }) };
       }
       case "Union":
       case "NominalRecord":
