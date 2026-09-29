@@ -147,7 +147,7 @@ A **callback parameter** is a parameter, of any arrow on the signature's applica
 
   `later(noop, noop)` and a call of the closure it returns are both bare. `later!(noop, save0)` wears `!`, and so does its closure's call.
 
-  **A colour a finished face quantifies stays only where a parameter can choose it.** The face's own arrows, and those of each function its result carries inside data (a tuple, an `Option`, a record), keep the colour only where their own parameters, or those of a function around them, hold it; everywhere else it is published as pure. Nothing handed to that function chooses the colour there, so the scheme holds at every choice of it. This is sound because a colour changes nothing at run time and no pure read reaches changeable state (§6.2), so no function can observe what a caller handed another. A knot member that runs a sibling's callback colour finishes with such a colour (§3.4), and shows `->` for it rather than a `->?` it is handed nothing for.
+  **A colour a finished function face quantifies stays only where a parameter can choose it.** A colour on the function's own arrows that none of their parameters hold is published as pure there, and on each function its result carries inside data (a tuple, an `Option`, a record), except where that function's own parameters, or those of a function around it, hold it. A declared type's fields are out of view, so a colour in any of its arguments but a covariant one counts as held for all of them. Nothing handed to a function chooses the colour where it is published as pure, so the scheme holds at every choice of it. This is sound because a colour changes nothing at run time and no function can observe what a caller handed another: a lambda reaches no outer `var` and there are no ref cells (the coupling in §7), and a pure collection denotes stable contents (§6.2). A colour that is not on the function's own arrows is left as it stands, and so are the fields a record's open row adds. A knot member that runs a sibling's callback colour finishes with such a colour (§3.4), and shows `->` for it rather than a `->?` it is handed nothing for.
 
 ### 2.5 Data-field arrows: constants only
 
@@ -566,7 +566,7 @@ Messages are normative in shape.
 Display is part of the contract: a signature a reader cannot see is not a face. Functions §5.1 owns the display grammar; this section owns what is specific to colour.
 
 - **The three arrows render everywhere a face does**: hover, diagnostics, completion detail, and the generated `.d.ts`. A TypeScript face has one function arrow, so the declaration file carries the Hexagon signature as a generated documentation line (`` Hexagon: `face` ``). It is merged into the author's block per Doc Comments §7.3, and emitted only where the face carries a colour: purity is the silent one (§1).
-- **A displayed face is a face the grammar can write.** Each arrow is shown in the spelling that, written at that position, denotes its colour:
+- **A displayed face is a face the grammar can write**, with two exceptions below: a captured colour, and a colour kept by a function a result carries. Each arrow is shown in the spelling that, written at that position, denotes its colour:
   - a callback's colour shows `->!` on the callback's own arrows;
   - a pure callback shows `->`;
   - a colour that depends on callbacks shows `->?`. A finished face depends on all of its callbacks or on none (§2.4), so a pasted `->?` is exact;

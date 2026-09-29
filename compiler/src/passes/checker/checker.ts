@@ -25446,36 +25446,48 @@ class Checker {
 
   /**
    * **A colour stays only where a parameter can choose it** (Effects §2.4).
-   * The spine, and each function the result carries in data (a tuple, an
-   * `Option`, a record), keeps a quantified colour on its own arrows only where
-   * its own parameters, or those of a function around it, hold that colour;
-   * elsewhere the colour is published pure. Nothing handed to that function
-   * chooses it there, so the scheme holds at every choice of it. A knot member
-   * that runs a sibling's callback colour, monomorphic inside the knot (§3.4),
-   * finishes with such a colour on its spine, and shows `->` for it rather than
-   * a `->?` no written face could spell.
+   * A colour on the spine that no spine parameter holds is published pure on
+   * the spine, and on each function the result carries in data (a tuple, an
+   * `Option`, a record) except where that function's own parameters, or those
+   * of a function around it, hold it. Nothing handed to a function chooses the
+   * colour where it is published pure, so the scheme holds at every choice of
+   * it. A knot member that runs a sibling's callback colour, monomorphic
+   * inside the knot (§3.4), finishes with such a colour on its spine, and
+   * shows `->` for it rather than a `->?` no written face could spell. A
+   * colour off the spine is left as it stands.
    *
    * Each function is published at its own choice (#1166). That is sound
-   * because colours are erased and no pure read reaches changeable state (a
-   * pure collection denotes stable contents, §6.2): the scheme at each choice
-   * describes one of the values the result holds, and nothing lets one of them
-   * observe what a caller handed another.
+   * because colours are erased and no function can observe what a caller
+   * handed another: a lambda reaches no outer `var` and there are no ref cells
+   * (§7's coupling), and a pure collection denotes stable contents (§6.2).
    */
   #publishUnheldColours(type: Mono, level: number): Mono {
-    return this.#prune(type).kind === "Function" ? this.#publishHeld(type, new Set(), level) : type;
+    const actual = this.#prune(type);
+    if (actual.kind !== "Function") return type;
+    const spineHeld = this.#inputVariables(actual);
+    const spineColours = new Set<number>();
+    for (let node: Mono = actual; node.kind === "Function"; node = this.#prune(node.result)) {
+      for (const part of this.#colourParts(node.effect ?? PURE)) {
+        if (part.level > level && !spineHeld.has(part.id)) spineColours.add(part.id);
+      }
+    }
+    return spineColours.size === 0 ? type : this.#publishHeld(type, new Set(), spineColours);
   }
 
-  /** `#publishUnheldColours` at one node, where the parameters around it hold `held`. */
-  #publishHeld(type: Mono, held: ReadonlySet<number>, level: number): Mono {
+  /**
+   * `#publishUnheldColours` at one node, where the parameters around it hold
+   * `held`, publishing `spineColours`.
+   */
+  #publishHeld(type: Mono, held: ReadonlySet<number>, spineColours: ReadonlySet<number>): Mono {
     const actual = this.#prune(type);
-    const each = (node: Mono): Mono => this.#publishHeld(node, held, level);
+    const each = (node: Mono): Mono => this.#publishHeld(node, held, spineColours);
     const all = (nodes: readonly Mono[]): readonly Mono[] => {
       const published = nodes.map(each);
       return published.every((node, index) => node === nodes[index]) ? nodes : published;
     };
     switch (actual.kind) {
       case "Function":
-        return this.#publishArrows(type, this.#inputVariables(actual, new Set(held)), level);
+        return this.#publishArrows(type, this.#inputVariables(actual, new Set(held)), spineColours);
       case "Tuple": {
         const elements = all(actual.elements);
         return elements === actual.elements ? type : { kind: "Tuple", elements };
@@ -25490,7 +25502,12 @@ class Checker {
       case "Union":
       case "NominalRecord":
       case "ExternType": {
-        const parts = all(actual.arguments);
+        const parts = this.#publishArguments(actual.arguments, (index) =>
+          actual.kind === "Union"
+            ? this.#variance.effectiveUnion(actual.union, index)
+            : actual.kind === "NominalRecord"
+            ? this.#variance.effectiveRecord(actual.record, index)
+            : this.#variance.externClaim(actual.externType, index), held, spineColours);
         return parts === actual.arguments ? type : { ...actual, arguments: parts };
       }
       case "Vector":
@@ -25498,17 +25515,19 @@ class Checker {
       case "Array":
       case "JsSet":
       case "Node": {
-        const element = each(actual.element);
+        const element = this.#publishArguments([actual.element], (index) =>
+          this.#variance.kindClaim(actual.kind, index), held, spineColours)[0]!;
         return element === actual.element ? type : { ...actual, element };
       }
       case "Nullable": {
-        const value = each(actual.value);
+        const value = this.#publishArguments([actual.value], (index) =>
+          this.#variance.kindClaim("Nullable", index), held, spineColours)[0]!;
         return value === actual.value ? type : { kind: "Nullable", value };
       }
       case "Map":
       case "JsMap": {
-        const key = each(actual.key);
-        const value = each(actual.value);
+        const [key, value] = this.#publishArguments([actual.key, actual.value], (index) =>
+          this.#variance.kindClaim(actual.kind, index), held, spineColours) as readonly [Mono, Mono];
         return key === actual.key && value === actual.value ? type : { kind: actual.kind, key, value };
       }
       default:
@@ -25517,17 +25536,39 @@ class Checker {
   }
 
   /**
+   * A type constructor's arguments. Its declaration is out of view, so an
+   * argument it uses anywhere but covariantly may stand under a parameter of
+   * something it holds, where the caller chooses its colours: every colour in
+   * such an argument is held for all of them, which leaves only a covariant
+   * argument's own colours to publish.
+   */
+  #publishArguments(
+    parts: readonly Mono[],
+    variance: (index: number) => Variance,
+    held: ReadonlySet<number>,
+    spineColours: ReadonlySet<number>,
+  ): readonly Mono[] {
+    const inner = new Set(held);
+    parts.forEach((part, index) => {
+      if (variance(index) === "co") return;
+      for (const variable of this.#collectVariables(part)) inner.add(variable.id);
+    });
+    const published = parts.map((part) => this.#publishHeld(part, inner, spineColours));
+    return published.every((part, index) => part === parts[index]) ? parts : published;
+  }
+
+  /**
    * One function's own arrows, its curried results included, where its
    * parameters and those around it hold `own`; the data it finally returns is
    * published in turn.
    */
-  #publishArrows(type: Mono, own: ReadonlySet<number>, level: number): Mono {
+  #publishArrows(type: Mono, own: ReadonlySet<number>, spineColours: ReadonlySet<number>): Mono {
     const actual = this.#prune(type);
-    if (actual.kind !== "Function") return this.#publishHeld(type, own, level);
-    const result = this.#publishArrows(actual.result, own, level);
+    if (actual.kind !== "Function") return this.#publishHeld(type, own, spineColours);
+    const result = this.#publishArrows(actual.result, own, spineColours);
     const unheld = new Map(
       this.#colourParts(actual.effect ?? PURE)
-        .filter((part) => part.level > level && !own.has(part.id))
+        .filter((part) => spineColours.has(part.id) && !own.has(part.id))
         .map((part) => [part.id, PURE] as const),
     );
     if (unheld.size === 0 && result === actual.result) return type;

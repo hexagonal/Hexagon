@@ -2979,6 +2979,51 @@ ${use}
     expect(hover(make("(n: Int) => (run, n)", "    ()"), "make() =")).toBe("() -> Int -> ((() ->! Unit) ->? Unit, Int)");
   });
 
+  it("reads a declared type's arguments by their variance when it publishes (#1166)", () => {
+    // `R`'s fields are out of view at `make`: `apply` takes an `a` the caller
+    // chooses and gives back the `b`, so a colour `a` holds is held for `b`
+    // too, and `th` runs what the caller handed `apply`.
+    const nominal = `let defer(action: () ->! Unit): () ->? Unit = () => action!()
+let ident(x: a): a = x
+record R(a, b) = { sample: a, apply: (a) -> b }
+let make() =
+    let run = ident((f) => f!())
+    run!(() => ())
+    let go = () => run!(() => ())
+    R({ sample = defer, apply = (d) => d(go) })
+export let probe(): Unit =
+    let r = make()
+    let th = r.apply((s) => () => save!("x"))
+    th!()
+`;
+    expect(check(nominal)).toEqual([]);
+    expect(check(nominal.replace("    th!()", "    th()"))).toEqual([wantsBang("th")]);
+    // The same through a union's payload.
+    const union = nominal
+      .replace("record R(a, b) = { sample: a, apply: (a) -> b }", "union U(a, b) = MkU(a, (a) -> b)")
+      .replace("R({ sample = defer, apply = (d) => d(go) })", "MkU(defer, (d) => d(go))")
+      .replace("    let r = make()\n    let th = r.apply(", "    let MkU(_, apply) = make()\n    let th = apply(");
+    expect(check(union)).toEqual([]);
+    expect(check(union.replace("    th!()", "    th()"))).toEqual([wantsBang("th")]);
+  });
+
+  it("leaves a colour off the spine as it stands (#1166)", () => {
+    // `make` never runs `run`, so its colour is not on the spine: `go` keeps
+    // it, and can meet an effectful function in the same data.
+    const source = `let ident(x: a): a = x
+let make() =
+    let run = ident((f) => f!())
+    let go = () => run!(() => ())
+    (go, 1)
+export let use(b: Bool): Unit =
+    let p = if b then make() else (() => save!("x"), 2)
+    let (g, _) = p
+    g!()
+`;
+    expect(check(source)).toEqual([]);
+    expect(hover(source, "make() =")).toBe("() -> (() ->? Unit, Int)");
+  });
+
   it("leaves a colour the spine's parameters hold on every function the result carries (#1166)", () => {
     // `go` runs the caller's `cb`, so its colour is the caller's to choose.
     const source = `let make(cb: () ->! Unit) =
