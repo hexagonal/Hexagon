@@ -33,7 +33,9 @@ const FIXTURES =
   "let noop(): Unit = ()\n" +
   "export let apply2(f: () ->! Unit, g: () ->! Unit): Unit =\n    f!()\n    g!()\n" +
   "export let pureOnly(f: () -> Unit): Unit = f()\n" +
-  "export let impureOnly(f: () ->! Unit): Unit = f!()\n";
+  "export let impureOnly(f: () ->! Unit): Unit = f!()\n" +
+  // Two values of one type: their colours meet, as `apply2`'s callbacks' do not.
+  "export let tieTwo(x: a, y: a): Unit = ()\n";
 
 const files = (source: string): [string, string][] => [
   ["/main.hex", HEADER + FIXTURES + source],
@@ -57,8 +59,9 @@ function hovered(source: string, needle: string): string | undefined {
   return session.hover("/main.hex", text.lastIndexOf(needle))?.displayedType;
 }
 
-const SOLVED_PURE = "this signature's `->?` promises a colour the caller chooses, but the body " +
-  "solves it to the pure constant — the honest face is `->`";
+/** §4.2's lie of generality at `action`, the callback every R.b witness below ties a value to. */
+const SOLVED_PURE = "the parameter `action` is written `->!`, which accepts any function, and this " +
+  "accepts only a pure one — write `action`'s arrow `->`";
 const SOLVED_IMPURE = "this signature's `->?` promises a colour the caller chooses, but the body " +
   "solves it to the impure constant — a function that performs its own unconditional effects " +
   "rounds up, and its face is `->!`";
@@ -101,10 +104,20 @@ describe("a pure function fits wherever a function is expected (#1119)", () => {
     expect(reports(`export record Holder = { run: () ->! Unit }
 export let make(): Holder = Holder({ run = () => () })
 `)).toEqual([]);
+    // A callback written `->!` has a colour of its own, so a pure argument
+    // makes the call bare; the constant stands under a constructor (§2.4).
     expect(reports(`export let run(action: () ->! Unit): Unit = action!()
 export let go(): Unit =
-    run!(() => ())
-    run!(noop)
+    run(() => ())
+    run(noop)
+`)).toEqual([]);
+    expect(reports(`export let runOne(o: Option(() ->! Unit)): Unit =
+    match o
+        Some(f) => f!()
+        None => ()
+export let go(): Unit =
+    runOne!(Some(() => ()))
+    runOne!(Some(noop))
 `)).toEqual([]);
   });
 
@@ -180,15 +193,17 @@ let k = pick(noop)
     expect((main?.declarations.text ?? "").match(/Hexagon:.*/gu)).toEqual([
       "Hexagon: `String ->! Unit` */",
       "Hexagon: `(() ->! Unit, () ->! Unit) ->? Unit` */",
-      "Hexagon: `(() ->! Unit) ->! Unit` */",
+      "Hexagon: `(() ->! Unit) ->? Unit` */",
     ]);
   });
 
   test("the reverse direction stays refused: an effectful function where purity is demanded", () => {
     expect(reports("export let outer(action: () ->! Unit): Unit = pureOnly(action)\n"))
       .toEqual([["action", SOLVED_PURE]]);
+    // An effectful function beside the callback fixes nothing of the callback's:
+    // each callback of `apply2` has a colour of its own (§2.4).
     expect(reports("export let outer(action: () ->! Unit): Unit = apply2!(action, save0)\n"))
-      .toEqual([["save0", SOLVED_IMPURE]]);
+      .toEqual([]);
     expect(reports("export let go(): Unit = pureOnly(save0)\n")).toEqual([["pureOnly(save0)", PURITY]]);
   });
 });
@@ -203,18 +218,18 @@ describe("only a colour the program's text decides is re-opened (R.b)", () => {
 `;
 
   test("a parameter with no written type is inferred from all its uses, in either order", () => {
-    const one = reports(uses("pureOnly(cb)", "apply2!(action, cb)"));
-    const two = reports(uses("apply2!(action, cb)", "pureOnly(cb)"));
+    const one = reports(uses("pureOnly(cb)", "tieTwo(action, cb)"));
+    const two = reports(uses("tieTwo(action, cb)", "pureOnly(cb)"));
     expect(one.map(([, message]) => message)).toEqual([SOLVED_PURE]);
     expect(two.map(([, message]) => message)).toEqual([SOLVED_PURE]);
   });
 
   test("so does an alias of one, and a call handing one back", () => {
     for (const [first, second] of [
-      ["let f = cb\n        pureOnly(cb)", "apply2!(action, f)"],
-      ["let f = cb\n        apply2!(action, f)", "pureOnly(cb)"],
-      ["pureOnly(cb)", "apply2!(action, pickUp(cb))"],
-      ["apply2!(action, pickUp(cb))", "pureOnly(cb)"],
+      ["let f = cb\n        pureOnly(cb)", "tieTwo(action, f)"],
+      ["let f = cb\n        tieTwo(action, f)", "pureOnly(cb)"],
+      ["pureOnly(cb)", "tieTwo(action, pickUp(cb))"],
+      ["tieTwo(action, pickUp(cb))", "pureOnly(cb)"],
     ]) {
       const source = "let pickUp(value: a): a = value\n" + uses(first!, second!);
       expect([first, reports(source).map(([, message]) => message)]).toEqual([first, [SOLVED_PURE]]);
@@ -231,25 +246,29 @@ describe("only a colour the program's text decides is re-opened (R.b)", () => {
       expect([first, one]).toEqual([first, two]);
       expect(one).toHaveLength(1);
     };
-    refusedBothWays(["pureOnly(p)", "let f = p", "apply2!(action, f)"], ["let f = p", "pureOnly(p)", "apply2!(action, f)"]);
+    refusedBothWays(["pureOnly(p)", "let f = p", "tieTwo(action, f)"], ["let f = p", "pureOnly(p)", "tieTwo(action, f)"]);
     refusedBothWays(["pureOnly(p)", "let f = p", "impureOnly!(f)"], ["let f = p", "pureOnly(p)", "impureOnly!(f)"]);
     refusedBothWays(
-      ["let w: (() -> Unit, Int) = p", "let (a, b) = p", "apply2!(action, a)"],
-      ["let (a, b) = p", "apply2!(action, a)", "let w: (() -> Unit, Int) = p"],
+      ["let w: (() -> Unit, Int) = p", "let (a, b) = p", "tieTwo(action, a)"],
+      ["let (a, b) = p", "tieTwo(action, a)", "let w: (() -> Unit, Int) = p"],
     );
     refusedBothWays(
-      ["let w: Option(() -> Unit) = p", "match p\n            Some(f) => apply2!(action, f)\n            None => ()"],
-      ["match p\n            Some(f) => apply2!(action, f)\n            None => ()", "let w: Option(() -> Unit) = p"],
+      ["let w: Option(() -> Unit) = p", "match p\n            Some(f) => tieTwo(action, f)\n            None => ()"],
+      ["match p\n            Some(f) => tieTwo(action, f)\n            None => ()", "let w: Option(() -> Unit) = p"],
     );
   });
 
   test("a parameter joined with a pure function stays open for its other uses, in either order", () => {
     const k = (first: string, second: string): string =>
       `export let outer(action: () ->! Unit): Unit =\n    let k = (cb) =>\n        ${first}\n        ${second}\n        ()\n    ()\n`;
+    const tie = [["tieTwo(action, cb)", "`cb`'s colour is tied to `action`'s here, and no written type can say that — write `cb`'s type"]];
     for (const join of ["let g = if True then cb else noop", "let g = [cb, noop]"]) {
-      for (const use of ["apply2!(action, cb)", "impureOnly!(cb)"]) {
-        expect([join, use, reports(k(join, use))]).toEqual([join, use, []]);
-        expect([use, join, reports(k(use, join))]).toEqual([use, join, []]);
+      // Handed beside `action` at one type, the untyped callback's colour is
+      // `action`'s, which no written type can say (§3.4's tie), in either order;
+      // run by a callee that takes any function, it is its own.
+      for (const [use, expected] of [["tieTwo(action, cb)", tie], ["impureOnly!(cb)", []]] as const) {
+        expect([join, use, reports(k(join, use))]).toEqual([join, use, expected]);
+        expect([use, join, reports(k(use, join))]).toEqual([use, join, expected]);
       }
     }
   });
@@ -264,7 +283,7 @@ describe("only a colour the program's text decides is re-opened (R.b)", () => {
       "let g = pickTwo(noop, cb)",
       "let g = pickTwo(cb, noop)",
     ]) {
-      for (const use of ["apply2!(action, g)", "impureOnly!(g)"]) {
+      for (const use of ["tieTwo(action, g)", "impureOnly!(g)"]) {
         for (const lines of [["pureOnly(cb)", join, use], [join, use, "pureOnly(cb)"]]) {
           expect([lines, reports(k(lines)).length]).toEqual([lines, 1]);
         }
@@ -277,12 +296,12 @@ describe("only a colour the program's text decides is re-opened (R.b)", () => {
       "let k = (f) =>\n    pureOnly(f)\n    f\n",
       "let k(f: () -> Unit): () -> Unit = f\n",
     ]) {
-      expect(reports(`${k}export let outer(action: () ->! Unit): Unit = apply2!(action, k(noop))\n`)).toEqual([]);
+      expect(reports(`${k}export let outer(action: () ->! Unit): Unit = tieTwo(action, k(noop))\n`)).toEqual([]);
     }
     // A function that hands back an untyped parameter is made from it, in either order.
     for (const lines of [
-      ["pureOnly(cb)", "let get = () => cb", "apply2!(action, get())"],
-      ["let get = () => cb", "apply2!(action, get())", "pureOnly(cb)"],
+      ["pureOnly(cb)", "let get = () => cb", "tieTwo(action, get())"],
+      ["let get = () => cb", "tieTwo(action, get())", "pureOnly(cb)"],
     ]) {
       const source = "export let outer(action: () ->! Unit): Unit =\n    let k = (cb) =>\n" +
         lines.map((line) => `        ${line}\n`).join("") + "        ()\n    ()\n";
@@ -292,18 +311,18 @@ describe("only a colour the program's text decides is re-opened (R.b)", () => {
 
   test("a lambda written where it is passed takes its parameter's type from the callee", () => {
     const takes = "export let takesD(f: (() -> Unit) ->! Unit): Unit = f!(noop)\n";
-    expect(reports(`${takes}export let outer(action: () ->! Unit): Unit = takesD!((cb) => apply2!(action, cb))\n`))
+    expect(reports(`${takes}export let outer(action: () ->! Unit): Unit = takesD((cb) => tieTwo(action, cb))\n`))
       .toEqual([]);
-    expect(reports(`${takes}export let outer(action: () ->! Unit): Unit =\n    let h = (cb) => apply2!(action, cb)\n    takesD!(h)\n`))
+    expect(reports(`${takes}export let outer(action: () ->! Unit): Unit =\n    let h = (cb) => tieTwo(action, cb)\n    takesD(h)\n`))
       .toHaveLength(1);
-    expect(reports(`${takes}export let outer(action: () ->! Unit): Unit =\n    let h = (cb: () -> Unit) => apply2!(action, cb)\n    takesD!(h)\n`))
+    expect(reports(`${takes}export let outer(action: () ->! Unit): Unit =\n    let h = (cb: () -> Unit) => tieTwo(action, cb)\n    takesD(h)\n`))
       .toEqual([]);
   });
 
   test("writing the parameter's type decides it, and it fits", () => {
     const written = `export let outer(action: () ->! Unit): Unit =
     let k = (cb: () -> Unit) =>
-        apply2!(action, cb)
+        tieTwo(action, cb)
         pureOnly(cb)
     ()
 `;
@@ -318,9 +337,11 @@ describe("what the program's text decides, in any line order (R.b)", () => {
   const inK = (lines: readonly string[]): string[] => ["let k = (cb) =>", ...lines.map((line) => `    ${line}`), "    ()"];
   /**
    * One route's verdict, the same in every line order: `"fits"`, or `"refused"`
-   * with the lie-of-generality report among each order's reports. What else a
-   * refused program reports may follow which unification failed first, as it
-   * always has; the verdict may not.
+   * with the lie-of-generality report, or a tie's (§3.4), among each order's
+   * reports. Which of the two a refused program draws, and what else it
+   * reports, may follow which unification failed first, as it always has: a
+   * pin that lands before an untyped parameter's body closes leaves no tie to
+   * refuse. The verdict may not.
    */
   const verdict = (orders: readonly (readonly string[])[], prefix = ""): "fits" | "refused" => {
     const answers = orders.map((lines) => reports(body(lines, prefix)).map(([, message]) => message));
@@ -328,7 +349,9 @@ describe("what the program's text decides, in any line order (R.b)", () => {
     expect([orders[0], fits]).toEqual([orders[0], orders.map(() => fits[0])]);
     if (fits[0]) return "fits";
     for (const [index, answer] of answers.entries()) {
-      expect([orders[index], answer.includes(SOLVED_PURE)]).toEqual([orders[index], true]);
+      const refused = answer.includes(SOLVED_PURE) ||
+        answer.some((message) => message.includes("'s colour is tied to `action`'s here"));
+      expect([orders[index], refused]).toEqual([orders[index], true]);
     }
     return "refused";
   };
@@ -336,26 +359,31 @@ describe("what the program's text decides, in any line order (R.b)", () => {
   test("a lambda's colour and a named function's are their marks', whatever they capture", () => {
     const pin = "pureOnly(cb)";
     for (const [make, use] of [
-      ["let run = () => cb()", "apply2!(action, run)"],
-      ["let make = () => () => cb()", "apply2!(action, make())"],
+      ["let run = () => cb()", "tieTwo(action, run)"],
+      ["let make = () => () => cb()", "tieTwo(action, make())"],
     ] as const) {
       expect(verdict([inK([pin, make, use]), inK([make, pin, use]), inK([make, use, pin])])).toEqual("fits");
     }
-    expect(verdict([inK([pin, "apply2!(action, () => cb())"]), inK(["apply2!(action, () => cb())", pin])]))
+    expect(verdict([inK([pin, "tieTwo(action, () => cb())"]), inK(["tieTwo(action, () => cb())", pin])]))
       .toEqual("fits");
-    // A returned lambda that marks a call `?` takes its colour from what it calls.
-    expect(verdict([
-      inK([pin, "let make = () => () => cb!()", "apply2!(action, make())"]),
-      inK(["let make = () => () => cb!()", "apply2!(action, make())", pin]),
-    ])).toEqual("refused");
+    // A returned lambda whose call claims `cb` takes its colour from `cb`, which
+    // the pin makes pure: the `!` is then a mark on a pure call, in either order.
+    for (const lines of [
+      inK([pin, "let make = () => () => cb!()", "tieTwo(action, make())"]),
+      inK(["let make = () => () => cb!()", "tieTwo(action, make())", pin]),
+    ]) {
+      expect(reports(body(lines)).map(([, message]) => message)).toEqual([
+        "this call is pure, so `cb` wants no mark, not `!`",
+      ]);
+    }
   });
 
   test("a value made only from the text fits: a call on decided arguments, a field, an alias", () => {
     for (const lines of [
-      ["let f = pickUp(noop)", "apply2!(action, f)"],
-      ["let r = { f = noop }", "apply2!(action, r.f)"],
-      ["let f = () => ()", "let g = f", "apply2!(action, g)"],
-      ["let t = (noop, 1)", "let (a, b) = t", "apply2!(action, a)"],
+      ["let f = pickUp(noop)", "tieTwo(action, f)"],
+      ["let r = { f = noop }", "tieTwo(action, r.f)"],
+      ["let f = () => ()", "let g = f", "tieTwo(action, g)"],
+      ["let t = (noop, 1)", "let (a, b) = t", "tieTwo(action, a)"],
     ]) {
       expect([lines, reports(body(lines, "let pickUp(value: a): a = value\n"))]).toEqual([lines, []]);
     }
@@ -363,10 +391,10 @@ describe("what the program's text decides, in any line order (R.b)", () => {
 
   test("a capture made before the pin is made from the parameter, in either order", () => {
     for (const [make, use] of [
-      ["let get = () => cb", "apply2!(action, get())"],
-      ["let r = { f = cb }", "apply2!(action, r.f)"],
-      ["let t = Some(cb)", "match t\n            Some(f) => apply2!(action, f)\n            None => ()"],
-      ["let t = (cb, 1)", "let (a, b) = t\n        apply2!(action, a)"],
+      ["let get = () => cb", "tieTwo(action, get())"],
+      ["let r = { f = cb }", "tieTwo(action, r.f)"],
+      ["let t = Some(cb)", "match t\n            Some(f) => tieTwo(action, f)\n            None => ()"],
+      ["let t = (cb, 1)", "let (a, b) = t\n        tieTwo(action, a)"],
     ] as const) {
       const answer = verdict([
         inK(["pureOnly(cb)", make, use]),
@@ -379,14 +407,14 @@ describe("what the program's text decides, in any line order (R.b)", () => {
 
   test("a `var` is inferred from its uses, in either order", () => {
     const answer = verdict([
-      ["var z = { f = noop }", "pureOnly(z.f)", "apply2!(action, z.f)"],
-      ["var z = { f = noop }", "apply2!(action, z.f)", "pureOnly(z.f)"],
+      ["var z = { f = noop }", "pureOnly(z.f)", "tieTwo(action, z.f)"],
+      ["var z = { f = noop }", "tieTwo(action, z.f)", "pureOnly(z.f)"],
     ]);
     expect(answer).toEqual("refused");
   });
 
   test("a binding whose type later lines fill is inferred from its uses, in either order", () => {
-    const use = ["match JsMap.get(m, 1)", "    Some(f) => apply2!(action, f)", "    None => ()"];
+    const use = ["match JsMap.get(m, 1)", "    Some(f) => tieTwo(action, f)", "    None => ()"];
     const fill = "let ok: JsMap(Int, () -> Unit) = m";
     for (const made of ["let m = JsMap.fromSeq(Seq.empty)", "let (m, n) = (JsMap.fromSeq(Seq.empty), 1)"]) {
       const answer = verdict([[made, fill, ...use], [made, ...use, fill]]);
@@ -397,8 +425,8 @@ describe("what the program's text decides, in any line order (R.b)", () => {
   test("a `match` over an unsettled scrutinee makes every arm's variables inferred, whatever the arms' order", () => {
     const scrutinee = "match JsMap.get(JsMap.fromSeq(Seq.empty), 1)";
     const answer = verdict([
-      [scrutinee, "    Some(f) when True => pureOnly(f)", "    Some(g) => apply2!(action, g)", "    None => ()"],
-      [scrutinee, "    Some(g) when True => apply2!(action, g)", "    Some(f) => pureOnly(f)", "    None => ()"],
+      [scrutinee, "    Some(f) when True => pureOnly(f)", "    Some(g) => tieTwo(action, g)", "    None => ()"],
+      [scrutinee, "    Some(g) when True => tieTwo(action, g)", "    Some(f) => pureOnly(f)", "    None => ()"],
     ]);
     expect(answer).toEqual("refused");
   });
@@ -410,17 +438,17 @@ describe("what the program's text decides, in any line order (R.b)", () => {
       "export let pureOnly2(f: (Int, (() -> Unit) -> Unit) -> Unit): Unit = ()\n";
     // Spelled whole in the signature: decided, in either order.
     expect(verdict([
-      inK(["pureOnly(cb)", "withRelease!(cb, (release) => apply2!(action, release))"]),
-      inK(["withRelease!(cb, (release) => apply2!(action, release))", "pureOnly(cb)"]),
+      inK(["pureOnly(cb)", "withRelease(cb, (release) => tieTwo(action, release))"]),
+      inK(["withRelease(cb, (release) => tieTwo(action, release))", "pureOnly(cb)"]),
     ], signatures)).toEqual("fits");
     // A variable an argument fills, or a callee inferred from its uses: not decided, in either order.
     expect(verdict([
-      inK(["pureOnly(cb)", "applyWith!(cb, (h) => apply2!(action, h), noop)"]),
-      inK(["applyWith!(cb, (h) => apply2!(action, h), noop)", "pureOnly(cb)"]),
+      inK(["pureOnly(cb)", "applyWith(cb, (h) => tieTwo(action, h), noop)"]),
+      inK(["applyWith(cb, (h) => tieTwo(action, h), noop)", "pureOnly(cb)"]),
     ], signatures)).toEqual("refused");
     expect(verdict([
-      inK(["pureOnly2(cb)", "cb(1, (g) => apply2!(action, g))"]),
-      inK(["cb(1, (g) => apply2!(action, g))", "pureOnly2(cb)"]),
+      inK(["pureOnly2(cb)", "cb(1, (g) => tieTwo(action, g))"]),
+      inK(["cb(1, (g) => tieTwo(action, g))", "pureOnly2(cb)"]),
     ], signatures)).toEqual("refused");
   });
 });
@@ -432,12 +460,12 @@ describe("knots, and the value a `match` or a `for` reads (R.b, review round 4)"
       "        g!(noop)",
       "        if n == 0 then () else b!(action, n - 1)",
     ];
-    const b = ["    b(action: () ->! Unit, n: Int): Unit = a!((release) => apply2!(action, release), action, n)"];
+    const b = ["    b(action: () ->! Unit, n: Int): Unit = a!((release) => tieTwo(action, release), action, n)"];
     const one = reports(["fun", ...a, ...b].join("\n") + "\n").length > 0;
     const two = reports(["fun", ...b, ...a].join("\n") + "\n").length > 0;
     expect([one, two]).toEqual([true, true]);
     // Written on the lambda, the parameter's type is decided, in either order.
-    const typed = ["    b(action: () ->! Unit, n: Int): Unit = a!((release: () -> Unit) => apply2!(action, release), action, n)"];
+    const typed = ["    b(action: () ->! Unit, n: Int): Unit = a!((release: () -> Unit) => tieTwo(action, release), action, n)"];
     expect(reports(["fun", ...a, ...typed].join("\n") + "\n")).toEqual([]);
     expect(reports(["fun", ...typed, ...a].join("\n") + "\n")).toEqual([]);
   });
@@ -462,9 +490,9 @@ describe("knots, and the value a `match` or a `for` reads (R.b, review round 4)"
     // refused where the same value bound by a `let` first fits.
     const outer = (lines: readonly string[]): string =>
       "export let outer(action: () ->! Unit): Unit =\n" + lines.map((line) => `    ${line}\n`).join("") + "    ()\n";
-    const pinned = ["        pureOnly(f)", "        apply2!(action, f)"];
+    const pinned = ["        pureOnly(f)", "        tieTwo(action, f)"];
     expect(reports(outer(["let t = Some(noop)", "match t", "    Some(f) =>", ...pinned, "    None => ()"]))).toEqual([]);
-    expect(reports(outer(["match Some(noop)", "    Some(f) => apply2!(action, f)", "    None => ()"]))).toEqual([]);
+    expect(reports(outer(["match Some(noop)", "    Some(f) => tieTwo(action, f)", "    None => ()"]))).toEqual([]);
     for (const lines of [
       ["match Some(noop)", "    Some(f) =>", ...pinned, "    None => ()"],
       ["for f in [noop]", ...pinned.map((line) => line.slice(4))],
@@ -552,18 +580,18 @@ describe("every pin and every route from an untyped parameter, in every line ord
     "tuple demand": ["pureOnlyPair((cb, 1))"],
   };
   const routes: Record<string, readonly [readonly string[], readonly string[]]> = {
-    direct: [[], ["apply2!(action, cb)"]],
-    alias: [["let f = cb"], ["apply2!(action, f)"]],
-    thunk: [["let get = () => cb"], ["apply2!(action, get())"]],
-    function: [["let m = (x: Int) => cb"], ["apply2!(action, m(1))"]],
-    record: [["let r = { f = cb }"], ["apply2!(action, r.f)"]],
-    option: [["let t = Some(cb)"], ["match t", "    Some(f) => apply2!(action, f)", "    None => ()"]],
-    tuple: [["let t = (cb, 1)"], ["let (a, b) = t", "apply2!(action, a)"]],
-    generic: [["let g = pickUp(cb)"], ["apply2!(action, g)"]],
-    join: [["let g = if True then cb else noop"], ["apply2!(action, g)"]],
-    nested: [["let h = () =>", "    let inner = cb", "    inner"], ["apply2!(action, h())"]],
-    var: [["var z = { f = cb }"], ["apply2!(action, z.f)"]],
-    curried: [["let c = (x: Int) => (y: Int) => cb"], ["apply2!(action, c(1)(2))"]],
+    direct: [[], ["tieTwo(action, cb)"]],
+    alias: [["let f = cb"], ["tieTwo(action, f)"]],
+    thunk: [["let get = () => cb"], ["tieTwo(action, get())"]],
+    function: [["let m = (x: Int) => cb"], ["tieTwo(action, m(1))"]],
+    record: [["let r = { f = cb }"], ["tieTwo(action, r.f)"]],
+    option: [["let t = Some(cb)"], ["match t", "    Some(f) => tieTwo(action, f)", "    None => ()"]],
+    tuple: [["let t = (cb, 1)"], ["let (a, b) = t", "tieTwo(action, a)"]],
+    generic: [["let g = pickUp(cb)"], ["tieTwo(action, g)"]],
+    join: [["let g = if True then cb else noop"], ["tieTwo(action, g)"]],
+    nested: [["let h = () =>", "    let inner = cb", "    inner"], ["tieTwo(action, h())"]],
+    var: [["var z = { f = cb }"], ["tieTwo(action, z.f)"]],
+    curried: [["let c = (x: Int) => (y: Int) => cb"], ["tieTwo(action, c(1)(2))"]],
   };
   for (const [pinName, pin] of Object.entries(pins)) {
     test(`pinned by ${pinName}`, () => {
@@ -596,8 +624,17 @@ describe("reports read the colours as they stand", () => {
   });
 
   test("at a parameter's arrow, a function's demand and a position's supply are read the right way round", () => {
-    expect(reports("let g: (() ->! Unit) -> Unit = pureOnly\n")).toEqual([["(() ->! Unit) -> Unit", PURITY]]);
-    expect(reports("let g: (() -> Unit) ->! Unit = impureOnly\n")).toEqual([["(() -> Unit) ->! Unit", FIXED_BEFORE]]);
+    // The callback's `->!` accepts any function, and `pureOnly` accepts only a
+    // pure one: the lie of generality, at the value that brought the constant
+    // (§4.2's own example).
+    expect(reports("let g: (() ->! Unit) -> Unit = pureOnly\n")).toEqual([[
+      "pureOnly",
+      "this callback is written `->!`, which accepts any function, and this accepts only a pure one — write its arrow `->`",
+    ]]);
+    // And a function whose callback is written `->!` accepts the pure one this
+    // position hands it: the demand reads the parameter's arrow as what it
+    // accepts, and the outer `->!` claims more than it runs, an allowance.
+    expect(reports("let g: (() -> Unit) ->! Unit = impureOnly\n")).toEqual([]);
   });
 
   test("the recovery decides a colour it shares with a pure function at module level too (#1115 D2)", () => {
@@ -640,17 +677,17 @@ describe("a written face may claim more effect than its body performs, never les
       .toEqual(["this call may touch the world, and the enclosing function's face is the pure arrow `->` — a pure face cannot run effects"]);
   });
 
-  test("the linked face #947 asked for is still honoured, and no longer needed", () => {
-    const written = `export let orNoop(flag: Bool, action: () ->! Unit): () ->? Unit =
-    let noop2: () ->? Unit = () => ()
+  test("the face #947 asked for is no longer needed, and a local `->?` borrows nothing", () => {
+    const inferred = `export let orNoop(flag: Bool, action: () ->! Unit): () ->? Unit =
+    let noop2 = () => ()
     if flag then action else noop2
 `;
     const direct = `export let orNoop(flag: Bool, action: () ->! Unit): () ->? Unit =
     if flag then action else () => ()
 `;
-    expect(reports(written)).toEqual([]);
+    expect(reports(inferred)).toEqual([]);
     expect(reports(direct)).toEqual([]);
-    expect(hovered(direct, "orNoop(")).toBe(hovered(written, "orNoop("));
+    expect(hovered(direct, "orNoop(")).toBe(hovered(inferred, "orNoop("));
   });
 });
 

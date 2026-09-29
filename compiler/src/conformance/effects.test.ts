@@ -118,10 +118,10 @@ const giveWay = (words: string) =>
   `\`${words}\` is retired, and this row's arrow is written — drop the word${
     words.includes(" ") ? "s" : ""
   }`;
-/** The claim named a dependency the row has nothing to depend on (§13). */
-const retiredWithoutInlet = (words: string) =>
-  `\`${words}\` is retired, and nothing this row is handed carries \`->?\` — ` +
-  "write `->?` on the callback parameter this row runs, or write `->!`";
+/** The claim named a dependency the row has nothing to depend on (§13): the pair reads as `conduit` does. */
+const retiredWithoutInlet = (_words: string) =>
+  "`conduit` is retired, and this row is handed no callback — write the callback " +
+  "parameter this row runs, with `->!`, or write `->!` on the row";
 const RETIRED_COLON = "an extern callable declares its effect — write `->` for a function " +
   "that touches nothing, `->!` for one that may, `->?` for one exactly as effectful as a " +
   "callback it is handed; when in doubt, `->!`";
@@ -492,14 +492,19 @@ export let z: Int = mk()((n) => n)
     ).toEqual([]);
   });
 
-  it("admits a record type standing in a spine arrow's parameter", () => {
-    // Depth and polarity stay irrelevant *within* the supplied argument (§2.2.1):
-    // the caller hands over the whole record, so it pins the field's colour too.
+  it("refuses a `->?` over a parameter that is data: a record type in a parameter is no callback", () => {
+    // Every arrow inside a parameter type other than a callback's own means
+    // what it says (§2.4): the record's field is the impure constant, so there
+    // is no callback for the `->?` to follow (§2.2.1).
     expect(
       effectDiagnostics([["/main.hex", "module Main\n\n" + `export let mkr(): ({ step: () ->! String }) ->? String =
     (source: { step: () ->! String }): String => (source.step)!()
 `]]),
-    ).toEqual([]);
+    ).toEqual([
+      "`->?` means only as effectful as what it is handed, and nothing is handed here — " +
+      "no callback of this signature has been handed over by the time this arrow runs; " +
+      "write `->!` for a function that may touch the world, or `->` for one that does not",
+    ]);
   });
 
   it("carries the face across the module boundary, at both colours", () => {
@@ -534,7 +539,7 @@ export let impureUse(): Int = Maker.mk()!((n) =>
     );
   });
 
-  it("still refuses the outer-only face — a spine arrow's colour is not an inlet", () => {
+  it("still refuses the outer-only face, a local one with the local clause", () => {
     expect(
       effectDiagnostics([["/main.hex", "module Main\n\n" + `export let f(x: Int): Int =
     let g: (String) ->? Int = (s: String): Int => 1
@@ -542,9 +547,8 @@ export let impureUse(): Int = Maker.mk()!((n) =>
 `]]),
     ).toEqual([
       "`->?` means only as effectful as what it is handed, and nothing is handed here — " +
-      "no callback of this signature has been handed over by the " +
-      "time this arrow runs; " +
-      "write `->!` for a function that may touch the world, or `->` for one that does not",
+      "this annotation has no callbacks of its own, and a local `->?` does not borrow the " +
+      "enclosing function's — leave its type to inference, or write `->!`",
     ]);
   });
 
@@ -719,65 +723,30 @@ export let z: Int = 1
   });
 });
 
-describe("#408 §4.2 — the face report stands at the written arrow", () => {
-  const nested = `${world}
+describe("Effects §4.2 — where the face reports stand", () => {
+  it("an arrow in a callback's own parameters is a constant, so handing it an effectful function is no report", () => {
+    const nested = `${world}
 export let step(n: Int): Int =
     save!("x")
     n
 
 export let f(h: ((Int) ->! Int) -> Int): Int = h(step)
 `;
-
-  it("reports at the pin, labels `h`'s nested arrow, and rewrites that arrow", () => {
-    // `f`'s own outer arrow is `->`, returning `Int`, and it is honest: the
-    // arrow that constantified is `h`'s parameter's. The advice to give the
-    // *binding* an explicit face would have fixed nothing here.
-    //
-    // Handing `step` to `h` is an act of unification, not an effect the body
-    // performs, so the report stands at that pin with the arrow as its label
-    // (§4.2, #873; ruled for this shape by #948) — the fixit still rewrites
-    // the nested arrow alone.
-    expect(effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + nested]])).toEqual([
-      "this signature's `->?` promises a colour the caller chooses, but the body " +
-      "solves it to the impure constant — a function that performs its own " +
-      "unconditional effects rounds up, and its face is `->!`",
-    ]);
-    const [report] = effectSpans([["/world.js", ""], ["/main.hex", "module Main\n\n" + nested]]);
-    expect(report).toEqual({
-      primary: "module Main\n\n".length + nested.indexOf("h(step)") + "h(".length,
-      edits: ["module Main\n\n".length + nested.indexOf("->?")],
-    });
+    expect(effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + nested]])).toEqual([]);
+    expect(hoveredType("module Main\n\n" + nested, "f(h")).toBe("((Int ->! Int) -> Int) -> Int");
   });
 
-  it("rewrites every nested occurrence when the outer arrow is not one of them", () => {
-    // The other half of the join rule: with no written outer arrow there is no
-    // join to preserve, and the nested spelling is the whole of the condemned
-    // colour — both parameters carry it, and both are repaired.
-    const two = `${world}
-export let step(n: Int): Int =
-    save!("x")
-    n
-
-export let f(h: ((Int) ->! Int) -> Int, k: ((Int) ->! Int) -> Int): Int = h(step) + k(step)
-`;
-    const [report] = effectSpans([["/world.js", ""], ["/main.hex", "module Main\n\n" + two]]);
-    expect(report?.edits).toEqual([
-      "module Main\n\n".length + two.indexOf("->?"),
-      "module Main\n\n".length + two.indexOf("->?", two.indexOf("->?") + 1),
-    ]);
-  });
-
-  it("rewrites every occurrence in the pure direction — there is no join to keep", () => {
-    // §4.2's last sentence. The callback meets a `->` demand, so the signature's
-    // one colour solves *pure*, and every arrow that spells it — the annotation's
-    // two and the lambda parameter's — is over-claiming.
+  it("the lie of generality rewrites every `->!` that spells the colour, and a `->?` left handed nothing", () => {
+    // §4.2: the callback meets a `->` demand, so its colour is pure, and every
+    // arrow that spells it — the annotation's and the lambda parameter's — is
+    // over-claiming; the outer `->?`, which followed only it, goes with them.
     const pureFace = `export let strict(step: String -> String, d: String): String = step(d)
 export let f: ((String ->! String) ->? String) = (run: String ->! String): String =>
     strict(run, "body")
 `;
     expect(effectDiagnostics([["/main.hex", "module Main\n\n" + pureFace]])).toEqual([
-      "this signature's `->?` promises a colour the caller chooses, but the body " +
-      "solves it to the pure constant — the honest face is `->`",
+      "the parameter `run` is written `->!`, which accepts any function, and this accepts only a " +
+      "pure one — write `run`'s arrow `->`",
     ]);
     expect(effectFixes([["/main.hex", "module Main\n\n" + pureFace]])).toEqual([
       'write `->`: "->"',
@@ -794,11 +763,80 @@ export let f: ((String -> String) -> String) = (run: String -> String): String =
   });
 });
 
-describe("#408 §4.4 — the recovery is scaffolding, not a second claim", () => {
-  it("collapses the reverse-demand cascade at a module-level record type", () => {
-    // Measured before the ruling: the *first* report a writer saw here was the
-    // §4.3 reverse demand — a sentence about a declared impure constant the
-    // program never wrote, produced by the recovery itself.
+describe("Effects §3.4 — a tie between callbacks is refused, where it was made", () => {
+  const fixtures = "export let tieTwo(x: a, y: a): Unit = ()\n" +
+    "export let pureOnly(f: () -> Unit): Unit = f()\n" +
+    "export let takesD(f: (() -> Unit) ->! Unit): Unit = f!(() => ())\n";
+  /** Each report as its primary's text, its message, its labels' texts, and its fixit's replacements. */
+  const tieReports = (source: string) => {
+    const text = "module Main\n\n" + fixtures + source;
+    const at = (span: { start: { offset: number }; end: { offset: number } }): string =>
+      text.slice(span.start.offset, span.end.offset);
+    return compileFiles([["/main.hex", text]]).diagnostics.map((diagnostic) => ({
+      at: at(diagnostic.primary),
+      message: diagnostic.message,
+      labels: (diagnostic.labels ?? []).map(({ span, message }) => `${at(span)}: ${message}`),
+      fixes: (diagnostic.fixes ?? []).flatMap((fix) => fix.edits.map((edit) => edit.replacement)),
+    }));
+  };
+
+  it("stands at the merge, labels the parameter, and writes the black-box reading", () => {
+    for (const merge of ["tieTwo(action, cb)", "if True then cb else action"]) {
+      expect(tieReports(`export let outer(action: () ->! Unit): Unit =
+    let h = (cb) => ${merge}
+    ()
+`)).toEqual([{
+        at: merge,
+        message: "`cb`'s colour is tied to `action`'s here, and no written type can say that — write `cb`'s type",
+        labels: ["cb: `cb` has no written type"],
+        fixes: [": () ->! Unit"],
+      }]);
+    }
+    // And the fixit is a repair: a written callback is fitted where it is used.
+    expect(tieReports(`export let outer(action: () ->! Unit): Unit =
+    let h = (cb: () ->! Unit) => tieTwo(action, cb)
+    ()
+`)).toEqual([]);
+  });
+
+  it("is one report per tie, at the first tied parameter, the others labels on it", () => {
+    const source = `let pair(a, g) =
+    let m = if True then a else g
+    m!()
+`;
+    expect(tieReports(source)).toEqual([{
+      at: "if True then a else g",
+      message: "`a`'s colour is tied to `g`'s here, and no written type can say that — write `a`'s type",
+      labels: ["a: `a` has no written type", "g: `g` has no written type"],
+      // The result is still a type variable: the writer's intent is not plain.
+      fixes: [],
+    }]);
+  });
+
+  it("the refused parameter reads as its fixit from outside, so no caller meets the tie again", () => {
+    const tied = `export let outer(action: () ->! Unit): Unit =
+    let h = (cb) => tieTwo(action, cb)
+    takesD(h)
+`;
+    expect(tieReports(tied).map(({ message }) => message)).toEqual([
+      "`cb`'s colour is tied to `action`'s here, and no written type can say that — write `cb`'s type",
+    ]);
+    expect(hoveredType("module Main\n\n" + fixtures + tied, "h =")).toBe("(() ->! Unit) -> Unit");
+  });
+
+  it("a colour pinned to a constant, or met only by a slack, is no tie", () => {
+    expect(tieReports(`export let outer(action: () ->! Unit): Unit =
+    let k = (cb) =>
+        pureOnly(cb)
+        let g = if True then cb else () => ()
+        ()
+    ()
+`)).toEqual([]);
+  });
+});
+
+describe("Effects §4.4 — a refused `->?` reads as its fixit", () => {
+  it("one report at a module-level record type", () => {
     expect(
       effectDiagnostics([["/main.hex", "module Main\n\n" + `let h: { step: () ->? String } = { step = () => "x" }
 export let z: Int = 1
@@ -806,10 +844,7 @@ export let z: Int = 1
     ).toBe(1);
   });
 
-  it("collapses the mark cascade in a body that goes on to call the binding", () => {
-    // The affirmatively false one: "this call may touch the world, so `h` wants `!`" —
-    // when what made the call impure was the recovery standing in for the
-    // refused arrow.
+  it("a call through the refused arrow owes the mark its fixit implies", () => {
     expect(
       effectDiagnostics([["/main.hex", "module Main\n\n" + `export let f(x: Int): Int =
     let h: () ->? String = () => "s"
@@ -819,11 +854,7 @@ export let z: Int = 1
     ).toBe(1);
   });
 
-  it("suppresses the pure-face report under a written `->` face", () => {
-    // The third downstream client: the body's own colour is the pure constant
-    // because the binding annotation says so, and the only call that would
-    // contradict it is impure by recovery. Un-suppressed this adds "a pure face
-    // cannot run effects" — about effects the program does not perform.
+  it("and every further report is one the fixed program draws: a `->` face over it is refused", () => {
     expect(
       effectDiagnostics([["/main.hex", "module Main\n\n" + `export let f: ((Int) -> Int) = (x: Int): Int =>
     let h: () ->? String = () => "s"
@@ -832,26 +863,14 @@ export let z: Int = 1
 `]]),
     ).toEqual([
       "`->?` means only as effectful as what it is handed, and nothing is handed here — " +
-      "no callback of this signature has been handed over by the " +
-      "time this arrow runs; " +
-      "write `->!` for a function that may touch the world, or `->` for one that does not",
+      "this annotation has no callbacks of its own, and a local `->?` does not borrow the " +
+      "enclosing function's — leave its type to inference, or write `->!`",
+      "this call may touch the world, and the enclosing function's face is the pure arrow `->` " +
+      "— a pure face cannot run effects",
     ]);
   });
 
-  it("reports no constantified face for the recovery, and no pin its result makes", () => {
-    // The fourth: a recovered arrow binds nothing it meets (§4.4), so it cannot
-    // be what reaches `g`'s linked parameter. `mkBad`'s result is the `Maker`
-    // its return annotation declares — the recovery, not the returned lambda's
-    // pure colour (§4.4's "where the recovery stands", #1115) — so `g(mkBad())`
-    // meets the recovery and pins nothing. Read as the lambda's colour, it drew
-    // §4.2's pure-direction pin, whose "the honest face is `->`" the alias's own
-    // `->!` fixit turns into the opposite report. The control below, with no
-    // refused annotation anywhere, pins nothing either since #1119: a pure
-    // function fits wherever a function is expected, a linked parameter
-    // included. `mkBad()` itself is bare (§3.4, #868).
-    //
-    // The refusal is an alias's: written inline, `mkBad`'s return annotation
-    // would borrow `f`'s variable instead of being refused (§2.2.2, #873).
+  it("an alias's refused arrow reads as `->!` wherever the alias stands", () => {
     expect(
       effectDiagnostics([["/main.hex", "module Main\n\n" + `type Maker = () ->? String
 
@@ -864,11 +883,6 @@ export let f(g: (() ->! String) -> String): String =
       "an alias is a type fragment, not a signature; " +
       "write `->!` for a function that may touch the world, or `->` for one that does not",
     ]);
-    expect(
-      effectDiagnostics([["/main.hex", "module Main\n\n" + `export let f(g: (() ->! String) -> String): String =
-    g((): String => "x")
-`]]),
-    ).toEqual([]);
   });
 });
 
@@ -1069,13 +1083,6 @@ export let run(document: String): Unit = held!(document)
     expect(
       effectDiagnostics([["/main.hex", "module Main\n\n" + "export let f(flag: Bool): Bool = !(flag)\n"]]),
     ).toEqual(["Hexagon spells logical negation `not`"]);
-  });
-
-  it("gives a prefix `?` the mark-position row instead", () => {
-    // `?` never had the negation reading, so the same seat takes the other row.
-    expect(
-      effectDiagnostics([["/main.hex", "module Main\n\n" + "export let f(flag: Bool): Bool = ?flag\n"]]),
-    ).toEqual([markSeat]);
   });
 
   it("redirects a `=>` written in type position, collapsing the cascade (#410)", () => {
@@ -2032,7 +2039,7 @@ export let x: Int = 1
     // a row is data (Effects §2.5). So the call is pure and a mark on it is
     // refused. The prototype registered no obligation at all here, and every
     // mark on a fallback-resolved dot call was silently accepted.
-    for (const [mark, name] of [["!", "`!`"], ["?", "`?`"]] as const) {
+    for (const [mark, name] of [["!", "`!`"]] as const) {
       expect(
         effectDiagnostics([["/main.hex", "module Main\n\n" + `
 let drive(source): String = source.next${mark}()
@@ -2109,11 +2116,11 @@ export let asImpure: ((() ->! String) -> Int) = stored
 `]]),
     ).toEqual([
       // The first face pinned `stored`'s callback slot pure, so `stored` now
-      // demands a pure callback — read at a parameter's arrow the way round a
-      // demand is (Effects §4.3, #1119): the `->` is the demand, and the
-      // effectful callbacks the second face promises to supply meet it.
-      "a `->` arrow promises purity, and this function may touch the world — the " +
-      "demand is written `->`, the function's face `->!` or `->?`",
+      // accepts only a pure callback, and the second face's callback, written
+      // `->!` to accept any function, is bound to it: the lie of generality,
+      // standing at the value that brought the constant (§4.2).
+      "this callback is written `->!`, which accepts any function, and this accepts only a " +
+      "pure one — write its arrow `->`",
     ]);
   });
 });
@@ -2237,13 +2244,12 @@ export let clean(document: String): String = trim(document)
     );
   });
 
-  it("numbers a face that genuinely carries two colours", () => {
-    // `staged` takes a callback it never calls — its own variable, generalized
-    // — and returns a lambda that owns a second through its own inlet (§2.2.2)
-    // and conducts it. Two variables no one written signature can spell, so the
-    // display numbers them (§10).
+  it("shows a face with two callbacks' colours unnumbered (§10)", () => {
+    // `staged` takes a callback it never calls and returns a lambda that runs a
+    // second. A finished face depends on all of its callbacks or none (§2.4),
+    // so nothing is numbered, and each callback's own arrow shows `->!`.
     expect(hoveredType(stagedSource, "staged")).toBe(
-      "(String ->!¹ String) -> (String ->!² String) ->?² String",
+      "(String ->! String) -> (String ->! String) ->? String",
     );
   });
 
@@ -2362,17 +2368,16 @@ export let compose(first: String ->! String, second: String ->! String): (String
     expect(emitted).not.toContain("Hexagon: `String -> String`");
   });
 
-  it("numbers the same way in a diagnostic", () => {
+  it("shows the same face in a diagnostic", () => {
     // The checker's renderer is a third printer over a third representation of
-    // the type, and an unnumbered face in a report would be the same ambiguity
-    // in the one place a reader is already confused.
+    // the type, and it spells the face as hover does.
     expect(
       effectDiagnostics([["/main.hex", "module Main\n\n" + `${stagedSource}
 export let wrong: Int = staged
 `]]),
     ).toEqual([
       "type mismatch: expected Int, found " +
-      "((String) ->!¹ String) -> ((String) ->!² String) ->?² String",
+      "((String) ->! String) -> ((String) ->! String) ->? String",
     ]);
   });
 
@@ -2768,15 +2773,15 @@ export let total(value: Int, cb: () ->! Unit): Int =
     it("fits a pure lambda to a monomorphic `->?`, the written face no longer needed (#1119)", () => {
       // A pure function fits wherever a function is expected: beside `cb` the
       // lambda adds nothing to the colour the two share, which stays `cb`'s.
-      // The written face #947 asked for is still honoured, and now optional.
+      // A local left to inference serves as the lambda does.
       const both = "let both(first: () ->! Unit, second: () ->! Unit): Int = 1\n";
       expect(check(`${both}export let useBoth(cb: () ->! Unit): Int = both(cb, () => ())\n`)).toEqual([]);
       expect(check(`${both}export let useBoth(cb: () ->! Unit): Int =
-    let noop: () ->? Unit = () => ()
+    let noop = () => ()
     both(cb, noop)
 `)).toEqual([]);
       const orNoop = `export let orNoop(flag: Bool, cb: () ->! Unit): (() ->? Unit) =
-    let noop: () ->? Unit = () => ()
+    let noop = () => ()
     if flag then cb else noop
 `;
       expect(check(orNoop)).toEqual([]);

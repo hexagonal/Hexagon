@@ -3077,6 +3077,16 @@ class Checker {
    * parameter's name (Effects §3.4): a tie between callbacks names them.
    */
   readonly #untypedColours = new Map<Variable, string>();
+  /**
+   * Where each variable was bound to another or to a composite, and in what
+   * order (Effects §3.4): a tie's report stands at the unification that made
+   * it, the latest bind on the path between the two sides.
+   */
+  readonly #binds = new WeakMap<
+    Variable,
+    { readonly span: Source.Span; readonly order: number; readonly target: Mono }
+  >();
+  #bindCount = 0;
   /** The meetings of colours outside the join fragment, waiting for their level to close (Effects §3.4). */
   #hardCases: HardCase[] = [];
   /**
@@ -17023,13 +17033,24 @@ class Checker {
     const actual = this.#prune(type);
     if (actual.kind !== "Function") return type;
     const colour = actual.effect === undefined ? PURE : this.#prune(actual.effect);
-    if (colour.kind !== "Effect" || Colour.isTop(colour)) return type;
+    // The impure constant has nothing above it.
+    if (isImpure(colour)) return type;
+    // A knot's colour is re-opened at its close, where it is decided (§3.4).
+    if (
+      colour.kind !== "Effect" &&
+      this.#colourParts(colour).some((part) =>
+        this.#knots.some((knot) => this.#knotColour(knot, part)) ||
+        this.#holds.some((hold) => this.#knotColour(hold, part))
+      )
+    ) {
+      return type;
+    }
     const opened = this.#fresh(level, false);
     this.#openedColours.add(opened);
     this.#openedPending.push(opened);
     // A report showing it while nothing has solved it shows the arrow written.
     this.#shownColours.set(opened, PURE);
-    return { ...actual, effect: opened };
+    return { ...actual, effect: colour.kind === "Effect" ? opened : this.#join([colour, opened]) };
   }
 
   /**
@@ -18672,9 +18693,14 @@ class Checker {
    * closes, so nothing real is still on its way.
    */
   #settleOpenedCalls(frame: EffectFrame): void {
+    // The body's own untyped parameters are decided by their claims, which are
+    // read after this (`#settleUntyped`): a slack one met is theirs to settle.
+    const untyped = frame.untyped.flatMap(({ type }) =>
+      this.#spineColours(type).flatMap(({ arrow }) => this.#colourParts(arrow))
+    );
     for (const { effect } of frame.absorbed) {
       for (const colour of this.#colourParts(effect)) {
-        if (this.#isDependency(frame, colour)) continue;
+        if (untyped.includes(colour) || this.#isDependency(frame, colour)) continue;
         if (this.#takesOpening(colour)) colour.instance = PURE;
       }
     }
@@ -18735,17 +18761,25 @@ class Checker {
     for (const colour of frame.marked) {
       for (const part of this.#colourParts(colour)) claimed.add(part);
     }
-    for (const parameter of frame.untyped) {
+    // Every parameter is read before any is decided: a colour shared with a
+    // sibling untyped parameter is still this body's to decide, and claimed it
+    // is a tie, which the close refuses.
+    const decisions = frame.untyped.map((parameter) => {
       const spine = this.#spineColours(parameter.type).flatMap(({ arrow }) => this.#colourParts(arrow));
-      if (spine.length === 0) continue;
-      const owned = spine.filter((colour) => !this.#isDependency(frame, colour, parameter));
-      if (spine.some((colour) => claimed.has(colour))) {
-        for (const colour of owned) {
+      return {
+        parameter,
+        owned: spine.filter((colour) => !this.#isDependency(frame, colour)),
+        claimed: spine.some((colour) => claimed.has(colour)),
+      };
+    });
+    for (const { parameter, owned, claimed: isClaimed } of decisions) {
+      for (const colour of owned) {
+        if (isClaimed) {
           this.#linkedColours.push(colour);
-          this.#untypedColours.set(colour, parameter.name);
+          if (!this.#untypedColours.has(colour)) this.#untypedColours.set(colour, parameter.name);
+        } else if (this.#prune(colour).kind === "Variable") {
+          colour.instance = PURE;
         }
-      } else {
-        for (const colour of owned) colour.instance = PURE;
       }
     }
   }
@@ -18850,30 +18884,129 @@ class Checker {
    */
   #refuseTies(frame: EffectFrame): void {
     const reported = new Set<Mono>();
+    const named = new Set<EffectFrame["untyped"][number]>();
     for (const parameter of frame.untyped) {
-      if (parameter.ownAtClose === true) continue;
+      if (parameter.ownAtClose === true || named.has(parameter)) continue;
       const type = this.#prune(parameter.type);
       if (type.kind !== "Function") continue;
-      const colour = this.#prune(type.effect ?? PURE);
+      const raw = type.effect ?? PURE;
+      const colour = this.#prune(raw);
       if (colour.kind === "Effect" || reported.has(colour)) continue;
-      const other = this.#tiedTo(colour, parameter.name);
-      if (other === undefined) continue;
+      // The siblings the tie holds are labels on the one report, which stands
+      // at the first of them in parameter order (§3.4).
+      const others = frame.untyped.filter((other) => {
+        if (other === parameter || other.ownAtClose === true) return false;
+        const theirs = this.#prune(other.type);
+        return theirs.kind === "Function" && this.#prune(theirs.effect ?? PURE) === colour;
+      });
+      const tie = others.length > 0
+        ? { phrase: `\`${others[0]!.name}\`'s`, from: others[0]!.type }
+        : this.#tiedTo(colour, parameter.name);
+      if (tie === undefined) continue;
       reported.add(colour);
+      for (const other of others) named.add(other);
+      const reading = this.#blackBoxReading(type);
       this.#diagnostics.add({
         severity: "error",
-        message: `\`${parameter.name}\`'s colour is tied to ${other} here, and no written type can say ` +
+        message: `\`${parameter.name}\`'s colour is tied to ${tie.phrase} here, and no written type can say ` +
           `that — write \`${parameter.name}\`'s type`,
-        primary: parameter.span,
+        primary: (tie.from === undefined ? undefined : this.#tieSpan(parameter.type, tie.from)) ?? parameter.span,
+        labels: [parameter, ...others].map(({ name, span }) => ({
+          span,
+          message: `\`${name}\` has no written type`,
+        })),
+        ...(reading === undefined
+          ? {}
+          : {
+              fixes: [{
+                message: `write \`${parameter.name}\`'s type`,
+                edits: [{ span: { ...parameter.span, start: parameter.span.end }, replacement: `: ${reading}` }],
+              }],
+            }),
       });
+      // The refused parameter reads as its fixit where the function is seen
+      // from outside: its own arrows are a callback's colour of its own, so no
+      // caller meets the tie a second time.
+      for (const tied of [parameter, ...others]) {
+        const own = this.#fresh(frame.level, false);
+        this.#linkedColours.push(own);
+        this.#untypedColours.set(own, tied.name);
+        for (let node = this.#prune(tied.type); node.kind === "Function"; node = this.#prune(node.result)) {
+          (node as { effect?: Mono }).effect = own;
+        }
+      }
     }
   }
+
+  /**
+   * An untyped callback's type as the black-box reading writes it (§3.4's
+   * fixit): its own arrows `->!`, every arrow inside it the constant it closed
+   * to. Where anything in it is still a variable, the writer's intent is not
+   * plain, and there is no fixit.
+   */
+  #blackBoxReading(type: Mono): string | undefined {
+    const own = new Map<number, Mono>();
+    for (const { arrow } of this.#spineColours(type)) {
+      for (const part of this.#colourParts(arrow)) own.set(part.id, IMPURE);
+    }
+    const reading = this.#replaceVariables(type, own);
+    if (this.#collectVariables(reading).length > 0) return undefined;
+    return this.#render(reading, "callback");
+  }
+
+  /**
+   * Where a tie was made (§9): the latest unification on the path of binds
+   * between the parameter's type and what it is tied to, found by walking both
+   * forward, through a function's own arrow, to where they meet.
+   */
+  #tieSpan(own: Mono, other: Mono): Source.Span | undefined {
+    type Step = { readonly from?: Variable; readonly previous?: Step };
+    const reach = (start: Mono): Map<Variable, Step> => {
+      const found = new Map<Variable, Step>();
+      const visit = (node: Mono, step: Step): void => {
+        if (node.kind === "Join") {
+          for (const part of node.parts) visit(part, step);
+          return;
+        }
+        if (node.kind === "Function") {
+          if (node.effect !== undefined) visit(node.effect, step);
+          return;
+        }
+        if (node.kind !== "Variable" || found.has(node)) return;
+        found.set(node, step);
+        // What it was bound to, not what pruning has since shortened that to.
+        const next = this.#binds.get(node)?.target ?? node.instance;
+        if (next !== undefined) visit(next, { from: node, previous: step });
+      };
+      visit(start, {});
+      return found;
+    };
+    const mine = reach(own);
+    const theirs = reach(other);
+    let latest: { readonly span: Source.Span; readonly order: number } | undefined;
+    for (const [meeting, myStep] of mine) {
+      const theirStep = theirs.get(meeting);
+      if (theirStep === undefined) continue;
+      for (let step: Step | undefined = myStep; step?.from !== undefined; step = step.previous) {
+        const bind = this.#binds.get(step.from);
+        if (bind !== undefined && (latest === undefined || bind.order > latest.order)) latest = bind;
+      }
+      for (let step: Step | undefined = theirStep; step?.from !== undefined; step = step.previous) {
+        const bind = this.#binds.get(step.from);
+        if (bind !== undefined && (latest === undefined || bind.order > latest.order)) latest = bind;
+      }
+      break;
+    }
+    return latest?.span;
+  }
+
 
   /**
    * What an untyped callback's colour is tied to, in words, or `undefined` where
    * the colour is its own: a join is always a tie, and so is a variable that is
    * another callback's colour.
    */
-  #tiedTo(colour: Mono, name: string): string | undefined {
+  #tiedTo(colour: Mono, name: string): { readonly phrase: string; readonly from?: Mono } | undefined {
     const named = (variable: Variable): string | undefined => {
       const untyped = this.#untypedColours.get(variable);
       if (untyped !== undefined && untyped !== name) return `\`${untyped}\`'s`;
@@ -18884,22 +19017,28 @@ class Checker {
     if (colour.kind === "Join") {
       for (const part of colour.parts) {
         const other = named(part);
-        if (other !== undefined) return other;
+        if (other !== undefined) return { phrase: other, from: part };
       }
-      return "a join of colours";
+      return { phrase: "a join of colours" };
     }
     if (colour.kind !== "Variable") return undefined;
     const holders = [...this.#untypedColours].filter(([variable, owner]) =>
       owner !== name && this.#prune(variable) === colour
     );
-    if (holders.length > 0) return `\`${holders[0]![1]}\`'s`;
+    if (holders.length > 0) return { phrase: `\`${holders[0]![1]}\`'s`, from: holders[0]![0] };
     const written = this.#colourScopes.find(({ effect }) => this.#prune(effect) === colour);
-    if (written !== undefined) return written.parameter === undefined ? "another callback's" : `\`${written.parameter}\`'s`;
+    if (written !== undefined) {
+      return {
+        phrase: written.parameter === undefined ? "another callback's" : `\`${written.parameter}\`'s`,
+        from: written.effect,
+      };
+    }
     return this.#knots.some((knot) => this.#knotColour(knot, colour)) ||
         this.#holds.some((hold) => this.#knotColour(hold, colour))
-      ? "a colour that waits"
+      ? { phrase: "a colour that waits", from: colour }
       : undefined;
   }
+
 
   /**
    * The level of the outermost receiver among the dot-call goals written in
@@ -20291,7 +20430,19 @@ class Checker {
         else callbacks.push(callback);
       }
     }
-    for (const [colour, callbacks] of pinned) this.#reportLieOfGenerality(colour, callbacks);
+    for (const [colour, callbacks] of pinned) {
+      // A written `->?` that followed only these callbacks is left with nothing
+      // handed once they are `->`, so the repair rewrites it too.
+      const faces = new Set(callbacks.map(({ face }) => face));
+      const follows = [...faces].flatMap((face) =>
+        face.arrows.filter(({ colour: arrow }) => {
+          const settled = this.#prune(arrow);
+          return settled.kind === "Effect" && Colour.isBottom(settled) &&
+            face.handed.flat().every((callback) => callbacks.includes(callback) || this.#prune(callback.colour) === PURE);
+        }).map(({ span }) => span)
+      );
+      this.#reportLieOfGenerality(colour, callbacks, follows);
+    }
     this.#suppressMarksOn(condemned, solved);
   }
 
@@ -20301,12 +20452,14 @@ class Checker {
    * unification made it pure — with a label at every `->!` that spells the
    * colour and one fixit rewriting each of them to `->`.
    */
-  #reportLieOfGenerality(colour: EffectConstant, callbacks: readonly CallbackColour[]): void {
+  #reportLieOfGenerality(
+    colour: EffectConstant,
+    callbacks: readonly CallbackColour[],
+    follows: readonly Source.Span[],
+  ): void {
     const bySpan = new Map<string, Source.Span>();
-    for (const callback of callbacks) {
-      for (const span of callback.arrows) {
-        bySpan.set(`${Number(span.fileId)}:${span.start.offset}:${span.end.offset}`, span);
-      }
+    for (const span of [...callbacks.flatMap(({ arrows }) => arrows), ...follows]) {
+      bySpan.set(`${Number(span.fileId)}:${span.start.offset}:${span.end.offset}`, span);
     }
     const written = [...bySpan.values()].sort((left, right) =>
       Number(left.fileId) - Number(right.fileId) ||
@@ -20321,7 +20474,10 @@ class Checker {
         : `the parameter \`${name}\` is written \`->!\`, which accepts any function, and this accepts ` +
           `only a pure one — write \`${name}\`'s arrow \`->\``,
       primary: colour.solve!.span,
-      labels: written.map((span) => ({ span, message: "this `->!` accepts any function" })),
+      labels: written.map((span) => ({
+        span,
+        message: follows.includes(span) ? "this `->?` follows only that callback" : "this `->!` accepts any function",
+      })),
       fixes: [{
         message: "write `->`",
         edits: written.map((span) => ({ span, replacement: "->" })),
@@ -20668,13 +20824,17 @@ class Checker {
   #unifyJoin(left: Mono, right: Mono, span: Source.Span, message?: () => string | undefined): void {
     for (const [join, other] of [[left, right], [right, left]] as const) {
       if (join.kind !== "Join" || other.kind !== "Effect") continue;
+      // Each part meets the constant from the join's side, so a pin stands
+      // where the constant came from (§4.2's placement).
+      const meet = (part: Variable): void =>
+        join === left ? this.#unify(part, other, span, message) : this.#unify(other, part, span, message);
       if (Colour.isBottom(other)) {
-        for (const part of join.parts) this.#unify(part, other, span, message);
+        for (const part of join.parts) meet(part);
         return;
       }
       const slack = join.parts.find((part) => this.#openedColours.has(part));
       if (slack !== undefined) {
-        this.#unify(slack, other, span, message);
+        meet(slack);
         return;
       }
       this.#recordHardCase(join, other, span);
@@ -21605,6 +21765,7 @@ class Checker {
       // So does an opening's (#1119), unless the other colour is a real one:
       // a slack meeting a callback's colour is that colour's.
       if (this.#openedColours.has(variable) && !this.#heldDependency(type)) this.#openedColours.add(type);
+      this.#binds.set(variable, { span, order: this.#bindCount++, target: type });
       variable.instance = type;
       return;
     }
@@ -21696,6 +21857,7 @@ class Checker {
         }
       }
     }
+    if (type.kind !== "Effect") this.#binds.set(variable, { span, order: this.#bindCount++, target: type });
     // *(#873.)* A signature's colour solved to a constant is solved to a
     // constant of its own, carrying the act that solved it (`ColourSolve`).
     variable.instance = type.kind === "Effect" && this.#faceColours.has(variable)
@@ -21743,10 +21905,13 @@ class Checker {
       const fresh = this.#fresh(variable.level, false);
       if (this.#openedColours.has(variable)) this.#openedColours.add(fresh);
       this.#lowerLevels(this.#join(rest), variable.level);
-      variable.instance = this.#join([fresh, ...rest]);
+      const target = this.#join([fresh, ...rest]);
+      this.#binds.set(variable, { span, order: this.#bindCount++, target });
+      variable.instance = target;
       return;
     }
     this.#lowerLevels(join, variable.level);
+    this.#binds.set(variable, { span, order: this.#bindCount++, target: join });
     variable.instance = join;
   }
 
