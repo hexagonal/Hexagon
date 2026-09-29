@@ -413,7 +413,7 @@ interface FaceFit {
   /** Where the value stands, for the no-call form of the report. */
   readonly at: Source.Span;
   /** The lambdas the value may be: the functions it hands back, searched for the offending call. */
-  readonly lambdas: readonly EffectFrame[];
+  readonly lambdas: LambdaSet | undefined;
   checked: boolean;
 }
 
@@ -443,6 +443,30 @@ type ArrowRole =
   | { readonly kind: "spine" | "component"; readonly face: SignatureFace; readonly application: number }
   | { readonly kind: "callback"; readonly callback: CallbackColour }
   | { readonly kind: "inside" };
+
+/**
+ * The lambdas a function value may be, as the merges that made the set: one
+ * lambda's frame, or two sets a merge joined. Nodes are never changed, so a
+ * reference is a snapshot, and a merge costs one node whatever the sizes of
+ * the two sets (#1166).
+ */
+type LambdaSet =
+  | { readonly frame: EffectFrame }
+  | { readonly left: LambdaSet; readonly right: LambdaSet };
+
+/** A set's lambdas, each once, left side first. */
+function lambdaFrames(set: LambdaSet | undefined): readonly EffectFrame[] {
+  const frames = new Set<EffectFrame>();
+  const seen = new Set<LambdaSet>();
+  const pending = set === undefined ? [] : [set];
+  for (let node = pending.pop(); node !== undefined; node = pending.pop()) {
+    if (seen.has(node)) continue;
+    seen.add(node);
+    if ("frame" in node) frames.add(node.frame);
+    else pending.push(node.right, node.left);
+  }
+  return [...frames];
+}
 
 /**
  * One function body's effect seat: the colour of its own arrow, the calls it
@@ -3246,7 +3270,7 @@ class Checker {
    * merge unifies two function types — for §4.2's search for the call that
    * runs a colour a written `->?` is not handed.
    */
-  readonly #lambdasOf = new WeakMap<Mono, readonly EffectFrame[]>();
+  readonly #lambdasOf = new WeakMap<Mono, LambdaSet>();
   /**
    * A member header's arrow is refused once, at the declaration (§4.4). The
    * honor and default seats re-elaborate the same annotations to build the
@@ -9459,7 +9483,7 @@ class Checker {
           effect: effectFrame.own,
         };
         this.#frameOfType.set(type, effectFrame);
-        this.#lambdasOf.set(type, [effectFrame]);
+        this.#lambdasOf.set(type, { frame: effectFrame });
         const binderSpans = new Map(
           (expression.typeParameters ?? []).map(({ name, span }) => [name, span] as const),
         );
@@ -19658,7 +19682,7 @@ class Checker {
       // The functions the value hands back that the body defines: the
       // expression itself and the local lambdas it may be, never the calls
       // the body runs itself.
-      const local = fit.lambdas
+      const local = lambdaFrames(fit.lambdas)
         .map(({ span }) => span)
         .filter((span): span is Source.Span => span !== undefined && face.body !== undefined && spanWithin(span, face.body));
       const bodyOwn = new Set(face.frame?.absorbed.map(({ span }) => span) ?? []);
@@ -21846,7 +21870,11 @@ class Checker {
       const leftLambdas = this.#lambdasOf.get(actualLeft);
       const rightLambdas = this.#lambdasOf.get(actualRight);
       if (leftLambdas !== rightLambdas && (leftLambdas !== undefined || rightLambdas !== undefined)) {
-        const merged = [...new Set([...(leftLambdas ?? []), ...(rightLambdas ?? [])])];
+        const merged = leftLambdas === undefined
+          ? rightLambdas!
+          : rightLambdas === undefined
+          ? leftLambdas
+          : { left: leftLambdas, right: rightLambdas };
         this.#lambdasOf.set(actualLeft, merged);
         this.#lambdasOf.set(actualRight, merged);
       }
@@ -21858,7 +21886,7 @@ class Checker {
       if ((leftFace === undefined) !== (rightFace === undefined)) {
         const written = (leftFace ?? rightFace)!;
         const valueNode = leftFace === undefined ? actualLeft : actualRight;
-        const lambdas = this.#lambdasOf.get(valueNode) ?? [];
+        const lambdas = this.#lambdasOf.get(valueNode);
         const own = this.#frameOfType.get(valueNode);
         (written.face.fits ??= []).push({
           arrow: written.arrow,
@@ -25245,7 +25273,7 @@ class Checker {
     type = this.#readRefusedTies(type, level);
     type = this.#widenFace(type, level);
     type = this.#readRefusedArrows(type);
-    type = this.#publishUnheldColours(type, level);
+    type = this.#publishUnheldColours(type, level, allow);
     let variables = this.#collectVariables(type).filter(
       (variable) => variable.level > level,
     );
@@ -25417,34 +25445,155 @@ class Checker {
   }
 
   /**
-   * A colour a finished face quantifies but that stands in none of its
-   * parameters is published pure (Effects §2.4): the scheme holds at every
-   * choice of it, and a caller's fresh copy of it defaults pure anyway. A knot
-   * member that runs a sibling's callback colour, monomorphic inside the knot
-   * (§3.4), finishes with such a colour, and shows `->` for it rather than a
-   * `->?` no written face could spell.
+   * **A colour stays only where a parameter can choose it** (Effects §2.4).
+   * A colour on the spine that no spine parameter holds is published pure on
+   * the spine, and on each function the result carries in data (a tuple, an
+   * `Option`, a record) except where that function's own parameters, or those
+   * of a function around it, hold it. Nothing handed to a function chooses the
+   * colour where it is published pure, so the scheme holds at every choice of
+   * it. A knot member that runs a sibling's callback colour, monomorphic
+   * inside the knot (§3.4), finishes with such a colour on its spine, and
+   * shows `->` for it rather than a `->?` no written face could spell. A
+   * colour off the spine is left as it stands.
+   *
+   * Each function is published at its own choice (#1166). That is sound
+   * because colours are erased and no function can observe what a caller
+   * handed another: a lambda reaches no outer `var` and there are no ref cells
+   * (§7's coupling), and a pure collection denotes stable contents (§6.2).
+   *
+   * An expansive binding (`allow` false) publishes such a colour pure
+   * everywhere instead. A colour it kept would stand in a position the relaxed
+   * value restriction declines to generalize, and every use would then share
+   * it.
    */
-  #publishUnheldColours(type: Mono, level: number): Mono {
+  #publishUnheldColours(type: Mono, level: number, allow: boolean): Mono {
     const actual = this.#prune(type);
     if (actual.kind !== "Function") return type;
-    const held = new Set<number>();
+    const spineHeld = this.#inputVariables(actual);
+    const spineColours = new Set<number>();
     for (let node: Mono = actual; node.kind === "Function"; node = this.#prune(node.result)) {
-      for (const parameter of node.parameters) {
-        for (const variable of this.#collectVariables(parameter)) held.add(variable.id);
+      for (const part of this.#colourParts(node.effect ?? PURE)) {
+        if (part.level > level && !spineHeld.has(part.id)) spineColours.add(part.id);
       }
     }
-    const unheld = new Map<number, Mono>();
-    const visit = (node: Mono): void => {
-      const at = this.#prune(node);
-      if (at.kind === "Function") {
-        for (const part of this.#colourParts(at.effect ?? PURE)) {
-          if (part.level > level && !held.has(part.id)) unheld.set(part.id, PURE);
-        }
-        visit(at.result);
-      }
+    if (spineColours.size === 0) return type;
+    if (!allow) return this.#replaceVariables(type, new Map([...spineColours].map((id) => [id, PURE])));
+    return this.#publishHeld(type, new Set(), spineColours);
+  }
+
+  /**
+   * `#publishUnheldColours` at one node, publishing `spineColours` except
+   * where `held` holds them: the colours the parameters around the node hold,
+   * and those of a type constructor's non-covariant arguments around it.
+   */
+  #publishHeld(type: Mono, held: ReadonlySet<number>, spineColours: ReadonlySet<number>): Mono {
+    const actual = this.#prune(type);
+    const each = (node: Mono): Mono => this.#publishHeld(node, held, spineColours);
+    const all = (nodes: readonly Mono[]): readonly Mono[] => {
+      const published = nodes.map(each);
+      return published.every((node, index) => node === nodes[index]) ? nodes : published;
     };
-    visit(actual);
-    return unheld.size === 0 ? type : this.#replaceVariables(type, unheld);
+    switch (actual.kind) {
+      case "Function":
+        return this.#publishArrows(type, this.#inputVariables(actual, new Set(held)), spineColours);
+      case "Tuple": {
+        const elements = all(actual.elements);
+        return elements === actual.elements ? type : { kind: "Tuple", elements };
+      }
+      case "Record": {
+        // A row tail is left as it stands, as `#replaceVariables` leaves it:
+        // reading a solved one through would respell the record's open row.
+        const fields = new Map([...actual.fields].map(([name, field]) => [name, each(field)]));
+        if ([...fields].every(([name, field]) => field === actual.fields.get(name))) return type;
+        return { kind: "Record", fields, ...(actual.tail === undefined ? {} : { tail: actual.tail }) };
+      }
+      case "Union":
+      case "NominalRecord":
+      case "ExternType": {
+        const parts = this.#publishArguments(actual.arguments, (index) =>
+          actual.kind === "Union"
+            ? this.#variance.effectiveUnion(actual.union, index)
+            : actual.kind === "NominalRecord"
+            ? this.#variance.effectiveRecord(actual.record, index)
+            : this.#variance.externClaim(actual.externType, index), held, spineColours);
+        return parts === actual.arguments ? type : { ...actual, arguments: parts };
+      }
+      case "Vector":
+      case "Set":
+      case "Array":
+      case "JsSet":
+      case "Node": {
+        const element = this.#publishArguments([actual.element], (index) =>
+          this.#variance.kindClaim(actual.kind, index), held, spineColours)[0]!;
+        return element === actual.element ? type : { ...actual, element };
+      }
+      case "Nullable": {
+        const value = this.#publishArguments([actual.value], (index) =>
+          this.#variance.kindClaim("Nullable", index), held, spineColours)[0]!;
+        return value === actual.value ? type : { kind: "Nullable", value };
+      }
+      case "Map":
+      case "JsMap": {
+        const [key, value] = this.#publishArguments([actual.key, actual.value], (index) =>
+          this.#variance.kindClaim(actual.kind, index), held, spineColours) as readonly [Mono, Mono];
+        return key === actual.key && value === actual.value ? type : { ...actual, key, value };
+      }
+      default:
+        return type;
+    }
+  }
+
+  /**
+   * A type constructor's arguments. Its declaration is out of view, so an
+   * argument it uses anywhere but covariantly may stand under a parameter of
+   * something it holds, where the caller chooses its colours: every colour in
+   * such an argument is held for all of them, which leaves only a covariant
+   * argument's own colours to publish.
+   */
+  #publishArguments(
+    parts: readonly Mono[],
+    variance: (index: number) => Variance,
+    held: ReadonlySet<number>,
+    spineColours: ReadonlySet<number>,
+  ): readonly Mono[] {
+    const inner = new Set(held);
+    parts.forEach((part, index) => {
+      if (variance(index) === "co") return;
+      for (const variable of this.#collectVariables(part)) inner.add(variable.id);
+    });
+    const published = parts.map((part) => this.#publishHeld(part, inner, spineColours));
+    return published.every((part, index) => part === parts[index]) ? parts : published;
+  }
+
+  /**
+   * One function's own arrows, its curried results included, where its
+   * parameters and those around it hold `own`; the data it finally returns is
+   * published in turn.
+   */
+  #publishArrows(type: Mono, own: ReadonlySet<number>, spineColours: ReadonlySet<number>): Mono {
+    const actual = this.#prune(type);
+    if (actual.kind !== "Function") return this.#publishHeld(type, own, spineColours);
+    const result = this.#publishArrows(actual.result, own, spineColours);
+    const unheld = new Map(
+      this.#colourParts(actual.effect ?? PURE)
+        .filter((part) => spineColours.has(part.id) && !own.has(part.id))
+        .map((part) => [part.id, PURE] as const),
+    );
+    if (unheld.size === 0 && result === actual.result) return type;
+    const published: FunctionMono = {
+      ...actual,
+      result,
+      ...(actual.effect === undefined || unheld.size === 0
+        ? {}
+        : { effect: this.#replaceVariables(actual.effect, unheld) }),
+    };
+    // A copy of a lambda's type is still that lambda's, for §4.2's search and
+    // a refused tie's reading.
+    const lambdas = this.#lambdasOf.get(actual);
+    if (lambdas !== undefined) this.#lambdasOf.set(published, lambdas);
+    const frame = this.#frameOfType.get(actual);
+    if (frame !== undefined) this.#frameOfType.set(published, frame);
+    return published;
   }
 
   /**

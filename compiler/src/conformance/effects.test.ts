@@ -2908,6 +2908,164 @@ export let use(): Unit = k(3)
     expect(check(source.replace("let g = () => k!(n)", "let g = () => k(n)"))).toEqual([wantsBang("k")]);
   });
 
+  it("keeps its own colour for a function the result carries in data (#1166)", () => {
+    // `k`'s colour is `h`'s callback's, and `k` returns `h` inside a tuple: the
+    // colour is published pure on `k`'s own arrow, and `h` keeps it as a colour
+    // of its own there, so the caller hands it an effectful callback (§2.4).
+    const source = `fun
+    h(n: Int, cb: () ->! Unit): () ->? Unit =
+        let g = () =>
+            cb!()
+            let _ = k!(n)
+            ()
+        g
+    k(n: Int) =
+        let _ = if n == 0 then () else h(n - 1, () => ())!()
+        (h, 1)
+export let use(): Unit =
+    let (hh, _) = k(1)
+    hh(1, () => save!("x"))!()
+`;
+    expect(check(source)).toEqual([]);
+    expect(hover(source, "k(n: Int) =")).toBe("Int -> ((Int, () ->! Unit) -> () ->? Unit, Int)");
+    expect(check(source.replace("= k(1)", "= k!(1)"))).toEqual([wantsBare("k", "!")]);
+  });
+
+  it("splits a local function's colour the same way outside a knot (#1166)", () => {
+    // `run` is one local function, so `make`'s colour is `run`'s callback's.
+    // `make` runs it with a pure lambda only, and is pure; the `run` it hands
+    // back, in a tuple or an `Option`, still takes any callback.
+    const make = (result: string, use: string): string => `let ident(x: a): a = x
+let make() =
+    let run = ident((f) => f!())
+    run!(() => ())
+    ${result}
+export let use(): Unit =
+${use}
+`;
+    const inTuple = make("(run, 1)", `    let (r, _) = make()
+    r!(() => save!("x"))`);
+    expect(check(inTuple)).toEqual([]);
+    expect(hover(inTuple, "make() =")).toBe("() -> ((() ->! Unit) ->? Unit, Int)");
+    const inOption = make("Some(run)", `    match make()
+        Some(r) => r!(() => save!("x"))
+        None => ()`);
+    expect(check(inOption)).toEqual([]);
+    expect(hover(inOption, "make() =")).toBe("() -> Option((() ->! Unit) ->? Unit)");
+    // Held by no parameter at all, the colour is pure wherever it stands, the
+    // returned function's own arrow included.
+    const unheld = make(`let go = () => run!(() => ())
+    (go, 1)`, `    let (g, _) = make()
+    g()`);
+    expect(check(unheld)).toEqual([]);
+    expect(hover(unheld, "make() =")).toBe("() -> (() -> Unit, Int)");
+    const go = (result: string): string => make(`let go = () => run!(() => ())
+    ${result}`, "    ()");
+    expect(hover(go("Some(go)"), "make() =")).toBe("() -> Option(() -> Unit)");
+    expect(hover(go("{ g = go }"), "make() =")).toBe("() -> {g: () -> Unit}");
+    expect(hover(go("[go]"), "make() =")).toBe("() -> Vector(() -> Unit)");
+    // Each function the result carries keeps the colour only where its own
+    // parameters hold it: `go` holds none, so it is pure, and the caller's
+    // effectful callback to `r` does not reach it.
+    const pair = make(`let go = () => run!(() => ())
+    (run, go)`, `    let (r, g) = make()
+    r!(() => save!("x"))
+    g()`);
+    expect(check(pair)).toEqual([]);
+    expect(hover(pair, "make() =")).toBe("() -> ((() ->! Unit) ->? Unit, () -> Unit)");
+    // In a record, in a vector, and behind a curried arrow alike.
+    expect(hover(make("{ go = run }", "    ()"), "make() =")).toBe("() -> {go: (() ->! Unit) ->? Unit}");
+    expect(hover(make("[run]", "    ()"), "make() =")).toBe("() -> Vector((() ->! Unit) ->? Unit)");
+    expect(hover(make("(n: Int) => (run, n)", "    ()"), "make() =")).toBe("() -> Int -> ((() ->! Unit) ->? Unit, Int)");
+  });
+
+  it("reads a declared type's arguments by their variance when it publishes (#1166)", () => {
+    // `R`'s fields are out of view at `make`: `apply` takes an `a` the caller
+    // chooses and gives back the `b`, so a colour `a` holds is held for `b`
+    // too, and `th` runs what the caller handed `apply`.
+    const nominal = `let defer(action: () ->! Unit): () ->? Unit = () => action!()
+let ident(x: a): a = x
+record R(a, b) = { sample: a, apply: (a) -> b }
+let make() =
+    let run = ident((f) => f!())
+    run!(() => ())
+    let go = () => run!(() => ())
+    R({ sample = defer, apply = (d) => d(go) })
+export let probe(): Unit =
+    let r = make()
+    let th = r.apply((s) => () => save!("x"))
+    th!()
+`;
+    expect(check(nominal)).toEqual([]);
+    expect(check(nominal.replace("    th!()", "    th()"))).toEqual([wantsBang("th")]);
+    // The same through a union's payload.
+    const union = nominal
+      .replace("record R(a, b) = { sample: a, apply: (a) -> b }", "union U(a, b) = MkU(a, (a) -> b)")
+      .replace("R({ sample = defer, apply = (d) => d(go) })", "MkU(defer, (d) => d(go))")
+      .replace("    let r = make()\n    let th = r.apply(", "    let MkU(_, apply) = make()\n    let th = apply(");
+    expect(check(union)).toEqual([]);
+    expect(check(union.replace("    th!()", "    th()"))).toEqual([wantsBang("th")]);
+  });
+
+  it("leaves a colour off the spine as it stands (#1166)", () => {
+    // `make` never runs `run`, so its colour is not on the spine: `go` keeps
+    // it, and can meet an effectful function in the same data.
+    const source = `let ident(x: a): a = x
+let make() =
+    let run = ident((f) => f!())
+    let go = () => run!(() => ())
+    (go, 1)
+export let use(b: Bool): Unit =
+    let p = if b then make() else (() => save!("x"), 2)
+    let (g, _) = p
+    g!()
+`;
+    expect(check(source)).toEqual([]);
+    expect(hover(source, "make() =")).toBe("() -> (() ->? Unit, Int)");
+  });
+
+  it("publishes a spine colour pure everywhere at an expansive binding (#1166)", () => {
+    // `make` is a computed value, so the relaxed value restriction would not
+    // generalize a colour kept in its result: every use would share it.
+    const block = `let ident(x: a): a = x
+let make =
+    let k = 1
+    () =>
+        let run = ident((f) => f!())
+        run!(() => ())
+        (run, k)
+export let use(): Unit =
+    let (r, _) = make()
+    r(() => ())
+`;
+    expect(check(block)).toEqual([]);
+    expect(hover(block, "make =")).toBe("() -> ((() -> Unit) -> Unit, Int)");
+    const local = `let ident(x: a): a = x
+export let use(): Unit =
+    let make = ident(() =>
+        let run = ident((f) => f!())
+        run!(() => ())
+        (run, 1))
+    let (r, _) = make()
+    r(() => ())
+`;
+    expect(check(local)).toEqual([]);
+  });
+
+  it("leaves a colour the spine's parameters hold on every function the result carries (#1166)", () => {
+    // `go` runs the caller's `cb`, so its colour is the caller's to choose.
+    const source = `let make(cb: () ->! Unit) =
+    let go = () => cb!()
+    (go, 1)
+export let use(): Unit =
+    let (g, _) = make(() => save!("x"))
+    g!()
+`;
+    expect(check(source)).toEqual([]);
+    expect(hover(source, "make(cb")).toBe("(() ->! Unit) -> (() ->? Unit, Int)");
+    expect(check(source.replace("    g!()", "    g()"))).toEqual([wantsBang("g")]);
+  });
+
   it("places a pin a knot recorded where a lone body places it: at the argument", () => {
     const source = `export let pureOnly(f: () -> Unit): Unit = f()
 fun
