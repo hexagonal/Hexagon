@@ -447,8 +447,8 @@ type ArrowRole =
 /**
  * The lambdas a function value may be, as the merges that made the set: one
  * lambda's frame, or two sets a merge joined. Nodes are never changed, so a
- * reference is a snapshot, and a merge is one node rather than a copy of both
- * sides — copying made an inferred vector of N lambdas quadratic (#1166).
+ * reference is a snapshot, and a merge costs one node whatever the sizes of
+ * the two sets (#1166).
  */
 type LambdaSet =
   | { readonly frame: EffectFrame }
@@ -25445,95 +25445,112 @@ class Checker {
   }
 
   /**
-   * A colour a finished face quantifies on its spine that stands in none of the
-   * spine's parameters is published pure there (Effects §2.4): nothing handed
-   * to the function chooses it, so the scheme holds at every choice of it, and
-   * a caller's fresh copy of it defaults pure anyway. A knot member that runs a
-   * sibling's callback colour, monomorphic inside the knot (§3.4), finishes
-   * with such a colour, and shows `->` for it rather than a `->?` no written
-   * face could spell.
+   * **A colour stays only where a parameter can choose it** (Effects §2.4).
+   * The spine, and each function the result carries in data (a tuple, an
+   * `Option`, a record), keeps a quantified colour on its own arrows only where
+   * its own parameters, or those of a function around it, hold that colour;
+   * elsewhere the colour is published pure. Nothing handed to that function
+   * chooses it there, so the scheme holds at every choice of it. A knot member
+   * that runs a sibling's callback colour, monomorphic inside the knot (§3.4),
+   * finishes with such a colour on its spine, and shows `->` for it rather than
+   * a `->?` no written face could spell.
    *
-   * Where the same colour also stands in a parameter of a function the result
-   * carries in data — a tuple, an `Option` — that function keeps it as a colour
-   * of its own, so the caller still chooses it there (#1166). The split is
-   * sound because colours are erased: the scheme at pure says running the
-   * function is pure, and at any colour that the value it returns works there,
-   * and both are facts about one run.
+   * Each function is published at its own choice (#1166). That is sound
+   * because colours are erased and no pure read reaches changeable state (a
+   * pure collection denotes stable contents, §6.2): the scheme at each choice
+   * describes one of the values the result holds, and nothing lets one of them
+   * observe what a caller handed another.
    */
   #publishUnheldColours(type: Mono, level: number): Mono {
-    const actual = this.#prune(type);
-    if (actual.kind !== "Function") return type;
-    const spineHeld = this.#inputVariables(actual);
-    const held = this.#arrowParameterVariables(actual);
-    const everywhere = new Map<number, Mono>();
-    const onSpine = new Map<number, Mono>();
-    const visit = (node: Mono): void => {
-      const at = this.#prune(node);
-      if (at.kind === "Function") {
-        for (const part of this.#colourParts(at.effect ?? PURE)) {
-          if (part.level <= level || spineHeld.has(part.id)) continue;
-          (held.has(part.id) ? onSpine : everywhere).set(part.id, PURE);
-        }
-        visit(at.result);
-      }
-    };
-    visit(actual);
-    const published = everywhere.size === 0 ? type : this.#replaceVariables(type, everywhere);
-    if (onSpine.size === 0) return published;
-    const spine = (node: Mono): Mono => {
-      const at = this.#prune(node);
-      if (at.kind !== "Function") return node;
-      return {
-        ...at,
-        result: spine(at.result),
-        ...(at.effect === undefined ? {} : { effect: this.#replaceVariables(at.effect, onSpine) }),
-      };
-    };
-    return spine(published);
+    return this.#prune(type).kind === "Function" ? this.#publishHeld(type, new Set(), level) : type;
   }
 
-  /**
-   * Every variable standing in a parameter of some arrow in `type`: the
-   * spine's, and those of the functions its results and data carry. A
-   * parameter is taken whole, arrows inside it included.
-   */
-  #arrowParameterVariables(type: Mono, found = new Set<number>()): Set<number> {
+  /** `#publishUnheldColours` at one node, where the parameters around it hold `held`. */
+  #publishHeld(type: Mono, held: ReadonlySet<number>, level: number): Mono {
     const actual = this.#prune(type);
+    const each = (node: Mono): Mono => this.#publishHeld(node, held, level);
+    const all = (nodes: readonly Mono[]): readonly Mono[] => {
+      const published = nodes.map(each);
+      return published.every((node, index) => node === nodes[index]) ? nodes : published;
+    };
     switch (actual.kind) {
       case "Function":
-        for (const parameter of actual.parameters) {
-          for (const variable of this.#collectVariables(parameter)) found.add(variable.id);
+        return this.#publishArrows(type, this.#inputVariables(actual, new Set(held)), level);
+      case "Tuple": {
+        const elements = all(actual.elements);
+        return elements === actual.elements ? type : { kind: "Tuple", elements };
+      }
+      case "Record": {
+        // A solved row is read through, so a field unification added to the
+        // record is published as one written in it.
+        const fields = new Map(actual.fields);
+        let tail = actual.tail;
+        for (let rest = tail && this.#prune(tail); rest?.kind === "Record"; rest = tail && this.#prune(tail)) {
+          for (const [name, field] of rest.fields) fields.set(name, field);
+          tail = rest.tail;
         }
-        this.#arrowParameterVariables(actual.result, found);
-        break;
-      case "Tuple":
-        for (const element of actual.elements) this.#arrowParameterVariables(element, found);
-        break;
-      case "Record":
-        for (const field of actual.fields.values()) this.#arrowParameterVariables(field, found);
-        break;
+        const published = new Map([...fields].map(([name, field]) => [name, each(field)]));
+        if ([...published].every(([name, field]) => field === actual.fields.get(name))) return type;
+        return { kind: "Record", fields: published, ...(tail === undefined ? {} : { tail }) };
+      }
       case "Union":
       case "NominalRecord":
-      case "ExternType":
-        for (const argument of actual.arguments) this.#arrowParameterVariables(argument, found);
-        break;
+      case "ExternType": {
+        const parts = all(actual.arguments);
+        return parts === actual.arguments ? type : { ...actual, arguments: parts };
+      }
       case "Vector":
       case "Set":
       case "Array":
       case "JsSet":
-      case "Node":
-        this.#arrowParameterVariables(actual.element, found);
-        break;
-      case "Nullable":
-        this.#arrowParameterVariables(actual.value, found);
-        break;
+      case "Node": {
+        const element = each(actual.element);
+        return element === actual.element ? type : { ...actual, element };
+      }
+      case "Nullable": {
+        const value = each(actual.value);
+        return value === actual.value ? type : { kind: "Nullable", value };
+      }
       case "Map":
-      case "JsMap":
-        this.#arrowParameterVariables(actual.key, found);
-        this.#arrowParameterVariables(actual.value, found);
-        break;
+      case "JsMap": {
+        const key = each(actual.key);
+        const value = each(actual.value);
+        return key === actual.key && value === actual.value ? type : { kind: actual.kind, key, value };
+      }
+      default:
+        return type;
     }
-    return found;
+  }
+
+  /**
+   * One function's own arrows, its curried results included, where its
+   * parameters and those around it hold `own`; the data it finally returns is
+   * published in turn.
+   */
+  #publishArrows(type: Mono, own: ReadonlySet<number>, level: number): Mono {
+    const actual = this.#prune(type);
+    if (actual.kind !== "Function") return this.#publishHeld(type, own, level);
+    const result = this.#publishArrows(actual.result, own, level);
+    const unheld = new Map(
+      this.#colourParts(actual.effect ?? PURE)
+        .filter((part) => part.level > level && !own.has(part.id))
+        .map((part) => [part.id, PURE] as const),
+    );
+    if (unheld.size === 0 && result === actual.result) return type;
+    const published: FunctionMono = {
+      ...actual,
+      result,
+      ...(actual.effect === undefined || unheld.size === 0
+        ? {}
+        : { effect: this.#replaceVariables(actual.effect, unheld) }),
+    };
+    // A copy of a lambda's type is still that lambda's, for §4.2's search and
+    // a refused tie's reading.
+    const lambdas = this.#lambdasOf.get(actual);
+    if (lambdas !== undefined) this.#lambdasOf.set(published, lambdas);
+    const frame = this.#frameOfType.get(actual);
+    if (frame !== undefined) this.#frameOfType.set(published, frame);
+    return published;
   }
 
   /**

@@ -2959,6 +2959,33 @@ ${use}
     g()`);
     expect(check(unheld)).toEqual([]);
     expect(hover(unheld, "make() =")).toBe("() -> (() -> Unit, Int)");
+    // Each function the result carries keeps the colour only where its own
+    // parameters hold it: `go` holds none, so it is pure, and the caller's
+    // effectful callback to `r` does not reach it.
+    const pair = make(`let go = () => run!(() => ())
+    (run, go)`, `    let (r, g) = make()
+    r!(() => save!("x"))
+    g()`);
+    expect(check(pair)).toEqual([]);
+    expect(hover(pair, "make() =")).toBe("() -> ((() ->! Unit) ->? Unit, () -> Unit)");
+    // In a record, in a vector, and behind a curried arrow alike.
+    expect(hover(make("{ go = run }", "    ()"), "make() =")).toBe("() -> {go: (() ->! Unit) ->? Unit}");
+    expect(hover(make("[run]", "    ()"), "make() =")).toBe("() -> Vector((() ->! Unit) ->? Unit)");
+    expect(hover(make("(n: Int) => (run, n)", "    ()"), "make() =")).toBe("() -> Int -> ((() ->! Unit) ->? Unit, Int)");
+  });
+
+  it("leaves a colour the spine's parameters hold on every function the result carries (#1166)", () => {
+    // `go` runs the caller's `cb`, so its colour is the caller's to choose.
+    const source = `let make(cb: () ->! Unit) =
+    let go = () => cb!()
+    (go, 1)
+export let use(): Unit =
+    let (g, _) = make(() => save!("x"))
+    g!()
+`;
+    expect(check(source)).toEqual([]);
+    expect(hover(source, "make(cb")).toBe("(() ->! Unit) -> (() ->? Unit, Int)");
+    expect(check(source.replace("    g!()", "    g()"))).toEqual([wantsBang("g")]);
   });
 
   it("places a pin a knot recorded where a lone body places it: at the argument", () => {
