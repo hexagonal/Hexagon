@@ -413,7 +413,7 @@ interface FaceFit {
   /** Where the value stands, for the no-call form of the report. */
   readonly at: Source.Span;
   /** The lambdas the value may be: the functions it hands back, searched for the offending call. */
-  readonly lambdas: readonly EffectFrame[];
+  readonly lambdas: LambdaSet | undefined;
   checked: boolean;
 }
 
@@ -443,6 +443,30 @@ type ArrowRole =
   | { readonly kind: "spine" | "component"; readonly face: SignatureFace; readonly application: number }
   | { readonly kind: "callback"; readonly callback: CallbackColour }
   | { readonly kind: "inside" };
+
+/**
+ * The lambdas a function value may be, as the merges that made the set: one
+ * lambda's frame, or two sets a merge joined. Nodes are never changed, so a
+ * reference is a snapshot, and a merge is one node rather than a copy of both
+ * sides — copying made an inferred vector of N lambdas quadratic (#1166).
+ */
+type LambdaSet =
+  | { readonly frame: EffectFrame }
+  | { readonly left: LambdaSet; readonly right: LambdaSet };
+
+/** A set's lambdas, each once, left side first. */
+function lambdaFrames(set: LambdaSet | undefined): readonly EffectFrame[] {
+  const frames = new Set<EffectFrame>();
+  const seen = new Set<LambdaSet>();
+  const pending = set === undefined ? [] : [set];
+  for (let node = pending.pop(); node !== undefined; node = pending.pop()) {
+    if (seen.has(node)) continue;
+    seen.add(node);
+    if ("frame" in node) frames.add(node.frame);
+    else pending.push(node.right, node.left);
+  }
+  return [...frames];
+}
 
 /**
  * One function body's effect seat: the colour of its own arrow, the calls it
@@ -3246,7 +3270,7 @@ class Checker {
    * merge unifies two function types — for §4.2's search for the call that
    * runs a colour a written `->?` is not handed.
    */
-  readonly #lambdasOf = new WeakMap<Mono, readonly EffectFrame[]>();
+  readonly #lambdasOf = new WeakMap<Mono, LambdaSet>();
   /**
    * A member header's arrow is refused once, at the declaration (§4.4). The
    * honor and default seats re-elaborate the same annotations to build the
@@ -9459,7 +9483,7 @@ class Checker {
           effect: effectFrame.own,
         };
         this.#frameOfType.set(type, effectFrame);
-        this.#lambdasOf.set(type, [effectFrame]);
+        this.#lambdasOf.set(type, { frame: effectFrame });
         const binderSpans = new Map(
           (expression.typeParameters ?? []).map(({ name, span }) => [name, span] as const),
         );
@@ -19658,7 +19682,7 @@ class Checker {
       // The functions the value hands back that the body defines: the
       // expression itself and the local lambdas it may be, never the calls
       // the body runs itself.
-      const local = fit.lambdas
+      const local = lambdaFrames(fit.lambdas)
         .map(({ span }) => span)
         .filter((span): span is Source.Span => span !== undefined && face.body !== undefined && spanWithin(span, face.body));
       const bodyOwn = new Set(face.frame?.absorbed.map(({ span }) => span) ?? []);
@@ -21846,7 +21870,11 @@ class Checker {
       const leftLambdas = this.#lambdasOf.get(actualLeft);
       const rightLambdas = this.#lambdasOf.get(actualRight);
       if (leftLambdas !== rightLambdas && (leftLambdas !== undefined || rightLambdas !== undefined)) {
-        const merged = [...new Set([...(leftLambdas ?? []), ...(rightLambdas ?? [])])];
+        const merged = leftLambdas === undefined
+          ? rightLambdas!
+          : rightLambdas === undefined
+          ? leftLambdas
+          : { left: leftLambdas, right: rightLambdas };
         this.#lambdasOf.set(actualLeft, merged);
         this.#lambdasOf.set(actualRight, merged);
       }
@@ -21858,7 +21886,7 @@ class Checker {
       if ((leftFace === undefined) !== (rightFace === undefined)) {
         const written = (leftFace ?? rightFace)!;
         const valueNode = leftFace === undefined ? actualLeft : actualRight;
-        const lambdas = this.#lambdasOf.get(valueNode) ?? [];
+        const lambdas = this.#lambdasOf.get(valueNode);
         const own = this.#frameOfType.get(valueNode);
         (written.face.fits ??= []).push({
           arrow: written.arrow,
