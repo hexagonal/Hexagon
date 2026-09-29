@@ -210,7 +210,7 @@ describe("no mark obligation is minted for a non-call", () => {
   });
 
   test("a `?` on a non-call adds nothing either", () => {
-    expect(main('export let s: String = "text"\nexport let bad: Int = s?(1)\n')).toEqual([
+    expect(main('export let s: String = "text"\nexport let bad: Int = s!(1)\n')).toEqual([
       "`s` is not a function — it has type `String`, and this call supplies 1 argument",
     ]);
   });

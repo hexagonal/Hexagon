@@ -573,11 +573,6 @@ class Scanner {
       return { kind: "Bang", span: this.#source.span(start, this.#offset) };
     }
 
-    if (codeUnit === 0x3f) {
-      this.#offset += 1;
-      return { kind: "Question", span: this.#source.span(start, this.#offset) };
-    }
-
     if (codeUnit === 0x22) {
       return this.#scanString();
     }

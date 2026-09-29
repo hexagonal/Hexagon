@@ -100,7 +100,6 @@ export const punctuationKinds = [
   "ArrowQuestion",
   "ArrowBang",
   "Bang",
-  "Question",
 ] as const;
 
 export type PunctuationKind = (typeof punctuationKinds)[number];

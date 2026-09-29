@@ -1596,7 +1596,7 @@ describe("operators and forbidden runs (spec/lexer.md §8)", () => {
       // The marked type arrows stand ahead of `->`, which is the munch
       // (spec/effects.md §2.3).
       ["let h: () ->! Int = f", "->!", "keyword.operator.arrow.impure.hexagon"],
-      ["let k(s: () ->? Int): Int = s?()", "->?", "keyword.operator.arrow.linked.hexagon"],
+      ["let k: (() ->! Int) ->? Int = f", "->?", "keyword.operator.arrow.linked.hexagon"],
       ["let p: Int -> Int = f", "->", "keyword.operator.type.arrow.hexagon"],
     ];
     for (const [source, text, expected] of cases) {
@@ -1631,10 +1631,9 @@ describe("operators and forbidden runs (spec/lexer.md §8)", () => {
   });
 
   it("rejects characters §8.3 gives no token", async () => {
-    // `?` left this list when the call marks landed (spec/effects.md §3.1): it
-    // lexes now, and a floating one is a mark in the wrong seat rather than a
-    // character with no token — see the mark cases below.
-    for (const char of ["%", "^", "&", "@", "#", "`", "\\"]) {
+    // `?` is one of them: the one call mark is `!` (spec/effects.md §3.1), and
+    // `?` stands only inside the `->?` arrow.
+    for (const char of ["%", "^", "&", "@", "#", "`", "\\", "?"]) {
       expect(await scope(`let x = a ${char} b`, char), char).toBe(
         "invalid.illegal.character.hexagon",
       );
@@ -1646,17 +1645,15 @@ describe("operators and forbidden runs (spec/lexer.md §8)", () => {
   });
 
   /**
-   * The call marks (spec/effects.md §3.1; Lexer §8.1). The grammar keys on the
-   * *left* glue, because that is what distinguishes a mark from the two things
-   * the same characters used to be: a `!` standing before an expression is the
-   * negation the language spells `not`, and a `?` standing alone had no reading
-   * at all. Both stay painted as errors, which is what a reader needs — neither
-   * is an operator, and no such operator exists.
+   * The call mark (spec/effects.md §3.1; Lexer §8.1). The grammar keys on the
+   * *left* glue, because that is what distinguishes a mark from what the same
+   * character used to be: a `!` standing before an expression is the negation
+   * the language spells `not`, and stays painted as an error — it is not an
+   * operator, and no such operator exists.
    */
   it("paints a mark glued to its callee, in every seat a mark has", async () => {
     for (const [source, text] of [
       ["let x = save!(document)", "!"],
-      ["let x = check?(value)", "?"],
       ["let x = stream.next!()", "!"],
       ["let x = (source.next)!()", "!"],
       ["let x = document |> save!", "!"],
@@ -1669,7 +1666,9 @@ describe("operators and forbidden runs (spec/lexer.md §8)", () => {
     // The `not` redirect survives the token change (§9's own row), and a mark
     // with no argument list to govern is a parse error either way.
     expect(await scope("let x = !a", "!")).toBe("invalid.illegal.operator.hexagon");
-    expect(await scope("let x = ?a", "?")).toBe("invalid.illegal.operator.hexagon");
+    // `?` is no mark at all, glued or floating: a character with no token.
+    expect(await scope("let x = ?a", "?")).toBe("invalid.illegal.character.hexagon");
+    expect(await scope("let x = check?(value)", "?")).toBe("invalid.illegal.character.hexagon");
     expect(await scope("let x = readLine !()", "!")).toBe(
       "invalid.illegal.operator.hexagon",
     );

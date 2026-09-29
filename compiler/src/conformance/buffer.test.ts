@@ -216,7 +216,7 @@ describe("the honest arrows (§3.3, `regex.md` §7)", () => {
    * annotated binding is what fixes the face in advance and makes the call a
    * contradiction.
    */
-  const REFUSAL = "this call performs effects, and the enclosing function's face is " +
+  const REFUSAL = "this call may touch the world, and the enclosing function's face is " +
     "the pure arrow `->` — a pure face cannot run effects";
 
   test("a `read` inside a `->`-faced function is refused", () => {
@@ -326,10 +326,12 @@ describe("walks that enter a `Buffer`'s argument", () => {
       "honor Holds<Box> =\n" +
       "    first(x, fs) = useImpure(fs)\n",
     )).toEqual([
-      "this instance demands a function that may perform effects where `first`'s " +
-      "contract writes `->` inside the parameter `fs` — an invariant position admits " +
-      "no widening — do not require effects of the function inside `fs` here, or, if " +
-      "the constraint is yours, write `->!` on that arrow inside the parameter `fs`",
+      // §13.2's second row: a constant arrow inside a parameter that the body
+      // fixes to the other constant.
+      "`first`'s contract accepts a pure function inside the parameter `fs`, and this " +
+      "instance accepts only one that may touch the world — an instance accepts everything " +
+      "its contract promises to accept — do not narrow that function here, or, if the " +
+      "constraint is yours, write that arrow `->!` inside the parameter `fs`",
     ]);
   });
 });

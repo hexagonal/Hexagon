@@ -160,14 +160,6 @@ export interface FunctionTypeAnnotation {
   readonly result: TypeAnnotation;
   /** How the arrow was written (#355); absent is `->`. */
   readonly effect?: "linked" | "constant";
-  /**
-   * Set where the resolver refused a `->?` in a `type` alias body and stored
-   * the impure constant in its place (Effects §4.4). The arrow reads as `->!`
-   * everywhere, and the checker elaborates it as §4.4's marked recovery, so
-   * what it meets through the alias is suppressed rather than re-reported
-   * (#888).
-   */
-  readonly recovered?: true;
   /** The arrow token, so a face fixit replaces exactly it. */
   readonly arrowSpan?: Source.Span;
   readonly span: Source.Span;
@@ -1927,7 +1919,7 @@ export type Expr =
   | AssignmentExpr
   | ErrorExpr;
 
-export type CallMark = "bang" | "question";
+export type CallMark = "bang";
 
 /** Suffix construction before checking lowers it through the selected build as a call. */
 export interface PatternConstructionExpr {
@@ -2184,7 +2176,7 @@ export interface CallExpr {
   readonly callee: Expr;
   readonly arguments: readonly Expr[];
   /** The written call mark (#355 ruling 2); absent is the bare call. */
-  readonly mark?: "bang" | "question";
+  readonly mark?: "bang";
   readonly markSpan?: Source.Span;
   readonly span: Source.Span;
 }
@@ -2274,7 +2266,7 @@ export interface BinaryExpr {
   readonly left: Expr;
   readonly right: Expr;
   /** A `|>` stage's own mark (#355 ruling 1); the rewrite carries it. */
-  readonly mark?: "bang" | "question";
+  readonly mark?: "bang";
   readonly markSpan?: Source.Span;
   readonly span: Source.Span;
 }

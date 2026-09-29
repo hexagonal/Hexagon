@@ -559,7 +559,7 @@ export class AnalysisSession {
     // Displayed where the hole stands (Effects §10, #873).
     const face = Typed.displayFace(
       hole.scheme,
-      Typed.colourContextAt(typed, Number(hole.span.fileId), hole.span.start.offset, hole.span.end.offset),
+      Typed.colourContextAt(typed),
     );
     return {
       name: "_",

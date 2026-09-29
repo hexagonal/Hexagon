@@ -191,13 +191,15 @@ export interface ExternType {
 }
 
 /**
- * A function type's effect (`spec/effects.md` §2), absent exactly where the
- * arrow is the pure constant. `"impure"` is what `->!` wears, and what §4.4's
- * recovery leaves behind where a `->?` was refused; a variable is the implicitly
- * quantified colour a linked `->?` shares, and it is quantified in the enclosing
- * scheme like any other type variable (§3.4).
+ * A function type's colour (`spec/effects.md` §2), absent exactly where the
+ * arrow is the pure constant. `"impure"` is the impure constant; a variable is
+ * a callback's colour, quantified in the enclosing scheme like any other type
+ * variable (§3.4); a join is "as effectful as any of these" (§2.4).
  */
-export type Effect = "impure" | { readonly variable: TypeVariableId };
+export type Effect =
+  | "impure"
+  | { readonly variable: TypeVariableId }
+  | { readonly join: readonly TypeVariableId[] };
 
 export interface FunctionType {
   readonly kind: "Function";
@@ -373,20 +375,12 @@ export interface Module {
    */
   readonly typeHoles: readonly TypeHole[];
   /**
-   * Every inlet-bearing signature's region in this module, with the colour an
-   * inlet-less `->?` written inside it names *(#873; Effects §2.2.2, §10)* —
-   * the variable's settled identity, absent where the colour settled to a
-   * constant. The innermost region holding a display location is the nearest
-   * enclosing signature that can own a variable there. Metadata, like `docs`.
+   * Whose callback each settled callback colour is, in a report's words —
+   * "`outer`'s `action`" — so a face depending on a captured colour can name
+   * its owner *(Effects §10)*. Where a join made one variable of several
+   * callbacks' colours, the outermost of them.
    */
-  readonly colourScopes: readonly ColourScope[];
-  /**
-   * The signature that owns each open signature's colour, by the colour's
-   * settled identity *(#873; Effects §10)*: its binding's name, or `undefined`
-   * for a lambda no binding names. Where a join made one variable of several
-   * signatures' colours, the outermost of them.
-   */
-  readonly colourOwners: ReadonlyMap<TypeVariableId, string | undefined>;
+  readonly colourOwners: ReadonlyMap<TypeVariableId, string>;
   /**
    * The companion operations this module's dot calls reached in a module it
    * never textually imported (Method Syntax §8.2, #585). Empty for almost every
@@ -443,12 +437,6 @@ export interface CompanionImport {
    * the exporter published.
    */
   readonly internalNames: Resolved.InternalNameInputs;
-}
-
-/** One inlet-bearing signature's region, and the colour it owns (§10, #873). */
-export interface ColourScope {
-  readonly span: Source.Span;
-  readonly variable?: TypeVariableId;
 }
 
 /**

@@ -76,7 +76,7 @@ export interface CompletionInput {
    * captured colour displays there (Effects §10, #873). Absent when checking
    * produced none; the detail is then the location-blind display.
    */
-  readonly typed?: Pick<Typed.Module, "fileId" | "colourScopes" | "colourOwners">;
+  readonly typed?: Pick<Typed.Module, "fileId" | "colourOwners">;
 }
 
 export function collectCompletions(input: CompletionInput): readonly Completion[] {
@@ -247,7 +247,7 @@ function membersOf(qualifier: string, input: CompletionInput): readonly Completi
 function cursorColours(input: CompletionInput): Typed.ColourContext | undefined {
   return input.typed === undefined
     ? undefined
-    : Typed.colourContextAt(input.typed, Number(input.typed.fileId), input.offset, input.offset);
+    : Typed.colourContextAt(input.typed);
 }
 
 function ofSymbol(

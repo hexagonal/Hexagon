@@ -329,48 +329,31 @@ const EXTERN_MISSING_RESULT =
   "extern functions require an effect arrow and a result type; write `->! T` " +
   "when in doubt";
 
-/** Whether a written annotation spells a `->?` anywhere inside it (Effects §2.2.1). */
-function writesLinkedArrow(annotation: Parsed.TypeAnnotation | undefined): boolean {
-  let found = false;
-  const walk = (node: unknown): void => {
-    if (found || node === null || typeof node !== "object") return;
-    if (Array.isArray(node)) {
-      for (const child of node) walk(child);
-      return;
-    }
-    const record = node as { kind?: unknown; effect?: unknown };
-    if (record.kind === "Function" && record.effect === "linked") {
-      found = true;
-      return;
-    }
-    for (const [key, child] of Object.entries(record)) {
-      if (key === "span" || key === "arrowSpan") continue;
-      walk(child);
-    }
-  };
-  walk(annotation);
-  return found;
+/**
+ * Whether a written parameter type is a callback with a colour of its own
+ * (Effects §2.4): a function type whose own arrow is written `->!` — or the
+ * refused `->?`, which reads as it.
+ */
+function writesCallback(annotation: Parsed.TypeAnnotation | undefined): boolean {
+  return annotation?.kind === "Function" && annotation.effect !== undefined;
 }
 
 /**
  * Effects §2.2.1's inlet test over a **written** row, asked here so §13's
- * rewrite never names an arrow the checker would turn round and refuse.
- *
- * The same descent the checker's own test makes: a caller supplies the
- * parameters of every arrow on the application spine, so the result is followed
- * while it is a function type and its parameters count too.
+ * rewrite never names an arrow the checker would turn round and refuse: some
+ * parameter of an arrow on the application spine is a callback with a colour.
  */
 function writtenSignatureInlet(
   parameters: readonly (Parsed.TypeAnnotation | undefined)[],
   result: Parsed.TypeAnnotation | undefined,
 ): boolean {
-  if (parameters.some(writesLinkedArrow)) return true;
+  if (parameters.some(writesCallback)) return true;
   for (
     let node = result;
     node !== undefined && node.kind === "Function";
     node = node.result
   ) {
-    if (node.parameters.some(writesLinkedArrow)) return true;
+    if (node.parameters.some(writesCallback)) return true;
   }
   return false;
 }
@@ -3402,13 +3385,13 @@ class Parser {
         // inlet. So the sentence is §4.5's advice in words, and the inlet-less
         // row at this row's outer arrow, which says exactly this, is not
         // reported on top of it (§13).
-        ? "`conduit` is retired, and nothing this row is handed carries `->?` — " +
-          "write `->?` on the callback parameter this row runs, or write `->!`"
+        ? "`conduit` is retired, and this row is handed no callback — write the " +
+          "callback parameter this row runs, with `->!`, or write `->!` on the row"
         : claimed === "->"
         ? `\`${words}\` is retired — write the pure arrow on the row itself: ` +
           "`fun trim(document: String) -> String`"
         : `\`${words}\` is retired — write \`->?\` on the row's outer arrow: ` +
-          "`fun runner(step: () ->? String) ->? Int`",
+          "`fun runner(step: () ->! String) ->? Int`",
       primary: first.span,
       fixes: [{
         message: `drop the word${plural}` +
@@ -5847,9 +5830,9 @@ class Parser {
         this.#errorAt(token.span, "a pattern's name is written against the parenthesis: `(n, d)rat`");
       }
       const name = parsedName(token as Lexed.NameToken);
-      if (this.#at("Bang") || this.#at("Question")) {
+      if (this.#at("Bang")) {
         const mark = this.#advance();
-        this.#errorAt(mark.span, "a pattern use has no effect mark; remove `!` or `?`");
+        this.#errorAt(mark.span, "a pattern use has no effect mark; remove `!`");
       }
       return { kind: "Declared", components, name, span: spanFrom(opening, this.#previous().span) };
     }
@@ -5872,8 +5855,8 @@ class Parser {
     let left = this.#parsePrefix(effectiveStops);
 
     while (!effectiveStops.has(this.#current().kind)) {
-      if (this.#at("Bang") || this.#at("Question")) {
-        const mark = this.#at("Bang") ? "bang" : "question";
+      if (this.#at("Bang")) {
+        const mark = "bang";
         const token = this.#advance();
         // Lexer §8.1: a mark is written *glued* — to the callee it marks, and to
         // the `(` it governs. Whitespace on either side is the same defect the
@@ -6088,18 +6071,13 @@ class Parser {
         span: spanFrom(start.span, operand.span),
       };
     }
-    if (this.#at("Bang") || this.#at("Question")) {
-      // Effects §9's two prefix rows, chosen by which mark it is. A mark governs an
-      // argument list and an argument list follows something, so a mark *here*
-      // has no call to speak for. A `!` in this seat is the negation the scanner
-      // used to redirect before the marks made it a token, and the redirect is
-      // the parser's now (Lexer §8.2); a `?` never had that reading and takes
-      // the mark-position row.
+    if (this.#at("Bang")) {
+      // Effects §9's prefix row. A mark governs an argument list and an argument
+      // list follows something, so a mark *here* has no call to speak for. A `!`
+      // in this seat is the negation the scanner used to redirect before the
+      // mark made it a token, and the redirect is the parser's now (Lexer §8.2).
       const token = this.#advance();
-      this.#errorAt(
-        token.span,
-        token.kind === "Bang" ? "Hexagon spells logical negation `not`" : markSeatError,
-      );
+      this.#errorAt(token.span, "Hexagon spells logical negation `not`");
       // Recovery keeps the operand: the writer's expression is what follows, and
       // reporting it missing on top of the redirect would say the same mistake
       // twice.
@@ -6467,14 +6445,14 @@ class Parser {
     const name = parsedName(token as Lexed.NameToken);
     let mark: Parsed.CallMark | undefined;
     let markSpan: Source.Span | undefined;
-    if (this.#at("Bang") || this.#at("Question")) {
+    if (this.#at("Bang")) {
       const token = this.#advance();
       if (token.span.start.offset !== name.span.end.offset) {
         this.#errorAt(token.span, markSeatError);
       }
-      mark = token.kind === "Bang" ? "bang" : "question";
+      mark = "bang";
       markSpan = token.span;
-      if (this.#at("Bang") || this.#at("Question")) {
+      if (this.#at("Bang")) {
         const duplicate = this.#advance();
         this.#errorAt(duplicate.span, markSeatError);
       }
@@ -6538,7 +6516,14 @@ class Parser {
     mark?: Parsed.CallMark,
     markSpan: Source.Span = callee.span,
   ): Parsed.Expr {
-    this.#advance();
+    const opening = this.#advance();
+    // A retired `?` in the mark seat lexes as no token (it is an invalid
+    // character); kept as the seat's span, a mark fixit rewrites it rather
+    // than writing a mark beside it.
+    const retired = mark === undefined && opening.span.start.offset === callee.span.end.offset + 1 &&
+        this.#text[callee.span.end.offset] === "?"
+      ? { ...callee.span, start: callee.span.end, end: opening.span.start }
+      : undefined;
     const args: Parsed.Expr[] = [];
     const stops = new Set<TokenKind>(["Comma", "RightParen", "Eof"]);
 
@@ -6555,7 +6540,7 @@ class Parser {
       kind: "Call",
       callee,
       arguments: args,
-      ...(mark === undefined ? {} : { mark, markSpan }),
+      ...(mark === undefined ? (retired === undefined ? {} : { markSpan: retired }) : { mark, markSpan }),
       span: spanFrom(callee.span, closing?.span ?? args.at(-1)?.span ?? callee.span),
     };
   }
@@ -7410,8 +7395,8 @@ class Parser {
     this.#diagnostics.add({
       severity: "error",
       message:
-        "Hexagon's type arrows are `->`, `->?`, `->!`; `=>` is the lambda arrow — " +
-        "for a function type write `Int -> Int` (or `->?` / `->!` for its colour)",
+        "Hexagon's type arrows are `->`, `->!`, `->?`; `=>` is the lambda arrow — " +
+        "for a function type write `Int -> Int` (or `->!` / `->?` for its colour)",
       primary: span,
       fixes: [{ message: `write \`${replacement}\``, edits: [{ span, replacement }] }],
     });

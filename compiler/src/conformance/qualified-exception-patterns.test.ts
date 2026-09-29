@@ -191,9 +191,9 @@ describe("a module alias qualifies an imported exception", () => {
       ["/lib.hex", "module Lib\n\n" + "export exception Boom(code: Int)\n"],
       ["/main.hex",
         "module Main\n\n" + "import Lib\n" +
-        "export fun f(g: (() ->? Int)): Int =\n" +
+        "export fun f(g: (() ->! Int)): Int =\n" +
         "    try\n" +
-        "        g?()\n" +
+        "        g!()\n" +
         "    catch\n" +
         "        Lib.Boom(c) => c\n"],
     ]).modules.find(({ source }) => source.path === "/main.hex")!.javascript.text;

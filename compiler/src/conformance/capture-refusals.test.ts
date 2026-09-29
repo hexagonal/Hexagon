@@ -626,7 +626,7 @@ describe("item 5 — the release seat, `JsValue.from`", () => {
    * the compiler cannot determine a release operation, and two of the solver's
    * variables determine nothing to release. An *effect* variable: a function
    * type naming no captured collection is §5.4's identity, colour or no colour,
-   * and the colour prints as `->?` rather than as a name. A *row tail*: an open
+   * and a callback's colour prints as `->!` rather than as a name. A *row tail*: an open
    * record crosses as the POJO it already is, and `#render` prints the tail as
    * `...`. A refusal keyed on either would name a variable the type it quotes
    * does not contain, which is the shape #649 abolished — and that is what the
@@ -643,12 +643,12 @@ describe("item 5 — the release seat, `JsValue.from`", () => {
    * parameter — and that is the row that keeps the two answers in agreement.
    */
   test.each([
-    ["(Int) ->? Int", false],
-    ["(Int) ->? Bool", false],
+    ["(Int) ->! Int", false],
+    ["(Int) ->! Bool", false],
     ["a", true],
     ["Vector(a)", true],
     ["(a, Int)", true],
-    ["(Int) ->? b", true],
+    ["(Int) ->! b", true],
   ])("`JsValue.from` at `%s` — refused: %s", (written, refused) => {
     const messages = diagnose(
       `let w(x: ${written}): JsValue = JsValue.from(x)\nexport let go(): Int = 1\n`,

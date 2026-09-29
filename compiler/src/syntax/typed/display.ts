@@ -1,14 +1,6 @@
-import { IMPURE_ARROW, linkedArrow, PURE_ARROW } from "../../support/arrows.js";
+import { IMPURE_ARROW, FOLLOWS_ARROW, PURE_ARROW } from "../../support/arrows.js";
 import { collectEffectVariables } from "./effects.js";
 import type * as Typed from "./tree.js";
-
-/**
- * How each effect variable in one displayed signature is numbered, empty when
- * nothing is numbered (`support/arrows.ts`, #364).
- */
-type EffectNumbering = ReadonlyMap<Typed.TypeVariableId, number>;
-
-const NOTHING_NUMBERED: EffectNumbering = new Map();
 
 /** Renders an inferred binding scheme in Hexagon's user-facing type notation. */
 export function displayScheme(scheme: Typed.Scheme): string {
@@ -16,102 +8,43 @@ export function displayScheme(scheme: Typed.Scheme): string {
 }
 
 /**
- * Where a face is displayed, for §10's captured-variable rule *(#873)*: the
- * colour an inlet-less `->?` written at that location would name — the
- * nearest enclosing signature that can own a variable — and who owns each
- * signature's colour.
+ * Where a face is displayed, for §10's owner line: whose callback each settled
+ * callback colour is (`Typed.Module.colourOwners`).
  */
 export interface ColourContext {
-  readonly nearest: Typed.TypeVariableId | undefined;
-  readonly owners: ReadonlyMap<Typed.TypeVariableId, string | undefined>;
+  readonly owners: ReadonlyMap<Typed.TypeVariableId, string>;
 }
 
 /**
- * The colour context at one location of a module *(#873; Effects §10)* — the
- * innermost inlet-bearing signature whose region holds `[start, end]` in
- * `fileId` names what an inlet-less `->?` pasted there would mean. `undefined`
- * where the module captures nothing, so display is exactly as before.
+ * The colour context at one location of a module *(Effects §10)*, or
+ * `undefined` where the module has no callback colour to name.
  */
 export function colourContextAt(
-  module: Pick<Typed.Module, "colourScopes" | "colourOwners">,
-  fileId: number,
-  start: number,
-  end: number,
+  module: Pick<Typed.Module, "colourOwners">,
 ): ColourContext | undefined {
   if (module.colourOwners.size === 0) return undefined;
-  let nearest: Typed.ColourScope | undefined;
-  for (const scope of module.colourScopes) {
-    if (Number(scope.span.fileId) !== fileId) continue;
-    if (scope.span.start.offset > start || scope.span.end.offset < end) continue;
-    if (
-      nearest === undefined || scope.span.start.offset > nearest.span.start.offset ||
-      (scope.span.start.offset === nearest.span.start.offset &&
-        scope.span.end.offset <= nearest.span.end.offset)
-    ) {
-      nearest = scope;
-    }
-  }
-  return { nearest: nearest?.variable, owners: module.colourOwners };
+  return { owners: module.colourOwners };
 }
 
 /**
- * A scheme as displayed at one location *(#873; Effects §10)*: the type, and
- * one owner line for each captured variable the display had to number.
- *
- * A captured variable — a signature's colour the scheme does not quantify —
- * displays undecorated wherever an inlet-less `->?` pasted at the location
- * would name it, which is exactly when it is the nearest owner's colour (a
- * join makes the two one identity). Elsewhere a nearer inlet-bearing
- * signature stands between, the paste would name that one's colour instead,
- * and the display numbers the captured one even alone, naming its owner. The
- * probe is the inlet-less arrow: a captured variable standing in a parameter
- * type of the face's own spine is an inlet, a paste of the face is a
- * signature that quantifies a fresh colour the body joins to it again, and
- * nothing is owed.
+ * A scheme as displayed *(Effects §10)*: the type, and one owner line for each
+ * captured colour the face depends on — a callback's colour of an enclosing
+ * function, which the scheme does not quantify. A captured colour shows `->?`
+ * where the face depends on it, and the owner line is information, not grammar.
  */
 export function displayFace(
   scheme: Typed.Scheme,
   context?: ColourContext,
 ): { readonly type: string; readonly owners: readonly string[] } {
-  // One scheme is one displayed signature, so the whole of it — constraints
-  // included — is what the effect variables are numbered across.
   const colours = effectVariables(scheme);
   const variables = variableNames(scheme, colours);
-  const inlets = spineInlets(scheme.type);
-  const decorated = context === undefined
+  const captured = context === undefined
     ? []
-    : colours.filter((colour) =>
-      context.owners.has(colour) &&
-      !scheme.variables.includes(colour) &&
-      colour !== context.nearest &&
-      !inlets.has(colour)
-    );
-  const numbering: EffectNumbering = writesBackUnchanged(scheme, colours) && decorated.length === 0
-    ? NOTHING_NUMBERED
-    : new Map(colours.map((colour, index) => [colour, index + 1]));
-  const type = displayType(scheme.type, variables, numbering);
+    : colours.filter((colour) => context.owners.has(colour) && !scheme.variables.includes(colour));
   return {
-    type: `${displayConstraints(scheme, variables, numbering)}${type}`,
-    owners: decorated.map((colour) => {
-      const owner = context!.owners.get(colour);
-      return `\`${linkedArrow(numbering.get(colour))}\` is ${
-        owner === undefined ? "an enclosing lambda's" : `\`${owner}\`'s`
-      } colour, captured`;
-    }),
+    type: `${displayConstraints(scheme, variables)}${displayType(scheme.type, variables, "spine")}`,
+    owners: [...new Set(captured.map((colour) => `depends on ${context!.owners.get(colour)!}`))],
   };
-}
-
-/**
- * The effect variables standing in a parameter type of some arrow on the
- * type's application spine — its inlets (Effects §2.2.1), read at the
- * coarsest: sign and depth discarded.
- */
-function spineInlets(type: Typed.Type): ReadonlySet<Typed.TypeVariableId> {
-  const found = new Set<Typed.TypeVariableId>();
-  for (let arrow = type; arrow.kind === "Function"; arrow = arrow.result) {
-    for (const parameter of arrow.parameters) collectEffectVariables(parameter, found);
-  }
-  return found;
 }
 
 /**
@@ -147,11 +80,10 @@ function spineInlets(type: Typed.Type): ReadonlySet<Typed.TypeVariableId> {
 function displayConstraints(
   scheme: Typed.Scheme,
   variables: ReadonlyMap<Typed.TypeVariableId, string>,
-  numbering: EffectNumbering,
 ): string {
   const groups = new Map<string, string[]>();
   for (const constraint of scheme.constraints) {
-    const subject = displayType(constraint.type, variables, numbering);
+    const subject = displayType(constraint.type, variables, "inside");
     const group = groups.get(subject);
     if (group === undefined) groups.set(subject, [constraint.name]);
     else group.push(constraint.name);
@@ -179,47 +111,58 @@ function displayConstraints(
 }
 
 /**
- * A function type's arrow (`spec/effects.md` §2). An absent slot is the pure
- * constant, so a signature that never wrote a colour displays exactly the `->`
- * it always has — purity is the silent one (§1).
+ * Where an arrow stands in a displayed face (Effects §10), which decides how a
+ * colour that is not a constant is spelled there: on the face's spine and in
+ * what it returns, a colour that depends on callbacks is `->?`; on a
+ * callback's own arrows it is the callback's colour, `->!`; anywhere else
+ * inside a parameter type an arrow means what it says, so an undecided colour
+ * there shows the constant `->!`.
  */
-function displayArrow(
-  effect: Typed.Effect | undefined,
-  numbering: EffectNumbering,
-): string {
+type ArrowPlace = "spine" | "callback" | "inside";
+
+/**
+ * A function type's arrow (`spec/effects.md` §2, §10). An absent slot is the
+ * pure constant, so a signature that never wrote a colour displays exactly the
+ * `->` it always has — purity is the silent one (§1). No colour is numbered.
+ */
+function displayArrow(effect: Typed.Effect | undefined, place: ArrowPlace): string {
   if (effect === undefined) return PURE_ARROW;
   if (effect === "impure") return IMPURE_ARROW;
-  return linkedArrow(numbering.get(effect.variable));
+  return place === "spine" ? FOLLOWS_ARROW : IMPURE_ARROW;
 }
 
 function displayType(
   type: Typed.Type,
   variables: ReadonlyMap<Typed.TypeVariableId, string>,
-  numbering: EffectNumbering,
+  place: ArrowPlace,
 ): string {
+  // Every component that is not the spine's own next arrow stands inside what
+  // this arrow returns or is handed; a function there keeps the place's
+  // reading, and so does everything beneath it.
+  const inner = (part: Typed.Type): string => displayType(part, variables, place);
   switch (type.kind) {
     case "Primitive":
       return type.name;
     case "Range":
       return "Range";
     case "Vector":
-      return `Vector(${displayType(type.element, variables, numbering)})`;
+      return `Vector(${inner(type.element)})`;
     case "Set":
-      return `Set(${displayType(type.element, variables, numbering)})`;
+      return `Set(${inner(type.element)})`;
     case "Map":
-      return `Map(${displayType(type.key, variables, numbering)}, ${displayType(type.value, variables, numbering)})`;
+      return `Map(${inner(type.key)}, ${inner(type.value)})`;
     case "Array":
-      return `Array(${displayType(type.element, variables, numbering)})`;
+      return `Array(${inner(type.element)})`;
     case "JsMap":
-      return `JsMap(${displayType(type.key, variables, numbering)}, ${displayType(type.value, variables, numbering)})`;
+      return `JsMap(${inner(type.key)}, ${inner(type.value)})`;
     case "JsSet":
-      return `JsSet(${displayType(type.element, variables, numbering)})`;
+      return `JsSet(${inner(type.element)})`;
     case "JsValue":
       return "JsValue";
     case "Node":
-      return `Node(${displayType(type.element, variables, numbering)})`;
+      return `Node(${inner(type.element)})`;
     case "Nullable":
-      return `Nullable(${displayType(type.value, variables, numbering)})`;
+      return `Nullable(${inner(type.value)})`;
     case "Variable":
       return variables.get(type.id) ?? `t${Number(type.id)}`;
     case "Error":
@@ -230,11 +173,11 @@ function displayType(
       // domain below.
       if (type.elements.length === 0) return "Unit";
       return `(${type.elements.map((element) =>
-        displayType(element, variables, numbering)
+        inner(element)
       ).join(", ")})`;
     case "Record": {
       const fields = type.fields.map(({ name, type: field }) =>
-        `${name}: ${displayType(field, variables, numbering)}`
+        `${name}: ${inner(field)}`
       );
       if (type.tail !== undefined) {
         // A tail the letters do not name is an unquantified row, and it renders
@@ -251,13 +194,13 @@ function displayType(
       return type.arguments.length === 0
         ? type.name
         : `${type.name}(${type.arguments.map((argument) =>
-          displayType(argument, variables, numbering)
+          inner(argument)
         ).join(", ")})`;
     case "NominalRecord":
       return type.arguments.length === 0
         ? type.name
         : `${type.name}(${type.arguments.map((argument) =>
-          displayType(argument, variables, numbering)
+          inner(argument)
         ).join(", ")})`;
     case "ExternType":
       // #927: a parameterized intrinsic `type` row displays its arguments like
@@ -265,11 +208,14 @@ function displayType(
       return type.arguments.length === 0
         ? type.name
         : `${type.name}(${type.arguments.map((argument) =>
-          displayType(argument, variables, numbering)
+          inner(argument)
         ).join(", ")})`;
     case "Function": {
+      // A spine arrow's function-typed parameters are callbacks, whose own
+      // arrows — and those of the functions they return — carry their colours;
+      // everything else in a parameter means what it says (Effects §2.4).
       const parameters = type.parameters.map((parameter) =>
-        displayType(parameter, variables, numbering),
+        displayType(parameter, variables, place === "spine" && parameter.kind === "Function" ? "callback" : "inside"),
       );
       const soleParameter = type.parameters[0];
       const domain =
@@ -285,36 +231,11 @@ function displayType(
               : parameters[0]!
             : `(${parameters.join(", ")})`;
       return (
-        `${domain} ${displayArrow(type.effect, numbering)} ` +
-        displayType(type.result, variables, numbering)
+        `${domain} ${displayArrow(type.effect, place)} ` +
+        displayType(type.result, variables, place === "callback" && type.result.kind !== "Function" ? "inside" : place)
       );
     }
   }
-}
-
-/**
- * Whether the undecorated arrows say exactly what this scheme says (#364;
- * narrowed to one condition by #405).
- *
- * **One** distinct effect variable, because a written signature links every
- * `->?` into a single variable (§2.2) and two would come back as one. That is
- * now the whole test.
- *
- * The predecessor carried a second condition — at least one **inlet**
- * occurrence — because the else-constant rule read an inlet-less `=>` back as
- * the impure constant, so `(() -> String) => Int` would have written back as a
- * different *type*. With that rule withdrawn (§2.2.1) the undecorated spelling
- * no longer changes meaning; it is refused outright by §4.4, with a sentence
- * saying why. Numbering is for what the grammar cannot express, not for what
- * the checker will reject, so the lone inlet-less variable displays plainly.
- *
- * A face with no variable at all is trivially unchanged: constants round-trip.
- */
-function writesBackUnchanged(
-  _scheme: Typed.Scheme,
-  colours: readonly Typed.TypeVariableId[],
-): boolean {
-  return colours.length <= 1;
 }
 
 /**

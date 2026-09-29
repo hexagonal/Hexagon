@@ -42,7 +42,7 @@ describe("parse", () => {
     const module = parseSource("let (x) rat = value\nlet (x)rat! = value\nlet made = (1)rat!!\n");
     expect(module.diagnostics.map(({ message }) => message)).toEqual([
       "a pattern's name is written against the parenthesis: `(n, d)rat`",
-      "a pattern use has no effect mark; remove `!` or `?`",
+      "a pattern use has no effect mark; remove `!`",
       "a call mark governs an argument list; write it immediately before `(`, " +
         "or (in a `|>` stage) at the end of the stage — a reference carries no colour",
     ]);
@@ -1174,8 +1174,8 @@ describe("parse", () => {
   // Effects §2/§9 (#410): `=>` is a term arrow only, so a fat arrow where a type
   // arrow belongs gets the family's targeted redirect rather than a parse cascade.
   describe("the type-position `=>` redirect", () => {
-    const message = "Hexagon's type arrows are `->`, `->?`, `->!`; `=>` is the lambda arrow — " +
-      "for a function type write `Int -> Int` (or `->?` / `->!` for its colour)";
+    const message = "Hexagon's type arrows are `->`, `->!`, `->?`; `=>` is the lambda arrow — " +
+      "for a function type write `Int -> Int` (or `->!` / `->?` for its colour)";
 
     test("fires in every type slot whose `=>` can have no other reading", () => {
       // One source per slot, so a slot that stops opting in shows up as a

@@ -111,8 +111,8 @@ describe("a goal's argument types are pinned to its receiver's region", () => {
         "    bad\n",
     );
     expect(control).toEqual([
-      "a `->` arrow promises purity, and this function performs effects — the demand is written " +
-        "`->`, the function's face `->?` or `->!`",
+      "a `->` arrow promises purity, and this function may touch the world — the demand is written " +
+        "`->`, the function's face `->!` or `->?`",
     ]);
     expect(refusals(
       "let run(s) =\n" +

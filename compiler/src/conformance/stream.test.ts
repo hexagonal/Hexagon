@@ -194,7 +194,7 @@ describe("§4 the faces: wiring is silent, consumption is spelled", () => {
     // §4.4's own sentence: a linked callback
     // beside a constant-impure self, in one face.
     expect(hoveredType("export let held: Int = Stream.fold\n", "fold"))
-      .toBe("(Stream(a), b, (b, a) ->? b) ->! b");
+      .toBe("(Stream(a), b, (b, a) ->! b) ->! b");
   });
 
   it("displays the protocol function as `Stream(a) ->! Option(a)`", () => {
@@ -210,19 +210,18 @@ describe("§4 the faces: wiring is silent, consumption is spelled", () => {
 
   it("takes the same call bare inside an inlet-bearing body (#868)", () => {
     // `stream.md` §4.2: `map`'s own colour defaults pure before it generalizes,
-    // so wiring is bare in every body — the inlet-bearing exception the
-    // conservative-conduct rule made is withdrawn (Effects §11), and a `?`
+    // so wiring is bare in every body, one with a callback included, and a `!`
     // there is a mark on a pure call.
     const body = (mark: string): string =>
       "module Main\n\n" +
-      "export let wire(source: Stream(Int), step: Int ->? Int): Stream(Int) =\n" +
+      "export let wire(source: Stream(Int), step: Int ->! Int): Stream(Int) =\n" +
       `    Stream.map${mark}(source, step)\n`;
     expect(projectDiagnostics(body(""))).toEqual([]);
-    expect(projectDiagnostics(body("?"))).toEqual([
-      "this call is pure, so `map` wants no mark, not `?`",
+    expect(projectDiagnostics(body("!"))).toEqual([
+      "this call is pure, so `map` wants no mark, not `!`",
     ]);
     expect(hoveredType("export let held: Int = Stream.map\n", "map"))
-      .toBe("(Stream(a), a ->? b) -> Stream(b)");
+      .toBe("(Stream(a), a ->! b) -> Stream(b)");
   });
 
   it("demands `!` at every consumer, and takes nothing else", () => {
@@ -238,10 +237,7 @@ describe("§4 the faces: wiring is silent, consumption is spelled", () => {
     ] as const) {
       const shown = name.slice("Stream.".length);
       expect(projectDiagnostics(call(name, "", rest, result))).toEqual([
-        `this call runs effects, so \`${shown}\` wants \`!\`, not no mark`,
-      ]);
-      expect(projectDiagnostics(call(name, "?", rest, result))).toEqual([
-        `this call runs effects, so \`${shown}\` wants \`!\`, not \`?\``,
+        `this call may touch the world, so \`${shown}\` wants \`!\`, not no mark`,
       ]);
       expect(projectDiagnostics(call(name, "!", rest, result))).toEqual([]);
     }
@@ -286,7 +282,7 @@ describe("§2.5 the field's arrow is the impure constant", () => {
     // The field keeps its constant, so pulling still wears `!`; a pure `next`
     // makes a stream that never asks the world anything — an empty one here,
     // no genuine source (§2), and no way to launder one into a `Seq`.
-    const declaration = "export let map(source: Stream(a), transform: a ->? b): Stream(b) =";
+    const declaration = "export let map(source: Stream(a), transform: a ->! b): Stream(b) =";
     const mutated = streamSource.replace(
       declaration,
       "export let empty: Stream(a) = Stream({ next = () => None })\n\n" + declaration,

@@ -1564,11 +1564,8 @@ describe("the Hexagon language server", () => {
  * editor — so the compiler's own display tests, which call the analysis session
  * directly, are not the whole of it. This block asks the real server, over real
  * JSON-RPC, for the hover text an editor would show, on all three arrows at
- * once: a constant-impure consumer, a numbered variable face, and a pure one.
- *
- * The test could not be written before this milestone: the flag decided the
- * grammar, and the server never set it, so a file spelling `=>` or `?` did not
- * lex here at all.
+ * once: a constant-impure consumer, faces that follow their callbacks, and a
+ * pure one.
  *
  * `Stream.fold` is the specimen the ruling names for `->!`, and it is reached
  * as an ordinary prelude member from a file that declares no stream of its own.
@@ -1579,16 +1576,16 @@ describe("hover renders the arrow trio", () => {
     "",
     "export let held: Int = Stream.fold",
     "",
-    "export let compose(first: String ->? String, second: String ->? String): (String ->? String) =",
-    "    (document) => second?(first?(document))",
+    "export let compose(first: String ->! String, second: String ->! String): (String ->? String) =",
+    "    (document) => second!(first!(document))",
     "",
     "export let twice(step: Int -> Int, value: Int): Int = step(step(value))",
     "",
-    "let staged(first: String ->? String) =",
-    "    (second: String ->? String): String => second?(\"x\")",
+    "let staged(first: String ->! String) =",
+    "    (second: String ->! String): String => second!(\"x\")",
     "",
     "extern from \"./world.js\"",
-    "    export fun runner(step: () ->? String) ->? Int",
+    "    export fun runner(step: () ->! String) ->? Int",
     "",
   ].join("\n");
 
@@ -1616,36 +1613,33 @@ describe("hover renders the arrow trio", () => {
   }
 
   test("`->!` reaches the editor, on the face the ruling names", async () => {
-    // `stream.md` §4.4's canonical worked example: a linked callback beside a
-    // constant-impure self. Nothing here is numbered — one variable is what a
-    // written signature spells, so the face writes back unchanged.
+    // `stream.md` §4.4's canonical worked example: a callback beside a
+    // constant-impure self. The face writes back unchanged.
     //
     // The module's own doc comment rides along, which is the second half of
     // what a reader needs: the face says the callback decides nothing about
     // termination, and the sentence says what does.
     expect(await hovered("fold")).toBe(
-      "value `fold: (Stream(a), b, (b, a) ->? b) ->! b`\n\n" +
+      "value `fold: (Stream(a), b, (b, a) ->! b) ->! b`\n\n" +
       "Reduces the whole stream to one value, left to right, starting from\n" +
       "`initial`. It pulls to exhaustion, so it does not return on an ambient\n" +
       "source.",
     );
   });
 
-  test("a face with two colours arrives numbered", async () => {
-    // `staged` keeps a callback it never calls — its own variable — and returns
-    // a lambda that owns a second through its own inlet. Two distinct colours
-    // is what the written grammar cannot spell — it links every `->?` in a
-    // signature into one — so the numbers are what say so (Effects §10). They
-    // are display-only: pasted back into source they fail at the lexer, which
-    // is the point of numbering rather than normalizing.
+  test("a face with two callbacks arrives as the grammar writes it, unnumbered", async () => {
+    // `staged` keeps a callback it never calls and returns a lambda that runs
+    // a second one of its own. Each callback's own arrow is `->!`, and the
+    // returned function's `->?` follows the callback it is handed (Effects
+    // §10): a face the grammar can write, with no display-only decoration.
     expect(await hovered("staged")).toBe(
-      "value `staged: (String ->?¹ String) -> (String ->?² String) ->?² String`",
+      "value `staged: (String ->! String) -> (String ->! String) ->? String`",
     );
   });
 
   test("a closure builder's own arrow is pure, its one colour plain (#868)", async () => {
     expect(await hovered("compose")).toBe(
-      "value `compose: (String ->? String, String ->? String) -> String ->? String`",
+      "value `compose: (String ->! String, String ->! String) -> String ->? String`",
     );
   });
 
@@ -1653,14 +1647,13 @@ describe("hover renders the arrow trio", () => {
     expect(await hovered("twice")).toBe("value `twice: (Int -> Int, Int) -> Int`");
   });
 
-  test("a `->?` boundary row reaches the editor as the linked face it is", async () => {
-    // A row's outer arrow is declaration surface only *(#869)*: what `->?`
-    // seats is one colour variable at that arrow and at every `->?` slot, and
-    // what a reader sees is therefore an ordinary single-variable face,
-    // undecorated. Asked of the real server because the boundary row is the one
-    // face in the language whose colour is *written* rather than inferred from
-    // a body.
-    expect(await hovered("runner")).toBe("value `runner: (() ->? String) ->? Int`");
+  test("a `->?` boundary row reaches the editor as the face it writes", async () => {
+    // A row's outer arrow is declaration surface only *(#869)*: its `->?`
+    // follows the callback the row is handed, and what a reader sees is the
+    // face as written. Asked of the real server because the boundary row is
+    // the one face in the language whose colour is *written* rather than
+    // inferred from a body.
+    expect(await hovered("runner")).toBe("value `runner: (() ->! String) ->? Int`");
   });
 });
 

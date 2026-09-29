@@ -81,7 +81,7 @@ describe("a goal that settles after its body closes keeps its colour", () => {
   test("calling it takes `!`, and its caller is a source", () => {
     expect(typeOf(heldLambda("act!()"), "run")).toBe("Seq(String) ->! Unit");
     expect(refusals(heldLambda("act()"))).toEqual([
-      "this call runs effects, so `act` wants `!`, not no mark",
+      "this call may touch the world, so `act` wants `!`, not no mark",
     ]);
   });
 
@@ -93,7 +93,7 @@ describe("a goal that settles after its body closes keeps its colour", () => {
       `    ${use}\n`;
     expect(typeOf(inner("inner"), "run")).toBe("Seq(String) -> () ->! Unit");
     expect(refusals(inner("inner()"))).toEqual([
-      "this call runs effects, so `inner` wants `!`, not no mark",
+      "this call may touch the world, so `inner` wants `!`, not no mark",
     ]);
   });
 
@@ -110,7 +110,7 @@ describe("a goal that settles after its body closes keeps its colour", () => {
   test("a goal settled by defaulting at its owner's deadline", () => {
     expect(typeOf(store, "f")).toBe("Int ->! Unit");
     expect(refusals(store + "\nlet g() = f(1)\n")).toEqual([
-      "this call runs effects, so `f` wants `!`, not no mark",
+      "this call may touch the world, so `f` wants `!`, not no mark",
     ]);
   });
 });
@@ -174,13 +174,13 @@ describe("a goal owned further out holds the body until that region closes", () 
 describe("a body that calls a held one settles beside it", () => {
   test("a held pure callee beside a written `->?` conduit stays pure", () => {
     expect(typeOf(
-      "let run(source, cb: () ->? Unit) =\n" +
+      "let run(source, cb: () ->! Unit) =\n" +
         "    let a = () => source.size()\n" +
         "    let n = a()\n" +
-        "    cb?()\n" +
+        "    cb!()\n" +
         "    n\n",
       "run",
-    )).toBe("({size: () -> a, ...b}, () ->? Unit) ->? a");
+    )).toBe("({size: () -> a, ...b}, () ->! Unit) ->? a");
   });
 
   test("a pure and an impure held callee keep their own colours", () => {
@@ -198,14 +198,14 @@ describe("a body that calls a held one settles beside it", () => {
 
   test("an impure held callee leaves a written `->?` beside it as written", () => {
     expect(typeOf(
-      "let outer(source, cb: () ->? Unit) =\n" +
+      "let outer(source, cb: () ->! Unit) =\n" +
         "    let a = () => source.forEach!((value) => save!(value))\n" +
         "    a!()\n" +
-        "    cb?()\n" +
+        "    cb!()\n" +
         "    let pinned: Seq(String) = source\n" +
         "    ()\n",
       "outer",
-    )).toBe("(Seq(String), () ->? Unit) ->! Unit");
+    )).toBe("(Seq(String), () ->! Unit) ->! Unit");
   });
 });
 
@@ -213,15 +213,15 @@ describe("bodies that reach several holds settle together", () => {
   test("two held pure callees beside a written `->?` conduit stay pure", () => {
     // Settled in one hold, neither callee is the caller's conduit.
     expect(typeOf(
-      "let run(s1, s2, cb: () ->? Unit) =\n" +
+      "let run(s1, s2, cb: () ->! Unit) =\n" +
         "    let a = () => s1.size()\n" +
         "    let b = () => s2.size()\n" +
         "    let n = a()\n" +
         "    let m = b()\n" +
-        "    cb?()\n" +
+        "    cb!()\n" +
         "    n\n",
       "run",
-    )).toBe("({size: () -> a, ...b}, {size: () -> c, ...d}, () ->? Unit) ->? a");
+    )).toBe("({size: () -> a, ...b}, {size: () -> c, ...d}, () ->! Unit) ->? a");
   });
 
   test("a pure held callee and an impure one, in either order", () => {
@@ -270,8 +270,8 @@ describe("a held colour is not generalized before it settles", () => {
   // settling line joins it with a sequence instead.
   const act = (settle: string, annotate: string): string =>
     `let run(source${annotate}) =\n${settle}` +
-    "    let act = (cb: () ->? Unit) =>\n" +
-    "        cb?()\n" +
+    "    let act = (cb: () ->! Unit) =>\n" +
+    "        cb!()\n" +
     "        source.length()\n" +
     "    let x = act!(() => save!(\"a\"))\n" +
     "    let y = act(() => ())\n" +
@@ -279,10 +279,10 @@ describe("a held colour is not generalized before it settles", () => {
     "    y\n";
 
   test("a waiting lambda used at two colours is refused", () => {
+    // Both uses share the callback's colour, which the first makes impure, so
+    // the second call may touch the world too.
     expect(refusals(act("", ""))).toEqual([
-      "this signature's `->?` promises a colour the caller chooses, but the body solves it to the " +
-        "impure constant — a function that performs its own unconditional effects rounds up, and " +
-        "its face is `->!`",
+      "this call may touch the world, so `act` wants `!`, not no mark",
     ]);
   });
 
@@ -306,16 +306,16 @@ describe("what a held colour meets before it settles is compared after", () => {
         "        a!(Seq.singleton(s), 1)\n" +
         "        0\n",
     )).toEqual([
-      "a `->` arrow promises purity, and this function performs effects — the demand is " +
-        "written `->`, the function's face `->?` or `->!`",
+      "a `->` arrow promises purity, and this function may touch the world — the demand is " +
+        "written `->`, the function's face `->!` or `->?`",
       "this call is pure, so `a` wants no mark, not `!`",
     ]);
   });
 
   test("a `->` demand is refused at the demand", () => {
     expect(refusals(heldLambda("let quiet: () -> Unit = act\n    quiet"))).toEqual([
-      "a `->` arrow promises purity, and this function performs effects — the demand is " +
-        "written `->`, the function's face `->?` or `->!`",
+      "a `->` arrow promises purity, and this function may touch the world — the demand is " +
+        "written `->`, the function's face `->!` or `->?`",
     ]);
   });
 

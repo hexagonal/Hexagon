@@ -33,8 +33,7 @@ export function collectTypeOccurrences(module: Typed.Module): readonly TypeOccur
   const symbols = new Map(module.symbols.map((symbol) => [symbol.id, symbol]));
   const occurrences = new Map<string, TypeOccurrence>();
   // Effects §10's location (#873): the occurrence itself.
-  const contextAt = (span: Source.Span): Typed.ColourContext | undefined =>
-    Typed.colourContextAt(module, Number(span.fileId), span.start.offset, span.end.offset);
+  const contextAt = (_span: Source.Span): Typed.ColourContext | undefined => Typed.colourContextAt(module);
   const publish = (
     name: string,
     scheme: Typed.Scheme,
