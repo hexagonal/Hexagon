@@ -329,48 +329,31 @@ const EXTERN_MISSING_RESULT =
   "extern functions require an effect arrow and a result type; write `->! T` " +
   "when in doubt";
 
-/** Whether a written annotation spells a `->?` anywhere inside it (Effects §2.2.1). */
-function writesLinkedArrow(annotation: Parsed.TypeAnnotation | undefined): boolean {
-  let found = false;
-  const walk = (node: unknown): void => {
-    if (found || node === null || typeof node !== "object") return;
-    if (Array.isArray(node)) {
-      for (const child of node) walk(child);
-      return;
-    }
-    const record = node as { kind?: unknown; effect?: unknown };
-    if (record.kind === "Function" && record.effect === "linked") {
-      found = true;
-      return;
-    }
-    for (const [key, child] of Object.entries(record)) {
-      if (key === "span" || key === "arrowSpan") continue;
-      walk(child);
-    }
-  };
-  walk(annotation);
-  return found;
+/**
+ * Whether a written parameter type is a callback with a colour of its own
+ * (Effects §2.4): a function type whose own arrow is written `->!` — or the
+ * refused `->?`, which reads as it.
+ */
+function writesCallback(annotation: Parsed.TypeAnnotation | undefined): boolean {
+  return annotation?.kind === "Function" && annotation.effect !== undefined;
 }
 
 /**
  * Effects §2.2.1's inlet test over a **written** row, asked here so §13's
- * rewrite never names an arrow the checker would turn round and refuse.
- *
- * The same descent the checker's own test makes: a caller supplies the
- * parameters of every arrow on the application spine, so the result is followed
- * while it is a function type and its parameters count too.
+ * rewrite never names an arrow the checker would turn round and refuse: some
+ * parameter of an arrow on the application spine is a callback with a colour.
  */
 function writtenSignatureInlet(
   parameters: readonly (Parsed.TypeAnnotation | undefined)[],
   result: Parsed.TypeAnnotation | undefined,
 ): boolean {
-  if (parameters.some(writesLinkedArrow)) return true;
+  if (parameters.some(writesCallback)) return true;
   for (
     let node = result;
     node !== undefined && node.kind === "Function";
     node = node.result
   ) {
-    if (node.parameters.some(writesLinkedArrow)) return true;
+    if (node.parameters.some(writesCallback)) return true;
   }
   return false;
 }
@@ -3402,8 +3385,8 @@ class Parser {
         // inlet. So the sentence is §4.5's advice in words, and the inlet-less
         // row at this row's outer arrow, which says exactly this, is not
         // reported on top of it (§13).
-        ? "`conduit` is retired, and nothing this row is handed carries `->?` — " +
-          "write `->?` on the callback parameter this row runs, or write `->!`"
+        ? "`conduit` is retired, and this row is handed no callback — write the " +
+          "callback parameter this row runs, with `->!`, or write `->!` on the row"
         : claimed === "->"
         ? `\`${words}\` is retired — write the pure arrow on the row itself: ` +
           "`fun trim(document: String) -> String`"

@@ -417,9 +417,9 @@ describe("displayScheme: the arrow trio", () => {
     ).toBe("((String ->! String) -> String) -> String");
   });
 
-  test("two distinct variables are numbered by first appearance, left to right", () => {
-    // The domain is printed before the arrow, so the parameter's colour is the
-    // first one the text reaches whichever order the tree holds them in.
+  test("two distinct colours are not numbered: a callback's shows `->!`, a dependent one `->?`", () => {
+    // Effects §10: a finished face depends on all of its callbacks or none, so
+    // nothing is numbered.
     expect(
       displayScheme({
         variables: [typeVariableId(2), typeVariableId(1)],
@@ -431,10 +431,10 @@ describe("displayScheme: the arrow trio", () => {
           effect: colour(2),
         },
       }),
-    ).toBe("(String ->!¹ String) ->?² String ->?² String");
+    ).toBe("(String ->! String) ->? String ->? String");
   });
 
-  test("a constant beside two variables stays unnumbered", () => {
+  test("a constant beside two callbacks' colours reads the same", () => {
     expect(
       displayScheme({
         variables: [],
@@ -445,10 +445,10 @@ describe("displayScheme: the arrow trio", () => {
           result: string,
         },
       }),
-    ).toBe("(String ->!¹ String, String ->! String, String ->!² String) -> String");
+    ).toBe("(String ->! String, String ->! String, String ->! String) -> String");
   });
 
-  test("numbers past nine keep going, a digit at a time", () => {
+  test("many callbacks' colours are none of them numbered", () => {
     const parameters = Array.from({ length: 11 }, (_, index) => step(colour(index + 1)));
     expect(
       displayScheme({ variables: [], constraints: [], type: {
@@ -456,7 +456,7 @@ describe("displayScheme: the arrow trio", () => {
         parameters,
         result: string,
       } }),
-    ).toContain("String ->!¹⁰ String, String ->!¹¹ String) -> String");
+    ).toContain("String ->! String, String ->! String) -> String");
   });
 
   test("a colour takes no letter from the type variables it sits beside", () => {

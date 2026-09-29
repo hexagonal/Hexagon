@@ -306,16 +306,16 @@ describe("what a held colour meets before it settles is compared after", () => {
         "        a!(Seq.singleton(s), 1)\n" +
         "        0\n",
     )).toEqual([
-      "a `->` arrow promises purity, and this function performs effects — the demand is " +
-        "written `->`, the function's face `->?` or `->!`",
+      "a `->` arrow promises purity, and this function may touch the world — the demand is " +
+        "written `->`, the function's face `->!` or `->?`",
       "this call is pure, so `a` wants no mark, not `!`",
     ]);
   });
 
   test("a `->` demand is refused at the demand", () => {
     expect(refusals(heldLambda("let quiet: () -> Unit = act\n    quiet"))).toEqual([
-      "a `->` arrow promises purity, and this function performs effects — the demand is " +
-        "written `->`, the function's face `->?` or `->!`",
+      "a `->` arrow promises purity, and this function may touch the world — the demand is " +
+        "written `->`, the function's face `->!` or `->?`",
     ]);
   });
 

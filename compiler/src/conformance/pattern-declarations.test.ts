@@ -281,14 +281,13 @@ describe("suffix construction marks (§14)", () => {
     "    view(box) = box.value\n" +
     "    build = make\n";
 
-  test("a constant-impure build requires `!`, and rejects bare and `?`", () => {
+  test("a constant-impure build requires `!`, and rejects bare", () => {
     expect(messages(
       impureBuild +
         "let bare = (1)boxed\n" +
-        "let linked = (1)boxed!\n",
+        "let marked = (1)boxed!\n",
     )).toEqual([
       "this call may touch the world, so `boxed` wants `!`, not no mark",
-      "this call may touch the world, so `boxed` wants `!`, not `?`",
     ]);
   });
 

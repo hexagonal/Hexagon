@@ -109,98 +109,33 @@ function hoveredType(source: string, needle: string): string | undefined {
 /** The world's door, so a body has a genuine effect to perform. */
 const IO = 'extern from "./io.js"\n    export fun readIt(path: String) ->! String\n\n';
 
-/** Effects §9's pure-contract row, base form, verbatim, for the member it names. */
+/**
+ * Effects §9's first seat row — the body does more than its contract permits —
+ * at the outer arrow of a `->` contract, verbatim, for the member it names.
+ */
 const pureContract = (member: string): string =>
-  `this call performs effects, and \`${member}\`'s contract is the pure arrow ` +
-  "`->` — an instance performs no more than its contract permits — keep this " +
+  `this call may touch the world, and \`${member}\`'s contract is the pure arrow ` +
+  "`->` — an instance does no more than its contract permits — keep this " +
   "body pure, or, if the constraint is yours, write `->!` on the member";
 
 /**
- * Effects §9's pure-contract row in its **conflict form**: the effect is one
- * the contract handed the body, so the clause names the callback and the advice
- * says what not to call.
+ * The same row where the effect is one the contract handed the body: under the
+ * rebuilt seat (§13.2) it is the one row, reported at the call that runs it.
  */
-const pureConflict = (member: string, handed: string): string =>
-  `this call performs effects the contract hands the body, and \`${member}\`'s ` +
-  "contract is the pure arrow `->` — an instance performs no more than its " +
-  `contract permits, and \`${handed}\` may perform effects whatever the caller ` +
-  `supplies — do not call \`${handed}\` here, or, if the constraint is yours, ` +
-  "write `->!` on the member";
+const pureConflict = (member: string, _handed: string): string => pureContract(member);
 
-/** The same row with the **merge** as its primary (§13.2; James, 2026-09-10). */
-const pureMergeConflict = (member: string, handed: string, returns = false): string =>
-  "this expression merges in a function that may perform effects the contract " +
-  `hands it, and \`${member}\`'s contract ` +
-  (returns ? "returns a `->` function" : "is the pure arrow `->`") +
-  " — an instance performs no more than its contract permits, and " +
-  `\`${handed}\` may perform effects whatever the caller supplies — do not merge ` +
-  `\`${handed}\` into that arrow, or, if the constraint is yours, write \`->!\` on ` +
-  (returns ? "the arrow the contract returns" : "the member");
+/** The same row where the failing arrow is the one the contract returns. */
+const pureReturns = (member: string): string =>
+  `the function this instance returns may touch the world, and \`${member}\`'s contract ` +
+  "returns a `->` function — an instance does no more than its contract permits — keep " +
+  "this body pure, or, if the constraint is yours, write `->!` on the arrow the contract returns";
 
-/** The same row with the **seat** as its primary — a body that merely forwards. */
-const pureSeatConflict = (member: string, handed: string, returns = false): string =>
-  `this instance ${returns ? "returns" : "supplies"} a function that may perform ` +
-  `effects the contract hands it, and \`${member}\`'s contract ` +
-  (returns ? "returns a `->` function" : "is the pure arrow `->`") +
-  " — an instance performs no more than its contract permits, and " +
-  `\`${handed}\` may perform effects whatever the caller supplies — do not ` +
-  `supply \`${handed}\` here, or, if the constraint is yours, write \`->!\` on ` +
-  (returns ? "the arrow the contract returns" : "the member");
-
-/**
- * The **invariant** counterpart of the conflict form's seat primary (§9's
- * invariant clause; §13.2 asks for "the invariant counterpart of each"). The
- * failing arrow is the one written *inside the parameter*, so the member's
- * outer arrow changes nothing about the sentence — an invariant position admits
- * no widening at either.
- */
-const invariantSeatConflict = (
-  member: string,
-  handed: string,
-  parameter: string,
-  arrow: string,
-): string =>
-  "this instance supplies a function that may perform effects the contract " +
-  `hands it, and \`${member}\`'s contract writes \`${arrow}\` inside the ` +
-  `parameter \`${parameter}\` — an invariant position admits no widening, and ` +
-  `\`${handed}\` may perform effects whatever the caller supplies — do not ` +
-  `supply \`${handed}\` there, or, if the constraint is yours, write \`->!\` on ` +
-  `that arrow inside the parameter \`${parameter}\``;
-
-/** The same, where the body's own **merge** is what carried the callback in. */
-const invariantMergeConflict = (
-  member: string,
-  handed: string,
-  parameter: string,
-  arrow: string,
-): string =>
-  "this expression merges in a function that may perform effects the contract " +
-  `hands it, and \`${member}\`'s contract writes \`${arrow}\` inside the ` +
-  `parameter \`${parameter}\` — an invariant position admits no widening, and ` +
-  `\`${handed}\` may perform effects whatever the caller supplies — do not ` +
-  `merge \`${handed}\` into that arrow, or, if the constraint is yours, write ` +
-  `\`->!\` on that arrow inside the parameter \`${parameter}\``;
-
-/** Effects §9's linked-contract row, base form, verbatim. */
+/** Effects §9's first seat row under a `->?` contract, verbatim. */
 const linkedContract = (member: string): string =>
-  `this call performs effects unconditionally, and \`${member}\`'s contract is ` +
-  "linked `->?` — an instance must be pure whenever what it is handed is pure, " +
-  "so its effects may come only from what it is handed — move this effect " +
-  "behind the callback, or, if the constraint is yours, write `->!` on the member";
+  `this call touches the world on its own account, and \`${member}\`'s contract is ` +
+  "`->?` — an instance is only as effectful as what it is handed — move the effect " +
+  "behind a callback, or, if the constraint is yours, write `->!` on the member";
 
-/** Effects §9's linked-contract row in its **conflict form**, verbatim. */
-const linkedConflict = (member: string, handed: string): string =>
-  `this call performs effects the contract hands the body, and \`${member}\`'s ` +
-  "contract is linked `->?` — a linked `->?` is pure whenever the caller's " +
-  `callbacks are pure, and \`${handed}\` may perform effects whatever the caller ` +
-  `supplies — do not call \`${handed}\` here, or, if the constraint is yours, ` +
-  "write `->!` on the member";
-
-/**
- * Effects §9's **linked** narrower-acceptance row, verbatim, at a top-level
- * callback parameter. `inletGain` is the clause the advice takes on where
- * rewriting this parameter would leave the header inlet-less.
- */
 /**
  * The article §9's rows take before the parameter they quote — the compiler's
  * own `indefiniteArticle`, so a row about `b` reads "a `b`" where the spec's
@@ -208,39 +143,23 @@ const linkedConflict = (member: string, handed: string): string =>
  */
 const article = (name: string): string => (/^[aeiou]/iu.test(name) ? "an" : "a");
 
-const narrowerAcceptance = (
-  member: string,
-  parameter: string,
-  inletGain = true,
-): string =>
-  `\`${member}\`'s contract accepts ${article(parameter)} \`${parameter}\` of either colour, and ` +
-  "this instance accepts only a pure one — an instance accepts everything its " +
-  "contract promises to accept — call the callback with `?` instead of handing " +
-  "it, or a function that calls it, to a `->` demand, or, if the constraint is " +
-  "yours, write the member's callback parameter `->`" +
-  (inletGain ? " and the member's outer arrow `->` with it" : "");
-
 /**
- * Either narrower-acceptance row in its **merge form** (§13.2's selection
- * table: "its merge form where the pin is a merge"). `effects` picks the `->!`
- * contract colour over the member's variable.
+ * Effects §9's second seat row — the body accepts less than its contract
+ * promises — at a top-level callback parameter, verbatim.
  */
-const mergeNarrower = (member: string, parameter: string, effects: boolean): string =>
-  "this expression merges the callback with a pure function, and " +
-  `\`${member}\`'s contract accepts ${article(parameter)} \`${parameter}\` ` +
-  (effects ? "that performs effects" : "of either colour") +
-  ", and this instance accepts only a pure one — an instance accepts " +
-  "everything its contract promises to accept — do not merge " +
-  `\`${parameter}\` with a pure function here, or, if the constraint is ` +
-  "yours, write the member's callback parameter `->`";
+const narrowerAcceptance = (member: string, parameter: string, _inletGain = true): string =>
+  `\`${member}\`'s contract accepts any \`${parameter}\`, and this instance accepts only a pure ` +
+  "one — an instance accepts everything its contract promises to accept — do not narrow " +
+  `\`${parameter}\` here, or, if the constraint is yours, write the member's \`${parameter}\` ` +
+  "arrow `->`";
 
-/** Effects §9's **`->!`** narrower-acceptance row, verbatim. */
+/** The same row, whatever narrowed the callback: a demand, an annotation, or a merge. */
+const mergeNarrower = (member: string, parameter: string, _effects: boolean): string =>
+  narrowerAcceptance(member, parameter);
+
+/** The same row for a callback written `->!`, which has a colour of its own (§2.4). */
 const impureNarrowerAcceptance = (member: string, parameter: string): string =>
-  `\`${member}\`'s contract accepts ${article(parameter)} \`${parameter}\` that performs effects, ` +
-  "and this instance accepts only a pure one — an instance accepts everything " +
-  "its contract promises to accept — call the callback with `!` instead of " +
-  "handing it, or a function that calls it, to a `->` demand, or, if the " +
-  "constraint is yours, write the member's callback parameter `->`";
+  narrowerAcceptance(member, parameter);
 
 describe("Constraints §2, §8: the header writes its arrow, and `:` is a parse error", () => {
   test("`->`, `->!` and `->?` are all legal on a member header", () => {
@@ -415,10 +334,10 @@ describe("Effects §13.4: one effect variable per member", () => {
     // A member header is a signature (§13.4), so the inlet rule applies to it
     // unchanged: nothing a caller supplies carries the colour.
     expect(messages("constraint R<a> =\n    read(s: a) ->? String\n")).toEqual([
-      "`->?` is the caller's colour, and this position has no caller to choose " +
-      "it — nothing a caller of this signature supplies carries `->?`, so " +
-      "nothing instantiates it; write `->!` for a function that pulls the " +
-      "world, or `->` for one that does not",
+      "`->?` means only as effectful as what it is handed, and nothing is handed " +
+      "here — no callback of this signature has been handed over by the time this " +
+      "arrow runs; write `->!` for a function that may touch the world, or `->` " +
+      "for one that does not",
     ]);
     expect(primaries("constraint R<a> =\n    read(s: a) ->? String\n")).toEqual(["->?"]);
   });
@@ -3762,8 +3681,8 @@ describe("Effects §13.2: the publish walk moves a colour, never a type and neve
       // The verdict: §4.3's row for the merge the program really wrote, and
       // nothing beside it.
       expect([arrow, messages(source)]).toEqual([arrow, [
-        "a `->` arrow promises purity, and this function performs effects — the " +
-        "demand is written `->`, the function's face `->?` or `->!`",
+        "a `->` arrow promises purity, and this function may touch the world — the " +
+        "demand is written `->`, the function's face `->!` or `->?`",
       ]]);
       // And the face the join left: the merge bound nothing, so `f` is the pure
       // arrow its own branch published. Unguarded this reads `() ->! Unit`.
@@ -3832,8 +3751,8 @@ honor C<R> =
             n)
         b!()
 `)).toEqual([
-      "a `->` arrow promises purity, and this function performs effects — the " +
-      "demand is written `->`, the function's face `->?` or `->!`",
+      "a `->` arrow promises purity, and this function may touch the world — the " +
+      "demand is written `->`, the function's face `->!` or `->?`",
     ]);
   });
 });
@@ -3862,8 +3781,8 @@ honor C<R> =
                 save!("x")
         k!()
 `)).toEqual([
-      "a `->` arrow promises purity, and this function performs effects — the " +
-      "demand is written `->`, the function's face `->?` or `->!`",
+      "a `->` arrow promises purity, and this function may touch the world — the " +
+      "demand is written `->`, the function's face `->!` or `->?`",
     ]);
   });
 

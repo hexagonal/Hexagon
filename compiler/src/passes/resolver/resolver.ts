@@ -6793,9 +6793,9 @@ class Resolver {
           this.#diagnostics.add({
             severity: "error",
             message:
-              "`->?` is the caller's colour, and this position has no caller to " +
-              "choose it — an alias is a type fragment, not a signature; write " +
-              "`->!` for a function that pulls the world, or `->` for one that does not",
+              "`->?` means only as effectful as what it is handed, and nothing is " +
+              "handed here — an alias is a type fragment, not a signature; write " +
+              "`->!` for a function that may touch the world, or `->` for one that does not",
             primary: arrowSpan,
             fixes: [{
               message: "write `->!`",
@@ -8528,12 +8528,13 @@ function substituteResolvedType(
 }
 
 /**
- * A resolved type with every linked arrow turned into the impure constant.
+ * A resolved type with every `->?` read as its fixit, `->!` (Effects §4.4).
  *
- * Error recovery for an alias body §5.1.1 has already refused (Effects §4.4).
- * The arrow denotes nothing, and leaving it `"linked"` would let it acquire a
- * meaning at a use site that happens to offer an inlet — so it takes the
- * constant, which is what the writer is being told to write.
+ * An alias body §5.1.1 has already refused. The arrow denotes nothing, and
+ * leaving it `"linked"` would let it acquire a meaning at a use site that hands
+ * the signature a callback — so it reads as what the writer is being told to
+ * write, exactly as it would with the fix applied: the impure constant, or, on
+ * a callback's own arrow, that callback's colour.
  */
 function constantifyLinkedArrows(annotation: Resolved.TypeAnnotation): Resolved.TypeAnnotation {
   const rebuild = (node: unknown): unknown => {
@@ -8544,10 +8545,7 @@ function constantifyLinkedArrows(annotation: Resolved.TypeAnnotation): Resolved.
     for (const [key, child] of Object.entries(record)) {
       copy[key] = key === "span" || key === "arrowSpan" ? child : rebuild(child);
     }
-    if (copy.kind === "Function" && copy.effect === "linked") {
-      copy.effect = "constant";
-      copy.recovered = true;
-    }
+    if (copy.kind === "Function" && copy.effect === "linked") copy.effect = "constant";
     return copy;
   };
   return rebuild(annotation) as Resolved.TypeAnnotation;

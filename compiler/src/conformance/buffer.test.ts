@@ -216,7 +216,7 @@ describe("the honest arrows (§3.3, `regex.md` §7)", () => {
    * annotated binding is what fixes the face in advance and makes the call a
    * contradiction.
    */
-  const REFUSAL = "this call performs effects, and the enclosing function's face is " +
+  const REFUSAL = "this call may touch the world, and the enclosing function's face is " +
     "the pure arrow `->` — a pure face cannot run effects";
 
   test("a `read` inside a `->`-faced function is refused", () => {

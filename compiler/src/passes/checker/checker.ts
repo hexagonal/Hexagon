@@ -330,6 +330,16 @@ const PURE: EffectConstant = Colour.PURE_POINT;
 const IMPURE: EffectConstant = Colour.IMPURE_POINT;
 
 /**
+ * The mark `#arrow` leaves after a callback colour a report renders where the
+ * displayed type does not own it, and the pattern `#settleColourNotes` reads it
+ * back with once every colour has settled (Effects §10): the colour's id.
+ * Private-use code points, which no source text or rendered type contains.
+ */
+const COLOUR_MARK = "\uE000";
+const COLOUR_MARK_END = "\uE001";
+const COLOUR_MARKED = /\uE000(\d+)\uE001/g;
+
+/**
  * Whether a colour is the impure constant, by value rather than by identity: a
  * signature's colour solved to the constant is a constant object of its own
  * (`ColourSolve`), and every arm that asks "is this impure?" means both.
@@ -414,7 +424,18 @@ interface EffectFrame {
    * the calls they flow into, and inferred arrows inside them close as a black
    * box's do.
    */
-  readonly untyped: { readonly name: string; readonly type: Mono; readonly span: Source.Span }[];
+  readonly untyped: {
+    readonly name: string;
+    readonly type: Mono;
+    readonly span: Source.Span;
+    /**
+     * Whether its colour was still its own where the body closed, for a body
+     * whose colour is decided later — a knot's member, a held lambda. A use of
+     * such a body meanwhile is monomorphic and may bind the colour to what it
+     * hands; that is the use's doing, not a tie the body made (Effects §3.4).
+     */
+    ownAtClose?: boolean;
+  }[];
   /** The colours of the `!` calls written in this body or in a body nested in it: its claims. */
   readonly marked: Mono[];
 }
@@ -2982,6 +3003,12 @@ class Checker {
    * colour has settled: display decides there whether a captured variable is
    * the one an inlet-less `->?` at the display location would name.
    */
+  /** The callback colours `#arrow` marked in a report, by id (§10). */
+  readonly #markedColours = new Map<number, Variable>();
+  /** The colours the type `#display` is rendering owns on its callbacks' arrows (§10). */
+  #displayOwned: ReadonlySet<number> | undefined;
+  /** Nonzero while a type is rendered as an identity key, never shown: no marks (§10). */
+  #unmarkedDisplays = 0;
   readonly #colourScopes: {
     readonly span: Source.Span;
     readonly effect: Variable;
@@ -5151,6 +5178,7 @@ class Checker {
     this.#settleEffects();
     this.#checkPublicSignatures(module.items);
     this.#refuseExportedMemberSpellings(module.items);
+    this.#settleColourNotes();
 
     const listed = new Set(module.symbols.map(({ id }) => id));
     const symbols = [
@@ -8915,28 +8943,15 @@ class Checker {
         let suppliedFace: Mono | undefined;
         if (this.#faceLands(expression.expression)) {
           this.#ascribedTypeSpan = expression.annotation.span;
-          suppliedFace = this.#annotationType(
-            expression.annotation,
-            level,
-            new Map(),
-            this.#annotationVariableScope ?? new Map(),
-          );
+          suppliedFace = this.#bindingAnnotation(expression.annotation, level, expression.span, undefined);
           this.#ascribedTypeSpan = enclosingAscribedType;
         }
         const inferred = this.#inferExpr(expression.expression, level, suppliedFace);
         this.#ascribedTypeSpan = expression.annotation.span;
-        // No signature scope is opened or cleared here, which is §2.2.2 ratified
-        // rather than implemented: an ascription is a *local type position*, so
-        // a `->?` written in it names the enclosing signature's variable —
-        // whatever `#signatureFace` already holds — and is legal exactly where
-        // that signature admits one. Outside every signature the face is absent
-        // and the arrow takes §4.4's no-signature clause.
-        const annotationType = suppliedFace ?? this.#annotationType(
-          expression.annotation,
-          level,
-          new Map(),
-          this.#annotationVariableScope ?? new Map(),
-        );
+        // An ascription's function type is a signature of its own, as a
+        // binding annotation's is (Effects §2.2.1): it borrows nothing.
+        const annotationType = suppliedFace ??
+          this.#bindingAnnotation(expression.annotation, level, expression.span, undefined);
         this.#ascribedTypeSpan = enclosingAscribedType;
         this.#atAnnotationSeat(expression.annotation.span, expression.expression, () =>
           this.#unifyExpected(
@@ -9194,7 +9209,17 @@ class Checker {
         // used to choose it. A `fun` member is the one exception: its colour
         // and its sibling calls wait for the knot's close.
         const knot = this.#knots.at(-1);
+        // A body decided later than its close keeps note of which of its
+        // untyped callbacks' colours were still their own here.
+        const noteOwnColours = (): void => {
+          for (const parameter of effectFrame.untyped) {
+            const type = this.#prune(parameter.type);
+            const colour = type.kind === "Function" ? this.#prune(type.effect ?? PURE) : undefined;
+            parameter.ownAtClose = colour?.kind === "Variable" && this.#tiedTo(colour, parameter.name) === undefined;
+          }
+        };
         if (declaringMember !== undefined && knot?.host === declaringMember.symbol) {
+          noteOwnColours();
           knot.frames.push(effectFrame);
         } else {
           // A lambda whose calls reach a sibling's colour cannot be decided
@@ -9209,6 +9234,7 @@ class Checker {
             // registers may be the one that makes that body a source, so this
             // body's colour waits with it and settles beside it, the knot's
             // arms telling a held callee's colour from a signature's.
+            noteOwnColours();
             this.#holdFrame(effectFrame, reached, waiting);
           } else if (holding === undefined) {
             this.#settleFrame(effectFrame);
@@ -9217,6 +9243,7 @@ class Checker {
             // its calls' are decided at the knot's close, and what they meet
             // before then is recorded and compared there, never choosing them.
             // Sunk to the knot's level, nothing around it generalizes them.
+            noteOwnColours();
             this.#sinkFrame(effectFrame, holding.level);
             holding.frames.push(effectFrame);
             holding.held.add(effectFrame);
@@ -18824,6 +18851,7 @@ class Checker {
   #refuseTies(frame: EffectFrame): void {
     const reported = new Set<Mono>();
     for (const parameter of frame.untyped) {
+      if (parameter.ownAtClose === true) continue;
       const type = this.#prune(parameter.type);
       if (type.kind !== "Function") continue;
       const colour = this.#prune(type.effect ?? PURE);
@@ -19076,7 +19104,9 @@ class Checker {
     // Constants first: they are the only thing that can *force* a colour, and a
     // forced `own` then satisfies every remaining `⊒` outright — which is what
     // keeps a `->!` face from constantifying the callback it forwards.
-    for (const { effect, span } of frame.absorbed) {
+    let reportedFace = false;
+    const calls = [...frame.absorbed].sort((left, right) => precedes(left.span, right.span) ? -1 : 1);
+    for (const { effect, span } of calls) {
       const absorbed = this.#prune(effect);
       if (!isImpure(absorbed)) continue;
       const own = this.#prune(frame.own);
@@ -19092,7 +19122,11 @@ class Checker {
         continue;
       }
       if (frame.face !== undefined) {
-        this.#reportFollowsFace(frame.face, span, "this call touches the world on its own account");
+        // One report per face, at the first call that breaks its promise.
+        if (!reportedFace) {
+          this.#reportFollowsFace(frame.face, span, "this call touches the world on its own account");
+          reportedFace = true;
+        }
         continue;
       }
       this.#unify(frame.own, absorbed, span);
@@ -19608,6 +19642,26 @@ class Checker {
     const arrowSpan = this.#writtenArrowSpans.get(arrow.arrow);
     const labels = arrowSpan === undefined ? [] : [{ span: arrowSpan, message: "the contract's failing arrow" }];
     const follows = this.#prune(arrow.contract).kind !== "Effect";
+    if (direction === "more" && arrow.sign === "inv" && at.form !== "outer" && at.form !== "result") {
+      // The body raised an invariant arrow rather than performing an effect —
+      // a `->!` demand, or its own annotation — and an invariant position
+      // admits no widening either way.
+      const named = at.form === "parameter"
+        ? arrow.place.depth === 1 ? `\`${at.name}\`` : `the function inside \`${at.name}\``
+        : "the function inside its result";
+      const clause = at.form === "parameter"
+        ? `${member}'s contract writes \`->\` inside the parameter \`${at.name}\``
+        : `${member}'s contract writes \`->\` inside its result`;
+      this.#diagnostics.add({
+        severity: "error",
+        message: `this instance demands a function that may perform effects where ${clause} — an ` +
+          `invariant position admits no widening — do not require effects of ${named} here, or, if ` +
+          `the constraint is yours, ${this.#seatAdviceArrow(contract, arrow.place, "->!")}`,
+        primary: this.#colourPin(arrow.body) ?? body.seat,
+        ...(arrowSpan === undefined ? {} : { labels: [{ span: arrowSpan, message: "the contract's invariant arrow" }] }),
+      });
+      return;
+    }
     if (direction === "more") {
       const written = follows ? "->?" : "->";
       const clause = at.form === "outer"
@@ -29512,9 +29566,18 @@ class Checker {
     return this.#displayKey(this.#prune(requirement.type));
   }
 
-  /** A type rendered as an **identity key** rather than for a reader: exactly `#display`'s text. */
+  /**
+   * A type rendered as an **identity key** rather than for a reader: exactly
+   * `#display`'s text, without the marks `#arrow` leaves for §10's owner notes,
+   * which would put variable ids into the key.
+   */
   #displayKey(type: Mono): string {
-    return this.#display(type);
+    this.#unmarkedDisplays += 1;
+    try {
+      return this.#display(type);
+    } finally {
+      this.#unmarkedDisplays -= 1;
+    }
   }
 
   /**
@@ -30920,7 +30983,80 @@ class Checker {
    */
   #display(type: Mono): string {
     this.#nameSurvivingVariables(type);
-    return this.#render(type, "spine");
+    const enclosing = this.#displayOwned;
+    this.#displayOwned = this.#callbackOwnColours(type);
+    try {
+      return this.#render(type, "spine");
+    } finally {
+      this.#displayOwned = enclosing;
+    }
+  }
+
+  /**
+   * The colours standing on a displayed type's callbacks' own arrows: the
+   * type's own, which it names no owner for (Effects §10).
+   */
+  #callbackOwnColours(type: Mono): ReadonlySet<number> {
+    const found = new Set<number>();
+    for (let arrow = this.#prune(type); arrow.kind === "Function"; arrow = this.#prune(arrow.result)) {
+      for (const parameter of arrow.parameters) {
+        for (const { arrow: colour } of this.#spineColours(parameter)) {
+          for (const part of this.#colourParts(colour)) found.add(part.id);
+        }
+      }
+    }
+    return found;
+  }
+
+  /**
+   * Effects §10 in a report, once every colour has settled: a callback's colour
+   * a report showed where the displayed type does not own it — a captured one —
+   * names its owner in a note, "depends on `outer`'s `action`". Every mark is
+   * then removed, so a report no captured colour reaches reads as rendered.
+   */
+  #settleColourNotes(): void {
+    this.#diagnostics.rewrite((diagnostic) => {
+      const texts = [
+        diagnostic.message,
+        ...(diagnostic.labels ?? []).map(({ message }) => message),
+        ...(diagnostic.notes ?? []),
+        ...(diagnostic.fixes ?? []).flatMap((fix) => [fix.message, ...fix.edits.map(({ replacement }) => replacement)]),
+      ];
+      if (!texts.some((text) => text.includes(COLOUR_MARK))) return diagnostic;
+      const owners: string[] = [];
+      const strip = (text: string): string =>
+        text.replace(COLOUR_MARKED, (_whole, id: string) => {
+          const marked = this.#markedColours.get(Number(id));
+          const colour = marked === undefined ? undefined : this.#prune(marked);
+          if (colour?.kind !== "Variable") return "";
+          const scope = this.#colourScopes
+            .filter(({ effect }) => this.#prune(effect) === colour)
+            .sort((left, right) => left.level - right.level)[0];
+          if (scope === undefined) return "";
+          const words = scope.owner === undefined
+            ? scope.parameter === undefined ? "an enclosing lambda's callback" : `an enclosing lambda's \`${scope.parameter}\``
+            : scope.parameter === undefined ? `\`${scope.owner}\`'s callback` : `\`${scope.owner}\`'s \`${scope.parameter}\``;
+          const note = `depends on ${words}`;
+          if (!owners.includes(note)) owners.push(note);
+          return "";
+        });
+      const settled: Diagnostics.Diagnostic = {
+        ...diagnostic,
+        message: strip(diagnostic.message),
+        ...(diagnostic.labels === undefined
+          ? {}
+          : { labels: diagnostic.labels.map((label) => ({ ...label, message: strip(label.message) })) }),
+        ...(diagnostic.fixes === undefined ? {} : {
+          fixes: diagnostic.fixes.map((fix) => ({
+            ...fix,
+            message: fix.message.replace(COLOUR_MARKED, ""),
+            edits: fix.edits.map((edit) => ({ ...edit, replacement: edit.replacement.replace(COLOUR_MARKED, "") })),
+          })),
+        }),
+      };
+      const notes = [...(diagnostic.notes ?? []).map(strip), ...owners];
+      return notes.length === 0 ? settled : { ...settled, notes };
+    });
   }
 
   /**
@@ -31175,7 +31311,17 @@ class Checker {
     if (type.effect === undefined) return PURE_ARROW;
     const effect = this.#shownColour(type.effect);
     if (effect.kind === "Effect") return Colour.arrowFor(effect);
-    return place === "spine" ? FOLLOWS_ARROW : IMPURE_ARROW;
+    if (place !== "spine") return IMPURE_ARROW;
+    // A callback's colour this type does not own is a captured one, which the
+    // report names the owner of once colours settle (`#settleColourNotes`).
+    if (this.#unmarkedDisplays > 0) return FOLLOWS_ARROW;
+    const marks = this.#colourParts(effect)
+      .filter((part) => this.#displayOwned?.has(part.id) !== true)
+      .map((part) => {
+        this.#markedColours.set(part.id, part);
+        return `${COLOUR_MARK}${part.id}${COLOUR_MARK_END}`;
+      });
+    return FOLLOWS_ARROW + marks.join("");
   }
 }
 
@@ -31321,8 +31467,8 @@ function effectMismatchMessage(left: Mono, right: Mono): string {
     return REVERSE_DEMAND_MESSAGE;
   }
   return impure(left) || impure(right)
-    ? "a `->` arrow promises purity, and this function performs effects — the " +
-      "demand is written `->`, the function's face `->?` or `->!`"
+    ? "a `->` arrow promises purity, and this function may touch the world — the " +
+      "demand is written `->`, the function's face `->!` or `->?`"
     : "effect mismatch between these arrows";
 }
 
@@ -31336,8 +31482,8 @@ function effectMismatchMessage(left: Mono, right: Mono): string {
 const REVERSE_DEMAND_MESSAGE =
   "this position's arrow is the impure constant, and the pure `->` meeting it " +
   "was fixed before it arrived — inside a value already built, or by another " +
-  "use — so it cannot fit as a pure function fits where it is used; write the " +
-  "arrow where it was fixed";
+  "use — so it cannot fit as a function used here does; write the arrow where " +
+  "it was fixed";
 
 /** Rewrites first-argument pipe insertion before either side is inferred. */
 function rewritePipe(expression: Resolved.BinaryExpr): Resolved.CallExpr {

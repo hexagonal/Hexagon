@@ -62,11 +62,11 @@ const SOLVED_PURE = "this signature's `->?` promises a colour the caller chooses
 const SOLVED_IMPURE = "this signature's `->?` promises a colour the caller chooses, but the body " +
   "solves it to the impure constant — a function that performs its own unconditional effects " +
   "rounds up, and its face is `->!`";
-const PURITY = "a `->` arrow promises purity, and this function performs effects — the demand " +
-  "is written `->`, the function's face `->?` or `->!`";
+const PURITY = "a `->` arrow promises purity, and this function may touch the world — the demand " +
+  "is written `->`, the function's face `->!` or `->?`";
 const FIXED_BEFORE = "this position's arrow is the impure constant, and the pure `->` meeting it " +
   "was fixed before it arrived — inside a value already built, or by another use — so it " +
-  "cannot fit as a pure function fits where it is used; write the arrow where it was fixed";
+  "cannot fit as a function used here does; write the arrow where it was fixed";
 
 describe("a pure function fits wherever a function is expected (#1119)", () => {
   test("beside a callback, where a callee's `->?` is shared", () => {

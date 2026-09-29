@@ -282,20 +282,19 @@ describe("an intrinsic row writes its arrow (§4.2, #869)", () => {
   });
 
   test("an inlet-less `->?` row is refused at the arrow, as a foreign row is", () => {
-    // Effects §4.4's signature clause — the outer arrow is part of the row's
-    // signature, and nothing this one's parameters supply can instantiate it —
-    // with FFI Part 4 §4.5's advice in words, which a boundary row is owed on
-    // both sides of the ownership split: the door does not change what the
-    // repair is, only who answers for the arrow once it is written.
+    // Effects §4.4's nothing-handed clause — the outer arrow is part of the
+    // row's signature, and no callback of it has been handed over — with FFI
+    // Part 4 §4.5's advice in words, which a boundary row is owed on both sides
+    // of the ownership split: the door does not change what the repair is, only
+    // who answers for the arrow once it is written.
     expect(privileged(
       'extern from "hex:intrinsic"\n' +
       "    fun stringHash as linkedRow(value: String) ->? Int\n",
     )).toEqual([
-      "`->?` is the caller's colour, and this position has no caller to choose it — " +
-      "nothing a caller of this signature supplies carries `->?`, so nothing " +
-      "instantiates it; write `->!` for a function that pulls the world, or `->` " +
-      "for one that does not — write `->?` on the callback parameter this row runs, " +
-      "or write `->!`",
+      "`->?` means only as effectful as what it is handed, and nothing is handed here — " +
+      "no callback of this signature has been handed over by the time this arrow runs; " +
+      "write `->!` for a function that may touch the world, or `->` for one that does not " +
+      "— write the callback parameter this row runs, with `->!`, or write `->!` on the row",
     ]);
   });
 });
