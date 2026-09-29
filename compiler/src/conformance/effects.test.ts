@@ -3024,6 +3024,34 @@ export let use(b: Bool): Unit =
     expect(hover(source, "make() =")).toBe("() -> (() ->? Unit, Int)");
   });
 
+  it("publishes a spine colour pure everywhere at an expansive binding (#1166)", () => {
+    // `make` is a computed value, so the relaxed value restriction would not
+    // generalize a colour kept in its result: every use would share it.
+    const block = `let ident(x: a): a = x
+let make =
+    let k = 1
+    () =>
+        let run = ident((f) => f!())
+        run!(() => ())
+        (run, k)
+export let use(): Unit =
+    let (r, _) = make()
+    r(() => ())
+`;
+    expect(check(block)).toEqual([]);
+    expect(hover(block, "make =")).toBe("() -> ((() -> Unit) -> Unit, Int)");
+    const local = `let ident(x: a): a = x
+export let use(): Unit =
+    let make = ident(() =>
+        let run = ident((f) => f!())
+        run!(() => ())
+        (run, 1))
+    let (r, _) = make()
+    r(() => ())
+`;
+    expect(check(local)).toEqual([]);
+  });
+
   it("leaves a colour the spine's parameters hold on every function the result carries (#1166)", () => {
     // `go` runs the caller's `cb`, so its colour is the caller's to choose.
     const source = `let make(cb: () ->! Unit) =

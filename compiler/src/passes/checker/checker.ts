@@ -25273,7 +25273,7 @@ class Checker {
     type = this.#readRefusedTies(type, level);
     type = this.#widenFace(type, level);
     type = this.#readRefusedArrows(type);
-    type = this.#publishUnheldColours(type, level);
+    type = this.#publishUnheldColours(type, level, allow);
     let variables = this.#collectVariables(type).filter(
       (variable) => variable.level > level,
     );
@@ -25460,8 +25460,13 @@ class Checker {
    * because colours are erased and no function can observe what a caller
    * handed another: a lambda reaches no outer `var` and there are no ref cells
    * (§7's coupling), and a pure collection denotes stable contents (§6.2).
+   *
+   * An expansive binding (`allow` false) publishes such a colour pure
+   * everywhere instead. A colour it kept would stand in a position the relaxed
+   * value restriction declines to generalize, and every use would then share
+   * it.
    */
-  #publishUnheldColours(type: Mono, level: number): Mono {
+  #publishUnheldColours(type: Mono, level: number, allow: boolean): Mono {
     const actual = this.#prune(type);
     if (actual.kind !== "Function") return type;
     const spineHeld = this.#inputVariables(actual);
@@ -25471,12 +25476,15 @@ class Checker {
         if (part.level > level && !spineHeld.has(part.id)) spineColours.add(part.id);
       }
     }
-    return spineColours.size === 0 ? type : this.#publishHeld(type, new Set(), spineColours);
+    if (spineColours.size === 0) return type;
+    if (!allow) return this.#replaceVariables(type, new Map([...spineColours].map((id) => [id, PURE])));
+    return this.#publishHeld(type, new Set(), spineColours);
   }
 
   /**
-   * `#publishUnheldColours` at one node, where the parameters around it hold
-   * `held`, publishing `spineColours`.
+   * `#publishUnheldColours` at one node, publishing `spineColours` except
+   * where `held` holds them: the colours the parameters around the node hold,
+   * and those of a type constructor's non-covariant arguments around it.
    */
   #publishHeld(type: Mono, held: ReadonlySet<number>, spineColours: ReadonlySet<number>): Mono {
     const actual = this.#prune(type);
@@ -25528,7 +25536,7 @@ class Checker {
       case "JsMap": {
         const [key, value] = this.#publishArguments([actual.key, actual.value], (index) =>
           this.#variance.kindClaim(actual.kind, index), held, spineColours) as readonly [Mono, Mono];
-        return key === actual.key && value === actual.value ? type : { kind: actual.kind, key, value };
+        return key === actual.key && value === actual.value ? type : { ...actual, key, value };
       }
       default:
         return type;
