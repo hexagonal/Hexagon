@@ -285,10 +285,10 @@ describe("suffix construction marks (§14)", () => {
     expect(messages(
       impureBuild +
         "let bare = (1)boxed\n" +
-        "let linked = (1)boxed?\n",
+        "let linked = (1)boxed!\n",
     )).toEqual([
-      "this call runs effects, so `boxed` wants `!`, not no mark",
-      "this call runs effects, so `boxed` wants `!`, not `?`",
+      "this call may touch the world, so `boxed` wants `!`, not no mark",
+      "this call may touch the world, so `boxed` wants `!`, not `?`",
     ]);
   });
 
@@ -297,8 +297,8 @@ describe("suffix construction marks (§14)", () => {
       "extern from \"./world.js\"\n" +
         "    fun save(text: String) ->! Unit\n" +
         "let identity(value: a): a = value\n" +
-        "let tap(step: () ->? Int): (() ->? Int) =\n" +
-        "    let _ = step?()\n" +
+        "let tap(step: () ->! Int): (() ->? Int) =\n" +
+        "    let _ = step!()\n" +
         "    step\n" +
         "pattern boxed\n" +
         "    view = identity\n" +
@@ -324,7 +324,7 @@ describe("suffix construction marks (§14)", () => {
         "let answer = ((1)maker)!()\n" +
         "let wrong = (1)maker!()\n",
     )).toEqual([
-      "this call runs effects, so this call wants `!`, not no mark",
+      "this call may touch the world, so this call wants `!`, not no mark",
       "this call is pure, so `maker` wants no mark, not `!`",
     ]);
   });
@@ -353,7 +353,7 @@ describe("unheaded inference and a view's effect demand", () => {
   test("returning a linked callback does not make an inline view effectful", () => {
     expect(messages(
       "pattern callback\n" +
-        "    view(step: () ->? Int): (() ->? Int) = step\n",
+        "    view(step: () ->! Int): (() ->? Int) = step\n",
     )).toEqual([]);
   });
 
@@ -382,9 +382,9 @@ describe("unheaded inference and a view's effect demand", () => {
   test("a conduit-effect view reports its linked `->?` face", () => {
     expect(messages(
       "extern from \"./world.js\"\n" +
-        "    fun inspect(step: () ->? Int) ->? Int\n" +
+        "    fun inspect(step: () ->! Int) ->? Int\n" +
         "pattern force\n" +
-        "    view(step: () ->? Int) = inspect?(step)\n",
+        "    view(step: () ->! Int) = inspect!(step)\n",
     )).toEqual([
       "a pattern's `view` is run by matching, so it is pure — the demand is the pattern head's, and this function's face is `->?`",
     ]);

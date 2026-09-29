@@ -56,7 +56,7 @@ describe("the law: a survivor reaching a report is named", () => {
     // reaches the reader through the arrow (`->?`), never as a name, so naming
     // it would only push the type's own survivor off `a` for nothing.
     expect(main(
-      "export fun go(f: (b) ->? b): Int =\n" +
+      "export fun go(f: (b) ->! b): Int =\n" +
         "    let n: String = (f, [])\n" +
         "    1\n",
     )).toEqual([
@@ -76,7 +76,7 @@ describe("the law: a survivor reaching a report is named", () => {
       "export let v: Vector(Int) = [].nope(3)\n",
       "export record Box(a) = {value: a}\n\nexport fun go(): Int = Hash.hash(Box({value = 1}))\n",
       "export fun f(o: Option(a)): Int = 1\n\nexport fun go(): Int = f([])\n",
-      "export fun go(f: (b) ->? b): Int =\n    let n: String = (f, [])\n    1\n",
+      "export fun go(f: (b) ->! b): Int =\n    let n: String = (f, [])\n    1\n",
     ];
     const reported = shapes.flatMap((source) => main(source));
     expect(reported.length).toBeGreaterThan(shapes.length - 1);

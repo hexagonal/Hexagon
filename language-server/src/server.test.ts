@@ -1579,16 +1579,16 @@ describe("hover renders the arrow trio", () => {
     "",
     "export let held: Int = Stream.fold",
     "",
-    "export let compose(first: String ->? String, second: String ->? String): (String ->? String) =",
-    "    (document) => second?(first?(document))",
+    "export let compose(first: String ->! String, second: String ->! String): (String ->? String) =",
+    "    (document) => second!(first!(document))",
     "",
     "export let twice(step: Int -> Int, value: Int): Int = step(step(value))",
     "",
-    "let staged(first: String ->? String) =",
-    "    (second: String ->? String): String => second?(\"x\")",
+    "let staged(first: String ->! String) =",
+    "    (second: String ->! String): String => second!(\"x\")",
     "",
     "extern from \"./world.js\"",
-    "    export fun runner(step: () ->? String) ->? Int",
+    "    export fun runner(step: () ->! String) ->? Int",
     "",
   ].join("\n");
 
@@ -1624,7 +1624,7 @@ describe("hover renders the arrow trio", () => {
     // what a reader needs: the face says the callback decides nothing about
     // termination, and the sentence says what does.
     expect(await hovered("fold")).toBe(
-      "value `fold: (Stream(a), b, (b, a) ->? b) ->! b`\n\n" +
+      "value `fold: (Stream(a), b, (b, a) ->! b) ->! b`\n\n" +
       "Reduces the whole stream to one value, left to right, starting from\n" +
       "`initial`. It pulls to exhaustion, so it does not return on an ambient\n" +
       "source.",
@@ -1639,13 +1639,13 @@ describe("hover renders the arrow trio", () => {
     // are display-only: pasted back into source they fail at the lexer, which
     // is the point of numbering rather than normalizing.
     expect(await hovered("staged")).toBe(
-      "value `staged: (String ->?¹ String) -> (String ->?² String) ->?² String`",
+      "value `staged: (String ->!¹ String) -> (String ->!² String) ->?² String`",
     );
   });
 
   test("a closure builder's own arrow is pure, its one colour plain (#868)", async () => {
     expect(await hovered("compose")).toBe(
-      "value `compose: (String ->? String, String ->? String) -> String ->? String`",
+      "value `compose: (String ->! String, String ->! String) -> String ->? String`",
     );
   });
 
@@ -1660,7 +1660,7 @@ describe("hover renders the arrow trio", () => {
     // undecorated. Asked of the real server because the boundary row is the one
     // face in the language whose colour is *written* rather than inferred from
     // a body.
-    expect(await hovered("runner")).toBe("value `runner: (() ->? String) ->? Int`");
+    expect(await hovered("runner")).toBe("value `runner: (() ->! String) ->? Int`");
   });
 });
 

@@ -3408,7 +3408,7 @@ class Parser {
         ? `\`${words}\` is retired — write the pure arrow on the row itself: ` +
           "`fun trim(document: String) -> String`"
         : `\`${words}\` is retired — write \`->?\` on the row's outer arrow: ` +
-          "`fun runner(step: () ->? String) ->? Int`",
+          "`fun runner(step: () ->! String) ->? Int`",
       primary: first.span,
       fixes: [{
         message: `drop the word${plural}` +
@@ -5847,9 +5847,9 @@ class Parser {
         this.#errorAt(token.span, "a pattern's name is written against the parenthesis: `(n, d)rat`");
       }
       const name = parsedName(token as Lexed.NameToken);
-      if (this.#at("Bang") || this.#at("Question")) {
+      if (this.#at("Bang")) {
         const mark = this.#advance();
-        this.#errorAt(mark.span, "a pattern use has no effect mark; remove `!` or `?`");
+        this.#errorAt(mark.span, "a pattern use has no effect mark; remove `!`");
       }
       return { kind: "Declared", components, name, span: spanFrom(opening, this.#previous().span) };
     }
@@ -5872,8 +5872,8 @@ class Parser {
     let left = this.#parsePrefix(effectiveStops);
 
     while (!effectiveStops.has(this.#current().kind)) {
-      if (this.#at("Bang") || this.#at("Question")) {
-        const mark = this.#at("Bang") ? "bang" : "question";
+      if (this.#at("Bang")) {
+        const mark = "bang";
         const token = this.#advance();
         // Lexer §8.1: a mark is written *glued* — to the callee it marks, and to
         // the `(` it governs. Whitespace on either side is the same defect the
@@ -6088,18 +6088,13 @@ class Parser {
         span: spanFrom(start.span, operand.span),
       };
     }
-    if (this.#at("Bang") || this.#at("Question")) {
-      // Effects §9's two prefix rows, chosen by which mark it is. A mark governs an
-      // argument list and an argument list follows something, so a mark *here*
-      // has no call to speak for. A `!` in this seat is the negation the scanner
-      // used to redirect before the marks made it a token, and the redirect is
-      // the parser's now (Lexer §8.2); a `?` never had that reading and takes
-      // the mark-position row.
+    if (this.#at("Bang")) {
+      // Effects §9's prefix row. A mark governs an argument list and an argument
+      // list follows something, so a mark *here* has no call to speak for. A `!`
+      // in this seat is the negation the scanner used to redirect before the
+      // mark made it a token, and the redirect is the parser's now (Lexer §8.2).
       const token = this.#advance();
-      this.#errorAt(
-        token.span,
-        token.kind === "Bang" ? "Hexagon spells logical negation `not`" : markSeatError,
-      );
+      this.#errorAt(token.span, "Hexagon spells logical negation `not`");
       // Recovery keeps the operand: the writer's expression is what follows, and
       // reporting it missing on top of the redirect would say the same mistake
       // twice.
@@ -6467,14 +6462,14 @@ class Parser {
     const name = parsedName(token as Lexed.NameToken);
     let mark: Parsed.CallMark | undefined;
     let markSpan: Source.Span | undefined;
-    if (this.#at("Bang") || this.#at("Question")) {
+    if (this.#at("Bang")) {
       const token = this.#advance();
       if (token.span.start.offset !== name.span.end.offset) {
         this.#errorAt(token.span, markSeatError);
       }
-      mark = token.kind === "Bang" ? "bang" : "question";
+      mark = "bang";
       markSpan = token.span;
-      if (this.#at("Bang") || this.#at("Question")) {
+      if (this.#at("Bang")) {
         const duplicate = this.#advance();
         this.#errorAt(duplicate.span, markSeatError);
       }

@@ -20,16 +20,16 @@ export let next(source: Stream(a)): Option(a) = (source.next)!()
 
 (** A stream of `transform` applied to each element of `source` as it is pulled.
     The derived stream shares `source`'s cursor: pulling it advances `source`. *)
-export let map(source: Stream(a), transform: a ->? b): Stream(b) =
+export let map(source: Stream(a), transform: a ->! b): Stream(b) =
     Stream({ next = () =>
         match next!(source)
             None => None
-            Some(value) => Some(transform?(value))
+            Some(value) => Some(transform!(value))
     })
 
 (** A stream of the elements of `source` that satisfy `keep`, discarding the
     rest. The derived stream shares `source`'s cursor. *)
-export let filter(source: Stream(a), keep: a ->? Bool): Stream(a) =
+export let filter(source: Stream(a), keep: a ->! Bool): Stream(a) =
     Stream({ next = () =>
         var found = None
         var searching = True
@@ -37,7 +37,7 @@ export let filter(source: Stream(a), keep: a ->? Bool): Stream(a) =
             match next!(source)
                 None => searching := False
                 Some(value) =>
-                    if keep?(value) then
+                    if keep!(value) then
                         found := Some(value)
                         searching := False
         found
@@ -67,35 +67,35 @@ export let collect(source: Stream(a), count: Int): Vector(a) =
 (** Reduces the whole stream to one value, left to right, starting from
     `initial`. It pulls to exhaustion, so it does not return on an ambient
     source. *)
-export let fold(source: Stream(a), initial: b, combine: (b, a) ->? b): b =
+export let fold(source: Stream(a), initial: b, combine: (b, a) ->! b): b =
     var accumulator = initial
     var pulling = True
     while pulling
         match next!(source)
             None => pulling := False
-            Some(value) => accumulator := combine?(accumulator, value)
+            Some(value) => accumulator := combine!(accumulator, value)
     accumulator
 
 (** Runs `action` on each element in order, for its effect. It pulls to
     exhaustion, so it does not return on an ambient source. *)
-export let forEach(source: Stream(a), action: a ->? Unit): Unit =
+export let forEach(source: Stream(a), action: a ->! Unit): Unit =
     var pulling = True
     while pulling
         match next!(source)
             None => pulling := False
-            Some(value) => action?(value)
+            Some(value) => action!(value)
 
 (** The first element satisfying `matches`, or `None` if the stream ends first.
     It stops at that element, so it is safe on an ambient source containing
     one. *)
-export let find(source: Stream(a), matches: a ->? Bool): Option(a) =
+export let find(source: Stream(a), matches: a ->! Bool): Option(a) =
     var result = None
     var searching = True
     while searching
         match next!(source)
             None => searching := False
             Some(value) =>
-                if matches?(value) then
+                if matches!(value) then
                     result := Some(value)
                     searching := False
     result

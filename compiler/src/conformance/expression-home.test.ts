@@ -651,7 +651,7 @@ describe("calls join the tree (#1062, part 2)", () => {
     // lambda's own `->?` and pins nothing, so the program compiles.
     expect(refusals(
       "let spare(): Unit = ()\nlet applyF(x: a, g: (a) -> Int): Int = g(x)\n" +
-        "let w = applyF(spare, (k: () ->? Unit) => 1)\n",
+        "let w = applyF(spare, (k: () ->! Unit) => 1)\n",
     )).toEqual([]);
     // A malformed annotation reports once.
     expect(refusals(apply + "let w = apply2(m, (v: Zork) => v)\n")).toEqual(["unknown type `Zork`"]);

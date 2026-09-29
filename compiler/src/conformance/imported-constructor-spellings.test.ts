@@ -266,9 +266,9 @@ describe("an exception constructor reached abroad", () => {
     const exports = await runProject([
       ["/blast.hex",
         "module Blast\n\n" + "export exception Blast(code: Int)\n" +
-        "export fun shielded(f: (() ->? Int)): Int =\n" +
+        "export fun shielded(f: (() ->! Int)): Int =\n" +
         "    try\n" +
-        "        f?()\n" +
+        "        f!()\n" +
         "    catch\n" +
         "        Blast(c) => c\n"],
       ["/main.hex",

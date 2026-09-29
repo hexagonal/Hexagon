@@ -28,8 +28,8 @@ const FIXTURES =
   'extern from "./world.js"\n    export fun save(document: String) ->! Unit\n' +
   "type Step = () ->? Unit\n" +
   'let save0(): Unit = save!("x")\n' +
-  "export let apply2(f: () ->? Unit, g: () ->? Unit): Unit =\n    f?()\n    g?()\n" +
-  "export let pick(f: () ->? Unit): () ->? Unit = f\n";
+  "export let apply2(f: () ->! Unit, g: () ->! Unit): Unit =\n    f!()\n    g!()\n" +
+  "export let pick(f: () ->! Unit): () ->? Unit = f\n";
 
 const files = (source: string): [string, string][] => [
   ["/main.hex", HEADER + FIXTURES + source],
@@ -70,13 +70,13 @@ const REFUSAL = [
 ] as const;
 
 const wantsBang = (subject: string, at: string): readonly [string, string] =>
-  [at, `this call runs effects, so ${subject} wants \`!\`, not no mark`];
+  [at, `this call may touch the world, so ${subject} wants \`!\`, not no mark`];
 const wantsNoMark = (subject: string): readonly [string, string] =>
   ["!", `this call is pure, so ${subject} wants no mark, not \`!\``];
 
 describe("an annotation that wrote the recovery declares the name at it (#1115, D1)", () => {
   test("a binding annotated with the refused alias reads as the recovery", () => {
-    const source = `export let outer(action: () ->? Unit): Unit =
+    const source = `export let outer(action: () ->! Unit): Unit =
     let s: Step = action
     s!()
 `;
@@ -86,7 +86,7 @@ describe("an annotation that wrote the recovery declares the name at it (#1115, 
 
   test("so does one in an instance body, under a linked contract", () => {
     expect(reports(`constraint Runner<r> =
-    run(runner: r, action: () ->? Unit) ->? Unit
+    run(runner: r, action: () ->! Unit) ->? Unit
 
 export record Job = { id: Int }
 
@@ -94,7 +94,7 @@ honor Runner<Job> =
     run(job, action) =
         let s: Step = action
         s!()
-        action?()
+        action!()
 `)).toEqual([REFUSAL]);
   });
 
@@ -140,7 +140,7 @@ honor Runner<Job> =
   });
 
   test("a recovered arrow inside a written container is the name's, and nothing else moves", () => {
-    const option = `export let outer(action: () ->? Unit): Unit =
+    const option = `export let outer(action: () ->! Unit): Unit =
     let o: Option(Step) = Some(action)
     match o
         Some(g) => g!()
@@ -148,14 +148,14 @@ honor Runner<Job> =
 `;
     expect(reports(option)).toEqual([REFUSAL]);
     expect(hovered(option, "o:")).toBe("Option(() ->! Unit)");
-    expect(hovered(`export let outer(action: () ->? Unit): Unit =
+    expect(hovered(`export let outer(action: () ->! Unit): Unit =
     let p: (Step, Int) = (action, 1)
     ()
 `, "p:")).toBe("(() ->! Unit, Int)");
   });
 
   test("an annotated `var` is declared at it as an annotated `let` is", () => {
-    expect(reports(`export let outer(action: () ->? Unit): Unit =
+    expect(reports(`export let outer(action: () ->! Unit): Unit =
     var r: Option(Step) = Some(action)
     match r
         Some(g) => g!()
@@ -178,11 +178,11 @@ describe("a shared colour takes the recovery only where nothing real reaches it 
   });
 
   test("a written `->?` argument is left as it was, and the face is published in either order", () => {
-    for (const call of ["apply2?(s, action)", "apply2?(action, s)"]) {
-      const source = `export let outer(action: () ->? Unit, s: Step): Unit = ${call}\n`;
+    for (const call of ["apply2!(s, action)", "apply2!(action, s)"]) {
+      const source = `export let outer(action: () ->! Unit, s: Step): Unit = ${call}\n`;
       expect(reports(source)).toEqual([REFUSAL]);
-      expect(hovered(source, "outer(")).toBe("(() ->? Unit, () ->! Unit) ->? Unit");
-      expect(published(source, "outer")).toBe("/** Hexagon: `(() ->? Unit, () ->! Unit) ->? Unit` */");
+      expect(hovered(source, "outer(")).toBe("(() ->! Unit, () ->! Unit) ->? Unit");
+      expect(published(source, "outer")).toBe("/** Hexagon: `(() ->! Unit, () ->! Unit) ->? Unit` */");
     }
   });
 
@@ -242,23 +242,23 @@ export let go(s: Step): Unit =
     // `pick(s)`'s colour is the recovery's before `action`'s written `->?`
     // joins it; the one colour is then the signature's, and the face it
     // publishes is the one it writes (review round 1, BLOCKER 1).
-    const face = "(() ->? Unit, () ->! Unit) ->? Unit";
+    const face = "(() ->! Unit, () ->! Unit) ->? Unit";
     for (const body of [
-      "apply2?(action, pick(s))",
-      "\n    let g = if True then action else pick(s)\n    g?()",
-      "\n    let run = () => apply2?(action, pick(s))\n    run?()",
+      "apply2!(action, pick(s))",
+      "\n    let g = if True then action else pick(s)\n    g!()",
+      "\n    let run = () => apply2!(action, pick(s))\n    run!()",
     ]) {
-      const source = `export let outer(action: () ->? Unit, s: Step): Unit = ${body}\n`;
+      const source = `export let outer(action: () ->! Unit, s: Step): Unit = ${body}\n`;
       expect(reports(source)).toEqual([REFUSAL]);
       expect(hovered(source, "outer(")).toBe(face);
     }
-    expect(published("export let outer(action: () ->? Unit, s: Step): Unit = apply2?(action, pick(s))\n", "outer"))
+    expect(published("export let outer(action: () ->! Unit, s: Step): Unit = apply2!(action, pick(s))\n", "outer"))
       .toBe(`/** Hexagon: \`${face}\` */`);
-    const knot = `export let outer(action: () ->? Unit, s: Step): Unit =
+    const knot = `export let outer(action: () ->! Unit, s: Step): Unit =
     fun
-        a(m: Int): Unit = if m == 0 then apply2?(action, pick(s)) else b?(m)
-        b(m: Int): Unit = a?(m - 1)
-    a?(1)
+        a(m: Int): Unit = if m == 0 then apply2!(action, pick(s)) else b!(m)
+        b(m: Int): Unit = a!(m - 1)
+    a!(1)
 `;
     expect(reports(knot)).toEqual([REFUSAL]);
     expect(hovered(knot, "outer(")).toBe(face);
@@ -274,9 +274,9 @@ export let go(s: Step): Unit =
       "rounds up, and its face is `->!`",
     ];
     for (const form of ["if True then s else save0", "if True then save0 else s"]) {
-      const source = `export let outer(action: () ->? Unit, s: Step): Unit =
+      const source = `export let outer(action: () ->! Unit, s: Step): Unit =
     let g: () ->? Unit = ${form}
-    action?()
+    action!()
 `;
       expect(reports(source)).toEqual([REFUSAL, [form, ...pin]]);
     }
@@ -292,9 +292,9 @@ export let go(s: Step): Unit =
       "solves it to the impure constant — a function that performs its own unconditional effects " +
       "rounds up, and its face is `->!`";
     const at = (face: string, elements: string): string =>
-      `export let outer(action: () ->? Unit, s: Step): Unit =
+      `export let outer(action: () ->! Unit, s: Step): Unit =
     let v: Vector(${face}) = ${elements}
-    action?()
+    action!()
 `;
     for (const [face, first, second, report] of [
       ["() -> Unit", "[s, save0]", "[save0, s]", ["Vector(() -> Unit)", purity]],
@@ -342,7 +342,7 @@ export let outer(s: Step): Unit = takeV(${elements})
     // into (review round 1, MAJOR 2): the inner `if`'s impure path decides the
     // whole form — its pure path fits beside it (#1119) — whichever side of the
     // outer form the recovery stands on, so the bare call on it is the report.
-    const clash = ["g()", "this call runs effects, so `g` wants `!`, not no mark"] as const;
+    const clash = ["g()", "this call may touch the world, so `g` wants `!`, not no mark"] as const;
     for (const form of [
       "if True then s else (if False then (() => ()) else save0)",
       "if True then (if False then (() => ()) else save0) else s",
@@ -380,16 +380,16 @@ export let outer(s: Step): Unit = takeV(${elements})
 
   test("it is the recovery before the body's arms read it, so a conduit body does not claim it", () => {
     // Left a variable, the conduit arm would make the call's colour the
-    // body's, which `action?()` links to the header's `->?` — and `apply2!`
+    // body's, which `action!()` links to the header's `->?` — and `apply2!`
     // would be asked for a `?` the recovery's reading does not owe.
-    const conduit = `export let outer(action: () ->? Unit, s: Step): Unit =
-    action?()
+    const conduit = `export let outer(action: () ->! Unit, s: Step): Unit =
+    action!()
     apply2!(s, s)
 `;
     expect(reports(conduit)).toEqual([REFUSAL]);
-    expect(hovered(conduit, "outer(")).toBe("(() ->? Unit, () ->! Unit) ->! Unit");
+    expect(hovered(conduit, "outer(")).toBe("(() ->! Unit, () ->! Unit) ->! Unit");
     expect(reports(`constraint Runner<r> =
-    run(runner: r, action: () ->? Unit) ->? Unit
+    run(runner: r, action: () ->! Unit) ->? Unit
 
 export record Job = { id: Int }
 
@@ -397,7 +397,7 @@ honor Runner<Job> =
     run(job, action) =
         let s: Step = action
         apply2!(s, s)
-        action?()
+        action!()
 `)).toEqual([REFUSAL]);
   });
 
@@ -478,14 +478,14 @@ describe("a body's own colour counts a recovered call as the constant it reads a
     // account".
     const source = `export let outer(n: Int): Int =
     let h: Step = () => ()
-    let f: (() ->? Unit) ->? Unit = (cb) =>
+    let f: (() ->! Unit) ->? Unit = (cb) =>
         h!()
-        cb?()
+        cb!()
     f!(() => ())
     n
 `;
     expect(reports(source)).toEqual([REFUSAL, wantsNoMark("`f`")]);
-    expect(hovered(source, "f!(")).toBe("(() ->? Unit) ->? Unit");
+    expect(hovered(source, "f!(")).toBe("(() ->! Unit) ->? Unit");
   });
 
   test("a knot member calling through the recovered alias is the recovery, and so is its sibling", () => {

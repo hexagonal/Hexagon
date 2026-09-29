@@ -248,7 +248,7 @@ describe("Constraints §2, §8: the header writes its arrow, and `:` is a parse 
       "constraint R<a> =\n" +
       "    plain(s: a) -> String\n" +
       "    loud(s: a) ->! String\n" +
-      "    linked(s: a, action: () ->? Unit) ->? String\n",
+      "    linked(s: a, action: () ->! Unit) ->? String\n",
     )).toEqual([]);
   });
 
@@ -372,18 +372,18 @@ describe("Effects §13.2: the constant table", () => {
       "export record P = { name: String }\n" +
       "honor R<P> =\n    read(s) = s.name\n" +
       "export let dot(p: P): String = p.read()\n",
-    )).toEqual(["this call runs effects, so `.read` wants `!`, not no mark"]);
+    )).toEqual(["this call may touch the world, so `.read` wants `!`, not no mark"]);
   });
 });
 
 describe("Effects §13.4: one effect variable per member", () => {
   const RUNNER =
     "constraint Runner<r> =\n" +
-    "    run(runner: r, action: () ->? Unit) ->? Unit\n" +
+    "    run(runner: r, action: () ->! Unit) ->? Unit\n" +
     "export record Job = { id: Int }\n";
 
-  test("`action?()` is ordinary conduct, and the seat accepts it", () => {
-    expect(messages(RUNNER + "honor Runner<Job> =\n    run(job, action) = action?()\n"))
+  test("`action!()` is ordinary conduct, and the seat accepts it", () => {
+    expect(messages(RUNNER + "honor Runner<Job> =\n    run(job, action) = action!()\n"))
       .toEqual([]);
   });
 
@@ -428,12 +428,12 @@ describe("Effects §13.4: one effect variable per member", () => {
     // licence for the instance's own effects, whose calls always wear `!`.
     expect(messages(IO +
       "constraint Tx<t> =\n" +
-      "    within(t: t, action: () ->? Unit) ->! Unit\n" +
+      "    within(t: t, action: () ->! Unit) ->! Unit\n" +
       "export record Db = { name: String }\n" +
       "honor Tx<Db> =\n" +
       "    within(db, action) =\n" +
       "        Debug.log(readIt!(db.name))\n" +
-      "        action?()\n",
+      "        action!()\n",
     )).toEqual([]);
   });
 });
@@ -512,7 +512,7 @@ describe("Effects §13.3: every spelling wears the contract's mark", () => {
       ["/lib.hex", LIB],
       ["/main.hex", "module Main\n\nimport Lib\n\n" +
         "export let qualified(n: Lib.Note): String = Lib.read(n)\n"],
-    ])).toEqual(["this call runs effects, so `Lib.read` wants `!`, not no mark"]);
+    ])).toEqual(["this call may touch the world, so `Lib.read` wants `!`, not no mark"]);
   });
 
   test("a call at a known concrete instance wears it, through the companion", () => {
@@ -528,7 +528,7 @@ describe("Effects §13.3: every spelling wears the contract's mark", () => {
     ] as const;
     expect(projectMessages(files("!"))).toEqual([]);
     expect(projectMessages(files("")))
-      .toEqual(["this call runs effects, so `Note.read` wants `!`, not no mark"]);
+      .toEqual(["this call may touch the world, so `Note.read` wants `!`, not no mark"]);
   });
 
   test("a bare call in the honoring module wears it too", () => {
@@ -577,7 +577,7 @@ describe("Constraints §4.7: the `widens` door is compared, and shows the contra
       ["/lib.hex", LIB("->!")],
       ["/main.hex", door("s.name", "tag(p, 2n)")],
       ["/io.js", ""],
-    ])).toEqual(["this call runs effects, so `tag` wants `!`, not no mark"]);
+    ])).toEqual(["this call may touch the world, so `tag` wants `!`, not no mark"]);
   });
 
   test("an impure door body under a `->` member is refused at the seat", () => {
@@ -610,8 +610,8 @@ describe("Constraints §2: a default calls its siblings at their contracts' mark
   test("a default under `->?` may conduct a `->?` sibling", () => {
     expect(messages(
       "constraint Runner<r> =\n" +
-      "    run(runner: r, action: () ->? Unit) ->? Unit\n" +
-      "    twice(runner: r, action: () ->? Unit) ->? Unit = run?(runner, action)\n",
+      "    run(runner: r, action: () ->! Unit) ->? Unit\n" +
+      "    twice(runner: r, action: () ->! Unit) ->? Unit = run!(runner, action)\n",
     )).toEqual([]);
   });
 
@@ -619,7 +619,7 @@ describe("Constraints §2: a default calls its siblings at their contracts' mark
     expect(messages(
       "constraint Runner<r> =\n" +
       "    boom(runner: r) ->! Unit\n" +
-      "    run(runner: r, action: () ->? Unit) ->? Unit = boom!(runner)\n",
+      "    run(runner: r, action: () ->! Unit) ->? Unit = boom!(runner)\n",
     )).toEqual([linkedContract("run")]);
   });
 
@@ -752,18 +752,18 @@ describe("Effects §13.6: derived instances and display", () => {
     // the member's whole face, which is where a second variable would show.
     const messagesWithTypes = messages(
       "constraint Tx<t> =\n" +
-      "    within(t: t, action: () ->? Unit) ->! Unit\n" +
+      "    within(t: t, action: () ->! Unit) ->! Unit\n" +
       "export record Db = { name: String }\n" +
-      "honor Tx<Db> =\n    within(db, action) = action?()\n" +
+      "honor Tx<Db> =\n    within(db, action) = action!()\n" +
       "let bad(d: Db): Int = within\n",
     );
     expect(messagesWithTypes).toContain(
-      "type mismatch: expected Int, found (a, () ->? Unit) ->! Unit",
+      "type mismatch: expected Int, found (a, () ->! Unit) ->! Unit",
     );
     for (const message of messagesWithTypes) expect(message).not.toMatch(/\?\d/);
     for (const message of messages(IO +
       "constraint Runner<r> =\n" +
-      "    run(runner: r, action: () ->? Unit) ->? Unit\n" +
+      "    run(runner: r, action: () ->! Unit) ->? Unit\n" +
       "export record Job = { id: Int }\n" +
       "honor Runner<Job> =\n    run(job, action) = Debug.log(readIt!(\"x\"))\n")) {
       expect(message).not.toMatch(/\?\d/);
@@ -779,7 +779,7 @@ describe("Effects §13.4: the member's variable is the member's, wherever writte
   // one monomorphic colour.
   const TX =
     "constraint Tx<t> =\n" +
-    "    within(t: t, action: () ->? Unit) ->! Unit\n" +
+    "    within(t: t, action: () ->! Unit) ->! Unit\n" +
     "export record Db = { name: String }\n";
 
   test("the supplied direction is checked at a `->?` under a constant outer arrow", () => {
@@ -799,7 +799,7 @@ describe("Effects §13.4: the member's variable is the member's, wherever writte
     // (1b.) Two callers, one supplying an effectful callback and one a pure
     // one. Sharing a single unquantified colour, the second was refused.
     expect(messages(IO + TX +
-      "honor Tx<Db> =\n    within(db, action) = action?()\n" +
+      "honor Tx<Db> =\n    within(db, action) = action!()\n" +
       "let world(): Unit = Debug.log(readIt!(\"x\"))\n" +
       "export let effectful(d: Db): Unit = d.within!(() => world!())\n" +
       "export let pure(d: Db): Unit = d.within!(() => ())\n",
@@ -817,9 +817,9 @@ describe("Effects §13.4: the member's variable is the member's, wherever writte
     // (1d.) §10 numbers a face carrying **more than one** variable. Two
     // variables here — one for the outer arrow's absent quantifier, one for the
     // callback — would render `->?¹`, which is what the #649 pin above catches.
-    expect(messages(TX + "honor Tx<Db> =\n    within(db, action) = action?()\n" +
+    expect(messages(TX + "honor Tx<Db> =\n    within(db, action) = action!()\n" +
       "let bad(d: Db): Int = within\n")).toContain(
-        "type mismatch: expected Int, found (a, () ->? Unit) ->! Unit",
+        "type mismatch: expected Int, found (a, () ->! Unit) ->! Unit",
       );
   });
 });
@@ -1089,7 +1089,7 @@ describe("Effects §13.2: every frame names the arrow's actual position", () => 
     // is the linked outer arrow's, not the base row's "unconditionally".
     const source =
       "constraint Runner<r> =\n" +
-      "    run(runner: r, a: () ->? Unit, b: () ->! Unit) ->? Unit\n" +
+      "    run(runner: r, a: () ->! Unit, b: () ->! Unit) ->? Unit\n" +
       "export record Job = { id: Int }\n" +
       "honor Runner<Job> =\n    run(job, a, b) = b!()\n";
     expect(messages(source)).toEqual([linkedConflict("run", "b")]);
@@ -1131,7 +1131,7 @@ describe("Effects §13.2: the settle, the disposal, and what the bounds leave be
     // what it is handed could honor the member.
     expect(messages(RUN("k: () ->! Unit", "->!", "k!()"))).toEqual([]);
     expect(messages(RUN("k: () ->! Unit", "->!", "k()"))).toEqual([
-      "this call runs effects, so `k` wants `!`, not no mark",
+      "this call may touch the world, so `k` wants `!`, not no mark",
     ]);
   });
 
@@ -1141,7 +1141,7 @@ describe("Effects §13.2: the settle, the disposal, and what the bounds leave be
     // variable and `k()` was told to wear `?`.
     expect(messages(
       "constraint Runner<r> =\n" +
-      "    run(runner: r, k: () -> Unit, action: () ->? Unit) ->? Unit\n" +
+      "    run(runner: r, k: () -> Unit, action: () ->! Unit) ->? Unit\n" +
       "export record Job = { id: Int }\n" +
       "honor Runner<Job> =\n    run(job, k, action) = k()\n",
     )).toEqual([]);
@@ -1158,8 +1158,8 @@ describe("Effects §13.2: the settle, the disposal, and what the bounds leave be
 
   test("a linked slot is kept, so a conducted callback keeps the linked face", () => {
     // "a released colour takes the join of its lower bounds … so
-    // `run(job, action) = action?()` keeps its linked outer face."
-    expect(messages(RUN("action: () ->? Unit", "->?", "action?()"))).toEqual([]);
+    // `run(job, action) = action!()` keeps its linked outer face."
+    expect(messages(RUN("action: () ->? Unit", "->?", "action!()"))).toEqual([]);
   });
 
   test("a settled `->!` slot beside a kept linked one: two slots that stay two", () => {
@@ -1171,7 +1171,7 @@ describe("Effects §13.2: the settle, the disposal, and what the bounds leave be
     // `!` — the inverse of what the contract says.
     const both = (mark: string) =>
       "constraint Runner<r> =\n" +
-      "    run(runner: r, a: () ->? Unit, b: () ->! Unit) ->! Unit\n" +
+      "    run(runner: r, a: () ->! Unit, b: () ->! Unit) ->! Unit\n" +
       "export record Job = { id: Int }\n" +
       `honor Runner<Job> =\n    run(job, a, b) =\n        b!()\n        a${mark}()\n`;
     expect(messages(both("?"))).toEqual([]);
@@ -1198,9 +1198,9 @@ describe("Effects §13.2: the settle, the disposal, and what the bounds leave be
     // irrelevant, and the second call fixes nothing about the first's slot.
     expect(messages(
       "constraint Runner<r> =\n" +
-      "    run(runner: r, k: () -> Unit, action: () ->? Unit) ->? Unit\n" +
+      "    run(runner: r, k: () -> Unit, action: () ->! Unit) ->? Unit\n" +
       "export record Job = { id: Int }\n" +
-      "honor Runner<Job> =\n    run(job, k, action) =\n        k()\n        action?()\n",
+      "honor Runner<Job> =\n    run(job, k, action) =\n        k()\n        action!()\n",
     )).toEqual([]);
   });
 
@@ -1215,7 +1215,7 @@ describe("Effects §13.2: the settle, the disposal, and what the bounds leave be
     // alone in the walk that settles it. See the PR's deferred list.
     expect(messages(
       "constraint Runner<r> =\n" +
-      "    run(runner: r, a: () ->? Unit, b: () ->! Unit) ->! Unit\n" +
+      "    run(runner: r, a: () ->! Unit, b: () ->! Unit) ->! Unit\n" +
       "export record Job = { id: Int }\n" +
       "let c: Bool = True\n" +
       "honor Runner<Job> =\n" +
@@ -1229,7 +1229,7 @@ describe("Effects §13.2: the settle, the disposal, and what the bounds leave be
     // A linked arrow's pure upper bound at the pure instantiation beside its
     // impure lower bound at the impure is the everyday pair pooling would read
     // as a contradiction.
-    expect(messages(RUN("action: () ->? Unit", "->?", "action?()"))).toEqual([]);
+    expect(messages(RUN("action: () ->? Unit", "->?", "action!()"))).toEqual([]);
   });
 
   test("a failed seat draws no mark report against the colour it condemned", () => {
@@ -1302,22 +1302,22 @@ describe("Effects §13.2: broader acceptance, the raise, the annotation, and the
   test("`->` merged with `->?` wears `?`", () => {
     expect(messages(
       "constraint Runner<r> =\n" +
-      "    run(runner: r, j: () -> Unit, a: () ->? Unit) ->? Unit\n" +
+      "    run(runner: r, j: () -> Unit, a: () ->! Unit) ->? Unit\n" +
       "export record Job = { id: Int }\n" +
       "let c: Bool = True\n" +
       "honor Runner<Job> =\n" +
       "    run(job, j, a) =\n" +
       "        let f = if c then j else a\n" +
-      "        j?()\n",
+      "        j!()\n",
     )).toEqual([]);
   });
 
   test("`->?` merged with `->!` settles impure under a `->!` outer arrow", () => {
     // The body asked for one colour by its own act, so `a!()` is then correct
-    // and `a?()` refused under a header that writes `->?` at `a`.
+    // and `a!()` refused under a header that writes `->?` at `a`.
     const merged = (mark: string) =>
       "constraint Runner<r> =\n" +
-      "    run(runner: r, a: () ->? Unit, b: () ->! Unit) ->! Unit\n" +
+      "    run(runner: r, a: () ->! Unit, b: () ->! Unit) ->! Unit\n" +
       "export record Job = { id: Int }\n" +
       "let c: Bool = True\n" +
       "honor Runner<Job> =\n" +
@@ -1326,14 +1326,14 @@ describe("Effects §13.2: broader acceptance, the raise, the annotation, and the
       `        a${mark}()\n`;
     expect(messages(merged("!"))).toEqual([]);
     expect(messages(merged("?"))).toEqual([
-      "this call runs effects, so `a` wants `!`, not `?`",
+      "this call may touch the world, so `a` wants `!`, not `?`",
     ]);
   });
 
   test("`->?` merged with `->!` conflicts under a `->` outer arrow", () => {
     const source =
       "constraint Runner<r> =\n" +
-      "    run(runner: r, a: () ->? Unit, b: () ->! Unit) -> Unit\n" +
+      "    run(runner: r, a: () ->! Unit, b: () ->! Unit) -> Unit\n" +
       "export record Job = { id: Int }\n" +
       "let c: Bool = True\n" +
       "honor Runner<Job> =\n" +
@@ -1547,7 +1547,7 @@ describe("Effects §13.2: invariant and phantom positions", () => {
       "() ->? Unit",
       "->?",
       ", action: () ->? Unit",
-      "action?()",
+      "action!()",
     ))).toEqual([]);
   });
 
@@ -1572,7 +1572,7 @@ describe("Effects §13.2: invariant and phantom positions", () => {
   test("and an invariant linked slot raised the same way says `->?`", () => {
     expect(messages(
       "constraint Runner<r> =\n" +
-      "    run(runner: r, cells: Array(() ->? Unit), action: () ->? Unit) ->? Unit\n" +
+      "    run(runner: r, cells: Array(() ->! Unit), action: () ->! Unit) ->? Unit\n" +
       "export record Job = { id: Int }\n" +
       "let force(fs: Array(() ->! Unit)): Unit = ()\n" +
       "honor Runner<Job> =\n    run(job, cells, action) = force(cells)\n",
@@ -1676,9 +1676,9 @@ describe("Effects §13.2: invariant and phantom positions", () => {
     const PHANTOM =
       "export union Tag(a) = Plain | Marked\n" +
       "constraint Runner<r> =\n" +
-      "    run(runner: r, tag: Tag(() ->? Unit), action: () ->? Unit) ->? Unit\n" +
+      "    run(runner: r, tag: Tag(() ->! Unit), action: () ->! Unit) ->? Unit\n" +
       "export record Job = { id: Int }\n" +
-      "honor Runner<Job> =\n    run(job, tag, action) = action?()\n";
+      "honor Runner<Job> =\n    run(job, tag, action) = action!()\n";
     expect(messages(PHANTOM)).toEqual([]);
     expect(messages(PHANTOM + "export let pure(j: Job): Unit = j.run(Plain, () => ())\n"))
       .toEqual([]);
@@ -1704,7 +1704,7 @@ describe("Effects §13.2: invariant and phantom positions", () => {
   test("and a header whose only `->?` stands at a phantom position is still legal", () => {
     expect(messages(
       "export union Tag(a) = Plain | Marked\n" +
-      "constraint Runner<r> =\n    run(runner: r, tag: Tag(() ->? Unit)) ->? Unit\n" +
+      "constraint Runner<r> =\n    run(runner: r, tag: Tag(() ->! Unit)) ->? Unit\n" +
       "export record Job = { id: Int }\n" +
       "honor Runner<Job> =\n    run(job, tag) = ()\n",
     )).toEqual([]);
@@ -1713,9 +1713,9 @@ describe("Effects §13.2: invariant and phantom positions", () => {
 
 describe("Constraints §4.7: a door wears the member's colour, and the listed members must agree", () => {
   const LINKED = "module Lib\n\n" +
-    "export constraint R<a> =\n    run(s: a, n: Int, action: () ->? Unit) ->? Unit\n";
+    "export constraint R<a> =\n    run(s: a, n: Int, action: () ->! Unit) ->? Unit\n";
   const DOOR = "module Main\n\nimport Lib\n\nexport record P = { name: String }\n" +
-    "widens Lib.run(s: P, n: BigInt, action: () ->? Unit): Unit =\n    action?()\n" +
+    "widens Lib.run(s: P, n: BigInt, action: () ->! Unit): Unit =\n    action!()\n" +
     "honor Lib.R<P> =\n    run = widened\n";
 
   test("a door under a `->?` member wears the member's variable, not a second one", () => {
@@ -1727,12 +1727,12 @@ describe("Constraints §4.7: a door wears the member's colour, and the listed me
     session.setFile("/lib.hex", LINKED);
     session.setFile("/main.hex", DOOR);
     expect(session.hover("/main.hex", DOOR.indexOf("run(s: P"))?.displayedType)
-      .toBe("(P, BigInt, () ->? Unit) ->? Unit");
+      .toBe("(P, BigInt, () ->! Unit) ->? Unit");
   });
 
   test("so a call through the door conducts", () => {
     const call = (mark: string, callback: string) =>
-      DOOR + `export let through(p: P, cb: () ->? Unit): Unit = run${mark}(p, 2n, ${callback})\n`;
+      DOOR + `export let through(p: P, cb: () ->! Unit): Unit = run${mark}(p, 2n, ${callback})\n`;
     expect(projectMessages([
       ["/lib.hex", LINKED],
       ["/main.hex", call("?", "cb")],
@@ -1885,13 +1885,13 @@ describe("Constraints §4.7: a door wears the member's colour, and the listed me
     // position, never on variable names, which are immaterial."
     expect(projectMessages([
       ["/lib.hex", "module Lib\n\nexport constraint P<a> =\n" +
-        "    op(v: a, n: Int, action: () ->? Unit) ->? Unit\n"],
+        "    op(v: a, n: Int, action: () ->! Unit) ->? Unit\n"],
       ["/lib2.hex", "module Lib2\n\nexport constraint M<a> =\n" +
-        "    op(v: a, n: Int, action: () ->? Unit) ->? Unit\n"],
+        "    op(v: a, n: Int, action: () ->! Unit) ->? Unit\n"],
       ["/main.hex", "module Main\n\nimport Lib\nimport Lib2\n\n" +
         "export record S = { n: Int }\n" +
-        "widens Lib.op, Lib2.op(v: S, n: BigInt, action: () ->? Unit): Unit =\n" +
-        "    action?()\n" +
+        "widens Lib.op, Lib2.op(v: S, n: BigInt, action: () ->! Unit): Unit =\n" +
+        "    action!()\n" +
         "honor Lib.P<S> =\n    op = widened\n" +
         "honor Lib2.M<S> =\n    op = widened\n"],
       ["/io.js", ""],
@@ -1926,11 +1926,11 @@ describe("Effects §13.2: the freshening, and what the bounds leave as the order
     // kept slot" — so the body's own colour is the callback's, and the marks
     // read it.
     const chain = (mark: string) =>
-      "constraint Runner<r> =\n    run(runner: r, action: () ->? Unit) ->? Unit\n" +
+      "constraint Runner<r> =\n    run(runner: r, action: () ->! Unit) ->? Unit\n" +
       "export record Job = { id: Int }\n" +
       "honor Runner<Job> =\n" +
       "    run(job, action) =\n" +
-      "        let inner = () => action?()\n" +
+      "        let inner = () => action!()\n" +
       `        inner${mark}()\n`;
     expect(messages(chain("?"))).toEqual([]);
     expect(messages(chain(""))).toEqual([
@@ -1968,7 +1968,7 @@ describe("Effects §3.4: a bounded body colour is a dependency, not a quantifier
     `        ping${mark}(2)\n`;
   const PURE_HEAD = "constraint C<r> =\n    go(runner: r, b: () ->! Unit) -> Unit\n";
   const LINKED_HEAD = "constraint C<r> =\n" +
-    "    go(runner: r, a: () ->? Unit, b: () ->! Unit) ->? Unit\n";
+    "    go(runner: r, a: () ->! Unit, b: () ->! Unit) ->? Unit\n";
   const IMPURE_HEAD = "constraint C<r> =\n    go(runner: r, b: () ->! Unit) ->! Unit\n";
   const BODY_3_4 = (lines: readonly string[]): string =>
     PURE_HEAD +
@@ -1999,11 +1999,11 @@ describe("Effects §3.4: a bounded body colour is a dependency, not a quantifier
   });
 
   test("and the same knot under a linked header refuses at the pure instantiation", () => {
-    const first = KNOT(LINKED_HEAD, "runner, a, b", "?", "b!()", "pong?(n - 1)");
+    const first = KNOT(LINKED_HEAD, "runner, a, b", "?", "b!()", "pong!(n - 1)");
     expect(messages(first)).toEqual([linkedConflict("go", "b")]);
     expect(primaries(first)).toEqual(["b!()"]);
     expect(labels(first)).toEqual([["the contract's failing arrow: \"->?\""]]);
-    const second = KNOT(LINKED_HEAD, "runner, a, b", "?", "pong?(n - 1)", "b!()");
+    const second = KNOT(LINKED_HEAD, "runner, a, b", "?", "pong!(n - 1)", "b!()");
     expect(messages(second)).toEqual([linkedConflict("go", "b")]);
     // The first tier again, at the linked row (#889).
     expect(primaries(second)).toEqual(["b!()"]);
@@ -2140,14 +2140,14 @@ describe("Effects §3.4: a bounded body colour is a dependency, not a quantifier
   test("and the same merged slot under a linked outer arrow", () => {
     expect(messages(
       "constraint Runner<r> =\n" +
-      "    run(runner: r, j: () -> Unit, a: () ->? Unit) ->? Unit\n" +
+      "    run(runner: r, j: () -> Unit, a: () ->! Unit) ->? Unit\n" +
       "export record Job = { id: Int }\n" +
       "let c: Bool = True\n" +
       "honor Runner<Job> =\n" +
       "    run(job, j, a) =\n" +
       "        let f = if c then j else (() => ())\n" +
       "        f()\n" +
-      "        a?()\n",
+      "        a!()\n",
     )).toEqual([]);
   });
 
@@ -2218,7 +2218,7 @@ describe("Effects §13.2: a failed seat's suppression, and the conflict's two ti
   const PURE_HEAD = "constraint C<r> =\n    go(runner: r, b: () ->! Unit) -> Unit\n";
   const IMPURE_HEAD = "constraint C<r> =\n    go(runner: r, b: () ->! Unit) ->! Unit\n";
   const LINKED_HEAD = "constraint C<r> =\n" +
-    "    go(runner: r, a: () ->? Unit, b: () ->! Unit) ->? Unit\n";
+    "    go(runner: r, a: () ->! Unit, b: () ->! Unit) ->? Unit\n";
   const BODY = (head: string, args: string, lines: readonly string[]): string =>
     head +
     "record R = { id: Int }\n" +
@@ -2397,7 +2397,7 @@ describe("Effects §13.2: a failed seat's suppression, and the conflict's two ti
       "two()",
     ]);
     expect(messages(respelled)).toEqual([
-      "this call runs effects, so `two` wants `!`, not no mark",
+      "this call may touch the world, so `two` wants `!`, not no mark",
     ]);
     // Repaired the other way — the offending call removed — a `two!()` on a
     // helper that calls nothing is reported as it would be anywhere.
@@ -2503,24 +2503,24 @@ describe("Effects §13.2: a failed seat's suppression, and the conflict's two ti
     // source nor a conduit, so its colour defaults pure whatever the inlets
     // (§3.4, #868 — #890's repro): its call is bare, inside the seat exactly as
     // outside one, and a `?` on it is a mark on a pure call.
-    const LINKED_ONLY = "constraint C<r> =\n    go(runner: r, a: () ->? Unit) ->? Unit\n";
+    const LINKED_ONLY = "constraint C<r> =\n    go(runner: r, a: () ->! Unit) ->? Unit\n";
     for (const keyword of ["let", "fun"]) {
       expect(messages(BODY(LINKED_ONLY, "runner, a", [
         `${keyword} spare(): Unit = ()`,
         "spare()",
-        "a?()",
+        "a!()",
       ]))).toEqual([]);
     }
     const inSeat = messages(BODY(LINKED_ONLY, "runner, a", [
       "let spare(): Unit = ()",
-      "spare?()",
-      "a?()",
+      "spare!()",
+      "a!()",
     ]));
     const outside = messages(
-      "let outer(a: () ->? Unit): Unit =\n" +
+      "let outer(a: () ->! Unit): Unit =\n" +
       "    let spare(): Unit = ()\n" +
-      "    spare?()\n" +
-      "    a?()\n",
+      "    spare!()\n" +
+      "    a!()\n",
     );
     expect(inSeat).toEqual(outside);
     expect(inSeat).toEqual(["this call is pure, so `spare` wants no mark, not `?`"]);
@@ -2558,8 +2558,8 @@ describe("Effects §13.2: a slot narrowed through the ordering", () => {
   const PURE_HEAD = "constraint C<r> =\n    go(runner: r, b: () ->! Unit) -> Unit\n";
   const IMPURE_HEAD = "constraint C<r> =\n    go(runner: r, b: () ->! Unit) ->! Unit\n";
   const LINKED_HEAD = "constraint C<r> =\n" +
-    "    go(runner: r, a: () ->? Unit, b: () ->! Unit) ->? Unit\n";
-  const LINKED_ONLY = "constraint C<r> =\n    go(runner: r, a: () ->? Unit) ->? Unit\n";
+    "    go(runner: r, a: () ->! Unit, b: () ->! Unit) ->? Unit\n";
+  const LINKED_ONLY = "constraint C<r> =\n    go(runner: r, a: () ->! Unit) ->? Unit\n";
   const PURE_CALLBACK = "constraint C<r> =\n    go(runner: r, b: () -> Unit) -> Unit\n";
   const BODY = (head: string, args: string, lines: readonly string[]): string =>
     head +
@@ -2585,7 +2585,7 @@ describe("Effects §13.2: a slot narrowed through the ordering", () => {
       [IMPURE_HEAD, "runner, b"],
       [LINKED_HEAD, "runner, a, b"],
     ] as const) {
-      const source = BODY(head, args, head === LINKED_HEAD ? [...lines, "a?()"] : lines);
+      const source = BODY(head, args, head === LINKED_HEAD ? [...lines, "a!()"] : lines);
       expect(messages(source)).toEqual([impureNarrowerAcceptance("go", "b")]);
       // §13.2 reports "at the pin that fixed the colour", and the pin here is
       // the annotation, not the call and not the seat.
@@ -2677,15 +2677,15 @@ describe("Effects §13.2: a slot narrowed through the ordering", () => {
     // demand takes the linked narrower-acceptance row, at its impure
     // instantiation, with the inlet clause its advice carries.
     const viaHelper = BODY(LINKED_ONLY, "runner, a", [
-      "let one(): Unit = a?()",
+      "let one(): Unit = a!()",
       "let p: () -> Unit = one",
       "one()",
     ]);
     expect(messages(viaHelper)).toEqual([narrowerAcceptance("go", "a")]);
     expect(primaries(viaHelper)).toEqual(["() -> Unit"]);
-    const viaDemand = FORCE + BODY(LINKED_ONLY, "runner, a", ["force(() => a?())"]);
+    const viaDemand = FORCE + BODY(LINKED_ONLY, "runner, a", ["force(() => a!())"]);
     expect(messages(viaDemand)).toEqual([narrowerAcceptance("go", "a")]);
-    expect(primaries(viaDemand)).toEqual(["force(() => a?())"]);
+    expect(primaries(viaDemand)).toEqual(["force(() => a!())"]);
   });
 
   test("a `->` callback narrowed is accepted: the floor is the bottom", () => {
@@ -3021,15 +3021,15 @@ describe("Effects §13.2: the merge's branch order, and each slot's own reach", 
     // arm was unreachable for a constant colour; MEDIUM 1's fix admits a
     // merge-solved slot into it, and without the guard `a`'s constant is held by
     // `#seatConducted` and then unified into `b`'s untouched slot — so the
-    // refusal moves off the merge the writer must change and onto `b?()`, a
+    // refusal moves off the merge the writer must change and onto `b!()`, a
     // callback this body conducts correctly.
     const linked = (merge: string) =>
-      "constraint C<r> =\n    go(runner: r, b: () ->? Unit, a: () ->? Unit) ->? Unit\n" +
+      "constraint C<r> =\n    go(runner: r, b: () ->! Unit, a: () ->! Unit) ->? Unit\n" +
       "record R = { id: Int }\nlet c: Bool = True\nlet spare(): Unit = ()\n" +
       "honor C<R> =\n    go(runner, b, a) =\n" +
       `        let f = ${merge}\n` +
       "        f()\n" +
-      "        b?()\n";
+      "        b!()\n";
     // A pure function merged in no longer solves the slot (#1119): `a` stays
     // linked, and the call on the merge is the conduit it now is.
     for (const merge of orders("a", "spare")) {
@@ -3037,21 +3037,21 @@ describe("Effects §13.2: the merge's branch order, and each slot's own reach", 
       expect(messages(source)).toEqual([
         "this call is as effectful as the enclosing instantiation makes it, so `f` wants `?`, not no mark",
       ]);
-      expect(messages(source.replace("        f()\n", "        f?()\n"))).toEqual([]);
+      expect(messages(source.replace("        f()\n", "        f!()\n"))).toEqual([]);
     }
     // The guard's witness is now an annotation's pin: the refusal stays on the
-    // annotation that narrowed `a`, never on `b?()`, which conducts correctly.
+    // annotation that narrowed `a`, never on `b!()`, which conducts correctly.
     const pinned =
-      "constraint C<r> =\n    go(runner: r, b: () ->? Unit, a: () ->? Unit) ->? Unit\n" +
+      "constraint C<r> =\n    go(runner: r, b: () ->! Unit, a: () ->! Unit) ->? Unit\n" +
       "record R = { id: Int }\n" +
-      "honor C<R> =\n    go(runner, b, a) =\n        let f: () -> Unit = a\n        f()\n        b?()\n";
+      "honor C<R> =\n    go(runner, b, a) =\n        let f: () -> Unit = a\n        f()\n        b!()\n";
     expect(messages(pinned)).toHaveLength(1);
     expect(primaries(pinned)).toEqual(["() -> Unit"]);
     // The same body with neither slot merged conducts both and is accepted.
     expect(messages(
-      "constraint C<r> =\n    go(runner: r, b: () ->? Unit, a: () ->? Unit) ->? Unit\n" +
+      "constraint C<r> =\n    go(runner: r, b: () ->! Unit, a: () ->! Unit) ->? Unit\n" +
       "record R = { id: Int }\n" +
-      "honor C<R> =\n    go(runner, b, a) =\n        a?()\n        b?()\n",
+      "honor C<R> =\n    go(runner, b, a) =\n        a!()\n        b!()\n",
     )).toEqual([]);
   });
 });

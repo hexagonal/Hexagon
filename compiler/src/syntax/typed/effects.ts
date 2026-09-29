@@ -34,7 +34,10 @@ export function collectEffectVariables(
   switch (type.kind) {
     case "Function":
       for (const parameter of type.parameters) collectEffectVariables(parameter, found);
-      if (typeof type.effect === "object") found.add(type.effect.variable);
+      if (typeof type.effect === "object") {
+        if ("join" in type.effect) for (const part of type.effect.join) found.add(part);
+        else found.add(type.effect.variable);
+      }
       collectEffectVariables(type.result, found);
       return found;
     case "Vector":

@@ -369,7 +369,7 @@ describe("displayScheme: the arrow trio", () => {
           effect: colour(1),
         },
       }),
-    ).toBe("(String ->? String) ->? String");
+    ).toBe("(String ->! String) ->? String");
   });
 
   test("one variable with no inlet still displays plain — #405 dropped that case", () => {
@@ -414,7 +414,7 @@ describe("displayScheme: the arrow trio", () => {
           result: string,
         },
       }),
-    ).toBe("((String ->? String) -> String) -> String");
+    ).toBe("((String ->! String) -> String) -> String");
   });
 
   test("two distinct variables are numbered by first appearance, left to right", () => {
@@ -431,7 +431,7 @@ describe("displayScheme: the arrow trio", () => {
           effect: colour(2),
         },
       }),
-    ).toBe("(String ->?¹ String) ->?² String ->?² String");
+    ).toBe("(String ->!¹ String) ->?² String ->?² String");
   });
 
   test("a constant beside two variables stays unnumbered", () => {
@@ -445,7 +445,7 @@ describe("displayScheme: the arrow trio", () => {
           result: string,
         },
       }),
-    ).toBe("(String ->?¹ String, String ->! String, String ->?² String) -> String");
+    ).toBe("(String ->!¹ String, String ->! String, String ->!² String) -> String");
   });
 
   test("numbers past nine keep going, a digit at a time", () => {
@@ -456,7 +456,7 @@ describe("displayScheme: the arrow trio", () => {
         parameters,
         result: string,
       } }),
-    ).toContain("String ->?¹⁰ String, String ->?¹¹ String) -> String");
+    ).toContain("String ->!¹⁰ String, String ->!¹¹ String) -> String");
   });
 
   test("a colour takes no letter from the type variables it sits beside", () => {
@@ -476,6 +476,6 @@ describe("displayScheme: the arrow trio", () => {
           result: { kind: "Variable", id: typeVariableId(8) },
         },
       }),
-    ).toBe("(() ->? String, a) -> a");
+    ).toBe("(() ->! String, a) -> a");
   });
 });

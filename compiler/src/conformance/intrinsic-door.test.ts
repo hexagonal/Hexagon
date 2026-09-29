@@ -255,7 +255,7 @@ describe("an intrinsic row writes its arrow (§4.2, #869)", () => {
   const ROWS = 'extern from "hex:intrinsic"\n' +
     "    fun stringHash as pureRow(value: String) -> Int\n" +
     "    fun stringConcat as impureRow(left: String, right: String) ->! String\n" +
-    "    fun seqMemoize as linkedRow(step: () ->? String) ->? Int\n\n";
+    "    fun seqMemoize as linkedRow(step: () ->! String) ->? Int\n\n";
 
   test("`->` is pure at the call, `->!` wants `!`, `->?` follows its callback", () => {
     expect(privileged(ROWS +
@@ -272,13 +272,13 @@ describe("an intrinsic row writes its arrow (§4.2, #869)", () => {
     // is impure called bare.
     expect(privileged(ROWS +
       "export let b: String = impureRow(\"x\", \"y\")\n",
-    )).toEqual(["this call runs effects, so `impureRow` wants `!`, not no mark"]);
+    )).toEqual(["this call may touch the world, so `impureRow` wants `!`, not no mark"]);
     expect(privileged(ROWS +
       "export let a: Int = pureRow!(\"x\")\n",
     )).toEqual(["this call is pure, so `pureRow` wants no mark, not `!`"]);
     expect(privileged(ROWS +
       "export let d: Int = linkedRow(() => impureRow!(\"a\", \"b\"))\n",
-    )).toEqual(["this call runs effects, so `linkedRow` wants `!`, not no mark"]);
+    )).toEqual(["this call may touch the world, so `linkedRow` wants `!`, not no mark"]);
   });
 
   test("an inlet-less `->?` row is refused at the arrow, as a foreign row is", () => {

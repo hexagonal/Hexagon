@@ -293,16 +293,16 @@ export let afterErrorSkipped: Int = callCount!()
 
 describe("public Option and Result faces", () => {
   test.each([
-    ["Option.map", "(Option(a), a ->? b) ->? Option(b)"],
-    ["Option.flatMap", "(Option(a), a ->? Option(b)) ->? Option(b)"],
+    ["Option.map", "(Option(a), a ->! b) ->? Option(b)"],
+    ["Option.flatMap", "(Option(a), a ->! Option(b)) ->? Option(b)"],
     ["Option.defaultValue", "(Option(a), a) -> a"],
-    ["Option.defaultWith", "(Option(a), () ->? a) ->? a"],
+    ["Option.defaultWith", "(Option(a), () ->! a) ->? a"],
     ["Option.toSeq", "Option(a) -> Seq(a)"],
-    ["Result.map", "(Result(a, b), a ->? c) ->? Result(c, b)"],
-    ["Result.flatMap", "(Result(a, b), a ->? Result(c, b)) ->? Result(c, b)"],
-    ["Result.mapError", "(Result(a, b), b ->? c) ->? Result(a, c)"],
+    ["Result.map", "(Result(a, b), a ->! c) ->? Result(c, b)"],
+    ["Result.flatMap", "(Result(a, b), a ->! Result(c, b)) ->? Result(c, b)"],
+    ["Result.mapError", "(Result(a, b), b ->! c) ->? Result(a, c)"],
     ["Result.defaultValue", "(Result(a, b), a) -> a"],
-    ["Result.defaultWith", "(Result(a, b), b ->? a) ->? a"],
+    ["Result.defaultWith", "(Result(a, b), b ->! a) ->? a"],
   ])("%s has its exact qualified hover type", (qualified, expected) => {
     const member = qualified.slice(qualified.indexOf(".") + 1);
     const source = `module Main\n\nlet held = ${qualified}\n`;
@@ -337,8 +337,8 @@ describe("callback effects and exceptions", () => {
   test("pure, linked, and effectful callbacks keep the existing call-mark rules", () => {
     expect(messages(
       "export let pure: Option(Int) = Option.map(Some(1), value => value + 1)\n" +
-        "export let conduct(source: Option(Int), transform: Int ->? Int): Option(Int) =\n" +
-        "    Option.map?(source, transform)\n",
+        "export let conduct(source: Option(Int), transform: Int ->! Int): Option(Int) =\n" +
+        "    Option.map!(source, transform)\n",
     )).toEqual([]);
 
     expect(compileFiles([

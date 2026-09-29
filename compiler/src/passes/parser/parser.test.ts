@@ -42,7 +42,7 @@ describe("parse", () => {
     const module = parseSource("let (x) rat = value\nlet (x)rat! = value\nlet made = (1)rat!!\n");
     expect(module.diagnostics.map(({ message }) => message)).toEqual([
       "a pattern's name is written against the parenthesis: `(n, d)rat`",
-      "a pattern use has no effect mark; remove `!` or `?`",
+      "a pattern use has no effect mark; remove `!`",
       "a call mark governs an argument list; write it immediately before `(`, " +
         "or (in a `|>` stage) at the end of the stage — a reference carries no colour",
     ]);

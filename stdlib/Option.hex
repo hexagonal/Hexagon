@@ -6,15 +6,15 @@ export union Option(a) derives (Eq, Show) =
     | None
 
 (** Transforms a present value. `None` stays `None`. *)
-export let map(source: Option(a), transform: a ->? b): Option(b) =
+export let map(source: Option(a), transform: a ->! b): Option(b) =
     match source
-        Some(value) => Some(transform?(value))
+        Some(value) => Some(transform!(value))
         None => None
 
 (** Transforms a present value without adding another `Option` layer. *)
-export let flatMap(source: Option(a), transform: a ->? Option(b)): Option(b) =
+export let flatMap(source: Option(a), transform: a ->! Option(b)): Option(b) =
     match source
-        Some(value) => transform?(value)
+        Some(value) => transform!(value)
         None => None
 
 (** Returns the present value, or the already-evaluated `fallback`. *)
@@ -24,10 +24,10 @@ export let defaultValue(source: Option(a), fallback: a): a =
         None => fallback
 
 (** Returns the present value, or calls `fallback` for `None`. *)
-export let defaultWith(source: Option(a), fallback: () ->? a): a =
+export let defaultWith(source: Option(a), fallback: () ->! a): a =
     match source
         Some(value) => value
-        None => fallback?()
+        None => fallback!()
 
 (** Converts `Some(value)` to a singleton sequence and `None` to an empty one. *)
 export let toSeq(source: Option(a)): Seq(a) =

@@ -1155,11 +1155,10 @@ export interface MatchArm {
 }
 
 /**
- * A call's effect mark (#355). `bang` is `f!(x)` — effects run here; `question`
- * is `f?(x)` — this call is as effectful as the enclosing instantiation made
- * it. Absent is the bare call: pure, guaranteed.
+ * A call's effect mark (#355). `bang` is `f!(x)`: this call may touch the world
+ * (Effects §3.1). Absent is the bare call: pure, guaranteed.
  */
-export type CallMark = "bang" | "question";
+export type CallMark = "bang";
 
 export interface CallExpr {
   readonly kind: "Call";

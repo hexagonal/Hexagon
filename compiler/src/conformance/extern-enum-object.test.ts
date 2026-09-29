@@ -461,7 +461,7 @@ describe("crossing and matching (§4, §5.1, §9 tests 5–6)", () => {
         "    fun current() ->! Direction\n" +
         "    fun move(direction: Direction) ->! Unit\n" +
         "    fun all() ->! Array(Direction)\n" +
-        "    fun onChange(handler: (Direction) ->? Unit) ->! Unit\n" +
+        "    fun onChange(handler: (Direction) ->! Unit) ->! Unit\n" +
         "\n" +
         "export let go(): Unit = move!(Up)\n" +
         "export let now(): Direction = current!()\n",
