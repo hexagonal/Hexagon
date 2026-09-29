@@ -2908,6 +2908,59 @@ export let use(): Unit = k(3)
     expect(check(source.replace("let g = () => k!(n)", "let g = () => k(n)"))).toEqual([wantsBang("k")]);
   });
 
+  it("keeps its own colour for a function the result carries in data (#1166)", () => {
+    // `k`'s colour is `h`'s callback's, and `k` returns `h` inside a tuple: the
+    // colour is published pure on `k`'s own arrow, and `h` keeps it as a colour
+    // of its own there, so the caller hands it an effectful callback (§2.4).
+    const source = `fun
+    h(n: Int, cb: () ->! Unit): () ->? Unit =
+        let g = () =>
+            cb!()
+            let _ = k!(n)
+            ()
+        g
+    k(n: Int) =
+        let _ = if n == 0 then () else h(n - 1, () => ())!()
+        (h, 1)
+export let use(): Unit =
+    let (hh, _) = k(1)
+    hh(1, () => save!("x"))!()
+`;
+    expect(check(source)).toEqual([]);
+    expect(hover(source, "k(n: Int) =")).toBe("Int -> ((Int, () ->! Unit) -> () ->? Unit, Int)");
+    expect(check(source.replace("= k(1)", "= k!(1)"))).toEqual([wantsBare("k", "!")]);
+  });
+
+  it("splits a local function's colour the same way outside a knot (#1166)", () => {
+    // `run` is one local function, so `make`'s colour is `run`'s callback's.
+    // `make` runs it with a pure lambda only, and is pure; the `run` it hands
+    // back, in a tuple or an `Option`, still takes any callback.
+    const make = (result: string, use: string): string => `let ident(x: a): a = x
+let make() =
+    let run = ident((f) => f!())
+    run!(() => ())
+    ${result}
+export let use(): Unit =
+${use}
+`;
+    const inTuple = make("(run, 1)", `    let (r, _) = make()
+    r!(() => save!("x"))`);
+    expect(check(inTuple)).toEqual([]);
+    expect(hover(inTuple, "make() =")).toBe("() -> ((() ->! Unit) ->? Unit, Int)");
+    const inOption = make("Some(run)", `    match make()
+        Some(r) => r!(() => save!("x"))
+        None => ()`);
+    expect(check(inOption)).toEqual([]);
+    expect(hover(inOption, "make() =")).toBe("() -> Option((() ->! Unit) ->? Unit)");
+    // Held by no parameter at all, the colour is pure wherever it stands, the
+    // returned function's own arrow included.
+    const unheld = make(`let go = () => run!(() => ())
+    (go, 1)`, `    let (g, _) = make()
+    g()`);
+    expect(check(unheld)).toEqual([]);
+    expect(hover(unheld, "make() =")).toBe("() -> (() -> Unit, Int)");
+  });
+
   it("places a pin a knot recorded where a lone body places it: at the argument", () => {
     const source = `export let pureOnly(f: () -> Unit): Unit = f()
 fun

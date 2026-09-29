@@ -25417,34 +25417,95 @@ class Checker {
   }
 
   /**
-   * A colour a finished face quantifies but that stands in none of its
-   * parameters is published pure (Effects §2.4): the scheme holds at every
-   * choice of it, and a caller's fresh copy of it defaults pure anyway. A knot
-   * member that runs a sibling's callback colour, monomorphic inside the knot
-   * (§3.4), finishes with such a colour, and shows `->` for it rather than a
-   * `->?` no written face could spell.
+   * A colour a finished face quantifies on its spine that stands in none of the
+   * spine's parameters is published pure there (Effects §2.4): nothing handed
+   * to the function chooses it, so the scheme holds at every choice of it, and
+   * a caller's fresh copy of it defaults pure anyway. A knot member that runs a
+   * sibling's callback colour, monomorphic inside the knot (§3.4), finishes
+   * with such a colour, and shows `->` for it rather than a `->?` no written
+   * face could spell.
+   *
+   * Where the same colour also stands in a parameter of a function the result
+   * carries in data — a tuple, an `Option` — that function keeps it as a colour
+   * of its own, so the caller still chooses it there (#1166). The split is
+   * sound because colours are erased: the scheme at pure says running the
+   * function is pure, and at any colour that the value it returns works there,
+   * and both are facts about one run.
    */
   #publishUnheldColours(type: Mono, level: number): Mono {
     const actual = this.#prune(type);
     if (actual.kind !== "Function") return type;
-    const held = new Set<number>();
-    for (let node: Mono = actual; node.kind === "Function"; node = this.#prune(node.result)) {
-      for (const parameter of node.parameters) {
-        for (const variable of this.#collectVariables(parameter)) held.add(variable.id);
-      }
-    }
-    const unheld = new Map<number, Mono>();
+    const spineHeld = this.#inputVariables(actual);
+    const held = this.#arrowParameterVariables(actual);
+    const everywhere = new Map<number, Mono>();
+    const onSpine = new Map<number, Mono>();
     const visit = (node: Mono): void => {
       const at = this.#prune(node);
       if (at.kind === "Function") {
         for (const part of this.#colourParts(at.effect ?? PURE)) {
-          if (part.level > level && !held.has(part.id)) unheld.set(part.id, PURE);
+          if (part.level <= level || spineHeld.has(part.id)) continue;
+          (held.has(part.id) ? onSpine : everywhere).set(part.id, PURE);
         }
         visit(at.result);
       }
     };
     visit(actual);
-    return unheld.size === 0 ? type : this.#replaceVariables(type, unheld);
+    const published = everywhere.size === 0 ? type : this.#replaceVariables(type, everywhere);
+    if (onSpine.size === 0) return published;
+    const spine = (node: Mono): Mono => {
+      const at = this.#prune(node);
+      if (at.kind !== "Function") return node;
+      return {
+        ...at,
+        result: spine(at.result),
+        ...(at.effect === undefined ? {} : { effect: this.#replaceVariables(at.effect, onSpine) }),
+      };
+    };
+    return spine(published);
+  }
+
+  /**
+   * Every variable standing in a parameter of some arrow in `type`: the
+   * spine's, and those of the functions its results and data carry. A
+   * parameter is taken whole, arrows inside it included.
+   */
+  #arrowParameterVariables(type: Mono, found = new Set<number>()): Set<number> {
+    const actual = this.#prune(type);
+    switch (actual.kind) {
+      case "Function":
+        for (const parameter of actual.parameters) {
+          for (const variable of this.#collectVariables(parameter)) found.add(variable.id);
+        }
+        this.#arrowParameterVariables(actual.result, found);
+        break;
+      case "Tuple":
+        for (const element of actual.elements) this.#arrowParameterVariables(element, found);
+        break;
+      case "Record":
+        for (const field of actual.fields.values()) this.#arrowParameterVariables(field, found);
+        break;
+      case "Union":
+      case "NominalRecord":
+      case "ExternType":
+        for (const argument of actual.arguments) this.#arrowParameterVariables(argument, found);
+        break;
+      case "Vector":
+      case "Set":
+      case "Array":
+      case "JsSet":
+      case "Node":
+        this.#arrowParameterVariables(actual.element, found);
+        break;
+      case "Nullable":
+        this.#arrowParameterVariables(actual.value, found);
+        break;
+      case "Map":
+      case "JsMap":
+        this.#arrowParameterVariables(actual.key, found);
+        this.#arrowParameterVariables(actual.value, found);
+        break;
+    }
+    return found;
   }
 
   /**

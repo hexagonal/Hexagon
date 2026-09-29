@@ -147,7 +147,7 @@ A **callback parameter** is a parameter, of any arrow on the signature's applica
 
   `later(noop, noop)` and a call of the closure it returns are both bare. `later!(noop, save0)` wears `!`, and so does its closure's call.
 
-  A colour a finished face quantifies that stands in none of its parameters, and is not captured, is published as pure: the scheme holds at every choice of it, and a caller's copy of it defaults pure anyway. A knot member that runs a sibling's callback colour finishes with such a colour (§3.4), and shows `->` for it rather than a `->?` it is handed nothing for.
+  A colour a finished face quantifies on its own arrows that stands in none of their parameters is published as pure on them: nothing handed to the function chooses it, so the scheme holds at every choice of it, and a caller's copy of it defaults pure anyway. Where the same colour also stands in a parameter of a function the result carries inside data (a tuple, an `Option`), that function keeps it as a colour of its own, so its callers still choose it. A knot member that runs a sibling's callback colour finishes with such a colour (§3.4), and shows `->` for it rather than a `->?` it is handed nothing for.
 
 ### 2.5 Data-field arrows: constants only
 
