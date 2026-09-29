@@ -15942,12 +15942,28 @@ function defaultHelperName(member: string): string {
   return `__default_${member}`;
 }
 
-/** Lexer §3.2's probe: the preferred spelling, then numeric suffixes from 1. */
-function probeInternalName(name: string, taken: ReadonlySet<string>): string {
+/**
+ * Lexer §3.2's probe: the preferred spelling, then numeric suffixes from 1,
+ * past `taken` and past every *other* sibling's preferred spelling.
+ *
+ * `siblings` is the rank's preferred spellings whole, `name`'s own among them,
+ * so one set serves every name in the rank; a set built per name without its
+ * own made the plan quadratic in a module's exports (#1162). The one spelling
+ * of `siblings` that can be `name`'s own is its preferred one, so that is the
+ * one exempted — from `siblings` only, since a higher rank in `taken` may hold
+ * it.
+ */
+function probeInternalName(
+  name: string,
+  taken: ReadonlySet<string>,
+  siblings: ReadonlySet<string>,
+): string {
   const base = `__${name}`;
+  const avoided = (spelling: string): boolean =>
+    taken.has(spelling) || (spelling !== base && siblings.has(spelling));
   let spelling = base;
   let suffix = 1;
-  while (taken.has(spelling)) spelling = `${base}_${suffix++}`;
+  while (avoided(spelling)) spelling = `${base}_${suffix++}`;
   return spelling;
 }
 
@@ -15995,20 +16011,21 @@ function internalNamePlan(
       .filter(({ defaulted }) => defaulted)
       .map(({ name }) => defaultHelperName(name)),
   );
+  const preferred = (names: readonly string[]): ReadonlySet<string> =>
+    new Set(names.map((name) => `__${name}`));
   const plan = new Map<string, string>();
-  const forwarders = new Set<string>();
   const memberNames = inputs.members.map(({ name }) => name);
-  for (const name of memberNames) {
-    const taken = new Set([...inputs.fixed, ...helpers]);
-    for (const other of memberNames) if (other !== name) taken.add(`__${other}`);
-    const spelling = probeInternalName(name, taken);
+  const memberSiblings = preferred(memberNames);
+  const aboveMembers = new Set([...inputs.fixed, ...helpers]);
+  const forwarders = memberNames.map((name) => {
+    const spelling = probeInternalName(name, aboveMembers, memberSiblings);
     plan.set(name, spelling);
-    forwarders.add(spelling);
-  }
+    return spelling;
+  });
+  const termSiblings = preferred(inputs.terms);
+  const aboveTerms = new Set([...aboveMembers, ...forwarders]);
   for (const name of inputs.terms) {
-    const taken = new Set([...inputs.fixed, ...helpers, ...forwarders]);
-    for (const other of inputs.terms) if (other !== name) taken.add(`__${other}`);
-    plan.set(name, probeInternalName(name, taken));
+    plan.set(name, probeInternalName(name, aboveTerms, termSiblings));
   }
   return plan;
 }
