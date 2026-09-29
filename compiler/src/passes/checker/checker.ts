@@ -9,6 +9,7 @@
 
 import { IMPURE_ARROW, linkedArrow, PURE_ARROW } from "../../support/arrows.js";
 import * as Diagnostics from "../../support/diagnostics.js";
+import * as Colour from "./colour.js";
 import { stronglyConnectedComponents } from "../../support/graph.js";
 import { cleanDigits } from "../../support/numeric-literal.js";
 import {
@@ -284,9 +285,7 @@ interface FunctionMono {
  * expectation is a variable and instantiation binds it, which is the whole
  * mechanism (`purity-as-polymorphism`).
  */
-interface EffectConstant {
-  readonly kind: "Effect";
-  readonly impure: boolean;
+interface EffectConstant extends Colour.ColourPoint {
   /**
    * Set only on §4.4's recovery constant. A refused `->?` still recovers as the
    * impure constant so the rest of the body stays checkable, and the recovery
@@ -326,7 +325,7 @@ interface ColourSolve {
  */
 type ColourPreference = (own: Mono | undefined, other: Mono | undefined) => Mono | undefined;
 
-const PURE: EffectConstant = { kind: "Effect", impure: false };
+const PURE: EffectConstant = Colour.PURE_POINT;
 
 /**
  * The mark `#arrow` leaves after a rendered signature colour in a report, and
@@ -338,9 +337,9 @@ const PURE: EffectConstant = { kind: "Effect", impure: false };
 const COLOUR_MARK = "\uE000";
 const COLOUR_MARK_END = "\uE001";
 const COLOUR_MARKED = /(->\?[⁰¹²³⁴⁵⁶⁷⁸⁹]*)\uE000(\d+)(i?)\uE001/g;
-const IMPURE: EffectConstant = { kind: "Effect", impure: true };
+const IMPURE: EffectConstant = Colour.IMPURE_POINT;
 /** §4.4's marked recovery — the impure constant, and known to be one. */
-const RECOVERED: EffectConstant = { kind: "Effect", impure: true, recovered: true };
+const RECOVERED: EffectConstant = { ...Colour.IMPURE_POINT, recovered: true };
 
 /**
  * Whether a colour is the impure constant, by value rather than by identity:
@@ -348,7 +347,7 @@ const RECOVERED: EffectConstant = { kind: "Effect", impure: true, recovered: tru
  * "is this impure?" means both of them.
  */
 function isImpure(colour: Mono): boolean {
-  return colour.kind === "Effect" && colour.impure;
+  return colour.kind === "Effect" && Colour.isTop(colour);
 }
 
 /** Whether a colour is §4.4's recovery, so what it feeds is already reported. */
@@ -17650,7 +17649,7 @@ class Checker {
     const actual = this.#prune(type);
     if (actual.kind !== "Function") return type;
     const colour = actual.effect === undefined ? PURE : this.#prune(actual.effect);
-    if (colour.kind !== "Effect" || colour.impure) return type;
+    if (colour.kind !== "Effect" || Colour.isTop(colour)) return type;
     const opened = this.#fresh(level, false);
     this.#openedColours.add(opened);
     this.#openedPending.push(opened);
@@ -20017,7 +20016,7 @@ class Checker {
       // value. A colour on the left elsewhere is the one being decided — a
       // member's own body sourcing it, at a seat — and is compared as it was.
       const settled = this.#prune(colour);
-      if (own && (joined || !colourFirst) && settled.kind === "Effect" && !settled.impure) continue;
+      if (own && (joined || !colourFirst) && settled.kind === "Effect" && Colour.isBottom(settled)) continue;
       if (colourFirst) this.#unify(colour, demand, span);
       else this.#unify(demand, colour, span);
     }
@@ -20934,7 +20933,7 @@ class Checker {
     let earliest: Source.Span | undefined;
     for (const node of this.#orderingNodes(edges, [key])) {
       const solved = this.#prune(node);
-      if (solved.kind !== "Effect" || solved.impure || isRecovered(solved)) continue;
+      if (solved.kind !== "Effect" || Colour.isTop(solved) || isRecovered(solved)) continue;
       const pin = this.#colourPin(node);
       if (pin === undefined) continue;
       if (earliest !== undefined && !precedes(pin, earliest)) continue;
@@ -21026,7 +21025,7 @@ class Checker {
     // contract. `->!` is the top of the lattice and refuses nothing. An
     // **invariant** arrow is a ceiling and a floor at once, so it reports in
     // both directions, in its own clause (§9's invariant clauses).
-    if (invoked && !demanded.impure) {
+    if (invoked && Colour.isBottom(demanded)) {
       const failure: SeatFailure = {
         row: linked ? "linked-contract" : "pure-contract",
         place,
@@ -21041,11 +21040,11 @@ class Checker {
         bound.pureUpper ??= failure;
         if (solved.kind === "Variable") bound.upper ??= failure;
       }
-      if (solved.kind === "Effect" && solved.impure) record(failure);
+      if (solved.kind === "Effect" && Colour.isTop(solved)) record(failure);
     }
     // **Supplied** — the caller hands this arrow in, so the contract must be at
     // most the body: an instance accepts everything its contract promises.
-    if (supplied && demanded.impure) {
+    if (supplied && Colour.isTop(demanded)) {
       const failure: SeatFailure = {
         row: "narrower-acceptance",
         place,
@@ -21068,7 +21067,7 @@ class Checker {
         // by the same rule (§13.2's disposal).
         if (!linked) bound.unconditional = true;
       }
-      if (solved.kind === "Effect" && !solved.impure) record(failure);
+      if (solved.kind === "Effect" && Colour.isBottom(solved)) record(failure);
     }
   }
 
@@ -21175,7 +21174,7 @@ class Checker {
     // §13.2 names. The colour a call can carry is the impure constant the body
     // sourced, or a slot still a variable that the contract's impure constant
     // bounds below.
-    if (solved.kind === "Effect" && !solved.impure) return undefined;
+    if (solved.kind === "Effect" && Colour.isBottom(solved)) return undefined;
     let earliest: Source.Span | undefined;
     for (const call of body.calls) {
       if (this.#prune(call.effect) !== solved) continue;
@@ -22132,7 +22131,7 @@ class Checker {
       if (isRecovered(colour)) continue;
       let required: "bang" | "question" | undefined;
       if (colour.kind === "Effect") {
-        required = colour.impure ? "bang" : undefined;
+        required = Colour.markFor(colour);
       } else if (obligation.frame?.inlet === true && this.#isLinkedColour(colour)) {
         required = "question";
       } else {
@@ -22205,7 +22204,7 @@ class Checker {
       const written = this.#writtenArrows(face);
       const target = face.outer ?? written[0] ?? face.declaration;
       const rewritable = written.length > 0;
-      const replacement = colour.impure ? "->!" : "->";
+      const replacement = Colour.arrowFor(colour);
       // **The impure direction's fixit is the join** (§2.4). Where the outer
       // arrow is one of the written `->?`s, the honest repair is the outer arrow
       // alone: the inlets keep their `->?` and re-link as the constant-outer
@@ -22214,10 +22213,10 @@ class Checker {
       // where the outer arrow is not written is the nested spelling the whole of
       // the condemned colour. The pure direction has no join to preserve, so it
       // rewrites every occurrence.
-      const edits = colour.impure && face.outer !== undefined ? [face.outer] : written;
+      const edits = Colour.isTop(colour) && face.outer !== undefined ? [face.outer] : written;
       this.#diagnostics.add({
         severity: "error",
-        message: colour.impure
+        message: Colour.isTop(colour)
           ? "this signature's `->?` promises a colour the caller chooses, but the body " +
             "solves it to the impure constant — a function that performs its own " +
             "unconditional effects rounds up, and its face is `->!`" +
@@ -22228,7 +22227,7 @@ class Checker {
         ...(rewritable
           ? {
             fixes: [{
-              message: colour.impure ? "write `->!`" : "write `->`",
+              message: `write \`${Colour.arrowFor(colour)}\``,
               edits: edits.map((span) => ({ span, replacement })),
             }],
           }
@@ -22265,11 +22264,11 @@ class Checker {
       Number(left.fileId) - Number(right.fileId) ||
       left.start.offset - right.start.offset
     );
-    const replacement = colour.impure ? "->!" : "->";
-    const solvedTo = colour.impure ? "impure" : "pure";
+    const replacement = Colour.arrowFor(colour);
+    const solvedTo = Colour.pointName(colour);
     this.#diagnostics.add({
       severity: "error",
-      message: colour.impure
+      message: Colour.isTop(colour)
         ? "this signature's `->?` promises a colour the caller chooses, but the body " +
           "solves it to the impure constant — a function that performs its own " +
           "unconditional effects rounds up, and its face is `->!`" +
@@ -23008,7 +23007,7 @@ class Checker {
     if (actualLeft.kind === "Effect" || actualRight.kind === "Effect") {
       if (
         actualLeft.kind === "Effect" && actualRight.kind === "Effect" &&
-        actualLeft.impure === actualRight.impure
+        Colour.samePoint(actualLeft, actualRight)
       ) {
         return;
       }
@@ -23564,8 +23563,7 @@ class Checker {
     // constant of its own, carrying the act that solved it (`ColourSolve`).
     variable.instance = type.kind === "Effect" && !isRecovered(type) && this.#faceColours.has(variable)
       ? {
-        kind: "Effect",
-        impure: type.impure,
+        ...type,
         solve: {
           span: this.#pinSides !== undefined
             ? (variableOnRight ? this.#pinSides.annotation : this.#pinSides.value)
@@ -28838,7 +28836,7 @@ class Checker {
       const sameColour = left0.kind === "Variable" && right0.kind === "Variable"
         ? true
         : left0.kind === "Effect" && right0.kind === "Effect"
-          ? left0.impure === right0.impure
+          ? Colour.samePoint(left0, right0)
           : false;
       return sameColour &&
         first.parameters.length === second.parameters.length &&
@@ -28973,7 +28971,7 @@ class Checker {
       case "Constructor":
         return actual.name;
       case "Effect":
-        return actual.impure ? "->!" : "->";
+        return Colour.arrowFor(actual);
       case "Range":
         return "Range";
       case "JsValue":
@@ -31036,7 +31034,7 @@ class Checker {
         // Modules §4.1.1: the exported signature is the contract, so the colour
         // has to cross the border with it — a linked `->?` as its variable, the
         // constant as `"impure"`, and the pure constant as nothing at all.
-        ...(effect === undefined || (effect.kind === "Effect" && !effect.impure)
+        ...(effect === undefined || (effect.kind === "Effect" && Colour.isBottom(effect))
           ? {}
           : {
             effect: effect.kind === "Effect"
@@ -32984,7 +32982,7 @@ class Checker {
       if (actual.tail !== undefined) fields.push("...");
       return `{${fields.join(", ")}}`;
     }
-    if (actual.kind === "Effect") return actual.impure ? "impure" : "pure";
+    if (actual.kind === "Effect") return Colour.pointName(actual);
     return (
       `(${actual.parameters.map((parameter) => this.#render(parameter, numbering)).join(", ")})` +
       ` ${this.#arrow(actual, numbering)} ${this.#render(actual.result, numbering)}`
@@ -33144,7 +33142,7 @@ class Checker {
   #arrow(type: FunctionMono, numbering: ReadonlyMap<number, number>): string {
     if (type.effect === undefined) return PURE_ARROW;
     const effect = this.#shownColour(type.effect);
-    if (effect.kind === "Effect") return effect.impure ? IMPURE_ARROW : PURE_ARROW;
+    if (effect.kind === "Effect") return Colour.arrowFor(effect);
     const arrow = linkedArrow(effect.kind === "Variable" ? numbering.get(effect.id) : undefined);
     // A signature's colour may be a captured one, which Effects §10 decides
     // against settled colours (#873): marked here, read by `#settleColourMarks`.
@@ -33301,7 +33299,7 @@ function markFixMessage(required: "bang" | "question" | undefined): string {
  * clause would misdescribe the program.
  */
 function effectMismatchMessage(left: Mono, right: Mono): string {
-  const impure = (side: Mono): boolean => side.kind === "Effect" && side.impure;
+  const impure = (side: Mono): boolean => side.kind === "Effect" && Colour.isTop(side);
   if (left.kind === "Effect" && right.kind === "Effect" && impure(left)) {
     return REVERSE_DEMAND_MESSAGE;
   }
