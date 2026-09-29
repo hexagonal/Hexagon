@@ -646,12 +646,6 @@ interface AbsorbedCall {
 }
 
 /**
- * The instance side of one seat *(#867)*: the monotype the body solved, the
- * frame it closed, the calls written inside it — nested lambdas' included, so
- * "the offending call" is reachable for an arrow that fails inside one — the
- * colours its freshening minted, and the seat's own line.
- */
-/**
  * The callbacks' colours (Effects §2.4), kept by representative: a bind moves
  * the mark with the variable's class, so asking of a colour is one lookup
  * rather than a walk over every callback in the module.
@@ -707,6 +701,12 @@ interface ColourScope {
   readonly level: number;
 }
 
+/**
+ * The instance side of one seat *(#867)*: the monotype the body solved, the
+ * frame it closed, the calls written inside it — nested lambdas' included, so
+ * "the offending call" is reachable for an arrow that fails inside one — the
+ * colours its freshening minted, and the seat's own line.
+ */
 interface SeatBody {
   readonly type: FunctionMono;
   readonly frame: EffectFrame | undefined;
@@ -3193,11 +3193,6 @@ class Checker {
    */
   readonly #lambdaFaces = new WeakMap<Resolved.LambdaExpr, SignatureFace>();
   /**
-   * A lambda written as the value a written `->?` result arrow returns, with
-   * that arrow: its own colour is the arrow's, so its calls answer to the
-   * face's promise where they stand (Effects §4.2).
-   */
-  /**
    * A lambda written as the value a function hands back, with the written face
    * whose spine it stands on: a lambda it hands back in turn answers to the
    * same face (`#resultFaces`).
@@ -3207,6 +3202,11 @@ class Checker {
   #generalizingFace: SignatureFace | undefined;
   /** Each lambda's function type, and the body it types, for a refused tie's reading (`#readRefusedTies`). */
   readonly #frameOfType = new WeakMap<Mono, EffectFrame>();
+  /**
+   * A lambda written as the value a written `->?` result arrow returns, with
+   * that arrow: its own colour is the arrow's, so its calls answer to the
+   * face's promise where they stand (Effects §4.2).
+   */
   readonly #resultFaces = new WeakMap<
     Resolved.LambdaExpr,
     { readonly effect: Mono; readonly face: SignatureFace; readonly arrow: Source.Span }
@@ -6292,8 +6292,8 @@ class Checker {
    * (`let same = [x, n]`), and the argument types are inferred where the call
    * is written; unpinned, a binding closing in between quantifies what the goal
    * will settle, and a use made before the deadline keeps a copy the settlement
-   * never reaches. (A colour inside an argument's function type stays where
-   * `#lowerLevels` leaves colours.)
+   * never reaches. (A colour inside an argument's function type sinks with it,
+   * as `#lowerLevels` sinks every colour a composite carries.)
    *
    * A fixpoint over the receivers' levels: a goal's result or argument can be
    * another goal's receiver, so sinking one can sink another's region.
@@ -19149,18 +19149,43 @@ class Checker {
     if (actual.kind !== "Function") return type;
     const readings = this.#frameOfType.get(actual)?.tieReadings;
     if (readings === undefined || readings.size === 0) return type;
-    const parameters = actual.parameters.map((parameter, index) => {
-      if (!readings.has(index)) return parameter;
+    // Each refused parameter's own arrows take a fresh callback colour. A tied
+    // colour this binding quantifies — siblings' shared colour — is their join
+    // wherever else the face runs it, as the fix's face would be; a captured
+    // colour stays the enclosing function's.
+    const fresh = new Map<number, Variable>();
+    const shared = new Map<number, Variable[]>();
+    for (const index of readings) {
       const own = this.#fresh(level + 1, false);
       this.#linkedColours.push(own);
-      const spine = (node: Mono): Mono => {
-        const at = this.#prune(node);
-        return at.kind === "Function" ? { ...at, result: spine(at.result), effect: own } : node;
-      };
-      return spine(parameter);
-    });
-    return { ...actual, parameters };
+      fresh.set(index, own);
+      const parameter = actual.parameters[index];
+      if (parameter === undefined) continue;
+      for (const { arrow } of this.#spineColours(parameter)) {
+        for (const part of this.#colourParts(arrow)) {
+          if (part.level <= level) continue;
+          const owners = shared.get(part.id) ?? [];
+          if (!owners.includes(own)) owners.push(own);
+          shared.set(part.id, owners);
+        }
+      }
+    }
+    const joined = new Map([...shared].map(([id, owners]) => [id, this.#join(owners)] as const));
+    const spine = (node: Mono, own: Variable): Mono => {
+      const at = this.#prune(node);
+      return at.kind === "Function" ? { ...at, result: spine(at.result, own), effect: own } : node;
+    };
+    return {
+      ...actual,
+      parameters: actual.parameters.map((parameter, index) => {
+        const own = fresh.get(index);
+        return own === undefined ? this.#replaceVariables(parameter, joined) : spine(parameter, own);
+      }),
+      result: this.#replaceVariables(actual.result, joined),
+      ...(actual.effect === undefined ? {} : { effect: this.#replaceVariables(actual.effect, joined) }),
+    };
   }
+
 
   /**
    * An untyped callback's type as the black-box reading writes it (§3.4's
@@ -19686,7 +19711,14 @@ class Checker {
     } finally {
       this.#settlingArms -= 1;
     }
-    for (const frame of frames) this.#closeFrame(frame);
+    // Outermost first: a held lambda's close reads the claims its enclosing
+    // member's close decides (Effects §3.4's tie test reads settled colours).
+    const depth = (frame: EffectFrame): number => {
+      let count = 0;
+      for (let open = frame.enclosing; open !== undefined; open = open.enclosing) count += 1;
+      return count;
+    };
+    for (const frame of [...frames].sort((left, right) => depth(left) - depth(right))) this.#closeFrame(frame);
   }
 
   /**
@@ -24999,9 +25031,9 @@ class Checker {
     // leaves the list.
     this.#closeOpenings(level);
     // A finished face depends on all of its callbacks or on none (§2.4).
+    type = this.#readRefusedTies(type, level);
     type = this.#widenFace(type, level);
     type = this.#readRefusedArrows(type);
-    type = this.#readRefusedTies(type, level);
     let variables = this.#collectVariables(type).filter(
       (variable) => variable.level > level,
     );
@@ -25173,16 +25205,6 @@ class Checker {
   }
 
   /**
-   * **A finished face depends on all of its callbacks or on none of them**
-   * (Effects §2.4). Where a binding generalizes, each colour on its face that
-   * depends on some of the callbacks handed by the time it runs is widened to
-   * the join of all of them, which is the colour a written `->?` there would
-   * denote. The callbacks' own arrows are the colours themselves, and a
-   * captured colour is the enclosing function's: neither is widened. The face
-   * is rewritten, never a colour bound, so each callback keeps its own colour;
-   * every occurrence the caller receives is widened together.
-   */
-  /**
    * A face whose written `->?` §4.2 refused reads as its fix, `->!`, on its
    * spine, where callers meet it: a copy, never the body's own colour.
    */
@@ -25199,6 +25221,16 @@ class Checker {
     return read(type, 0);
   }
 
+  /**
+   * **A finished face depends on all of its callbacks or on none of them**
+   * (Effects §2.4). Where a binding generalizes, each colour on its face that
+   * depends on some of the callbacks handed by the time it runs is widened to
+   * the join of all of them, which is the colour a written `->?` there would
+   * denote. The callbacks' own arrows are the colours themselves, and a
+   * captured colour is the enclosing function's: neither is widened. The face
+   * is rewritten, never a colour bound, so each callback keeps its own colour;
+   * every occurrence the caller receives is widened together.
+   */
   #widenFace(type: Mono, level: number): Mono {
     const own = (colour: Mono): Variable[] =>
       this.#colourParts(colour).filter((part) => part.level > level);
