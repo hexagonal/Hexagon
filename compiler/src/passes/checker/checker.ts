@@ -412,8 +412,8 @@ interface FaceFit {
   readonly value: Mono;
   /** Where the value stands, for the no-call form of the report. */
   readonly at: Source.Span;
-  /** The lambda the value is, where it is one: the functions it hands back are searched. */
-  readonly frame?: EffectFrame | undefined;
+  /** The lambdas the value may be: the functions it hands back, searched for the offending call. */
+  readonly lambdas: readonly EffectFrame[];
   checked: boolean;
 }
 
@@ -3240,6 +3240,13 @@ class Checker {
   readonly #faceArrowNodes = new WeakMap<Mono, { readonly face: SignatureFace; readonly arrow: FaceArrow }>();
   /** Each lambda's function type, and the body it types, for a refused tie's reading (`#readRefusedTies`). */
   readonly #frameOfType = new WeakMap<Mono, EffectFrame>();
+  /**
+   * The lambdas a function value may be, by its type's node: a lambda's own,
+   * carried through copies (instantiation, re-opening) and joined where a
+   * merge unifies two function types — for §4.2's search for the call that
+   * runs a colour a written `->?` is not handed.
+   */
+  readonly #lambdasOf = new WeakMap<Mono, readonly EffectFrame[]>();
   /**
    * A member header's arrow is refused once, at the declaration (§4.4). The
    * honor and default seats re-elaborate the same annotations to build the
@@ -9452,6 +9459,7 @@ class Checker {
           effect: effectFrame.own,
         };
         this.#frameOfType.set(type, effectFrame);
+        this.#lambdasOf.set(type, [effectFrame]);
         const binderSpans = new Map(
           (expression.typeParameters ?? []).map(({ name, span }) => [name, span] as const),
         );
@@ -17236,8 +17244,8 @@ class Checker {
     // A report showing it while nothing has solved it shows the arrow written.
     this.#shownColours.set(opened, PURE);
     const reopened: Mono = { ...actual, effect: colour.kind === "Effect" ? opened : this.#join([colour, opened]) };
-    const frame = this.#frameOfType.get(actual);
-    if (frame !== undefined) this.#frameOfType.set(reopened, frame);
+    const lambdas = this.#lambdasOf.get(actual);
+    if (lambdas !== undefined) this.#lambdasOf.set(reopened, lambdas);
     return reopened;
   }
 
@@ -19570,8 +19578,15 @@ class Checker {
   }
 
   /** Whose callback a colour is, in a report's words — "`outer`'s `action`" — where it is known. */
-  #colourOwner(colour: Variable): string | undefined {
-    const scope = this.#scopesByColour.get(colour)[0];
+  #colourOwner(colour: Variable, near?: Source.Span): string | undefined {
+    // Where a colour is several signatures' (a knot's shared callback), the
+    // one whose body holds the report's is the owner it names.
+    const scopes = this.#scopesByColour.get(colour);
+    const enclosing = near === undefined
+      ? []
+      : scopes.filter(({ span }) => spanWithin(near, span))
+        .sort((left, right) => (left.span.end.offset - left.span.start.offset) - (right.span.end.offset - right.span.start.offset));
+    const scope = enclosing[0] ?? scopes[0];
     if (scope?.owner !== undefined && scope.parameter !== undefined) return `\`${scope.owner}\`'s \`${scope.parameter}\``;
     const claim = this.#untypedColours.get(colour)[0];
     if (claim?.owner !== undefined) return `\`${claim.owner}\`'s \`${claim.name}\``;
@@ -19641,16 +19656,18 @@ class Checker {
           : this.#colourParts(now).includes(offence!.part);
       };
       // The functions the value hands back that the body defines: the
-      // expression itself, and the local lambda it names.
-      const local = fit.frame?.span !== undefined && face.body !== undefined && spanWithin(fit.frame.span, face.body)
-        ? fit.frame.span
-        : undefined;
+      // expression itself and the local lambdas it may be, never the calls
+      // the body runs itself.
+      const local = fit.lambdas
+        .map(({ span }) => span)
+        .filter((span): span is Source.Span => span !== undefined && face.body !== undefined && spanWithin(span, face.body));
+      const bodyOwn = new Set(face.frame?.absorbed.map(({ span }) => span) ?? []);
       const handsBack = (span: Source.Span): boolean =>
-        spanWithin(span, fit.at) || (local !== undefined && spanWithin(span, local));
+        !bodyOwn.has(span) && (spanWithin(span, fit.at) || local.some((lambda) => spanWithin(span, lambda)));
       const call = this.#absorbedCalls
         .filter(({ effect, span }) => handsBack(span) && runs(effect))
         .sort((left, right) => precedes(left.span, right.span) ? -1 : 1)[0];
-      const owner = offence.part === undefined ? undefined : this.#colourOwner(offence.part);
+      const owner = offence.part === undefined ? undefined : this.#colourOwner(offence.part, face.body);
       const subject = call === undefined ? "this function" : "this call";
       this.#reportFollowsFace(
         face,
@@ -19756,7 +19773,7 @@ class Checker {
         continue;
       }
       if (frame.face !== undefined && this.#isDependency(frame, now)) {
-        const owner = this.#colourOwner(now);
+        const owner = this.#colourOwner(now, frame.face?.body);
         this.#reportFollowsFace(
           frame.face,
           span,
@@ -20873,7 +20890,11 @@ class Checker {
           severity: "error",
           message: "this function touches the world on its own account, and this face's `->?` promises " +
             "the function is only as effectful as what it is handed — write `->!`",
-          primary: (settled.kind === "Effect" ? settled.solve?.span : undefined) ?? span,
+          // At the pin, or at the value where the pin is the whole body — a
+          // knot's own unification names no act.
+          primary: ((pin) => pin !== undefined && !(face.body !== undefined && spanWithin(face.body, pin))
+            ? pin
+            : face.value ?? span)(settled.kind === "Effect" ? settled.solve?.span : undefined),
           labels: [{ span, message: "this `->?` follows only the callbacks it is handed" }],
           fixes: [{ message: "write `->!`", edits: [{ span, replacement: "->!" }] }],
         });
@@ -21821,6 +21842,14 @@ class Checker {
         this.#parameterParity = !this.#parameterParity;
       }
       if (unifyChild(actualLeft.result, actualRight.result)) return;
+      // A merge makes one value of two lambdas: either may be what runs.
+      const leftLambdas = this.#lambdasOf.get(actualLeft);
+      const rightLambdas = this.#lambdasOf.get(actualRight);
+      if (leftLambdas !== rightLambdas && (leftLambdas !== undefined || rightLambdas !== undefined)) {
+        const merged = [...new Set([...(leftLambdas ?? []), ...(rightLambdas ?? [])])];
+        this.#lambdasOf.set(actualLeft, merged);
+        this.#lambdasOf.set(actualRight, merged);
+      }
       // A function value meeting a written `->?` is fitted to it, never
       // merged into it (Effects §4.2): its colour is compared with what the
       // face is handed once it settles (`#checkFaceFits`).
@@ -21829,12 +21858,15 @@ class Checker {
       if ((leftFace === undefined) !== (rightFace === undefined)) {
         const written = (leftFace ?? rightFace)!;
         const valueNode = leftFace === undefined ? actualLeft : actualRight;
-        const frame = this.#frameOfType.get(valueNode);
+        const lambdas = this.#lambdasOf.get(valueNode) ?? [];
+        const own = this.#frameOfType.get(valueNode);
         (written.face.fits ??= []).push({
           arrow: written.arrow,
           value: valueNode.effect ?? PURE,
-          at: written.face.value ?? this.#pinSides?.value ?? span,
-          ...(frame === undefined ? {} : { frame }),
+          // Where the value stands: the lambda it is, where it is one; else
+          // the expression the seat hands back.
+          at: own?.span ?? this.#pinSides?.value ?? written.face.value ?? span,
+          lambdas,
           checked: false,
         });
         return;
@@ -25213,6 +25245,7 @@ class Checker {
     type = this.#readRefusedTies(type, level);
     type = this.#widenFace(type, level);
     type = this.#readRefusedArrows(type);
+    type = this.#publishUnheldColours(type, level);
     let variables = this.#collectVariables(type).filter(
       (variable) => variable.level > level,
     );
@@ -25381,6 +25414,37 @@ class Checker {
     }
     for (const variable of variables) this.#quantified.add(variable.id);
     return { variables, type };
+  }
+
+  /**
+   * A colour a finished face quantifies but that stands in none of its
+   * parameters is published pure (Effects §2.4): the scheme holds at every
+   * choice of it, and a caller's fresh copy of it defaults pure anyway. A knot
+   * member that runs a sibling's callback colour, monomorphic inside the knot
+   * (§3.4), finishes with such a colour, and shows `->` for it rather than a
+   * `->?` no written face could spell.
+   */
+  #publishUnheldColours(type: Mono, level: number): Mono {
+    const actual = this.#prune(type);
+    if (actual.kind !== "Function") return type;
+    const held = new Set<number>();
+    for (let node: Mono = actual; node.kind === "Function"; node = this.#prune(node.result)) {
+      for (const parameter of node.parameters) {
+        for (const variable of this.#collectVariables(parameter)) held.add(variable.id);
+      }
+    }
+    const unheld = new Map<number, Mono>();
+    const visit = (node: Mono): void => {
+      const at = this.#prune(node);
+      if (at.kind === "Function") {
+        for (const part of this.#colourParts(at.effect ?? PURE)) {
+          if (part.level > level && !held.has(part.id)) unheld.set(part.id, PURE);
+        }
+        visit(at.result);
+      }
+    };
+    visit(actual);
+    return unheld.size === 0 ? type : this.#replaceVariables(type, unheld);
   }
 
   /**
@@ -26346,8 +26410,8 @@ class Checker {
           ...(actual.effect === undefined ? {} : { effect: copy(actual.effect) }),
         };
         // A copy of a lambda's type is still that lambda's, for §4.2's search.
-        const frame = this.#frameOfType.get(actual);
-        if (frame !== undefined) this.#frameOfType.set(copied, frame);
+        const lambdas = this.#lambdasOf.get(actual);
+        if (lambdas !== undefined) this.#lambdasOf.set(copied, lambdas);
         return copied;
       }
       if (actual.kind === "Tuple") {

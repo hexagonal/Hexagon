@@ -866,6 +866,50 @@ export let u(): Unit = apply!((cb: () ->! Unit): () ->? Unit => cb)
 `)).toEqual(["cb"]);
   });
 
+  it("never counts a call the body runs itself, and gives each arrow and each merged lambda its own search", () => {
+    const text = (source: string) => "module Main\n\n" + world + source;
+    const at = (source: string) => compileFiles([["/world.js", ""], ["/main.hex", text(source)]]).diagnostics
+      .map((diagnostic) => text(source).slice(diagnostic.primary.start.offset, diagnostic.primary.end.offset));
+    // A condition the body evaluates is the body's own call.
+    expect(at(`export let loud(): Bool =
+    save!("a")
+    True
+export let h(cb: () ->! Unit): () ->? Unit =
+    if loud!() then (() => cb!()) else (() => audit!("x"))
+`)).toEqual(['audit!("x")']);
+    // Two written `->?`: each answers for the lambda that stands under it.
+    expect(at(`export let h(cb: () ->! Unit): () ->? (() ->? Unit) =
+    () =>
+        save!("a")
+        () => audit!("b")
+`)).toEqual(['save!("a")', 'audit!("b")']);
+    // A merge of named lambdas searches both, whichever the unifier kept.
+    for (const merge of ["if c then f1 else f2", "if c then f2 else f1"]) {
+      expect(at(`export let h(c: Bool, cb: () ->! Unit): () ->? Unit =
+    let f1 = () => cb!()
+    let f2 = () => save!("x")
+    let g = ${merge}
+    g
+`)).toEqual(['save!("x")']);
+    }
+    // A pin that is a knot's own unification names no act: the value stands.
+    expect(at(`fun
+    h(n: Int, cb: () ->! Unit): () ->? Unit =
+        if n == 0 then cb else h(n - 1, () => save!("y"))
+`)).toEqual(['if n == 0 then cb else h(n - 1, () => save!("y"))']);
+  });
+
+  it("names the enclosing signature's callback where a knot shares the colour", () => {
+    const text = "module Main\n\n" + world + `fun
+    a(n: Int, f: () ->! Unit): Unit =
+        let h(cb: () ->! Unit): () ->? Unit = () => b!(n, f)
+        h(() => ())!()
+    b(n: Int, f: () ->! Unit): Unit = if n == 0 then f!() else a!(n - 1, f)
+`;
+    expect(compileFiles([["/world.js", ""], ["/main.hex", text]]).diagnostics.map(({ message }) => message.split(", and this face's")[0]))
+      .toEqual(["this call runs `a`'s `f`, which this signature is not handed"]);
+  });
+
   it("any function value meeting a written `->?` is compared with it, never merged, whatever its shape", () => {
     // §4.2: a named local, a merge, a captured parameter, an annotation over a
     // lambda — each is compared with what the arrow is handed, and the report
@@ -2847,6 +2891,23 @@ describe("#947 closure construction stays pure, and knots settle at their close"
   const wantsBare = (callee: string, mark: string): string =>
     `this call is pure, so \`${callee}\` wants no mark, not \`${mark}\``;
 
+  it("publishes pure a colour a member runs that stands in none of its parameters", () => {
+    // `k` runs `h`'s returned function, whose colour is `h`'s callback's —
+    // monomorphic inside the knot, so the sibling call inside wears `!` — and
+    // finishes with that colour standing in none of its own parameters: `k`
+    // is published `Int -> Unit`, and an outside call is bare (§2.4).
+    const source = `fun
+    h(n: Int, cb: () ->! Unit): () ->? Unit =
+        let g = () => k!(n)
+        g
+    k(n: Int): Unit = if n == 0 then () else h(n - 1, () => ())!()
+export let use(): Unit = k(3)
+`;
+    expect(check(source)).toEqual([]);
+    expect(hover(source, "k(n")).toBe("Int -> Unit");
+    expect(check(source.replace("let g = () => k!(n)", "let g = () => k(n)"))).toEqual([wantsBang("k")]);
+  });
+
   it("places a pin a knot recorded where a lone body places it: at the argument", () => {
     const source = `export let pureOnly(f: () -> Unit): Unit = f()
 fun
@@ -2863,11 +2924,10 @@ fun
   it("reads a sibling call's mark as an outside call's, the knot's colours being monotypes", () => {
     // Within the knot a member's colours are monotypes (Functions §7.4): a
     // sibling call wears the member's colour, `!` where it depends on the
-    // member's callbacks, as §3.4's `even`/`odd` do. Widening only adds
-    // callbacks to a colour that already depends on some, so the sibling
-    // call's mark is the one the widened face gives (§3.4's step 6). A
-    // sibling handing `b` an impure function pins its monomorphic colour,
-    // and the face published then follows `a` alone.
+    // member's callbacks, as §3.4's `even`/`odd` do, even where the sibling
+    // hands it pure functions (§3.4's step 6). A sibling handing `b` an
+    // impure function pins its monomorphic colour, and the face published
+    // then follows `a` alone.
     const knot = (sibling: string, outside: string): string => `fun
     m(a: () ->! Unit, b: () ->! Unit, n: Int): Unit =
         a!()
