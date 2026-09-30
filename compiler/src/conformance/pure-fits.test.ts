@@ -718,10 +718,10 @@ describe("a colour left open where the binding is made (#1170)", () => {
     ]);
   });
 
-  test("a callback handed to it is its colour exactly: a merge's effect never reaches the face, in either order", () => {
-    // The slack the handed callback brought is not the value's: were it, the
-    // merge's effect could land there, and `outer` would read `->!` in one
-    // order and `->?` in the other.
+  test("a callback handed to it leaves room a later use never takes: the merge's effect stays off the face", () => {
+    // The slack the handed callback brought is the value's room to grow: were
+    // the merge's effect to land there, `outer` would read `->!` in one order
+    // and `->?` in the other.
     const merge = 'let v = [r, (g) => save!("y")]';
     for (const [routeName, route] of Object.entries(routes)) {
       for (const uses of [["r!(action)", merge], [merge, "r!(action)"]]) {
@@ -729,6 +729,65 @@ describe("a colour left open where the binding is made (#1170)", () => {
           route(uses).map((line) => `    ${line}\n`).join("") + "    ()\n";
         expect([routeName, uses, reports(source)]).toEqual([routeName, uses, []]);
         expect([routeName, uses, hovered(source, "outer(")]).toEqual([routeName, uses, "(() ->! Unit) ->? Unit"]);
+      }
+    }
+  });
+
+  test("callbacks handed to it stay independent: no tie, and the face follows them, in either order", () => {
+    const outer = (params: string, uses: readonly string[]): string =>
+      prefix + `export let outer(${params}): Unit =\n    let (r, _) = make()\n` +
+      uses.map((use) => `    ${use}\n`).join("") + "    ()\n";
+    const two = "a1: () ->! Unit, a2: () ->! Unit";
+    // Two callbacks handed in turn: the value's colour is their join, never one
+    // made equal to the other, so a caller handing two untyped callbacks meets
+    // no tie.
+    for (const uses of [["r!(a1)", "r!(a2)"], ["r!(a2)", "r!(a1)"]]) {
+      const source = outer(two, uses) + "let user(p, q) = outer!(p, q)\n";
+      expect([uses, reports(source)]).toEqual([uses, []]);
+      expect([uses, hovered(source, "outer(")]).toEqual([uses, "(() ->! Unit, () ->! Unit) ->? Unit"]);
+    }
+    // A lambda running both beside one callback, or beside a decided pure
+    // function, which a use re-opens: `->?`, and a bare call of `outer` on pure
+    // functions stays bare, in either order.
+    const both = "r!(() => if True then a1!() else a2!())";
+    for (const other of ["r!(a1)", "r!(ident(noop))", "r!(fs[1])"]) {
+      for (const uses of [[both, other], [other, both]]) {
+        const lines = other.includes("fs[1]") ? ["let fs = [noop]", ...uses] : uses;
+        const source = outer(two, lines) + "export let top(): Unit = outer(noop, noop)\n";
+        expect([uses, reports(source)]).toEqual([uses, []]);
+        expect([uses, hovered(source, "outer(")]).toEqual([uses, "(() ->! Unit, () ->! Unit) ->? Unit"]);
+      }
+    }
+  });
+
+  test("room the value took in is taken last, whatever the order of the uses that meet it", () => {
+    const outer = (uses: readonly string[]): string =>
+      prefix + "export let outer(a1: () ->! Unit, a2: () ->! Unit): Unit =\n    let (r, _) = make()\n" +
+      uses.map((use) => `    ${use}\n`).join("") + "    ()\n";
+    // A decided pure function handed to `r` leaves room in `r`'s colour; the
+    // merge's own slack takes `a2`'s colour, so `r` stays pure and `outer` too.
+    for (const uses of [["r(ident(noop))", "let v = [r, (g) => a2!()]"], ["let v = [r, (g) => a2!()]", "r(ident(noop))"]]) {
+      expect([uses, reports(outer(uses))]).toEqual([uses, []]);
+      expect([uses, hovered(outer(uses), "outer(")]).toEqual([uses, "(() ->! Unit, () ->! Unit) -> Unit"]);
+    }
+    // A slack a slack of the value took in is the value's too.
+    const uses = ["r!(() => if True then a1!() else a2!())", "r!(a1)", 'let w = [r, (g) => save!("y")]'];
+    for (const order of [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]]) {
+      const lines = order.map((index) => uses[index]!);
+      expect([lines, reports(outer(lines))]).toEqual([lines, []]);
+      expect([lines, hovered(outer(lines), "outer(")]).toEqual([lines, "(() ->! Unit, () ->! Unit) ->? Unit"]);
+    }
+  });
+
+  test("a body nested in its owner never decides its colour at its own close, in either order", () => {
+    // The owner decides the value's colour from every use: a lambda calling
+    // it, closing first, does not settle it pure before a later effectful use.
+    const lambda = "let t = () => r!(() => ())";
+    const effectful = 'r!(() => save!("z"))';
+    for (const route of [routes.pattern!, routes.field!]) {
+      for (const uses of [[lambda, effectful], [effectful, lambda]]) {
+        const lines = route(uses);
+        expect([lines, reports(program(lines))]).toEqual([lines, []]);
       }
     }
   });
