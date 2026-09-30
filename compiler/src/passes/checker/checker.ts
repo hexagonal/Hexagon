@@ -3137,6 +3137,14 @@ class Checker {
    * opening never survives into a scheme and no second variable appears.
    */
   readonly #openedColours = new WeakSet<Variable>();
+  /**
+   * Values read where they stand rather than handed anywhere (#1169): a
+   * `match` scrutinee and a `for` iterable, which the form takes apart, and a
+   * pattern's `view` and `build`, its declaration's own values. Only their
+   * outermost arrow is re-opened (`#openAt`); their parts are re-opened at
+   * their own uses.
+   */
+  readonly #readInPlace = new WeakSet<Resolved.Expr>();
   /** Whether `#unify` stands inside an odd number of parameter positions, where demand and supply turn over. */
   #parameterParity = false;
   /** Every opened colour not yet settled, for the binding that minted it to close (`#generalize`). */
@@ -7066,6 +7074,8 @@ class Checker {
         // A pattern's two directions are its declaration's own values (#1119).
         this.#unopenedLambdas.add(item.view.value);
         if (item.build !== undefined) this.#unopenedLambdas.add(item.build.value);
+        this.#readInPlace.add(item.view.value);
+        if (item.build !== undefined) this.#readInPlace.add(item.build.value);
         const inferredView = this.#inferExpr(item.view.value, level + 1, viewExpected);
         this.#unify(viewSlot, inferredView, item.view.span, () =>
           item.head === undefined
@@ -9573,6 +9583,7 @@ class Checker {
         break;
       }
       case "For": {
+        this.#readInPlace.add(expression.iterable);
         const iterable = this.#inferExpr(expression.iterable, level);
         let actual = this.#prune(iterable);
         if (actual.kind === "Variable" && actual.literalOnly) {
@@ -10462,7 +10473,88 @@ class Checker {
     }
 
     this.#expressionTypes.set(expression, type);
-    return this.#opensAt(expression) ? this.#openAt(type, level) : type;
+    if (!this.#opensAt(expression)) return type;
+    return this.#readInPlace.has(expression) ? this.#openAt(type, level) : this.#openReceived(type, level);
+  }
+
+  /**
+   * **A pure function fits wherever a function is expected, at any depth**
+   * *(Effects §2.6, §3.4; #1169)*: every arrow a use receives is re-opened, its
+   * colour or more (`#openAt`). That is each function in a position the use
+   * receives, read by variance: the value's own arrow, a function's result, a
+   * tuple's or a record's function, a covariant argument's. A parameter's
+   * arrow is where the use hands something, and is left as it stands; beneath
+   * it the sign turns again. An invariant argument (a mutable collection's
+   * element) is left whole. Swift reaches the same verdicts by subtyping;
+   * this is Koka's re-opening, at every depth the use receives.
+   */
+  #openReceived(type: Mono, level: number): Mono {
+    const walk = (node: Mono, receives: boolean): Mono => {
+      const actual = this.#prune(node);
+      switch (actual.kind) {
+        case "Function": {
+          const parameters = actual.parameters.map((parameter) => walk(parameter, !receives));
+          const result = walk(actual.result, receives);
+          let rebuilt: Mono = node;
+          if (result !== actual.result || parameters.some((parameter, index) => parameter !== actual.parameters[index])) {
+            rebuilt = { ...actual, parameters, result };
+            const lambdas = this.#lambdasOf.get(actual);
+            if (lambdas !== undefined) this.#lambdasOf.set(rebuilt, lambdas);
+          }
+          return receives ? this.#openAt(rebuilt, level) : rebuilt;
+        }
+        case "Tuple": {
+          const elements = actual.elements.map((element) => walk(element, receives));
+          return elements.every((element, index) => element === actual.elements[index])
+            ? node
+            : { kind: "Tuple", elements };
+        }
+        case "Record": {
+          const fields = new Map([...actual.fields].map(([name, field]) => [name, walk(field, receives)]));
+          if ([...fields].every(([name, field]) => field === actual.fields.get(name))) return node;
+          return { kind: "Record", fields, ...(actual.tail === undefined ? {} : { tail: actual.tail }) };
+        }
+        case "Union":
+        case "NominalRecord":
+        case "ExternType": {
+          const parts = actual.arguments.map((argument, index) => {
+            const variance = actual.kind === "Union"
+              ? this.#variance.effectiveUnion(actual.union, index)
+              : actual.kind === "NominalRecord"
+              ? this.#variance.effectiveRecord(actual.record, index)
+              : this.#variance.externClaim(actual.externType, index);
+            return variance === "co" ? walk(argument, receives)
+              : variance === "contra" ? walk(argument, !receives)
+              : argument;
+          });
+          return parts.every((part, index) => part === actual.arguments[index]) ? node : { ...actual, arguments: parts };
+        }
+        case "Vector":
+        case "Set":
+        case "Array":
+        case "JsSet":
+        case "Node": {
+          const variance = this.#variance.kindClaim(actual.kind, 0);
+          if (variance !== "co" && variance !== "contra") return node;
+          const element = walk(actual.element, variance === "co" ? receives : !receives);
+          return element === actual.element ? node : { ...actual, element };
+        }
+        case "Nullable": {
+          if (this.#variance.kindClaim("Nullable", 0) !== "co") return node;
+          const value = walk(actual.value, receives);
+          return value === actual.value ? node : { kind: "Nullable", value };
+        }
+        case "Map":
+        case "JsMap": {
+          const key = this.#variance.kindClaim(actual.kind, 0) === "co" ? walk(actual.key, receives) : actual.key;
+          const value = this.#variance.kindClaim(actual.kind, 1) === "co" ? walk(actual.value, receives) : actual.value;
+          return key === actual.key && value === actual.value ? node : { ...actual, key, value };
+        }
+        default:
+          return node;
+      }
+    };
+    return walk(type, true);
   }
 
   /**
@@ -16541,6 +16633,7 @@ class Checker {
     node: TreeNode,
     collect: (part: Resolved.Expr, expectation: Mono | undefined) => void,
   ): void {
+    this.#readInPlace.add(expression.scrutinee);
     const scrutinee = this.#inferExpr(expression.scrutinee, level);
     // Read once, before any arm: one arm's body cannot settle what another
     // arm's pattern binds (#1119 R.b).
@@ -17266,9 +17359,10 @@ class Checker {
    * ordinary unification: a `->?` there makes it that variable, a `->!` the
    * impure constant, a `->` pure, and a colour nothing real reaches is pure
    * again where it settles. This is Koka's re-opening at instantiation
-   * (`Type/Operations.hs`, `extend`) at two points: the outermost arrow only,
-   * an impure arrow left as it is (the top of the lattice has nothing above it)
-   * and a variable left alone. The function's own colour is untouched — it is
+   * (`Type/Operations.hs`, `extend`) at one function's own arrow, an impure
+   * arrow left as it is (the top of the lattice has nothing above it) and a
+   * variable left alone; `#openReceived` applies it to every arrow a use
+   * receives. The function's own colour is untouched — it is
    * still what its body does (§2.6), and it is what hover shows — and the copy
    * shares every component but the one slot, so nothing about the value moves.
    */
@@ -25545,56 +25639,115 @@ class Checker {
 
   /**
    * **A colour stays only where a parameter can choose it** (Effects §2.4).
-   * A colour on the spine that no spine parameter holds is published pure on
-   * the spine, and on each function the result carries in data (a tuple, an
-   * `Option`, a record) except where that function's own parameters, or those
-   * of a function around it, hold it. Nothing handed to a function chooses the
-   * colour where it is published pure, so the scheme holds at every choice of
-   * it. A knot member that runs a sibling's callback colour, monomorphic
-   * inside the knot (§3.4), finishes with such a colour on its spine, and
-   * shows `->` for it rather than a `->?` no written face could spell. A
-   * colour off the spine is left as it stands.
+   * A colour none of the spine's parameters hold is published, in each
+   * function the result carries (in a tuple, an `Option`, a record), as a
+   * colour of that function's own where its parameters, or those of a function
+   * around it, hold it, and as pure everywhere else: on the spine's own arrows,
+   * and on each carried function that does not hold it. A declared type's
+   * fields are out of view, so a colour in any of its arguments but a
+   * covariant one is held for all of them. Nothing handed to a function
+   * chooses the colour where it is published pure, so the scheme holds at
+   * every choice of it, and each function is published at its own choice, so
+   * two functions the result carries never share one (#1169). A knot member
+   * that runs a sibling's callback colour, monomorphic inside the knot (§3.4),
+   * finishes with such a colour on its spine, and shows `->` for it rather than
+   * a `->?` no written face could spell.
    *
-   * Each function is published at its own choice (#1166). That is sound
-   * because colours are erased and no function can observe what a caller
-   * handed another: a lambda reaches no outer `var` and there are no ref cells
-   * (§7's coupling), and a pure collection denotes stable contents (§6.2).
+   * That is sound because colours are erased and no function can observe what
+   * a caller handed another: a lambda reaches no outer `var` and there are no
+   * ref cells (§7's coupling), and a pure collection denotes stable contents
+   * (§6.2).
    *
-   * An expansive binding (`allow` false) publishes such a colour pure
-   * everywhere instead. A colour it kept would stand in a position the relaxed
-   * value restriction declines to generalize, and every use would then share
-   * it.
+   * An expansive binding (`allow` false) publishes a colour on the spine's own
+   * arrows as pure everywhere first. A colour a function the result carries
+   * kept would stand in a position the relaxed value restriction declines to
+   * generalize, and every use would then share it.
    */
   #publishUnheldColours(type: Mono, level: number, allow: boolean): Mono {
     const actual = this.#prune(type);
     if (actual.kind !== "Function") return type;
     const spineHeld = this.#inputVariables(actual);
-    const spineColours = new Set<number>();
-    for (let node: Mono = actual; node.kind === "Function"; node = this.#prune(node.result)) {
-      for (const part of this.#colourParts(node.effect ?? PURE)) {
-        if (part.level > level && !spineHeld.has(part.id)) spineColours.add(part.id);
+    const unheld = (part: Variable): boolean => part.level > level && !spineHeld.has(part.id);
+    let published = type;
+    if (!allow) {
+      const spineColours = new Map<number, Mono>();
+      for (let node: Mono = actual; node.kind === "Function"; node = this.#prune(node.result)) {
+        for (const part of this.#colourParts(node.effect ?? PURE)) {
+          if (unheld(part)) spineColours.set(part.id, PURE);
+        }
       }
+      if (spineColours.size > 0) published = this.#replaceVariables(type, spineColours);
     }
-    if (spineColours.size === 0) return type;
-    if (!allow) return this.#replaceVariables(type, new Map([...spineColours].map((id) => [id, PURE])));
-    return this.#publishHeld(type, new Set(), spineColours);
+    const colours = new Set(this.#colourVariables(published).filter(unheld).map(({ id }) => id));
+    return colours.size === 0 ? published : this.#publishHeld(published, new Map(), colours, level);
+  }
+
+  /** Every variable part of every colour in a type, each once. */
+  #colourVariables(type: Mono, found = new Map<number, Variable>()): Variable[] {
+    const actual = this.#prune(type);
+    const each = (node: Mono): void => void this.#colourVariables(node, found);
+    switch (actual.kind) {
+      case "Function":
+        for (const part of this.#colourParts(actual.effect ?? PURE)) found.set(part.id, part);
+        actual.parameters.forEach(each);
+        each(actual.result);
+        break;
+      case "Tuple":
+        actual.elements.forEach(each);
+        break;
+      case "Record":
+        for (const field of actual.fields.values()) each(field);
+        break;
+      case "Union":
+      case "NominalRecord":
+      case "ExternType":
+        actual.arguments.forEach(each);
+        break;
+      case "Vector":
+      case "Set":
+      case "Array":
+      case "JsSet":
+      case "Node":
+        each(actual.element);
+        break;
+      case "Nullable":
+        each(actual.value);
+        break;
+      case "Map":
+      case "JsMap":
+        each(actual.key);
+        each(actual.value);
+        break;
+    }
+    return [...found.values()];
   }
 
   /**
-   * `#publishUnheldColours` at one node, publishing `spineColours` except
-   * where `held` holds them: the colours the parameters around the node hold,
-   * and those of a type constructor's non-covariant arguments around it.
+   * `#publishUnheldColours` at one node. `scopes` maps each of `colours` that
+   * the parameters around the node hold, or a type constructor's
+   * non-covariant argument around it, to the colour it is published as there;
+   * any other of `colours` is published pure.
    */
-  #publishHeld(type: Mono, held: ReadonlySet<number>, spineColours: ReadonlySet<number>): Mono {
+  #publishHeld(
+    type: Mono,
+    scopes: ReadonlyMap<number, Mono>,
+    colours: ReadonlySet<number>,
+    level: number,
+  ): Mono {
     const actual = this.#prune(type);
-    const each = (node: Mono): Mono => this.#publishHeld(node, held, spineColours);
+    const each = (node: Mono): Mono => this.#publishHeld(node, scopes, colours, level);
     const all = (nodes: readonly Mono[]): readonly Mono[] => {
       const published = nodes.map(each);
       return published.every((node, index) => node === nodes[index]) ? nodes : published;
     };
     switch (actual.kind) {
       case "Function":
-        return this.#publishArrows(type, this.#inputVariables(actual, new Set(held)), spineColours);
+        return this.#publishArrows(
+          type,
+          this.#scopeOf(this.#inputVariables(actual), scopes, colours, level),
+          colours,
+          level,
+        );
       case "Tuple": {
         const elements = all(actual.elements);
         return elements === actual.elements ? type : { kind: "Tuple", elements };
@@ -25614,7 +25767,7 @@ class Checker {
             ? this.#variance.effectiveUnion(actual.union, index)
             : actual.kind === "NominalRecord"
             ? this.#variance.effectiveRecord(actual.record, index)
-            : this.#variance.externClaim(actual.externType, index), held, spineColours);
+            : this.#variance.externClaim(actual.externType, index), scopes, colours, level);
         return parts === actual.arguments ? type : { ...actual, arguments: parts };
       }
       case "Vector":
@@ -25623,23 +25776,42 @@ class Checker {
       case "JsSet":
       case "Node": {
         const element = this.#publishArguments([actual.element], (index) =>
-          this.#variance.kindClaim(actual.kind, index), held, spineColours)[0]!;
+          this.#variance.kindClaim(actual.kind, index), scopes, colours, level)[0]!;
         return element === actual.element ? type : { ...actual, element };
       }
       case "Nullable": {
         const value = this.#publishArguments([actual.value], (index) =>
-          this.#variance.kindClaim("Nullable", index), held, spineColours)[0]!;
+          this.#variance.kindClaim("Nullable", index), scopes, colours, level)[0]!;
         return value === actual.value ? type : { kind: "Nullable", value };
       }
       case "Map":
       case "JsMap": {
         const [key, value] = this.#publishArguments([actual.key, actual.value], (index) =>
-          this.#variance.kindClaim(actual.kind, index), held, spineColours) as readonly [Mono, Mono];
+          this.#variance.kindClaim(actual.kind, index), scopes, colours, level) as readonly [Mono, Mono];
         return key === actual.key && value === actual.value ? type : { ...actual, key, value };
       }
       default:
         return type;
     }
+  }
+
+  /**
+   * `scopes`, with a colour of its own for each of `colours` that `held` holds
+   * and no scope around it holds already: one fresh colour, quantified with the
+   * binding, for every occurrence inside the scope.
+   */
+  #scopeOf(
+    held: Iterable<number>,
+    scopes: ReadonlyMap<number, Mono>,
+    colours: ReadonlySet<number>,
+    level: number,
+  ): ReadonlyMap<number, Mono> {
+    let scoped: Map<number, Mono> | undefined;
+    for (const id of held) {
+      if (!colours.has(id) || scopes.has(id) || scoped?.has(id) === true) continue;
+      (scoped ??= new Map(scopes)).set(id, this.#fresh(level + 1, false));
+    }
+    return scoped ?? scopes;
   }
 
   /**
@@ -25652,39 +25824,53 @@ class Checker {
   #publishArguments(
     parts: readonly Mono[],
     variance: (index: number) => Variance,
-    held: ReadonlySet<number>,
-    spineColours: ReadonlySet<number>,
+    scopes: ReadonlyMap<number, Mono>,
+    colours: ReadonlySet<number>,
+    level: number,
   ): readonly Mono[] {
-    const inner = new Set(held);
+    const held: number[] = [];
     parts.forEach((part, index) => {
       if (variance(index) === "co") return;
-      for (const variable of this.#collectVariables(part)) inner.add(variable.id);
+      for (const variable of this.#collectVariables(part)) held.push(variable.id);
     });
-    const published = parts.map((part) => this.#publishHeld(part, inner, spineColours));
+    const inner = this.#scopeOf(held, scopes, colours, level);
+    const published = parts.map((part) => this.#publishHeld(part, inner, colours, level));
     return published.every((part, index) => part === parts[index]) ? parts : published;
   }
 
   /**
-   * One function's own arrows, its curried results included, where its
-   * parameters and those around it hold `own`; the data it finally returns is
-   * published in turn.
+   * One function's own arrows, its curried results included, in the scope its
+   * parameters and those around it make (`own`); its parameters, and the data
+   * it finally returns, are published in the same scope.
    */
-  #publishArrows(type: Mono, own: ReadonlySet<number>, spineColours: ReadonlySet<number>): Mono {
+  #publishArrows(
+    type: Mono,
+    own: ReadonlyMap<number, Mono>,
+    colours: ReadonlySet<number>,
+    level: number,
+  ): Mono {
     const actual = this.#prune(type);
-    if (actual.kind !== "Function") return this.#publishHeld(type, own, spineColours);
-    const result = this.#publishArrows(actual.result, own, spineColours);
-    const unheld = new Map(
+    if (actual.kind !== "Function") return this.#publishHeld(type, own, colours, level);
+    const parameters = actual.parameters.map((parameter) => this.#publishHeld(parameter, own, colours, level));
+    const result = this.#publishArrows(actual.result, own, colours, level);
+    const replaced = new Map(
       this.#colourParts(actual.effect ?? PURE)
-        .filter((part) => spineColours.has(part.id) && !own.has(part.id))
-        .map((part) => [part.id, PURE] as const),
+        .filter((part) => colours.has(part.id))
+        .map((part) => [part.id, own.get(part.id) ?? PURE] as const),
     );
-    if (unheld.size === 0 && result === actual.result) return type;
+    if (
+      replaced.size === 0 && result === actual.result &&
+      parameters.every((parameter, index) => parameter === actual.parameters[index])
+    ) {
+      return type;
+    }
     const published: FunctionMono = {
       ...actual,
+      parameters,
       result,
-      ...(actual.effect === undefined || unheld.size === 0
+      ...(actual.effect === undefined || replaced.size === 0
         ? {}
-        : { effect: this.#replaceVariables(actual.effect, unheld) }),
+        : { effect: this.#replaceVariables(actual.effect, replaced) }),
     };
     // A copy of a lambda's type is still that lambda's, for §4.2's search and
     // a refused tie's reading.
