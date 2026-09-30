@@ -3101,6 +3101,32 @@ class Checker {
    */
   readonly #faceColours = new WeakSet<Variable>();
   /**
+   * A colour left open in the type of a binding the text decides: that
+   * value's own, one colour for every use of it (`#settleSource`). Like a
+   * callback's colour, it is never represented by a slack: a slack meeting it
+   * is its, so a constant a later use gives the slack never lands on it. An
+   * enclosing body's, it is a dependency of a body nested in it
+   * (`#isDependency`), as a captured callback's colour is.
+   */
+  readonly #valueColours = new WeakSet<Variable>();
+  /**
+   * The slacks a value's own colour took in *(#1170)*: a function handed to
+   * the value brings its colour or more, and the value's colour is that join,
+   * the most general answer (Effects §3.4, rule 3). Such a slack is the
+   * value's room to grow, not a use's, so where a meeting gives a slack a
+   * constant or a remainder, a slack the use itself brought takes it first
+   * (`#unifyJoin`): what one use of the value meets never raises it through
+   * room another use left.
+   */
+  readonly #valueSlacks = new WeakSet<Variable>();
+  /**
+   * Value colours, or their room, that a nested body's calls met and left to
+   * the body that made the value *(#1170)*: that body settles them at its own
+   * close, where nothing it does depends on them (`#defaultCallColours`), so
+   * no such colour reaches its scheme unsettled.
+   */
+  #valueColoursLeft: Variable[] = [];
+  /**
    * The colours a use of a pure function minted *(#1119; Effects §3.4)*: a
    * pure function fits wherever a function is expected, so each use reads its
    * outer arrow as a fresh colour (`#openAt`) that ordinary unification then
@@ -17285,6 +17311,7 @@ class Checker {
       case "Name":
       case "Call":
       case "Access":
+      case "Index":
       case "Ascription":
         return !this.#callees.has(expression) && this.#decidedValue(expression);
       case "Lambda":
@@ -17531,28 +17558,60 @@ class Checker {
   }
 
   /**
-   * A binding whose type, where it is bound, still has a part inference has
-   * not settled — a variable no generalization quantified, which the lines
-   * after it may fill — is inferred from its uses, whatever its text
-   * (#1119 R.b). Read where the binding is made, from a value the text decides,
-   * it is the same whatever order those lines come in. The outer arrow alone is
-   * what a use of the binding re-opens; a part left open elsewhere reaches only
-   * what is made from the binding's parts.
+   * A binding whose type, where it is bound, still has a part of its shape
+   * inference has not settled — a type variable no generalization quantified,
+   * which the lines after it may fill — is inferred from its uses, whatever
+   * its text (#1119 R.b), and so is one whose type holds an opening not yet
+   * closed (a value a `match` or a `for` reads in place). Read where the
+   * binding is made, from a value the text decides, it is the same whatever
+   * order those lines come in. The outer arrow alone is what a use of the
+   * binding re-opens; a part left open elsewhere reaches only what is made
+   * from the binding's parts.
+   *
+   * A colour left open is not such a part *(#1170)*. The binding's shape is
+   * settled, so every use reads a function whatever the order, and re-opening
+   * it reads its colour or more, which is the same whether a later use or an
+   * earlier one solves the colour. The colour is the value's own
+   * (`#valueColours`), one for every use.
    */
   #settleSource(symbol: Resolved.SymbolId, type: Mono, quantified: readonly Variable[]): void {
     const source = this.#bindingSources.get(symbol);
     if (source?.kind !== "value" && source?.kind !== "part") return;
     const kept = new Set(quantified.map((variable) => variable.id));
-    const unsettled = (part: Mono): boolean =>
-      this.#collectVariables(part).some((variable) =>
-        variable.instance === undefined && variable.rigidName === undefined && !kept.has(variable.id)
-      );
-    if (!unsettled(type)) return;
-    const actual = this.#prune(type);
-    const outerOpen = actual.kind === "Variable"
-      ? unsettled(actual)
-      : actual.kind === "Function" && actual.effect !== undefined && unsettled(actual.effect);
-    this.#resource(symbol, { ...source, open: true, outerOpen });
+    const shape = new Set(this.#shapeVariables(type));
+    const free = this.#collectVariables(type).filter((variable) =>
+      variable.instance === undefined && variable.rigidName === undefined && !kept.has(variable.id)
+    );
+    const unsettled = free.filter((variable) => shape.has(variable) || this.#openedColours.has(variable));
+    if (unsettled.length > 0) {
+      // The outer arrow is left open where the type is itself unsolved, or
+      // where its colour holds an opening not yet closed.
+      const actual = this.#prune(type);
+      const outerOpen = actual.kind === "Variable" ||
+        actual.kind === "Function" && actual.effect !== undefined &&
+          this.#colourParts(actual.effect).some((part) => unsettled.includes(part));
+      this.#resource(symbol, { ...source, open: true, outerOpen });
+    }
+    const colours = free.filter((variable) => !unsettled.includes(variable));
+    if (colours.length > 0 && this.#decidedBinding(symbol)) {
+      // A callback's or a knot's colour is held already, and its hold ends
+      // where no value's does.
+      for (const colour of colours) if (!this.#heldDependency(colour)) this.#valueColours.add(colour);
+    }
+  }
+
+  /**
+   * The variables of a type that leave a `match`'s arms inferred from their
+   * uses (`#settleArms`), as they leave a binding (`#settleSource`): a type
+   * variable of its shape still unsolved, or an opening not yet closed. A
+   * colour is neither.
+   */
+  #unsettledVariables(type: Mono): Variable[] {
+    const shape = new Set(this.#shapeVariables(type));
+    return this.#collectVariables(type).filter((variable) =>
+      variable.instance === undefined && variable.rigidName === undefined &&
+      (shape.has(variable) || this.#openedColours.has(variable))
+    );
   }
 
   /**
@@ -17562,10 +17621,7 @@ class Checker {
    * what another arm's pattern binds.
    */
   #settleArms(arms: readonly Resolved.MatchArm[], scrutinee: Mono): void {
-    const open = this.#collectVariables(scrutinee).some((variable) =>
-      variable.instance === undefined && variable.rigidName === undefined
-    );
-    if (!open) return;
+    if (this.#unsettledVariables(scrutinee).length === 0) return;
     for (const arm of arms) {
       for (const symbol of patternSymbols(arm.pattern)) {
         const source = this.#bindingSources.get(symbol);
@@ -18951,14 +19007,27 @@ class Checker {
    * dependency is pure **before** the binding's scheme is built. A source's
    * conduit arm skips its remaining calls, so without this a callback
    * parameter's colour would generalize free and be pinned only afterwards —
-   * an impure argument accepted where the displayed face says `->`.
+   * an impure argument accepted where the displayed face says `->`. A value's
+   * colour an enclosing body made is left to that body (`#valueColoursLeft`),
+   * which settles it the same way at its own close.
    */
   #defaultCallColours(frame: EffectFrame): void {
     for (const { effect } of frame.absorbed) {
       for (const colour of this.#colourParts(effect)) {
         if (!this.#isDependency(frame, colour)) colour.instance = PURE;
+        else if ((this.#valueColours.has(colour) || this.#valueSlacks.has(colour)) && colour.level < frame.level) {
+          this.#valueColoursLeft.push(colour);
+        }
       }
     }
+    // What a nested body left to this one, where this body made the value.
+    this.#valueColoursLeft = this.#valueColoursLeft.filter((left) => {
+      const colour = this.#prune(left);
+      if (colour.kind !== "Variable") return false;
+      if (colour.level < frame.level) return true;
+      if (!this.#isDependency(frame, colour)) colour.instance = PURE;
+      return false;
+    });
   }
 
   /**
@@ -19967,6 +20036,10 @@ class Checker {
     const pruned = this.#prune(colour);
     if (pruned.kind !== "Variable") return false;
     if (this.#isLinkedColour(pruned) || this.#seatHeld.has(pruned)) return true;
+    // A value's own colour, or the room it took in, the value an enclosing
+    // body's: that body decides it from every use, so a body nested in it never
+    // defaults it.
+    if ((this.#valueColours.has(pruned) || this.#valueSlacks.has(pruned)) && pruned.level < frame.level) return true;
     if (this.#ownedByEnclosing(frame, pruned)) return true;
     for (let open: EffectFrame | undefined = frame; open !== undefined; open = open.enclosing) {
       if (this.#settledFrames.has(open) && open !== frame) continue;
@@ -21336,6 +21409,9 @@ class Checker {
    *    is a single slack, that slack takes the other remainder, and where both
    *    remainders hold a slack, one fresh slack is shared between them.
    *
+   * Where rules 2 and 4 choose a slack, a slack the use brought is chosen
+   * before one a value's own colour took in (`#valueSlacks`).
+   *
    * Everything else is a **hard case**, which waits (`#recordHardCase`).
    */
   #unifyJoin(left: Mono, right: Mono, span: Source.Span, message?: () => string | undefined): void {
@@ -21349,7 +21425,9 @@ class Checker {
         for (const part of join.parts) meet(part);
         return;
       }
-      const slack = join.parts.find((part) => this.#openedColours.has(part));
+      // A slack the meeting's own use brought before one a value took in.
+      const slack = join.parts.find((part) => this.#openedColours.has(part) && !this.#valueSlacks.has(part)) ??
+        join.parts.find((part) => this.#openedColours.has(part));
       if (slack !== undefined) {
         meet(slack);
         return;
@@ -21362,8 +21440,11 @@ class Checker {
     const onlyLeft = leftParts.filter((part) => !rightParts.includes(part));
     const onlyRight = rightParts.filter((part) => !leftParts.includes(part));
     if (onlyLeft.length === 0 && onlyRight.length === 0) return;
-    const slackLeft = onlyLeft.find((part) => this.#openedColours.has(part));
-    const slackRight = onlyRight.find((part) => this.#openedColours.has(part));
+    const pick = (parts: Variable[]): Variable | undefined =>
+      parts.find((part) => this.#openedColours.has(part) && !this.#valueSlacks.has(part)) ??
+        parts.find((part) => this.#openedColours.has(part));
+    const slackLeft = pick(onlyLeft);
+    const slackRight = pick(onlyRight);
     if (slackLeft !== undefined && onlyLeft.length === 1) {
       this.#unify(slackLeft, this.#join(onlyRight), span, message);
       return;
@@ -21376,6 +21457,7 @@ class Checker {
       const shared = this.#fresh(Math.min(slackLeft.level, slackRight.level), false);
       this.#openedColours.add(shared);
       this.#openedPending.push(shared);
+      if (this.#valueSlacks.has(slackLeft) || this.#valueSlacks.has(slackRight)) this.#valueSlacks.add(shared);
       this.#unify(slackLeft, this.#join([...onlyRight.filter((part) => part !== slackRight), shared]), span, message);
       this.#unify(slackRight, this.#join([...onlyLeft.filter((part) => part !== slackLeft), shared]), span, message);
       return;
@@ -22294,7 +22376,8 @@ class Checker {
       // is that colour's (Effects §3.4).
       if (
         this.#openedColours.has(type) && !this.#openedColours.has(variable) &&
-        (this.#heldDependency(variable) || this.#faceColours.has(variable) || this.#seatHeld.has(variable))
+        (this.#heldDependency(variable) || this.#faceColours.has(variable) || this.#seatHeld.has(variable) ||
+          this.#valueColours.has(variable))
       ) {
         this.#bind(type, variable, span, !variableOnRight);
         return;
@@ -22316,9 +22399,16 @@ class Checker {
       this.#linkedColours.moved(variable, type);
       this.#untypedColours.moved(variable, type);
       this.#scopesByColour.moved(variable, type);
-      // So does an opening's (#1119), unless the other colour is a real one:
-      // a slack meeting a callback's colour is that colour's.
-      if (this.#openedColours.has(variable) && !this.#heldDependency(type)) this.#openedColours.add(type);
+      // So does a value's own colour's (#1170), and an opening's (#1119) unless
+      // the other colour is a real one: a slack meeting a callback's colour, or
+      // a value's, is that colour's.
+      if (this.#valueColours.has(variable)) this.#valueColours.add(type);
+      if (
+        this.#openedColours.has(variable) && !this.#heldDependency(type) && !this.#valueColours.has(type)
+      ) {
+        this.#openedColours.add(type);
+        if (this.#valueSlacks.has(variable)) this.#valueSlacks.add(type);
+      }
       this.#binds.set(variable, { span, order: this.#bindCount++, target: type });
       if (!this.#firstMeetings.has(variable)) this.#firstMeetings.set(variable, span);
       if (!this.#firstMeetings.has(type)) this.#firstMeetings.set(type, span);
@@ -22443,13 +22533,16 @@ class Checker {
    * takes `x`, and otherwise `x` is rebound to a fresh variable joined with
    * `r`, the most general answer. A callback's colour is never rebound so: it
    * is what its own arrow spells, so a slack beside it closes onto it, and
-   * anything else is a hard case, which waits.
+   * anything else is a hard case, which waits. The slacks a value's own
+   * colour takes in are that value's (`#valueSlacks`) *(#1170)*.
    */
   #bindJoin(variable: Variable, join: EffectJoin, span: Source.Span): void {
     const rest = join.parts.filter((part) => part !== variable);
     const slacks = rest.filter((part) => this.#openedColours.has(part));
     const real = rest.filter((part) => !this.#openedColours.has(part));
     const held = this.#heldDependency(variable) || this.#faceColours.has(variable) || this.#seatHeld.has(variable);
+    // What a value's colour takes in, or a slack of the value's, is the value's.
+    const own = !held && (this.#valueColours.has(variable) || this.#valueSlacks.has(variable));
     if (held || join.parts.includes(variable)) {
       if (real.length === 0) {
         for (const slack of slacks) this.#unify(slack, variable, span);
@@ -22464,14 +22557,20 @@ class Checker {
         this.#recordHardCase(variable, join, span);
         return;
       }
+    }
+    if (join.parts.includes(variable)) {
       const fresh = this.#fresh(variable.level, false);
       if (this.#openedColours.has(variable)) this.#openedColours.add(fresh);
+      if (this.#valueColours.has(variable)) this.#valueColours.add(fresh);
+      if (this.#valueSlacks.has(variable)) this.#valueSlacks.add(fresh);
+      if (own) for (const slack of slacks) this.#valueSlacks.add(slack);
       this.#lowerLevels(this.#join(rest), variable.level);
       const target = this.#join([fresh, ...rest]);
       this.#binds.set(variable, { span, order: this.#bindCount++, target });
       variable.instance = target;
       return;
     }
+    if (own) for (const slack of slacks) this.#valueSlacks.add(slack);
     this.#lowerLevels(join, variable.level);
     this.#binds.set(variable, { span, order: this.#bindCount++, target: join });
     if (!this.#firstMeetings.has(variable)) this.#firstMeetings.set(variable, span);
@@ -26380,6 +26479,48 @@ class Checker {
   #defaultableAtInt(requirement: Requirement): boolean {
     if (!isPreRegisteredIdentity(requirement.identity)) return false;
     return this.#instances.has(this.#instanceKey(requirement.identity, primitive("Int")));
+  }
+
+  /** `#collectVariables` without the colour slots: the variables of a type's shape. */
+  #shapeVariables(type: Mono, found: Variable[] = []): Variable[] {
+    const actual = this.#prune(type);
+    switch (actual.kind) {
+      case "Variable":
+        found.push(actual);
+        break;
+      case "Tuple":
+        for (const element of actual.elements) this.#shapeVariables(element, found);
+        break;
+      case "Record":
+        for (const field of actual.fields.values()) this.#shapeVariables(field, found);
+        if (actual.tail !== undefined) this.#shapeVariables(actual.tail, found);
+        break;
+      case "Function":
+        for (const parameter of actual.parameters) this.#shapeVariables(parameter, found);
+        this.#shapeVariables(actual.result, found);
+        break;
+      case "Union":
+      case "NominalRecord":
+      case "ExternType":
+        for (const argument of actual.arguments) this.#shapeVariables(argument, found);
+        break;
+      case "Vector":
+      case "Set":
+      case "Array":
+      case "JsSet":
+      case "Node":
+        this.#shapeVariables(actual.element, found);
+        break;
+      case "Nullable":
+        this.#shapeVariables(actual.value, found);
+        break;
+      case "Map":
+      case "JsMap":
+        this.#shapeVariables(actual.key, found);
+        this.#shapeVariables(actual.value, found);
+        break;
+    }
+    return found;
   }
 
   #collectVariables(type: Mono, found = new Map<number, Variable>()): Variable[] {
