@@ -258,7 +258,7 @@ The colour component rides the ordinary machinery (unification, levels, generali
   2. the colours of its untyped parameters that no `!` call claimed default pure (the untyped-parameter bullet below);
   3. the arrows inside its untyped callbacks' types close to constants, what they hand back first and then what they are handed (the black-box bullet below);
   4. the hard cases whose level closes there settle (above);
-  5. what else nothing claimed defaults pure: slacks only other slacks reached, the body's own colour, and its calls' undetermined colours (the bullets below), but never a dependency;
+  5. what else nothing claimed defaults pure: slacks only other slacks reached, the body's own colour, and its calls' undetermined colours (the bullets below), but never a dependency. A value's colour that a nested body's calls met, where this body made the value, is among this body's calls' colours here;
   6. a tie between callbacks is refused (below).
 
   Where the binding generalizes, the dot-call goals its region owns settle next (Method Syntax §3.1), then the member calls whose subject variables close there become known or generic (§13.3), then the bodies held for goals settle by the same six steps, then the faces widen (§2.4), and then the scheme is built. Mark obligations are read once every colour they depend on has settled.

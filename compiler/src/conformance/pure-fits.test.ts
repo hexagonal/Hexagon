@@ -790,6 +790,20 @@ describe("a colour left open where the binding is made (#1170)", () => {
         expect([lines, reports(program(lines))]).toEqual([lines, []]);
       }
     }
+    // The body that made the value settles it where only a nested body calls
+    // it: `mk`'s face and its result's behaviour agree (pure), and nothing of
+    // the value's colour reaches `mk`'s scheme unsettled.
+    const maker = prefix + "let mk() =\n    let (q, _) = make()\n    let u = () => q(noop)\n    (q, u)\n";
+    const caller = maker + "export let use(): Unit =\n    let (q, uu) = mk()\n    uu()\n";
+    expect(reports(caller)).toEqual([]);
+    expect(hovered(caller, "mk(")).toBe("() -> ((() -> Unit) -> Unit, () -> Unit)");
+    // Handed an effectful callback, `q` is what `mk`'s face says, pure, so the
+    // callback is pinned, as for any `->` callback slot.
+    const handed = maker + "export let use(a1: () ->! Unit): Unit =\n    let (q, uu) = mk()\n    q(a1)\n    uu()\n";
+    expect(hovered(handed, "q, uu")).toBe("(() -> Unit) -> Unit");
+    expect(reports(handed).map(([, message]) => message)).toContain(
+      "the parameter `a1` is written `->!`, which accepts any function, and this accepts only a pure one — write `a1`'s arrow `->`",
+    );
     // Nor the room a callback it hands the value leaves: the two callbacks
     // stay two colours, whichever is handed first.
     const handing = "let t2 = () => r!(a2)";

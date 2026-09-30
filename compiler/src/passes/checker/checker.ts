@@ -3120,6 +3120,13 @@ class Checker {
    */
   readonly #valueSlacks = new WeakSet<Variable>();
   /**
+   * Value colours, or their room, that a nested body's calls met and left to
+   * the body that made the value *(#1170)*: that body settles them at its own
+   * close, where nothing it does depends on them (`#defaultCallColours`), so
+   * no such colour reaches its scheme unsettled.
+   */
+  #valueColoursLeft: Variable[] = [];
+  /**
    * The colours a use of a pure function minted *(#1119; Effects §3.4)*: a
    * pure function fits wherever a function is expected, so each use reads its
    * outer arrow as a fresh colour (`#openAt`) that ordinary unification then
@@ -19000,14 +19007,27 @@ class Checker {
    * dependency is pure **before** the binding's scheme is built. A source's
    * conduit arm skips its remaining calls, so without this a callback
    * parameter's colour would generalize free and be pinned only afterwards —
-   * an impure argument accepted where the displayed face says `->`.
+   * an impure argument accepted where the displayed face says `->`. A value's
+   * colour an enclosing body made is left to that body (`#valueColoursLeft`),
+   * which settles it the same way at its own close.
    */
   #defaultCallColours(frame: EffectFrame): void {
     for (const { effect } of frame.absorbed) {
       for (const colour of this.#colourParts(effect)) {
         if (!this.#isDependency(frame, colour)) colour.instance = PURE;
+        else if ((this.#valueColours.has(colour) || this.#valueSlacks.has(colour)) && colour.level < frame.level) {
+          this.#valueColoursLeft.push(colour);
+        }
       }
     }
+    // What a nested body left to this one, where this body made the value.
+    this.#valueColoursLeft = this.#valueColoursLeft.filter((left) => {
+      const colour = this.#prune(left);
+      if (colour.kind !== "Variable") return false;
+      if (colour.level < frame.level) return true;
+      if (!this.#isDependency(frame, colour)) colour.instance = PURE;
+      return false;
+    });
   }
 
   /**
