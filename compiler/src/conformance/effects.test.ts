@@ -3007,9 +3007,10 @@ export let probe(): Unit =
     expect(check(union.replace("    th!()", "    th()"))).toEqual([wantsBang("th")]);
   });
 
-  it("leaves a colour off the spine as it stands (#1166)", () => {
-    // `make` never runs `run`, so its colour is not on the spine: `go` keeps
-    // it, and can meet an effectful function in the same data.
+  it("publishes a colour off the spine pure on a function that does not hold it (#1166, #1169)", () => {
+    // `make` never runs `run`, and `go` runs it only with a pure function, so
+    // `go` is pure; each use re-opens what it receives, so it still meets an
+    // effectful function in the same data.
     const source = `let ident(x: a): a = x
 let make() =
     let run = ident((f) => f!())
@@ -3021,7 +3022,7 @@ export let use(b: Bool): Unit =
     g!()
 `;
     expect(check(source)).toEqual([]);
-    expect(hover(source, "make() =")).toBe("() -> (() ->? Unit, Int)");
+    expect(hover(source, "make() =")).toBe("() -> (() -> Unit, Int)");
   });
 
   it("publishes a spine colour pure everywhere at an expansive binding (#1166)", () => {
@@ -3040,6 +3041,9 @@ export let use(): Unit =
 `;
     expect(check(block)).toEqual([]);
     expect(hover(block, "make =")).toBe("() -> ((() -> Unit) -> Unit, Int)");
+    // Whatever a use hands `r`: the face is pure, never a colour every use shares.
+    expect(hover(block.replace("    r(() => ())\n", '    r!(() => save!("x"))\n'), "make ="))
+      .toBe("() -> ((() -> Unit) -> Unit, Int)");
     const local = `let ident(x: a): a = x
 export let use(): Unit =
     let make = ident(() =>

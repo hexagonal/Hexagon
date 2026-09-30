@@ -20,7 +20,9 @@ import { compileFiles } from "../support/test-project.js";
  *   from these and settled where it is bound — so a parameter with no written
  *   type, a `var`, and whatever is made from one are inferred from all their
  *   uses together, in whatever order they come;
- * - R.c: the outermost arrow only — a value already built keeps its type;
+ * - every arrow a use receives, not only the outermost, read by variance
+ *   (Swift's rule, #1169, in place of R.c); a value a `match` or a `for` reads
+ *   in place is taken apart, and only its own arrow is re-opened;
  * - a written face may claim more effect than its body performs, never less:
  *   `->` is an exact promise, `->!` and `->?` allowances (ruling (c), in place
  *   of R.d).
@@ -68,8 +70,9 @@ const SOLVED_IMPURE = "this signature's `->?` promises a colour the caller choos
 const PURITY = "a `->` arrow promises purity, and this function may touch the world — the demand " +
   "is written `->`, the function's face `->!` or `->?`";
 const FIXED_BEFORE = "this position's arrow is the impure constant, and the pure `->` meeting it " +
-  "was fixed before it arrived — inside a value already built, or by another use — so it " +
-  "cannot fit as a function used here does; write the arrow where it was fixed";
+  "was fixed before it arrived — by another use, by a type written where it was made, inside an " +
+  "argument read invariantly, or in a parameter's type — so it cannot fit as a function used here does; " +
+  "write the arrow where it was fixed";
 
 describe("a pure function fits wherever a function is expected (#1119)", () => {
   test("beside a callback, where a callee's `->?` is shared", () => {
@@ -850,16 +853,208 @@ describe("a bracket read is the call it stands for (#1139)", () => {
   });
 });
 
-describe("the outermost arrow only (R.c)", () => {
-  test("a pure function already inside a value keeps the type the value was built with", () => {
-    const source = `export let go(flag: Bool): Unit =
-    let p = Some(noop)
-    let h = if flag then Some(save0) else p
-    ()
-`;
-    expect(reports(source)).toEqual([["if flag then Some(save0) else p", FIXED_BEFORE]]);
-    // Built where it is used, it fits.
-    expect(reports(source.replace("else p", "else Some(noop)"))).toEqual([]);
+describe("every arrow a use receives (Swift's rule, #1169)", () => {
+  const makers = "let make3() = (() => (), 1)\n" +
+    'let mkE() = (() => save!("x"), 1)\n' +
+    "let applyImp(k: (() ->! Unit) -> Unit): Unit = k(save0)\n";
+
+  test("a pure function inside a value fits where the use asks for more, however the value was made", () => {
+    const programs = [
+      // A `let`-bound value, merged: its `Option`'s function is re-opened.
+      "export let go(flag: Bool): Unit =\n    let p = Some(noop)\n    let h = if flag then Some(save0) else p\n    ()\n",
+      // Built where it is used, as before.
+      "export let go(flag: Bool): Unit =\n    let h = if flag then Some(save0) else Some(noop)\n    ()\n",
+      // A parameter's written type, at a seat and in a merge.
+      "export let go(p: Option(() -> Unit)): Unit =\n    let q: Option(() ->! Unit) = p\n    ()\n",
+      'export let go(b: Bool, p: (() -> Unit, Int)): Unit =\n    let w = if b then p else (() => save!("y"), 2)\n    ()\n',
+      // A record, a function's result, a vector, an ascription.
+      "export let go(): Unit =\n    let r = { f = noop, n = 1 }\n    let q: {f: () ->! Unit, n: Int} = r\n    ()\n",
+      "export let go(): Unit =\n    let f2: () -> (() -> Unit) = () => () => ()\n    let q: () -> (() ->! Unit) = f2\n    ()\n",
+      "export let go(): Unit =\n    let v = [noop]\n    let w: Vector(() ->! Unit) = v\n    ()\n",
+      makers + "export let go(): Unit =\n    let q = (make3() : (() ->! Unit, Int))\n    ()\n",
+      // A call's result, at a seat and in a merge, and a `let`-bound one met at two colours.
+      makers + "export let go(): Unit =\n    let p: (() ->! Unit, Int) = make3()\n    ()\n",
+      makers + 'export let go(b: Bool): Unit =\n    let w = if b then make3() else (() => save!("y"), 2)\n    ()\n',
+      makers + "export let go(): Unit =\n    let p = make3()\n    let q1: (() ->! Unit, Int) = p\n    let q2: (() -> Unit, Int) = p\n    ()\n",
+    ];
+    for (const source of programs) expect([source, reports(source)]).toEqual([source, []]);
+    expect(hovered(programs[0]!.replace("let h =", "let hh ="), "hh =")).toBe("Option(() ->! Unit)");
+  });
+
+  test("what does not fit is still refused, where the lie is", () => {
+    // An effectful function where purity is demanded; a missing mark; a
+    // function accepting only pure callbacks where any is handed; and a merge
+    // that then meets a pure demand.
+    expect(reports(makers + "export let go(): Unit =\n    let p: (() -> Unit, Int) = mkE()\n    ()\n"))
+      .toEqual([["(() -> Unit, Int)", PURITY]]);
+    expect(reports(makers + "export let go(): Unit =\n    let (g, _) = mkE()\n    g()\n"))
+      .toEqual([["g()", "this call may touch the world, so `g` wants `!`, not no mark"]]);
+    expect(reports(makers + "export let go(): Unit = applyImp(pureOnly)\n")).toEqual([["applyImp(pureOnly)", PURITY]]);
+    expect(reports(
+      'export let go(b: Bool, p: (() -> Unit, Int)): Unit =\n    let w = if b then p else (() => save!("y"), 2)\n' +
+        "    let z: (() -> Unit, Int) = w\n    ()\n",
+    )).toEqual([["(() -> Unit, Int)", PURITY]]);
+  });
+
+  test("an argument read invariantly is left whole", () => {
+    // Correct at run time (an `Array` is a snapshot that never changes), but
+    // `Array` is invariant in v1 for want of a variance ruling.
+    expect(reports("export let go(): Unit =\n    let a = Vector.toArray([noop])\n    let w: Array(() ->! Unit) = a\n    ()\n"))
+      .toEqual([["Array(() ->! Unit)", FIXED_BEFORE]]);
+  });
+
+  test("a value a `match` reads in place is taken apart: its parts are re-opened at their own uses, in either order", () => {
+    const make = "let ident(x: a): a = x\n" +
+      "let make() =\n    let run = ident((f) => f!())\n    run!(() => ())\n    (run, () => ())\n";
+    const uses = ["g()", "let h: () ->! Unit = g", "pureOnly(g)", "r(() => ())", "let k: (() -> Unit) ->! Unit = r"];
+    for (const first of uses) {
+      for (const second of uses) {
+        if (first === second) continue;
+        const source = make + "export let go(): Unit =\n    match make()\n        (r, g) =>\n" +
+          `            ${first}\n            ${second}\n            ()\n    ()\n`;
+        expect([first, second, reports(source)]).toEqual([first, second, []]);
+      }
+    }
+  });
+
+  test("so is a value a `for` reads in place: the loop variable is re-opened at its own uses, in either order", () => {
+    const makers = "let mkV() = [() => ()]\nlet mkP() = [(() => (), 1)]\n";
+    for (const head of ["for f in mkV()", "for (f, _) in mkP()"]) {
+      for (const lines of [["let h: () ->! Unit = f", "pureOnly(f)"], ["pureOnly(f)", "let h: () ->! Unit = f"]]) {
+        const source = makers + `export let go(): Unit =\n    ${head}\n` +
+          lines.map((line) => `        ${line}\n`).join("") + "        ()\n";
+        expect([head, lines, reports(source)]).toEqual([head, lines, []]);
+      }
+    }
+  });
+});
+
+describe("beneath its own arrow, only what the text decides is re-opened (#1169 review)", () => {
+  test("a value that captures or is made from an inferred one re-opens its own arrow only, in either order", () => {
+    // Each value's own arrow is decided (a lambda's, a function's, a call's
+    // that returns a lambda), but the arrow beneath it is `p`'s, which is
+    // inferred from its uses, or a type the lines after it fill.
+    const cases: [string, string, string][] = [
+      ["let go(p) =\n", "    let k = () => p\n    let h: () -> (() ->! Unit) = k", "    p()"],
+      ["let go(p) =\n", "    let k() = p\n    let h: () -> (() ->! Unit) = k", "    p()"],
+      ["let wrap(f) = () => f\nlet go(p) =\n", "    let h: () -> (() ->! Unit) = wrap(p)", "    p()"],
+      ["let wrap(f: a): () -> a = () => f\nlet go(p) =\n", "    let h: () -> (() ->! Unit) = wrap(p)", "    p()"],
+      ["let go(p) =\n", "    let k = () => p\n    let w = if True then k else () => save0", "    p()"],
+      ["let go(): Unit =\n    let x = ident((k) => ())\n", "    let a: ((() -> Unit) -> Unit) -> Unit = x",
+        "    let b: ((() ->! Unit) -> Unit) -> Unit = x"],
+    ];
+    for (const [head, first, second] of cases) {
+      const one = reports("let ident(x: a): a = x\n" + head + first + "\n" + second + "\n    ()\n").length > 0;
+      const other = reports("let ident(x: a): a = x\n" + head + second + "\n" + first + "\n    ()\n").length > 0;
+      expect([head, first, one]).toEqual([head, first, other]);
+    }
+  });
+
+  test("a lambda's written types are the text's, and are re-opened where the lambda is used", () => {
+    // Its result annotation fixed what its body's value became, and its
+    // parameters' types are its own: neither is its body's value.
+    const programs = [
+      "let takeT(t: () -> (() ->! Unit, Int)): Unit =\n    let (f, _) = t()\n    f!()\n" +
+        "export let go(): Unit = takeT!((): (() -> Unit, Int) => (noop, 1))\n",
+      "export let go(b: Bool): Unit =\n    let w = if b then (): (() -> Unit, Int) => (noop, 1) else () => (save0, 2)\n    ()\n",
+      "export let go(b: Bool): Unit =\n    let w = if b then (q: (() -> Unit) -> Unit) => q(noop) else (q: (() ->! Unit) -> Unit) => q(save0)\n    ()\n",
+      "export let go(): Unit =\n    let w = [(q: (() -> Unit) -> Unit) => q(noop), (q: (() ->! Unit) -> Unit) => q(save0)]\n    ()\n",
+    ];
+    for (const source of programs) expect([source, reports(source)]).toEqual([source, []]);
+  });
+
+  test("a lambda's result is its body's value: a deep chain of lambdas compiles in time", () => {
+    // Its body's use re-opened it; re-opening it again at each enclosing
+    // lambda stacked a slack per level on every arrow beneath.
+    const start = Date.now();
+    expect(reports("export let go(p: () -> Unit): Unit =\n    let k = " + "() => ".repeat(600) + "p\n    ()\n"))
+      .toEqual([]);
+    expect(Date.now() - start).toBeLessThan(3000);
+  });
+
+  test("a type written whole decides every arrow beneath it", () => {
+    const source = "let go(p) =\n    let (f, _) = p\n    f()\n    let q: (() ->! Unit, Int) = (p : (() -> Unit, Int))\n    ()\n";
+    expect(reports(source)).toEqual([]);
+  });
+
+  test("a value built where a `match` or a `for` reads it is taken apart as a `let`'s would be", () => {
+    const make = "let make() =\n    let run = ident((f) => f!())\n    run!(() => ())\n    (run, () => ())\n";
+    const heads: [string, string, string][] = [
+      ["    match Some(make())\n        Some((r, g)) =>\n", "            ", "        None => ()\n"],
+      ["    match ident(make())\n        (r, g) =>\n", "            ", ""],
+      ["    match { p = make() }\n        { p = (r, g) } =>\n", "            ", ""],
+      ["    match [make()]\n        [(r, g)] =>\n", "            ", "        _ => ()\n"],
+      ["    for (r, g) in [make()]\n", "        ", ""],
+    ];
+    const pairs = [["g()", "let h: () ->! Unit = g"], ["pureOnly(g)", "let h: () ->! Unit = g"],
+      ["r(() => ())", "let k: (() -> Unit) ->! Unit = r"]];
+    for (const [head, pad, tail] of heads) {
+      for (const [a, b] of pairs) {
+        for (const lines of [[a, b], [b, a]]) {
+          const source = "let ident(x: a): a = x\n" + make + "export let go(): Unit =\n" + head +
+            lines.map((line) => pad + line + "\n").join("") + pad + "()\n" + tail + "    ()\n";
+          expect([head, lines, reports(source)]).toEqual([head, lines, []]);
+        }
+      }
+    }
+  });
+});
+
+describe("a colour no parameter holds is published function by function (#1169)", () => {
+  const ident = "let ident(x: a): a = x\n";
+  const offSpine = ident + "let make() =\n    let run = ident((f) => f!())\n    let go = () => run!(() => ())\n    (run, go)\n";
+  const onSpine = ident +
+    "let make() =\n    let run = ident((f) => f!())\n    run!(() => ())\n    let go = () => run!(() => ())\n    (run, go)\n";
+
+  test("a function that runs its sibling only with a pure function is pure, in either order", () => {
+    for (const lines of [["r!(save0)", "g()"], ["g()", "r!(save0)"]]) {
+      const source = offSpine + "export let go(): Unit =\n    let (r, g) = make()\n" +
+        lines.map((line) => `    ${line}\n`).join("");
+      expect([lines, reports(source)]).toEqual([lines, []]);
+    }
+    expect(hovered(offSpine, "make() =")).toBe("() -> ((() ->! Unit) ->? Unit, () -> Unit)");
+    // A mark on it is now a mark on a pure call.
+    expect(reports(offSpine + "export let go(): Unit =\n    let (r, g) = make()\n    r!(save0)\n    g!()\n"))
+      .toEqual([["!", "this call is pure, so `g` wants no mark, not `!`"]]);
+  });
+
+  test("two functions that hold it get a colour each, in either order", () => {
+    const two = ident + "let make() =\n    let run = ident((f) => f!())\n    (run, (h: () ->! Unit) => run!(h))\n";
+    for (const lines of [["r!(save0)", "g(() => ())"], ["g(() => ())", "r!(save0)"]]) {
+      const source = two + "export let go(): Unit =\n    let (r, g) = make()\n" +
+        lines.map((line) => `    ${line}\n`).join("");
+      expect([lines, reports(source)]).toEqual([lines, []]);
+    }
+  });
+
+  test("a function published pure still meets `->!` in the result's data and in a merge", () => {
+    expect(reports(onSpine + "export let go(): Unit =\n    let p: ((() ->! Unit) ->! Unit, () ->! Unit) = make()\n    ()\n"))
+      .toEqual([]);
+    expect(reports(onSpine + 'export let go(b: Bool): Unit =\n    let p = if b then make() else ((f) => f!(), () => save!("x"))\n    ()\n'))
+      .toEqual([]);
+    expect(hovered(onSpine, "make() =")).toBe("() -> ((() ->! Unit) ->? Unit, () -> Unit)");
+    // A function that holds its colour: a pure callback, and an arrow that may touch the world.
+    expect(reports(ident + "let make() =\n    let run = ident((f) => f!())\n    run!(() => ())\n    (run, 1)\n" +
+      "export let go(): Unit =\n    let p: ((() -> Unit) ->! Unit, Int) = make()\n    ()\n")).toEqual([]);
+  });
+
+  test("a face written `->` where the inferred one shows `->` means the same", () => {
+    for (const make of ["let make() = (() => (), 1)\n", "let make(): (() -> Unit, Int) = (() => (), 1)\n"]) {
+      for (const use of [
+        "let p: (() ->! Unit, Int) = make()",
+        'let w = if True then make() else (() => save!("y"), 2)',
+        "let (g, _) = make()\n    g()\n    let h: () ->! Unit = g",
+      ]) {
+        expect([make, use, reports(make + `export let go(): Unit =\n    ${use}\n    ()\n`)]).toEqual([make, use, []]);
+      }
+    }
+  });
+
+  test("a record carries its functions as a tuple does", () => {
+    const source = ident + "let make() =\n    let run = ident((f) => f!())\n    let go = () => run!(() => ())\n" +
+      "    { run = run, go = go }\nexport let go(): Unit =\n    let m = make()\n    (m.run)!(save0)\n    (m.go)()\n";
+    expect(reports(source)).toEqual([]);
+    expect(hovered(source, "make() =")).toBe("() -> {run: (() ->! Unit) ->? Unit, go: () -> Unit}");
   });
 });
 
