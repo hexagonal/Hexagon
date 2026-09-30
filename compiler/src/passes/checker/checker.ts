@@ -3142,9 +3142,13 @@ class Checker {
    * `match` scrutinee and a `for` iterable, which the form takes apart, and a
    * pattern's `view` and `build`, its declaration's own values. Only their
    * outermost arrow is re-opened (`#openAt`); their parts are re-opened at
-   * their own uses.
+   * their own uses. A value built inside a scrutinee or an iterable
+   * (`Some(make())`) is re-opened where it is used there, and the form closes
+   * what that opened beneath (`#closeReadOpenings`).
    */
   readonly #readInPlace = new WeakSet<Resolved.Expr>();
+  /** The slacks `#openReceived` minted beneath a value's own arrow. */
+  readonly #deepOpenings = new WeakSet<Variable>();
   /** Whether `#unify` stands inside an odd number of parameter positions, where demand and supply turn over. */
   #parameterParity = false;
   /** Every opened colour not yet settled, for the binding that minted it to close (`#generalize`). */
@@ -9584,7 +9588,9 @@ class Checker {
       }
       case "For": {
         this.#readInPlace.add(expression.iterable);
+        const minted = new Set(this.#openedPending);
         const iterable = this.#inferExpr(expression.iterable, level);
+        this.#closeReadOpenings(minted);
         let actual = this.#prune(iterable);
         if (actual.kind === "Variable" && actual.literalOnly) {
           this.#bind(actual, primitive("Int"), expression.iterable.span);
@@ -10474,7 +10480,26 @@ class Checker {
 
     this.#expressionTypes.set(expression, type);
     if (!this.#opensAt(expression)) return type;
-    return this.#readInPlace.has(expression) ? this.#openAt(type, level) : this.#openReceived(type, level);
+    return this.#readInPlace.has(expression) || !this.#receivedDecided(expression)
+      ? this.#openAt(type, level)
+      : this.#openReceived(type, level);
+  }
+
+  /**
+   * Whether the text decides every arrow a use of a value receives, not only
+   * its own (#1119 R.b, #1169): a type written whole, or a value made wholly
+   * from the text. A lambda or a function that captures a parameter with no
+   * written type, a call handed one, and a binding whose shape was left open
+   * where it was made decide their own arrow and nothing beneath it. A lambda
+   * is read at its own arrow alone: what it returns is its body's value, which
+   * its body's use has already re-opened, and a lambda's openings stay open
+   * until the binding around it closes them (`#closeOpenings`). Reading them
+   * again would stack a slack per enclosing lambda on every arrow beneath.
+   */
+  #receivedDecided(expression: Resolved.Expr): boolean {
+    if (expression.kind === "Lambda") return false;
+    if (expression.kind === "Ascription" && annotationWhole(expression.annotation)) return true;
+    return this.#madeFromText(expression);
   }
 
   /**
@@ -10484,8 +10509,8 @@ class Checker {
    * receives, read by variance: the value's own arrow, a function's result, a
    * tuple's or a record's function, a covariant argument's. A parameter's
    * arrow is where the use hands something, and is left as it stands; beneath
-   * it the sign turns again. An invariant argument (a mutable collection's
-   * element) is left whole. Swift reaches the same verdicts by subtyping;
+   * it the sign turns again. An argument read invariantly (an `Array`'s element,
+   * invariant for want of a variance ruling) is left whole. Swift reaches the same verdicts by subtyping;
    * this is Koka's re-opening, at every depth the use receives.
    */
   #openReceived(type: Mono, level: number): Mono {
@@ -10500,8 +10525,17 @@ class Checker {
             rebuilt = { ...actual, parameters, result };
             const lambdas = this.#lambdasOf.get(actual);
             if (lambdas !== undefined) this.#lambdasOf.set(rebuilt, lambdas);
+            const frame = this.#frameOfType.get(actual);
+            if (frame !== undefined) this.#frameOfType.set(rebuilt, frame);
           }
-          return receives ? this.#openAt(rebuilt, level) : rebuilt;
+          if (!receives) return rebuilt;
+          if (node === type) return this.#openAt(rebuilt, level);
+          // Beneath the value's own arrow: a slack a form reading the value in
+          // place closes (`#closeReadOpenings`).
+          const pending = this.#openedPending.length;
+          const opened = this.#openAt(rebuilt, level);
+          if (this.#openedPending.length > pending) this.#deepOpenings.add(this.#openedPending.at(-1)!);
+          return opened;
         }
         case "Tuple": {
           const elements = actual.elements.map((element) => walk(element, receives));
@@ -16634,7 +16668,9 @@ class Checker {
     collect: (part: Resolved.Expr, expectation: Mono | undefined) => void,
   ): void {
     this.#readInPlace.add(expression.scrutinee);
+    const minted = new Set(this.#openedPending);
     const scrutinee = this.#inferExpr(expression.scrutinee, level);
+    this.#closeReadOpenings(minted);
     // Read once, before any arm: one arm's body cannot settle what another
     // arm's pattern binds (#1119 R.b).
     this.#settleArms(expression.arms, scrutinee);
@@ -17964,6 +18000,26 @@ class Checker {
       }
       if (this.#takesOpening(colour)) colour.instance = PURE;
       return false;
+    });
+  }
+
+  /**
+   * Closes the openings a value read in place made, except those already
+   * pending before it (`before`), as a `let` binding the value would where it
+   * generalizes (#1169): a slack only openings reached is pure, so what a
+   * pattern or the loop variable takes out of the value is decided, and is
+   * re-opened at its own uses.
+   */
+  #closeReadOpenings(before: ReadonlySet<Variable>): void {
+    this.#openedPending = this.#openedPending.filter((opened) => {
+      if (before.has(opened) || !this.#deepOpenings.has(opened)) return true;
+      const colour = this.#prune(opened);
+      if (colour.kind !== "Variable") return false;
+      if (this.#takesOpening(colour)) {
+        colour.instance = PURE;
+        return false;
+      }
+      return true;
     });
   }
 
@@ -32718,17 +32774,18 @@ function effectMismatchMessage(left: Mono, right: Mono): string {
 }
 
 /**
- * The reverse direction's one remaining sentence *(#1119; Effects §4.3)*. A pure
- * function fits wherever a function is expected, so a pure arrow meets the
- * impure constant and fails only where it was fixed before it arrived: nested
- * inside a value already built — the outermost arrow is the one a use re-opens
- * — or a colour its other uses pinned, which a use never re-opens (R.b).
+ * The reverse direction's one remaining sentence *(#1119, #1169; Effects §4.3)*.
+ * A pure function fits wherever a function is expected, at every arrow a use
+ * receives, so a pure arrow meets the impure constant and fails only where it
+ * was fixed before it arrived: a colour its other uses pinned, which a use
+ * never re-opens (R.b), or an arrow no use receives — inside an argument read
+ * invariantly, or in a parameter's type.
  */
 const REVERSE_DEMAND_MESSAGE =
   "this position's arrow is the impure constant, and the pure `->` meeting it " +
-  "was fixed before it arrived — inside a value already built, or by another " +
-  "use — so it cannot fit as a function used here does; write the arrow where " +
-  "it was fixed";
+  "was fixed before it arrived — by another use, inside an argument read " +
+  "invariantly, or in a parameter's type — so it cannot fit as a function used " +
+  "here does; write the arrow where it was fixed";
 
 /** Rewrites first-argument pipe insertion before either side is inferred. */
 function rewritePipe(expression: Resolved.BinaryExpr): Resolved.CallExpr {

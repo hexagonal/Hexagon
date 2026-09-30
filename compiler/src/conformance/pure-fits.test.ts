@@ -70,8 +70,8 @@ const SOLVED_IMPURE = "this signature's `->?` promises a colour the caller choos
 const PURITY = "a `->` arrow promises purity, and this function may touch the world — the demand " +
   "is written `->`, the function's face `->!` or `->?`";
 const FIXED_BEFORE = "this position's arrow is the impure constant, and the pure `->` meeting it " +
-  "was fixed before it arrived — inside a value already built, or by another use — so it " +
-  "cannot fit as a function used here does; write the arrow where it was fixed";
+  "was fixed before it arrived — by another use, inside an argument read invariantly, or in a " +
+  "parameter's type — so it cannot fit as a function used here does; write the arrow where it was fixed";
 
 describe("a pure function fits wherever a function is expected (#1119)", () => {
   test("beside a callback, where a callee's `->?` is shared", () => {
@@ -882,9 +882,8 @@ describe("every arrow a use receives (Swift's rule, #1169)", () => {
 
   test("what does not fit is still refused, where the lie is", () => {
     // An effectful function where purity is demanded; a missing mark; a
-    // function accepting only pure callbacks where any is handed; a merge that
-    // then meets a pure demand; and a mutable collection, whose element type is
-    // exact because the array can change.
+    // function accepting only pure callbacks where any is handed; and a merge
+    // that then meets a pure demand.
     expect(reports(makers + "export let go(): Unit =\n    let p: (() -> Unit, Int) = mkE()\n    ()\n"))
       .toEqual([["(() -> Unit, Int)", PURITY]]);
     expect(reports(makers + "export let go(): Unit =\n    let (g, _) = mkE()\n    g()\n"))
@@ -894,6 +893,11 @@ describe("every arrow a use receives (Swift's rule, #1169)", () => {
       'export let go(b: Bool, p: (() -> Unit, Int)): Unit =\n    let w = if b then p else (() => save!("y"), 2)\n' +
         "    let z: (() -> Unit, Int) = w\n    ()\n",
     )).toEqual([["(() -> Unit, Int)", PURITY]]);
+  });
+
+  test("an argument read invariantly is left whole", () => {
+    // Correct at run time (an `Array` is a snapshot that never changes), but
+    // `Array` is invariant in v1 for want of a variance ruling.
     expect(reports("export let go(): Unit =\n    let a = Vector.toArray([noop])\n    let w: Array(() ->! Unit) = a\n    ()\n"))
       .toEqual([["Array(() ->! Unit)", FIXED_BEFORE]]);
   });
@@ -919,6 +923,55 @@ describe("every arrow a use receives (Swift's rule, #1169)", () => {
         const source = makers + `export let go(): Unit =\n    ${head}\n` +
           lines.map((line) => `        ${line}\n`).join("") + "        ()\n";
         expect([head, lines, reports(source)]).toEqual([head, lines, []]);
+      }
+    }
+  });
+});
+
+describe("beneath its own arrow, only what the text decides is re-opened (#1169 review)", () => {
+  test("a value that captures or is made from an inferred one re-opens its own arrow only, in either order", () => {
+    // Each value's own arrow is decided (a lambda's, a function's, a call's
+    // that returns a lambda), but the arrow beneath it is `p`'s, which is
+    // inferred from its uses, or a type the lines after it fill.
+    const cases: [string, string, string][] = [
+      ["let go(p) =\n", "    let k = () => p\n    let h: () -> (() ->! Unit) = k", "    p()"],
+      ["let go(p) =\n", "    let k() = p\n    let h: () -> (() ->! Unit) = k", "    p()"],
+      ["let wrap(f) = () => f\nlet go(p) =\n", "    let h: () -> (() ->! Unit) = wrap(p)", "    p()"],
+      ["let wrap(f: a): () -> a = () => f\nlet go(p) =\n", "    let h: () -> (() ->! Unit) = wrap(p)", "    p()"],
+      ["let go(p) =\n", "    let k = () => p\n    let w = if True then k else () => save0", "    p()"],
+      ["let go(): Unit =\n    let x = ident((k) => ())\n", "    let a: ((() -> Unit) -> Unit) -> Unit = x",
+        "    let b: ((() ->! Unit) -> Unit) -> Unit = x"],
+    ];
+    for (const [head, first, second] of cases) {
+      const one = reports("let ident(x: a): a = x\n" + head + first + "\n" + second + "\n    ()\n").length > 0;
+      const other = reports("let ident(x: a): a = x\n" + head + second + "\n" + first + "\n    ()\n").length > 0;
+      expect([head, first, one]).toEqual([head, first, other]);
+    }
+  });
+
+  test("a type written whole decides every arrow beneath it", () => {
+    const source = "let go(p) =\n    let (f, _) = p\n    f()\n    let q: (() ->! Unit, Int) = (p : (() -> Unit, Int))\n    ()\n";
+    expect(reports(source)).toEqual([]);
+  });
+
+  test("a value built where a `match` or a `for` reads it is taken apart as a `let`'s would be", () => {
+    const make = "let make() =\n    let run = ident((f) => f!())\n    run!(() => ())\n    (run, () => ())\n";
+    const heads: [string, string, string][] = [
+      ["    match Some(make())\n        Some((r, g)) =>\n", "            ", "        None => ()\n"],
+      ["    match ident(make())\n        (r, g) =>\n", "            ", ""],
+      ["    match { p = make() }\n        { p = (r, g) } =>\n", "            ", ""],
+      ["    match [make()]\n        [(r, g)] =>\n", "            ", "        _ => ()\n"],
+      ["    for (r, g) in [make()]\n", "        ", ""],
+    ];
+    const pairs = [["g()", "let h: () ->! Unit = g"], ["pureOnly(g)", "let h: () ->! Unit = g"],
+      ["r(() => ())", "let k: (() -> Unit) ->! Unit = r"]];
+    for (const [head, pad, tail] of heads) {
+      for (const [a, b] of pairs) {
+        for (const lines of [[a, b], [b, a]]) {
+          const source = "let ident(x: a): a = x\n" + make + "export let go(): Unit =\n" + head +
+            lines.map((line) => pad + line + "\n").join("") + pad + "()\n" + tail + "    ()\n";
+          expect([head, lines, reports(source)]).toEqual([head, lines, []]);
+        }
       }
     }
   });
