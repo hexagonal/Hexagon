@@ -105,6 +105,14 @@ export interface CheckOptions {
    */
   readonly programNominals?: VarianceDeclarations;
   /**
+   * *(#1174.)* Every module-level binding's **own written type**, for the
+   * modules the program has resolved (`writtenBindings`), so a use of an
+   * imported function reads the types its declaration wrote, as a use of one
+   * this module declared does (Effects §3.4). Absent — a lone `check` in a
+   * test — only this module's bindings are read.
+   */
+  readonly programWritten?: ReadonlyMap<Resolved.SymbolId, WrittenView>;
+  /**
    * *(#1071.)* The **representation records** the public type keys name
    * (`spec/intrinsics.md` §3.3, §4.1), by `<module>.<record>` as the inventory
    * spells them — `Runtime.VectorTrie.TrieVector` — gathered from the trusted
@@ -596,6 +604,109 @@ function annotationWhole(annotation: Resolved.TypeAnnotation): boolean {
     case "TypeVariable":
       return true;
   }
+}
+
+/**
+ * A written type with no variable, no hole and no `->?` anywhere *(#1174)*:
+ * nothing an argument or a later line could fill, and no arrow that follows
+ * what a signature is handed.
+ */
+function annotationGround(annotation: Resolved.TypeAnnotation): boolean {
+  switch (annotation.kind) {
+    case "Hole":
+    case "ImpliedType":
+    case "ErrorType":
+    case "TypeVariable":
+      return false;
+    case "Function":
+      return annotation.effect !== "linked" && annotation.parameters.every(annotationGround) &&
+        annotationGround(annotation.result);
+    case "Vector":
+    case "Set":
+    case "Array":
+    case "JsSet":
+    case "Node":
+      return annotationGround(annotation.element);
+    case "Nullable":
+      return annotationGround(annotation.value);
+    case "Map":
+    case "JsMap":
+      return annotationGround(annotation.key) && annotationGround(annotation.value);
+    case "Tuple":
+      return annotation.elements.every(annotationGround);
+    case "Record":
+      return !annotation.open && annotation.fields.every((field) => annotationGround(field.annotation));
+    case "Union":
+    case "RecordDeclaration":
+    case "ExternType":
+      return annotation.arguments.every(annotationGround);
+    case "Primitive":
+    case "Range":
+    case "JsValue":
+      return true;
+  }
+}
+
+/**
+ * What a position of a written type is *(#1174; Effects §2.3, §2.4)*: on a
+ * signature's spine, a callback's own function type, or data. A `->!` a
+ * callback's own arrows write is that callback's colour; everywhere else,
+ * `->!` is the impure constant.
+ */
+type WrittenRole = "spine" | "callback" | "data";
+
+/** A function's written face: its parameters' written types, where written, and its written result. */
+interface WrittenFace {
+  readonly kind: "Face";
+  readonly parameters: readonly (Resolved.TypeAnnotation | undefined)[];
+  readonly result: Resolved.TypeAnnotation | undefined;
+}
+
+/**
+ * **A value's own written type** *(#1174; Effects §3.4)*: the type its
+ * declaration writes, and the role of its root. It is read beside the value's
+ * type where a use reads the value, so what it spells is read from the text,
+ * never from where inference stands.
+ */
+export interface WrittenView {
+  readonly written: Resolved.TypeAnnotation | WrittenFace;
+  readonly role: WrittenRole;
+}
+
+/** A lambda's written face (`WrittenView`). */
+function lambdaFace(lambda: Resolved.LambdaExpr): WrittenView {
+  return {
+    written: {
+      kind: "Face",
+      parameters: lambda.parameters.map((parameter) => parameter.annotation),
+      result: lambda.returnAnnotation,
+    },
+    role: "spine",
+  };
+}
+
+/**
+ * The own written type of every module-level binding a module declares
+ * *(#1174)*: a written annotation, whole, or else a function's written face.
+ * `programWritten` gathers them across the program, so a use of an imported
+ * function reads what its declaration wrote.
+ */
+export function writtenBindings(module: Resolved.Module): Map<Resolved.SymbolId, WrittenView> {
+  const views = new Map<Resolved.SymbolId, WrittenView>();
+  for (const item of module.items) {
+    if (item.kind === "Let") {
+      let value: Resolved.Expr = item.value;
+      while (value.kind === "Group") value = value.expression;
+      if (item.annotation !== undefined && annotationWhole(item.annotation)) {
+        views.set(item.binding.symbol, { written: item.annotation, role: "spine" });
+      } else if (value.kind === "Lambda") {
+        views.set(item.binding.symbol, lambdaFace(value));
+      }
+    } else if (item.kind === "Fun") {
+      views.set(item.binding.symbol, lambdaFace(item.value));
+    }
+  }
+  return views;
 }
 
 /** What `Checker.#walkSyntax` reports as it walks (#1119 R.b). */
@@ -3162,6 +3273,18 @@ class Checker {
    * never depends on which line inference met first.
    */
   readonly #bindingSources = new Map<Resolved.SymbolId, BindingSource>();
+  /**
+   * The own written type of each binding whose declaration writes one
+   * *(#1174; `WrittenView`)*: a `let`'s whole annotation, a parameter's written
+   * type, and the type a written expectation gives a lambda's untyped
+   * parameter (`#sourceItem`, `#landFromSignature`). A function's written face
+   * is read from its definition.
+   */
+  readonly #writtenViews = new Map<Resolved.SymbolId, WrittenView>();
+  /** The written view a function's or a `let`'s value gives its binding, read once (`#writtenView`). */
+  readonly #madeViews = new Map<Resolved.SymbolId, WrittenView | undefined>();
+  /** The record declaration each constructor builds, across the program, for `#sourceItem`. */
+  readonly #constructedRecords = new Map<Resolved.SymbolId, Resolved.RecordDeclaration>();
   /** Every expression elaborated as a call's callee: applied, never handed anywhere, so never opened. */
   readonly #callees = new WeakSet<Resolved.Expr>();
   /** Memos for `#fromText`, `#madeFromText`, and `#decidedBinding`, forgotten whenever a source changes (`#resource`). */
@@ -4466,6 +4589,8 @@ class Checker {
   readonly #diagnostics: Diagnostics.Bag;
   readonly #importedSchemes: ReadonlyMap<Resolved.SymbolId, Typed.Scheme>;
   readonly #programNominals: VarianceDeclarations;
+  /** Every module-level binding's own written type, across the program (`CheckOptions.programWritten`). */
+  readonly #programWritten: ReadonlyMap<Resolved.SymbolId, WrittenView>;
   readonly #representationRecords: ReadonlyMap<string, Resolved.RecordId>;
   readonly #programOperations: ProgramOperations;
   readonly #programInstanceProviders: readonly ProgramInstanceProvider[];
@@ -4557,6 +4682,7 @@ class Checker {
     this.#diagnostics = diagnostics;
     this.#importedSchemes = options.importedSchemes ?? new Map();
     this.#programNominals = options.programNominals ?? { unions: [], records: [] };
+    this.#programWritten = options.programWritten ?? new Map();
     this.#representationRecords = options.representationRecords ?? new Map();
     this.#programOperations = options.programOperations ?? new Map();
     this.#programInstanceProviders = options.programInstanceProviders ?? [];
@@ -4591,6 +4717,11 @@ class Checker {
       }
     }
     for (const symbol of module.symbols) this.#symbolKinds.set(symbol.id, symbol.kind);
+    for (const declaration of [...this.#programNominals.records, ...module.records]) {
+      if (!this.#constructedRecords.has(declaration.constructor.symbol)) {
+        this.#constructedRecords.set(declaration.constructor.symbol, declaration);
+      }
+    }
     for (const item of module.items) this.#sourceItem(item);
     // See `#declaredUnions`: an annotation elaborated before the registration
     // below still has to be able to look a union declaration up.
@@ -9334,6 +9465,8 @@ class Checker {
             supplied.parameters.length === expression.parameters.length
           ? supplied
           : undefined;
+        // A written parameter type as the expectation meets it (#1174).
+        const metParameters: Mono[] = [];
         const parameters = expression.parameters.map((parameter, index) => {
           const component = landing?.parameters[index];
           // An **unannotated** parameter *takes* the expected component — the
@@ -9363,8 +9496,21 @@ class Checker {
           // (§4.1, unchanged) and unifies with the component. A failure here is
           // the seat's ordinary mismatch — the same unification the seat's final
           // check would have failed — in the seat's own diagnostic family.
+          //
+          // The expectation meets the written type as a use of the lambda reads
+          // it (#1174; Effects §3.4): its arrows the parameter hands on
+          // re-opened, a `->!` it spells where it is handed something read as
+          // any function. The body keeps the written type.
           if (parameter.annotation !== undefined && component !== undefined) {
-            this.#unify(parameterType, component, parameter.span);
+            const met = this.#openReceived(
+              parameterType,
+              level + 1,
+              true,
+              { written: parameter.annotation, role: "callback" },
+              false,
+            );
+            metParameters[index] = met;
+            this.#unify(met, component, parameter.span);
           }
           this.#schemes.set(parameter.symbol, {
             variables: [],
@@ -9516,10 +9662,20 @@ class Checker {
         }
         this.#arrowRole = enclosingRole;
         this.#linkedArrowPosition = enclosingPosition;
+        // A lambda no use re-opens (a binding's value) meets the expectation
+        // that landed on it with its written types read as a use would read
+        // them (#1174): a lambda that is used is re-opened where it is used.
+        const metWhole = landing !== undefined && this.#unopenedLambdas.has(expression);
+        const returnWritten = expression.returnAnnotation;
         type = {
           kind: "Function",
-          parameters,
-          result,
+          parameters: metWhole ? parameters.map((parameter, index) => metParameters[index] ?? parameter) : parameters,
+          result: metWhole && returnWritten !== undefined
+            ? this.#openReceived(result, level + 1, true, {
+              written: returnWritten,
+              role: returnWritten.kind === "Function" ? "spine" : "data",
+            })
+            : result,
           effect: effectFrame.own,
         };
         this.#frameOfType.set(type, effectFrame);
@@ -10489,13 +10645,14 @@ class Checker {
       type,
       level,
       expression.kind !== "Lambda" || expression.returnAnnotation !== undefined,
+      this.#writtenView(expression),
     );
   }
 
   /**
    * Whether the text decides every arrow a use of a value receives, not only
-   * its own (#1119 R.b, #1169): a type written whole, or a value made wholly
-   * from the text. A lambda or a function that captures a parameter with no
+   * its own (#1119 R.b, #1169): a type written whole, a value made wholly from
+   * the text, or a call whose written result type is ground (#1174). A lambda or a function that captures a parameter with no
    * written type, a call handed one, and a binding whose shape was left open
    * where it was made decide their own arrow and nothing beneath it. A
    * lambda's result is its body's value, which its body's use re-opened where
@@ -10505,7 +10662,90 @@ class Checker {
    */
   #receivedDecided(expression: Resolved.Expr): boolean {
     if (expression.kind === "Ascription" && annotationWhole(expression.annotation)) return true;
+    if (this.#groundResult(expression)) return true;
     return this.#madeFromText(expression);
+  }
+
+  /**
+   * Whether a value is a call to a function whose written result type is
+   * **ground** (`annotationGround`) *(#1174)*: the text decides every arrow of
+   * the result, whatever the call is handed, so the call and a binding made
+   * from it are decided wholly.
+   */
+  #groundResult(expression: Resolved.Expr): boolean {
+    while (expression.kind === "Group") expression = expression.expression;
+    if (expression.kind !== "Call" || expression.callee.kind !== "Name") return false;
+    const result = this.#resultWritten(this.#writtenView(expression.callee));
+    return result !== undefined && annotationGround(result);
+  }
+
+  /**
+   * **A value's own written type** *(#1174; `WrittenView`)*, where its
+   * declaration writes one: a parameter's, a `let`'s or an ascription's
+   * annotation, a function's or a lambda's written face, a record field's
+   * declared type, or the result type a callee's declaration writes, an
+   * imported function's included (`CheckOptions.programWritten`). A `let` made
+   * from such a value reads it too. Read from declarations, it is the same
+   * whatever order the program's lines come in.
+   */
+  #writtenView(expression: Resolved.Expr, seen = new Set<Resolved.SymbolId>()): WrittenView | undefined {
+    switch (expression.kind) {
+      case "Group":
+        return this.#writtenView(expression.expression, seen);
+      case "Ascription":
+        return annotationWhole(expression.annotation) ? { written: expression.annotation, role: "spine" } : undefined;
+      case "Lambda":
+        return lambdaFace(expression);
+      case "Name": {
+        const symbol = expression.symbol;
+        const own = this.#writtenViews.get(symbol);
+        if (own !== undefined) return own;
+        const source = this.#bindingSources.get(symbol);
+        if (source === undefined) return this.#programWritten.get(symbol);
+        if (source.kind !== "function" && source.kind !== "value") return undefined;
+        // Read once: a binding's declaration, and the value its `let` is made
+        // from, are settled before any use reads it.
+        if (this.#madeViews.has(symbol)) return this.#madeViews.get(symbol);
+        if (seen.has(symbol)) return undefined;
+        seen.add(symbol);
+        const made = this.#writtenView(source.value, seen);
+        this.#madeViews.set(symbol, made);
+        return made;
+      }
+      case "Access": {
+        // A declared record's field, where the receiver is made from the text
+        // and its type therefore settled where it was made.
+        if (!this.#madeFromText(expression.receiver)) return undefined;
+        const receiver = this.#expressionTypes.get(expression.receiver);
+        const actual = receiver === undefined ? undefined : this.#prune(receiver);
+        if (actual?.kind !== "NominalRecord") return undefined;
+        const field = this.#programRecord(actual.record)?.fields
+          .find((candidate) => candidate.name === expression.field.text);
+        return field === undefined ? undefined : { written: field.annotation, role: "data" };
+      }
+      case "Call": {
+        if (expression.callee.kind !== "Name") return undefined;
+        const result = this.#resultWritten(this.#writtenView(expression.callee, seen));
+        if (result === undefined || !annotationWhole(result)) return undefined;
+        return { written: result, role: result.kind === "Function" ? "spine" : "data" };
+      }
+      default:
+        return undefined;
+    }
+  }
+
+  /** The result type a function's written view writes, on its spine. */
+  #resultWritten(view: WrittenView | undefined): Resolved.TypeAnnotation | undefined {
+    if (view === undefined) return undefined;
+    if (view.written.kind === "Face") return view.written.result;
+    return view.role === "spine" && view.written.kind === "Function" ? view.written.result : undefined;
+  }
+
+  /** The type a function's written view writes for one of its parameters. */
+  #parameterWritten(view: WrittenView | undefined, index: number): Resolved.TypeAnnotation | undefined {
+    if (view === undefined) return undefined;
+    if (view.written.kind === "Face") return view.written.parameters[index];
+    return view.written.kind === "Function" ? view.written.parameters[index] : undefined;
   }
 
   /**
@@ -10514,20 +10754,65 @@ class Checker {
    * colour or more (`#openAt`). That is each function in a position the use
    * receives, read by variance: the value's own arrow, a function's result, a
    * tuple's or a record's function, a covariant argument's. A parameter's
-   * arrow is where the use hands something, and is left as it stands; beneath
-   * it the sign turns again. An argument read invariantly (an `Array`'s
-   * element, invariant for want of a variance ruling) is left whole. Swift
-   * reaches the same verdicts by subtyping; this is Koka's re-opening, at every
-   * depth the use receives. `withResult` false leaves the value's own result
-   * as it stands: a lambda's, which its body's use re-opened.
+   * arrow is where the use hands something; beneath it the sign turns again.
+   * There, a `->!` the value's own written type (`view`, `#writtenView`)
+   * spells as the impure constant accepts any function (`#lowerWritten`),
+   * and every other arrow is left as it stands (#1174). The written type is
+   * walked beside the value's, each position with its role: a spine's
+   * parameters are callbacks, whose own arrows are their colours. An argument
+   * read invariantly (an `Array`'s element, invariant for want of a variance
+   * ruling) is left whole. Swift reaches the same verdicts by subtyping; this
+   * is Koka's re-opening, at every depth the use receives. `withResult` false
+   * leaves the value's own result as it stands: a lambda's, which its body's
+   * use re-opened. `receivesRoot` false reads a parameter's own type, which a
+   * use hands something.
    */
-  #openReceived(type: Mono, level: number, withResult = true): Mono {
-    const walk = (node: Mono, receives: boolean): Mono => {
+  #openReceived(
+    type: Mono,
+    level: number,
+    withResult = true,
+    view?: WrittenView,
+    receivesRoot = true,
+  ): Mono {
+    // Beneath a written type: the part a structural walk reaches, where the
+    // written type spells it.
+    const part = (
+      written: Resolved.TypeAnnotation | WrittenFace | undefined,
+      pick: (annotation: Resolved.TypeAnnotation) => Resolved.TypeAnnotation | undefined,
+    ): Resolved.TypeAnnotation | undefined =>
+      written === undefined || written.kind === "Face" ? undefined : pick(written);
+    const walk = (
+      node: Mono,
+      receives: boolean,
+      written?: Resolved.TypeAnnotation | WrittenFace,
+      role: WrittenRole = "data",
+    ): Mono => {
       const actual = this.#prune(node);
       switch (actual.kind) {
         case "Function": {
-          const parameters = actual.parameters.map((parameter) => walk(parameter, !receives));
-          const result = node === type && !withResult ? actual.result : walk(actual.result, receives);
+          // A spine's parameters are callbacks; a callback's own parameters,
+          // and anything that is not a function a callback returns, are data.
+          let parameterWritten: readonly (Resolved.TypeAnnotation | undefined)[] = [];
+          let parameterRole: WrittenRole = "data";
+          let resultWritten: Resolved.TypeAnnotation | undefined;
+          let resultRole: WrittenRole = "data";
+          if (written?.kind === "Face") {
+            parameterWritten = written.parameters;
+            parameterRole = "callback";
+            resultWritten = written.result;
+            resultRole = written.result?.kind === "Function" ? "spine" : "data";
+          } else if (written?.kind === "Function") {
+            parameterWritten = written.parameters;
+            parameterRole = role === "spine" ? "callback" : "data";
+            resultWritten = written.result;
+            resultRole = written.result.kind === "Function" && role !== "data" ? role : "data";
+          }
+          const parameters = actual.parameters.map((parameter, index) =>
+            walk(parameter, !receives, parameterWritten[index], parameterRole)
+          );
+          const result = node === type && !withResult
+            ? actual.result
+            : walk(actual.result, receives, resultWritten, resultRole);
           let rebuilt: Mono = node;
           if (result !== actual.result || parameters.some((parameter, index) => parameter !== actual.parameters[index])) {
             rebuilt = { ...actual, parameters, result };
@@ -10536,7 +10821,13 @@ class Checker {
             const frame = this.#frameOfType.get(actual);
             if (frame !== undefined) this.#frameOfType.set(rebuilt, frame);
           }
-          if (!receives) return rebuilt;
+          if (!receives) {
+            // Where the use hands something, a `->!` the value's own written
+            // type spells as the impure constant accepts any function (#1174).
+            return written?.kind === "Function" && written.effect === "constant" && role === "data"
+              ? this.#lowerWritten(rebuilt, level)
+              : rebuilt;
+          }
           if (node === type) return this.#openAt(rebuilt, level);
           // Beneath the value's own arrow: a slack a form reading the value in
           // place closes (`#closeReadOpenings`).
@@ -10546,13 +10837,22 @@ class Checker {
           return opened;
         }
         case "Tuple": {
-          const elements = actual.elements.map((element) => walk(element, receives));
+          const elements = actual.elements.map((element, index) =>
+            walk(element, receives, part(written, (annotation) =>
+              annotation.kind === "Tuple" ? annotation.elements[index] : undefined))
+          );
           return elements.every((element, index) => element === actual.elements[index])
             ? node
             : { kind: "Tuple", elements };
         }
         case "Record": {
-          const fields = new Map([...actual.fields].map(([name, field]) => [name, walk(field, receives)]));
+          const fields = new Map([...actual.fields].map(([name, field]) => [
+            name,
+            walk(field, receives, part(written, (annotation) =>
+              annotation.kind === "Record"
+                ? annotation.fields.find((candidate) => candidate.name === name)?.annotation
+                : undefined)),
+          ]));
           if ([...fields].every(([name, field]) => field === actual.fields.get(name))) return node;
           return { kind: "Record", fields, ...(actual.tail === undefined ? {} : { tail: actual.tail }) };
         }
@@ -10560,13 +10860,17 @@ class Checker {
         case "NominalRecord":
         case "ExternType": {
           const parts = actual.arguments.map((argument, index) => {
+            const argumentWritten = part(written, (annotation) =>
+              annotation.kind === "Union" || annotation.kind === "RecordDeclaration" || annotation.kind === "ExternType"
+                ? annotation.arguments[index]
+                : undefined);
             const variance = actual.kind === "Union"
               ? this.#variance.effectiveUnion(actual.union, index)
               : actual.kind === "NominalRecord"
               ? this.#variance.effectiveRecord(actual.record, index)
               : this.#variance.externClaim(actual.externType, index);
-            return variance === "co" ? walk(argument, receives)
-              : variance === "contra" ? walk(argument, !receives)
+            return variance === "co" ? walk(argument, receives, argumentWritten)
+              : variance === "contra" ? walk(argument, !receives, argumentWritten)
               : argument;
           });
           return parts.every((part, index) => part === actual.arguments[index]) ? node : { ...actual, arguments: parts };
@@ -10578,25 +10882,58 @@ class Checker {
         case "Node": {
           const variance = this.#variance.kindClaim(actual.kind, 0);
           if (variance !== "co" && variance !== "contra") return node;
-          const element = walk(actual.element, variance === "co" ? receives : !receives);
+          const element = walk(
+            actual.element,
+            variance === "co" ? receives : !receives,
+            part(written, (annotation) => "element" in annotation ? annotation.element : undefined),
+          );
           return element === actual.element ? node : { ...actual, element };
         }
         case "Nullable": {
           if (this.#variance.kindClaim("Nullable", 0) !== "co") return node;
-          const value = walk(actual.value, receives);
+          const value = walk(actual.value, receives, part(written, (annotation) =>
+            annotation.kind === "Nullable" ? annotation.value : undefined));
           return value === actual.value ? node : { kind: "Nullable", value };
         }
         case "Map":
         case "JsMap": {
-          const key = this.#variance.kindClaim(actual.kind, 0) === "co" ? walk(actual.key, receives) : actual.key;
-          const value = this.#variance.kindClaim(actual.kind, 1) === "co" ? walk(actual.value, receives) : actual.value;
+          const pair = (annotation: Resolved.TypeAnnotation) =>
+            annotation.kind === "Map" || annotation.kind === "JsMap" ? annotation : undefined;
+          const key = this.#variance.kindClaim(actual.kind, 0) === "co"
+            ? walk(actual.key, receives, part(written, (annotation) => pair(annotation)?.key))
+            : actual.key;
+          const value = this.#variance.kindClaim(actual.kind, 1) === "co"
+            ? walk(actual.value, receives, part(written, (annotation) => pair(annotation)?.value))
+            : actual.value;
           return key === actual.key && value === actual.value ? node : { ...actual, key, value };
         }
         default:
           return node;
       }
     };
-    return walk(type, true);
+    return walk(type, receivesRoot, view?.written, view?.role);
+  }
+
+  /**
+   * **Swift's rule where a use hands something** *(#1174; Effects §3.4)*: an
+   * arrow the value's own written type spells `->!`, as the impure constant,
+   * accepts any function, so it is read as a fresh colour the seat decides.
+   * Only the written constant is so read: a colour inference solved there, or
+   * one shared by every use of a value, is left as it stands, since whether
+   * it was solved before this use follows the order of the lines. The copy
+   * keeps the node's lambdas and frame (`#openReceived`).
+   */
+  #lowerWritten(type: Mono, level: number): Mono {
+    const actual = this.#prune(type);
+    if (actual.kind !== "Function" || actual.effect === undefined || !isImpure(this.#prune(actual.effect))) {
+      return type;
+    }
+    const lowered: Mono = { ...actual, effect: this.#fresh(level, false) };
+    const lambdas = this.#lambdasOf.get(actual);
+    if (lambdas !== undefined) this.#lambdasOf.set(lowered, lambdas);
+    const frame = this.#frameOfType.get(actual);
+    if (frame !== undefined) this.#frameOfType.set(lowered, frame);
+    return lowered;
   }
 
   /**
@@ -17480,7 +17817,7 @@ class Checker {
       case "Ascription":
         return annotationWhole(expression.annotation) || this.#decidedValue(expression.expression);
       case "Call": {
-        if (this.#madeFromText(expression)) return true;
+        if (this.#madeFromText(expression) || this.#groundResult(expression)) return true;
         // A function's result, where its own text decides the result's colour
         // whatever it captured or is handed: a written result arrow that is a
         // constant, or a lambda on every value path of its body.
@@ -17671,9 +18008,11 @@ class Checker {
         return false;
       case "part":
         if (source.source === undefined || source.open === true) return false;
+        if (this.#groundResult(source.source)) return true;
         break;
       case "value":
         if (source.open === true) return false;
+        if (this.#groundResult(source.value)) return true;
         break;
       case "function":
         break;
@@ -17794,29 +18133,56 @@ class Checker {
         lambda.kind !== "Lambda" || expected?.kind !== "Function" ||
         expected.parameters.length !== lambda.parameters.length
       ) continue;
+      const written = this.#parameterWritten(this.#writtenView(callee), index);
       for (const [position, parameter] of lambda.parameters.entries()) {
         if (parameter.annotation !== undefined) continue;
         if (this.#collectVariables(expected.parameters[position]!).length > 0) continue;
         this.#resource(parameter.symbol, { kind: "written" });
+        // What the callee's declaration writes there is the parameter's own
+        // written type (#1174).
+        const given = written?.kind === "Function" ? written.parameters[position] : undefined;
+        if (given !== undefined && annotationGround(given)) {
+          this.#writtenViews.set(parameter.symbol, { written: given, role: "callback" });
+        }
       }
     }
   }
 
   /**
    * Records where every binding an item introduces takes its value from
-   * (`#bindingSources`), before anything is inferred.
+   * (`#bindingSources`), before anything is inferred, and the own written type
+   * of each that writes one (`#writtenViews`). A lambda's untyped parameter
+   * under a type written whole takes the parameter type written there as its
+   * own (#1174), as one under a callee's signature does (`#landFromSignature`).
    */
   #sourceItem(item: Resolved.Item): void {
+    // A lambda written where a type written whole is expected: a `let`'s
+    // annotation, an ascription, a written result type, or a record field's
+    // declared type at a construction (#1174).
+    const expectedBy = new Map<Resolved.Expr, Resolved.TypeAnnotation>();
+    const expect = (value: Resolved.Expr, annotation: Resolved.TypeAnnotation | undefined): void => {
+      if (annotation?.kind !== "Function") return;
+      let lambda = value;
+      while (lambda.kind === "Group") lambda = lambda.expression;
+      if (lambda.kind === "Lambda" && lambda.parameters.length === annotation.parameters.length) {
+        expectedBy.set(lambda, annotation);
+      }
+    };
     const register = (inner: Resolved.Item): void => {
       if (inner.kind === "Let") {
+        const written = inner.annotation !== undefined && annotationWhole(inner.annotation);
         this.#bindingSources.set(
           inner.binding.symbol,
-          inner.annotation !== undefined && annotationWhole(inner.annotation)
+          written
             ? { kind: "written" }
             : inner.value.kind === "Lambda"
             ? { kind: "function", value: inner.value }
             : { kind: "value", value: inner.value },
         );
+        if (written) {
+          this.#writtenViews.set(inner.binding.symbol, { written: inner.annotation!, role: "spine" });
+          expect(inner.value, inner.annotation);
+        }
       } else if (inner.kind === "Var") {
         this.#bindingSources.set(inner.binding.symbol, { kind: "inferred" });
       } else if (inner.kind === "Fun") {
@@ -17826,14 +18192,34 @@ class Checker {
     register(item);
     this.#walkItem(item, {
       item: register,
+      expression: (expression) => {
+        if (expression.kind === "Ascription" && annotationWhole(expression.annotation)) {
+          expect(expression.expression, expression.annotation);
+        } else if (expression.kind === "Lambda" && expression.returnAnnotation !== undefined) {
+          if (annotationWhole(expression.returnAnnotation)) expect(expression.body, expression.returnAnnotation);
+        } else if (
+          expression.kind === "Call" && expression.callee.kind === "Name" &&
+          expression.arguments.length === 1 && expression.arguments[0]!.kind === "Record"
+        ) {
+          const declaration = this.#constructedRecords.get(expression.callee.symbol);
+          for (const field of (expression.arguments[0] as Resolved.RecordExpr).fields) {
+            expect(field.value, declaration?.fields.find((declared) => declared.name === field.name.text)?.annotation);
+          }
+        }
+      },
       lambda: (lambda) => {
-        for (const parameter of lambda.parameters) {
-          this.#bindingSources.set(
-            parameter.symbol,
-            parameter.annotation !== undefined && annotationWhole(parameter.annotation)
-              ? { kind: "written" }
-              : { kind: "inferred" },
-          );
+        const expected = expectedBy.get(lambda);
+        for (const [index, parameter] of lambda.parameters.entries()) {
+          const given = parameter.annotation === undefined && expected?.kind === "Function"
+            ? expected.parameters[index]
+            : undefined;
+          const written = parameter.annotation !== undefined && annotationWhole(parameter.annotation)
+            ? parameter.annotation
+            : given !== undefined && annotationGround(given)
+            ? given
+            : undefined;
+          this.#bindingSources.set(parameter.symbol, written !== undefined ? { kind: "written" } : { kind: "inferred" });
+          if (written !== undefined) this.#writtenViews.set(parameter.symbol, { written, role: "callback" });
         }
       },
       pattern: (pattern, source) => {
