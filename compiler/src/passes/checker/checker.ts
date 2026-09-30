@@ -10480,9 +10480,16 @@ class Checker {
 
     this.#expressionTypes.set(expression, type);
     if (!this.#opensAt(expression)) return type;
-    return this.#readInPlace.has(expression) || !this.#receivedDecided(expression)
-      ? this.#openAt(type, level)
-      : this.#openReceived(type, level);
+    if (this.#readInPlace.has(expression) || !this.#receivedDecided(expression)) {
+      return this.#openAt(type, level);
+    }
+    // A lambda's result is its body's value, which the body's use re-opened,
+    // unless a written result type fixed it; its parameters' types are its own.
+    return this.#openReceived(
+      type,
+      level,
+      expression.kind !== "Lambda" || expression.returnAnnotation !== undefined,
+    );
   }
 
   /**
@@ -10490,14 +10497,13 @@ class Checker {
    * its own (#1119 R.b, #1169): a type written whole, or a value made wholly
    * from the text. A lambda or a function that captures a parameter with no
    * written type, a call handed one, and a binding whose shape was left open
-   * where it was made decide their own arrow and nothing beneath it. A lambda
-   * is read at its own arrow alone: what it returns is its body's value, which
-   * its body's use has already re-opened, and a lambda's openings stay open
-   * until the binding around it closes them (`#closeOpenings`). Reading them
-   * again would stack a slack per enclosing lambda on every arrow beneath.
+   * where it was made decide their own arrow and nothing beneath it. A
+   * lambda's result is its body's value, which its body's use re-opened where
+   * the text decides it, so its use walks the result only where a written
+   * result type fixed it (`#inferExpr`'s tail); walking it again at every
+   * enclosing lambda stacked a slack per level on every arrow beneath.
    */
   #receivedDecided(expression: Resolved.Expr): boolean {
-    if (expression.kind === "Lambda") return false;
     if (expression.kind === "Ascription" && annotationWhole(expression.annotation)) return true;
     return this.#madeFromText(expression);
   }
@@ -10509,17 +10515,19 @@ class Checker {
    * receives, read by variance: the value's own arrow, a function's result, a
    * tuple's or a record's function, a covariant argument's. A parameter's
    * arrow is where the use hands something, and is left as it stands; beneath
-   * it the sign turns again. An argument read invariantly (an `Array`'s element,
-   * invariant for want of a variance ruling) is left whole. Swift reaches the same verdicts by subtyping;
-   * this is Koka's re-opening, at every depth the use receives.
+   * it the sign turns again. An argument read invariantly (an `Array`'s
+   * element, invariant for want of a variance ruling) is left whole. Swift
+   * reaches the same verdicts by subtyping; this is Koka's re-opening, at every
+   * depth the use receives. `withResult` false leaves the value's own result
+   * as it stands: a lambda's, which its body's use re-opened.
    */
-  #openReceived(type: Mono, level: number): Mono {
+  #openReceived(type: Mono, level: number, withResult = true): Mono {
     const walk = (node: Mono, receives: boolean): Mono => {
       const actual = this.#prune(node);
       switch (actual.kind) {
         case "Function": {
           const parameters = actual.parameters.map((parameter) => walk(parameter, !receives));
-          const result = walk(actual.result, receives);
+          const result = node === type && !withResult ? actual.result : walk(actual.result, receives);
           let rebuilt: Mono = node;
           if (result !== actual.result || parameters.some((parameter, index) => parameter !== actual.parameters[index])) {
             rebuilt = { ...actual, parameters, result };
@@ -32778,14 +32786,16 @@ function effectMismatchMessage(left: Mono, right: Mono): string {
  * A pure function fits wherever a function is expected, at every arrow a use
  * receives, so a pure arrow meets the impure constant and fails only where it
  * was fixed before it arrived: a colour its other uses pinned, which a use
- * never re-opens (R.b), or an arrow no use receives — inside an argument read
- * invariantly, or in a parameter's type.
+ * never re-opens (R.b); a type written where the function was made, which an
+ * expectation met first or a use does not reach beneath the value's own arrow;
+ * or an arrow no use receives — inside an argument read invariantly, or in a
+ * parameter's type.
  */
 const REVERSE_DEMAND_MESSAGE =
   "this position's arrow is the impure constant, and the pure `->` meeting it " +
-  "was fixed before it arrived — by another use, inside an argument read " +
-  "invariantly, or in a parameter's type — so it cannot fit as a function used " +
-  "here does; write the arrow where it was fixed";
+  "was fixed before it arrived — by another use, by a type written where it was " +
+  "made, inside an argument read invariantly, or in a parameter's type — so it " +
+  "cannot fit as a function used here does; write the arrow where it was fixed";
 
 /** Rewrites first-argument pipe insertion before either side is inferred. */
 function rewritePipe(expression: Resolved.BinaryExpr): Resolved.CallExpr {

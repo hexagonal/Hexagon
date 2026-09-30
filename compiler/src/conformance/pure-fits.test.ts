@@ -70,8 +70,9 @@ const SOLVED_IMPURE = "this signature's `->?` promises a colour the caller choos
 const PURITY = "a `->` arrow promises purity, and this function may touch the world — the demand " +
   "is written `->`, the function's face `->!` or `->?`";
 const FIXED_BEFORE = "this position's arrow is the impure constant, and the pure `->` meeting it " +
-  "was fixed before it arrived — by another use, inside an argument read invariantly, or in a " +
-  "parameter's type — so it cannot fit as a function used here does; write the arrow where it was fixed";
+  "was fixed before it arrived — by another use, by a type written where it was made, inside an " +
+  "argument read invariantly, or in a parameter's type — so it cannot fit as a function used here does; " +
+  "write the arrow where it was fixed";
 
 describe("a pure function fits wherever a function is expected (#1119)", () => {
   test("beside a callback, where a callee's `->?` is shared", () => {
@@ -947,6 +948,28 @@ describe("beneath its own arrow, only what the text decides is re-opened (#1169 
       const other = reports("let ident(x: a): a = x\n" + head + second + "\n" + first + "\n    ()\n").length > 0;
       expect([head, first, one]).toEqual([head, first, other]);
     }
+  });
+
+  test("a lambda's written types are the text's, and are re-opened where the lambda is used", () => {
+    // Its result annotation fixed what its body's value became, and its
+    // parameters' types are its own: neither is its body's value.
+    const programs = [
+      "let takeT(t: () -> (() ->! Unit, Int)): Unit =\n    let (f, _) = t()\n    f!()\n" +
+        "export let go(): Unit = takeT!((): (() -> Unit, Int) => (noop, 1))\n",
+      "export let go(b: Bool): Unit =\n    let w = if b then (): (() -> Unit, Int) => (noop, 1) else () => (save0, 2)\n    ()\n",
+      "export let go(b: Bool): Unit =\n    let w = if b then (q: (() -> Unit) -> Unit) => q(noop) else (q: (() ->! Unit) -> Unit) => q(save0)\n    ()\n",
+      "export let go(): Unit =\n    let w = [(q: (() -> Unit) -> Unit) => q(noop), (q: (() ->! Unit) -> Unit) => q(save0)]\n    ()\n",
+    ];
+    for (const source of programs) expect([source, reports(source)]).toEqual([source, []]);
+  });
+
+  test("a lambda's result is its body's value: a deep chain of lambdas compiles in time", () => {
+    // Its body's use re-opened it; re-opening it again at each enclosing
+    // lambda stacked a slack per level on every arrow beneath.
+    const start = Date.now();
+    expect(reports("export let go(p: () -> Unit): Unit =\n    let k = " + "() => ".repeat(600) + "p\n    ()\n"))
+      .toEqual([]);
+    expect(Date.now() - start).toBeLessThan(3000);
   });
 
   test("a type written whole decides every arrow beneath it", () => {
