@@ -790,6 +790,17 @@ describe("a colour left open where the binding is made (#1170)", () => {
         expect([lines, reports(program(lines))]).toEqual([lines, []]);
       }
     }
+    // Nor the room a callback it hands the value leaves: the two callbacks
+    // stay two colours, whichever is handed first.
+    const handing = "let t2 = () => r!(a2)";
+    for (const tail of [[], ['let w = [r, (g) => save!("y")]']]) {
+      for (const uses of [["r!(a1)", handing, ...tail], [handing, "r!(a1)", ...tail]]) {
+        const source = prefix + "export let outer(a1: () ->! Unit, a2: () ->! Unit): Unit =\n    let (r, _) = make()\n" +
+          uses.map((use) => `    ${use}\n`).join("") + "    ()\nlet user(p, q) = outer!(p, q)\n";
+        expect([uses, reports(source)]).toEqual([uses, []]);
+        expect([uses, hovered(source, "outer(")]).toEqual([uses, "(() ->! Unit, () ->! Unit) ->? Unit"]);
+      }
+    }
   });
 
   test("a colour captured from an enclosing callback fits beside it, in either order", () => {

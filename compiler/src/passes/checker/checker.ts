@@ -20016,9 +20016,10 @@ class Checker {
     const pruned = this.#prune(colour);
     if (pruned.kind !== "Variable") return false;
     if (this.#isLinkedColour(pruned) || this.#seatHeld.has(pruned)) return true;
-    // A value's own colour, the value an enclosing body's: that body decides
-    // it from every use, so a body nested in it never defaults it.
-    if (this.#valueColours.has(pruned) && pruned.level < frame.level) return true;
+    // A value's own colour, or the room it took in, the value an enclosing
+    // body's: that body decides it from every use, so a body nested in it never
+    // defaults it.
+    if ((this.#valueColours.has(pruned) || this.#valueSlacks.has(pruned)) && pruned.level < frame.level) return true;
     if (this.#ownedByEnclosing(frame, pruned)) return true;
     for (let open: EffectFrame | undefined = frame; open !== undefined; open = open.enclosing) {
       if (this.#settledFrames.has(open) && open !== frame) continue;
@@ -22541,6 +22542,7 @@ class Checker {
       const fresh = this.#fresh(variable.level, false);
       if (this.#openedColours.has(variable)) this.#openedColours.add(fresh);
       if (this.#valueColours.has(variable)) this.#valueColours.add(fresh);
+      if (this.#valueSlacks.has(variable)) this.#valueSlacks.add(fresh);
       if (own) for (const slack of slacks) this.#valueSlacks.add(slack);
       this.#lowerLevels(this.#join(rest), variable.level);
       const target = this.#join([fresh, ...rest]);
