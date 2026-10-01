@@ -474,16 +474,13 @@ type ArrowRole =
     readonly spine: Spine;
     readonly application: number;
     /**
-     * Under a type argument a declaration reads other than covariantly, the
-     * first such on the way down: `"in"` where it reads it contravariantly,
-     * so a function there is one a caller hands in, whose parameters are what
-     * the body hands it, and nothing nests in it; `"both"` where it reads it
-     * both ways, so a function there nests as one the spine returns does.
-     * Either way a written `->?` there is unified with what meets it, never
-     * fitted: a fit reads "claims more" the wrong way round for a function a
-     * caller hands in.
+     * Under a type argument a declaration reads contravariantly or both ways:
+     * a function there may be one a caller hands in, which the body calls, so
+     * its parameters are what the body hands it, nothing nests in it, and a
+     * written `->?` there is unified with what meets it, never fitted (a fit
+     * reads "claims more" the wrong way round at a parameter).
      */
-    readonly against?: "in" | "both";
+    readonly against?: boolean;
   }
   | { readonly kind: "callback"; readonly callback: CallbackColour }
   | { readonly kind: "inside" };
@@ -19554,12 +19551,10 @@ class Checker {
     application: number,
     result: Resolved.TypeAnnotation | undefined,
     spine: Spine = face,
-    against?: "both",
   ): ArrowRole {
-    const grain = against === undefined ? {} : { against };
     return result?.kind === "Function"
-      ? { kind: "spine", face, spine, application: application + 1, ...grain }
-      : { kind: "component", face, spine, application, ...grain };
+      ? { kind: "spine", face, spine, application: application + 1 }
+      : { kind: "component", face, spine, application };
   }
 
   /**
@@ -27697,23 +27692,16 @@ class Checker {
       // returns: a `->?` denotes the callbacks handed by the time it runs, and
       // a spine arrow's own parameters are among them (Effects §2.2).
       let role = this.#arrowRole;
-      if (role?.kind === "component" && role.against !== "in") {
+      if (role?.kind === "component" && role.against !== true) {
         // A function inside what a spine returns is a signature of its own,
         // nested in it *(#1176)*: by the time its arrow runs, the spine has
         // handed over what it had when it made the data, and the function's
-        // own application hands over its own callbacks. One under a type
-        // argument read both ways nests the same way.
+        // own application hands over its own callbacks.
         const spine: Spine = {
           handed: [role.spine.handed.slice(0, role.application + 1).flat()],
           untyped: [role.spine.untyped.slice(0, role.application + 1).some((some) => some)],
         };
-        role = {
-          kind: "spine",
-          face: role.face,
-          spine,
-          application: 1,
-          ...(role.against === undefined ? {} : { against: role.against }),
-        };
+        role = { kind: "spine", face: role.face, spine, application: 1 };
       }
       const elaborate = (part: Resolved.TypeAnnotation): Mono =>
         this.#annotationType(part, level, namedTails, typeParameters, impliedTypes, holes);
@@ -27724,10 +27712,11 @@ class Checker {
         parameters = annotation.parameters.map((parameter) =>
           this.#elaborateParameter(parameter, face, application, undefined, elaborate, spine)!
         );
-        resultRole = this.#resultRole(face, application, annotation.result, spine, role.against === "both" ? "both" : undefined);
+        resultRole = this.#resultRole(face, application, annotation.result, spine);
       } else if (role?.kind === "component") {
-        // A function the caller hands in through a contravariant argument:
-        // its parameters are data, and what it returns stays where it is.
+        // A function a caller may hand in, under a type argument read
+        // contravariantly or both ways: its parameters are data, and what it
+        // returns stays where it is.
         parameters = this.#inRole({ kind: "inside" }, () => annotation.parameters.map(elaborate));
         resultRole = role;
       } else if (role?.kind === "callback") {
@@ -27750,7 +27739,7 @@ class Checker {
       // A written `->?` the face kept: what meets it is fitted (§4.2).
       if (
         annotation.effect === "linked" &&
-        (writtenRole?.kind === "spine" || writtenRole?.kind === "component") && writtenRole.against === undefined
+        (writtenRole?.kind === "spine" || writtenRole?.kind === "component") && writtenRole.against !== true
       ) {
         const arrow = writtenRole.face.arrows.find(({ span, colour }) => colour === effect && span === annotation.arrowSpan);
         if (arrow !== undefined) this.#faceArrowNodes.set(elaborated, { face: writtenRole.face, arrow });
@@ -27765,16 +27754,13 @@ class Checker {
     // The written qualifier rides the elaborated node from here (FFI Part 7
     // §2.4 rung 3): it is a property of the *occurrence*, and this is the one
     // place an occurrence becomes a type.
-    // A type argument read against the grain of the data around a spine: the
-    // first such on the way down decides (`ArrowRole`'s `against`).
+    // A type argument read against the grain of the data around a spine.
     const argument = (part: Resolved.TypeAnnotation, variance: () => string): Mono => {
       const role = this.#arrowRole;
       const elaborated = () => this.#annotationType(part, level, namedTails, typeParameters, impliedTypes, holes);
-      if (role?.kind !== "component" || role.against !== undefined) return elaborated();
+      if (role?.kind !== "component" || role.against === true) return elaborated();
       const read = variance();
-      return read === "contra" ? this.#inRole({ ...role, against: "in" }, elaborated)
-        : read === "inv" ? this.#inRole({ ...role, against: "both" }, elaborated)
-        : elaborated();
+      return read === "contra" || read === "inv" ? this.#inRole({ ...role, against: true }, elaborated) : elaborated();
     };
     if (annotation.kind === "Union") {
       return {

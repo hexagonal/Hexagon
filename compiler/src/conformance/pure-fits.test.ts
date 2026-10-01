@@ -1209,37 +1209,49 @@ describe("a function in the data a signature returns is a signature of its own (
     expect(reports(honest + user(["mk(save0).put!(save0)", "mk(() => ()).put!(() => ())"]))).toEqual([]);
   });
 
-  test("a function a declaration reads contravariantly keeps its parameters' written meaning, whatever the body hands it", () => {
-    // Swift's `Sink<(() throws -> Void) throws -> Void>`: the body chooses what
-    // `put`'s function is handed, so `->!` there is the constant.
-    const sink = "record Sink(a) = { put: (a) ->! Unit }\n";
+  test("a function a declaration reads contravariantly or both ways keeps its parameters' written meaning, whatever the body hands it", () => {
+    // Swift's `Sink<(() throws -> Void) throws -> Void>`: where a caller may
+    // hand the function in, the body chooses what it is handed, so `->!`
+    // there is the constant, and a caller's `(f) => f!()` fits in any order.
+    const decls = "record Sink(a) = { put: (a) ->! Unit }\nrecord Cell(a) = { get: () -> a, put: (a) ->! Unit }\n" +
+      "union Inv(a) = Inv(() -> a, (a) ->! Unit)\n";
     for (const body of ["h!(save0)", "h!(cb)", "h!(() => ())"]) {
-      const source = sink + `let mk(cb: () ->! Unit): Sink((() ->! Unit) ->! Unit) = Sink({ put = (h) => ${body} })\n` +
-        user(["let s = mk(() => ())", "s.put!((f) => f!())", "s.put!((f) => ())", "s.put!((f) => save0!())"]);
-      expect([body, reports(source)]).toEqual([body, []]);
+      for (const [result, value, uses] of [
+        ["Sink((() ->! Unit) ->! Unit)", `Sink({ put = (h) => ${body} })`,
+          ["let s = mk(() => ())", "s.put!((f) => f!())", "s.put!((f) => ())", "s.put!((f) => save0!())"]],
+        ["Cell((() ->! Unit) ->! Unit)", `Cell({ get = () => (f) => f!(), put = (h) => ${body} })`,
+          ["let c = mk(() => ())", "c.put!((f) => f!())", "c.get()!(save0)", "c.put!((f) => save0!())"]],
+      ] as const) {
+        const source = decls + `let mk(cb: () ->! Unit): ${result} = ${value}\n` + user([...uses]);
+        expect([result, body, reports(source)]).toEqual([result, body, []]);
+      }
     }
-    // The first type argument read other than covariantly decides: under a
-    // `Sink`, a `Cell`'s function is handed in too, and nothing nests in it.
-    expect(reports(sink + "record Cell(a) = { get: () -> a, put: (a) ->! Unit }\n" +
-      "let mk(): Sink(Cell((() ->! Unit) ->? Unit)) = Sink({ put = (c) => () })\n")).toEqual([["->?", NOTHING_HANDED]]);
+    const inv = decls + "let mk(cb: () ->! Unit): Inv((() ->! Unit) ->! Unit) = Inv(() => (f) => f!(), (h) => h!(cb))\n";
+    for (const uses of [["p!((f) => f!())", "g()!(save0)"], ["g()!(save0)", "p!((f) => f!())"]]) {
+      expect([uses, reports(inv + user(["let Inv(g, p) = mk(() => ())", ...uses]))]).toEqual([uses, []]);
+    }
+    // At any depth beneath such an argument, nothing nests.
+    for (const result of ["Sink(Cell((() ->! Unit) ->? Unit))", "Cell(Sink((() ->! Unit) ->? Unit))"]) {
+      const value = result.startsWith("Sink") ? "Sink({ put = (c) => () })"
+        : "Cell({ get = () => Sink({ put = (h) => h!(() => ()) }), put = (s) => () })";
+      expect([result, reports(decls + `let mk(): ${result} = ${value}\n`)]).toEqual([result, [["->?", NOTHING_HANDED]]]);
+    }
   });
 
-  test("a function a declaration reads both ways nests as a carried one does, and its `->?` is unified", () => {
+  test("a function a declaration reads both ways is handed in too: its face is not written, and its `->?` is unified", () => {
     const decls = "record Cell(a) = { get: () -> a, put: (a) ->! Unit }\n" +
       "opaque record Box(a) = { value: a }\nlet wrap(x: a): Box(a) = Box({ value = x })\nlet open(b: Box(a)): a = b.value\n";
-    // A carried face under an argument read both ways is written where hover shows it, and its uses honour it.
-    for (const [inferred, written, uses] of [
-      ["let mk() = Cell({ get = () => (f) => f!(), put = (h) => () })\n",
-        "let mk(): Cell((() ->! a) ->? a) = Cell({ get = () => (f) => f!(), put = (h) => () })\n",
-        ["mk().get()(() => ())", "mk().get()!(save0)", "mk().put!((f) => save0!())"]],
-      ["let mk() = wrap((f) => f!())\n", "let mk(): Box((() ->! a) ->? a) = wrap((f) => f!())\n",
-        ["open(mk())(() => ())", "open(mk())!(save0)"]],
-      ["let mk() = Cell({ get = () => Cell({ get = () => (f) => f!(), put = (h) => () }), put = (h) => () })\n",
-        "let mk(): Cell(Cell((() ->! a) ->? a)) = Cell({ get = () => Cell({ get = () => (f) => f!(), put = (h) => () }), put = (h) => () })\n",
-        ["mk().get().get()(() => ())", "mk().get().get()!(save0)"]],
+    // Hover's face follows the callback `f` is handed, and no written face says so (Effects §10).
+    for (const [inferred, written, constant, uses] of [
+      ["let mk() = Cell({ get = () => (f) => f!(), put = (h) => () })\n", "Cell((() ->! a) ->? a)", "Cell((() ->! a) ->! a)",
+        ["mk().get()!(() => ())", "mk().get()!(save0)", "mk().put!((f) => f!())"]],
+      ["let mk() = wrap((f) => f!())\n", "Box((() ->! a) ->? a)", "Box((() ->! a) ->! a)",
+        ["open(mk())!(() => ())", "open(mk())!(save0)"]],
     ] as const) {
-      expect(hovered(decls + inferred, "mk(")).toBe(hovered(decls + written, "mk("));
-      expect([written, reports(decls + written + user(uses))]).toEqual([written, []]);
+      expect(hovered(decls + inferred, "mk(")).toBe(`() -> ${written}`);
+      const value = inferred.slice(inferred.indexOf("= ") + 2);
+      expect(reports(decls + `let mk(): ${written} = ${value}`)).toEqual([["->?", NOTHING_HANDED]]);
+      expect([constant, reports(decls + `let mk(): ${constant} = ${value}` + user(uses))]).toEqual([constant, []]);
     }
     // Unified, not fitted, at any depth: fitted, a `put` that runs what it is
     // handed bare passed, and `mk(save0).put(...)` touched the world through a
