@@ -639,19 +639,20 @@ export let f(g: () ->! String): String =
   });
 
   it("names the missing signature where there is no signature to lack an inlet", () => {
-    // §2.2.2's second boundary, and §4.4's fifth row. The split is shape and
-    // doctrine rather than position: a record type in a module-level binding has
-    // no signature at all to be missing an inlet, and an `extern let` declares a
-    // foreign *value* whatever its annotation's shape — the callable form with a
-    // signature of its own is `extern fun` (FFI Part 4 §4.5).
-    const clause = "`->?` means only as effectful as what it is handed, and nothing is handed " +
-      "here — this annotation is not a function signature; write `->!` for a " +
-      "function that may touch the world, or `->` for one that does not";
+    // §2.2.1's boundaries, and §4.4's rows. A function in a record type of a
+    // module-level binding is a signature of its own (#1176), here one handed
+    // nothing; an `extern let` declares a foreign *value* whatever its
+    // annotation's shape — the callable form with a signature of its own is
+    // `extern fun` (FFI Part 4 §4.5).
     expect(
       effectDiagnostics([["/main.hex", "module Main\n\n" + `let h: { step: () ->? String } = { step = () => "x" }
 export let z: Int = 1
 `]]),
-    ).toEqual([clause]);
+    ).toEqual([
+      "`->?` means only as effectful as what it is handed, and nothing is handed here — " +
+      "no callback of this signature has been handed over by the time this arrow runs; " +
+      "write `->!` for a function that may touch the world, or `->` for one that does not",
+    ]);
     expect(
       effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
     export let handler: () ->? String
@@ -665,19 +666,15 @@ export let z: Int = 1
     ]);
   });
 
-  it("takes the not-a-signature clause for a record type inside a body too", () => {
-    // A record-type annotation is no signature wherever it stands, and a body
-    // lends it nothing (§2.2.1).
+  it("takes the local clause for a record type inside a body too", () => {
+    // The record's function is a signature of its own with no callbacks, and a
+    // body lends it nothing (§2.2.1).
     expect(
       effectDiagnostics([["/main.hex", "module Main\n\n" + `export let f(x: Int): Int =
     let h: { step: () ->? String } = { step = () => "s" }
     x
 `]]),
-    ).toEqual([
-      "`->?` means only as effectful as what it is handed, and nothing is handed here — " +
-      "this annotation is not a function signature; " +
-      "write `->!` for a function that may touch the world, or `->` for one that does not",
-    ]);
+    ).toEqual([LOCAL]);
   });
 
   it("calls a module-level function-type annotation a signature, and names its want", () => {

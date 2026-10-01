@@ -1058,6 +1058,258 @@ describe("a colour no parameter holds is published function by function (#1169)"
   });
 });
 
+describe("a function in the data a signature returns is a signature of its own (#1176)", () => {
+  const T = "((() ->! Unit) ->? Unit, Int)";
+  const user = (lines: readonly string[]): string =>
+    "export let user(): Unit =\n" + lines.map((line) => `    ${line}\n`).join("");
+  const NOTHING_HANDED = "`->?` means only as effectful as what it is handed, and nothing is handed here — " +
+    "no callback of this signature has been handed over by the time this arrow runs; write `->!` for a " +
+    "function that may touch the world, or `->` for one that does not";
+
+  test("a carried face is written where hover shows it, and an exported factory states it", () => {
+    for (const factory of [
+      `let mk(): ${T} = ((f) => f!(), 1)\n`,
+      `export let mk(): ${T} = ((f) => f!(), 1)\n`,
+      `let mk(): ${T} =\n    let run = (f) => f!()\n    (run, 1)\n`,
+      `let mk = (): ${T} => ((f) => f!(), 1)\n`,
+      `let mk() = (((f) => f!(), 1) : ${T})\n`,
+    ]) {
+      expect([factory, reports(factory + user(["let (r, _) = mk()", "r(() => ())"]))]).toEqual([factory, []]);
+      expect([factory, reports(factory + user(["let (r, _) = mk()", "r!(save0)"]))]).toEqual([factory, []]);
+      expect([factory, reports(factory + user(["let (r, _) = mk()", "r(save0)"]))])
+        .toEqual([factory, [["r(save0)", "this call may touch the world, so `r` wants `!`, not no mark"]]]);
+    }
+    for (const value of [`let p: ${T} = ((f) => f!(), 1)`, `let p = (((f) => f!(), 1) : ${T})`]) {
+      expect([value, reports(user([value, "let (r, _) = p", "r(() => ())", "r!(save0)"]))]).toEqual([value, []]);
+    }
+  });
+
+  test("hover's face pasted back is the same face, and its uses wear the same marks", () => {
+    const bodies: readonly (readonly [string, string, readonly string[]])[] = [
+      ["", "((f) => f!(), 1)", ["let (r, _) = make()", "r(() => ())", "r!(save0)"]],
+      ["", "((f) => f!(), (g) => g!())", ["let (r, s) = make()", "r(() => ())", "s!(save0)"]],
+      ["", "{run = (f) => f!(), n = 1}", ["let h = make()", "h.run(() => ())", "h.run!(save0)"]],
+      ["", "Some((f) => f!())", ["match make()", "    Some(r) => r!(save0)", "    None => ()"]],
+      ["cb: () ->! Unit", "(() => cb!(), (g) => g!())", ["let (q, r) = make(() => ())", "q()", "r(() => ())"]],
+      ["cb: () ->! Unit", "((g: () ->! Unit) => cb!(), 1)", ["let (r, _) = make(save0)", "r!(() => ())"]],
+      ["", "\n    let k = (f) => (g) =>\n        f!()\n        g!()\n    (k, 1)", ["let (k, _) = make()", "k(() => ())(() => ())"]],
+    ];
+    for (const [parameters, body, uses] of bodies) {
+      const inferred = `let make(${parameters}) =${body.startsWith("\n") ? "" : " "}${body}\n`;
+      const face = hovered(inferred, "make(")!;
+      // What follows the face's own outer arrow, the first at depth zero.
+      let depth = 0;
+      let outer = 0;
+      for (; outer < face.length; outer++) {
+        if ("({[".includes(face[outer]!)) depth++;
+        else if (")}]".includes(face[outer]!)) depth--;
+        else if (depth === 0 && face.startsWith(" ->", outer)) break;
+      }
+      const result = face.slice(face.indexOf(" ", outer + 1) + 1);
+      const pasted = `let make(${parameters}): ${result} =${body.startsWith("\n") ? "" : " "}${body}\n`;
+      expect([pasted, reports(pasted), hovered(pasted, "make(")]).toEqual([pasted, [], face]);
+      expect([pasted, reports(pasted + user(uses))]).toEqual([pasted, reports(inferred + user(uses))]);
+    }
+  });
+
+  test("a carried function follows its own callbacks and the signature's, written or inferred", () => {
+    // Written: the second function's `->?` is the factory's `cb` joined with its own `g`.
+    const written = "let mk(cb: () ->! Unit): ((() ->! Unit) ->? Unit, Int) = ((g) => cb!(), 1)\n";
+    expect(reports(written + user(["let (r, _) = mk(() => ())", "r(save0)"])))
+      .toEqual([["r(save0)", "this call may touch the world, so `r` wants `!`, not no mark"]]);
+    // Inferred, the face is widened to say the same (Effects §2.4), on a curried spine too.
+    for (const [source, call] of [
+      ["let mk(cb: () ->! Unit) = (() => cb!(), (g) => g!())\n" + user(["let (_, r) = mk(save0)", "r(() => ())"]), "r(() => ())"],
+      ["let mk(cb: () ->! Unit) = ((g: () ->! Unit) => cb!(), 1)\n" + user(["let (r, _) = mk(() => ())", "r(save0)"]), "r(save0)"],
+      ["let mk(cb: () ->! Unit) = (g: () ->! Unit) => cb!()\n" + user(["mk(() => ())(save0)"]), "mk(() => ())(save0)"],
+    ] as const) {
+      expect([source, reports(source)]).toEqual([source, [[call, expect.stringContaining("wants `!`, not no mark")]]]);
+    }
+    expect(hovered("let mk(cb: () ->! Unit) = (() => cb!(), (g) => g!())\n", "mk("))
+      .toBe("(() ->! Unit) -> (() ->? Unit, (() ->! a) ->? a)");
+  });
+
+  test("a non-function binding's carried functions are widened too, and a carried function's parameters", () => {
+    const source = "let p = {run = (f) => (g: () ->! Unit) => f!()}\n";
+    expect(hovered(source, "p =")).toBe("{run: (() ->! a) -> (() ->! Unit) ->? a}");
+    expect(reports(source + user(["p.run(() => ())(save0)"])))
+      .toEqual([["p.run(() => ())(save0)", "this call may touch the world, so this call wants `!`, not no mark"]]);
+    // What a caller puts into a carried function is widened with what it runs
+    // (Effects §2.4): `h` is `a`'s colour, widened with `b`'s as `run` is, so
+    // after `make(() => (), save0)` it accepts `save0`.
+    const handsIn = "let make(a: () ->! Unit, b: () ->! Unit) =\n    let run = (p) =>\n        let (h, _) = p\n" +
+      "        (if True then h else a)!()\n    (run, 1)\n";
+    expect(reports(handsIn + user(["let (r, _) = make(() => (), save0)", "r!((save0, 1))"]))).toEqual([]);
+  });
+
+  test("a carried face refused under a curried spine leaves the spine's own arrows as written", () => {
+    // The refused `->?` is the carried function's own, not the spine's second arrow.
+    expect(reports(`let mk(cb: () ->! Unit): (Int) -> ${T} =\n    (x) =>\n        let run = (g) =>\n` +
+      "            save0!()\n            g!()\n        (run, x)\n" + user(["let (r, _) = mk(() => ())(1)", "r!(save0)"])))
+      .toEqual([[
+        "save0!()",
+        "this call touches the world on its own account, and this face's `->?` promises the function is only " +
+        "as effectful as what it is handed — write `->!`",
+      ]]);
+  });
+
+  test("a carried face that claims less than its body, or follows nothing, is refused", () => {
+    expect(reports(`let mk(): ${T} =\n    let run = (f) =>\n        save0!()\n        f!()\n    (run, 1)\n`)).toEqual([[
+      "save0!()",
+      "this call touches the world on its own account, and this face's `->?` promises the function is only " +
+      "as effectful as what it is handed — write `->!`",
+    ]]);
+    expect(reports("let mk(): (() ->? Unit, Int) = (() => (), 1)\n")).toEqual([["->?", NOTHING_HANDED]]);
+    expect(reports("let mk(): ((() -> Unit) ->? Unit, Int) = ((f) => f(), 1)\n")).toEqual([["->?", NOTHING_HANDED]]);
+    expect(reports(`let mk(): ${T} = ((f) => pureOnly(f), 1)\n`)).toEqual([[
+      "f",
+      "this callback is written `->!`, which accepts any function, and this accepts only a pure one — write its arrow `->`",
+    ]]);
+    // Inside a parameter type nothing nests, and a declared field has no signature.
+    expect(reports(`let take(k: ${T}): Unit = ()\n`)).toEqual([[
+      "->?",
+      "`->?` means only as effectful as what it is handed, and nothing is handed here — an arrow inside a " +
+      "parameter type, other than a callback's own, is a constant; write `->!` for a function that may touch " +
+      "the world, or `->` for one that does not",
+    ]]);
+    expect(reports("record R = { run: (() ->! Unit) ->? Unit }\n").map(([, message]) => message))
+      .toEqual([expect.stringContaining("a `record` field is data, not a signature")]);
+  });
+
+  test("an extern row and a constraint member state a carried face", () => {
+    expect(reports('extern from "./world.js"\n    export fun mkR() -> ((() ->! Unit) ->? Unit, Int)\n' +
+      user(["let (r, _) = mkR()", "r(() => ())"]))).toEqual([]);
+    const maker = (result: string, body: string): string =>
+      `constraint Maker<m> =\n    make(maker: m, action: () ->! Unit) -> ${result}\nexport record Job = { id: Int }\n` +
+      `honor Maker<Job> =\n    make(job, action) = ${body}\n`;
+    expect(reports(maker(T, "((f) => f!(), 1)") + user(["let (r, _) = make(Job({ id = 1 }), () => ())", "r(() => ())"])))
+      .toEqual([]);
+    // A `->?` on the function a member returns, carried or not, is read once, at the declaration.
+    expect(reports(maker("(() ->? Unit)", "() => action!()") + user(["let g = make(Job({ id = 1 }), () => ())", "g()"])))
+      .toEqual([]);
+  });
+
+  test("a function a declaration reads contravariantly is handed in: nothing nests in it, and its `->?` is unified", () => {
+    // Fitted as a carried function's would be, the `->?` let the body's bare
+    // `h(...)` pass, and a caller then handed `put` a function that touches
+    // the world through a call that wears no mark.
+    const sink = "record Sink(a) = { put: (a) -> Unit }\nlet ident(x: a): a = x\n";
+    expect(reports(sink + "let mk(): Sink((() ->! Unit) ->? Unit) = ident(Sink({ put = (h) => h(() => ()) }))\n" +
+      user(["mk().put((f) => save0!())"]))).toContainEqual(["->?", NOTHING_HANDED]);
+    for (const result of ["Sink(() ->? Unit)", "(Sink(() ->? Unit), Int)", "Option(Sink(() ->? Unit))"]) {
+      const value = result.startsWith("(") ? "(ident(Sink({ put = (h) => h() })), 1)"
+        : result.startsWith("Option") ? "Some(ident(Sink({ put = (h) => h() })))"
+        : "ident(Sink({ put = (h) => h() }))";
+      expect([result, reports(sink + `let mk(cb: () ->! Unit): ${result} = ${value}\n`).map(([, message]) => message)])
+        .toEqual([result, [expect.stringContaining("the parameter `cb` is written `->!`, which accepts any function")]]);
+    }
+    // A body that runs what it is handed under the field's own `->!` still states it.
+    const honest = "record Sink(a) = { put: (a) ->! Unit }\n" +
+      "let mk(cb: () ->! Unit): Sink(() ->? Unit) = Sink({ put = (h) => h!() })\n";
+    expect(reports(honest + user(["mk(save0).put!(save0)", "mk(() => ()).put!(() => ())"]))).toEqual([]);
+  });
+
+  test("a function a declaration reads contravariantly or both ways keeps its parameters' written meaning, whatever the body hands it", () => {
+    // Swift's `Sink<(() throws -> Void) throws -> Void>`: where a caller may
+    // hand the function in, the body chooses what it is handed, so `->!`
+    // there is the constant, and a caller's `(f) => f!()` fits in any order.
+    const decls = "record Sink(a) = { put: (a) ->! Unit }\nrecord Cell(a) = { get: () -> a, put: (a) ->! Unit }\n" +
+      "union Inv(a) = Inv(() -> a, (a) ->! Unit)\n";
+    for (const body of ["h!(save0)", "h!(cb)", "h!(() => ())"]) {
+      for (const [result, value, uses] of [
+        ["Sink((() ->! Unit) ->! Unit)", `Sink({ put = (h) => ${body} })`,
+          ["let s = mk(() => ())", "s.put!((f) => f!())", "s.put!((f) => ())", "s.put!((f) => save0!())"]],
+        ["Cell((() ->! Unit) ->! Unit)", `Cell({ get = () => (f) => f!(), put = (h) => ${body} })`,
+          ["let c = mk(() => ())", "c.put!((f) => f!())", "c.get()!(save0)", "c.put!((f) => save0!())"]],
+      ] as const) {
+        const source = decls + `let mk(cb: () ->! Unit): ${result} = ${value}\n` + user([...uses]);
+        expect([result, body, reports(source)]).toEqual([result, body, []]);
+      }
+    }
+    const inv = decls + "let mk(cb: () ->! Unit): Inv((() ->! Unit) ->! Unit) = Inv(() => (f) => f!(), (h) => h!(cb))\n";
+    for (const uses of [["p!((f) => f!())", "g()!(save0)"], ["g()!(save0)", "p!((f) => f!())"]]) {
+      expect([uses, reports(inv + user(["let Inv(g, p) = mk(() => ())", ...uses]))]).toEqual([uses, []]);
+    }
+    // At any depth beneath such an argument, nothing nests.
+    for (const result of ["Sink(Cell((() ->! Unit) ->? Unit))", "Cell(Sink((() ->! Unit) ->? Unit))"]) {
+      const value = result.startsWith("Sink") ? "Sink({ put = (c) => () })"
+        : "Cell({ get = () => Sink({ put = (h) => h!(() => ()) }), put = (s) => () })";
+      expect([result, reports(decls + `let mk(): ${result} = ${value}\n`)]).toEqual([result, [["->?", NOTHING_HANDED]]]);
+    }
+  });
+
+  test("a function a declaration reads both ways is handed in too: its face is not written, and its `->?` is unified", () => {
+    const decls = "record Cell(a) = { get: () -> a, put: (a) ->! Unit }\n" +
+      "opaque record Box(a) = { value: a }\nlet wrap(x: a): Box(a) = Box({ value = x })\nlet open(b: Box(a)): a = b.value\n";
+    // Hover's face follows the callback `f` is handed, and no written face says so (Effects §10).
+    for (const [inferred, written, constant, uses] of [
+      ["let mk() = Cell({ get = () => (f) => f!(), put = (h) => () })\n", "Cell((() ->! a) ->? a)", "Cell((() ->! a) ->! a)",
+        ["mk().get()!(() => ())", "mk().get()!(save0)", "mk().put!((f) => f!())"]],
+      ["let mk() = wrap((f) => f!())\n", "Box((() ->! a) ->? a)", "Box((() ->! a) ->! a)",
+        ["open(mk())!(() => ())", "open(mk())!(save0)"]],
+    ] as const) {
+      expect(hovered(decls + inferred, "mk(")).toBe(`() -> ${written}`);
+      const value = inferred.slice(inferred.indexOf("= ") + 2);
+      expect(reports(decls + `let mk(): ${written} = ${value}`)).toEqual([["->?", NOTHING_HANDED]]);
+      expect([constant, reports(decls + `let mk(): ${constant} = ${value}` + user(uses))]).toEqual([constant, []]);
+    }
+    // Unified, not fitted, at any depth: fitted, a `put` that runs what it is
+    // handed bare passed, and `mk(save0).put(...)` touched the world through a
+    // call that wears no mark.
+    const pure = "record PCell(a) = { get: () -> a, put: (a) -> Unit }\n";
+    for (const [result, value, use] of [
+      ["PCell(() ->? Unit)", "PCell({ get = () => () => (), put = (h) => h() })", "mk(save0).put(save0)"],
+      ["PCell(() -> (() ->? Unit, Int))",
+        "PCell({ get = () => () => (() => (), 1), put = (h) =>\n        let (g, _) = h()\n        g() })",
+        "mk(save0).put(() => (save0, 1))"],
+    ] as const) {
+      const source = pure + `let mk(cb: () ->! Unit): ${result} =\n    let v = ${value}\n    v\n` + user([use]);
+      expect([result, reports(source).map(([, message]) => message)]).toEqual([
+        result,
+        expect.arrayContaining([expect.stringContaining("the parameter `cb` is written `->!`, which accepts any function")]),
+      ]);
+    }
+  });
+
+  test("a later use reads a carried function's parameters as callbacks, so a colour its uses share reads alike in either order", () => {
+    const pre = "let usePure(p: ((() -> Unit) ->! Unit, Int)): Unit = ()\n";
+    for (const factory of [`let mk(): ${T} = ((f) => f!(), 1)\n`, "let mk() = ((f) => f!(), 1)\n"]) {
+      const verdicts = [["r!(save0)", "usePure(s)"], ["usePure(s)", "r!(save0)"]].map((uses) =>
+        reports(pre + factory + user(["let s = mk()", "let (r, _) = s", ...uses])).length > 0
+      );
+      expect([factory, verdicts]).toEqual([factory, [true, true]]);
+    }
+  });
+
+  test("a lambda in the data a written type describes takes its parameters' written types, under any constructor", () => {
+    // `g` is merged with `cb`: written where the face writes `g`'s type, it is
+    // re-opened at that merge, so `g` keeps a colour of its own (Effects §3.4).
+    for (const [result, value, take] of [
+      [T, "((g) => (if True then g else cb)!(), 1)", "let (r, _) = make(() => ())"],
+      ["{go: (() ->! Unit) ->? Unit}", "{go = (g) => (if True then g else cb)!()}", "let r = make(() => ()).go"],
+      ["Vector((() ->! Unit) ->? Unit)", "[(g) => (if True then g else cb)!()]", "let r = make(() => ())[0]"],
+      ["Option((() ->! Unit) ->? Unit)", "Some((g) => (if True then g else cb)!())", "let r = Option.defaultValue(make(() => ()), (f) => ())"],
+      ["Box((() ->! Unit) ->? Unit)", "Box({value = (g) => (if True then g else cb)!()})", "let r = make(() => ()).value"],
+      // A slot's own arguments are read with the declaration's: `W`'s `a` in `Option(a)`.
+      ["W((() ->! Unit) ->? Unit)", "W(Some((g) => (if True then g else cb)!()))",
+        "let r = match make(() => ())\n        W(Some(f)) => f\n        W(None) => (f) => ()"],
+    ] as const) {
+      const source = "record Box(a) = {value: a}\nunion W(a) = W(Option(a))\n" +
+        `let make(cb: () ->! Unit): ${result} = ${value}\n` + user([take, "r!(save0)"]);
+      expect([result, reports(source)]).toEqual([result, []]);
+    }
+  });
+
+  test("a face whose functions share a colour in the body is refused written back, and writable from a lambda", () => {
+    const shared = (run: string): string =>
+      "let ident(x: a): a = x\n" +
+      `let make(): ((() ->! Unit) ->? Unit, () -> Unit) =\n    let run = ${run}\n    let go = () => run(() => ())\n    (run, go)\n`;
+    expect(reports(shared("ident((f) => f!())")).map(([, message]) => message))
+      .toEqual([expect.stringContaining("accepts only a pure one")]);
+    expect(reports(shared("(f) => f!()") + user(["let (r, g) = make()", "r!(save0)", "g()"]))).toEqual([]);
+  });
+});
+
 describe("where a use hands something, a `->!` the value's own written type spells accepts any function (#1174)", () => {
   const holders = "export record Holder = { run: (() ->! Unit) -> Unit }\n" +
     "export record HolderP = { run: (() -> Unit) -> Unit }\n" +
