@@ -3285,6 +3285,14 @@ class Checker {
   readonly #madeViews = new Map<Resolved.SymbolId, WrittenView | undefined>();
   /** The record declaration each constructor builds, across the program, for `#sourceItem`. */
   readonly #constructedRecords = new Map<Resolved.SymbolId, Resolved.RecordDeclaration>();
+  /**
+   * The colours `#lowerWritten` minted *(#1174 review)*: a written `->!` read
+   * as any function where one use hands something. Such a colour belongs to
+   * that use alone. Left free in a binding that does not generalize it, it is
+   * the written constant again (`#settleSource`), so no use of the binding
+   * meets a colour another use solved.
+   */
+  readonly #loweredColours = new WeakSet<Variable>();
   /** Every expression elaborated as a call's callee: applied, never handed anywhere, so never opened. */
   readonly #callees = new WeakSet<Resolved.Expr>();
   /** Memos for `#fromText`, `#madeFromText`, and `#decidedBinding`, forgotten whenever a source changes (`#resource`). */
@@ -10675,6 +10683,10 @@ class Checker {
   #groundResult(expression: Resolved.Expr): boolean {
     while (expression.kind === "Group") expression = expression.expression;
     if (expression.kind !== "Call" || expression.callee.kind !== "Name") return false;
+    // A member of a knot still open has no settled type: its call's result is
+    // whatever its siblings' bodies have said so far (`#landFromSignature`).
+    const callee = expression.callee.symbol;
+    if (this.#knots.some((knot) => knot.types.has(callee))) return false;
     const result = this.#resultWritten(this.#writtenView(expression.callee));
     return result !== undefined && annotationGround(result);
   }
@@ -10928,7 +10940,9 @@ class Checker {
     if (actual.kind !== "Function" || actual.effect === undefined || !isImpure(this.#prune(actual.effect))) {
       return type;
     }
-    const lowered: Mono = { ...actual, effect: this.#fresh(level, false) };
+    const colour = this.#fresh(level, false);
+    this.#loweredColours.add(colour);
+    const lowered: Mono = { ...actual, effect: colour };
     const lambdas = this.#lambdasOf.get(actual);
     if (lambdas !== undefined) this.#lambdasOf.set(lowered, lambdas);
     const frame = this.#frameOfType.get(actual);
@@ -18052,6 +18066,15 @@ class Checker {
    * (`#valueColours`), one for every use.
    */
   #settleSource(symbol: Resolved.SymbolId, type: Mono, quantified: readonly Variable[]): void {
+    // A written `->!` a use read as any function (`#lowerWritten`), which this
+    // binding does not generalize, is the written constant again: one colour
+    // shared by every use would be solved by whichever use comes first.
+    const generalized = new Set(quantified.map((variable) => variable.id));
+    for (const variable of this.#collectVariables(type)) {
+      if (variable.instance === undefined && this.#loweredColours.has(variable) && !generalized.has(variable.id)) {
+        variable.instance = IMPURE;
+      }
+    }
     const source = this.#bindingSources.get(symbol);
     if (source?.kind !== "value" && source?.kind !== "part") return;
     const kept = new Set(quantified.map((variable) => variable.id));
@@ -22947,6 +22970,7 @@ class Checker {
       // the other colour is a real one: a slack meeting a callback's colour, or
       // a value's, is that colour's.
       if (this.#valueColours.has(variable)) this.#valueColours.add(type);
+      if (this.#loweredColours.has(variable)) this.#loweredColours.add(type);
       if (
         this.#openedColours.has(variable) && !this.#heldDependency(type) && !this.#valueColours.has(type)
       ) {

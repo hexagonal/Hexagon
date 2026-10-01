@@ -1195,6 +1195,63 @@ describe("the text decides a lambda's written types, its parameters under a writ
   });
 });
 
+describe("a written `->!` a use reads as any function belongs to that use alone (#1174)", () => {
+  const holders = "export record Holder = { run: (() ->! Unit) -> Unit }\n" +
+    "export record HolderT = { run: ((() ->! Unit, Int)) -> Unit }\n" +
+    "let applyPure(k: (() -> Unit) -> Unit): Unit = k(() => ())\n" +
+    "let applyImp(k: (() ->! Unit) -> Unit): Unit = k(save0)\n" +
+    "let applyPureT(k: ((() -> Unit, Int)) -> Unit): Unit = k((() => (), 1))\n" +
+    "let getRun(h: HolderT): ((() ->! Unit, Int)) -> Unit = h.run\n" +
+    "let mkH(h: Holder): Holder = h\n";
+
+  test("a binding that does not generalize it keeps the written constant, so its uses agree in every order", () => {
+    const cases: [string, string, string[]][] = [
+      ["h: Holder", "let x = h.run", ["applyImp(x)", "applyPure(x)"]],
+      ["h: Holder", "let x = h.run", ["x(save0)", "applyPure(x)"]],
+      ["h: Holder", "let x = mkH(h).run", ["applyImp(x)", "applyPure(x)"]],
+      ["h: HolderT", "let x = getRun(h)", ["x((save0, 1))", "applyPureT(x)"]],
+    ];
+    for (const [parameter, binding, uses] of cases) {
+      for (const order of [uses, [...uses].reverse()]) {
+        const source = holders + `export let go(${parameter}): Unit =\n    ${binding}\n` +
+          order.map((use) => `    ${use}\n`).join("");
+        expect([binding, order, reports(source)]).toEqual([binding, order, []]);
+      }
+    }
+  });
+
+  test("an untyped callback such a binding is handed still accepts any function", () => {
+    for (const body of [
+      "    let run = getRun(h)\n    run((k, 1))\n",
+      "    let x = mkH(hh).run\n    x(k)\n",
+      "    let (x, _) = (mkH(hh).run, 1)\n    x(k)\n",
+    ]) {
+      const source = holders + `let f(h: HolderT, hh: Holder, k) =\n${body}` +
+        "export let g(h: HolderT, hh: Holder): Unit = f(h, hh, save0)\n";
+      expect([body, reports(source)]).toEqual([body, []]);
+    }
+  });
+
+  test("a call to a member of a knot still open is not decided by its written result, in either order", () => {
+    const use = ["    useIt(p): Unit =", "        let w: (() ->! Unit, Int) = mkPair(p)", "        ()"];
+    const make = ["    mkPair(q): (() -> Unit, Int) =", "        useIt(q)", "        (noop, 1)"];
+    const verdicts = [[...use, ...make], [...make, ...use]].map((members) =>
+      reports("fun\n" + members.join("\n") + "\n").length > 0
+    );
+    expect(verdicts).toEqual([true, true]);
+  });
+
+  test("a function's written callback is its colour, though a recursive call pinned it, in either order", () => {
+    const head = "let applyPure2(k: (() -> Unit, Bool) -> Unit): Unit = k(() => (), True)\n";
+    const a = "    a(n: Int): Unit = if n > 0 then applyPure2(f) else ()";
+    const f = "    f(k: () ->! Unit, n: Bool): Unit = if n then f(save0, n) else a(1)";
+    const verdicts = [[a, f], [f, a]].map((members) =>
+      reports(head + "fun\n" + members.join("\n") + "\n").length > 0
+    );
+    expect(verdicts).toEqual([true, true]);
+  });
+});
+
 describe("an imported function's written types are read as this module's are (#1174)", () => {
   const other = "module Other\n\n" +
     "export record Holder = { run: (() ->! Unit) -> Unit }\n" +
