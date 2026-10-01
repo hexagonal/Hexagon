@@ -37,6 +37,8 @@ import {
   homeCompanionOperations,
   type ProgramInstanceProvider,
   type ProgramOperation,
+  writtenBindings,
+  type WrittenView,
 } from "./passes/checker/checker.js";
 import { elaborate } from "./passes/elaborator/elaborator.js";
 import {
@@ -1172,6 +1174,10 @@ export function compileProject(
     unions: [],
     records: [],
   };
+  // *(#1174.)* Every module-level binding's own written type, gathered beside
+  // the nominals: a use of an imported function reads what its declaration
+  // wrote (Effects §3.4).
+  const programWritten = new Map<Resolved.SymbolId, WrittenView>();
   const representationRecords = new Map<string, Resolved.RecordId>();
   // Method Syntax §4.2's companion operation set for every nominal the program
   // has declared, dependencies first, each contributed by the type's own home
@@ -1268,6 +1274,7 @@ export function compileProject(
     });
     const dataTyped = check(dataResolved, {
       programNominals,
+      programWritten,
       programOperations,
       sourceText: unit.source.text,
       trustedStandardLibrary: injected,
@@ -1578,6 +1585,7 @@ export function compileProject(
     if (resolved === undefined) continue;
     programNominals.unions.push(...resolved.unions);
     programNominals.records.push(...resolved.records);
+    for (const [symbol, view] of writtenBindings(resolved)) programWritten.set(symbol, view);
     // *(#1071.)* The public type keys' representation records, from the
     // trusted modules the inventory names as their homes and from nowhere
     // else: a program's own `record TrieVector` is not one of them.
@@ -1654,6 +1662,7 @@ export function compileProject(
       ownDefaultAlias: unit.declaredName.split(".").at(-1)!,
       importedSchemes,
       programNominals,
+      programWritten,
       representationRecords,
       programOperations,
       programInstanceProviders,

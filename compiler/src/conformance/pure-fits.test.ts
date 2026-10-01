@@ -1058,6 +1058,240 @@ describe("a colour no parameter holds is published function by function (#1169)"
   });
 });
 
+describe("where a use hands something, a `->!` the value's own written type spells accepts any function (#1174)", () => {
+  const holders = "export record Holder = { run: (() ->! Unit) -> Unit }\n" +
+    "export record HolderP = { run: (() -> Unit) -> Unit }\n" +
+    "export record HolderT = { run: ((() ->! Unit, Int)) -> Unit }\n" +
+    "export record HolderR = { run: (() ->! (() ->! Unit)) -> Unit }\n" +
+    "export record HolderD = { run: ((() ->! Unit) -> Unit) -> Unit }\n" +
+    "let applyPure(k: (() -> Unit) -> Unit): Unit = k(() => ())\n" +
+    "let applyImp(k: (() ->! Unit) -> Unit): Unit = k(save0)\n" +
+    "let hold = Holder({ run = (f) => () })\n";
+
+  test("a field, a parameter, a function's face and a callee's written result, at an argument, a seat and a merge", () => {
+    const programs = [
+      "export let go(h: Holder): Unit = applyPure(h.run)\n",
+      "let applyPureT(k: ((() -> Unit, Int)) -> Unit): Unit = k((() => (), 1))\n" +
+        "export let go(h: HolderT): Unit = applyPureT(h.run)\n",
+      "let applyPureR(k: (() -> (() -> Unit)) -> Unit): Unit = k(() => () => ())\n" +
+        "export let go(h: HolderR): Unit = applyPureR(h.run)\n",
+      // A callback's own parameter, and an arrow under a constructor in a parameter's type.
+      "export let go(k: (() ->! Unit) -> Unit): Unit =\n    applyPure(k)\n    applyImp(k)\n",
+      "export let go(o: Option((() ->! Unit) -> Unit)): Unit =\n    let q: Option((() -> Unit) -> Unit) = o\n    ()\n",
+      // At a seat, in a merge with a function that accepts only pure ones, and through a `let`.
+      "export let go(h: Holder): Unit =\n    let k: (() -> Unit) -> Unit = h.run\n    k(noop)\n",
+      "export let go(b: Bool, h: Holder): Unit =\n    let m = if b then h.run else pureOnly\n    m(noop)\n",
+      "export let go(h: Holder): Unit =\n    let x = h.run\n    applyPure(x)\n",
+      // A function's own written face, and the result type a callee writes.
+      "let hand(k: () -> Option(() ->! Unit)): Unit = ()\n" +
+        "export let go(): Unit =\n    let s: (() -> Option(() -> Unit)) -> Unit = hand\n    ()\n",
+      "let applyPureT(k: ((() -> Unit, Int)) -> Unit): Unit = k((() => (), 1))\n" +
+        "let getRun(h: HolderT): ((() ->! Unit, Int)) -> Unit = h.run\nexport let go(h: HolderT): Unit = applyPureT(getRun(h))\n",
+      // A `let`'s own written type.
+      "export let go(o: Option((() ->! Unit) -> Unit)): Unit =\n    let s: Option((() ->! Unit) -> Unit) = o\n" +
+        "    let q: Option((() -> Unit) -> Unit) = s\n    ()\n",
+    ];
+    for (const source of programs) expect([source, reports(holders + source)]).toEqual([source, []]);
+  });
+
+  test("what does not fit is still refused, where the lie is", () => {
+    // The function hands its own callback an effectful function, and the seat
+    // will hand it one that accepts only pure ones.
+    expect(reports(holders + "let applyPureD(k: ((() -> Unit) -> Unit) -> Unit): Unit = k((f) => f())\n" +
+      "export let go(h: HolderD): Unit = applyPureD(h.run)\n")).toEqual([["applyPureD(h.run)", PURITY]]);
+    // A field that accepts only pure functions, where any is handed.
+    expect(reports(holders + "export let go(h: HolderP): Unit = applyImp(h.run)\n"))
+      .toEqual([["applyImp(h.run)", PURITY]]);
+    // The merge accepts only what `pureOnly` accepts, and an effectful function is handed to it.
+    expect(reports(holders + "export let go(b: Bool, h: Holder): Unit =\n    let m = if b then h.run else pureOnly\n    m(save0)\n"))
+      .toEqual([["m(save0)", PURITY]]);
+  });
+
+  test("a callback's own `->!` is its colour, not the constant, so one every use shares reads alike in either order", () => {
+    // The annotation's callback colour is one colour for every use of `s`,
+    // since its right-hand side does not generalize: the first use solves it.
+    const head = "let ident(x: a): a = x\nexport let go(): Unit =\n    let s: (() ->! Unit) -> Unit = ident((f) => ())\n";
+    const one = reports(holders + head + "    applyImp(s)\n    applyPure(s)\n    ()\n");
+    const other = reports(holders + head + "    applyPure(s)\n    applyImp(s)\n    ()\n");
+    expect(one.length).toBeGreaterThan(0);
+    expect(other.length).toBeGreaterThan(0);
+  });
+
+  test("a constant inference solved is left as it stands, in either order, and writing the type fits", () => {
+    const orders = [["holdId(q)", "hold.run(q)"], ["hold.run(q)", "holdId(q)"]];
+    for (const [first, second] of orders) {
+      const source = holders + "let holdId(f: () ->! Unit): Unit = ()\n" +
+        `let lam(q) =\n    ${first}\n    ${second}\nexport let go(): Unit = applyPure(lam)\n`;
+      expect([first, reports(source)]).toEqual([first, [["applyPure(lam)", FIXED_BEFORE]]]);
+    }
+    expect(reports(holders + "let takeAny(k) = hold.run(k)\nexport let go(): Unit = applyPure(takeAny)\n"))
+      .toEqual([["applyPure(takeAny)", FIXED_BEFORE]]);
+    expect(reports(holders + "let takeAny(k: () ->! Unit) = hold.run(k)\nexport let go(): Unit = applyPure(takeAny)\n"))
+      .toEqual([]);
+  });
+
+  test("a colour every use of a value shares is left as it stands, in either order, and the marked wrapper fits", () => {
+    const make = "let ident(x: a): a = x\n" +
+      "let make() =\n    let run = ident((f) => f!())\n    let go = () => run!(() => ())\n    (run, go)\n";
+    const lines = ['r!(() => save!("z"))', "let h: (() -> Unit) ->! Unit = r"];
+    for (const order of [lines, [...lines].reverse()]) {
+      const body = order.map((line) => `    ${line}\n`).join("");
+      expect(reports(make + "export let go(): Unit =\n    let (r, _) = make()\n" + body + "    ()\n").length)
+        .toBeGreaterThan(0);
+      const wrapped = body.replace("= r\n", "= (f) => r!(f)\n");
+      expect([order, reports(make + "export let go(): Unit =\n    let (r, _) = make()\n" + wrapped + "    ()\n")])
+        .toEqual([order, []]);
+    }
+  });
+});
+
+describe("the text decides a lambda's written types, its parameters under a written type, and a ground result (#1174)", () => {
+  const holders = "export record Holder = { run: (() ->! Unit) -> Unit }\n" +
+    "export record HolderP = { run: (() -> Unit) -> Unit }\n" +
+    "let applyK(k: ((() ->! Unit) -> Unit) -> Unit): Unit = k((f) => ())\n" +
+    "let applyPure(k: (() -> Unit) -> Unit): Unit = k(() => ())\n";
+
+  test("a lambda's written types meet the expectation that lands on it as a use reads them", () => {
+    const programs = [
+      "export let go(): Unit =\n    let h: () -> (() ->! Unit, Int) = (): (() -> Unit, Int) => (noop, 1)\n    ()\n",
+      "export let go(): Unit =\n    let h: ((() ->! Unit) -> Unit) -> Unit = (q: (() -> Unit) -> Unit) => q(noop)\n    ()\n",
+      "export let go(): Unit = applyK((q: (() -> Unit) -> Unit) => q(noop))\n",
+    ];
+    for (const source of programs) expect([source, reports(holders + source)]).toEqual([source, []]);
+    // The lambda hands its callback an effectful function the seat's will not accept,
+    // and a face that may touch the world meets a pure demand.
+    expect(reports(holders + "export let go(): Unit =\n    let h: ((() -> Unit) -> Unit) -> Unit = " +
+      "(q: (() ->! Unit) -> Unit) => q(save0)\n    ()\n").map(([, message]) => message)).toContain(PURITY);
+    expect(reports(holders + "export let go(): Unit =\n    let h: () -> (() -> Unit, Int) = (): (() ->! Unit, Int) => (noop, 1)\n    ()\n"))
+      .toEqual([["() -> (() -> Unit, Int)", PURITY]]);
+  });
+
+  test("a call whose written result type is ground is decided whatever it is handed, in place and through a `let`", () => {
+    const makers = "let mkPair(q): (() -> Unit, Int) = (noop, 1)\nlet mkPairE(q): (() ->! Unit, Int) = (save0, 1)\n" +
+      "let mkVar(q: a): (() -> Unit, a) = (noop, q)\n";
+    expect(reports(makers + "let use(p): Unit =\n    let w: (() ->! Unit, Int) = mkPair(p)\n    ()\n")).toEqual([]);
+    expect(reports(makers + "let use(p): Unit =\n    let x = mkPair(p)\n    let w: (() ->! Unit, Int) = x\n    ()\n"))
+      .toEqual([]);
+    expect(reports(makers + "let use(p): Unit =\n    let w: (() -> Unit, Int) = mkPairE(p)\n    ()\n"))
+      .toEqual([["(() -> Unit, Int)", PURITY]]);
+    // A written result with a variable an argument fills decides only its own arrow.
+    expect(reports(makers + "let use(p): Unit =\n    let w: (() ->! Unit, Int) = mkVar(p)\n    ()\nexport let go(): Unit = use(1)\n"))
+      .toEqual([["(() ->! Unit, Int)", FIXED_BEFORE]]);
+  });
+
+  test("a lambda's untyped parameter under a type written whole is decided, as under a callee's signature", () => {
+    const programs = [
+      "export let go(h: Holder): Unit =\n    let k: (() -> Unit) -> Unit = (f) => h.run(f)\n    k(noop)\n",
+      "export let go(h: Holder): Unit =\n    let k = ((f) => h.run(f) : (() -> Unit) -> Unit)\n    k(noop)\n",
+      "let mk(h: Holder): (() -> Unit) -> Unit = (f) => h.run(f)\nexport let go(h: Holder): Unit = mk(h)(noop)\n",
+      "export let go(h: Holder): Unit =\n    let hp = HolderP({ run = (f) => h.run(f) })\n    hp.run(noop)\n",
+      // Under a callee's signature, its declaration's written type is the parameter's own.
+      "export let go(): Unit = applyK((f) => applyPure(f))\n",
+    ];
+    for (const source of programs) expect([source, reports(holders + source)]).toEqual([source, []]);
+    // The field accepts only pure functions, and the lambda would hand it any.
+    expect(reports(holders + "export let go(hp: HolderP): Unit =\n    let hq = Holder({ run = (f) => hp.run(f) })\n    hq.run(save0)\n")
+      .length).toBeGreaterThan(0);
+  });
+});
+
+describe("a written `->!` a use reads as any function belongs to that use alone (#1174)", () => {
+  const holders = "export record Holder = { run: (() ->! Unit) -> Unit }\n" +
+    "export record HolderT = { run: ((() ->! Unit, Int)) -> Unit }\n" +
+    "let applyPure(k: (() -> Unit) -> Unit): Unit = k(() => ())\n" +
+    "let applyImp(k: (() ->! Unit) -> Unit): Unit = k(save0)\n" +
+    "let applyPureT(k: ((() -> Unit, Int)) -> Unit): Unit = k((() => (), 1))\n" +
+    "let getRun(h: HolderT): ((() ->! Unit, Int)) -> Unit = h.run\n" +
+    "let mkH(h: Holder): Holder = h\n";
+
+  test("a binding that does not generalize it keeps the written constant, so its uses agree in every order", () => {
+    const cases: [string, string, string[]][] = [
+      ["h: Holder", "let x = h.run", ["applyImp(x)", "applyPure(x)"]],
+      ["h: Holder", "let x = h.run", ["x(save0)", "applyPure(x)"]],
+      ["h: Holder", "let x = mkH(h).run", ["applyImp(x)", "applyPure(x)"]],
+      ["h: HolderT", "let x = getRun(h)", ["x((save0, 1))", "applyPureT(x)"]],
+    ];
+    for (const [parameter, binding, uses] of cases) {
+      for (const order of [uses, [...uses].reverse()]) {
+        const source = holders + `export let go(${parameter}): Unit =\n    ${binding}\n` +
+          order.map((use) => `    ${use}\n`).join("");
+        expect([binding, order, reports(source)]).toEqual([binding, order, []]);
+      }
+    }
+  });
+
+  test("an untyped callback such a binding is handed still accepts any function", () => {
+    for (const body of [
+      "    let run = getRun(h)\n    run((k, 1))\n",
+      "    let x = mkH(hh).run\n    x(k)\n",
+      "    let (x, _) = (mkH(hh).run, 1)\n    x(k)\n",
+    ]) {
+      const source = holders + `let f(h: HolderT, hh: Holder, k) =\n${body}` +
+        "export let g(h: HolderT, hh: Holder): Unit = f(h, hh, save0)\n";
+      expect([body, reports(source)]).toEqual([body, []]);
+    }
+  });
+
+  test("a colour the environment also holds is left to it, so a binding made from it reads alike in either order", () => {
+    const head = holders + "let tieRet(x: t, y: t): t = x\n";
+    for (const binding of [
+      ["    let y = tieRet(p, h.run)"],
+      ["    let (y, _) = (tieRet(p, h.run), 1)"],
+    ]) {
+      for (const lines of [["    applyPure(p)", ...binding], [...binding, "    applyPure(p)"]]) {
+        const source = head + "let f(h: Holder, p) =\n" + lines.join("\n") + "\n    ()\n" +
+          "export let go(h: Holder, p: (() -> Unit) -> Unit): Unit = f(h, p)\n";
+        expect([lines, reports(source)]).toEqual([lines, []]);
+      }
+    }
+  });
+
+  test("a call to a member of a knot still open is not decided by its written result, in either order", () => {
+    const use = ["    useIt(p): Unit =", "        let w: (() ->! Unit, Int) = mkPair(p)", "        ()"];
+    const make = ["    mkPair(q): (() -> Unit, Int) =", "        useIt(q)", "        (noop, 1)"];
+    const verdicts = [[...use, ...make], [...make, ...use]].map((members) =>
+      reports("fun\n" + members.join("\n") + "\n").length > 0
+    );
+    expect(verdicts).toEqual([true, true]);
+  });
+
+  test("a function's written callback is its colour, though a recursive call pinned it, in either order", () => {
+    const head = "let applyPure2(k: (() -> Unit, Bool) -> Unit): Unit = k(() => (), True)\n";
+    const a = "    a(n: Int): Unit = if n > 0 then applyPure2(f) else ()";
+    const f = "    f(k: () ->! Unit, n: Bool): Unit = if n then f(save0, n) else a(1)";
+    const verdicts = [[a, f], [f, a]].map((members) =>
+      reports(head + "fun\n" + members.join("\n") + "\n").length > 0
+    );
+    expect(verdicts).toEqual([true, true]);
+  });
+});
+
+describe("an imported function's written types are read as this module's are (#1174)", () => {
+  const other = "module Other\n\n" +
+    "export record Holder = { run: (() ->! Unit) -> Unit }\n" +
+    "let noop(): Unit = ()\n" +
+    "export record HolderT = { run: ((() ->! Unit, Int)) -> Unit }\n" +
+    "export let getRun(h: HolderT): ((() ->! Unit, Int)) -> Unit = h.run\n" +
+    "export let hand(k: () -> Option(() ->! Unit)): Unit = ()\n" +
+    "export let mkPair(q: Int): (() -> Unit, Int) = (noop, q)\n" +
+    "export let applyK(k: ((() ->! Unit) -> Unit) -> Unit): Unit = k((f) => ())\n";
+  const main = "module Main\n\nimport Other\n\n" +
+    "let applyPure(k: (() -> Unit) -> Unit): Unit = k(() => ())\n" +
+    "let applyPureT(k: ((() -> Unit, Int)) -> Unit): Unit = k((() => (), 1))\n";
+
+  test("a callee's written result, a function's face, a ground result and a landed parameter", () => {
+    for (const body of [
+      "export let go(h: Other.HolderT): Unit = applyPureT(Other.getRun(h))\n",
+      "export let go(): Unit =\n    let s: (() -> Option(() -> Unit)) -> Unit = Other.hand\n    ()\n",
+      "let use(p): Unit =\n    let w: (() ->! Unit, Int) = Other.mkPair(p)\n    ()\nexport let go(): Unit = use(1)\n",
+      "export let go(): Unit = Other.applyK((f) => applyPure(f))\n",
+    ]) {
+      const diagnostics = compileFiles([["/other.hex", other], ["/main.hex", main + body]]).diagnostics;
+      expect([body, diagnostics.map(({ message }) => message)]).toEqual([body, []]);
+    }
+  });
+});
+
 describe("a written face may claim more effect than its body performs, never less (ruling (c))", () => {
   test("`->!` over a pure lambda, over a pure name, as an ascription, or as a result type", () => {
     for (const source of [
