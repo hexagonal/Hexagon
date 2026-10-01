@@ -473,6 +473,14 @@ type ArrowRole =
     readonly face: SignatureFace;
     readonly spine: Spine;
     readonly application: number;
+    /**
+     * Under a type argument a declaration reads contravariantly (or both
+     * ways): a function there is one the caller hands in, not one the spine
+     * returns, so nothing nests in it and a written `->?` there is unified
+     * with what meets it, never fitted (a fit reads "claims more" the wrong
+     * way round at a parameter).
+     */
+    readonly against?: boolean;
   }
   | { readonly kind: "callback"; readonly callback: CallbackColour }
   | { readonly kind: "inside" };
@@ -18239,16 +18247,19 @@ class Checker {
     // (#1176). `names` reads a declaration's type parameters as the arguments
     // the written type gives them.
     const expectedBy = new Map<Resolved.Expr, Resolved.TypeAnnotation>();
+    // Each argument is read in the scope it was written in: a slot's own
+    // arguments name the declaration around it (`W(a) = W(Option(a))`).
+    type Names = ReadonlyMap<string, readonly [Resolved.TypeAnnotation, Names | undefined]>;
     const expect = (
       value: Resolved.Expr,
       annotation: Resolved.TypeAnnotation | undefined,
-      names?: ReadonlyMap<string, Resolved.TypeAnnotation>,
+      names?: Names,
     ): void => {
       let node = value;
       while (node.kind === "Group") node = node.expression;
       if (annotation?.kind === "TypeVariable") {
         const given = names?.get(annotation.name);
-        if (given !== undefined) expect(node, given);
+        if (given !== undefined) expect(node, given[0], given[1]);
       } else if (annotation?.kind === "Function") {
         if (node.kind === "Lambda" && node.parameters.length === annotation.parameters.length) {
           expectedBy.set(node, annotation);
@@ -18266,7 +18277,7 @@ class Checker {
         const union = this.#declaredUnions.get(annotation.union) ?? this.#programUnion(annotation.union);
         const slots = union?.constructors.find((constructor) => constructor.binding.symbol === callee)?.slots;
         if (union === undefined || slots === undefined || slots.length !== node.arguments.length) return;
-        const given = new Map(union.parameters.map((name, index) => [name, annotation.arguments[index]!] as const));
+        const given: Names = new Map(union.parameters.map((name, index) => [name, [annotation.arguments[index]!, names]] as const));
         node.arguments.forEach((argument, index) => expect(argument, slots[index]!.annotation, given));
       } else if (
         annotation?.kind === "RecordDeclaration" && node.kind === "Call" && node.callee.kind === "Name" &&
@@ -18274,7 +18285,7 @@ class Checker {
       ) {
         const declaration = this.#constructedRecords.get(node.callee.symbol);
         if (declaration === undefined || declaration.id !== annotation.record) return;
-        const given = new Map(declaration.parameters.map((name, index) => [name, annotation.arguments[index]!] as const));
+        const given: Names = new Map(declaration.parameters.map((name, index) => [name, [annotation.arguments[index]!, names]] as const));
         for (const field of (node.arguments[0] as Resolved.RecordExpr).fields) {
           expect(field.value, declaration.fields.find((declared) => declared.name === field.name.text)?.annotation, given);
         }
@@ -27679,7 +27690,7 @@ class Checker {
       // returns: a `->?` denotes the callbacks handed by the time it runs, and
       // a spine arrow's own parameters are among them (Effects §2.2).
       let role = this.#arrowRole;
-      if (role?.kind === "component") {
+      if (role?.kind === "component" && role.against !== true) {
         // A function inside what a spine returns is a signature of its own,
         // nested in it *(#1176)*: by the time its arrow runs, the spine has
         // handed over what it had when it made the data, and the function's
@@ -27700,6 +27711,11 @@ class Checker {
           this.#elaborateParameter(parameter, face, application, undefined, elaborate, spine)!
         );
         resultRole = this.#resultRole(face, application, annotation.result, spine);
+      } else if (role?.kind === "component") {
+        // A function the caller hands in through a contravariant argument:
+        // its parameters are data, and what it returns stays where it is.
+        parameters = this.#inRole({ kind: "inside" }, () => annotation.parameters.map(elaborate));
+        resultRole = role;
       } else if (role?.kind === "callback") {
         // A callback's own parameters are what the body hands it, and mean
         // what they say; a function it returns directly carries its colour.
@@ -27718,7 +27734,10 @@ class Checker {
         ...(effect === undefined ? {} : { effect }),
       };
       // A written `->?` the face kept: what meets it is fitted (§4.2).
-      if (annotation.effect === "linked" && (writtenRole?.kind === "spine" || writtenRole?.kind === "component")) {
+      if (
+        annotation.effect === "linked" &&
+        (writtenRole?.kind === "spine" || writtenRole?.kind === "component") && writtenRole.against !== true
+      ) {
         const arrow = writtenRole.face.arrows.find(({ span, colour }) => colour === effect && span === annotation.arrowSpan);
         if (arrow !== undefined) this.#faceArrowNodes.set(elaborated, { face: writtenRole.face, arrow });
       }
@@ -27732,13 +27751,21 @@ class Checker {
     // The written qualifier rides the elaborated node from here (FFI Part 7
     // §2.4 rung 3): it is a property of the *occurrence*, and this is the one
     // place an occurrence becomes a type.
+    // A type argument read against the grain of the data around a spine.
+    const argument = (part: Resolved.TypeAnnotation, variance: () => string): Mono => {
+      const role = this.#arrowRole;
+      const elaborated = () => this.#annotationType(part, level, namedTails, typeParameters, impliedTypes, holes);
+      if (role?.kind !== "component" || role.against === true) return elaborated();
+      const read = variance();
+      return read === "contra" || read === "inv" ? this.#inRole({ ...role, against: true }, elaborated) : elaborated();
+    };
     if (annotation.kind === "Union") {
       return {
         kind: "Union",
         union: annotation.union,
         name: annotation.name,
-        arguments: annotation.arguments.map((argument) =>
-          this.#annotationType(argument, level, namedTails, typeParameters, impliedTypes, holes)
+        arguments: annotation.arguments.map((part, index) =>
+          argument(part, () => this.#variance.effectiveUnion(annotation.union, index))
         ),
         ...(annotation.qualifier === undefined ? {} : { qualifier: annotation.qualifier }),
       };
@@ -27748,8 +27775,8 @@ class Checker {
         kind: "NominalRecord",
         record: annotation.record,
         name: annotation.name,
-        arguments: annotation.arguments.map((argument) =>
-          this.#annotationType(argument, level, namedTails, typeParameters, impliedTypes, holes)
+        arguments: annotation.arguments.map((part, index) =>
+          argument(part, () => this.#variance.effectiveRecord(annotation.record, index))
         ),
         ...(annotation.qualifier === undefined ? {} : { qualifier: annotation.qualifier }),
       };
@@ -27761,8 +27788,13 @@ class Checker {
         name: annotation.name,
         // #927: an intrinsic `type` row's arguments are interned like any
         // nominal's. Empty for a foreign extern type, which is monomorphic.
-        arguments: annotation.arguments.map((argument) =>
-          this.#annotationType(argument, level, namedTails, typeParameters, impliedTypes, holes)
+        arguments: annotation.arguments.map((part, index) =>
+          argument(part, () => {
+            // A foreign type's invariant slot is one Hexagon never writes; its
+            // contravariant claim is read as one.
+            const claim = this.#variance.externClaim(annotation.externType, index);
+            return claim === "inv" ? "co" : claim;
+          })
         ),
         ...(annotation.qualifier === undefined ? {} : { qualifier: annotation.qualifier }),
       };

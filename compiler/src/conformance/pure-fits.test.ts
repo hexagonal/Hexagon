@@ -1134,11 +1134,12 @@ describe("a function in the data a signature returns is a signature of its own (
     expect(hovered(source, "p =")).toBe("{run: (() ->! a) -> (() ->! Unit) ->? a}");
     expect(reports(source + user(["p.run(() => ())(save0)"])))
       .toEqual([["p.run(() => ())(save0)", "this call may touch the world, so this call wants `!`, not no mark"]]);
-    // What a caller puts into a carried function is widened with what it runs (Effects §2.4).
+    // What a caller puts into a carried function is widened with what it runs
+    // (Effects §2.4): `h` is `a`'s colour, widened with `b`'s as `run` is, so
+    // after `make(() => (), save0)` it accepts `save0`.
     const handsIn = "let make(a: () ->! Unit, b: () ->! Unit) =\n    let run = (p) =>\n        let (h, _) = p\n" +
-      "        h!(a)\n    (run, 1)\n";
-    expect(reports(handsIn + user(["let (r, _) = make(() => (), save0)", "r(((f) => f!(), 1))"])))
-      .toContainEqual(["(f) => f!()", PURITY]);
+      "        (if True then h else a)!()\n    (run, 1)\n";
+    expect(reports(handsIn + user(["let (r, _) = make(() => (), save0)", "r!((save0, 1))"]))).toEqual([]);
   });
 
   test("a carried face refused under a curried spine leaves the spine's own arrows as written", () => {
@@ -1188,6 +1189,26 @@ describe("a function in the data a signature returns is a signature of its own (
       .toEqual([]);
   });
 
+  test("a function a declaration reads contravariantly is handed in: nothing nests in it, and its `->?` is unified", () => {
+    // Fitted as a carried function's would be, the `->?` let the body's bare
+    // `h(...)` pass, and a caller then handed `put` a function that touches
+    // the world through a call that wears no mark.
+    const sink = "record Sink(a) = { put: (a) -> Unit }\nlet ident(x: a): a = x\n";
+    expect(reports(sink + "let mk(): Sink((() ->! Unit) ->? Unit) = ident(Sink({ put = (h) => h(() => ()) }))\n" +
+      user(["mk().put((f) => save0!())"]))).toContainEqual(["->?", NOTHING_HANDED]);
+    for (const result of ["Sink(() ->? Unit)", "(Sink(() ->? Unit), Int)", "Option(Sink(() ->? Unit))"]) {
+      const value = result.startsWith("(") ? "(ident(Sink({ put = (h) => h() })), 1)"
+        : result.startsWith("Option") ? "Some(ident(Sink({ put = (h) => h() })))"
+        : "ident(Sink({ put = (h) => h() }))";
+      expect([result, reports(sink + `let mk(cb: () ->! Unit): ${result} = ${value}\n`).map(([, message]) => message)])
+        .toEqual([result, [expect.stringContaining("the parameter `cb` is written `->!`, which accepts any function")]]);
+    }
+    // A body that runs what it is handed under the field's own `->!` still states it.
+    const honest = "record Sink(a) = { put: (a) ->! Unit }\n" +
+      "let mk(cb: () ->! Unit): Sink(() ->? Unit) = Sink({ put = (h) => h!() })\n";
+    expect(reports(honest + user(["mk(save0).put!(save0)", "mk(() => ()).put!(() => ())"]))).toEqual([]);
+  });
+
   test("a lambda in the data a written type describes takes its parameters' written types, under any constructor", () => {
     // `g` is merged with `cb`: written where the face writes `g`'s type, it is
     // re-opened at that merge, so `g` keeps a colour of its own (Effects §3.4).
@@ -1197,8 +1218,11 @@ describe("a function in the data a signature returns is a signature of its own (
       ["Vector((() ->! Unit) ->? Unit)", "[(g) => (if True then g else cb)!()]", "let r = make(() => ())[0]"],
       ["Option((() ->! Unit) ->? Unit)", "Some((g) => (if True then g else cb)!())", "let r = Option.defaultValue(make(() => ()), (f) => ())"],
       ["Box((() ->! Unit) ->? Unit)", "Box({value = (g) => (if True then g else cb)!()})", "let r = make(() => ()).value"],
+      // A slot's own arguments are read with the declaration's: `W`'s `a` in `Option(a)`.
+      ["W((() ->! Unit) ->? Unit)", "W(Some((g) => (if True then g else cb)!()))",
+        "let r = match make(() => ())\n        W(Some(f)) => f\n        W(None) => (f) => ()"],
     ] as const) {
-      const source = "record Box(a) = {value: a}\n" +
+      const source = "record Box(a) = {value: a}\nunion W(a) = W(Option(a))\n" +
         `let make(cb: () ->! Unit): ${result} = ${value}\n` + user([take, "r!(save0)"]);
       expect([result, reports(source)]).toEqual([result, []]);
     }
