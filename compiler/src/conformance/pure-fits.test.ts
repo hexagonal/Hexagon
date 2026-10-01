@@ -1209,6 +1209,66 @@ describe("a function in the data a signature returns is a signature of its own (
     expect(reports(honest + user(["mk(save0).put!(save0)", "mk(() => ()).put!(() => ())"]))).toEqual([]);
   });
 
+  test("a function a declaration reads contravariantly keeps its parameters' written meaning, whatever the body hands it", () => {
+    // Swift's `Sink<(() throws -> Void) throws -> Void>`: the body chooses what
+    // `put`'s function is handed, so `->!` there is the constant.
+    const sink = "record Sink(a) = { put: (a) ->! Unit }\n";
+    for (const body of ["h!(save0)", "h!(cb)", "h!(() => ())"]) {
+      const source = sink + `let mk(cb: () ->! Unit): Sink((() ->! Unit) ->! Unit) = Sink({ put = (h) => ${body} })\n` +
+        user(["let s = mk(() => ())", "s.put!((f) => f!())", "s.put!((f) => ())", "s.put!((f) => save0!())"]);
+      expect([body, reports(source)]).toEqual([body, []]);
+    }
+    // The first type argument read other than covariantly decides: under a
+    // `Sink`, a `Cell`'s function is handed in too, and nothing nests in it.
+    expect(reports(sink + "record Cell(a) = { get: () -> a, put: (a) ->! Unit }\n" +
+      "let mk(): Sink(Cell((() ->! Unit) ->? Unit)) = Sink({ put = (c) => () })\n")).toEqual([["->?", NOTHING_HANDED]]);
+  });
+
+  test("a function a declaration reads both ways nests as a carried one does, and its `->?` is unified", () => {
+    const decls = "record Cell(a) = { get: () -> a, put: (a) ->! Unit }\n" +
+      "opaque record Box(a) = { value: a }\nlet wrap(x: a): Box(a) = Box({ value = x })\nlet open(b: Box(a)): a = b.value\n";
+    // A carried face under an argument read both ways is written where hover shows it, and its uses honour it.
+    for (const [inferred, written, uses] of [
+      ["let mk() = Cell({ get = () => (f) => f!(), put = (h) => () })\n",
+        "let mk(): Cell((() ->! a) ->? a) = Cell({ get = () => (f) => f!(), put = (h) => () })\n",
+        ["mk().get()(() => ())", "mk().get()!(save0)", "mk().put!((f) => save0!())"]],
+      ["let mk() = wrap((f) => f!())\n", "let mk(): Box((() ->! a) ->? a) = wrap((f) => f!())\n",
+        ["open(mk())(() => ())", "open(mk())!(save0)"]],
+      ["let mk() = Cell({ get = () => Cell({ get = () => (f) => f!(), put = (h) => () }), put = (h) => () })\n",
+        "let mk(): Cell(Cell((() ->! a) ->? a)) = Cell({ get = () => Cell({ get = () => (f) => f!(), put = (h) => () }), put = (h) => () })\n",
+        ["mk().get().get()(() => ())", "mk().get().get()!(save0)"]],
+    ] as const) {
+      expect(hovered(decls + inferred, "mk(")).toBe(hovered(decls + written, "mk("));
+      expect([written, reports(decls + written + user(uses))]).toEqual([written, []]);
+    }
+    // Unified, not fitted, at any depth: fitted, a `put` that runs what it is
+    // handed bare passed, and `mk(save0).put(...)` touched the world through a
+    // call that wears no mark.
+    const pure = "record PCell(a) = { get: () -> a, put: (a) -> Unit }\n";
+    for (const [result, value, use] of [
+      ["PCell(() ->? Unit)", "PCell({ get = () => () => (), put = (h) => h() })", "mk(save0).put(save0)"],
+      ["PCell(() -> (() ->? Unit, Int))",
+        "PCell({ get = () => () => (() => (), 1), put = (h) =>\n        let (g, _) = h()\n        g() })",
+        "mk(save0).put(() => (save0, 1))"],
+    ] as const) {
+      const source = pure + `let mk(cb: () ->! Unit): ${result} =\n    let v = ${value}\n    v\n` + user([use]);
+      expect([result, reports(source).map(([, message]) => message)]).toEqual([
+        result,
+        expect.arrayContaining([expect.stringContaining("the parameter `cb` is written `->!`, which accepts any function")]),
+      ]);
+    }
+  });
+
+  test("a later use reads a carried function's parameters as callbacks, so a colour its uses share reads alike in either order", () => {
+    const pre = "let usePure(p: ((() -> Unit) ->! Unit, Int)): Unit = ()\n";
+    for (const factory of [`let mk(): ${T} = ((f) => f!(), 1)\n`, "let mk() = ((f) => f!(), 1)\n"]) {
+      const verdicts = [["r!(save0)", "usePure(s)"], ["usePure(s)", "r!(save0)"]].map((uses) =>
+        reports(pre + factory + user(["let s = mk()", "let (r, _) = s", ...uses])).length > 0
+      );
+      expect([factory, verdicts]).toEqual([factory, [true, true]]);
+    }
+  });
+
   test("a lambda in the data a written type describes takes its parameters' written types, under any constructor", () => {
     // `g` is merged with `cb`: written where the face writes `g`'s type, it is
     // re-opened at that merge, so `g` keeps a colour of its own (Effects §3.4).
