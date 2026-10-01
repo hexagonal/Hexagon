@@ -357,6 +357,21 @@ function isImpure(colour: Mono): boolean {
 }
 
 /**
+ * The callbacks one chain of applications hands over (Effects §2.2, §2.4):
+ * `handed[k]` is the callbacks the `k`th application hands over, so a `->?` on
+ * the chain's `k`th arrow (or inside what it returns) denotes the join of
+ * `handed[0]` through `handed[k]`. A signature's own spine is its face. A
+ * function the signature carries in data is a signature of its own, nested in
+ * it *(#1176)*: its spine's first entry is every callback the signature had
+ * handed over by the time it made the data, and its own applications follow.
+ */
+interface Spine {
+  readonly handed: CallbackColour[][];
+  /** Whether an application's parameters include one with no written type, for §4.4's advice. */
+  readonly untyped: boolean[];
+}
+
+/**
  * One signature's callbacks and its written `->?` arrows (Effects §2.2–§2.4).
  *
  * The spine is the chain of arrows reached from the signature's root through
@@ -364,14 +379,12 @@ function isImpure(colour: Mono): boolean {
  * function type is a callback. Each callback whose own arrow is written `->!`
  * has a colour of its own (`CallbackColour`), quantified with the signature and
  * instantiated fresh at every call; a callback written `->` is pure and has
- * none. `handed[k]` is the callbacks the `k`th application hands over, so a
- * `->?` on the spine's `k`th arrow (or inside what it returns) denotes the join
- * of `handed[0]` through `handed[k]`.
+ * none. A function the signature carries in data has a spine of its own
+ * (`Spine`), whose callbacks are the signature's too (`carried`).
  */
-interface SignatureFace {
-  readonly handed: CallbackColour[][];
-  /** Whether an application's parameters include one with no written type, for §4.4's advice. */
-  readonly untyped: boolean[];
+interface SignatureFace extends Spine {
+  /** The callbacks of the functions the signature carries in data, in source order. */
+  readonly carried: CallbackColour[];
   /**
    * Every written `->?` on the spine and the join it denotes, for §4.2's face
    * report and its fixit, with the application it follows where it stands on
@@ -400,6 +413,11 @@ interface SignatureFace {
   readonly level: number;
   /** Whether the signature stands inside a body: a local one with no callbacks takes §4.4's local clause. */
   readonly local: boolean;
+}
+
+/** Every callback of a face: its spine's, then those of the functions it carries. */
+function faceCallbacks(face: SignatureFace): CallbackColour[] {
+  return [...face.handed.flat(), ...face.carried];
 }
 
 /** One written `->?` of a face. */
@@ -439,16 +457,23 @@ interface CallbackColour {
  * What a written arrow denotes where it stands (Effects §2.2–§2.5), read by
  * `Checker.#writtenEffect`:
  *
- * - `spine`: an arrow of the signature's spine, the `application`th;
- * - `component`: an arrow inside what the `application`th application returns,
- *   off the spine (a tuple's function, a record's);
+ * - `spine`: an arrow of a spine (`Spine`), the `application`th: the
+ *   signature's own, or that of a function it carries;
+ * - `component`: a position inside what the spine's `application`th
+ *   application returns, off the spine (a tuple's element, a record's field),
+ *   where a function starts a spine of its own *(#1176)*;
  * - `callback`: an arrow of a callback's own function type — the arrow the body
  *   calls and those of the functions it returns — whose `->!` is the colour;
  * - `inside`: any other arrow inside a parameter type (a callback's own
  *   parameters, an arrow under a constructor), which means what it says.
  */
 type ArrowRole =
-  | { readonly kind: "spine" | "component"; readonly face: SignatureFace; readonly application: number }
+  | {
+    readonly kind: "spine" | "component";
+    readonly face: SignatureFace;
+    readonly spine: Spine;
+    readonly application: number;
+  }
   | { readonly kind: "callback"; readonly callback: CallbackColour }
   | { readonly kind: "inside" };
 
@@ -647,11 +672,43 @@ function annotationGround(annotation: Resolved.TypeAnnotation): boolean {
   }
 }
 
+/** Whether a written type has a function type anywhere in it. */
+function annotationHasFunction(annotation: Resolved.TypeAnnotation): boolean {
+  switch (annotation.kind) {
+    case "Function":
+      return true;
+    case "Vector":
+    case "Set":
+    case "Array":
+    case "JsSet":
+    case "Node":
+      return annotationHasFunction(annotation.element);
+    case "Nullable":
+      return annotationHasFunction(annotation.value);
+    case "Map":
+    case "JsMap":
+      return annotationHasFunction(annotation.key) || annotationHasFunction(annotation.value);
+    case "Tuple":
+      return annotation.elements.some(annotationHasFunction);
+    case "Record":
+      return annotation.fields.some((field) => annotationHasFunction(field.annotation));
+    case "Union":
+    case "RecordDeclaration":
+    case "ExternType":
+      return annotation.arguments.some(annotationHasFunction);
+    default:
+      return false;
+  }
+}
+
 /**
- * What a position of a written type is *(#1174; Effects §2.3, §2.4)*: on a
- * signature's spine, a callback's own function type, or data. A `->!` a
- * callback's own arrows write is that callback's colour; everywhere else,
- * `->!` is the impure constant.
+ * What a position of a written type is *(#1174; Effects §2.3, §2.4)*: outside
+ * every parameter type (`spine`: a signature's spine, or the data it returns,
+ * where a function is a signature of its own nested in it, #1176), a
+ * callback's own function type, or data inside a parameter type or a declared
+ * field. A spine function's parameters are callbacks, and a `->!` a callback's
+ * own arrows write is that callback's colour; everywhere else, `->!` is the
+ * impure constant.
  */
 type WrittenRole = "spine" | "callback" | "data";
 
@@ -4730,10 +4787,11 @@ class Checker {
         this.#constructedRecords.set(declaration.constructor.symbol, declaration);
       }
     }
-    for (const item of module.items) this.#sourceItem(item);
     // See `#declaredUnions`: an annotation elaborated before the registration
-    // below still has to be able to look a union declaration up.
+    // below still has to be able to look a union declaration up; and
+    // `#sourceItem` reads a constructor's slots through it.
     for (const union of module.unions) this.#declaredUnions.set(union.id, union);
+    for (const item of module.items) this.#sourceItem(item);
     // This module's own view first — its copy of a declaration is authoritative
     // — then the whole program's, which is what §6.4's uniformity needs and what
     // the module's view alone cannot supply: a nominal reached only through a
@@ -5095,7 +5153,7 @@ class Checker {
         // variables are. They carry no requirements, so no dictionary ordinal
         // moves; and they are quantified besides, so no defaulting pass may
         // settle a contract on one instantiation's behalf.
-        const contractColours = memberFace.handed.flat().map(({ colour }) => colour);
+        const contractColours = faceCallbacks(memberFace).map(({ colour }) => colour);
         for (const colour of contractColours) this.#quantified.add(colour.id);
         this.#memberColours.set(member.binding.symbol, contractColours);
         // The **default body's** contract is this node, not the one an `honor`
@@ -5298,7 +5356,7 @@ class Checker {
               ...[...typeParameters.values()].flatMap((type) =>
                 type.kind === "Variable" ? [type] : []
               ),
-              ...intrinsicFace.handed.flat().map(({ colour }) => colour),
+              ...faceCallbacks(intrinsicFace).map(({ colour }) => colour),
             ],
             type: {
               kind: "Function",
@@ -5419,7 +5477,7 @@ class Checker {
           result: externResult,
         };
         this.#schemes.set(declaration.binding.symbol, {
-          variables: externFace.handed.flat().map(({ colour }) => colour),
+          variables: faceCallbacks(externFace).map(({ colour }) => colour),
           type: externSignature,
         });
         // Frozen here, where the annotations have just been interned and no
@@ -10800,10 +10858,13 @@ class Checker {
       role: WrittenRole = "data",
     ): Mono => {
       const actual = this.#prune(node);
+      // Data a spine returns is outside every parameter type, as the spine is.
+      const around: WrittenRole = role === "spine" ? "spine" : "data";
       switch (actual.kind) {
         case "Function": {
-          // A spine's parameters are callbacks; a callback's own parameters,
-          // and anything that is not a function a callback returns, are data.
+          // A spine's parameters are callbacks, and what it returns is outside
+          // every parameter type too; a callback's own parameters, and anything
+          // that is not a function a callback returns, are data.
           let parameterWritten: readonly (Resolved.TypeAnnotation | undefined)[] = [];
           let parameterRole: WrittenRole = "data";
           let resultWritten: Resolved.TypeAnnotation | undefined;
@@ -10812,12 +10873,12 @@ class Checker {
             parameterWritten = written.parameters;
             parameterRole = "callback";
             resultWritten = written.result;
-            resultRole = written.result?.kind === "Function" ? "spine" : "data";
+            resultRole = "spine";
           } else if (written?.kind === "Function") {
             parameterWritten = written.parameters;
             parameterRole = role === "spine" ? "callback" : "data";
             resultWritten = written.result;
-            resultRole = written.result.kind === "Function" && role !== "data" ? role : "data";
+            resultRole = role === "spine" || role === "callback" && written.result.kind === "Function" ? role : "data";
           }
           const parameters = actual.parameters.map((parameter, index) =>
             walk(parameter, !receives, parameterWritten[index], parameterRole)
@@ -10851,7 +10912,7 @@ class Checker {
         case "Tuple": {
           const elements = actual.elements.map((element, index) =>
             walk(element, receives, part(written, (annotation) =>
-              annotation.kind === "Tuple" ? annotation.elements[index] : undefined))
+              annotation.kind === "Tuple" ? annotation.elements[index] : undefined), around)
           );
           return elements.every((element, index) => element === actual.elements[index])
             ? node
@@ -10863,7 +10924,7 @@ class Checker {
             walk(field, receives, part(written, (annotation) =>
               annotation.kind === "Record"
                 ? annotation.fields.find((candidate) => candidate.name === name)?.annotation
-                : undefined)),
+                : undefined), around),
           ]));
           if ([...fields].every(([name, field]) => field === actual.fields.get(name))) return node;
           return { kind: "Record", fields, ...(actual.tail === undefined ? {} : { tail: actual.tail }) };
@@ -10881,7 +10942,7 @@ class Checker {
               : actual.kind === "NominalRecord"
               ? this.#variance.effectiveRecord(actual.record, index)
               : this.#variance.externClaim(actual.externType, index);
-            return variance === "co" ? walk(argument, receives, argumentWritten)
+            return variance === "co" ? walk(argument, receives, argumentWritten, around)
               : variance === "contra" ? walk(argument, !receives, argumentWritten)
               : argument;
           });
@@ -10898,13 +10959,14 @@ class Checker {
             actual.element,
             variance === "co" ? receives : !receives,
             part(written, (annotation) => "element" in annotation ? annotation.element : undefined),
+            variance === "co" ? around : "data",
           );
           return element === actual.element ? node : { ...actual, element };
         }
         case "Nullable": {
           if (this.#variance.kindClaim("Nullable", 0) !== "co") return node;
           const value = walk(actual.value, receives, part(written, (annotation) =>
-            annotation.kind === "Nullable" ? annotation.value : undefined));
+            annotation.kind === "Nullable" ? annotation.value : undefined), around);
           return value === actual.value ? node : { kind: "Nullable", value };
         }
         case "Map":
@@ -10912,10 +10974,10 @@ class Checker {
           const pair = (annotation: Resolved.TypeAnnotation) =>
             annotation.kind === "Map" || annotation.kind === "JsMap" ? annotation : undefined;
           const key = this.#variance.kindClaim(actual.kind, 0) === "co"
-            ? walk(actual.key, receives, part(written, (annotation) => pair(annotation)?.key))
+            ? walk(actual.key, receives, part(written, (annotation) => pair(annotation)?.key), around)
             : actual.key;
           const value = this.#variance.kindClaim(actual.kind, 1) === "co"
-            ? walk(actual.value, receives, part(written, (annotation) => pair(annotation)?.value))
+            ? walk(actual.value, receives, part(written, (annotation) => pair(annotation)?.value), around)
             : actual.value;
           return key === actual.key && value === actual.value ? node : { ...actual, key, value };
         }
@@ -18172,14 +18234,50 @@ class Checker {
   #sourceItem(item: Resolved.Item): void {
     // A lambda written where a type written whole is expected: a `let`'s
     // annotation, an ascription, a written result type, or a record field's
-    // declared type at a construction (#1174).
+    // declared type at a construction (#1174), and, through a literal or a
+    // constructor's arguments, a function in the data such a type describes
+    // (#1176). `names` reads a declaration's type parameters as the arguments
+    // the written type gives them.
     const expectedBy = new Map<Resolved.Expr, Resolved.TypeAnnotation>();
-    const expect = (value: Resolved.Expr, annotation: Resolved.TypeAnnotation | undefined): void => {
-      if (annotation?.kind !== "Function") return;
-      let lambda = value;
-      while (lambda.kind === "Group") lambda = lambda.expression;
-      if (lambda.kind === "Lambda" && lambda.parameters.length === annotation.parameters.length) {
-        expectedBy.set(lambda, annotation);
+    const expect = (
+      value: Resolved.Expr,
+      annotation: Resolved.TypeAnnotation | undefined,
+      names?: ReadonlyMap<string, Resolved.TypeAnnotation>,
+    ): void => {
+      let node = value;
+      while (node.kind === "Group") node = node.expression;
+      if (annotation?.kind === "TypeVariable") {
+        const given = names?.get(annotation.name);
+        if (given !== undefined) expect(node, given);
+      } else if (annotation?.kind === "Function") {
+        if (node.kind === "Lambda" && node.parameters.length === annotation.parameters.length) {
+          expectedBy.set(node, annotation);
+        }
+      } else if (annotation?.kind === "Tuple" && node.kind === "Tuple" && node.elements.length === annotation.elements.length) {
+        node.elements.forEach((element, index) => expect(element, annotation.elements[index], names));
+      } else if (annotation?.kind === "Vector" && node.kind === "Vector") {
+        for (const element of node.elements) expect(element, annotation.element, names);
+      } else if (annotation?.kind === "Record" && node.kind === "Record" && node.spread === undefined) {
+        for (const field of node.fields) {
+          expect(field.value, annotation.fields.find((written) => written.name === field.name.text)?.annotation, names);
+        }
+      } else if (annotation?.kind === "Union" && node.kind === "Call" && node.callee.kind === "Name") {
+        const callee = node.callee.symbol;
+        const union = this.#declaredUnions.get(annotation.union) ?? this.#programUnion(annotation.union);
+        const slots = union?.constructors.find((constructor) => constructor.binding.symbol === callee)?.slots;
+        if (union === undefined || slots === undefined || slots.length !== node.arguments.length) return;
+        const given = new Map(union.parameters.map((name, index) => [name, annotation.arguments[index]!] as const));
+        node.arguments.forEach((argument, index) => expect(argument, slots[index]!.annotation, given));
+      } else if (
+        annotation?.kind === "RecordDeclaration" && node.kind === "Call" && node.callee.kind === "Name" &&
+        node.arguments.length === 1 && node.arguments[0]!.kind === "Record"
+      ) {
+        const declaration = this.#constructedRecords.get(node.callee.symbol);
+        if (declaration === undefined || declaration.id !== annotation.record) return;
+        const given = new Map(declaration.parameters.map((name, index) => [name, annotation.arguments[index]!] as const));
+        for (const field of (node.arguments[0] as Resolved.RecordExpr).fields) {
+          expect(field.value, declaration.fields.find((declared) => declared.name === field.name.text)?.annotation, given);
+        }
       }
     };
     const register = (inner: Resolved.Item): void => {
@@ -19150,10 +19248,10 @@ class Checker {
    * The colour a written arrow denotes where it stands (Effects §2.2–§2.5),
    * read off `#arrowRole`: `->` is pure; `->!` is the callback's colour on a
    * callback's own arrows and the impure constant everywhere else; `->?` is the
-   * join of the callbacks the signature has been handed by the time the arrow
-   * runs. A `->?` the position does not admit is §4.4's refusal, and reads as
-   * its fixit: the callback's colour on a callback's own arrow, the impure
-   * constant everywhere else.
+   * join of the callbacks its spine has been handed by the time the arrow runs,
+   * a carried function's own among them (#1176). A `->?` the position does not
+   * admit is §4.4's refusal, and reads as its fixit: the callback's colour on a
+   * callback's own arrow, the impure constant everywhere else.
    */
   #writtenEffect(
     written: "linked" | "constant" | undefined,
@@ -19176,10 +19274,10 @@ class Checker {
         return IMPURE;
       case "spine":
       case "component": {
-        const handed = role.face.handed.slice(0, role.application + 1).flat();
+        const handed = role.spine.handed.slice(0, role.application + 1).flat();
         if (handed.length === 0) {
-          const local = role.face.local && role.face.handed.every((callbacks) => callbacks.length === 0);
-          const untyped = role.face.untyped.slice(0, role.application + 1).some((some) => some);
+          const local = role.face.local && role.spine.handed.every((callbacks) => callbacks.length === 0);
+          const untyped = role.spine.untyped.slice(0, role.application + 1).some((some) => some);
           this.#refuseFollowsArrow(arrowSpan, local ? "local" : untyped ? "untyped" : "unhanded");
           return IMPURE;
         }
@@ -19188,7 +19286,7 @@ class Checker {
           role.face.arrows.push({
             span: arrowSpan,
             colour: joined,
-            ...(role.kind === "spine" ? { application: role.application } : {}),
+            ...(role.kind === "spine" && role.spine === role.face ? { application: role.application } : {}),
           });
         }
         return joined;
@@ -19284,6 +19382,17 @@ class Checker {
     }
   }
 
+  /** Runs `body` with §4.4's reports held back, for a re-elaboration of arrows already ruled on. */
+  #withoutArrowReports<T>(body: () => T): T {
+    const previous = this.#suppressLinkedArrowReports;
+    this.#suppressLinkedArrowReports = true;
+    try {
+      return body();
+    } finally {
+      this.#suppressLinkedArrowReports = previous;
+    }
+  }
+
   /** Runs `body` with `role` in force for the arrows it elaborates, restoring what was. */
   #inRole<T>(role: ArrowRole | undefined, body: () => T): T {
     const previous = this.#arrowRole;
@@ -19311,6 +19420,7 @@ class Checker {
     const face: SignatureFace = {
       handed: [],
       untyped: [],
+      carried: [],
       arrows: [],
       declaration,
       owner,
@@ -19322,7 +19432,8 @@ class Checker {
   }
 
   /**
-   * One parameter of the signature's `application`th arrow, elaborated as the
+   * One parameter of the `application`th arrow of `spine` (the signature's own,
+   * where none is given, or a carried function's: #1176), elaborated as the
    * callback it is where its written type is a function type (Effects §2.4):
    * written `->!` (or the refused `->?`, which reads as it) on its own arrow, it
    * has a colour of its own, which every arrow of its own function type
@@ -19335,11 +19446,12 @@ class Checker {
     application: number,
     name: string | undefined,
     elaborate: (annotation: Resolved.TypeAnnotation) => Mono,
+    spine: Spine = face,
   ): Mono | undefined {
-    const handed = (face.handed[application] ??= []);
-    face.untyped[application] ??= false;
+    const handed = (spine.handed[application] ??= []);
+    spine.untyped[application] ??= false;
     if (annotation === undefined) {
-      face.untyped[application] = true;
+      spine.untyped[application] = true;
       return undefined;
     }
     if (annotation.kind !== "Function" || annotation.effect === undefined) {
@@ -19352,6 +19464,7 @@ class Checker {
       face,
     };
     handed.push(callback);
+    if (spine !== face) face.carried.push(callback);
     this.#linkedColours.push(callback.colour);
     this.#faceColours.add(callback.colour);
     const scope: ColourScope = {
@@ -19385,7 +19498,7 @@ class Checker {
     );
     const result = this.#inRole(this.#resultRole(face, 0, returnAnnotation), () => elaborate(returnAnnotation));
     if (effect === "linked") face.outer = arrowSpan;
-    const outer = this.#inRole({ kind: "spine", face, application: 0 }, () =>
+    const outer = this.#inRole({ kind: "spine", face, spine: face, application: 0 }, () =>
       this.#writtenEffect(effect, arrowSpan)
     );
     return { parameters: types, result, effect: outer };
@@ -19394,9 +19507,9 @@ class Checker {
   /**
    * One written annotation of a binding, an ascription, or a `var`: a function
    * type is a signature of its own wherever it stands (Effects §2.2.1), its
-   * root the spine's first arrow; any other type is no signature, and a `->?`
-   * inside it is §4.4's "not a function signature" refusal. A signature inside
-   * a body borrows nothing from the one around it.
+   * root the spine's first arrow. Any other type hands nothing over, and a
+   * function inside it is a signature of its own, nested in the annotation's
+   * (#1176). A signature inside a body borrows nothing from the one around it.
    */
   #bindingAnnotation(
     annotation: Resolved.TypeAnnotation,
@@ -19406,17 +19519,29 @@ class Checker {
   ): Mono {
     const elaborate = (): Mono =>
       this.#annotationType(annotation, level, new Map(), this.#annotationVariableScope ?? new Map());
-    if (annotation.kind !== "Function") return this.#inPosition("no-signature", elaborate);
+    if (annotation.kind !== "Function") {
+      if (!annotationHasFunction(annotation)) return this.#inPosition("no-signature", elaborate);
+      const face = this.#openFace(level, declaration, owner, this.#effectFrames.length > 0);
+      return this.#inPosition(
+        "no-signature",
+        () => this.#inRole({ kind: "component", face, spine: face, application: 0 }, elaborate),
+      );
+    }
     const face = this.#openFace(level, declaration, owner, this.#effectFrames.length > 0);
     if (annotation.effect === "linked") face.outer = annotation.arrowSpan;
-    return this.#inRole({ kind: "spine", face, application: 0 }, elaborate);
+    return this.#inRole({ kind: "spine", face, spine: face, application: 0 }, elaborate);
   }
 
-  /** The role of what a signature's `application`th arrow returns: the next spine arrow, or a component. */
-  #resultRole(face: SignatureFace, application: number, result: Resolved.TypeAnnotation | undefined): ArrowRole {
+  /** The role of what a spine's `application`th arrow returns: the next spine arrow, or a component. */
+  #resultRole(
+    face: SignatureFace,
+    application: number,
+    result: Resolved.TypeAnnotation | undefined,
+    spine: Spine = face,
+  ): ArrowRole {
     return result?.kind === "Function"
-      ? { kind: "spine", face, application: application + 1 }
-      : { kind: "component", face, application };
+      ? { kind: "spine", face, spine, application: application + 1 }
+      : { kind: "component", face, spine, application };
   }
 
   /**
@@ -21374,7 +21499,7 @@ class Checker {
       this.#recordArrowSpan(contractType, member.arrowSpan);
       return {
         type: contractType,
-        colours: face.handed.flat().map(({ colour }) => colour),
+        colours: faceCallbacks(face).map(({ colour }) => colour),
         member: member.binding.name,
         parameters: member.parameters.map((parameter) => parameter.name),
       };
@@ -21554,7 +21679,7 @@ class Checker {
           fixes: [{ message: "write `->!`", edits: [{ span, replacement: "->!" }] }],
         });
       }
-      for (const callback of face.handed.flat()) {
+      for (const callback of faceCallbacks(face)) {
         const settled = this.#prune(callback.colour);
         if (settled.kind !== "Effect" || Colour.isTop(settled) || callback.arrows.length === 0) continue;
         condemned.push(callback.colour);
@@ -21573,7 +21698,7 @@ class Checker {
         face.arrows.filter(({ colour: arrow }) => {
           const settled = this.#prune(arrow);
           return settled.kind === "Effect" && Colour.isBottom(settled) &&
-            face.handed.flat().every((callback) =>
+            faceCallbacks(face).every((callback) =>
               callbacks.includes(callback) || Colour.isBottom(this.#pointAt(callback.colour, () => Colour.IMPURE_POINT))
             );
         }).map(({ span }) => span)
@@ -26378,77 +26503,118 @@ class Checker {
    * (Effects §2.4). Where a binding generalizes, each colour on its face that
    * depends on some of the callbacks handed by the time it runs is widened to
    * the join of all of them, which is the colour a written `->?` there would
-   * denote. The callbacks' own arrows are the colours themselves, and a
+   * denote. That holds on every spine: the face's own, at every application
+   * however few callbacks the first hands, and that of each function the face
+   * carries in data, which is a signature of its own nested in the face's and
+   * is handed what the face had handed by then besides its own callbacks
+   * (#1176). The callbacks' own arrows are the colours themselves, and a
    * captured colour is the enclosing function's: neither is widened. The face
    * is rewritten, never a colour bound, so each callback keeps its own colour;
-   * every occurrence the caller receives is widened together.
+   * every occurrence the caller receives is widened together. A node nothing
+   * widens is kept, and a rebuilt function keeps its lambdas and frame.
    */
   #widenFace(type: Mono, level: number): Mono {
     const own = (colour: Mono): Variable[] =>
       this.#colourParts(colour).filter((part) => part.level > level);
-    const widenColour = (colour: Mono | undefined, callbacks: readonly Variable[]): Mono | undefined => {
-      if (colour === undefined) return undefined;
+    const widenColour = (colour: Mono, callbacks: readonly Variable[]): Mono => {
+      if (callbacks.length < 2) return colour;
       const parts = this.#colourParts(colour);
-      if (!parts.some((part) => callbacks.includes(part))) return colour;
+      if (!parts.some((part) => callbacks.includes(part)) || callbacks.every((callback) => parts.includes(callback))) {
+        return colour;
+      }
       return this.#join([...parts, ...callbacks]);
     };
-    const components = (node: Mono, callbacks: readonly Variable[]): Mono => {
+    const rebuilt = (node: Mono, actual: FunctionMono, parameters: Mono[], result: Mono, effect: Mono | undefined) => {
+      if (
+        result === actual.result && effect === actual.effect &&
+        parameters.every((parameter, index) => parameter === actual.parameters[index])
+      ) {
+        return node;
+      }
+      const widened: FunctionMono = { ...actual, parameters, result, ...(effect === undefined ? {} : { effect }) };
+      const lambdas = this.#lambdasOf.get(actual);
+      if (lambdas !== undefined) this.#lambdasOf.set(widened, lambdas);
+      const frame = this.#frameOfType.get(actual);
+      if (frame !== undefined) this.#frameOfType.set(widened, frame);
+      return widened;
+    };
+    // Data around the spines, where (`nested`) a function is a spine of its
+    // own; and everything inside a carried function's parameters, where
+    // (`nested` false) each arrow is widened by the callbacks already handed.
+    const data = (node: Mono, callbacks: readonly Variable[], nested: boolean): Mono => {
       const actual = this.#prune(node);
-      const each = (parts: readonly Mono[]): Mono[] => parts.map((part) => components(part, callbacks));
+      const each = (parts: readonly Mono[]): Mono[] => parts.map((part) => data(part, callbacks, nested));
+      const kept = (parts: readonly Mono[], originals: readonly Mono[]): boolean =>
+        parts.every((part, index) => part === originals[index]);
       switch (actual.kind) {
         case "Function":
-          return {
-            ...actual,
-            parameters: each(actual.parameters),
-            result: components(actual.result, callbacks),
-            ...(actual.effect === undefined ? {} : { effect: widenColour(actual.effect, callbacks)! }),
-          };
-        case "Tuple":
-          return { kind: "Tuple", elements: each(actual.elements) };
-        case "Record":
-          return {
-            ...actual,
-            fields: new Map([...actual.fields].map(([name, field]) => [name, components(field, callbacks)])),
-          };
+          if (nested) return spine(node, callbacks, true);
+          return rebuilt(
+            node,
+            actual,
+            each(actual.parameters),
+            data(actual.result, callbacks, false),
+            actual.effect === undefined ? undefined : widenColour(actual.effect, callbacks),
+          );
+        case "Tuple": {
+          const elements = each(actual.elements);
+          return kept(elements, actual.elements) ? node : { kind: "Tuple", elements };
+        }
+        case "Record": {
+          const fields = new Map([...actual.fields].map(([name, field]) => [name, data(field, callbacks, nested)]));
+          return [...fields].every(([name, field]) => field === actual.fields.get(name))
+            ? node
+            : { ...actual, fields };
+        }
         case "Union":
         case "NominalRecord":
-        case "ExternType":
-          return { ...actual, arguments: each(actual.arguments) } as Mono;
+        case "ExternType": {
+          const parts = each(actual.arguments);
+          return kept(parts, actual.arguments) ? node : { ...actual, arguments: parts } as Mono;
+        }
         case "Vector":
         case "Set":
         case "Array":
         case "JsSet":
-        case "Node":
-          return { ...actual, element: components(actual.element, callbacks) } as Mono;
-        case "Nullable":
-          return { kind: "Nullable", value: components(actual.value, callbacks) };
+        case "Node": {
+          const element = data(actual.element, callbacks, nested);
+          return element === actual.element ? node : { ...actual, element } as Mono;
+        }
+        case "Nullable": {
+          const value = data(actual.value, callbacks, nested);
+          return value === actual.value ? node : { kind: "Nullable", value };
+        }
         case "Map":
-        case "JsMap":
-          return { ...actual, key: components(actual.key, callbacks), value: components(actual.value, callbacks) } as Mono;
+        case "JsMap": {
+          const key = data(actual.key, callbacks, nested);
+          const value = data(actual.value, callbacks, nested);
+          return key === actual.key && value === actual.value ? node : { ...actual, key, value } as Mono;
+        }
         default:
           return node;
       }
     };
-    const spine = (node: Mono, handed: readonly Variable[]): Mono => {
+    // A spine: each application adds its callbacks. A carried function's
+    // parameters are widened by what its spine had been handed before them,
+    // as every arrow inside the face's data is.
+    const spine = (node: Mono, handed: readonly Variable[], carried: boolean): Mono => {
       const actual = this.#prune(node);
-      if (actual.kind !== "Function") return node;
+      if (actual.kind !== "Function") return data(node, handed, true);
       const callbacks = [...handed];
       for (const parameter of actual.parameters) {
         const callback = this.#prune(parameter);
         if (callback.kind !== "Function") continue;
         for (const part of own(callback.effect ?? PURE)) if (!callbacks.includes(part)) callbacks.push(part);
       }
-      if (callbacks.length < 2) return node;
-      const result = this.#prune(actual.result).kind === "Function"
-        ? spine(actual.result, callbacks)
-        : components(actual.result, callbacks);
-      return {
-        ...actual,
-        result,
-        ...(actual.effect === undefined ? {} : { effect: widenColour(actual.effect, callbacks)! }),
-      };
+      return rebuilt(
+        node,
+        actual,
+        carried ? actual.parameters.map((parameter) => data(parameter, handed, false)) : [...actual.parameters],
+        spine(actual.result, callbacks, carried),
+        actual.effect === undefined ? undefined : widenColour(actual.effect, callbacks),
+      );
     };
-    return this.#prune(type).kind === "Function" ? spine(type, []) : type;
+    return spine(type, [], false);
   }
 
   /**
@@ -27512,21 +27678,28 @@ class Checker {
       // The arrow's parameters first, then the arrow itself, then what it
       // returns: a `->?` denotes the callbacks handed by the time it runs, and
       // a spine arrow's own parameters are among them (Effects §2.2).
-      const role = this.#arrowRole;
+      let role = this.#arrowRole;
+      if (role?.kind === "component") {
+        // A function inside what a spine returns is a signature of its own,
+        // nested in it *(#1176)*: by the time its arrow runs, the spine has
+        // handed over what it had when it made the data, and the function's
+        // own application hands over its own callbacks.
+        const spine: Spine = {
+          handed: [role.spine.handed.slice(0, role.application + 1).flat()],
+          untyped: [role.spine.untyped.slice(0, role.application + 1).some((some) => some)],
+        };
+        role = { kind: "spine", face: role.face, spine, application: 1 };
+      }
       const elaborate = (part: Resolved.TypeAnnotation): Mono =>
         this.#annotationType(part, level, namedTails, typeParameters, impliedTypes, holes);
       let parameters: Mono[];
       let resultRole: ArrowRole | undefined;
       if (role?.kind === "spine") {
+        const { face, spine, application } = role;
         parameters = annotation.parameters.map((parameter) =>
-          this.#elaborateParameter(parameter, role.face, role.application, undefined, elaborate)!
+          this.#elaborateParameter(parameter, face, application, undefined, elaborate, spine)!
         );
-        resultRole = this.#resultRole(role.face, role.application, annotation.result);
-      } else if (role?.kind === "component") {
-        // A function inside what a signature returns: its parameters are no
-        // callbacks of the signature's, and what it returns stays a component.
-        parameters = this.#inRole({ kind: "inside" }, () => annotation.parameters.map(elaborate));
-        resultRole = role;
+        resultRole = this.#resultRole(face, application, annotation.result, spine);
       } else if (role?.kind === "callback") {
         // A callback's own parameters are what the body hands it, and mean
         // what they say; a function it returns directly carries its colour.
@@ -27536,8 +27709,8 @@ class Checker {
         parameters = annotation.parameters.map(elaborate);
         resultRole = role;
       }
-      const writtenRole = this.#arrowRole;
-      const effect = this.#writtenEffect(annotation.effect, annotation.arrowSpan);
+      const writtenRole = role;
+      const effect = this.#inRole(role, () => this.#writtenEffect(annotation.effect, annotation.arrowSpan));
       const elaborated: FunctionMono = {
         kind: "Function",
         parameters,
@@ -31629,12 +31802,17 @@ class Checker {
             ...parameter,
             scheme: this.#publicScheme(this.#scheme(parameter.symbol)),
           })),
-          result: this.#publicType(this.#annotationType(
-            member.returnAnnotation,
-            0,
-            new Map(),
-            new Map([[item.subject, subject]]),
-            this.#constraintImpliedTypes.get(item),
+          // Publication re-elaborates the header's result, and §4.4 ruled on
+          // its arrows at the declaration (`#seatContract`'s posture): a
+          // second reading here has no signature around it to read them in.
+          result: this.#publicType(this.#withoutArrowReports(() =>
+            this.#annotationType(
+              member.returnAnnotation,
+              0,
+              new Map(),
+              new Map([[item.subject, subject]]),
+              this.#constraintImpliedTypes.get(item),
+            )
           )),
           ...(member.defaultValue === undefined
             ? {}
