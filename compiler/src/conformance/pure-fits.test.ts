@@ -1232,6 +1232,20 @@ describe("a written `->!` a use reads as any function belongs to that use alone 
     }
   });
 
+  test("a colour the environment also holds is left to it, so a binding made from it reads alike in either order", () => {
+    const head = holders + "let tieRet(x: t, y: t): t = x\n";
+    for (const binding of [
+      ["    let y = tieRet(p, h.run)"],
+      ["    let (y, _) = (tieRet(p, h.run), 1)"],
+    ]) {
+      for (const lines of [["    applyPure(p)", ...binding], [...binding, "    applyPure(p)"]]) {
+        const source = head + "let f(h: Holder, p) =\n" + lines.join("\n") + "\n    ()\n" +
+          "export let go(h: Holder, p: (() -> Unit) -> Unit): Unit = f(h, p)\n";
+        expect([lines, reports(source)]).toEqual([lines, []]);
+      }
+    }
+  });
+
   test("a call to a member of a knot still open is not decided by its written result, in either order", () => {
     const use = ["    useIt(p): Unit =", "        let w: (() ->! Unit, Int) = mkPair(p)", "        ()"];
     const make = ["    mkPair(q): (() -> Unit, Int) =", "        useIt(q)", "        (noop, 1)"];

@@ -3288,9 +3288,9 @@ class Checker {
   /**
    * The colours `#lowerWritten` minted *(#1174 review)*: a written `->!` read
    * as any function where one use hands something. Such a colour belongs to
-   * that use alone. Left free in a binding that does not generalize it, it is
-   * the written constant again (`#settleSource`), so no use of the binding
-   * meets a colour another use solved.
+   * that use alone. Where a binding's right-hand side minted it and the value
+   * restriction declines it, it is the written constant again (`#generalize`),
+   * so no use of the binding meets a colour another use solved.
    */
   readonly #loweredColours = new WeakSet<Variable>();
   /** Every expression elaborated as a call's callee: applied, never handed anywhere, so never opened. */
@@ -18066,15 +18066,6 @@ class Checker {
    * (`#valueColours`), one for every use.
    */
   #settleSource(symbol: Resolved.SymbolId, type: Mono, quantified: readonly Variable[]): void {
-    // A written `->!` a use read as any function (`#lowerWritten`), which this
-    // binding does not generalize, is the written constant again: one colour
-    // shared by every use would be solved by whichever use comes first.
-    const generalized = new Set(quantified.map((variable) => variable.id));
-    for (const variable of this.#collectVariables(type)) {
-      if (variable.instance === undefined && this.#loweredColours.has(variable) && !generalized.has(variable.id)) {
-        variable.instance = IMPURE;
-      }
-    }
     const source = this.#bindingSources.get(symbol);
     if (source?.kind !== "value" && source?.kind !== "part") return;
     const kept = new Set(quantified.map((variable) => variable.id));
@@ -26066,6 +26057,16 @@ class Checker {
         const declined = this.#declineClause(variable, positions);
         if (declined === undefined) {
           quantified.push(variable);
+          continue;
+        }
+        // A written `->!` one use of the right-hand side read as any function
+        // (`#lowerWritten`), which this binding declines, is the written
+        // constant again (#1174): one colour for every use of the binding would
+        // be solved by whichever use comes first. Only the right-hand side's
+        // own colours are above `level`; one the environment also holds is
+        // left to the binding that holds it.
+        if (this.#loweredColours.has(variable)) {
+          variable.instance = IMPURE;
           continue;
         }
         // A rigid variable can be neither quantified nor pinned by a use, so an
