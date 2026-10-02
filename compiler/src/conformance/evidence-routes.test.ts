@@ -70,14 +70,13 @@ describe("a demand whose evidence no enclosing declaration carries is refused, n
     )).toEqual([unmentioned("u", "Frac", "a")]);
   });
 
-  test("a dot call settled at a knot's generalization is attributed to where it was written", () => {
-    // The goal settles when the knot generalizes, with no binding open; its
-    // demand is still `a`'s. Before, it went unrecorded and emission crashed.
+  test("a dot call inside a knot member is attributed to where it was written", () => {
+    // The member call's demand is `a`'s, made in a lambda inside it.
     expect(diagnostics(
       MAP_HELPERS +
       "fun<u: Hash>\n" +
       "    b(x: u, go: Bool): Int = if go then a(False) else 1\n" +
-      "    a(flag: Bool): Int = Vector.length([(x: u, z) => both(z.containsKey(x), keyed(z, x))])\n" +
+      "    a(flag: Bool): Int = Vector.length([(x: u, z: Map(u, Int)) => both(z.containsKey(x), keyed(z, x))])\n" +
       "export let r: Int = a(True)\n",
     )).toEqual([unmentioned("u", "Hash", "a")]);
   });
@@ -229,10 +228,10 @@ describe("wherever a declaration does carry the evidence, nothing changes", () =
     ],
     [
       // A dot call whose receiver settles at the deadline demands where written.
-      "a dot-call goal settled at a nested function's generalization",
+      "a dot call in a nested function",
       MAP_HELPERS +
         "fun outer(n: Int): Bool =\n" +
-        "    fun inner<t: Hash>(x: t, z): Bool = both(z.containsKey(x), keyed(z, x))\n" +
+        "    fun inner<t: Hash>(x: t, z: Map(t, Int)): Bool = both(z.containsKey(x), keyed(z, x))\n" +
         "    inner(n, Map.empty)\n" +
         "export let r: Bool = outer(5)\n",
       false,
@@ -241,7 +240,7 @@ describe("wherever a declaration does carry the evidence, nothing changes", () =
       "the same through a nested `let`",
       MAP_HELPERS +
         "fun outer(n: Int): Bool =\n" +
-        "    let inner<t: Hash>(x: t, z): Bool = both(z.containsKey(x), keyed(z, x))\n" +
+        "    let inner<t: Hash>(x: t, z: Map(t, Int)): Bool = both(z.containsKey(x), keyed(z, x))\n" +
         "    inner(n, Map.empty)\n" +
         "export let r: Bool = outer(5)\n",
       false,

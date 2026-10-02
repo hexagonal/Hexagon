@@ -179,7 +179,7 @@ test("a ported 32-bit hash matches its JavaScript original (FNV-1a, shift-add fo
   const exports = await runMain(
     "module Main\n\n" +
       "export let fnv(codes: Vector(Int)): Int =\n" +
-      "    var h = 0x811c9dc5\n" +
+      "    var h: Int = 0x811c9dc5\n" +
       "    for c in codes\n" +
       "        h := (h bxor c).toInt32()\n" +
       "        h := h + h.shiftLeft(1).toInt32() + h.shiftLeft(4).toInt32() +\n" +

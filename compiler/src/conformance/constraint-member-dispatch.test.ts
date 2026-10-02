@@ -299,7 +299,7 @@ describe("declared type variables dispatch their bounds' members (§3.4)", () =>
   });
 });
 
-describe("the defaulting step precedes the row fallback (§3.3, §3.5)", () => {
+describe("a numeric literal subject takes its default at the dot (§3.3)", () => {
   test("`(x + x).show()` infers `Int` and runs", async () => {
     const exports = await runMain([
       "module Main",
@@ -314,43 +314,17 @@ describe("the defaulting step precedes the row fallback (§3.3, §3.5)", () => {
   });
 
   /**
-   * Test §14(n), reworded by the amendment. `x` picks up `Num` from `add`; at the
-   * deadline the defaulting step settles it to `Int`, the goal re-fires, and
-   * `total` is no field, companion operation, or honored member of `Int`. Same
-   * program, same refusal — now phrased against `Int` rather than against a row
-   * that could never discharge `Num`.
-   *
-   * `Num.add` rather than the bare `add` Method Syntax §513's example writes:
-   * `stdlib/Set.hex` exports `add` too since #373, so the bare spelling is a
-   * collided prelude name (Modules §5.5) and the qualified home is the
-   * refusal's own named repair. The member is the same one and the inference
-   * this test is about is unchanged.
+   * Test §14(n). The literal's type is fresh and its own, so the subject takes
+   * `Int` at the dot, and `total` is no field, companion operation, or honored
+   * member of `Int`: the refusal is phrased against `Int`.
    */
-  test("an unknown name on a defaultable receiver is the row-4 error, phrased against `Int`", () => {
-    expect(projectDiagnostics("module Main\n\n" + "let m(x) = Num.add(x, x.total(1))\nexport let n: Int = m(1)\n",
+  test("an unknown name on a literal subject is the row-4 error, phrased against `Int`", () => {
+    expect(projectDiagnostics("module Main\n\n" + "export let n: Int = 7.total(1)\n",
     )).toEqual([
       "`Int` has no field `total`, its companion exports no operation `total`, " +
       "and no constraint honored at `Int` has a subject-first member `total`; " +
       "call an available subject-first function explicitly",
     ]);
-  });
-
-  test("evidence arriving later in the owner region still resolves the goal", async () => {
-    const exports = await runMain([
-      "module Main",
-      "",
-      "let measure(v) =",
-      "    let width = v.length()",
-      "    let known: Vector(Int) = v",
-      "    width",
-      "",
-      "export let counted: Int = measure([3, 1, 4])",
-      "",
-    ].join("\n"));
-
-    // §14(d): the goal pends past the inner `let`, and `v`'s annotation below
-    // the dot is what makes the receiver head-known at the region's deadline.
-    expect(exports.counted).toBe(3);
   });
 });
 
@@ -767,22 +741,18 @@ describe("what a bare in-module member spelling means today (§4.6, deferred)", 
   });
 });
 
-describe("§9 row 8: the post-finalisation contradiction names its cause", () => {
+describe("§9 row 8: a field call's row meeting a nominal names the operation", () => {
   /**
-   * The worst error this feature can produce, at maximal distance from its
-   * cause. `render`'s parameter is never head-known, so it finalises at the row
-   * the fallback imposed; the contradiction surfaces at a *use*, where a naive
-   * "`Int` is not a record" says nothing about why the row exists.
-   *
-   * The member clause is γ's addition (§3.6, amended 2026-08-07): before it the
-   * rescue could only speak for companion operations, and `show` is nobody's
-   * companion operation.
+   * A parenthesized field call on an untyped parameter is row-polymorphic
+   * (§3.6); the contradiction surfaces at a *use*, where a naive "`Int` is not
+   * a record" says nothing about why the row exists or what was likely meant.
+   * The member clause: `show` is nobody's companion operation.
    */
   test("a row-finalised parameter meeting a nominal is redirected, member clause", () => {
     expect(projectDiagnostics([
       "module Main",
       "",
-      "let render(v) = v.show()",
+      "let render(v) = (v.show)()",
       "let counted: Int = 42",
       "export let out: String = render(counted)",
       "",
@@ -797,7 +767,7 @@ describe("§9 row 8: the post-finalisation contradiction names its cause", () =>
     expect(projectDiagnostics([
       "module Main",
       "",
-      "let measure(v) = v.length()",
+      "let measure(v) = (v.length)()",
       "let items: Vector(Int) = [1, 2]",
       "export let out: Int = measure(items)",
       "",

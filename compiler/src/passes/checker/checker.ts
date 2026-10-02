@@ -2900,33 +2900,54 @@ interface MemberCandidate {
 }
 
 /**
- * One dot call whose receiver was not head-known when elaboration reached it
- * (Method Syntax §2.2, §3.1).
- *
- * The arguments are inferred once, at the dot, and carried: evaluation order is
- * receiver-then-arguments (§2.3), and deferring their *inference* as well would
- * make the meaning of a program depend on when a goal happened to settle.
+ * Where the program's text says a binding's **type** comes from, for the one
+ * question a dot call asks of its subject (Method Syntax §3.1): whether the text
+ * decides it. Read from syntax and declarations, never from where inference
+ * stands at the dot, so a dot call means one thing whatever order the lines come
+ * in (`Checker.#typeDecided`).
  */
-interface DotCallGoal {
-  readonly expression: Resolved.CallExpr;
-  readonly callee: Resolved.AccessExpr;
-  readonly receiver: Mono;
-  /** Inferred where the call is written; pinned to the receiver's region at each generalization (#1154). */
-  readonly argumentTypes: readonly Mono[];
-  /** Made in the receiver's region, per §3.1's pinning rule, and re-pinned as the receiver moves (#1154). */
-  readonly result: Mono;
-  readonly level: number;
-  /**
-   * The type the goal's **seat** wrote, carried so the lift is moment-free
-   * *(#808, Method Syntax §11.3's note)*: the face is a property of the seat,
-   * not of when the receiver's head arrived, so a goal that settles at the
-   * deadline lifts exactly as one that resolved at the dot does.
-   */
-  readonly expected: Mono | undefined;
-  /** The binding chain the call was written in: its demands are made there (#1048). */
-  readonly chain: readonly ChainEntry[];
-  /** The `toSeq` body the call was written in, if any (Collections Part 5 §3.6). */
-  readonly ownToSeq?: { readonly key: string; readonly subject: Mono };
+type TypeSource =
+  /** A written type; `whole` where it writes every part (no hole, no implied type). */
+  | { readonly kind: "written"; readonly whole: boolean }
+  /** A parameter with no written type and nothing that lands one, or a `var` holding a bare numeric literal. */
+  | { readonly kind: "open" }
+  /** A function definition: generalized where it is made. */
+  | { readonly kind: "function" }
+  /** A `let` with no written type: whatever its right-hand side is. */
+  | { readonly kind: "value"; readonly value: Resolved.Expr }
+  /** A `var` with no written type: its initializer's head; an open part follows its assignments. */
+  | { readonly kind: "var"; readonly value: Resolved.Expr }
+  /** A lambda's parameter with no written type: decided where its type lands from a decided context. */
+  | { readonly kind: "lambda"; readonly lambda: Resolved.LambdaExpr }
+  /** A part of a value a pattern or a loop takes apart; `undefined` for a caught exception's. */
+  | { readonly kind: "part"; readonly source: Resolved.Expr | undefined };
+
+/** An annotation that writes a type's head: not a hole, not an implied type. */
+function headWritten(annotation: Resolved.TypeAnnotation | undefined): annotation is Resolved.TypeAnnotation {
+  return annotation !== undefined && annotation.kind !== "Hole" && annotation.kind !== "ImpliedType" &&
+    annotation.kind !== "ErrorType";
+}
+
+/**
+ * A tree of numeric literals and arithmetic: a `var` it initializes takes its
+ * type from its assignments (Numeric Literals §5.1), so the text does not decide
+ * it where it is bound.
+ */
+function numericOpen(expression: Resolved.Expr): boolean {
+  switch (expression.kind) {
+    case "Integer":
+    case "Dec":
+    case "Float":
+      return true;
+    case "Group":
+      return numericOpen(expression.expression);
+    case "Unary":
+      return numericOpen(expression.operand);
+    case "Binary":
+      return numericOpen(expression.left) && numericOpen(expression.right);
+    default:
+      return false;
+  }
 }
 
 /** One member of a `fun` block's strongly-connected component (Functions §7.4). */
@@ -3011,11 +3032,7 @@ interface Knot {
    * close rather than each at its body's (Effects §3.4's knot bullet, #868).
    */
   readonly frames: EffectFrame[];
-  /**
-   * The level the members' monotypes stand at; a deferred colour sinks to it.
-   * A hold's moves further out when a goal it waits for turns out to be owned
-   * there (`#settleHolds`, #378).
-   */
+  /** The level the members' monotypes stand at; a deferred colour sinks to it. */
   level: number;
   /**
    * The demands met by a colour of this knot while it is open *(#947)*: a `->`
@@ -3052,11 +3069,6 @@ interface Knot {
    * before then is recorded and compared there.
    */
   readonly held: Set<EffectFrame>;
-  /**
-   * What waits for the component to settle: a constraint seat whose body is
-   * held compares once its colours are decided (Effects §13.2, #1147).
-   */
-  readonly after: (() => void)[];
 }
 
 /** The module a receiver head's companion is addressed under (§4.1's table). */
@@ -3261,10 +3273,8 @@ class Checker {
    */
   readonly #linkedColours = new LinkedColours((colour) => this.#prune(colour));
   /**
-   * The frame a call was *written* in. Dot calls may be elaborated later, from
-   * a goal settled at a generalisation boundary where the frame stack no longer
-   * describes the source, so the frame is captured where the expression is
-   * first reached and read back when the call's arrow is finally known.
+   * The frame a call was *written* in, captured where the expression is first
+   * reached and read back when the call's arrow is finally known.
    */
   readonly #callFrames = new WeakMap<Resolved.CallExpr, EffectFrame | undefined>();
   readonly #markObligations: MarkObligation[] = [];
@@ -3564,7 +3574,7 @@ class Checker {
   /**
    * Part 5 §3.5: sources whose head a `Seq` seat or a loop head is waiting for.
    * The owner region's close gives each one still unknown its `Seq` reading
-   * (`#settleSequenceDefaults`), inside the dot goals' fixpoint.
+   * (`#settleSequenceDefaults`).
    */
   readonly #waitingSources: { readonly variable: Variable; readonly element: Mono; readonly span: Source.Span }[] = [];
   /**
@@ -3780,8 +3790,7 @@ class Checker {
   #declaringBinders = false;
   /**
    * The chain a demand made *now* belongs to, where that is not the one open:
-   * a dot-call goal settled at a generalization deadline, or a requirement's
-   * components minted when its type later became concrete. A demand is
+   * a requirement's components minted when its type later became concrete. A demand is
    * attributed to where it was **made**, never to when its requirement object
    * happened to be minted.
    */
@@ -4313,19 +4322,6 @@ class Checker {
    */
   readonly #knots: Knot[] = [];
   /**
-   * The bodies that closed while a dot call written in them was still a goal
-   * *(#378)*, held as a knot holds a lambda (Effects §3.4's knot bullet): the
-   * goal settles at its owner region's deadline, and only then can the call's
-   * colour reach the body's. A body that calls a held one is held beside it,
-   * and a `fun` knot whose bodies wait for a goal, or call a held body, is held
-   * whole. Bodies inside a constraint seat are neither held nor guarded (#1147). Each hold is shaped as a knot — its frames, the demands their
-   * colours met meanwhile, and the level no binding inside the owner may
-   * quantify them at — and settles in `#generalize` right after the goals do
-   * (`#settleHolds`). Kept apart from `#knots`, which is a stack a `fun` block
-   * pops.
-   */
-  readonly #holds: Knot[] = [];
-  /**
    * The frames whose colour has been decided — the tripwire #378 asked for: a
    * call registered into one after the fact would be a colour its body never
    * absorbed, so it is an internal error rather than a silent loss.
@@ -4451,18 +4447,27 @@ class Checker {
    * from the coherence key selection uses.
    */
   readonly #instancesBySubject = new Map<string, Set<string>>();
+  /** Where the text says each binding's type comes from (`TypeSource`, `#typeDecided`). */
+  readonly #typeSources = new Map<Resolved.SymbolId, TypeSource>();
   /**
-   * §3's deferred DotCall goals: the dot calls whose receiver was still an
-   * unsolved variable when elaboration reached them.
-   *
-   * The goal is what lets the receiver's type arrive from *anywhere* in its
-   * owner region — before the call or after it — and what puts the defaulting
-   * step ahead of the row fallback (§3.3/§3.5). Nothing about a resolved goal
-   * differs from a dot call that resolved at the dot; monotonicity is what
-   * guarantees that (§3.2), and it is why deferral needs no re-checking of the
-   * ones that never pended.
+   * Whether an untyped lambda parameter's type landed from an expectation with a
+   * known head (Functions §4.3), recorded where the lambda is elaborated.
    */
-  readonly #dotCallGoals: DotCallGoal[] = [];
+  readonly #landedHeads = new Map<Resolved.SymbolId, boolean>();
+  /** The innermost call each lambda is written in, as an argument or inside one. */
+  readonly #lambdaCalls = new Map<Resolved.LambdaExpr, Resolved.CallExpr>();
+  /** `#typeDecidedSymbol`'s answers, for a type's head and for the whole of it. */
+  readonly #typeDecidedHead = new Map<Resolved.SymbolId, boolean>();
+  readonly #typeDecidedWhole = new Map<Resolved.SymbolId, boolean>();
+  /** `#typeDecided`'s answers by expression, so a dot chain's links are each read once. */
+  readonly #typeDecidedHeadExpressions = new WeakMap<Resolved.Expr, boolean>();
+  readonly #typeDecidedWholeExpressions = new WeakMap<Resolved.Expr, boolean>();
+  /** The lambdas written in the landing context being read, which it reads past (`#landingContextDecided`). */
+  readonly #landingLambdas = new Set<Resolved.LambdaExpr>();
+  /** Whether a `var`'s type kept a part its initializer left unsettled, where it was bound. */
+  readonly #varOpen = new Map<Resolved.SymbolId, boolean>();
+  /** A `let` or a pattern's part whose type kept a part of its shape no generalization settled. */
+  readonly #shapeOpen = new Map<Resolved.SymbolId, boolean>();
   /**
    * Every type hole elaborated in this module, with the variable it became.
    *
@@ -5581,13 +5586,12 @@ class Checker {
       if (!this.#failedWidens.has(key)) check();
     }
     this.#derivedMembers = [];
-    // The outermost deadline. Every region has finalised by now, so a goal still
-    // pending here belongs to one that never generalises — a module-level
-    // expression item, an honor block's member — and its receiver will never
-    // become known: it takes the defaulting step and the fallback like any other
-    // survivor, before the remaining variables settle.
-    this.#resolveDotCallGoals(-1);
-    this.#settleHolds(-1);
+    // The outermost deadline. Every region has finalised by now, so a waiting
+    // sequence source still here belongs to one that never generalises — a
+    // module-level expression item, an honor block's member — and takes its
+    // `Seq` reading before the remaining variables settle (Collections Part 5
+    // §3.5).
+    while (this.#settleSequenceDefaults(-1));
     this.#defaultRemainingVariables();
     // After the unmentioned-variable row, which absorbs the refusals of the
     // variables it refuses. Inference and defaulting are done, so every
@@ -5961,48 +5965,262 @@ class Checker {
   }
 
   /**
+   * Whether the program's text decides an expression's type (Method Syntax
+   * §3.1): its **head**, for a dot call's subject, or its **whole** type
+   * (`deep`), for what a pattern's part, a loop variable, or a lambda's landed
+   * parameter is taken from. Read from syntax, from declarations, and from facts
+   * fixed where a binding is made, never from where inference stands at the
+   * dot, so a dot call means the same thing whatever order the lines come in.
+   */
+  #typeDecided(expression: Resolved.Expr, deep = false): boolean {
+    // A landing context is read without its lambdas (`#landingContextDecided`),
+    // so what it answers is not the expression's own answer, and is not kept.
+    if (this.#landingLambdas.size > 0) return this.#typeDecidedOnce(expression, deep);
+    const memo = deep ? this.#typeDecidedWholeExpressions : this.#typeDecidedHeadExpressions;
+    const known = memo.get(expression);
+    if (known !== undefined) return known;
+    const decided = this.#typeDecidedOnce(expression, deep);
+    memo.set(expression, decided);
+    return decided;
+  }
+
+  #typeDecidedOnce(expression: Resolved.Expr, deep: boolean): boolean {
+    switch (expression.kind) {
+      case "Integer":
+      case "BigInt":
+      case "Dec":
+      case "Float":
+      case "String":
+      case "Unit":
+      case "Comparison":
+        return true;
+      case "Lambda":
+        // Its head is a function's; the whole is decided where every name it
+        // captures is. In a landing context, a lambda is elaborated after the
+        // operands its parameters land from (Functions §4.3), so it is not read.
+        return !deep || this.#landingLambdas.has(expression) ||
+          this.#freeNames(expression).every((symbol) => this.#typeDecidedSymbol(symbol, true));
+      case "Vector":
+      case "Tuple":
+        return !deep || expression.elements.every((element) => this.#typeDecided(element, true));
+      case "Record":
+        return !deep || (
+          (expression.spread === undefined || this.#typeDecided(expression.spread, true)) &&
+          expression.fields.every((field) => this.#typeDecided(field.value, true))
+        );
+      case "Name":
+        return this.#typeDecidedSymbol(expression.symbol, deep);
+      case "Group":
+        return this.#typeDecided(expression.expression, deep);
+      case "Ascription":
+        return (deep ? annotationWhole(expression.annotation) : headWritten(expression.annotation)) ||
+          this.#typeDecided(expression.expression, deep);
+      case "Unary":
+        return expression.operator === "Not" || this.#typeDecided(expression.operand, deep);
+      case "Binary":
+        // An arithmetic operation's type is its operands'; a logical one's, `Bool`.
+        if (["And", "Or", "Implies", "Iff", "Range"].includes(expression.operator)) return true;
+        if (expression.operator !== "Pipe") {
+          return this.#typeDecided(expression.left, deep) && this.#typeDecided(expression.right, deep);
+        }
+        break;
+      case "If":
+        return this.#typeDecided(expression.consequence, deep) && this.#typeDecided(expression.alternative, deep);
+      case "Block": {
+        const last = expression.items.at(-1);
+        return last?.kind !== "ExprItem" || this.#typeDecided(last.expression, deep);
+      }
+      case "Call": {
+        // A call — a dot chain's links included — is decided wholly where its
+        // callee and every argument are: read part by part, so a chain is read
+        // once, link by link.
+        const callee = expression.callee.kind === "Access" ? expression.callee.receiver : expression.callee;
+        return this.#typeDecided(callee, true) &&
+          expression.arguments.every((argument) => this.#typeDecided(argument, true));
+      }
+      case "Access":
+        return this.#typeDecided(expression.receiver, true);
+      default:
+        break;
+    }
+    // Anything else — a call, a field read, a match — is decided where every
+    // name it uses and does not bind itself is decided whole.
+    return this.#freeNames(expression).every((symbol) => this.#typeDecidedSymbol(symbol, true));
+  }
+
+  /**
+   * Whether the text decides wholly the call an untyped lambda parameter's type
+   * lands from: the callee, a dot callee's subject, and every argument, read
+   * without the lambdas among them, which the schedule elaborates after the
+   * operands their parameters land from (Functions §4.3).
+   */
+  #landingContextDecided(call: Resolved.CallExpr): boolean {
+    const lambdas: Resolved.LambdaExpr[] = [];
+    for (const argument of call.arguments) {
+      this.#walkSyntax(argument, {
+        expression: (inner) => {
+          if (inner.kind === "Lambda" && !this.#landingLambdas.has(inner)) lambdas.push(inner);
+        },
+      });
+    }
+    for (const lambda of lambdas) this.#landingLambdas.add(lambda);
+    try {
+      const callee = call.callee.kind === "Access" ? call.callee.receiver : call.callee;
+      return this.#typeDecided(callee, true) &&
+        call.arguments.every((argument) => this.#typeDecided(argument, true));
+    } finally {
+      for (const lambda of lambdas) this.#landingLambdas.delete(lambda);
+    }
+  }
+
+  /** Whether the text decides a binding's type, its head or (`deep`) the whole of it (`#typeDecided`). */
+  #typeDecidedSymbol(symbol: Resolved.SymbolId, deep: boolean): boolean {
+    // A `fun` block's member while its knot is open: its type is whatever the
+    // siblings' bodies have said so far — a written signature included, which
+    // meets the member's type only where its own body is checked, so reading it
+    // here would follow the order the members are declared in.
+    if (this.#knots.some((knot) => knot.members.some((member) => member.symbol === symbol))) return false;
+    const memo = deep ? this.#typeDecidedWhole : this.#typeDecidedHead;
+    const known = memo.get(symbol);
+    if (known !== undefined) return known;
+    const remember = (value: boolean): boolean => {
+      memo.set(symbol, value);
+      return value;
+    };
+    const source = this.#typeSources.get(symbol);
+    if (source === undefined) {
+      // Not a local binding: a module's, an import's, a constructor, an extern.
+      const kind = this.#symbolKinds.get(symbol);
+      return kind !== "parameter" && kind !== "var" && kind !== "pattern";
+    }
+    switch (source.kind) {
+      case "written":
+        return !deep || source.whole;
+      case "function":
+        return true;
+      case "open":
+        return false;
+      case "lambda": {
+        // Decided where its type landed with a known head from a context the
+        // text decides wholly: the call it is written in, read without it.
+        if (this.#landedHeads.get(symbol) !== true) return false;
+        const call = this.#lambdaCalls.get(source.lambda);
+        if (call === undefined) return true;
+        remember(false);
+        return remember(this.#landingContextDecided(call));
+      }
+      case "var":
+        // Its head is its initializer's; a part the initializer left open
+        // follows its assignments.
+        if (deep && this.#varOpen.get(symbol) !== false) return false;
+        remember(false);
+        return remember(this.#typeDecided(source.value, deep));
+      case "value":
+        // A `let` whose type kept a part of its shape no generalization
+        // settled: later lines fill that part.
+        if (deep && this.#shapeOpen.get(symbol) === true) return false;
+        remember(false);
+        return remember(this.#typeDecided(source.value, deep));
+      case "part":
+        // A caught exception's parts: the exception's declaration writes them.
+        if (source.source === undefined) return true;
+        if (this.#shapeOpen.get(symbol) === true) return false;
+        remember(false);
+        return remember(this.#typeDecided(source.source, true));
+    }
+  }
+
+  /** Whether an expression holds a node an earlier pass refused (`ErrorExpr`), which reported already. */
+  #holdsErrorNode(expression: Resolved.Expr): boolean {
+    let found = false;
+    this.#walkSyntax(expression, {
+      expression: (inner) => {
+        if (inner.kind === "ErrorExpr") found = true;
+      },
+    });
+    return found;
+  }
+
+  /**
+   * Method Syntax §3.5's refusal: a dot call whose subject's type the
+   * program's text does not decide cannot tell whose operation it names. It
+   * carries no fixit: the text says neither the type nor the module meant, and a
+   * member name never nominates one (§1). The arguments still elaborate
+   * (`#dotCallArguments`), and the call is marked refused, so an enclosing dot
+   * call says nothing more. Where the subject's own elaboration already
+   * reported, the refusal adds nothing.
+   */
+  #refuseUndecidedSubject(
+    expression: Resolved.CallExpr,
+    callee: Resolved.AccessExpr,
+    level: number,
+    subjectReported: boolean,
+  ): Mono {
+    this.#dotCallArguments(expression, level);
+    this.#refusedReceivers.add(expression);
+    if (subjectReported) return ERROR;
+    const name = callee.field.text;
+    const subject = callee.receiver.kind === "Name" ? callee.receiver.text : undefined;
+    const whose = subject === undefined ? "the subject's" : `\`${subject}\`'s`;
+    this.#diagnostics.add({
+      severity: "error",
+      message: `the program's text does not decide ${whose} type here, so \`.${name}(…)\` cannot tell ` +
+        `whose \`${name}\` it is — write ${whose} type, or call the operation by its module ` +
+        `(\`Module.${name}(${subject ?? "…"}, …)\`); a record's field is called as ` +
+        `\`(${subject ?? "…"}.${name})(…)\``,
+      primary: callee.field.span,
+    });
+    return ERROR;
+  }
+
+  /**
    * §3.4's resolution table, for the receiver shapes that dispatch.
    *
    * Answers with the call's type when the dot resolved — to a companion
    * operation, to an honored member, to a bound member, or to a refusal — and
    * with `undefined` when the receiver is none of the dispatching shapes, which
-   * is the caller's signal to let ordinary field and row machinery have the
-   * expression (§3.5's fallback, byte for byte what it always was).
+   * is the caller's signal to let ordinary field machinery have the expression:
+   * a structural record's field, or a tuple's `itemN`.
+   *
+   * A subject the text does not decide is refused (§3.5); nothing waits for a
+   * later line to say what it is.
    */
   #dispatchDotCall(
     expression: Resolved.CallExpr,
     callee: Resolved.AccessExpr,
     receiver: Mono,
     level: number,
-    cachedArguments?: readonly Mono[],
+    subjectReported: boolean,
     expected?: Mono,
   ): Mono | undefined {
-    const actual = this.#prune(receiver);
+    let actual = this.#prune(receiver);
     const name = callee.field.text;
+    // `itemN` is not this table's business at all — tuple positional access is
+    // its own row, and it errors on an unsolved receiver as it always has.
+    const positional = /^item\d+$/u.test(name);
+    const declared = actual.kind === "Variable" && actual.rigidName !== undefined;
+    if (!positional && !declared && actual.kind !== "Error") {
+      if (!this.#typeDecided(callee.receiver)) {
+        return this.#refuseUndecidedSubject(expression, callee, level, subjectReported);
+      }
+      if (actual.kind === "Variable") {
+        // A subject the text decides whose head is still open is a numeric
+        // literal's (§3.3): its type is fresh and its own, so the literal's
+        // default is taken here, where nothing else can choose it.
+        if (!this.#canDefaultToInt(actual)) {
+          return this.#refuseUndecidedSubject(expression, callee, level, subjectReported);
+        }
+        this.#bind(actual, primitive("Int"), callee.field.span);
+        actual = this.#prune(receiver);
+      }
+    }
     if (actual.kind === "Variable") {
       // A **declared** variable dispatches through its written bounds and
       // nothing else (§3.4, amended 2026-08-07).
       if (actual.rigidName !== undefined) {
-        return this.#dispatchBoundMember(
-          expression, callee, receiver, actual, level, cachedArguments, expected,
-        );
+        return this.#dispatchBoundMember(expression, callee, receiver, actual, level, expected);
       }
-      // A *flexible* one pends: the receiver's type may still arrive from
-      // anywhere in its owner region, and only at that region's deadline does
-      // the defaulting step, and then the fallback, decide what it meant (§3.1).
-      // `itemN` is not this table's business at all — tuple positional access is
-      // its own row, and it errors on an unsolved receiver as it always has.
-      if (cachedArguments !== undefined || /^item\d+$/u.test(name)) return undefined;
-      const argumentTypes = expression.arguments.map((argument) =>
-        this.#inferExpr(argument, level)
-      );
-      const result = this.#fresh(actual.level, false);
-      this.#dotCallGoals.push({
-        expression, callee, receiver, argumentTypes, result, level, expected,
-        chain: [...(this.#chainOverride ?? this.#bindingChain)],
-        ...(this.#ownToSeq === undefined ? {} : { ownToSeq: this.#ownToSeq }),
-      });
-      return result;
+      return undefined;
     }
     // `Seq` is a nominal record like any other, so `source.map(f)` is
     // ordinary companion dispatch (Products §3.2) against prelude
@@ -6041,8 +6259,7 @@ class Checker {
       actual.kind === "Range" ||
       // An extern nominal type joins with its binding module as companion
       // (Method Syntax §4.1's extern row; FFI Part 5 §9, #982): `url.hostname()`
-      // is `Url.hostname(url)`, and an opaque foreign value has no fields for a
-      // row fallback to find.
+      // is `Url.hostname(url)`, and an opaque foreign value has no fields.
       actual.kind === "ExternType";
     // Primitives join the table for the member clause alone (§3.4's Primitive
     // row): they have no fields and no companion module, so the wired instances
@@ -6054,7 +6271,7 @@ class Checker {
     const recordHasField = field !== undefined;
     const operationHome = operation === undefined ? undefined : this.#operationHomes.get(operation.id);
     if (operationHome !== undefined && this.#forbiddenProviderPaths.has(operationHome.path)) {
-      this.#dotCallArguments(expression, level, cachedArguments);
+      this.#dotCallArguments(expression, level);
       const provider = this.#moduleName(operationHome.path) ?? operationHome.path;
       return this.#unsupported(
         callee.field.span,
@@ -6070,7 +6287,7 @@ class Checker {
         ...members.map((member) => `\`${member.constraint}\`'s member \`${name}\``),
       ];
       if (claimants.length > 1) {
-        this.#dotCallArguments(expression, level, cachedArguments);
+        this.#dotCallArguments(expression, level);
         return this.#unsupported(
           callee.field.span,
           `\`${name}\` after a dot is ambiguous at \`${this.#display(actual)}\`: ` +
@@ -6083,9 +6300,7 @@ class Checker {
             }${recordHasField ? `, or \`(…​.${name})\` for the field` : ""}.`,
         );
       }
-      return this.#elaborateMemberCall(
-        expression, callee, receiver, members[0]!, level, cachedArguments, expected,
-      );
+      return this.#elaborateMemberCall(expression, callee, receiver, members[0]!, level, expected);
     }
     // A visible field still wins the fused form outright, exactly as it did
     // before members joined the candidate set. §6 makes field-versus-companion a
@@ -6105,7 +6320,7 @@ class Checker {
       // walks the whole resolved tree, and an integer literal's `FromNat`
       // requirement exists only if inference recorded one. Skipping them
       // leaves a bare literal with no requirement to dereference (#212).
-      this.#dotCallArguments(expression, level, cachedArguments);
+      this.#dotCallArguments(expression, level);
       return this.#unsupported(
         callee.field.span,
         unreachable ??
@@ -6130,9 +6345,7 @@ class Checker {
         call: { result: expression, supplied: [callee.receiver, ...expression.arguments] },
       },
     );
-    const { seats, pass } = this.#dotCallSeats(
-      expression, callee, level, cachedArguments, calleeType, receiver, false, undefined,
-    );
+    const { seats, pass } = this.#dotCallSeats(expression, callee, level, calleeType, receiver, false, undefined);
     const result = this.#checkDotSeats(expression, calleeType, seats, pass, level);
     this.#recordCompanionImport(operation);
     this.#dotCalls.set(expression, {
@@ -6387,13 +6600,6 @@ class Checker {
    * §16.3's defect, and the amendment's whole content is that it must not
    * happen.
    *
-   * `cached` is §2.2's other entry moment: a goal whose receiver was still
-   * unsolved at the dot measured its arguments there, and they synthesized —
-   * the known-callee condition being unmet. Evidence arriving later resolves the
-   * dispatch identically but cannot retroactively hand expectations to arguments
-   * already checked (§3.6). Inferring twice would record a second copy of every
-   * literal's requirement, so the goal carries what it measured.
-   *
    * A dot call a tree is collecting that resolves to an open tower member never
    * comes here: it is an interior node of that tree (`#collectDotNode`).
    */
@@ -6401,7 +6607,6 @@ class Checker {
     expression: Resolved.CallExpr,
     callee: Resolved.AccessExpr,
     level: number,
-    cached: readonly Mono[] | undefined,
     calleeType: Mono,
     receiver: Mono,
     /**
@@ -6423,12 +6628,9 @@ class Checker {
     // A literal receiver is a value of the call through its grouping (#1062,
     // ruling b′), so it joins a sibling group as the literal it is.
     const expressions = [literalReceiver(callee.receiver), ...expression.arguments];
-    if (cached !== undefined) {
-      for (const [index, type] of cached.entries()) seats[index + 1] = type;
-    }
     // The lambda literals deeper on the arguments' spines wait for this call's
-    // second pass as well (#1096); a goal's measured arguments have had theirs.
-    const owner = cached === undefined ? this.#claimSpine(expression.arguments) : undefined;
+    // second pass as well (#1096).
+    const owner = this.#claimSpine(expression.arguments);
     const pass = parameters === undefined ? undefined : this.#argumentPass(
       expression,
       parameters,
@@ -6437,10 +6639,9 @@ class Checker {
       level,
       expression.span,
       powerSeat,
-      new Set(cached === undefined ? [0] : seats.keys()),
+      new Set([0]),
       owner,
     );
-    if (owner === undefined) return { seats, pass };
     // Seat indices, so the one set serves the sweep and the elaboration alike.
     const deferredLambdas = new Set(
       expression.arguments.flatMap((argument, index) =>
@@ -6492,12 +6693,7 @@ class Checker {
    * but on §4.3's order all the same, non-lambda arguments before lambda
    * literals, which is the order every other abandoned call elaborates in.
    */
-  #dotCallArguments(
-    expression: Resolved.CallExpr,
-    level: number,
-    cached: readonly Mono[] | undefined,
-  ): readonly Mono[] {
-    if (cached !== undefined) return cached;
+  #dotCallArguments(expression: Resolved.CallExpr, level: number): readonly Mono[] {
     const types: Mono[] = expression.arguments.map(() => ERROR);
     const owner = this.#claimSpine(expression.arguments);
     for (const [index, argument] of expression.arguments.entries()) {
@@ -6515,187 +6711,6 @@ class Checker {
       expression.span,
     );
     return types;
-  }
-
-  /**
-   * §3.3's deadline: the fixpoint, the defaulting step, then the fallback.
-   *
-   * Run at every generalisation boundary, over the goals that boundary **owns** —
-   * the ones whose receiver lives in the region being finalised. A goal on an
-   * outer-level receiver survives an inner `let`'s boundary untouched, which is
-   * exactly what §11.10 rejects the per-binding deadline for: firing the
-   * fallback there would make the meaning of independent sibling statements
-   * depend on their order.
-   *
-   * The three steps are ordered, and the order is the amendment (§3.5): a
-   * receiver whose constraint set is non-empty and entirely defaultable settles
-   * to `Int` *before* any row is imposed, so `42.show()` is `Show`'s member at
-   * `Int` exactly as bare `show(42)` is. Settling is the head-known trigger, so
-   * the fixpoint runs again before the survivors take the fallback. Between the
-   * two, the waiting sequence sources this boundary owns take their `Seq`
-   * defaults (Collections Part 5 §3.5; §3.3's amended fixpoint).
-   */
-  #resolveDotCallGoals(level: number): void {
-    if (this.#dotCallGoals.length === 0 && this.#waitingSources.length === 0) return;
-    const owned = (goal: DotCallGoal): boolean => {
-      const receiver = this.#prune(goal.receiver);
-      return receiver.kind !== "Variable" || receiver.level > level;
-    };
-    // Chains make this a fixpoint, not a pass: resolving `v.map(f)` solves the
-    // tyvar that is `take`'s receiver, which fires that goal's trigger in turn.
-    const fixpoint = (): void => {
-      for (let settled = true; settled;) {
-        settled = false;
-        for (const goal of [...this.#dotCallGoals]) {
-          if (!owned(goal) || this.#prune(goal.receiver).kind === "Variable") continue;
-          this.#dotCallGoals.splice(this.#dotCallGoals.indexOf(goal), 1);
-          this.#settleDotCallGoal(goal);
-          settled = true;
-        }
-      }
-    };
-    // Collections Part 5 §3.5's close: the goals and their `Int` step reach
-    // quiescence first, and only then does a waiting sequence source whose head
-    // is still unknown take its `Seq` reading — which may make a receiver
-    // head-known, or bring a new waiting source as a goal resolves and meets its
-    // arguments, so the whole runs again before any goal takes the fallback.
-    // The `Int` step never meets a waiting source: its `Iterable` demand is not
-    // defaultable.
-    do {
-      fixpoint();
-      for (const goal of this.#dotCallGoals) {
-        if (!owned(goal)) continue;
-        const receiver = this.#prune(goal.receiver);
-        if (
-          receiver.kind === "Variable" && receiver.rigidName === undefined &&
-          this.#canDefaultToInt(receiver)
-        ) {
-          this.#bind(receiver, primitive("Int"), goal.callee.field.span);
-        }
-      }
-      fixpoint();
-      // The defaults read ownership as the goals do: a waiting source a pending
-      // goal mentions belongs to that goal's region (#1154). `#generalize` has
-      // pinned already; this keeps the pins current for what a goal resolved in
-      // this pass moved, before a default reads them.
-      this.#pinPendingGoals();
-    } while (this.#settleSequenceDefaults(level));
-    for (const goal of [...this.#dotCallGoals]) {
-      if (!owned(goal)) continue;
-      this.#dotCallGoals.splice(this.#dotCallGoals.indexOf(goal), 1);
-      this.#fallbackDotCallGoal(goal);
-    }
-  }
-
-  /**
-   * Method Syntax §3.1's pinning rule, as the receivers stand now (#1154): a
-   * pending goal pins every type variable it mentions — its result and its
-   * argument types — to its receiver's region. The result is made there when
-   * the goal is made, but a later unification can sink the receiver outward
-   * (`let same = [x, n]`), and the argument types are inferred where the call
-   * is written; unpinned, a binding closing in between quantifies what the goal
-   * will settle, and a use made before the deadline keeps a copy the settlement
-   * never reaches. (A colour inside an argument's function type sinks with it,
-   * as `#lowerLevels` sinks every colour a composite carries.)
-   *
-   * A fixpoint over the receivers' levels: a goal's result or argument can be
-   * another goal's receiver, so sinking one can sink another's region.
-   */
-  #pinPendingGoals(): void {
-    const levels = (): string =>
-      this.#dotCallGoals.map((goal) => {
-        const receiver = this.#prune(goal.receiver);
-        return receiver.kind === "Variable" ? receiver.level : "known";
-      }).join();
-    for (let before = "", after = levels(); before !== after;) {
-      before = after;
-      for (const goal of this.#dotCallGoals) {
-        const receiver = this.#prune(goal.receiver);
-        // A head-known receiver has no region to pin to: its goal belongs to
-        // this boundary and settles in the resolution that follows the pins.
-        if (receiver.kind !== "Variable") continue;
-        this.#lowerLevels(goal.result, receiver.level);
-        for (const argument of goal.argumentTypes) this.#lowerLevels(argument, receiver.level);
-      }
-      after = levels();
-    }
-  }
-
-  /** Runs `body` with the goal's own chain as the one its demands are made in. */
-  #inGoalChain(goal: DotCallGoal, body: () => void): void {
-    const enclosing = this.#chainOverride;
-    this.#chainOverride = goal.chain;
-    try {
-      body();
-    } finally {
-      this.#chainOverride = enclosing;
-    }
-  }
-
-  /** A goal whose receiver became head-known: §3.4's table, replayed. */
-  #settleDotCallGoal(goal: DotCallGoal): void {
-    this.#inGoalChain(goal, () => this.#settleDotCallGoalMade(goal));
-  }
-
-  #settleDotCallGoalMade(goal: DotCallGoal): void {
-    // Its arguments meet their seats now, inside the body they were written in
-    // (Collections Part 5 §3.6).
-    const enclosingOwnToSeq = this.#ownToSeq;
-    this.#ownToSeq = goal.ownToSeq;
-    let type: Mono | undefined;
-    try {
-      type = this.#dispatchDotCall(
-        goal.expression,
-        goal.callee,
-        goal.receiver,
-        goal.level,
-        goal.argumentTypes,
-        goal.expected,
-      );
-    } finally {
-      this.#ownToSeq = enclosingOwnToSeq;
-    }
-    this.#unify(goal.result, type ?? ERROR, goal.expression.span);
-    this.#expressionTypes.set(goal.expression, this.#prune(goal.result));
-  }
-
-  /**
-   * §3.5's fallback: the surviving goal *is* a field call, and imposing the
-   * callable-field requirement is the whole of it. It never rejects — an
-   * unsatisfiable row errors through ordinary constraint discharge, in the
-   * phrasing that machinery already owns (§11.8).
-   */
-  #fallbackDotCallGoal(goal: DotCallGoal): void {
-    const field = this.#fresh(goal.level, false);
-    this.#unify(
-      goal.receiver,
-      {
-        kind: "Record",
-        fields: new Map([[goal.callee.field.text, field]]),
-        tail: this.#fresh(goal.level, false),
-      },
-      goal.callee.span,
-    );
-    this.#recordAccesses.set(goal.callee, goal.callee.field.text);
-    this.#expressionTypes.set(goal.callee, field);
-    // The imposed arrow is `->`, exactly as §3.5 writes it: a row is data, and a
-    // data field's arrow is pure or the constant, never linked (Effects §2.5) —
-    // and nothing here wrote the constant. So the call is pure, and a mark on it
-    // is refused with §9's dot-call sentence. The obligation is registered on
-    // *this* argument list (§3.2 ruling 2) and in the frame the call was written
-    // in, which the deadline no longer describes.
-    this.#unify(
-      field,
-      {
-        kind: "Function",
-        parameters: goal.argumentTypes,
-        result: goal.result,
-        effect: PURE,
-      },
-      goal.expression.span,
-    );
-    this.#registerCall(goal.expression, PURE, calleeLabel(goal.expression));
-    this.#expressionTypes.set(goal.expression, this.#prune(goal.result));
   }
 
   /**
@@ -6746,18 +6761,15 @@ class Checker {
     receiver: Mono,
     variable: Variable,
     level: number,
-    cachedArguments?: readonly Mono[],
     expected?: Mono,
   ): Mono {
     const name = callee.field.text;
     const claimed = this.#boundMembers(variable).get(name) ?? [];
     const members = claimed.filter(({ subjectFirst }) => subjectFirst);
     if (members.length === 1) {
-      return this.#elaborateMemberCall(
-        expression, callee, receiver, members[0]!, level, cachedArguments, expected,
-      );
+      return this.#elaborateMemberCall(expression, callee, receiver, members[0]!, level, expected);
     }
-    this.#dotCallArguments(expression, level, cachedArguments);
+    this.#dotCallArguments(expression, level);
     if (members.length > 1) {
       return this.#unsupported(
         callee.field.span,
@@ -6795,12 +6807,11 @@ class Checker {
     receiver: Mono,
     candidate: MemberCandidate,
     level: number,
-    cachedArguments?: readonly Mono[],
     expected?: Mono,
   ): Mono {
     const scheme = this.#schemes.get(candidate.symbol);
     if (scheme === undefined) {
-      this.#dotCallArguments(expression, level, cachedArguments);
+      this.#dotCallArguments(expression, level);
       return this.#unsupported(
         callee.field.span,
         `\`${candidate.constraint}\`'s member \`${candidate.member}\` has no ` +
@@ -6831,7 +6842,7 @@ class Checker {
     // its values (Method Syntax §2.2).
     const request = this.#dotNode;
     if (
-      request?.expression === expression && cachedArguments === undefined &&
+      request?.expression === expression &&
       rung !== undefined && TOWER_MEMBERS.has(candidate.identity) &&
       subjectSeats?.has(0) === true
     ) {
@@ -6848,10 +6859,7 @@ class Checker {
       const known = this.#prune(calleeType);
       return known.kind === "Function" ? known.parameters[0] : undefined;
     })();
-    if (
-      cachedArguments === undefined && subjectParameter !== undefined &&
-      this.#prune(subjectParameter).kind === "Variable"
-    ) {
+    if (subjectParameter !== undefined && this.#prune(subjectParameter).kind === "Variable") {
       this.#closedReceivers.set(callee.receiver, {
         call: expression,
         constraint: candidate.constraint,
@@ -6862,7 +6870,6 @@ class Checker {
       expression,
       callee,
       level,
-      cachedArguments,
       calleeType,
       receiver,
       true,
@@ -8040,6 +8047,14 @@ class Checker {
         // alias would hand out a polymorphic view of a binding that can still be
         // assigned at one type.
         this.#lowerLevels(valueType, level);
+        // A part the initializer left open takes its type from the `var`'s
+        // assignments, so the text does not decide it here (Method Syntax §3.1).
+        this.#varOpen.set(
+          item.binding.symbol,
+          this.#collectVariables(valueType).some((variable) =>
+            variable.instance === undefined && variable.rigidName === undefined
+          ),
+        );
         this.#schemes.set(item.binding.symbol, { variables: [], type: valueType });
         this.#mutableSymbols.add(item.binding.symbol);
         this.#refuseFunctionTypedVar(item, valueType);
@@ -8351,7 +8366,6 @@ class Checker {
         level: level + 1,
         demands: [],
         held: new Set(),
-        after: [],
       };
       this.#knots.push(knot);
       for (const symbol of ordered) this.#knotMembers.set(symbol, ordered);
@@ -8385,30 +8399,14 @@ class Checker {
       // discharges its fence here rather than where it reported.
       if (knot.refused) this.#errorKnotHeads(knot);
       this.#pinUnreachableKnotEvidence(knot, recursiveTypes, level);
-      // A member, or a lambda the knot holds, may still wait for a dot-call
-      // goal — its members' own parameters' goals settle at their
-      // generalization just below, a receiver from outside the block's later —
-      // or call a body held for one (#378). Then the knot is held as a whole,
-      // with those bodies, until the goal's deadline: its members' colours
-      // sunk so their generalization leaves them to it, and a demand met on
-      // one meanwhile recorded and compared when the hold settles, as while
-      // the knot was open (§3.4).
-      const waiting = this.#heldGoalLevel(knot);
-      const reached = [...new Set(knot.frames.flatMap((frame) => this.#holdsReached(frame)))];
-      const held = waiting !== undefined || reached.length > 0;
-      if (!held) {
-        // The members' colours and their sibling-call obligations settle here,
-        // over the whole component, now that no sibling is live (§3.4, #868).
-        this.#settleKnot(knot);
-      } else {
-        this.#holds.push(knot);
-        this.#joinHolds(knot, reached, waiting);
-      }
+      // The members' colours and their sibling-call obligations settle here,
+      // over the whole component, now that no sibling is live (§3.4, #868).
+      this.#settleKnot(knot);
       // The knot's close is where a `fun` member's colour is generalized (§4.1:
       // "a knot sibling's is checked at the knot's close, when it is no longer
       // undetermined"): every member's colour is decided before any of them is
       // quantified.
-      if (!held) this.#compareKnotDemands(knot);
+      this.#compareKnotDemands(knot);
       for (const symbol of ordered) {
         const value = bySymbol.get(symbol)!.value;
         const enclosingFace = this.#generalizingFace;
@@ -9548,6 +9546,13 @@ class Checker {
           // early. Propagation adds no rigidity and removes none: a component
           // that is a declared variable arrives as the rigid variable it already
           // is, and one that is an ordinary inferred type lands as one.
+          if (parameter.annotation === undefined) {
+            const head = component === undefined ? undefined : this.#prune(component);
+            this.#landedHeads.set(
+              parameter.symbol,
+              head !== undefined && (head.kind !== "Variable" || head.rigidName !== undefined),
+            );
+          }
           const parameterType = parameter.annotation === undefined
             ? (component ?? this.#fresh(level + 1, false))
             : this.#elaborateParameter(
@@ -9711,17 +9716,7 @@ class Checker {
           // before the sibling is: it waits for the knot, its colour sunk to
           // the knot's level so no binding around it generalizes it meanwhile.
           const holding = this.#holdingKnot(effectFrame);
-          const waiting = holding === undefined ? this.#pendingGoalLevel(effectFrame) : undefined;
-          const reached = holding === undefined ? this.#holdsReached(effectFrame) : [];
-          if (waiting !== undefined || reached.length > 0) {
-            // A dot call written here is still a goal, or a call here reaches
-            // a body held for one (#378): the call a goal's resolution
-            // registers may be the one that makes that body a source, so this
-            // body's colour waits with it and settles beside it, the knot's
-            // arms telling a held callee's colour from a signature's.
-            noteOwnColours();
-            this.#holdFrame(effectFrame, reached, waiting);
-          } else if (holding === undefined) {
+          if (holding === undefined) {
             this.#settleFrame(effectFrame);
           } else {
             // Held as a member is (§3.4's knot bullet, #947): its colour and
@@ -9960,9 +9955,7 @@ class Checker {
           type = this.#inferTree(expression, level, expected);
           break;
         }
-        // The frame is captured here, where the call was written. A dot call
-        // may be elaborated much later, from a goal settled at a generalisation
-        // boundary, and the frame stack then describes somewhere else.
+        // The frame is captured here, where the call was written.
         this.#callFrames.set(expression, this.#effectFrames.at(-1));
         if (expression.callee.kind === "Access") {
           // Method Syntax §2.2's **receiver rule**: the receiver is the
@@ -9976,19 +9969,23 @@ class Checker {
           }
           const enclosingRoot = this.#receiverRoot;
           this.#receiverRoot = expression.callee.receiver;
+          // Whether the receiver's own elaboration reported: a subject that
+          // already failed draws no second report at the dot (Method Syntax §3.5).
+          const reportsBefore = this.#reportCount;
           const receiver = this.#inferExpr(expression.callee.receiver, level, face);
+          const subjectReported = this.#reportCount > reportsBefore ||
+            this.#holdsErrorNode(expression.callee.receiver);
           this.#receiverRoot = enclosingRoot;
           this.#forwardedReceiver = enclosingReceiver;
           // A receiver that already refused under the face takes the call with
           // it, whether it said so by marking itself — a forwarding form's part
           // disagreement — or by typing as `Error`: dispatching on what the
-          // refusal left behind reports again, and the §3.5 row fallback in
-          // particular says something false about a type the reader never wrote.
+          // refusal left behind reports again.
           if (
             this.#refusedReceivers.has(expression.callee.receiver) ||
             (face !== undefined && this.#prune(receiver).kind === "Error")
           ) {
-            this.#dotCallArguments(expression, level, undefined);
+            this.#dotCallArguments(expression, level);
             // The abandonment has to carry, or it suppresses one level only.
             // This call is itself a receiver — `(n * 1.5).multiply(price)
             // .add(price)` — and the dot one level out would arrive at an
@@ -10018,7 +10015,7 @@ class Checker {
             ? undefined
             : this.#receiverRefusal(expression, expression.callee, receiver, face);
           if (refusal !== undefined) {
-            this.#dotCallArguments(expression, level, undefined);
+            this.#dotCallArguments(expression, level);
             type = this.#unsupported(refusal.span, refusal.message);
             break;
           }
@@ -10027,7 +10024,7 @@ class Checker {
             expression.callee,
             receiver,
             level,
-            undefined,
+            subjectReported,
             expected,
           );
           if (dispatched !== undefined) {
@@ -14532,8 +14529,8 @@ class Checker {
    * `Float` honors no `Integral`, so nothing is forwarded at all.
    *
    * The gate reads no inference state, so §11.3's rejection of eager resolution
-   * is untouched, and at a flexible receiver an expectation is still not an
-   * annotation: it lands on nothing and the goal pends to the fallback.
+   * is untouched, and an expectation is still not an annotation: a subject the
+   * text does not decide is refused whatever the face (§3.5).
    */
   #forwardedReceiverFace(
     callee: Resolved.AccessExpr,
@@ -17217,6 +17214,11 @@ class Checker {
       // promise a form the ruling forbids.
       const confinedScrutinee = actual.kind === "ExternType" &&
         this.#externTypes.get(actual.externType)?.confined === true;
+      // A refused dot call (Method Syntax §3.5) said so where it was refused.
+      if (actual.kind === "Error" && this.#refusedReceivers.has(ungrouped(expression.scrutinee))) {
+        node.failed = true;
+        return;
+      }
       this.#unsupported(
         expression.scrutinee.span,
         actual.kind === "Variable"
@@ -17843,8 +17845,7 @@ class Checker {
     if (
       colour.kind !== "Effect" &&
       this.#colourParts(colour).some((part) =>
-        this.#knots.some((knot) => this.#knotColour(knot, part)) ||
-        this.#holds.some((hold) => this.#knotColour(hold, part))
+        this.#knots.some((knot) => this.#knotColour(knot, part))
       )
     ) {
       return type;
@@ -18146,6 +18147,9 @@ class Checker {
       variable.instance === undefined && variable.rigidName === undefined && !kept.has(variable.id)
     );
     const unsettled = free.filter((variable) => shape.has(variable) || this.#openedColours.has(variable));
+    // Only an unsettled part of the shape leaves the type to later lines (Method
+    // Syntax §3.1); an opening is a colour's business, not the type's.
+    this.#shapeOpen.set(symbol, free.some((variable) => shape.has(variable)));
     if (unsettled.length > 0) {
       // The outer arrow is left open where the type is itself unsolved, or
       // where its colour holds an opening not yet closed.
@@ -18184,6 +18188,15 @@ class Checker {
    * what another arm's pattern binds.
    */
   #settleArms(arms: readonly Resolved.MatchArm[], scrutinee: Mono): void {
+    {
+      const shape = new Set(this.#shapeVariables(scrutinee));
+      const shapeOpen = this.#collectVariables(scrutinee).some((variable) =>
+        variable.instance === undefined && variable.rigidName === undefined && shape.has(variable)
+      );
+      if (shapeOpen) {
+        for (const arm of arms) for (const symbol of patternSymbols(arm.pattern)) this.#shapeOpen.set(symbol, true);
+      }
+    }
     if (this.#unsettledVariables(scrutinee).length === 0) return;
     for (const arm of arms) {
       for (const symbol of patternSymbols(arm.pattern)) {
@@ -18293,7 +18306,29 @@ class Checker {
         }
       }
     };
+    const registerType = (inner: Resolved.Item): void => {
+      if (inner.kind === "Let") {
+        this.#typeSources.set(
+          inner.binding.symbol,
+          headWritten(inner.annotation)
+            ? { kind: "written", whole: annotationWhole(inner.annotation!) }
+            : { kind: "value", value: inner.value },
+        );
+      } else if (inner.kind === "Var") {
+        this.#typeSources.set(
+          inner.binding.symbol,
+          headWritten(inner.annotation)
+            ? { kind: "written", whole: annotationWhole(inner.annotation!) }
+            : numericOpen(inner.value)
+            ? { kind: "open" }
+            : { kind: "var", value: inner.value },
+        );
+      } else if (inner.kind === "Fun") {
+        this.#typeSources.set(inner.binding.symbol, { kind: "function" });
+      }
+    };
     const register = (inner: Resolved.Item): void => {
+      registerType(inner);
       if (inner.kind === "Let") {
         const written = inner.annotation !== undefined && annotationWhole(inner.annotation);
         this.#bindingSources.set(
@@ -18315,9 +18350,29 @@ class Checker {
       }
     };
     register(item);
+    // An honor member's and a constraint default's parameters take the types the
+    // contract writes (Method Syntax §3.1).
+    const contractTyped = (value: Resolved.Expr): void => {
+      if (value.kind !== "Lambda") return;
+      for (const parameter of value.parameters) this.#typeSources.set(parameter.symbol, { kind: "written", whole: true });
+    };
     this.#walkItem(item, {
       item: register,
       expression: (expression) => {
+        if (expression.kind === "Call") {
+          const mark = (node: Resolved.Expr): void => {
+            if (node.kind === "Lambda") {
+              this.#lambdaCalls.set(node, expression);
+              return;
+            }
+            this.#walkSyntax(node, {
+              expression: (inner) => {
+                if (inner !== node && inner.kind === "Lambda" && !this.#lambdaCalls.has(inner)) this.#lambdaCalls.set(inner, expression);
+              },
+            });
+          };
+          for (const argument of expression.arguments) mark(argument);
+        }
         if (expression.kind === "Ascription" && annotationWhole(expression.annotation)) {
           expect(expression.expression, expression.annotation);
         } else if (expression.kind === "Lambda" && expression.returnAnnotation !== undefined) {
@@ -18333,6 +18388,14 @@ class Checker {
         }
       },
       lambda: (lambda) => {
+        for (const parameter of lambda.parameters) {
+          this.#typeSources.set(
+            parameter.symbol,
+            headWritten(parameter.annotation)
+              ? { kind: "written", whole: annotationWhole(parameter.annotation!) }
+              : { kind: "lambda", lambda },
+          );
+        }
         const expected = expectedBy.get(lambda);
         for (const [index, parameter] of lambda.parameters.entries()) {
           const given = parameter.annotation === undefined && expected?.kind === "Function"
@@ -18348,9 +18411,14 @@ class Checker {
         }
       },
       pattern: (pattern, source) => {
+        for (const symbol of patternSymbols(pattern)) this.#typeSources.set(symbol, { kind: "part", source });
         for (const symbol of patternSymbols(pattern)) this.#bindingSources.set(symbol, { kind: "part", source });
       },
     });
+    if (item.kind === "Honor") for (const member of item.members) contractTyped(member.value);
+    if (item.kind === "ConstraintDeclaration") {
+      for (const member of item.members) if (member.defaultValue !== undefined) contractTyped(member.defaultValue);
+    }
   }
 
   /** Walks an item's expressions (`#walkSyntax`). */
@@ -18686,9 +18754,9 @@ class Checker {
    * span**.
    *
    * `actuals` is the caller's seat list, filled as the arguments elaborate; a
-   * seat already filled when the pass is built — a dot call's receiver, a
-   * pending dot call's measured arguments — is a value of its group, and its
-   * spine is not read, having already been elaborated.
+   * seat already filled when the pass is built — a dot call's receiver — is a
+   * value of its group, and its spine is not read, having already been
+   * elaborated.
    */
   #argumentPass(
     call: Resolved.Expr,
@@ -20128,101 +20196,9 @@ class Checker {
     if (colour.kind !== "Variable") return undefined;
     const other = named(colour);
     if (other !== undefined) return other;
-    return this.#knots.some((knot) => this.#knotColour(knot, colour)) ||
-        this.#holds.some((hold) => this.#knotColour(hold, colour))
+    return this.#knots.some((knot) => this.#knotColour(knot, colour))
       ? { phrase: "a colour that waits", from: colour }
       : undefined;
-  }
-
-  /**
-   * The level of the outermost receiver among the dot-call goals written in
-   * this body and still pending *(#378)* — the region whose deadline settles
-   * the last of them — or `undefined` where none is.
-   */
-  #pendingGoalLevel(frame: EffectFrame): number | undefined {
-    let level: number | undefined;
-    for (const goal of this.#dotCallGoals) {
-      if (this.#callFrames.get(goal.expression) !== frame) continue;
-      const receiver = this.#prune(goal.receiver);
-      const at = receiver.kind === "Variable" ? receiver.level : goal.level;
-      level = level === undefined ? at : Math.min(level, at);
-    }
-    return level;
-  }
-
-  /** The outermost level any body a hold (or knot) holds still waits at (#378). */
-  #heldGoalLevel(hold: Knot): number | undefined {
-    let level: number | undefined;
-    for (const frame of hold.frames) {
-      const at = this.#pendingGoalLevel(frame);
-      if (at !== undefined) level = level === undefined ? at : Math.min(level, at);
-    }
-    return level;
-  }
-
-  /** The holds whose colours this body's calls reach (#378). */
-  #holdsReached(frame: EffectFrame): Knot[] {
-    return this.#holds.filter((hold) =>
-      frame.absorbed.some(({ effect }) => this.#knotColour(hold, effect))
-    );
-  }
-
-  /**
-   * Holds a closed body until its goals' deadline *(#378)*: in the one hold
-   * its calls reach — several are merged, their bodies' colours being decided
-   * together now — or in a new one. A hold is shaped as a knot with no members:
-   * the knot's frames, `held` set, recorded demands and level are what the
-   * arms and the demand comparison read, and the rest stays empty.
-   */
-  #holdFrame(frame: EffectFrame, reached: readonly Knot[], waiting: number | undefined): void {
-    let hold = reached[0];
-    if (hold === undefined) {
-      hold = {
-        members: [],
-        host: undefined,
-        references: [],
-        refused: false,
-        types: new Map(),
-        frames: [],
-        level: waiting!,
-        demands: [],
-        held: new Set(),
-        after: [],
-      };
-      this.#holds.push(hold);
-    }
-    hold.frames.push(frame);
-    hold.held.add(frame);
-    this.#joinHolds(hold, reached.slice(1), waiting);
-  }
-
-  /**
-   * Merges `others` into `into` — their bodies' colours are decided together
-   * now, by the knot's sibling-aware arms, so that one never joins another's
-   * as a conduit — and sinks the whole to the outermost level any of them, or
-   * `waiting`, stands at (#378).
-   */
-  #joinHolds(into: Knot, others: readonly Knot[], waiting: number | undefined): void {
-    let level = waiting === undefined ? into.level : Math.min(into.level, waiting);
-    for (const other of others) {
-      if (other === into) continue;
-      into.frames.push(...other.frames);
-      for (const held of other.held) into.held.add(held);
-      into.demands.push(...other.demands);
-      into.after.push(...other.after);
-      level = Math.min(level, other.level);
-      this.#holds.splice(this.#holds.indexOf(other), 1);
-    }
-    this.#sinkHeld(into, level);
-  }
-
-  /**
-   * Sinks every colour a hold keeps to `level`, which becomes its level: no
-   * binding inside the owning region may quantify one before the hold settles.
-   */
-  #sinkHeld(hold: Knot, level: number): void {
-    hold.level = level;
-    for (const frame of hold.frames) this.#sinkFrame(frame, level);
   }
 
   /** Sinks a body's own colour and its calls' to `level` (§3.4's knot bullet, #378). */
@@ -20231,49 +20207,10 @@ class Checker {
     for (const { effect } of frame.absorbed) this.#lowerLevels(effect, level);
   }
 
-  /**
-   * Settles every hold the region finalising at `level` owns *(#378)*, after
-   * its goals have: the goals are all type-level — dispatch reads a receiver's
-   * head, never a colour — so the colours they register are all in by now,
-   * and each held body takes the knot's arms and defaulting, then meets the
-   * demands recorded meanwhile.
-   */
-  #settleHolds(level: number): void {
-    for (const hold of [...this.#holds]) {
-      if (hold.level <= level) continue;
-      // A goal can move out after its body was held — its receiver unified
-      // with a variable an enclosing region owns — and every goal this region
-      // owned has settled by now, so one still pending is owned further out:
-      // the hold moves to that deadline instead of settling early.
-      const waiting = this.#heldGoalLevel(hold);
-      if (waiting !== undefined) {
-        this.#sinkHeld(hold, waiting);
-        continue;
-      }
-      this.#holds.splice(this.#holds.indexOf(hold), 1);
-      this.#settleKnot(hold);
-      this.#compareKnotDemands(hold);
-      for (const then of hold.after.splice(0)) then();
-    }
-  }
-
-  /**
-   * A constraint seat's body, settled and then compared (Effects §13.2) — or,
-   * where a dot call written in it is still a goal or a call reaches a body held
-   * for one, held until that deadline with the comparison waiting for it, as
-   * any body waits for a colour decided later than its close (§3.4, #1147).
-   */
+  /** A constraint seat's body, settled and then compared (Effects §13.2). */
   #settleSeatBody(frame: EffectFrame, compare: () => void): void {
-    const waiting = this.#pendingGoalLevel(frame);
-    const reached = this.#holdsReached(frame);
-    if (waiting === undefined && reached.length === 0) {
-      this.#settleFrame(frame);
-      compare();
-      return;
-    }
-    this.#holdFrame(frame, reached, waiting);
-    const hold = this.#holds.find((candidate) => candidate.frames.includes(frame))!;
-    hold.after.push(compare);
+    this.#settleFrame(frame);
+    compare();
   }
 
   /**
@@ -20384,12 +20321,11 @@ class Checker {
 
   /**
    * Whether a colour is still to be decided by a close not yet reached: a
-   * knot's or a hold's, or an open body's untyped callback's, which that
+   * knot's, or an open body's untyped callback's, which that
    * body's claims decide (Effects §3.4).
    */
   #undecided(part: Variable): boolean {
     if (this.#knots.some((knot) => this.#knotColour(knot, part))) return true;
-    if (this.#holds.some((hold) => this.#knotColour(hold, part))) return true;
     return this.#effectFrames.some((frame) =>
       !this.#settledFrames.has(frame) &&
       frame.untyped.some(({ type }) =>
@@ -20747,8 +20683,7 @@ class Checker {
         }
       }
     }
-    return this.#knots.some((knot) => this.#knotColour(knot, pruned)) ||
-      this.#holds.some((hold) => this.#knotColour(hold, pruned));
+    return this.#knots.some((knot) => this.#knotColour(knot, pruned));
   }
 
   /** The expression that gives `value`'s value, read through grouping and a block to its final expression. */
@@ -22183,8 +22118,7 @@ class Checker {
   #settleHardCases(level: number): void {
     if (this.#hardCases.length === 0) return;
     const waiting = (part: Variable): boolean =>
-      this.#knots.some((knot) => this.#knotColour(knot, part)) ||
-      this.#holds.some((hold) => this.#knotColour(hold, part));
+      this.#knots.some((knot) => this.#knotColour(knot, part));
     const remaining: HardCase[] = [];
     for (const hardCase of this.#hardCases) {
       const parts = [...this.#colourParts(hardCase.left), ...this.#colourParts(hardCase.right)];
@@ -23164,10 +23098,9 @@ class Checker {
     // it is recorded and compared at the knot's close (Effects §3.4). A demand
     // that binds a member's whole monotype before its body exists binds a copy
     // whose colour is fresh, the demand's own arrow recorded the same way.
-    if ((this.#knots.length > 0 || this.#holds.length > 0) && this.#settlingArms === 0) {
+    if (this.#knots.length > 0 && this.#settlingArms === 0) {
       if (type.kind === "Effect") {
-        const knot = this.#knots.find((open) => this.#knotColour(open, variable)) ??
-          this.#holds.find((hold) => this.#knotColour(hold, variable));
+        const knot = this.#knots.find((open) => this.#knotColour(open, variable));
         if (knot !== undefined) {
           knot.demands.push({
             demand: type,
@@ -23871,8 +23804,7 @@ class Checker {
    * Part 5 §3.5's default, taken at the owner region's close: a waiting source
    * whose head is still unknown **is** the sequence its seat asked for. One
    * decision on a variable nothing informed — nothing before it committed the
-   * source to any head. Answers whether any source took it, so the goals'
-   * fixpoint runs again (a waiting source may be a dot call's receiver).
+   * source to any head. Answers whether any source took it.
    */
   #settleSequenceDefaults(level: number): boolean {
     let settled = false;
@@ -26041,19 +25973,9 @@ class Checker {
      */
     knot?: ReadonlySet<Resolved.SymbolId>,
   ): Scheme {
-    // The deadline (§3.1): no DotCall goal may escape its owner region's
-    // finalisation, and the defaulting step below must see the receivers those
-    // goals settle. The pins first (#1154), so a goal written inside a pending
-    // goal's argument belongs to that goal's region when ownership is decided.
-    // Nothing quantified here needs the second pass — a goal still pending
-    // after the resolution was pinned at or below this level by the first —
-    // but it keeps the levels current for the held bodies settled next.
-    this.#pinPendingGoals();
-    this.#resolveDotCallGoals(level);
-    this.#pinPendingGoals();
-    // Then the bodies held for those goals (#378): every colour the goals
-    // registered is in, so the held bodies decide before anything is built.
-    this.#settleHolds(level);
+    // The waiting sequence sources this boundary owns take their `Seq`
+    // readings (Collections Part 5 §3.5) before anything is built.
+    while (this.#settleSequenceDefaults(level));
     // The hard cases whose level closes here (Effects §3.4).
     this.#settleHardCases(level + 1);
     // A colour only openings reached is pure before it can be quantified

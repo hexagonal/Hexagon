@@ -340,16 +340,18 @@ describe("the dot spelling checks as a named call (Method Syntax §2.2)", () => 
     expect(projectDiagnostics("module Main\n\n" + qualified)).toEqual(projectDiagnostics("module Main\n\n" + dot));
   });
 
-  test("a receiver still unsolved at the dot keeps the pending path", () => {
-    // §3.6's asymmetry is untouched: the goal pends, the arguments synthesize,
-    // and the arms see a variable. The cross-check runs only where §2.2's
-    // second entry moment does.
+  test("a subject the text does not decide is refused, and its arguments synthesize", () => {
+    // Method Syntax §3.5: no callee is chosen, so nothing supplies the match
+    // function's parameter, and its own report stands beside the refusal.
     expect(verdict(
       "fun go(v) = v.map(match\n" +
         "    x when x < 0 => \"negative\"\n" +
         "    _ => \"other\"\n" +
         ")\n",
     )).toEqual([
+      "the program's text does not decide `v`'s type here, so `.map(…)` cannot tell whose " +
+      "`map` it is — write `v`'s type, or call the operation by its module (`Module.map(v, …)`); " +
+      "a record's field is called as `(v.map)(…)`",
       "cannot match on a value of abstract type `a`; the parameter's type is not " +
       "determined here; give the parameter a type — bind the function with its " +
       "own annotated `let`, or use it where its parameter type is known",
