@@ -257,7 +257,7 @@ change what “less than” means.
 
 Implementers: codepoint order is *not* JS `<` on strings, which compares UTF-16 code units — they disagree when an astral character (≥ U+10000, lead surrogates 0xD800–) meets a BMP character in U+E000–U+FFFF (codepoint-wise `"\u{10000}" > "\uFFFF"`; JS says the opposite). `String.compare` needs a codepoint-aware walk, with a fast path: use JS `<` directly when both strings are all-BMP (the overwhelmingly common case), fall back to iteration otherwise.
 
-Human-facing sorting ("é" before "f", locale digraph rules) is **collation**, is locale-dependent, and therefore must never be `Ord` — it is a future stdlib function (`String.collate`, via `Intl.Collator`), clearly fenced off from the constraint.
+Human-facing sorting ("é" before "f", locale digraph rules) is **collation**, is locale-dependent, and therefore must never be `Ord` — it is a future stdlib function (`String.collate`, post-v1: `stdlib-roadmap.md` §4), clearly fenced off from the constraint.
 
 ### 5.5 Text processing and Unicode data
 
