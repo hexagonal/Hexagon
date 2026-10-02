@@ -320,6 +320,39 @@ describe("a subject a later or an earlier line fixes is not decided by the text 
     ]);
   });
 
+  test("a constructor a lambda hands back takes the lambda's expectation", () => {
+    bothOrders(
+      "let apply2(v: a, f: (a) -> Option((a) -> Int)): Int = 0\nlet f(q) =",
+      "let w: Vector(Int) = q",
+      "let b = apply2(q, (u) => Some((x) => x.length()))",
+      [refusal("x", "length")],
+    );
+  });
+
+  test("a constructor whose expectation comes from a `var` or a `with` override's target", () => {
+    bothOrders(
+      "let f(g) =\n    var o = Some(g)",
+      "let a = g([1])",
+      "o := Some((x) => x.length())",
+      [refusal("x", "length")],
+    );
+    bothOrders(
+      "let f(r) =",
+      "let q = {r with cb = Some((x) => x.length())}",
+      "let z: {cb: Option((Vector(Int)) -> Int)} = r",
+      [refusal("x", "length")],
+    );
+  });
+
+  test("an earlier sibling lambda's body can settle what a later one lands", () => {
+    bothOrders(
+      "let both(f: (t) -> Bool, g: (t) -> Int): Int = 0\nlet f(q) =",
+      "let w: Vector(Int) = q",
+      "let b = both((a) => a == q, (b) => b.length())",
+      [refusal("b", "length")],
+    );
+  });
+
   test("a body that waits on nothing: #1173's shape is one report in either order", () => {
     bothOrders(
       "let noop(): Unit = ()\nlet run(source) =",
@@ -386,6 +419,42 @@ describe("a subject the text decides dispatches at the dot (§3.1)", () => {
     );
   });
 
+  test("a lambda under a written type whose head is written, through forwarding forms", () => {
+    compiles("let mk(): (Vector(a)) -> Int = (x) => x.length()\n");
+    compiles("let f(y: Vector(a)): Int =\n    let k: (Vector(a)) -> Int = (x) => x.length()\n    k(y)\n");
+    compiles("let k: (Vector(_)) -> Int = (x) => x.length()\n");
+    compiles("let c: Bool = True\nlet k: (Vector(Int)) -> Int = if c then (x) => x.length() else (x) => 0\n");
+    compiles("let k: (Int) -> (Vector(Int)) -> Int = (u) => (x) => x.length()\n");
+    compiles("let f(y: Vector(a)): Int =\n    let t: ((Vector(a)) -> Int, Int) = ((x) => x.length(), 1)\n    1\n");
+  });
+
+  test("a lambda on a `try`'s value paths, a `match` arm's, and on a pipe's right", () => {
+    compiles(
+      "let f(xs: Seq(Vector(Int))): Seq(Int) = Seq.map(xs, try\n" +
+        "    (x) => x.length()\ncatch\n    _ => (x) => 0)\n",
+    );
+    compiles(
+      "let g(h: (Vector(Int)) -> Int): Int = h([1])\nlet f(k: Int): Int = g(match k\n" +
+        "    0 => (x) => x.length()\n    _ => (x) => 0)\n",
+    );
+    compiles("let f(v: Vector(Int)): Int = v |> (x) => x.length()\n");
+  });
+
+  test("a lambda's own body does not decide its parameter, so what it captures is read past", () => {
+    compiles(
+      "let f(xs: Seq(Vector(Int)), p): Seq(Int) = xs.map((x) =>\n" +
+        "    let k = Vector.length(p)\n    x.length())\n",
+    );
+  });
+
+  test("a constructor under a written type lands its lambdas", () => {
+    compiles("let mk(): Option((Vector(Int)) -> Int) = Some((x) => x.length())\n");
+  });
+
+  test("a `with` override over a value whose type is written lands from it", () => {
+    compiles("record Q = {f: (Vector(Int)) -> Int}\nlet g(q: Q): Q = {q with f = (x) => x.length()}\n");
+  });
+
   test("a curried lambda and an applied lambda land from a decided call", () => {
     compiles(
       "let apply2(f: (Int) -> (Vector(Int)) -> Int): Int = f(1)([2])\n" +
@@ -449,6 +518,12 @@ describe("#1182: a lambda's parameter typed only through a generic call", () => 
 describe("a subject that already failed draws no second report (§3.5)", () => {
   test("an unknown name", () => {
     expect(projectDiagnostics(HEADER + "let s: String = nope.show()\n")).toEqual(["unknown name `nope`"]);
+  });
+
+  test("a lambda parameter of a call whose argument was refused", () => {
+    expect(projectDiagnostics(HEADER + "let f(o) = Seq.map(o.items(), (x) => x.show())\n")).toEqual([
+      refusal("o", "items"),
+    ]);
   });
 
   test("a lambda parameter of a refused call, or a part of a refused value", () => {
