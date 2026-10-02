@@ -584,7 +584,7 @@ describe("Effects §13.5: the unmarkable forms rest on the prelude's headers", (
           indent = undefined;
           continue;
         }
-        const member = /^\s+([a-z][A-Za-z0-9_]*)\(.*\)\s*(->[!?]?)\s/.exec(line);
+        const member = /^\s+([a-z][A-Za-z0-9_]*)\(.*\)\s*(>->|->!?)\s/.exec(line);
         if (member !== null) found.push(`${module}.${member[1]} ${member[2]}`);
       }
     }
