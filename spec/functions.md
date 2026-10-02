@@ -355,7 +355,7 @@ apply   : (String -> String) -> String
   `(A, B) -> C` is the distinct type of a two-parameter function.
 - A function with two or more parameters uses a parenthesized, comma-separated parameter list: `(A, B) -> C`.
 - `->` associates to the right. Parentheses around a function type are therefore grouping, as in `(A -> B) -> C`; they are not retained merely because a function has one parameter.
-- *(#355; respelled #405; #1144.)* **Every arrow carries its effect colour**, and the display renders the three: `->` pure, `->!` may touch the world (a callback's own colour on its own arrows, the impure constant elsewhere), `>->` only as effectful as what the signature is handed (Effects §2, the owner of the readings). The three are one arrow under the same zero/one/many grammar, differing only in the mark they carry:
+- *(#355; respelled #405; #1144.)* **Every arrow carries its effect colour**, and the display renders the three: `->` pure, `->!` may touch the world (a callback's own colour on its own arrows, the impure constant elsewhere), `>->` only as effectful as what the signature is handed (Effects §2, the owner of the readings). The three are one arrow under the same zero/one/many grammar, differing only in the colour they spell:
 
   ```text
   fold            : (Seq(a), b, (b, a) ->! b) >-> b

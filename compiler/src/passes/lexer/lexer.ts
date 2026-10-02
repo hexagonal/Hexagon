@@ -74,7 +74,7 @@ const punctuation: readonly (readonly [string, Lexed.PunctuationKind])[] = [
   [":=", "Assign"],
   ["=>", "FatArrow"],
   // The marked type arrow stands ahead of `->` so maximal munch reaches it
-  // (Lexer §8.1): the mark trails the arrow it colours, and `!->` is not a
+  // (Lexer §8.2): the mark trails the arrow it colours, and `!->` is not a
   // token because a mark never begins one (Effects §2.3).
   ["->!", "ArrowBang"],
   ["->", "Arrow"],
