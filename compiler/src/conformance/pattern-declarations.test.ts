@@ -296,7 +296,7 @@ describe("suffix construction marks (§14)", () => {
       "extern from \"./world.js\"\n" +
         "    fun save(text: String) ->! Unit\n" +
         "let identity(value: a): a = value\n" +
-        "let tap(step: () ->! Int): (() ->? Int) =\n" +
+        "let tap(step: () ->! Int): (() >-> Int) =\n" +
         "    let _ = step!()\n" +
         "    step\n" +
         "pattern boxed\n" +
@@ -352,7 +352,7 @@ describe("unheaded inference and a view's effect demand", () => {
   test("returning a linked callback does not make an inline view effectful", () => {
     expect(messages(
       "pattern callback\n" +
-        "    view(step: () ->! Int): (() ->? Int) = step\n",
+        "    view(step: () ->! Int): (() >-> Int) = step\n",
     )).toEqual([]);
   });
 
@@ -378,14 +378,14 @@ describe("unheaded inference and a view's effect demand", () => {
     expect(reports).toContainEqual(["type `Bool` has no `Num` instance", "(x)doubled"]);
   });
 
-  test("a conduit-effect view reports its linked `->?` face", () => {
+  test("a conduit-effect view reports its linked `>->` face", () => {
     expect(messages(
       "extern from \"./world.js\"\n" +
-        "    fun inspect(step: () ->! Int) ->? Int\n" +
+        "    fun inspect(step: () ->! Int) >-> Int\n" +
         "pattern force\n" +
         "    view(step: () ->! Int) = inspect!(step)\n",
     )).toEqual([
-      "a pattern's `view` is run by matching, so it is pure — the demand is the pattern head's, and this function's face is `->?`",
+      "a pattern's `view` is run by matching, so it is pure — the demand is the pattern head's, and this function's face is `>->`",
     ]);
   });
 });

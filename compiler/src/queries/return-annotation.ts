@@ -159,7 +159,7 @@ export function planReturnAnnotation(
   // here, because a return annotation is written immediately before the token
   // introducing the body and for a lambda that token was also a type arrow, so
   // an unparenthesized `=>` inside the annotation read as the body starting
-  // there. The type arrows are now `->`, `->?`, `->!` and the lambda's is `=>`,
+  // there. The type arrows are now `->`, `>->`, `->!` and the lambda's is `=>`,
   // so the annotation grammar cannot reach the body and the written text is
   // what a writer would have written (`spec/effects.md` §2.6, Functions §4.1).
   const annotation = spelled.text;

@@ -99,7 +99,7 @@ const world = `extern from "./world.js"
  * owes the advice in words besides: a boundary row has no body, so the repair
  * is a declaration the author writes (#869).
  */
-const UNLINKED_EXTERN_ROW = "`->?` means only as effectful as what it is handed, and nothing is handed here " +
+const UNLINKED_EXTERN_ROW = "`>->` means only as effectful as what it is handed, and nothing is handed here " +
   "— no callback of this signature has been handed over by the time this arrow " +
   "runs; write `->!` for a function that may touch the world, or `->` for one that " +
   "does not — write the callback parameter this row runs, with `->!`, or write " +
@@ -108,11 +108,11 @@ const UNLINKED_EXTERN_ROW = "`->?` means only as effectful as what it is handed,
 /** FFI Part 4 §13's two retired-claim rows, and its colon row *(#869)*. */
 const RETIRED_PURE = "`pure` is retired — write the pure arrow on the row itself: " +
   "`fun trim(document: String) -> String`";
-const RETIRED_CONDUIT = "`conduit` is retired — write `->?` on the row's outer arrow: " +
-  "`fun runner(step: () ->! String) ->? Int`";
+const RETIRED_CONDUIT = "`conduit` is retired — write `>->` on the row's outer arrow: " +
+  "`fun runner(step: () ->! String) >-> Int`";
 /** One report names both words, and what they described is the conduit (§4.5). */
-const RETIRED_PAIR = "`pure conduit` is retired — write `->?` on the row's outer arrow: " +
-  "`fun runner(step: () ->! String) ->? Int`";
+const RETIRED_PAIR = "`pure conduit` is retired — write `>->` on the row's outer arrow: " +
+  "`fun runner(step: () ->! String) >-> Int`";
 /** §4.5's give-way sentence: the row already writes the arrow, so none is advised. */
 const giveWay = (words: string) =>
   `\`${words}\` is retired, and this row's arrow is written — drop the word${
@@ -123,15 +123,15 @@ const retiredWithoutInlet = (_words: string) =>
   "`conduit` is retired, and this row is handed no callback — write the callback " +
   "parameter this row runs, with `->!`, or write `->!` on the row";
 const RETIRED_COLON = "an extern callable declares its effect — write `->` for a function " +
-  "that touches nothing, `->!` for one that may, `->?` for one exactly as effectful as a " +
+  "that touches nothing, `->!` for one that may, `>->` for one exactly as effectful as a " +
   "callback it is handed; when in doubt, `->!`";
 
 /** FFI Part 4 §4.5's worked example, verbatim — the five arrows it writes. */
 const SPECIMENS = `extern from "./operations.js"
     export fun trim(text: String) -> String
     export fun read(path: String) ->! String
-    export fun run(action: () ->! Unit) ->? Unit
-    export fun defer(action: () ->! Unit) -> (() ->? Unit)
+    export fun run(action: () ->! Unit) >-> Unit
+    export fun defer(action: () ->! Unit) -> (() >-> Unit)
     export fun transaction(action: () ->! Unit) ->! Unit
 `;
 
@@ -142,8 +142,8 @@ const markSeat =
 
 /** Effects §9's type-arrow row: `=>` written where a type arrow belongs (#410). */
 const typeArrowRedirect =
-  "Hexagon's type arrows are `->`, `->!`, `->?`; `=>` is the lambda arrow — " +
-  "for a function type write `Int -> Int` (or `->!` / `->?` for its colour)";
+  "Hexagon's type arrows are `->`, `->!`, `>->`; `=>` is the lambda arrow — " +
+  "for a function type write `Int -> Int` (or `->!` / `>->` for its colour)";
 
 describe("the discipline, unconditional", () => {
   it("compiles the whole prelude and runtime clean", () => {
@@ -224,7 +224,7 @@ export let audit2(document: String): String =
     audit!(document)
     document
 
-export let compose(first: String ->! String, second: String ->! String): (String ->? String) =
+export let compose(first: String ->! String, second: String ->! String): (String >-> String) =
     (document) => second!(first!(document))
 `;
 
@@ -247,7 +247,7 @@ export let run(document: String): String = compose(save2, audit2)(document)
   });
 });
 
-describe("#405 the inlet rule — `->?` is refused where nothing can link it", () => {
+describe("#405 the inlet rule — `>->` is refused where nothing can link it", () => {
   /**
    * The predecessor of this block pinned the *else-constant rule*: a `=>` with
    * nothing to link to was read as the impure constant. #405 withdrew that
@@ -286,17 +286,17 @@ export let twice(): String = ask() ++ ask!()
     ]);
   });
 
-  it("refuses `->?` in a `record` field, naming the field as data", () => {
+  it("refuses `>->` in a `record` field, naming the field as data", () => {
     // The predecessor read this as the impure constant. It is now §4.4's error:
     // a record declaration has no signature to quantify over, so the arrow has
     // nothing to denote — and a rejection is not a second meaning.
     expect(
       effectDiagnostics([["/main.hex", "module Main\n\n" + `
-export record Source = { step: () ->? String }
+export record Source = { step: () >-> String }
 export let drive(source: Source): String = (source.step)!()
 `]]),
     ).toEqual([
-      "`->?` means only as effectful as what it is handed, and nothing is handed " +
+      "`>->` means only as effectful as what it is handed, and nothing is handed " +
       "here — a `record` field is data, not a signature; write `->!` for a " +
       "function that may touch the world, or `->` for one that does not",
     ]);
@@ -305,34 +305,34 @@ export let drive(source: Source): String = (source.step)!()
   it("offers `->!` as the fix, which is what the writer meant", () => {
     expect(
       effectFixes([["/main.hex", "module Main\n\n" + `
-export record Source = { step: () ->? String }
+export record Source = { step: () >-> String }
 `]]),
     ).toEqual(['write `->!`: "->!"']);
   });
 
-  it("refuses `->?` in a `union` field for the same reason", () => {
+  it("refuses `>->` in a `union` field for the same reason", () => {
     expect(
       effectDiagnostics([["/main.hex", "module Main\n\n" + `
-export union Step = Ready(() ->? String) | Done
+export union Step = Ready(() >-> String) | Done
 `]]),
     ).toEqual([
-      "`->?` means only as effectful as what it is handed, and nothing is handed " +
+      "`>->` means only as effectful as what it is handed, and nothing is handed " +
       "here — a `union` field is data, not a signature; write `->!` for a function " +
       "that may touch the world, or `->` for one that does not",
     ]);
   });
 
-  it("refuses `->?` in a `type` alias body, before the body can be inlined", () => {
+  it("refuses `>->` in a `type` alias body, before the body can be inlined", () => {
     // Reported by the resolver, at the declaration: transparency means an alias
     // inlined into a signature that happens to have an inlet would otherwise
     // silently link, and one alias would name two colours across two mentions
     // (Declarations Preamble §5.1.1).
     expect(
       effectDiagnostics([["/main.hex", "module Main\n\n" + `
-type Handler = () ->? String
+type Handler = () >-> String
 `]]),
     ).toEqual([
-      "`->?` means only as effectful as what it is handed, and nothing is handed " +
+      "`>->` means only as effectful as what it is handed, and nothing is handed " +
       "here — an alias is a type fragment, not a signature; write `->!` for a " +
       "function that may touch the world, or `->` for one that does not",
     ]);
@@ -341,11 +341,11 @@ type Handler = () ->? String
   it("refuses it once, not twice, when the alias is also used", () => {
     expect(
       effectDiagnostics([["/main.hex", "module Main\n\n" + `
-type Handler = () ->? String
+type Handler = () >-> String
 export let run(h: Handler): String = h!()
 `]]),
     ).toEqual([
-      "`->?` means only as effectful as what it is handed, and nothing is handed " +
+      "`>->` means only as effectful as what it is handed, and nothing is handed " +
       "here — an alias is a type fragment, not a signature; write `->!` for a " +
       "function that may touch the world, or `->` for one that does not",
     ]);
@@ -359,17 +359,17 @@ export let run(h: Handler): String = h!()
     // next. Three independent offences owe three reports.
     expect(
       effectDiagnostics([["/main.hex", "module Main\n\n" + `
-export record R = { step: () ->? String }
-export record S = { other: (Int) ->? Int }
-export union U = A(() ->? Int) | B
+export record R = { step: () >-> String }
+export record S = { other: (Int) >-> Int }
+export union U = A(() >-> Int) | B
 `]]).length,
     ).toBe(3);
   });
 
-  it("admits a `->?` in an extern row's parameter — the row is a signature", () => {
+  it("admits a `>->` in an extern row's parameter — the row is a signature", () => {
     // An extern declares a signature like any other, so FFI Part 4 §4.5's
     // "function-typed slots carry whatever arrows the author writes" covers
-    // `->?` too. The parameter is its own inlet (§2.2.1).
+    // `>->` too. The parameter is its own inlet (§2.2.1).
     expect(
       effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
     export fun run(k: () ->! String) ->! String
@@ -395,14 +395,14 @@ export let impureUse(): String = run!(() =>
     ).toEqual([]);
   });
 
-  it("still refuses a received-only `->?` in an extern row", () => {
+  it("still refuses a received-only `>->` in an extern row", () => {
     // #408's second refused shape: the arrow stands in what every application
     // hands *back*, so no argument the caller supplies contains it. The spine
     // walk reaches this result and finds the colour only on the arrow's own
     // slot, which is not an inlet.
     expect(
       effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
-    export fun mk(seed: String) ->! (String ->? String)
+    export fun mk(seed: String) ->! (String >-> String)
 `]]),
     ).toEqual([UNLINKED_EXTERN_ROW]);
   });
@@ -466,7 +466,7 @@ describe("#408 the inlet reaches the whole application spine", () => {
    * the gap — a curried signature is applied step by step, and each step's
    * arguments come from a caller.
    */
-  const mk = `export let mk(): ((Int) ->! Int) ->? Int = (g: (Int) ->! Int): Int => g!(1)
+  const mk = `export let mk(): ((Int) ->! Int) >-> Int = (g: (Int) ->! Int): Int => g!(1)
 `;
 
   it("admits the inferred face, unchanged", () => {
@@ -477,7 +477,7 @@ export let z: Int = mk()((n) => n)
     // §10's premise, restored: the display shows one variable undecorated, and
     // the grammar can now spell what it shows. Nothing about the inferred form
     // moved — the widening changes which *written* faces are legal.
-    expect(hoveredType(inferred, "mk()")).toBe("() -> (Int ->! Int) ->? Int");
+    expect(hoveredType(inferred, "mk()")).toBe("() -> (Int ->! Int) >-> Int");
   });
 
   it("now admits that face written down, and exported", () => {
@@ -486,22 +486,22 @@ export let z: Int = mk()((n) => n)
 
   it("admits a three-step spine, whose inlet arrives at the third application", () => {
     expect(
-      effectDiagnostics([["/main.hex", "module Main\n\n" + `export let mk3(): (Int) -> (((Int) ->! Int) ->? Int) =
-    (a: Int): (((Int) ->! Int) ->? Int) => (g: (Int) ->! Int): Int => g!(a)
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `export let mk3(): (Int) -> (((Int) ->! Int) >-> Int) =
+    (a: Int): (((Int) ->! Int) >-> Int) => (g: (Int) ->! Int): Int => g!(a)
 `]]),
     ).toEqual([]);
   });
 
-  it("refuses a `->?` over a parameter that is data: a record type in a parameter is no callback", () => {
+  it("refuses a `>->` over a parameter that is data: a record type in a parameter is no callback", () => {
     // Every arrow inside a parameter type other than a callback's own means
     // what it says (§2.4): the record's field is the impure constant, so there
-    // is no callback for the `->?` to follow (§2.2.1).
+    // is no callback for the `>->` to follow (§2.2.1).
     expect(
-      effectDiagnostics([["/main.hex", "module Main\n\n" + `export let mkr(): ({ step: () ->! String }) ->? String =
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `export let mkr(): ({ step: () ->! String }) >-> String =
     (source: { step: () ->! String }): String => (source.step)!()
 `]]),
     ).toEqual([
-      "`->?` means only as effectful as what it is handed, and nothing is handed here — " +
+      "`>->` means only as effectful as what it is handed, and nothing is handed here — " +
       "no callback of this signature has been handed over by the time this arrow runs; " +
       "write `->!` for a function that may touch the world, or `->` for one that does not",
     ]);
@@ -535,19 +535,19 @@ export let impureUse(): Int = Maker.mk()!((n) =>
     // it defaults pure whatever the inlets (§3.4, #868) — so nothing is
     // numbered and the face writes back as it reads.
     expect(declarationsOf([["/main.hex", "module Main\n\n" + mk]])).toContain(
-      "Hexagon: `() -> (Int ->! Int) ->? Int`",
+      "Hexagon: `() -> (Int ->! Int) >-> Int`",
     );
   });
 
   it("still refuses the outer-only face, a local one with the local clause", () => {
     expect(
       effectDiagnostics([["/main.hex", "module Main\n\n" + `export let f(x: Int): Int =
-    let g: (String) ->? Int = (s: String): Int => 1
+    let g: (String) >-> Int = (s: String): Int => 1
     x
 `]]),
     ).toEqual([
-      "`->?` means only as effectful as what it is handed, and nothing is handed here — " +
-      "this annotation has no callbacks of its own, and a local `->?` does not borrow the " +
+      "`>->` means only as effectful as what it is handed, and nothing is handed here — " +
+      "this annotation has no callbacks of its own, and a local `>->` does not borrow the " +
       "enclosing function's — leave its type to inference, or write `->!`",
     ]);
   });
@@ -557,10 +557,10 @@ export let impureUse(): Int = Maker.mk()!((n) =>
     // colour stands on the arrow the caller *receives*, and in no parameter of
     // any step, so nothing instantiates it.
     expect(
-      effectDiagnostics([["/main.hex", "module Main\n\n" + `export let f(x: Int): (String) ->? Int = (s: String): Int => 1
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `export let f(x: Int): (String) >-> Int = (s: String): Int => 1
 `]]),
     ).toEqual([
-      "`->?` means only as effectful as what it is handed, and nothing is handed here — " +
+      "`>->` means only as effectful as what it is handed, and nothing is handed here — " +
       "no callback of this signature has been handed over by the " +
       "time this arrow runs; " +
       "write `->!` for a function that may touch the world, or `->` for one that does not",
@@ -569,23 +569,23 @@ export let impureUse(): Int = Maker.mk()!((n) =>
 
   it("offers `->!` at both refusals, the fixit §4.4 gives every position", () => {
     expect(
-      effectFixes([["/main.hex", "module Main\n\n" + `export let f(x: Int): (String) ->? Int = (s: String): Int => 1
+      effectFixes([["/main.hex", "module Main\n\n" + `export let f(x: Int): (String) >-> Int = (s: String): Int => 1
 `]]),
     ).toEqual(['write `->!`: "->!"']);
   });
 });
 
-describe("Effects §2.2.1 — a local `->?` borrows nothing (#1145, E-a)", () => {
-  const LOCAL = "`->?` means only as effectful as what it is handed, and nothing is handed here — " +
-    "this annotation has no callbacks of its own, and a local `->?` does not borrow the " +
+describe("Effects §2.2.1 — a local `>->` borrows nothing (#1145, E-a)", () => {
+  const LOCAL = "`>->` means only as effectful as what it is handed, and nothing is handed here — " +
+    "this annotation has no callbacks of its own, and a local `>->` does not borrow the " +
     "enclosing function's — leave its type to inference, or write `->!`";
   /** `f`, with its one local position written the two ways that once borrowed. */
   const annotated = `export let f(g: () ->! String): String =
-    let h: () ->? String = g
+    let h: () >-> String = g
     h!()
 `;
   const ascribed = `export let f(g: () ->! String): String =
-    let h = (g : () ->? String)
+    let h = (g : () >-> String)
     h!()
 `;
 
@@ -605,9 +605,9 @@ describe("Effects §2.2.1 — a local `->?` borrows nothing (#1145, E-a)", () =>
     h!()
 `;
     expect(effectDiagnostics([["/main.hex", "module Main\n\n" + inferred]])).toEqual([]);
-    expect(hoveredType(inferred, "f(g")).toBe("(() ->! String) ->? String");
+    expect(hoveredType(inferred, "f(g")).toBe("(() ->! String) >-> String");
     expect(hoveredType("export let f(g: () ->! String): String = g!()\n", "f(g"))
-      .toBe("(() ->! String) ->? String");
+      .toBe("(() ->! String) >-> String");
   });
 
   it("keeps a local function type with callbacks of its own a signature of its own", () => {
@@ -626,13 +626,13 @@ export let f(g: () ->! String): String =
   it("refuses both spellings in a body with no callbacks either", () => {
     expect(
       effectDiagnostics([["/main.hex", "module Main\n\n" + `export let f(x: Int): Int =
-    let h: () ->? String = () => "s"
+    let h: () >-> String = () => "s"
     x
 `]]),
     ).toEqual([LOCAL]);
     expect(
       effectDiagnostics([["/main.hex", "module Main\n\n" + `export let f(x: Int): Int =
-    let h = ((): String => "s" : () ->? String)
+    let h = ((): String => "s" : () >-> String)
     x
 `]]),
     ).toEqual([LOCAL]);
@@ -645,24 +645,24 @@ export let f(g: () ->! String): String =
     // annotation's shape — the callable form with a signature of its own is
     // `extern fun` (FFI Part 4 §4.5).
     expect(
-      effectDiagnostics([["/main.hex", "module Main\n\n" + `let h: { step: () ->? String } = { step = () => "x" }
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `let h: { step: () >-> String } = { step = () => "x" }
 export let z: Int = 1
 `]]),
     ).toEqual([
-      "`->?` means only as effectful as what it is handed, and nothing is handed here — " +
+      "`>->` means only as effectful as what it is handed, and nothing is handed here — " +
       "no callback of this signature has been handed over by the time this arrow runs; " +
       "write `->!` for a function that may touch the world, or `->` for one that does not",
     ]);
     expect(
       effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
-    export let handler: () ->? String
+    export let handler: () >-> String
 `]]),
     // The extern `let` is the exception Effects §9 names: its annotation is a
     // function type, so FFI Part 4 §13's callable-intended row is the whole
     // report and §4.4's refusal is not stacked on top of it.
     ).toEqual([
-      "extern callable declarations use `fun`; a binding of type `() ->? String` is " +
-      "callable — write `fun handler() ->? String`",
+      "extern callable declarations use `fun`; a binding of type `() >-> String` is " +
+      "callable — write `fun handler() >-> String`",
     ]);
   });
 
@@ -671,7 +671,7 @@ export let z: Int = 1
     // body lends it nothing (§2.2.1).
     expect(
       effectDiagnostics([["/main.hex", "module Main\n\n" + `export let f(x: Int): Int =
-    let h: { step: () ->? String } = { step = () => "s" }
+    let h: { step: () >-> String } = { step = () => "s" }
     x
 `]]),
     ).toEqual([LOCAL]);
@@ -683,17 +683,17 @@ export let z: Int = 1
     // §2.2.1's sentence: it is not that there is no signature here, it is that
     // nothing a caller supplies carries the colour. The `var` goes the same way
     // — shape decides for it as for a `let` — under its own module-level refusal.
-    const clause = "`->?` means only as effectful as what it is handed, and nothing is handed " +
+    const clause = "`>->` means only as effectful as what it is handed, and nothing is handed " +
       "here — no callback of this signature has been handed over by the time this " +
       "arrow runs; write `->!` for a function that may touch the world, or `->` " +
       "for one that does not";
     expect(
-      effectDiagnostics([["/main.hex", "module Main\n\n" + `let h: () ->? String = () => "x"
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `let h: () >-> String = () => "x"
 export let z: Int = 1
 `]]),
     ).toEqual([clause]);
     expect(
-      effectDiagnostics([["/main.hex", "module Main\n\n" + `var h: () ->? String = () => "x"
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `var h: () >-> String = () => "x"
 export let z: Int = 1
 `]]),
     ).toEqual([
@@ -708,12 +708,12 @@ export let z: Int = 1
     // And the module-level function type *with* an inlet is a signature that has
     // one, so it opens and stays legal.
     expect(
-      effectDiagnostics([["/main.hex", "module Main\n\n" + `let h: (() ->! String) ->? String = (k: () ->! String): String => k!()
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `let h: (() ->! String) >-> String = (k: () ->! String): String => k!()
 export let z: Int = 1
 `]]),
     ).toEqual([]);
     expect(
-      effectFixes([["/main.hex", "module Main\n\n" + `let h: () ->? String = () => "x"
+      effectFixes([["/main.hex", "module Main\n\n" + `let h: () >-> String = () => "x"
 export let z: Int = 1
 `]]),
     ).toEqual(['write `->!`: "->!"']);
@@ -733,12 +733,12 @@ export let f(h: ((Int) ->! Int) -> Int): Int = h(step)
     expect(hoveredType("module Main\n\n" + nested, "f(h")).toBe("((Int ->! Int) -> Int) -> Int");
   });
 
-  it("the lie of generality rewrites every `->!` that spells the colour, and a `->?` left handed nothing", () => {
+  it("the lie of generality rewrites every `->!` that spells the colour, and a `>->` left handed nothing", () => {
     // §4.2: the callback meets a `->` demand, so its colour is pure, and every
     // arrow that spells it — the annotation's and the lambda parameter's — is
-    // over-claiming; the outer `->?`, which followed only it, goes with them.
+    // over-claiming; the outer `>->`, which followed only it, goes with them.
     const pureFace = `export let strict(step: String -> String, d: String): String = step(d)
-export let f: ((String ->! String) ->? String) = (run: String ->! String): String =>
+export let f: ((String ->! String) >-> String) = (run: String ->! String): String =>
     strict(run, "body")
 `;
     expect(effectDiagnostics([["/main.hex", "module Main\n\n" + pureFace]])).toEqual([
@@ -759,7 +759,7 @@ export let f: ((String -> String) -> String) = (run: String -> String): String =
     ).toEqual([]);
   });
 
-  it("a lambda a written `->?` result returns answers to that `->?` at its offending call", () => {
+  it("a lambda a written `>->` result returns answers to that `>->` at its offending call", () => {
     const at = (source: string) => {
       const text = "module Main\n\n" + world + source;
       return compileFiles([["/world.js", ""], ["/main.hex", text]]).diagnostics.map((diagnostic) => [
@@ -768,40 +768,40 @@ export let f: ((String -> String) -> String) = (run: String -> String): String =
         (diagnostic.labels ?? []).map(({ span }) => text.slice(span.start.offset, span.end.offset)),
       ]);
     };
-    const promise = "and this face's `->?` promises the function is only as effectful as what it is handed — write `->!`";
+    const promise = "and this face's `>->` promises the function is only as effectful as what it is handed — write `->!`";
     // On its own account, at the call, however deep the returned lambda stands.
-    for (const result of ["() ->? Unit = () =>", "() -> () ->? Unit = () => () =>"]) {
+    for (const result of ["() >-> Unit = () =>", "() -> () >-> Unit = () => () =>"]) {
       expect(at(`export let mk(cb: () ->! Unit): ${result} save!("x")\n`)).toEqual([
-        ["save!(\"x\")", `this call touches the world on its own account, ${promise}`, ["->?"]],
+        ["save!(\"x\")", `this call touches the world on its own account, ${promise}`, [">->"]],
       ]);
     }
     // Running a captured colour, at the call, with §4.2's captured clause.
     expect(at(`export let outer(action: () ->! Unit): Unit =
-    let mk(cb: () ->! Unit): () ->? Unit = () =>
+    let mk(cb: () ->! Unit): () >-> Unit = () =>
         action!()
     let x = mk(() => save!("y"))
     ()
-`)).toEqual([["action!()", `this call runs \`outer\`'s \`action\`, which this signature is not handed, ${promise}`, ["->?"]]]);
+`)).toEqual([["action!()", `this call runs \`outer\`'s \`action\`, which this signature is not handed, ${promise}`, [">->"]]]);
   });
 
-  it("a refused `->?` reads as its fix, `->!`, where callers meet it", () => {
+  it("a refused `>->` reads as its fix, `->!`, where callers meet it", () => {
     // The refused arrow is §4.2's one report: callers' marks are read against
-    // the face the fix writes, as §4.4's refused `->?` reads as its fixit.
-    const refusedResult = `export let mk(cb: () ->! Unit): () ->? Unit = () => save!("x")
+    // the face the fix writes, as §4.4's refused `>->` reads as its fixit.
+    const refusedResult = `export let mk(cb: () ->! Unit): () >-> Unit = () => save!("x")
 export let use(): Unit = mk(noop)()
 `;
     expect(effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + world + "let noop(): Unit = ()\n" + refusedResult]]))
       .toEqual([
-        "this call touches the world on its own account, and this face's `->?` promises the function is only as effectful as what it is handed — write `->!`",
+        "this call touches the world on its own account, and this face's `>->` promises the function is only as effectful as what it is handed — write `->!`",
         "this call may touch the world, so this call wants `!`, not no mark",
       ]);
     expect(hoveredType("module Main\n\n" + world + "let noop(): Unit = ()\n" + refusedResult, "mk(")).toBe("(() ->! Unit) -> () ->! Unit");
     const refusedOuter = `export let outer(action: () ->! Unit): Unit =
-    let mk: (() ->! Unit) ->? Unit = (cb) => action!()
+    let mk: (() ->! Unit) >-> Unit = (cb) => action!()
     mk!(() => ())
 `;
     expect(effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + world + refusedOuter]])).toEqual([
-      "this call runs `outer`'s `action`, which this signature is not handed, and this face's `->?` promises the function is only as effectful as what it is handed — write `->!`",
+      "this call runs `outer`'s `action`, which this signature is not handed, and this face's `>->` promises the function is only as effectful as what it is handed — write `->!`",
     ]);
   });
 
@@ -816,14 +816,14 @@ export let use(): Unit = mk(noop)()
     for (const value of ["let g = () => action!()\n        g", "() => action!()"]) {
       expect(at(`let outer(action): Unit =
     action!()
-    let h(cb: () ->! Unit): () ->? Unit =
+    let h(cb: () ->! Unit): () >-> Unit =
         ${value}
     h(() => ())!()
 `)).toEqual([["action!()", "this call runs `outer`'s `action`, which this signature is not handed"]]);
     }
     // Unclaimed, it is pure: nothing to report.
     expect(at(`let outer(action): Unit =
-    let h(cb: () ->! Unit): () ->? Unit =
+    let h(cb: () ->! Unit): () >-> Unit =
         let g = () => action()
         g
     h(() => ())()
@@ -832,7 +832,7 @@ export let use(): Unit = mk(noop)()
     for (const value of ["() => b!(n)", "\n            let g = () => b!(n)\n            g"]) {
       const source = `fun
     a(n: Int): Unit =
-        let h(cb: () ->! Unit): () ->? Unit = ${value}
+        let h(cb: () ->! Unit): () >-> Unit = ${value}
         h(() => ())!()
     b(n: Int): Unit = if n == 0 then save!("x") else a!(n - 1)
 `;
@@ -845,21 +845,21 @@ export let use(): Unit = mk(noop)()
     const text = (source: string) => "module Main\n\n" + world + source;
     const at = (source: string) => compileFiles([["/world.js", ""], ["/main.hex", text(source)]]).diagnostics
       .map((diagnostic) => text(source).slice(diagnostic.primary.start.offset, diagnostic.primary.end.offset));
-    expect(at(`export let h(cb: () ->! Unit): () ->? Unit =
+    expect(at(`export let h(cb: () ->! Unit): () >-> Unit =
     let unrelated = () => save!("a")
     unrelated!()
     let g = () => audit!("b")
     g
 `)).toEqual(['audit!("b")']);
     expect(at(`let outer(action: () ->! Unit): Unit =
-    let h(cb: () ->! Unit): () ->? Unit =
+    let h(cb: () ->! Unit): () >-> Unit =
         let g = action
         g
     ()
 `)).toEqual(["g"]);
     // An arrow a pin itself made impure is one report, not two.
     expect(at(`let apply(f: (() ->! Unit) ->! (() ->! Unit)): Unit = f!(() => ())!()
-export let u(): Unit = apply!((cb: () ->! Unit): () ->? Unit => cb)
+export let u(): Unit = apply!((cb: () ->! Unit): () >-> Unit => cb)
 `)).toEqual(["cb"]);
   });
 
@@ -871,18 +871,18 @@ export let u(): Unit = apply!((cb: () ->! Unit): () ->? Unit => cb)
     expect(at(`export let loud(): Bool =
     save!("a")
     True
-export let h(cb: () ->! Unit): () ->? Unit =
+export let h(cb: () ->! Unit): () >-> Unit =
     if loud!() then (() => cb!()) else (() => audit!("x"))
 `)).toEqual(['audit!("x")']);
-    // Two written `->?`: each answers for the lambda that stands under it.
-    expect(at(`export let h(cb: () ->! Unit): () ->? (() ->? Unit) =
+    // Two written `>->`: each answers for the lambda that stands under it.
+    expect(at(`export let h(cb: () ->! Unit): () >-> (() >-> Unit) =
     () =>
         save!("a")
         () => audit!("b")
 `)).toEqual(['save!("a")', 'audit!("b")']);
     // A merge of named lambdas searches both, whichever the unifier kept.
     for (const merge of ["if c then f1 else f2", "if c then f2 else f1"]) {
-      expect(at(`export let h(c: Bool, cb: () ->! Unit): () ->? Unit =
+      expect(at(`export let h(c: Bool, cb: () ->! Unit): () >-> Unit =
     let f1 = () => cb!()
     let f2 = () => save!("x")
     let g = ${merge}
@@ -891,7 +891,7 @@ export let h(cb: () ->! Unit): () ->? Unit =
     }
     // A pin that is a knot's own unification names no act: the value stands.
     expect(at(`fun
-    h(n: Int, cb: () ->! Unit): () ->? Unit =
+    h(n: Int, cb: () ->! Unit): () >-> Unit =
         if n == 0 then cb else h(n - 1, () => save!("y"))
 `)).toEqual(['if n == 0 then cb else h(n - 1, () => save!("y"))']);
   });
@@ -899,7 +899,7 @@ export let h(cb: () ->! Unit): () ->? Unit =
   it("names the enclosing signature's callback where a knot shares the colour", () => {
     const text = "module Main\n\n" + world + `fun
     a(n: Int, f: () ->! Unit): Unit =
-        let h(cb: () ->! Unit): () ->? Unit = () => b!(n, f)
+        let h(cb: () ->! Unit): () >-> Unit = () => b!(n, f)
         h(() => ())!()
     b(n: Int, f: () ->! Unit): Unit = if n == 0 then f!() else a!(n - 1, f)
 `;
@@ -907,7 +907,7 @@ export let h(cb: () ->! Unit): () ->? Unit =
       .toEqual(["this call runs `a`'s `f`, which this signature is not handed"]);
   });
 
-  it("any function value meeting a written `->?` is compared with it, never merged, whatever its shape", () => {
+  it("any function value meeting a written `>->` is compared with it, never merged, whatever its shape", () => {
     // §4.2: a named local, a merge, a captured parameter, an annotation over a
     // lambda — each is compared with what the arrow is handed, and the report
     // stands at the first call that runs the colour it is not handed, or at
@@ -921,11 +921,11 @@ export let h(cb: () ->! Unit): () ->? Unit =
     };
     const runs = "runs `outer`'s `action`, which this signature is not handed";
     const shapes: [string, readonly (readonly [string, string])[]][] = [
-      ["let h(cb: () ->! Unit): () ->? Unit =\n        let g = () => action!()\n        g", [["action!()", `this call ${runs}`]]],
-      ["let h(cb: () ->! Unit): () ->? Unit =\n        let g() = action!()\n        g", [["action!()", `this call ${runs}`]]],
-      ["let h(cb: () ->! Unit): () ->? Unit = if c then (() => action!()) else (() => cb!())", [["action!()", `this call ${runs}`]]],
-      ["let h: (() ->! Unit) -> () ->? Unit = (cb) => () => action!()", [["action!()", `this call ${runs}`]]],
-      ["let h(cb: () ->! Unit): () ->? Unit = action", [["action", `this function ${runs}`]]],
+      ["let h(cb: () ->! Unit): () >-> Unit =\n        let g = () => action!()\n        g", [["action!()", `this call ${runs}`]]],
+      ["let h(cb: () ->! Unit): () >-> Unit =\n        let g() = action!()\n        g", [["action!()", `this call ${runs}`]]],
+      ["let h(cb: () ->! Unit): () >-> Unit = if c then (() => action!()) else (() => cb!())", [["action!()", `this call ${runs}`]]],
+      ["let h: (() ->! Unit) -> () >-> Unit = (cb) => () => action!()", [["action!()", `this call ${runs}`]]],
+      ["let h(cb: () ->! Unit): () >-> Unit = action", [["action", `this function ${runs}`]]],
     ];
     for (const [helper, expected] of shapes) {
       const source = `export let outer(action: () ->! Unit, c: Bool): Unit =\n    ${helper}\n    h(() => ())!()\n`;
@@ -934,16 +934,16 @@ export let h(cb: () ->! Unit): () ->? Unit =
         .toEqual([helper, "(() ->! Unit, Bool) ->! Unit"]);
     }
     // What the arrow is handed fits, however the value is spelled.
-    expect(at(`export let h(c: Bool, cb: () ->! Unit): () ->? Unit = if c then cb else noop
+    expect(at(`export let h(c: Bool, cb: () ->! Unit): () >-> Unit = if c then cb else noop
 export let u(): Unit = h(True, noop)()
 `)).toEqual([]);
-    expect(at(`export let h(cb: () ->! Unit): () ->? Unit =
+    expect(at(`export let h(cb: () ->! Unit): () >-> Unit =
     let g = () => cb!()
     g
 `)).toEqual([]);
     // A function handed back whole that touches the world: the no-call form.
     expect(at(`export let save0(): Unit = save!("z")
-export let h(cb: () ->! Unit): () ->? Unit = save0
+export let h(cb: () ->! Unit): () >-> Unit = save0
 `)).toEqual([["save0", "this function touches the world on its own account"]]);
   });
 });
@@ -967,11 +967,11 @@ let fwdPure(cb) = apply2(() => (), cb)
 let relay(f: () ->! Unit, g): Unit = g!(f)
 `;
     expect(check(source)).toEqual([]);
-    expect(hoveredType(text(source), "twice(")).toBe("(() ->! Unit) ->? Unit");
+    expect(hoveredType(text(source), "twice(")).toBe("(() ->! Unit) >-> Unit");
     expect(hoveredType(text(source), "twicePure(")).toBe("(() -> Unit) -> Unit");
-    expect(hoveredType(text(source), "fwd(")).toBe("(() ->! Unit, () ->! Unit) ->? Unit");
+    expect(hoveredType(text(source), "fwd(")).toBe("(() ->! Unit, () ->! Unit) >-> Unit");
     expect(hoveredType(text(source), "fwdPure(")).toBe("(() -> Unit) -> Unit");
-    expect(hoveredType(text(source), "relay(")).toBe("(() ->! Unit, (() ->! Unit) ->! Unit) ->? Unit");
+    expect(hoveredType(text(source), "relay(")).toBe("(() ->! Unit, (() ->! Unit) ->! Unit) >-> Unit");
   });
 
   it("a claimed colour is a callback's: a bare call on it is the missing-mark report", () => {
@@ -1001,7 +1001,7 @@ let relay(f: () ->! Unit, g): Unit = g!(f)
 let user(): Unit = outer!(() => save!("x"))
 `;
       expect([helper, effectDiagnostics([["/world.js", ""], ["/main.hex", text(source)]])]).toEqual([helper, []]);
-      expect([helper, hoveredType(text(source), "outer(")]).toEqual([helper, "(() ->! Unit) ->? Unit"]);
+      expect([helper, hoveredType(text(source), "outer(")]).toEqual([helper, "(() ->! Unit) >-> Unit"]);
     }
     expect(check("let outer(action): Unit =\n    let h() = action!()\n    h()\n")).toEqual([
       "this call may touch the world, so `h` wants `!`, not no mark",
@@ -1120,7 +1120,7 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
   });
 
   it("reads siblings as the fix's face: each its own colour, and the function runs their join", () => {
-    // With the fix applied `pick` is `(Bool, () ->! Unit, () ->! Unit) ->? Unit`:
+    // With the fix applied `pick` is `(Bool, () ->! Unit, () ->! Unit) >-> Unit`:
     // a call handing it an impure function wears `!`, and a forwarder meets no
     // second tie.
     const source = `let pick(c: Bool, f, g): Unit =
@@ -1173,10 +1173,10 @@ let fwd(a, b) = pick!(True, a, b)
   });
 });
 
-describe("Effects §4.4 — a refused `->?` reads as its fixit", () => {
+describe("Effects §4.4 — a refused `>->` reads as its fixit", () => {
   it("one report at a module-level record type", () => {
     expect(
-      effectDiagnostics([["/main.hex", "module Main\n\n" + `let h: { step: () ->? String } = { step = () => "x" }
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `let h: { step: () >-> String } = { step = () => "x" }
 export let z: Int = 1
 `]]).length,
     ).toBe(1);
@@ -1185,7 +1185,7 @@ export let z: Int = 1
   it("a call through the refused arrow owes the mark its fixit implies", () => {
     expect(
       effectDiagnostics([["/main.hex", "module Main\n\n" + `export let f(x: Int): Int =
-    let h: () ->? String = () => "s"
+    let h: () >-> String = () => "s"
     let y = h!()
     x
 `]]).length,
@@ -1195,13 +1195,13 @@ export let z: Int = 1
   it("and every further report is one the fixed program draws: a `->` face over it is refused", () => {
     expect(
       effectDiagnostics([["/main.hex", "module Main\n\n" + `export let f: ((Int) -> Int) = (x: Int): Int =>
-    let h: () ->? String = () => "s"
+    let h: () >-> String = () => "s"
     let y = h!()
     x
 `]]),
     ).toEqual([
-      "`->?` means only as effectful as what it is handed, and nothing is handed here — " +
-      "this annotation has no callbacks of its own, and a local `->?` does not borrow the " +
+      "`>->` means only as effectful as what it is handed, and nothing is handed here — " +
+      "this annotation has no callbacks of its own, and a local `>->` does not borrow the " +
       "enclosing function's — leave its type to inference, or write `->!`",
       "this call may touch the world, and the enclosing function's face is the pure arrow `->` " +
       "— a pure face cannot run effects",
@@ -1210,14 +1210,14 @@ export let z: Int = 1
 
   it("an alias's refused arrow reads as `->!` wherever the alias stands", () => {
     expect(
-      effectDiagnostics([["/main.hex", "module Main\n\n" + `type Maker = () ->? String
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `type Maker = () >-> String
 
 export let f(g: (() ->! String) -> String): String =
     let mkBad = (): Maker => (): String => "x"
     g(mkBad())
 `]]),
     ).toEqual([
-      "`->?` means only as effectful as what it is handed, and nothing is handed here — " +
+      "`>->` means only as effectful as what it is handed, and nothing is handed here — " +
       "an alias is a type fragment, not a signature; " +
       "write `->!` for a function that may touch the world, or `->` for one that does not",
     ]);
@@ -1237,22 +1237,22 @@ export let withTransaction: ((String ->! String) ${arrow} String) = (run: String
     expect(effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + shape("->!")]])).toEqual([]);
   });
 
-  it("refuses the `->?` face, naming `->!`", () => {
-    expect(effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + shape("->?")]])).toEqual([
-      "this call touches the world on its own account, and this face's `->?` promises the " +
+  it("refuses the `>->` face, naming `->!`", () => {
+    expect(effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + shape(">->")]])).toEqual([
+      "this call touches the world on its own account, and this face's `>->` promises the " +
       "function is only as effectful as what it is handed — write `->!`",
     ]);
-    // §4.2: the fixit rewrites the written `->?` alone: `(String ->! String)
+    // §4.2: the fixit rewrites the written `>->` alone: `(String ->! String)
     // ->! String` is the face, and the callback keeps its own colour.
-    expect(effectFixes([["/world.js", ""], ["/main.hex", "module Main\n\n" + shape("->?")]])).toEqual([
+    expect(effectFixes([["/world.js", ""], ["/main.hex", "module Main\n\n" + shape(">->")]])).toEqual([
       'write `->!`: "->!"',
     ]);
     // The one edit lands on the outer arrow, and the repaired source compiles.
-    const source = shape("->?");
+    const source = shape(">->");
     const [report] = effectSpans([["/world.js", ""], ["/main.hex", "module Main\n\n" + source]]);
-    // `((String ->! String) ->? String)`: the arrow after the callback's closing
+    // `((String ->! String) >-> String)`: the arrow after the callback's closing
     // paren is the outer one, and it is the only span the fixit touches.
-    expect(report?.edits).toEqual(["module Main\n\n".length + source.indexOf(") ->? String) =") + 2]);
+    expect(report?.edits).toEqual(["module Main\n\n".length + source.indexOf(") >-> String) =") + 2]);
     expect(
       effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + shape("->!")]]),
     ).toEqual([]);
@@ -1619,13 +1619,13 @@ export let clean(document: String): String = trim(document)
     // §4.5's composition rule, its exception, and §13's suppression, together.
     const source = `extern from "./world.js"
     export conduit fun trim(document: String): String
-    export conduit fun runner(step: () ->! String) ->? Int
+    export conduit fun runner(step: () ->! String) >-> Int
 `;
     const at = (needle: string) => "module Main\n\n".length + source.indexOf(needle);
     expect(
       effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + source]]),
     ).toEqual([
-      // No `->?` to link, so the rewrite names the conservative arrow and the
+      // No `>->` to link, so the rewrite names the conservative arrow and the
       // message is §4.5's advice in words. The inlet-less row is *not* also
       // reported — this sentence is the one that says it — and neither is the
       // colon row, whose seat this rewrite takes.
@@ -1803,8 +1803,8 @@ export let t: String = trim("x")
 export let t: String = trim("x")
 `]]),
     ).toEqual([
-      "Hexagon's type arrows are `->`, `->!`, `->?`; `=>` is the lambda arrow — " +
-      "for a function type write `Int -> Int` (or `->!` / `->?` for its colour)",
+      "Hexagon's type arrows are `->`, `->!`, `>->`; `=>` is the lambda arrow — " +
+      "for a function type write `Int -> Int` (or `->!` / `>->` for its colour)",
       wants("trim"),
     ]);
   });
@@ -1910,29 +1910,29 @@ export let t: String = trim("x")
     export ${text}
 `]])[0];
     expect(row("conduit fun trim(document: String) -> String")).toBe(giveWay("conduit"));
-    expect(row("conduit let f: () ->? Int")).toBe(giveWay("conduit"));
-    expect(row("conduit let g: Int -> (() ->? Int)")).toBe(giveWay("conduit"));
+    expect(row("conduit let f: () >-> Int")).toBe(giveWay("conduit"));
+    expect(row("conduit let g: Int -> (() >-> Int)")).toBe(giveWay("conduit"));
     expect(row("conduit let h: (() ->! Int) -> Int")).toBe(giveWay("conduit"));
   });
 
   it("measures the colon case's inlet the way the checker does", () => {
     // Where the rewrite *does* place an arrow, the inlet decides which one, and
     // §4.5's inlet test is a *position* test rather than a search: an inlet is a
-    // `->?` in something a caller supplies. The `let`-with-parameters row is
+    // `>->` in something a caller supplies. The `let`-with-parameters row is
     // asked of the parameters it wrote, and its own rewrite spells the `fun`
     // while the words supply its arrow.
     const row = (text: string) =>
       effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
     export ${text}
 `]])[0];
-    // A caller supplies this `->?`, so the claim has something to link to.
+    // A caller supplies this `>->`, so the claim has something to link to.
     expect(row("conduit let p(x: () ->! Int): Int")).toBe(RETIRED_CONDUIT);
     // Nothing here carries one at all.
     expect(row("conduit let q(x: Int): Int")).toBe(retiredWithoutInlet("conduit"));
-    // And here the only `->?` stands in the *result*, which a caller receives
+    // And here the only `>->` stands in the *result*, which a caller receives
     // rather than supplies — a search for the token would have found it and
     // been wrong.
-    expect(row("conduit let r(x: Int): (() ->? Int)")).toBe(retiredWithoutInlet("conduit"));
+    expect(row("conduit let r(x: Int): (() >-> Int)")).toBe(retiredWithoutInlet("conduit"));
   });
 
   it("reaches Part 5's keywords at the seat, and refuses the form separately", () => {
@@ -1978,13 +1978,13 @@ export let t: String = trim("x")
     expect(edit?.span.end.offset).toBe(at("(* why *)"));
   });
 
-  it("keeps a nested inlet-less `->?` reported, the suppression being the outer arrow's", () => {
+  it("keeps a nested inlet-less `>->` reported, the suppression being the outer arrow's", () => {
     // §4.5: what a redirect suppresses is Effects §4.4's row *at the row's own
-    // outer arrow*. A `->?` nested inside the signature with no inlet is that
+    // outer arrow*. A `>->` nested inside the signature with no inlet is that
     // row's own defect and stays reported.
     expect(
       effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
-    export conduit fun f(x: Int): (() ->? Int)
+    export conduit fun f(x: Int): (() >-> Int)
 `]]),
     ).toEqual([retiredWithoutInlet("conduit"), UNLINKED_EXTERN_ROW]);
   });
@@ -1997,11 +1997,11 @@ export let t: String = trim("x")
     // would be a complaint about the wrong row.
     expect(
       effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
-    export let f: () ->? Int
+    export let f: () >-> Int
 `]]),
     ).toEqual([
-      "extern callable declarations use `fun`; a binding of type `() ->? Int` is " +
-      "callable — write `fun f() ->? Int`",
+      "extern callable declarations use `fun`; a binding of type `() >-> Int` is " +
+      "callable — write `fun f() >-> Int`",
     ]);
     expect(
       effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
@@ -2015,10 +2015,10 @@ export let t: String = trim("x")
     // no-signature clause.
     expect(
       effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
-    export let h: { step: () ->? Int }
+    export let h: { step: () >-> Int }
 `]]),
     ).toEqual([
-      "`->?` means only as effectful as what it is handed, and nothing is handed " +
+      "`>->` means only as effectful as what it is handed, and nothing is handed " +
       "here — this annotation is not a function signature; write `->!` for a " +
       "function that may touch the world, or `->` for one that does not",
     ]);
@@ -2032,18 +2032,18 @@ export let t: String = trim("x")
       effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
     export fun trim(document: String) -> String
 
-export record R = { k: () ->? Unit }
+export record R = { k: () >-> Unit }
 `]]),
     ).toEqual([
-      "`->?` means only as effectful as what it is handed, and nothing is handed " +
+      "`>->` means only as effectful as what it is handed, and nothing is handed " +
       "here — a `record` field is data, not a signature; write `->!` for a " +
       "function that may touch the world, or `->` for one that does not",
     ]);
   });
 
-  it("compiles §4.5's five specimen rows, `defer`'s `->?` result included", () => {
+  it("compiles §4.5's five specimen rows, `defer`'s `>->` result included", () => {
     // The section's own worked example, whole. `defer` is the one that pins the
-    // publication seat: its `->?` stands in the *result*, so a materialization
+    // publication seat: its `>->` stands in the *result*, so a materialization
     // that re-elaborated the annotation outside the row's signature scope would
     // refuse an arrow §4.5 writes itself.
     expect(
@@ -2051,7 +2051,7 @@ export record R = { k: () ->? Unit }
     ).toEqual([]);
     // The result's colour is the row's own variable, not §4.4's recovered
     // constant; the display drops the redundant bracket the source writes.
-    expect(hoveredType(SPECIMENS, "defer")).toBe("(() ->! Unit) -> () ->? Unit");
+    expect(hoveredType(SPECIMENS, "defer")).toBe("(() ->! Unit) -> () >-> Unit");
   });
 
   it("carries `defer`'s result colour to a caller, pure and impure alike", () => {
@@ -2076,37 +2076,37 @@ export let later: Unit = defer(() => read!("p") |> ignore)!()
   });
 });
 
-describe("#869 the `->?` outer arrow — FFI Part 4 §4.5", () => {
+describe("#869 the `>->` outer arrow — FFI Part 4 §4.5", () => {
   /**
-   * The ruling's own specimen. A `->?` outer arrow seats one colour variable at
-   * that arrow *and* at every `->?` the signature writes, so the row is exactly
+   * The ruling's own specimen. A `>->` outer arrow seats one colour variable at
+   * that arrow *and* at every `>->` the signature writes, so the row is exactly
    * as effectful as its callbacks, jointly.
    */
   const runner = `extern from "./world.js"
-    export fun runner(step: () ->! String) ->? Int
+    export fun runner(step: () ->! String) >-> Int
     export fun readLine() ->! String
 `;
 
   /** Two linked slots on one row — still one variable (Effects §2.2). */
   const both = `extern from "./world.js"
-    export fun both(first: () ->! String, second: () ->! String) ->? Int
+    export fun both(first: () ->! String, second: () ->! String) >-> Int
     export fun readLine() ->! String
 `;
 
   /**
-   * §13's row for an inlet-less `->?` on a callable row: Effects §4.4's
+   * §13's row for an inlet-less `>->` on a callable row: Effects §4.4's
    * signature clause — the outer arrow is part of the row's signature, and a
-   * signature whose parameters carry no `->?` has nothing to instantiate it —
+   * signature whose parameters carry no `>->` has nothing to instantiate it —
    * with §4.5's advice in words appended, which is the boundary's addition.
    */
   const unlinkedConduit = UNLINKED_EXTERN_ROW;
 
   it("admits the row, and produces the ordinary linked face", () => {
     // No new face vocabulary: what the keyword yields is a face the written
-    // grammar can already spell, displayed with the plain `->?` because it
+    // grammar can already spell, displayed with the plain `>->` because it
     // carries exactly one variable (§10's single-variable rule).
     expect(effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + runner]])).toEqual([]);
-    expect(hoveredType(runner, "runner")).toBe("(() ->! String) ->? Int");
+    expect(hoveredType(runner, "runner")).toBe("(() ->! String) >-> Int");
   });
 
   it("takes a bare call with a pure callback", () => {
@@ -2144,7 +2144,7 @@ export let use(k: () ->! String): Int = runner!(k)
     ).toEqual([]);
   });
 
-  it("joins every `->?` slot into one colour, exactly as a written signature does", () => {
+  it("joins every `>->` slot into one colour, exactly as a written signature does", () => {
     // One variable per signature (§2.2) is not relaxed at the boundary: the two
     // slots are one colour, so both callbacks are pure or both are impure, and
     // the outer arrow follows them. The in-language twin below is the control —
@@ -2192,37 +2192,37 @@ export let impureUse: Int = runner!(() => readLine!())
     ).toEqual([]);
   });
 
-  it("refuses the claim on a row with no `->?` slot to link to", () => {
+  it("refuses the claim on a row with no `>->` slot to link to", () => {
     // §4.1's and §4.4's own sentence, at the claim: one spelling, one meaning,
     // and where the meaning is unavailable, a diagnostic rather than a silent
     // re-read as the impure default.
     expect(
       effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
-    export fun runner(step: () -> String) ->? Int
+    export fun runner(step: () -> String) >-> Int
 `]]),
     ).toEqual([unlinkedConduit]);
     // A row with no function-typed parameter at all takes the same report.
     expect(
       effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
-    export fun trim(document: String) ->? String
+    export fun trim(document: String) >-> String
 `]]),
     ).toEqual([unlinkedConduit]);
   });
 
   it("stands that report on the arrow itself, with `->!` as its fixit", () => {
     const source = `extern from "./world.js"
-    export fun trim(document: String) ->? String
+    export fun trim(document: String) >-> String
 `;
     expect(effectSpans([["/world.js", ""], ["/main.hex", "module Main\n\n" + source]])).toEqual([
       {
-        primary: "module Main\n\n".length + source.indexOf("->?"),
-        edits: ["module Main\n\n".length + source.indexOf("->?")],
+        primary: "module Main\n\n".length + source.indexOf(">->"),
+        edits: ["module Main\n\n".length + source.indexOf(">->")],
       },
     ]);
   });
 
   it("redirects the retired `conduit` word, with the fixit that drops it", () => {
-    // §13's `conduit` row, the `pure` row's twin: the word goes and `->?` takes
+    // §13's `conduit` row, the `pure` row's twin: the word goes and `>->` takes
     // the `:` seat, which is what the claim used to say.
     const source = `extern from "./world.js"
     export conduit fun runner(step: () ->! String): Int
@@ -2270,7 +2270,7 @@ export let impureUse: Int = runner!(() => readLine!())
     export conduit pure fun runner(step: () ->! String) ->! Int
 `]]),
     ).toEqual([giveWay("pure conduit")]);
-    // And where nothing the row is handed carries `->?`, the pair's report is
+    // And where nothing the row is handed carries `>->`, the pair's report is
     // the conduit half's sentence — the missing inlet is its problem alone.
     expect(
       effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
@@ -2339,7 +2339,7 @@ export let total: Int = conduit(21) + Pipe({ conduit = 21 }).conduit
 
   it("carries the linked face into the emitted `.d.ts`", () => {
     expect(declarationsOf([["/world.js", ""], ["/main.hex", "module Main\n\n" + runner]])).toContain(
-      "/** Hexagon: `(() ->! String) ->? Int` */\nexport declare function runner(",
+      "/** Hexagon: `(() ->! String) >-> Int` */\nexport declare function runner(",
     );
   });
 });
@@ -2420,7 +2420,7 @@ export let go(): Unit = drive({ step = () => save!("x") })
 `]]),
     ).toEqual([
       "a `->` arrow promises purity, and this function may touch the world — the " +
-      "demand is written `->`, the function's face `->!` or `->?`",
+      "demand is written `->`, the function's face `->!` or `>->`",
     ]);
   });
 });
@@ -2485,7 +2485,7 @@ describe("#405 the return-annotation slot needs no parentheses", () => {
    * dedicated report whose region superseded the misparse's consequences.
    *
    * All of it is withdrawn. Both of that rule's causes were the type and term
-   * levels sharing the `=>` token; the type arrows are now `->`, `->?`, `->!`
+   * levels sharing the `=>` token; the type arrows are now `->`, `>->`, `->!`
    * and the lambda's is `=>`, so a greedy annotation parse cannot reach the
    * body and there is nothing left to disambiguate.
    */
@@ -2553,15 +2553,15 @@ export let g: Int = "text"
 /**
  * §10's first obligation, as ruled in #364 and narrowed by #405: display
  * **distinguishes** rather than normalizes. A face renders its arrows by
- * colour, and the undecorated `->?` covers every face with exactly one effect
+ * colour, and the undecorated `>->` covers every face with exactly one effect
  * variable — which is what a written signature spells, since the grammar links
- * every `->?` into one colour. Only a face with *more than one* is numbered,
+ * every `>->` into one colour. Only a face with *more than one* is numbered,
  * by first appearance, because only that is inexpressible.
  *
  * The predecessor also numbered a lone variable with no inlet occurrence: the
  * else-constant rule read an inlet-less written arrow back as the impure
  * constant, so the plain spelling would have meant something else. That rule is
- * withdrawn, and with it the case — a plain `->?` is exactly right about the
+ * withdrawn, and with it the case — a plain `>->` is exactly right about the
  * colour, and pasting it somewhere that cannot host it is §4.4's error, which
  * explains itself where a lexer failure would not.
  */
@@ -2571,7 +2571,7 @@ export let save2(document: String): String =
     save!(document)
     document
 
-export let compose(first: String ->! String, second: String ->! String): (String ->? String) =
+export let compose(first: String ->! String, second: String ->! String): (String >-> String) =
     (document) => second!(first!(document))
 
 export let withTransaction: ((String ->! String) ->! String) = (run: String ->! String): String =>
@@ -2592,7 +2592,7 @@ export let clean(document: String): String = trim(document)
     // source nor a conduit, so that colour now defaults pure (§3.4's third arm),
     // and the one variable left displays plainly.
     expect(hoveredType(composeSource, "compose")).toBe(
-      "(String ->! String, String ->! String) -> String ->? String",
+      "(String ->! String, String ->! String) -> String >-> String",
     );
   });
 
@@ -2601,7 +2601,7 @@ export let clean(document: String): String = trim(document)
     // second. A finished face depends on all of its callbacks or none (§2.4),
     // so nothing is numbered, and each callback's own arrow shows `->!`.
     expect(hoveredType(stagedSource, "staged")).toBe(
-      "(String ->! String) -> (String ->! String) ->? String",
+      "(String ->! String) -> (String ->! String) >-> String",
     );
   });
 
@@ -2627,7 +2627,7 @@ export let clean(document: String): String = trim(document)
     total
 `;
     expect(hoveredType(source, "fold")).toBe(
-      "(Vector(a), b, (b, a) ->! b) ->? b",
+      "(Vector(a), b, (b, a) ->! b) >-> b",
     );
   });
 
@@ -2644,7 +2644,7 @@ export let clean(document: String): String = trim(document)
     const source = `let k(x: _ : Show, g: (a) ->! a) = show(g!(x))
 export let out: String = k("a", (s) => s)
 `;
-    expect(hoveredType(source, "k(")).toBe("<a: Show> (a, a ->! a) ->? String");
+    expect(hoveredType(source, "k(")).toBe("<a: Show> (a, a ->! a) >-> String");
   });
 
   it("leaves a lone colour plain even where it offers no inlet (#405)", () => {
@@ -2657,17 +2657,17 @@ export let out: String = k("a", (s) => s)
     const source = `export let make(): String = "x"
 export let hold(f: (() -> String) ->! Int): Int = f!(make)
 `;
-    expect(hoveredType(source, "f:")).toBe("(() -> String) ->? Int");
+    expect(hoveredType(source, "f:")).toBe("(() -> String) >-> Int");
     expect(hoveredType(source, "hold")).toBe(
-      "((() -> String) ->! Int) ->? Int",
+      "((() -> String) ->! Int) >-> Int",
     );
   });
 
   it("leaves a callback parameter plain when hovered on its own", () => {
     // The everyday shape of the same change: `first`'s colour is the enclosing
     // signature's, and as a face in its own right it is still one colour, so it
-    // is still spelled `->?`.
-    expect(hoveredType(composeSource, "first:")).toBe("String ->? String");
+    // is still spelled `>->`.
+    expect(hoveredType(composeSource, "first:")).toBe("String >-> String");
   });
 
   it("never numbers a constant, at either end of the trio", () => {
@@ -2696,12 +2696,12 @@ export let hold(step: () ->! Int, value: a): a = value
     const emitted = declarationsOf(
       [["/world.js", ""], ["/main.hex", "module Main\n\n" + `${world}
 (** Runs both, in order. *)
-export let compose(first: String ->! String, second: String ->! String): (String ->? String) =
+export let compose(first: String ->! String, second: String ->! String): (String >-> String) =
     (document) => second!(first!(document))
 `]],
     );
     expect(emitted).toContain(
-      " * Hexagon: `(String ->! String, String ->! String) -> String ->? String`",
+      " * Hexagon: `(String ->! String, String ->! String) -> String >-> String`",
     );
     expect(emitted).toContain(" * Runs both, in order.");
     // The colours erase (§8), so they take no TypeScript quantifier with them:
@@ -2729,7 +2729,7 @@ export let wrong: Int = staged
 `]]),
     ).toEqual([
       "type mismatch: expected Int, found " +
-      "((String) ->! String) -> ((String) ->! String) ->? String",
+      "((String) ->! String) -> ((String) ->! String) >-> String",
     ]);
   });
 
@@ -2742,7 +2742,7 @@ export let hold(f: (() -> String) ->! Int): Int = f!(make)
 export let wrong: Int = hold
 `]]),
     ).toEqual([
-      "type mismatch: expected Int, found ((() -> String) ->! Int) ->? Int",
+      "type mismatch: expected Int, found ((() -> String) ->! Int) >-> Int",
     ]);
     // The same colour, displayed as `f`'s own type — no inlet in view, and
     // still the plain spelling, because it is still one colour.
@@ -2753,13 +2753,12 @@ export let hold(f: (() -> String) ->! Int): Int =
     f!(make)
 `]]),
     ).toEqual([
-      "type mismatch: expected String, found (() -> String) ->? Int",
+      "type mismatch: expected String, found (() -> String) >-> Int",
     ]);
   });
 
   it("refuses to write a variable colour back into source", () => {
-    // The decorated spelling is display-only — `->?¹` is not grammar — and the
-    // undecorated one would link this arrow into the signature's own colour,
+    // The displayed `>->` would link this arrow into the signature's own colour,
     // which is a claim about the *other* arrows that this type alone cannot
     // know is true. So the repair says why rather than writing it.
     const source = "module Main\n\n" + "export fun pick(step: String ->! String) = step\n";
@@ -2769,7 +2768,7 @@ export let hold(f: (() -> String) ->! Int): Int =
     const actions = session.codeActions("/main.hex", { start: offset, end: offset });
     expect(actions.map(({ title, disabled }) => `${title}: ${disabled ?? "offered"}`)).toEqual([
       "Infer return type: the return type of `pick` cannot be written here: " +
-      "this function type's arrow is an effect variable, and writing `->?` here " +
+      "this function type's arrow is an effect variable, and writing `>->` here " +
       "would link it to the rest of the signature's colour",
     ]);
   });
@@ -2830,7 +2829,7 @@ export let go(document: String): Unit = strict(save, document)
 `]]),
     ).toEqual([
       "a `->` arrow promises purity, and this function may touch the world — the " +
-      "demand is written `->`, the function's face `->!` or `->?`",
+      "demand is written `->`, the function's face `->!` or `>->`",
     ]);
   });
 
@@ -2867,7 +2866,7 @@ export let bad: Seq(String) = Seq.unfold("x", (seed) =>
 `),
     ).toEqual([
       "a `->` arrow promises purity, and this function may touch the world — the " +
-      "demand is written `->`, the function's face `->!` or `->?`",
+      "demand is written `->`, the function's face `->!` or `>->`",
     ]);
   });
 });
@@ -2894,7 +2893,7 @@ describe("#947 closure construction stays pure, and knots settle at their close"
     // finishes with that colour standing in none of its own parameters: `k`
     // is published `Int -> Unit`, and an outside call is bare (§2.4).
     const source = `fun
-    h(n: Int, cb: () ->! Unit): () ->? Unit =
+    h(n: Int, cb: () ->! Unit): () >-> Unit =
         let g = () => k!(n)
         g
     k(n: Int): Unit = if n == 0 then () else h(n - 1, () => ())!()
@@ -2910,7 +2909,7 @@ export let use(): Unit = k(3)
     // colour is published pure on `k`'s own arrow, and `h` keeps it as a colour
     // of its own there, so the caller hands it an effectful callback (§2.4).
     const source = `fun
-    h(n: Int, cb: () ->! Unit): () ->? Unit =
+    h(n: Int, cb: () ->! Unit): () >-> Unit =
         let g = () =>
             cb!()
             let _ = k!(n)
@@ -2924,7 +2923,7 @@ export let use(): Unit =
     hh(1, () => save!("x"))!()
 `;
     expect(check(source)).toEqual([]);
-    expect(hover(source, "k(n: Int) =")).toBe("Int -> ((Int, () ->! Unit) -> () ->? Unit, Int)");
+    expect(hover(source, "k(n: Int) =")).toBe("Int -> ((Int, () ->! Unit) -> () >-> Unit, Int)");
     expect(check(source.replace("= k(1)", "= k!(1)"))).toEqual([wantsBare("k", "!")]);
   });
 
@@ -2943,12 +2942,12 @@ ${use}
     const inTuple = make("(run, 1)", `    let (r, _) = make()
     r!(() => save!("x"))`);
     expect(check(inTuple)).toEqual([]);
-    expect(hover(inTuple, "make() =")).toBe("() -> ((() ->! Unit) ->? Unit, Int)");
+    expect(hover(inTuple, "make() =")).toBe("() -> ((() ->! Unit) >-> Unit, Int)");
     const inOption = make("Some(run)", `    match make()
         Some(r) => r!(() => save!("x"))
         None => ()`);
     expect(check(inOption)).toEqual([]);
-    expect(hover(inOption, "make() =")).toBe("() -> Option((() ->! Unit) ->? Unit)");
+    expect(hover(inOption, "make() =")).toBe("() -> Option((() ->! Unit) >-> Unit)");
     // Held by no parameter at all, the colour is pure wherever it stands, the
     // returned function's own arrow included.
     const unheld = make(`let go = () => run!(() => ())
@@ -2969,18 +2968,18 @@ ${use}
     r!(() => save!("x"))
     g()`);
     expect(check(pair)).toEqual([]);
-    expect(hover(pair, "make() =")).toBe("() -> ((() ->! Unit) ->? Unit, () -> Unit)");
+    expect(hover(pair, "make() =")).toBe("() -> ((() ->! Unit) >-> Unit, () -> Unit)");
     // In a record, in a vector, and behind a curried arrow alike.
-    expect(hover(make("{ go = run }", "    ()"), "make() =")).toBe("() -> {go: (() ->! Unit) ->? Unit}");
-    expect(hover(make("[run]", "    ()"), "make() =")).toBe("() -> Vector((() ->! Unit) ->? Unit)");
-    expect(hover(make("(n: Int) => (run, n)", "    ()"), "make() =")).toBe("() -> Int -> ((() ->! Unit) ->? Unit, Int)");
+    expect(hover(make("{ go = run }", "    ()"), "make() =")).toBe("() -> {go: (() ->! Unit) >-> Unit}");
+    expect(hover(make("[run]", "    ()"), "make() =")).toBe("() -> Vector((() ->! Unit) >-> Unit)");
+    expect(hover(make("(n: Int) => (run, n)", "    ()"), "make() =")).toBe("() -> Int -> ((() ->! Unit) >-> Unit, Int)");
   });
 
   it("reads a declared type's arguments by their variance when it publishes (#1166)", () => {
     // `R`'s fields are out of view at `make`: `apply` takes an `a` the caller
     // chooses and gives back the `b`, so a colour `a` holds is held for `b`
     // too, and `th` runs what the caller handed `apply`.
-    const nominal = `let defer(action: () ->! Unit): () ->? Unit = () => action!()
+    const nominal = `let defer(action: () ->! Unit): () >-> Unit = () => action!()
 let ident(x: a): a = x
 record R(a, b) = { sample: a, apply: (a) -> b }
 let make() =
@@ -3063,7 +3062,7 @@ export let use(): Unit =
     g!()
 `;
     expect(check(source)).toEqual([]);
-    expect(hover(source, "make(cb")).toBe("(() ->! Unit) -> (() ->? Unit, Int)");
+    expect(hover(source, "make(cb")).toBe("(() ->! Unit) -> (() >-> Unit, Int)");
     expect(check(source.replace("    g!()", "    g()"))).toEqual([wantsBang("g")]);
   });
 
@@ -3100,7 +3099,7 @@ export let outside(): Unit = ${outside}
     expect(check(noop + knot("m!(noop, noop, n)", "m(noop, noop, 1)"))).toEqual([]);
     expect(check(noop + knot("m!(noop, save0, n)", "m(noop, save0, 1)"))).toEqual([]);
     expect(hover(noop + knot("m!(noop, noop, n)", "m(noop, noop, 1)"), "m(a")).toBe(
-      "(() ->! Unit, () ->! Unit, Int) ->? Unit",
+      "(() ->! Unit, () ->! Unit, Int) >-> Unit",
     );
   });
 
@@ -3112,11 +3111,11 @@ export let outside(): Unit = ${outside}
   });
 
   it("builds `defer`'s closure purely, with or without a written return", () => {
-    for (const header of ["let defer(action: () ->! Unit)", "let defer(action: () ->! Unit): (() ->? Unit)"]) {
+    for (const header of ["let defer(action: () ->! Unit)", "let defer(action: () ->! Unit): (() >-> Unit)"]) {
       const source = `${header} = () => action!()
-export let useDefer(action: () ->! Unit): (() ->? Unit) = defer(action)
+export let useDefer(action: () ->! Unit): (() >-> Unit) = defer(action)
 `;
-      expect(hover(source, "defer(")).toBe("(() ->! Unit) -> () ->? Unit");
+      expect(hover(source, "defer(")).toBe("(() ->! Unit) -> () >-> Unit");
       expect(check(source)).toEqual([]);
       expect(check(source.replace("= defer(action)", "= defer!(action)"))).toEqual([wantsBare("defer", "!")]);
     }
@@ -3132,7 +3131,7 @@ export let useDefer(action: () ->! Unit): (() ->? Unit) = defer(action)
 `;
     expect(check(source)).toEqual([]);
     expect(hover(source, "g =")).toBe("Int -> Int");
-    expect(hover(source, "outer")).toBe("(() ->! Unit, () -> Unit) ->? Unit");
+    expect(hover(source, "outer")).toBe("(() ->! Unit, () -> Unit) >-> Unit");
   });
 
   it("decides a source's other call colours before it generalizes", () => {
@@ -3150,7 +3149,7 @@ export let useDefer(action: () ->! Unit): (() ->? Unit) = defer(action)
     n)
 `)).toEqual([
       "a `->` arrow promises purity, and this function may touch the world — the " +
-      "demand is written `->`, the function's face `->!` or `->?`",
+      "demand is written `->`, the function's face `->!` or `>->`",
     ]);
   });
 
@@ -3185,7 +3184,7 @@ export let total(value: Int, cb: () ->! Unit): Int =
     odd(n: Int, cb: () ->! Unit): Unit = if n == 0 then () else even!(n - 1, cb)
 `;
       expect(check(evenOdd)).toEqual([]);
-      expect(hover(evenOdd, "odd(n")).toBe("(Int, () ->! Unit) ->? Unit");
+      expect(hover(evenOdd, "odd(n")).toBe("(Int, () ->! Unit) >-> Unit");
       expect(check(evenOdd.replace("else even!(", "else even("))).toEqual([wantsBang("even")]);
     });
 
@@ -3215,7 +3214,7 @@ export let total(value: Int, cb: () ->! Unit): Int =
         const compiled = compileFiles([["/world.js", ""], ["/main.hex", text]]).diagnostics;
         expect(compiled.map(({ message }) => message)).toEqual([
           "a `->` arrow promises purity, and this function may touch the world — the " +
-          "demand is written `->`, the function's face `->!` or `->?`",
+          "demand is written `->`, the function's face `->!` or `>->`",
         ]);
         // The primary is the demand — the written `() -> Unit` that pinned `b`.
         expect(text.slice(compiled[0]!.primary.start.offset)).toMatch(/^\(\) -> Unit = b\n/);
@@ -3259,7 +3258,7 @@ export let total(value: Int, cb: () ->! Unit): Int =
         const knot = `fun\n${members.join("")}`;
         expect(check(knot)).toEqual([
           "a `->` arrow promises purity, and this function may touch the world — the " +
-          "demand is written `->`, the function's face `->!` or `->?`",
+          "demand is written `->`, the function's face `->!` or `>->`",
         ]);
         expect(hover(knot, "b()")).toBe("() -> Int");
       }
@@ -3278,7 +3277,7 @@ export let total(value: Int, cb: () ->! Unit): Int =
           const knot = `fun\n${members.join("")}`;
           expect(check(knot)).toEqual([
             "a `->` arrow promises purity, and this function may touch the world — the " +
-            "demand is written `->`, the function's face `->!` or `->?`",
+            "demand is written `->`, the function's face `->!` or `>->`",
           ]);
           expect(hover(knot, "a()")).toBe("() ->! Unit");
           expect(hover(knot, "b()")).toBe("() ->! Unit");
@@ -3333,12 +3332,12 @@ export let total(value: Int, cb: () ->! Unit): Int =
     a!(3)
 `;
       expect(check(source)).toEqual([]);
-      expect(hover(source, "a(n")).toBe("Int ->? Int");
+      expect(hover(source, "a(n")).toBe("Int >-> Int");
     });
   });
 
   describe("a function's colour is what its body does (§2.6)", () => {
-    it("fits a pure lambda to a monomorphic `->?`, the written face no longer needed (#1119)", () => {
+    it("fits a pure lambda to a monomorphic `>->`, the written face no longer needed (#1119)", () => {
       // A pure function fits wherever a function is expected: beside `cb` the
       // lambda adds nothing to the colour the two share, which stays `cb`'s.
       // A local left to inference serves as the lambda does.
@@ -3348,17 +3347,17 @@ export let total(value: Int, cb: () ->! Unit): Int =
     let noop = () => ()
     both(cb, noop)
 `)).toEqual([]);
-      const orNoop = `export let orNoop(flag: Bool, cb: () ->! Unit): (() ->? Unit) =
+      const orNoop = `export let orNoop(flag: Bool, cb: () ->! Unit): (() >-> Unit) =
     let noop = () => ()
     if flag then cb else noop
 `;
       expect(check(orNoop)).toEqual([]);
-      expect(hover(orNoop, "orNoop")).toBe("(Bool, () ->! Unit) -> () ->? Unit");
-      const direct = `export let orNoop(flag: Bool, cb: () ->! Unit): (() ->? Unit) =
+      expect(hover(orNoop, "orNoop")).toBe("(Bool, () ->! Unit) -> () >-> Unit");
+      const direct = `export let orNoop(flag: Bool, cb: () ->! Unit): (() >-> Unit) =
     if flag then cb else () => ()
 `;
       expect(check(direct)).toEqual([]);
-      expect(hover(direct, "orNoop")).toBe("(Bool, () ->! Unit) -> () ->? Unit");
+      expect(hover(direct, "orNoop")).toBe("(Bool, () ->! Unit) -> () >-> Unit");
     });
 
     it("fits a pure lambda where a `->!` field is demanded, inside an inlet-bearing body too (#1119)", () => {
@@ -3398,20 +3397,20 @@ describe("captured colours, pins, and owners (Effects §3.4, §4.2, §10)", () =
         fix.edits.map(({ span, replacement }) => [span.start.offset - prefix.length, replacement])
       ),
     }));
-  const LOCAL = "`->?` means only as effectful as what it is handed, and nothing is handed here — " +
-    "this annotation has no callbacks of its own, and a local `->?` does not borrow the " +
+  const LOCAL = "`>->` means only as effectful as what it is handed, and nothing is handed here — " +
+    "this annotation has no callbacks of its own, and a local `>->` does not borrow the " +
     "enclosing function's — leave its type to inference, or write `->!`";
   const lie = (name: string): string =>
     `the parameter \`${name}\` is written \`->!\`, which accepts any function, and this accepts ` +
     `only a pure one — write \`${name}\`'s arrow \`->\``;
 
-  describe("a local header's `->?` borrows nothing (§2.2.1)", () => {
+  describe("a local header's `>->` borrows nothing (§2.2.1)", () => {
     it("is refused in every local form, and reads as its fixit", () => {
       for (const body of [
-        "    fun h(): () ->? Unit = () => action!()\n    h()!()\n",
-        "    let h(): () ->? Unit = () => action!()\n    h()!()\n",
-        "    let h: () ->? Unit = () => action!()\n    h!()\n",
-        "    let h = (): () ->? Unit => () => action!()\n    h()!()\n",
+        "    fun h(): () >-> Unit = () => action!()\n    h()!()\n",
+        "    let h(): () >-> Unit = () => action!()\n    h()!()\n",
+        "    let h: () >-> Unit = () => action!()\n    h!()\n",
+        "    let h = (): () >-> Unit => () => action!()\n    h()!()\n",
       ]) {
         const source = `export let outer(action: () ->! Unit): Unit =\n${body}`;
         expect(check(source)).toEqual([LOCAL]);
@@ -3422,13 +3421,13 @@ describe("captured colours, pins, and owners (Effects §3.4, §4.2, §10)", () =
     it("left to inference, a local follows the captured callback", () => {
       const source = "export let outer(action: () ->! Unit): Unit =\n    fun h() = () => action!()\n    h()!()\n";
       expect(check(source)).toEqual([]);
-      expect(hover(source, "outer")).toBe("(() ->! Unit) ->? Unit");
-      expect(hover(source, "h()")).toBe("() -> () ->? Unit");
+      expect(hover(source, "outer")).toBe("(() ->! Unit) >-> Unit");
+      expect(hover(source, "h()")).toBe("() -> () >-> Unit");
     });
 
     it("a module-level header with nothing handed is refused with the nothing-handed clause", () => {
-      expect(check("export fun h(): () ->? Unit = () => ()\n")).toEqual([
-        "`->?` means only as effectful as what it is handed, and nothing is handed here — " +
+      expect(check("export fun h(): () >-> Unit = () => ()\n")).toEqual([
+        "`>->` means only as effectful as what it is handed, and nothing is handed here — " +
         "no callback of this signature has been handed over by the time this arrow runs; " +
         "write `->!` for a function that may touch the world, or `->` for one that does not",
       ]);
@@ -3475,15 +3474,15 @@ describe("captured colours, pins, and owners (Effects §3.4, §4.2, §10)", () =
       expect(hover(source, "outer")).toBe("(() ->! Unit) ->! Unit");
     });
 
-    it("tells a `->?` face over a source once when a `fun` knot conducts it (#891)", () => {
-      expect(check(`export let withTransaction: ((String ->! String) ->? String) = (run: String ->! String): String =>
+    it("tells a `>->` face over a source once when a `fun` knot conducts it (#891)", () => {
+      expect(check(`export let withTransaction: ((String ->! String) >-> String) = (run: String ->! String): String =>
     ignore(save!("begin"))
     fun
         ping(n: Int): String = if n == 0 then run!("x") else pong!(n - 1)
         pong(n: Int): String = ping!(n)
     ping!(2)
 `)).toEqual([
-        "this call touches the world on its own account, and this face's `->?` promises the " +
+        "this call touches the world on its own account, and this face's `>->` promises the " +
         "function is only as effectful as what it is handed — write `->!`",
       ]);
     });
@@ -3507,26 +3506,26 @@ describe("captured colours, pins, and owners (Effects §3.4, §4.2, §10)", () =
     mid(() => 1)
 `;
 
-    it("shows `->?` and names the owner, however deep the capture", () => {
+    it("shows `>->` and names the owner, however deep the capture", () => {
       const source = `export let outer(action: () ->! Unit): Unit =
     let g = action
     g!()
 `;
       for (const [text, needle] of [[source, "g ="], [inMid, "g ="]] as const) {
         const shown = hovered(text, needle);
-        expect(shown?.displayedType).toBe("() ->? Unit");
+        expect(shown?.displayedType).toBe("() >-> Unit");
         expect(shown?.colourOwners).toEqual([owner]);
       }
-      expect(hoverMarkdown(hovered(inMid, "g =")!)).toBe(`value \`g: () ->? Unit\`\n\n${owner}`);
+      expect(hoverMarkdown(hovered(inMid, "g =")!)).toBe(`value \`g: () >-> Unit\`\n\n${owner}`);
       // `mid`'s own face is its own callback's, and names no owner.
-      expect(hovered(inMid, "mid(cb")?.displayedType).toBe("(() ->! Int) ->? Int");
+      expect(hovered(inMid, "mid(cb")?.displayedType).toBe("(() ->! Int) >-> Int");
       expect(hovered(inMid, "mid(cb")?.colourOwners).toBeUndefined();
     });
 
     it("displays a hole where it stands", () => {
       const source = inMid.replace("let g = action", "let g: _ = action");
       const hole = hovered(source, "_ = action");
-      expect(hole?.displayedType).toBe("() ->? Unit");
+      expect(hole?.displayedType).toBe("() >-> Unit");
       expect(hole?.colourOwners).toEqual([owner]);
     });
 
@@ -3540,8 +3539,8 @@ describe("captured colours, pins, and owners (Effects §3.4, §4.2, §10)", () =
         k!()
     mid(() => 1)
 `;
-      expect(hovered(source, "h(cb")?.displayedType).toBe("(() ->! Int) ->? Int");
-      expect(hovered(source, "copy =")?.displayedType).toBe("(() ->! Int) ->? Int");
+      expect(hovered(source, "h(cb")?.displayedType).toBe("(() ->! Int) >-> Int");
+      expect(hovered(source, "copy =")?.displayedType).toBe("(() ->! Int) >-> Int");
       expect(hovered(source, "copy =")?.colourOwners).toEqual([owner]);
     });
 
@@ -3564,13 +3563,13 @@ describe("captured colours, pins, and owners (Effects §3.4, §4.2, §10)", () =
       const source = inMid.replace("        cb!()\n", "        let z = g\n        cb!()\n");
       const cursor = prefix.length + source.indexOf("let z = g") + "let z = g".length;
       const g = session(source).completions("/main.hex", cursor).find(({ name }) => name === "g");
-      expect(g?.detail).toBe("() ->? Unit — depends on outer's action");
+      expect(g?.detail).toBe("() >-> Unit — depends on outer's action");
     });
 
     it("decorates a diagnostic that shows a captured colour, over settled colours", () => {
       const inside = inMid.replace("        cb!()\n", "        let n: Int = g\n        cb!()\n");
       const report = compileFiles([["/world.js", ""], ["/main.hex", prefix + inside]]).diagnostics;
-      expect(report.map(({ message }) => message)).toEqual(["type mismatch: expected Int, found () ->? Unit"]);
+      expect(report.map(({ message }) => message)).toEqual(["type mismatch: expected Int, found () >-> Unit"]);
       expect(report[0]?.notes).toEqual([owner]);
       // A face with a callback of its own and a captured colour names what else
       // it depends on; one whose colours are all its own callbacks' names none.
@@ -3582,7 +3581,7 @@ describe("captured colours, pins, and owners (Effects §3.4, §4.2, §10)", () =
 `);
       const joined = compileFiles([["/world.js", ""], ["/main.hex", prefix + both]]).diagnostics;
       expect(joined.map(({ message }) => message)).toEqual([
-        "type mismatch: expected Int, found (() ->! Unit) ->? Unit",
+        "type mismatch: expected Int, found (() ->! Unit) >-> Unit",
       ]);
       expect(joined[0]?.notes).toEqual([owner]);
       const own = inMid.replace("        cb!()\n", `        let k = (f: () ->! Unit): Unit => f!()
@@ -3591,7 +3590,7 @@ describe("captured colours, pins, and owners (Effects §3.4, §4.2, §10)", () =
 `);
       const plain = compileFiles([["/world.js", ""], ["/main.hex", prefix + own]]).diagnostics;
       expect(plain.map(({ message }) => message)).toEqual([
-        "type mismatch: expected Int, found (() ->! Unit) ->? Unit",
+        "type mismatch: expected Int, found (() ->! Unit) >-> Unit",
       ]);
       expect(plain[0]?.notes).toBeUndefined();
     });

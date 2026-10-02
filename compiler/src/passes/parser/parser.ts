@@ -306,7 +306,7 @@ const EXPORT_BELOW_MODULE_LEVEL =
  */
 const MEMBER_COLON_SEPARATOR =
   "a constraint member declares its effect — write `show(x: a) -> String` " +
-  "(`->!` for a member whose instances may perform effects, `->?` for one as " +
+  "(`->!` for a member whose instances may perform effects, `>->` for one as " +
   "effectful as a callback it is handed)";
 
 /**
@@ -317,7 +317,7 @@ const MEMBER_COLON_SEPARATOR =
  */
 const EXTERN_COLON_SEPARATOR =
   "an extern callable declares its effect — write `->` for a function that " +
-  "touches nothing, `->!` for one that may, `->?` for one exactly as effectful " +
+  "touches nothing, `->!` for one that may, `>->` for one exactly as effectful " +
   "as a callback it is handed; when in doubt, `->!`";
 
 /**
@@ -332,7 +332,7 @@ const EXTERN_MISSING_RESULT =
 /**
  * Whether a written parameter type is a callback with a colour of its own
  * (Effects §2.4): a function type whose own arrow is written `->!` — or the
- * refused `->?`, which reads as it.
+ * refused `>->`, which reads as it.
  */
 function writesCallback(annotation: Parsed.TypeAnnotation | undefined): boolean {
   return annotation?.kind === "Function" && annotation.effect !== undefined;
@@ -412,10 +412,10 @@ const RETIRED_SEAT_FOLLOWERS = new Set([
 
 /** What §13's retired-word redirect resolved to, for the row's own recovery. */
 interface RetiredRedirect {
-  /** The arrow the words said — `->` for `pure`, `->?` for `conduit` and the pair. */
-  readonly claimed: "->" | "->?";
-  /** What the rewrite writes: the claim, or `->!` where a `->?` would have no inlet. */
-  readonly written: "->" | "->?" | "->!";
+  /** The arrow the words said — `->` for `pure`, `>->` for `conduit` and the pair. */
+  readonly claimed: "->" | ">->";
+  /** What the rewrite writes: the claim, or `->!` where a `>->` would have no inlet. */
+  readonly written: "->" | ">->" | "->!";
   /** Whether that arrow was actually written into the row, at a `:` seat. */
   readonly rewritesArrow: boolean;
 }
@@ -2578,15 +2578,15 @@ class Parser {
       // §4.5 composes in order: **a written arrow stands** before the words
       // supply one. So this row spells the `fun` and keeps whatever arrow its
       // author already wrote; only where the author wrote `:` do the words
-      // supply it — `->` for `pure`, `->?` for `conduit` and the pair, `->!`
-      // where no `->?` parameter would link one, and `->!` where no word was
+      // supply it — `->` for `pure`, `>->` for `conduit` and the pair, `->!`
+      // where no `>->` parameter would link one, and `->!` where no word was
       // written at all.
       const letArrow = letColon === undefined
         ? letWritten ?? "->!"
         : !retired.some((claim) => claim.text === "conduit")
         ? (retired.length === 0 ? "->!" : "->")
         : letInlet
-        ? "->?"
+        ? ">->"
         : "->!";
       this.#errorAt(
         localName.span,
@@ -2634,7 +2634,7 @@ class Parser {
       const arrow = annotation.effect === undefined
         ? "->"
         : annotation.effect === "linked"
-        ? "->?"
+        ? ">->"
         : "->!";
       this.#errorAt(
         annotation.span,
@@ -3280,12 +3280,12 @@ class Parser {
       // §4.5: the face the row recovers with is **the arrow the fixit names**
       // — the rewritten one where the rewrite wrote it, and otherwise the
       // arrow the row already writes, which stands. The one thing that never
-      // survives is an inlet-less `->?`: this redirect has been reported, and
+      // survives is an inlet-less `>->`: this redirect has been reported, and
       // §13 does not report the inlet-less row on top of it.
       if (redirect.rewritesArrow) {
         effect = redirect.written === "->"
           ? undefined
-          : redirect.written === "->?"
+          : redirect.written === ">->"
           ? "linked"
           : "constant";
       } else if (effect === "linked" && !hasInlet) {
@@ -3344,13 +3344,13 @@ class Parser {
     if (first === undefined) return undefined;
     // One report, and one spelling: a row that wrote both words said one thing
     // about one arrow whichever order it wrote them in, and the thing it said
-    // is the conduit — `->?` being the weaker claim, so the colon never becomes
+    // is the conduit — `>->` being the weaker claim, so the colon never becomes
     // the stronger arrow (§4.5). Repeating one word names that word alone.
     const pure = claims.some((claim) => claim.text === "pure");
     const conduit = claims.some((claim) => claim.text === "conduit");
     const both = pure && conduit;
     const words = both ? "pure conduit" : first.text;
-    const claimed = conduit ? "->?" : "->";
+    const claimed = conduit ? ">->" : "->";
     // §4.5's composition rule, and its one exception: a rewrite that would be
     // refused as inlet-less names the conservative arrow instead, and says why.
     // The colon case's question alone. A form this parser does not read far
@@ -3381,7 +3381,7 @@ class Parser {
         ? `\`${words}\` is retired, and this row's arrow is written — drop the word${plural}`
         : inletLess
         // The colon case, and only it: the arrow the words said would take the
-        // colon's place, and a `->?` there would be refused for want of an
+        // colon's place, and a `>->` there would be refused for want of an
         // inlet. So the sentence is §4.5's advice in words, and the inlet-less
         // row at this row's outer arrow, which says exactly this, is not
         // reported on top of it (§13).
@@ -3390,8 +3390,8 @@ class Parser {
         : claimed === "->"
         ? `\`${words}\` is retired — write the pure arrow on the row itself: ` +
           "`fun trim(document: String) -> String`"
-        : `\`${words}\` is retired — write \`->?\` on the row's outer arrow: ` +
-          "`fun runner(step: () ->! String) ->? Int`",
+        : `\`${words}\` is retired — write \`>->\` on the row's outer arrow: ` +
+          "`fun runner(step: () ->! String) >-> Int`",
       primary: first.span,
       fixes: [{
         message: `drop the word${plural}` +
@@ -7192,7 +7192,7 @@ class Parser {
     if (this.#at("Colon")) {
       this.#advance();
       // No restriction rides this slot since #405: the type arrows are `->`,
-      // `->?`, `->!` and the lambda's own arrow is `=>`, so a greedy annotation
+      // `>->`, `->!` and the lambda's own arrow is `=>`, so a greedy annotation
       // parse cannot reach the body. `(x): A ->! B => body` and the curried
       // `(x): a => y => x` both parse as written (Effects §2.6).
       returnAnnotation = this.#parseTypeAnnotation();
@@ -7307,7 +7307,7 @@ class Parser {
     while (
       scan >= 0 &&
       (this.#tokens[scan]?.kind === "Arrow" ||
-        this.#tokens[scan]?.kind === "ArrowQuestion" ||
+        this.#tokens[scan]?.kind === "ArrowFollows" ||
         this.#tokens[scan]?.kind === "ArrowBang")
     ) {
       scan = this.#skipTypeOperand(scan + 1);
@@ -7353,14 +7353,14 @@ class Parser {
    *
    * All three always can, in every type position — there is no slot that
    * withholds one. That is the point of #405's respelling: the type arrows are
-   * `->`, `->?`, `->!` and the lambda's arrow is `=>`, so no type arrow can be
+   * `->`, `>->`, `->!` and the lambda's arrow is `=>`, so no type arrow can be
    * mistaken for the start of a body and the return-annotation restriction this
    * method used to carry is gone.
    */
   #arrowAt(): Parsed.ArrowEffect | "pure" | undefined {
     if (this.#at("Arrow")) return "pure";
     if (this.#at("ArrowBang")) return "constant";
-    if (this.#at("ArrowQuestion")) return "linked";
+    if (this.#at("ArrowFollows")) return "linked";
     return undefined;
   }
 
@@ -7395,8 +7395,8 @@ class Parser {
     this.#diagnostics.add({
       severity: "error",
       message:
-        "Hexagon's type arrows are `->`, `->!`, `->?`; `=>` is the lambda arrow — " +
-        "for a function type write `Int -> Int` (or `->!` / `->?` for its colour)",
+        "Hexagon's type arrows are `->`, `->!`, `>->`; `=>` is the lambda arrow — " +
+        "for a function type write `Int -> Int` (or `->!` / `>->` for its colour)",
       primary: span,
       fixes: [{ message: `write \`${replacement}\``, edits: [{ span, replacement }] }],
     });
@@ -8111,7 +8111,7 @@ function describe(kind: TokenKind): string {
     Equal: "=",
     FatArrow: "=>",
     Arrow: "->",
-    ArrowQuestion: "->?",
+    ArrowFollows: ">->",
     ArrowBang: "->!",
     Plus: "+",
     Minus: "-",

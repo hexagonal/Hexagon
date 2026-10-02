@@ -29,7 +29,7 @@ export function colourContextAt(
 /**
  * A scheme as displayed *(Effects §10)*: the type, and one owner line for each
  * captured colour the face depends on — a callback's colour of an enclosing
- * function, which the scheme does not quantify. A captured colour shows `->?`
+ * function, which the scheme does not quantify. A captured colour shows `>->`
  * where the face depends on it, and the owner line is information, not grammar.
  */
 export function displayFace(
@@ -113,7 +113,7 @@ function displayConstraints(
 /**
  * Where an arrow stands in a displayed face (Effects §10), which decides how a
  * colour that is not a constant is spelled there: on the face's spine and in
- * what it returns, a colour that depends on callbacks is `->?`; on a
+ * what it returns, a colour that depends on callbacks is `>->`; on a
  * callback's own arrows it is the callback's colour, `->!`; anywhere else
  * inside a parameter type an arrow means what it says, so an undecided colour
  * there shows the constant `->!`.

@@ -1576,7 +1576,7 @@ describe("hover renders the arrow trio", () => {
     "",
     "export let held: Int = Stream.fold",
     "",
-    "export let compose(first: String ->! String, second: String ->! String): (String ->? String) =",
+    "export let compose(first: String ->! String, second: String ->! String): (String >-> String) =",
     "    (document) => second!(first!(document))",
     "",
     "export let twice(step: Int -> Int, value: Int): Int = step(step(value))",
@@ -1585,7 +1585,7 @@ describe("hover renders the arrow trio", () => {
     "    (second: String ->! String): String => second!(\"x\")",
     "",
     "extern from \"./world.js\"",
-    "    export fun runner(step: () ->! String) ->? Int",
+    "    export fun runner(step: () ->! String) >-> Int",
     "",
   ].join("\n");
 
@@ -1630,16 +1630,16 @@ describe("hover renders the arrow trio", () => {
   test("a face with two callbacks arrives as the grammar writes it, unnumbered", async () => {
     // `staged` keeps a callback it never calls and returns a lambda that runs
     // a second one of its own. Each callback's own arrow is `->!`, and the
-    // returned function's `->?` follows the callback it is handed (Effects
+    // returned function's `>->` follows the callback it is handed (Effects
     // §10): a face the grammar can write, with no display-only decoration.
     expect(await hovered("staged")).toBe(
-      "value `staged: (String ->! String) -> (String ->! String) ->? String`",
+      "value `staged: (String ->! String) -> (String ->! String) >-> String`",
     );
   });
 
   test("a closure builder's own arrow is pure, its one colour plain (#868)", async () => {
     expect(await hovered("compose")).toBe(
-      "value `compose: (String ->! String, String ->! String) -> String ->? String`",
+      "value `compose: (String ->! String, String ->! String) -> String >-> String`",
     );
   });
 
@@ -1647,13 +1647,13 @@ describe("hover renders the arrow trio", () => {
     expect(await hovered("twice")).toBe("value `twice: (Int -> Int, Int) -> Int`");
   });
 
-  test("a `->?` boundary row reaches the editor as the face it writes", async () => {
-    // A row's outer arrow is declaration surface only *(#869)*: its `->?`
+  test("a `>->` boundary row reaches the editor as the face it writes", async () => {
+    // A row's outer arrow is declaration surface only *(#869)*: its `>->`
     // follows the callback the row is handed, and what a reader sees is the
     // face as written. Asked of the real server because the boundary row is
     // the one face in the language whose colour is *written* rather than
     // inferred from a body.
-    expect(await hovered("runner")).toBe("value `runner: (() ->! String) ->? Int`");
+    expect(await hovered("runner")).toBe("value `runner: (() ->! String) >-> Int`");
   });
 });
 

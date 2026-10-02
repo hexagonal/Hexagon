@@ -65,15 +65,17 @@ const punctuation: readonly (readonly [string, Lexed.PunctuationKind])[] = [
   ["==", "EqualEqual"],
   ["!=", "NotEqual"],
   ["<=", "LessEqual"],
+  // The follows arrow stands ahead of `>`, which begins it (Lexer §8.2). It
+  // needs all three characters, so `x >-1` is still `>`, `-`, `1`.
+  [">->", "ArrowFollows"],
   [">=", "GreaterEqual"],
   ["..", "Range"],
   ["|>", "Pipe"],
   [":=", "Assign"],
   ["=>", "FatArrow"],
-  // The marked type arrows stand ahead of `->` so maximal munch reaches them
-  // (Lexer §8.1): the mark trails the arrow it colours, and `!->`/`?->` are not
-  // tokens because a mark never begins one (Effects §2.3).
-  ["->?", "ArrowQuestion"],
+  // The marked type arrow stands ahead of `->` so maximal munch reaches it
+  // (Lexer §8.1): the mark trails the arrow it colours, and `!->` is not a
+  // token because a mark never begins one (Effects §2.3).
   ["->!", "ArrowBang"],
   ["->", "Arrow"],
   ["(", "LeftParen"],

@@ -93,11 +93,12 @@ export const punctuationKinds = [
   // is the impure call mark, and the `not` redirect it displaced is the
   // parser's now, position-selected.
   //
-  // The marked type arrows are glued single tokens rather than `->` followed by
-  // a mark, because the mark trails the arrow it colours exactly as it trails
-  // the callee it marks (#405). `!->` and `?->` are not admitted at all: a mark
-  // never begins a token. `Arrow` above is the pure member of the same trio.
-  "ArrowQuestion",
+  // The two coloured type arrows are single tokens. `->!` is glued rather than
+  // `->` followed by a mark, because the mark trails the arrow it colours
+  // exactly as it trails the callee it marks (#405), and `!->` is not admitted
+  // at all: a mark never begins a token. `>->`, the follows arrow, carries no
+  // mark. `Arrow` above is the pure member of the same trio.
+  "ArrowFollows",
   "ArrowBang",
   "Bang",
 ] as const;

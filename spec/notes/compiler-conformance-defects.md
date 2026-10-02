@@ -2041,7 +2041,8 @@ than settling a style question.
   carried position: the pre-pass ran with the annotation position at
   `"signature"` where `#inferItems` sets `"no-signature"` for module items, and
   the difference picks Effects §4.4's *because* clause for a `->?` nested
-  inside a non-function annotation — so the body's inference is wrapped in
+  inside a non-function annotation (*spelling note:* `->?` is retired; the
+  arrow is now `>->`, #1151, #1145) — so the body's inference is wrapped in
   `#inPosition("signature", …)`, which keeps that report the one the same
   annotation gets inside a `fun` body.
   `#assumedColumn` remains, its comment rewritten twice in this arc: the

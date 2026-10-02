@@ -1791,7 +1791,7 @@ export interface ConstraintMember {
   readonly returnAnnotation: TypeAnnotation;
   /**
    * The header's **outer arrow** — the contract (Effects §13.1, #867). Absent
-   * is `->`; `constant` is `->!`; `linked` is `->?`, the member's own effect
+   * is `->`; `constant` is `->!`; `linked` is `>->`, the member's own effect
    * variable (Effects §13.4).
    */
   readonly effect?: "linked" | "constant";

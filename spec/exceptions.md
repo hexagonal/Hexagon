@@ -251,7 +251,7 @@ Per §6.1. Declared in the prelude; FFI Part 11 finalizes its `JsValue` payload 
 ### 8.2 `Result.attempt`
 
 ```
-Result.attempt : (() ->! a) ->? Result(a, Exn)
+Result.attempt : (() ->! a) >-> Result(a, Exn)
 ```
 
 Runs the thunk; `Ok(value)` on normal return, `Err(exn)` on any throw — Hexagon or foreign (foreign arrives as the `JsError`-branch value, i.e. `Err(JsError(e))` observationally). This is the bridge from the exception world back to the data world, expected to be the single most-used exception function in practice; it is ordinary Hexagon (a `try`/`catch` with a `_` arm) and may be written in the stdlib, not compiler magic. The inverse direction is `throw` composed on `match`/`Err` and needs no dedicated function.
@@ -322,7 +322,7 @@ The thunk is a callback with its own colour (Effects §2.4), and `attempt` is a 
 | Nullary exceptions construct fresh (stack capture); union shared-constant trick not applied | §7.3 |
 | Two-stage catch discrimination (brand, then name); `err != null` guard; `_` catches truly everything | §7.4 |
 | `.d.ts`: `Error & {$hex: true; name: "..."; ...}`; brand included; exported constructor functions (nullary included, fresh per call); `Exn` at the boundary is `Error` | §7.5; FFI Part 7 §6 |
-| Prelude: `JsError`, `Result.attempt : (() ->! a) ->? Result(a, Exn)` (stdlib, not magic) | §8 |
+| Prelude: `JsError`, `Result.attempt : (() ->! a) >-> Result(a, Exn)` (stdlib, not magic) | §8 |
 | Throwing is not an effect — the cut restated from this side; `throw` is `->` pure; `try`/`catch` colours by ordinary join; exceptions-as-tracked-effect and throw-pure/catch-impure both rejected, reasons recorded; catch-in-pure bounds the Effects §7 reordering licence (observable throws pin order) | §1, §3, §5.3 |
 | `Result.attempt` follows its thunk — the thunk a `->!` callback, `attempt` a conduit | §8.2 |
 | `finally`: resolved to never (supersedes the deferral row above) — keyword reserved permanently, purely for the diagnostic; resources are the v2 `use` story | §5.1, §9, §10.1 |

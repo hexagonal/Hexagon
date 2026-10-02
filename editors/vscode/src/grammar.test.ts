@@ -421,6 +421,13 @@ describe("declarations name what they declare", () => {
     );
   });
 
+  it("reads a constraint member's result as a type after each of the three arrows", async () => {
+    for (const arrow of ["->", "->!", ">->"]) {
+      const pairs = await scopePairs(`constraint R<a> =\n    run(f: () ->! Unit) ${arrow} Option(a)`);
+      expect(pairs.at(-2), arrow).toEqual(["a", "entity.name.type.parameter.hexagon"]);
+    }
+  });
+
   it("scopes a parameter or field before its annotation", async () => {
     expect(await scope("fun f(source: Seq(a)): Int = 1", "source")).toBe(
       "variable.parameter.hexagon",
@@ -1593,11 +1600,13 @@ describe("operators and forbidden runs (spec/lexer.md §8)", () => {
       ["let x = a <= b", "<=", "keyword.operator.comparison.hexagon"],
       ["x := 1", ":=", "keyword.operator.assignment.hexagon"],
       ["let f = x => x", "=>", "keyword.operator.arrow.hexagon"],
-      // The marked type arrows stand ahead of `->`, which is the munch
-      // (spec/effects.md §2.3).
+      // The coloured type arrows are one token each (spec/effects.md §2):
+      // `->!` stands ahead of `->`, and `>->` ahead of the comparison `>`,
+      // which still takes `>` where the arrow is not complete.
       ["let h: () ->! Int = f", "->!", "keyword.operator.arrow.impure.hexagon"],
-      ["let k: (() ->! Int) ->? Int = f", "->?", "keyword.operator.arrow.linked.hexagon"],
+      ["let k: (() ->! Int) >-> Int = f", ">->", "keyword.operator.arrow.linked.hexagon"],
       ["let p: Int -> Int = f", "->", "keyword.operator.type.arrow.hexagon"],
+      ["let q = a >-1", ">", "keyword.operator.comparison.hexagon"],
     ];
     for (const [source, text, expected] of cases) {
       expect(await scope(source, text), text).toBe(expected);
@@ -1632,7 +1641,7 @@ describe("operators and forbidden runs (spec/lexer.md §8)", () => {
 
   it("rejects characters §8.3 gives no token", async () => {
     // `?` is one of them: the one call mark is `!` (spec/effects.md §3.1), and
-    // `?` stands only inside the `->?` arrow.
+    // no arrow contains it.
     for (const char of ["%", "^", "&", "@", "#", "`", "\\", "?"]) {
       expect(await scope(`let x = a ${char} b`, char), char).toBe(
         "invalid.illegal.character.hexagon",

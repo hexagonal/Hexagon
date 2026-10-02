@@ -234,7 +234,7 @@ describe("verification replaces trust (§4.2)", () => {
 describe("an intrinsic row writes its arrow (§4.2, #869)", () => {
   /**
    * Effects §6.1's ownership split needs no notation: an intrinsic row writes
-   * `->`, `->!` or `->?` like every other callable extern row, and what the
+   * `->`, `->!` or `>->` like every other callable extern row, and what the
    * door changes is who *answers* for the arrow — the compiler, verified,
    * rather than the author, trusted. So the face a caller sees is read from the
    * arrow here exactly as it is at a foreign row, which is what these
@@ -255,9 +255,9 @@ describe("an intrinsic row writes its arrow (§4.2, #869)", () => {
   const ROWS = 'extern from "hex:intrinsic"\n' +
     "    fun stringHash as pureRow(value: String) -> Int\n" +
     "    fun stringConcat as impureRow(left: String, right: String) ->! String\n" +
-    "    fun seqMemoize as linkedRow(step: () ->! String) ->? Int\n\n";
+    "    fun seqMemoize as linkedRow(step: () ->! String) >-> Int\n\n";
 
-  test("`->` is pure at the call, `->!` wants `!`, `->?` follows its callback", () => {
+  test("`->` is pure at the call, `->!` wants `!`, `>->` follows its callback", () => {
     expect(privileged(ROWS +
       "export let a: Int = pureRow(\"x\")\n" +
       "export let b: String = impureRow!(\"x\", \"y\")\n" +
@@ -268,7 +268,7 @@ describe("an intrinsic row writes its arrow (§4.2, #869)", () => {
 
   test("the faces are enforced in both directions", () => {
     // The mark table's rows, reached with nothing FFI-specific: a `->!` row
-    // called bare, a `->` row called with `!`, and a `->?` row whose callback
+    // called bare, a `->` row called with `!`, and a `>->` row whose callback
     // is impure called bare.
     expect(privileged(ROWS +
       "export let b: String = impureRow(\"x\", \"y\")\n",
@@ -281,7 +281,7 @@ describe("an intrinsic row writes its arrow (§4.2, #869)", () => {
     )).toEqual(["this call may touch the world, so `linkedRow` wants `!`, not no mark"]);
   });
 
-  test("an inlet-less `->?` row is refused at the arrow, as a foreign row is", () => {
+  test("an inlet-less `>->` row is refused at the arrow, as a foreign row is", () => {
     // Effects §4.4's nothing-handed clause — the outer arrow is part of the
     // row's signature, and no callback of it has been handed over — with FFI
     // Part 4 §4.5's advice in words, which a boundary row is owed on both sides
@@ -289,9 +289,9 @@ describe("an intrinsic row writes its arrow (§4.2, #869)", () => {
     // who answers for the arrow once it is written.
     expect(privileged(
       'extern from "hex:intrinsic"\n' +
-      "    fun stringHash as linkedRow(value: String) ->? Int\n",
+      "    fun stringHash as linkedRow(value: String) >-> Int\n",
     )).toEqual([
-      "`->?` means only as effectful as what it is handed, and nothing is handed here — " +
+      "`>->` means only as effectful as what it is handed, and nothing is handed here — " +
       "no callback of this signature has been handed over by the time this arrow runs; " +
       "write `->!` for a function that may touch the world, or `->` for one that does not " +
       "— write the callback parameter this row runs, with `->!`, or write `->!` on the row",

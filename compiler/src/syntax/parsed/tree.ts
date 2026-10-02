@@ -157,9 +157,9 @@ export interface ExternFunDeclaration extends ExternDeclarationFields {
    * does.
    *
    * Absent is `->`, the trusted purity claim; `constant` is `->!`, the honest
-   * arrow for the unknown; `linked` is `->?`, the declared conduit, which seats
-   * one colour variable at this arrow and at every `->?` the signature writes.
-   * A row whose parameters carry no `->?` takes Effects §4.4's inlet-less
+   * arrow for the unknown; `linked` is `>->`, the declared conduit, which seats
+   * one colour variable at this arrow and at every `>->` the signature writes.
+   * A row whose parameters carry no `>->` takes Effects §4.4's inlet-less
    * refusal at the arrow.
    */
   readonly effect?: ArrowEffect;
@@ -426,7 +426,7 @@ export interface ConstraintMember {
   /**
    * The header's **outer arrow** — the contract (Effects §13.1, #867). Absent
    * is `->`, exactly as on a `FunctionType`; `constant` is `->!`, the licence
-   * for an instance to perform effects; `linked` is `->?`, the member's own
+   * for an instance to perform effects; `linked` is `>->`, the member's own
    * effect variable, quantified at the member and instantiated per call
    * (Effects §13.4).
    */
@@ -820,7 +820,7 @@ export interface RecordTypeField {
  * How a function type's arrow was written (Effects §2). Absent means `->` —
  * the pure constant, and the pure *demand*.
  *
- * `linked` is `->?`: one implicitly quantified effect variable shared across the
+ * `linked` is `>->`: one implicitly quantified effect variable shared across the
  * whole signature. Where the signature has no inlet for it to link to it is not
  * re-read as anything — the else-constant rule is withdrawn (#405) — but
  * refused, at the arrow (§4.4). `constant` is `->!`: the impure constant,

@@ -4,9 +4,9 @@ import { AnalysisSession } from "../analysis/session.js";
 import { compileFiles } from "../support/test-project.js";
 
 /**
- * Conformance for **a refused `->?` reads as its fixit** (Effects §4.4, #1145).
+ * Conformance for **a refused `>->` reads as its fixit** (Effects §4.4, #1145).
  *
- * A `->?` written where nothing is handed is refused at the arrow, and the
+ * A `>->` written where nothing is handed is refused at the arrow, and the
  * arrow then reads as what the fixit writes, unmarked: on a callback's own
  * arrow, that callback's colour; anywhere else, the impure constant. Nothing
  * downstream is suppressed or re-read, so every further report is one the
@@ -25,9 +25,9 @@ const fixtures = (step: string): string =>
   `type Step = () ${step} Unit\n` +
   'let save0(): Unit = save!("x")\n' +
   "export let apply2(f: () ->! Unit, g: () ->! Unit): Unit =\n    f!()\n    g!()\n" +
-  "export let pick(f: () ->! Unit): () ->? Unit = f\n";
+  "export let pick(f: () ->! Unit): () >-> Unit = f\n";
 
-const REFUSED = fixtures("->?");
+const REFUSED = fixtures(">->");
 const FIXED = fixtures("->!");
 
 const files = (prefix: string, source: string): [string, string][] => [
@@ -54,8 +54,8 @@ function hovered(prefix: string, source: string, needle: string): string | undef
 
 /** §4.4's alias refusal — the fixture's `type Step`. */
 const REFUSAL = [
-  "->?",
-  "`->?` means only as effectful as what it is handed, and nothing is handed here — " +
+  ">->",
+  "`>->` means only as effectful as what it is handed, and nothing is handed here — " +
   "an alias is a type fragment, not a signature; " +
   "write `->!` for a function that may touch the world, or `->` for one that does not",
 ] as const;
@@ -80,7 +80,7 @@ describe("an annotation that wrote the refused arrow declares the name at its fi
 
   test("one in an instance body, under a contract that follows its callbacks", () => {
     readsAsFix(`constraint Runner<r> =
-    run(runner: r, action: () ->! Unit) ->? Unit
+    run(runner: r, action: () ->! Unit) >-> Unit
 
 export record Job = { id: Int }
 
