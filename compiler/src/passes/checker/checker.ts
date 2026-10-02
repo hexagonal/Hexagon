@@ -2909,10 +2909,10 @@ interface MemberCandidate {
 type TypeSource =
   /** A written type; `whole` where it writes every part (no hole, no implied type). */
   | { readonly kind: "written"; readonly whole: boolean }
-  /** A parameter with no written type and nothing that lands one, or a `var` holding a bare numeric literal. */
-  | { readonly kind: "open" }
-  /** A function definition: generalized where it is made. */
+  /** A module's function definition: generalized where it is made. */
   | { readonly kind: "function" }
+  /** A `fun` inside a body: generalized where it is made, over what it captures. */
+  | { readonly kind: "localFunction"; readonly value: Resolved.Expr }
   /** A `let` with no written type: whatever its right-hand side is. */
   | { readonly kind: "value"; readonly value: Resolved.Expr }
   /** A `var` with no written type: its initializer's head; an open part follows its assignments. */
@@ -2929,26 +2929,64 @@ function headWritten(annotation: Resolved.TypeAnnotation | undefined): annotatio
 }
 
 /**
- * A tree of numeric literals and arithmetic: a `var` it initializes takes its
- * type from its assignments (Numeric Literals §5.1), so the text does not decide
- * it where it is bound.
+ * The lambdas and calls on an argument's **spine** — the positions its value is
+ * one of: through grouping, a vector's, tuple's or record's parts, a branch
+ * form's value paths, and, for a lambda, what it hands back (a curried lambda
+ * lands from the same call). A call on the spine is a landing context of its
+ * own; anything else is off the spine.
  */
-function numericOpen(expression: Resolved.Expr): boolean {
-  switch (expression.kind) {
-    case "Integer":
-    case "Dec":
-    case "Float":
-      return true;
+function spineOf(
+  node: Resolved.Expr,
+  onLambda: (lambda: Resolved.LambdaExpr) => void,
+  onCall: (call: Resolved.CallExpr) => void,
+): void {
+  const walk = (inner: Resolved.Expr): void => spineOf(inner, onLambda, onCall);
+  switch (node.kind) {
     case "Group":
-      return numericOpen(expression.expression);
-    case "Unary":
-      return numericOpen(expression.operand);
-    case "Binary":
-      return numericOpen(expression.left) && numericOpen(expression.right);
+      walk(node.expression);
+      return;
+    case "Lambda":
+      onLambda(node);
+      returnedLambdas(node.body, onLambda);
+      return;
+    case "Call":
+      onCall(node);
+      return;
+    case "Vector":
+    case "Tuple":
+      for (const element of node.elements) walk(element);
+      return;
+    case "Record":
+      for (const field of node.fields) walk(field.value);
+      return;
+    case "If":
+      walk(node.consequence);
+      walk(node.alternative);
+      return;
+    case "Block": {
+      const last = node.items.at(-1);
+      if (last?.kind === "ExprItem") walk(last.expression);
+      return;
+    }
+    case "Match":
+      for (const arm of [...node.arms, ...(node.catchArms ?? [])]) walk(arm.body);
+      return;
     default:
-      return false;
+      return;
   }
 }
+
+/** The lambdas a lambda's body hands back, through its value paths (`spineOf`). */
+function returnedLambdas(body: Resolved.Expr, onLambda: (lambda: Resolved.LambdaExpr) => void): void {
+  spineOf(body, (lambda) => onLambda(lambda), () => {});
+}
+
+/** Where an untyped lambda parameter's type lands from (`Checker.#landingContexts`). */
+type LandingContext =
+  /** A call it is an argument of, on that argument's spine, or the callee of. */
+  | { readonly kind: "call"; readonly call: Resolved.CallExpr }
+  /** A pipe's left operand, handed to the lambda on its right. */
+  | { readonly kind: "pipe"; readonly source: Resolved.Expr };
 
 /** One member of a `fun` block's strongly-connected component (Functions §7.4). */
 interface KnotMember {
@@ -4454,8 +4492,21 @@ class Checker {
    * known head (Functions §4.3), recorded where the lambda is elaborated.
    */
   readonly #landedHeads = new Map<Resolved.SymbolId, boolean>();
-  /** The innermost call each lambda is written in, as an argument or inside one. */
-  readonly #lambdaCalls = new Map<Resolved.LambdaExpr, Resolved.CallExpr>();
+  /**
+   * Where each lambda's parameter types land from, by the lambda's position:
+   * a call's argument spine (a lambda an argument hands back included), a
+   * call's callee, or a pipe's right operand. A lambda anywhere else has none,
+   * so its untyped parameters are not decided by the text (Method Syntax §3.1).
+   */
+  readonly #landingContexts = new Map<Resolved.LambdaExpr, LandingContext>();
+  /** The lambdas each call is the landing context of, which reading the call reads past. */
+  readonly #callLambdas = new Map<Resolved.CallExpr, Resolved.LambdaExpr[]>();
+  /** A pipe stage's call, and the left operand the pipe hands it. */
+  readonly #pipedInto = new Map<Resolved.CallExpr, Resolved.Expr>();
+  /** A call on another call's argument spine, and that call. */
+  readonly #spineParent = new Map<Resolved.CallExpr, Resolved.CallExpr>();
+  /** The bindings a module item introduces at the module's own level. */
+  readonly #moduleBindings = new Set<Resolved.SymbolId>();
   /** `#typeDecidedSymbol`'s answers, for a type's head and for the whole of it. */
   readonly #typeDecidedHead = new Map<Resolved.SymbolId, boolean>();
   readonly #typeDecidedWhole = new Map<Resolved.SymbolId, boolean>();
@@ -4466,6 +4517,10 @@ class Checker {
   readonly #landingLambdas = new Set<Resolved.LambdaExpr>();
   /** Whether a `var`'s type kept a part its initializer left unsettled, where it was bound. */
   readonly #varOpen = new Map<Resolved.SymbolId, boolean>();
+  /** Whether a `var`'s type was itself unsolved where it was bound: its assignments choose it. */
+  readonly #varHeadOpen = new Map<Resolved.SymbolId, boolean>();
+  /** The calls whose arguments were elaborated after the call was refused (`#dotCallArguments`). */
+  readonly #abandonedCalls = new WeakSet<Resolved.CallExpr>();
   /** A `let` or a pattern's part whose type kept a part of its shape no generalization settled. */
   readonly #shapeOpen = new Map<Resolved.SymbolId, boolean>();
   /**
@@ -6019,7 +6074,8 @@ class Checker {
         return expression.operator === "Not" || this.#typeDecided(expression.operand, deep);
       case "Binary":
         // An arithmetic operation's type is its operands'; a logical one's, `Bool`.
-        if (["And", "Or", "Implies", "Iff", "Range"].includes(expression.operator)) return true;
+        if (["And", "Or", "Implies", "Iff"].includes(expression.operator)) return true;
+        if (expression.operator === "Range" && !deep) return true;
         if (expression.operator !== "Pipe") {
           return this.#typeDecided(expression.left, deep) && this.#typeDecided(expression.right, deep);
         }
@@ -6031,6 +6087,9 @@ class Checker {
         return last?.kind !== "ExprItem" || this.#typeDecided(last.expression, deep);
       }
       case "Call": {
+        // A call to a function the module or an import declares has the result
+        // its generalized signature gives it, whatever it is handed.
+        if (this.#declaredResult(expression, deep)) return true;
         // A call — a dot chain's links included — is decided wholly where its
         // callee and every argument are: read part by part, so a chain is read
         // once, link by link.
@@ -6050,27 +6109,52 @@ class Checker {
 
   /**
    * Whether the text decides wholly the call an untyped lambda parameter's type
-   * lands from: the callee, a dot callee's subject, and every argument, read
-   * without the lambdas among them, which the schedule elaborates after the
-   * operands their parameters land from (Functions §4.3).
+   * lands from: the callee, a dot callee's subject, every argument, the value a
+   * pipe hands it, and, for a constructor's application, the call it is an
+   * argument of — read past the lambdas that land from it, which the schedule
+   * elaborates after the operands their parameters land from (Functions §4.3).
    */
   #landingContextDecided(call: Resolved.CallExpr): boolean {
-    const lambdas: Resolved.LambdaExpr[] = [];
-    for (const argument of call.arguments) {
-      this.#walkSyntax(argument, {
-        expression: (inner) => {
-          if (inner.kind === "Lambda" && !this.#landingLambdas.has(inner)) lambdas.push(inner);
-        },
-      });
-    }
+    const lambdas = (this.#callLambdas.get(call) ?? []).filter((lambda) => !this.#landingLambdas.has(lambda));
     for (const lambda of lambdas) this.#landingLambdas.add(lambda);
     try {
       const callee = call.callee.kind === "Access" ? call.callee.receiver : call.callee;
+      const piped = this.#pipedInto.get(call);
+      const parent = this.#spineParent.get(call);
       return this.#typeDecided(callee, true) &&
-        call.arguments.every((argument) => this.#typeDecided(argument, true));
+        call.arguments.every((argument) => this.#typeDecided(argument, true)) &&
+        (piped === undefined || this.#typeDecided(piped, true)) &&
+        // A constructor's application takes its expectation from the call
+        // whose argument it is (Functions §4.3), so that call lands its lambdas too.
+        (parent === undefined || !this.#appliesDataConstructor(call) || this.#landingContextDecided(parent));
     } finally {
       for (const lambda of lambdas) this.#landingLambdas.delete(lambda);
     }
+  }
+
+  /**
+   * Whether a call's callee is a function the module or an import declares,
+   * whose generalized signature fixes the call's result — its head, or (`deep`)
+   * the whole of it — whatever the call is handed: `Vector.length(p)` is an
+   * `Int`. Read from the signature, which is fixed where the callee is made;
+   * never a local function's, whose type may hold what it captures.
+   */
+  #declaredResult(call: Resolved.CallExpr, deep: boolean): boolean {
+    let callee = call.callee;
+    while (callee.kind === "Group") callee = callee.expression;
+    if (callee.kind !== "Name") return false;
+    const symbol = callee.symbol;
+    if (this.#knots.some((knot) => knot.members.some((member) => member.symbol === symbol))) return false;
+    if (this.#typeSources.has(symbol) && !this.#moduleBindings.has(symbol)) return false;
+    const kind = this.#symbolKinds.get(symbol);
+    if (kind === "parameter" || kind === "var" || kind === "pattern") return false;
+    if (this.#shapeOpen.get(symbol) === true) return false;
+    const scheme = this.#schemes.get(symbol);
+    if (scheme === undefined) return false;
+    const type = this.#prune(scheme.type);
+    if (type.kind !== "Function") return false;
+    const result = this.#prune(type.result);
+    return deep ? this.#collectVariables(result).length === 0 : result.kind !== "Variable";
   }
 
   /** Whether the text decides a binding's type, its head or (`deep`) the whole of it (`#typeDecided`). */
@@ -6098,20 +6182,37 @@ class Checker {
         return !deep || source.whole;
       case "function":
         return true;
-      case "open":
-        return false;
+      case "localFunction": {
+        // Its head is a function's; the whole is decided where its signature
+        // is written whole, or where every name it captures is decided.
+        if (!deep) return true;
+        const value = source.value;
+        if (
+          value.kind === "Lambda" && value.returnAnnotation !== undefined &&
+          annotationWhole(value.returnAnnotation) &&
+          value.parameters.every((parameter) => parameter.annotation !== undefined && annotationWhole(parameter.annotation))
+        ) return true;
+        remember(true);
+        return remember(
+          this.#freeNames(value).every((captured) => captured === symbol || this.#typeDecidedSymbol(captured, true)),
+        );
+      }
       case "lambda": {
         // Decided where its type landed with a known head from a context the
         // text decides wholly: the call it is written in, read without it.
         if (this.#landedHeads.get(symbol) !== true) return false;
-        const call = this.#lambdaCalls.get(source.lambda);
-        if (call === undefined) return true;
+        const context = this.#landingContexts.get(source.lambda);
+        if (context === undefined) return false;
         remember(false);
-        return remember(this.#landingContextDecided(call));
+        return remember(
+          context.kind === "call" ? this.#landingContextDecided(context.call) : this.#typeDecided(context.source, true),
+        );
       }
       case "var":
-        // Its head is its initializer's; a part the initializer left open
-        // follows its assignments.
+        // Its head is its initializer's, unless the initializer left the type
+        // itself unsolved (a numeric literal's, say): then its assignments
+        // choose it. A part the initializer left open follows them too.
+        if (this.#varHeadOpen.get(symbol) !== false) return false;
         if (deep && this.#varOpen.get(symbol) !== false) return false;
         remember(false);
         return remember(this.#typeDecided(source.value, deep));
@@ -6128,6 +6229,30 @@ class Checker {
         remember(false);
         return remember(this.#typeDecided(source.source, true));
     }
+  }
+
+  /**
+   * Whether a subject's names take their types from something that already
+   * failed: a lambda parameter landing from a refused or abandoned call, or a
+   * part taken from one — the failure is the report, and the subject's is its
+   * echo (Method Syntax §3.5).
+   */
+  #failedUpstream(subject: Resolved.Expr): boolean {
+    const failed = (expression: Resolved.Expr): boolean => {
+      const node = ungrouped(expression);
+      return this.#refusedReceivers.has(node) || this.#holdsErrorNode(node) ||
+        (node.kind === "Call" && this.#abandonedCalls.has(node));
+    };
+    return this.#freeNames(subject).some((symbol) => {
+      const source = this.#typeSources.get(symbol);
+      if (source?.kind === "part") return source.source !== undefined && failed(source.source);
+      if (source?.kind !== "lambda") return false;
+      const context = this.#landingContexts.get(source.lambda);
+      if (context === undefined) return false;
+      if (context.kind === "pipe") return failed(context.source);
+      const callee = context.call.callee.kind === "Access" ? context.call.callee.receiver : context.call.callee;
+      return this.#abandonedCalls.has(context.call) || this.#refusedReceivers.has(context.call) || failed(callee);
+    });
   }
 
   /** Whether an expression holds a node an earlier pass refused (`ErrorExpr`), which reported already. */
@@ -6158,7 +6283,7 @@ class Checker {
   ): Mono {
     this.#dotCallArguments(expression, level);
     this.#refusedReceivers.add(expression);
-    if (subjectReported) return ERROR;
+    if (subjectReported || this.#failedUpstream(callee.receiver)) return ERROR;
     const name = callee.field.text;
     const subject = callee.receiver.kind === "Name" ? callee.receiver.text : undefined;
     const whose = subject === undefined ? "the subject's" : `\`${subject}\`'s`;
@@ -6694,6 +6819,7 @@ class Checker {
    * literals, which is the order every other abandoned call elaborates in.
    */
   #dotCallArguments(expression: Resolved.CallExpr, level: number): readonly Mono[] {
+    this.#abandonedCalls.add(expression);
     const types: Mono[] = expression.arguments.map(() => ERROR);
     const owner = this.#claimSpine(expression.arguments);
     for (const [index, argument] of expression.arguments.entries()) {
@@ -8049,6 +8175,10 @@ class Checker {
         this.#lowerLevels(valueType, level);
         // A part the initializer left open takes its type from the `var`'s
         // assignments, so the text does not decide it here (Method Syntax §3.1).
+        {
+          const head = this.#prune(valueType);
+          this.#varHeadOpen.set(item.binding.symbol, head.kind === "Variable" && head.rigidName === undefined);
+        }
         this.#varOpen.set(
           item.binding.symbol,
           this.#collectVariables(valueType).some((variable) =>
@@ -18149,7 +18279,7 @@ class Checker {
     const unsettled = free.filter((variable) => shape.has(variable) || this.#openedColours.has(variable));
     // Only an unsettled part of the shape leaves the type to later lines (Method
     // Syntax §3.1); an opening is a colour's business, not the type's.
-    this.#shapeOpen.set(symbol, free.some((variable) => shape.has(variable)));
+    this.#shapeOpen.set(symbol, this.#shapeOpen.get(symbol) === true || free.some((variable) => shape.has(variable)));
     if (unsettled.length > 0) {
       // The outer arrow is left open where the type is itself unsolved, or
       // where its colour holds an opening not yet closed.
@@ -18307,6 +18437,7 @@ class Checker {
       }
     };
     const registerType = (inner: Resolved.Item): void => {
+      if (inner === item && (inner.kind === "Let" || inner.kind === "Fun")) this.#moduleBindings.add(inner.binding.symbol);
       if (inner.kind === "Let") {
         this.#typeSources.set(
           inner.binding.symbol,
@@ -18319,12 +18450,13 @@ class Checker {
           inner.binding.symbol,
           headWritten(inner.annotation)
             ? { kind: "written", whole: annotationWhole(inner.annotation!) }
-            : numericOpen(inner.value)
-            ? { kind: "open" }
             : { kind: "var", value: inner.value },
         );
       } else if (inner.kind === "Fun") {
-        this.#typeSources.set(inner.binding.symbol, { kind: "function" });
+        this.#typeSources.set(
+          inner.binding.symbol,
+          inner === item ? { kind: "function" } : { kind: "localFunction", value: inner.value },
+        );
       }
     };
     const register = (inner: Resolved.Item): void => {
@@ -18360,18 +18492,29 @@ class Checker {
       item: register,
       expression: (expression) => {
         if (expression.kind === "Call") {
-          const mark = (node: Resolved.Expr): void => {
-            if (node.kind === "Lambda") {
-              this.#lambdaCalls.set(node, expression);
-              return;
-            }
-            this.#walkSyntax(node, {
-              expression: (inner) => {
-                if (inner !== node && inner.kind === "Lambda" && !this.#lambdaCalls.has(inner)) this.#lambdaCalls.set(inner, expression);
-              },
-            });
+          const land = (lambda: Resolved.LambdaExpr): void => {
+            if (this.#landingContexts.has(lambda)) return;
+            this.#landingContexts.set(lambda, { kind: "call", call: expression });
+            const lambdas = this.#callLambdas.get(expression) ?? [];
+            lambdas.push(lambda);
+            this.#callLambdas.set(expression, lambdas);
           };
-          for (const argument of expression.arguments) mark(argument);
+          let callee = expression.callee;
+          while (callee.kind === "Group") callee = callee.expression;
+          if (callee.kind === "Lambda") land(callee);
+          for (const argument of expression.arguments) {
+            spineOf(argument, land, (call) => {
+              if (!this.#spineParent.has(call)) this.#spineParent.set(call, expression);
+            });
+          }
+        }
+        if (expression.kind === "Binary" && expression.operator === "Pipe") {
+          let right = expression.right;
+          while (right.kind === "Group") right = right.expression;
+          if (right.kind === "Lambda" && !this.#landingContexts.has(right)) {
+            this.#landingContexts.set(right, { kind: "pipe", source: expression.left });
+          }
+          if (right.kind === "Call") this.#pipedInto.set(right, expression.left);
         }
         if (expression.kind === "Ascription" && annotationWhole(expression.annotation)) {
           expect(expression.expression, expression.annotation);
@@ -18388,15 +18531,22 @@ class Checker {
         }
       },
       lambda: (lambda) => {
-        for (const parameter of lambda.parameters) {
+        const expected = expectedBy.get(lambda);
+        for (const [index, parameter] of lambda.parameters.entries()) {
+          // A type written for the parameter, or ground where a written type is
+          // expected of the lambda, decides it; anything else lands, or not.
+          const given = parameter.annotation === undefined && expected?.kind === "Function"
+            ? expected.parameters[index]
+            : undefined;
           this.#typeSources.set(
             parameter.symbol,
             headWritten(parameter.annotation)
               ? { kind: "written", whole: annotationWhole(parameter.annotation!) }
+              : given !== undefined && annotationGround(given)
+              ? { kind: "written", whole: true }
               : { kind: "lambda", lambda },
           );
         }
-        const expected = expectedBy.get(lambda);
         for (const [index, parameter] of lambda.parameters.entries()) {
           const given = parameter.annotation === undefined && expected?.kind === "Function"
             ? expected.parameters[index]

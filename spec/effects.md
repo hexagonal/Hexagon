@@ -732,7 +732,7 @@ The lower-right cell is what the ordering buys: a `->!` member honored at an in-
 
 ### 13.3 Member calls: the instance at a known instance, the contract in generic code
 
-- **A call at a known instance follows the instance's face.** An instance is known where the call's subject type selects one `honor` once the subject is settled. A subject still open when the body closes holds the body until the subject variable's level closes (§3.4), so whether a call is known or generic never depends on the order of the lines. Every spelling of the call follows it alike: the bare member call, the qualified call, the dot call (Method Syntax §7), and the `widens` door, which *is* the instance at its type. The derived member is the door restricted, so a door under a `->!` member wears its body's colour (Constraints §4.7). Under `read(source: a) ->! String`:
+- **A call at a known instance follows the instance's face.** An instance is known where the call's subject type selects one `honor` once the subject is settled. A subject still open when the body closes leaves the call's colour waiting, one variable at the subject variable's level, until that level closes (§3.4), so whether a call is known or generic never depends on the order of the lines. Every spelling of the call follows it alike: the bare member call, the qualified call, the dot call (Method Syntax §7), and the `widens` door, which *is* the instance at its type. The derived member is the door restricted, so a door under a `->!` member wears its body's colour (Constraints §4.7). Under `read(source: a) ->! String`:
   - `Mem.read(m)`, `m.read()` and `read(m)` are bare at an instance whose body reads nothing;
   - `Disk.read!(d)` wears `!` at one that reads the disk.
 

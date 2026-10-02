@@ -204,6 +204,122 @@ describe("a subject a later or an earlier line fixes is not decided by the text 
     );
   });
 
+  test("a lambda in a pipe stage, or piped into, lands from what the pipe hands it", () => {
+    bothOrders(
+      "let f(p) =",
+      "let a = p |> Seq.map((x) => x.length())",
+      "let b: Seq(Vector(Int)) = p",
+      [refusal("x", "length")],
+    );
+    bothOrders("let f(p) =", "let a = p |> (x) => x.length()", "let b: Vector(Int) = p", [refusal("x", "length")]);
+  });
+
+  test("a curried lambda lands from the call its outer lambda is an argument of", () => {
+    bothOrders(
+      "let f(g) =",
+      "let a = g((u: Int) => (w: Vector(Int)) => 0)",
+      "let b = g((u) => (w) => w.length())",
+      [refusal("w", "length")],
+    );
+  });
+
+  test("an applied lambda lands from its arguments", () => {
+    bothOrders("let f(p) =", "let a = ((x) => x.length())(p)", "let b: Vector(Int) = p", [refusal("x", "length")]);
+  });
+
+  test("a lambda under a constructor lands from the call the constructor is an argument of", () => {
+    bothOrders(
+      "let f(g) =",
+      "let a = g(Some((x: Vector(Int)) => 0))",
+      "let b = g(Some((x) => x.length()))",
+      [refusal("x", "length")],
+    );
+  });
+
+  test("a lambda piped from a member of a `fun` block still open, in either member order", () => {
+    const member = (order: readonly string[]): readonly string[] =>
+      projectDiagnostics(HEADER + "fun\n" + order.map((line) => `    ${line}\n`).join(""));
+    const a = "a(n: Int): Bool = if n > 3 then b(n) |> (v) => v.isEmpty() else a(n + 1)";
+    const b = "b(n: Int): Vector(Int) = if n > 9 then [n] else (if a(n) then [] else [1])";
+    expect(member([a, b])).toEqual([refusal("v", "isEmpty")]);
+    expect(member([b, a])).toEqual([refusal("v", "isEmpty")]);
+  });
+
+  test("a local `fun` capturing an untyped parameter", () => {
+    bothOrders(
+      "let f(p) =\n    fun inner() = p",
+      "let a = Vector.length(p)",
+      "let b = inner().length()",
+      [refusalOfSubject("length")],
+    );
+  });
+
+  test("a `var` whose initializer leaves its type to its assignments", () => {
+    bothOrders(
+      "let f(c: Bool) =\n    var x = if c then 0 else 1",
+      "let s = x.show()",
+      "x := 1.5",
+      [refusal("x", "show")],
+    );
+  });
+
+  test("a part of a `match` arm, whatever order the arms come in", () => {
+    const arms = (first: string, second: string): readonly string[] =>
+      projectDiagnostics(
+        HEADER + "let f() =\n    let a = match Vector.empty\n" +
+          `        ${first}\n        ${second}\n        _ => ""\n    ()\n`,
+      );
+    const one = "[x] => Int.show(x)";
+    const two = "[x, y] => y.show()";
+    expect(arms(one, two)).toEqual([refusal("y", "show")]);
+    expect(arms(two, one)).toEqual([refusal("y", "show")]);
+  });
+
+  test("an operation on an untyped parameter, read through every operator and form", () => {
+    bothOrders("let f(p) =", "let a = (-p).show()", "let w: Int = p", [refusalOfSubject("show")]);
+    bothOrders("let f(c: Bool, p) =", "let a = (if c then [] else p).isEmpty()", "let w: Vector(Int) = p", [
+      refusalOfSubject("isEmpty"),
+    ]);
+    bothOrders("let ident(x: a): a = x\nlet f(p) =", "let a = (p |> ident).isEmpty()", "let w: Vector(Int) = p", [
+      refusalOfSubject("isEmpty"),
+    ]);
+    bothOrders("let f(x) =", "let a = (x: _).show()", "let w: Int = x", [refusalOfSubject("show")]);
+  });
+
+  test("what a value is made of, read wholly", () => {
+    bothOrders(
+      "let f(x) =",
+      "for v in (x: Vector(_))\n        ignore(v.isEmpty())",
+      "let w: Vector(Vector(Int)) = x",
+      [refusal("v", "isEmpty")],
+    );
+    bothOrders("let f(p) =\n    let k = () => p", "let a = k().isEmpty()", "let w: Vector(Int) = p", [
+      refusalOfSubject("isEmpty"),
+    ]);
+    bothOrders("let f(p) =\n    let r = {g = p}", "let a = r.g.isEmpty()", "let w: Vector(Int) = p", [
+      refusalOfSubject("isEmpty"),
+    ]);
+    bothOrders("let f(r) =", "let a = r.g.show()", "let z: {g: Int} = r", [refusalOfSubject("show")]);
+    bothOrders(
+      "let f(r) =\n    let q = {r with a = 1}",
+      "let n = q.b.isEmpty()",
+      "let w: {a: Int, b: Vector(Int)} = r",
+      [refusalOfSubject("isEmpty")],
+    );
+    bothOrders("let f(r) =", "let n = {r with a = 1}.b.isEmpty()", "let w: {a: Int, b: Vector(Int)} = r", [
+      refusalOfSubject("isEmpty"),
+    ]);
+    bothOrders(
+      "let f(r) =",
+      "let q = {r with cb = (x) => x.length()}",
+      "let z: {cb: (Vector(Int)) -> Int} = r",
+      [refusal("x", "length")],
+    );
+    bothOrders("let f(p, q) =", "for i in p..q\n        ignore(i.show())", "let w: Int = p", [
+      refusal("i", "show"),
+    ]);
+  });
+
   test("a body that waits on nothing: #1173's shape is one report in either order", () => {
     bothOrders(
       "let noop(): Unit = ()\nlet run(source) =",
@@ -262,6 +378,44 @@ describe("a subject the text decides dispatches at the dot (§3.1)", () => {
     compiles("let f(xs: Seq(Int)): Int = xs.map((x) => x + 1).length()\n");
   });
 
+  test("a lambda's parameter its own written type decides, wherever the lambda stands", () => {
+    compiles("let h: (Vector(Int)) -> Int = (w) => w.length()\n");
+    compiles(
+      "let f(g) =\n    let a = g({cb = (u: Int) => 0})\n    let b = g({cb = (u) =>\n" +
+        "        let h: (Vector(Int)) -> Int = (w) => w.length()\n        0})\n    ()\n",
+    );
+  });
+
+  test("a curried lambda and an applied lambda land from a decided call", () => {
+    compiles(
+      "let apply2(f: (Int) -> (Vector(Int)) -> Int): Int = f(1)([2])\n" +
+        "let n = apply2((u) => (w) => w.length())\n",
+    );
+    compiles("let f(v: Vector(Int)): Int = ((x) => x.length())(v)\n");
+  });
+
+  test("a range is a `Range` whatever its operands", () => {
+    compiles("let f(p, q) = (p..q).toSeq()\n");
+  });
+
+  test("a call whose callee's declaration fixes its result, whatever it is handed", () => {
+    compiles("let f(p) =\n    let a = Vector.length(p).show()\n    let w: Vector(Int) = p\n    a\n");
+    compiles("let f(n) =\n    let a = Int.show(n).length()\n    a\n");
+  });
+
+  test("a logical operation is a `Bool`, and an ascription over a decided value decides it", () => {
+    compiles("let f(p) = (p and True).show()\n");
+    compiles("let f(p) = (not p).show()\n");
+    compiles("let f(v: Vector(Int)) = (v: _).isEmpty()\n");
+  });
+
+  test("a caught exception's parts, which its declaration types", () => {
+    compiles(
+      "let f(xs: Vector(Int)): String =\n    try\n        xs[3].show()\n    catch\n" +
+        "        IndexError(at, size) => at.show()\n",
+    );
+  });
+
   test("an honor member's parameters, which the contract types", () => {
     compiles(
       "record Box = {n: Int}\n" +
@@ -295,6 +449,13 @@ describe("#1182: a lambda's parameter typed only through a generic call", () => 
 describe("a subject that already failed draws no second report (§3.5)", () => {
   test("an unknown name", () => {
     expect(projectDiagnostics(HEADER + "let s: String = nope.show()\n")).toEqual(["unknown name `nope`"]);
+  });
+
+  test("a lambda parameter of a refused call, or a part of a refused value", () => {
+    expect(projectDiagnostics(HEADER + "let f(v: Vector(Int)) = v.nope((x) => x.show())\n")).toHaveLength(1);
+    expect(projectDiagnostics(
+      HEADER + "let f(o): String = match o.first()\n    Some(g) => g.show()\n    None => \"\"\n",
+    )).toEqual([refusal("o", "first")]);
   });
 
   test("a subject its own elaboration refused", () => {
