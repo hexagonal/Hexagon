@@ -3,7 +3,7 @@
  *
  * A call whose callee is known and is *not* a function used to be reported as
  * an ordinary type mismatch against a demanded arrow — "type mismatch: expected
- * String, found (?433) >-> ?434" — and the arrow's colour was the complaint:
+ * String, found (?433) ->? ?434" — and the arrow's colour was the complaint:
  * a report whose subject is *this is not a function* has no business printing
  * `>->`, a spelling that reads as a demand for an effect-polymorphic function
  * when nothing about effects is at issue. Worse, the same call registered a
@@ -123,7 +123,7 @@ describe("the report itself", () => {
    * the field". No bespoke field-not-callable report exists in the checker — the
    * row's quoted string is an illustration, not a message the compiler ever
    * emitted — and before this change the case produced "type mismatch: expected
-   * Int, found () >-> ?434", which is not phrased against the field at all. The
+   * Int, found () ->? ?434", which is not phrased against the field at all. The
    * dedicated report is, so this is the row moving *toward* conformance rather
    * than away from it.
    */
