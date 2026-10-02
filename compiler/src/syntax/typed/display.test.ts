@@ -301,7 +301,7 @@ describe("displayScheme: the constraint bracket", () => {
 
   test("`=>` appears nowhere in a displayed scheme, however constrained", () => {
     // #410's whole point: the separator was the last non-term reading of `=>`,
-    // and every arrow a displayed type can carry is now `->`, `->?`, or `->!`.
+    // and every arrow a displayed type can carry is now `->`, `>->`, or `->!`.
     const displayed = displayScheme({
       variables: [typeVariableId(1), typeVariableId(2)],
       constraints: [constraint("Num", 1), constraint("Show", 1), constraint("Eq", 2)],
@@ -355,7 +355,7 @@ describe("displayScheme: the arrow trio", () => {
   });
 
   test("one variable with an inlet displays plain, so the face writes back", () => {
-    // The annotation grammar links every written `->?` in a signature into one
+    // The annotation grammar links every written `>->` in a signature into one
     // variable (§2.2), so this text is exactly what this type means — and the
     // parameter's arrow is the inlet that makes it legal to write (§2.2.1).
     expect(
@@ -369,11 +369,11 @@ describe("displayScheme: the arrow trio", () => {
           effect: colour(1),
         },
       }),
-    ).toBe("(String ->! String) ->? String");
+    ).toBe("(String ->! String) >-> String");
   });
 
   test("one variable with no inlet still displays plain — #405 dropped that case", () => {
-    // Every parameter arrow here is the pure constant, so the sole `->?` has no
+    // Every parameter arrow here is the pure constant, so the sole `>->` has no
     // slot for a caller's instantiation. The predecessor numbered it, because
     // the else-constant rule read an inlet-less written arrow back as the
     // impure constant and the plain spelling would have meant something else.
@@ -393,7 +393,7 @@ describe("displayScheme: the arrow trio", () => {
           effect: colour(1),
         },
       }),
-    ).toBe("(() -> String) ->? Int");
+    ).toBe("(() -> String) >-> Int");
   });
 
   test("an inlet is a parameter position at any depth", () => {
@@ -417,7 +417,7 @@ describe("displayScheme: the arrow trio", () => {
     ).toBe("((String ->! String) -> String) -> String");
   });
 
-  test("two distinct colours are not numbered: a callback's shows `->!`, a dependent one `->?`", () => {
+  test("two distinct colours are not numbered: a callback's shows `->!`, a dependent one `>->`", () => {
     // Effects §10: a finished face depends on all of its callbacks or none, so
     // nothing is numbered.
     expect(
@@ -431,7 +431,7 @@ describe("displayScheme: the arrow trio", () => {
           effect: colour(2),
         },
       }),
-    ).toBe("(String ->! String) ->? String ->? String");
+    ).toBe("(String ->! String) >-> String >-> String");
   });
 
   test("a constant beside two callbacks' colours reads the same", () => {

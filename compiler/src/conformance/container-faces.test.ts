@@ -201,7 +201,7 @@ describe("a constructor application's own expected type (#1066)", () => {
 
   test("a type refused where colours are held back is reported as written", () => {
     expect(refusals("let optBang(o: Option(() ->! Unit)): Unit = ()\nlet a = optBang(Some(Some(() => ())))\n"))
-      .toEqual(["type mismatch: expected () ->! Unit, found Option(() ->? a)"]);
+      .toEqual(["type mismatch: expected () ->! Unit, found Option(() >-> a)"]);
     // A literal is refused as a function, wherever the function type is carried.
     for (const program of [
       "let a: (() ->! Unit, Int) = (1, 2)\n",

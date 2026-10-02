@@ -7,7 +7,7 @@
  * lives here and nowhere else.
  *
  * A displayed face is a face the grammar can write: `->` pure, `->!` the impure
- * constant or a callback's colour on the callback's own arrows, and `->?` a
+ * constant or a callback's colour on the callback's own arrows, and `>->` a
  * colour that depends on the callbacks the signature is handed. No colour is
  * numbered: a finished face depends on all of its callbacks or on none (§2.4).
  */
@@ -19,4 +19,4 @@ export const PURE_ARROW = "->";
 export const IMPURE_ARROW = "->!";
 
 /** A colour that depends on what the signature is handed (`spec/effects.md` §2.2). */
-export const FOLLOWS_ARROW = "->?";
+export const FOLLOWS_ARROW = ">->";

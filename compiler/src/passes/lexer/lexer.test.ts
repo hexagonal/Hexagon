@@ -345,6 +345,35 @@ describe("lex", () => {
     expect(result.diagnostics).toEqual([]);
   });
 
+  test("lexes the three type arrows whole, and `>` before `-` only where `>->` is complete", () => {
+    const arrows = lexSource(">-> ->! -> x >-1 <a>(y)");
+    expect(kinds(arrows.tokens).slice(2)).toEqual([
+      "ArrowFollows",
+      "ArrowBang",
+      "Arrow",
+      "NonUpperName",
+      "Greater",
+      "Minus",
+      "Integer",
+      "Less",
+      "NonUpperName",
+      "Greater",
+      "LeftParen",
+      "NonUpperName",
+      "RightParen",
+      "Eof",
+    ]);
+    expect(arrows.diagnostics).toEqual([]);
+
+    // `?` is no token: `->?` is the pure arrow and an invalid character.
+    const question = lexSource("->? ?");
+    expect(kinds(question.tokens).slice(2)).toEqual(["Arrow", "Eof"]);
+    expect(question.diagnostics.map(({ message }) => message)).toEqual([
+      'invalid character "?" (U+003F)',
+      'invalid character "?" (U+003F)',
+    ]);
+  });
+
   test("treats nested comments as trivia and records physical newlines", () => {
     const result = lexSource(
       "(* outer\n (* inner *) still outer *) let x = 1 // note\n\tlet y = 2",

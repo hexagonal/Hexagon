@@ -4032,7 +4032,7 @@ class Resolver {
           }
         }
         // Effects §2.2.1 / Declarations Preamble §5.1.1: an alias body has no
-        // enclosing signature, so `->?` there denotes nothing. The check has to
+        // enclosing signature, so `>->` there denotes nothing. The check has to
         // stand *here*, before `#instantiateResolvedAlias` inlines the body
         // into a use site: inlined into a signature that happens to have an
         // inlet, the arrow would silently link — and transparency means one
@@ -4042,13 +4042,13 @@ class Resolver {
         this.#resolvingAliases.push(item.name.text);
         const resolvedBody = this.#resolveTypeAnnotation(item.annotation, parameters);
         this.#resolvingAliases.pop();
-        // Recovery: a refused `->?` becomes the impure constant in the stored
+        // Recovery: a refused `>->` becomes the impure constant in the stored
         // body, so the alias inlines as `->!` at every use site. Without this
         // the linked arrow would reach a use site whose signature happens to
         // have an inlet, link there, and make every call through the alias owe
         // `?` — a cascade of consequences from one already-reported defect.
         // The constant is marked as §4.4's recovery, so the checker suppresses
-        // what it goes on to feed as it does at every other refused `->?` —
+        // what it goes on to feed as it does at every other refused `>->` —
         // an unmarked `->!` would demand `!` of every call through the alias
         // (#888).
         const annotation = orphaned ? constantifyLinkedArrows(resolvedBody) : resolvedBody;
@@ -6767,7 +6767,7 @@ class Resolver {
   }
 
   /**
-   * Effects §4.4's report, for every `->?` written in an alias body.
+   * Effects §4.4's report, for every `>->` written in an alias body.
    *
    * Every occurrence is reported, not just the first: they are independent
    * mistakes and a writer fixing one arrow should not have to recompile to
@@ -6793,7 +6793,7 @@ class Resolver {
           this.#diagnostics.add({
             severity: "error",
             message:
-              "`->?` means only as effectful as what it is handed, and nothing is " +
+              "`>->` means only as effectful as what it is handed, and nothing is " +
               "handed here — an alias is a type fragment, not a signature; write " +
               "`->!` for a function that may touch the world, or `->` for one that does not",
             primary: arrowSpan,
@@ -8528,7 +8528,7 @@ function substituteResolvedType(
 }
 
 /**
- * A resolved type with every `->?` read as its fixit, `->!` (Effects §4.4).
+ * A resolved type with every `>->` read as its fixit, `->!` (Effects §4.4).
  *
  * An alias body §5.1.1 has already refused. The arrow denotes nothing, and
  * leaving it `"linked"` would let it acquire a meaning at a use site that hands

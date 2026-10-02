@@ -7,9 +7,9 @@ export interface TypeOccurrence {
   readonly name: string;
   readonly displayedType: string;
   /**
-   * Who owns each captured colour the display had to number *(#873; Effects
-   * §10)*, one line each — `` `->?¹` is `outer`'s colour, captured ``. Absent
-   * where nothing was.
+   * Who owns each captured colour the display depends on *(#873; Effects
+   * §10)*, one line each — "depends on `outer`'s `action`". Absent where
+   * nothing was.
    */
   readonly colourOwners?: readonly string[];
   readonly span: Source.Span;

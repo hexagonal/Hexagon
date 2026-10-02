@@ -8,6 +8,9 @@ normative as Effects §13 and Constraints §2 (#867); §5 (the `?` inference
 correction) is Effects §3.3–§3.4 (#868); §7 (extern rows write their arrow) is
 FFI Part 4 §4.5 (#869), with one amendment — setters write `->!` only.
 
+**Spelling note:** this record writes the follows arrow `->?`. That spelling is
+retired: the arrow is now `>->` (Effects §2.2; #1151, #1145).
+
 ## 1. Two levels: implementation and interface
 
 Ordinary functions, including `honor` implementations, retain inferred effects.

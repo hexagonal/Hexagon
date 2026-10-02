@@ -53,14 +53,14 @@ describe("the law: a survivor reaching a report is named", () => {
 
   test("an effect colour is not spent a letter — it prints as a colour", () => {
     // `#display` skips effect-slot variables when it names: an unsolved colour
-    // reaches the reader through the arrow (`->?`), never as a name, so naming
+    // reaches the reader through the arrow (`>->`), never as a name, so naming
     // it would only push the type's own survivor off `a` for nothing.
     expect(main(
       "export fun go(f: (b) ->! b): Int =\n" +
         "    let n: String = (f, [])\n" +
         "    1\n",
     )).toEqual([
-      "type mismatch: expected String, found ((b) ->? b, Vector(a))",
+      "type mismatch: expected String, found ((b) >-> b, Vector(a))",
     ]);
   });
 

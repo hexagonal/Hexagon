@@ -358,7 +358,7 @@ function isImpure(colour: Mono): boolean {
 
 /**
  * The callbacks one chain of applications hands over (Effects §2.2, §2.4):
- * `handed[k]` is the callbacks the `k`th application hands over, so a `->?` on
+ * `handed[k]` is the callbacks the `k`th application hands over, so a `>->` on
  * the chain's `k`th arrow (or inside what it returns) denotes the join of
  * `handed[0]` through `handed[k]`. A signature's own spine is its face. A
  * function the signature carries in data is a signature of its own, nested in
@@ -372,7 +372,7 @@ interface Spine {
 }
 
 /**
- * One signature's callbacks and its written `->?` arrows (Effects §2.2–§2.4).
+ * One signature's callbacks and its written `>->` arrows (Effects §2.2–§2.4).
  *
  * The spine is the chain of arrows reached from the signature's root through
  * results, and every parameter of a spine arrow whose written type is a
@@ -386,15 +386,15 @@ interface SignatureFace extends Spine {
   /** The callbacks of the functions the signature carries in data, in source order. */
   readonly carried: CallbackColour[];
   /**
-   * Every written `->?` on the spine and the join it denotes, for §4.2's face
+   * Every written `>->` on the spine and the join it denotes, for §4.2's face
    * report and its fixit, with the application it follows where it stands on
    * the spine itself.
    */
   readonly arrows: FaceArrow[];
-  /** The spine applications whose written `->?` §4.2 refused: they read as `->!` from outside. */
+  /** The spine applications whose written `>->` §4.2 refused: they read as `->!` from outside. */
   readonly refused?: Set<number>;
   /**
-   * The function values met at this face's written `->?` arrows, compared
+   * The function values met at this face's written `>->` arrows, compared
    * against what the face is handed and never merged into it (§4.2):
    * `#checkFaceFits` reads them once their colours settle.
    */
@@ -420,7 +420,7 @@ function faceCallbacks(face: SignatureFace): CallbackColour[] {
   return [...face.handed.flat(), ...face.carried];
 }
 
-/** One written `->?` of a face. */
+/** One written `>->` of a face. */
 interface FaceArrow {
   readonly span: Source.Span;
   readonly colour: Mono;
@@ -429,7 +429,7 @@ interface FaceArrow {
 }
 
 /**
- * A function value met at a written `->?` (Effects §4.2): its colour `value`
+ * A function value met at a written `>->` (Effects §4.2): its colour `value`
  * must be covered by what the arrow's join is handed, and is compared, never
  * merged into it.
  */
@@ -477,7 +477,7 @@ type ArrowRole =
      * Under a type argument a declaration reads contravariantly or both ways:
      * a function there may be one a caller hands in, which the body calls, so
      * its parameters are what the body hands it, nothing nests in it, and a
-     * written `->?` there is unified with what meets it, never fitted (a fit
+     * written `>->` there is unified with what meets it, never fitted (a fit
      * reads "claims more" the wrong way round at a parameter).
      */
     readonly against?: boolean;
@@ -640,7 +640,7 @@ function annotationWhole(annotation: Resolved.TypeAnnotation): boolean {
 }
 
 /**
- * A written type with no variable, no hole and no `->?` anywhere *(#1174)*:
+ * A written type with no variable, no hole and no `>->` anywhere *(#1174)*:
  * nothing an argument or a later line could fill, and no arrow that follows
  * what a signature is handed.
  */
@@ -3202,7 +3202,7 @@ class Checker {
   /**
    * What a written arrow denotes where the annotation being elaborated stands
    * (`ArrowRole`). `undefined` is no signature at all — a data field, an alias
-   * body, an annotation that is not a function type — where a written `->?`
+   * body, an annotation that is not a function type — where a written `>->`
    * has nothing to depend on and is §4.4's refusal, its clause named by
    * `#linkedArrowPosition`. A signature never lends its colours to a local one
    * (Effects §2.2.1): each written function type opens its own.
@@ -3380,7 +3380,7 @@ class Checker {
    * The two sides of the annotation seat whose unification is running, if one
    * is *(#948; Effects §4.2)*. A colour solved there is pinned by the side
    * that brought the constant: the value where the annotation carried the
-   * variable — `let g: () ->? Unit = save0` stands at `save0` — and the
+   * variable — `let g: () >-> Unit = save0` stands at `save0` — and the
    * annotation where it carried the constant, as `let p: () -> Unit = h` does.
    */
   #pinSides: { readonly annotation: Source.Span; readonly value: Source.Span } | undefined;
@@ -3494,7 +3494,7 @@ class Checker {
   readonly #lambdaFaces = new WeakMap<Resolved.LambdaExpr, SignatureFace>();
   /** The written face of the binding being generalized, whose refused arrows read as `->!` (`#readRefusedArrows`). */
   #generalizingFace: SignatureFace | undefined;
-  /** Each written `->?`'s function node, with its face and arrow: a value meeting one is fitted (`#unify`). */
+  /** Each written `>->`'s function node, with its face and arrow: a value meeting one is fitted (`#unify`). */
   readonly #faceArrowNodes = new WeakMap<Mono, { readonly face: SignatureFace; readonly arrow: FaceArrow }>();
   /** Each lambda's function type, and the body it types, for a refused tie's reading (`#readRefusedTies`). */
   readonly #frameOfType = new WeakMap<Mono, EffectFrame>();
@@ -3502,7 +3502,7 @@ class Checker {
    * The lambdas a function value may be, by its type's node: a lambda's own,
    * carried through copies (instantiation, re-opening) and joined where a
    * merge unifies two function types — for §4.2's search for the call that
-   * runs a colour a written `->?` is not handed.
+   * runs a colour a written `>->` is not handed.
    */
   readonly #lambdasOf = new WeakMap<Mono, LambdaSet>();
   /**
@@ -5119,8 +5119,8 @@ class Checker {
       for (const member of item.members) {
         // *(#867.)* **A member header is a signature** (Effects §13.4): each
         // callback parameter it writes has a colour of its own, quantified at
-        // the member, and a `->?` it writes is the join of them, so an
-        // outer-only `->?` is §4.4's nothing-handed refusal. The outer arrow is
+        // the member, and a `>->` it writes is the join of them, so an
+        // outer-only `>->` is §4.4's nothing-handed refusal. The outer arrow is
         // read from the header rather than inferred — the one function header
         // in the language with no body beneath it (Effects §13.1).
         const memberFace = this.#openFace(0, member.span, member.binding.name, false);
@@ -5378,7 +5378,7 @@ class Checker {
         if (declaration.kind === "ExternLet") {
           // An extern `let` is a value reference, and a value reference carries
           // no colour (FFI Part 4 §4.5 — the same sentence that retires `pure`
-          // here). So it is not a signature, and a `->?` written in its
+          // here). So it is not a signature, and a `>->` written in its
           // annotation takes §4.4's no-signature clause rather than being told
           // that a signature it does not have has no inlet (§2.2.2).
           //
@@ -5410,7 +5410,7 @@ class Checker {
         // each callback parameter it writes `->!` has a colour of its own, and
         // the row's arrow is read, never inferred — a boundary row is a
         // contract with no body to infer from. `->` is the trusted purity
-        // claim, `->!` the honest arrow for the unknown, and `->?` the declared
+        // claim, `->!` the honest arrow for the unknown, and `>->` the declared
         // conduit. The colours are quantified, so each caller instantiates them
         // afresh.
         const enclosingExternRow = this.#atExternRow;
@@ -7188,7 +7188,7 @@ class Checker {
     // second would meet one the first had already quantified.
     const enclosingVariableScope = this.#annotationVariableScope;
     // §2.2.2's second boundary: module level is outside every function
-    // signature, so a `->?` written in a binding annotation, a `var`, or an
+    // signature, so a `>->` written in a binding annotation, a `var`, or an
     // ascription here has neither an inlet of its own nor an enclosing colour to
     // borrow, and §4.4 says so in its own words. Every lambda inside restores
     // `"signature"` as it opens, so only the module's own type positions are
@@ -7338,7 +7338,7 @@ class Checker {
         if (viewType.kind === "Function") {
           // Settle a named pure member before reading its face. An unsolved
           // outer colour defaults pure; only a colour actually conducted from
-          // a `->?` inlet remains variable here.
+          // a `>->` inlet remains variable here.
           const viewEffect = this.#prune(viewType.effect ?? PURE);
           if (viewEffect.kind === "Variable") {
             const conducted = [...viewType.parameters, viewType.result].some((part) =>
@@ -7347,7 +7347,7 @@ class Checker {
             if (conducted) {
               this.#diagnostics.add({
                 severity: "error",
-                message: "a pattern's `view` is run by matching, so it is pure — the demand is the pattern head's, and this function's face is `->?`",
+                message: "a pattern's `view` is run by matching, so it is pure — the demand is the pattern head's, and this function's face is `>->`",
                 primary: item.view.span,
               });
             } else {
@@ -7437,7 +7437,7 @@ class Checker {
         // lambda the face lands on: a `->` face is a pure demand on its body;
         // `->!` is the impure constant from the start, so the body's own
         // effects are absorbed by a colour already constant and the callbacks'
-        // colours are left free; `->?` is the join of the face's callbacks.
+        // colours are left free; `>->` is the join of the face's callbacks.
         const supplied = suppliedFace === undefined ? undefined : this.#prune(suppliedFace);
         this.#pendingOwnEffect = supplied?.kind === "Function" ? supplied.effect ?? PURE : undefined;
         this.#pendingOwnFace = supplied?.kind === "Function" && annotation?.kind === "Function" &&
@@ -10253,7 +10253,7 @@ class Checker {
           // demanded arrow is guaranteed to fail here, and the mismatch it
           // reports is the wrong sentence twice over (#385): its subject is a
           // type disagreement rather than "this is not a function", and the
-          // arrow it prints carries a colour — `->?` — that nothing in the
+          // arrow it prints carries a colour — `>->` — that nothing in the
           // program asked for. Report the sentence directly instead, and
           // register no mark obligation: a non-call owes no mark, and minting
           // one buys a second report about an arrow that was never there.
@@ -17823,7 +17823,7 @@ class Checker {
    * **A pure function fits wherever a function is expected** *(#1119; Effects
    * §3.4)*. At a use, a function whose outer arrow is the pure constant is read
    * with that arrow as a fresh colour, which the seat it meets then decides by
-   * ordinary unification: a `->?` there makes it that variable, a `->!` the
+   * ordinary unification: a `>->` there makes it that variable, a `->!` the
    * impure constant, a `->` pure, and a colour nothing real reaches is pure
    * again where it settles. This is Koka's re-opening at instantiation
    * (`Type/Operations.hs`, `extend`) at one function's own arrow, an impure
@@ -19235,7 +19235,7 @@ class Checker {
 
   /**
    * What a written arrow denotes. `->` is the pure constant and needs no slot;
-   * `->!` is the impure constant; `->?` is this signature's shared variable —
+   * `->!` is the impure constant; `>->` is this signature's shared variable —
    * and where there is no signature to share, it is an **error** rather than a
    * second reading (§2.2.1, §4.4; #405 withdrew the else-constant rule).
    */
@@ -19260,9 +19260,9 @@ class Checker {
   /**
    * The colour a written arrow denotes where it stands (Effects §2.2–§2.5),
    * read off `#arrowRole`: `->` is pure; `->!` is the callback's colour on a
-   * callback's own arrows and the impure constant everywhere else; `->?` is the
+   * callback's own arrows and the impure constant everywhere else; `>->` is the
    * join of the callbacks its spine has been handed by the time the arrow runs,
-   * a carried function's own among them (#1176). A `->?` the position does not
+   * a carried function's own among them (#1176). A `>->` the position does not
    * admit is §4.4's refusal, and reads as its fixit: the callback's colour on a
    * callback's own arrow, the impure constant everywhere else.
    */
@@ -19311,7 +19311,7 @@ class Checker {
   }
 
   /**
-   * Effects §4.4: a `->?` where nothing is handed, with the position's own
+   * Effects §4.4: a `>->` where nothing is handed, with the position's own
    * reason and the fixit `->!` — never a second reading of the arrow.
    */
   #refuseFollowsArrow(
@@ -19344,13 +19344,13 @@ class Checker {
     const key = `${Number(arrowSpan.fileId)}:${arrowSpan.start.offset}:${arrowSpan.end.offset}`;
     if (this.#reportedLinkedArrows.has(key)) return;
     this.#reportedLinkedArrows.add(key);
-    const nothingHanded = "`->?` means only as effectful as what it is handed, and nothing is handed here — ";
+    const nothingHanded = "`>->` means only as effectful as what it is handed, and nothing is handed here — ";
     const constants = "; write `->!` for a function that may touch the world, or `->` for one that does not";
     const message = position === "callback"
       ? "a callback's arrow is its own colour, spelled `->!` — it accepts any function, and the " +
         "function follows it — or `->` for a pure one"
       : position === "local"
-      ? nothingHanded + "this annotation has no callbacks of its own, and a local `->?` does not " +
+      ? nothingHanded + "this annotation has no callbacks of its own, and a local `>->` does not " +
         "borrow the enclosing function's — leave its type to inference, or write `->!`"
       : nothingHanded + {
         inside: "an arrow inside a parameter type, other than a callback's own, is a constant",
@@ -19448,7 +19448,7 @@ class Checker {
    * One parameter of the `application`th arrow of `spine` (the signature's own,
    * where none is given, or a carried function's: #1176), elaborated as the
    * callback it is where its written type is a function type (Effects §2.4):
-   * written `->!` (or the refused `->?`, which reads as it) on its own arrow, it
+   * written `->!` (or the refused `>->`, which reads as it) on its own arrow, it
    * has a colour of its own, which every arrow of its own function type
    * carries; written `->`, it is pure and has none. Every other arrow inside a
    * parameter type means what it says.
@@ -19495,7 +19495,7 @@ class Checker {
   /**
    * Elaborates one header whose outer arrow is written — a constraint member's,
    * an extern row's — as the signature it is: its parameters, then its result,
-   * then its outer arrow, so a `->?` anywhere on it denotes the callbacks handed
+   * then its outer arrow, so a `>->` anywhere on it denotes the callbacks handed
    * by the time it runs.
    */
   #elaborateHeader(
@@ -20319,7 +20319,7 @@ class Checker {
   /**
    * §3.4's source arm: a body that absorbs an impure-constant call is a source,
    * its own colour the constant — or §4.2's report where its written face
-   * promises less: the pure arrow `->`, or a `->?` that follows only what the
+   * promises less: the pure arrow `->`, or a `>->` that follows only what the
    * signature is handed.
    */
   #sourceArm(frame: EffectFrame): void {
@@ -20399,7 +20399,7 @@ class Checker {
   }
 
   /**
-   * §4.2 at a written `->?` a function value met: every colour the value runs
+   * §4.2 at a written `>->` a function value met: every colour the value runs
    * must be one the arrow's join is handed. A colour it is not handed — the
    * world on the function's own account, a captured colour, a callback handed
    * later — is the face report, once per arrow, at the first call in source
@@ -20472,8 +20472,8 @@ class Checker {
   }
 
   /**
-   * §4.2's report for a written `->?` face over a body that does more than its
-   * callbacks do, at the offending call, with a label at the `->?` and a fixit
+   * §4.2's report for a written `>->` face over a body that does more than its
+   * callbacks do, at the offending call, with a label at the `>->` and a fixit
    * rewriting it to `->!`.
    */
   #reportFollowsFace(face: SignatureFace, span: Source.Span, subject: string, at?: Source.Span): void {
@@ -20487,13 +20487,13 @@ class Checker {
     }
     this.#diagnostics.add({
       severity: "error",
-      message: `${subject}, and this face's \`->?\` promises the function is only as effectful ` +
+      message: `${subject}, and this face's \`>->\` promises the function is only as effectful ` +
         "as what it is handed — write `->!`",
       primary: span,
       ...(arrow === undefined
         ? {}
         : {
-          labels: [{ span: arrow, message: "this `->?` follows only the callbacks it is handed" }],
+          labels: [{ span: arrow, message: "this `>->` follows only the callbacks it is handed" }],
           fixes: [{ message: "write `->!`", edits: [{ span: arrow, replacement: "->!" }] }],
         }),
     });
@@ -20532,7 +20532,7 @@ class Checker {
   /**
    * The body's own colour made at least each conducted colour. A colour the
    * body decides itself — a fresh variable — becomes their join; a written `->`
-   * face pins each pure; a written `->?` face must already follow each, and one
+   * face pins each pure; a written `>->` face must already follow each, and one
    * it is not handed is §4.2's report.
    */
   #conduct(
@@ -21055,10 +21055,10 @@ class Checker {
     const labels = arrowSpan === undefined ? [] : [{ span: arrowSpan, message: "the contract's failing arrow" }];
     const follows = this.#prune(arrow.contract).kind !== "Effect";
     if (direction === "more") {
-      const written = follows ? "->?" : "->";
+      const written = follows ? ">->" : "->";
       const clause = at.form === "outer"
         ? follows
-          ? `${member}'s contract is \`->?\``
+          ? `${member}'s contract is \`>->\``
           : `${member}'s contract is the pure arrow \`->\``
         : at.form === "result"
         ? `${member}'s contract returns a \`${written}\` function`
@@ -21217,7 +21217,7 @@ class Checker {
    * Agreement is on **the linked relationship** — which positions share the
    * member's one variable — and on the constant written at every other
    * position; variable names are immaterial. Each member owns exactly one
-   * variable (Effects §13.4), so the set of positions a member writes `->?` at
+   * variable (Effects §13.4), so the set of positions a member writes `>->` at
    * *is* its linked relationship, and comparing the written arrow at every
    * position in walk order compares exactly that, not punctuation.
    *
@@ -21281,7 +21281,7 @@ class Checker {
   ): readonly { readonly arrow: string; readonly place: SeatPlace }[] {
     const found: { arrow: string; place: SeatPlace }[] = [];
     const spell = (effect: "linked" | "constant" | undefined): string =>
-      effect === "linked" ? "->?" : effect === "constant" ? "->!" : "->";
+      effect === "linked" ? ">->" : effect === "constant" ? "->!" : "->";
     const walk = (annotation: Resolved.TypeAnnotation | undefined, place: SeatPlace): void => {
       if (annotation === undefined) return;
       if (annotation.kind === "Function") {
@@ -21657,7 +21657,7 @@ class Checker {
   }
 
   /**
-   * §4.2 at the faces, once every colour has settled. A written `->?` whose
+   * §4.2 at the faces, once every colour has settled. A written `>->` whose
    * join a pin or a collapse made the impure constant claims less than the
    * function does. A callback written `->!` whose colour a pin made pure is
    * the **lie of generality**: the face promises every caller that any
@@ -21681,14 +21681,14 @@ class Checker {
         if (settled.kind === "Effect" && settled.solve !== undefined) solved.add(settled);
         this.#diagnostics.add({
           severity: "error",
-          message: "this function touches the world on its own account, and this face's `->?` promises " +
+          message: "this function touches the world on its own account, and this face's `>->` promises " +
             "the function is only as effectful as what it is handed — write `->!`",
           // At the pin, or at the value where the pin is the whole body — a
           // knot's own unification names no act.
           primary: ((pin) => pin !== undefined && !(face.body !== undefined && spanWithin(face.body, pin))
             ? pin
             : face.value ?? span)(settled.kind === "Effect" ? settled.solve?.span : undefined),
-          labels: [{ span, message: "this `->?` follows only the callbacks it is handed" }],
+          labels: [{ span, message: "this `>->` follows only the callbacks it is handed" }],
           fixes: [{ message: "write `->!`", edits: [{ span, replacement: "->!" }] }],
         });
       }
@@ -21704,7 +21704,7 @@ class Checker {
       }
     }
     for (const [colour, callbacks] of pinned) {
-      // A written `->?` that followed only these callbacks is left with nothing
+      // A written `>->` that followed only these callbacks is left with nothing
       // handed once they are `->`, so the repair rewrites it too.
       const faces = new Set(callbacks.map(({ face }) => face));
       const follows = [...faces].flatMap((face) =>
@@ -21751,7 +21751,7 @@ class Checker {
       primary: colour.solve!.span,
       labels: written.map((span) => ({
         span,
-        message: follows.includes(span) ? "this `->?` follows only that callback" : "this `->!` accepts any function",
+        message: follows.includes(span) ? "this `>->` follows only that callback" : "this `->!` accepts any function",
       })),
       fixes: [{
         message: "write `->`",
@@ -21926,7 +21926,7 @@ class Checker {
             : parameter
         ),
         result: this.#applyWrittenQualifiers(source.result, target.result),
-        // A written `->?` is published as written: the value was compared with
+        // A written `>->` is published as written: the value was compared with
         // it, never merged into it (Effects §4.2). A colour of the value still
         // to be decided rides along until it is, so callers' marks follow it.
         ...(this.#faceArrowNodes.has(source) && source.effect !== undefined
@@ -22656,7 +22656,7 @@ class Checker {
         this.#lambdasOf.set(actualLeft, merged);
         this.#lambdasOf.set(actualRight, merged);
       }
-      // A function value meeting a written `->?` is fitted to it, never
+      // A function value meeting a written `>->` is fitted to it, never
       // merged into it (Effects §4.2): its colour is compared with what the
       // face is handed once it settles (`#checkFaceFits`).
       const leftFace = this.#faceArrowNodes.get(actualLeft);
@@ -26264,7 +26264,7 @@ class Checker {
    * two functions the result carries never share one (#1169). A knot member
    * that runs a sibling's callback colour, monomorphic inside the knot (§3.4),
    * finishes with such a colour on its spine, and shows `->` for it rather than
-   * a `->?` no written face could spell.
+   * a `>->` no written face could spell.
    *
    * That is sound because colours are erased and no function can observe what
    * a caller handed another: a lambda reaches no outer `var` and there are no
@@ -26495,7 +26495,7 @@ class Checker {
   }
 
   /**
-   * A face whose written `->?` §4.2 refused reads as its fix, `->!`, on its
+   * A face whose written `>->` §4.2 refused reads as its fix, `->!`, on its
    * spine, where callers meet it: a copy, never the body's own colour.
    */
   #readRefusedArrows(type: Mono): Mono {
@@ -26515,7 +26515,7 @@ class Checker {
    * **A finished face depends on all of its callbacks or on none of them**
    * (Effects §2.4). Where a binding generalizes, each colour on its face that
    * depends on some of the callbacks handed by the time it runs is widened to
-   * the join of all of them, which is the colour a written `->?` there would
+   * the join of all of them, which is the colour a written `>->` there would
    * denote. That holds on every spine: the face's own, at every application
    * however few callbacks the first hands, and that of each function the face
    * carries in data, which is a signature of its own nested in the face's and
@@ -27689,7 +27689,7 @@ class Checker {
     }
     if (annotation.kind === "Function") {
       // The arrow's parameters first, then the arrow itself, then what it
-      // returns: a `->?` denotes the callbacks handed by the time it runs, and
+      // returns: a `>->` denotes the callbacks handed by the time it runs, and
       // a spine arrow's own parameters are among them (Effects §2.2).
       let role = this.#arrowRole;
       if (role?.kind === "component" && role.against !== true) {
@@ -27736,7 +27736,7 @@ class Checker {
         result: this.#inRole(resultRole, () => elaborate(annotation.result)),
         ...(effect === undefined ? {} : { effect }),
       };
-      // A written `->?` the face kept: what meets it is fitted (§4.2).
+      // A written `>->` the face kept: what meets it is fitted (§4.2).
       if (
         annotation.effect === "linked" &&
         (writtenRole?.kind === "spine" || writtenRole?.kind === "component") && writtenRole.against !== true
@@ -28344,7 +28344,7 @@ class Checker {
           // A declared field's arrow keeps the colour it was written with. A
           // record has no signature to quantify over, so that colour is always
           // a constant (#355's data-position posture) — but dropping it here
-          // silently reads every `->?` field as `->`.
+          // silently reads every `>->` field as `->`.
           ...(actual.effect === undefined ? {} : { effect: copy(actual.effect) }),
         };
       }
@@ -28510,7 +28510,7 @@ class Checker {
    * the fields' annotations are read against them), so nothing downstream can
    * tell which pass filled them.
    *
-   * Diagnostics are *not* suppressed, deliberately. A `->?` in a field of an
+   * Diagnostics are *not* suppressed, deliberately. A `>->` in a field of an
    * imported record is already re-read in every importing module, and the rule
    * being implemented here is that importing changes nothing: silencing the
    * reached case would put back, in the diagnostic channel, exactly the
@@ -28954,7 +28954,7 @@ class Checker {
         );
     }
     // *(#887.)* **Function and tuple seats**, without which a door on any
-    // member with a function-typed seat — a `->?` member's callback among them
+    // member with a function-typed seat — a `>->` member's callback among them
     // — could never widen: the shape was simply unrecognised and the permission
     // withheld, which reads as "does not reach the seat exactly".
     //
@@ -29108,7 +29108,7 @@ class Checker {
       case "Effect":
         return Colour.arrowFor(actual);
       case "Join":
-        return `->?{${actual.parts.map(key).join(",")}}`;
+        return `>->{${actual.parts.map(key).join(",")}}`;
       case "Range":
         return "Range";
       case "JsValue":
@@ -30549,7 +30549,7 @@ class Checker {
       //
       // An *effect* variable determines nothing to release: a function type
       // naming no captured collection is §5.4's identity, colour or no colour,
-      // and the colour prints as `->?` rather than as a name. A *row tail* is
+      // and the colour prints as `>->` rather than as a name. A *row tail* is
       // not a type Part 11 §2 could refuse either, and since #952 it is not a
       // type that reaches this line at all where the walk can see it: an open
       // row is item 7's refusal above. The exclusion stays as the backstop for
@@ -31718,7 +31718,7 @@ class Checker {
           };
           if (declaration.kind === "ExternLet") {
             // The registration arm's two brackets, kept here too: publication
-            // re-elaborates the same annotation, so without them a `->?` inside
+            // re-elaborates the same annotation, so without them a `>->` inside
             // one is reported a second time — and reported under the *default*
             // position, which would name a signature this row does not have.
             // A function-typed annotation is suppressed outright: §13's
@@ -31745,9 +31745,9 @@ class Checker {
           }
           // *(#869.)* The published result is **read off the scheme**
           // `#registerDeclarations` built, never re-elaborated here. That
-          // method opened the row's signature scope and closed it, so a `->?`
+          // method opened the row's signature scope and closed it, so a `>->`
           // the *result* annotation writes — §4.5's own `defer` specimen,
-          // `defer(action: () ->! Unit) -> (() ->? Unit)` — would take §4.4's
+          // `defer(action: () ->! Unit) -> (() >-> Unit)` — would take §4.4's
           // orphan branch at this seat and publish the recovered constant in
           // place of the signature's variable, behind a refusal of an arrow the
           // row is entitled to write. The parameters are already published from
@@ -33004,7 +33004,7 @@ class Checker {
     if (seen.has(actual)) return actual;
     seen.add(actual);
     const stands = actual.kind === "Variable" ? this.#shownColours.get(actual) : undefined;
-    // An opening a real colour has claimed — a written `->?`, a knot's, a
+    // An opening a real colour has claimed — a written `>->`, a knot's, a
     // seat's — is that colour now, whichever side of the join it stood (#1119).
     if (actual.kind === "Variable" && this.#openedColours.has(actual) && !this.#takesOpening(actual)) {
       return actual;
@@ -33014,7 +33014,7 @@ class Checker {
 
   /**
    * `type` as a report reads it, each arrow spelled for where it stands
-   * (Effects §10): a colour that depends on callbacks is `->?` on the spine and
+   * (Effects §10): a colour that depends on callbacks is `>->` on the spine and
    * in what it returns, and a callback's colour is `->!` on its own arrows.
    */
   #render(type: Mono, place: "spine" | "callback" | "inside"): string {
@@ -33238,7 +33238,7 @@ class Checker {
   /**
    * How a function type's arrow prints (Effects §10): a pure arrow is `->`, the
    * constant is `->!`, a callback's colour on its own arrows is `->!`, and a
-   * colour that depends on callbacks is `->?`. Nothing is numbered.
+   * colour that depends on callbacks is `>->`. Nothing is numbered.
    */
   #arrow(type: FunctionMono, place: "spine" | "callback" | "inside"): string {
     if (type.effect === undefined) return PURE_ARROW;
@@ -33401,7 +33401,7 @@ function effectMismatchMessage(left: Mono, right: Mono): string {
   }
   return impure(left) || impure(right)
     ? "a `->` arrow promises purity, and this function may touch the world — the " +
-      "demand is written `->`, the function's face `->!` or `->?`"
+      "demand is written `->`, the function's face `->!` or `>->`"
     : "effect mismatch between these arrows";
 }
 

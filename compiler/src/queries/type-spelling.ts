@@ -15,12 +15,11 @@
  *
  * The arrow trio is where the same principle makes them diverge, deliberately
  * (#364): both write `->` and `->!`, which mean what they say wherever they
- * stand, and where the display shows a variable colour — `->?`, or `->?¹` in a
- * multi-colour face — this refuses either way. It refuses even the plain
- * spelling because linking is a property of the *whole* signature, and what is
- * spelled here is one type torn out of it: whether a written `->?` links to the
- * arrows around it, and whether its new home offers the inlet §2.2.1 requires,
- * are not questions this type can answer.
+ * stand, and where the display shows a variable colour — `>->` — this
+ * refuses. It refuses because linking is a property of the *whole* signature,
+ * and what is spelled here is one type torn out of it: whether a written `>->`
+ * links to the arrows around it, and whether its new home offers the inlet
+ * §2.2.1 requires, are not questions this type can answer.
  */
 
 import { IMPURE_ARROW, PURE_ARROW } from "../support/arrows.js";
@@ -432,7 +431,7 @@ export function spellType(
       // before anything else does (`spec/effects.md` §2, #364). Both constants
       // mean the same thing wherever they are written and go straight in. A
       // *variable* colour does not: the annotation grammar links every written
-      // `->?` in a signature into one variable (§2.2), so writing this arrow
+      // `>->` in a signature into one variable (§2.2), so writing this arrow
       // would say something about the signature's other arrows that this type
       // alone cannot know is true — and, with no inlet among them, would not be
       // legal at all (§2.2.1). Either way the call marks every caller owes can
@@ -441,7 +440,7 @@ export function spellType(
       if (type.effect !== undefined && type.effect !== "impure") {
         return {
           unspellable:
-            "this function type's arrow is an effect variable, and writing `->?` here " +
+            "this function type's arrow is an effect variable, and writing `>->` here " +
             "would link it to the rest of the signature's colour",
         };
       }

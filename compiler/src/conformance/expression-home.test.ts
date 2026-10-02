@@ -647,8 +647,8 @@ describe("calls join the tree (#1062, part 2)", () => {
     expect(frac).toHaveLength(1);
     expect(frac[0]).toContain("type `Nat` has no `Frac` instance");
     // An arrow's colour is read as the lambda's own reading finds it; an early
-    // reading would call the `->?` orphaned. Since #1119 `spare` fits the
-    // lambda's own `->?` and pins nothing, so the program compiles.
+    // reading would call the `>->` orphaned. Since #1119 `spare` fits the
+    // lambda's own `>->` and pins nothing, so the program compiles.
     expect(refusals(
       "let spare(): Unit = ()\nlet applyF(x: a, g: (a) -> Int): Int = g(x)\n" +
         "let w = applyF(spare, (k: () ->! Unit) => 1)\n",
