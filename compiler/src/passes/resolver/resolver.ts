@@ -4045,8 +4045,9 @@ class Resolver {
         // Recovery: a refused `>->` becomes the impure constant in the stored
         // body, so the alias inlines as `->!` at every use site. Without this
         // the linked arrow would reach a use site whose signature happens to
-        // have an inlet, link there, and make every call through the alias owe
-        // `?` — a cascade of consequences from one already-reported defect.
+        // have an inlet, link there, and make every call through the alias
+        // follow what it is handed — a cascade of consequences from one
+        // already-reported defect.
         // The constant is marked as §4.4's recovery, so the checker suppresses
         // what it goes on to feed as it does at every other refused `>->` —
         // an unmarked `->!` would demand `!` of every call through the alias

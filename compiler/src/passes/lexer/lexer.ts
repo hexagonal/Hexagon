@@ -189,7 +189,7 @@ function readNameSeats(tokens: readonly Lexed.Token[]): readonly Lexed.Token[] {
     while (
       before >= 0 && sameLine(tokens[before]!, tokens[at]!) &&
       (tokens[before]!.kind === "Export" ||
-        contextual(tokens[before], ["static", "default", "pure", "conduit"]))
+        contextual(tokens[before], ["static", "default"]))
     ) before -= 1;
     return before < 0 || !sameLine(tokens[before]!, tokens[at]!);
   };

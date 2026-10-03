@@ -2846,7 +2846,7 @@ export const STDLIB_SOURCES: Readonly<Record<string, string>> = {
     + "    all the construct ever needed to be.\n"
     + "\n"
     + "    The arrows are linked (Effects section 2.2). `attempt` is a conduit — its\n"
-    + "    body is one `?` call on `action` — so running it is exactly as effectful as\n"
+    + "    body's one call is to `action` — so running it is exactly as effectful as\n"
     + "    the thunk it is handed: pure in, pure and bare out; impure in, and the call\n"
     + "    wears `!`. *)\n"
     + "export let attempt(action: () ->! a): Result(a, Exn) =\n"
