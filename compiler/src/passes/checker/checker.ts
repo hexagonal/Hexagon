@@ -2942,6 +2942,51 @@ function headWritten(annotation: Resolved.TypeAnnotation | undefined): annotatio
 }
 
 /**
+ * A declaration's written slot as a written type reads it: each of the
+ * declaration's type parameters replaced by the annotation the written type
+ * gives it, so `Some`'s slot `a` under `Option((Vector(_)) -> Int)` reads
+ * `(Vector(_)) -> Int`, and a hole given there stays a hole.
+ */
+function givenSlot(
+  slot: Resolved.TypeAnnotation,
+  given: ReadonlyMap<string, Resolved.TypeAnnotation>,
+): Resolved.TypeAnnotation {
+  const read = (inner: Resolved.TypeAnnotation): Resolved.TypeAnnotation => givenSlot(inner, given);
+  switch (slot.kind) {
+    case "TypeVariable":
+      return given.get(slot.name) ?? slot;
+    case "Function":
+      return { ...slot, parameters: slot.parameters.map(read), result: read(slot.result) };
+    case "Vector":
+    case "Set":
+    case "Array":
+    case "JsSet":
+    case "Node":
+      return { ...slot, element: read(slot.element) };
+    case "Nullable":
+      return { ...slot, value: read(slot.value) };
+    case "Map":
+    case "JsMap":
+      return { ...slot, key: read(slot.key), value: read(slot.value) };
+    case "Tuple":
+      return { ...slot, elements: slot.elements.map(read) };
+    case "Record":
+      return { ...slot, fields: slot.fields.map((field) => ({ ...field, annotation: read(field.annotation) })) };
+    case "Union":
+    case "RecordDeclaration":
+    case "ExternType":
+      return { ...slot, arguments: slot.arguments.map(read) };
+    case "Hole":
+    case "ImpliedType":
+    case "ErrorType":
+    case "Primitive":
+    case "Range":
+    case "JsValue":
+      return slot;
+  }
+}
+
+/**
  * The lambdas on an argument's **spine** — the positions its value is one of:
  * through grouping, a vector's, tuple's or record's parts, and a branch form's
  * value paths. A lambda a lambda hands back is off the spine, and so is
@@ -4522,9 +4567,11 @@ class Checker {
   readonly #numberDefaults = new WeakMap<Mono, NumberDefault>();
   /** A pipe stage's call, and the left operand the pipe hands it. */
   readonly #pipedInto = new Map<Resolved.CallExpr, Resolved.Expr>();
-  /** Lambdas, and calls, a written type with a written head reaches through forwarding forms. */
+  /**
+   * The lambdas a written type with a written head reaches, through forwarding
+   * forms and constructors' slots, with the function type it writes there.
+   */
   readonly #writtenContexts = new Map<Resolved.LambdaExpr, Extract<Resolved.TypeAnnotation, { kind: "Function" }>>();
-  readonly #writtenCalls = new Set<Resolved.CallExpr>();
   /** The bindings a module item introduces at the module's own level. */
   readonly #moduleBindings = new Set<Resolved.SymbolId>();
   /** `#typeDecidedSymbol`'s answers, for a type's head and for the whole of it. */
@@ -6102,6 +6149,11 @@ class Checker {
         break;
       case "If":
         return this.#typeDecided(expression.consequence, deep) && this.#typeDecided(expression.alternative, deep);
+      case "Match":
+        // An arm's pattern parts are read through what they are taken from.
+        return [...expression.arms, ...(expression.catchArms ?? [])].every((arm) => this.#typeDecided(arm.body, deep));
+      case "Try":
+        return this.#typeDecided(expression.body, deep) && expression.arms.every((arm) => this.#typeDecided(arm.body, deep));
       case "Block": {
         const last = expression.items.at(-1);
         return last?.kind !== "ExprItem" || this.#typeDecided(last.expression, deep);
@@ -6122,8 +6174,8 @@ class Checker {
       default:
         break;
     }
-    // Anything else — a call, a field read, a match — is decided where every
-    // name it uses and does not bind itself is decided whole.
+    // Anything else — a pipe, an index — is decided where every name it uses
+    // and does not bind itself is decided whole.
     return this.#freeNames(expression).every((symbol) => this.#typeDecidedSymbol(symbol, true));
   }
 
@@ -6133,8 +6185,9 @@ class Checker {
    * subject, every argument, and the value a pipe hands it read past the
    * lambdas that land from it, which the schedule elaborates after the operands
    * their parameters land from (Functions §4.3). A constructor's application
-   * takes its expectation from where it stands, so it decides its lambdas only
-   * where a written type reaches it; a call of anything unnamed decides none.
+   * takes its expectation from where it stands, so it decides none: a lambda in
+   * it is decided only by the slot a written type writes for it
+   * (`#writtenContexts`); nor does a call of anything unnamed.
    */
   #landingContextDecided(call: Resolved.CallExpr, asked?: Resolved.LambdaExpr): boolean {
     // Only the lambda asked about, and those elaborated after it, cannot have
@@ -6147,11 +6200,7 @@ class Checker {
     for (const lambda of lambdas) this.#landingLambdas.add(lambda);
     try {
       const named = ungrouped(call.callee);
-      if (
-        this.#appliesDataConstructor(call)
-          ? !this.#writtenCalls.has(call)
-          : named.kind !== "Name" && named.kind !== "Access"
-      ) return false;
+      if (this.#appliesDataConstructor(call) || named.kind !== "Name" && named.kind !== "Access") return false;
       const callee = call.callee.kind === "Access" ? call.callee.receiver : call.callee;
       const piped = this.#pipedInto.get(call);
       return this.#typeDecided(callee, true) &&
@@ -17758,6 +17807,48 @@ class Checker {
       (this.#constructorUnions.has(callee.symbol) || this.#recordConstructors.has(callee.symbol));
   }
 
+  /**
+   * The slots a written type gives a constructor's arguments where it reaches
+   * the constructor's application: a union constructor's slots, or a record's
+   * declared fields at its construction, each as its declaration writes it,
+   * with the declaration's type parameters (`parameters`) still to be given.
+   */
+  #declaredSlots(call: Resolved.CallExpr, annotation: Resolved.TypeAnnotation): {
+    readonly parameters: readonly string[];
+    readonly slots: readonly (readonly [Resolved.Expr, Resolved.TypeAnnotation | undefined])[];
+  } | undefined {
+    if (call.callee.kind !== "Name") return undefined;
+    const callee = call.callee.symbol;
+    if (annotation.kind === "Union") {
+      const union = this.#declaredUnions.get(annotation.union) ?? this.#programUnion(annotation.union);
+      const slots = union?.constructors.find((constructor) => constructor.binding.symbol === callee)?.slots;
+      if (union === undefined || slots === undefined || slots.length !== call.arguments.length) return undefined;
+      return {
+        parameters: union.parameters,
+        slots: call.arguments.map((argument, index) => [argument, slots[index]!.annotation] as const),
+      };
+    }
+    if (annotation.kind === "RecordDeclaration" && call.arguments.length === 1 && call.arguments[0]!.kind === "Record") {
+      const declaration = this.#constructedRecords.get(callee);
+      if (declaration === undefined || declaration.id !== annotation.record) return undefined;
+      return {
+        parameters: declaration.parameters,
+        slots: (call.arguments[0] as Resolved.RecordExpr).fields.map((field) =>
+          [field.value, declaration.fields.find((declared) => declared.name === field.name.text)?.annotation] as const
+        ),
+      };
+    }
+    return undefined;
+  }
+
+  /** `#declaredSlots`, each slot as the written type reads it (`givenSlot`). */
+  #givenSlots(call: Resolved.CallExpr, annotation: Resolved.TypeAnnotation): (readonly [Resolved.Expr, Resolved.TypeAnnotation])[] {
+    const declared = this.#declaredSlots(call, annotation);
+    if (declared === undefined || (annotation.kind !== "Union" && annotation.kind !== "RecordDeclaration")) return [];
+    const given = new Map(declared.parameters.map((name, index) => [name, annotation.arguments[index]!] as const));
+    return declared.slots.flatMap(([argument, slot]) => slot === undefined ? [] : [[argument, givenSlot(slot, given)] as const]);
+  }
+
   /** `expectationLands`, and a constructor application, which takes its expectation first (#1066). */
   #faceLands(expression: Resolved.Expr): boolean {
     return expectationLands(expression) || this.#appliesDataConstructor(expression);
@@ -18593,74 +18684,59 @@ class Checker {
         for (const field of node.fields) {
           expect(field.value, annotation.fields.find((written) => written.name === field.name.text)?.annotation, names);
         }
-      } else if (annotation?.kind === "Union" && node.kind === "Call" && node.callee.kind === "Name") {
-        const callee = node.callee.symbol;
-        const union = this.#declaredUnions.get(annotation.union) ?? this.#programUnion(annotation.union);
-        const slots = union?.constructors.find((constructor) => constructor.binding.symbol === callee)?.slots;
-        if (union === undefined || slots === undefined || slots.length !== node.arguments.length) return;
-        const given: Names = new Map(union.parameters.map((name, index) => [name, [annotation.arguments[index]!, names]] as const));
-        node.arguments.forEach((argument, index) => expect(argument, slots[index]!.annotation, given));
-      } else if (
-        annotation?.kind === "RecordDeclaration" && node.kind === "Call" && node.callee.kind === "Name" &&
-        node.arguments.length === 1 && node.arguments[0]!.kind === "Record"
-      ) {
-        const declaration = this.#constructedRecords.get(node.callee.symbol);
-        if (declaration === undefined || declaration.id !== annotation.record) return;
-        const given: Names = new Map(declaration.parameters.map((name, index) => [name, [annotation.arguments[index]!, names]] as const));
-        for (const field of (node.arguments[0] as Resolved.RecordExpr).fields) {
-          expect(field.value, declaration.fields.find((declared) => declared.name === field.name.text)?.annotation, given);
-        }
+      } else if ((annotation?.kind === "Union" || annotation?.kind === "RecordDeclaration") && node.kind === "Call") {
+        const declared = this.#declaredSlots(node, annotation);
+        if (declared === undefined) return;
+        const given: Names = new Map(declared.parameters.map((name, index) => [name, [annotation.arguments[index]!, names]] as const));
+        for (const [argument, slot] of declared.slots) expect(argument, slot, given);
       }
     };
-    // Where a written type reaches a lambda, or a constructor's application,
-    // through forwarding forms, what it expects there is the text's.
-    // `shared`: reached through a form whose value paths share the written
-    // type (a vector's elements, a branch form's paths) while it holds a hole,
-    // which an earlier path's value fills.
-    const writtenLand = (value: Resolved.Expr, annotation: Resolved.TypeAnnotation | undefined, shared = false): void => {
+    // Where a written type reaches a lambda through forwarding forms, and
+    // through a constructor's slots, what it writes for the lambda is the
+    // text's: a hole there is still a hole.
+    const writtenLand = (value: Resolved.Expr, annotation: Resolved.TypeAnnotation | undefined): void => {
       if (!headWritten(annotation)) return;
-      const branching = shared || !annotationWhole(annotation);
       let node = value;
       while (node.kind === "Group") node = node.expression;
       switch (node.kind) {
         case "Call":
-          if (!shared) this.#writtenCalls.add(node);
+          for (const [argument, slot] of this.#givenSlots(node, annotation)) writtenLand(argument, slot);
           return;
         case "Tuple":
           if (annotation.kind === "Tuple" && annotation.elements.length === node.elements.length) {
-            node.elements.forEach((element, index) => writtenLand(element, annotation.elements[index], shared));
+            node.elements.forEach((element, index) => writtenLand(element, annotation.elements[index]));
           }
           return;
         case "Vector":
-          if (annotation.kind === "Vector") for (const element of node.elements) writtenLand(element, annotation.element, branching);
+          if (annotation.kind === "Vector") for (const element of node.elements) writtenLand(element, annotation.element);
           return;
         case "Record":
           if (annotation.kind === "Record" && node.spread === undefined) {
             for (const field of node.fields) {
-              writtenLand(field.value, annotation.fields.find((written) => written.name === field.name.text)?.annotation, shared);
+              writtenLand(field.value, annotation.fields.find((written) => written.name === field.name.text)?.annotation);
             }
           }
           return;
         case "Lambda":
           if (annotation.kind === "Function" && annotation.parameters.length === node.parameters.length) {
             this.#writtenContexts.set(node, annotation);
-            writtenLand(node.body, annotation.result, shared);
+            writtenLand(node.body, annotation.result);
           }
           return;
         case "If":
-          writtenLand(node.consequence, annotation, branching);
-          writtenLand(node.alternative, annotation, branching);
+          writtenLand(node.consequence, annotation);
+          writtenLand(node.alternative, annotation);
           return;
         case "Match":
-          for (const arm of [...node.arms, ...(node.catchArms ?? [])]) writtenLand(arm.body, annotation, branching);
+          for (const arm of [...node.arms, ...(node.catchArms ?? [])]) writtenLand(arm.body, annotation);
           return;
         case "Try":
-          writtenLand(node.body, annotation, branching);
-          for (const arm of node.arms) writtenLand(arm.body, annotation, branching);
+          writtenLand(node.body, annotation);
+          for (const arm of node.arms) writtenLand(arm.body, annotation);
           return;
         case "Block": {
           const last = node.items.at(-1);
-          if (last?.kind === "ExprItem") writtenLand(last.expression, annotation, shared);
+          if (last?.kind === "ExprItem") writtenLand(last.expression, annotation);
           return;
         }
         default:

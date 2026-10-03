@@ -553,17 +553,71 @@ describe("a subject the text decides dispatches at the dot (§3.1)", () => {
     );
   });
 
+  test("a `match` or a `try` on a call's spine is read by its value paths, as an `if` is (#1193)", () => {
+    // What the lambda asked about captures, and the scrutinee, are not read.
+    bothOrders(
+      "let f(xs: Seq(Vector(Int)), k, c: Bool) =",
+      "let a = Seq.map(xs, match c\n        True => (x) => x.length() + k\n        False => (x) => 0)",
+      "let b: Int = k",
+      [],
+    );
+    bothOrders(
+      "let f(xs: Seq(Vector(Int)), o) =",
+      "let a = Seq.map(xs, match o\n        Some(_) => (x) => x.length()\n        None => (x) => 0)",
+      "let b: Option(Int) = o",
+      [],
+    );
+    bothOrders(
+      "let f(xs: Seq(Vector(Int)), k) =",
+      "let a = Seq.map(xs, try\n        (x) => x.length() + k\n    catch\n        _ => (x) => 0)",
+      "let b: Int = k",
+      [],
+    );
+    // A `match` as a dot's subject is its arms' type, whatever its scrutinee.
+    bothOrders(
+      "let f(o) =",
+      "let n = (match o\n        Some(_) => [1]\n        None => [2]).length()",
+      "let w: Option(Int) = o",
+      [],
+    );
+  });
+
+  test("a constructor's slot under a written type, as its declaration writes it", () => {
+    compiles("let mk(): Option((Vector(Int)) -> Int) = Some((x) => x.length())\n");
+    compiles("let k: Option((Vector(_)) -> Int) = Some((x) => x.length())\n");
+    compiles("let k: Option(Option((Vector(_)) -> Int)) = Some(Some((x) => x.length()))\n");
+    compiles(
+      "let f(c: Bool) =\n    let k: Option((Vector(_)) -> Int) = if c then Some((x) => x.length()) else None\n    ()\n",
+    );
+    compiles(
+      "let f(c: Bool) =\n    let k: Option((Vector(_)) -> Int) = match c\n" +
+        "        True => Some((x) => x.length())\n        False => None\n    ()\n",
+    );
+    compiles("let k: Option((Vector(_)) -> Int) = try\n    Some((x) => x.length())\ncatch\n    _ => None\n");
+    // A slot with no hole, beside a hole elsewhere in the shared type.
+    compiles("let t: Vector((Option((Vector(Int)) -> Int), (_) -> Int)) = [(Some((x) => x.length()), (y) => 0)]\n");
+    const w = "record W(a) = {f: (a) -> Int}\n";
+    compiles(w + "let w: W(Vector(_)) = W({f = (x) => x.length()})\n");
+    compiles("union U = Mk((Vector(Int)) -> Int)\nlet u: U = Mk((x) => x.length())\n");
+    // The slot's written head, whatever an earlier path's type is.
+    bothOrders(
+      "let f(g, c: Bool) =",
+      "let a: Int = g([1])",
+      "let h: Option((Vector(_)) -> Int) = if c then Some(g) else Some((x) => x.length())",
+      [],
+    );
+    bothOrders(
+      "let f(g) =",
+      "let a: Int = g([1])",
+      "let h: Vector(Option((Vector(_)) -> Int)) = [Some(g), Some((x) => x.length())]",
+      [],
+    );
+  });
+
   test("a lambda's own body does not decide its parameter, so what it captures is read past", () => {
     compiles(
       "let f(xs: Seq(Vector(Int)), p): Seq(Int) = xs.map((x) =>\n" +
         "    let k = Vector.length(p)\n    x.length())\n",
-    );
-  });
-
-  test("a constructor under a written type lands its lambdas", () => {
-    compiles("let mk(): Option((Vector(Int)) -> Int) = Some((x) => x.length())\n");
-    compiles(
-      "let f(c: Bool) =\n    let k: Option((Vector(Int)) -> Int) = if c then Some((x) => x.length()) else None\n    ()\n",
     );
   });
 
@@ -646,14 +700,51 @@ describe("a lambda no written type and no named call reaches is not decided, wha
     compiles("let f() =\n    let h: Vector((Vector(_)) -> Int) = [(y: Vector(Int)) => 0, (x) => x.length()]\n    ()\n");
   });
 
-  test("a constructor a written type with a hole reaches through a branch form", () => {
-    refused(
-      "let f(c: Bool) =\n    let k: Option((Vector(_)) -> Int) = if c then Some((x) => x.length()) else None\n    ()\n",
-      "x",
-      "length",
+  test("a hole in a constructor's slot decides nothing, whatever the constructor's other arguments are", () => {
+    // A constructor is never read as a call: only its slot, as the written type gives it.
+    const g0 = "let g0(v: Vector(Int)): Int = 0\n";
+    refused(g0 + "let f() =\n    let k: Option(Vector((_) -> Int)) = Some([g0, (x) => x.length()])\n    ()\n", "x", "length");
+    const pair = "union P(a) = Pair(a, (a) -> Int)\n";
+    refused(pair + "let f() =\n    let p: P(_) = Pair([1], (x) => x.length())\n    ()\n", "x", "length");
+    const w = "record W(a) = {f: (a) -> Int}\n";
+    refused(w + "let f() =\n    let w: W(_) = W({f = (x) => x.length()})\n    ()\n", "x", "length");
+    // The written type that gives the slot its head is the spelling.
+    compiles(pair + "let f() =\n    let p: P(Vector(Int)) = Pair([1], (x) => x.length())\n    ()\n");
+    compiles(g0 + "let f() =\n    let k: Option(Vector((Vector(Int)) -> Int)) = Some([g0, (x) => x.length()])\n    ()\n");
+  });
+
+  test("a value path a `match` or a `try` takes from an untyped name", () => {
+    bothOrders(
+      "let f(c: Bool, v) =",
+      "let n = (match c\n        True => v\n        False => [1]).length()",
+      "let w: Vector(Int) = v",
+      [refusalOfSubject("length")],
     );
-    // Reached directly, the constructor is read as a call.
-    compiles("let f() =\n    let k: Option((Vector(_)) -> Int) = Some((x) => x.length())\n    ()\n");
+    bothOrders(
+      "let f(v) =",
+      "let n = (try\n        v\n    catch\n        _ => [1]).length()",
+      "let w: Vector(Int) = v",
+      [refusalOfSubject("length")],
+    );
+    bothOrders(
+      "let f(v) =",
+      "let n = (try\n        [1]\n    catch\n        _ => v).length()",
+      "let w: Vector(Int) = v",
+      [refusalOfSubject("length")],
+    );
+    // A `match`'s catch arms are value paths too.
+    bothOrders(
+      "exception Boom(line: Int)\nlet source(c: Bool): Bool = if c then throw(Boom(3)) else True\nlet f(c: Bool, v) =",
+      "let m =\n        match source(c)\n            True => [1]\n            False => [2]\n        catch\n            _ => v\n    let n = m.length()",
+      "let w: Vector(Int) = v",
+      [refusal("m", "length")],
+    );
+    bothOrders(
+      "let f(xs: Seq(Vector(Int)), o) =",
+      "let a = Seq.map(xs, match o\n        Some(k) => k\n        None => (x) => x.length())",
+      "let b: Option((Vector(Int)) -> Int) = o",
+      [refusal("x", "length")],
+    );
   });
 
   test("a constructor's lambda assigned to a `var` whose type is written", () => {
