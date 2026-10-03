@@ -508,11 +508,13 @@ describe("the literal at the type of its position (§2.5's checking rule, #519)"
   test("an undetermined literal scrutinee is named and points to an ascription", () => {
     // `match 0` with a `0` arm compiled only by the accident the ruling retires:
     // the old monomorphic typing unified the scrutinee to `Int` at arm-check,
-    // while the same match with `_` alone, or with the guard twin, was refused.
-    // §6.1 reads the scrutinee at dispatch, and all three now read alike.
-    // Constraints §8 names the surviving inference variable. Unlike a rigid
-    // abstract type, this value has no useful operations to point at; an
-    // ascription supplies the concrete representation `match` needs.
+    // while the same match with `_` alone was refused. §6.1 reads the scrutinee
+    // at dispatch, and both now read alike. Constraints §8 names the surviving
+    // inference variable. Unlike a rigid abstract type, this value has no
+    // useful operations to point at; an ascription supplies the concrete
+    // representation `match` needs. An arm that binds a name is different: the
+    // name is made from the literal, which takes `Int` there (Numeric Literals
+    // §4), as `let x = 0` would.
     const refusal = "cannot match on a value of abstract type `a`; the value's " +
       "type is not determined here; give the matched expression a concrete " +
       "type with an ascription";
@@ -527,7 +529,7 @@ describe("the literal at the type of its position (§2.5's checking rule, #519)"
         "    match 0\n" +
         "        x when x == 0 => \"zero\"\n" +
         "        _ => \"other\"\n",
-    ))).toEqual([refusal]);
+    ))).toEqual([]);
   });
 
   test("undetermined name and expression scrutinees take the same advice", () => {
@@ -541,14 +543,14 @@ describe("the literal at the type of its position (§2.5's checking rule, #519)"
       "cannot match on a value of abstract type `a`; the value's type is not " +
         "determined here; give the matched expression a concrete type with an ascription",
     ]);
+    // A lambda called where it is written is a box: the literal reaches only
+    // its input, so it takes `Int` before the box is opened (Numeric Literals
+    // §4's box rule), and the scrutinee is an `Int`.
     expect(projectDiagnostics(main(
       "export let a: String =\n" +
         "    match (x => x)(0)\n" +
         "        _ => \"value\"\n",
-    ))).toEqual([
-      "cannot match on a value of abstract type `a`; the value's type is not " +
-        "determined here; give the matched expression a concrete type with an ascription",
-    ]);
+    ))).toEqual([]);
   });
 
   test("an ascription gives an undetermined literal scrutinee a concrete type", () => {

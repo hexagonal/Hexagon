@@ -113,9 +113,11 @@ describe("a subject a later or an earlier line fixes is not decided by the text 
     );
   });
 
-  test("a `var` holding a bare numeric literal, whose assignments choose its type", () => {
-    bothOrders("let f() =\n    var n = 0", "let s = n.show()", "let m: BigInt = n", [refusal("n", "show")]);
-    // Its written type decides it.
+  test("a `var` holding a bare numeric literal is an `Int` where it is made", () => {
+    // A new name made from a number type nothing has decided takes `Int` there
+    // (Numeric Literals §4), so its later lines read an `Int` in either order;
+    // an `Int` widens into a `BigInt` seat.
+    bothOrders("let f() =\n    var n = 0", "let s = n.show()", "let m: BigInt = n", []);
     bothOrders("let f() =\n    var n: Int = 0", "let s = n.show()", "n := n + 1", []);
   });
 
@@ -262,12 +264,12 @@ describe("a subject a later or an earlier line fixes is not decided by the text 
     );
   });
 
-  test("a `var` whose initializer leaves its type to its assignments", () => {
+  test("a `var` whose initializer is a number nothing decided: its assignments do not choose its type", () => {
     bothOrders(
       "let f(c: Bool) =\n    var x = if c then 0 else 1",
       "let s = x.show()",
       "x := 1.5",
-      [refusal("x", "show")],
+      ["type mismatch: expected Int, found Float"],
     );
   });
 
