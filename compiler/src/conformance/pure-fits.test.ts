@@ -556,16 +556,30 @@ describe("knots, and the value a `match` or a `for` reads (R.b, review round 4)"
       "                    None => ()",
       "            None => ()",
     ].map((line) => `    ${line}\n`).join("") + "    out\n";
+    // `n` is the `String` the map holds, so `n + 1` is refused.
     for (const source of [viaFor, viaMatch]) {
-      expect(reports(source).map(([, message]) => message)).toContain("type mismatch: expected Int, found String");
+      expect(reports(source).map(([, message]) => message)).toContain(
+        "type `String` has no `Num` instance; its only legal homes are the module declaring `Num` and " +
+          "`String`'s prelude companion module, both outside project source, so this pair's honored set is " +
+          "closed — change the type, or go through the operations those homes export",
+      );
     }
-    const nat = "let useNat(v: Nat): Nat = v\nexport let total(): Nat =\n    var sum = 0\n";
-    expect(reports(nat + "    for i in [1, 2, 3]\n        let j = i\n        sum := sum + useNat(j)\n    sum\n"))
-      .toEqual([]);
-    expect(reports(
-      nat + "    match (1, 2)\n        p =>\n            let q = p\n            match q\n" +
-        "                (a, b) => sum := sum + useNat(a)\n    sum\n",
-    )).toEqual([]);
+    // A loop variable and an arm's part are new names: a literal nothing
+    // decided takes `Int` where they are made (Numeric Literals §4), and a
+    // `let` inside the body keeps that type. A written type is the spelling for
+    // another one.
+    const nat = "let useNat(v: Nat): Nat = v\nexport let total(): Nat =\n    var sum: Nat = 0\n";
+    const viaLoop = (source: string): string =>
+      nat + `    for i in ${source}\n        let j = i\n        sum := sum + useNat(j)\n    sum\n`;
+    expect(reports(viaLoop("[1, 2, 3]")).map(([, message]) => message)).toEqual([
+      "type mismatch: expected Nat, found Int",
+    ]);
+    expect(reports(viaLoop("([1, 2, 3]: Vector(Nat))"))).toEqual([]);
+    const viaArm = (source: string): string =>
+      nat + `    match ${source}\n        p =>\n            let q = p\n            match q\n` +
+      "                (a, b) => sum := sum + useNat(a)\n    sum\n";
+    expect(reports(viaArm("(1, 2)")).map(([, message]) => message)).toEqual(["type mismatch: expected Nat, found Int"]);
+    expect(reports(viaArm("((1, 2): (Nat, Nat))"))).toEqual([]);
   });
 });
 

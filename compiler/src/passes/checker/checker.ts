@@ -255,6 +255,13 @@ interface Variable {
   level: number;
   instance?: Mono;
   literalOnly: boolean;
+  /**
+   * Whether a name's type holds this variable — a parameter's, a `var`'s, a
+   * pattern's, a lambda's input. A number type a name holds is that name's:
+   * inference settles it, and no new name made from it defaults it (Numeric
+   * Literals §4).
+   */
+  named?: boolean;
   readonly requirements: Requirement[];
   /**
    * The declarations this variable has already refused a demand for, keyed on
@@ -784,6 +791,12 @@ interface SyntaxVisitor {
 }
 
 /** Every binding a pattern introduces. */
+/** The one name a pattern binds, quoted, or `none` where it binds another shape. */
+function patternNames(pattern: Resolved.Pattern, none: string): string {
+  if (pattern.kind === "Binding") return `\`${pattern.binding.name}\``;
+  return none;
+}
+
 function patternSymbols(pattern: Resolved.Pattern): Resolved.SymbolId[] {
   switch (pattern.kind) {
     case "Binding":
@@ -2972,6 +2985,13 @@ function spineOf(node: Resolved.Expr, onLambda: (lambda: Resolved.LambdaExpr) =>
   }
 }
 
+/** Where a number type became `Int`, and what to write there instead (`Checker.#numberDefaults`). */
+interface NumberDefault {
+  readonly span: Source.Span;
+  /** The label, given the type the refusing use wanted, as displayed. */
+  readonly say: (wanted: string) => string;
+}
+
 /** One member of a `fun` block's strongly-connected component (Functions §7.4). */
 interface KnotMember {
   readonly symbol: Resolved.SymbolId;
@@ -4486,6 +4506,18 @@ class Checker {
   readonly #landingContexts = new Map<Resolved.LambdaExpr, Resolved.CallExpr>();
   /** The lambdas each call is the landing context of, which reading the call reads past. */
   readonly #callLambdas = new Map<Resolved.CallExpr, Resolved.LambdaExpr[]>();
+  /**
+   * The outputs of the boxes a lambda's call opens after it: a number type one
+   * of them outputs is not the lambda's input alone (the box rule, Numeric
+   * Literals §4). A lambda its call opens is here, with `[]` where none follows.
+   */
+  readonly #boxOutputs = new Map<Resolved.LambdaExpr, Mono[]>();
+  /**
+   * Where a number type became `Int` because a new name, or a box's input, was
+   * made from it (Numeric Literals §4), keyed by the `Int` it became: a report
+   * the `Int` reaches points back there, with the type to write.
+   */
+  readonly #numberDefaults = new WeakMap<Mono, NumberDefault>();
   /** A pipe stage's call, and the left operand the pipe hands it. */
   readonly #pipedInto = new Map<Resolved.CallExpr, Resolved.Expr>();
   /** Lambdas, and calls, a written type with a written head reaches through forwarding forms. */
@@ -6801,9 +6833,8 @@ class Checker {
       owner,
       [...deferredLambdas].map((index) => ({
         expression: expression.arguments[index - 1]!,
-        elaborate: () => {
-          seats[index] = this.#inferExpr(expression.arguments[index - 1]!, level, expectation(index));
-        },
+        elaborate: () => (seats[index] = this.#inferExpr(expression.arguments[index - 1]!, level, expectation(index))),
+        expected: () => expectation(index),
       })),
       level,
       expression.span,
@@ -8177,6 +8208,18 @@ class Checker {
         // quantify, the demotion has to happen where the `var` is bound, or the
         // alias would hand out a polymorphic view of a binding that can still be
         // assigned at one type.
+        // A new name made from a number type nothing has decided takes `Int`
+        // here (Numeric Literals §4), as a `let` does; the type is the name's.
+        {
+          const name = item.binding.name;
+          this.#defaultUnnamed(valueType, item.value.span, [], {
+            span: item.binding.span,
+            say: (wanted) =>
+              `\`${name}\` became an \`Int\` here: the \`var\` made it from a number nothing had decided — ` +
+              `write \`var ${name}: ${wanted}\``,
+          });
+        }
+        this.#markNamed(valueType);
         this.#lowerLevels(valueType, level);
         // A part the initializer left open takes its type from the `var`'s
         // assignments, so the text does not decide it here (Method Syntax §3.1).
@@ -9741,6 +9784,32 @@ class Checker {
           this.#lambdaParameters.add(parameter.symbol);
           return parameterType;
         });
+        // **The box rule** (Numeric Literals §4): a lambda its call opens is a
+        // box whose inputs are its parameters. Before it is opened, a number
+        // type that reaches only its input — the call's outside has not decided
+        // it, and neither this box nor any box still to be opened outputs it —
+        // takes `Int`, so its body reads a type the text decided.
+        if (landing !== undefined && this.#boxOutputs.has(expression)) {
+          const outputs = [landing.result, ...this.#boxOutputs.get(expression)!];
+          for (const [index, parameter] of expression.parameters.entries()) {
+            if (parameter.annotation !== undefined) continue;
+            const component = landing.parameters[index]!;
+            this.#defaultUnnamed(component, parameter.span, outputs, {
+              span: parameter.span,
+              say: (wanted) =>
+                `\`${parameter.name}\` became an \`Int\` here: the number reached only the lambda's input — ` +
+                `write \`(${parameter.name}: ${wanted})\``,
+            });
+            const head = this.#prune(component);
+            this.#landedHeads.set(parameter.symbol, head.kind !== "Variable" || head.rigidName !== undefined);
+            this.#landedWhole.set(
+              parameter.symbol,
+              this.#shapeVariables(component).every((variable) => variable.rigidName !== undefined),
+            );
+          }
+        }
+        // A lambda's parameters are its inputs: the types they hold are theirs.
+        for (const parameterType of parameters) this.#markNamed(parameterType);
         const savedVariableScope = this.#annotationVariableScope;
         this.#annotationVariableScope = annotationVariables;
         // A **written** return annotation is this right-hand side's own written
@@ -10062,7 +10131,16 @@ class Checker {
           );
           if (!requirement.reported) this.#iterations.set(expression, requirement);
         }
+        // The loop's pattern makes new names: a number type nothing has decided
+        // takes `Int` here (Numeric Literals §4).
+        this.#defaultUnnamed(element, expression.iterable.span, [], {
+          span: expression.iterable.span,
+          say: (wanted) =>
+            `${patternNames(expression.pattern, "what the loop names")} became an \`Int\` here: the loop made it ` +
+            `from a number nothing had decided — write the type of what this holds here (\`${wanted}\`)`,
+        });
         this.#inferMatchPattern(expression.pattern, element, level);
+        this.#markNamed(element);
         // §5.3: one sentence across all three gated positions, and this is one
         // of them. The loop's own wording is retired with the rest of the
         // per-form family — the judgment was never per-position, and neither is
@@ -10247,6 +10325,12 @@ class Checker {
         if (applied.kind === "Name") this.#calledNames.set(applied, expression);
         this.#callees.add(applied);
         if (applied.kind === "Name") this.#landFromSignature(applied, expression.arguments);
+        if (calleeIsLambda) {
+          // A lambda called where it is written — a pipe's right-hand stage
+          // included — is the last box its call opens.
+          const node = ungrouped(expression.callee);
+          if (node.kind === "Lambda") this.#boxOutputs.set(node, []);
+        }
         const callee = calleeIsLambda
           ? this.#inferExpr(expression.callee, level, {
             kind: "Function",
@@ -10329,13 +10413,12 @@ class Checker {
             owner,
             [...deferredLambdas].map((index) => ({
               expression: expression.arguments[index]!,
-              elaborate: () => {
-                arguments_[index] = this.#inferExpr(
-                  expression.arguments[index]!,
-                  level,
-                  handed?.[index] ?? calleeParameters?.[index],
-                );
-              },
+              elaborate: () => (arguments_[index] = this.#inferExpr(
+                expression.arguments[index]!,
+                level,
+                handed?.[index] ?? calleeParameters?.[index],
+              )),
+              expected: () => handed?.[index] ?? calleeParameters?.[index],
             })),
             level,
             expression.span,
@@ -16387,6 +16470,7 @@ class Checker {
         message: (seat ? this.#functionResultRefusal(first.expression, face, first.type)?.message : undefined) ??
           this.#faceEntryRefusal(first, face),
         primary: first.expression.span,
+        ...this.#numberDefaultLabels(face, first.type),
       });
       reported = true;
     }
@@ -16626,6 +16710,7 @@ class Checker {
           message: (seat ? this.#functionResultRefusal(path, home, type)?.message : undefined) ??
             this.#faceEntryRefusal({ expression: path, type }, home),
           primary: path.span,
+          ...this.#numberDefaultLabels(home, type),
         });
       }
       return home;
@@ -17239,6 +17324,17 @@ class Checker {
     const minted = new Set(this.#openedPending);
     const scrutinee = this.#inferExpr(expression.scrutinee, level);
     this.#closeReadOpenings(minted);
+    // An arm whose pattern binds makes new names: a number type nothing has
+    // decided takes `Int` here, before any arm is read (Numeric Literals §4).
+    if (expression.arms.some((arm) => patternSymbols(arm.pattern).length > 0)) {
+      this.#defaultUnnamed(scrutinee, expression.scrutinee.span, [], {
+        span: expression.scrutinee.span,
+        say: (wanted) =>
+          "an arm's name became an `Int` here: the `match` made it from a number nothing had decided — " +
+          `write the type here (\`${wanted}\`)`,
+      });
+      this.#markNamed(scrutinee);
+    }
     // Read once, before any arm: one arm's body cannot settle what another
     // arm's pattern binds (#1119 R.b).
     this.#settleArms(expression.arms, scrutinee);
@@ -17758,16 +17854,54 @@ class Checker {
    */
   #secondPass(
     owner: SpineOwner,
-    direct: readonly { readonly expression: Resolved.Expr; readonly elaborate: () => void }[],
+    direct: readonly {
+      readonly expression: Resolved.Expr;
+      readonly elaborate: () => Mono | void;
+      readonly expected?: () => Mono | undefined;
+    }[],
     level: number,
     span: Source.Span,
   ): void {
     this.#landWaiting(owner, level);
     for (const lambda of owner.claimed) this.#claimedLambdas.delete(lambda);
-    const items = [
-      ...direct.map(({ expression, elaborate }) => ({ at: expression.span.start.offset, run: elaborate })),
+    const lambdaOf = (expression: Resolved.Expr): Resolved.LambdaExpr | undefined => {
+      const node = ungrouped(expression);
+      return node.kind === "Lambda" ? node : undefined;
+    };
+    const outputOf = (expected: Mono | undefined): Mono | undefined => {
+      const face = expected === undefined ? undefined : this.#prune(expected);
+      return face?.kind === "Function" ? face.result : undefined;
+    };
+    const items: {
+      readonly at: number;
+      readonly lambda: Resolved.LambdaExpr | undefined;
+      readonly output: () => Mono | undefined;
+      readonly run: () => void;
+    }[] = [
+      ...direct.map(({ expression, elaborate, expected }) => ({
+        at: expression.span.start.offset,
+        lambda: lambdaOf(expression),
+        output: () => outputOf(expected?.()),
+        run: (): void => {
+          const produced = elaborate();
+          // A direct lambda's output joins the call right after its body, as a
+          // lambda on an argument's spine does (Functions §4.3), so a later
+          // lambda lands what an earlier one produced.
+          if (produced === undefined || expected === undefined) return;
+          const face = this.#prune(expected() ?? ERROR);
+          const made = this.#prune(produced);
+          if (
+            face.kind !== "Function" || made.kind !== "Function" ||
+            face.parameters.length !== made.parameters.length
+          ) return;
+          const want = this.#prune(face.result);
+          if (want.kind === "Variable" && want.rigidName === undefined) this.#unify(made.result, want, expression.span);
+        },
+      })),
       ...[...owner.waiting].map(([lambda, standIn]) => ({
         at: lambda.span.start.offset,
+        lambda,
+        output: () => standIn.result,
         run: (): void => {
           const type = this.#inferExpr(lambda, level, standIn);
           // Pinned by the argument the lambda sits in (#948).
@@ -17784,7 +17918,17 @@ class Checker {
         },
       })),
     ].sort((left, right) => left.at - right.at);
-    for (const { run } of items) run();
+    for (const [index, { lambda, run }] of items.entries()) {
+      if (lambda !== undefined) {
+        // The boxes still to be opened, whose outputs the box rule reads.
+        const others = items.filter((_, other) => other > index);
+        this.#boxOutputs.set(lambda, others.flatMap(({ output }) => {
+          const type = output();
+          return type === undefined ? [] : [type];
+        }));
+      }
+      run();
+    }
   }
 
   /**
@@ -18282,6 +18426,7 @@ class Checker {
     const source = this.#bindingSources.get(symbol);
     if (source?.kind !== "value" && source?.kind !== "part") return;
     const kept = new Set(quantified.map((variable) => variable.id));
+    for (const variable of this.#collectVariables(type)) if (!kept.has(variable.id)) variable.named = true;
     const shape = new Set(this.#shapeVariables(type));
     const free = this.#collectVariables(type).filter((variable) =>
       variable.instance === undefined && variable.rigidName === undefined && !kept.has(variable.id)
@@ -22923,6 +23068,7 @@ class Checker {
         `type mismatch: expected ${this.#display(actualLeft)}, found ` +
           this.#display(actualRight),
       primary: span,
+      ...this.#numberDefaultLabels(actualLeft, actualRight),
     });
   }
 
@@ -23224,6 +23370,7 @@ class Checker {
       }
       this.#lowerLevels(type, variable.level);
       type.literalOnly &&= variable.literalOnly;
+      if (variable.named === true) type.named = true;
       for (const requirement of variable.requirements) {
         this.#acceptRequirement(type, requirement);
       }
@@ -23279,6 +23426,7 @@ class Checker {
     // (closure doc §2.2, conformance item (v)). It went unseen while the only
     // generalizable right-hand sides were lambdas and literals.
     this.#lowerLevels(type, variable.level);
+    if (variable.named === true) this.#markNamed(type);
     // Statements §6.1's other arm (#700): the **pinning use** that settles a
     // `var`'s unsolved monotype to an arrow. The span is the use's, which is
     // where the author can act — the declaration said nothing about functions.
@@ -24070,6 +24218,7 @@ class Checker {
       severity: "error",
       message: this.#standDownSentence(note, named),
       primary: span,
+      ...this.#numberDefaultLabels(target, value),
     });
     // The seat has reported; the types stay apart rather than being forced
     // together, exactly as the plain mismatch would have left them.
@@ -27493,6 +27642,37 @@ class Checker {
         break;
     }
     return found;
+  }
+
+  /** Every variable of `type` is now a name's (`Variable.named`). */
+  #markNamed(type: Mono): void {
+    for (const variable of this.#collectVariables(type)) variable.named = true;
+  }
+
+  /**
+   * A new name made from a number type nothing has decided and no name holds:
+   * the type becomes `Int` here, where the name is made — unless one of
+   * `outputs` holds it, a box's output the box rule leaves to inference
+   * (Numeric Literals §4).
+   */
+  #defaultUnnamed(type: Mono, span: Source.Span, outputs: readonly Mono[], origin: NumberDefault): void {
+    for (const variable of this.#collectVariables(type)) {
+      if (variable.instance !== undefined || variable.rigidName !== undefined || variable.named === true) continue;
+      if (!this.#canDefaultToInt(variable)) continue;
+      if (outputs.some((output) => this.#occurs(variable, output))) continue;
+      this.#refuseOrDefault(variable, span);
+      if (variable.instance !== undefined) this.#numberDefaults.set(variable.instance, origin);
+    }
+  }
+
+  /** The labels pointing a refusal back to where a side of it became `Int` (`#numberDefaults`). */
+  #numberDefaultLabels(left: Mono, right: Mono): { readonly labels?: readonly Diagnostics.Label[] } {
+    const labels: Diagnostics.Label[] = [];
+    for (const [side, other] of [[left, right], [right, left]] as const) {
+      const origin = this.#numberDefaults.get(this.#prune(side));
+      if (origin !== undefined) labels.push({ span: origin.span, message: origin.say(this.#display(other)) });
+    }
+    return labels.length > 0 ? { labels } : {};
   }
 
   #collectVariables(type: Mono, found = new Map<number, Variable>()): Variable[] {
