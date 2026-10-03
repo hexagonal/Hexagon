@@ -247,6 +247,10 @@ describe("a subject a later or an earlier line fixes is not decided by the text 
     const d = "b(n: Int): Vector(Int) = if n > 9 then [n] else (if c(n) then [] else [1])";
     expect(member([c, d])).toEqual([refusal("k", "show")]);
     expect(member([d, c])).toEqual([refusal("k", "show")]);
+    // A lambda handed to the open member itself, whatever its signature writes.
+    const go = "go(n: Int, k: (Vector(Int)) -> Int): Int = if n == 0 then k([]) else go(n - 1, (r) => k(r.append(n)))";
+    expect(member([go])).toEqual([refusal("r", "append")]);
+    expect(member([go.replace("(r) =>", "(r: Vector(Int)) =>")])).toEqual([]);
   });
 
   test("a local `fun` capturing an untyped parameter", () => {
@@ -378,11 +382,47 @@ describe("a subject a later or an earlier line fixes is not decided by the text 
     );
   });
 
+  test("a hole in a written type that an earlier element or path fills", () => {
+    // The written slot is a hole, so the written type decides nothing for `x`;
+    // what the earlier value put there came from wherever its type did.
+    bothOrders(
+      "let f(g) =",
+      "let a: Int = g([1])",
+      "let h: Vector((_) -> Int) = [g, (x) => x.length()]",
+      [refusal("x", "length")],
+    );
+    bothOrders(
+      "let f(q, c: Bool) =",
+      "let a = Vector.length(q)",
+      "let k: (_) -> Int = if c then (y) => Vector.length([y, q]) else (x) => x.length()",
+      [refusal("x", "length")],
+    );
+    bothOrders(
+      "let f(g, c: Bool) =",
+      "let a: Int = g([1])",
+      "let h: Option((_) -> Int) = if c then Some(g) else Some((x) => x.length())",
+      [refusal("x", "length")],
+    );
+    bothOrders(
+      "let f(g) =",
+      "let a: Int = g([1])",
+      "let h: Vector(Option((_) -> Int)) = [Some(g), Some((x) => x.length())]",
+      [refusal("x", "length")],
+    );
+    // A head written above the hole decides the head, never the whole.
+    bothOrders(
+      "let f(g, w: Vector(Vector(Int))) =",
+      "let a: Int = g(w)",
+      "let h: Vector((Vector(_)) -> Int) = [g, (x) =>\n        for v in x\n            ignore(v.isEmpty())\n        0]",
+      [refusal("v", "isEmpty")],
+    );
+  });
+
   test("a part of a lambda's parameter whose type landed with a part open", () => {
     // A hole in the written type, and a polymorphic value's instance in the
     // call, leave a part of the parameter's type to whichever line of the body
     // comes first, so the parameter is decided only at its head.
-    const inBody = (head: string, first: string, second: string, tail = "        0"): readonly string[][] =>
+    const inBody = (head: string, first: string, second: string, tail = "        0"): readonly (readonly string[])[] =>
       [[first, second], [second, first]].map((lines) =>
         projectDiagnostics(
           HEADER + "let f() =\n" + head + "\n" + lines.map((line) => line.replace(/^/gm, "        ") + "\n").join("") +
@@ -485,6 +525,10 @@ describe("a subject the text decides dispatches at the dot (§3.1)", () => {
       "let f(g) =\n    let a = g({cb = (u: Int) => 0})\n    let b = g({cb = (u) =>\n" +
         "        let h: (Vector(Int)) -> Int = (w) => w.length()\n        0})\n    ()\n",
     );
+  });
+
+  test("an ascription whose written slot has a head decides the lambda it writes", () => {
+    compiles("let k = ((x) => x.length() : (Vector(_)) -> Int)\n");
   });
 
   test("a lambda under a written type whose head is written, through forwarding forms", () => {
@@ -593,6 +637,21 @@ describe("a lambda no written type and no named call reaches is not decided, wha
     const r = "record R(a) = {sample: a, apply: (Vector(a)) -> Int}\n";
     refused(r + "let h() =\n    let q = R({sample = 1, apply = (d) => d.length()})\n    ()\n", "d", "length");
     compiles(r + "let h() =\n    let q: R(Int) = R({sample = 1, apply = (d) => d.length()})\n    ()\n");
+  });
+
+  test("a hole in the written slot decides nothing, whatever an earlier element is", () => {
+    refused("let f() =\n    let h: Vector((_) -> Int) = [(y: Vector(Int)) => 0, (x) => x.length()]\n    ()\n", "x", "length");
+    compiles("let f() =\n    let h: Vector((Vector(_)) -> Int) = [(y: Vector(Int)) => 0, (x) => x.length()]\n    ()\n");
+  });
+
+  test("a constructor a written type with a hole reaches through a branch form", () => {
+    refused(
+      "let f(c: Bool) =\n    let k: Option((Vector(_)) -> Int) = if c then Some((x) => x.length()) else None\n    ()\n",
+      "x",
+      "length",
+    );
+    // Reached directly, the constructor is read as a call.
+    compiles("let f() =\n    let k: Option((Vector(_)) -> Int) = Some((x) => x.length())\n    ()\n");
   });
 
   test("a constructor's lambda assigned to a `var` whose type is written", () => {

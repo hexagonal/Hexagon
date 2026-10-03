@@ -4489,7 +4489,7 @@ class Checker {
   /** A pipe stage's call, and the left operand the pipe hands it. */
   readonly #pipedInto = new Map<Resolved.CallExpr, Resolved.Expr>();
   /** Lambdas, and calls, a written type with a written head reaches through forwarding forms. */
-  readonly #writtenContexts = new Set<Resolved.LambdaExpr>();
+  readonly #writtenContexts = new Map<Resolved.LambdaExpr, Extract<Resolved.TypeAnnotation, { kind: "Function" }>>();
   readonly #writtenCalls = new Set<Resolved.CallExpr>();
   /** The bindings a module item introduces at the module's own level. */
   readonly #moduleBindings = new Set<Resolved.SymbolId>();
@@ -6201,7 +6201,13 @@ class Checker {
         // value's instance) is filled by whatever line the body reaches first.
         if (this.#landedHeads.get(symbol) !== true) return false;
         if (deep && this.#landedWhole.get(symbol) !== true) return false;
-        if (this.#writtenContexts.has(source.lambda)) return true;
+        // Under a written type, the slot written for the parameter decides it:
+        // its head where the slot writes one, the whole where it writes all.
+        const written = this.#writtenContexts.get(source.lambda);
+        if (written !== undefined) {
+          const slot = written.parameters[source.lambda.parameters.findIndex((parameter) => parameter.symbol === symbol)];
+          return headWritten(slot) && (!deep || annotationWhole(slot));
+        }
         const context = this.#landingContexts.get(source.lambda);
         if (context === undefined) return false;
         remember(false);
@@ -18442,49 +18448,53 @@ class Checker {
     };
     // Where a written type reaches a lambda, or a constructor's application,
     // through forwarding forms, what it expects there is the text's.
-    const writtenLand = (value: Resolved.Expr, annotation: Resolved.TypeAnnotation | undefined): void => {
+    // `shared`: reached through a form whose value paths share the written
+    // type (a vector's elements, a branch form's paths) while it holds a hole,
+    // which an earlier path's value fills.
+    const writtenLand = (value: Resolved.Expr, annotation: Resolved.TypeAnnotation | undefined, shared = false): void => {
       if (!headWritten(annotation)) return;
+      const branching = shared || !annotationWhole(annotation);
       let node = value;
       while (node.kind === "Group") node = node.expression;
       switch (node.kind) {
         case "Call":
-          this.#writtenCalls.add(node);
+          if (!shared) this.#writtenCalls.add(node);
           return;
         case "Tuple":
           if (annotation.kind === "Tuple" && annotation.elements.length === node.elements.length) {
-            node.elements.forEach((element, index) => writtenLand(element, annotation.elements[index]));
+            node.elements.forEach((element, index) => writtenLand(element, annotation.elements[index], shared));
           }
           return;
         case "Vector":
-          if (annotation.kind === "Vector") for (const element of node.elements) writtenLand(element, annotation.element);
+          if (annotation.kind === "Vector") for (const element of node.elements) writtenLand(element, annotation.element, branching);
           return;
         case "Record":
           if (annotation.kind === "Record" && node.spread === undefined) {
             for (const field of node.fields) {
-              writtenLand(field.value, annotation.fields.find((written) => written.name === field.name.text)?.annotation);
+              writtenLand(field.value, annotation.fields.find((written) => written.name === field.name.text)?.annotation, shared);
             }
           }
           return;
         case "Lambda":
           if (annotation.kind === "Function" && annotation.parameters.length === node.parameters.length) {
-            this.#writtenContexts.add(node);
-            writtenLand(node.body, annotation.result);
+            this.#writtenContexts.set(node, annotation);
+            writtenLand(node.body, annotation.result, shared);
           }
           return;
         case "If":
-          writtenLand(node.consequence, annotation);
-          writtenLand(node.alternative, annotation);
+          writtenLand(node.consequence, annotation, branching);
+          writtenLand(node.alternative, annotation, branching);
           return;
         case "Match":
-          for (const arm of [...node.arms, ...(node.catchArms ?? [])]) writtenLand(arm.body, annotation);
+          for (const arm of [...node.arms, ...(node.catchArms ?? [])]) writtenLand(arm.body, annotation, branching);
           return;
         case "Try":
-          writtenLand(node.body, annotation);
-          for (const arm of node.arms) writtenLand(arm.body, annotation);
+          writtenLand(node.body, annotation, branching);
+          for (const arm of node.arms) writtenLand(arm.body, annotation, branching);
           return;
         case "Block": {
           const last = node.items.at(-1);
-          if (last?.kind === "ExprItem") writtenLand(last.expression, annotation);
+          if (last?.kind === "ExprItem") writtenLand(last.expression, annotation, shared);
           return;
         }
         default:
