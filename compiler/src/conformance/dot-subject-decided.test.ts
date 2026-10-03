@@ -573,7 +573,14 @@ describe("a subject the text decides dispatches at the dot (§3.1)", () => {
       "let b: Int = k",
       [],
     );
-    // A `match` as a dot's subject is its arms' type, whatever its scrutinee.
+    // A `match` as a dot's subject is its arms' type, whatever its scrutinee
+    // and its guards read.
+    bothOrders(
+      "let f(c: Bool, k) =",
+      "let w: Int = k",
+      "let n = (match c\n        True when k > 0 => [1]\n        _ => [2]).length()",
+      [],
+    );
     bothOrders(
       "let f(o) =",
       "let n = (match o\n        Some(_) => [1]\n        None => [2]).length()",
@@ -599,6 +606,25 @@ describe("a subject the text decides dispatches at the dot (§3.1)", () => {
     const w = "record W(a) = {f: (a) -> Int}\n";
     compiles(w + "let w: W(Vector(_)) = W({f = (x) => x.length()})\n");
     compiles("union U = Mk((Vector(Int)) -> Int)\nlet u: U = Mk((x) => x.length())\n");
+    // Each of the declaration's parameters takes its own argument of the written type.
+    const s2 = "union S(a, b) = MkS((a) -> Int, (b) -> Int)\n";
+    compiles(s2 + "let s: S(Vector(Int), _) = MkS((x) => x.length(), (y) => 0)\n");
+    // Grouping changes nothing.
+    compiles("let k: Option((Vector(_)) -> Int) = (Some)((x) => x.length())\n");
+    compiles(w + "let w: W(Vector(_)) = W(({f = (x) => x.length()}))\n");
+    compiles(w + "let w: W(Vector(_)) = (W)({f = (x) => x.length()})\n");
+    // A `with` update's overrides are the construction's slots too, whatever
+    // the update's base is and whichever line types it.
+    const wn = "record WN(a) = {f: (a) -> Int, n: Int}\n";
+    bothOrders(
+      wn + "let g(base) =",
+      "let a: {f: (Vector(Int)) -> Int, n: Int} = base",
+      "let w: WN(Vector(Int)) = WN({base with f = (x) => x.length()})",
+      [],
+    );
+    compiles(
+      "record W0 = {f: (Vector(Int)) -> Int, n: Int}\nlet g(base) =\n    let w = W0({base with f = (x) => x.length()})\n    ()\n",
+    );
     // The slot's written head, whatever an earlier path's type is.
     bothOrders(
       "let f(g, c: Bool) =",
@@ -669,7 +695,7 @@ describe("a lambda no written type and no named call reaches is not decided, wha
     compiles("let f(v: Vector(Int)): Int = v |> (x: Vector(Int)) => x.length()\n");
   });
 
-  test("a `with` override's lambda", () => {
+  test("a `with` override's lambda, where no constructor holds the update", () => {
     const q = "record Q = {f: (Vector(Int)) -> Int}\n";
     refused(q + "let g(q: Q): Q = {q with f = (x) => x.length()}\n", "x", "length");
     compiles(q + "let g(q: Q): Q = {q with f = (x: Vector(Int)) => x.length()}\n");
@@ -708,9 +734,32 @@ describe("a lambda no written type and no named call reaches is not decided, wha
     refused(pair + "let f() =\n    let p: P(_) = Pair([1], (x) => x.length())\n    ()\n", "x", "length");
     const w = "record W(a) = {f: (a) -> Int}\n";
     refused(w + "let f() =\n    let w: W(_) = W({f = (x) => x.length()})\n    ()\n", "x", "length");
+    const s2 = "union S(a, b) = MkS((a) -> Int, (b) -> Int)\n";
+    refused(s2 + "let f() =\n    let s: S(_, Vector(Int)) = MkS((x) => x.length(), (y) => 0)\n    ()\n", "x", "length");
+    // A head written above the hole decides the head, never the whole.
+    const mv = "union MV(a) = MkV(a, (Vector(a)) -> Int)\n";
+    refused(
+      mv + "let f() =\n    let m: MV(_) = MkV([1], (x) =>\n        for v in x\n            ignore(v.isEmpty())\n        0)\n    ()\n",
+      "v",
+      "isEmpty",
+    );
+    // A sibling argument typed on another line decides nothing either.
+    bothOrders(
+      pair + "let f(g) =",
+      "let a: Vector(Int) = g",
+      "let p: P(_) = Pair(g, (x) => x.length())",
+      [refusal("x", "length")],
+    );
     // The written type that gives the slot its head is the spelling.
     compiles(pair + "let f() =\n    let p: P(Vector(Int)) = Pair([1], (x) => x.length())\n    ()\n");
+    compiles(mv + "let f() =\n    let m: MV(Vector(Int)) = MkV([1], (x) =>\n        for v in x\n            ignore(v.isEmpty())\n        0)\n    ()\n");
     compiles(g0 + "let f() =\n    let k: Option(Vector((Vector(Int)) -> Int)) = Some([g0, (x) => x.length()])\n    ()\n");
+  });
+
+  test("a constructor applied to the wrong number of arguments under a written type", () => {
+    expect(projectDiagnostics(
+      HEADER + "let f() =\n    let k: Option((Vector(_)) -> Int) = Some((x) => x.length(), 1)\n    ()\n",
+    )).toEqual(["function expects 1 arguments, got 2", refusal("x", "length")]);
   });
 
   test("a value path a `match` or a `try` takes from an untyped name", () => {

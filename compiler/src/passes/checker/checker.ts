@@ -17817,8 +17817,10 @@ class Checker {
     readonly parameters: readonly string[];
     readonly slots: readonly (readonly [Resolved.Expr, Resolved.TypeAnnotation | undefined])[];
   } | undefined {
-    if (call.callee.kind !== "Name") return undefined;
-    const callee = call.callee.symbol;
+    // Grouping changes nothing: `(Some)(…)` and `W(({…}))` are the plain spellings.
+    const named = ungrouped(call.callee);
+    if (named.kind !== "Name") return undefined;
+    const callee = named.symbol;
     if (annotation.kind === "Union") {
       const union = this.#declaredUnions.get(annotation.union) ?? this.#programUnion(annotation.union);
       const slots = union?.constructors.find((constructor) => constructor.binding.symbol === callee)?.slots;
@@ -17828,12 +17830,13 @@ class Checker {
         slots: call.arguments.map((argument, index) => [argument, slots[index]!.annotation] as const),
       };
     }
-    if (annotation.kind === "RecordDeclaration" && call.arguments.length === 1 && call.arguments[0]!.kind === "Record") {
+    const record = call.arguments.length === 1 ? ungrouped(call.arguments[0]!) : undefined;
+    if (annotation.kind === "RecordDeclaration" && record?.kind === "Record") {
       const declaration = this.#constructedRecords.get(callee);
       if (declaration === undefined || declaration.id !== annotation.record) return undefined;
       return {
         parameters: declaration.parameters,
-        slots: (call.arguments[0] as Resolved.RecordExpr).fields.map((field) =>
+        slots: record.fields.map((field) =>
           [field.value, declaration.fields.find((declared) => declared.name === field.name.text)?.annotation] as const
         ),
       };
