@@ -443,8 +443,8 @@ function lastControlHead(
 
 /**
  * Whether an item is an `extern class` head (FFI Part 5 §6.1, #982) — `class`
- * and a name at the head of the item, past only the modifiers and retired words
- * a row head admits — whose member block opens on a following indented line.
+ * and a name at the head of the item, past only the modifiers a row head
+ * admits — whose member block opens on a following indented line.
  *
  * Optional, unlike `expectsBlock`'s heads: a class with no members declares
  * its type alone, so a head followed by no indented line is complete and draws
@@ -457,7 +457,7 @@ function opensClassBlock(item: readonly Lexed.Token[]): boolean {
     const token = item[index]!;
     if (token.kind === "Export") index += 1;
     else if (
-      token.kind === "NonUpperName" && ["default", "pure", "conduit"].includes(token.text)
+      token.kind === "NonUpperName" && token.text === "default"
     ) index += 1;
     else break;
   }

@@ -3,10 +3,10 @@
  * unconditional since #364 removed the flag it shipped behind.
  *
  * The acceptance test the ruling names is the `Seq` migration — the five strict
- * consumers' signatures flipped to a linked `=>` and their bodies wearing one
- * `?` each — with `fold`'s body as the designated specimen: each of its calls
+ * consumers' signatures flipped to a linked `>->` and their bodies wearing one
+ * `!` each — with `fold`'s body as the designated specimen: each of its calls
  * must demand exactly its one correct mark, and mutating a mark must be an
- * error naming the fixit, in all six directions.
+ * error naming the fixit, in both directions.
  *
  * Everything else here is one scratch module per section. The `Seq` these tests
  * read is `stdlib/Seq.hex` itself — the migrated prelude member, one source of
@@ -105,23 +105,7 @@ const UNLINKED_EXTERN_ROW = "`>->` means only as effectful as what it is handed,
   "does not — write the callback parameter this row runs, with `->!`, or write " +
   "`->!` on the row";
 
-/** FFI Part 4 §13's two retired-claim rows, and its colon row *(#869)*. */
-const RETIRED_PURE = "`pure` is retired — write the pure arrow on the row itself: " +
-  "`fun trim(document: String) -> String`";
-const RETIRED_CONDUIT = "`conduit` is retired — write `>->` on the row's outer arrow: " +
-  "`fun runner(step: () ->! String) >-> Int`";
-/** One report names both words, and what they described is the conduit (§4.5). */
-const RETIRED_PAIR = "`pure conduit` is retired — write `>->` on the row's outer arrow: " +
-  "`fun runner(step: () ->! String) >-> Int`";
-/** §4.5's give-way sentence: the row already writes the arrow, so none is advised. */
-const giveWay = (words: string) =>
-  `\`${words}\` is retired, and this row's arrow is written — drop the word${
-    words.includes(" ") ? "s" : ""
-  }`;
-/** The claim named a dependency the row has nothing to depend on (§13): the pair reads as `conduit` does. */
-const retiredWithoutInlet = (_words: string) =>
-  "`conduit` is retired, and this row is handed no callback — write the callback " +
-  "parameter this row runs, with `->!`, or write `->!` on the row";
+/** FFI Part 4 §13's colon row *(#869)*. */
 const RETIRED_COLON = "an extern callable declares its effect — write `->` for a function " +
   "that touches nothing, `->!` for one that may, `>->` for one exactly as effectful as a " +
   "callback it is handed; when in doubt, `->!`";
@@ -1516,7 +1500,7 @@ export let run(document: String): Unit = document |> save !
   });
 });
 
-describe("#869 the `->` arrow, and the retired `pure` claim — FFI Part 4 §4.5, §13", () => {
+describe("#869 the `->` arrow — FFI Part 4 §4.5, §13", () => {
   it("honours the pure arrow on an extern `fun`", () => {
     expect(
       effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `${world}
@@ -1525,195 +1509,11 @@ export let clean(document: String): String = trim(document)
     ).toEqual([]);
   });
 
-  it("redirects the retired word before a `fun` row, with the fixit that drops it", () => {
-    // §13's `pure` row. The fixit is the pair of edits it names: the word goes,
-    // and the arrow takes the `:` seat.
-    const source = `extern from "./world.js"
-    export pure fun trim(document: String): String
-`;
-    expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + source]]),
-    ).toEqual([RETIRED_PURE]);
-    expect(effectSpans([["/world.js", ""], ["/main.hex", "module Main\n\n" + source]])).toEqual([
-      {
-        primary: "module Main\n\n".length + source.indexOf("pure"),
-        edits: [
-          "module Main\n\n".length + source.indexOf("pure"),
-          "module Main\n\n".length + source.indexOf("): String") + 1,
-        ],
-      },
-    ]);
-  });
-
-  it("redirects it on an extern `let` and an extern `type`, naming what those rows are", () => {
-    // The word is refused at the seat it occupied, whatever keyword followed —
-    // but a non-callable row has no arrow to be advised to write, so it takes
-    // the sentence that says why, and dropping the word is the whole repair.
-    expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
-    export pure let seed: Int
-`]]),
-    ).toEqual(["`pure` is retired, and a value reference is colourless — drop the word"]);
-    expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
-    export pure type Handle
-`]]),
-    ).toEqual(["`pure` is retired, and a type declares nothing invocable — drop the word"]);
-  });
-
-  it("reads a retired word on a `let` row by the row's callability, not its keyword", () => {
-    // §13's first row makes a `let` carrying a parameter list a **callable**
-    // written with the value keyword, so the colourless sentence is not that
-    // row's — and the callable redirect it does take is the whole repair,
-    // showing the word gone as it shows the `:` gone. One migration, one
-    // report. The same keyword with no parameter list declares a value, and
-    // takes the value sentence however its annotation is shaped.
-    expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
-    export pure let parse(text: String): Int
-`]]),
-      // Row 1 spells the `fun`, and the *words* supply its arrow (§4.5): `pure`
-      // makes it `->`, where a row with no retired word would read `->!`. The
-      // reports come out in source order, the word standing before the name.
-    ).toEqual([
-      RETIRED_PURE,
-      "extern callable declarations use `fun` and write their effect arrow; " +
-      "write `fun parse(text: String) -> Int`",
-    ]);
-    // A function-typed annotation makes a `let` callable-intended too (§4.1), so
-    // it takes the callable sentence; its own row's rewrite spells the `fun`.
-    expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
-    export pure let callback: String -> String
-`]]),
-    ).toEqual([
-      giveWay("pure"),
-      "extern callable declarations use `fun`; a binding of type `String -> String` " +
-      "is callable — write `fun callback(x: String) -> String`",
-    ]);
-    // Neither a parameter list nor a function type: a value reference, and
-    // colourless.
-    expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
-    export pure let seed: Int
-`]]),
-    ).toEqual(["`pure` is retired, and a value reference is colourless — drop the word"]);
-  });
-
-  it("gives a `fun` with no parameter list the nothing-invocable sentence", () => {
-    // §13's nothing-invocable row reaches this keyword too: the row's own
-    // rewrite is a `let`, and a `let` has no arrow for the word to redirect to.
-    // The colon row stays suppressed here, as it is on any paramless row.
-    expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
-    export pure fun version: String
-`]]),
-    ).toEqual([
-      "`pure` is retired, and a value reference is colourless — drop the word",
-      "extern `fun` declares a callable and requires a parameter list; for a " +
-      "foreign value, write `let version: String`",
-    ]);
-  });
-
-  it("composes the rewrite by one rule, and reports nothing else about the arrow", () => {
-    // §4.5's composition rule, its exception, and §13's suppression, together.
-    const source = `extern from "./world.js"
-    export conduit fun trim(document: String): String
-    export conduit fun runner(step: () ->! String) >-> Int
-`;
-    const at = (needle: string) => "module Main\n\n".length + source.indexOf(needle);
-    expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + source]]),
-    ).toEqual([
-      // No `>->` to link, so the rewrite names the conservative arrow and the
-      // message is §4.5's advice in words. The inlet-less row is *not* also
-      // reported — this sentence is the one that says it — and neither is the
-      // colon row, whose seat this rewrite takes.
-      retiredWithoutInlet("conduit"),
-      // A row that already writes its arrow keeps it, and the sentence's arrow
-      // clause gives way — there is nothing left to advise.
-      giveWay("conduit"),
-    ]);
-    expect(
-      effectSpans([["/world.js", ""], ["/main.hex", "module Main\n\n" + source]]),
-    ).toEqual([
-      { primary: at("conduit fun trim"), edits: [at("conduit fun trim"), at("): String") + 1] },
-      { primary: at("conduit fun runner"), edits: [at("conduit fun runner")] },
-    ]);
-  });
-
-  it("recovers the face the rewrite names, so the row is checkable behind it", () => {
-    // §4.5: the arrow the fixit names is the face the row recovers with. A
-    // `pure` row recovers pure — its call is bare — and an inlet-less conduit
-    // recovers the constant, whose call wants `!`.
-    expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
-    export pure fun trim(document: String): String
-
-export let t: String = trim("x")
-`]]),
-    ).toEqual([RETIRED_PURE]);
-    expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
-    export conduit fun trim(document: String): String
-
-export let t: String = trim!("x")
-`]]),
-    ).toEqual([retiredWithoutInlet("conduit")]);
-  });
-
-  it("shapes each redirect's fixit by what its own rewrite has to carry", () => {
-    // Three shapes, one rule: the word always goes, and the arrow edit rides
-    // only where this row's rewrite is the one that must spell it. On a `fun`
-    // it must; on a `let` with parameters row 1 already has; on a row that
-    // declares nothing invocable there is no arrow at all.
-    const source = `extern from "./world.js"
-    export pure fun trim(document: String): String
-    export pure let parse(text: String): Int
-    export pure let seed: Int
-`;
-    const at = (needle: string) => "module Main\n\n".length + source.indexOf(needle);
-    expect(
-      effectSpans([["/world.js", ""], ["/main.hex", "module Main\n\n" + source]])
-        .filter(({ primary }) => [at("pure fun"), at("pure let"), at("pure let seed")]
-          .includes(primary)),
-    ).toEqual([
-      // `fun`: drop the word, and write the arrow at the `:` seat.
-      { primary: at("pure fun"), edits: [at("pure fun"), at("): String") + 1] },
-      // `let` with parameters: one edit set for one migration — the word goes,
-      // the keyword becomes `fun`, and the words' arrow takes the colon's place.
-      {
-        primary: at("pure let"),
-        edits: [at("pure let"), at("let parse"), at("): Int") + 1],
-      },
-      // Nothing invocable: drop the word, and there is nothing else to say.
-      { primary: at("pure let seed"), edits: [at("pure let seed")] },
-    ]);
-  });
-
-  it("finds the word anywhere in the head ahead of the keyword", () => {
-    // §4.5's seat: before or after each leading modifier, and beside the other
-    // word. Every arrangement is one rule, and none leaves a modifier stranded
-    // where its own reading no longer expects it.
-    for (
-      const head of [
-        "pure export fun make(value: Int) -> Int",
-        "export pure fun make(value: Int) -> Int",
-        "pure default fun make(value: Int) -> Int",
-        "export default pure fun make(value: Int) -> Int",
-      ]
-    ) {
-      expect(
-        effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
-    ${head}
-`]]),
-      ).toEqual([giveWay("pure")]);
-    }
-  });
-
-  it("keeps `pure` an ordinary name everywhere, extern rows included", () => {
-    // The word left Lexer §4.2's contextual table with the form it introduced
-    // (#869), so it binds like any other name — and a row may be *called* it.
+  it("keeps `pure` and `conduit` ordinary names everywhere, extern rows included", () => {
+    // The words left Lexer §4.2's contextual table with the forms they
+    // introduced (#869), so they bind like any other name — a row may be
+    // *called* one — and, before a row's keyword, draw what any stray name
+    // there draws (#1185).
     expect(
       effectDiagnostics([["/main.hex", "module Main\n\n" + `
 export let pure(value: Int): Int = value
@@ -1726,6 +1526,13 @@ export let doubled: Int = pure(21) + pure(21)
     export let conduit: Int
 `]]),
     ).toEqual([]);
+    const head = (word: string) =>
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
+    export ${word} fun trim(document: String) -> String
+`]]);
+    expect(head("pure")).toEqual(head("frob").map((report) => report.replaceAll("frob", "pure")));
+    expect(head("conduit")).toEqual(head("frob").map((report) => report.replaceAll("frob", "conduit")));
+    expect(head("frob")).toHaveLength(1);
   });
 
   it("redirects the retired `:` separator, with `->!` as its fixit", () => {
@@ -1861,16 +1668,14 @@ export let t: String = trim("x")
   });
 
   it("keeps a `let`-with-parameters row's own arrow in the rewrite it quotes", () => {
-    // §4.5 composes in order here too: a written arrow stands before the words
-    // supply one, so this row's rewrite spells the `fun` and keeps the arrow its
-    // author already wrote. Only a row that wrote `:` has the words fill the
-    // seat — and a row with neither word nor arrow keeps §13's own `->!`.
+    // A written arrow stands, so this row's rewrite spells the `fun` and keeps
+    // the arrow its author already wrote; a row that wrote `:` takes §13's own
+    // `->!`.
     const row = (text: string) =>
       effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
     export ${text}
 `]]);
-    expect(row("pure let f(x: Int) ->! Int")).toEqual([
-      giveWay("pure"),
+    expect(row("let f(x: Int) ->! Int")).toEqual([
       "extern callable declarations use `fun` and write their effect arrow; " +
       "write `fun f(x: Int) ->! Int`",
     ]);
@@ -1882,111 +1687,6 @@ export let t: String = trim("x")
       "extern callable declarations use `fun` and write their effect arrow; " +
       "write `fun f(x: Int) ->! Int`",
     ]);
-  });
-
-  it("claims no written arrow on a row that wrote no result separator", () => {
-    // The give-way sentence has to be true of the row. A row that stopped at its
-    // parameter list states no arrow at all, so the word keeps its own sentence
-    // and the missing-result report supplies the rest.
-    expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
-    export pure fun f(x: Int)
-`]]),
-    ).toEqual([
-      RETIRED_PURE,
-      "extern functions require an effect arrow and a result type; write `->! T` when in doubt",
-    ]);
-  });
-
-  it("reads the give-way clause before the inlet question, as the rewrite composes", () => {
-    // §4.5 composes the rewrite in order, and **the report follows it**: a
-    // written arrow stands — the row's own, or the one a function-typed `let`'s
-    // annotation writes — before any question of an inlet arises. So a row that
-    // writes its arrow and has no inlet is told its arrow is written, never
-    // advised to rewrite it: the inlet-less sentence names an arrow the rewrite
-    // would place, and here it places none.
-    const row = (text: string) =>
-      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
-    export ${text}
-`]])[0];
-    expect(row("conduit fun trim(document: String) -> String")).toBe(giveWay("conduit"));
-    expect(row("conduit let f: () >-> Int")).toBe(giveWay("conduit"));
-    expect(row("conduit let g: Int -> (() >-> Int)")).toBe(giveWay("conduit"));
-    expect(row("conduit let h: (() ->! Int) -> Int")).toBe(giveWay("conduit"));
-  });
-
-  it("measures the colon case's inlet the way the checker does", () => {
-    // Where the rewrite *does* place an arrow, the inlet decides which one, and
-    // §4.5's inlet test is a *position* test rather than a search: an inlet is a
-    // `>->` in something a caller supplies. The `let`-with-parameters row is
-    // asked of the parameters it wrote, and its own rewrite spells the `fun`
-    // while the words supply its arrow.
-    const row = (text: string) =>
-      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
-    export ${text}
-`]])[0];
-    // A caller supplies this `>->`, so the claim has something to link to.
-    expect(row("conduit let p(x: () ->! Int): Int")).toBe(RETIRED_CONDUIT);
-    // Nothing here carries one at all.
-    expect(row("conduit let q(x: Int): Int")).toBe(retiredWithoutInlet("conduit"));
-    // And here the only `>->` stands in the *result*, which a caller receives
-    // rather than supplies — a search for the token would have found it and
-    // been wrong.
-    expect(row("conduit let r(x: Int): (() >-> Int)")).toBe(retiredWithoutInlet("conduit"));
-  });
-
-  it("reaches Part 5's keywords at the seat, and refuses the form separately", () => {
-    // §4.5's seat names the member and class vocabulary too. Where this parser
-    // refuses a form, the word standing in front of one is still the retired
-    // claim and owes §13's redirect — never "extern `pure` declarations belong
-    // to a later FFI slice", which describes no defect the author has. `class`
-    // introduces a type; `static` is a modifier, so what follows it is the
-    // callable. The instance members are forms since #982, so the redirect is
-    // the row's one report, composed as a `fun`'s is — and a `set` row's arrow
-    // is `->!` whatever the word claimed (Part 5 §4.1).
-    const head = (text: string) =>
-      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
-    ${text}
-`]]);
-    expect(head("pure class Foo")).toEqual([
-      "`pure` is retired, and a type declares nothing invocable — drop the word",
-    ]);
-    expect(head("pure method foo(x: Int): Int")).toEqual([RETIRED_PURE]);
-    expect(head("conduit get x(v: Int): Int")).toEqual([retiredWithoutInlet("conduit")]);
-    expect(head("pure set x(v: Int, w: Int): Unit")).toEqual([
-      "`pure` is retired, and a `set` row's arrow is `->!` — drop the word",
-    ]);
-    expect(head("pure static fun f(x: Int) -> Int")).toEqual([
-      RETIRED_PURE,
-      "a `static` member targets the foreign class's constructor object; " +
-        "declare it inside the `extern class` it belongs to",
-    ]);
-  });
-
-  it("drops the word and its own spacing, and nothing a reader wrote between", () => {
-    // The fixit's span is the word plus the horizontal whitespace after it. A
-    // comment standing mid-head is the author's, not the word's to delete.
-    const source = `extern from "./world.js"
-    export pure (* why *) fun trim(document: String) -> String
-`;
-    const at = (needle: string) => "module Main\n\n".length + source.indexOf(needle);
-    const [report] = compileFiles([["/world.js", ""], ["/main.hex", "module Main\n\n" + source]])
-      .diagnostics;
-    expect(report?.message).toBe(giveWay("pure"));
-    const edit = report?.fixes?.[0]?.edits?.[0];
-    expect(edit?.span.start.offset).toBe(at("pure"));
-    expect(edit?.span.end.offset).toBe(at("(* why *)"));
-  });
-
-  it("keeps a nested inlet-less `>->` reported, the suppression being the outer arrow's", () => {
-    // §4.5: what a redirect suppresses is Effects §4.4's row *at the row's own
-    // outer arrow*. A `>->` nested inside the signature with no inlet is that
-    // row's own defect and stays reported.
-    expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
-    export conduit fun f(x: Int): (() >-> Int)
-`]]),
-    ).toEqual([retiredWithoutInlet("conduit"), UNLINKED_EXTERN_ROW]);
   });
 
   it("leaves the callable-intended `let` row as the whole report", () => {
@@ -2134,7 +1834,7 @@ export let n: Int = runner(() => readLine!())
     ]);
   });
 
-  it("conducts inside an inlet-bearing body, wearing `?`", () => {
+  it("conducts inside an inlet-bearing body, its call wearing `!`", () => {
     // §3.3's third arm, reached with no FFI-specific rule: the enclosing
     // signature's variable is what the row's outer arrow instantiates to.
     expect(
@@ -2221,107 +1921,8 @@ export let impureUse: Int = runner!(() => readLine!())
     ]);
   });
 
-  it("redirects the retired `conduit` word, with the fixit that drops it", () => {
-    // §13's `conduit` row, the `pure` row's twin: the word goes and `>->` takes
-    // the `:` seat, which is what the claim used to say.
-    const source = `extern from "./world.js"
-    export conduit fun runner(step: () ->! String): Int
-`;
-    expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + source]]),
-    ).toEqual([RETIRED_CONDUIT]);
-    expect(effectSpans([["/world.js", ""], ["/main.hex", "module Main\n\n" + source]])).toEqual([
-      {
-        primary: "module Main\n\n".length + source.indexOf("conduit"),
-        edits: [
-          "module Main\n\n".length + source.indexOf("conduit"),
-          "module Main\n\n".length + source.indexOf("): Int") + 1,
-        ],
-      },
-    ]);
-  });
-
-  it("names both words in one report where a row spelled both", () => {
-    // §4.5: a row that wrote the pair said one thing about one arrow, so it is
-    // one report naming both — and the thing it said is the conduit. This row
-    // already writes `->!`, so that arrow stands and the clause gives way.
-    expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
-    export pure conduit fun runner(step: () ->! String) ->! Int
-`]]),
-    ).toEqual([giveWay("pure conduit")]);
-    // Written the retired way throughout: still one report, and what the
-    // suppression removes is the colon row and nothing else.
-    expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
-    export pure conduit fun runner(step: () ->! Int): Int
-`]]),
-    ).toEqual([RETIRED_PAIR]);
-    // A repeated word names that word alone: the pair's spelling is for two
-    // distinct claims, not for two tokens.
-    expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
-    export pure pure fun runner(step: () ->! String) ->! Int
-`]]),
-    ).toEqual([giveWay("pure")]);
-    // One spelling of the pair, whichever order the row wrote them in.
-    expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
-    export conduit pure fun runner(step: () ->! String) ->! Int
-`]]),
-    ).toEqual([giveWay("pure conduit")]);
-    // And where nothing the row is handed carries `>->`, the pair's report is
-    // the conduit half's sentence — the missing inlet is its problem alone.
-    expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
-    export pure conduit fun trim(document: String): String
-`]]),
-    ).toEqual([retiredWithoutInlet("conduit")]);
-  });
-
-  it("redirects `conduit` on an extern `let` and an extern `type`, as `pure` is redirected", () => {
-    expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
-    export conduit let seed: Int
-`]]),
-    ).toEqual(["`conduit` is retired, and a value reference is colourless — drop the word"]);
-    expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
-    export conduit type Handle
-`]]),
-    ).toEqual(["`conduit` is retired, and a type declares nothing invocable — drop the word"]);
-  });
-
-  it("redirects either retired word on an intrinsic row too", () => {
-    // Effects §6.1's ownership split needs no notation *(#869)*: an intrinsic
-    // row writes its arrow like any other, and what the door changes is who
-    // answers for it. So the words take the same redirect here, beside the
-    // privilege gate's refusal — this is an ordinary user file.
-    for (
-      const [claim, message] of [
-        // This row writes its arrow, so the clause gives way for either word:
-        // §4.5 composes the rewrite before it asks about an inlet, and the
-        // report follows the rewrite.
-        ["pure", giveWay("pure")],
-        ["conduit", giveWay("conduit")],
-      ] as const
-    ) {
-      expect(
-        effectDiagnostics([["/main.hex", "module Main\n\n" + `extern from "hex:intrinsic"
-    ${claim} fun seqMemoize(source: Seq(a)) -> Seq(a)
-`]]),
-      ).toEqual([
-        "the `hex:` specifier scheme is reserved to standard-library source; to bind " +
-        "your own JavaScript implementation, use an ordinary `extern from` block " +
-        "naming your module",
-        message,
-      ]);
-    }
-  });
-
   it("keeps `conduit` an ordinary name everywhere else", () => {
-    // Contextual vocabulary (Lexer §4.2's family), exactly as `pure` is: the
-    // refusals above must not have reserved the word.
+    // An ordinary name (Lexer §4.3), exactly as `pure` is.
     expect(
       effectDiagnostics([["/main.hex", "module Main\n\n" + `
 export record Pipe = { conduit: Int }
@@ -2329,7 +1930,7 @@ export let conduit(value: Int): Int = value
 export let total: Int = conduit(21) + Pipe({ conduit = 21 }).conduit
 `]]),
     ).toEqual([]);
-    // And the foreign side of a row is not the claim slot either.
+    // And a row may be called it.
     expect(
       effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
     export fun conduit(value: Int) ->! Int

@@ -767,4 +767,5 @@ a && b              -- write `a and b`
 | Exact physical token families; virtual layout tokens excluded | §9 |
 | No warning tier; malformed tokens advance and recover | §10 |
 | `pure` and `conduit` leave the contextual table — ordinary names again; the arrow a callable extern row writes says what they claimed (FFI Part 4 §4.5, #869) | §4.2 |
+| `pure` and `conduit` take no report of their own before an extern row's keyword (#1185); FFI Part 4 §4.5 | §4.3 |
 | `bnot` hard; `band`/`bor`/`bxor` contextual in the operator seat after a complete operand; `0x`/`0o`/`0b` integer literals, lowercase prefix, `n` suffix only; `&`/`^`/`~` redirect to the words (`bitwise.md`) | §4.1, §4.2, §5, §8.3, §10 |
