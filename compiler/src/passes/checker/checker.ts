@@ -2988,8 +2988,10 @@ function spineOf(node: Resolved.Expr, onLambda: (lambda: Resolved.LambdaExpr) =>
 /** Where a number type became `Int`, and what to write there instead (`Checker.#numberDefaults`). */
 interface NumberDefault {
   readonly span: Source.Span;
-  /** The label, given the type the refusing use wanted, as displayed. */
-  readonly say: (wanted: string) => string;
+  /** The type of what was made there, which holds the `Int`. */
+  readonly held: Mono;
+  /** The label, given the spelling of the type to write there, where one is known. */
+  readonly say: (written: string | undefined) => string;
 }
 
 /** One member of a `fun` block's strongly-connected component (Functions §7.4). */
@@ -7655,7 +7657,10 @@ class Checker {
               true,
             )
           );
-          valueType = this.#hasConversion(item.value)
+          // A whole written type over an `Int` a new name made is the writer's
+          // own: a refusal it reaches is not the default's to label.
+          valueType = this.#hasConversion(item.value) ||
+              (annotationWhole(annotation) && this.#holdsNumberDefault(valueType))
             ? annotationType
             : this.#applyWrittenQualifiers(annotationType, valueType);
         }
@@ -8197,7 +8202,10 @@ class Checker {
               false,
             )
           );
-          if (this.#hasNumericWidening(item.value)) valueType = annotationType;
+          if (
+            this.#hasNumericWidening(item.value) ||
+            (annotationWhole(annotation) && this.#holdsNumberDefault(valueType))
+          ) valueType = annotationType;
         }
         // A `var` holds one value of one type for as long as it is in scope, so
         // its variables belong to the environment and must sit at the block's
@@ -8214,9 +8222,10 @@ class Checker {
           const name = item.binding.name;
           this.#defaultUnnamed(valueType, item.value.span, [], {
             span: item.binding.span,
-            say: (wanted) =>
+            held: valueType,
+            say: (written) =>
               `\`${name}\` became an \`Int\` here: the \`var\` made it from a number nothing had decided — ` +
-              `write \`var ${name}: ${wanted}\``,
+              (written === undefined ? "write its type here" : `write \`var ${name}: ${written}\``),
           });
         }
         this.#markNamed(valueType);
@@ -8526,6 +8535,8 @@ class Checker {
       );
       for (const symbol of ordered) {
         const recursiveType = this.#fresh(level + 1, false);
+        // A member's name holds its type while the knot is open (Numeric Literals §4).
+        recursiveType.named = true;
         recursiveTypes.set(symbol, recursiveType);
         this.#knotTypeVariables.add(recursiveType);
         this.#schemes.set(symbol, { variables: [], type: recursiveType });
@@ -9599,7 +9610,8 @@ class Checker {
         );
         // The widened form is the ascribed one, exactly as at an annotated
         // binding: `(1 : Float)` is the `Float` the writer claimed.
-        type = this.#hasConversion(expression.expression)
+        type = this.#hasConversion(expression.expression) ||
+            (annotationWhole(expression.annotation) && this.#holdsNumberDefault(inferred))
           ? annotationType
           : inferred;
         break;
@@ -9796,9 +9808,10 @@ class Checker {
             const component = landing.parameters[index]!;
             this.#defaultUnnamed(component, parameter.span, outputs, {
               span: parameter.span,
-              say: (wanted) =>
+              held: component,
+              say: (written) =>
                 `\`${parameter.name}\` became an \`Int\` here: the number reached only the lambda's input — ` +
-                `write \`(${parameter.name}: ${wanted})\``,
+                (written === undefined ? "write its type here" : `write \`(${parameter.name}: ${written})\``),
             });
             const head = this.#prune(component);
             this.#landedHeads.set(parameter.symbol, head.kind !== "Variable" || head.rigidName !== undefined);
@@ -10135,9 +10148,13 @@ class Checker {
         // takes `Int` here (Numeric Literals §4).
         this.#defaultUnnamed(element, expression.iterable.span, [], {
           span: expression.iterable.span,
-          say: (wanted) =>
+          held: iterable,
+          say: (written) =>
             `${patternNames(expression.pattern, "what the loop names")} became an \`Int\` here: the loop made it ` +
-            `from a number nothing had decided — write the type of what this holds here (\`${wanted}\`)`,
+            "from a number nothing had decided — " +
+            (written === undefined
+              ? "write its type here"
+              : `write \`(${this.#spelledExpression(expression.iterable) ?? "…"}: ${written})\``),
         });
         this.#inferMatchPattern(expression.pattern, element, level);
         this.#markNamed(element);
@@ -17325,15 +17342,19 @@ class Checker {
     const scrutinee = this.#inferExpr(expression.scrutinee, level);
     this.#closeReadOpenings(minted);
     // An arm whose pattern binds makes new names: a number type nothing has
-    // decided takes `Int` here, before any arm is read (Numeric Literals §4).
-    if (expression.arms.some((arm) => patternSymbols(arm.pattern).length > 0)) {
-      this.#defaultUnnamed(scrutinee, expression.scrutinee.span, [], {
+    // decided, in a part of the scrutinee an arm names, takes `Int` here,
+    // before any arm is read (Numeric Literals §4).
+    for (const part of this.#armNamedParts(expression.arms.map((arm) => arm.pattern), scrutinee)) {
+      this.#defaultUnnamed(part, expression.scrutinee.span, [], {
         span: expression.scrutinee.span,
-        say: (wanted) =>
+        held: scrutinee,
+        say: (written) =>
           "an arm's name became an `Int` here: the `match` made it from a number nothing had decided — " +
-          `write the type here (\`${wanted}\`)`,
+          (written === undefined
+            ? "write its type here"
+            : `write \`(${this.#spelledExpression(expression.scrutinee) ?? "…"}: ${written})\``),
       });
-      this.#markNamed(scrutinee);
+      this.#markNamed(part);
     }
     // Read once, before any arm: one arm's body cannot settle what another
     // arm's pattern binds (#1119 R.b).
@@ -25292,6 +25313,7 @@ class Checker {
           : this.#userNominalIterableFailure(requirement, type) ??
             this.#missingInstanceMessage(requirement, type),
       primary: requirement.span,
+      ...this.#numberDefaultLabels(type),
     });
   }
 
@@ -27665,14 +27687,170 @@ class Checker {
     }
   }
 
-  /** The labels pointing a refusal back to where a side of it became `Int` (`#numberDefaults`). */
-  #numberDefaultLabels(left: Mono, right: Mono): { readonly labels?: readonly Diagnostics.Label[] } {
+  /**
+   * The parts of a scrutinee's type an arm's pattern binds a name to, read
+   * from the patterns before any arm is checked: a tuple pattern's components
+   * against a tuple type's, and any other pattern that binds, the whole.
+   */
+  #armNamedParts(patterns: readonly Resolved.Pattern[], type: Mono): Mono[] {
+    const parts: Mono[] = [];
+    const visit = (pattern: Resolved.Pattern, part: Mono): void => {
+      if (patternSymbols(pattern).length === 0) return;
+      const actual = this.#prune(part);
+      if (pattern.kind === "Tuple" && actual.kind === "Tuple" && actual.elements.length === pattern.elements.length) {
+        pattern.elements.forEach((element, index) => visit(element, actual.elements[index]!));
+        return;
+      }
+      parts.push(part);
+    };
+    for (const pattern of patterns) visit(pattern, type);
+    return parts;
+  }
+
+  /**
+   * The labels pointing a refusal back to where a side of it became `Int`
+   * (`#numberDefaults`), naming the type to write there where the other side
+   * is a number type the `Int` could have been. Where it is not, the default
+   * did not cause the refusal, and no label is given.
+   */
+  #numberDefaultLabels(left: Mono, right?: Mono): { readonly labels?: readonly Diagnostics.Label[] } {
     const labels: Diagnostics.Label[] = [];
     for (const [side, other] of [[left, right], [right, left]] as const) {
-      const origin = this.#numberDefaults.get(this.#prune(side));
-      if (origin !== undefined) labels.push({ span: origin.span, message: origin.say(this.#display(other)) });
+      if (side === undefined) continue;
+      const defaulted = this.#prune(side);
+      const origin = this.#numberDefaults.get(defaulted);
+      if (origin === undefined) continue;
+      if (other === undefined) {
+        labels.push({ span: origin.span, message: origin.say(undefined) });
+        continue;
+      }
+      const wanted = this.#prune(other);
+      if (wanted.kind === "Variable" || !this.#supportsTarget(wanted, "Num")) continue;
+      // Spelled as this site writes it, so the fix compiles here; a type it
+      // cannot spell leaves the place named without one.
+      labels.push({
+        span: origin.span,
+        message: origin.say(this.#spellingAtSite(this.#replacing(origin.held, defaulted, wanted))),
+      });
     }
     return labels.length > 0 ? { labels } : {};
+  }
+
+  /**
+   * A type as this site writes it, composed from the names `#typeSpellingAtSite`
+   * gives, or `undefined` where some part has no spelling here.
+   */
+  #spellingAtSite(type: Mono): string | undefined {
+    const actual = this.#prune(type);
+    const spelled = (parts: readonly Mono[]): string | undefined => {
+      const written: string[] = [];
+      for (const part of parts) {
+        const spelling = this.#spellingAtSite(part);
+        if (spelling === undefined) return undefined;
+        written.push(spelling);
+      }
+      return written.join(", ");
+    };
+    const applied = (head: string | undefined, parts: readonly Mono[]): string | undefined => {
+      const inner = spelled(parts);
+      return head === undefined || inner === undefined ? undefined : `${head}(${inner})`;
+    };
+    switch (actual.kind) {
+      case "Tuple": {
+        const inner = spelled(actual.elements);
+        return inner === undefined ? undefined : `(${inner})`;
+      }
+      case "Vector":
+        return applied("Vector", [actual.element]);
+      case "Set":
+        return applied("Set", [actual.element]);
+      case "Array":
+        return applied("Array", [actual.element]);
+      case "JsSet":
+        return applied("JsSet", [actual.element]);
+      case "Map":
+        return applied("Map", [actual.key, actual.value]);
+      case "JsMap":
+        return applied("JsMap", [actual.key, actual.value]);
+      case "Nullable":
+        return applied("Nullable", [actual.value]);
+      case "Union":
+      case "NominalRecord":
+        return actual.arguments.length === 0
+          ? this.#typeSpellingAtSite(actual)
+          : applied(this.#typeSpellingAtSite({ ...actual, arguments: [] }), actual.arguments);
+      default:
+        return this.#typeSpellingAtSite(actual);
+    }
+  }
+
+  /** `type`, with the one object `target` read as `replacement`: a label's spelling (`#numberDefaultLabels`). */
+  #replacing(type: Mono, target: Mono, replacement: Mono): Mono {
+    const actual = this.#prune(type);
+    if (actual === target) return replacement;
+    const go = (part: Mono): Mono => this.#replacing(part, target, replacement);
+    switch (actual.kind) {
+      case "Tuple":
+        return { ...actual, elements: actual.elements.map(go) };
+      case "Record":
+        return { ...actual, fields: new Map([...actual.fields].map(([name, field]) => [name, go(field)])) };
+      case "Vector":
+        return { ...actual, element: go(actual.element) };
+      case "Set":
+        return { ...actual, element: go(actual.element) };
+      case "Array":
+        return { ...actual, element: go(actual.element) };
+      case "JsSet":
+        return { ...actual, element: go(actual.element) };
+      case "Node":
+        return { ...actual, element: go(actual.element) };
+      case "Map":
+        return { ...actual, key: go(actual.key), value: go(actual.value) };
+      case "JsMap":
+        return { ...actual, key: go(actual.key), value: go(actual.value) };
+      case "Nullable":
+        return { ...actual, value: go(actual.value) };
+      case "Union":
+      case "NominalRecord":
+      case "ExternType":
+        return { ...actual, arguments: actual.arguments.map(go) };
+      case "Function":
+        return { ...actual, parameters: actual.parameters.map(go), result: go(actual.result) };
+      default:
+        return actual;
+    }
+  }
+
+  /** Whether a type holds an `Int` a new name or a box's input made (`#numberDefaults`). */
+  #holdsNumberDefault(type: Mono): boolean {
+    const actual = this.#prune(type);
+    if (this.#numberDefaults.has(actual)) return true;
+    switch (actual.kind) {
+      case "Tuple":
+        return actual.elements.some((element) => this.#holdsNumberDefault(element));
+      case "Record":
+        return [...actual.fields.values()].some((field) => this.#holdsNumberDefault(field));
+      case "Vector":
+      case "Set":
+      case "Array":
+      case "JsSet":
+      case "Node":
+        return this.#holdsNumberDefault(actual.element);
+      case "Map":
+      case "JsMap":
+        return this.#holdsNumberDefault(actual.key) || this.#holdsNumberDefault(actual.value);
+      case "Nullable":
+        return this.#holdsNumberDefault(actual.value);
+      case "Union":
+      case "NominalRecord":
+      case "ExternType":
+        return actual.arguments.some((argument) => this.#holdsNumberDefault(argument));
+      case "Function":
+        return actual.parameters.some((parameter) => this.#holdsNumberDefault(parameter)) ||
+          this.#holdsNumberDefault(actual.result);
+      default:
+        return false;
+    }
   }
 
   #collectVariables(type: Mono, found = new Map<number, Variable>()): Variable[] {

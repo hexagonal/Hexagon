@@ -316,6 +316,44 @@ describe("a new name made from a number nothing decided is an `Int` there", () =
   });
 });
 
+describe("a `match` defaults only what an arm names", () => {
+  test("a part no arm binds is left to the patterns", () => {
+    compiles("let f(): String =\n    match (1, \"s\")\n        (1.5, s) => s\n        (_, s) => s\n");
+  });
+});
+
+describe("a recursive function's result is its name's, not a new name's", () => {
+  // While a `fun` block's knot is open, a member's type is held by its name, so
+  // a `var`, a loop, or a box made from a call to it does not default it, and
+  // the knot's other lines settle it in either order.
+  const knot = (body: readonly string[]): readonly string[] =>
+    projectDiagnostics(
+      HEADER + "let takesNat(n: Nat): Int = 0\nfun g(k: Int) =\n" + body.map((line) => `    ${line}\n`).join("") + "    0\n",
+    );
+  for (
+    const made of [
+      "var s = g(k + 1) + 1",
+      "for x in [g(k + 1) + 1]\n        ignore(x)",
+      "ignore(Option.map(Some(g(k + 1) + 1), (x) => x))",
+    ]
+  ) {
+    test(made.split("\n")[0]!, () => {
+      const use = "ignore(takesNat(g(k + 1)))";
+      expect(knot([made, use])).toEqual(knot([use, made]));
+      expect(knot([made, use])).toEqual([]);
+    });
+  }
+
+  test("a member of a knot of two, in either member order", () => {
+    const a = "a(k: Int): Int =\n        for x in [b(k)]\n            ignore(takesNat(x))\n        0";
+    const b = "b(k: Int) = if k > 9 then 0 else (if a(k + 1) == 0 then 1 else 2)";
+    const members = (order: readonly string[]): readonly string[] =>
+      projectDiagnostics(HEADER + "let takesNat(n: Nat): Int = 0\nfun\n" + order.map((m) => `    ${m}\n`).join(""));
+    expect(members([a, b])).toEqual(members([b, a]));
+    expect(members([a, b])).toEqual([]);
+  });
+});
+
 describe("a lambda is a box: a number reaching only its input is an `Int` before it is opened", () => {
   test("the dot and the module spelling read alike", () => {
     compiles("let f(): Option(String) = Some(1).map((x) => x.show())\n");
@@ -331,6 +369,25 @@ describe("a lambda is a box: a number reaching only its input is an `Int` before
   test("a box that outputs the number leaves it to inference", () => {
     compiles("let f(xs: Seq(Float)): Float = xs.fold(0, (acc, x) => acc + x)\n");
     compiles("let f(xs: Seq(Int)): Int = xs.fold(0, (acc, x) => acc + x)\n");
+  });
+
+  test("so does a box still to be opened that outputs it", () => {
+    compiles(
+      NAT + "\nlet pair2(v: a, f: (a) -> Unit, g: () -> a): Unit = ()\nlet f(): Unit = pair2(1, (x) => useNat(x), () => 5)\n",
+    );
+  });
+
+  test("a written result, or a type expected of the call, reaches the box's output, not its input", () => {
+    // The input meets the output only through the body, which the box rule
+    // does not read.
+    expect(projectDiagnostics(HEADER + "let f() =\n    let o: Option(Nat) = Some(1).map((x) => x)\n    ()\n"))
+      .toEqual(["type mismatch: expected Nat, found Int"]);
+    compiles("let f() =\n    let o: Option(Nat) = Some(1).map((x: Nat) => x)\n    ()\n");
+  });
+
+  test("declared generic code that hands a literal to a box's input takes `Int` there", () => {
+    expect(projectDiagnostics(HEADER + "let k<a: Num>(x: a): Option(a) = Some(1).map((y) => y + x)\n")).toHaveLength(1);
+    compiles("let k<a: Num>(x: a): Option(a) = Some(1).map((y: a) => y + x)\n");
   });
 
   test("a parameter's written type is the spelling for another number type", () => {
@@ -375,14 +432,14 @@ describe("the report points to where the number became an `Int`, and says what t
   test("a loop", () => {
     expect(labels(NAT + "\nlet f(): Unit =\n    for i in [1, 2, 3]\n        useNat(i)\n")).toEqual([
       "[[1, 2, 3]] `i` became an `Int` here: the loop made it from a number nothing had decided — " +
-        "write the type of what this holds here (`Nat`)",
+        "write `([1, 2, 3]: Vector(Nat))`",
     ]);
   });
 
   test("a `match` arm", () => {
     expect(labels(NAT + "\nlet f(): Unit =\n    match 3\n        n => useNat(n)\n")).toEqual([
       "[3] an arm's name became an `Int` here: the `match` made it from a number nothing had decided — " +
-        "write the type here (`Nat`)",
+        "write `(3: Nat)`",
     ]);
   });
 
@@ -390,5 +447,33 @@ describe("the report points to where the number became an `Int`, and says what t
     expect(labels(NAT + "\nlet f(): Option(Unit) = Some(1).map((x) => useNat(x))\n")).toEqual([
       "[x] `x` became an `Int` here: the number reached only the lambda's input — write `(x: Nat)`",
     ]);
+  });
+
+  test("the type to write is the whole type of what was made, as this site spells it", () => {
+    expect(labels(NAT + "\nlet f(): Unit =\n    var v = [0]\n    for x in v\n        useNat(x)\n")).toEqual([
+      "[v] `v` became an `Int` here: the `var` made it from a number nothing had decided — write `var v: Vector(Nat)`",
+    ]);
+    compiles(NAT + "\nlet f(): Unit =\n    var v: Vector(Nat) = [0]\n    for x in v\n        useNat(x)\n");
+    expect(labels(NAT + "\nlet f(): Unit =\n    match (1, 2)\n        (a, b) => useNat(a)\n")).toEqual([
+      "[(1, 2)] an arm's name became an `Int` here: the `match` made it from a number nothing had decided — " +
+        "write `((1, 2): (Nat, Int))`",
+    ]);
+    compiles(NAT + "\nlet f(): Unit =\n    match ((1, 2): (Nat, Int))\n        (a, b) => useNat(a)\n");
+  });
+
+  test("no label where the default did not cause the refusal", () => {
+    // The wanted type is not one the number could have been.
+    expect(labels("let f(): Unit =\n    var n = 0\n    n := \"a\"\n")).toEqual([]);
+    // A written type stands between: the `Int` is the writer's.
+    expect(labels(NAT + "\nlet f(): Unit =\n    var n = 0\n    let m: Int = n\n    useNat(m)\n")).toEqual([]);
+    expect(labels(NAT + "\nlet f(): Unit =\n    var n = 0\n    useNat((n : Int))\n")).toEqual([]);
+    expect(labels(NAT + "\nlet f(): Unit =\n    var n = 0\n    var m: Int = n\n    useNat(m)\n")).toEqual([]);
+  });
+
+  test("a missing instance the default reaches names the place to write a type", () => {
+    expect(labels("let f(): Unit =\n    var x = 5\n    x := x / 2\n")).toEqual([
+      "[x] `x` became an `Int` here: the `var` made it from a number nothing had decided — write its type here",
+    ]);
+    compiles("let f(): Unit =\n    var x: Float = 5\n    x := x / 2\n");
   });
 });
