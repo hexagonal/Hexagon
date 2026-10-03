@@ -382,7 +382,7 @@ Hard errors with named rewrites per the Rewrite Rule:
 | getter and setter introducing the same term name | ordinary collision error + "alias the setter: `set timeout as setTimeout(...)`" | §4.2 |
 | `new` without `as` | "name the companion constructor: `new as create(text: String) -> Url`" | §6.2 |
 | `new` row whose result is not the class's own type, or with no arrow | "`new` constructs `Url`; write `new as create(text: String) ->! Url` (`->` only where construction touches nothing)" | §6.2 |
-| member row with `:` before its result; `pure`/`conduit` before a member keyword or the `class` header | Part 4 §4.5's redirect — a member row declares a callable; the `class` header declares nothing invocable and takes the drop-the-word report (#869) | Part 4 §4.5 |
+| member row with `:` before its result | Part 4 §13's colon row — a member row declares a callable (#869) | Part 4 §4.5 |
 | `set` (instance or static) with an arrow other than `->!` | "an extern `set` grants write capability, and a write to foreign state is an effect — its arrow is `->!`; write `set timeout as setTimeout(request: Request, value: Int) ->! Unit`" + fixit `->!` (#869) | §4.1, §6.3 |
 | `static` or `new` at block level, outside a class block | "a `static` member targets the foreign class's constructor object; declare it inside the `extern class` it belongs to"; for `new`, "`new` constructs a foreign class; declare it inside that class's `extern class` block" (#982) | §6.2, §6.3 |
 | `default` before `method`/`get`/`set`/`new`/`static` | "`default` selects a foreign module's default export, and a member is not an export; drop `default`" — inside a class block, adding "to make the class the default export, write `default class`" (#982) | §6.4 |

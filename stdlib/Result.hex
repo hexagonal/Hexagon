@@ -46,7 +46,7 @@ export let defaultWith(source: Result(a, e), fallback: e ->! a): a =
     all the construct ever needed to be.
 
     The arrows are linked (Effects section 2.2). `attempt` is a conduit — its
-    body is one `?` call on `action` — so running it is exactly as effectful as
+    body's one call is to `action` — so running it is exactly as effectful as
     the thunk it is handed: pure in, pure and bare out; impure in, and the call
     wears `!`. *)
 export let attempt(action: () ->! a): Result(a, Exn) =

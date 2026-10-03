@@ -75,7 +75,7 @@ A hard keyword standing in a name seat (Lexer §4.4) is a name, not a head, and 
 line opens nothing), straight before a label's `:` or `=`, or as a declaration's
 name — straight after `let`, `var`, or `fun`, or in an FFI row's name seats, straight
 after `method`, `get`, or `set` at the head of the item, past only `export`,
-`static`, `default`, and the retired `pure`/`conduit` (`method match(text: String,
+`static`, and `default` (`method match(text: String,
 pattern: RegExp) ->! Bool` opens nothing) *(#982, #1014)*. A member-block item's head
 is not a name seat, and a label seat lies inside a bracket pair, so `or` or `and`
 beginning a line keeps §2.3's continuation reading.

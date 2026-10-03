@@ -1138,15 +1138,10 @@ describe("diagnostics (§2.1, §2.2, §9 test 11)", () => {
   /**
    * `enum` is a type-introducing row, so `default` — which belongs to an
    * imported value — has no seat on it, the same sentence the `type` row draws.
-   * The retired `pure` takes FFI Part 4 §13's redirect here as it does anywhere
-   * before a declaration keyword *(#869)*: an `enum` row introduces a type, so
-   * it takes the type row's sentence, and dropping the word is the whole repair.
    */
-  test("`default` and the retired claim are refused on an enum row", () => {
+  test("`default` is refused on an enum row", () => {
     expect(projectDiagnostics("module Main\n\n" + 'extern from "d"\n    default enum Direction = Up | Down\n',
     )).toEqual(["`default` applies to foreign functions and values, not types"]);
-    expect(projectDiagnostics("module Main\n\n" + 'extern from "d"\n    pure enum Direction = Up | Down\n',
-    )).toEqual(["`pure` is retired, and a type declares nothing invocable — drop the word"]);
   });
 
   /**
