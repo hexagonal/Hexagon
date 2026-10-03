@@ -2929,28 +2929,19 @@ function headWritten(annotation: Resolved.TypeAnnotation | undefined): annotatio
 }
 
 /**
- * The lambdas and calls on an argument's **spine** — the positions its value is
- * one of: through grouping, a vector's, tuple's or record's parts, a branch
- * form's value paths, and, for a lambda, what it hands back (a curried lambda
- * lands from the same call). A call on the spine is a landing context of its
- * own; anything else is off the spine.
+ * The lambdas on an argument's **spine** — the positions its value is one of:
+ * through grouping, a vector's, tuple's or record's parts, and a branch form's
+ * value paths. A lambda a lambda hands back is off the spine, and so is
+ * anything a call holds.
  */
-function spineOf(
-  node: Resolved.Expr,
-  onLambda: (lambda: Resolved.LambdaExpr) => void,
-  onCall: (call: Resolved.CallExpr) => void,
-): void {
-  const walk = (inner: Resolved.Expr): void => spineOf(inner, onLambda, onCall);
+function spineOf(node: Resolved.Expr, onLambda: (lambda: Resolved.LambdaExpr) => void): void {
+  const walk = (inner: Resolved.Expr): void => spineOf(inner, onLambda);
   switch (node.kind) {
     case "Group":
       walk(node.expression);
       return;
     case "Lambda":
       onLambda(node);
-      returnedLambdas(node.body, onLambda);
-      return;
-    case "Call":
-      onCall(node);
       return;
     case "Vector":
     case "Tuple":
@@ -2980,18 +2971,6 @@ function spineOf(
       return;
   }
 }
-
-/** The lambdas a lambda's body hands back, through its value paths (`spineOf`). */
-function returnedLambdas(body: Resolved.Expr, onLambda: (lambda: Resolved.LambdaExpr) => void): void {
-  spineOf(body, (lambda) => onLambda(lambda), () => {});
-}
-
-/** Where an untyped lambda parameter's type lands from (`Checker.#landingContexts`). */
-type LandingContext =
-  /** A call it is an argument of, on that argument's spine, or the callee of. */
-  | { readonly kind: "call"; readonly call: Resolved.CallExpr }
-  /** A pipe's left operand, handed to the lambda on its right. */
-  | { readonly kind: "pipe"; readonly source: Resolved.Expr };
 
 /** One member of a `fun` block's strongly-connected component (Functions §7.4). */
 interface KnotMember {
@@ -4497,25 +4476,18 @@ class Checker {
    * known head (Functions §4.3), recorded where the lambda is elaborated.
    */
   readonly #landedHeads = new Map<Resolved.SymbolId, boolean>();
+  /** Whether it landed whole: no part of its shape left for later lines to fill. */
+  readonly #landedWhole = new Map<Resolved.SymbolId, boolean>();
   /**
-   * Where each lambda's parameter types land from, by the lambda's position:
-   * a call's argument spine (a lambda an argument hands back included), a
-   * call's callee, or a pipe's right operand. A lambda anywhere else has none,
-   * so its untyped parameters are not decided by the text (Method Syntax §3.1).
+   * The call each lambda's parameter types land from: the call on whose
+   * argument spine the lambda stands. A lambda anywhere else has none, so its
+   * untyped parameters are not decided by the text (Method Syntax §3.1).
    */
-  readonly #landingContexts = new Map<Resolved.LambdaExpr, LandingContext>();
+  readonly #landingContexts = new Map<Resolved.LambdaExpr, Resolved.CallExpr>();
   /** The lambdas each call is the landing context of, which reading the call reads past. */
   readonly #callLambdas = new Map<Resolved.CallExpr, Resolved.LambdaExpr[]>();
   /** A pipe stage's call, and the left operand the pipe hands it. */
   readonly #pipedInto = new Map<Resolved.CallExpr, Resolved.Expr>();
-  /** A call on another call's argument spine, and that call. */
-  readonly #spineParent = new Map<Resolved.CallExpr, Resolved.CallExpr>();
-  /** A call or lambda a lambda hands back, and that lambda. */
-  readonly #returnedBy = new Map<Resolved.Expr, Resolved.LambdaExpr>();
-  /** A call or lambda on an assignment's value spine, and the assignment's target. */
-  readonly #assignedTo = new Map<Resolved.Expr, Resolved.Expr>();
-  /** Lambdas a written type is expected of, whole. */
-  readonly #writtenLambdas = new Set<Resolved.LambdaExpr>();
   /** Lambdas, and calls, a written type with a written head reaches through forwarding forms. */
   readonly #writtenContexts = new Set<Resolved.LambdaExpr>();
   readonly #writtenCalls = new Set<Resolved.CallExpr>();
@@ -6123,62 +6095,37 @@ class Checker {
 
   /**
    * Whether the text decides wholly the call an untyped lambda parameter's type
-   * lands from: the callee, a dot callee's subject, every argument, the value a
-   * pipe hands it, and, for a constructor's application, the call it is an
-   * argument of — read past the lambdas that land from it, which the schedule
-   * elaborates after the operands their parameters land from (Functions §4.3).
+   * lands from: a named function's call, with its callee, a dot callee's
+   * subject, every argument, and the value a pipe hands it read past the
+   * lambdas that land from it, which the schedule elaborates after the operands
+   * their parameters land from (Functions §4.3). A constructor's application
+   * takes its expectation from where it stands, so it decides its lambdas only
+   * where a written type reaches it; a call of anything unnamed decides none.
    */
-  #landingContextDecided(call: Resolved.CallExpr, asked?: Resolved.LambdaExpr, readAsked = false): boolean {
+  #landingContextDecided(call: Resolved.CallExpr, asked?: Resolved.LambdaExpr): boolean {
     // Only the lambda asked about, and those elaborated after it, cannot have
     // settled what it lands; a sibling before it may have, so it is read.
     const all = this.#callLambdas.get(call) ?? [];
     const skipped = asked === undefined ? all : all.filter((lambda) =>
-      (lambda === asked && !readAsked) || lambda.span.start.offset > asked.span.start.offset
+      lambda === asked || lambda.span.start.offset > asked.span.start.offset
     );
     const lambdas = skipped.filter((lambda) => !this.#landingLambdas.has(lambda));
     for (const lambda of lambdas) this.#landingLambdas.add(lambda);
     try {
+      const named = ungrouped(call.callee);
+      if (
+        this.#appliesDataConstructor(call)
+          ? !this.#writtenCalls.has(call)
+          : named.kind !== "Name" && named.kind !== "Access"
+      ) return false;
       const callee = call.callee.kind === "Access" ? call.callee.receiver : call.callee;
       const piped = this.#pipedInto.get(call);
-      const parent = this.#spineParent.get(call);
-      // A constructor's application takes its expectation from where it stands
-      // (Functions §4.3). Its lambdas are decided only where that is known and
-      // decided: the call it is an argument of, the lambda that hands it back,
-      // an assignment's target, or a written type. Anywhere else nothing the
-      // text decides is known to reach it.
-      const constructor = this.#appliesDataConstructor(call);
-      const assigned = this.#assignedTo.get(call);
-      const returning = this.#returnedBy.get(call);
-      if (
-        constructor && parent === undefined && assigned === undefined && returning === undefined &&
-        !this.#writtenCalls.has(call)
-      ) return false;
-      if (constructor && assigned !== undefined && !this.#typeDecided(assigned, true)) return false;
-      if (constructor && returning !== undefined && !this.#returnedDecided(returning)) return false;
       return this.#typeDecided(callee, true) &&
         call.arguments.every((argument) => this.#typeDecided(argument, true)) &&
-        (piped === undefined || this.#typeDecided(piped, true)) &&
-        // A constructor's application takes its expectation from the call
-        // whose argument it is (Functions §4.3), so that call lands its lambdas too.
-        (parent === undefined || !this.#appliesDataConstructor(call) || this.#landingContextDecided(parent));
+        (piped === undefined || this.#typeDecided(piped, true));
     } finally {
       for (const lambda of lambdas) this.#landingLambdas.delete(lambda);
     }
-  }
-
-  /** Whether what a lambda hands back meets an expectation the text decides. */
-  #returnedDecided(lambda: Resolved.LambdaExpr): boolean {
-    if (this.#writtenLambdas.has(lambda)) return true;
-    const context = this.#landingContexts.get(lambda);
-    if (context !== undefined) {
-      return context.kind === "call"
-        ? this.#landingContextDecided(context.call, lambda, true)
-        : this.#typeDecided(context.source, true);
-    }
-    const assigned = this.#assignedTo.get(lambda);
-    if (assigned !== undefined) return this.#typeDecided(assigned, true);
-    const outer = this.#returnedBy.get(lambda);
-    return outer === undefined || this.#returnedDecided(outer);
   }
 
   /**
@@ -6247,22 +6194,18 @@ class Checker {
         );
       }
       case "lambda": {
-        // Decided where its type landed with a known head from a context the
-        // text decides wholly: the call it is written in, read without it.
+        // Decided where its type landed with a known head — and, for the
+        // whole, with no part of its shape open — from a written type, or from
+        // a context the text decides wholly: the call it is written in, read
+        // without it. A part still open where it landed (a hole, a polymorphic
+        // value's instance) is filled by whatever line the body reaches first.
         if (this.#landedHeads.get(symbol) !== true) return false;
+        if (deep && this.#landedWhole.get(symbol) !== true) return false;
+        if (this.#writtenContexts.has(source.lambda)) return true;
         const context = this.#landingContexts.get(source.lambda);
-        if (context === undefined) {
-          if (this.#writtenContexts.has(source.lambda)) return true;
-          // An assignment's or a `with` override's value lands from its target.
-          const target = this.#assignedTo.get(source.lambda);
-          if (target === undefined) return false;
-          remember(false);
-          return remember(this.#typeDecided(target, true));
-        }
+        if (context === undefined) return false;
         remember(false);
-        return remember(
-          context.kind === "call" ? this.#landingContextDecided(context.call, source.lambda) : this.#typeDecided(context.source, true),
-        );
+        return remember(this.#landingContextDecided(context, source.lambda));
       }
       case "var":
         // Its head is its initializer's, unless the initializer left the type
@@ -6305,10 +6248,9 @@ class Checker {
       if (source?.kind !== "lambda") return false;
       const context = this.#landingContexts.get(source.lambda);
       if (context === undefined) return false;
-      if (context.kind === "pipe") return failed(context.source);
-      const callee = context.call.callee.kind === "Access" ? context.call.callee.receiver : context.call.callee;
-      return this.#abandonedCalls.has(context.call) || this.#refusedReceivers.has(context.call) || failed(callee) ||
-        context.call.arguments.some((argument) => argument.kind !== "Lambda" && failed(argument));
+      const callee = context.callee.kind === "Access" ? context.callee.receiver : context.callee;
+      return this.#abandonedCalls.has(context) || this.#refusedReceivers.has(context) || failed(callee) ||
+        context.arguments.some((argument) => argument.kind !== "Lambda" && failed(argument));
     });
   }
 
@@ -9738,6 +9680,11 @@ class Checker {
             this.#landedHeads.set(
               parameter.symbol,
               head !== undefined && (head.kind !== "Variable" || head.rigidName !== undefined),
+            );
+            this.#landedWhole.set(
+              parameter.symbol,
+              component !== undefined &&
+                this.#shapeVariables(component).every((variable) => variable.rigidName !== undefined),
             );
           }
           const parameterType = parameter.annotation === undefined
@@ -18601,53 +18548,18 @@ class Checker {
       item: register,
       expression: (expression) => {
         if (expression.kind === "Call") {
-          const land = (lambda: Resolved.LambdaExpr): void => {
-            if (this.#landingContexts.has(lambda)) return;
-            this.#landingContexts.set(lambda, { kind: "call", call: expression });
-            const lambdas = this.#callLambdas.get(expression) ?? [];
-            lambdas.push(lambda);
-            this.#callLambdas.set(expression, lambdas);
-          };
-          let callee = expression.callee;
-          while (callee.kind === "Group") callee = callee.expression;
-          if (callee.kind === "Lambda") land(callee);
           for (const argument of expression.arguments) {
-            spineOf(argument, land, (call) => {
-              if (!this.#spineParent.has(call)) this.#spineParent.set(call, expression);
+            spineOf(argument, (lambda) => {
+              if (this.#landingContexts.has(lambda)) return;
+              this.#landingContexts.set(lambda, expression);
+              const lambdas = this.#callLambdas.get(expression) ?? [];
+              lambdas.push(lambda);
+              this.#callLambdas.set(expression, lambdas);
             });
           }
-        }
-        if (expression.kind === "Lambda") {
-          spineOf(expression.body, (lambda) => {
-            if (!this.#returnedBy.has(lambda)) this.#returnedBy.set(lambda, expression);
-          }, (call) => {
-            if (!this.#returnedBy.has(call)) this.#returnedBy.set(call, expression);
-          });
-        }
-        if (expression.kind === "Record" && expression.spread !== undefined) {
-          // A `with` override lands from the field type of the value it updates.
-          const spread = expression.spread;
-          for (const field of expression.fields) {
-            spineOf(field.value, (lambda) => {
-              if (!this.#assignedTo.has(lambda)) this.#assignedTo.set(lambda, spread);
-            }, (call) => {
-              if (!this.#assignedTo.has(call)) this.#assignedTo.set(call, spread);
-            });
-          }
-        }
-        if (expression.kind === "Assignment") {
-          spineOf(expression.value, (lambda) => {
-            if (!this.#assignedTo.has(lambda)) this.#assignedTo.set(lambda, expression.target);
-          }, (call) => {
-            if (!this.#assignedTo.has(call)) this.#assignedTo.set(call, expression.target);
-          });
         }
         if (expression.kind === "Binary" && expression.operator === "Pipe") {
-          let right = expression.right;
-          while (right.kind === "Group") right = right.expression;
-          if (right.kind === "Lambda" && !this.#landingContexts.has(right)) {
-            this.#landingContexts.set(right, { kind: "pipe", source: expression.left });
-          }
+          const right = ungrouped(expression.right);
           if (right.kind === "Call") this.#pipedInto.set(right, expression.left);
         }
         if (expression.kind === "Ascription") writtenLand(expression.expression, expression.annotation);
@@ -18670,7 +18582,6 @@ class Checker {
       },
       lambda: (lambda) => {
         const expected = expectedBy.get(lambda);
-        if (expected !== undefined) this.#writtenLambdas.add(lambda);
         for (const [index, parameter] of lambda.parameters.entries()) {
           // A type written for the parameter, or ground where a written type is
           // expected of the lambda, decides it; anything else lands, or not.

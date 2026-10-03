@@ -204,7 +204,7 @@ describe("a subject a later or an earlier line fixes is not decided by the text 
     );
   });
 
-  test("a lambda in a pipe stage, or piped into, lands from what the pipe hands it", () => {
+  test("a lambda in a pipe stage, whose piped value is not decided, and a lambda piped into", () => {
     bothOrders(
       "let f(p) =",
       "let a = p |> Seq.map((x) => x.length())",
@@ -214,7 +214,7 @@ describe("a subject a later or an earlier line fixes is not decided by the text 
     bothOrders("let f(p) =", "let a = p |> (x) => x.length()", "let b: Vector(Int) = p", [refusal("x", "length")]);
   });
 
-  test("a curried lambda lands from the call its outer lambda is an argument of", () => {
+  test("a curried lambda is not decided by the call its outer lambda is an argument of", () => {
     bothOrders(
       "let f(g) =",
       "let a = g((u: Int) => (w: Vector(Int)) => 0)",
@@ -223,11 +223,11 @@ describe("a subject a later or an earlier line fixes is not decided by the text 
     );
   });
 
-  test("an applied lambda lands from its arguments", () => {
+  test("an applied lambda is not decided by its arguments", () => {
     bothOrders("let f(p) =", "let a = ((x) => x.length())(p)", "let b: Vector(Int) = p", [refusal("x", "length")]);
   });
 
-  test("a lambda under a constructor lands from the call the constructor is an argument of", () => {
+  test("a lambda under a constructor is not decided by the call the constructor is an argument of", () => {
     bothOrders(
       "let f(g) =",
       "let a = g(Some((x: Vector(Int)) => 0))",
@@ -236,13 +236,17 @@ describe("a subject a later or an earlier line fixes is not decided by the text 
     );
   });
 
-  test("a lambda piped from a member of a `fun` block still open, in either member order", () => {
+  test("a lambda handed a member of a `fun` block still open, in either member order", () => {
     const member = (order: readonly string[]): readonly string[] =>
       projectDiagnostics(HEADER + "fun\n" + order.map((line) => `    ${line}\n`).join(""));
     const a = "a(n: Int): Bool = if n > 3 then b(n) |> (v) => v.isEmpty() else a(n + 1)";
     const b = "b(n: Int): Vector(Int) = if n > 9 then [n] else (if a(n) then [] else [1])";
     expect(member([a, b])).toEqual([refusal("v", "isEmpty")]);
     expect(member([b, a])).toEqual([refusal("v", "isEmpty")]);
+    const c = "c(n: Int): Bool = if n > 3 then Seq.any(b(n), (k) => k.show() == \"1\") else c(n + 1)";
+    const d = "b(n: Int): Vector(Int) = if n > 9 then [n] else (if c(n) then [] else [1])";
+    expect(member([c, d])).toEqual([refusal("k", "show")]);
+    expect(member([d, c])).toEqual([refusal("k", "show")]);
   });
 
   test("a local `fun` capturing an untyped parameter", () => {
@@ -320,7 +324,7 @@ describe("a subject a later or an earlier line fixes is not decided by the text 
     ]);
   });
 
-  test("a constructor a lambda hands back takes the lambda's expectation", () => {
+  test("a constructor a lambda hands back does not decide its lambdas", () => {
     bothOrders(
       "let apply2(v: a, f: (a) -> Option((a) -> Int)): Int = 0\nlet f(q) =",
       "let w: Vector(Int) = q",
@@ -351,6 +355,55 @@ describe("a subject a later or an earlier line fixes is not decided by the text 
       "let b = both((a) => a == q, (b) => b.length())",
       [refusal("b", "length")],
     );
+  });
+
+  test("a constructor a lambda hands back, piped into an untyped function", () => {
+    bothOrders(
+      "let f(h) =",
+      "let a = h((u: Int) => Some((v: Vector(Int)) => 0))",
+      "let b = ((u) => Some((x) => x.length())) |> h",
+      [refusal("x", "length")],
+    );
+  });
+
+  test("a lambda, or a constructor holding one, piped into an untyped function", () => {
+    bothOrders("let f(h) =", "let a = h((v: Vector(Int)) => 0)", "let b = ((x) => x.length()) |> h", [
+      refusal("x", "length"),
+    ]);
+    bothOrders(
+      "let f(h) =",
+      "let a = h(Some((v: Vector(Int)) => 0))",
+      "let b = Some((x) => x.length()) |> h",
+      [refusal("x", "length")],
+    );
+  });
+
+  test("a part of a lambda's parameter whose type landed with a part open", () => {
+    // A hole in the written type, and a polymorphic value's instance in the
+    // call, leave a part of the parameter's type to whichever line of the body
+    // comes first, so the parameter is decided only at its head.
+    const inBody = (head: string, first: string, second: string, tail = "        0"): readonly string[][] =>
+      [[first, second], [second, first]].map((lines) =>
+        projectDiagnostics(
+          HEADER + "let f() =\n" + head + "\n" + lines.map((line) => line.replace(/^/gm, "        ") + "\n").join("") +
+            tail + "\n    ()\n",
+        )
+      );
+    const loop = "for v in x\n    ignore(v.isEmpty())";
+    for (
+      const reports of [
+        inBody("    let k: (Vector(_)) -> Int = (x) =>", loop, "let w: Vector(Vector(Int)) = x"),
+        inBody("    let s = Seq.map(Seq.singleton(Vector.empty), (x) =>", loop, "let w: Vector(Vector(Int)) = x", "        0)"),
+        inBody(
+          "    let s = Seq.map(Seq.singleton(None), (x) =>",
+          "let a = Option.map(x, (v) => v.isEmpty())",
+          "let w: Option(Vector(Int)) = x",
+          "        0)",
+        ),
+      ]
+    ) {
+      expect(reports).toEqual([[refusal("v", "isEmpty")], [refusal("v", "isEmpty")]]);
+    }
   });
 
   test("a body that waits on nothing: #1173's shape is one report in either order", () => {
@@ -397,6 +450,21 @@ describe("a subject the text decides dispatches at the dot (§3.1)", () => {
   test("a lambda's parameter whose type lands from a decided call", () => {
     compiles("let f(xs: Seq(Int)): Seq(String) = xs.map((x) => x.show())\n");
     compiles("let f(xs: Seq(Int)): Seq(String) = Seq.map(xs, (x) => x.show())\n");
+    compiles("let f(xs: Seq(Int)): Seq(String) = xs |> Seq.map((x) => x.show())\n");
+    compiles("let f(xs: Seq(Vector(Int))): Seq(Int) = Seq.map(xs, if True then (x) => x.length() else (x) => 0)\n");
+  });
+
+  test("a part of a lambda's parameter whose landed type holds only declared type variables", () => {
+    compiles(
+      "let f(xs: Seq(Vector(Vector(a)))): Seq(Int) = Seq.map(xs, (x) =>\n" +
+        "    var n = 0\n    for v in x\n        n := n + v.length()\n    n)\n",
+    );
+  });
+
+  test("a lambda inside a literal argument of a named function's call", () => {
+    compiles("let use(fs: Vector((Vector(Int)) -> Int)): Int = 0\nlet n = use([(x) => x.length()])\n");
+    compiles("let use(t: ((Vector(Int)) -> Int, Int)): Int = 0\nlet n = use(((x) => x.length(), 1))\n");
+    compiles("let use(r: {f: (Vector(Int)) -> Int}): Int = 0\nlet n = use({f = (x) => x.length()})\n");
   });
 
   test("a pattern's part and a loop variable taken from a decided value", () => {
@@ -428,7 +496,7 @@ describe("a subject the text decides dispatches at the dot (§3.1)", () => {
     compiles("let f(y: Vector(a)): Int =\n    let t: ((Vector(a)) -> Int, Int) = ((x) => x.length(), 1)\n    1\n");
   });
 
-  test("a lambda on a `try`'s value paths, a `match` arm's, and on a pipe's right", () => {
+  test("a lambda on a `try`'s value paths and a `match` arm's", () => {
     compiles(
       "let f(xs: Seq(Vector(Int))): Seq(Int) = Seq.map(xs, try\n" +
         "    (x) => x.length()\ncatch\n    _ => (x) => 0)\n",
@@ -437,7 +505,6 @@ describe("a subject the text decides dispatches at the dot (§3.1)", () => {
       "let g(h: (Vector(Int)) -> Int): Int = h([1])\nlet f(k: Int): Int = g(match k\n" +
         "    0 => (x) => x.length()\n    _ => (x) => 0)\n",
     );
-    compiles("let f(v: Vector(Int)): Int = v |> (x) => x.length()\n");
   });
 
   test("a lambda's own body does not decide its parameter, so what it captures is read past", () => {
@@ -449,18 +516,9 @@ describe("a subject the text decides dispatches at the dot (§3.1)", () => {
 
   test("a constructor under a written type lands its lambdas", () => {
     compiles("let mk(): Option((Vector(Int)) -> Int) = Some((x) => x.length())\n");
-  });
-
-  test("a `with` override over a value whose type is written lands from it", () => {
-    compiles("record Q = {f: (Vector(Int)) -> Int}\nlet g(q: Q): Q = {q with f = (x) => x.length()}\n");
-  });
-
-  test("a curried lambda and an applied lambda land from a decided call", () => {
     compiles(
-      "let apply2(f: (Int) -> (Vector(Int)) -> Int): Int = f(1)([2])\n" +
-        "let n = apply2((u) => (w) => w.length())\n",
+      "let f(c: Bool) =\n    let k: Option((Vector(Int)) -> Int) = if c then Some((x) => x.length()) else None\n    ()\n",
     );
-    compiles("let f(v: Vector(Int)): Int = ((x) => x.length())(v)\n");
   });
 
   test("a range is a `Range` whatever its operands", () => {
@@ -495,6 +553,74 @@ describe("a subject the text decides dispatches at the dot (§3.1)", () => {
 
   test("a decided structural record's field, called through the dot", () => {
     compiles("let f(r: {cb: (Int) -> Int, ...}): Int = r.cb(3)\n");
+  });
+});
+
+describe("a lambda no written type and no named call reaches is not decided, whatever surrounds it (§3.1)", () => {
+  const refused = (source: string, subject: string, name: string): void => {
+    expect(projectDiagnostics(HEADER + source)).toEqual([refusal(subject, name)]);
+  };
+  const compiles = (source: string): void => {
+    expect(projectDiagnostics(HEADER + source)).toEqual([]);
+  };
+
+  test("a lambda on a pipe's right", () => {
+    refused("let f(v: Vector(Int)): Int = v |> (x) => x.length()\n", "x", "length");
+    compiles("let f(v: Vector(Int)): Int = v |> (x: Vector(Int)) => x.length()\n");
+  });
+
+  test("a `with` override's lambda", () => {
+    const q = "record Q = {f: (Vector(Int)) -> Int}\n";
+    refused(q + "let g(q: Q): Q = {q with f = (x) => x.length()}\n", "x", "length");
+    compiles(q + "let g(q: Q): Q = {q with f = (x: Vector(Int)) => x.length()}\n");
+  });
+
+  test("a curried lambda and an applied lambda", () => {
+    const apply2 = "let apply2(f: (Int) -> (Vector(Int)) -> Int): Int = f(1)([2])\n";
+    refused(apply2 + "let n = apply2((u) => (w) => w.length())\n", "w", "length");
+    compiles(apply2 + "let n = apply2((u) => (w) => Vector.length(w))\n");
+    refused("let f(v: Vector(Int)): Int = ((x) => x.length())(v)\n", "x", "length");
+  });
+
+  test("a lambda handed to a call whose callee is not a named function", () => {
+    const mk = "let mk(n: Int): ((Vector(Int)) -> Int) -> Int = (g) => g([n])\n";
+    refused(mk + "let k = mk(1)((x) => x.length())\n", "x", "length");
+    compiles(mk + "let k = mk(1)((x: Vector(Int)) => x.length())\n");
+  });
+
+  test("a record's construction decides a lambda only where the field's declaration writes the slot whole", () => {
+    compiles("record Q = {f: (Vector(Int)) -> Int}\nlet h() =\n    let q = Q({f = (x) => x.length()})\n    ()\n");
+    const r = "record R(a) = {sample: a, apply: (Vector(a)) -> Int}\n";
+    refused(r + "let h() =\n    let q = R({sample = 1, apply = (d) => d.length()})\n    ()\n", "d", "length");
+    compiles(r + "let h() =\n    let q: R(Int) = R({sample = 1, apply = (d) => d.length()})\n    ()\n");
+  });
+
+  test("a constructor's lambda assigned to a `var` whose type is written", () => {
+    refused(
+      "let f() =\n    var o: Option((Vector(Int)) -> Int) = None\n    o := Some((x) => x.length())\n    ()\n",
+      "x",
+      "length",
+    );
+  });
+
+  test("a constructor's lambda, where no written type reaches the constructor", () => {
+    const pair = "union P(a) = Pair(a, (a) -> Int)\n";
+    refused(pair + "let f(v: Vector(Int)) =\n    let p = Pair(v, (x) => x.length())\n    ()\n", "x", "length");
+    const col = "record Col(a) = {values: Vector(a), format: (a) -> String}\n";
+    refused(
+      col + "let f(vs: Vector(Int)) =\n    let c = Col({values = vs, format = (e) => e.show()})\n    ()\n",
+      "e",
+      "show",
+    );
+    refused(
+      "let use(o: Option((Vector(Int)) -> Int)): Int = 0\nlet n = use(Some((x) => x.length()))\n",
+      "x",
+      "length",
+    );
+    // The bare, module, or written spelling is the one that compiles.
+    compiles(col + "let f(vs: Vector(Int)) =\n    let c = Col({values = vs, format = (e) => show(e)})\n    ()\n");
+    compiles(pair + "let f(v: Vector(Int)) =\n    let p = Pair(v, (x) => Vector.length(x))\n    ()\n");
+    compiles(pair + "let f(v: Vector(Int)) =\n    let p: P(Vector(Int)) = Pair(v, (x) => x.length())\n    ()\n");
   });
 });
 
