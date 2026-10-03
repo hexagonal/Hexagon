@@ -1186,12 +1186,14 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
       .toBe("const probe = __Integral_Int_gcd(1 + 2, 3);");
   });
 
-  test("a flexible receiver keeps the pending goal and the fallback", () => {
-    // An expectation is not an annotation: it lands on nothing, the receiver
-    // stays unsolved, and §3.5's row fallback fires as before.
-    expect(verdict("fun scaled(v): BigInt = v.multiply(2)\n")).toEqual([]);
-    expect(emitted("fun scaled(v): BigInt = v.multiply(2)\n"))
-      .toContain("v.multiply");
+  test("a subject the text does not decide is refused whatever the face", () => {
+    // An expectation is not an annotation: it decides nothing about `v`, so the
+    // dot cannot tell whose `multiply` it is (§3.5).
+    expect(verdict("fun scaled(v): BigInt = v.multiply(2)\n")).toEqual([
+      "the program's text does not decide `v`'s type here, so `.multiply(…)` cannot tell whose " +
+        "`multiply` it is — write `v`'s type, or call the operation by its module (`Module.multiply(v, …)`); " +
+        "a record's field is called as `(v.multiply)(…)`",
+    ]);
   });
 
   test("the same chain at a nominal home runs entirely there", () => {
@@ -1432,19 +1434,6 @@ describe("members widen by their operands (§3.4, §6.1)", () => {
     expect(ratProbeLine(
       "let r: Rat.Rat = Rat.fromInt(3)\nlet probe = r.compare(i)\n",
     )).toBe("const probe = compare(r, __Signed_Rat.fromInt(i));");
-  });
-
-  test("the subject is moment-free: a goal that settles late widens the same", () => {
-    // §11.3's note. The receiver's head is unknown at the dot here, so the goal
-    // pends and settles at the region's deadline — and the instance is still
-    // coherence's choice at the subject the operands establish, `BigInt` because
-    // `b` is one of them.
-    expect(verdict(
-      "fun late(x): BigInt =\n" +
-      "    let sum = x.add(b)\n" +
-      "    let ignored: Int = x\n" +
-      "    sum\n",
-    )).toEqual([]);
   });
 });
 
@@ -1720,13 +1709,13 @@ describe("§14(u): the operator's lowering, verbatim, in every spelling", () => 
 
 describe("the negative probes: what #808 does not change", () => {
   test("a member name still never nominates a type", () => {
-    // §1's guardrail. An unknown receiver takes the row fallback, exactly as it
-    // did before members could widen at all.
-    expect(verdict("let nominates = (x) => x.add(1)\n")).toEqual([]);
-    // The row fallback, byte for byte what it was: a POJO read and a call, with
-    // the literal's own `Num` evidence riding the lambda's suffix.
-    expect(emitted("let nominates = (x) => x.add(1)\n"))
-      .toContain("(x.add)(__Num_a.fromNat(1))");
+    // §1's guardrail. A subject the text does not decide is refused (§3.5): the
+    // name `add` chooses neither a type nor a module.
+    expect(verdict("let nominates = (x) => x.add(1)\n")).toEqual([
+      "the program's text does not decide `x`'s type here, so `.add(…)` cannot tell whose " +
+        "`add` it is — write `x`'s type, or call the operation by its module (`Module.add(x, …)`); " +
+        "a record's field is called as `(x.add)(…)`",
+    ]);
   });
 
   test("`x.pow(2n)` at `BigInt` is still the door, not the member", () => {

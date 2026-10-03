@@ -47,7 +47,7 @@ Every normative owner appears exactly once. The explicitly marked router and gui
 | Control | `pattern-declarations.md` | the `pattern` declaration: a pure `view`, an optional `build`, the expected-type door |
 | Control | `exceptions.md` | `exception`, `throw`, `try`/`catch`, `JsError`, branded representation |
 | Control | `loops-ranges-iteration.md` | `for`/`while`, `Range`, `Seq` semantics, `Iterable` machinery |
-| Control | `method-syntax.md` | dot calls, `CompanionOf`, DotCall goals, Deferred-Goals Doctrine (interim host) |
+| Control | `method-syntax.md` | dot calls, `CompanionOf`, the subject the program's text decides |
 | Control | `division-remainder.md` | division/remainder/modulo semantics |
 | Effects | `effects.md` | the effect discipline: the two-point lattice, the three arrows, one colour per callback, the two call marks, enforcement, trusted purity claims, the `Seq`/`Stream` posture, effect contracts |
 | Effects | `stream.md` | `Stream(a)`, the impure sequence: type, protocol, v1 module surface |

@@ -41,7 +41,7 @@ Hexagon is an **ML dialect that targets JavaScript**, in the posture of F# with 
 | value restriction | generalisation boundary | `functions.md` §8 |
 | row polymorphism | structural-record typing | `products.md` §4 |
 | companion module | type-operation qualification | `modules.md` §5.3 |
-| dot call / `DotCall` goal | type-directed companion-call resolution | `method-syntax.md` |
+| dot call | type-directed companion-call resolution | `method-syntax.md` |
 | Deferred-Goals Doctrine | postponed inference decisions | `method-syntax.md` §10 *(interim owner)* |
 | `honor` / coherence | constraint-instance system | `constraints.md` |
 | `widens` / door | a member's declared wider face (generalisation law) | `constraints.md` §4.7; `modules.md` §5.3 |

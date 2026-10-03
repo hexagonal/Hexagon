@@ -895,13 +895,13 @@ describe("`toSeq` is reachable at every iterable", () => {
   });
 
   /**
-   * A receiver whose type really was unknown where it was written takes the row
-   * fallback (§3.5), and the contradiction surfaces at the use, with §3.6's
-   * enrichment saying why the row exists: the dot in `f` never saw a head.
+   * A field call on a value whose type was unknown where it was written imposes
+   * a row (§3.6), and the contradiction surfaces at the use, with §9 row 8's
+   * enrichment saying why the row exists.
    */
   test("the unknown-receiver rescue keeps its words", () => {
     expect(
-      projectDiagnostics("module Main\n\n" + "fun f(r) = Seq.length(r.toSeq())\n" +
+      projectDiagnostics("module Main\n\n" + "fun f(r) = Seq.length((r.toSeq)())\n" +
         "export let n: Int = f(1..10)\n"),
     ).toEqual([
       "this value's type was inferred as a record with a `toSeq` field because " +

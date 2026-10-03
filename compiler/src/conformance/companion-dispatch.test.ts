@@ -362,20 +362,20 @@ describe("what the fix leaves exactly as it was", () => {
   });
 
   /**
-   * A structural receiver still takes the row fallback (§3.5) — it has no home
-   * module, so companion dispatch is never attempted for it and the index is
-   * never consulted. `bump` is unannotated on purpose: its receiver is an
-   * unsolved variable at the dot, which is the case §3.5 defines the fallback
-   * for.
+   * A structural receiver is a field call — it has no home module, so companion
+   * dispatch is never attempted for it and the index is never consulted. The
+   * dot needs its type written (§3.1); the parenthesized field call keeps the
+   * unannotated, row-polymorphic spelling (§3.6).
    */
   test("a structural receiver is untouched by companion resolution", async () => {
     const main = await runProject([[
       "/main.hex",
-      "module Main\n\n" + "fun bump(r): Int = r.callback(3)\n" +
-      "export fun run(r: {callback: (Int) -> Int}): Int = bump(r)\n",
+      "module Main\n\n" + "fun bump(r: {callback: (Int) -> Int, ...}): Int = r.callback(3)\n" +
+      "fun bumpAny(r): Int = (r.callback)(3)\n" +
+      "export fun run(r: {callback: (Int) -> Int}): Int = bump(r) + bumpAny(r)\n",
     ]]);
 
     const run = main["run"] as (r: { callback: (n: number) => number }) => number;
-    expect(run({ callback: (n) => n * 2 })).toBe(6);
+    expect(run({ callback: (n) => n * 2 })).toBe(12);
   });
 });

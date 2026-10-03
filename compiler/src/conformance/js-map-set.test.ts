@@ -978,7 +978,7 @@ describe("the qualified and dot spellings (Part 10 §3, §6.1)", () => {
   test("the dispatch rescue names the companion, not the type's display spelling", () => {
     expect(projectDiagnostics("module Main\n\n" + 'extern from "./t.js"\n' +
         "    fun t() ->! JsMap(String, Int)\n" +
-        "let peek(v) = v.size()\n" +
+        "let peek(v) = (v.size)()\n" +
         "export fun out(): Int = peek(t!())\n",
     )).toEqual([
       "this value's type was inferred as a record with a `size` field because " +
@@ -990,7 +990,7 @@ describe("the qualified and dot spellings (Part 10 §3, §6.1)", () => {
   test("...and the same at a captured set", () => {
     expect(projectDiagnostics("module Main\n\n" + 'extern from "./t.js"\n' +
         "    fun t() ->! JsSet(Int)\n" +
-        "let peek(v) = v.contains(1)\n" +
+        "let peek(v) = (v.contains)(1)\n" +
         "export fun out(): Bool = peek(t!())\n",
     )).toEqual([
       "this value's type was inferred as a record with a `contains` field " +

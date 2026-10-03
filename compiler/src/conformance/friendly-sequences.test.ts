@@ -101,11 +101,11 @@ describe("every seat headed by `Seq` adapts (Part 5 §3.4)", () => {
     )).toBe("Seq(String)");
   });
 
-  test("a dot call that resolves late meets its arguments where it resolves", () => {
+  test("a dot call meets its arguments at the operation's seats", () => {
     expect(emitted(
       "export record Box = {n: Int}\n" +
         "export let count(box: Box, xs: Seq(String)): Int = Seq.length(xs)\n" +
-        "let late(b) =\n    let k = b.count(words)\n    let known: Box = b\n    k\n",
+        "let counted(b: Box) =\n    let k = b.count(words)\n    k\n",
     )).toContain("count(b, toSeq(words))");
   });
 
@@ -223,6 +223,9 @@ describe("a source whose head is not yet known (Part 5 §3.5)", () => {
       "fun go(v) =\n    let total = sumInts(v)\n    v.map(match\n" +
         "        n when n < 0 => \"negative\"\n        _ => \"other\")\n",
     )).toEqual([
+      "the program's text does not decide `v`'s type here, so `.map(…)` cannot tell whose " +
+        "`map` it is — write `v`'s type, or call the operation by its module (`Module.map(v, …)`); " +
+        "a record's field is called as `(v.map)(…)`",
       "cannot match on a value of abstract type `a`; the parameter's type is not determined here; " +
         "give the parameter a type — bind the function with its own annotated `let`, or use it " +
         "where its parameter type is known",
@@ -249,9 +252,9 @@ describe("a source whose head is not yet known (Part 5 §3.5)", () => {
     expect(refusals("let f(xs: c): Seq(Int) = xs\n")).toEqual([RIGID_SOURCE]);
   });
 
-  test("the close runs goals and defaults to one fixpoint", () => {
+  test("the close gives every waiting source its default", () => {
     expect(typeOf(
-      "fun z(xs, ys) =\n    let s = String.fromSeq(xs)\n    xs.zip(ys)\n",
+      "fun z(xs, ys) =\n    let s = String.fromSeq(xs)\n    Seq.zip(xs, ys)\n",
       "z",
     )).toBe("(Seq(String), Seq(a)) -> Seq((String, a))");
   });
@@ -436,8 +439,12 @@ describe("the exclusion holds however late the head arrives (Part 5 §3.6)", () 
     `        let n = match Vector.first(holder)\n            Some(b) => ${arm}\n            None => 0\n` +
     `        holder := ${fill}\n        s.items\n`;
 
-  test("a dot call that resolves after the body", () => {
-    expect(refusals(honor("b.count(s)", "[Box({n = 1})]"))).toEqual([refusal]);
+  test("a dot call on a head that arrives after the body is refused at the dot", () => {
+    expect(refusals(honor("b.count(s)", "[Box({n = 1})]"))).toEqual([
+      "the program's text does not decide `b`'s type here, so `.count(…)` cannot tell whose " +
+        "`count` it is — write `b`'s type, or call the operation by its module (`Module.count(b, …)`); " +
+        "a record's field is called as `(b.count)(…)`",
+    ]);
   });
 
   test("a waiting source whose head is the subject", () => {
@@ -453,18 +460,6 @@ describe("the exclusion holds however late the head arrives (Part 5 §3.6)", () 
 });
 
 describe("ownership and declared variables at the close (Part 5 §3.5)", () => {
-  test("a waiting source a pending goal mentions belongs to that goal's region", () => {
-    expect(typeOf(
-      "export record Box = {n: Int}\n" +
-        "export let pick(box: Box, xs: Vector(String)): Int = Vector.length(xs)\n" +
-        "let both(a: t, b: t, k: Int): Int = k\n" +
-        "let outer(n) =\n    let inner(x, ys) =\n        let r = x.pick(ys)\n" +
-        "        let s = Seq.length(ys)\n        both(x, n, r + s)\n" +
-        "    let known: Box = n\n    inner(n, [\"a\"])\n",
-      "outer",
-    )).toBe("Box -> Int");
-  });
-
   test("a declared variable arriving late is refused as one known at the seat, in either order", () => {
     const refused = "`ys` has the generic type `c`, and `Iterable` declares an implied type and cannot " +
       "constrain a type variable in v1; take a `Seq(a)` parameter instead";

@@ -201,11 +201,11 @@ describe("the deadline is the owner's close", () => {
         "    let known: Vector(String) = xs\n" +
         "    inner()\n",
     )).toEqual([]);
-    // A dot call the deadline resolves settles the subject before the refusal
-    // is decided: `y` becomes `String` only when `n.show()` resolves.
+    // A call settling the subject inside the binding, before the refusal is
+    // decided: `y` becomes `String` through `show(n)`.
     expect(reports(
       "let t(n, y) =\n" +
-        "    let z = if True then y else n.show()\n" +
+        "    let z = if True then y else show(n)\n" +
         "    (Iterable.toSeq(y), n + 1)\n",
     )).toEqual([]);
   });

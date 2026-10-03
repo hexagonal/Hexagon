@@ -344,13 +344,16 @@ describe("the decline paths (§4.3)", () => {
     }
   });
 
-  test("a dot call whose receiver is still unsolved at the dot declines", () => {
-    // Method Syntax §3.6's asymmetry, on the arguments' side: the goal pends,
-    // the arguments synthesize, and the arms see a variable. Evidence arriving
-    // later resolves the dispatch identically but cannot hand expectations to
-    // arguments already checked.
+  test("a dot call whose subject the text does not decide declines", () => {
+    // Method Syntax §3.5: the dot is refused, no callee supplies anything, and
+    // the arguments synthesize, so the arms see a variable.
     expect(projectDiagnostics("module Main\n\n" + "fun go(v) = v.map(match\n" + guardOnly("    ") + ")\n",
-    )).toEqual([rider]);
+    )).toEqual([
+      "the program's text does not decide `v`'s type here, so `.map(…)` cannot tell whose " +
+      "`map` it is — write `v`'s type, or call the operation by its module (`Module.map(v, …)`); " +
+      "a record's field is called as `(v.map)(…)`",
+      rider,
+    ]);
   });
 
   test("a callback-first call to a generic callee now supplies (#517)", () => {
@@ -560,10 +563,10 @@ describe("monotonicity spot-checks (§4.3)", () => {
   });
 
   test("a row-polymorphic bare parameter is untouched", () => {
-    // Method Syntax §3.5: `fun f(r) = r.callback(3)` infers
-    // `{callback: Int -> a, ...} -> a` exactly as before this spec existed.
+    // Method Syntax §3.6: the field call `(r.callback)(3)` infers
+    // `{callback: Int -> a, ...} -> a`.
     const source = "export fun getX(p: {x: Int, ...a}): Int = p.x\n" +
-      "fun apply(r) = r.callback(3)\n" +
+      "fun apply(r) = (r.callback)(3)\n" +
       "export let used: Int = apply({callback = (n: Int) => n})\n";
     expect(projectDiagnostics("module Main\n\n" + source)).toEqual([]);
   });
