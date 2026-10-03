@@ -6,7 +6,7 @@
  * consumers' signatures flipped to a linked `>->` and their bodies wearing one
  * `!` each — with `fold`'s body as the designated specimen: each of its calls
  * must demand exactly its one correct mark, and mutating a mark must be an
- * error naming the fixit, in all six directions.
+ * error naming the fixit, in both directions.
  *
  * Everything else here is one scratch module per section. The `Seq` these tests
  * read is `stdlib/Seq.hex` itself — the migrated prelude member, one source of
@@ -1922,8 +1922,7 @@ export let impureUse: Int = runner!(() => readLine!())
   });
 
   it("keeps `conduit` an ordinary name everywhere else", () => {
-    // Contextual vocabulary (Lexer §4.2's family), exactly as `pure` is: the
-    // refusals above must not have reserved the word.
+    // An ordinary name (Lexer §4.3), exactly as `pure` is.
     expect(
       effectDiagnostics([["/main.hex", "module Main\n\n" + `
 export record Pipe = { conduit: Int }
@@ -1931,7 +1930,7 @@ export let conduit(value: Int): Int = value
 export let total: Int = conduit(21) + Pipe({ conduit = 21 }).conduit
 `]]),
     ).toEqual([]);
-    // And the foreign side of a row is not the claim slot either.
+    // And a row may be called it.
     expect(
       effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
     export fun conduit(value: Int) ->! Int

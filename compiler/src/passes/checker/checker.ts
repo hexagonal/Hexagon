@@ -5504,10 +5504,10 @@ class Checker {
         }
         if (declaration.kind === "ExternLet") {
           // An extern `let` is a value reference, and a value reference carries
-          // no colour (FFI Part 4 §4.5 — the same sentence that retires `pure`
-          // here). So it is not a signature, and a `>->` written in its
-          // annotation takes §4.4's no-signature clause rather than being told
-          // that a signature it does not have has no inlet (§2.2.2).
+          // no colour (FFI Part 4 §4.5's non-callable rows). So it is not a
+          // signature, and a `>->` written in its annotation takes §4.4's
+          // no-signature clause rather than being told that a signature it does
+          // not have has no inlet (§2.2.2).
           //
           // **Except where the annotation is itself a function type**, which is
           // not this row at all: FFI Part 4 §13's callable-intended row has

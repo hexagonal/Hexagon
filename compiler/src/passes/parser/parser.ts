@@ -2225,9 +2225,8 @@ class Parser {
       this.#advance();
     }
     const kind = this.#current().kind;
-    // Foreign Enums §2.1's `enum` row, contextual foreign-description
-    // vocabulary like `class` and lexed as an ordinary `NonUpperName`: it
-    // introduces a type however it is spelled.
+    // Foreign Enums §2.1's `enum` row: contextual foreign-description
+    // vocabulary like `class`, lexed as an ordinary `NonUpperName`.
     const foreignEnum = this.#atContextual("enum");
     // FFI Part 5's instance members — `method`, `get`, `set` (#982) — are read
     // below as callable rows on the `fun` path. `new` and `static` are refused.
