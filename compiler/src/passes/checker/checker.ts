@@ -1026,6 +1026,14 @@ interface SeatArrow {
   readonly order: number;
 }
 
+/** Where a value a `match` or a `for` reads in place starts (`Checker.#closeReadOpenings`). */
+interface InPlaceRead {
+  /** The openings pending before the value was read, which are not its own. */
+  readonly before: ReadonlySet<Variable>;
+  /** How many variables existed before it: those after are the value's. */
+  readonly minted: number;
+}
+
 /** A meeting of colours outside the join fragment, settled where its level closes (Effects §3.4). */
 interface HardCase {
   readonly left: Mono;
@@ -10170,9 +10178,9 @@ class Checker {
       }
       case "For": {
         this.#readInPlace.add(expression.iterable);
-        const minted = new Set(this.#openedPending);
-        const iterable = this.#inferExpr(expression.iterable, level);
-        this.#closeReadOpenings(minted);
+        const read = this.#readStart();
+        const iterable = this.#inferExpr(expression.iterable, level + 1);
+        this.#closeReadOpenings(read, level);
         let actual = this.#prune(iterable);
         if (actual.kind === "Variable" && actual.literalOnly) {
           this.#bind(actual, primitive("Int"), expression.iterable.span);
@@ -10630,10 +10638,10 @@ class Checker {
           // register no mark obligation: a non-call owes no mark, and minting
           // one buys a second report about an arrow that was never there.
           //
-          // The branch below is a different thing wearing the same clothes — a
-          // callee not yet *known* to be a function, mutual recursion inside an
-          // SCC included — and keeps the unify. A callee that already failed
-          // keeps falling through it silently.
+          // The last branch below is a different thing wearing the same
+          // clothes — a callee not yet *known* to be a function, mutual
+          // recursion inside an SCC included — and keeps the unify. A callee
+          // that already failed takes the branch between them.
           //
           // A *nullary union constructor* takes Unions §2.2's own sentence
           // instead. The writer named the value; a type display would print the
@@ -10688,6 +10696,12 @@ class Checker {
               primary: expression.span,
             });
           }
+          type = ERROR;
+        } else if (knownCallee.kind === "Error") {
+          // A callee that already failed — an unknown name, a type that does
+          // not exist — is no call either (#414): it was reported where it
+          // failed, so it owes no mark, as a non-function does above, and its
+          // value is the error, so nothing it reaches reports again.
           type = ERROR;
         } else {
           // The callee is not yet known to be a function, so the effect slot has
@@ -11160,6 +11174,7 @@ class Checker {
         if (own !== undefined) return own;
         const source = this.#bindingSources.get(symbol);
         if (source === undefined) return this.#programWritten.get(symbol);
+        if (source.kind === "part") return this.#partWritten(symbol);
         if (source.kind !== "function" && source.kind !== "value") return undefined;
         // Read once: a binding's declaration, and the value its `let` is made
         // from, are settled before any use reads it.
@@ -11192,6 +11207,54 @@ class Checker {
       default:
         return undefined;
     }
+  }
+
+  /**
+   * A part a pattern takes out of a value the text decides, through a declared
+   * record's field *(#1207)*: the field's declared type, which is data, as a
+   * field read of the same value gives it (`Access` above). Read through the
+   * patterns around the part to the record's, a record nested in another's
+   * field included (`#patternWritten`).
+   */
+  #partWritten(symbol: Resolved.SymbolId): WrittenView | undefined {
+    const pattern = this.#partPatterns.get(symbol);
+    if (pattern === undefined || !this.#decidedBinding(symbol)) return undefined;
+    const first = (patterns: readonly Resolved.Pattern[]): SpelledPart | undefined => {
+      for (const inner of patterns) {
+        const found = within(inner);
+        if (found !== undefined) return found;
+      }
+      return undefined;
+    };
+    const within = (inner: Resolved.Pattern): SpelledPart | undefined => {
+      switch (inner.kind) {
+        case "As":
+          return within(inner.pattern);
+        case "Tuple":
+          return first(inner.elements);
+        case "Vector":
+          return first([...inner.elements, ...(inner.rest?.pattern === undefined ? [] : [inner.rest.pattern])]);
+        case "Record":
+          return first(inner.fields.map((field) => field.pattern));
+        case "Constructor": {
+          const declaration = inner.symbol === undefined ? undefined : this.#constructedRecords.get(inner.symbol);
+          const fields = inner.arguments.length === 1 ? inner.arguments[0] : undefined;
+          if (declaration !== undefined && fields?.kind === "Record") {
+            for (const field of fields.fields) {
+              const declared = declaration.fields.find((candidate) => candidate.name === field.name)?.annotation;
+              const found = declared === undefined
+                ? undefined
+                : this.#patternWritten(field.pattern, { written: declared, role: "data" }, symbol);
+              if (found !== undefined) return found;
+            }
+          }
+          return first(inner.arguments);
+        }
+        default:
+          return undefined;
+      }
+    };
+    return within(pattern);
   }
 
   /**
@@ -17706,9 +17769,9 @@ class Checker {
     collect: (part: Resolved.Expr, expectation: Mono | undefined) => void,
   ): void {
     this.#readInPlace.add(expression.scrutinee);
-    const minted = new Set(this.#openedPending);
-    const scrutinee = this.#inferExpr(expression.scrutinee, level);
-    this.#closeReadOpenings(minted);
+    const inPlace = this.#readStart();
+    const scrutinee = this.#inferExpr(expression.scrutinee, level + 1);
+    this.#closeReadOpenings(inPlace, level);
     // Pattern Matching §6.1: a `match` needs only its scrutinee's head, read
     // from the program's text as a dot call's subject is (Method Syntax §3.1),
     // or from a pattern that names it — never from where inference stands, so
@@ -17886,8 +17949,9 @@ class Checker {
       // promise a form the ruling forbids.
       const confinedScrutinee = actual.kind === "ExternType" &&
         this.#externTypes.get(actual.externType)?.confined === true;
-      // A refused dot call (Method Syntax §3.5) said so where it was refused.
-      if (actual.kind === "Error" && this.#refusedReceivers.has(ungrouped(expression.scrutinee))) {
+      // A scrutinee already in error said so where it failed: a refused dot
+      // call (Method Syntax §3.5), an unknown name, a call on one (#414).
+      if (actual.kind === "Error") {
         node.failed = true;
         return;
       }
@@ -19447,24 +19511,44 @@ class Checker {
     });
   }
 
+  /** Where a value read in place starts (`#closeReadOpenings`). */
+  #readStart(): InPlaceRead {
+    return { before: new Set(this.#openedPending), minted: this.#variables.length };
+  }
+
   /**
-   * Closes the openings a value read in place made, except those already
-   * pending before it (`before`), as a `let` binding the value would where it
-   * generalizes (#1169): a slack only openings reached is pure, so what a
-   * pattern or the loop variable takes out of the value is decided, and is
-   * re-opened at its own uses.
+   * Closes the openings a value read in place made beneath its parts' own
+   * arrows, as a `let` binding the value would where it generalizes (#1169):
+   * the value is inferred a level above the form's (`level`), as a `let`'s
+   * right-hand side is, and a slack still above it that only openings reached
+   * is pure, so what a pattern or the loop variable takes out of the value is
+   * decided, and is re-opened at its own uses. One the environment also holds
+   * (a parameter's type took it in while the value was made) has sunk to the
+   * environment's level, and is left to the binding that holds it, as at a
+   * `let`, whatever order the lines come in (#1179). The form generalizes
+   * nothing, so whatever else the value made is lowered back to the form's
+   * level, where the rest of the body meets it.
    */
-  #closeReadOpenings(before: ReadonlySet<Variable>): void {
+  #closeReadOpenings(read: InPlaceRead, level: number): void {
     this.#openedPending = this.#openedPending.filter((opened) => {
-      if (before.has(opened) || !this.#deepOpenings.has(opened)) return true;
+      if (read.before.has(opened) || !this.#deepOpenings.has(opened)) return true;
       const colour = this.#prune(opened);
       if (colour.kind !== "Variable") return false;
-      if (this.#takesOpening(colour)) {
+      if (colour.level > level && this.#takesOpening(colour)) {
         colour.instance = PURE;
         return false;
       }
       return true;
     });
+    for (let index = read.minted; index < this.#variables.length; index++) {
+      const variable = this.#variables[index]!;
+      if (variable.instance === undefined && variable.level > level && !this.#quantified.has(variable.id)) {
+        this.#lowerLevels(variable, level);
+      }
+    }
+    // A meeting the value recorded settles where the form's level closes, as
+    // it did before the value was read a level up.
+    this.#hardCases = this.#hardCases.map((hardCase) => hardCase.level > level ? { ...hardCase, level } : hardCase);
   }
 
   /** A part that is a component's **home**: a concrete type of the numeric tower (Numeric Literals §5.1). */

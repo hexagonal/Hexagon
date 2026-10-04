@@ -337,9 +337,10 @@ describe("a vector literal's elements meet a part outside the tower each at its 
       .toEqual([["(x) => o1", decFoundInt, [["(x) => o2", "`(x) => o2` is a `(Int) -> Option(Int)`"]]]]);
     expect(reports("let v: Vector(Option(Dec)) = [o1, od, o2]\n"))
       .toEqual([["o1", decFoundInt, [["o2", "`o2` is an `Option(Int)`"]]]]);
-    // A refused `match` is one `ERROR` value: nothing it holds meets the part.
+    // A refused `match` is one `ERROR` value: nothing it holds meets the part,
+    // and its scrutinee, already in error, draws nothing more (#414).
     expect(reports("let v: Vector(Option(Dec)) = [match zzz\n    _ => o1]\n").map(([at]) => at))
-      .toEqual(["zzz", "zzz"]);
+      .toEqual(["zzz"]);
     expect(reports("let v: Vector(Option(Dec)) = [wrap(n), od]\n"))
       .toEqual([["wrap(n)", functionResult("wrap(n)", "Option(Int)", "wrap((n: Dec))")]]);
     expect(reports("let v: Vector(String) = [1, n]\n"))
