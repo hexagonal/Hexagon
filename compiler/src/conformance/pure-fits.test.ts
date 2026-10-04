@@ -1545,6 +1545,9 @@ describe("a written result type decides the arrows it spells, whatever the call 
       "record Box(a) = { v: a }\n" +
       "let mkBox(q: b): Box((() -> Unit, b)) = Box({ v = (noop, q) })\n" +
       // `a` is invariant here, so the walk leaves the argument whole; the read field is read through it.
+      "record HolderV(b) = { run: (() ->! Unit) -> Unit, v: b }\n" +
+      "let mkH(q: b): HolderV(b) = HolderV({ run = (f) => (), v = q })\n" +
+      "let mkHG(q): HolderV(Int) = HolderV({ run = (f) => (), v = 1 })\n" +
       "record Cellish(a) = { get: () -> a, put: (a) ->! Unit }\n" +
       "let mkCell(q: b): Cellish((() -> Unit, b)) = Cellish({ get = () => (noop, q), put = (x) => () })\n";
     for (const lines of [
@@ -1555,6 +1558,11 @@ describe("a written result type decides the arrows it spells, whatever the call 
       // A declared field read with the arguments the written type gives its declaration.
       ["let w: (() ->! Unit, Int) = mkBox(p).v"],
       ["let w: () ->! (() ->! Unit, Int) = mkCell(p).get"],
+      // A declared field is data: a `->!` its type writes where it is handed something accepts any function.
+      ["let k: (() -> Unit) -> Unit = mkH(p).run"],
+      ["let r = mkH(p).run", "let k: (() -> Unit) -> Unit = r"],
+      ["let k: (() -> Unit) -> Unit = mkHG(p).run"],
+      ["let HolderV({ run = r, v = _ }) = mkH(p)", "let k: (() -> Unit) -> Unit = r"],
       ["let Box({ v = (g, _) }) = mkBox(p)", "let w: () ->! Unit = g"],
     ]) {
       expect([lines, reports(records + use(lines))]).toEqual([lines, []]);

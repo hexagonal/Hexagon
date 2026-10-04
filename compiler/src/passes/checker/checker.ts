@@ -756,6 +756,12 @@ export interface WrittenView {
   readonly role: WrittenRole;
 }
 
+/** A part of a written type `#spelledResult` reads, with its role (`WrittenView`, #1180). */
+interface SpelledPart {
+  readonly written: Resolved.TypeAnnotation;
+  readonly role: WrittenRole;
+}
+
 /** A lambda's written face (`WrittenView`). */
 function lambdaFace(lambda: Resolved.LambdaExpr): WrittenView {
   return {
@@ -11202,21 +11208,22 @@ class Checker {
    */
   #spelledResult(expression: Resolved.Expr): WrittenView | undefined {
     // A callee is applied rather than handed anywhere.
-    if (this.#callees.has(expression)) return undefined;
-    const written = this.#spelledType(expression, new Set());
-    return written === undefined ? undefined : { written, role: "spine" };
+    return this.#callees.has(expression) ? undefined : this.#spelledType(expression, new Set());
   }
 
   /**
    * `#spelledResult`'s written type: a call's, or a binding's or a field
-   * read's made from one. `ground` admits a ground result too, for the field
-   * read a ground call's value is not otherwise decided through.
+   * read's made from one, with the role of its root. What a spine returns is
+   * outside every parameter type, as the spine is, until a declared record's
+   * field, which is data (`#writtenView`'s `Access`). `ground` admits a ground
+   * result too, for the field read a ground call's value is not otherwise
+   * decided through.
    */
   #spelledType(
     expression: Resolved.Expr,
     seen: Set<Resolved.SymbolId>,
     ground = false,
-  ): Resolved.TypeAnnotation | undefined {
+  ): SpelledPart | undefined {
     if (expression.kind === "Access") {
       const receiver = this.#spelledType(expression.receiver, seen, true);
       return receiver === undefined ? undefined : this.#fieldWritten(receiver, expression.field.text);
@@ -11241,34 +11248,40 @@ class Checker {
     const callee = expression.callee.symbol;
     if (this.#knots.some((knot) => knot.types.has(callee))) return undefined;
     const result = this.#resultWritten(this.#writtenView(expression.callee));
-    return result === undefined || !ground && annotationGround(result) ? undefined : result;
+    return result === undefined || !ground && annotationGround(result) ? undefined : { written: result, role: "spine" };
   }
 
-  /** The type a written type gives a record's field: a declared one's read with the type's arguments. */
-  #fieldWritten(annotation: Resolved.TypeAnnotation, name: string): Resolved.TypeAnnotation | undefined {
-    if (annotation.kind === "Record") return annotation.fields.find((field) => field.name === name)?.annotation;
+  /**
+   * The type a written type gives a record's field: a structural record's
+   * keeps the role around it, and a declared one's, read with the type's
+   * arguments, is data.
+   */
+  #fieldWritten(part: SpelledPart, name: string): SpelledPart | undefined {
+    const annotation = part.written;
+    if (annotation.kind === "Record") {
+      const field = annotation.fields.find((candidate) => candidate.name === name)?.annotation;
+      return field === undefined ? undefined : { written: field, role: part.role };
+    }
     if (annotation.kind !== "RecordDeclaration") return undefined;
     const declaration = this.#programRecord(annotation.record);
     const declared = declaration?.fields.find((field) => field.name === name)?.annotation;
     if (declaration === undefined || declared === undefined) return undefined;
     const given = new Map(declaration.parameters.map((parameter, index) => [parameter, annotation.arguments[index]!] as const));
-    return givenSlot(declared, given);
+    return { written: givenSlot(declared, given), role: "data" };
   }
 
   /**
    * The type a written type gives the part of a value a pattern binds as
    * `symbol` *(#1180)*, read through each tuple, record, vector and nominal
-   * record pattern as it takes the value apart: a record's declared field as
-   * the written type gives its declaration's parameters (`givenSlot`).
-   * `undefined` where the pattern meets a part the written type does not
-   * spell, and under an or-pattern, whose alternatives bind the name apart.
+   * record pattern as it takes the value apart: a record's field as
+   * `#fieldWritten` reads it. `undefined` where the pattern meets a part the
+   * written type does not spell, and under an or-pattern, whose alternatives
+   * bind the name apart.
    */
-  #patternWritten(
-    pattern: Resolved.Pattern,
-    annotation: Resolved.TypeAnnotation,
-    symbol: Resolved.SymbolId,
-  ): Resolved.TypeAnnotation | undefined {
-    const first = (pairs: readonly (readonly [Resolved.Pattern, Resolved.TypeAnnotation | undefined])[]) => {
+  #patternWritten(pattern: Resolved.Pattern, part: SpelledPart, symbol: Resolved.SymbolId): SpelledPart | undefined {
+    const annotation = part.written;
+    const within = (written: Resolved.TypeAnnotation): SpelledPart => ({ written, role: part.role });
+    const first = (pairs: readonly (readonly [Resolved.Pattern, SpelledPart | undefined])[]) => {
       for (const [inner, written] of pairs) {
         const found = written === undefined ? undefined : this.#patternWritten(inner, written, symbol);
         if (found !== undefined) return found;
@@ -11277,20 +11290,20 @@ class Checker {
     };
     switch (pattern.kind) {
       case "Binding":
-        return pattern.binding.symbol === symbol ? annotation : undefined;
+        return pattern.binding.symbol === symbol ? part : undefined;
       case "As":
-        return pattern.binding.symbol === symbol ? annotation : this.#patternWritten(pattern.pattern, annotation, symbol);
+        return pattern.binding.symbol === symbol ? part : this.#patternWritten(pattern.pattern, part, symbol);
       case "Tuple":
         return annotation.kind === "Tuple" && annotation.elements.length === pattern.elements.length
-          ? first(pattern.elements.map((element, index) => [element, annotation.elements[index]] as const))
+          ? first(pattern.elements.map((element, index) => [element, within(annotation.elements[index]!)] as const))
           : undefined;
       case "Record":
-        return first(pattern.fields.map((field) => [field.pattern, this.#fieldWritten(annotation, field.name)] as const));
+        return first(pattern.fields.map((field) => [field.pattern, this.#fieldWritten(part, field.name)] as const));
       case "Vector":
         if (annotation.kind !== "Vector") return undefined;
         return first([
-          ...pattern.elements.map((element) => [element, annotation.element] as const),
-          ...(pattern.rest?.pattern === undefined ? [] : [[pattern.rest.pattern, annotation] as const]),
+          ...pattern.elements.map((element) => [element, within(annotation.element)] as const),
+          ...(pattern.rest?.pattern === undefined ? [] : [[pattern.rest.pattern, part] as const]),
         ]);
       case "Constructor": {
         // A nominal record's, through its declared fields. A union
@@ -11299,7 +11312,7 @@ class Checker {
         const fields = pattern.arguments.length === 1 ? pattern.arguments[0] : undefined;
         if (head === undefined || annotation.kind !== "RecordDeclaration" || fields?.kind !== "Record") return undefined;
         if (this.#constructedRecords.get(head)?.id !== annotation.record) return undefined;
-        return first(fields.fields.map((field) => [field.pattern, this.#fieldWritten(annotation, field.name)] as const));
+        return first(fields.fields.map((field) => [field.pattern, this.#fieldWritten(part, field.name)] as const));
       }
       default:
         return undefined;

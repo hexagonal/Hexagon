@@ -997,6 +997,7 @@ describe("Effects §3.4 — a parameter no call reaches keeps its own colour (#1
   const world = 'extern from "./world.js"\n    export fun save(document: String) ->! Unit\n' +
     'let save0(): Unit = save!("x")\nlet noop(): Unit = ()\nlet c = True\n' +
     "let keep(callback: () ->! Unit): Unit = ()\nlet runIt(callback: () ->! Unit): Unit = callback!()\n" +
+    "let ident(x: a): a = x\n" +
     "export let pureOnly(f: () -> Unit): Unit = f()\n";
   const text = (source: string): string => "module Main\n\n" + world + source;
   const check = (source: string): readonly string[] =>
@@ -1058,6 +1059,13 @@ describe("Effects §3.4 — a parameter no call reaches keeps its own colour (#1
     });
     expect(seen).toEqual([seen[0], seen[0]]);
     expect(seen[0]).toEqual(["(() -> Unit) -> Unit", []]);
+  });
+
+  it("a colour kept where its body closed is a callback's, as a written one would be, through a value that did not generalize", () => {
+    // `g` does not generalize, so its parameter's colour is one colour: it accepts any function.
+    expect(check("export let user(): Unit =\n    let g = ident((j) => keep(j))\n    g(save0)\n    g(noop)\n")).toEqual([]);
+    expect(check("let f(k: () ->! Unit) =\n    let g = ident((j) => keep(j))\n    g(k)\nexport let user(): Unit = f(save0)\n"))
+      .toEqual([]);
   });
 
   it("a bare call, a `!` call and a `->` demand still decide it, in every order of the lines", () => {
