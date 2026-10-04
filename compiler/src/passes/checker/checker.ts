@@ -52,7 +52,7 @@ import {
   type ImportRepairs,
 } from "../../support/import-placement.js";
 import * as Source from "../../support/source.js";
-import { displayParameterName } from "../../support/synthetic.js";
+import { displayParameterName, isSyntheticParameterName } from "../../support/synthetic.js";
 import * as Resolved from "../../syntax/resolved/index.js";
 import { preludeExportSymbol } from "../../support/prelude-symbol.js";
 import * as Typed from "../../syntax/typed/index.js";
@@ -3245,6 +3245,67 @@ function literalReceiver(receiver: Resolved.Expr): Resolved.Expr {
 }
 
 /**
+ * Whether a pattern names its position's head (Pattern Matching §4, §6.1): a
+ * constructor scope resolves, a tuple, vector, record or unit pattern, a
+ * `String`, `Float`, `BigInt` or `Dec` literal, a declared pattern with one
+ * candidate in the pattern namespace — through `as` and `|`. A bare integer
+ * literal could be any number type; `_`, a binder, and a constructor the
+ * expected type's door would resolve name none.
+ */
+function namesHead(pattern: Resolved.Pattern): boolean {
+  switch (pattern.kind) {
+    case "Wildcard":
+    case "Binding":
+    case "Error":
+      return false;
+    case "As":
+      return namesHead(pattern.pattern);
+    case "Or":
+      return pattern.alternatives.some(namesHead);
+    case "Integer":
+      return pattern.bigint === true;
+    case "Constructor":
+      return pattern.open !== true;
+    case "Declared":
+      return pattern.open !== true && pattern.candidates.filter(({ source }) => source !== "door").length === 1;
+    default:
+      return true;
+  }
+}
+
+/** The `match` keyword a match function begins with, whose parameter occupies no source (Pattern Matching §6.7). */
+function keywordSpan(span: Source.Span): Source.Span {
+  const end = { ...span.start, offset: span.start.offset + 5, column: span.start.column + 5 };
+  return { fileId: span.fileId, start: span.start, end };
+}
+
+/** Whether a pattern is a bare integer literal at its top, through `as` and `|` (Pattern Matching §6.1). */
+function bareIntegerPattern(pattern: Resolved.Pattern): boolean {
+  if (pattern.kind === "As") return bareIntegerPattern(pattern.pattern);
+  if (pattern.kind === "Or") return pattern.alternatives.some(bareIntegerPattern);
+  return pattern.kind === "Integer" && pattern.bigint !== true;
+}
+
+/**
+ * Whether a pattern tests nothing — `_`, a binder, and those under `as` and
+ * `|` — so a `match` of such arms reads no representation (Pattern Matching
+ * §6.1). A guard is an ordinary expression, and tests nothing of the shape.
+ */
+function testsNothingPattern(pattern: Resolved.Pattern): boolean {
+  switch (pattern.kind) {
+    case "Wildcard":
+    case "Binding":
+      return true;
+    case "As":
+      return testsNothingPattern(pattern.pattern);
+    case "Or":
+      return pattern.alternatives.every(testsNothingPattern);
+    default:
+      return false;
+  }
+}
+
+/**
  * An expression with the parentheses that are only grouping shed: the node a
  * fixit should spell, and the one a rule reading through punctuation reads.
  *
@@ -4865,17 +4926,29 @@ class Checker {
    */
   #patternSeatIsLambdaParameter = false;
   /**
-   * Every symbol bound as a **lambda parameter** — the match function's
-   * compiler-fresh binder included, since the form is a lambda by desugar
-   * (Pattern Matching §6.7).
-   *
-   * Read only by the §6.1 refusal, to tell the two abstract scrutinees apart: a
-   * *declared* variable is determined and abstract by declaration, and keeps the
-   * constraint-operations advice; a lambda parameter still sitting on an
-   * *undetermined* inference variable is a program no seat determined, and takes
-   * the rider that teaches the spellings #513 makes work.
+   * A lambda literal applied where it is written — a call's callee, which a
+   * pipe's right-hand lambda is (Operators §8) — and what it is applied to,
+   * argument by parameter: each parameter is decided as a `let` made from its
+   * argument is (Method Syntax §3.1).
    */
-  readonly #lambdaParameters = new Set<Resolved.SymbolId>();
+  readonly #appliedLambdas = new Map<Resolved.LambdaExpr, readonly Resolved.Expr[]>();
+  /**
+   * The names a `match` tests, as its bare scrutinee, with a bare integer
+   * pattern while no arm's pattern names another head (Pattern Matching §6.1).
+   */
+  readonly #integerTested = new Set<Resolved.SymbolId>();
+  /**
+   * A lambda a `let` or a `fun` binds by name, and the name: its parameters'
+   * types are its own where it is made, so Numeric Literals §4's new name may
+   * be made there (`#integerTestedParameters`).
+   */
+  readonly #namedLambdas = new Map<Resolved.LambdaExpr, Resolved.SymbolId>();
+  /**
+   * The parameters made `Int` where they are made, because a `match` in their
+   * body tests them with an integer (Numeric Literals §4): their type is decided
+   * by the text, so a dot call on them dispatches.
+   */
+  readonly #madeInt = new Set<Resolved.SymbolId>();
   #nextVariable = 0;
 
   constructor(diagnostics: Diagnostics.Bag, options: CheckOptions) {
@@ -6243,6 +6316,7 @@ class Checker {
     // meets the member's type only where its own body is checked, so reading it
     // here would follow the order the members are declared in.
     if (this.#knots.some((knot) => knot.members.some((member) => member.symbol === symbol))) return false;
+    if (this.#madeInt.has(symbol)) return true;
     const memo = deep ? this.#typeDecidedWhole : this.#typeDecidedHead;
     const known = memo.get(symbol);
     if (known !== undefined) return known;
@@ -6290,6 +6364,15 @@ class Checker {
         if (written !== undefined) {
           const slot = written.parameters[source.lambda.parameters.findIndex((parameter) => parameter.symbol === symbol)];
           return headWritten(slot) && (!deep || annotationWhole(slot));
+        }
+        // Applied where it is written — a pipe's right-hand lambda included — a
+        // parameter is decided as a `let` made from its argument is.
+        const applied = this.#appliedLambdas.get(source.lambda);
+        if (applied !== undefined) {
+          const argument = applied[source.lambda.parameters.findIndex((parameter) => parameter.symbol === symbol)];
+          if (argument === undefined) return false;
+          remember(false);
+          return remember(this.#typeDecided(argument, deep));
         }
         const context = this.#landingContexts.get(source.lambda);
         if (context === undefined) return false;
@@ -9839,10 +9922,6 @@ class Checker {
             variables: [],
             type: parameterType,
           });
-          // Pattern Matching §6.1's rider keys on this: a scrutinee that is a
-          // lambda parameter still undetermined at dispatch is the program no
-          // seat determined, and the constraint-operations advice points nowhere.
-          this.#lambdaParameters.add(parameter.symbol);
           return parameterType;
         });
         // **The box rule** (Numeric Literals §4): a lambda its call opens is a
@@ -9870,6 +9949,7 @@ class Checker {
             );
           }
         }
+        this.#integerTestedParameters(expression, parameters);
         // A lambda's parameters are its inputs: the types they hold are theirs.
         for (const parameterType of parameters) this.#markNamed(parameterType);
         const savedVariableScope = this.#annotationVariableScope;
@@ -11325,43 +11405,77 @@ class Checker {
   }
 
   /**
-   * Pattern Matching §6.1's abstract-type refusal, in its three readings.
-   *
-   * The refusal itself **stands unchanged** under #513 — a scrutinee whose type
-   * is a variable still cannot be matched. What changed is which programs reach
-   * it: a seat's expectation now arrives before the arms are checked, so the
-   * refusal is left to programs where *no seat determined the type*, and it has
-   * to tell those two cases apart.
-   *
-   * - A **declared** variable (rigid — Functions §4.1) is determined, and
-   *   abstract by declaration. It keeps the constraint-operations advice, and
-   *   now names itself, as §6.1 has always quoted it: "abstract type `c`".
-   * - An **undetermined inference variable** under a lambda parameter — the
-   *   match function's own compiler-fresh binder included — has no constraints
-   *   worth pointing at, so the advice is replaced by the rider that teaches the
-   *   spellings §4.3 makes work. Both rewrites it names are legal in *both*
-   *   §6.7 spellings, and neither is "annotate the parameter": a match
-   *   function's parameter is compiler-fresh and cannot carry one, which is what
-   *   keeps the desugar-equality (one diagnostic for both spellings) true.
-   * - Every other **undetermined inference variable** names the value's type and
-   *   points to the supplying seat the writer can add directly: an ascription on
-   *   the matched expression.
+   * Pattern Matching §6.1's refusal of a `match` whose scrutinee's head neither
+   * the program's text (Method Syntax §3.1) nor a pattern decides. It reads the
+   * same in every order of the lines, and names the fundamental spelling: the
+   * scrutinee's type, written where the scrutinee is made. A match function's
+   * parameter occupies no source, so its report stands at the `match`.
    */
-  #abstractScrutineeRefusal(
-    scrutinee: Resolved.Expr,
-    variable: Variable,
-  ): string {
-    const subject = `cannot match on a value of abstract type \`${this.#display(variable)}\``;
-    const parameter = variable.rigidName === undefined &&
-      scrutinee.kind === "Name" && this.#lambdaParameters.has(scrutinee.symbol);
-    return `${subject}; ` + (variable.rigidName !== undefined
-      ? "use the operations its constraints provide"
-      : parameter
-      ? "the parameter's type is not determined here; give the parameter a " +
-        "type — bind the function with its own annotated `let`, or use it " +
-        "where its parameter type is known"
-      : "the value's type is not determined here; give the matched expression " +
-        "a concrete type with an ascription");
+  #undecidedScrutinee(expression: Resolved.MatchExpr): { span: Source.Span; message: string } {
+    const scrutinee = ungrouped(expression.scrutinee);
+    const opening = (whose: string): string =>
+      `the program's text does not decide ${whose} type here, and no pattern names it, so the \`match\` ` +
+      "cannot tell what its patterns test — ";
+    // A lambda's parameter, the match function's own included: one report for
+    // both of §6.7's spellings, so it names neither the parameter nor an edit
+    // only one spelling has.
+    if (scrutinee.kind === "Name" && this.#typeSources.get(scrutinee.symbol)?.kind === "lambda") {
+      const span = isSyntheticParameterName(scrutinee.text) ? keywordSpan(expression.span) : expression.scrutinee.span;
+      return {
+        span,
+        message: opening("the parameter's") +
+          "write the parameter's type where the function is bound, or hand the function a value whose type is written",
+      };
+    }
+    if (scrutinee.kind === "Name") {
+      return {
+        span: expression.scrutinee.span,
+        message: opening(`\`${scrutinee.text}\`'s`) + `write \`${scrutinee.text}\`'s type`,
+      };
+    }
+    const spelled = this.#spelledExpression(expression.scrutinee);
+    return {
+      span: expression.scrutinee.span,
+      message: opening("the matched value's") +
+        (spelled === undefined ? "write its type with an ascription" : `write \`(${spelled}: …)\``),
+    };
+  }
+
+  /**
+   * Numeric Literals §4's new name, at a parameter (Pattern Matching §6.1): an
+   * unannotated parameter of a function bound by name, which the text does not
+   * otherwise decide (Method Syntax §3.1) and which a `match` in its body tests,
+   * as its bare scrutinee, with a bare integer pattern while no arm's pattern
+   * names another head, is an `Int` where it is made — before any line of its
+   * body is read, so no line's position chooses its type, and the text then
+   * decides it. Kept out of the lambda's own frame: a deep chain of lambdas
+   * sits near the stack's limit.
+   */
+  #integerTestedParameters(expression: Resolved.LambdaExpr, parameters: readonly Mono[]): void {
+    // Only a function bound by name owns its parameters' types where it is
+    // made. A lambda an argument, a pipe or an application hands values to
+    // takes their types, as a `let` does (Method Syntax §3.1); and a `fun`
+    // block's member meets its siblings' calls before its own body is read.
+    const binding = this.#namedLambdas.get(expression);
+    if (binding === undefined || (this.#knotMembers.get(binding)?.length ?? 1) > 1) return;
+    for (const [index, parameter] of expression.parameters.entries()) {
+      if (parameter.annotation !== undefined || !this.#integerTested.has(parameter.symbol)) continue;
+      if (this.#typeDecidedSymbol(parameter.symbol, false)) continue;
+      const int = primitive("Int");
+      const synthetic = isSyntheticParameterName(parameter.name);
+      this.#numberDefaults.set(int, {
+        span: synthetic ? keywordSpan(expression.span) : parameter.span,
+        held: int,
+        say: (written) =>
+          synthetic
+            ? "this match function's parameter became an `Int` here: a pattern tests it with a number nothing " +
+              "had decided — write the function's type where it is bound"
+            : `\`${parameter.name}\` became an \`Int\` here: a \`match\` tests it with a number nothing had ` +
+              `decided — ${written === undefined ? "write its type here" : `write \`${parameter.name}: ${written}\``}`,
+      });
+      this.#madeInt.add(parameter.symbol);
+      this.#unify(parameters[index]!, int, parameter.span);
+    }
   }
 
   /**
@@ -11404,7 +11518,7 @@ class Checker {
     }
     // §6.1 leads at a `match` whose scrutinee is still undetermined: the match
     // is about to be refused, and one report is the ruling.
-    if (!(this.#matchArmTop && this.#patternDepth === 0 && head.kind === "Variable")) {
+    if (!(this.#matchArmTop && this.#patternDepth === 0 && (head.kind === "Variable" || head.kind === "Error"))) {
       this.#reportClosedDoor(pattern, head);
     }
     this.#brokenPatterns.add(pattern);
@@ -12851,7 +12965,13 @@ class Checker {
     }
     if (pattern.kind === "Or") {
       const common = new Map<Resolved.SymbolId, Mono>();
-      for (const alternative of pattern.alternatives) {
+      // An alternative that names the head is read first, so a constructor
+      // another leaves to the door meets the head it names (Pattern Matching §6.1).
+      const alternatives = [
+        ...pattern.alternatives.filter(namesHead),
+        ...pattern.alternatives.filter((alternative) => !namesHead(alternative)),
+      ];
+      for (const alternative of alternatives) {
         this.#insideWrapper(true, () =>
           this.#inferMatchPattern(alternative, expected, level)
         );
@@ -17390,10 +17510,19 @@ class Checker {
     const minted = new Set(this.#openedPending);
     const scrutinee = this.#inferExpr(expression.scrutinee, level);
     this.#closeReadOpenings(minted);
+    // Pattern Matching §6.1: a `match` needs only its scrutinee's head, read
+    // from the program's text as a dot call's subject is (Method Syntax §3.1),
+    // or from a pattern that names it — never from where inference stands, so
+    // no order of the lines decides it. Patterns that test nothing need none.
+    const patterns = expression.arms.map((arm) => arm.pattern);
+    const testsNothing = patterns.every(testsNothingPattern);
+    const named = patterns.some(namesHead);
+    const byText = this.#typeDecided(expression.scrutinee);
+    const undecided = !testsNothing && !named && !byText;
     // An arm whose pattern binds makes new names: a number type nothing has
     // decided, in a part of the scrutinee an arm names, takes `Int` here,
     // before any arm is read (Numeric Literals §4).
-    for (const part of this.#armNamedParts(expression.arms.map((arm) => arm.pattern), scrutinee)) {
+    for (const part of undecided ? [] : this.#armNamedParts(patterns, scrutinee)) {
       this.#defaultUnnamed(part, expression.scrutinee.span, [], {
         span: expression.scrutinee.span,
         held: scrutinee,
@@ -17405,13 +17534,26 @@ class Checker {
       });
       this.#markNamed(part);
     }
+    // A number scrutinee the text decides whose head no pattern names — a
+    // literal's, whose type is fresh and its own — takes its default here,
+    // where nothing else can choose it, as a dot call's subject does (Method
+    // Syntax §3.3): `match 3` with `0` and `_` arms is an `Int` match.
+    if (!undecided && !testsNothing && !named) {
+      const head = this.#prune(scrutinee);
+      if (
+        head.kind === "Variable" && head.rigidName === undefined && head.named !== true &&
+        this.#canDefaultToInt(head)
+      ) this.#refuseOrDefault(head, expression.scrutinee.span);
+    }
     // Read once, before any arm: one arm's body cannot settle what another
     // arm's pattern binds (#1119 R.b).
-    this.#settleArms(expression.arms, scrutinee);
+    if (!undecided) this.#settleArms(expression.arms, scrutinee);
     const outerArmTop = this.#matchArmTop;
     const outerCollisionFixes = this.#matchPatternCollisionFixes;
     this.#matchPatternCollisionFixes = new Map();
-    for (const arm of expression.arms) {
+    const read = new Set<Resolved.MatchArm>();
+    const readPattern = (arm: Resolved.MatchArm): void => {
+      read.add(arm);
       this.#matchArmTop = true;
       const outerGuardSeat = this.#armGuardSeat;
       const outerHasGuard = this.#armHasGuard;
@@ -17420,13 +17562,24 @@ class Checker {
       const outerMatchPattern = this.#currentMatchPattern;
       this.#currentMatchPattern = arm.pattern;
       try {
-        this.#inferMatchPattern(arm.pattern, scrutinee, level);
+        // A refused `match`'s patterns are read against nothing, so what they
+        // report cannot follow what another line made of the scrutinee.
+        this.#inferMatchPattern(arm.pattern, undecided ? ERROR : scrutinee, level);
       } finally {
         this.#currentMatchPattern = outerMatchPattern;
         this.#matchArmTop = outerArmTop;
         this.#armGuardSeat = outerGuardSeat;
         this.#armHasGuard = outerHasGuard;
       }
+    };
+    // Where a pattern is what names the head, its arms are read first, so a
+    // constructor an earlier arm leaves to the head's door (§2.2) meets the
+    // head the patterns name, whatever another line made of the scrutinee.
+    if (named && !byText) {
+      for (const arm of expression.arms) if (namesHead(arm.pattern)) readPattern(arm);
+    }
+    for (const arm of expression.arms) {
+      if (!read.has(arm)) readPattern(arm);
       if (arm.guard !== undefined) {
         const guard = this.#inferExpr(arm.guard, level);
         this.#unify(guard, this.#boolType(arm.guard.span), arm.guard.span);
@@ -17446,6 +17599,15 @@ class Checker {
         undefined,
         (body) => collect(body, expected),
       );
+    }
+    if (undecided) {
+      node.failed = true;
+      // A scrutinee whose own elaboration, or whose names' source, already
+      // reported says nothing more (Method Syntax §3.5's echo rule).
+      if (this.#prune(scrutinee).kind === "Error" || this.#failedUpstream(expression.scrutinee)) return;
+      const { span, message } = this.#undecidedScrutinee(expression);
+      this.#unsupported(span, message);
+      return;
     }
     const actual = this.#prune(scrutinee);
     // §7's judgments come off one matrix. They are queued until defaulting
@@ -17471,7 +17633,7 @@ class Checker {
         (actual.name === "Int" || actual.name === "Nat" ||
           actual.name === "BigInt" || actual.name === "String" ||
           actual.name === "Float"));
-    if (actual.kind !== "Variable" && actual.kind !== "Error") {
+    if (actual.kind !== "Error" && (actual.kind !== "Variable" || testsNothing)) {
       this.#pendingMatchCoverage.push({
         expression,
         type: actual,
@@ -17503,6 +17665,9 @@ class Checker {
       // #147 deleted the `Bool` branch that stood here. `Bool` is a union,
       // so it reaches this path like every other union.
       if (actual.kind === "Union") this.#matchUnions.set(expression, actual.union);
+    } else if (testsNothing && actual.kind === "Variable") {
+      // §6.1: patterns that test nothing read no representation, so a
+      // scrutinee of any type — a declared variable's included — is matched.
     } else if (
       actual.kind === "Constructor" &&
       actual.name === "Exn"
@@ -17525,10 +17690,19 @@ class Checker {
         node.failed = true;
         return;
       }
+      if (actual.kind === "Variable" && actual.rigidName === undefined) {
+        // The text decides the scrutinee and leaves its head open: a call
+        // whose result is a variable nothing fixes (Method Syntax §3.3).
+        const { span, message } = this.#undecidedScrutinee(expression);
+        this.#unsupported(span, message);
+        node.failed = true;
+        return;
+      }
       this.#unsupported(
         expression.scrutinee.span,
         actual.kind === "Variable"
-          ? this.#abstractScrutineeRefusal(expression.scrutinee, actual)
+          ? `cannot match on a value of abstract type \`${this.#display(actual)}\`; ` +
+            "use the operations its constraints provide"
           : confinedScrutinee
             ? `\`${this.#display(actual)}\` is a compiler-implemented type and has ` +
               "no pattern; its values are read only through the rows that declare it"
@@ -18772,6 +18946,10 @@ class Checker {
     };
     const register = (inner: Resolved.Item): void => {
       registerType(inner);
+      if (inner.kind === "Let" || inner.kind === "Fun") {
+        const value = ungrouped(inner.value);
+        if (value.kind === "Lambda") this.#namedLambdas.set(value, inner.binding.symbol);
+      }
       if (inner.kind === "Let") {
         const written = inner.annotation !== undefined && annotationWhole(inner.annotation);
         this.#bindingSources.set(
@@ -18802,6 +18980,20 @@ class Checker {
     this.#walkItem(item, {
       item: register,
       expression: (expression) => {
+        if (expression.kind === "Call") {
+          const callee = ungrouped(expression.callee);
+          if (callee.kind === "Lambda") this.#appliedLambdas.set(callee, expression.arguments);
+        } else if (expression.kind === "Binary" && expression.operator === "Pipe") {
+          const stage = ungrouped(expression.right);
+          if (stage.kind === "Lambda") this.#appliedLambdas.set(stage, [expression.left]);
+        } else if (expression.kind === "Match") {
+          const subject = ungrouped(expression.scrutinee);
+          const patterns = expression.arms.map((arm) => arm.pattern);
+          if (
+            subject.kind === "Name" && patterns.some(bareIntegerPattern) &&
+            !patterns.some(namesHead)
+          ) this.#integerTested.add(subject.symbol);
+        }
         if (expression.kind === "Call") {
           for (const argument of expression.arguments) {
             spineOf(argument, (lambda) => {

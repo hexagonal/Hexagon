@@ -505,25 +505,21 @@ describe("the literal at the type of its position (§2.5's checking rule, #519)"
     ))).toEqual([]);
   });
 
-  test("an undetermined literal scrutinee is named and points to an ascription", () => {
-    // `match 0` with a `0` arm compiled only by the accident the ruling retires:
-    // the old monomorphic typing unified the scrutinee to `Int` at arm-check,
-    // while the same match with `_` alone was refused. §6.1 reads the scrutinee
-    // at dispatch, and both now read alike. Constraints §8 names the surviving
-    // inference variable. Unlike a rigid abstract type, this value has no
-    // useful operations to point at; an ascription supplies the concrete
-    // representation `match` needs. An arm that binds a name is different: the
-    // name is made from the literal, which takes `Int` there (Numeric Literals
-    // §4), as `let x = 0` would.
-    const refusal = "cannot match on a value of abstract type `a`; the value's " +
-      "type is not determined here; give the matched expression a concrete " +
-      "type with an ascription";
+  test("a literal scrutinee no pattern names takes `Int`, as a dot call's subject does", () => {
+    // Pattern Matching §6.1: the text decides the scrutinee, a literal, whose
+    // type is fresh and its own, so no other line can choose it; where no
+    // pattern names a head, it takes Numeric Literals §4's default at the
+    // `match` (Method Syntax §3.3). A pattern that names one decides instead.
     expect(projectDiagnostics(main(
       "export let a: String =\n    match 0\n        0 => \"zero\"\n        _ => \"other\"\n",
-    ))).toEqual([refusal]);
+    ))).toEqual([]);
+    expect(projectDiagnostics(main(
+      "export let a: String =\n    match 0\n        1.5 => \"one and a half\"\n        _ => \"other\"\n",
+    ))).toEqual([]);
+    // Patterns that test nothing need no type at all.
     expect(projectDiagnostics(main(
       "export let a: String =\n    match 0\n        _ => \"other\"\n",
-    ))).toEqual([refusal]);
+    ))).toEqual([]);
     expect(projectDiagnostics(main(
       "export let a: String =\n" +
         "    match 0\n" +
@@ -532,16 +528,28 @@ describe("the literal at the type of its position (§2.5's checking rule, #519)"
     ))).toEqual([]);
   });
 
-  test("undetermined name and expression scrutinees take the same advice", () => {
+  test("a name or an expression the text does not decide is refused, and named", () => {
+    // `alias` is made from a parameter, so its type is the parameter's: the
+    // text does not decide it, and `0` names no head (Pattern Matching §6.1).
     expect(projectDiagnostics(main(
       "fun byName(x) =\n" +
         "    let alias = x\n" +
         "    match alias\n" +
+        "        0 => \"zero\"\n" +
         "        _ => \"value\"\n" +
         "export let a: String = byName(0)\n",
     ))).toEqual([
-      "cannot match on a value of abstract type `a`; the value's type is not " +
-        "determined here; give the matched expression a concrete type with an ascription",
+      "the program's text does not decide `alias`'s type here, and no pattern names it, so the `match` " +
+        "cannot tell what its patterns test — write `alias`'s type",
+    ]);
+    expect(projectDiagnostics(main(
+      "fun byCall(g) =\n" +
+        "    match g(1)\n" +
+        "        0 => \"zero\"\n" +
+        "        _ => \"value\"\n",
+    ))).toEqual([
+      "the program's text does not decide the matched value's type here, and no pattern names it, so the " +
+        "`match` cannot tell what its patterns test — write `(g(1): …)`",
     ]);
     // A lambda called where it is written is a box: the literal reaches only
     // its input, so it takes `Int` before the box is opened (Numeric Literals
@@ -562,24 +570,18 @@ describe("the literal at the type of its position (§2.5's checking rule, #519)"
     ))).toEqual([]);
   });
 
-  test("the common unannotated spelling is §6.1's too, with #513's rider", () => {
-    // `match 0` is the minimal case; this is the one a reader meets. Under the old
-    // monomorphic-`Int` typing the literal arm silently fixed the parameter to
-    // `Int` and the function compiled; §2.5 contributes constraints instead, the
-    // parameter stays undetermined, and §6.1 refuses the match — with the rider
-    // #513 wrote for exactly this scrutinee and which nothing in the repo pinned.
-    // Pre-existing text, like the sentence in the test above, and pinned for the
-    // same reason: this arc is what makes it reachable, not what wrote it.
-    const rider = "cannot match on a value of abstract type `a`; the parameter's type " +
-      "is not determined here; give the parameter a type — bind the function with " +
-      "its own annotated `let`, or use it where its parameter type is known";
+  test("the common unannotated spelling: a parameter a `match` tests with a number is an `Int`", () => {
+    // `match x` with a `0` arm is the one a reader meets. The parameter is a
+    // new name made from a number nothing decided, so it is an `Int` where it
+    // is made, before its body is read (Numeric Literals §4, Pattern Matching
+    // §6.1) — whatever order the body's lines come in.
     expect(projectDiagnostics(main(
       "fun f(x) =\n" +
         "    match x\n" +
         "        0 => \"zero\"\n" +
         "        _ => \"other\"\n" +
         "export let a: String = f(1)\n",
-    ))).toEqual([rider]);
+    ))).toEqual([]);
     // Annotated, it compiles and runs at the annotation's type.
     expect(projectDiagnostics(main(
       "fun f(x: Nat): String =\n" +

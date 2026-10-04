@@ -221,7 +221,7 @@ const ORDERS: readonly (readonly [string, string, string, readonly string[], rea
     FLOAT,
     "let f() =\n    let o = 5 |> (n) =>\n        {0}\n        {1}\n        0\n    ()",
     ["ignore(n.show())", "useFloat(n)"],
-    ["the program's text does not decide `n`'s type here, so `.show(…)` cannot tell whose `show` it is — write `n`'s type, or call the operation by its module (`Module.show(n, …)`); a record's field is called as `(n.show)(…)`"],
+    [],
   ],
   [
     "S1-using",
@@ -396,8 +396,8 @@ describe("a lambda is a box: a number reaching only its input is an `Int` before
     compiles(NAT + "\nlet f(): Option(Unit) = Some(1).map((x: Nat) => useNat(x))\n");
   });
 
-  test("a lambda on a pipe's right is a box, and its parameter is still not decided for a dot (Method Syntax §3.1)", () => {
-    expect(projectDiagnostics(HEADER + "let f(): String = 5 |> (n) => n.show()\n")).toHaveLength(1);
+  test("a lambda on a pipe's right is a box, and its parameter is decided as a `let` of the piped value (Method Syntax §3.1)", () => {
+    compiles("let f(): String = 5 |> (n) => n.show()\n");
     compiles("let f(): String = 5 |> (n: Int) => n.show()\n");
   });
 });

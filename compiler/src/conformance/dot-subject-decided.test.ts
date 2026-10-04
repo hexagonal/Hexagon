@@ -690,9 +690,11 @@ describe("a lambda no written type and no named call reaches is not decided, wha
     expect(projectDiagnostics(HEADER + source)).toEqual([]);
   };
 
-  test("a lambda on a pipe's right", () => {
-    refused("let f(v: Vector(Int)): Int = v |> (x) => x.length()\n", "x", "length");
-    compiles("let f(v: Vector(Int)): Int = v |> (x: Vector(Int)) => x.length()\n");
+  test("a lambda on a pipe's right is decided as a `let` of the piped value is, and only so", () => {
+    compiles("let f(v: Vector(Int)): Int = v |> (x) => x.length()\n");
+    compiles("let f(): String = 5 |> (n) => n.show()\n");
+    refused("let f(v) = v |> (x) => x.length()\n", "x", "length");
+    compiles("let f(v) = v |> (x: Vector(Int)) => x.length()\n");
   });
 
   test("a `with` override's lambda, where no constructor holds the update", () => {
@@ -701,11 +703,13 @@ describe("a lambda no written type and no named call reaches is not decided, wha
     compiles(q + "let g(q: Q): Q = {q with f = (x: Vector(Int)) => x.length()}\n");
   });
 
-  test("a curried lambda and an applied lambda", () => {
+  test("a curried lambda is not decided; an applied one reads its argument", () => {
     const apply2 = "let apply2(f: (Int) -> (Vector(Int)) -> Int): Int = f(1)([2])\n";
     refused(apply2 + "let n = apply2((u) => (w) => w.length())\n", "w", "length");
     compiles(apply2 + "let n = apply2((u) => (w) => Vector.length(w))\n");
-    refused("let f(v: Vector(Int)): Int = ((x) => x.length())(v)\n", "x", "length");
+    // Applied where it is written, a lambda reads its argument as a `let` does.
+    compiles("let f(v: Vector(Int)): Int = ((x) => x.length())(v)\n");
+    refused("let f(v) = ((x) => x.length())(v)\n", "x", "length");
   });
 
   test("a lambda handed to a call whose callee is not a named function", () => {
