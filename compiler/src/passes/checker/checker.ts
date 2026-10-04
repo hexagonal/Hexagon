@@ -3244,35 +3244,6 @@ function literalReceiver(receiver: Resolved.Expr): Resolved.Expr {
   return decimalLiteral(ungrouped(receiver)) === undefined ? receiver : ungrouped(receiver);
 }
 
-/**
- * Whether a pattern names its position's head (Pattern Matching §4, §6.1): a
- * constructor scope resolves, a tuple, vector, record or unit pattern, a
- * `String`, `Float`, `BigInt` or `Dec` literal, a declared pattern with one
- * candidate in the pattern namespace — through `as` and `|`. A bare integer
- * literal could be any number type; `_`, a binder, and a constructor the
- * expected type's door would resolve name none.
- */
-function namesHead(pattern: Resolved.Pattern): boolean {
-  switch (pattern.kind) {
-    case "Wildcard":
-    case "Binding":
-    case "Error":
-      return false;
-    case "As":
-      return namesHead(pattern.pattern);
-    case "Or":
-      return pattern.alternatives.some(namesHead);
-    case "Integer":
-      return pattern.bigint === true;
-    case "Constructor":
-      return pattern.open !== true;
-    case "Declared":
-      return pattern.open !== true && pattern.candidates.filter(({ source }) => source !== "door").length === 1;
-    default:
-      return true;
-  }
-}
-
 /** The `match` keyword a match function begins with, whose parameter occupies no source (Pattern Matching §6.7). */
 function keywordSpan(span: Source.Span): Source.Span {
   const end = { ...span.start, offset: span.start.offset + 5, column: span.start.column + 5 };
@@ -4933,10 +4904,11 @@ class Checker {
    */
   readonly #appliedLambdas = new Map<Resolved.LambdaExpr, readonly Resolved.Expr[]>();
   /**
-   * The names a `match` tests, as its bare scrutinee, with a bare integer
-   * pattern while no arm's pattern names another head (Pattern Matching §6.1).
+   * The `match`es that test a name, as their bare scrutinee, with a bare integer
+   * pattern (Pattern Matching §6.1), by the name; whether an arm names another
+   * head is read where the name's parameter is made (`#integerTestedParameters`).
    */
-  readonly #integerTested = new Set<Resolved.SymbolId>();
+  readonly #integerTested = new Map<Resolved.SymbolId, Resolved.MatchExpr[]>();
   /**
    * A lambda a `let` or a `fun` binds by name, and the name: its parameters'
    * types are its own where it is made, so Numeric Literals §4's new name may
@@ -11448,32 +11420,40 @@ class Checker {
   }
 
   /**
-   * Whether a pattern names its position's head, as this pass reads it
-   * (Pattern Matching §6.1): `namesHead`'s syntactic answer, narrowed where a
-   * declaration says otherwise. A declared pattern names a head only where its
-   * view's subject has one — `pattern ident` with `view(x) = x` is generic, and
-   * names none — read from the checked declaration, fixed where the pattern is
-   * made; and an exception's constructor fixes no scrutinee's head, a `match`
-   * never taking `Exn`.
+   * Whether a pattern names its position's head (Pattern Matching §4, §6.1): a
+   * union's or a record's constructor scope resolves, a tuple, vector, record
+   * or unit pattern, a `String`, `Float`, `BigInt` or `Dec` literal, or a
+   * declared pattern whose view's subject has a head — through `as` and `|`. A
+   * bare integer literal could be any number type; `_`, a binder, a constructor
+   * the expected type's door would resolve, an exception's constructor (a
+   * `match` never takes `Exn`), and a declared pattern with a generic subject
+   * (`pattern ident` with `view(x) = x`) name none. A declared pattern's subject
+   * is read from its checked declaration, fixed where the pattern is made.
    */
   #namesHead(pattern: Resolved.Pattern): boolean {
     switch (pattern.kind) {
+      case "Wildcard":
+      case "Binding":
+      case "Error":
+        return false;
       case "As":
         return this.#namesHead(pattern.pattern);
       case "Or":
         return pattern.alternatives.some((alternative) => this.#namesHead(alternative));
+      case "Integer":
+        return pattern.bigint === true;
       case "Constructor":
-        return namesHead(pattern) && (pattern.symbol === undefined || !this.#exceptions.has(pattern.symbol));
+        return pattern.open !== true && (pattern.symbol === undefined || !this.#exceptions.has(pattern.symbol));
       case "Declared": {
-        if (!namesHead(pattern)) return false;
-        const candidate = pattern.candidates.find(({ source }) => source !== "door")!;
-        const scheme = this.#schemes.get(candidate.view);
+        const candidates = pattern.candidates.filter(({ source }) => source !== "door");
+        if (pattern.open === true || candidates.length !== 1) return false;
+        const scheme = this.#schemes.get(candidates[0]!.view);
         const view = scheme === undefined ? undefined : this.#prune(scheme.type);
         return view?.kind === "Function" && view.parameters.length === 1 &&
           this.#prune(view.parameters[0]!).kind !== "Variable";
       }
       default:
-        return namesHead(pattern);
+        return true;
     }
   }
 
@@ -11495,7 +11475,9 @@ class Checker {
     const binding = this.#namedLambdas.get(expression);
     if (binding === undefined || (this.#knotMembers.get(binding)?.length ?? 1) > 1) return;
     for (const [index, parameter] of expression.parameters.entries()) {
-      if (parameter.annotation !== undefined || !this.#integerTested.has(parameter.symbol)) continue;
+      if (parameter.annotation !== undefined) continue;
+      const tests = this.#integerTested.get(parameter.symbol) ?? [];
+      if (!tests.some((match) => !match.arms.some((arm) => this.#namesHead(arm.pattern)))) continue;
       if (this.#typeDecidedSymbol(parameter.symbol, false)) continue;
       const int = primitive("Int");
       const synthetic = isSyntheticParameterName(parameter.name);
@@ -19032,14 +19014,12 @@ class Checker {
             if (callee.kind === "Lambda") this.#appliedLambdas.set(callee, [expression.left, ...stage.arguments]);
           }
         } else if (expression.kind === "Match") {
-          // Read before any declaration is checked, so `namesHead`'s syntactic
-          // answer, which counts more patterns as naming: it only withholds J3.
           const subject = ungrouped(expression.scrutinee);
-          const patterns = expression.arms.map((arm) => arm.pattern);
-          if (
-            subject.kind === "Name" && patterns.some(bareIntegerPattern) &&
-            !patterns.some(namesHead)
-          ) this.#integerTested.add(subject.symbol);
+          if (subject.kind === "Name" && expression.arms.some((arm) => bareIntegerPattern(arm.pattern))) {
+            const matches = this.#integerTested.get(subject.symbol) ?? [];
+            matches.push(expression);
+            this.#integerTested.set(subject.symbol, matches);
+          }
         }
         if (expression.kind === "Call") {
           for (const argument of expression.arguments) {

@@ -128,6 +128,29 @@ const ORDERS: readonly (readonly [string, string, string, readonly string[], rea
   ],
   ["an-exception-constructor", "exception Boom", BODY, ["let w: Exn = k", "let n = match k\n        Boom => 1\n        _ => 2"], [PARAMETER]],
   ["an-exception-constructor-under-as", "exception Boom", BODY, ["let w: Exn = k", "let n = match k\n        Boom as b => 1\n        _ => 2"], [PARAMETER]],
+  ["an-or-of-an-exception-and-a-door", "exception Boom", BODY, ["let w: Ordering = k", "let n = match k\n        Boom | Less => 1\n        _ => 2"], [PARAMETER]],
+  [
+    "an-or-of-a-generic-declared-pattern-and-a-named-head",
+    "pattern ident\n    view(x) = x\n    build(x) = x",
+    BODY,
+    ["let w: Ordering = k", "let n = match k\n        (Less)ident | Ordering.Greater => 1\n        _ => 2"],
+    [],
+  ],
+  [
+    "a-generic-declared-pattern-before-a-named-head",
+    "pattern ident\n    view(x) = x\n    build(x) = x",
+    BODY,
+    ["let w: Ordering = k", "let n = match k\n        (Less)ident => 1\n        Ordering.Greater => 2\n        _ => 3"],
+    [],
+  ],
+  // A generic declared pattern names no head, so an integer arm beside it is the test.
+  [
+    "a-generic-declared-pattern-beside-an-integer",
+    "pattern ident\n    view(x) = x\n    build(x) = x",
+    BODY,
+    ["let w: Int = k", "let n = match k\n        0 => 1\n        (m)ident => 2"],
+    [],
+  ],
   // A refused `match`'s arms are read against nothing: the door says nothing
   // of the `Int` another line made, in either order.
   ["door-only-beside-another-type", "", BODY, ["let w: Int = k", "let n = match k\n        Less => 1\n        _ => 2"], [PARAMETER]],
