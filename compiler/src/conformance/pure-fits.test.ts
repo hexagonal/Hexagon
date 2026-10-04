@@ -1440,9 +1440,11 @@ describe("the text decides a lambda's written types, its parameters under a writ
       .toEqual([]);
     expect(reports(makers + "let use(p): Unit =\n    let w: (() -> Unit, Int) = mkPairE(p)\n    ()\n"))
       .toEqual([["(() -> Unit, Int)", PURITY]]);
-    // A written result with a variable an argument fills decides only its own arrow.
-    expect(reports(makers + "let use(p): Unit =\n    let w: (() ->! Unit, Int) = mkVar(p)\n    ()\nexport let go(): Unit = use(1)\n"))
-      .toEqual([["(() ->! Unit, Int)", FIXED_BEFORE]]);
+    // A part a pattern takes out of it is decided too, through a `let` or a `match`.
+    expect(reports(makers + "let use(p): Unit =\n    let (g, _) = mkPair(p)\n    let w: () ->! Unit = g\n    ()\n"))
+      .toEqual([]);
+    expect(reports(makers + "let use(p): Unit =\n    match mkPair(p)\n        (g, _) =>\n" +
+      "            let w: () ->! Unit = g\n            ()\n")).toEqual([]);
   });
 
   test("a lambda's untyped parameter under a type written whole is decided, as under a callee's signature", () => {
@@ -1458,6 +1460,115 @@ describe("the text decides a lambda's written types, its parameters under a writ
     // The field accepts only pure functions, and the lambda would hand it any.
     expect(reports(holders + "export let go(hp: HolderP): Unit =\n    let hq = Holder({ run = (f) => hp.run(f) })\n    hq.run(save0)\n")
       .length).toBeGreaterThan(0);
+  });
+});
+
+describe("a written result type decides the arrows it spells, whatever the call is handed (#1180)", () => {
+  const makers = "let mkVar(q: a): (() -> Unit, a) = (noop, q)\n" +
+    "let mkVarE(q: a): (() ->! Unit, a) = (save0, q)\n" +
+    "let mkHole(q): (() -> Unit, _) = (noop, q)\n" +
+    "let mkOpt(q: a): Option((() -> Unit, a)) = Some((noop, q))\n" +
+    "let mkLinked(q: a, f: () ->! Unit): (() >-> Unit, a) = (f, q)\n" +
+    "record Wrap(a) = { f: () -> Unit, v: a }\n" +
+    "let mkWrap(q: a): Wrap(a) = Wrap({ f = noop, v = q })\n" +
+    "let mkThunk(q: a): () -> (() -> Unit, a) = () => (noop, q)\n";
+  const use = (lines: readonly string[]): string =>
+    makers + "let use(p): Unit =\n" + lines.map((line) => "    " + line + "\n").join("") + "    ()\n" +
+    "export let go(): Unit = use(1)\n";
+  const permutations = (lines: readonly string[]): string[][] =>
+    lines.length <= 1 ? [[...lines]] : lines.flatMap((line, index) =>
+      permutations([...lines.slice(0, index), ...lines.slice(index + 1)]).map((rest) => [line, ...rest])
+    );
+
+  test("in place, through a `let`, a pattern's part, a chain of them, at depth, and past a hole", () => {
+    for (const lines of [
+      ["let w: (() ->! Unit, Int) = mkVar(p)"],
+      ["let v = mkVar(p)", "let w: (() ->! Unit, Int) = v"],
+      ["let (g, _) = mkVar(p)", "let w: () ->! Unit = g"],
+      ["let v = mkVar(p)", "let (g, _) = v", "let w: () ->! Unit = g"],
+      ["let (g, _) as whole = mkVar(p)", "let w: (() ->! Unit, Int) = whole", "let x: () ->! Unit = g"],
+      ["let Wrap({ f = g, v = _ }) = mkWrap(p)", "let w: () ->! Unit = g"],
+      // Beneath a written result arrow the text decides already.
+      ["let w: () ->! (() ->! Unit, Int) = mkThunk(p)"],
+      ["let w: Option((() ->! Unit, Int)) = mkOpt(p)"],
+      ["let w: ((() ->! Unit, Int), Int) = (mkVar(p), 1)"],
+      ["let w: (() ->! Unit, Int) = mkHole(p)"],
+    ]) {
+      expect([lines, reports(use(lines))]).toEqual([lines, []]);
+    }
+  });
+
+  test("each use reads the spelled arrow afresh, in every order of the lines", () => {
+    const lines = ["let w: (() ->! Unit, Int) = v", "let (g, _) = v", "pureOnly(g)"];
+    for (const order of permutations(lines)) {
+      if (order.indexOf("pureOnly(g)") < order.indexOf("let (g, _) = v")) continue;
+      expect([order, reports(use(["let v = mkVar(p)", ...order]))]).toEqual([order, []]);
+    }
+  });
+
+  test("what a variable fills, a `>->`, and a written `->!` stay as they stand", () => {
+    // What fills the variable is the argument's, as inferred: here `p` itself.
+    expect(reports(makers + "let use(p): Unit =\n    let (f, _) = mkVar(p)\n    let (g, h) = mkVar(p)\n    h()\n" +
+      "export let go(): Unit = use(save0)\n")).toEqual([["use(save0)", PURITY]]);
+    // A `>->` follows what the call is handed.
+    expect(reports(makers + "let use(p, k): Unit =\n    let w: (() -> Unit, Int) = mkLinked(p, k)\n    ()\n" +
+      "export let go(): Unit = use(1, save0)\n")).toEqual([["use(1, save0)", PURITY]]);
+    // A written `->!` is the impure constant: no pure seat takes it.
+    expect(reports(use(["let w: (() -> Unit, Int) = mkVarE(p)"]))).toEqual([["(() -> Unit, Int)", PURITY]]);
+  });
+
+  test("a call to a member of a knot still open reads the same in either order of the members", () => {
+    const use = ["    useIt(p): Unit =", "        let w: (() ->! Unit, Int) = mkHole(p)", "        ()"];
+    const make = ["    mkHole(q): (() -> Unit, _) =", "        useIt(q)", "        (noop, q)"];
+    const messages = [[...use, ...make], [...make, ...use]].map((members) =>
+      reports("fun\n" + members.join("\n") + "\n").map(([, message]) => message)
+    );
+    expect(messages[1]).toEqual(messages[0]);
+  });
+
+  test("a value a `match` reads in place is read as §3.4 says, whatever line settles its shape first", () => {
+    const arm = "match {0}\n        (g, _) =>\n            let w: () ->! Unit = g\n            ()";
+    const routes: readonly (readonly [string, string])[] = [["", "mkVar(p)"], ["let v = mkVar(p)", "v"]];
+    for (const [made, read] of routes) {
+      const lines = ["let n: Int = p", arm.replace("{0}", read)];
+      const verdicts = [lines, [...lines].reverse()].map((order) =>
+        reports(use(made === "" ? order : [made, ...order])).map(([, message]) => message)
+      );
+      expect([read, verdicts[1]]).toEqual([read, verdicts[0]]);
+    }
+  });
+
+  test("a field read takes its part as a pattern does, of a spelled result and of a ground one", () => {
+    const records = "record WrapG = { f: () -> Unit, v: Int }\n" +
+      "let mkWrapG(q): WrapG = WrapG({ f = noop, v = 1 })\n" +
+      "let mkRec(q: a): { f: () -> Unit, v: a } = { f = noop, v = q }\n" +
+      "record Box(a) = { v: a }\n" +
+      "let mkBox(q: b): Box((() -> Unit, b)) = Box({ v = (noop, q) })\n" +
+      "record HolderV(b) = { run: (() ->! Unit) -> Unit, v: b }\n" +
+      "let mkH(q: b): HolderV(b) = HolderV({ run = (f) => (), v = q })\n" +
+      "let mkHG(q): HolderV(Int) = HolderV({ run = (f) => (), v = 1 })\n" +
+      // `a` is invariant here, so the walk leaves the argument whole; the read field is read through it.
+      "record Cellish(a) = { get: () -> a, put: (a) ->! Unit }\n" +
+      "let mkCell(q: b): Cellish((() -> Unit, b)) = Cellish({ get = () => (noop, q), put = (x) => () })\n";
+    for (const lines of [
+      ["let w: () ->! Unit = mkWrap(p).f"],
+      ["let x = mkWrap(p)", "let w: () ->! Unit = x.f"],
+      ["let w: () ->! Unit = mkRec(p).f"],
+      ["let w: () ->! Unit = mkWrapG(p).f"],
+      // A declared field read with the arguments the written type gives its declaration.
+      ["let w: (() ->! Unit, Int) = mkBox(p).v"],
+      ["let w: () ->! (() ->! Unit, Int) = mkCell(p).get"],
+      // A declared field is data: a `->!` its type writes where it is handed something accepts any function.
+      ["let k: (() -> Unit) -> Unit = mkH(p).run"],
+      ["let r = mkH(p).run", "let k: (() -> Unit) -> Unit = r"],
+      ["let k: (() -> Unit) -> Unit = mkHG(p).run"],
+      ["let HolderV({ run = r, v = _ }) = mkH(p)", "let k: (() -> Unit) -> Unit = r"],
+      ["let Box({ v = (g, _) }) = mkBox(p)", "let w: () ->! Unit = g"],
+    ]) {
+      expect([lines, reports(records + use(lines))]).toEqual([lines, []]);
+    }
+    // A field read that is a callee is applied, not handed anywhere.
+    expect(reports(records + use(["mkWrap(p).f()"]))).toEqual([]);
   });
 });
 
@@ -1540,6 +1651,8 @@ describe("an imported function's written types are read as this module's are (#1
     "export let getRun(h: HolderT): ((() ->! Unit, Int)) -> Unit = h.run\n" +
     "export let hand(k: () -> Option(() ->! Unit)): Unit = ()\n" +
     "export let mkPair(q: Int): (() -> Unit, Int) = (noop, q)\n" +
+    "export let mkVar(q: a): (() -> Unit, a) = (noop, q)\n" +
+    "export let mkFn(q: a): (a) -> Unit = (x) => ()\n" +
     "export let applyK(k: ((() ->! Unit) -> Unit) -> Unit): Unit = k((f) => ())\n";
   const main = "module Main\n\nimport Other\n\n" +
     "let applyPure(k: (() -> Unit) -> Unit): Unit = k(() => ())\n" +
@@ -1551,6 +1664,9 @@ describe("an imported function's written types are read as this module's are (#1
       "export let go(): Unit =\n    let s: (() -> Option(() -> Unit)) -> Unit = Other.hand\n    ()\n",
       "let use(p): Unit =\n    let w: (() ->! Unit, Int) = Other.mkPair(p)\n    ()\nexport let go(): Unit = use(1)\n",
       "export let go(): Unit = Other.applyK((f) => applyPure(f))\n",
+      // A written result that is not ground decides the arrows it spells (#1180).
+      "let use(p): Unit =\n    let w: (() ->! Unit, Int) = Other.mkVar(p)\n    ()\nexport let go(): Unit = use(1)\n",
+      "let use(p): Unit =\n    let w: (Int) ->! Unit = Other.mkFn(p)\n    ()\nexport let go(): Unit = use(1)\n",
     ]) {
       const diagnostics = compileFiles([["/other.hex", other], ["/main.hex", main + body]]).diagnostics;
       expect([body, diagnostics.map(({ message }) => message)]).toEqual([body, []]);

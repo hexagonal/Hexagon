@@ -572,6 +572,17 @@ interface EffectFrame {
   }[];
   /** The colours of the `!` calls written in this body or in a body nested in it: its claims. */
   readonly marked: Mono[];
+  /**
+   * The colours of the calls written bare in this body or in a body nested in
+   * it: an untyped parameter's colour one of them reads is pure (Effects §3.4).
+   */
+  readonly bare: Mono[];
+  /**
+   * The types of the untyped parameters of the bodies nested in this one: a
+   * colour one of them shares with this body's untyped parameter is shared
+   * (Effects §3.4).
+   */
+  readonly nestedUntyped: Mono[];
 }
 
 /** One call a body absorbed: its colour, where it was written, and its mark. */
@@ -742,6 +753,12 @@ interface WrittenFace {
  */
 export interface WrittenView {
   readonly written: Resolved.TypeAnnotation | WrittenFace;
+  readonly role: WrittenRole;
+}
+
+/** A part of a written type `#spelledResult` reads, with its role (`WrittenView`, #1180). */
+interface SpelledPart {
+  readonly written: Resolved.TypeAnnotation;
   readonly role: WrittenRole;
 }
 
@@ -3479,6 +3496,8 @@ class Checker {
   readonly #writtenViews = new Map<Resolved.SymbolId, WrittenView>();
   /** The written view a function's or a `let`'s value gives its binding, read once (`#writtenView`). */
   readonly #madeViews = new Map<Resolved.SymbolId, WrittenView | undefined>();
+  /** The pattern each pattern-bound name is part of, for the part a written type spells (`#spelledResult`). */
+  readonly #partPatterns = new Map<Resolved.SymbolId, Resolved.Pattern>();
   /** The record declaration each constructor builds, across the program, for `#sourceItem`. */
   readonly #constructedRecords = new Map<Resolved.SymbolId, Resolved.RecordDeclaration>();
   /**
@@ -7875,6 +7894,8 @@ class Checker {
             absorbed: [],
             untyped: [],
             marked: [],
+            bare: [],
+            nestedUntyped: [],
           };
           this.#effectFrames.push(frame);
           this.#frameByLambda.set(defaultValue, frame);
@@ -8176,6 +8197,8 @@ class Checker {
             absorbed: [],
             untyped: [],
             marked: [],
+            bare: [],
+            nestedUntyped: [],
           };
           this.#effectFrames.push(frame);
           this.#frameByLambda.set(member.value, frame);
@@ -9801,6 +9824,8 @@ class Checker {
           absorbed: [],
           untyped: [],
           marked: [],
+          bare: [],
+          nestedUntyped: [],
         };
         this.#effectFrames.push(effectFrame);
         this.#frameByLambda.set(expression, effectFrame);
@@ -9874,6 +9899,9 @@ class Checker {
             // what that signature says.
             if (component === undefined || this.#prune(component).kind === "Variable") {
               effectFrame.untyped.push({ name: parameter.name, type: parameterType, span: parameter.span, index });
+              for (let enclosing = effectFrame.enclosing; enclosing !== undefined; enclosing = enclosing.enclosing) {
+                enclosing.nestedUntyped.push(parameterType);
+              }
             }
           }
           // An **annotated** parameter keeps its annotation as the contract
@@ -11053,9 +11081,17 @@ class Checker {
     }
 
     this.#expressionTypes.set(expression, type);
-    if (!this.#opensAt(expression)) return type;
+    // A call's written result type decides the arrows it spells, whatever the
+    // call is handed (#1180); a value read in place is taken apart instead.
+    const spelled = (): WrittenView | undefined =>
+      this.#readInPlace.has(expression) ? undefined : this.#spelledResult(expression);
+    if (!this.#opensAt(expression)) {
+      const view = spelled();
+      return view === undefined ? type : this.#openReceived(type, level, true, view, true, "spelled");
+    }
     if (this.#readInPlace.has(expression) || !this.#receivedDecided(expression)) {
-      return this.#openAt(type, level);
+      const view = spelled();
+      return view === undefined ? this.#openAt(type, level) : this.#openReceived(type, level, true, view, true, "own");
     }
     // A lambda's result is its body's value, which the body's use re-opened,
     // unless a written result type fixed it; its parameters' types are its own.
@@ -11158,6 +11194,131 @@ class Checker {
     }
   }
 
+  /**
+   * **What a written result type spells** *(#1180; Effects §3.4)*. A call
+   * whose callee's declaration writes its result type, though not ground,
+   * decides every arrow that type spells, whatever the call is handed: a
+   * variable, a hole, or a `>->`, which follows what the call is handed, is
+   * left to inference. So does a binding made from such a call, and a part a
+   * `let`'s pattern or a field read takes out of either, where the written type
+   * spells that part (`#patternWritten`, `#fieldWritten`). A ground result
+   * decides the whole value (`#groundResult`), a field read of it included
+   * here. Read from the declarations, it is the same whatever order the
+   * program's lines come in.
+   */
+  #spelledResult(expression: Resolved.Expr): WrittenView | undefined {
+    // A callee is applied rather than handed anywhere.
+    return this.#callees.has(expression) ? undefined : this.#spelledType(expression, new Set());
+  }
+
+  /**
+   * `#spelledResult`'s written type: a call's, or a binding's or a field
+   * read's made from one, with the role of its root. What a spine returns is
+   * outside every parameter type, as the spine is, until a declared record's
+   * field, which is data (`#writtenView`'s `Access`). `ground` admits a ground
+   * result too, for the field read a ground call's value is not otherwise
+   * decided through.
+   */
+  #spelledType(
+    expression: Resolved.Expr,
+    seen: Set<Resolved.SymbolId>,
+    ground = false,
+  ): SpelledPart | undefined {
+    if (expression.kind === "Access") {
+      const receiver = this.#spelledType(expression.receiver, seen, true);
+      return receiver === undefined ? undefined : this.#fieldWritten(receiver, expression.field.text);
+    }
+    if (expression.kind === "Name") {
+      const symbol = expression.symbol;
+      const source = this.#bindingSources.get(symbol);
+      if (seen.has(symbol) || (source?.kind !== "value" && source?.kind !== "part") || source.outerOpen === true) {
+        return undefined;
+      }
+      seen.add(symbol);
+      if (source.kind === "value") return this.#spelledType(this.#givenValue(source.value), seen, ground);
+      // A value a `match` or a `for` reads in place is taken apart where it is
+      // read (Effects §3.4), and its parts are read as that says.
+      const pattern = this.#partPatterns.get(symbol);
+      if (source.source === undefined || pattern === undefined || this.#readInPlace.has(source.source)) return undefined;
+      const whole = this.#spelledType(this.#givenValue(source.source), seen, true);
+      return whole === undefined ? undefined : this.#patternWritten(pattern, whole, symbol);
+    }
+    if (expression.kind !== "Call" || expression.callee.kind !== "Name") return undefined;
+    // A member of a knot still open has no settled type (`#groundResult`).
+    const callee = expression.callee.symbol;
+    if (this.#knots.some((knot) => knot.types.has(callee))) return undefined;
+    const result = this.#resultWritten(this.#writtenView(expression.callee));
+    return result === undefined || !ground && annotationGround(result) ? undefined : { written: result, role: "spine" };
+  }
+
+  /**
+   * The type a written type gives a record's field: a structural record's
+   * keeps the role around it, and a declared one's, read with the type's
+   * arguments, is data.
+   */
+  #fieldWritten(part: SpelledPart, name: string): SpelledPart | undefined {
+    const annotation = part.written;
+    if (annotation.kind === "Record") {
+      const field = annotation.fields.find((candidate) => candidate.name === name)?.annotation;
+      return field === undefined ? undefined : { written: field, role: part.role };
+    }
+    if (annotation.kind !== "RecordDeclaration") return undefined;
+    const declaration = this.#programRecord(annotation.record);
+    const declared = declaration?.fields.find((field) => field.name === name)?.annotation;
+    if (declaration === undefined || declared === undefined) return undefined;
+    const given = new Map(declaration.parameters.map((parameter, index) => [parameter, annotation.arguments[index]!] as const));
+    return { written: givenSlot(declared, given), role: "data" };
+  }
+
+  /**
+   * The type a written type gives the part of a value a pattern binds as
+   * `symbol` *(#1180)*, read through each tuple, record, vector and nominal
+   * record pattern as it takes the value apart: a record's field as
+   * `#fieldWritten` reads it. `undefined` where the pattern meets a part the
+   * written type does not spell, and under an or-pattern, whose alternatives
+   * bind the name apart.
+   */
+  #patternWritten(pattern: Resolved.Pattern, part: SpelledPart, symbol: Resolved.SymbolId): SpelledPart | undefined {
+    const annotation = part.written;
+    const within = (written: Resolved.TypeAnnotation): SpelledPart => ({ written, role: part.role });
+    const first = (pairs: readonly (readonly [Resolved.Pattern, SpelledPart | undefined])[]) => {
+      for (const [inner, written] of pairs) {
+        const found = written === undefined ? undefined : this.#patternWritten(inner, written, symbol);
+        if (found !== undefined) return found;
+      }
+      return undefined;
+    };
+    switch (pattern.kind) {
+      case "Binding":
+        return pattern.binding.symbol === symbol ? part : undefined;
+      case "As":
+        return pattern.binding.symbol === symbol ? part : this.#patternWritten(pattern.pattern, part, symbol);
+      case "Tuple":
+        return annotation.kind === "Tuple" && annotation.elements.length === pattern.elements.length
+          ? first(pattern.elements.map((element, index) => [element, within(annotation.elements[index]!)] as const))
+          : undefined;
+      case "Record":
+        return first(pattern.fields.map((field) => [field.pattern, this.#fieldWritten(part, field.name)] as const));
+      case "Vector":
+        if (annotation.kind !== "Vector") return undefined;
+        return first([
+          ...pattern.elements.map((element) => [element, within(annotation.element)] as const),
+          ...(pattern.rest?.pattern === undefined ? [] : [[pattern.rest.pattern, part] as const]),
+        ]);
+      case "Constructor": {
+        // A nominal record's, through its declared fields. A union
+        // constructor's parts are left to the reading their sources give them.
+        const head = pattern.symbol;
+        const fields = pattern.arguments.length === 1 ? pattern.arguments[0] : undefined;
+        if (head === undefined || annotation.kind !== "RecordDeclaration" || fields?.kind !== "Record") return undefined;
+        if (this.#constructedRecords.get(head)?.id !== annotation.record) return undefined;
+        return first(fields.fields.map((field) => [field.pattern, this.#fieldWritten(part, field.name)] as const));
+      }
+      default:
+        return undefined;
+    }
+  }
+
   /** The result type a function's written view writes, on its spine. */
   #resultWritten(view: WrittenView | undefined): Resolved.TypeAnnotation | undefined {
     if (view === undefined) return undefined;
@@ -11197,6 +11358,13 @@ class Checker {
     withResult = true,
     view?: WrittenView,
     receivesRoot = true,
+    /**
+     * Only what `view` spells *(#1180, `#spelledResult`)*: the walk stops at a
+     * part the written type does not spell, a variable, a hole, or a `>->`. `own`
+     * re-opens the value's own arrow whatever the written type says there,
+     * since the text decides it already (`#opensAt`).
+     */
+    spelled?: "spelled" | "own",
   ): Mono {
     // Beneath a written type: the part a structural walk reaches, where the
     // written type spells it.
@@ -11212,6 +11380,19 @@ class Checker {
       role: WrittenRole = "data",
     ): Mono => {
       const actual = this.#prune(node);
+      if (spelled !== undefined && !(node === type && spelled === "own")) {
+        switch (written?.kind) {
+          case undefined:
+          case "Face":
+          case "TypeVariable":
+          case "Hole":
+          case "ImpliedType":
+          case "ErrorType":
+            return node;
+          case "Function":
+            if (written.effect === "linked") return node;
+        }
+      }
       // Data a spine returns is outside every parameter type, as the spine is.
       const around: WrittenRole = role === "spine" ? "spine" : "data";
       switch (actual.kind) {
@@ -18534,10 +18715,11 @@ class Checker {
         const known = this.#decidedBindings.get(symbol);
         if (known !== undefined) return known;
         // A `let` reads only bindings made before it, so the walk ends; a
-        // pattern's part is decided only as its whole value is made.
+        // pattern's part is decided only as its whole value is made, or as a
+        // call whose written result type is ground (#1174).
         const decided = source.kind === "value"
           ? this.#decidedValue(source.value)
-          : source.source !== undefined && this.#madeFromText(source.source);
+          : source.source !== undefined && (this.#madeFromText(source.source) || this.#groundResult(source.source));
         this.#decidedBindings.set(symbol, decided);
         return decided;
       }
@@ -19087,6 +19269,7 @@ class Checker {
       pattern: (pattern, source) => {
         for (const symbol of patternSymbols(pattern)) this.#typeSources.set(symbol, { kind: "part", source });
         for (const symbol of patternSymbols(pattern)) this.#bindingSources.set(symbol, { kind: "part", source });
+        for (const symbol of patternSymbols(pattern)) this.#partPatterns.set(symbol, pattern);
       },
     });
     if (item.kind === "Honor") for (const member of item.members) contractTyped(member.value);
@@ -20335,7 +20518,7 @@ class Checker {
    * computes is not a unification until every call in it is known. A `!` call
    * is also a **claim** on every body it stands in (Effects §3.4): the colours
    * it reaches of an untyped parameter are that parameter's, decided by the
-   * mark.
+   * mark. A call written bare is recorded too: what it reaches is pure.
    */
   #registerCall(
     expression: Resolved.CallExpr,
@@ -20351,10 +20534,9 @@ class Checker {
       );
     }
     frame?.absorbed.push({ effect, span: expression.span, mark: expression.mark });
-    if (expression.mark === "bang") {
-      for (let enclosing = frame; enclosing !== undefined; enclosing = enclosing.enclosing) {
-        enclosing.marked.push(effect);
-      }
+    const read = expression.mark === "bang" ? "marked" : "bare";
+    for (let enclosing = frame; enclosing !== undefined; enclosing = enclosing.enclosing) {
+      enclosing[read].push(effect);
     }
     // The same record, flat *(#867)*. A constraint seat reports at "the first
     // call in source order" that does more than the contract permits, and that
@@ -20485,16 +20667,23 @@ class Checker {
    * §3.4's second step: an untyped parameter the body uses as a function is
    * decided by the marks of the calls it flows into. A `!` call claims its
    * colour, as a written `->!` on the parameter would — the colour is a
-   * callback's from then on, a dependency that generalizes — and a colour no
-   * `!` call claimed is pure. Claims are read from the marks, which are
-   * written, and this runs only once the body settles, so neither the verdict
-   * nor the report depends on the order of the lines.
+   * callback's from then on, a dependency that generalizes — and a colour a
+   * call written bare reads is pure. A colour no call reads at all, the
+   * parameter only handed on or returned, is the parameter's own, as writing
+   * its type would make it *(#1178)*; where two untyped parameters share it,
+   * no written type can say so, and it is pure. Claims are read from the
+   * marks, which are written, and this runs only once the body settles, so
+   * neither the verdict nor the report depends on the order of the lines.
    */
   #settleUntyped(frame: EffectFrame): void {
     if (frame.untyped.length === 0) return;
     const claimed = new Set<Variable>();
     for (const colour of frame.marked) {
       for (const part of this.#colourParts(colour)) claimed.add(part);
+    }
+    const read = new Set<Variable>();
+    for (const colour of frame.bare) {
+      for (const part of this.#colourParts(colour)) read.add(part);
     }
     // Every parameter is read before any is decided: a colour shared with a
     // sibling untyped parameter is still this body's to decide, and claimed it
@@ -20507,9 +20696,28 @@ class Checker {
         claimed: spine.some((colour) => claimed.has(colour)),
       };
     });
+    // A colour no call reads stays the parameter's own where no other untyped
+    // parameter shares it, this body's or one nested in it, which left the
+    // colour to this body.
+    const ownedBy = new Map<Variable, number>();
+    for (const { owned } of decisions) {
+      for (const colour of new Set(owned.map((part) => this.#prune(part)))) {
+        if (colour.kind === "Variable") ownedBy.set(colour, (ownedBy.get(colour) ?? 0) + 1);
+      }
+    }
+    for (const type of frame.nestedUntyped) {
+      const spine = this.#spineColours(type).flatMap(({ arrow }) => this.#colourParts(arrow));
+      for (const colour of new Set(spine.map((part) => this.#prune(part)))) {
+        if (colour.kind === "Variable" && ownedBy.has(colour)) ownedBy.set(colour, ownedBy.get(colour)! + 1);
+      }
+    }
+    const ownColour = (colour: Mono): boolean => {
+      const pruned = this.#prune(colour);
+      return pruned.kind === "Variable" && !read.has(pruned) && ownedBy.get(pruned) === 1;
+    };
     for (const { parameter, owned, claimed: isClaimed } of decisions) {
       for (const colour of owned) {
-        if (isClaimed) {
+        if (isClaimed || ownColour(colour)) {
           this.#linkedColours.push(colour);
           if (!this.#untypedColours.get(this.#prune(colour)).some((entry) => entry.name === parameter.name)) {
             this.#untypedColours.add(colour, { colour, name: parameter.name, owner: frame.owner });
