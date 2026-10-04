@@ -1544,10 +1544,10 @@ describe("a written result type decides the arrows it spells, whatever the call 
       "let mkRec(q: a): { f: () -> Unit, v: a } = { f = noop, v = q }\n" +
       "record Box(a) = { v: a }\n" +
       "let mkBox(q: b): Box((() -> Unit, b)) = Box({ v = (noop, q) })\n" +
-      // `a` is invariant here, so the walk leaves the argument whole; the read field is read through it.
       "record HolderV(b) = { run: (() ->! Unit) -> Unit, v: b }\n" +
       "let mkH(q: b): HolderV(b) = HolderV({ run = (f) => (), v = q })\n" +
       "let mkHG(q): HolderV(Int) = HolderV({ run = (f) => (), v = 1 })\n" +
+      // `a` is invariant here, so the walk leaves the argument whole; the read field is read through it.
       "record Cellish(a) = { get: () -> a, put: (a) ->! Unit }\n" +
       "let mkCell(q: b): Cellish((() -> Unit, b)) = Cellish({ get = () => (noop, q), put = (x) => () })\n";
     for (const lines of [

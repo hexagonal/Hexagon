@@ -305,12 +305,13 @@ The colour component rides the ordinary machinery (unification, levels, generali
   3. **Unconstrained.** Otherwise the body's colour **defaults to pure before generalization, whatever its callbacks**. Constructing a closure that will run a callback is not running it: `store(callback: () ->! String) = 1` is `(() ->! String) -> Int`, and `defer` is pure (§3.3).
 
   The defaulting runs after the body's dependencies are resolved (its callees settled, its conducted colours joined) and before its scheme is built. That is at body close for a lone binding and for every lambda, and at the knot's close for a `fun` block member and a lambda the knot holds (below). At a constraint seat it runs after the comparison (§13.2), and in the instance component after each honor's comparison (§13.3).
-- **What the defaulting never touches is a dependency.** There are five:
+- **What the defaulting never touches is a dependency.** There are six:
   - a callback's colour, whether written or claimed by a mark (next bullet). It generalizes with the binding, which is what keeps `store` polymorphic;
   - a body's colour once conducting has joined it;
   - a colour a written `>->` has joined. `let f: (() ->! Unit) >-> Int = (action) => 1` keeps the face it writes;
   - a knot member's colour once a sibling call has joined it;
-  - where a body is nested in another, a value's own colour that the enclosing body made, and the room that colour took in. The enclosing body decides it from every use (the value-colour paragraph below).
+  - where a body is nested in another, a value's own colour that the enclosing body made, and the room that colour took in. The enclosing body decides it from every use (the value-colour paragraph below);
+  - where a body is nested in another, the colour of the enclosing body's untyped parameter, which that body decides where it closes (the untyped-parameter bullet below).
 
   The defaulting reaches only what nothing has claimed.
 - **A parameter with no written type is decided by its calls.** A parameter the body uses as a function, with no written type, has a colour of its own. A `!` call **claims** the colour of every such parameter that flows into it, as a written `->!` on the parameter would: the parameter called, a value made from it called, or the parameter handed to one of the callee's callback parameters. A colour no `!` call claims is decided by what else the body does with the parameter:
