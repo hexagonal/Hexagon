@@ -37,11 +37,18 @@ import { compileMain, projectDiagnostics, runMain } from "../support/test-projec
 const guardOnly = (indent: string): string =>
   `${indent}n when n < 0 => "negative"\n${indent}_ => "other"\n`;
 
-/** §6.1's refusal, with #513's rider for an undetermined lambda parameter. */
-const rider = "cannot match on a value of abstract type `a`; the parameter's " +
-  "type is not determined here; give the parameter a type — bind the " +
-  "function with its own annotated `let`, or use it where its parameter " +
-  "type is known";
+/**
+ * The decline probe: arms that test something and name no head — `Less` is
+ * resolved through the expected type's door (Pattern Matching §2.2) — so the
+ * match function needs its parameter's head from a seat (§6.1).
+ */
+const doorOnly = (indent: string): string =>
+  `${indent}Less => "less"\n${indent}_ => "other"\n`;
+
+/** §6.1's refusal, where no seat decides a lambda's parameter. */
+const undecided = "the program's text does not decide the parameter's type here, and no pattern names it, " +
+  "so the `match` cannot tell what its patterns test — write the parameter's type where the function is bound, " +
+  "or hand the function a value whose type is written";
 
 describe("the supplying seats (§4.3)", () => {
   test("an annotated `let` right-hand side", () => {
@@ -324,13 +331,13 @@ describe("the forwarding forms (§4.3)", () => {
   test("no other form forwards: a call's argument declines", () => {
     // The pin that makes "no other form forwards" a claim with teeth. A face
     // reaches no argument through a function's result (#1066), so the match
-    // function sees a variable and takes §6.1's refusal with the rider — even
-    // though the annotation spells its parameter type.
+    // function's arms see no head and take §6.1's refusal — even though the
+    // annotation spells its parameter type.
     expect(projectDiagnostics("module Main\n\n" + "let keep<t>(x: t): t = x\n" +
-        "let sign: (Int) -> String = keep(match\n" +
-        guardOnly("    ") +
+        "let sign: (Ordering) -> String = keep(match\n" +
+        doorOnly("    ") +
         ")\n",
-    )).toEqual([rider]);
+    )).toEqual([undecided]);
   });
 });
 
@@ -346,13 +353,13 @@ describe("the decline paths (§4.3)", () => {
 
   test("a dot call whose subject the text does not decide declines", () => {
     // Method Syntax §3.5: the dot is refused, no callee supplies anything, and
-    // the arguments synthesize, so the arms see a variable.
-    expect(projectDiagnostics("module Main\n\n" + "fun go(v) = v.map(match\n" + guardOnly("    ") + ")\n",
+    // the arguments synthesize. The match function's parameter lands from the
+    // refused call, so its own refusal would be an echo, and says nothing.
+    expect(projectDiagnostics("module Main\n\n" + "fun go(v) = v.map(match\n" + doorOnly("    ") + ")\n",
     )).toEqual([
       "the program's text does not decide `v`'s type here, so `.map(…)` cannot tell whose " +
       "`map` it is — write `v`'s type, or call the operation by its module (`Module.map(v, …)`); " +
       "a record's field is called as `(v.map)(…)`",
-      rider,
     ]);
   });
 
@@ -376,10 +383,10 @@ describe("the decline paths (§4.3)", () => {
     expect(projectDiagnostics("module Main\n\n" + concrete + call)).toEqual([]);
   });
 
-  test("a bare unannotated binding still refuses, with the rider", () => {
-    // No seat, and defaulting does not rescue a dispatch that fired
-    // mid-inference.
-    expect(projectDiagnostics("module Main\n\n" + "let f = match\n" + guardOnly("    "))).toEqual([rider]);
+  test("a bare unannotated binding: guard-only arms need no seat, arms that test do", () => {
+    // Pattern Matching §6.1: patterns that test nothing read no representation.
+    expect(projectDiagnostics("module Main\n\n" + "let f = match\n" + guardOnly("    "))).toEqual([]);
+    expect(projectDiagnostics("module Main\n\n" + "let f = match\n" + doorOnly("    "))).toEqual([undecided]);
   });
 });
 
@@ -510,10 +517,15 @@ describe("the pipe seat supplies (#517)", () => {
 });
 
 describe("Pattern Matching §6.1's refusal, reduced and re-worded", () => {
-  test("a declared type variable keeps the constraint-operations advice, and names itself", () => {
-    // Determined, and abstract by declaration. The name was missing from the
-    // shipped report; §6.1 has always quoted it.
+  test("a declared type variable keeps the constraint-operations advice where a pattern tests, and names itself", () => {
+    // Determined, and abstract by declaration: a pattern that tests reads a
+    // representation `a` does not have. Patterns that test nothing read none.
     expect(projectDiagnostics("module Main\n\n" + "export let describe<a: Show>(value: a): String = match value\n" +
+        "    v when show(v) == \"\" => \"(empty)\"\n" +
+        "    v => show(v)\n",
+    )).toEqual([]);
+    expect(projectDiagnostics("module Main\n\n" + "export let describe<a: Show>(value: a): String = match value\n" +
+        "    Less => \"less\"\n" +
         "    _ => \"x\"\n",
     )).toEqual([
       "cannot match on a value of abstract type `a`; " +

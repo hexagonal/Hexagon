@@ -153,21 +153,24 @@ describe("a scrutinee-less `match` is a unary function literal", () => {
    * rather than the constraint-operations advice, which would point nowhere.
    * Desugar-equality holds here too: one diagnostic, both spellings.
    */
-  test("with no seat, both spellings still take §6.1's refusal — with the rider", () => {
-    const armsOnly = "    n when n > 0 => \"positive\"\n    _ => \"other\"\n";
-    const rider = "cannot match on a value of abstract type `a`; the parameter's " +
-      "type is not determined here; give the parameter a type — bind the " +
-      "function with its own annotated `let`, or use it where its parameter " +
-      "type is known";
+  test("with no seat, both spellings agree: arms that test nothing compile, arms that test are refused alike", () => {
+    // Pattern Matching §6.1: guard-only arms read no representation.
+    const guardOnly = "    n when n > 0 => \"positive\"\n    _ => \"other\"\n";
+    // `Less` tests, and is resolved only through the parameter's type.
+    const doorOnly = "    Less => \"less\"\n    _ => \"other\"\n";
+    const refusal = "the program's text does not decide the parameter's type here, and no pattern names it, " +
+      "so the `match` cannot tell what its patterns test — write the parameter's type where the function " +
+      "is bound, or hand the function a value whose type is written";
+    for (const [arms, expected] of [[guardOnly, []], [doorOnly, [refusal]]] as const) {
+      const written = projectDiagnostics("module Main\n\n" + "let sign = value =>\n" +
+          "    match value\n" +
+          arms.replaceAll("    ", "        "),
+      );
+      const desugared = projectDiagnostics("module Main\n\n" + "let sign = match\n" + arms);
 
-    const written = projectDiagnostics("module Main\n\n" + "let sign = value =>\n" +
-        "    match value\n" +
-        armsOnly.replaceAll("    ", "        "),
-    );
-    const desugared = projectDiagnostics("module Main\n\n" + "let sign = match\n" + armsOnly);
-
-    expect(written).toEqual([rider]);
-    expect(desugared).toEqual(written);
+      expect(written).toEqual(expected);
+      expect(desugared).toEqual(written);
+    }
   });
 
   test("guards work in the arms, as in every match", async () => {

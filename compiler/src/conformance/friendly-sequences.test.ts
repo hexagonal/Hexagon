@@ -226,9 +226,6 @@ describe("a source whose head is not yet known (Part 5 §3.5)", () => {
       "the program's text does not decide `v`'s type here, so `.map(…)` cannot tell whose " +
         "`map` it is — write `v`'s type, or call the operation by its module (`Module.map(v, …)`); " +
         "a record's field is called as `(v.map)(…)`",
-      "cannot match on a value of abstract type `a`; the parameter's type is not determined here; " +
-        "give the parameter a type — bind the function with its own annotated `let`, or use it " +
-        "where its parameter type is known",
     ]);
     expect(typeOf(
       "fun go(v: Seq(Int)) =\n    let total = sumInts(v)\n    v.map(match\n" +
@@ -491,11 +488,14 @@ describe("the rest of what never adapts, and what it costs", () => {
   });
 
   test("a `match` on a waiting source reads it open", () => {
-    expect(refusals("fun go(v) =\n    let t = sumInts(v)\n    match v\n        s => 1\n")).toEqual([
-      "cannot match on a value of abstract type `a`; the parameter's type is not determined here; " +
-        "give the parameter a type — bind the function with its own annotated `let`, or use it " +
-        "where its parameter type is known",
+    // Pattern Matching §6.1: the text does not decide `v`, so a pattern that
+    // tests needs a head nothing gives; patterns that test nothing need none.
+    expect(refusals("fun go(v) =\n    let t = sumInts(v)\n    match v\n        Less => 1\n        _ => 2\n")).toEqual([
+      "the program's text does not decide the parameter's type here, and no pattern names it, so the `match` " +
+        "cannot tell what its patterns test — write the parameter's type where the function is bound, or hand " +
+        "the function a value whose type is written",
     ]);
+    expect(refusals("fun go(v) =\n    let t = sumInts(v)\n    match v\n        s => 1\n")).toEqual([]);
   });
 
   test("an adapted binding is no value (Functions §8 item 2)", () => {

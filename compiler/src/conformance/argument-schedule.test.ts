@@ -225,15 +225,23 @@ describe("the pipe seat supplies (§4.3, Operators §8)", () => {
     )).toEqual([]);
   });
 
-  test("a piped value whose own type is undetermined declines, with §6.1's rider", () => {
+  test("a piped value whose own type is undetermined decides nothing, and a match that tests nothing needs nothing", () => {
+    // Pattern Matching §6.1: guard-only arms read no representation, so the
+    // match function compiles whatever it is handed, and `classify` stays generic.
+    const source = "fun classify(v) = v |> match\n" +
+      "    n when n < 0 => \"negative\"\n" +
+      "    _ => \"other\"\n";
+    expect(verdict(source)).toEqual([]);
+    expect(parameterOf(source, "classify")).toMatchObject({ kind: "Variable" });
+    // Arms that test something need the head, and the undetermined `v` gives none.
     expect(verdict(
       "fun classify(v) = v |> match\n" +
-        "    n when n < 0 => \"negative\"\n" +
+        "    Less => \"less\"\n" +
         "    _ => \"other\"\n",
     )).toEqual([
-      "cannot match on a value of abstract type `a`; the parameter's type is not " +
-      "determined here; give the parameter a type — bind the function with its " +
-      "own annotated `let`, or use it where its parameter type is known",
+      "the program's text does not decide the parameter's type here, and no pattern names it, so the `match` " +
+      "cannot tell what its patterns test — write the parameter's type where the function is bound, or hand " +
+      "the function a value whose type is written",
     ]);
   });
 
@@ -342,7 +350,8 @@ describe("the dot spelling checks as a named call (Method Syntax §2.2)", () => 
 
   test("a subject the text does not decide is refused, and its arguments synthesize", () => {
     // Method Syntax §3.5: no callee is chosen, so nothing supplies the match
-    // function's parameter, and its own report stands beside the refusal.
+    // function's parameter; its guard-only arms test nothing, so the refusal
+    // stands alone (Pattern Matching §6.1).
     expect(verdict(
       "fun go(v) = v.map(match\n" +
         "    x when x < 0 => \"negative\"\n" +
@@ -352,9 +361,6 @@ describe("the dot spelling checks as a named call (Method Syntax §2.2)", () => 
       "the program's text does not decide `v`'s type here, so `.map(…)` cannot tell whose " +
       "`map` it is — write `v`'s type, or call the operation by its module (`Module.map(v, …)`); " +
       "a record's field is called as `(v.map)(…)`",
-      "cannot match on a value of abstract type `a`; the parameter's type is not " +
-      "determined here; give the parameter a type — bind the function with its " +
-      "own annotated `let`, or use it where its parameter type is known",
     ]);
   });
 });

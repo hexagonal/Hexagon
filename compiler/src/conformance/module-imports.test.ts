@@ -1127,9 +1127,9 @@ describe("Pattern Matching §15 (o) — the door, and the absence of its express
         "    _ => 0\n" +
         "export let n: Int = f(Direction.North)\n"],
     ])).toEqual([
-      "cannot match on a value of abstract type `a`; the parameter's type is " +
-        "not determined here; give the parameter a type — bind the function " +
-        "with its own annotated `let`, or use it where its parameter type is known",
+      "the program's text does not decide the parameter's type here, and no pattern names it, so the " +
+        "`match` cannot tell what its patterns test — write the parameter's type where the function is " +
+        "bound, or hand the function a value whose type is written",
     ]);
   });
 

@@ -67,7 +67,7 @@ For `for p in e` with body `b`:
 
 Steps 5–6 consume Part 4 §7.2's supersession of Loops §2.1: loop heads are one of Pattern Matching's five positions; `for (k, v) in m` is the canonical beneficiary.
 
-A waiting source's element is read in the body as the schedule has solved it (Functions §4.3's ordering pin): known where an earlier seat or statement fixed it, an inference variable otherwise — so a body that must dispatch on the element, a `match` on it (Pattern Matching §6.1), needs it fixed before the loop, or the source annotated. Conceptually the loop traverses `Iterable.toSeq(e)`: loops and `Seq` seats share one capability lookup and one conversion meaning (§3.4), which neither turns a call into a loop nor requires a loop to allocate a sequence — native traversal stays where canonical provenance licenses it (§9).
+A waiting source's element is read in the body as the schedule has solved it (Functions §4.3's ordering pin): known where an earlier seat or statement fixed it, an inference variable otherwise — so a body that must dispatch on the element, a dot call or a `match` whose arms test something, needs the source decided by the text (Method Syntax §3.1, Pattern Matching §6.1): annotated, or made from what the text decides. Conceptually the loop traverses `Iterable.toSeq(e)`: loops and `Seq` seats share one capability lookup and one conversion meaning (§3.4), which neither turns a call into a loop nor requires a loop to allocate a sequence — native traversal stays where canonical provenance licenses it (§9).
 
 ### 3.2 Failure taxonomy — three cases
 
@@ -149,7 +149,7 @@ Seq.length(if useFirst then names else moreNames)
 **What reads the head before the close.** A judgment that needs the source's head before the close reads it as the schedule has solved it — open — where a seat that committed at once would have made it `Seq`:
 
 - a dot call on the source, which is refused at the dot: the text does not decide the source's type (Method Syntax §3.5);
-- a `match` on the source itself (Pattern Matching §6.1's abstract-type refusal).
+- a `match` on the source itself whose arms test something, which is refused: the text does not decide the source's head (Pattern Matching §6.1). Arms that test nothing need none.
 
 ```
 fun go(v) =
@@ -454,7 +454,7 @@ New rows first; inherited rows by reference (unchanged, listed for the consolida
 | A form's paths under an open `Seq` element whose elements disagree | Functions §4.3's join report, where the join reports it (the `if`; a later arm; a later element), naming the element types | §3.4 |
 | An existing structure at a `Seq`-bearing type (`Option(Vector(String))` at `Option(Seq(String))`) | the seat's ordinary mismatch; nothing inside an existing value adapts | §3.6 |
 | A value of an `Iterable` instance's own subject at a `Seq` seat inside its own `toSeq` | the seat's ordinary mismatch + "inside `Iterable<Stack(a)>`'s own `toSeq`, a `Stack(a)` is not converted to a sequence, since that would call the member being defined; convert its contents, or write `Iterable.toSeq(…)` where recursion on a smaller value is meant" | §3.6 |
-| A dot call or a `match` on a source whose head waits (`v.map(match …)`, `match v`) | Pattern Matching §6.1's refusal with its rider, unchanged; the repairs (§3.5): annotate the source (`v: Seq(Int)`), or spell the call qualified (`Seq.map(v, match …)`) | §3.5 |
+| A dot call or a `match` on a source whose head waits (`v.map(match …)`, `match v`) | Method Syntax §3.5's refusal at the dot, and Pattern Matching §6.1's at a `match` whose arms test something; the repairs (§3.5): annotate the source (`v: Seq(Int)`), or spell the call qualified (`Seq.map(v, match …)`) | §3.5 |
 | A waiting source's late head with no instance, or an `Item` disagreeing with the linked element | the demand site's own report (a seat's row above, §3.2's at a loop head, the explicit call's ordinary report at an explicit call), where the subject's demand was made, whether the head arrived before or after it | §3.5 |
 | Non-iterable concrete type, not user-nominal | "`Int` is not iterable" (+ conversion hint where one exists) | §3.2 |
 | Non-iterable user nominal type | two-legal-homes form: the type's home module with the `honor` fixit, the prelude as the only other legal home, and the `toSeq`/`Seq(a)` alternatives | **§3.3 (new)** |
@@ -687,8 +687,8 @@ fun f3(v) =
 let t(x) = Iterable.toSeq(x)                -- ERROR: an explicit call alone keeps its refusal
 fun go(v) =
     let total = sumInts(v)
-    v.map(match                             -- ERROR: the dot waits on v's head, so the arms
-        n when n < 0 => "negative"          --   see a variable (Pattern Matching §6.1); annotate
+    v.map(match                             -- ERROR: the text does not decide v's type, so the
+        n when n < 0 => "negative"          --   dot is refused (Method Syntax §3.5); annotate
         _ => "other")                       --   `v: Seq(Int)`, or write Seq.map(v, match …)
 fun z(xs, ys) =
     let s = String.fromSeq(xs)              -- xs waits
