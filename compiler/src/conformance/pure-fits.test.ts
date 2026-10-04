@@ -943,6 +943,67 @@ describe("every arrow a use receives (Swift's rule, #1169)", () => {
   });
 });
 
+describe("a value read in place leaves a colour the environment holds to the binding that holds it (#1179)", () => {
+  const makers = "let tieRet(x: t, y: t): t = x\nlet pairN = (noop, 1)\n" +
+    "record Bx(a) = { v: a }\nlet boxN = Bx({ v = noop })\n";
+  const reads: [string, string, string, string][] = [
+    ["tieRet(p, pairN)", "(r, _)", "tieTwo(p, (save0, 1))", "(save0, 1)"],
+    ["tieRet(p, boxN)", "Bx({ v = r })", "tieTwo(p, Bx({ v = save0 }))", "Bx({ v = save0 })"],
+  ];
+  const forms = [
+    (value: string, pattern: string) => `    let ${pattern} = ${value}\n`,
+    (value: string, pattern: string) => `    match ${value}\n        ${pattern} => ()\n`,
+    (value: string, pattern: string) => `    for ${pattern} in [${value}]\n        ()\n`,
+  ];
+
+  test("a `match` or a `for` read before the line that solves the colour reads as one after it, and as a `let`", () => {
+    for (const [value, pattern, tie, argument] of reads) {
+      const verdicts: unknown[] = [];
+      for (const form of forms) {
+        for (const lines of [[form(value, pattern), `    ${tie}\n`], [`    ${tie}\n`, form(value, pattern)]]) {
+          const source = makers + "let f(p) =\n" + lines.join("") + "    ()\n" +
+            `export let user(): Unit = f(${argument})\n`;
+          verdicts.push([reports(source), hovered(source, "f(p)")]);
+        }
+      }
+      expect([value, verdicts[0]]).toEqual([value, [[], expect.stringContaining("->! Unit")]]);
+      for (const verdict of verdicts) expect([value, verdict]).toEqual([value, verdicts[0]]);
+    }
+  });
+
+  test("the form generalizes nothing: what the value leaves open is one type for every use in the body", () => {
+    for (const head of ["match ident([])\n        xs =>", "for xs in [ident([])]"]) {
+      const indent = head.startsWith("match") ? "            " : "        ";
+      const source = "let ident(x: a): a = x\nexport let go(): Unit =\n    " + head + "\n" +
+        ["let ys = xs", "let a: Vector(Int) = ys", "let b: Vector(String) = ys", "()"].map((line) => indent + line + "\n").join("") +
+        (head.startsWith("match") ? "    ()\n" : "    ()\n");
+      expect([head, reports(source).map(([, message]) => message)])
+        .toEqual([head, ["type mismatch: expected String, found Int"]]);
+    }
+  });
+
+  test("what lies beneath no part's arrow stays open where the form reads it, in either order", () => {
+    const sink = "record Sink(a) = { put: (a) ->! Unit }\n" +
+      "let mk(cb: () ->! Unit): Sink((() ->! Unit) >-> Unit) = Sink({ put = (h) => h!(cb) })\n";
+    const uses = ["s.put!((f) => f!())", "s.put!((f) => save0!())"];
+    for (const order of [uses, [...uses].reverse()]) {
+      const source = sink + "export let user(): Unit =\n    match mk(() => ())\n        s =>\n" +
+        order.map((use) => `            ${use}\n`).join("") + "            ()\n    ()\n";
+      expect([order, reports(source)]).toEqual([order, []]);
+    }
+  });
+
+  test("so does a call in the read that a pattern's part runs, in either order", () => {
+    for (const [value, pattern, tie] of reads) {
+      const read = `    match ${value}\n        ${pattern} =>\n            r!()\n            ()\n`;
+      const verdicts = [[read, `    ${tie}\n`], [`    ${tie}\n`, read]].map((lines) =>
+        reports(makers + "let f(p) =\n" + lines.join("") + "    ()\n")
+      );
+      expect([value, verdicts[1]]).toEqual([value, verdicts[0]]);
+    }
+  });
+});
+
 describe("beneath its own arrow, only what the text decides is re-opened (#1169 review)", () => {
   test("a value that captures or is made from an inferred one re-opens its own arrow only, in either order", () => {
     // Each value's own arrow is decided (a lambda's, a function's, a call's
@@ -1371,6 +1432,54 @@ describe("where a use hands something, a `->!` the value's own written type spel
     // The merge accepts only what `pureOnly` accepts, and an effectful function is handed to it.
     expect(reports(holders + "export let go(b: Bool, h: Holder): Unit =\n    let m = if b then h.run else pureOnly\n    m(save0)\n"))
       .toEqual([["m(save0)", PURITY]]);
+  });
+
+  test("a pattern takes a declared record's field out as the field read does, in a `let`, a `match` and a `for` (#1207)", () => {
+    const records = "export record HolderV(b) = { run: (() ->! Unit) -> Unit, v: b }\n" +
+      "export record Outer = { inner: HolderV(Int), m: Int }\n" +
+      "let mkHG(): HolderV(Int) = HolderV({ run = (f) => (), v = 1 })\n";
+    const reads: [string, string, string][] = [
+      ["h: HolderV(Int)", "h", "HolderV({ run = r, v = _ })"],
+      ["h: HolderV(Int)", "h", "HolderV({ run = r, v = _ }) as w"],
+      ["o: Outer", "o", "Outer({ inner = HolderV({ run = r, v = _ }), m = _ })"],
+      ["", "mkHG()", "HolderV({ run = r, v = _ })"],
+    ];
+    const forms = [
+      (value: string, pattern: string, uses: string[]) =>
+        `    let ${pattern} = ${value}\n` + uses.map((use) => `    ${use}\n`).join("") + "    ()\n",
+      (value: string, pattern: string, uses: string[]) =>
+        `    match ${value}\n        ${pattern} =>\n` + uses.map((use) => `            ${use}\n`).join("") +
+        "            ()\n    ()\n",
+      (value: string, pattern: string, uses: string[]) =>
+        `    for ${pattern} in [${value}]\n` + uses.map((use) => `        ${use}\n`).join("") + "        ()\n    ()\n",
+    ];
+    const seat = "let k: (() -> Unit) -> Unit = r";
+    for (const [parameter, value, pattern] of reads) {
+      for (const form of forms) {
+        const source = records + `export let go(${parameter}): Unit =\n` + form(value, pattern, [seat]);
+        expect([source, reports(source)]).toEqual([source, []]);
+        // A pure seat still refuses an effectful function handed to it.
+        const handed = records + `export let go(${parameter}): Unit =\n` + form(value, pattern, [seat, "k(save0)"]);
+        expect([handed, reports(handed)]).toEqual([handed, [["k(save0)", PURITY]]]);
+      }
+    }
+    // Through a union's constructor, a tuple, a vector and a structural record around the record's pattern.
+    for (const source of [
+      "export let go(h: HolderV(Int)): Unit =\n    let { a = HolderV({ run = r, v = _ }), b = _ } = { a = h, b = 1 }\n" +
+        "    let k: (() -> Unit) -> Unit = r\n    ()\n",
+      "export let go(o: Option(HolderV(Int))): Unit =\n    match o\n        Some(HolderV({ run = r, v = _ })) =>\n" +
+        "            let k: (() -> Unit) -> Unit = r\n            ()\n        None => ()\n    ()\n",
+      "export let go(h: HolderV(Int)): Unit =\n    let (HolderV({ run = r, v = _ }), n) = (h, 1)\n" +
+        "    let k: (() -> Unit) -> Unit = r\n    ()\n",
+      "export let go(h: HolderV(Int)): Unit =\n    match [h]\n        [HolderV({ run = r, v = _ })] =>\n" +
+        "            let k: (() -> Unit) -> Unit = r\n            ()\n        _ => ()\n    ()\n",
+    ]) {
+      expect([source, reports(records + source)]).toEqual([source, []]);
+    }
+    // The field's own arrow is the impure constant, out of a pattern as out of a field read.
+    expect(reports("export record Own = { go: () ->! Unit, n: Int }\n" +
+      "export let go(o: Own): Unit =\n    let Own({ go = g, n = _ }) = o\n    let k: () -> Unit = g\n    ()\n"))
+      .toEqual([["() -> Unit", PURITY]]);
   });
 
   test("a callback's own `->!` is its colour, not the constant, so one every use shares reads alike in either order", () => {

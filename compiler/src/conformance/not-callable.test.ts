@@ -18,8 +18,9 @@
  *   §3.4, the monomorphic knot);
  * - a **concrete non-function** takes this file's dedicated report, registers no
  *   mark obligation, and types the call as the error type;
- * - an **already-errored** callee keeps falling through silently, so a name that
- *   already failed does not fail twice.
+ * - an **already-errored** callee (an unknown name, a type that does not exist)
+ *   registers no mark obligation either, and types the call as the error type
+ *   (#414), so a name that already failed does not fail twice, marked or bare.
  */
 
 import { describe, expect, test } from "vitest";
@@ -268,6 +269,27 @@ fun
 
   test("an already-errored callee produces no second report", () => {
     expect(main("export let bad: Int = nope(1)\n")).toEqual(["unknown name `nope`"]);
+  });
+
+  test("a `!` on an already-errored callee adds nothing to the one report (#414)", () => {
+    expect(main("export let bad: Int = nope!(1)\n")).toEqual(["unknown name `nope`"]);
+    expect(main("export let bad: Unit = (nope)!()\n")).toEqual(["unknown name `nope`"]);
+    expect(main("export let go(): Unit =\n    Vector.nope!(1)\n    ()\n"))
+      .toEqual(["module `Vector` does not export `nope`"]);
+    expect(main("export let go(g: Nope): Unit =\n    g!(1)\n    ()\n")).toEqual(["unknown type `Nope`"]);
+  });
+
+  test("an already-errored callee's call is the error type, so a call on it adds nothing (#414)", () => {
+    expect(main("export let go(): Unit =\n    nope(1)!(2)\n    ()\n")).toEqual(["unknown name `nope`"]);
+    expect(main("export let go(): Unit =\n    nope!(1)(2)\n    ()\n")).toEqual(["unknown name `nope`"]);
+    expect(hoveredType("module Main\n\nlet r = nope(1)\n", "r =")).toBe("?");
+  });
+
+  test("a `match` over a value already in error adds nothing either (#414)", () => {
+    for (const value of ["nope", "nope(1)"]) {
+      expect(main(`export let bad: Int =\n    match ${value}\n        0 => 1\n        _ => 2\n`))
+        .toEqual(["unknown name `nope`"]);
+    }
   });
 
   test("a call on an already-failed call produces no second report", () => {
