@@ -1040,6 +1040,26 @@ describe("Effects §3.4 — a parameter no call reaches keeps its own colour (#1
     expect(check(source + "export let user(): Unit = both(save0, noop)\n")).toEqual([PURITY]);
   });
 
+  it("a colour shared with an untyped parameter of a nested body is shared too, in every order of the lines", () => {
+    // `j` leaves the colour to the body around it, which counts it as shared:
+    // a lambda's parameter, and a local function's.
+    const lambda = "let f(k) = (j) => keep(if c then k else j)\n";
+    expect(check(lambda + "export let user(): Unit = f(noop)(noop)\n")).toEqual([]);
+    expect(hoveredType(text(lambda), "f(k)")).toBe("(() -> Unit) -> (() -> Unit) -> Unit");
+    expect(check("let f(k) =\n    let g(j) = keep(if c then k else j)\n    g(noop)\nexport let user(): Unit = f(noop)\n"))
+      .toEqual([]);
+    // Two bodies down, too.
+    expect(check("let f(k) = (n: Int) => (j) => keep(if c then k else j)\nexport let user(): Unit = f(noop)(1)(noop)\n"))
+      .toEqual([]);
+    const lines = ["keep(if c then k else noop)", "let r = (j) => keep(if c then k else j)"];
+    const seen = permutations(lines).map((order) => {
+      const body = "let f(k) =\n" + order.map((line) => "    " + line + "\n").join("") + "    ()\n";
+      return [hoveredType(text(body), "f(k)"), check(body + "export let user(): Unit = f(noop)\n")];
+    });
+    expect(seen).toEqual([seen[0], seen[0]]);
+    expect(seen[0]).toEqual(["(() -> Unit) -> Unit", []]);
+  });
+
   it("a bare call, a `!` call and a `->` demand still decide it, in every order of the lines", () => {
     const cases: readonly (readonly [readonly string[], string, readonly string[]])[] = [
       // A bare call reaches it: pure, so the effectful argument is refused.

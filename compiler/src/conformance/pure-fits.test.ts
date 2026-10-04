@@ -1517,18 +1517,50 @@ describe("a written result type decides the arrows it spells, whatever the call 
     expect(reports(use(["let w: (() -> Unit, Int) = mkVarE(p)"]))).toEqual([["(() -> Unit, Int)", PURITY]]);
   });
 
-  test("a call to a member of a knot still open decides nothing by its written result, in either order", () => {
+  test("a call to a member of a knot still open reads the same in either order of the members", () => {
     const use = ["    useIt(p): Unit =", "        let w: (() ->! Unit, Int) = mkHole(p)", "        ()"];
     const make = ["    mkHole(q): (() -> Unit, _) =", "        useIt(q)", "        (noop, q)"];
-    for (const members of [[...use, ...make], [...make, ...use]]) {
-      expect(reports("fun\n" + members.join("\n") + "\n").map(([, message]) => message)).toEqual([FIXED_BEFORE]);
+    const messages = [[...use, ...make], [...make, ...use]].map((members) =>
+      reports("fun\n" + members.join("\n") + "\n").map(([, message]) => message)
+    );
+    expect(messages[1]).toEqual(messages[0]);
+  });
+
+  test("a value a `match` reads in place is read as §3.4 says, whatever line settles its shape first", () => {
+    const arm = "match {0}\n        (g, _) =>\n            let w: () ->! Unit = g\n            ()";
+    const routes: readonly (readonly [string, string])[] = [["", "mkVar(p)"], ["let v = mkVar(p)", "v"]];
+    for (const [made, read] of routes) {
+      const lines = ["let n: Int = p", arm.replace("{0}", read)];
+      const verdicts = [lines, [...lines].reverse()].map((order) =>
+        reports(use(made === "" ? order : [made, ...order])).map(([, message]) => message)
+      );
+      expect([read, verdicts[1]]).toEqual([read, verdicts[0]]);
     }
   });
 
-  test("a value a `match` reads in place keeps §3.4's reading: its arms' variables are inferred", () => {
-    expect(reports(makers + "let use(p): Unit =\n    match mkVar(p)\n        (g, _) =>\n" +
-      "            let w: () ->! Unit = g\n            ()\nexport let go(): Unit = use(1)\n"))
-      .toEqual([["() ->! Unit", FIXED_BEFORE]]);
+  test("a field read takes its part as a pattern does, of a spelled result and of a ground one", () => {
+    const records = "record WrapG = { f: () -> Unit, v: Int }\n" +
+      "let mkWrapG(q): WrapG = WrapG({ f = noop, v = 1 })\n" +
+      "let mkRec(q: a): { f: () -> Unit, v: a } = { f = noop, v = q }\n" +
+      "record Box(a) = { v: a }\n" +
+      "let mkBox(q: b): Box((() -> Unit, b)) = Box({ v = (noop, q) })\n" +
+      // `a` is invariant here, so the walk leaves the argument whole; the read field is read through it.
+      "record Cellish(a) = { get: () -> a, put: (a) ->! Unit }\n" +
+      "let mkCell(q: b): Cellish((() -> Unit, b)) = Cellish({ get = () => (noop, q), put = (x) => () })\n";
+    for (const lines of [
+      ["let w: () ->! Unit = mkWrap(p).f"],
+      ["let x = mkWrap(p)", "let w: () ->! Unit = x.f"],
+      ["let w: () ->! Unit = mkRec(p).f"],
+      ["let w: () ->! Unit = mkWrapG(p).f"],
+      // A declared field read with the arguments the written type gives its declaration.
+      ["let w: (() ->! Unit, Int) = mkBox(p).v"],
+      ["let w: () ->! (() ->! Unit, Int) = mkCell(p).get"],
+      ["let Box({ v = (g, _) }) = mkBox(p)", "let w: () ->! Unit = g"],
+    ]) {
+      expect([lines, reports(records + use(lines))]).toEqual([lines, []]);
+    }
+    // A field read that is a callee is applied, not handed anywhere.
+    expect(reports(records + use(["mkWrap(p).f()"]))).toEqual([]);
   });
 });
 

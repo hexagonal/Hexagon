@@ -577,6 +577,12 @@ interface EffectFrame {
    * it: an untyped parameter's colour one of them reads is pure (Effects §3.4).
    */
   readonly bare: Mono[];
+  /**
+   * The types of the untyped parameters of the bodies nested in this one: a
+   * colour one of them shares with this body's untyped parameter is shared
+   * (Effects §3.4).
+   */
+  readonly nestedUntyped: Mono[];
 }
 
 /** One call a body absorbed: its colour, where it was written, and its mark. */
@@ -7883,6 +7889,7 @@ class Checker {
             untyped: [],
             marked: [],
             bare: [],
+            nestedUntyped: [],
           };
           this.#effectFrames.push(frame);
           this.#frameByLambda.set(defaultValue, frame);
@@ -8185,6 +8192,7 @@ class Checker {
             untyped: [],
             marked: [],
             bare: [],
+            nestedUntyped: [],
           };
           this.#effectFrames.push(frame);
           this.#frameByLambda.set(member.value, frame);
@@ -9811,6 +9819,7 @@ class Checker {
           untyped: [],
           marked: [],
           bare: [],
+          nestedUntyped: [],
         };
         this.#effectFrames.push(effectFrame);
         this.#frameByLambda.set(expression, effectFrame);
@@ -9884,6 +9893,9 @@ class Checker {
             // what that signature says.
             if (component === undefined || this.#prune(component).kind === "Variable") {
               effectFrame.untyped.push({ name: parameter.name, type: parameterType, span: parameter.span, index });
+              for (let enclosing = effectFrame.enclosing; enclosing !== undefined; enclosing = enclosing.enclosing) {
+                enclosing.nestedUntyped.push(parameterType);
+              }
             }
           }
           // An **annotated** parameter keeps its annotation as the contract
@@ -11182,10 +11194,11 @@ class Checker {
    * decides every arrow that type spells, whatever the call is handed: a
    * variable, a hole, or a `>->`, which follows what the call is handed, is
    * left to inference. So does a binding made from such a call, and a part a
-   * `let`'s pattern takes out of either, where the written type spells that
-   * part (`#patternWritten`). A ground result decides the whole value
-   * (`#groundResult`). Read from the declarations, it is the same whatever
-   * order the program's lines come in.
+   * `let`'s pattern or a field read takes out of either, where the written type
+   * spells that part (`#patternWritten`, `#fieldWritten`). A ground result
+   * decides the whole value (`#groundResult`), a field read of it included
+   * here. Read from the declarations, it is the same whatever order the
+   * program's lines come in.
    */
   #spelledResult(expression: Resolved.Expr): WrittenView | undefined {
     // A callee is applied rather than handed anywhere.
@@ -11194,8 +11207,20 @@ class Checker {
     return written === undefined ? undefined : { written, role: "spine" };
   }
 
-  /** `#spelledResult`'s written type: a call's, or a binding's made from one. */
-  #spelledType(expression: Resolved.Expr, seen: Set<Resolved.SymbolId>): Resolved.TypeAnnotation | undefined {
+  /**
+   * `#spelledResult`'s written type: a call's, or a binding's or a field
+   * read's made from one. `ground` admits a ground result too, for the field
+   * read a ground call's value is not otherwise decided through.
+   */
+  #spelledType(
+    expression: Resolved.Expr,
+    seen: Set<Resolved.SymbolId>,
+    ground = false,
+  ): Resolved.TypeAnnotation | undefined {
+    if (expression.kind === "Access") {
+      const receiver = this.#spelledType(expression.receiver, seen, true);
+      return receiver === undefined ? undefined : this.#fieldWritten(receiver, expression.field.text);
+    }
     if (expression.kind === "Name") {
       const symbol = expression.symbol;
       const source = this.#bindingSources.get(symbol);
@@ -11203,10 +11228,12 @@ class Checker {
         return undefined;
       }
       seen.add(symbol);
-      if (source.kind === "value") return this.#spelledType(this.#givenValue(source.value), seen);
+      if (source.kind === "value") return this.#spelledType(this.#givenValue(source.value), seen, ground);
+      // A value a `match` or a `for` reads in place is taken apart where it is
+      // read (Effects §3.4), and its parts are read as that says.
       const pattern = this.#partPatterns.get(symbol);
-      if (source.source === undefined || pattern === undefined) return undefined;
-      const whole = this.#spelledType(this.#givenValue(source.source), seen);
+      if (source.source === undefined || pattern === undefined || this.#readInPlace.has(source.source)) return undefined;
+      const whole = this.#spelledType(this.#givenValue(source.source), seen, true);
       return whole === undefined ? undefined : this.#patternWritten(pattern, whole, symbol);
     }
     if (expression.kind !== "Call" || expression.callee.kind !== "Name") return undefined;
@@ -11214,7 +11241,18 @@ class Checker {
     const callee = expression.callee.symbol;
     if (this.#knots.some((knot) => knot.types.has(callee))) return undefined;
     const result = this.#resultWritten(this.#writtenView(expression.callee));
-    return result === undefined || annotationGround(result) ? undefined : result;
+    return result === undefined || !ground && annotationGround(result) ? undefined : result;
+  }
+
+  /** The type a written type gives a record's field: a declared one's read with the type's arguments. */
+  #fieldWritten(annotation: Resolved.TypeAnnotation, name: string): Resolved.TypeAnnotation | undefined {
+    if (annotation.kind === "Record") return annotation.fields.find((field) => field.name === name)?.annotation;
+    if (annotation.kind !== "RecordDeclaration") return undefined;
+    const declaration = this.#programRecord(annotation.record);
+    const declared = declaration?.fields.find((field) => field.name === name)?.annotation;
+    if (declaration === undefined || declared === undefined) return undefined;
+    const given = new Map(declaration.parameters.map((parameter, index) => [parameter, annotation.arguments[index]!] as const));
+    return givenSlot(declared, given);
   }
 
   /**
@@ -11247,11 +11285,7 @@ class Checker {
           ? first(pattern.elements.map((element, index) => [element, annotation.elements[index]] as const))
           : undefined;
       case "Record":
-        return annotation.kind === "Record"
-          ? first(pattern.fields.map((field) =>
-            [field.pattern, annotation.fields.find((written) => written.name === field.name)?.annotation] as const
-          ))
-          : undefined;
+        return first(pattern.fields.map((field) => [field.pattern, this.#fieldWritten(annotation, field.name)] as const));
       case "Vector":
         if (annotation.kind !== "Vector") return undefined;
         return first([
@@ -11263,16 +11297,9 @@ class Checker {
         // constructor's parts are left to the reading their sources give them.
         const head = pattern.symbol;
         const fields = pattern.arguments.length === 1 ? pattern.arguments[0] : undefined;
-        if (head !== undefined && annotation.kind === "RecordDeclaration" && fields?.kind === "Record") {
-          const declaration = this.#constructedRecords.get(head);
-          if (declaration === undefined || declaration.id !== annotation.record) return undefined;
-          const given = new Map(declaration.parameters.map((name, index) => [name, annotation.arguments[index]!] as const));
-          return first(fields.fields.map((field) => {
-            const declared = declaration.fields.find((written) => written.name === field.name)?.annotation;
-            return [field.pattern, declared === undefined ? undefined : givenSlot(declared, given)] as const;
-          }));
-        }
-        return undefined;
+        if (head === undefined || annotation.kind !== "RecordDeclaration" || fields?.kind !== "Record") return undefined;
+        if (this.#constructedRecords.get(head)?.id !== annotation.record) return undefined;
+        return first(fields.fields.map((field) => [field.pattern, this.#fieldWritten(annotation, field.name)] as const));
       }
       default:
         return undefined;
@@ -20657,11 +20684,18 @@ class Checker {
       };
     });
     // A colour no call reads stays the parameter's own where no other untyped
-    // parameter shares it.
+    // parameter shares it, this body's or one nested in it, which left the
+    // colour to this body.
     const ownedBy = new Map<Variable, number>();
     for (const { owned } of decisions) {
       for (const colour of new Set(owned.map((part) => this.#prune(part)))) {
         if (colour.kind === "Variable") ownedBy.set(colour, (ownedBy.get(colour) ?? 0) + 1);
+      }
+    }
+    for (const type of frame.nestedUntyped) {
+      const spine = this.#spineColours(type).flatMap(({ arrow }) => this.#colourParts(arrow));
+      for (const colour of new Set(spine.map((part) => this.#prune(part)))) {
+        if (colour.kind === "Variable" && ownedBy.has(colour)) ownedBy.set(colour, ownedBy.get(colour)! + 1);
       }
     }
     const ownColour = (colour: Mono): boolean => {
