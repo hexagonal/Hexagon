@@ -993,6 +993,74 @@ let user(): Unit = outer!(() => save!("x"))
   });
 });
 
+describe("Effects §3.4 — a parameter no call reaches keeps its own colour (#1178)", () => {
+  const world = 'extern from "./world.js"\n    export fun save(document: String) ->! Unit\n' +
+    'let save0(): Unit = save!("x")\nlet noop(): Unit = ()\nlet c = True\n' +
+    "let keep(callback: () ->! Unit): Unit = ()\nlet runIt(callback: () ->! Unit): Unit = callback!()\n" +
+    "export let pureOnly(f: () -> Unit): Unit = f()\n";
+  const text = (source: string): string => "module Main\n\n" + world + source;
+  const check = (source: string): readonly string[] =>
+    effectDiagnostics([["/world.js", ""], ["/main.hex", text(source)]]);
+  const permutations = (lines: readonly string[]): string[][] =>
+    lines.length <= 1 ? [[...lines]] : lines.flatMap((line, index) =>
+      permutations([...lines.slice(0, index), ...lines.slice(index + 1)]).map((rest) => [line, ...rest])
+    );
+  const PURITY = "a `->` arrow promises purity, and this function may touch the world — the demand is written " +
+    "`->`, the function's face `->!` or `>->`";
+
+  it("a parameter only handed on is the parameter's own, as writing its type would make it", () => {
+    // §3.4's examples: `hold` keeps what it is handed, `orNoop` returns it.
+    const source = "let hold(cb) = keep(cb)\nlet orNoop(cb) = if c then cb else () => ()\n" +
+      "export let user(): Unit =\n    hold(save0)\n    orNoop(save0)!()\n    orNoop(noop)()\n";
+    expect(check(source)).toEqual([]);
+    expect(hoveredType(text(source), "hold(cb)")).toBe("(() ->! Unit) -> Unit");
+    expect(hoveredType(text(source), "orNoop(cb)")).toBe("(() ->! Unit) -> () >-> Unit");
+    // What `orNoop` hands back follows what it was handed, so a bare call on it
+    // is the missing-mark report.
+    expect(check("let orNoop(cb) = if c then cb else () => ()\nexport let user(): Unit = orNoop(save0)()\n"))
+      .toEqual(["this call may touch the world, so this call wants `!`, not no mark"]);
+  });
+
+  it("nested, in a knot, curried, local, and two functions deep", () => {
+    const programs = [
+      "let f(k) =\n    let g = () => keep(k)\n    g()\nexport let user(): Unit = f(save0)\n",
+      "fun\n    a(k, n: Int): Unit = if n == 0 then keep(k) else b(k, n - 1)\n    b(k, n: Int): Unit = a(k, n)\n" +
+        "export let user(): Unit = a(save0, 3)\n",
+      "let f(k) = (n: Int) => keep(k)\nexport let user(): Unit = f(save0)(1)\n",
+      "export let user(): Unit =\n    let fwd = (k) => keep(k)\n    fwd(save0)\n",
+      "let g(j) = keep(j)\nlet f(k) = g(k)\nexport let user(): Unit = f(save0)\n",
+    ];
+    for (const source of programs) expect([source, check(source)]).toEqual([source, []]);
+  });
+
+  it("a colour two untyped parameters share, where no call reaches it, is pure: no written type can say it", () => {
+    const source = "let both(k, j) = keep(if c then k else j)\n";
+    expect(check(source + "export let user(): Unit = both(noop, noop)\n")).toEqual([]);
+    expect(hoveredType(text(source), "both(k")).toBe("(() -> Unit, () -> Unit) -> Unit");
+    expect(check(source + "export let user(): Unit = both(save0, noop)\n")).toEqual([PURITY]);
+  });
+
+  it("a bare call, a `!` call and a `->` demand still decide it, in every order of the lines", () => {
+    const cases: readonly (readonly [readonly string[], string, readonly string[]])[] = [
+      // A bare call reaches it: pure, so the effectful argument is refused.
+      [["keep(k)", "k()"], "(() -> Unit) -> Unit", [PURITY]],
+      // A bare call in a nested body reaches it too.
+      [["keep(k)", "let g = () => runIt(k)"], "(() -> Unit) -> Unit", [PURITY]],
+      // A `!` call claims it.
+      [["keep(k)", "runIt!(k)"], "(() ->! Unit) >-> Unit", ["this call may touch the world, so `f` wants `!`, not no mark"]],
+      // A `->` demand pins it.
+      [["keep(k)", "pureOnly(k)"], "(() -> Unit) -> Unit", [PURITY]],
+    ];
+    for (const [lines, face, reports] of cases) {
+      for (const order of permutations(lines)) {
+        const body = "let f(k) =\n" + order.map((line) => "    " + line + "\n").join("") + "    ()\n";
+        expect([order, hoveredType(text(body), "f(k)")]).toEqual([order, face]);
+        expect([order, check(body + "export let user(): Unit = f(save0)\n")]).toEqual([order, reports]);
+      }
+    }
+  });
+});
+
 describe("Effects §3.4 — a tie between callbacks is refused, where it was made", () => {
   const fixtures = "export let tieTwo(x: a, y: a): Unit = ()\n" +
     "export let pureOnly(f: () -> Unit): Unit = f()\n" +
