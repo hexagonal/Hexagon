@@ -6418,6 +6418,12 @@ class Checker {
       const source = this.#typeSources.get(symbol);
       if (source?.kind === "part") return source.source !== undefined && failed(source.source);
       if (source?.kind !== "lambda") return false;
+      // Applied where it is written, a parameter is its argument's.
+      const applied = this.#appliedLambdas.get(source.lambda);
+      if (applied !== undefined) {
+        const argument = applied[source.lambda.parameters.findIndex((parameter) => parameter.symbol === symbol)];
+        return argument !== undefined && failed(argument);
+      }
       const context = this.#landingContexts.get(source.lambda);
       if (context === undefined) return false;
       const callee = context.callee.kind === "Access" ? context.callee.receiver : context.callee;
@@ -11442,6 +11448,36 @@ class Checker {
   }
 
   /**
+   * Whether a pattern names its position's head, as this pass reads it
+   * (Pattern Matching §6.1): `namesHead`'s syntactic answer, narrowed where a
+   * declaration says otherwise. A declared pattern names a head only where its
+   * view's subject has one — `pattern ident` with `view(x) = x` is generic, and
+   * names none — read from the checked declaration, fixed where the pattern is
+   * made; and an exception's constructor fixes no scrutinee's head, a `match`
+   * never taking `Exn`.
+   */
+  #namesHead(pattern: Resolved.Pattern): boolean {
+    switch (pattern.kind) {
+      case "As":
+        return this.#namesHead(pattern.pattern);
+      case "Or":
+        return pattern.alternatives.some((alternative) => this.#namesHead(alternative));
+      case "Constructor":
+        return namesHead(pattern) && (pattern.symbol === undefined || !this.#exceptions.has(pattern.symbol));
+      case "Declared": {
+        if (!namesHead(pattern)) return false;
+        const candidate = pattern.candidates.find(({ source }) => source !== "door")!;
+        const scheme = this.#schemes.get(candidate.view);
+        const view = scheme === undefined ? undefined : this.#prune(scheme.type);
+        return view?.kind === "Function" && view.parameters.length === 1 &&
+          this.#prune(view.parameters[0]!).kind !== "Variable";
+      }
+      default:
+        return namesHead(pattern);
+    }
+  }
+
+  /**
    * Numeric Literals §4's new name, at a parameter (Pattern Matching §6.1): an
    * unannotated parameter of a function bound by name, which the text does not
    * otherwise decide (Method Syntax §3.1) and which a `match` in its body tests,
@@ -12968,8 +13004,8 @@ class Checker {
       // An alternative that names the head is read first, so a constructor
       // another leaves to the door meets the head it names (Pattern Matching §6.1).
       const alternatives = [
-        ...pattern.alternatives.filter(namesHead),
-        ...pattern.alternatives.filter((alternative) => !namesHead(alternative)),
+        ...pattern.alternatives.filter((alternative) => this.#namesHead(alternative)),
+        ...pattern.alternatives.filter((alternative) => !this.#namesHead(alternative)),
       ];
       for (const alternative of alternatives) {
         this.#insideWrapper(true, () =>
@@ -17516,7 +17552,7 @@ class Checker {
     // no order of the lines decides it. Patterns that test nothing need none.
     const patterns = expression.arms.map((arm) => arm.pattern);
     const testsNothing = patterns.every(testsNothingPattern);
-    const named = patterns.some(namesHead);
+    const named = patterns.some((pattern) => this.#namesHead(pattern));
     const byText = this.#typeDecided(expression.scrutinee);
     const undecided = !testsNothing && !named && !byText;
     // An arm whose pattern binds makes new names: a number type nothing has
@@ -17576,7 +17612,7 @@ class Checker {
     // constructor an earlier arm leaves to the head's door (§2.2) meets the
     // head the patterns name, whatever another line made of the scrutinee.
     if (named && !byText) {
-      for (const arm of expression.arms) if (namesHead(arm.pattern)) readPattern(arm);
+      for (const arm of expression.arms) if (this.#namesHead(arm.pattern)) readPattern(arm);
     }
     for (const arm of expression.arms) {
       if (!read.has(arm)) readPattern(arm);
@@ -17637,7 +17673,9 @@ class Checker {
       this.#pendingMatchCoverage.push({
         expression,
         type: actual,
-        reportMissing: coverageSupported,
+        // Arms that test nothing are judged whatever the type (§7): an
+        // unguarded `_` or binder is the catch-all, and the witness is `_`.
+        reportMissing: coverageSupported || testsNothing,
       });
     }
     if (coverageSupported) {
@@ -18982,11 +19020,20 @@ class Checker {
       expression: (expression) => {
         if (expression.kind === "Call") {
           const callee = ungrouped(expression.callee);
-          if (callee.kind === "Lambda") this.#appliedLambdas.set(callee, expression.arguments);
+          if (callee.kind === "Lambda" && !this.#appliedLambdas.has(callee)) {
+            this.#appliedLambdas.set(callee, expression.arguments);
+          }
         } else if (expression.kind === "Binary" && expression.operator === "Pipe") {
+          // Operators §8: `a |> L` is `L(a)`, and `a |> L(b)` is `L(a, b)`.
           const stage = ungrouped(expression.right);
           if (stage.kind === "Lambda") this.#appliedLambdas.set(stage, [expression.left]);
+          if (stage.kind === "Call") {
+            const callee = ungrouped(stage.callee);
+            if (callee.kind === "Lambda") this.#appliedLambdas.set(callee, [expression.left, ...stage.arguments]);
+          }
         } else if (expression.kind === "Match") {
+          // Read before any declaration is checked, so `namesHead`'s syntactic
+          // answer, which counts more patterns as naming: it only withholds J3.
           const subject = ungrouped(expression.scrutinee);
           const patterns = expression.arms.map((arm) => arm.pattern);
           if (

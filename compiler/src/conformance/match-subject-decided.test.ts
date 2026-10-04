@@ -54,6 +54,8 @@ const named = (name: string): string => opening(`\`${name}\`'s`) + `write \`${na
 const value = (spelled: string): string => opening("the matched value's") + `write \`(${spelled}: …)\``;
 
 const ZERO = "match k\n        0 => 1\n        _ => 2";
+const SHOW_X = "the program's text does not decide `x`'s type here, so `.show(…)` cannot tell whose `show` it is — " +
+  "write `x`'s type, or call the operation by its module (`Module.show(x, …)`); a record's field is called as `(x.show)(…)`";
 const BODY = "let f(k) =\n    {0}\n    {1}\n    ()";
 
 /** Each case: its name, the declarations it uses, a body whose slots take the lines, the lines, and the reports. */
@@ -100,11 +102,32 @@ const ORDERS: readonly (readonly [string, string, string, readonly string[], rea
   ],
   // A bare integer pattern makes the parameter an `Int`, through `|` too.
   ["or-integer-patterns", "", BODY, ["let w: Int = k", "let n = match k\n        0 | 1 => 1\n        _ => 2"], []],
-  // Patterns that test nothing need no head.
+  // A bare integer pattern makes the parameter an `Int` through `as` too.
+  ["as-integer", "", BODY, ["let w: BigInt = k", "let n = match k\n        0 as z => 1\n        _ => 2"], []],
+  // Patterns that test nothing need no head, and are still judged (§7).
   ["guard-only", "", BODY, ["let w: Int = k", "let n = match k\n        x when x > 0 => 1\n        _ => 2"], []],
+  [
+    "guard-only-without-a-catch-all",
+    "",
+    BODY,
+    ["let w: Int = k", "let n = match k\n        x when x > 0 => 1"],
+    ["match is missing cases: `_`"],
+  ],
   ["binder-only", "", BODY, ["let w: Int = k", "let n = match k\n        x => x"], []],
   // Nothing decides the head: refused alike in every order.
   ["door-only", "", BODY, ["let w: Ordering = k", "let n = match k\n        Less => 1\n        _ => 2"], [PARAMETER]],
+  ["door-or-wildcard", "", BODY, ["let w: Ordering = k", "let n = match k\n        Less | _ => 1"], [PARAMETER]],
+  // A declared pattern with a generic subject names no head, and an
+  // exception's constructor fixes none: a `match` never takes `Exn`.
+  [
+    "a-generic-declared-pattern",
+    "pattern ident\n    view(x) = x\n    build(x) = x",
+    BODY,
+    ["let w: Int = k", "let n = match k\n        (0)ident => 1\n        _ => 2"],
+    [PARAMETER],
+  ],
+  ["an-exception-constructor", "exception Boom", BODY, ["let w: Exn = k", "let n = match k\n        Boom => 1\n        _ => 2"], [PARAMETER]],
+  ["an-exception-constructor-under-as", "exception Boom", BODY, ["let w: Exn = k", "let n = match k\n        Boom as b => 1\n        _ => 2"], [PARAMETER]],
   // A refused `match`'s arms are read against nothing: the door says nothing
   // of the `Int` another line made, in either order.
   ["door-only-beside-another-type", "", BODY, ["let w: Int = k", "let n = match k\n        Less => 1\n        _ => 2"], [PARAMETER]],
@@ -146,6 +169,23 @@ const ORDERS: readonly (readonly [string, string, string, readonly string[], rea
     "let f(v) =\n    {0}\n    {1}\n    ()",
     ["let w: BigInt = v", "let s = v |> match\n        0 => \"zero\"\n        _ => \"other\""],
     [PARAMETER],
+  ],
+  // `v |> L(w)` is `L(v, w)` (Operators §8): `x` is `v`'s.
+  [
+    "piped-into-an-applied-lambda's-own-call",
+    "",
+    "let f(v, w: Int) =\n    {0}\n    {1}\n    ()",
+    ["let a: Int = v", "let s = v |> ((x, y) => x.show())(w)"],
+    [SHOW_X],
+  ],
+  ["piped-into-an-applied-lambda's-own-call-decided", "", "let f(v: Int, w) =\n    {0}\n    {1}\n    ()", ["let a: Int = w", "let s = v |> ((x, y) => x.show())(w)"], []],
+  // The whole, for a dot on a part: `[v]`'s element is `v`'s, which nothing decides.
+  [
+    "piped-a-vector-of-an-untyped-value",
+    "",
+    "let f(v) =\n    {0}\n    {1}\n    ()",
+    ["let a: Int = v", "let s = [v] |> (xs) => Seq.map(xs, (x) => x.show())"],
+    [SHOW_X],
   ],
   [
     "applied-to-an-untyped-value",
@@ -216,6 +256,10 @@ describe("a parameter a `match` tests with a number is an `Int` where it is made
       .toBe("Float -> String");
   });
 
+  test("through `as`, the bare integer is the test", () => {
+    expect(typeOf("let f(k) =\n    match k\n        0 as z => z\n        _ => 2\n", "f")).toBe("Int -> Int");
+  });
+
   test("a lone `fun`, recursive or not, makes its parameter an `Int` too", () => {
     expect(typeOf("fun down(k) = match k\n    0 => 0\n    _ => down(k - 1)\n", "down")).toBe("Int -> Int");
   });
@@ -263,6 +307,14 @@ describe("a lambda applied where it is written is read as a `let` of its argumen
     }
   });
 
+  test("an argument that already reported says it once", () => {
+    // Method Syntax §3.5's echo rule: the parameter takes its argument's type,
+    // and the argument's own report is the one the reader needs.
+    expect(projectDiagnostics(
+      HEADER + "let f() =\n    let s = fromNat(3) |> (x) => match x\n        0 => 1\n        _ => 2\n    ()\n",
+    )).toEqual(["no bare `fromNat`; write `Num.fromNat(3)`"]);
+  });
+
   test("a dot call on the parameter dispatches where the argument's type is written", () => {
     compiles("let f(value: Int): String = value |> (x) => x.show()\n");
     compiles("let f(v: Vector(Int)): Int = ((x) => x.length())(v)\n");
@@ -300,6 +352,14 @@ describe("patterns that test nothing need no type (Pattern Matching §6.1)", () 
     expect(projectDiagnostics(
       HEADER + "export let describe<a: Show>(value: a): String = match value\n    Less => \"less\"\n    _ => \"x\"\n",
     )).toEqual(["cannot match on a value of abstract type `a`; use the operations its constraints provide"]);
+  });
+
+  test("missing cases are judged at any type, a declared variable's included", () => {
+    expect(projectDiagnostics(HEADER + "let classify(k) = match k\n    n when n < 0 => \"negative\"\n"))
+      .toEqual(["match is missing cases: `_`"]);
+    expect(projectDiagnostics(
+      HEADER + "export let g<a: Show>(v: a): String = match v\n    x when show(x) == \"1\" => \"one\"\n",
+    )).toEqual(["match is missing cases: `_`"]);
   });
 
   test("its arms are still judged: a binder after `_` is unreachable", () => {
