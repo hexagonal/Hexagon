@@ -1737,6 +1737,20 @@ export let probe(): Unit = walk!(3, save0)
     expect(hoveredType(prelude + source, "walk(n")).toBe("(Int, () ->! Unit) >-> Unit");
   });
 
+  it("never places a tie at a call that only hands parameters on, in either member order", () => {
+    // A hand-on joins two names for one function: the tie stands at the merge
+    // that made it, whichever member is read first.
+    const a = "    a(action: () ->! Unit, c: Bool, n: Int): Unit =\n        action!()\n        let inner = (f) =>\n" +
+      "            b!(action, c, n - 1)\n            if c then action else f\n        ()\n";
+    const b = "    b(action: () ->! Unit, c: Bool, n: Int): Unit = if n == 0 then () else a!(action, c, n)\n";
+    for (const knot of members(a, b)) {
+      expect(at(knot)).toEqual([[
+        "if c then action else f",
+        "`f`'s colour is tied to `action`'s here, and no written type can say that — write `f`'s type",
+      ]]);
+    }
+  });
+
   it("reads a colour only parameters handed on share as each one's own, in every member order (#1215 (c))", () => {
     // `a`'s untyped `g` holds the function `b`'s written `g` holds: no tie.
     const a = "    a(g, n: Int): Unit =\n        g!()\n        if n == 0 then () else b!(g, n - 1)\n";

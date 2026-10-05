@@ -4558,6 +4558,12 @@ class Checker {
    * (Effects §3.4, #1218), read at the knot's close.
    */
   readonly #knotCalls = new WeakMap<Knot, { readonly host: Resolved.SymbolId; readonly call: Resolved.CallExpr }[]>();
+  /**
+   * The same calls by their spans, so a tie's report can tell a recursive call
+   * that only hands parameters on, which joins two names for one function and
+   * so is never where a tie was made (`#tieSpan`).
+   */
+  readonly #knotCallsBySpan = new Map<string, { readonly host: Resolved.SymbolId; readonly call: Resolved.CallExpr }>();
   /** Each knot member's parameters, by symbol: the callbacks it can hand on. */
   readonly #memberParameters = new Map<Resolved.SymbolId, readonly Resolved.SymbolId[]>();
   /** The knot `#settleKnot` is closing. */
@@ -10451,6 +10457,11 @@ class Checker {
           const calls = this.#knotCalls.get(knot) ?? [];
           this.#knotCalls.set(knot, calls);
           calls.push({ host: knot.host, call: expression });
+          if (expression.callee.kind === "Name" && knot.members.some(({ symbol }) =>
+            expression.callee.kind === "Name" && symbol === expression.callee.symbol
+          )) {
+            this.#knotCallsBySpan.set(spanKey(expression.span), { host: knot.host, call: expression });
+          }
         }
         if (expression.callee.kind === "Access") {
           // Method Syntax §2.2's **receiver rule**: the receiver is the
@@ -21469,21 +21480,41 @@ class Checker {
     };
     const mine = reach(own);
     const theirs = reach(other);
+    // A recursive call that only hands parameters on joins two names for one
+    // function (§3.4), so it is where a tie was made only if nothing else is.
     let latest: { readonly span: Source.Span; readonly order: number } | undefined;
+    let handedOn: { readonly span: Source.Span; readonly order: number } | undefined;
+    const consider = (step: Step | undefined): void => {
+      for (; step?.from !== undefined; step = step.previous) {
+        const bind = this.#binds.get(step.from);
+        if (bind === undefined) continue;
+        if (this.#handsOnOnly(bind.span)) {
+          if (handedOn === undefined || bind.order > handedOn.order) handedOn = bind;
+        } else if (latest === undefined || bind.order > latest.order) {
+          latest = bind;
+        }
+      }
+    };
     for (const [meeting, myStep] of mine) {
       const theirStep = theirs.get(meeting);
       if (theirStep === undefined) continue;
-      for (let step: Step | undefined = myStep; step?.from !== undefined; step = step.previous) {
-        const bind = this.#binds.get(step.from);
-        if (bind !== undefined && (latest === undefined || bind.order > latest.order)) latest = bind;
-      }
-      for (let step: Step | undefined = theirStep; step?.from !== undefined; step = step.previous) {
-        const bind = this.#binds.get(step.from);
-        if (bind !== undefined && (latest === undefined || bind.order > latest.order)) latest = bind;
-      }
+      consider(myStep);
+      consider(theirStep);
       break;
     }
-    return latest?.span;
+    return (latest ?? handedOn)?.span;
+  }
+
+  /** Whether `span` is a recursive call whose every argument carrying a function is a parameter handed on. */
+  #handsOnOnly(span: Source.Span): boolean {
+    const known = this.#knotCallsBySpan.get(spanKey(span));
+    if (known === undefined) return false;
+    const own = this.#memberParameters.get(known.host) ?? [];
+    return known.call.arguments.every((argument) => {
+      if (argument.kind === "Name" && own.includes(argument.symbol)) return true;
+      const type = this.#expressionTypes.get(argument);
+      return type !== undefined && this.#prune(type).kind !== "Function";
+    });
   }
 
   /**
