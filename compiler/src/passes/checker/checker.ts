@@ -4543,6 +4543,12 @@ class Checker {
    */
   readonly #settledFrames = new WeakSet<EffectFrame>();
   /**
+   * The bodies whose ties have been read (`#refuseTies`): a nested body's tie
+   * waits on one until then (#1163). A knot's frames are settled together, but
+   * their ties are read innermost first (`#closeKnotFrames`; #1215).
+   */
+  readonly #tiesRead = new WeakSet<EffectFrame>();
+  /**
    * Every reference that resolved *inside* a knot, and the member it named.
    *
    * A knot member's scheme is a bare monotype while the component is being
@@ -20730,15 +20736,32 @@ class Checker {
    * callbacks close, what they hand back first; the hard cases its level owns
    * settle; whatever else nothing claimed defaults pure; and a tie between
    * callbacks is refused. A knot runs this for each member after the knot's
-   * own arms.
+   * own arms, its ties read apart (`#closeKnotFrames`).
    */
-  #closeFrame(frame: EffectFrame): void {
+  #closeFrame(frame: EffectFrame, ties = true): void {
     this.#settleUntyped(frame);
     this.#closeCallbacks(frame);
     this.#settleHardCases(frame.level);
     this.#defaultFrameColour(frame);
     this.#defaultCallColours(frame);
-    this.#refuseTies(frame);
+    if (ties) this.#refuseTies(frame);
+  }
+
+  /**
+   * A knot's frames, closed together *(#1215)*: every frame's decisions
+   * outermost first, as a held lambda's close reads the claims its member's
+   * close decides; then the ties innermost first, so a held lambda's tie waits
+   * on its member as it would on any enclosing body.
+   */
+  #closeKnotFrames(frames: readonly EffectFrame[]): void {
+    const depth = (frame: EffectFrame): number => {
+      let count = 0;
+      for (let open = frame.enclosing; open !== undefined; open = open.enclosing) count += 1;
+      return count;
+    };
+    const outermost = [...frames].sort((left, right) => depth(left) - depth(right));
+    for (const frame of outermost) this.#closeFrame(frame, false);
+    for (const frame of outermost.reverse()) this.#refuseTies(frame);
   }
 
   /**
@@ -20981,6 +21004,7 @@ class Checker {
    * its own.
    */
   #refuseTies(frame: EffectFrame): void {
+    this.#tiesRead.add(frame);
     const reports = new Map<Mono, TieReport>();
     const named = new Set<EffectFrame["untyped"][number]>();
     for (const parameter of frame.untyped) {
@@ -21032,7 +21056,7 @@ class Checker {
     // whether this is a tie is known only once that colour settles.
     const parts = this.#colourParts(colour);
     for (let open = frame.enclosing; open !== undefined; open = open.enclosing) {
-      if (this.#settledFrames.has(open)) continue;
+      if (this.#tiesRead.has(open)) continue;
       for (const outer of open.untyped) {
         const spine = this.#spineColours(outer.type).flatMap(({ arrow }) => this.#colourParts(arrow));
         if (!parts.some((part) => spine.includes(part))) continue;
@@ -21117,7 +21141,7 @@ class Checker {
     const colour = this.#prune(type.effect ?? PURE);
     if (colour.kind === "Effect") return;
     for (let open = closing.enclosing; open !== undefined; open = open.enclosing) {
-      if (this.#settledFrames.has(open)) continue;
+      if (this.#tiesRead.has(open)) continue;
       const outer = this.#sharingUntyped(open, parameter);
       if (outer !== undefined) {
         (open.deferredTies ??= []).push({ kind: "with", frame, parameter, with: outer });
@@ -21155,10 +21179,10 @@ class Checker {
     report.add(closing, enclosing, false);
   }
 
-  /** The innermost body around `frame` whose close has not run yet. */
+  /** The innermost body around `frame` whose ties have not been read yet. */
   #openEnclosing(frame: EffectFrame): EffectFrame | undefined {
     for (let open = frame.enclosing; open !== undefined; open = open.enclosing) {
-      if (!this.#settledFrames.has(open)) return open;
+      if (!this.#tiesRead.has(open)) return open;
     }
     return undefined;
   }
@@ -21769,14 +21793,7 @@ class Checker {
     } finally {
       this.#settlingArms -= 1;
     }
-    // Outermost first: a held lambda's close reads the claims its enclosing
-    // member's close decides (Effects §3.4's tie test reads settled colours).
-    const depth = (frame: EffectFrame): number => {
-      let count = 0;
-      for (let open = frame.enclosing; open !== undefined; open = open.enclosing) count += 1;
-      return count;
-    };
-    for (const frame of [...frames].sort((left, right) => depth(left) - depth(right))) this.#closeFrame(frame);
+    this.#closeKnotFrames(frames);
   }
 
   /**

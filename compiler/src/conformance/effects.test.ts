@@ -1314,6 +1314,56 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
     ]);
   });
 
+  /** Every order of `lines` in member `a`, beside its sibling `b`, with the members in either order. */
+  const knotOrders = (lines: readonly string[]): string[] => {
+    const permutations = (rest: readonly string[]): string[][] =>
+      rest.length === 0 ? [[]] : rest.flatMap((line, index) =>
+        permutations([...rest.slice(0, index), ...rest.slice(index + 1)]).map((tail) => [line, ...tail])
+      );
+    const b = "    b(g, c: Bool, n: Int): Unit = if n == 0 then () else a!(g, c, n)\n";
+    return permutations(lines).flatMap((order) => {
+      const a = "    a(g, c: Bool, n: Int): Unit =\n" + order.map((line) => `        ${line}\n`).join("") + "        ()\n";
+      return [`fun\n${a}${b}`, `fun\n${b}${a}`];
+    });
+  };
+
+  it("in a lambda a knot holds, one report at the merge, whatever the order of the lines and members (#1215)", () => {
+    for (
+      const held of [
+        // The held lambda's own parameter is tied.
+        "let inner = (f) =>\n            b!(g, c, n - 1)\n            if c then g else f",
+        // A lambda nested in the held one waits on it, and it on its member.
+        "let hold = (z) =>\n            b!(g, c, n - 1)\n            let inner = (f) => if c then g else f\n            ()",
+      ]
+    ) {
+      for (const program of knotOrders(["g!()", held])) {
+        expect([program, tieReports(program)]).toEqual([program, [{
+          at: "if c then g else f",
+          message: "`f`'s colour is tied to `g`'s here, and no written type can say that — write `f`'s type",
+          labels: ["f: `f` has no written type", "g: `g` has no written type"],
+          fixes: [": () ->! Unit", ": () ->! Unit"],
+        }]]);
+      }
+    }
+  });
+
+  it("two held lambdas tied to their member's callback are one report, naming the first in source order (#1215)", () => {
+    const inner = "let inner = (f) =>\n            b!(g, c, n - 1)\n            if c then g else f";
+    const other = "let other = (h) => if c then g else h";
+    for (const program of knotOrders(["g!()", inner, other])) {
+      const reports = tieReports(program);
+      const first = program.indexOf("inner =") < program.indexOf("other =") ? "f" : "h";
+      expect([program, reports.map(({ message }) => message)]).toEqual([program, [
+        `\`${first}\`'s colour is tied to \`g\`'s here, and no written type can say that — write \`${first}\`'s type`,
+      ]]);
+      expect([program, [...reports[0]!.labels].sort()]).toEqual([program, [
+        "f: `f` has no written type",
+        "g: `g` has no written type",
+        "h: `h` has no written type",
+      ]]);
+    }
+  });
+
   it("reads siblings as the fix's face: each its own colour, and the function runs their join", () => {
     // With the fix applied `pick` is `(Bool, () ->! Unit, () ->! Unit) >-> Unit`:
     // a call handing it an impure function wears `!`, and a forwarder meets no
