@@ -1356,11 +1356,107 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
       expect([program, reports.map(({ message }) => message)]).toEqual([program, [
         `\`${first}\`'s colour is tied to \`g\`'s here, and no written type can say that — write \`${first}\`'s type`,
       ]]);
-      expect([program, [...reports[0]!.labels].sort()]).toEqual([program, [
-        "f: `f` has no written type",
+      // The named parameter first, then the others in source order.
+      const second = first === "f" ? "h" : "f";
+      expect([program, reports[0]!.labels]).toEqual([program, [
+        `${first}: \`${first}\` has no written type`,
         "g: `g` has no written type",
-        "h: `h` has no written type",
+        `${second}: \`${second}\` has no written type`,
       ]]);
+    }
+  });
+
+  /** Every order of `lines`. */
+  const orders = (lines: readonly string[]): string[][] =>
+    lines.length === 0 ? [[]] : lines.flatMap((line, index) =>
+      orders([...lines.slice(0, index), ...lines.slice(index + 1)]).map((rest) => [line, ...rest])
+    );
+  const tiedToK = {
+    at: "if c then k else f",
+    message: "`f`'s colour is tied to `k`'s here, and no written type can say that — write `f`'s type",
+    labels: ["f: `f` has no written type", "k: `k` has no written type"],
+    fixes: [": () ->! Unit", ": () ->! Unit"],
+  };
+
+  it("a body around a held lambda reads its ties after the held lambda's, whatever body it is (#1215)", () => {
+    // `p`, a plain lambda, a nested `fun` member and a lone `fun` member each
+    // hold a lambda that calls the recursion; the tie to their own `k` waits
+    // for the held lambda's, in every order of their lines and members.
+    const hold = "let hold = (z) =>\n    b!(g, c, n - 1)\n    let inner = (f) => if c then k else f\n    ()";
+    const indent = (text: string, by: string): string => text.split("\n").map((line) => by + line).join("\n");
+    const b = "    b(g, c: Bool, n: Int): Unit = if n == 0 then () else a!(g, c, n)\n";
+    const programs: string[] = [];
+    for (const lines of orders([hold, "k!()"])) {
+      const plain = "    a(g, c: Bool, n: Int): Unit =\n        g!()\n        let p = (k) =>\n" +
+        lines.map((line) => indent(line, "            ")).join("\n") + "\n            ()\n        p!(g)\n";
+      const nested = "    a(g, c: Bool, n: Int): Unit =\n        g!()\n        fun loop(k, m: Int): Unit =\n" +
+        lines.map((line) => indent(line, "            ")).join("\n") +
+        "\n            if m == 0 then () else loop!(k, m - 1)\n        loop!(g, n)\n";
+      // A body that holds lambdas of two knots, an inner `fun`'s and the
+      // enclosing block's, waits for the outer one, which closes last.
+      const both = "    a(g, c: Bool, n: Int): Unit =\n        g!()\n        fun loop(m: Int): Unit =\n" +
+        "            let p = (k) =>\n                let again = (z) => if m == 0 then () else loop!(m - 1)\n" +
+        lines.map((line) => indent(line, "                ")).join("\n") + "\n                ()\n" +
+        "            p!(g)\n        loop!(n)\n";
+      for (const a of [plain, nested, both]) programs.push(`fun\n${a}${b}`, `fun\n${b}${a}`);
+      programs.push("fun walk(g, c: Bool, n: Int): Unit =\n    let p = (k) =>\n" +
+        lines.map((line) => indent(line.replace("b!(g, c, n - 1)", "walk!(g, c, n - 1)"), "        ")).join("\n") +
+        "\n        ()\n    p!(g)\n");
+    }
+    for (const program of programs) expect([program, tieReports(program)]).toEqual([program, [tiedToK]]);
+  });
+
+  it("a held lambda's tie to the callback of a body around it is one report, however many tie (#1215)", () => {
+    const inner = "let inner = (f) =>\n    b!(g, c, n - 1)\n    if c then k else f";
+    const other = "let other = (h) => if c then k else h";
+    const b = "    b(g, c: Bool, n: Int): Unit = if n == 0 then () else a!(g, c, n)\n";
+    for (const lines of [...orders(["k!()", inner]), ...orders(["k!()", inner, other])]) {
+      const a = "    a(g, c: Bool, n: Int): Unit =\n        g!()\n        let p = (k) =>\n" +
+        lines.map((line) => line.split("\n").map((part) => "            " + part).join("\n")).join("\n") +
+        "\n            ()\n        p!(g)\n";
+      // One report, named for the first tied parameter in source order, `p`'s
+      // `k` labelled next, and every other tied parameter after it.
+      const first = !lines.includes(other) || lines.indexOf(inner) < lines.indexOf(other) ? "f" : "h";
+      const labels = [`${first}: \`${first}\` has no written type`, "k: `k` has no written type"];
+      if (lines.includes(other)) {
+        const second = first === "f" ? "h" : "f";
+        labels.push(`${second}: \`${second}\` has no written type`);
+      }
+      for (const program of [`fun\n${a}${b}`, `fun\n${b}${a}`]) {
+        const reports = tieReports(program);
+        expect([program, reports.length, reports[0]!.labels]).toEqual([program, 1, labels]);
+      }
+    }
+  });
+
+  it("a held lambda's own lines decide its tie in any order (#1215)", () => {
+    // `g!()` inside the held lambda decides `g`, so the merge ties `f` to it,
+    // whichever of the three lines comes first.
+    const lines = ["b(g, c, n - 1)", "g!()", "let inner = (f) => if c then g else f"];
+    const b = "    b(g, c: Bool, n: Int): Unit = if n == 0 then () else a(g, c, n)\n";
+    for (const order of orders(lines)) {
+      const a = "    a(g, c: Bool, n: Int): Unit =\n        let hold = (z) =>\n" +
+        order.map((line) => "            " + line).join("\n") + "\n            ()\n        ()\n";
+      for (const program of [`fun\n${a}${b}`, `fun\n${b}${a}`]) {
+        expect([program, tieReports(program)]).toEqual([program, [{
+          at: "if c then g else f",
+          message: "`f`'s colour is tied to `g`'s here, and no written type can say that — write `f`'s type",
+          labels: ["f: `f` has no written type", "g: `g` has no written type"],
+          fixes: [": () ->! Unit", ": () ->! Unit"],
+        }]]);
+      }
+    }
+  });
+
+  it("reads a knot's ties only after every one of its frames has decided (#1215)", () => {
+    // The held lambda's black box closes `g`'s arrow to the constant before
+    // the member's ties are read, as outside a knot: no tie, in every order.
+    const lines = ["g!()", "let _ = if c then g else h", "let inner = (f) =>\n            b!(g, h, c, n - 1)\n" +
+      "            let _ = if c then f else () => Some(g)\n            ()"];
+    const b = "    b(g, h, c: Bool, n: Int): Unit = if n == 0 then () else a!(g, h, c, n)\n";
+    for (const order of orders(lines)) {
+      const a = "    a(g, h, c: Bool, n: Int): Unit =\n" + order.map((line) => "        " + line).join("\n") + "\n        ()\n";
+      for (const program of [`fun\n${a}${b}`, `fun\n${b}${a}`]) expect([program, tieReports(program)]).toEqual([program, []]);
     }
   });
 

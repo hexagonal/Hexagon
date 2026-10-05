@@ -3250,6 +3250,12 @@ interface Knot {
    * before then is recorded and compared there.
    */
   readonly held: Set<EffectFrame>;
+  /**
+   * Bodies around a lambda the knot holds that closed before it, their ties
+   * read with the knot's (`#tieHolder`): a body's ties wait for every body
+   * nested in it (Effects §3.4, #1215).
+   */
+  readonly tieFrames: EffectFrame[];
 }
 
 /** The module a receiver head's companion is addressed under (§4.1's table). */
@@ -8769,6 +8775,7 @@ class Checker {
         level: level + 1,
         demands: [],
         held: new Set(),
+        tieFrames: [],
       };
       this.#knots.push(knot);
       for (const symbol of ordered) this.#knotMembers.set(symbol, ordered);
@@ -10136,18 +10143,8 @@ class Checker {
         // used to choose it. A `fun` member is the one exception: its colour
         // and its sibling calls wait for the knot's close.
         const knot = this.#knots.at(-1);
-        // A body decided later than its close keeps note of which of its
-        // untyped callbacks' colours were still their own here.
-        const noteOwnColours = (): void => {
-          for (const parameter of effectFrame.untyped) {
-            const type = this.#prune(parameter.type);
-            const colour = type.kind === "Function" ? this.#prune(type.effect ?? PURE) : undefined;
-            parameter.ownAtClose = colour?.kind === "Variable" &&
-              this.#tieOf(effectFrame, parameter, colour) === undefined;
-          }
-        };
         if (declaringMember !== undefined && knot?.host === declaringMember.symbol) {
-          noteOwnColours();
+          this.#noteOwnColours(effectFrame);
           knot.frames.push(effectFrame);
         } else {
           // A lambda whose calls reach a sibling's colour cannot be decided
@@ -10161,7 +10158,7 @@ class Checker {
             // its calls' are decided at the knot's close, and what they meet
             // before then is recorded and compared there, never choosing them.
             // Sunk to the knot's level, nothing around it generalizes them.
-            noteOwnColours();
+            this.#noteOwnColours(effectFrame);
             this.#sinkFrame(effectFrame, holding.level);
             holding.frames.push(effectFrame);
             holding.held.add(effectFrame);
@@ -20727,7 +20724,43 @@ class Checker {
     this.#settleOpenedCalls(frame);
     this.#sourceArm(frame);
     this.#conduitArm(frame);
-    this.#closeFrame(frame);
+    const holder = this.#tieHolder(frame);
+    this.#closeFrame(frame, holder === undefined);
+    if (holder !== undefined) this.#deferTies(frame, holder);
+  }
+
+  /**
+   * The outermost open knot holding a lambda nested in `frame`, if any: a
+   * body's ties wait for every body nested in it, so `frame`'s are read with
+   * that knot's, after the held lambda's (Effects §3.4, #1215).
+   */
+  #tieHolder(frame: EffectFrame): Knot | undefined {
+    const encloses = (inner: EffectFrame): boolean => {
+      for (let open = inner.enclosing; open !== undefined; open = open.enclosing) {
+        if (open === frame) return true;
+      }
+      return false;
+    };
+    return this.#knots.find((knot) => [...knot.held].some(encloses));
+  }
+
+  /** A body decided now whose ties wait for `holder`'s close, its own colours noted as they stand. */
+  #deferTies(frame: EffectFrame, holder: Knot): void {
+    this.#noteOwnColours(frame);
+    holder.tieFrames.push(frame);
+  }
+
+  /**
+   * A body whose ties are read later than its close keeps note of which of
+   * its untyped callbacks' colours were still their own there.
+   */
+  #noteOwnColours(frame: EffectFrame): void {
+    for (const parameter of frame.untyped) {
+      const type = this.#prune(parameter.type);
+      const colour = type.kind === "Function" ? this.#prune(type.effect ?? PURE) : undefined;
+      parameter.ownAtClose = colour?.kind === "Variable" &&
+        this.#tieOf(frame, parameter, colour) === undefined;
+    }
   }
 
   /**
@@ -20751,17 +20784,26 @@ class Checker {
    * A knot's frames, closed together *(#1215)*: every frame's decisions
    * outermost first, as a held lambda's close reads the claims its member's
    * close decides; then the ties innermost first, so a held lambda's tie waits
-   * on its member as it would on any enclosing body.
+   * on its member as it would on any enclosing body. The bodies around a held
+   * lambda that closed before it read their ties here too, and a frame around
+   * a lambda an enclosing knot holds waits for that knot's close instead.
    */
-  #closeKnotFrames(frames: readonly EffectFrame[]): void {
+  #closeKnotFrames(knot: Knot): void {
     const depth = (frame: EffectFrame): number => {
       let count = 0;
       for (let open = frame.enclosing; open !== undefined; open = open.enclosing) count += 1;
       return count;
     };
-    const outermost = [...frames].sort((left, right) => depth(left) - depth(right));
+    const outermost = [...knot.frames].sort((left, right) => depth(left) - depth(right));
     for (const frame of outermost) this.#closeFrame(frame, false);
-    for (const frame of outermost.reverse()) this.#refuseTies(frame);
+    const reading: EffectFrame[] = [...knot.tieFrames];
+    for (const frame of outermost) {
+      const holder = this.#tieHolder(frame);
+      if (holder === undefined) reading.push(frame);
+      else this.#deferTies(frame, holder);
+    }
+    // Innermost first; bodies at one depth in the order they were reached.
+    for (const frame of reading.sort((left, right) => depth(right) - depth(left))) this.#refuseTies(frame);
   }
 
   /**
@@ -21716,8 +21758,9 @@ class Checker {
    * the source arm, to its own fixpoint: a frame whose sibling call absorbs a
    * source is a source in turn. Then the conduit arm: each member's own colour
    * is the join of what it runs, a sibling's run colours propagated to a
-   * fixpoint. Then each member's close, in the order a lone body's takes.
-   * Nothing is re-inferred: the edges are the calls the bodies recorded.
+   * fixpoint. Then every frame's decisions, outermost first, and then the
+   * ties, innermost first (`#closeKnotFrames`). Nothing is re-inferred: the
+   * edges are the calls the bodies recorded.
    */
   #settleKnot(knot: Knot): void {
     const frames = knot.frames;
@@ -21793,7 +21836,7 @@ class Checker {
     } finally {
       this.#settlingArms -= 1;
     }
-    this.#closeKnotFrames(frames);
+    this.#closeKnotFrames(knot);
   }
 
   /**
