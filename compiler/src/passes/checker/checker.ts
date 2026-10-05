@@ -545,8 +545,17 @@ interface EffectFrame {
   deferredTies?: {
     readonly frame: EffectFrame;
     readonly parameter: EffectFrame["untyped"][number];
-    /** The enclosing parameter it waits on, whose type the fix writes too. */
-    readonly with: EffectFrame["untyped"][number];
+    /**
+     * The enclosing parameter it waits on, whose type the fix writes too;
+     * absent where the parameter's shape was still open at its own close, and
+     * a later line of an enclosing body decides it (#1163).
+     */
+    readonly with?: EffectFrame["untyped"][number] | undefined;
+    /**
+     * Deferred because its shape was still open (`with` absent): it is a tie
+     * only to an enclosing body's untyped callback its colour now shares.
+     */
+    readonly shape?: true;
   }[];
   /** Call colours awaiting `own ⊒ colour`, settled after inference, with the mark each call wore. */
   readonly absorbed: AbsorbedColour[];
@@ -1032,6 +1041,52 @@ interface InPlaceRead {
   readonly before: ReadonlySet<Variable>;
   /** How many variables existed before it: those after are the value's. */
   readonly minted: number;
+}
+
+/**
+ * One tied colour's report (Effects §3.4, §9): every tied parameter, each once,
+ * and what each one whose own tie was found is tied to. It names the first in
+ * source order, whichever body closed first, so no order of the lines picks it.
+ */
+class TieReport {
+  readonly tied: EffectFrame["untyped"][number][] = [];
+  /** The parameters that read as their fix from outside, by body (`#readRefusedTies`). */
+  readonly readings: { readonly frame: EffectFrame; readonly index: number }[] = [];
+  /** The parameters whose own tie was found, each with what it is tied to. */
+  readonly named: {
+    readonly parameter: EffectFrame["untyped"][number];
+    readonly phrase: string;
+    readonly from: Mono | undefined;
+  }[] = [];
+
+  /**
+   * A tied parameter, its own body's where it reads as its fix, and the
+   * enclosing callback it waited on, each once.
+   */
+  add(
+    frame: EffectFrame | undefined,
+    parameter: EffectFrame["untyped"][number],
+    enclosing: EffectFrame["untyped"][number] | undefined,
+  ): void {
+    if (!this.tied.includes(parameter)) {
+      this.tied.push(parameter);
+      if (frame !== undefined) this.readings.push({ frame, index: parameter.index });
+    }
+    if (enclosing !== undefined && !this.tied.includes(enclosing)) this.tied.push(enclosing);
+  }
+
+  /** The parameter the report names, the first in source order whose own tie was found. */
+  subject(): { readonly parameter: EffectFrame["untyped"][number]; readonly phrase: string; readonly from: Mono | undefined } {
+    return this.named.reduce((first, each) =>
+      each.parameter.span.start.offset < first.parameter.span.start.offset ? each : first
+    );
+  }
+
+  /** Every tied parameter: the one the report names, then the rest in source order. */
+  inOrder(subject: EffectFrame["untyped"][number]): EffectFrame["untyped"][number][] {
+    return [subject, ...this.tied.filter((each) => each !== subject)
+      .sort((left, right) => left.span.start.offset - right.span.start.offset)];
+  }
 }
 
 /** A meeting of colours outside the join fragment, settled where its level closes (Effects §3.4). */
@@ -20907,23 +20962,43 @@ class Checker {
    * §3.4's last step, **a tie between callbacks is refused**: an untyped
    * callback whose own colour inference made a colour that is not its own —
    * another callback's, a captured one, one that waits, or a join with such a
-   * part — has a face no written type can say. One report per tie, at the first
-   * tied parameter in parameter order; the repair is to write the type, which
-   * is then fitted where it is used, so its colour stays its own.
+   * part — has a face no written type can say. One report per tied colour, at
+   * the first tied parameter in parameter order, every other a label, the
+   * nested bodies' ties that waited on this close included (#1163); the repair
+   * is to write the types, which are then fitted where they are used, so each
+   * colour stays its own.
    */
   #refuseTies(frame: EffectFrame): void {
-    const reported = new Set<Mono>();
+    const reports = new Map<Mono, TieReport>();
     const named = new Set<EffectFrame["untyped"][number]>();
     for (const parameter of frame.untyped) {
       if (parameter.ownAtClose === true || named.has(parameter)) continue;
-      this.#refuseTie(frame, parameter, reported, named);
+      this.#refuseTie(frame, parameter, reports, named);
     }
-    // Nested bodies' ties to this body's untyped parameters, now decided.
+    // Nested bodies' ties to this body's untyped parameters, now decided, each
+    // joining the report of the colour it is tied to.
     for (const deferred of frame.deferredTies ?? []) {
-      this.#refuseTie(deferred.frame, deferred.parameter, new Set(), new Set(), deferred.with);
+      if (deferred.shape === true) {
+        this.#refuseShapeTie(frame, deferred.frame, deferred.parameter, reports);
+        continue;
+      }
+      this.#refuseTie(deferred.frame, deferred.parameter, reports, named, deferred.with);
     }
+    for (const report of reports.values()) this.#reportTie(report);
   }
 
+  /** This body's untyped parameter whose colour a nested body's parameter now shares, if one does. */
+  #sharingUntyped(
+    frame: EffectFrame,
+    parameter: EffectFrame["untyped"][number],
+  ): EffectFrame["untyped"][number] | undefined {
+    const type = this.#prune(parameter.type);
+    if (type.kind !== "Function") return undefined;
+    const parts = this.#colourParts(this.#prune(type.effect ?? PURE));
+    return frame.untyped.find((outer) =>
+      this.#spineColours(outer.type).some(({ arrow }) => this.#colourParts(arrow).some((part) => parts.includes(part)))
+    );
+  }
   /**
    * The siblings sharing an untyped parameter's colour, and what else it is
    * tied to (Effects §3.4), or nothing where the colour is its own.
@@ -20970,40 +21045,124 @@ class Checker {
     return owner === undefined ? `the enclosing \`${other}\`'s` : `\`${owner}\`'s \`${other}\``;
   }
 
-  /** One untyped parameter's tie, refused per §9, or deferred to the close that decides it. */
+  /**
+   * One untyped parameter's tie, gathered into its colour's report (§9), or
+   * deferred to the close that decides it: an enclosing body's untyped
+   * callback it shares a colour with, or a shape a later line of an enclosing
+   * body decides (#1163).
+   */
   #refuseTie(
     frame: EffectFrame,
     parameter: EffectFrame["untyped"][number],
-    reported: Set<Mono>,
+    reports: Map<Mono, TieReport>,
     named: Set<EffectFrame["untyped"][number]>,
     enclosing?: EffectFrame["untyped"][number],
   ): void {
     const type = this.#prune(parameter.type);
-    if (type.kind !== "Function") return;
+    if (type.kind !== "Function") {
+      // Not a function yet where its body closed: a line of an enclosing body
+      // still open may make it one, tied to that body's callback, so the open
+      // body's close decides it, whatever order the lines come in.
+      if (type.kind === "Variable" && type.rigidName === undefined) {
+        const open = this.#openEnclosing(frame);
+        if (open !== undefined) (open.deferredTies ??= []).push({ frame, parameter, shape: true });
+      }
+      return;
+    }
     const colour = this.#prune(type.effect ?? PURE);
-    if (colour.kind === "Effect" || reported.has(colour)) return;
+    if (colour.kind === "Effect") return;
     const tie = this.#tieOf(frame, parameter, colour);
     if (tie === undefined) return;
     if (tie.waits !== undefined) {
       (tie.waits.frame.deferredTies ??= []).push({ frame, parameter, with: tie.waits.parameter });
       return;
     }
-    const others = tie.others;
-    reported.add(colour);
-    for (const other of others) named.add(other);
+    for (const other of tie.others) named.add(other);
+    // One report per tied colour: another parameter tied to it joins it, a
+    // label on it whose type the same fix writes.
+    const report = reports.get(colour) ?? new TieReport();
+    reports.set(colour, report);
+    // Where it waited on an enclosing callback, the expression that tied them
+    // is found between the two parameters' types, whichever line gave them
+    // their arrows (`#tieSpan`).
+    report.named.push({ parameter, phrase: tie.phrase, from: enclosing?.type ?? tie.from });
+    report.add(frame, parameter, enclosing);
+    for (const other of tie.others) report.add(frame, other, undefined);
+  }
+
+  /**
+   * A nested body's parameter whose shape was open where that body closed,
+   * read at the close of `closing`, the body around it a later line of which
+   * may have made it a function (#1163): it is tied where its colour is now
+   * one of `closing`'s untyped callbacks', and waits again where it may be one
+   * of a body further out. Its other ties were for its own close to read.
+   */
+  #refuseShapeTie(
+    closing: EffectFrame,
+    frame: EffectFrame,
+    parameter: EffectFrame["untyped"][number],
+    reports: Map<Mono, TieReport>,
+  ): void {
+    const type = this.#prune(parameter.type);
+    if (type.kind !== "Function") {
+      if (type.kind === "Variable" && type.rigidName === undefined) {
+        const open = this.#openEnclosing(closing);
+        if (open !== undefined) (open.deferredTies ??= []).push({ frame, parameter, shape: true });
+      }
+      return;
+    }
+    const colour = this.#prune(type.effect ?? PURE);
+    if (colour.kind === "Effect") return;
+    const enclosing = this.#sharingUntyped(closing, parameter);
+    if (enclosing === undefined) {
+      const parts = this.#colourParts(colour);
+      for (let open = closing.enclosing; open !== undefined; open = open.enclosing) {
+        if (this.#settledFrames.has(open)) continue;
+        const outer = open.untyped.find((each) =>
+          this.#spineColours(each.type).some(({ arrow }) => this.#colourParts(arrow).some((part) => parts.includes(part)))
+        );
+        if (outer !== undefined) {
+          (open.deferredTies ??= []).push({ frame, parameter, with: outer });
+          return;
+        }
+      }
+      return;
+    }
+    const report = reports.get(colour) ?? new TieReport();
+    reports.set(colour, report);
+    report.named.push({
+      parameter,
+      phrase: this.#namedAcross(enclosing.name, parameter.name, closing.owner),
+      from: enclosing.type,
+    });
+    report.add(frame, parameter, enclosing);
+  }
+
+  /** The innermost body around `frame` whose close has not run yet. */
+  #openEnclosing(frame: EffectFrame): EffectFrame | undefined {
+    for (let open = frame.enclosing; open !== undefined; open = open.enclosing) {
+      if (!this.#settledFrames.has(open)) return open;
+    }
+    return undefined;
+  }
+
+  /** A tied colour's one report (§9): every tied parameter a label, and one fix writing each type once. */
+  #reportTie(report: TieReport): void {
+    const { parameter, phrase, from } = report.subject();
+    const tied = report.inOrder(parameter);
     // The fix writes every tied parameter's type (Effects §3.4): this one's,
-    // its siblings', and an enclosing callback's it waited on. Where any of
-    // them is not plain, there is no fixit.
-    const tied = [parameter, ...others, ...(enclosing === undefined ? [] : [enclosing])];
+    // its siblings', an enclosing callback's it waited on, and those of the
+    // nested bodies tied to the same colour. Where any of them is not plain,
+    // there is no fixit.
     const readings = tied.map((each) => {
       const eachType = this.#prune(each.type);
       return eachType.kind === "Function" ? this.#blackBoxReading(eachType) : undefined;
     });
     this.#diagnostics.add({
       severity: "error",
-      message: `\`${parameter.name}\`'s colour is tied to ${tie.phrase} here, and no written type can say ` +
+      message: `\`${parameter.name}\`'s colour is tied to ${phrase} here, and no written type can say ` +
         `that — write \`${parameter.name}\`'s type`,
-      primary: (tie.from === undefined ? undefined : this.#tieSpan(parameter.type, tie.from)) ?? parameter.span,
+      primary: (from === undefined ? undefined : this.#tieSpan(parameter.type, from)) ?? parameter.span,
       labels: tied.map(({ name, span }) => ({
         span,
         message: `\`${name}\` has no written type`,
@@ -21024,7 +21183,7 @@ class Checker {
     });
     // The refused parameters read as their fix where the function is seen from
     // outside (`#readRefusedTies`), so no caller meets the tie a second time.
-    for (const tied of [parameter, ...others]) (frame.tieReadings ??= new Set()).add(tied.index);
+    for (const { frame, index } of report.readings) (frame.tieReadings ??= new Set()).add(index);
   }
 
   /**
