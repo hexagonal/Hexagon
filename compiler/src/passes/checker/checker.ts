@@ -21100,9 +21100,9 @@ class Checker {
    * waited on, or, where its shape was open at its own close, to whichever of
    * `closing`'s untyped callbacks a later line made it share a colour with;
    * a shape's other ties were for its own close to read. One that waited on a
-   * callback it no longer shares is read as its own close would have read it. The expression that tied
-   * them is looked for between the two parameters' types, whichever line gave
-   * them their arrows (`#tieSpan`).
+   * callback it no longer shares is read as its own close would have read it.
+   * The expression that tied them is looked for between the two parameters'
+   * types, whichever line gave them their arrows (`#tieSpan`).
    */
   #refuseDeferredTie(closing: EffectFrame, deferred: DeferredTie, reports: Map<Mono, TieReport>): void {
     const { frame, parameter } = deferred;
