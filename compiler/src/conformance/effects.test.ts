@@ -1448,6 +1448,58 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
     }
   });
 
+  it("a body around a held lambda decides its ties where it closes, and reports them with the knot (#1215)", () => {
+    const b = "    b(g, c: Bool, n: Int): Unit = if n == 0 then () else a!(g, c, n)\n";
+    const both = (a: string): string[] => [`fun\n${a}${b}`, `fun\n${b}${a}`];
+    // Its tie's fix reading holds when it generalizes, so a forwarder meets
+    // the tie once, as outside a knot.
+    for (const head of ["let choose = (d: Bool, f, e) =>", "fun choose(d: Bool, f, e): Unit ="]) {
+      const a = `    a(g, c: Bool, n: Int): Unit =\n        g!()\n        ${head}\n            let h = if d then f else e\n` +
+        "            h!()\n            let hold = (z) => b!(g, c, n - 1)\n            ()\n" +
+        "        let fwd = (x, y) => choose!(True, x, y)\n        ()\n";
+      for (const program of both(a)) {
+        expect([program, tieReports(program).map(({ message }) => message)]).toEqual([program, [
+          "`f`'s colour is tied to `e`'s here, and no written type can say that — write `f`'s type",
+        ]]);
+      }
+    }
+    // A nested lambda's tie that reached it before it closed is decided there,
+    // so a later use of an ungeneralized `q` neither moves it nor its labels.
+    const used = "    a(g, c: Bool, n: Int): Unit =\n        g!()\n        let q = ident((k) =>\n            k!()\n" +
+      "            let inner = (f) => if c then k else f\n            let hold = (z) => b!(g, c, n - 1)\n" +
+      "            ())\n        q!(g)\n";
+    for (const program of both(used)) {
+      const reports = tieReports("let ident(x: t): t = x\n" + program);
+      expect([program, reports[0]]).toEqual([program, {
+        at: "if c then k else f",
+        message: "`f`'s colour is tied to `k`'s here, and no written type can say that — write `f`'s type",
+        labels: ["f: `f` has no written type", "k: `k` has no written type"],
+        fixes: [": () ->! Unit", ": () ->! Unit"],
+      }]);
+      expect([program, reports.slice(1).flatMap(({ labels }) => labels).filter((label) => label.startsWith("f"))])
+        .toEqual([program, []]);
+    }
+    // Without the nested tie, the use's report labels only `g`.
+    for (const program of both(used.replace("            let inner = (f) => if c then k else f\n", ""))) {
+      expect([program, tieReports("let ident(x: t): t = x\n" + program).flatMap(({ labels }) => labels)])
+        .toEqual([program, ["g: `g` has no written type", "g: `g` has no written type"]]);
+    }
+  });
+
+  it("a knot frame around a lambda an outer knot holds keeps the colours it noted at its own close (#1215)", () => {
+    const a = "    a(g, c: Bool, n: Int): Unit =\n        g!()\n        fun loop(m: Int): Unit =\n" +
+      "            let h1 = (k) =>\n                if m == 0 then () else loop!(m - 1)\n                k!()\n" +
+      "                let h2 = (z) =>\n                    b!(g, c, n - 1)\n" +
+      "                    let inner = (f) => if c then k else f\n                    ()\n                ()\n" +
+      "            h1!(g)\n        loop!(n)\n        ()\n";
+    const b = "    b(g, c: Bool, n: Int): Unit = if n == 0 then () else a!(g, c, n)\n";
+    for (const program of [`fun\n${a}${b}`, `fun\n${b}${a}`]) {
+      expect([program, tieReports(program).map(({ message }) => message)]).toEqual([program, [
+        "`f`'s colour is tied to `g`'s here, and no written type can say that — write `f`'s type",
+      ]]);
+    }
+  });
+
   it("reads a knot's ties only after every one of its frames has decided (#1215)", () => {
     // The held lambda's black box closes `g`'s arrow to the constant before
     // the member's ties are read, as outside a knot: no tie, in every order.
