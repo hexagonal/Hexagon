@@ -21099,7 +21099,8 @@ class Checker {
    * waits again, there. Otherwise it is tied to the callback of `closing` it
    * waited on, or, where its shape was open at its own close, to whichever of
    * `closing`'s untyped callbacks a later line made it share a colour with;
-   * its other ties were for its own close to read. The expression that tied
+   * a shape's other ties were for its own close to read. One that waited on a
+   * callback it no longer shares is read as its own close would have read it. The expression that tied
    * them is looked for between the two parameters' types, whichever line gave
    * them their arrows (`#tieSpan`).
    */
@@ -21127,7 +21128,20 @@ class Checker {
     const enclosing = deferred.kind === "with" && this.#shares(deferred.with, parameter)
       ? deferred.with
       : this.#sharingUntyped(closing, parameter);
-    if (enclosing === undefined) return;
+    if (enclosing === undefined) {
+      // A tie that waited on a callback its colour no longer shares (the
+      // callback turned pure) is read as its own close would have read it,
+      // had it not stopped at the wait: a captured colour, a sibling's, a join.
+      if (deferred.kind !== "with") return;
+      const tie = this.#tieOf(frame, parameter, colour);
+      if (tie === undefined || tie.waits !== undefined) return;
+      const report = reports.get(colour) ?? new TieReport();
+      reports.set(colour, report);
+      report.named.push({ parameter, phrase: tie.phrase, from: tie.from });
+      report.add(frame, parameter, false);
+      for (const other of tie.others) report.add(frame, other, false);
+      return;
+    }
     const report = reports.get(colour) ?? new TieReport();
     reports.set(colour, report);
     report.named.push({

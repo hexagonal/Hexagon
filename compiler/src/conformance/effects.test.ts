@@ -1196,7 +1196,7 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
     expect(reports[1]).toEqual(reports[0]);
   });
 
-  it("one report per tied colour, across nested bodies, whatever the order of the lines (#1163)", () => {
+  it("one report per tie, across nested bodies, whatever the order of the lines (#1163)", () => {
     const tie = "`f`'s colour is tied to `g`'s here, and no written type can say that — write `f`'s type";
     for (const [nested, later] of [
       // A use of the tied function hands it another untyped callback, tied to the same colour.
@@ -1282,6 +1282,22 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
       "g: `outer`'s `g` has no written type",
     ]);
     expect(reports[1]).toEqual(reports[0]);
+  });
+
+  it("a tie that waited on a callback that turned pure is still read, in either order (#1163)", () => {
+    // `f` waits on `g`, which shares its colour; `g` is decided pure, and `f`
+    // is tied through the lambda to the captured `action`.
+    const lambda = "let inner = (f) => if c then f else () =>\n            g()\n            action!()";
+    for (const decide of ["g()", "pureOnly(g)"]) {
+      const reports = [[decide, lambda], [lambda, decide]].map((order) =>
+        tieReports("let outer(action: () ->! Unit, g, c: Bool): Unit =\n" +
+          order.map((line) => `    ${line}\n`).join("") + "    ()\n").map(({ message }) => message)
+      );
+      expect([decide, reports[0]]).toEqual([decide, [
+        "`f`'s colour is tied to `action`'s here, and no written type can say that — write `f`'s type",
+      ]]);
+      expect([decide, reports[1]]).toEqual([decide, reports[0]]);
+    }
   });
 
   it("is refused in a lambda a knot holds, reading its member's claims", () => {
