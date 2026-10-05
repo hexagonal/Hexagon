@@ -1246,6 +1246,44 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
     }
   });
 
+  it("three bodies deep, a tie that waits on a callback further out joins its report (#1163)", () => {
+    const head = "let top(h, c: Bool): Unit =\n";
+    const outer = (lines: readonly string[]): string =>
+      "    let outer = (g) =>\n" + lines.map((line) => `        ${line}\n`).join("") + "        ()\n";
+    const inside = ["let inner = (f) => if c then g else f", "let pair = [g, h]"];
+    const programs = [
+      head + "    h!()\n" + outer(inside) + "    ()\n",
+      head + "    h!()\n" + outer([...inside].reverse()) + "    ()\n",
+      head + outer(inside) + "    h!()\n    ()\n",
+      head + outer([...inside].reverse()) + "    h!()\n    ()\n",
+    ];
+    for (const program of programs) {
+      const reports = tieReports(program);
+      expect([program, reports.map(({ message }) => message)]).toEqual([program, [
+        "`g`'s colour is tied to `h`'s here, and no written type can say that — write `g`'s type",
+      ]]);
+      expect([program, reports[0]!.labels]).toEqual([program, [
+        "g: `g` has no written type",
+        "h: `h` has no written type",
+        "f: `f` has no written type",
+      ]]);
+    }
+  });
+
+  it("a nested parameter spelled like the callback it is tied to reads alike in either order (#1163)", () => {
+    const lines = ["g!()", "let h = g", "let inner = (g) => if c then h else g"];
+    const reports = [lines, [lines[1]!, lines[2]!, lines[0]!]].map((order) =>
+      tieReports("let outer(g, c: Bool): Unit =\n" + order.map((line) => `    ${line}\n`).join("") + "    ()\n")
+    );
+    expect(reports[0]!.map(({ message }) => message))
+      .toEqual(["`g`'s colour is tied to `outer`'s `g` here, and no written type can say that — write `g`'s type"]);
+    expect(reports[0]![0]!.labels).toEqual([
+      "g: `inner`'s `g` has no written type",
+      "g: `outer`'s `g` has no written type",
+    ]);
+    expect(reports[1]).toEqual(reports[0]);
+  });
+
   it("is refused in a lambda a knot holds, reading its member's claims", () => {
     expect(tieReports(`fun
     a(g, c: Bool, n: Int): Unit =
@@ -1299,6 +1337,13 @@ let fwd(a, b) = pick!(True, a, b)
     expect(repaired("let outer(g, c: Bool): Unit =\n    g!()\n    let inner = (f) => if c then g else f\n" +
       "    let fwd = (h) => inner(h)\n    ()\n"))
       .toEqual({ fixes: ["write the types of `f`, `g` and `h`"], after: [] });
+    // So where one is tied through a lambda that runs `g`, in every order of the lines.
+    const lines = ["g!()", "let inner = (f) => if c then f else () => g!()", "let other = (h) => if c then g else h"];
+    for (const order of [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]]) {
+      const source = "let outer(g, c: Bool): Unit =\n" + order.map((index) => `    ${lines[index]!}\n`).join("") + "    ()\n";
+      const { fixes, after } = repaired(source);
+      expect([order, fixes.length, after]).toEqual([order, 1, []]);
+    }
     expect(repaired("export let outer(action: () ->! Unit, c: Bool): Unit =\n    let inner = (f) => if c then action else f\n    ()\n"))
       .toEqual({ fixes: ["write `f`'s type"], after: [] });
   });
