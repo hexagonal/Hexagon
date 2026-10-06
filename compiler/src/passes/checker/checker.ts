@@ -1146,6 +1146,47 @@ function deferredLambda(expression: Resolved.Expr): Resolved.LambdaExpr | undefi
 }
 
 /**
+ * The lambda literals a binding annotation's face lands on as the value itself
+ * *(#1106)*: the right-hand side, read through grouping, a block's final
+ * expression and the forwarding forms' value paths. A lambda anywhere else, an
+ * argument of a call on a branch for one, is a value of its own, and the
+ * annotation's outer arrow is not its colour.
+ */
+function faceLambdas(
+  expression: Resolved.Expr,
+  into: Set<Resolved.LambdaExpr> = new Set(),
+): Set<Resolved.LambdaExpr> {
+  switch (expression.kind) {
+    case "Lambda":
+      into.add(expression);
+      break;
+    case "Group":
+      faceLambdas(expression.expression, into);
+      break;
+    case "Block": {
+      const final = expression.items.at(-1);
+      if (final?.kind === "ExprItem") faceLambdas(final.expression, into);
+      break;
+    }
+    case "If":
+      if (expression.elseless === true) break;
+      faceLambdas(expression.consequence, into);
+      faceLambdas(expression.alternative, into);
+      break;
+    case "Match":
+      for (const arm of [...expression.arms, ...expression.catchArms ?? []]) faceLambdas(arm.body, into);
+      break;
+    case "Try":
+      faceLambdas(expression.body, into);
+      for (const arm of expression.arms) faceLambdas(arm.body, into);
+      break;
+    default:
+      break;
+  }
+  return into;
+}
+
+/**
  * Whether an expectation given to this expression could **land** — Functions
  * §4.3's two landing sites, a lambda literal and an arithmetic operation
  * (Numeric Literals §5.1's expected-type lift) — reached through §4.3's
@@ -3510,6 +3551,8 @@ class Checker {
   #pendingOwnEffect: Mono | undefined;
   /** The written face whose outer arrow `#pendingOwnEffect` is, for §4.2's reports on the lambda's body. */
   #pendingOwnFace: SignatureFace | undefined;
+  /** The lambdas the face lands on (`faceLambdas`), the only ones that may take `#pendingOwnEffect` (#1106). */
+  #pendingOwnLambdas: ReadonlySet<Resolved.LambdaExpr> | undefined;
   /**
    * The written calls a report has already answered — a condemned signature
    * face's, or a failed seat's. Stamped at the ruling by `#suppressMarksOn`,
@@ -7920,7 +7963,15 @@ class Checker {
         // effects are absorbed by a colour already constant and the callbacks'
         // colours are left free; `>->` is the join of the face's callbacks.
         const supplied = suppliedFace === undefined ? undefined : this.#prune(suppliedFace);
+        // An enclosing binding's face still waiting for its own lambda, which
+        // this nested binding hands back when it is done.
+        const enclosingPending = {
+          effect: this.#pendingOwnEffect,
+          face: this.#pendingOwnFace,
+          lambdas: this.#pendingOwnLambdas,
+        };
         this.#pendingOwnEffect = supplied?.kind === "Function" ? supplied.effect ?? PURE : undefined;
+        this.#pendingOwnLambdas = supplied?.kind === "Function" ? faceLambdas(item.value) : undefined;
         this.#pendingOwnFace = supplied?.kind === "Function" && annotation?.kind === "Function" &&
             annotation.effect === "linked"
           ? this.#signatureFaces.at(-1)
@@ -7942,9 +7993,10 @@ class Checker {
         } finally {
           this.#bindingChain.pop();
           this.#bindingValue = enclosingBindingValue;
+          this.#pendingOwnEffect = enclosingPending.effect;
+          this.#pendingOwnFace = enclosingPending.face;
+          this.#pendingOwnLambdas = enclosingPending.lambdas;
         }
-        this.#pendingOwnEffect = undefined;
-        this.#pendingOwnFace = undefined;
         // The body the annotation's face is the signature of, where its
         // reports search for the offending call.
         if (annotationFace !== undefined && annotationFace.body === undefined) {
@@ -7973,6 +8025,22 @@ class Checker {
               (annotationWhole(annotation) && this.#holdsNumberDefault(valueType))
             ? annotationType
             : this.#applyWrittenQualifiers(annotationType, valueType);
+          // *(#1149.)* A written `->!` over a value whose colour a later close
+          // decides (a knot's) is the binding's face (Functions §4.1), as it is
+          // where the colour is decided at once: the published arrow is the
+          // written one joined with the colour still to be decided (Effects
+          // §4.2), and the impure constant absorbs it. A written `->` publishes
+          // the value's colour, which its recorded demand settles pure or
+          // refuses. Only the outer arrow.
+          const written = this.#prune(annotationType);
+          const published = this.#prune(valueType);
+          if (
+            written.kind === "Function" && published.kind === "Function" &&
+            isImpure(written.effect ?? PURE) &&
+            this.#colourParts(published.effect ?? PURE).some((part) => this.#undecided(part))
+          ) {
+            valueType = { ...published, effect: written.effect ?? PURE };
+          }
         }
         if (item.typeParameters !== undefined) {
           this.#annotationVariableScope = enclosingLetScope;
@@ -9979,10 +10047,19 @@ class Checker {
         // return annotation is the spine's next arrow. Its own outer arrow is
         // never written: its colour is what its body does (§2.6), unless a
         // binding annotation above it already wrote the face it has.
-        const writtenOwn = this.#pendingOwnEffect;
-        const writtenFace = this.#pendingOwnFace;
-        this.#pendingOwnEffect = undefined;
-        this.#pendingOwnFace = undefined;
+        // Only a lambda the face lands on takes it: one inside a call's
+        // arguments on a branch is elaborated first, and is not the value
+        // (#1106). A constant face lands on every branch's lambda alike, so
+        // where a report stands never follows the order of the branches; a
+        // `>->` face is one signature, with one body, and the first takes it.
+        const lands = this.#pendingOwnLambdas?.has(expression) === true;
+        const writtenOwn = lands ? this.#pendingOwnEffect : undefined;
+        const writtenFace = lands ? this.#pendingOwnFace : undefined;
+        if (writtenFace !== undefined) {
+          this.#pendingOwnEffect = undefined;
+          this.#pendingOwnFace = undefined;
+          this.#pendingOwnLambdas = undefined;
+        }
         // A `fun` item's value *is* this lambda, so the pending attribution is
         // this head's and no nested lambda's; taking it here is what scopes it.
         const declaringMember = this.#declaringMember;

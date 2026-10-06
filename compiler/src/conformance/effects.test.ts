@@ -2125,6 +2125,89 @@ export let go(): String = withTransaction!((document) => document)
   });
 });
 
+describe("a binding annotation's outer arrow is the face of the value it writes (#1106, #1149)", () => {
+  const compile = (source: string) =>
+    effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + world + source]]);
+  const run4 = "let run4(k: () ->! Unit): () -> Unit = () => ()\n";
+  const pureFace = "this call may touch the world, and the enclosing function's face is the pure arrow `->` " +
+    "— a pure face cannot run effects";
+
+  it("is not taken by a lambda handed to a call on a branch", () => {
+    // `run4(…)` hands back a pure function, so the branch fits `() -> Unit`;
+    // the lambda it is handed is a value of its own and may save.
+    expect(compile(run4 + 'let r: () -> Unit = if True then run4(() => save!("x")) else () => ()\n'))
+      .toEqual([]);
+    expect(compile(run4 +
+      'let r: () -> Unit = match True\n    True => run4(() => save!("x"))\n    False => () => ()\n'))
+      .toEqual([]);
+    expect(compile(run4 + 'let r: () -> Unit = try\n    run4(() => save!("x"))\ncatch\n    _ => () => ()\n'))
+      .toEqual([]);
+  });
+
+  it("is taken by the branch lambda it lands on, which alone is reported", () => {
+    const source = run4 + 'let r: () -> Unit = if True then run4(() => save!("x")) else () => save!("y")\n';
+    expect(compile(source)).toEqual([pureFace]);
+    const [report] = effectSpans([["/world.js", ""], ["/main.hex", "module Main\n\n" + world + source]]);
+    expect(report?.primary).toBe(("module Main\n\n" + world + source).indexOf('save!("y")'));
+    const arms = run4 +
+      'let r: () -> Unit = match True\n    True => run4(() => save!("x"))\n    False => () => save!("y")\n';
+    expect(compile(arms)).toEqual([pureFace]);
+    const [armReport] = effectSpans([["/world.js", ""], ["/main.hex", "module Main\n\n" + world + arms]]);
+    expect(armReport?.primary).toBe(("module Main\n\n" + world + arms).indexOf('save!("y")'));
+  });
+
+  it("reaches a `try` body, a catch arm and a grouped lambda", () => {
+    const at = (source: string, needle: string) => {
+      expect(compile(source)).toEqual([pureFace]);
+      const [report] = effectSpans([["/world.js", ""], ["/main.hex", "module Main\n\n" + world + source]]);
+      expect(report?.primary).toBe(("module Main\n\n" + world + source).indexOf(needle));
+    };
+    at('let r: () -> Unit = try\n    () => save!("x")\ncatch\n    _ => () => ()\n', 'save!("x")');
+    at(run4 + 'let r: () -> Unit = try\n    run4(() => save!("x"))\ncatch\n    _ => (() => save!("y"))\n', 'save!("y")');
+    at(run4 + 'let r: () -> Unit =\n    match trim("a")\n        "a" => run4(() => save!("x"))\n' +
+      '        _ => run4(() => save!("y"))\n    catch\n        _ => () => save!("z")\n', 'save!("z")');
+  });
+
+  it("lands on every branch's lambda, so the report stands at the call in either order", () => {
+    for (const [source, needle] of [
+      ['let r: () -> Unit = if True then () => () else () => save!("y")\n', 'save!("y")'],
+      ['let r: () -> Unit = if True then () => save!("x") else () => ()\n', 'save!("x")'],
+    ] as const) {
+      expect(compile(source)).toEqual([pureFace]);
+      const [report] = effectSpans([["/world.js", ""], ["/main.hex", "module Main\n\n" + world + source]]);
+      expect(report?.primary).toBe(("module Main\n\n" + world + source).indexOf(needle));
+    }
+  });
+
+  it("lands through a nested binding on the block's final lambda", () => {
+    const source = 'let r: () -> Unit =\n    let z = 1\n    () => save!("x")\n';
+    expect(compile(source)).toEqual([pureFace]);
+    const [report] = effectSpans([["/world.js", ""], ["/main.hex", "module Main\n\n" + world + source]]);
+    expect(report?.primary).toBe(("module Main\n\n" + world + source).indexOf('save!("x")'));
+  });
+
+  /** A lambda a knot holds, under a written face (#1149). */
+  const knot = (written: string, call: string, sibling: string) => `fun
+    ping(n: Int): Int =
+        let act = () => pong${sibling}(n)
+        let q: ${written} = act
+        ${call}
+    pong(n: Int): Int = if n > 0 then ping${sibling}(n - 1) else 0
+`;
+
+  it("is the binding's type over a lambda a knot holds, as over any other", () => {
+    // `q` is `() ->! Int`, as it is outside a knot, so `q!()` is a source and
+    // the knot touches the world. A written `->` publishes the value's colour,
+    // which the knot settles pure here (pinned as main has it).
+    expect(compile(knot("() ->! Int", "q!()", "!"))).toEqual([]);
+    expect(compile(knot("() ->! Int", "q()", "!")))
+      .toEqual(["this call may touch the world, so `q` wants `!`, not no mark"]);
+    expect(compile(knot("() -> Int", "q()", ""))).toEqual([]);
+    expect(compile(knot("() -> Int", "q!()", "")))
+      .toEqual(["this call is pure, so `q` wants no mark, not `!`"]);
+  });
+});
+
 describe("#355 eager combinators — the shape Map/Set will imitate", () => {
   const eager = `${world}
 export let map(values: Vector(a), transform: a ->! b): Vector(b) =
