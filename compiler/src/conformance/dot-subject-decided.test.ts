@@ -249,10 +249,14 @@ describe("a subject a later or an earlier line fixes is not decided by the text 
     const d = "b(n: Int): Vector(Int) = if n > 9 then [n] else (if c(n) then [] else [1])";
     expect(member([c, d])).toEqual([refusal("k", "show")]);
     expect(member([d, c])).toEqual([refusal("k", "show")]);
-    // A lambda handed to the open member itself, whatever its signature writes.
+    // A lambda handed to the open member itself, whatever its signature writes:
+    // its subject is read as anywhere else, beside the refusal of a function
+    // made inside the recursion (Effects §3.4, #1218).
     const go = "go(n: Int, k: (Vector(Int)) -> Int): Int = if n == 0 then k([]) else go(n - 1, (r) => k(r.append(n)))";
-    expect(member([go])).toEqual([refusal("r", "append")]);
-    expect(member([go.replace("(r) =>", "(r: Vector(Int)) =>")])).toEqual([]);
+    const made = "this function is not one `go` was given, and a recursive call hands on only the callbacks " +
+      "it was given";
+    expect(member([go])).toEqual([made, refusal("r", "append")]);
+    expect(member([go.replace("(r) =>", "(r: Vector(Int)) =>")])).toEqual([made]);
   });
 
   test("a local `fun` capturing an untyped parameter", () => {

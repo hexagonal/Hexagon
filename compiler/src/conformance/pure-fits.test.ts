@@ -467,10 +467,16 @@ describe("knots, and the value a `match` or a `for` reads (R.b, review round 4)"
     const one = reports(["fun", ...a, ...b].join("\n") + "\n").length > 0;
     const two = reports(["fun", ...b, ...a].join("\n") + "\n").length > 0;
     expect([one, two]).toEqual([true, true]);
-    // Written on the lambda, the parameter's type is decided, in either order.
+    // Written on the lambda, the parameter's type is decided, in either order,
+    // and the lambda is still made inside the recursion it is handed to: that
+    // refusal stands alone (Effects §3.4, #1218).
     const typed = ["    b(action: () ->! Unit, n: Int): Unit = a!((release: () -> Unit) => tieTwo(action, release), action, n)"];
-    expect(reports(["fun", ...a, ...typed].join("\n") + "\n")).toEqual([]);
-    expect(reports(["fun", ...typed, ...a].join("\n") + "\n")).toEqual([]);
+    const made = [[
+      "(release: () -> Unit) => tieTwo(action, release)",
+      "this function is not one `b` was given, and a recursive call hands on only the callbacks it was given",
+    ]];
+    expect(reports(["fun", ...a, ...typed].join("\n") + "\n")).toEqual(made);
+    expect(reports(["fun", ...typed, ...a].join("\n") + "\n")).toEqual(made);
   });
 
   test("a knot's members are read once each: a large knot compiles in time", () => {

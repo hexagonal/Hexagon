@@ -1120,6 +1120,8 @@ interface MarkObligation {
   readonly span: Source.Span;
   readonly frame: EffectFrame | undefined;
   readonly callee: string;
+  /** The call itself, so a call to a refused knot's member owes nothing (#1218). */
+  readonly call: Resolved.CallExpr;
 }
 
 /**
@@ -1820,6 +1822,10 @@ interface Scheme {
 }
 
 const ERROR: ErrorMono = { kind: "Error" };
+
+/** The spelling a refused recursive call is pointed to (Effects §3.4, #1218). */
+const MADE_FUNCTION_NOTE =
+  "to hand a recursion a function, take it in an enclosing function and let the recursion's functions use it";
 
 /**
  * One head shape a matrix column's domain admits — one entry of Pattern
@@ -3400,6 +3406,35 @@ function ungrouped(receiver: Resolved.Expr): Resolved.Expr {
   return node;
 }
 
+/** An expression read through grouping and ascription: the value they hold. */
+function unwrapped(expression: Resolved.Expr): Resolved.Expr {
+  let node = expression;
+  for (; node.kind === "Group" || node.kind === "Ascription";) node = node.expression;
+  return node;
+}
+
+/**
+ * The parameters a knot member was given (Effects §3.4, #1218): its own and,
+ * for a curried member, those of the functions its body returns directly,
+ * read through grouping and a block's last line.
+ */
+function spineParameters(value: Resolved.Expr): readonly Resolved.Parameter[] {
+  const given: Resolved.Parameter[] = [];
+  const returned = (body: Resolved.Expr): Resolved.Expr => {
+    let node = ungrouped(body);
+    for (;;) {
+      const last = node.kind === "Block" ? node.items.at(-1) : undefined;
+      if (last?.kind !== "ExprItem") return node;
+      node = ungrouped(last.expression);
+    }
+  };
+  for (let node = ungrouped(value); node.kind === "Lambda"; node = returned(node.body)) {
+    given.push(...node.parameters);
+  }
+  return given;
+}
+
+
 function constraintMemberCandidates(
   declaration: Resolved.ConstraintItem,
 ): readonly MemberCandidate[] {
@@ -4548,6 +4583,54 @@ class Checker {
    * absorbed, so it is an internal error rather than a silent loss.
    */
   readonly #settledFrames = new WeakSet<EffectFrame>();
+  /**
+   * Every call written while a knot is open, with the member whose body it
+   * stands in: a recursive call hands on only the callbacks it was given
+   * (Effects §3.4, #1218), read at the knot's close.
+   */
+  readonly #knotCalls = new WeakMap<Knot, { readonly host: Resolved.SymbolId; readonly call: Resolved.CallExpr }[]>();
+  /**
+   * The same calls by their spans, so a tie's report can tell a recursive call
+   * that only hands parameters on, which joins two names for one function and
+   * so is never where a tie was made (`#tieSpan`).
+   */
+  readonly #knotCallsBySpan = new Map<string, { readonly host: Resolved.SymbolId; readonly call: Resolved.CallExpr }>();
+  /**
+   * Each knot member's parameters, by symbol: the callbacks it was given and
+   * can hand on, a curried member's included — the parameters of the
+   * functions its body returns directly.
+   */
+  readonly #memberParameters = new Map<Resolved.SymbolId, readonly Resolved.SymbolId[]>();
+  /** The same parameters, in the order the member's type takes them. */
+  readonly #memberSpines = new Map<Resolved.SymbolId, readonly Resolved.Parameter[]>();
+  /**
+   * A `let` inside a knot whose value is a name, by the name it binds: it
+   * holds the same function, so handing it on hands on what it names.
+   */
+  readonly #letAliases = new Map<Resolved.SymbolId, Resolved.SymbolId>();
+  /**
+   * The members of knots refused for handing on a function they were not
+   * given (#1218), and every binding whose value names one: their colours
+   * are undecided, so a `!` call to one is not told to remove the mark.
+   */
+  readonly #refusedCallees = new Set<Resolved.SymbolId>();
+  /**
+   * The arguments of calls to `#refusedCallees`: a lambda handed to one is
+   * handed its undecided colours, so a `!` call in it is not told to remove
+   * the mark either (#1218).
+   */
+  readonly #refusedArguments: Source.Span[] = [];
+  /** The knot `#settleKnot` is closing. */
+  #settlingKnot: Knot | undefined = undefined;
+  /**
+   * The frames of a knot refused for handing on a function it was not given
+   * (#1218):
+   * the refusal stands alone, so their calls owe no mark and their faces no
+   * report.
+   */
+  readonly #refusedKnotFrames = new WeakSet<EffectFrame>();
+  /** A member named inside its knot other than as a call's callee. */
+  readonly #knotValueUses = new WeakMap<Knot, { readonly target: Resolved.SymbolId; readonly span: Source.Span }[]>();
   /**
    * The bodies whose ties have been read (`#refuseTies`): a nested body's tie
    * waits on one until then (#1163). A knot's frames are settled together, but
@@ -7788,6 +7871,12 @@ class Checker {
       }
 
       if (item.kind === "Let") {
+        // A `let` naming a function inside a knot holds that function, so
+        // handing it on hands on what it names (Effects §3.4, #1218).
+        if (this.#knots.some((knot) => knot.host !== undefined)) {
+          const named = unwrapped(item.value);
+          if (named.kind === "Name") this.#letAliases.set(item.binding.symbol, named.symbol);
+        }
         // *(#1047.)* A binder list written on the name of a binding with no
         // parameter list (`let alias<a: Show>: (a) -> String = describe`) is
         // declared over the annotation and the value, shadowing as a lambda's
@@ -8789,6 +8878,9 @@ class Checker {
         const enclosingMember = this.#declaringMember;
         const enclosingAnnotationOwner = this.#annotationOwner;
         knot.host = symbol;
+        const given = spineParameters(item.value);
+        this.#memberParameters.set(symbol, given.map((parameter) => parameter.symbol));
+        this.#memberSpines.set(symbol, given);
         this.#declaringMember = { symbol, name: item.binding.name };
         // The member owns every variable its annotations are the first to
         // write, binder or not (§7.3's member-scoped rule).
@@ -8816,12 +8908,15 @@ class Checker {
       this.#pinUnreachableKnotEvidence(knot, recursiveTypes, level);
       // The members' colours and their sibling-call obligations settle here,
       // over the whole component, now that no sibling is live (§3.4, #868).
+      const madeFunctions = this.#refuseMadeFunctions(knot);
+      const reported = this.#diagnostics.count;
       this.#settleKnot(knot);
       // The knot's close is where a `fun` member's colour is generalized (§4.1:
       // "a knot sibling's is checked at the knot's close, when it is no longer
       // undetermined"): every member's colour is decided before any of them is
       // quantified.
       this.#compareKnotDemands(knot);
+      if (madeFunctions) this.#silenceRefusedKnot(knot, reported);
       for (const symbol of ordered) {
         const value = bySymbol.get(symbol)!.value;
         const enclosingFace = this.#generalizingFace;
@@ -8841,6 +8936,12 @@ class Checker {
           );
         } finally {
           this.#generalizingFace = enclosingFace;
+        }
+        // A refused knot's member keeps its types outside it, but no colour
+        // its refused recursion decided, and a call to it owes no mark (#1218).
+        if (madeFunctions) {
+          this.#schemes.set(symbol, this.#undecidedColours(this.#schemes.get(symbol)!, level));
+          this.#refusedCallees.add(symbol);
         }
       }
     }
@@ -9600,6 +9701,11 @@ class Checker {
           },
         );
         this.#nameRequirements.set(expression, requirements);
+        // A body naming a refused knot's member has a colour that knot's refused
+        // recursion decided, so a call to it owes no mark either (#1218).
+        if (this.#refusedCallees.has(expression.symbol)) {
+          for (const { symbol } of this.#bindingChain) this.#refusedCallees.add(symbol);
+        }
         // Functions §7.4: inside the knot the scheme is a monotype, so the copy
         // above collected nothing. What the reference owes is settled once the
         // component generalizes; `#knotEvidence` reads it back there.
@@ -9610,6 +9716,11 @@ class Checker {
           this.#knotReferences.set(expression, expression.symbol);
           if (knot.host !== undefined) {
             knot.references.push({ host: knot.host, target: expression.symbol });
+            if (call === undefined) {
+              const uses = this.#knotValueUses.get(knot) ?? [];
+              this.#knotValueUses.set(knot, uses);
+              uses.push({ target: expression.symbol, span: expression.span });
+            }
           }
         }
         // FFI Part 11 §2's release seat, at a **reference**. `JsValue.from`
@@ -10410,6 +10521,22 @@ class Checker {
         }
         // The frame is captured here, where the call was written.
         this.#callFrames.set(expression, this.#effectFrames.at(-1));
+        if (this.#refusedCallees.size > 0) {
+          const { head } = this.#chainRoot(expression);
+          if (head.kind === "Name" && this.#refusedCallees.has(head.symbol)) {
+            for (const argument of expression.arguments) this.#refusedArguments.push(argument.span);
+          }
+        }
+        for (const knot of this.#knots) {
+          if (knot.host === undefined) continue;
+          const calls = this.#knotCalls.get(knot) ?? [];
+          this.#knotCalls.set(knot, calls);
+          calls.push({ host: knot.host, call: expression });
+          const { head } = this.#chainRoot(expression);
+          if (head.kind === "Name" && knot.members.some(({ symbol }) => symbol === head.symbol)) {
+            this.#knotCallsBySpan.set(spanKey(expression.span), { host: knot.host, call: expression });
+          }
+        }
         if (expression.callee.kind === "Access") {
           // Method Syntax §2.2's **receiver rule**: the receiver is the
           // operation's first operand and takes what that seat expects, handed
@@ -20717,6 +20844,7 @@ class Checker {
       span: expression.span,
       frame,
       callee,
+      call: expression,
     });
   }
 
@@ -21108,6 +21236,7 @@ class Checker {
     readonly from?: Mono;
     readonly waits?: { readonly frame: EffectFrame; readonly parameter: EffectFrame["untyped"][number] };
   } | undefined {
+    const parts = this.#colourParts(colour);
     const others = frame.untyped.filter((other) => {
       if (other === parameter || other.ownAtClose === true) return false;
       const theirs = this.#prune(other.type);
@@ -21116,7 +21245,6 @@ class Checker {
     if (others.length > 0) return { others, phrase: `\`${others[0]!.name}\`'s`, from: others[0]!.type };
     // An enclosing body's untyped parameter its close has not decided yet:
     // whether this is a tie is known only once that colour settles.
-    const parts = this.#colourParts(colour);
     for (let open = frame.enclosing; open !== undefined; open = open.enclosing) {
       if (this.#tiesRead.has(open)) continue;
       for (const outer of open.untyped) {
@@ -21130,8 +21258,67 @@ class Checker {
         };
       }
     }
+    const own = this.#ownSharer(frame, parameter, colour);
+    if (own !== undefined) return { others: [], phrase: `\`${own.name}\`'s`, from: own.type };
+    if (this.#passedOnOnly(frame, parameter.name, colour)) return undefined;
     const tie = this.#tiedTo(colour, parameter.name);
     return tie === undefined ? undefined : { others: [], ...tie };
+  }
+
+  /**
+   * A member's untyped callback whose colour only other members' parameters
+   * share (Effects §3.4, #1218): a recursive call hands on only its own
+   * parameters, unchanged, so they hold the same function, and the colour is
+   * the parameter's own — no tie. A sharer the member itself owns is a merge
+   * or a join of two of its own parameters, which no hand-on makes, so the
+   * answer never depends on which colour unification kept.
+   */
+  #passedOnOnly(frame: EffectFrame, name: string, colour: Mono): boolean {
+    if (colour.kind !== "Variable" || frame.owner === undefined) return false;
+    const knots = this.#settlingKnot === undefined ? this.#knots : [...this.#knots, this.#settlingKnot];
+    const knot = knots.find((candidate) => candidate.members.some((member) => member.name === frame.owner));
+    if (knot === undefined) return false;
+    const members = new Set(knot.members.map((member) => member.name));
+    const untyped = this.#untypedColours.get(colour).filter((entry) => !(entry.name === name && entry.owner === frame.owner));
+    const written = this.#scopesByColour.get(colour);
+    if (untyped.length + written.length === 0) return false;
+    if (untyped.some((entry) => entry.owner === frame.owner) || written.some((scope) => scope.owner === frame.owner)) {
+      return false;
+    }
+    return untyped.every((entry) => entry.owner !== undefined && members.has(entry.owner)) &&
+      written.every((scope) => scope.parameter !== undefined && scope.owner !== undefined && members.has(scope.owner));
+  }
+
+  /**
+   * Another parameter of a knot member's own that shares its untyped
+   * callback's colour (Effects §3.4): a merge, or a hand-on into its own slot,
+   * which is a tie however the knot's bodies settled. Read from the member's
+   * type at the close, position by position, so the answer is the same in
+   * every member order.
+   */
+  #ownSharer(
+    frame: EffectFrame,
+    parameter: EffectFrame["untyped"][number],
+    colour: Mono,
+  ): { readonly name: string; readonly type: Mono } | undefined {
+    if (colour.kind !== "Variable" || frame.owner === undefined) return undefined;
+    const knots = this.#settlingKnot === undefined ? this.#knots : [...this.#knots, this.#settlingKnot];
+    const knot = knots.find((candidate) => candidate.members.some((member) => member.name === frame.owner));
+    const owner = knot?.members.find((member) => member.name === frame.owner);
+    if (knot === undefined || owner === undefined) return undefined;
+    const spine = this.#memberSpines.get(owner.symbol) ?? [];
+    let position = 0;
+    for (let type = this.#prune(knot.types.get(owner.symbol) ?? ERROR); type.kind === "Function"; type = this.#prune(type.result)) {
+      for (const each of type.parameters) {
+        const named = spine[position++];
+        const callback = this.#prune(each);
+        if (named === undefined || spanKey(named.span) === spanKey(parameter.span)) continue;
+        if (callback.kind === "Function" && this.#colourParts(callback.effect ?? PURE).includes(colour)) {
+          return { name: named.name, type: callback };
+        }
+      }
+    }
+    return undefined;
   }
 
   /** `other`'s, told apart from the parameter's own name by its owner where the two are spelled alike. */
@@ -21407,21 +21594,41 @@ class Checker {
     };
     const mine = reach(own);
     const theirs = reach(other);
+    // A recursive call that only hands parameters on joins two names for one
+    // function (§3.4), so it is where a tie was made only if nothing else is.
     let latest: { readonly span: Source.Span; readonly order: number } | undefined;
+    let handedOn: { readonly span: Source.Span; readonly order: number } | undefined;
+    const consider = (step: Step | undefined): void => {
+      for (; step?.from !== undefined; step = step.previous) {
+        const bind = this.#binds.get(step.from);
+        if (bind === undefined) continue;
+        if (this.#handsOnOnly(bind.span)) {
+          if (handedOn === undefined || bind.order > handedOn.order) handedOn = bind;
+        } else if (latest === undefined || bind.order > latest.order) {
+          latest = bind;
+        }
+      }
+    };
     for (const [meeting, myStep] of mine) {
       const theirStep = theirs.get(meeting);
       if (theirStep === undefined) continue;
-      for (let step: Step | undefined = myStep; step?.from !== undefined; step = step.previous) {
-        const bind = this.#binds.get(step.from);
-        if (bind !== undefined && (latest === undefined || bind.order > latest.order)) latest = bind;
-      }
-      for (let step: Step | undefined = theirStep; step?.from !== undefined; step = step.previous) {
-        const bind = this.#binds.get(step.from);
-        if (bind !== undefined && (latest === undefined || bind.order > latest.order)) latest = bind;
-      }
+      consider(myStep);
+      consider(theirStep);
       break;
     }
-    return latest?.span;
+    return (latest ?? handedOn)?.span;
+  }
+
+  /** Whether `span` is a recursive call whose every argument carrying a function is a parameter handed on. */
+  #handsOnOnly(span: Source.Span): boolean {
+    const known = this.#knotCallsBySpan.get(spanKey(span));
+    if (known === undefined) return false;
+    const own = this.#memberParameters.get(known.host) ?? [];
+    return known.call.arguments.every((argument) => {
+      if (this.#isGiven(argument, own)) return true;
+      const type = this.#expressionTypes.get(argument);
+      return type !== undefined && this.#prune(type).kind !== "Function";
+    });
   }
 
   /**
@@ -21771,6 +21978,286 @@ class Checker {
   }
 
   /**
+   * **A recursive call hands on the callbacks it was given** (Effects §3.4,
+   * #1218). A call written inside a knot to one of its members hands, at every
+   * application of the member, each function only as a parameter the member
+   * it stands in was given, its spine's included (`spineParameters`); and a
+   * member that takes callbacks at any application is named inside its knot
+   * only as a call's callee, applied there until no callback is left to give
+   * it, and is not called there at all where it hands back data holding one.
+   * Any other function would become, by monomorphic recursion (Functions
+   * §7.4), that callback's colour at every call, refused where it is handed.
+   * Read at the close, when every type is known, so the verdict is the same in
+   * every order. Whether it refused.
+   */
+  #refuseMadeFunctions(knot: Knot): boolean {
+    const before = this.#diagnostics.count;
+    // The applications at which a member's type takes a callback, counted
+    // along its result's spine: `(Int) -> (() ->! Unit) -> Unit` takes one at
+    // its second.
+    const lastCallbackStage = (symbol: Resolved.SymbolId): number => {
+      let last = 0;
+      let type = this.#prune(knot.types.get(symbol) ?? ERROR);
+      for (let stage = 1; type.kind === "Function"; stage++, type = this.#prune(type.result)) {
+        if (type.parameters.some((parameter) => this.#prune(parameter).kind === "Function")) last = stage;
+      }
+      return last;
+    };
+    const calls = this.#knotCalls.get(knot) ?? [];
+    // Each application by the one that applies its result further.
+    const applying = new Map<Resolved.CallExpr, Resolved.CallExpr>();
+    // A member named as the callee of a call, through an ascription too.
+    const callees = new Set<string>();
+    for (const { call } of calls) {
+      const callee = this.#bare(call.callee);
+      if (callee.kind === "Call") applying.set(callee, call);
+      if (callee.kind === "Name") callees.add(spanKey(callee.span));
+    }
+    for (const { target, span } of this.#knotValueUses.get(knot) ?? []) {
+      const member = knot.members.find(({ symbol }) => symbol === target);
+      if (member === undefined || lastCallbackStage(target) === 0 || callees.has(spanKey(span))) continue;
+      this.#diagnostics.add({
+        severity: "error",
+        message: `\`${member.name}\` takes callbacks, so inside its own recursion it is only called, by its name`,
+        primary: span,
+        notes: [MADE_FUNCTION_NOTE],
+      });
+    }
+    for (const { host, call } of calls) {
+      const { root, head } = this.#chainRoot(call);
+      if (head.kind !== "Name") continue;
+      const member = knot.members.find((candidate) => candidate.symbol === head.symbol);
+      if (member === undefined) continue;
+      this.#knotCallsBySpan.set(spanKey(call.span), { host, call });
+      if (call === root) {
+        let outermost = call;
+        let stages = 1;
+        for (let next = applying.get(outermost); next !== undefined; next = applying.get(outermost)) {
+          outermost = next;
+          stages++;
+        }
+        let left = this.#prune(knot.types.get(member.symbol) ?? ERROR);
+        for (let stage = 0; stage < stages && left.kind === "Function"; stage++) left = this.#prune(left.result);
+        if (stages < lastCallbackStage(member.symbol)) {
+          this.#diagnostics.add({
+            severity: "error",
+            message: `\`${member.name}\` takes callbacks, so inside its own recursion it is applied in full ` +
+              "where it is named, and this leaves a callback to give it",
+            primary: outermost.span,
+            notes: [MADE_FUNCTION_NOTE],
+          });
+        } else if (this.#holdsCallbackTaker(left, new Set())) {
+          // What is taken out of the result would be the member's own
+          // callback-taker under another name, which no rule here reads.
+          this.#diagnostics.add({
+            severity: "error",
+            message: `\`${member.name}\` hands back data holding a function that takes callbacks, so inside its ` +
+              "own recursion it is not called",
+            primary: outermost.span,
+            notes: [MADE_FUNCTION_NOTE],
+          });
+        }
+      }
+      const own = this.#memberParameters.get(host) ?? [];
+      const caller = knot.members.find((candidate) => candidate.symbol === host)?.name ?? member.name;
+      for (const argument of call.arguments) {
+        const type = this.#expressionTypes.get(argument);
+        if (type === undefined || this.#prune(type).kind !== "Function") continue;
+        if (this.#isGiven(argument, own)) continue;
+        const handedOn = this.#handedOnBody(argument, own);
+        this.#diagnostics.add({
+          severity: "error",
+          message: lastCallbackStage(host) > 0
+            ? `this function is not one \`${caller}\` was given, and a recursive call hands on only the ` +
+              "callbacks it was given"
+            : `\`${caller}\` was given no callback, and a recursive call hands on only the callbacks it was given`,
+          primary: argument.span,
+          notes: [MADE_FUNCTION_NOTE],
+          ...(handedOn === undefined
+            ? {}
+            : { fixes: [{ message: `hand \`${handedOn}\` on`, edits: [{ span: argument.span, replacement: handedOn }] }] }),
+        });
+      }
+    }
+    return this.#diagnostics.count > before;
+  }
+
+  /**
+   * Whether a value of this type holds a function that takes callbacks
+   * (Effects §3.4, #1218): one whose parameters include a function, held in
+   * data or handed back by a function it holds.
+   *
+   * A nominal type's arguments are read in full first. Its payloads (a
+   * union's constructors, a record's fields) then ask one thing of them:
+   * whether each is a function, which makes a payload `(a) ->! Unit` take a
+   * callback. So a nominal type is read once per query (`read`) for each
+   * pattern of function arguments, which is finite, and inside a union's
+   * payloads its type parameters stand for their arguments only as that
+   * (`functions`).
+   */
+  #holdsCallbackTaker(
+    type: Mono,
+    read: Set<string>,
+    functions: ReadonlyMap<number, boolean> = new Map(),
+  ): boolean {
+    const isFunction = (component: Mono): boolean => {
+      const pruned = this.#prune(component);
+      return pruned.kind === "Variable" ? functions.get(pruned.id) === true : pruned.kind === "Function";
+    };
+    const holds = (component: Mono): boolean => this.#holdsCallbackTaker(component, read, functions);
+    const once = (kind: string, id: number, arguments_: readonly Mono[], components: () => boolean): boolean => {
+      const key = `${kind}:${id}:${arguments_.map((argument) => (isFunction(argument) ? "f" : "-")).join("")}`;
+      if (read.has(key)) return false;
+      read.add(key);
+      return components();
+    };
+    const actual = this.#prune(type);
+    switch (actual.kind) {
+      case "Function":
+        return actual.parameters.some(isFunction) || holds(actual.result);
+      case "Tuple":
+        return actual.elements.some(holds);
+      case "Record":
+        return [...actual.fields.values()].some(holds) || (actual.tail !== undefined && holds(actual.tail));
+      case "Vector":
+      case "Set":
+      case "Array":
+      case "JsSet":
+        return holds(actual.element);
+      case "Nullable":
+        return holds(actual.value);
+      case "Map":
+      case "JsMap":
+        return holds(actual.key) || holds(actual.value);
+      case "ExternType":
+        return actual.arguments.some(holds);
+      case "Union": {
+        if (actual.arguments.some(holds)) return true;
+        const union = this.#unions.get(actual.union) ?? this.#programUnion(actual.union);
+        return once("union", Number(actual.union), actual.arguments, () =>
+          (union?.constructors ?? []).some(({ binding }) => {
+            const scheme = this.#schemes.get(binding.symbol);
+            const constructor = scheme === undefined ? undefined : this.#prune(scheme.type);
+            if (constructor?.kind !== "Function") return false;
+            // The constructor's own type parameters, by its result's arguments.
+            const result = this.#prune(constructor.result);
+            const own = new Map<number, boolean>();
+            if (result.kind === "Union") {
+              result.arguments.forEach((argument, index) => {
+                const parameter = this.#prune(argument);
+                const given = actual.arguments[index];
+                if (parameter.kind === "Variable" && given !== undefined) own.set(parameter.id, isFunction(given));
+              });
+            }
+            return constructor.parameters.some((payload) => this.#holdsCallbackTaker(payload, read, own));
+          }));
+      }
+      case "NominalRecord": {
+        if (actual.arguments.some(holds)) return true;
+        const record = actual;
+        return once("record", Number(actual.record), actual.arguments, () =>
+          [...this.#nominalRecordFields(record).values()].some(holds));
+      }
+      default:
+        return false;
+    }
+  }
+
+  /**
+   * A refused knot's member as the program outside it reads it (Effects §3.4,
+   * #1218): its types, with every arrow along its parameters and results a
+   * colour of its own, so no caller meets a colour, or a tie, that the refused
+   * recursion decided.
+   */
+  #undecidedColours(scheme: Scheme, level: number): Scheme {
+    const fresh: Variable[] = [];
+    const copy = (type: Mono): Mono => {
+      const actual = this.#prune(type);
+      if (actual.kind !== "Function") return actual;
+      const effect = this.#fresh(level + 1, false);
+      fresh.push(effect);
+      return { ...actual, parameters: actual.parameters.map(copy), result: copy(actual.result), effect };
+    };
+    const type = copy(scheme.type);
+    return { ...scheme, variables: [...scheme.variables, ...fresh], type };
+  }
+
+  /**
+   * An expression read through grouping and ascription, and a pipe stage read
+   * as the call it is.
+   */
+  #bare(expression: Resolved.Expr): Resolved.Expr {
+    const node = unwrapped(expression);
+    if (node.kind !== "Binary" || node.operator !== "Pipe") return node;
+    return this.#pipeCalls.get(node) ?? node;
+  }
+
+  /**
+   * A call chain's first application and what it applies (`#bare`):
+   * `a(n - 1)(cb)` is `a(n - 1)` applying `a`.
+   */
+  #chainRoot(call: Resolved.CallExpr): { readonly root: Resolved.CallExpr; readonly head: Resolved.Expr } {
+    let root = call;
+    for (let callee = this.#bare(root.callee); callee.kind === "Call"; callee = this.#bare(root.callee)) root = callee;
+    return { root, head: this.#bare(root.callee) };
+  }
+
+  /**
+   * Whether `argument` is a parameter its member was given, read through
+   * grouping, an ascription, and a `let` that names it: handing it on hands on
+   * that function, unchanged.
+   */
+  #isGiven(argument: Resolved.Expr, own: readonly Resolved.SymbolId[]): boolean {
+    const node = unwrapped(argument);
+    if (node.kind !== "Name") return false;
+    let symbol = node.symbol;
+    for (let alias = this.#letAliases.get(symbol); alias !== undefined; alias = this.#letAliases.get(symbol)) {
+      symbol = alias;
+    }
+    return own.includes(symbol);
+  }
+
+  /**
+   * The parameter a lambda only forwards to, `(x) => f!(x)`: handing `f` on is
+   * the same call, so the refusal's fixit writes it.
+   */
+  #handedOnBody(argument: Resolved.Expr, own: readonly Resolved.SymbolId[]): string | undefined {
+    if (argument.kind !== "Lambda") return undefined;
+    const body = argument.body;
+    if (body.kind !== "Call") return undefined;
+    const callee = unwrapped(body.callee);
+    if (callee.kind !== "Name" || !this.#isGiven(callee, own)) return undefined;
+    if (body.arguments.length !== argument.parameters.length) return undefined;
+    const forwards = body.arguments.every((handed, index) =>
+      handed.kind === "Name" && handed.symbol === argument.parameters[index]!.symbol
+    );
+    return forwards && argument.parameters.every((parameter) => parameter.annotation === undefined)
+      ? callee.text
+      : undefined;
+  }
+
+  /**
+   * A knot refused for handing on a function it made reports only that
+   * (#1218): what its close reported since `reported` goes, its calls owe no
+   * mark, and its faces no report.
+   */
+  #silenceRefusedKnot(knot: Knot, reported: number): void {
+    this.#diagnostics.discardSince(reported);
+    for (const frame of knot.frames) this.#refusedKnotFrames.add(frame);
+    for (const obligation of this.#markObligations) {
+      if (obligation.frame !== undefined && this.#inRefusedKnot(obligation.frame)) this.#reportedCalls.add(obligation);
+    }
+  }
+
+  /** Whether a body is, or is inside, a frame of a refused knot. */
+  #inRefusedKnot(frame: EffectFrame): boolean {
+    for (let open: EffectFrame | undefined = frame; open !== undefined; open = open.enclosing) {
+      if (this.#refusedKnotFrames.has(open)) return true;
+    }
+    return false;
+  }
+
+  /**
    * **A knot's colours and obligations settle at its close** *(#868; Effects
    * §3.4's knot bullet)*, over the whole component and independent of the
    * members' order. The component is the members' frames and every lambda
@@ -21783,6 +22270,16 @@ class Checker {
    * edges are the calls the bodies recorded.
    */
   #settleKnot(knot: Knot): void {
+    const enclosingSettling = this.#settlingKnot;
+    this.#settlingKnot = knot;
+    try {
+      this.#settleKnotBody(knot);
+    } finally {
+      this.#settlingKnot = enclosingSettling;
+    }
+  }
+
+  #settleKnotBody(knot: Knot): void {
     const frames = knot.frames;
     for (const frame of frames) this.#settledFrames.add(frame);
     for (const frame of frames) this.#settleOpenedCalls(frame);
@@ -22817,6 +23314,14 @@ class Checker {
       // (Effects §3.1).
       const required: Resolved.CallMark | undefined = colour.kind === "Effect" ? Colour.markFor(colour) : "bang";
       if (required === obligation.mark) continue;
+      // A call reaching a refused knot's member by name owes it no mark
+      // (Effects §3.4, #1218): its colour is one the refused recursion left
+      // undecided, which reads pure, so only "remove the mark" could follow.
+      if (required === undefined) {
+        const { head } = this.#chainRoot(obligation.call);
+        if (head.kind === "Name" && this.#refusedCallees.has(head.symbol)) continue;
+        if (this.#refusedArguments.some((span) => spanWithin(obligation.span, span))) continue;
+      }
       // A call whose colour a face report or a seat has already condemned is
       // the same defect told twice: the face is what went wrong, and the marks
       // in the body follow from it. Read, never re-derived — the stamp was put
@@ -22854,8 +23359,9 @@ class Checker {
     const pinned = new Map<EffectConstant, CallbackColour[]>();
     const reported = new Set<string>();
     const keyOf = (span: Source.Span): string => `${Number(span.fileId)}:${span.start.offset}:${span.end.offset}`;
-    for (const face of this.#signatureFaces) this.#checkFaceFits(face, true);
-    for (const face of this.#signatureFaces) {
+    const faces = this.#signatureFaces.filter((face) => face.frame === undefined || !this.#inRefusedKnot(face.frame));
+    for (const face of faces) this.#checkFaceFits(face, true);
+    for (const face of faces) {
       for (const { span, colour } of face.arrows) {
         const settled = this.#prune(colour);
         if (!isImpure(settled) || reported.has(keyOf(span))) continue;

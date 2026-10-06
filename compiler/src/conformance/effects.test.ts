@@ -873,11 +873,13 @@ export let h(cb: () ->! Unit): () >-> Unit =
     g
 `)).toEqual(['save!("x")']);
     }
-    // A pin that is a knot's own unification names no act: the value stands.
+    // A knot can no longer pin its own callback: the function its recursive
+    // call made is refused where it is handed, and that refusal stands alone
+    // (Effects §3.4, #1218).
     expect(at(`fun
     h(n: Int, cb: () ->! Unit): () >-> Unit =
         if n == 0 then cb else h(n - 1, () => save!("y"))
-`)).toEqual(['if n == 0 then cb else h(n - 1, () => save!("y"))']);
+`)).toEqual(['() => save!("y")']);
   });
 
   it("names the enclosing signature's callback where a knot shares the colour", () => {
@@ -1574,6 +1576,435 @@ let fwd(a, b) = pick!(True, a, b)
       "`f`'s colour is tied to `outer`'s `f` here, and no written type can say that — write `f`'s type",
     ]);
     expect(tieReports(source.replace("inner(f)", "inner(f: () ->! Unit)"))).toEqual([]);
+  });
+});
+
+describe("Effects §3.4 — a recursive call hands on the callbacks it was given (#1218)", () => {
+  const prelude = "module Main\n\n" + world + "let noop(): Unit = ()\nlet save0(): Unit = save!(\"x\")\n";
+  const check = (source: string): readonly string[] =>
+    effectDiagnostics([["/world.js", ""], ["/main.hex", prelude + source]]);
+  const at = (source: string): readonly (readonly [string, string])[] => {
+    const text = prelude + source;
+    return compileFiles([["/world.js", ""], ["/main.hex", text]]).diagnostics.map(({ primary, message }) =>
+      [text.slice(primary.start.offset, primary.end.offset), message] as const
+    );
+  };
+  const made = (caller: string, given: boolean): string =>
+    given
+      ? `this function is not one \`${caller}\` was given, and a recursive call hands on only the callbacks it was given`
+      : `\`${caller}\` was given no callback, and a recursive call hands on only the callbacks it was given`;
+  const named = (member: string): string =>
+    `\`${member}\` takes callbacks, so inside its own recursion it is only called, by its name`;
+  const applied = (member: string): string =>
+    `\`${member}\` takes callbacks, so inside its own recursion it is applied in full where it is named, ` +
+    "and this leaves a callback to give it";
+  const members = (first: string, second: string): readonly string[] => [`fun\n${first}${second}`, `fun\n${second}${first}`];
+
+  it("refuses a function made inside the recursion where it is handed, and that refusal stands alone", () => {
+    // Monomorphic recursion would make the made function's colour every
+    // call's; main accepted this with pure faces in one member order.
+    const a = "    a(cb: () ->! Unit, n: Int): Unit =\n        if n == 0 then cb!() else a!(() => b(n), n - 1)\n";
+    const b = "    b(n: Int): Unit = if n > 0 then a(save0, n - 1) else ()\n";
+    for (const knot of members(a, b)) {
+      expect([...at(knot + "export let probe(): Unit = b(1)\n")].sort()).toEqual([
+        ["() => b(n)", made("a", true)],
+        ["save0", made("b", false)],
+      ]);
+    }
+  });
+
+  it("lets nothing the refused knot's close would say through: no face, mark or tie report, in either order", () => {
+    // Settled with `save0` in `h`'s callback, the close would report `h`'s
+    // `>->` face, at a place that follows the order of the members.
+    const h = "    h(n: Int, cb: () ->! Unit): () >-> Unit =\n        let g = () =>\n            cb!()\n" +
+      "            let _ = if n == 0 then () else k(n)\n            ()\n        g\n";
+    const k = "    k(n: Int): Unit =\n        h(n - 1, save0)()\n";
+    for (const knot of members(h, k)) {
+      expect(at(knot + "export let outside(): Unit = h(1, save0)()\n")).toEqual([["save0", made("k", false)]]);
+    }
+  });
+
+  it("lets no tie of a refused knot through, though the tie is the knot's own", () => {
+    const source = `fun b(f, g, c: Bool, n: Int): Unit =
+    let h = if c then f else g
+    h!()
+    if n <= 0 then () else b!(f, g, c, n - 1)
+    if n <= 0 then () else b!(() => (), g, c, n - 1)
+`;
+    expect(at(source)).toEqual([["() => ()", made("b", true)]]);
+    expect(check(source.replace("    if n <= 0 then () else b!(() => (), g, c, n - 1)\n", ""))).toEqual([
+      "`f`'s colour is tied to `g`'s here, and no written type can say that — write `f`'s type",
+    ]);
+  });
+
+  it("refuses it in one recursive function too, and offers the parameter a lambda only forwards to", () => {
+    const source = `fun b(cb: () ->! Unit, n: Int): Unit =
+    let h = () =>
+        cb!()
+        if n <= 0 then () else b(cb, n - 1)
+    h()
+    if n <= 0 then () else b(() => cb!(), n - 1)
+    if n <= 0 then () else b(save0, n - 1)
+`;
+    expect(at(source)).toEqual([["() => cb!()", made("b", true)], ["save0", made("b", true)]]);
+    expect(effectFixes([["/world.js", ""], ["/main.hex", prelude + source]])).toEqual(["hand `cb` on: \"cb\""]);
+    // A lambda that does more than forward is no such function, and has no fixit.
+    expect(effectFixes([["/world.js", ""], ["/main.hex", prelude + source.replace("() => cb!()", "() => save!(\"y\")")]]))
+      .toEqual([]);
+    // Handing `cb` on instead, the recursion compiles once its calls are marked.
+    const handedOn = source.replace("b(() => cb!(), n - 1)", "b!(cb, n - 1)").replace("b(save0, n - 1)", "b!(cb, n - 1)")
+      .replace("else b(cb, n - 1)", "else b!(cb, n - 1)").replace("    h()", "    h!()");
+    expect(check(handedOn)).toEqual([]);
+  });
+
+  it("reads a nested recursion's call and the enclosing one's alike", () => {
+    expect(at(`fun
+    a(cb: () ->! Unit, n: Int): Unit =
+        fun go(m: Int, f: () ->! Unit): Unit = if m == 0 then f!() else go!(m - 1, () => b(n))
+        go!(n, cb)
+    b(n: Int): Unit = if n > 0 then a(save0, n - 1) else ()
+`)).toEqual([["() => b(n)", made("go", true)], ["save0", made("b", false)]]);
+  });
+
+  it("offers no fixit for a lambda that reorders what it forwards", () => {
+    const source = `fun b(cb: (Int, Int) ->! Unit, n: Int): Unit =
+    cb!(n, 1)
+    if n <= 0 then () else b!((x, y) => cb!(y, x), n - 1)
+`;
+    expect(at(source)).toEqual([["(x, y) => cb!(y, x)", made("b", true)]]);
+    expect(effectFixes([["/world.js", ""], ["/main.hex", prelude + source]])).toEqual([]);
+    expect(effectFixes([["/world.js", ""], ["/main.hex", prelude + source.replace("cb!(y, x)", "cb!(x, y)")]]))
+      .toEqual(["hand `cb` on: \"cb\""]);
+  });
+
+  it("reads a nested recursion's call to the enclosing one, and parameters handed on untyped", () => {
+    // `go`'s knot is the innermost open one, and its call to `b` is the
+    // enclosing knot's recursive call all the same.
+    expect(at(`fun
+    a(cb: () ->! Unit, n: Int): Unit =
+        fun go(m: Int): Unit = if m == 0 then () else b!(() => (), m - 1)
+        go!(n)
+    b(cb: () ->! Unit, n: Int): Unit = if n > 0 then a!(cb, n - 1) else cb!()
+`)).toEqual([["() => ()", made("a", true)]]);
+    // Two untyped parameters, one handed on to the other, hold one function,
+    // whatever they are called.
+    const a = "    a(g, n: Int): Unit =\n        g!()\n        if n == 0 then () else b!(g, n - 1)\n";
+    const b = "    b(h, n: Int): Unit =\n        if n == 0 then () else a!(h, n)\n";
+    for (const knot of members(a, b)) expect(check(knot)).toEqual([]);
+  });
+
+  it("refuses naming a member that takes callbacks inside its recursion, so no alias carries a call", () => {
+    const source = `fun b(cb: () ->! Unit, n: Int): Unit =
+    let p = b
+    cb!()
+    if n <= 0 then () else p(save0, n - 1)
+`;
+    expect(at(source)).toEqual([["b", named("b")]]);
+    expect(at(source.replace("let p = b", "let p = ident(b)").replace("fun b", "let ident(x: t): t = x\nfun b")))
+      .toEqual([["b", named("b")]]);
+    // A member that takes no callback has nothing to carry, and may be named.
+    expect(check(`fun
+    a(n: Int): Int =
+        let p = b
+        if n == 0 then 0 else p(n - 1)
+    b(n: Int): Int = if n == 0 then 1 else a(n - 1)
+`)).toEqual([]);
+  });
+
+  it("hands on a parameter in any position, by a pipe too, and a held or stored lambda that hands one on", () => {
+    for (const knot of members(
+      "    m(f: () ->! Unit, g: () ->! Unit, n: Int): Unit =\n        f!()\n        if n > 0 then s!(g, f, n - 1) else ()\n",
+      "    s(f: () ->! Unit, g: () ->! Unit, n: Int): Unit =\n        let h = () => m!(f, g, n)\n        h!()\n",
+    )) {
+      expect(check(knot)).toEqual([]);
+    }
+    expect(check("fun walk(n: Int, f: () ->! Unit): Unit =\n    if n == 0 then f!() else (n - 1) |> walk!(f)\n")).toEqual([]);
+    expect(at("fun walk(n: Int, f: () ->! Unit): Unit =\n    if n == 0 then f!() else (n - 1) |> walk!(save0)\n"))
+      .toEqual([["save0", made("walk", true)]]);
+    // The recursion stored, as `Seq` stores its `pull`, hands its callback on.
+    expect(check(`record Stream = { pull: () -> Option((Int, Stream)) }
+fun numbers(from: Int, f: Int -> Int): Stream =
+    Stream({ pull = () => Some((f(from), numbers(from + 1, f))) })
+`)).toEqual([]);
+  });
+
+  it("takes the callback in an enclosing function, where the recursion is handed nothing", () => {
+    const source = `export let walk(n: Int, cb: () ->! Unit): Unit =
+    fun
+        even(k: Int): Unit = if k == 0 then cb!() else odd!(k - 1)
+        odd(k: Int): Unit = if k == 0 then () else even!(k - 1)
+    even!(n)
+export let probe(): Unit = walk!(3, save0)
+`;
+    expect(check(source)).toEqual([]);
+    expect(hoveredType(prelude + source, "walk(n")).toBe("(Int, () ->! Unit) >-> Unit");
+  });
+
+  it("never places a tie at a call that only hands parameters on, in either member order", () => {
+    // A hand-on joins two names for one function: the tie stands at the merge
+    // that made it, whichever member is read first.
+    const a = "    a(action: () ->! Unit, c: Bool, n: Int): Unit =\n        action!()\n        let inner = (f) =>\n" +
+      "            b!(action, c, n - 1)\n            if c then action else f\n        ()\n";
+    const b = "    b(action: () ->! Unit, c: Bool, n: Int): Unit = if n == 0 then () else a!(action, c, n)\n";
+    for (const knot of [...members(a, b), ...members(a.replace("b!(action,", "b!((action),"), b)]) {
+      expect(at(knot)).toEqual([[
+        "if c then action else f",
+        "`f`'s colour is tied to `action`'s here, and no written type can say that — write `f`'s type",
+      ]]);
+    }
+  });
+
+  it("reads a colour only parameters handed on share as each one's own, in every member order (#1215 (c))", () => {
+    // `a`'s untyped `g` holds the function `b`'s written `g` holds: no tie.
+    const a = "    a(g, n: Int): Unit =\n        g!()\n        if n == 0 then () else b!(g, n - 1)\n";
+    const b = "    b(g: () ->! Unit, n: Int): Unit =\n        if n == 0 then () else a!(g, n)\n";
+    for (const knot of members(a, b)) {
+      expect(check(knot)).toEqual([]);
+      expect(hoveredType(prelude + knot, "a(g, n")).toBe("(() ->! Unit, Int) >-> Unit");
+    }
+    // #1215 (c): a nested lambda's merge is a tie; its fix writes `f` and `a`'s
+    // `g`, and the repaired program compiles in every line and member order.
+    const tied = "    a(g, c: Bool, n: Int): Unit =\n        let inner = (f) => if c then g else f\n        b!(g, c, n - 1)\n        ()\n";
+    const callee = "    b(g, c: Bool, n: Int): Unit =\n        g!()\n        if n == 0 then () else a!(g, c, n)\n";
+    for (const knot of members(tied, callee)) {
+      const text = prelude + knot;
+      const diagnostics = compileFiles([["/world.js", ""], ["/main.hex", text]]).diagnostics;
+      expect(diagnostics.map(({ message }) => message)).toEqual([
+        "`f`'s colour is tied to `g`'s here, and no written type can say that — write `f`'s type",
+      ]);
+      let fixed = text;
+      for (const edit of diagnostics.flatMap(({ fixes }) => (fixes ?? []).flatMap((fix) => fix.edits))
+        .sort((left, right) => right.span.start.offset - left.span.start.offset)) {
+        fixed = fixed.slice(0, edit.span.start.offset) + edit.replacement + fixed.slice(edit.span.end.offset);
+      }
+      expect(compileFiles([["/world.js", ""], ["/main.hex", fixed]]).diagnostics).toEqual([]);
+    }
+  });
+
+  it("reads every application of a curried member: a callback taken later is handed on as one taken first", () => {
+    // The member returns the function that takes its callback. Main accepted
+    // this with a pure face for `a`, in either member order, and ran `save0`.
+    const a = "    a(n: Int): (() ->! Unit) -> Unit = (cb) => if n == 0 then cb!() else a(n - 1)(() => b(n))\n";
+    const b = "    b(n: Int): Unit = if n > 0 then a(n - 1)(save0) else ()\n";
+    for (const knot of members(a, b)) {
+      expect([...at(knot)].sort()).toEqual([["() => b(n)", made("a", true)], ["save0", made("b", false)]]);
+    }
+    const one = `fun b(n: Int) = (cb: () ->! Unit) =>
+    let h = () =>
+        cb!()
+        if n <= 0 then () else b(n - 1)(cb)
+    h()
+    if n <= 0 then () else b(n - 1)(() => cb!())
+    if n <= 0 then () else b(n - 1)(save0)
+`;
+    expect(at(one)).toEqual([["() => cb!()", made("b", true)], ["save0", made("b", true)]]);
+    // What the returned lambda was given is the member's to hand on, returned
+    // as a block's last line too.
+    expect(check("fun walk(n: Int) = (cb: () ->! Unit) =>\n    if n == 0 then cb!() else walk(n - 1)!(cb)\n"))
+      .toEqual([]);
+    expect(check("fun walk(n: Int) =\n    let m = n - 1\n    (cb: () ->! Unit) => if n == 0 then cb!() else walk(m)!(cb)\n"))
+      .toEqual([]);
+  });
+
+  it("applies a curried member in full where it is named, and lets one hand back what takes no callback", () => {
+    expect(at(`fun a(n: Int): (() ->! Unit) -> Unit = (cb) =>
+    let r = a(n - 1)
+    if n == 0 then cb!() else r(cb)
+`)).toEqual([["a(n - 1)", applied("a")]]);
+    expect(check(`fun later(cb: () ->! Unit, n: Int) = if n == 0 then () => cb!() else later(cb, n - 1)
+export let probe(): Unit = later(save0, 2)!()
+`)).toEqual([]);
+  });
+
+  it("refuses a member that hands back data holding a function that takes callbacks, in either member order", () => {
+    // What is taken out of the result is the member's own callback-taker under
+    // another name. Main accepted the pair in one member order, and ran `save0`.
+    const handed = "`a` hands back data holding a function that takes callbacks, so inside its own recursion it is " +
+      "not called";
+    const a = "    a(n: Int) =\n        let run = (cb: () ->! Unit) =>\n            if n == 0 then cb!()\n            else\n" +
+      "                let (r, _) = a(n - 1)\n                r(() => b(n))\n        (run, 1)\n";
+    const b = "    b(n: Int): Unit =\n        if n > 0 then\n            let (r, _) = a(n - 1)\n            r(save0)\n        else ()\n";
+    for (const knot of members(a, b)) expect(at(knot)).toEqual([["a(n - 1)", handed], ["a(n - 1)", handed]]);
+    // Through an `Option` and an anonymous record too.
+    expect(at(`fun
+    a(n: Int) = Some((cb: () ->! Unit) =>
+        if n == 0 then cb!()
+        else
+            match a(n - 1)
+                Some(r) => r(() => b(n))
+                None => ())
+    b(n: Int): Unit =
+        if n > 0 then
+            match a(n - 1)
+                Some(r) => r(save0)
+                None => ()
+        else ()
+`)).toEqual([["a(n - 1)", handed], ["a(n - 1)", handed]]);
+    const record = (member: string): string =>
+      member.replace("let (r, _) = a(n - 1)", "let { go = r } = a(n - 1)").replace("(run, 1)", "{ go = run }");
+    expect(at(members(record(a), record(b))[0]!)).toEqual([["a(n - 1)", handed], ["a(n - 1)", handed]]);
+    // A generic union holding one in its payload, as the record spelling of the
+    // same data does.
+    const union = "union Cont(a) = K((a) ->! Unit) | Done\n";
+    const contA = "    a(n: Int) =\n        K((cb) =>\n            if n == 0 then cb!()\n            else\n" +
+      "                match a(n - 1)\n                    K(r) => r!(() => b(n))\n                    Done => ())\n";
+    const contB = "    b(n: Int): Unit =\n        if n > 0 then\n            match a(n - 1)\n                K(r) => r!(save0)\n" +
+      "                Done => ()\n        else ()\n";
+    for (const knot of members(contA, contB)) {
+      expect(at(union + knot).filter(([, message]) => message === handed)).toEqual([["a(n - 1)", handed], ["a(n - 1)", handed]]);
+    }
+    // Whatever else the module declares first, and in each instantiation a
+    // value holds.
+    const wrapped = "union Cont(a) = K((a) ->! Unit) | Done\nrecord W = { c: Cont(() ->! Unit) }\nfun\n    a(n: Int) =\n" +
+      "        let k = K((cb: () ->! Unit) => cb!())\n        if n == 0 then W({ c = k }) else a(n - 1)\n";
+    for (const before of ["", "union Pad0 = P0\n", "record Pad1 = { x: Int }\n"]) {
+      expect(at(before + wrapped)).toEqual([["a(n - 1)", handed]]);
+    }
+    expect(at(`union Cont(a) = K((a) ->! Unit) | Done
+fun
+    a(n: Int) =
+        let first: Cont(Int) = Done
+        (first, K((cb) =>
+            if n == 0 then cb!()
+            else
+                let (_, k) = a(n - 1)
+                match k
+                    K(r) => r!(() => ())
+                    Done => ()))
+`).filter(([, message]) => message === handed)).toEqual([["a(n - 1)", handed]]);
+    // Data holding only a function that takes none is handed back as before.
+    expect(check("fun count(cb: () ->! Unit, n: Int) = if n == 0 then (() => cb!(), 0) else count(cb, n - 1)\n"))
+      .toEqual([]);
+  });
+
+  it("reads the types behind a recursive member's result a bounded number of times, however densely they name each other or deeply they nest", () => {
+    // Every union names every other: read path by path, the walk is
+    // exponential in the number of types.
+    const names = Array.from({ length: 12 }, (_, index) => `T${index}`);
+    const unions = names.map((name) =>
+      `union ${name} = ${name}Leaf | ${names.map((other, index) => `${name}C${index}(${other}, Int)`).join(" | ")}\n`
+    ).join("");
+    expect(check(unions + "fun build(n: Int): T0 = if n == 0 then T0Leaf else T0C0(build(n - 1), n)\n")).toEqual([]);
+    // Each level's argument is larger than the last's: a nested datatype.
+    expect(check(
+      "union Perfect(a) = Leaf(a) | Node(Perfect((a, a)))\n" +
+        "fun times(t: Perfect(Int), n: Int): Perfect(Int) = if n == 0 then t else times(t, n - 1)\n",
+    )).toEqual([]);
+    expect(check(
+      "record Nest(a) = { here: a, deeper: Option(Nest((a, a))) }\n" +
+        "fun times(t: Nest(Int), n: Int): Nest(Int) = if n == 0 then t else times(t, n - 1)\n",
+    )).toEqual([]);
+  });
+
+  it("reads a member's own parameters sharing a colour as a tie in either member order, however it came to be shared", () => {
+    // Swapped back by a sibling, or handed twice into one slot: the shared
+    // colour is the member's own two callbacks', which no written face can say.
+    const pairs = [
+      [
+        "    a(f, g: () ->! Unit, n: Int): Unit = if n > 0 then b!(f, g, n - 1) else ()\n",
+        "    b(p, q, n: Int): Unit = if n == 0 then p!() else a!(q, p, n - 1)\n",
+      ],
+      [
+        "    a(f, g, n: Int): Unit = if n > 0 then b!(f, f, n - 1) else ()\n",
+        "    b(p, q, n: Int): Unit =\n        p!()\n        q!()\n        if n == 0 then () else a!(p, q, n - 1)\n",
+      ],
+      [
+        "    a(f, g, n: Int): Unit =\n        f!()\n        g!()\n        if n > 0 then b!(f, g, n - 1) else ()\n",
+        "    b(p, q, n: Int): Unit = if n == 0 then p!() else a!(q, p, n - 1)\n",
+      ],
+    ] as const;
+    for (const [a, b] of pairs) {
+      expect(members(a, b).map((knot) => check(knot).some((message) => message.includes("no written type can say that"))))
+        .toEqual([true, true]);
+    }
+  });
+
+  it("reads a merge with the member's own written parameter as a tie, in either member order", () => {
+    // The colour `f` shares with `act` is not one only handing on made, so it
+    // is a tie whichever member is read first.
+    const b = "    b(act: () ->! Unit, g: () ->! Unit, n: Int): Unit = a!(act, g, n)\n";
+    const a = "    a(act: () ->! Unit, f, n: Int): Unit =\n        (if n > 1 then act else f)!()\n" +
+      "        if n > 0 then b!(act, f, n - 1) else ()\n";
+    for (const knot of members(a, b)) {
+      expect(at(knot)).toEqual([[
+        "if n > 1 then act else f",
+        "`f`'s colour is tied to `act`'s here, and no written type can say that — write `f`'s type",
+      ]]);
+    }
+  });
+
+  it("stands alone outside the knot too: at a caller's callers, around a nested knot, and beside its types", () => {
+    const a = "fun\n    a(cb: () ->! Unit, n: Int): Unit =\n        if n == 0 then cb!() else a!(() => cb!(), n - 1)\n";
+    // `user`'s colour is one the refused knot decided, so a call to it owes no
+    // mark either.
+    expect(at(a + "let user(): Unit = a!(save0, 1)\nexport let probe(): Unit = user!()\n"))
+      .toEqual([["() => cb!()", made("a", true)]]);
+    // Nor where a pure demand reads it, though the refused hand-off made its
+    // colour the world's.
+    expect(at(`fun a(cb: () ->! Unit, n: Int): Unit = if n == 0 then cb!() else a!(save0, n - 1)
+let pureOnly(f: () -> Unit): Unit = f()
+export let probe(): Unit = pureOnly(() => a(noop, 1))
+`)).toEqual([["save0", made("a", true)]]);
+    // Nor at a call inside a lambda handed to it: that lambda is handed the
+    // colours the refused recursion decided.
+    expect(at(`fun a(k: (() ->! Unit) ->! Unit, n: Int): Unit = if n == 0 then k!(save0) else a!((f) => f!(), n - 1)
+let user(): Unit = a!((g) => g!(), 1)
+export let probe(): Unit = user!()
+`)).toEqual([["(f) => f!()", made("a", true)]]);
+    // The knot's types are read as written, its colours not.
+    expect(check(a + "let user(): Int = a!(save0, 1)\n")).toEqual([
+      made("a", true),
+      "type mismatch: expected Int, found Unit",
+    ]);
+    // A tie the refused call made in the body around the knot is a tie as any
+    // is, and is not hidden; nor is a mark a binding owes on its own account,
+    // nor a tie a merge made.
+    expect(at(`let walk(cb, n: Int): Unit =
+    fun go(m: Int, f: () ->! Unit): Unit = if m == 0 then f!() else go!(m - 1, () => cb!())
+    go!(n, noop)
+export let probe(): Unit = walk!(save0, 2)
+`)).toEqual([
+      [
+        "fun go(m: Int, f: () ->! Unit): Unit = if m == 0 then f!() else go!(m - 1, () => cb!())",
+        "`cb`'s colour is tied to `f`'s here, and no written type can say that — write `cb`'s type",
+      ],
+      ["() => cb!()", made("go", true)],
+    ]);
+    expect(at(a + "let user(): Unit =\n    let _ = (a, 1)\n    save!(\"u\")\nexport let probe(): Unit = user()\n")).toEqual([
+      ["() => cb!()", made("a", true)],
+      ["user()", "this call may touch the world, so `user` wants `!`, not no mark"],
+    ]);
+    expect(at(`let walk(g, h, c: Bool, n: Int): Unit =
+    fun go(m: Int, f: () ->! Unit): Unit = if m == 0 then f!() else go!(m - 1, () => g!())
+    go!(n, noop)
+    let k = if c then g else h
+    k!()
+`)).toEqual([
+      ["() => g!()", made("go", true)],
+      ["if c then g else h", "`g`'s colour is tied to `h`'s here, and no written type can say that — write `g`'s type"],
+    ]);
+  });
+
+  it("hands on a parameter in parentheses, under an ascription or through a `let`, and calls a member in parentheses", () => {
+    for (const handed of ["(cb)", "(cb: () ->! Unit)", "k"]) {
+      expect(check(`fun walk(cb: () ->! Unit, n: Int): Unit =
+    let k = cb
+    if n > 0 then walk!(${handed}, n - 1) else k!()
+`)).toEqual([]);
+    }
+    expect(check("fun walk(cb: () ->! Unit, n: Int): Unit = if n > 0 then (walk)!(cb, n - 1) else cb!()\n"))
+      .toEqual([]);
+    expect(check(
+      "fun walk(cb: () ->! Unit, n: Int): Unit = if n > 0 then (walk: (() ->! Unit, Int) >-> Unit)!(cb, n - 1) else cb!()\n",
+    )).toEqual([]);
+    expect(check("fun walk(n: Int) = (cb: () ->! Unit) => if n == 0 then cb!() else ((n - 1) |> walk)!(cb)\n"))
+      .toEqual([]);
+    // A callback the enclosing function was given is captured, and not one the
+    // recursion was given.
+    expect(at(`let walk(cb: () ->! Unit, n: Int): Unit =
+    fun go(m: Int, f: () ->! Unit): Unit = if m == 0 then f!() else go!(m - 1, cb)
+    go!(n, cb)
+`)).toEqual([["cb", made("go", true)]]);
   });
 });
 
@@ -2883,11 +3314,11 @@ describe("#947 closure construction stays pure, and knots settle at their close"
   const wantsBare = (callee: string, mark: string): string =>
     `this call is pure, so \`${callee}\` wants no mark, not \`${mark}\``;
 
-  it("publishes pure a colour a member runs that stands in none of its parameters", () => {
-    // `k` runs `h`'s returned function, whose colour is `h`'s callback's —
-    // monomorphic inside the knot, so the sibling call inside wears `!` — and
-    // finishes with that colour standing in none of its own parameters: `k`
-    // is published `Int -> Unit`, and an outside call is bare (§2.4).
+  it("refuses a member handing its sibling a function it made, and the refusal stands alone (#1218)", () => {
+    // `k` takes no callback, so the pure lambda it hands `h` is not one it
+    // was given, and monomorphic recursion would make its colour every
+    // call's (§3.4). The refusal is the only report: the knot's marks and
+    // faces, and the outside call to `k`, owe none, whatever the marks say.
     const source = `fun
     h(n: Int, cb: () ->! Unit): () >-> Unit =
         let g = () => k!(n)
@@ -2895,15 +3326,16 @@ describe("#947 closure construction stays pure, and knots settle at their close"
     k(n: Int): Unit = if n == 0 then () else h(n - 1, () => ())!()
 export let use(): Unit = k(3)
 `;
-    expect(check(source)).toEqual([]);
-    expect(hover(source, "k(n")).toBe("Int -> Unit");
-    expect(check(source.replace("let g = () => k!(n)", "let g = () => k(n)"))).toEqual([wantsBang("k")]);
+    const made = "`k` was given no callback, and a recursive call hands on only the callbacks it was given";
+    expect(check(source)).toEqual([made]);
+    expect(check(source.replace("let g = () => k!(n)", "let g = () => k(n)"))).toEqual([made]);
+    expect(check(source.replace("= k(3)", "= k!(3)"))).toEqual([made]);
   });
 
-  it("keeps its own colour for a function the result carries in data (#1166)", () => {
-    // `k`'s colour is `h`'s callback's, and `k` returns `h` inside a tuple: the
-    // colour is published pure on `k`'s own arrow, and `h` keeps it as a colour
-    // of its own there, so the caller hands it an effectful callback (§2.4).
+  it("refuses naming a member that takes callbacks inside its recursion (#1218)", () => {
+    // `k` hands `h` a function it made and returns `h` itself inside a tuple:
+    // inside its recursion `h` is only called, by its name, so an alias cannot
+    // carry a call the text does not read (§3.4). Two refusals, nothing else.
     const source = `fun
     h(n: Int, cb: () ->! Unit): () >-> Unit =
         let g = () =>
@@ -2914,13 +3346,12 @@ export let use(): Unit = k(3)
     k(n: Int) =
         let _ = if n == 0 then () else h(n - 1, () => ())!()
         (h, 1)
-export let use(): Unit =
-    let (hh, _) = k(1)
-    hh(1, () => save!("x"))!()
 `;
-    expect(check(source)).toEqual([]);
-    expect(hover(source, "k(n: Int) =")).toBe("Int -> ((Int, () ->! Unit) -> () >-> Unit, Int)");
-    expect(check(source.replace("= k(1)", "= k!(1)"))).toEqual([wantsBare("k", "!")]);
+    expect(check(source)).toEqual([
+      "`k` hands back data holding a function that takes callbacks, so inside its own recursion it is not called",
+      "`k` was given no callback, and a recursive call hands on only the callbacks it was given",
+      "`h` takes callbacks, so inside its own recursion it is only called, by its name",
+    ]);
   });
 
   it("splits a local function's colour the same way outside a knot (#1166)", () => {
@@ -3076,27 +3507,34 @@ fun
   });
 
   it("reads a sibling call's mark as an outside call's, the knot's colours being monotypes", () => {
-    // Within the knot a member's colours are monotypes (Functions §7.4): a
-    // sibling call wears the member's colour, `!` where it depends on the
-    // member's callbacks, as §3.4's `even`/`odd` do, even where the sibling
-    // hands it pure functions (§3.4's step 6). A sibling handing `b` an
-    // impure function pins its monomorphic colour, and the face published
-    // then follows `a` alone.
+    // Within the knot a member's colours are monotypes (Functions §7.4), and a
+    // sibling call hands on only the callbacks its caller was given (§3.4): it
+    // wears the member's colour, `!` where that depends on the callbacks, as an
+    // outside call handing a function that may touch the world does, and as
+    // §3.4's `even`/`odd` do. A sibling that hands `m` a function it made is
+    // refused, whatever the function does.
     const knot = (sibling: string, outside: string): string => `fun
     m(a: () ->! Unit, b: () ->! Unit, n: Int): Unit =
         a!()
-        if n > 0 then s!(n - 1) else ()
-    s(n: Int): Unit = ${sibling}
+        if n > 0 then s!(a, b, n - 1) else ()
+    s(a: () ->! Unit, b: () ->! Unit, n: Int): Unit = ${sibling}
 export let outside(): Unit = ${outside}
 `;
     const noop = "let noop(): Unit = ()\nlet save0(): Unit = save!(\"x\")\n";
-    expect(check(noop + knot("m!(noop, noop, n)", "m!(noop, save0, 1)"))).toEqual([]);
-    expect(check(noop + knot("m(noop, noop, n)", "m!(noop, save0, 1)"))).toEqual([wantsBang("m")]);
-    expect(check(noop + knot("m!(noop, noop, n)", "m(noop, noop, 1)"))).toEqual([]);
-    expect(check(noop + knot("m!(noop, save0, n)", "m(noop, save0, 1)"))).toEqual([]);
-    expect(hover(noop + knot("m!(noop, noop, n)", "m(noop, noop, 1)"), "m(a")).toBe(
+    expect(check(noop + knot("m!(a, b, n)", "m!(save0, noop, 1)"))).toEqual([]);
+    expect(check(noop + knot("m(a, b, n)", "m!(save0, noop, 1)"))).toEqual([wantsBang("m")]);
+    // A finished face follows all of its callbacks (§2.4): `b` is handed on, so
+    // it is one of them, and an outside call handing it `save0` wears `!`.
+    expect(check(noop + knot("m!(a, b, n)", "m(noop, save0, 1)"))).toEqual([wantsBang("m")]);
+    expect(check(noop + knot("m!(b, a, n)", "m(noop, noop, 1)"))).toEqual([]);
+    expect(hover(noop + knot("m!(a, b, n)", "m(noop, noop, 1)"), "m(a")).toBe(
       "(() ->! Unit, () ->! Unit, Int) >-> Unit",
     );
+    for (const made of ["m!(noop, b, n)", "m!(a, save0, n)", "m!(() => a!(), b, n)"]) {
+      expect([made, check(noop + knot(made, "m(noop, noop, 1)"))]).toEqual([made, [
+        "this function is not one `s` was given, and a recursive call hands on only the callbacks it was given",
+      ]]);
+    }
   });
 
   it("defaults `store`'s outer colour pure and keeps the parameter's variable", () => {
@@ -3186,16 +3624,16 @@ export let total(value: Int, cb: () ->! Unit): Int =
 
     it("makes every caller of a source a source, whichever member closes first", () => {
       for (const members of [
-        ["    a(cb: () ->! Unit): Unit =\n        cb!()\n        b!()\n",
-          "    b(): Unit =\n        let unused = a\n        save!(\"x\")\n"],
-        ["    b(): Unit =\n        let unused = a\n        save!(\"x\")\n",
-          "    a(cb: () ->! Unit): Unit =\n        cb!()\n        b!()\n"],
+        ["    a(cb: () ->! Unit): Unit =\n        cb!()\n        b!(cb)\n",
+          "    b(cb: () ->! Unit): Unit =\n        let unused = () => a!(cb)\n        save!(\"x\")\n"],
+        ["    b(cb: () ->! Unit): Unit =\n        let unused = () => a!(cb)\n        save!(\"x\")\n",
+          "    a(cb: () ->! Unit): Unit =\n        cb!()\n        b!(cb)\n"],
       ]) {
         const knot = `fun\n${members.join("")}`;
         expect(check(knot)).toEqual([]);
         expect(hover(knot, "a(cb")).toBe("(() ->! Unit) ->! Unit");
-        expect(hover(knot, "b()")).toBe("() ->! Unit");
-        expect(check(knot.replace("        b!()", "        b()"))).toEqual([
+        expect(hover(knot, "b(cb: ")).toBe("(() ->! Unit) ->! Unit");
+        expect(check(knot.replace("        b!(cb)", "        b(cb)"))).toEqual([
           "this call may touch the world, so `b` wants `!`, not no mark",
         ]);
       }
@@ -3220,8 +3658,8 @@ export let total(value: Int, cb: () ->! Unit): Int =
 
     it("holds a lambda that calls a sibling to the knot's close, whichever member closes first", () => {
       const conducting = "    a(cb: () ->! Unit): Unit =\n        let g = () =>\n            cb!()\n" +
-        "            b!()\n        g!()\n";
-      const source = "    b(): Unit =\n        let unused = a\n        save!(\"x\")\n";
+        "            b!(cb)\n        g!()\n";
+      const source = "    b(cb: () ->! Unit): Unit =\n        let unused = () => a!(cb)\n        save!(\"x\")\n";
       for (const members of [[conducting, source], [source, conducting]]) {
         const knot = `fun\n${members.join("")}`;
         expect(check(knot)).toEqual([]);
@@ -3236,7 +3674,7 @@ export let total(value: Int, cb: () ->! Unit): Int =
             b(cb)
         g!()
     b(cb: () ->! Unit): Unit =
-        let unused = a
+        let unused = () => a!(cb)
         ()
 `;
       expect(check(quiet)).toEqual([]);
