@@ -22087,13 +22087,14 @@ class Checker {
    * (Effects §3.4, #1218): one whose parameters include a function, held in
    * data or handed back by a function it holds. A union's payloads are read
    * with its type arguments in place (`replacements`), as a record's fields
-   * are (`#nominalRecordFields`). Each instantiation is read on its own, and
-   * `reading` holds those being read now, so a recursive type stops where it
-   * meets itself.
+   * are (`#nominalRecordFields`). Each instantiation is read once per query
+   * (`read`): the question is whether one is reachable, so one that was read
+   * and held none holds none on any other path, and a recursive type stops
+   * where it meets itself.
    */
   #holdsCallbackTaker(
     type: Mono,
-    reading: Set<string>,
+    read: Set<string>,
     replacements: ReadonlyMap<number, Mono> = new Map(),
   ): boolean {
     const resolved = (component: Mono): Mono => {
@@ -22101,17 +22102,13 @@ class Checker {
       const replacement = pruned.kind === "Variable" ? replacements.get(pruned.id) : undefined;
       return replacement === undefined ? pruned : this.#prune(replacement);
     };
-    const holds = (component: Mono): boolean => this.#holdsCallbackTaker(component, reading, replacements);
-    // Reads a nominal type's components once per instantiation on this path; a
-    // type nested in itself at ever larger arguments stops at a bound.
-    const within = (key: string, read: () => boolean): boolean => {
-      if (reading.has(key) || reading.size > 32) return false;
-      reading.add(key);
-      try {
-        return read();
-      } finally {
-        reading.delete(key);
-      }
+    const holds = (component: Mono): boolean => this.#holdsCallbackTaker(component, read, replacements);
+    // Reads a nominal type's components once per instantiation; a type nested
+    // in itself at ever larger arguments stops at a bound.
+    const within = (key: string, components: () => boolean): boolean => {
+      if (read.has(key) || read.size > 512) return false;
+      read.add(key);
+      return components();
     };
     const instance = (kind: string, id: number, arguments_: readonly Mono[]): string =>
       `${kind}:${id}(${arguments_.map((argument) => this.#shapeKey(resolved(argument))).join(",")})`;
@@ -22154,7 +22151,7 @@ class Checker {
               }
             });
           }
-          return constructor.parameters.some((payload) => this.#holdsCallbackTaker(payload, reading, own));
+          return constructor.parameters.some((payload) => this.#holdsCallbackTaker(payload, read, own));
         }));
       }
       case "NominalRecord": {

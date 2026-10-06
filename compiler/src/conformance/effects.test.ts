@@ -1877,6 +1877,16 @@ fun
       .toEqual([]);
   });
 
+  it("reads each type behind a recursive member's result once, however densely the types name each other", () => {
+    // Every union names every other: read path by path, the walk is
+    // exponential in the number of types.
+    const names = Array.from({ length: 12 }, (_, index) => `T${index}`);
+    const unions = names.map((name) =>
+      `union ${name} = ${name}Leaf | ${names.map((other, index) => `${name}C${index}(${other}, Int)`).join(" | ")}\n`
+    ).join("");
+    expect(check(unions + "fun build(n: Int): T0 = if n == 0 then T0Leaf else T0C0(build(n - 1), n)\n")).toEqual([]);
+  });
+
   it("reads a member's own parameters sharing a colour as a tie in either member order, however it came to be shared", () => {
     // Swapped back by a sibling, or handed twice into one slot: the shared
     // colour is the member's own two callbacks', which no written face can say.
