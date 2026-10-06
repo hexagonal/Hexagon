@@ -1651,6 +1651,14 @@ export function compileProject(
       }
     }
 
+    // Effects §13.3: a call at an instance another module declared follows
+    // that instance's own colour, settled when its module was checked. Keyed by
+    // the instance's identity, so every module checked so far answers.
+    const importedInstanceColours = new Map<string, readonly boolean[]>();
+    for (const home of checked.values()) {
+      for (const [key, colours] of home.typed.instanceColours ?? []) importedInstanceColours.set(key, colours);
+    }
+
     // Modules §5.5: modules between a prelude member's data seat and its full
     // seat know the member's data identity, but its full operations and
     // instances stay unavailable providers until its full seat.
@@ -1661,6 +1669,7 @@ export function compileProject(
       repairs: stage.repairs,
       ownDefaultAlias: unit.declaredName.split(".").at(-1)!,
       importedSchemes,
+      importedInstanceColours,
       programNominals,
       programWritten,
       representationRecords,

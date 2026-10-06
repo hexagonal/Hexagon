@@ -293,21 +293,21 @@ describe("Effects §13.2: the constant table", () => {
     expect(table("->!", 'readIt!(s.name)')).toEqual([]);
   });
 
-  test("a pure body under `->!` still makes every call wear `!`", () => {
-    // Pinned as it stands: a dot call on this instance wears the contract's
-    // `!`, though the body reads nothing.
-    expect(messages(
-      "constraint R<a> =\n    read(s: a) ->! String\n" +
-      "export record P = { name: String }\n" +
-      "honor R<P> =\n    read(s) = s.name\n" +
-      "export let dot(p: P): String = p.read!()\n",
-    )).toEqual([]);
+  test("a pure body under `->!` makes its calls bare (the lower-right cell, §13.3)", () => {
+    // A call at this instance follows the instance's own colour: the body
+    // reads nothing, so the dot call is bare and a `!` is the error it always was.
     expect(messages(
       "constraint R<a> =\n    read(s: a) ->! String\n" +
       "export record P = { name: String }\n" +
       "honor R<P> =\n    read(s) = s.name\n" +
       "export let dot(p: P): String = p.read()\n",
-    )).toEqual(["this call may touch the world, so `.read` wants `!`, not no mark"]);
+    )).toEqual([]);
+    expect(messages(
+      "constraint R<a> =\n    read(s: a) ->! String\n" +
+      "export record P = { name: String }\n" +
+      "honor R<P> =\n    read(s) = s.name\n" +
+      "export let dot(p: P): String = p.read!()\n",
+    )).toEqual(["this call is pure, so `.read` wants no mark, not `!`"]);
   });
 });
 
@@ -421,57 +421,236 @@ describe("Effects §13.2: the sign is the variance product", () => {
   });
 });
 
-describe("Effects §13.3: every spelling wears the contract's mark", () => {
+describe("Effects §13.3: a known instance's calls follow it, a generic call the contract", () => {
   const LIB = "module Lib\n\n" +
     "export constraint R<a> =\n    read(s: a) ->! String\n" +
     "export record Note = { name: String }\n" +
     "honor R<Note> =\n    read(s) = s.name\n";
 
-  test("bare, qualified, dot and bounded-generic spellings all wear `!`", () => {
+  test("every spelling at an imported pure instance is bare; the generic one wears `!`", () => {
+    // The instance's colour is published with it (§13.3), so an importer's
+    // known-instance call follows it, and the bounded-generic call the contract.
     expect(projectMessages([
       ["/lib.hex", LIB],
       ["/main.hex", "module Main\n\nimport Lib\n\n" +
-        "export let qualified(n: Lib.Note): String = Lib.read!(n)\n" +
-        "export let dotted(n: Lib.Note): String = n.read!()\n" +
+        "export let qualified(n: Lib.Note): String = Lib.read(n)\n" +
+        "export let dotted(n: Lib.Note): String = n.read()\n" +
         "export let generic<a: Lib.R>(x: a): String = x.read!()\n"],
     ])).toEqual([]);
   });
 
-  test("and none of them may be written bare", () => {
+  test("and the generic call may not be written bare, nor the known one marked", () => {
     expect(projectMessages([
       ["/lib.hex", LIB],
       ["/main.hex", "module Main\n\nimport Lib\n\n" +
-        "export let qualified(n: Lib.Note): String = Lib.read(n)\n"],
-    ])).toEqual(["this call may touch the world, so `Lib.read` wants `!`, not no mark"]);
+        "export let generic<a: Lib.R>(x: a): String = x.read()\n" +
+        "export let qualified(n: Lib.Note): String = Lib.read!(n)\n"],
+    ])).toEqual([
+      "this call may touch the world, so `.read` wants `!`, not no mark",
+      "this call is pure, so `Lib.read` wants no mark, not `!`",
+    ]);
   });
 
-  test("a call at a known concrete instance wears it, through the companion", () => {
-    // Method Syntax §4: the companion is the module addressable under the type's
-    // name, and the call through it wears the contract's `!` too.
-    const files = (mark: string) => [
+  test("a call at a known instance follows it through the companion too", () => {
+    // Method Syntax §4: the companion is the module addressable under the
+    // type's name, and the call through it is the call at its instance.
+    const files = (body: string, mark: string) => [
+      ["/io.js", ""],
       ["/lib.hex", "module Lib\n\nexport constraint R<a> =\n    read(s: a) ->! String\n"],
-      ["/note.hex", "module Note\n\nimport Lib\n\n" +
+      ["/note.hex", "module Note\n\nimport Lib\n\n" + IO +
         "export record Note = { name: String }\n" +
-        "honor Lib.R<Note> =\n    read(s) = s.name\n"],
+        `honor Lib.R<Note> =\n    read(s) = ${body}\n`],
       ["/main.hex", "module Main\n\nimport Note\n\n" +
         `export let at(n: Note.Note): String = Note.read${mark}(n)\n`],
     ] as const;
-    expect(projectMessages(files("!"))).toEqual([]);
-    expect(projectMessages(files("")))
+    expect(projectMessages(files("s.name", ""))).toEqual([]);
+    expect(projectMessages(files("s.name", "!")))
+      .toEqual(["this call is pure, so `Note.read` wants no mark, not `!`"]);
+    expect(projectMessages(files("readIt!(s.name)", "!"))).toEqual([]);
+    expect(projectMessages(files("readIt!(s.name)", "")))
       .toEqual(["this call may touch the world, so `Note.read` wants `!`, not no mark"]);
   });
 
-  test("a bare call in the honoring module wears it too", () => {
+  test("a bare call in the honoring module follows it too", () => {
     expect(messages(
       "constraint R<a> =\n    read(s: a) ->! String\n" +
       "export record P = { name: String }\n" +
       "honor R<P> =\n    read(s) = s.name\n" +
-      "export let bare(p: P): String = read!(p)\n",
+      "export let bare(p: P): String = read(p)\n",
     )).toEqual([]);
   });
 });
 
-describe("Constraints §4.7: the `widens` door is compared, and shows the contract", () => {
+describe("Effects §13.3: an instance's own colour, and the calls that follow it", () => {
+  const R = "constraint R<a> =\n    read(s: a) ->! String\n" +
+    "record P = { name: String }\n" +
+    "record D = { name: String }\n";
+  const PURE_P = "honor R<P> =\n    read(s) = s.name\n";
+  const SAVING_D = "honor R<D> =\n    read(s) =\n        readIt!(s.name)\n";
+
+  test("whatever the order of the honor and its calls", () => {
+    for (const order of [
+      [R, PURE_P, SAVING_D, "let p(x: P): String = read(x)\nlet d(x: D): String = read!(x)\n"],
+      [R, "let p(x: P): String = read(x)\nlet d(x: D): String = read!(x)\n", SAVING_D, PURE_P],
+    ]) {
+      expect(messages(IO + order.join(""))).toEqual([]);
+    }
+    expect(messages(IO + R + "let p(x: P): String = read!(x)\n" + PURE_P))
+      .toEqual(["this call is pure, so `read` wants no mark, not `!`"]);
+  });
+
+  test("a subject a later line decides makes the call known, in either order", () => {
+    // §13.3: known or generic is decided where the subject variable's level
+    // closes, never by the order of the lines.
+    expect(messages(IO + R + PURE_P + "let k(x) =\n    let n = read(x)\n    let p: P = x\n    n\n"))
+      .toEqual([]);
+    expect(messages(IO + R + PURE_P + "let k(x) =\n    let p: P = x\n    read(x)\n")).toEqual([]);
+    expect(messages(IO + R + SAVING_D + "let k(x) =\n    let n = read(x)\n    let d: D = x\n    n\n"))
+      .toEqual(["this call may touch the world, so `read` wants `!`, not no mark"]);
+  });
+
+  test("a subject that generalizes makes the call generic: `!`", () => {
+    expect(messages(IO + R + PURE_P + "let k(x) = read!(x)\n")).toEqual([]);
+    expect(messages(IO + R + PURE_P + "let k(x) = read(x)\n"))
+      .toEqual(["this call may touch the world, so `read` wants `!`, not no mark"]);
+    // Decided where `k` generalizes, so `k` is `->!` at every use, whatever
+    // instance answers it there.
+    expect(messages(IO + R + PURE_P + "let k(x) = read!(x)\nlet u(p: P): String = k(p)\n"))
+      .toEqual(["this call may touch the world, so `k` wants `!`, not no mark"]);
+    expect(hoveredType("module Main\n\n" + IO + R + PURE_P + "let k(x) = read!(x)\nlet u(p: P): String = k!(p)\n", "k(x)"))
+      .toBe("<a: R> a ->! String");
+  });
+
+  test("a recursive instance that touches nothing is pure, one that touches the world anywhere is not", () => {
+    const tree = (leaf: string) =>
+      "constraint Size<a> =\n    size(x: a) ->! Int\n" +
+      "union T = Leaf | Node(T, T)\n" +
+      "honor Size<T> =\n    size(t) = match t\n" +
+      `        Leaf => ${leaf}\n` +
+      "        Node(l, r) => l.size() + r.size()\n";
+    expect(messages(IO + tree("0") + "let k(t: T): Int = size(t)\n")).toEqual([]);
+    expect(messages(IO + tree('String.length(readIt!("x"))') + "let k(t: T): Int = size!(t)\n"))
+      .toEqual([
+        "this call may touch the world, so `.size` wants `!`, not no mark",
+        "this call may touch the world, so `.size` wants `!`, not no mark",
+      ]);
+    expect(messages(IO + tree('String.length(readIt!("x"))').replaceAll(".size()", ".size!()") +
+      "let k(t: T): Int = size!(t)\n")).toEqual([]);
+  });
+
+  test("instances that call each other close together", () => {
+    const pair = (body: string) =>
+      "constraint R3<a> =\n    read3(s: a) ->! String\n" +
+      "record A = { name: String }\n" +
+      "record B = { a: A }\n" +
+      "honor R3<B> =\n    read3(s) = s.a.read3()\n" +
+      `honor R3<A> =\n    read3(s) = ${body}\n`;
+    expect(messages(IO + pair("s.name") + "let k(b: B): String = read3(b)\n")).toEqual([]);
+    expect(messages(IO + pair("readIt!(s.name)").replace("s.a.read3()", "s.a.read3!()") +
+      "let k(b: B): String = read3!(b)\n")).toEqual([]);
+  });
+
+  test("a call hands its callbacks to the instance's own colour", () => {
+    // The instance decides only its own colour (its body with every callback
+    // pure); a call at it is that colour joined with the callbacks it hands.
+    const run = (body: string) =>
+      "constraint Run<a> =\n    run(r: a, action: () ->! Unit) ->! Unit\n" +
+      "record Job = { n: Int }\n" +
+      `honor Run<Job> =\n    run(job, action) = ${body}\n` +
+      'let save(): Unit = Debug.log(readIt!("x"))\n';
+    expect(messages(IO + run("action!()") +
+      "let quiet(j: Job): Unit = run(j, () => ())\nlet loud(j: Job): Unit = run!(j, () => save!())\n"))
+      .toEqual([]);
+    // An instance that never runs its callback still follows the callbacks a
+    // call hands it: one colour per instance, the same at every use (§3.4).
+    expect(messages(IO + run("()") + "let loud(j: Job): Unit = run(j, () => save!())\n"))
+      .toEqual(["this call may touch the world, so `run` wants `!`, not no mark"]);
+  });
+
+  test("an arrow the member returns directly follows the instance; one inside data the contract", () => {
+    const make = (result: string, body: string, use: string) =>
+      `constraint Make<a> =\n    make(seed: a) ->! ${result}\n` +
+      "record S = { n: Int }\n" +
+      `honor Make<S> =\n    make(seed) = ${body}\n` +
+      `let use(s: S): Unit = ${use}\n`;
+    expect(messages(IO + make("(() ->! Unit)", "() => ()", "make(s)()"))).toEqual([]);
+    expect(messages(IO + make("(() ->! Unit)", '() => Debug.log(readIt!("x"))', "make(s)!()"))).toEqual([]);
+    expect(messages(IO + make("Option(() ->! Unit)", "Some(() => ())",
+      "match make(s)\n    Some(f) => f!()\n    None => ()"))).toEqual([]);
+  });
+
+  test("a callback merged with a member's reference follows the instance, and what it is handed", () => {
+    // `f` takes `read`'s type from the merge, so its colour meets the
+    // instance's, which waits for the module's close (§3.4): no tie, and a
+    // function that saves handed to it still makes the call `!`.
+    const merged = (honor: string, call: string) => IO + R + honor +
+      'let loud(q: P): String = readIt!(q.name)\n' +
+      "let h(f, p: P, c: Bool): String =\n    let k = if c then f else read\n    k!(p)\n" +
+      `let u(p: P): String = ${call}\n`;
+    expect(messages(merged(PURE_P, "h(loud, p, True)")))
+      .toEqual(["this call may touch the world, so `h` wants `!`, not no mark"]);
+    expect(messages(merged(PURE_P, "h!(loud, p, True)"))).toEqual([]);
+    expect(messages(merged(PURE_P, "h((q) => q.name, p, True)"))).toEqual([]);
+    expect(messages(merged(SAVING_D.replaceAll("D", "P"), "h!((q) => q.name, p, True)"))).toEqual([]);
+  });
+
+  test("a constant met before the instance settles is compared once it does", () => {
+    // `f`'s colour waits for `P`'s instance; the written `->` is recorded and
+    // compared at the module's close, never chosen by the demand (§3.4).
+    expect(messages(IO + R + "let f(x: P): String = read!(x)\nlet g: (P) -> String = f\n" +
+      "honor R<P> =\n    read(s) = readIt!(s.name)\n"))
+      .toEqual(["a `->` arrow promises purity, and this function may touch the world — " +
+        "the demand is written `->`, the function's face `->!` or `>->`"]);
+    expect(messages(IO + R + "let f(x: P): String = read(x)\nlet g: (P) -> String = f\n" + PURE_P)).toEqual([]);
+  });
+
+  test("instance colours settle to the least fixpoint, whatever order they were met in", () => {
+    // `B`'s colour is met first, and is impure only through `A`'s.
+    const chain = (call: string) =>
+      "constraint R3<a> =\n    read3(s: a) ->! String\n" +
+      "record A = { name: String }\n" +
+      "record B = { a: A }\n" +
+      `let k(b: B): String = ${call}\n` +
+      "honor R3<B> =\n    read3(s) = s.a.read3!()\n" +
+      "honor R3<A> =\n    read3(s) = readIt!(s.name)\n";
+    expect(messages(IO + chain("read3!(b)"))).toEqual([]);
+    expect(messages(IO + chain("read3(b)")))
+      .toEqual(["this call may touch the world, so `read3` wants `!`, not no mark"]);
+  });
+
+  test("a written `>->` over a call at a known instance holds where the instance is pure", () => {
+    const face = (honor: string, call: string) => IO + R +
+      `let f: (P, () ->! Unit) >-> String = (p, k) =>\n    k!()\n    ${call}\n` + honor;
+    expect(messages(face(PURE_P, "read(p)"))).toEqual([]);
+    // A written `>->` result over a function that calls it, too.
+    expect(messages(IO + R +
+      "let mk(k: () ->! Unit, p: P): () >-> String = () =>\n    k!()\n    read(p)\n" + PURE_P)).toEqual([]);
+    expect(messages(face("honor R<P> =\n    read(s) = readIt!(s.name)\n", "read!(p)"))).toEqual([
+      "this call touches the world on its own account, and this face's `>->` promises the function is " +
+        "only as effectful as what it is handed — write `->!`",
+    ]);
+  });
+
+  test("a call whose subject an enclosing scope decides waits there, not in a nested binding", () => {
+    const nested = (call: string) => IO + R + "honor R<P> =\n    read(s) = readIt!(s.name)\n" +
+      `let k(x) =\n    let g = () => read!(x)\n    let d: P = x\n    ${call}\n`;
+    expect(messages(nested("g!()"))).toEqual([]);
+    expect(messages(nested("g()"))).toEqual(["this call may touch the world, so `g` wants `!`, not no mark"]);
+  });
+
+  test("an instance that uses the default body has the default's colour", () => {
+    const withDefault = (body: string) =>
+      "constraint R<a> =\n    read(s: a) ->! String\n" +
+      `    tag(s: a) ->! String = ${body}\n` +
+      "record P = { name: String }\n" +
+      "honor R<P> =\n    read(s) = s.name\n";
+    expect(messages(IO + withDefault('"p"') + "let k(p: P): String = tag(p)\n")).toEqual([]);
+    // A default calls its siblings generically, at their contracts' `!`.
+    expect(messages(IO + withDefault("s.read!()") + "let k(p: P): String = tag!(p)\n")).toEqual([]);
+  });
+});
+
+describe("Constraints §4.7: the `widens` door is compared, and follows its body", () => {
   const LIB = (arrow: string) => "module Lib\n\n" +
     `export constraint R<a> =\n    tag(s: a, n: Int) ${arrow} String\n`;
 
@@ -483,29 +662,44 @@ describe("Constraints §4.7: the `widens` door is compared, and shows the contra
     "honor Lib.R<P> =\n    tag = widened\n" +
     `export let through(p: P): String = ${call}\n`;
 
-  test("a pure door body under a `->!` member is accepted, and its calls wear `!`", () => {
+  test("a pure door body under a `->!` member is accepted, and its calls are bare", () => {
+    // The door is the instance at its type (Effects §13.3), so it follows its
+    // body: every spelling at the type agrees.
     expect(projectMessages([
       ["/lib.hex", LIB("->!")],
-      ["/main.hex", door("s.name", "tag!(p, 2n)")],
+      ["/main.hex", door("s.name", "tag(p, 2n)")],
+      ["/io.js", ""],
+    ])).toEqual([]);
+    expect(projectMessages([
+      ["/lib.hex", LIB("->!")],
+      ["/main.hex", door("s.name", "tag(p, 2n) ++ Lib.tag(p, 2)")],
       ["/io.js", ""],
     ])).toEqual([]);
   });
 
-  test("the door's binding shows the member's contract colour, never the body's", () => {
-    // One operation, two widths, one colour — and the colour is the member's.
-    const main = door("s.name", "tag!(p, 2n)");
-    const session = new AnalysisSession();
-    session.setFile("/io.js", "");
-    session.setFile("/lib.hex", LIB("->!"));
-    session.setFile("/main.hex", main);
-    expect(session.hover("/main.hex", main.indexOf("tag(s: P"))?.displayedType)
-      .toBe("(P, BigInt) ->! String");
+  test("the door's binding shows its body's colour", () => {
+    // One operation, two widths, one colour: the instance's.
+    const shown = (body: string) => {
+      const main = door(body, "tag!(p, 2n)");
+      const session = new AnalysisSession();
+      session.setFile("/io.js", "");
+      session.setFile("/lib.hex", LIB("->!"));
+      session.setFile("/main.hex", main);
+      return session.hover("/main.hex", main.indexOf("tag(s: P"))?.displayedType;
+    };
+    expect(shown("s.name")).toBe("(P, BigInt) -> String");
+    expect(shown('readIt!("x")')).toBe("(P, BigInt) ->! String");
   });
 
-  test("so a bare call to the pure-bodied door is refused", () => {
+  test("so a marked call to the pure-bodied door is refused, and a bare one to the effectful door", () => {
     expect(projectMessages([
       ["/lib.hex", LIB("->!")],
-      ["/main.hex", door("s.name", "tag(p, 2n)")],
+      ["/main.hex", door("s.name", "tag!(p, 2n)")],
+      ["/io.js", ""],
+    ])).toEqual(["this call is pure, so `tag` wants no mark, not `!`"]);
+    expect(projectMessages([
+      ["/lib.hex", LIB("->!")],
+      ["/main.hex", door('readIt!("x")', "tag(p, 2n)")],
       ["/io.js", ""],
     ])).toEqual(["this call may touch the world, so `tag` wants `!`, not no mark"]);
   });
@@ -649,24 +843,29 @@ describe("Effects §13.6: derived instances and display", () => {
     expect(hoveredType(source, "read(s: a)")).toBe("<a: R> a ->! String");
   });
 
-  test("and at every use, whatever the instance's body does", () => {
-    const source = "module Main\n\n" +
+  test("in generic code, and the instance's face at a known instance (§10, R4)", () => {
+    const source = (body: string) => "module Main\n\n" + IO +
       "export constraint R<a> =\n    read(s: a) ->! String\n" +
       "export record P = { name: String }\n" +
-      "honor R<P> =\n    read(s) = s.name\n" +
-      "export let use(p: P): String = read!(p)\n";
-    expect(hoveredType(source, "read!(p)")).toBe("<a: R> a ->! String");
-    expect(hoveredType(source, "use(p")).toBe("P ->! String");
+      `honor R<P> =\n    read(s) = ${body}\n` +
+      "export let use(p: P): String = read(p)\n" +
+      "export let any<a: R>(x: a): String = read!(x)\n";
+    expect(hoveredType(source("s.name"), "read(p)")).toBe("P -> String");
+    expect(hoveredType(source("s.name"), "use(p")).toBe("P -> String");
+    expect(hoveredType(source("s.name"), "read!(x)")).toBe("<a: R> a ->! String");
+    expect(hoveredType(source('readIt!("x")'), "read(p)")).toBe("P ->! String");
   });
 
   test("a coloured face's `.d.ts` carries its Hexagon signature", () => {
     // Effects §10's generated documentation line, which is what FFI Part 9 §2.2
     // points a coloured dictionary member at.
+    // The face is the instance's, which reads the world.
     const compiled = compileFiles([
-      ["/main.hex", "module Main\n\n" +
+      ["/io.js", ""],
+      ["/main.hex", "module Main\n\n" + IO +
         "export constraint R<a> =\n    read(s: a) ->! String\n" +
         "export record P = { name: String }\n" +
-        "honor R<P> =\n    read(s) = s.name\n" +
+        "honor R<P> =\n    read(s) = readIt!(s.name)\n" +
         "export let use(p: P): String = read!(p)\n"],
     ]);
     expect(compiled.diagnostics).toEqual([]);
@@ -726,7 +925,7 @@ describe("Effects §13.4: a callback's colour is the member's, under a constant 
       "honor Tx<Db> =\n    within(db, action) = action!()\n" +
       "let world(): Unit = Debug.log(readIt!(\"x\"))\n" +
       "export let effectful(d: Db): Unit = d.within!(() => world!())\n" +
-      "export let pure(d: Db): Unit = d.within!(() => ())\n",
+      "export let pure(d: Db): Unit = d.within(() => ())\n",
     )).toEqual([]);
   });
 
