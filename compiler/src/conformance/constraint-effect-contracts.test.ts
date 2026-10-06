@@ -737,6 +737,62 @@ describe("Effects §13.3: an instance's own colour, and the calls that follow it
       .toEqual(["this call may touch the world, so `r` wants `!`, not no mark"]);
   });
 
+  test("a returned function's own callbacks are callbacks, not the instance's world (review r2)", () => {
+    const make = (call: string) => IO +
+      "record A = { n: Int }\nconstraint R<a> =\n    make(s: a) ->! ((() ->! Unit) ->! Unit)\n" +
+      "honor R<A> =\n    make(s) = (k) => k!()\n" +
+      'let loud(): Unit =\n    let z = readIt!("x")\n    ()\n' +
+      `let p1(): Unit = ${call}\n`;
+    expect(messages(make("make(A({ n = 1 }))(() => ())"))).toEqual([]);
+    expect(messages(make("make(A({ n = 1 }))!(loud)"))).toEqual([]);
+    expect(messages(make("make(A({ n = 1 }))(loud)")))
+      .toEqual(["this call may touch the world, so this call wants `!`, not no mark"]);
+  });
+
+  test("an honor that hands on another known instance's returned function follows it, here and across modules", () => {
+    // The honor's own returned arrow is no callback: it is the instance colour
+    // it meets, never a slot fitted from it.
+    const LOUD = '() =>\n        let z = readIt!("x")\n        ()';
+    const honors = (exported: string, aBody: string, bBody: string) =>
+      `${exported}constraint R<a> =\n    make(s: a) ->! (() ->! Unit)\n` +
+      `${exported}record A = { n: Int }\n${exported}record B = { a: A }\n` +
+      `honor R<A> =\n    make(s) = ${aBody}\nhonor R<B> =\n    make(s) =${bBody}\n`;
+    const here = (aBody: string, bBody: string, call: string) =>
+      messages(IO + honors("", aBody, bBody) + `let p(b: B): Unit = ${call}\n`);
+    const across = (aBody: string, bBody: string, call: string) =>
+      projectMessages([
+        ["/io.js", ""],
+        ["/lib.hex", "module Lib\n\n" + IO + honors("export ", aBody, bBody)],
+        ["/main.hex", `module Main\n\nimport Lib\n\nexport let p(b: Lib.B): Unit = Lib.${call}\n`],
+      ]);
+    const handOn = (mark: string) => `\n        let g = s.a.make()\n        () => g${mark}()`;
+    for (const check of [here, across]) {
+      expect(check("() => ()", handOn(""), "make(b)()")).toEqual([]);
+      expect(check("() => ()", " s.a.make()", "make(b)()")).toEqual([]);
+      expect(check(LOUD, handOn("!"), "make(b)!()")).toEqual([]);
+      expect(check(LOUD, handOn("!"), "make(b)()"))
+        .toEqual(["this call may touch the world, so this call wants `!`, not no mark"]);
+    }
+  });
+
+  test("an honor that merges its callback with a known instance's member runs one or the other (review r2)", () => {
+    const merged = (bBody: string, call: string) => IO +
+      "record A = { n: Int }\nrecord B = { m: Int }\n" +
+      `constraint Q<a> =\n    get(s: a) ->! Int\nhonor Q<B> =\n    get(s) = ${bBody}\n` +
+      "constraint R<a> =\n    run(s: a, f: (B) ->! Int) ->! Int\n" +
+      "honor R<A> =\n    run(s, f) =\n        let g = if s.n > 0 then f else get\n        g!(B({ m = 1 }))\n" +
+      'let loudB(b: B): Int = String.length(readIt!("x"))\n' +
+      `let p1(): Int = ${call}\n`;
+    expect(messages(merged("0", "run(A({ n = 0 }), (b: B) => 7)"))).toEqual([]);
+    expect(messages(merged("0", "run!(A({ n = 0 }), loudB)"))).toEqual([]);
+    expect(messages(merged("0", "run(A({ n = 0 }), loudB)")))
+      .toEqual(["this call may touch the world, so `run` wants `!`, not no mark"]);
+    // A `Q<B>` that touches the world makes `R<A>` touch it too.
+    expect(messages(merged('String.length(readIt!("x"))', "run(A({ n = 0 }), (b: B) => 7)")))
+      .toEqual(["this call may touch the world, so `run` wants `!`, not no mark"]);
+    expect(messages(merged('String.length(readIt!("x"))', "run!(A({ n = 0 }), (b: B) => 7)"))).toEqual([]);
+  });
+
   test("an instance that uses the default body has the default's colour", () => {
     const withDefault = (body: string) =>
       "constraint R<a> =\n    read(s: a) ->! String\n" +

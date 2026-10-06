@@ -3923,6 +3923,14 @@ class Checker {
   }[] = [];
   /** Honor seats whose body runs a colour still waiting, compared at the module's close. */
   readonly #deferredSeats: (() => void)[] = [];
+  /**
+   * Instance-body callback slots a waiting colour was merged into (`#bindJoin`):
+   * where that colour settles impure, so does the slot, which then accepts any
+   * function and makes the body touch the world.
+   */
+  readonly #instanceFits: { readonly from: Variable; readonly to: Variable }[] = [];
+  /** The callback slots of instance and default bodies: their spine parameters' arrows (`#instanceFits`). */
+  readonly #seatCallbacks = new Set<Variable>();
   /** Written `>->` faces whose body runs a colour still waiting, read at the module's close (`#conduct`). */
   readonly #deferredFaceReports: (() => void)[] = [];
   /** Set while the instance colours are decided, when a waiting colour may bind. */
@@ -8224,6 +8232,7 @@ class Checker {
           const slots: Variable[] = [];
           const expected = this.#recolour(contractType, level + 1, slots) as FunctionMono;
           for (const slot of slots) this.#seatHeld.add(slot);
+          this.#noteSeatCallbacks(expected);
           defaultValue.parameters.forEach((parameter, index) => {
             this.#schemes.set(parameter.symbol, {
               variables: [],
@@ -8493,6 +8502,7 @@ class Checker {
           const slots: Variable[] = [];
           const expectedFunction = this.#recolour(contract.type, level + 1, slots) as FunctionMono;
           for (const slot of slots) this.#seatHeld.add(slot);
+          this.#noteSeatCallbacks(expectedFunction);
           if (expectedFunction.parameters.length !== member.value.parameters.length) {
             this.#diagnostics.add({
               severity: "error",
@@ -21877,6 +21887,16 @@ class Checker {
     else compare();
   }
 
+  /** Records a seat body's callback slots, the arrows of its spine's parameters (`#seatCallbacks`). */
+  #noteSeatCallbacks(type: Mono): void {
+    for (let spine = this.#prune(type); spine.kind === "Function"; spine = this.#prune(spine.result)) {
+      for (const parameter of spine.parameters) {
+        const callback = this.#prune(parameter);
+        if (callback.kind === "Function") for (const part of this.#colourParts(callback.effect ?? PURE)) this.#seatCallbacks.add(part);
+      }
+    }
+  }
+
   /** Whether a colour on this function's spine still waits for an instance (`#waitingColours`). */
   #spineWaits(type: Mono): boolean {
     const pruned = this.#prune(type);
@@ -21904,10 +21924,18 @@ class Checker {
     if (pruned.kind !== "Function") return true;
     const colour = this.#prune(pruned.effect ?? PURE);
     if (isImpure(colour)) return true;
-    const callbacks = new Set(body.type.parameters.flatMap((parameter) => {
-      const callback = this.#prune(parameter);
-      return callback.kind === "Function" ? this.#colourParts(callback.effect ?? PURE) : [];
-    }));
+    // Every callback handed by this arrow: the parameters of each spine arrow
+    // up to it, as a call's join reads them (`#awaitInstance`).
+    const callbacks = new Set<Variable>();
+    for (let index = 0, level: Mono = body.type; index <= arrow; index += 1) {
+      const spine = this.#prune(level);
+      if (spine.kind !== "Function") break;
+      for (const parameter of spine.parameters) {
+        const callback = this.#prune(parameter);
+        if (callback.kind === "Function") for (const part of this.#colourParts(callback.effect ?? PURE)) callbacks.add(part);
+      }
+      level = spine.result;
+    }
     return this.#colourParts(colour).some((part) => !callbacks.has(part) && deciding?.has(part) !== true);
   }
 
@@ -21920,10 +21948,14 @@ class Checker {
     const body = this.#instanceBodies.get(key) ?? this.#defaultBodies.get(`${identity} ${member}`);
     if (body === undefined) return this.#importedInstanceColours.get(`${identity} default ${member}`);
     const bits: boolean[] = [];
+    // The colour this module's calls followed, where it decided one, so an
+    // importer's calls follow the same.
+    const decided = this.#instanceColours.get(key)?.colours;
     for (let arrow = 0, type: Mono = body.type; ; arrow += 1) {
       const pruned = this.#prune(type);
       if (pruned.kind !== "Function") break;
-      bits.push(this.#ownColourImpure(body, arrow));
+      const colour = decided?.[arrow];
+      bits.push(colour !== undefined ? isImpure(this.#prune(colour)) : this.#ownColourImpure(body, arrow));
       type = pruned.result;
     }
     return bits;
@@ -21981,11 +22013,21 @@ class Checker {
           if (root.kind === "Variable" && !roots.has(root)) root.instance = answer;
         }
       }
+      // The least fixpoint, which no order changes; sweeping the colours each
+      // way in turn settles a chain of instances in two passes whichever way
+      // it runs.
       let growing = true;
-      while (growing) {
+      for (let pass = 0; growing; pass += 1) {
         growing = false;
+        for (const { from, to } of this.#instanceFits) {
+          const slot = this.#prune(to);
+          if (slot.kind === "Variable" && isImpure(this.#prune(from))) {
+            slot.instance = IMPURE;
+            growing = true;
+          }
+        }
         const open = deciding();
-        for (const { colour, arrow, body, published } of colours) {
+        for (const { colour, arrow, body, published } of pass % 2 === 0 ? colours : [...colours].reverse()) {
           const own = this.#prune(colour);
           if (own.kind !== "Variable") continue;
           if (body === undefined ? published !== false : this.#ownColourImpure(body, arrow, open)) {
@@ -25358,6 +25400,21 @@ class Checker {
         return;
       }
       if (held) {
+        // *(Effects §13.3.)* An instance body's callback slot meeting a colour
+        // that waits for an instance, a merge with a member's reference, is
+        // not that colour: the merge runs one or the other. The slack takes
+        // the slot, and the waiting colour is fitted into it once it settles
+        // (`#instanceFits`). A slot is never generalized, so the fit may come
+        // late; the body waits with it.
+        if (
+          !join.parts.includes(variable) && real.length === 1 && this.#seatCallbacks.has(variable) &&
+          !this.#instancesClosed && this.#waitingColours.has(real[0]!)
+        ) {
+          for (const slack of slacks) this.#unify(slack, variable, span);
+          this.#instanceFits.push({ from: real[0]!, to: variable });
+          this.#waitingColours.add(variable);
+          return;
+        }
         if (!join.parts.includes(variable) && real.length === 1) {
           for (const slack of slacks) this.#unify(slack, real[0]!, span);
           this.#unify(variable, real[0]!, span);
