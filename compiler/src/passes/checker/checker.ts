@@ -3237,15 +3237,6 @@ type HeadSite =
   | { readonly kind: "member"; readonly member: KnotMember }
   | { readonly kind: "block"; readonly span: Source.Span };
 
-/**
- * One monomorphic knot under check: the component's members, the member whose
- * body inference is currently inside it, and every reference that resolved to a
- * member from within it.
- *
- * `host` is the member the reference is *written in*, which is not the enclosing
- * `#declaringMember` — a reference may sit inside a nested lambda or a nested
- * `fun` block, and the dictionaries in scope there are still the host's.
- */
 /** A member reference's span, as `#knownMemberUses` keys it. */
 function memberUseKey(span: Source.Span): string {
   return `${Number(span.fileId)}:${span.start.offset}:${span.end.offset}`;
@@ -3268,6 +3259,15 @@ interface InstanceWait {
   readonly span: Source.Span | undefined;
 }
 
+/**
+ * One monomorphic knot under check: the component's members, the member whose
+ * body inference is currently inside it, and every reference that resolved to a
+ * member from within it.
+ *
+ * `host` is the member the reference is *written in*, which is not the enclosing
+ * `#declaringMember` — a reference may sit inside a nested lambda or a nested
+ * `fun` block, and the dictionaries in scope there are still the host's.
+ */
 interface Knot {
   readonly members: readonly KnotMember[];
   host: Resolved.SymbolId | undefined;
@@ -3910,6 +3910,8 @@ class Checker {
    */
   readonly #instanceBodies = new Map<string, InstanceBody>();
   readonly #defaultBodies = new Map<string, InstanceBody>();
+  /** This module's honors, each with its instance key, for publishing their colours (§13.3). */
+  readonly #localHonors: { readonly key: string; readonly identity: string; readonly declaration: Resolved.ConstraintItem }[] = [];
   /** A waiting colour's meetings with a constant, compared once the colours are decided (cf. `Knot.demands`). */
   readonly #instanceDemands: {
     readonly demand: EffectConstant;
@@ -3928,7 +3930,7 @@ class Checker {
   /** Set once the module's instance colours are decided: nothing waits for them after. */
   #instancesClosed = false;
   /**
-   * The member references decided at a known instance, by span (`#spanKey`):
+   * The member references decided at a known instance, by span (`memberUseKey`):
    * hover shows the instance's face there, as the call follows it (Effects
    * §10, §13.6).
    */
@@ -8402,6 +8404,11 @@ class Checker {
         if (declaration === undefined) continue;
         const supplied = new Set(item.members.map(({ name }) => name));
         const instanceSubject = this.#instanceSubjects.get(item) ?? ERROR;
+        this.#localHonors.push({
+          key: this.#instanceKey(item.constraintIdentity, instanceSubject),
+          identity: item.constraintIdentity,
+          declaration,
+        });
         this.#instanceBaseConstraints.set(
           item,
           this.#instanceBaseRequirements(item, instanceSubject),
@@ -8596,10 +8603,10 @@ class Checker {
             `${this.#instanceKey(item.constraintIdentity, instanceSubject)} ${required.binding.symbol}`,
             { type: bodyType },
           );
-          // The published face is the **contract's** (Effects §13.3, §10): a
-          // member wears its contract's arrows wherever it is shown, and the
-          // body's own colour is the seat's business alone. Everything but the
-          // colours is the same nodes the body unified against.
+          // The member's own node shows the **contract's** face (Effects §10,
+          // §13.6): the instance's colour reaches its calls at a known instance
+          // through `#instanceColourAt`, never through this node. Everything
+          // but the colours is the same nodes the body unified against.
           this.#expressionTypes.set(member.value, contract.type);
           // The seat (Effects §13.2). For a `widens` door the scheme compared
           // is the member's **derived restriction** — the door at the member's
@@ -21881,11 +21888,12 @@ class Checker {
   /**
    * Whether a body's spine arrow `arrow` is impure with every callback it was
    * handed pure *(Effects §13.2, §13.3)*. A callback's colour is a variable
-   * the contract instantiates, never impure of itself, so the arrow is impure
-   * exactly where its colour is: the body's own world, another instance's
-   * colour that is, or a colour the body made its callback's.
+   * the contract instantiates, never impure of itself, and an instance colour
+   * still being decided is read by the fixpoint around this; any other colour
+   * still undecided may touch the world, which is the answer that never claims
+   * too little.
    */
-  #ownColourImpure(body: InstanceBody, arrow: number): boolean {
+  #ownColourImpure(body: InstanceBody, arrow: number, deciding?: ReadonlySet<Variable>): boolean {
     let type: Mono = body.type;
     for (let index = 0; index < arrow; index += 1) {
       const pruned = this.#prune(type);
@@ -21893,55 +21901,105 @@ class Checker {
       type = pruned.result;
     }
     const pruned = this.#prune(type);
-    return pruned.kind !== "Function" || isImpure(this.#prune(pruned.effect ?? PURE));
+    if (pruned.kind !== "Function") return true;
+    const colour = this.#prune(pruned.effect ?? PURE);
+    if (isImpure(colour)) return true;
+    const callbacks = new Set(body.type.parameters.flatMap((parameter) => {
+      const callback = this.#prune(parameter);
+      return callback.kind === "Function" ? this.#colourParts(callback.effect ?? PURE) : [];
+    }));
+    return this.#colourParts(colour).some((part) => !callbacks.has(part) && deciding?.has(part) !== true);
   }
 
   /**
-   * The module's instance colours close as one knot *(Effects §13.3)*, once
-   * every body has closed: the calls still waiting are decided; each instance
-   * colour is impure where its body, with every callback pure, touches the
-   * world, through another instance's colour or its own included, to the least
-   * fixpoint, and pure otherwise; then the seats that waited are compared and
-   * the meetings the waiting colours recorded are read.
+   * An instance's own colours as its member's body, or the default's, decides
+   * them: one per spine arrow, `true` for impure. A default another module
+   * declared is read from what that module published; nothing known, nothing.
+   */
+  #instanceBits(key: string, identity: string, member: Resolved.SymbolId): readonly boolean[] | undefined {
+    const body = this.#instanceBodies.get(key) ?? this.#defaultBodies.get(`${identity} ${member}`);
+    if (body === undefined) return this.#importedInstanceColours.get(`${identity} default ${member}`);
+    const bits: boolean[] = [];
+    for (let arrow = 0, type: Mono = body.type; ; arrow += 1) {
+      const pruned = this.#prune(type);
+      if (pruned.kind !== "Function") break;
+      bits.push(this.#ownColourImpure(body, arrow));
+      type = pruned.result;
+    }
+    return bits;
+  }
+
+  /**
+   * The module's instance colours close as one knot *(Effects §3.4, §13.3)*,
+   * once every body has closed. The calls still waiting are decided first.
+   * Then what waits with an instance colour but is none settles, so each
+   * instance colour is read off a body whose other colours are final: a hard
+   * case gives its undecided parts that are no instance's colour the world
+   * (Swift's answer), or purity where its other side is pure. Then each
+   * instance colour is impure where its body, with every callback pure,
+   * touches the world, through another instance colour, its own included, to
+   * the least fixpoint; the rest are pure. Then the hard cases settle, the
+   * recorded meetings are compared, and only then are the seats and faces
+   * that waited read.
    */
   #closeInstances(): void {
     this.#resolveInstanceWaits(undefined);
-    const colours = [...this.#instanceColours].flatMap(([key, entry]) =>
-      entry.colours.flatMap((colour, arrow) =>
-        colour === undefined
-          ? []
-          : [{
-            colour,
-            arrow,
-            // An instance that writes no body for the member has the default's.
-            body: this.#instanceBodies.get(key) ?? this.#defaultBodies.get(`${entry.identity} ${entry.member}`),
-          }]
-      )
-    );
-    let growing = true;
-    while (growing) {
-      growing = false;
-      for (const { colour, arrow, body } of colours) {
-        const own = this.#prune(colour);
-        if (own.kind !== "Variable") continue;
-        if (body === undefined || this.#ownColourImpure(body, arrow)) {
-          own.instance = IMPURE;
-          growing = true;
-        }
-      }
-    }
-    for (const { colour } of colours) {
-      const own = this.#prune(colour);
-      if (own.kind === "Variable") own.instance = PURE;
-    }
-    // A hard case with a part that waited settles now its deadline has come
-    // (§3.4): what is still undecided in it may touch the world.
-    this.#instancesClosed = true;
-    this.#settleHardCases(0);
-    for (const compare of this.#deferredSeats.splice(0)) compare();
-    for (const report of this.#deferredFaceReports.splice(0)) report();
     this.#settlingInstances += 1;
     try {
+      const colours = [...this.#instanceColours].flatMap(([key, entry]) =>
+        entry.colours.flatMap((colour, arrow) =>
+          colour === undefined
+            ? []
+            : [{
+              colour,
+              arrow,
+              // An instance that writes no body for the member has the default's.
+              body: this.#instanceBodies.get(key) ?? this.#defaultBodies.get(`${entry.identity} ${entry.member}`),
+              published: this.#importedInstanceColours.get(`${entry.identity} default ${entry.member}`)?.[arrow],
+            }]
+        )
+      );
+      const deciding = (): Set<Variable> => {
+        const roots = new Set<Variable>();
+        for (const { colour } of colours) {
+          const root = this.#prune(colour);
+          if (root.kind === "Variable") roots.add(root);
+        }
+        return roots;
+      };
+      const roots = deciding();
+      for (const hardCase of this.#hardCases) {
+        const parts = [...this.#colourParts(hardCase.left), ...this.#colourParts(hardCase.right)];
+        if (!parts.some((part) => this.#waitingColours.has(part))) continue;
+        const pure = (colour: Mono): boolean => {
+          const pruned = this.#prune(colour);
+          return pruned.kind === "Effect" && Colour.isBottom(pruned);
+        };
+        const answer = pure(hardCase.left) || pure(hardCase.right) ? PURE : IMPURE;
+        for (const part of parts) {
+          const root = this.#prune(part);
+          if (root.kind === "Variable" && !roots.has(root)) root.instance = answer;
+        }
+      }
+      let growing = true;
+      while (growing) {
+        growing = false;
+        const open = deciding();
+        for (const { colour, arrow, body, published } of colours) {
+          const own = this.#prune(colour);
+          if (own.kind !== "Variable") continue;
+          if (body === undefined ? published !== false : this.#ownColourImpure(body, arrow, open)) {
+            own.instance = IMPURE;
+            growing = true;
+          }
+        }
+      }
+      for (const { colour } of colours) {
+        const own = this.#prune(colour);
+        if (own.kind === "Variable") own.instance = PURE;
+      }
+      this.#instancesClosed = true;
+      this.#settleHardCases(0);
       for (const { demand, colour, span, colourFirst, pinSite, pinSides } of this.#instanceDemands.splice(0)) {
         const enclosingSite = this.#pinSite;
         const enclosingSides = this.#pinSides;
@@ -21955,25 +22013,36 @@ class Checker {
           this.#pinSides = enclosingSides;
         }
       }
+      for (const compare of this.#deferredSeats.splice(0)) compare();
+      for (const report of this.#deferredFaceReports.splice(0)) report();
     } finally {
       this.#settlingInstances -= 1;
     }
   }
 
-  /** This module's instance colours, published for its importers (`Typed.Module.instanceColours`). */
+  /**
+   * This module's instance colours, published for its importers
+   * (`Typed.Module.instanceColours`): each honor's, per member, its own body's
+   * or the default's it uses; and each default body this module declares,
+   * for an importer's instance that uses it.
+   */
   #publishedInstanceColours(): ReadonlyMap<string, readonly boolean[]> {
-    return new Map([...this.#instanceBodies.keys(), ...this.#instanceColours.keys()].map((key) => {
-      const body = this.#instanceBodies.get(key);
-      const arrows: boolean[] = [];
-      for (let arrow = 0, type: Mono | undefined = body?.type; type !== undefined; arrow += 1) {
-        const pruned = this.#prune(type);
-        if (pruned.kind !== "Function") break;
-        const known = this.#instanceColours.get(key)?.colours[arrow];
-        arrows.push(known !== undefined ? isImpure(this.#prune(known)) : this.#ownColourImpure(body!, arrow));
-        type = pruned.result;
+    const published = new Map<string, readonly boolean[]>();
+    for (const { key, identity, declaration } of this.#localHonors) {
+      for (const member of declaration.members) {
+        const memberKey = `${key} ${member.binding.symbol}`;
+        const bits = this.#instanceBits(memberKey, identity, member.binding.symbol);
+        if (bits !== undefined) published.set(memberKey, bits);
       }
-      return [key, arrows] as const;
-    }));
+    }
+    for (const defaultKey of this.#defaultBodies.keys()) {
+      const split = defaultKey.lastIndexOf(" ");
+      const identity = defaultKey.slice(0, split);
+      const member = Number(defaultKey.slice(split + 1)) as Resolved.SymbolId;
+      const bits = this.#instanceBits(`${defaultKey} default`, identity, member);
+      if (bits !== undefined) published.set(`${identity} default ${member}`, bits);
+    }
+    return published;
   }
 
   /**
@@ -25190,7 +25259,10 @@ class Checker {
     // *(Effects §13.3.)* A colour waiting for an instance is decided by the
     // instance's body, never by a demand: a constant it meets first is
     // recorded, and compared once the module's instance colours are decided.
-    if (type.kind === "Effect" && this.#settlingInstances === 0 && this.#waitingColours.has(variable)) {
+    if (
+      type.kind === "Effect" && this.#settlingInstances === 0 && !this.#instancesClosed &&
+      this.#waitingColours.has(variable)
+    ) {
       this.#instanceDemands.push({
         demand: type,
         colour: variable,
@@ -29818,7 +29890,13 @@ class Checker {
     if (pinnedSubject !== undefined && subject !== undefined && useSpan !== undefined) {
       this.#unify(subject, pinnedSubject, useSpan);
     }
-    if (subject !== undefined && scheme.member !== undefined && scheme.constraintIdentity !== undefined) {
+    // Only a use (a call or a reference) waits for its instance: an
+    // instantiation the checker makes for itself, a door's comparison with its
+    // member, reads the contract as written.
+    if (
+      use !== undefined && subject !== undefined && scheme.member !== undefined &&
+      scheme.constraintIdentity !== undefined
+    ) {
       return this.#awaitInstance(instantiated, subject, scheme.constraintIdentity, scheme.member, level, useSpan);
     }
     return instantiated;
