@@ -22085,14 +22085,25 @@ class Checker {
   /**
    * Whether a value of this type holds a function that takes callbacks
    * (Effects §3.4, #1218): one whose parameters include a function, held in
-   * data or handed back by a function it holds. A recursive type is read once.
+   * data or handed back by a function it holds. A recursive type is read once,
+   * and a union's payloads with its type arguments in place (`replacements`),
+   * as a record's fields are (`#nominalRecordFields`).
    */
-  #holdsCallbackTaker(type: Mono, seen: Set<Resolved.UnionId | Resolved.RecordId>): boolean {
-    const holds = (component: Mono): boolean => this.#holdsCallbackTaker(component, seen);
-    const actual = this.#prune(type);
+  #holdsCallbackTaker(
+    type: Mono,
+    seen: Set<Resolved.UnionId | Resolved.RecordId>,
+    replacements: ReadonlyMap<number, Mono> = new Map(),
+  ): boolean {
+    const resolved = (component: Mono): Mono => {
+      const pruned = this.#prune(component);
+      const replacement = pruned.kind === "Variable" ? replacements.get(pruned.id) : undefined;
+      return replacement === undefined ? pruned : this.#prune(replacement);
+    };
+    const holds = (component: Mono): boolean => this.#holdsCallbackTaker(component, seen, replacements);
+    const actual = resolved(type);
     switch (actual.kind) {
       case "Function":
-        return actual.parameters.some((parameter) => this.#prune(parameter).kind === "Function") ||
+        return actual.parameters.some((parameter) => resolved(parameter).kind === "Function") ||
           holds(actual.result);
       case "Tuple":
         return actual.elements.some(holds);
@@ -22118,7 +22129,19 @@ class Checker {
         return (union?.constructors ?? []).some(({ binding }) => {
           const scheme = this.#schemes.get(binding.symbol);
           const constructor = scheme === undefined ? undefined : this.#prune(scheme.type);
-          return constructor?.kind === "Function" && constructor.parameters.some(holds);
+          if (constructor?.kind !== "Function") return false;
+          // The constructor's own type parameters, by its result's arguments.
+          const result = this.#prune(constructor.result);
+          const own = new Map<number, Mono>();
+          if (result.kind === "Union") {
+            result.arguments.forEach((argument, index) => {
+              const parameter = this.#prune(argument);
+              if (parameter.kind === "Variable" && actual.arguments[index] !== undefined) {
+                own.set(parameter.id, resolved(actual.arguments[index]!));
+              }
+            });
+          }
+          return constructor.parameters.some((payload) => this.#holdsCallbackTaker(payload, seen, own));
         });
       }
       case "NominalRecord": {
@@ -23283,11 +23306,9 @@ class Checker {
       // (Effects §3.1).
       const required: Resolved.CallMark | undefined = colour.kind === "Effect" ? Colour.markFor(colour) : "bang";
       if (required === obligation.mark) continue;
-      // A call to a refused knot's member: the face its refused recursion
-      // decided is no caller's defect (Effects §3.4, #1218).
-      // A call reaching a refused knot's member by name owes it no mark (#1218):
-      // its colour is one the refused recursion left undecided, which reads
-      // pure, so only "remove the mark" could follow from it.
+      // A call reaching a refused knot's member by name owes it no mark
+      // (Effects §3.4, #1218): its colour is one the refused recursion left
+      // undecided, which reads pure, so only "remove the mark" could follow.
       if (required === undefined) {
         const { head } = this.#chainRoot(obligation.call);
         if (head.kind === "Name" && this.#refusedCallees.has(head.symbol)) continue;

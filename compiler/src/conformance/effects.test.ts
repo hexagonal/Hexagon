@@ -1843,6 +1843,16 @@ export let probe(): Unit = later(save0, 2)!()
     const record = (member: string): string =>
       member.replace("let (r, _) = a(n - 1)", "let { go = r } = a(n - 1)").replace("(run, 1)", "{ go = run }");
     expect(at(members(record(a), record(b))[0]!)).toEqual([["a(n - 1)", handed], ["a(n - 1)", handed]]);
+    // A generic union holding one in its payload, as the record spelling of the
+    // same data does.
+    const union = "union Cont(a) = K((a) ->! Unit) | Done\n";
+    const contA = "    a(n: Int) =\n        K((cb) =>\n            if n == 0 then cb!()\n            else\n" +
+      "                match a(n - 1)\n                    K(r) => r!(() => b(n))\n                    Done => ())\n";
+    const contB = "    b(n: Int): Unit =\n        if n > 0 then\n            match a(n - 1)\n                K(r) => r!(save0)\n" +
+      "                Done => ()\n        else ()\n";
+    for (const knot of members(contA, contB)) {
+      expect(at(union + knot).filter(([, message]) => message === handed)).toEqual([["a(n - 1)", handed], ["a(n - 1)", handed]]);
+    }
     // Data holding only a function that takes none is handed back as before.
     expect(check("fun count(cb: () ->! Unit, n: Int) = if n == 0 then (() => cb!(), 0) else count(cb, n - 1)\n"))
       .toEqual([]);
