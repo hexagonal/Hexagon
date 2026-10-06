@@ -1146,6 +1146,47 @@ function deferredLambda(expression: Resolved.Expr): Resolved.LambdaExpr | undefi
 }
 
 /**
+ * The lambda literals a binding annotation's face lands on as the value itself
+ * *(#1106)*: the right-hand side, read through grouping, a block's final
+ * expression and the forwarding forms' value paths. A lambda anywhere else, an
+ * argument of a call on a branch for one, is a value of its own, and the
+ * annotation's outer arrow is not its colour.
+ */
+function faceLambdas(
+  expression: Resolved.Expr,
+  into: Set<Resolved.LambdaExpr> = new Set(),
+): Set<Resolved.LambdaExpr> {
+  switch (expression.kind) {
+    case "Lambda":
+      into.add(expression);
+      break;
+    case "Group":
+      faceLambdas(expression.expression, into);
+      break;
+    case "Block": {
+      const final = expression.items.at(-1);
+      if (final?.kind === "ExprItem") faceLambdas(final.expression, into);
+      break;
+    }
+    case "If":
+      if (expression.elseless === true) break;
+      faceLambdas(expression.consequence, into);
+      faceLambdas(expression.alternative, into);
+      break;
+    case "Match":
+      for (const arm of [...expression.arms, ...expression.catchArms ?? []]) faceLambdas(arm.body, into);
+      break;
+    case "Try":
+      faceLambdas(expression.body, into);
+      for (const arm of expression.arms) faceLambdas(arm.body, into);
+      break;
+    default:
+      break;
+  }
+  return into;
+}
+
+/**
  * Whether an expectation given to this expression could **land** — Functions
  * §4.3's two landing sites, a lambda literal and an arithmetic operation
  * (Numeric Literals §5.1's expected-type lift) — reached through §4.3's
@@ -1188,47 +1229,6 @@ function deferredLambda(expression: Resolved.Expr): Resolved.LambdaExpr | undefi
  * landing sites, so a seat whose expectation cannot possibly land does not need
  * to compute one.
  */
-/**
- * The lambda literals a binding annotation's face lands on as the value itself
- * *(#1106)*: the right-hand side, read through grouping, a block's final
- * expression and the forwarding forms' value paths. A lambda anywhere else, an
- * argument of a call on a branch for one, is a value of its own, and the
- * annotation's outer arrow is not its colour.
- */
-function faceLambdas(
-  expression: Resolved.Expr,
-  into: Set<Resolved.LambdaExpr> = new Set(),
-): Set<Resolved.LambdaExpr> {
-  switch (expression.kind) {
-    case "Lambda":
-      into.add(expression);
-      break;
-    case "Group":
-      faceLambdas(expression.expression, into);
-      break;
-    case "Block": {
-      const final = expression.items.at(-1);
-      if (final?.kind === "ExprItem") faceLambdas(final.expression, into);
-      break;
-    }
-    case "If":
-      if (expression.elseless === true) break;
-      faceLambdas(expression.consequence, into);
-      faceLambdas(expression.alternative, into);
-      break;
-    case "Match":
-      for (const arm of [...expression.arms, ...expression.catchArms ?? []]) faceLambdas(arm.body, into);
-      break;
-    case "Try":
-      faceLambdas(expression.body, into);
-      for (const arm of expression.arms) faceLambdas(arm.body, into);
-      break;
-    default:
-      break;
-  }
-  return into;
-}
-
 function expectationLands(expression: Resolved.Expr): boolean {
   switch (expression.kind) {
     case "Lambda":
@@ -8025,20 +8025,21 @@ class Checker {
               (annotationWhole(annotation) && this.#holdsNumberDefault(valueType))
             ? annotationType
             : this.#applyWrittenQualifiers(annotationType, valueType);
-          // *(#1149.)* A written `->!` or `->` over a value whose colour a later
-          // close decides (a knot's) is the binding's face (Functions §4.1). The
-          // meeting was recorded, to be compared at that close, and the binding
-          // is typed at what it wrote, as it is where the colour is decided at
-          // once. Only the outer arrow: the written constant is then at least
-          // the value's colour, or the recorded demand refuses the value.
+          // *(#1149.)* A written `->!` over a value whose colour a later close
+          // decides (a knot's) is the binding's face (Functions §4.1), as it is
+          // where the colour is decided at once: the published arrow is the
+          // written one joined with the colour still to be decided (Effects
+          // §4.2), and the impure constant absorbs it. A written `->` publishes
+          // the value's colour, which its recorded demand settles pure or
+          // refuses. Only the outer arrow.
           const written = this.#prune(annotationType);
           const published = this.#prune(valueType);
           if (
             written.kind === "Function" && published.kind === "Function" &&
-            written.effect?.kind === "Effect" &&
+            isImpure(written.effect ?? PURE) &&
             this.#colourParts(published.effect ?? PURE).some((part) => this.#undecided(part))
           ) {
-            valueType = { ...published, effect: written.effect };
+            valueType = { ...published, effect: written.effect ?? PURE };
           }
         }
         if (item.typeParameters !== undefined) {
@@ -10048,11 +10049,13 @@ class Checker {
         // binding annotation above it already wrote the face it has.
         // Only a lambda the face lands on takes it: one inside a call's
         // arguments on a branch is elaborated first, and is not the value
-        // (#1106).
+        // (#1106). A constant face lands on every branch's lambda alike, so
+        // where a report stands never follows the order of the branches; a
+        // `>->` face is one signature, with one body, and the first takes it.
         const lands = this.#pendingOwnLambdas?.has(expression) === true;
         const writtenOwn = lands ? this.#pendingOwnEffect : undefined;
         const writtenFace = lands ? this.#pendingOwnFace : undefined;
-        if (lands) {
+        if (writtenFace !== undefined) {
           this.#pendingOwnEffect = undefined;
           this.#pendingOwnFace = undefined;
           this.#pendingOwnLambdas = undefined;
