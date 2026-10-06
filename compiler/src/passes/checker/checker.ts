@@ -22085,38 +22085,36 @@ class Checker {
   /**
    * Whether a value of this type holds a function that takes callbacks
    * (Effects §3.4, #1218): one whose parameters include a function, held in
-   * data or handed back by a function it holds. A union's payloads are read
-   * with its type arguments in place (`replacements`), as a record's fields
-   * are (`#nominalRecordFields`). Each instantiation is read once per query
-   * (`read`): the question is whether one is reachable, so one that was read
-   * and held none holds none on any other path, and a recursive type stops
-   * where it meets itself.
+   * data or handed back by a function it holds.
+   *
+   * A nominal type's arguments are read in full first. Its payloads (a
+   * union's constructors, a record's fields) then ask one thing of them:
+   * whether each is a function, which makes a payload `(a) ->! Unit` take a
+   * callback. So a nominal type is read once per query (`read`) for each
+   * pattern of function arguments, which is finite, and inside a union's
+   * payloads its type parameters stand for their arguments only as that
+   * (`functions`).
    */
   #holdsCallbackTaker(
     type: Mono,
     read: Set<string>,
-    replacements: ReadonlyMap<number, Mono> = new Map(),
+    functions: ReadonlyMap<number, boolean> = new Map(),
   ): boolean {
-    const resolved = (component: Mono): Mono => {
+    const isFunction = (component: Mono): boolean => {
       const pruned = this.#prune(component);
-      const replacement = pruned.kind === "Variable" ? replacements.get(pruned.id) : undefined;
-      return replacement === undefined ? pruned : this.#prune(replacement);
+      return pruned.kind === "Variable" ? functions.get(pruned.id) === true : pruned.kind === "Function";
     };
-    const holds = (component: Mono): boolean => this.#holdsCallbackTaker(component, read, replacements);
-    // Reads a nominal type's components once per instantiation; a type nested
-    // in itself at ever larger arguments stops at a bound.
-    const within = (key: string, components: () => boolean): boolean => {
-      if (read.has(key) || read.size > 512) return false;
+    const holds = (component: Mono): boolean => this.#holdsCallbackTaker(component, read, functions);
+    const once = (kind: string, id: number, arguments_: readonly Mono[], components: () => boolean): boolean => {
+      const key = `${kind}:${id}:${arguments_.map((argument) => (isFunction(argument) ? "f" : "-")).join("")}`;
+      if (read.has(key)) return false;
       read.add(key);
       return components();
     };
-    const instance = (kind: string, id: number, arguments_: readonly Mono[]): string =>
-      `${kind}:${id}(${arguments_.map((argument) => this.#shapeKey(resolved(argument))).join(",")})`;
-    const actual = resolved(type);
+    const actual = this.#prune(type);
     switch (actual.kind) {
       case "Function":
-        return actual.parameters.some((parameter) => resolved(parameter).kind === "Function") ||
-          holds(actual.result);
+        return actual.parameters.some(isFunction) || holds(actual.result);
       case "Tuple":
         return actual.elements.some(holds);
       case "Record":
@@ -22136,77 +22134,32 @@ class Checker {
       case "Union": {
         if (actual.arguments.some(holds)) return true;
         const union = this.#unions.get(actual.union) ?? this.#programUnion(actual.union);
-        return within(instance("union", Number(actual.union), actual.arguments), () => (union?.constructors ?? []).some(({ binding }) => {
-          const scheme = this.#schemes.get(binding.symbol);
-          const constructor = scheme === undefined ? undefined : this.#prune(scheme.type);
-          if (constructor?.kind !== "Function") return false;
-          // The constructor's own type parameters, by its result's arguments.
-          const result = this.#prune(constructor.result);
-          const own = new Map<number, Mono>();
-          if (result.kind === "Union") {
-            result.arguments.forEach((argument, index) => {
-              const parameter = this.#prune(argument);
-              if (parameter.kind === "Variable" && actual.arguments[index] !== undefined) {
-                own.set(parameter.id, resolved(actual.arguments[index]!));
-              }
-            });
-          }
-          return constructor.parameters.some((payload) => this.#holdsCallbackTaker(payload, read, own));
-        }));
+        return once("union", Number(actual.union), actual.arguments, () =>
+          (union?.constructors ?? []).some(({ binding }) => {
+            const scheme = this.#schemes.get(binding.symbol);
+            const constructor = scheme === undefined ? undefined : this.#prune(scheme.type);
+            if (constructor?.kind !== "Function") return false;
+            // The constructor's own type parameters, by its result's arguments.
+            const result = this.#prune(constructor.result);
+            const own = new Map<number, boolean>();
+            if (result.kind === "Union") {
+              result.arguments.forEach((argument, index) => {
+                const parameter = this.#prune(argument);
+                const given = actual.arguments[index];
+                if (parameter.kind === "Variable" && given !== undefined) own.set(parameter.id, isFunction(given));
+              });
+            }
+            return constructor.parameters.some((payload) => this.#holdsCallbackTaker(payload, read, own));
+          }));
       }
       case "NominalRecord": {
         if (actual.arguments.some(holds)) return true;
         const record = actual;
-        return within(
-          instance("record", Number(actual.record), actual.arguments),
-          () => [...this.#nominalRecordFields(record).values()].some(holds),
-        );
+        return once("record", Number(actual.record), actual.arguments, () =>
+          [...this.#nominalRecordFields(record).values()].some(holds));
       }
       default:
         return false;
-    }
-  }
-
-  /**
-   * A type's shape as a key, colours aside, telling two instantiations of one
-   * nominal type apart (`#holdsCallbackTaker`). Unlike `#display`, it names no
-   * variable.
-   */
-  #shapeKey(type: Mono): string {
-    const key = (component: Mono): string => this.#shapeKey(component);
-    const actual = this.#prune(type);
-    switch (actual.kind) {
-      case "Variable":
-        return `?${actual.id}`;
-      case "Function":
-        return `(${actual.parameters.map(key).join(",")})->${key(actual.result)}`;
-      case "Tuple":
-        return `(${actual.elements.map(key).join(",")})`;
-      case "Record":
-        return `{${[...actual.fields].map(([name, field]) => `${name}:${key(field)}`).join(",")}${
-          actual.tail === undefined ? "" : `|${key(actual.tail)}`
-        }}`;
-      case "Union":
-        return `union:${Number(actual.union)}(${actual.arguments.map(key).join(",")})`;
-      case "NominalRecord":
-        return `record:${Number(actual.record)}(${actual.arguments.map(key).join(",")})`;
-      case "ExternType":
-        return `extern:${Number(actual.externType)}(${actual.arguments.map(key).join(",")})`;
-      case "Vector":
-      case "Set":
-      case "Array":
-      case "JsSet":
-      case "Node":
-        return `${actual.kind}(${key(actual.element)})`;
-      case "Nullable":
-        return `Nullable(${key(actual.value)})`;
-      case "Map":
-      case "JsMap":
-        return `${actual.kind}(${key(actual.key)},${key(actual.value)})`;
-      case "Constructor":
-        return actual.name;
-      default:
-        return actual.kind;
     }
   }
 

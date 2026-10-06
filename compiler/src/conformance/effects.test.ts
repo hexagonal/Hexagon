@@ -1877,7 +1877,7 @@ fun
       .toEqual([]);
   });
 
-  it("reads each type behind a recursive member's result once, however densely the types name each other", () => {
+  it("reads the types behind a recursive member's result a bounded number of times, however densely they name each other or deeply they nest", () => {
     // Every union names every other: read path by path, the walk is
     // exponential in the number of types.
     const names = Array.from({ length: 12 }, (_, index) => `T${index}`);
@@ -1885,6 +1885,15 @@ fun
       `union ${name} = ${name}Leaf | ${names.map((other, index) => `${name}C${index}(${other}, Int)`).join(" | ")}\n`
     ).join("");
     expect(check(unions + "fun build(n: Int): T0 = if n == 0 then T0Leaf else T0C0(build(n - 1), n)\n")).toEqual([]);
+    // Each level's argument is larger than the last's: a nested datatype.
+    expect(check(
+      "union Perfect(a) = Leaf(a) | Node(Perfect((a, a)))\n" +
+        "fun times(t: Perfect(Int), n: Int): Perfect(Int) = if n == 0 then t else times(t, n - 1)\n",
+    )).toEqual([]);
+    expect(check(
+      "record Nest(a) = { here: a, deeper: Option(Nest((a, a))) }\n" +
+        "fun times(t: Nest(Int), n: Int): Nest(Int) = if n == 0 then t else times(t, n - 1)\n",
+    )).toEqual([]);
   });
 
   it("reads a member's own parameters sharing a colour as a tie in either member order, however it came to be shared", () => {
