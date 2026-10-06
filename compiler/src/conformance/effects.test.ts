@@ -1816,6 +1816,61 @@ export let probe(): Unit = later(save0, 2)!()
 `)).toEqual([]);
   });
 
+  it("refuses a member that hands back data holding a function that takes callbacks, in either member order", () => {
+    // What is taken out of the result is the member's own callback-taker under
+    // another name. Main accepted the pair in one member order, and ran `save0`.
+    const handed = "`a` hands back data holding a function that takes callbacks, so inside its own recursion it is " +
+      "not called";
+    const a = "    a(n: Int) =\n        let run = (cb: () ->! Unit) =>\n            if n == 0 then cb!()\n            else\n" +
+      "                let (r, _) = a(n - 1)\n                r(() => b(n))\n        (run, 1)\n";
+    const b = "    b(n: Int): Unit =\n        if n > 0 then\n            let (r, _) = a(n - 1)\n            r(save0)\n        else ()\n";
+    for (const knot of members(a, b)) expect(at(knot)).toEqual([["a(n - 1)", handed], ["a(n - 1)", handed]]);
+    // Through an `Option` and an anonymous record too.
+    expect(at(`fun
+    a(n: Int) = Some((cb: () ->! Unit) =>
+        if n == 0 then cb!()
+        else
+            match a(n - 1)
+                Some(r) => r(() => b(n))
+                None => ())
+    b(n: Int): Unit =
+        if n > 0 then
+            match a(n - 1)
+                Some(r) => r(save0)
+                None => ()
+        else ()
+`)).toEqual([["a(n - 1)", handed], ["a(n - 1)", handed]]);
+    const record = (member: string): string =>
+      member.replace("let (r, _) = a(n - 1)", "let { go = r } = a(n - 1)").replace("(run, 1)", "{ go = run }");
+    expect(at(members(record(a), record(b))[0]!)).toEqual([["a(n - 1)", handed], ["a(n - 1)", handed]]);
+    // Data holding only a function that takes none is handed back as before.
+    expect(check("fun count(cb: () ->! Unit, n: Int) = if n == 0 then (() => cb!(), 0) else count(cb, n - 1)\n"))
+      .toEqual([]);
+  });
+
+  it("reads a member's own parameters sharing a colour as a tie in either member order, however it came to be shared", () => {
+    // Swapped back by a sibling, or handed twice into one slot: the shared
+    // colour is the member's own two callbacks', which no written face can say.
+    const pairs = [
+      [
+        "    a(f, g: () ->! Unit, n: Int): Unit = if n > 0 then b!(f, g, n - 1) else ()\n",
+        "    b(p, q, n: Int): Unit = if n == 0 then p!() else a!(q, p, n - 1)\n",
+      ],
+      [
+        "    a(f, g, n: Int): Unit = if n > 0 then b!(f, f, n - 1) else ()\n",
+        "    b(p, q, n: Int): Unit =\n        p!()\n        q!()\n        if n == 0 then () else a!(p, q, n - 1)\n",
+      ],
+      [
+        "    a(f, g, n: Int): Unit =\n        f!()\n        g!()\n        if n > 0 then b!(f, g, n - 1) else ()\n",
+        "    b(p, q, n: Int): Unit = if n == 0 then p!() else a!(q, p, n - 1)\n",
+      ],
+    ] as const;
+    for (const [a, b] of pairs) {
+      expect(members(a, b).map((knot) => check(knot).some((message) => message.includes("no written type can say that"))))
+        .toEqual([true, true]);
+    }
+  });
+
   it("reads a merge with the member's own written parameter as a tie, in either member order", () => {
     // The colour `f` shares with `act` is not one only handing on made, so it
     // is a tie whichever member is read first.
@@ -1853,12 +1908,33 @@ export let probe(): Unit = user!()
       made("a", true),
       "type mismatch: expected Int, found Unit",
     ]);
-    // The body around a nested knot meets no tie the refused call made.
+    // A tie the refused call made in the body around the knot is a tie as any
+    // is, and is not hidden; nor is a mark a binding owes on its own account,
+    // nor a tie a merge made.
     expect(at(`let walk(cb, n: Int): Unit =
     fun go(m: Int, f: () ->! Unit): Unit = if m == 0 then f!() else go!(m - 1, () => cb!())
     go!(n, noop)
 export let probe(): Unit = walk!(save0, 2)
-`)).toEqual([["() => cb!()", made("go", true)]]);
+`)).toEqual([
+      [
+        "fun go(m: Int, f: () ->! Unit): Unit = if m == 0 then f!() else go!(m - 1, () => cb!())",
+        "`cb`'s colour is tied to `f`'s here, and no written type can say that — write `cb`'s type",
+      ],
+      ["() => cb!()", made("go", true)],
+    ]);
+    expect(at(a + "let user(): Unit =\n    let _ = (a, 1)\n    save!(\"u\")\nexport let probe(): Unit = user()\n")).toEqual([
+      ["() => cb!()", made("a", true)],
+      ["user()", "this call may touch the world, so `user` wants `!`, not no mark"],
+    ]);
+    expect(at(`let walk(g, h, c: Bool, n: Int): Unit =
+    fun go(m: Int, f: () ->! Unit): Unit = if m == 0 then f!() else go!(m - 1, () => g!())
+    go!(n, noop)
+    let k = if c then g else h
+    k!()
+`)).toEqual([
+      ["() => g!()", made("go", true)],
+      ["if c then g else h", "`g`'s colour is tied to `h`'s here, and no written type can say that — write `g`'s type"],
+    ]);
   });
 
   it("hands on a parameter in parentheses, under an ascription or through a `let`, and calls a member in parentheses", () => {
@@ -1869,6 +1945,11 @@ export let probe(): Unit = walk!(save0, 2)
 `)).toEqual([]);
     }
     expect(check("fun walk(cb: () ->! Unit, n: Int): Unit = if n > 0 then (walk)!(cb, n - 1) else cb!()\n"))
+      .toEqual([]);
+    expect(check(
+      "fun walk(cb: () ->! Unit, n: Int): Unit = if n > 0 then (walk: (() ->! Unit, Int) >-> Unit)!(cb, n - 1) else cb!()\n",
+    )).toEqual([]);
+    expect(check("fun walk(n: Int) = (cb: () ->! Unit) => if n == 0 then cb!() else ((n - 1) |> walk)!(cb)\n"))
       .toEqual([]);
     // A callback the enclosing function was given is captured, and not one the
     // recursion was given.
@@ -3219,6 +3300,7 @@ export let use(): Unit = k(3)
         (h, 1)
 `;
     expect(check(source)).toEqual([
+      "`k` hands back data holding a function that takes callbacks, so inside its own recursion it is not called",
       "`k` was given no callback, and a recursive call hands on only the callbacks it was given",
       "`h` takes callbacks, so inside its own recursion it is only called, by its name",
     ]);
