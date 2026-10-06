@@ -1853,6 +1853,25 @@ export let probe(): Unit = later(save0, 2)!()
     for (const knot of members(contA, contB)) {
       expect(at(union + knot).filter(([, message]) => message === handed)).toEqual([["a(n - 1)", handed], ["a(n - 1)", handed]]);
     }
+    // Whatever else the module declares first, and in each instantiation a
+    // value holds.
+    const wrapped = "union Cont(a) = K((a) ->! Unit) | Done\nrecord W = { c: Cont(() ->! Unit) }\nfun\n    a(n: Int) =\n" +
+      "        let k = K((cb: () ->! Unit) => cb!())\n        if n == 0 then W({ c = k }) else a(n - 1)\n";
+    for (const before of ["", "union Pad0 = P0\n", "record Pad1 = { x: Int }\n"]) {
+      expect(at(before + wrapped)).toEqual([["a(n - 1)", handed]]);
+    }
+    expect(at(`union Cont(a) = K((a) ->! Unit) | Done
+fun
+    a(n: Int) =
+        let first: Cont(Int) = Done
+        (first, K((cb) =>
+            if n == 0 then cb!()
+            else
+                let (_, k) = a(n - 1)
+                match k
+                    K(r) => r!(() => ())
+                    Done => ()))
+`).filter(([, message]) => message === handed)).toEqual([["a(n - 1)", handed]]);
     // Data holding only a function that takes none is handed back as before.
     expect(check("fun count(cb: () ->! Unit, n: Int) = if n == 0 then (() => cb!(), 0) else count(cb, n - 1)\n"))
       .toEqual([]);
