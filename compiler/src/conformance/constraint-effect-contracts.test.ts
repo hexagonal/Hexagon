@@ -935,6 +935,25 @@ describe("Constraints §4.7: the `widens` door is compared, and follows its body
         "declarations are read top-down — move the door above this call"]);
   });
 
+  test("a door's own body, and an honor's, read a door-supplied member as the rules say (review r2)", () => {
+    const lib = "module Lib\n\nexport constraint R<a> =\n    tag(s: a, n: Int) ->! String\n    read(s: a) ->! Int\n";
+    const order = (items: readonly string[]) => [
+      ["/lib.hex", lib],
+      ["/main.hex", "module Main\n\nimport Lib\n\nexport record P = { name: String }\n" + items.join("")],
+    ] as const;
+    // Inside the door's own body the door is not yet read: the contract, in
+    // either order of the door and the honor.
+    const recursive = "widens Lib.tag(s: P, n: BigInt): String = if n == 0n then s.name else Lib.tag!(s, 0)\n";
+    const accounts = "honor Lib.R<P> =\n    tag = widened\n    read(s) = 1\n";
+    const call = 'export let p1(): String = Lib.tag!(P({ name = "a" }), 2)\n';
+    expect(projectMessages(order([accounts, recursive, call]))).toEqual([]);
+    expect(projectMessages(order([recursive, accounts, call]))).toEqual([]);
+    // An honor's own body calling the member a door above supplies reads the door.
+    const quiet = "widens Lib.tag(s: P, n: BigInt): String =\n    s.name\n";
+    const reads = "honor Lib.R<P> =\n    tag = widened\n    read(s) = String.length(s.tag(2))\n";
+    expect(projectMessages(order([quiet, reads, 'export let p1(): Int = Lib.read(P({ name = "a" }))\n']))).toEqual([]);
+  });
+
   test("the door's binding shows its body's colour", () => {
     // One operation, two widths, one colour: the instance's.
     const shown = (body: string) => {

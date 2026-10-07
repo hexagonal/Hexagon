@@ -3941,6 +3941,8 @@ class Checker {
    * once and nothing that calls it is condemned for it.
    */
   readonly #refusedHonorCalls = new WeakSet<Resolved.CallExpr>();
+  /** The `widens` doors whose bodies are being checked, by `${identity} ${member}`. */
+  readonly #openDoors = new Set<string>();
 
   readonly #expressionTypes = new WeakMap<Resolved.Expr, Mono>();
   /** Suffix constructions are ordinary build calls after pattern selection. */
@@ -8053,6 +8055,10 @@ class Checker {
         // its seat runs at the honor block, long after this body has closed,
         // and still reports "at the offending call in the door's body".
         const doorFrom = this.#seatMark();
+        // A call inside a door's own body reads a body not yet read, and
+        // follows the contract (`#knownCallColour`, Effects §13.3).
+        const openDoors = (item.widens ?? []).map(({ constraintIdentity, member }) => `${constraintIdentity} ${member}`);
+        for (const key of openDoors) this.#openDoors.add(key);
         const suppliedFace = annotation !== undefined && this.#faceLands(item.value)
           ? this.#ownAnnotation(letBinders, () =>
             this.#bindingAnnotation(annotation, level + 1, item.span, item.binding.name))
@@ -8170,6 +8176,7 @@ class Checker {
         // body's change within the contract's allowance changes no caller
         // (Effects §13.3). The inferred colour is kept for the seat, which
         // compares it against the contract.
+        for (const key of openDoors) this.#openDoors.delete(key);
         if (item.widens !== undefined) {
           valueType = this.#doorFace(
             item.widens,
@@ -25167,7 +25174,7 @@ class Checker {
     }
     // *(Effects §13.3.)* A colour waiting for an instance is decided by the
     // instance's body, never by a demand: a constant it meets first is
-    // recorded, and compared once the module's instance colours are decided.
+    // recorded, and compared where its call is decided.
     if (
       type.kind === "Effect" && this.#settlingInstances === 0 && this.#waitingColours.has(variable)
     ) {
@@ -29939,6 +29946,8 @@ class Checker {
         if (door !== undefined && door.type.kind === "Function") {
           return followed(this.#ownColourImpure({ type: door.type }, wait.arrow) ? IMPURE : PURE);
         }
+        // Inside the door's own body, that body is not yet read: the contract.
+        if (this.#openDoors.has(`${wait.identity} ${name}`)) return undefined;
         // Doors are checked where they are written: not yet checked is below.
         this.#refuseAboveBody(call, wait, reported,
           `this call follows the \`widens\` door that supplies \`${name}\` at ` +
