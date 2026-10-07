@@ -2008,6 +2008,124 @@ export let probe(): Unit = walk!(save0, 2)
   });
 });
 
+describe("Effects §3.4 — a member is its value: its recursion follows the faces it writes (#1222, #1229)", () => {
+  const prelude = "module Main\n\n" + world + "let noop(): Unit = ()\nlet save0(): Unit = save!(\"x\")\n";
+  const check = (source: string): readonly string[] =>
+    effectDiagnostics([["/world.js", ""], ["/main.hex", prelude + source]]);
+  const hover = (source: string, needle: string): string | undefined => hoveredType(prelude + source, needle);
+  const bang = "this call may touch the world, so this call wants `!`, not no mark";
+  const follows = "(() ->! Unit) >-> Unit";
+
+  it("follows a written result type's `>->` over the lambda it returns, at every depth of its spine (#1229)", () => {
+    // Main pinned `cb` pure at the knot's close: a lie of generality whose
+    // fixit did not compile.
+    const walk = `fun a(n: Int): ${follows} = (cb) => if n == 0 then cb!() else a(n - 1)!(cb)\n`;
+    expect(check(walk + "export let probe(): Unit = a(2)!(save0)\n")).toEqual([]);
+    expect(check(walk + "export let probe(): Unit = a(2)(noop)\n")).toEqual([]);
+    expect(check(walk + "export let probe(): Unit = a(2)(save0)\n")).toEqual([bang]);
+    expect(check(walk.replace("a(n - 1)!(cb)", "a(n - 1)(cb)"))).toEqual([bang]);
+    expect(hover(walk, "a(n: Int)")).toBe(`Int -> ${follows}`);
+    expect(check(walk.replaceAll("Unit", "Int") +
+      "export let probe(): Int = a(2)!(() =>\n    save!(\"x\")\n    1)\n")).toEqual([]);
+    const deep = `fun a(n: Int): (Int) -> ${follows} = (m) => (cb) => if n == 0 then cb!() else a(n - 1)(m)!(cb)\n`;
+    expect(check(deep + "export let probe(): Unit = a(2)(1)!(save0)\n")).toEqual([]);
+    expect(check(deep + "export let probe(): Unit = a(2)(1)(noop)\n")).toEqual([]);
+    expect(check(deep + "export let probe(): Unit = a(2)(1)(save0)\n")).toEqual([bang]);
+    expect(hover(deep, "a(n: Int)")).toBe(`Int -> Int -> ${follows}`);
+  });
+
+  it("follows an ascription over the lambda it returns, which the spine reads through (#1222)", () => {
+    // Main refused this with "`cb` is not one `a` was given", and read the
+    // recursion as pure beneath that refusal.
+    const walk = `fun a(n: Int) = (((cb) => if n == 0 then cb!() else a(n - 1)!(cb)): ${follows})\n`;
+    expect(check(walk + "export let probe(): Unit = a(2)!(save0)\n")).toEqual([]);
+    expect(check(walk + "export let probe(): Unit = a(2)(noop)\n")).toEqual([]);
+    expect(check(walk + "export let probe(): Unit = a(2)(save0)\n")).toEqual([bang]);
+    expect(hover(walk, "a(n: Int)")).toBe(`Int -> ${follows}`);
+    const always = walk.replace(follows, "(() ->! Unit) ->! Unit");
+    expect(check(always + "export let probe(): Unit = a(2)!(noop)\n")).toEqual([]);
+    expect(hover(always, "a(n: Int)")).toBe("Int -> (() ->! Unit) ->! Unit");
+    expect(check(
+      `fun a(n: Int) = (m) => (((cb) => if n == 0 then cb!() else a(n - 1)(m)!(cb)): ${follows})\n` +
+        "export let probe(): Unit = a(2)(1)(save0)\n",
+    )).toEqual([bang]);
+    // Several members, in either order.
+    const a = `    a(n: Int) = (((cb) => if n == 0 then cb!() else b(n - 1)!(cb)): ${follows})\n`;
+    const b = `    b(n: Int) = (((cb) => if n == 0 then cb!() else a(n - 1)!(cb)): ${follows})\n`;
+    for (const knot of [`fun\n${a}${b}`, `fun\n${b}${a}`]) {
+      expect(check(knot + "export let probe(): Unit = b(2)(save0)\n")).toEqual([bang]);
+      expect(check(knot + "export let probe(): Unit = b(2)(noop)\n")).toEqual([]);
+    }
+    // What the recursion was not given is still refused where it is handed.
+    expect(check(walk.replace("a(n - 1)!(cb)", "a(n - 1)!(noop)"))).toEqual([
+      "this function is not one `a` was given, and a recursive call hands on only the callbacks it was given",
+    ]);
+  });
+
+  it("takes an ascription's `->!` over a value a knot holds as its face, as a binding annotation's (#1149)", () => {
+    const knot = (written: string, call: string, sibling: string) => `fun
+    ping(n: Int): Int =
+        let act = () => pong${sibling}(n)
+        ${written}
+        ${call}
+    pong(n: Int): Int = if n > 0 then ping${sibling}(n - 1) else 0
+`;
+    for (const written of ["let q: () ->! Int = act", "let q = (act: () ->! Int)"]) {
+      expect(check(knot(written, "q!()", "!"))).toEqual([]);
+      expect(check(knot(written, "q()", "!"))).toEqual(["this call may touch the world, so `q` wants `!`, not no mark"]);
+    }
+    expect(check(knot("let z = 0", "(act: () ->! Int)!()", "!"))).toEqual([]);
+  });
+
+  it("takes a written result type's `->!` over a lambda a knot holds as its face, as outside a knot (#1149)", () => {
+    const walk = "fun a(n: Int): () ->! Unit = () => if n == 0 then () else a(n - 1)!()\n";
+    expect(check(walk + "export let probe(): Unit = a(2)!()\n")).toEqual([]);
+    expect(hover(walk, "a(n: Int)")).toBe("Int -> () ->! Unit");
+    expect(check(walk.replace("a(n - 1)!()", "a(n - 1)()") + "export let probe(): Unit = a(2)()\n"))
+      .toEqual([bang, bang]);
+    expect(check("let mk(n: Int): () ->! Unit = () => ()\nexport let probe(): Unit = mk(2)()\n")).toEqual([bang]);
+  });
+
+  it("still holds what a use demanded of the recursion for the close, and never lets it choose", () => {
+    // The use's `->` meets the member's colour on the name's side: it is
+    // compared at the close and reported at the member, as on main, and does
+    // not make the member's body a pure face.
+    const source = `fun a(n: Int) = () =>
+    save!("x")
+    if n == 0 then () else
+        let g: () -> Unit = a(n - 1)
+        g()
+`;
+    const text = prelude + source;
+    const reports = compileFiles([["/world.js", ""], ["/main.hex", text]]).diagnostics;
+    expect(reports.map(({ message }) => message)).toEqual([
+      "a `->` arrow promises purity, and this function may touch the world — the demand is written `->`, " +
+      "the function's face `->!` or `>->`",
+    ]);
+    expect(reports[0]!.primary.start.offset).toBe(text.indexOf("fun a("));
+  });
+
+  it("lets a lambda whose written `>->` is its colour run its callbacks for the knot's members", () => {
+    // Its colour is its callback's, which named the lambda as a member, so
+    // `ping` read pure and the fixit to the face report left `ping`'s marks
+    // refused (main, where a binding annotation wrote the face).
+    const lambda = "(cb) =>\n            cb!()\n            let _ = if n > 0 then ping!(n - 1) else 0\n            ()";
+    const lie = "this function touches the world on its own account, and this face's `>->` promises " +
+      "the function is only as effectful as what it is handed — write `->!`";
+    for (const [written, call] of [
+      [`let q: ${follows} = ${lambda}`, "q!(save0)"],
+      [`let q = ((${lambda}): ${follows})`, "q!(save0)"],
+      [`let mk(): ${follows} = ${lambda}`, "mk()!(save0)"],
+    ] as const) {
+      const source = (face: string) =>
+        `fun\n    ping(n: Int): Int =\n        ${written.replace(follows, face)}\n        ${call}\n        0\n` +
+        "export let probe(): Int = ping!(2)\n";
+      expect(check(source(follows))).toEqual([lie]);
+      expect(check(source("(() ->! Unit) ->! Unit"))).toEqual([]);
+    }
+  });
+});
+
 describe("Effects §4.4 — a refused `>->` reads as its fixit", () => {
   it("one report at a module-level record type", () => {
     expect(
