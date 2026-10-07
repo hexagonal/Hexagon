@@ -543,6 +543,14 @@ describe("Effects §13.3: an instance's own colour, and the calls that follow it
       .toEqual(["this call is pure, so `read` wants no mark, not `!`"]);
   });
 
+  test("a call above its honor is told once, and what it returns owes no mark (review r1)", () => {
+    const made = (call: string) => IO + "record A = { n: Int }\nconstraint M<a> =\n    make(s: a) ->! (() ->! Int)\n" +
+      `let p1(): Int = ${call}\n` +
+      'honor M<A> =\n    make(s) = () =>\n        let z = readIt!("x")\n        s.n\n';
+    expect(messages(made("make(A({ n = 1 }))!()"))).toEqual([BELOW("M<A>")]);
+    expect(messages(made("make(A({ n = 1 }))()"))).toEqual([BELOW("M<A>")]);
+  });
+
   test("everything else about an honor is free of source order", () => {
     // A `->` member, a generic call and a reference read no honor's body.
     const show = "constraint Tag<a> =\n    tag(s: a) -> String\nhonor Tag<P> =\n    tag(s) = s.name\n";
@@ -551,6 +559,23 @@ describe("Effects §13.3: an instance's own colour, and the calls that follow it
     expect(messages(IO + R + "let g<a: R>(x: a): String = read!(x)\n" +
       'let u(): String = g!(P({ name = "p" }))\n' + PURE_P + show)).toEqual([]);
     expect(messages(IO + R + "let r = read\n" + 'let u(x: P): String = r!(x)\n' + PURE_P)).toEqual([]);
+  });
+
+  test("a callback whose body binds names is decided where the outer call ends (review r1)", () => {
+    // A `let` inside an argument generalizes while the call is still open; the
+    // call's own colour is decided at its end, never there.
+    const run = (honor: string, call: string, above: boolean) => {
+      const decl = "record Job = { n: Int }\nconstraint Run<a> =\n    with(r: a, f: (Int) ->! Int) ->! Int\n";
+      const user = `let p1(): Int = ${call}\n`;
+      return IO + decl + (above ? honor + user : user + honor);
+    };
+    const pure = "honor Run<Job> =\n    with(job, f) = f!(job.n)\n";
+    const saving = "honor Run<Job> =\n    with(job, f) =\n        let z = readIt!(\"x\")\n        f!(job.n)\n";
+    const block = "with(Job({ n = 1 }), (i) =>\n    let z = i + 1\n    z)";
+    expect(messages(run(pure, block, true))).toEqual([]);
+    expect(messages(run(pure, "Job({ n = 1 }).with((i) =>\n    let z = i + 1\n    z)", true))).toEqual([]);
+    expect(messages(run(saving, block, true))).toEqual(["this call may touch the world, so `with` wants `!`, not no mark"]);
+    expect(messages(run(pure, block, false))).toEqual([BELOW("Run<Job>")]);
   });
 
   test("a subject the text does not decide follows the contract, whatever another line decides", () => {
@@ -584,6 +609,14 @@ describe("Effects §13.3: an instance's own colour, and the calls that follow it
     expect(messages(all("all(ms)"))).toEqual([]);
     expect(messages(all("all([m])"))).toEqual([]);
     expect(messages(all("all!(ms)"))).toEqual(["this call is pure, so `all` wants no mark, not `!`"]);
+    // An element only inference decides is not decided by the text, in
+    // either order of the lines (review r1).
+    const loose = (body: string) => IO + "constraint S<s> =\n    all(stores: Vector(s)) ->! Unit\n" +
+      "record M = { n: Int }\nhonor S<M> =\n    all(ms) = ()\n" + `let k(x) =\n${body}`;
+    expect(messages(loose("    let p: M = x\n    all([x])\n")))
+      .toEqual(["this call may touch the world, so `all` wants `!`, not no mark"]);
+    expect(messages(loose("    let p: M = x\n    all!([x])\n"))).toEqual([]);
+    expect(messages(loose("    let u = all!([x])\n    let p: M = x\n    u\n"))).toEqual([]);
   });
 
   test("a subject that generalizes makes the call generic: `!`", () => {
@@ -882,6 +915,24 @@ describe("Constraints §4.7: the `widens` door is compared, and follows its body
       ["/main.hex", door("s.name", "tag(p, 2n) ++ Lib.tag(p, 2)")],
       ["/io.js", ""],
     ])).toEqual([]);
+  });
+
+  test("a call through the member reads the door, wherever the honor that accounts for it stands (review r1)", () => {
+    // Every spelling at the known type agrees: the door is the body read, so
+    // it is the door that stands above the call (Effects §13.3).
+    const order = (items: readonly string[]) => [
+      ["/lib.hex", LIB("->!")],
+      ["/main.hex", "module Main\n\nimport Lib\n\n" + IO + "export record P = { name: String }\n" + items.join("")],
+      ["/io.js", ""],
+    ] as const;
+    const door = "widens Lib.tag(s: P, n: BigInt): String = s.name\n";
+    const honor = "honor Lib.R<P> =\n    tag = widened\n";
+    const calls = "export let through(p: P): String = tag(p, 2n) ++ p.tag(2) ++ Lib.tag(p, 2)\n";
+    expect(projectMessages(order([door, calls, honor]))).toEqual([]);
+    expect(projectMessages(order([honor, door, calls]))).toEqual([]);
+    expect(projectMessages(order([honor, "export let early(p: P): String = Lib.tag(p, 2)\n", door])))
+      .toEqual(["this call follows the `widens` door that supplies `tag` at `P`, and that door is declared below it; " +
+        "declarations are read top-down — move the door above this call"]);
   });
 
   test("the door's binding shows its body's colour", () => {

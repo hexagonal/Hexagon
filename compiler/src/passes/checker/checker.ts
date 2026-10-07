@@ -8275,7 +8275,7 @@ class Checker {
               seat: member.span,
               fix: true,
               handsBack: this.#givenValue(defaultValue.body).span,
-            }), defaultType);
+            }));
         }
         continue;
       }
@@ -8611,7 +8611,7 @@ class Checker {
           );
           // The member's own node shows the **contract's** face (Effects §10,
           // §13.6): the instance's colour reaches its calls at a known instance
-          // through `#instanceColourAt`, never through this node. Everything
+          // through `#knownCallColour`, never through this node. Everything
           // but the colours is the same nodes the body unified against.
           this.#expressionTypes.set(member.value, contract.type);
           // The seat (Effects §13.2). For a `widens` door the scheme compared
@@ -8645,7 +8645,7 @@ class Checker {
                 seat: member.span,
                 fix: true,
                 handsBack: this.#givenValue(member.value.body).span,
-              }), bodyType);
+              }));
           }
         };
         for (const member of item.members) {
@@ -21866,12 +21866,8 @@ class Checker {
     for (const { effect } of frame.absorbed) this.#lowerLevels(effect, level);
   }
 
-  /**
-   * A constraint seat's body, settled and then compared (Effects §13.2); a body
-   * whose colours wait for an instance's is compared once the module's
-   * instance colours are decided (§13.3).
-   */
-  #settleSeatBody(frame: EffectFrame, compare: () => void, body?: FunctionMono): void {
+  /** A constraint seat's body, settled and then compared (Effects §13.2). */
+  #settleSeatBody(frame: EffectFrame, compare: () => void): void {
     this.#settleFrame(frame);
     compare();
   }
@@ -21879,10 +21875,9 @@ class Checker {
   /**
    * Whether a body's spine arrow `arrow` is impure with every callback it was
    * handed pure *(Effects §13.2, §13.3)*. A callback's colour is a variable
-   * the contract instantiates, never impure of itself, and an instance colour
-   * still being decided is read by the fixpoint around this; any other colour
-   * still undecided may touch the world, which is the answer that never claims
-   * too little.
+   * the contract instantiates, never impure of itself; any other colour still
+   * undecided may touch the world, which is the answer that never claims too
+   * little.
    */
   #ownColourImpure(body: InstanceBody, arrow: number): boolean {
     let type: Mono = body.type;
@@ -21929,17 +21924,9 @@ class Checker {
   }
 
   /**
-   * The module's instance colours close as one knot *(Effects §3.4, §13.3)*,
-   * once every body has closed. The calls still waiting are decided first.
-   * Then what waits with an instance colour but is none settles, so each
-   * instance colour is read off a body whose other colours are final: a hard
-   * case gives its undecided parts that are no instance's colour the world
-   * (Swift's answer), or purity where its other side is pure. Then each
-   * instance colour is impure where its body, with every callback pure,
-   * touches the world, through another instance colour, its own included, to
-   * the least fixpoint; the rest are pure. Then the hard cases settle, the
-   * recorded meetings are compared, and only then are the seats and faces
-   * that waited read.
+   * The module's close for member calls *(Effects §13.3)*: any wait no call
+   * decided follows the contract, the hard cases left settle, and the
+   * meetings left are compared.
    */
   #closeInstances(): void {
     this.#resolveInstanceWaits();
@@ -23609,6 +23596,20 @@ class Checker {
     return false;
   }
 
+  /** Whether a call is one refused above its body, or runs what one returns (`#refuseAboveBody`). */
+  #runsRefusedCall(call: Resolved.CallExpr): boolean {
+    for (let node: Resolved.Expr = call; ;) {
+      if (node.kind === "Call") {
+        if (this.#refusedHonorCalls.has(node)) return true;
+        node = node.callee;
+      } else if (node.kind === "Group") {
+        node = node.expression;
+      } else {
+        return false;
+      }
+    }
+  }
+
   /** Ruling 7, at every written call: the mark is a function of the solved colour. */
   #checkMarks(): void {
     for (const obligation of this.#markObligations) {
@@ -23618,7 +23619,7 @@ class Checker {
       for (const part of this.#colourParts(obligation.effect)) {
         if (!this.#isLinkedColour(part) && !this.#seatHeld.has(part)) part.instance = PURE;
       }
-      if (this.#refusedHonorCalls.has(obligation.call)) continue;
+      if (this.#runsRefusedCall(obligation.call)) continue;
       const colour = this.#prune(obligation.effect);
       // Pure means bare; anything else — the impure constant, a callback's
       // colour, a join of them — may touch the world, so the call wears `!`
@@ -28064,9 +28065,6 @@ class Checker {
     // The waiting sequence sources this boundary owns take their `Seq`
     // readings (Collections Part 5 §3.5) before anything is built.
     while (this.#settleSequenceDefaults(level));
-    // The member calls whose subject variables close here become known or
-    // generic (Effects §3.4, §13.3), before anything reads their colours.
-    this.#resolveInstanceWaits();
     // The hard cases whose level closes here (Effects §3.4).
     this.#settleHardCases(level + 1);
     // A colour only openings reached is pure before it can be quantified
@@ -29865,9 +29863,11 @@ class Checker {
   }
 
   /**
-   * Every wait no call decided follows the contract *(Effects §13.3)*: a
-   * guard at each generalization and at the module's close, which a member
-   * called only by a call expression never reaches.
+   * Every wait no call decided follows the contract, at the module's close
+   * *(Effects §13.3)*: a guard. Each called member's call decides its own
+   * waits where it ends, so none is left there; a generalization inside a
+   * call that is still open leaves that call's waits alone, which stand at the
+   * call's level, so no inner binding quantifies them.
    */
   #resolveInstanceWaits(): void {
     for (const wait of this.#instanceWaits) {
@@ -29889,14 +29889,12 @@ class Checker {
     const reported = new Set<number>();
     this.#instanceWaits = this.#instanceWaits.filter((wait) => {
       if (wait.use < firstUse) return true;
+      const callee = call.callee.span;
+      const own = wait.span !== undefined &&
+        callee.start.offset <= wait.span.start.offset && wait.span.end.offset <= callee.end.offset;
+      const answer = own ? this.#knownCallColour(call, wait, reported) : undefined;
       const colour = this.#prune(wait.colour);
-      if (colour.kind === "Variable") {
-        const callee = call.callee.span;
-        const own = wait.span !== undefined &&
-          callee.start.offset <= wait.span.start.offset && wait.span.end.offset <= callee.end.offset;
-        const answer = own ? this.#knownCallColour(call, wait, reported) : undefined;
-        this.#settleWaiting(colour, answer ?? IMPURE, wait.span);
-      }
+      if (colour.kind === "Variable") this.#settleWaiting(colour, answer ?? IMPURE, wait.span);
       this.#waitingColours.delete(wait.colour);
       return false;
     });
@@ -29931,32 +29929,32 @@ class Checker {
     const memberKey = `${wait.identity}:${key} ${wait.member}`;
     const local = this.#instances.get(`${wait.identity}:${key}`);
     if (local !== undefined && this.#instanceHomes.get(local) === this.#modulePath) {
+      // A member a `widens` door supplies is the door's body (Constraints
+      // §4.7), so the door is what stands above the call, as it does for the
+      // door's own spellings; the honor's accounting line may stand anywhere.
+      const name = this.#constraintsByIdentity.get(wait.identity)?.members
+        .find(({ binding }) => binding.symbol === wait.member)?.binding.name;
+      if (name !== undefined && local.members.some((member) => member.name === name && member.derived === true)) {
+        const door = this.#doorBodies.get(`${wait.identity} ${name}`);
+        if (door !== undefined && door.type.kind === "Function") {
+          return followed(this.#ownColourImpure({ type: door.type }, wait.arrow) ? IMPURE : PURE);
+        }
+        // Doors are checked where they are written: not yet checked is below.
+        this.#refuseAboveBody(call, wait, reported,
+          `this call follows the \`widens\` door that supplies \`${name}\` at ` +
+            `\`${this.#display(this.#prune(wait.subject))}\`, and that door is declared below it; ` +
+            "declarations are read top-down — move the door above this call");
+        return PURE;
+      }
       const honor = local.span;
       if (Number(honor.fileId) === Number(call.span.fileId)) {
         // The honor's own body: its colour is not yet read off it.
         if (honor.start.offset <= call.span.start.offset && call.span.end.offset <= honor.end.offset) return undefined;
         if (honor.start.offset > call.span.start.offset) {
-          this.#refusedHonorCalls.add(call);
-          if (!reported.has(wait.use)) {
-            reported.add(wait.use);
-            this.#diagnostics.add({
-              severity: "error",
-              message: `this call follows what \`${local.constraint}<${this.#display(this.#prune(wait.subject))}>\` does, ` +
-                "and that honor is declared below it; declarations are read top-down — move the honor above this call",
-              primary: wait.span ?? call.span,
-            });
-          }
+          this.#refuseAboveBody(call, wait, reported,
+            `this call follows what \`${local.constraint}<${this.#display(this.#prune(wait.subject))}>\` does, ` +
+              "and that honor is declared below it; declarations are read top-down — move the honor above this call");
           return PURE;
-        }
-      }
-      // A member a `widens` door supplies is the door's body, a term declared
-      // above any call that reads it (Constraints §4.7).
-      if (!this.#instanceBodies.has(memberKey)) {
-        const name = this.#constraintsByIdentity.get(wait.identity)?.members
-          .find(({ binding }) => binding.symbol === wait.member)?.binding.name;
-        const door = name === undefined ? undefined : this.#doorBodies.get(`${wait.identity} ${name}`);
-        if (door !== undefined && door.type.kind === "Function") {
-          return followed(this.#ownColourImpure({ type: door.type }, wait.arrow) ? IMPURE : PURE);
         }
       }
       const bits = this.#instanceBits(memberKey, wait.identity, wait.member);
@@ -29964,6 +29962,18 @@ class Checker {
     }
     const published = this.#importedInstanceColours.get(memberKey)?.[wait.arrow];
     return followed(published === false ? PURE : IMPURE);
+  }
+
+  /**
+   * A call above the body it would follow, refused once per call (Effects
+   * §13.3). The call owes no mark, nor does any call of what it returns, and
+   * its colours read pure (`#refusedHonorCalls`).
+   */
+  #refuseAboveBody(call: Resolved.CallExpr, wait: InstanceWait, reported: Set<number>, message: string): void {
+    this.#refusedHonorCalls.add(call);
+    if (reported.has(wait.use)) return;
+    reported.add(wait.use);
+    this.#diagnostics.add({ severity: "error", message, primary: wait.span ?? call.span });
   }
 
   /** The meetings recorded while a colour waited, compared once it is decided (`#instanceDemands`). */
