@@ -22018,16 +22018,6 @@ class Checker {
     return undefined;
   }
 
-  /**
-   * The colour that names a body as a sibling in its knot: its own, unless a
-   * written `>->` is its colour. That colour is the join of the callbacks the
-   * face is handed, so a call reading it runs those callbacks, and it names no
-   * body (Effects §3.4's conduit arm).
-   */
-  #frameColour(frame: EffectFrame): Mono | undefined {
-    return frame.face === undefined ? this.#prune(frame.own) : undefined;
-  }
-
   /** Whether a knot's colour is a value's own: a member's or a held lambda's (`Knot.demands`). */
   #knotOwnColour(knot: Knot, colour: Mono): boolean {
     const pruned = this.#prune(colour);
@@ -22640,7 +22630,7 @@ class Checker {
     // The conduit arm over what remains: a sibling's own colour is no colour
     // of the member that calls it, but what the sibling runs is.
     const siblingOf = (colour: Variable): EffectFrame | undefined =>
-      frames.find((frame) => this.#frameColour(frame) === colour);
+      frames.find((frame) => this.#prune(frame.own) === colour);
     const runs = new Map<EffectFrame, Set<Variable>>();
     const edges = new Map<EffectFrame, Set<EffectFrame>>();
     // A solved constant a member runs, kept by identity as a lone body keeps
@@ -25317,15 +25307,16 @@ class Checker {
    * is what its own arrow spells, so a slack beside it closes onto it, and
    * anything else is a hard case, which waits. The slacks a value's own
    * colour takes in are that value's (`#valueSlacks`) *(#1170)*. Where a knot
-   * member's name takes its value, a colour its recursion left on the name
-   * is the value's join, never held from it (`defining`, #1229).
+   * member's name takes its value, the colour its recursion left on the name
+   * is the value's join, never held from it as a knot's colour would be
+   * (`defining`, #1229).
    */
   #bindJoin(variable: Variable, join: EffectJoin, span: Source.Span, defining = false): void {
     const rest = join.parts.filter((part) => part !== variable);
     const slacks = rest.filter((part) => this.#openedColours.has(part));
     const real = rest.filter((part) => !this.#openedColours.has(part));
-    const held = !defining &&
-      (this.#heldDependency(variable) || this.#faceColours.has(variable) || this.#seatHeld.has(variable));
+    const held = (!defining && this.#heldDependency(variable)) || this.#faceColours.has(variable) ||
+      this.#seatHeld.has(variable);
     // What a value's colour takes in, or a slack of the value's, is the value's.
     const own = !held && (this.#valueColours.has(variable) || this.#valueSlacks.has(variable));
     if (held || join.parts.includes(variable)) {

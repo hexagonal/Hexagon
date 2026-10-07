@@ -2105,23 +2105,40 @@ describe("Effects §3.4 — a member is its value: its recursion follows the fac
     expect(reports[0]!.primary.start.offset).toBe(text.indexOf("fun a("));
   });
 
-  it("lets a lambda whose written `>->` is its colour run its callbacks for the knot's members", () => {
-    // Its colour is its callback's, which named the lambda as a member, so
-    // `ping` read pure and the fixit to the face report left `ping`'s marks
-    // refused (main, where a binding annotation wrote the face).
-    const lambda = "(cb) =>\n            cb!()\n            let _ = if n > 0 then ping!(n - 1) else 0\n            ()";
-    const lie = "this function touches the world on its own account, and this face's `>->` promises " +
-      "the function is only as effectful as what it is handed — write `->!`";
-    for (const [written, call] of [
-      [`let q: ${follows} = ${lambda}`, "q!(save0)"],
-      [`let q = ((${lambda}): ${follows})`, "q!(save0)"],
-      [`let mk(): ${follows} = ${lambda}`, "mk()!(save0)"],
-    ] as const) {
-      const source = (face: string) =>
-        `fun\n    ping(n: Int): Int =\n        ${written.replace(follows, face)}\n        ${call}\n        0\n` +
-        "export let probe(): Int = ping!(2)\n";
-      expect(check(source(follows))).toEqual([lie]);
-      expect(check(source("(() ->! Unit) ->! Unit"))).toEqual([]);
+  it("follows a written `>->` a recursive call's ascription writes, on the name's side, as a use's", () => {
+    // The use's `>->` is fitted, as it was: merging it (on the name's side)
+    // would refuse this correct program.
+    const walk = `fun a(n: Int): ${follows} = (cb) => if n == 0 then cb!() else (a(n - 1): ${follows})!(cb)\n`;
+    expect(check(walk + "export let probe(): Unit = a(2)(save0)\n")).toEqual([bang]);
+    expect(check(walk + "export let probe(): Unit = a(2)!(save0)\n")).toEqual([]);
+  });
+
+  it("lets a member reach the untyped callback a held lambda's body runs, past its written `>->`", () => {
+    // What the lambda runs beyond the callbacks it is handed still reaches
+    // the members that call it: `ping` is a conduit of `cb`.
+    const wants = (callee: string) => `this call may touch the world, so \`${callee}\` wants \`!\`, not no mark`;
+    expect(check(`fun ping(n: Int, cb): Int =
+    let q: ${follows} = (x) =>
+        x!()
+        cb!()
+        let _ = if n > 0 then ping!(n - 1, cb) else 0
+        ()
+    q!(noop)
+    0
+let user(): Int = ping(2, save0)
+export let probe(): Int = user()
+`)).toEqual([wants("ping"), wants("user")]);
+    const ping = `    ping(n: Int, cb): Int =
+        let q: ${follows} = (x) =>
+            x!()
+            let _ = if n > 0 then pong!(n - 1, cb) else 0
+            ()
+        q!(noop)
+        0
+`;
+    const pong = "    pong(n: Int, cb): Int =\n        cb!()\n        if n > 0 then ping!(n - 1, cb) else 0\n";
+    for (const knot of [`fun\n${ping}${pong}`, `fun\n${pong}${ping}`]) {
+      expect(check(knot + "export let probe(): Int = ping(2, save0)\n")).toEqual([wants("ping")]);
     }
   });
 });
