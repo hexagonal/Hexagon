@@ -3501,19 +3501,19 @@ function unwrapped(expression: Resolved.Expr): Resolved.Expr {
 /**
  * The parameters a knot member was given (Effects §3.4, #1218): its own and,
  * for a curried member, those of the functions its body returns directly,
- * read through grouping and a block's last line.
+ * read through grouping, an ascription (#1222) and a block's last line.
  */
 function spineParameters(value: Resolved.Expr): readonly Resolved.Parameter[] {
   const given: Resolved.Parameter[] = [];
   const returned = (body: Resolved.Expr): Resolved.Expr => {
-    let node = ungrouped(body);
+    let node = unwrapped(body);
     for (;;) {
       const last = node.kind === "Block" ? node.items.at(-1) : undefined;
       if (last?.kind !== "ExprItem") return node;
-      node = ungrouped(last.expression);
+      node = unwrapped(last.expression);
     }
   };
-  for (let node = ungrouped(value); node.kind === "Lambda"; node = returned(node.body)) {
+  for (let node = unwrapped(value); node.kind === "Lambda"; node = returned(node.body)) {
     given.push(...node.parameters);
   }
   return given;
@@ -3597,6 +3597,14 @@ class Checker {
   #pendingOwnFace: SignatureFace | undefined;
   /** The lambdas the face lands on (`faceLambdas`), the only ones that may take `#pendingOwnEffect` (#1106). */
   #pendingOwnLambdas: ReadonlySet<Resolved.LambdaExpr> | undefined;
+  /**
+   * Set while a knot member's name takes its value (#1222, #1229). The value
+   * is what the member is, its written arrows among it, so what its side holds
+   * — a constant, a join, a written `>->` — binds the colours its recursion
+   * left on the name's side, never a demand recorded on them; the name's side
+   * holds what its uses demanded, recorded as ever.
+   */
+  #definingMember = false;
   /**
    * The written calls a report has already answered — a condemned signature
    * face's, or a failed seat's. Stamped at the ruling by `#suppressMarksOn`,
@@ -9092,7 +9100,12 @@ class Checker {
         }
         this.#declaringMember = enclosingMember;
         this.#annotationOwner = enclosingAnnotationOwner;
-        this.#unify(recursiveTypes.get(symbol)!, value, item.span);
+        this.#definingMember = true;
+        try {
+          this.#unify(recursiveTypes.get(symbol)!, value, item.span);
+        } finally {
+          this.#definingMember = false;
+        }
       }
       knot.host = undefined;
       this.#knots.pop();
@@ -10146,6 +10159,20 @@ class Checker {
             (annotationWhole(expression.annotation) && this.#holdsNumberDefault(inferred))
           ? annotationType
           : inferred;
+        // *(#1149, as at a binding.)* A written `->!` over a value whose colour
+        // a later close decides (a knot's) is the face, decided at once: the
+        // impure constant absorbs the colour still to be decided. A written
+        // `->` publishes the value's colour, which its recorded demand settles
+        // pure or refuses. Only the outer arrow.
+        const written = this.#prune(annotationType);
+        const published = this.#prune(type);
+        if (
+          written.kind === "Function" && published.kind === "Function" &&
+          isImpure(written.effect ?? PURE) &&
+          this.#colourParts(published.effect ?? PURE).some((part) => this.#undecided(part))
+        ) {
+          type = { ...published, effect: written.effect ?? PURE };
+        }
         break;
       }
       case "Block": {
@@ -10448,6 +10475,19 @@ class Checker {
           result = this.#hasConversion(expression.body)
             ? annotationType
             : this.#applyWrittenQualifiers(annotationType, inferredResult);
+          // *(#1149, as at a binding.)* A written `->!` over a function whose
+          // colour a later close decides (a knot's) is the face, decided at
+          // once: the impure constant absorbs the colour still to be decided.
+          // Only the result's outer arrow.
+          const writtenResult = this.#prune(annotationType);
+          const publishedResult = this.#prune(result);
+          if (
+            writtenResult.kind === "Function" && publishedResult.kind === "Function" &&
+            isImpure(writtenResult.effect ?? PURE) &&
+            this.#colourParts(publishedResult.effect ?? PURE).some((part) => this.#undecided(part))
+          ) {
+            result = { ...publishedResult, effect: writtenResult.effect ?? PURE };
+          }
         }
         this.#effectFrames.pop();
         // Settled here rather than at the end of the module: a function's
@@ -24666,10 +24706,15 @@ class Checker {
       }
       // A function value meeting a written `>->` is fitted to it, never
       // merged into it (Effects §4.2): its colour is compared with what the
-      // face is handed once it settles (`#checkFaceFits`).
+      // face is handed once it settles (`#checkFaceFits`). Where a knot
+      // member's name takes its value, the value's own `>->` is what the
+      // member is, and its recursion follows it (`#definingMember`, #1222).
       const leftFace = this.#faceArrowNodes.get(actualLeft);
       const rightFace = this.#faceArrowNodes.get(actualRight);
-      if ((leftFace === undefined) !== (rightFace === undefined)) {
+      if (
+        (leftFace === undefined) !== (rightFace === undefined) &&
+        !(this.#definingMember && rightFace !== undefined)
+      ) {
         const written = (leftFace ?? rightFace)!;
         const valueNode = leftFace === undefined ? actualLeft : actualRight;
         const lambdas = this.#lambdasOf.get(valueNode);
@@ -25124,7 +25169,7 @@ class Checker {
       return;
     }
     if (type.kind === "Join") {
-      this.#bindJoin(variable, type, span);
+      this.#bindJoin(variable, type, span, this.#definingMember && !variableOnRight);
       return;
     }
     if (this.#occurs(variable, type)) {
@@ -25193,7 +25238,10 @@ class Checker {
     // that binds a member's whole monotype before its body exists binds a copy
     // whose colour is fresh, the demand's own arrow recorded the same way.
     if (this.#knots.length > 0 && this.#settlingArms === 0) {
-      if (type.kind === "Effect") {
+      // What a member's value holds is what it is: met where its name takes
+      // it, it binds (`#definingMember`).
+      const defining = this.#definingMember && !variableOnRight;
+      if (type.kind === "Effect" && !defining) {
         const knot = this.#knots.find((open) => this.#knotColour(open, variable));
         if (knot !== undefined) {
           knot.demands.push({
@@ -25258,13 +25306,17 @@ class Checker {
    * `r`, the most general answer. A callback's colour is never rebound so: it
    * is what its own arrow spells, so a slack beside it closes onto it, and
    * anything else is a hard case, which waits. The slacks a value's own
-   * colour takes in are that value's (`#valueSlacks`) *(#1170)*.
+   * colour takes in are that value's (`#valueSlacks`) *(#1170)*. Where a knot
+   * member's name takes its value, the colour its recursion left on the name
+   * is the value's join, never held from it as a knot's colour would be
+   * (`defining`, #1229).
    */
-  #bindJoin(variable: Variable, join: EffectJoin, span: Source.Span): void {
+  #bindJoin(variable: Variable, join: EffectJoin, span: Source.Span, defining = false): void {
     const rest = join.parts.filter((part) => part !== variable);
     const slacks = rest.filter((part) => this.#openedColours.has(part));
     const real = rest.filter((part) => !this.#openedColours.has(part));
-    const held = this.#heldDependency(variable) || this.#faceColours.has(variable) || this.#seatHeld.has(variable);
+    const held = (!defining && this.#heldDependency(variable)) || this.#faceColours.has(variable) ||
+      this.#seatHeld.has(variable);
     // What a value's colour takes in, or a slack of the value's, is the value's.
     const own = !held && (this.#valueColours.has(variable) || this.#valueSlacks.has(variable));
     if (held || join.parts.includes(variable)) {
