@@ -2113,9 +2113,27 @@ describe("Effects §3.4 — a member is its value: its recursion follows the fac
     expect(check(walk + "export let probe(): Unit = a(2)!(save0)\n")).toEqual([]);
   });
 
+  it("holds a use's merge with the recursion's result, never taking it into the member's colour", () => {
+    // `k` merges the recursion's result with a lambda running both callbacks:
+    // a use, on the name's side, so the member's colour does not take its
+    // join (`->!` at the close, as on main).
+    const source = `fun a(n: Int, f: () ->! Unit, g: () ->! Unit) =
+    let k = if n > 5 then a!(n - 1, f, g) else () =>
+            f!()
+            g!()
+    k!()
+    () => if n > 0 then a!(n - 1, f, g)!() else f!()
+`;
+    expect(check(source + "export let probe(): Unit = a!(2, noop, noop)!()\n")).toEqual([]);
+    expect(check(source + "export let probe(): Unit = a!(2, noop, noop)()\n")).toEqual([bang]);
+    expect(hover(source, "a(n: Int")).toBe("(Int, () ->! Unit, () ->! Unit) ->! () ->! Unit");
+  });
+
   it("lets a member reach the untyped callback a held lambda's body runs, past its written `>->`", () => {
     // What the lambda runs beyond the callbacks it is handed still reaches
-    // the members that call it: `ping` is a conduit of `cb`.
+    // the members that call it: `ping` is a conduit of `cb`. That `q` runs
+    // `cb` and promises `>->` is not reported inside the knot (#1230); once
+    // it is, these programs gain that report.
     const wants = (callee: string) => `this call may touch the world, so \`${callee}\` wants \`!\`, not no mark`;
     expect(check(`fun ping(n: Int, cb): Int =
     let q: ${follows} = (x) =>
