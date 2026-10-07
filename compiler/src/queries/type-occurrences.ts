@@ -174,6 +174,17 @@ export function collectTypeOccurrences(module: Typed.Module): readonly TypeOccur
         // A name no source wrote — a sequence adaptation's inserted `toSeq`
         // (Collections Part 5 §3.6), which has no width — is no occurrence.
         if (expression.span.start.offset === expression.span.end.offset) return;
+        // A member call at a known instance follows the instance's face, and
+        // shows it (Effects §10, §13.6).
+        if (expression.atInstance === true && symbols.has(expression.symbol)) {
+          publish(
+            expression.text,
+            schemeForType(expression.type),
+            expression.receiverBound === true ? expression.span : spanForIdentifier(expression.span, expression.text),
+            { symbol: expression.symbol, receiverBound: expression.receiverBound === true },
+          );
+          return;
+        }
         publishSymbol(
           expression.symbol,
           expression.text,

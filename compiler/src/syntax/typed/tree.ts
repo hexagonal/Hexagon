@@ -382,6 +382,13 @@ export interface Module {
    */
   readonly colourOwners: ReadonlyMap<TypeVariableId, string>;
   /**
+   * This module's instances' own colours *(Effects §13.3)*, keyed
+   * `${constraint identity}:${subject key} ${member symbol}`: whether each spine
+   * arrow of the member is impure at the instance, its body read with every
+   * callback pure. An importer's call at the instance follows it.
+   */
+  readonly instanceColours?: ReadonlyMap<string, readonly boolean[]>;
+  /**
    * The companion operations this module's dot calls reached in a module it
    * never textually imported (Method Syntax §8.2, #585). Empty for almost every
    * module.
@@ -1086,6 +1093,12 @@ export interface NameExpr extends ExpressionFields {
   readonly emitted?: string;
   /** Companion dot calls consume their subject before presenting this callable. */
   readonly receiverBound?: boolean;
+  /**
+   * A constraint member's reference the checker decided at a known instance
+   * (Effects §13.3): its own type is the instance's face, which hover shows
+   * there in place of the member's contract (§10, §13.6).
+   */
+  readonly atInstance?: true;
   /**
    * Constraints this *value* reference resolved, when the reference is not a
    * call callee. A constrained generic function takes trailing evidence
