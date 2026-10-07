@@ -66,6 +66,13 @@ export interface CheckOptions {
   readonly trustedStandardLibrary?: boolean;
   readonly importedSchemes?: ReadonlyMap<Resolved.SymbolId, Typed.Scheme>;
   /**
+   * The settled instance colours of the instances the program has checked so
+   * far (Effects §13.3), keyed as `Typed.Module.instanceColours` publishes them:
+   * an imported instance's colour is already decided, so a call at it follows a
+   * constant.
+   */
+  readonly importedInstanceColours?: ReadonlyMap<string, readonly boolean[]>;
+  /**
    * How `import <written>` would resolve for this module — Modules §5.1 rule
    * 1's repair clause, as `ResolveOptions.importRepair` supplies it to the
    * resolver (#829's Ruling A).
@@ -1860,6 +1867,11 @@ interface Scheme {
   /** That constraint's subject, held rather than positionally implied. */
   readonly constraintSubject?: Variable;
   readonly impliedTypes?: ReadonlyMap<string, Variable>;
+  /**
+   * The member's own symbol, which keys its instance colours (Effects §13.3):
+   * one symbol in every module, as the constraint's identity is.
+   */
+  readonly member?: Resolved.SymbolId;
 }
 
 const ERROR: ErrorMono = { kind: "Error" };
@@ -3225,6 +3237,38 @@ type HeadSite =
   | { readonly kind: "member"; readonly member: KnotMember }
   | { readonly kind: "block"; readonly span: Source.Span };
 
+/** A member reference's span, as `#knownMemberUses` keys it. */
+function memberUseKey(span: Source.Span): string {
+  return `${Number(span.fileId)}:${span.start.offset}:${span.end.offset}`;
+}
+
+/** An honor member's or a default's body, read for its instance's own colour (`#instanceBodies`). */
+interface InstanceBody {
+  readonly type: FunctionMono;
+}
+
+/** A member call's `->!` arrow waiting for its subject's instance (`#instanceWaits`, Effects §13.3). */
+interface InstanceWait {
+  readonly colour: Variable;
+  readonly subject: Mono;
+  /** The constraint's identity, the instance key's first half. */
+  readonly identity: string;
+  readonly member: Resolved.SymbolId;
+  /** Which spine arrow: 0 the outer, 1 the returned function's, and so on. */
+  readonly arrow: number;
+  readonly span: Source.Span | undefined;
+  /** The use this wait belongs to, one number per called member (`#decideCallWaits`). */
+  readonly use: number;
+  /**
+   * The argument positions whose parameter mentions the subject, in order;
+   * `direct` where the parameter is the subject itself (`#knownCallColour`).
+   * `pinned` where the reference's own qualification pinned the subject
+   * (Modules §5.3), which the text has then decided.
+   */
+  readonly subjectArguments: readonly { readonly index: number; readonly direct: boolean }[];
+  readonly pinned: boolean;
+}
+
 /**
  * One monomorphic knot under check: the component's members, the member whose
  * body inference is currently inside it, and every reference that resolved to a
@@ -3846,6 +3890,57 @@ class Checker {
    * compares an instance at every choice of.
    */
   readonly #memberColours = new Map<Resolved.SymbolId, readonly Variable[]>();
+  /**
+   * *(Effects §13.3.)* A `->!` arrow of a called member is the answering
+   * instance's own colour there, joined with the callbacks the call hands. It
+   * is a variable only while the call itself is checked, one per call and
+   * arrow, and is decided where the call ends (`#decideCallWaits`).
+   */
+  #instanceWaits: InstanceWait[] = [];
+  /** Numbers each called member's waits, so a call decides exactly its own. */
+  #nextInstanceUse = 0;
+  /**
+   * The colours that wait (`#instanceWaits`). They are dependencies, never
+   * defaulted; one that meets a constant before its call ends (the call's
+   * expected type, say) records the meeting (`#instanceDemands`), compared
+   * where the call is decided. The mark moves with a variable's representative.
+   */
+  readonly #waitingColours = new Set<Variable>();
+  /**
+   * Each of this module's honor members' bodies, by `${instance key} ${member}`,
+   * and each local constraint's default body, by `${identity} ${member}`: the
+   * body's type, whose spine arrows' colours are read with every callback pure
+   * (Effects §13.2).
+   */
+  readonly #instanceBodies = new Map<string, InstanceBody>();
+  readonly #defaultBodies = new Map<string, InstanceBody>();
+  /** This module's honors, each with its instance key, for publishing their colours (§13.3). */
+  readonly #localHonors: { readonly key: string; readonly identity: string; readonly declaration: Resolved.ConstraintItem }[] = [];
+  /** A waiting colour's meetings with a constant, compared once it is decided (cf. `Knot.demands`). */
+  readonly #instanceDemands: {
+    readonly demand: EffectConstant;
+    readonly colour: Variable;
+    readonly span: Source.Span;
+    readonly colourFirst: boolean;
+    readonly pinSite: Source.Span | undefined;
+    readonly pinSides: { readonly annotation: Source.Span; readonly value: Source.Span } | undefined;
+  }[] = [];
+  /** Set while a waiting colour is decided, when it may bind. */
+  #settlingInstances = 0;
+  /** Set at the module's close: nothing waits after. */
+  #instancesClosed = false;
+  /**
+   * The member references decided at a known instance, by span (`memberUseKey`):
+   * hover shows the instance's face there, as the call follows it (Effects
+   * §10, §13.6).
+   */
+  readonly #knownMemberUses = new Set<string>();
+  /**
+   * The calls refused for standing above the honor they follow (Effects
+   * §13.3): each owes no mark, its colour reading pure, so the refusal is told
+   * once and nothing that calls it is condemned for it.
+   */
+  readonly #refusedHonorCalls = new WeakSet<Resolved.CallExpr>();
 
   readonly #expressionTypes = new WeakMap<Resolved.Expr, Mono>();
   /** Suffix constructions are ordinary build calls after pattern selection. */
@@ -5057,6 +5152,7 @@ class Checker {
   readonly #constraintSubjectVariables = new Set<number>();
   readonly #diagnostics: Diagnostics.Bag;
   readonly #importedSchemes: ReadonlyMap<Resolved.SymbolId, Typed.Scheme>;
+  readonly #importedInstanceColours: ReadonlyMap<string, readonly boolean[]>;
   readonly #programNominals: VarianceDeclarations;
   /** Every module-level binding's own written type, across the program (`CheckOptions.programWritten`). */
   readonly #programWritten: ReadonlyMap<Resolved.SymbolId, WrittenView>;
@@ -5163,6 +5259,7 @@ class Checker {
   constructor(diagnostics: Diagnostics.Bag, options: CheckOptions) {
     this.#diagnostics = diagnostics;
     this.#importedSchemes = options.importedSchemes ?? new Map();
+    this.#importedInstanceColours = options.importedInstanceColours ?? new Map();
     this.#programNominals = options.programNominals ?? { unions: [], records: [] };
     this.#programWritten = options.programWritten ?? new Map();
     this.#representationRecords = options.representationRecords ?? new Map();
@@ -5281,7 +5378,7 @@ class Checker {
       }
     }
     for (const [symbol, scheme] of this.#importedSchemes) {
-      this.#schemes.set(symbol, this.#importScheme(scheme));
+      this.#schemes.set(symbol, this.#importScheme(scheme, symbol));
     }
     for (const item of module.items) {
       if (item.kind !== "TypeAlias") continue;
@@ -5596,6 +5693,7 @@ class Checker {
           constraintIdentity: item.identity,
           constraintSubject: subject,
           impliedTypes,
+          member: member.binding.symbol,
         });
       }
     }
@@ -5997,6 +6095,7 @@ class Checker {
     // §3.5).
     while (this.#settleSequenceDefaults(-1));
     this.#defaultRemainingVariables();
+    this.#closeInstances();
     // After the unmentioned-variable row, which absorbs the refusals of the
     // variables it refuses. Inference and defaulting are done, so every
     // demand the bodies make is known.
@@ -6070,6 +6169,7 @@ class Checker {
       docs: module.docs,
       typeHoles: this.#materializeTypeHoles(),
       ...this.#materializeColourScopes(),
+      instanceColours: this.#publishedInstanceColours(),
       companionImports: [...this.#companionImports.values()],
       ...(this.#modulePath === undefined ? {} : { modulePath: this.#modulePath }),
       span: module.span,
@@ -6130,7 +6230,7 @@ class Checker {
         // the one `importedSchemes` never saw, and a candidate with no scheme
         // reads downstream as a self-reference (`#dispatchCompanionOperation`).
         if (scheme !== undefined && !this.#schemes.has(symbol.id)) {
-          this.#schemes.set(symbol.id, this.#importScheme(scheme));
+          this.#schemes.set(symbol.id, this.#importScheme(scheme, symbol.id));
         }
         this.#operationHomes.set(symbol.id, operation);
         let found = this.#companionOperations.get(subject);
@@ -8157,17 +8257,25 @@ class Checker {
           this.#effectFrames.pop();
           this.#expressionTypes.set(defaultValue, contractType);
           const calls = this.#seatSince(from);
+          const defaultType: FunctionMono = {
+            kind: "Function",
+            parameters: expected.parameters,
+            result: expected.result,
+            effect: frame.own,
+          };
+          // An instance that writes no body for this member has this one's
+          // own colour (Effects §13.3).
+          this.#defaultBodies.set(`${item.identity} ${member.binding.symbol}`, { type: defaultType });
           this.#settleSeatBody(frame, () =>
             this.#checkSeat(contract, {
-              type: { kind: "Function", parameters: expected.parameters, result: expected.result, effect: frame.own },
+              type: defaultType,
               frame,
               calls,
               slots,
               seat: member.span,
               fix: true,
               handsBack: this.#givenValue(defaultValue.body).span,
-            })
-          );
+            }), defaultType);
         }
         continue;
       }
@@ -8302,6 +8410,11 @@ class Checker {
         if (declaration === undefined) continue;
         const supplied = new Set(item.members.map(({ name }) => name));
         const instanceSubject = this.#instanceSubjects.get(item) ?? ERROR;
+        this.#localHonors.push({
+          key: this.#instanceKey(item.constraintIdentity, instanceSubject),
+          identity: item.constraintIdentity,
+          declaration,
+        });
         this.#instanceBaseConstraints.set(
           item,
           this.#instanceBaseRequirements(item, instanceSubject),
@@ -8484,10 +8597,22 @@ class Checker {
           }
           this.#effectFrames.pop();
           const calls = this.#seatSince(from);
-          // The published face is the **contract's** (Effects §13.3, §10): a
-          // member wears its contract's arrows wherever it is shown, and the
-          // body's own colour is the seat's business alone. Everything but the
-          // colours is the same nodes the body unified against.
+          // The body an instance's own colour is read from (Effects §13.3):
+          // its spine, without the callbacks it was handed.
+          const bodyType: FunctionMono = {
+            kind: "Function",
+            parameters: expectedFunction.parameters,
+            result: expectedFunction.result,
+            effect: frame.own,
+          };
+          this.#instanceBodies.set(
+            `${this.#instanceKey(item.constraintIdentity, instanceSubject)} ${required.binding.symbol}`,
+            { type: bodyType },
+          );
+          // The member's own node shows the **contract's** face (Effects §10,
+          // §13.6): the instance's colour reaches its calls at a known instance
+          // through `#instanceColourAt`, never through this node. Everything
+          // but the colours is the same nodes the body unified against.
           this.#expressionTypes.set(member.value, contract.type);
           // The seat (Effects §13.2). For a `widens` door the scheme compared
           // is the member's **derived restriction** — the door at the member's
@@ -8513,20 +8638,14 @@ class Checker {
           } else {
             this.#settleSeatBody(frame, () =>
               this.#checkSeat(contract, {
-                type: {
-                  kind: "Function",
-                  parameters: expectedFunction.parameters,
-                  result: expectedFunction.result,
-                  effect: frame.own,
-                },
+                type: bodyType,
                 frame,
                 calls,
                 slots,
                 seat: member.span,
                 fix: true,
                 handsBack: this.#givenValue(member.value.body).span,
-              })
-            );
+              }), bodyType);
           }
         };
         for (const member of item.members) {
@@ -9611,6 +9730,7 @@ class Checker {
       }
     }
     let type: Mono;
+    const firstUse = this.#nextInstanceUse;
     switch (expression.kind) {
       case "PatternConstruction": {
         const namespace = expression.candidates.filter(({ source }) => source !== "door");
@@ -11373,6 +11493,7 @@ class Checker {
         break;
     }
 
+    if (expression.kind === "Call" && this.#nextInstanceUse > firstUse) this.#decideCallWaits(expression, firstUse);
     this.#expressionTypes.set(expression, type);
     // A call's written result type decides the arrows it spells, whatever the
     // call is handed (#1180); a value read in place is taken apart instead.
@@ -21745,10 +21866,111 @@ class Checker {
     for (const { effect } of frame.absorbed) this.#lowerLevels(effect, level);
   }
 
-  /** A constraint seat's body, settled and then compared (Effects §13.2). */
-  #settleSeatBody(frame: EffectFrame, compare: () => void): void {
+  /**
+   * A constraint seat's body, settled and then compared (Effects §13.2); a body
+   * whose colours wait for an instance's is compared once the module's
+   * instance colours are decided (§13.3).
+   */
+  #settleSeatBody(frame: EffectFrame, compare: () => void, body?: FunctionMono): void {
     this.#settleFrame(frame);
     compare();
+  }
+
+  /**
+   * Whether a body's spine arrow `arrow` is impure with every callback it was
+   * handed pure *(Effects §13.2, §13.3)*. A callback's colour is a variable
+   * the contract instantiates, never impure of itself, and an instance colour
+   * still being decided is read by the fixpoint around this; any other colour
+   * still undecided may touch the world, which is the answer that never claims
+   * too little.
+   */
+  #ownColourImpure(body: InstanceBody, arrow: number): boolean {
+    let type: Mono = body.type;
+    for (let index = 0; index < arrow; index += 1) {
+      const pruned = this.#prune(type);
+      if (pruned.kind !== "Function") return true;
+      type = pruned.result;
+    }
+    const pruned = this.#prune(type);
+    if (pruned.kind !== "Function") return true;
+    const colour = this.#prune(pruned.effect ?? PURE);
+    if (isImpure(colour)) return true;
+    // Every callback handed by this arrow: the parameters of each spine arrow
+    // up to it, as a call's join reads them (`#awaitInstance`).
+    const callbacks = new Set<Variable>();
+    for (let index = 0, level: Mono = body.type; index <= arrow; index += 1) {
+      const spine = this.#prune(level);
+      if (spine.kind !== "Function") break;
+      for (const parameter of spine.parameters) {
+        const callback = this.#prune(parameter);
+        if (callback.kind === "Function") for (const part of this.#colourParts(callback.effect ?? PURE)) callbacks.add(part);
+      }
+      level = spine.result;
+    }
+    return this.#colourParts(colour).some((part) => !callbacks.has(part));
+  }
+
+  /**
+   * An instance's own colours as its member's body, or the default's, decides
+   * them: one per spine arrow, `true` for impure. A default another module
+   * declared is read from what that module published; nothing known, nothing.
+   */
+  #instanceBits(key: string, identity: string, member: Resolved.SymbolId): readonly boolean[] | undefined {
+    const body = this.#instanceBodies.get(key) ?? this.#defaultBodies.get(`${identity} ${member}`);
+    if (body === undefined) return this.#importedInstanceColours.get(`${identity} default ${member}`);
+    const bits: boolean[] = [];
+    for (let arrow = 0, type: Mono = body.type; ; arrow += 1) {
+      const pruned = this.#prune(type);
+      if (pruned.kind !== "Function") break;
+      bits.push(this.#ownColourImpure(body, arrow));
+      type = pruned.result;
+    }
+    return bits;
+  }
+
+  /**
+   * The module's instance colours close as one knot *(Effects §3.4, §13.3)*,
+   * once every body has closed. The calls still waiting are decided first.
+   * Then what waits with an instance colour but is none settles, so each
+   * instance colour is read off a body whose other colours are final: a hard
+   * case gives its undecided parts that are no instance's colour the world
+   * (Swift's answer), or purity where its other side is pure. Then each
+   * instance colour is impure where its body, with every callback pure,
+   * touches the world, through another instance colour, its own included, to
+   * the least fixpoint; the rest are pure. Then the hard cases settle, the
+   * recorded meetings are compared, and only then are the seats and faces
+   * that waited read.
+   */
+  #closeInstances(): void {
+    this.#resolveInstanceWaits();
+    this.#instancesClosed = true;
+    this.#settleHardCases(0);
+    this.#replayDecidedDemands();
+  }
+
+  /**
+   * This module's instance colours, published for its importers
+   * (`Typed.Module.instanceColours`): each honor's, per member, its own body's
+   * or the default's it uses; and each default body this module declares,
+   * for an importer's instance that uses it.
+   */
+  #publishedInstanceColours(): ReadonlyMap<string, readonly boolean[]> {
+    const published = new Map<string, readonly boolean[]>();
+    for (const { key, identity, declaration } of this.#localHonors) {
+      for (const member of declaration.members) {
+        const memberKey = `${key} ${member.binding.symbol}`;
+        const bits = this.#instanceBits(memberKey, identity, member.binding.symbol);
+        if (bits !== undefined) published.set(memberKey, bits);
+      }
+    }
+    for (const defaultKey of this.#defaultBodies.keys()) {
+      const split = defaultKey.lastIndexOf(" ");
+      const identity = defaultKey.slice(0, split);
+      const member = Number(defaultKey.slice(split + 1)) as Resolved.SymbolId;
+      const bits = this.#instanceBits(`${defaultKey} default`, identity, member);
+      if (bits !== undefined) published.set(`${identity} default ${member}`, bits);
+    }
+    return published;
   }
 
   /**
@@ -22550,7 +22772,7 @@ class Checker {
    * colour reached is that colour's, never an opening's to settle.
    */
   #heldDependency(variable: Variable): boolean {
-    if (this.#isLinkedColour(variable)) return true;
+    if (this.#isLinkedColour(variable) || this.#waitingColours.has(variable)) return true;
     return this.#knots.some((knot) => this.#knotColour(knot, variable));
   }
 
@@ -22958,11 +23180,22 @@ class Checker {
     // colours the door's written `->!` parameters already minted (Constraints
     // §4.7); a freshly minted colour would be unrelated to every arrow the door
     // wrote.
-    const contract = first.effect === "constant"
-      ? IMPURE
-      : first.effect === "linked"
-        ? this.#join((ownFace?.handed[0] ?? []).map(({ colour }) => colour))
-        : PURE;
+    const handed = (ownFace?.handed[0] ?? []).map(({ colour }) => colour);
+    if (first.effect === "constant") {
+      // *(Effects §13.3, Q1.)* A door under a `->!` member is the instance at
+      // its type, so it wears what its body does with every callback pure,
+      // joined with the callbacks it is handed: the face a call at the
+      // instance follows.
+      const own = this.#prune(face.effect ?? PURE);
+      const callbacks = new Set(handed.flatMap((colour) => this.#colourParts(colour)));
+      return {
+        ...face,
+        effect: isImpure(own)
+          ? own
+          : this.#join([...this.#colourParts(own).filter((part) => !callbacks.has(part)), ...handed]),
+      };
+    }
+    const contract = first.effect === "linked" ? this.#join(handed) : PURE;
     return { ...face, effect: contract };
   }
 
@@ -23385,6 +23618,7 @@ class Checker {
       for (const part of this.#colourParts(obligation.effect)) {
         if (!this.#isLinkedColour(part) && !this.#seatHeld.has(part)) part.instance = PURE;
       }
+      if (this.#refusedHonorCalls.has(obligation.call)) continue;
       const colour = this.#prune(obligation.effect);
       // Pure means bare; anything else — the impure constant, a callback's
       // colour, a join of them — may touch the world, so the call wears `!`
@@ -23949,6 +24183,7 @@ class Checker {
   #settleHardCases(level: number): void {
     if (this.#hardCases.length === 0) return;
     const waiting = (part: Variable): boolean =>
+      (!this.#instancesClosed && this.#waitingColours.has(part)) ||
       this.#knots.some((knot) => this.#knotColour(knot, part));
     const remaining: HardCase[] = [];
     for (const hardCase of this.#hardCases) {
@@ -24867,6 +25102,7 @@ class Checker {
       // a value's, is that colour's.
       if (this.#valueColours.has(variable)) this.#valueColours.add(type);
       if (this.#loweredColours.has(variable)) this.#loweredColours.add(type);
+      if (this.#waitingColours.has(variable)) this.#waitingColours.add(type);
       if (
         this.#openedColours.has(variable) && !this.#heldDependency(type) && !this.#valueColours.has(type)
       ) {
@@ -24927,6 +25163,22 @@ class Checker {
       if (recorded === undefined || precedes(span, recorded)) {
         this.#colourPins.set(variable, span);
       }
+    }
+    // *(Effects §13.3.)* A colour waiting for an instance is decided by the
+    // instance's body, never by a demand: a constant it meets first is
+    // recorded, and compared once the module's instance colours are decided.
+    if (
+      type.kind === "Effect" && this.#settlingInstances === 0 && this.#waitingColours.has(variable)
+    ) {
+      this.#instanceDemands.push({
+        demand: type,
+        colour: variable,
+        span,
+        colourFirst: !variableOnRight,
+        pinSite: this.#pinSite,
+        pinSides: this.#pinSides,
+      });
+      return;
     }
     // *(#947.)* While a knot is open, a demand never binds a sibling's colour:
     // it is recorded and compared at the knot's close (Effects §3.4). A demand
@@ -27812,6 +28064,9 @@ class Checker {
     // The waiting sequence sources this boundary owns take their `Seq`
     // readings (Collections Part 5 §3.5) before anything is built.
     while (this.#settleSequenceDefaults(level));
+    // The member calls whose subject variables close here become known or
+    // generic (Effects §3.4, §13.3), before anything reads their colours.
+    this.#resolveInstanceWaits();
     // The hard cases whose level closes here (Effects §3.4).
     this.#settleHardCases(level + 1);
     // A colour only openings reached is pure before it can be quantified
@@ -29542,7 +29797,210 @@ class Checker {
     if (pinnedSubject !== undefined && subject !== undefined && useSpan !== undefined) {
       this.#unify(subject, pinnedSubject, useSpan);
     }
+    // Only a called member waits for its instance, and only until its call
+    // ends. A member named without being called carries the contract's face
+    // (Effects §13.3), as does an instantiation the checker makes for itself, a
+    // door's comparison with its member.
+    if (
+      use !== undefined && called && subject !== undefined && scheme.member !== undefined &&
+      scheme.constraintIdentity !== undefined
+    ) {
+      const pruned = this.#prune(instantiated);
+      const root = this.#prune(subject);
+      const subjectArguments = pruned.kind !== "Function" || root.kind !== "Variable"
+        ? []
+        : pruned.parameters.flatMap((parameter, index) => {
+          const type = this.#prune(parameter);
+          return type === root ? [{ index, direct: true }] : this.#occurs(root, type) ? [{ index, direct: false }] : [];
+        });
+      return this.#awaitInstance(
+        instantiated, subject, scheme.constraintIdentity, scheme.member, level, useSpan,
+        this.#nextInstanceUse++, subjectArguments, pinnedSubject !== undefined,
+      );
+    }
     return instantiated;
+  }
+
+  /**
+   * A called member's instantiation with each `->!` spine arrow waiting for
+   * its instance *(Effects §13.3)*: the arrow is a colour waiting on the
+   * subject, joined with the callbacks handed by then, decided where the call
+   * ends. The outer arrow and the arrows of the functions the member returns
+   * directly are the spine; an arrow inside data keeps the contract's colour.
+   */
+  #awaitInstance(
+    type: Mono,
+    subject: Mono,
+    identity: string,
+    member: Resolved.SymbolId,
+    level: number,
+    span: Source.Span | undefined,
+    use: number,
+    subjectArguments: InstanceWait["subjectArguments"],
+    pinned: boolean,
+    handed: readonly Variable[] = [],
+    arrow = 0,
+  ): Mono {
+    if (type.kind !== "Function") return type;
+    const callbacks = [
+      ...handed,
+      ...type.parameters.flatMap((parameter) => {
+        const pruned = this.#prune(parameter);
+        return pruned.kind === "Function" ? this.#colourParts(pruned.effect ?? PURE) : [];
+      }),
+    ];
+    const effect = this.#prune(type.effect ?? PURE);
+    let waiting: Mono = effect;
+    if (effect.kind === "Effect" && isImpure(effect)) {
+      const colour = this.#fresh(level, false);
+      this.#waitingColours.add(colour);
+      this.#instanceWaits.push({ colour, subject, identity, member, arrow, span, use, subjectArguments, pinned });
+      waiting = this.#join([colour, ...callbacks]);
+    }
+    return {
+      ...type,
+      result: this.#awaitInstance(type.result, subject, identity, member, level, span, use, subjectArguments, pinned, callbacks, arrow + 1),
+      effect: waiting,
+    };
+  }
+
+  /**
+   * Every wait no call decided follows the contract *(Effects §13.3)*: a
+   * guard at each generalization and at the module's close, which a member
+   * called only by a call expression never reaches.
+   */
+  #resolveInstanceWaits(): void {
+    for (const wait of this.#instanceWaits) {
+      const colour = this.#prune(wait.colour);
+      if (colour.kind === "Variable") this.#settleWaiting(colour, IMPURE, wait.span);
+      this.#waitingColours.delete(wait.colour);
+    }
+    this.#instanceWaits = [];
+  }
+
+  /**
+   * A call's waiting colours, decided where the call ends *(Effects §13.3)*:
+   * nothing below a call changes what it follows. Its own member's arrows
+   * follow the instance where the text decides the subject and the instance's
+   * body has been read (`#knownCallColour`), and the contract otherwise; then
+   * the meetings they recorded meanwhile are compared.
+   */
+  #decideCallWaits(call: Resolved.CallExpr, firstUse: number): void {
+    const reported = new Set<number>();
+    this.#instanceWaits = this.#instanceWaits.filter((wait) => {
+      if (wait.use < firstUse) return true;
+      const colour = this.#prune(wait.colour);
+      if (colour.kind === "Variable") {
+        const callee = call.callee.span;
+        const own = wait.span !== undefined &&
+          callee.start.offset <= wait.span.start.offset && wait.span.end.offset <= callee.end.offset;
+        const answer = own ? this.#knownCallColour(call, wait, reported) : undefined;
+        this.#settleWaiting(colour, answer ?? IMPURE, wait.span);
+      }
+      this.#waitingColours.delete(wait.colour);
+      return false;
+    });
+    this.#replayDecidedDemands();
+  }
+
+  /**
+   * The colour a known-instance call follows at one arrow, or `undefined` for
+   * the contract's *(Effects §13.3)*. An honor of this module is read
+   * top-down: above the call, its body's own colour (a `widens` door's body
+   * where the door supplies the member); below it, a refusal, as any
+   * declaration used above itself is; inside its own body, the contract, the
+   * body not yet read. An imported instance's colour is published.
+   */
+  #knownCallColour(call: Resolved.CallExpr, wait: InstanceWait, reported: Set<number>): Mono | undefined {
+    const key = this.#resolvedSubjectKey(this.#prune(wait.subject));
+    if (key === undefined) return undefined;
+    // The subject's argument: a dot call's receiver, or the first argument
+    // whose parameter mentions the subject, its head decided by the text where
+    // the parameter is the subject, its whole type where it only mentions it.
+    const decided = wait.pinned || (call.callee.kind === "Access"
+      ? this.#typeDecided(call.callee.receiver)
+      : wait.subjectArguments.slice(0, 1).some(({ index, direct }) => {
+        const argument = call.arguments[index];
+        return argument !== undefined && this.#typeDecided(argument, !direct);
+      }));
+    if (!decided) return undefined;
+    const followed = (colour: Mono): Mono => {
+      if (wait.span !== undefined) this.#knownMemberUses.add(memberUseKey(wait.span));
+      return colour;
+    };
+    const memberKey = `${wait.identity}:${key} ${wait.member}`;
+    const local = this.#instances.get(`${wait.identity}:${key}`);
+    if (local !== undefined && this.#instanceHomes.get(local) === this.#modulePath) {
+      const honor = local.span;
+      if (Number(honor.fileId) === Number(call.span.fileId)) {
+        // The honor's own body: its colour is not yet read off it.
+        if (honor.start.offset <= call.span.start.offset && call.span.end.offset <= honor.end.offset) return undefined;
+        if (honor.start.offset > call.span.start.offset) {
+          this.#refusedHonorCalls.add(call);
+          if (!reported.has(wait.use)) {
+            reported.add(wait.use);
+            this.#diagnostics.add({
+              severity: "error",
+              message: `this call follows what \`${local.constraint}<${this.#display(this.#prune(wait.subject))}>\` does, ` +
+                "and that honor is declared below it; declarations are read top-down — move the honor above this call",
+              primary: wait.span ?? call.span,
+            });
+          }
+          return PURE;
+        }
+      }
+      // A member a `widens` door supplies is the door's body, a term declared
+      // above any call that reads it (Constraints §4.7).
+      if (!this.#instanceBodies.has(memberKey)) {
+        const name = this.#constraintsByIdentity.get(wait.identity)?.members
+          .find(({ binding }) => binding.symbol === wait.member)?.binding.name;
+        const door = name === undefined ? undefined : this.#doorBodies.get(`${wait.identity} ${name}`);
+        if (door !== undefined && door.type.kind === "Function") {
+          return followed(this.#ownColourImpure({ type: door.type }, wait.arrow) ? IMPURE : PURE);
+        }
+      }
+      const bits = this.#instanceBits(memberKey, wait.identity, wait.member);
+      return followed(bits?.[wait.arrow] === false ? PURE : IMPURE);
+    }
+    const published = this.#importedInstanceColours.get(memberKey)?.[wait.arrow];
+    return followed(published === false ? PURE : IMPURE);
+  }
+
+  /** The meetings recorded while a colour waited, compared once it is decided (`#instanceDemands`). */
+  #replayDecidedDemands(): void {
+    const pending = this.#instanceDemands.splice(0);
+    for (const entry of pending) {
+      const { demand, colour, span, colourFirst, pinSite, pinSides } = entry;
+      if (this.#prune(colour).kind === "Variable") {
+        this.#instanceDemands.push(entry);
+        continue;
+      }
+      const enclosingSite = this.#pinSite;
+      const enclosingSides = this.#pinSides;
+      this.#pinSite = pinSite;
+      this.#pinSides = pinSides;
+      try {
+        if (colourFirst) this.#unify(colour, demand, span);
+        else this.#unify(demand, colour, span);
+      } finally {
+        this.#pinSite = enclosingSite;
+        this.#pinSides = enclosingSides;
+      }
+    }
+  }
+
+  /** Binds a waiting colour's representative where its answer is known (`#resolveInstanceWaits`). */
+  #settleWaiting(colour: Variable, to: Mono, span: Source.Span | undefined): void {
+    if (span === undefined) {
+      colour.instance = to;
+      return;
+    }
+    this.#settlingInstances += 1;
+    try {
+      this.#bind(colour, to, span);
+    } finally {
+      this.#settlingInstances -= 1;
+    }
   }
 
   #unsupported(span: Source.Span, message: string): ErrorMono {
@@ -30131,7 +30589,7 @@ class Checker {
       declaredConstraintIdentity(this.#fileId, constraint);
   }
 
-  #importScheme(scheme: Typed.Scheme): Scheme {
+  #importScheme(scheme: Typed.Scheme, symbol?: Resolved.SymbolId): Scheme {
     const variables = new Map<Typed.TypeVariableId, Variable>();
     // The two orders a scheme's variable list carries, kept apart on purpose
     // (#447). Their *ids* are FFI Part 9 §6.2's ordinal — the defining module's
@@ -30237,6 +30695,7 @@ class Checker {
             constraint: membership.name,
             constraintIdentity: membership.identity,
             constraintSubject: subject,
+            ...(symbol === undefined ? {} : { member: symbol }),
             impliedTypes: new Map(
               membership.impliedTypes.flatMap(({ name, variable }) => {
                 const copied = variables.get(variable);
@@ -34433,9 +34892,10 @@ class Checker {
           : knotTarget !== undefined
             ? this.#knotEvidence(knotTarget)
             : this.#evidenceRequirements(this.#nameRequirements.get(expression) ?? []);
+        const atInstance = this.#knownMemberUses.has(memberUseKey(expression.span)) ? { atInstance: true as const } : {};
         return requirements.length === 0
-          ? { ...expression, type }
-          : { ...expression, type, requirements };
+          ? { ...expression, type, ...atInstance }
+          : { ...expression, type, requirements, ...atInstance };
       }
       case "CollectionOperation":
       case "Unit":
@@ -34602,6 +35062,11 @@ class Checker {
               span: expression.callee.kind === "Access"
                 ? expression.callee.field.span
                 : expression.callee.span,
+              ...(this.#knownMemberUses.has(memberUseKey(
+                  expression.callee.kind === "Access" ? expression.callee.field.span : expression.callee.span,
+                ))
+                ? { atInstance: true as const }
+                : {}),
             },
             arguments: [
               this.#materializeExpr(dotCall.receiver),
@@ -35189,6 +35654,9 @@ class Checker {
     if (type.effect === undefined) return PURE_ARROW;
     const effect = this.#shownColour(type.effect);
     if (effect.kind === "Effect") return Colour.arrowFor(effect);
+    // An arrow still waiting for its instance shows the contract's `->!`
+    // (Effects §10, §13.3): the instance may touch the world.
+    if (this.#colourParts(effect).some((part) => this.#waitingColours.has(part))) return IMPURE_ARROW;
     if (place !== "spine") return IMPURE_ARROW;
     // A callback's colour this type does not own is a captured one, which the
     // report names the owner of once colours settle (`#settleColourNotes`).
