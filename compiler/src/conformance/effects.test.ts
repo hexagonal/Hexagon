@@ -2235,6 +2235,37 @@ describe("Effects §3.4 — a knot's colour is re-opened where it is used (#1233
     }
   });
 
+  it("refuses a pure pin on a join of a sibling with an effectful function, in either member order", () => {
+    // Main compiled these, and `a(False)` saved through `pureOnly`.
+    const caller = "    a(c: Bool): Unit =\n        pureOnly(if c then b else save0)\n";
+    const quiet = "    b(): Unit =\n        let unused = a\n        ()\n";
+    for (const members of [[caller, quiet], [quiet, caller]]) {
+      expect(check(`fun\n${members.join("")}`)).toEqual([promise]);
+    }
+    const nested = "let go(m: Int): Unit =\n    pureOnly(() =>\n        fun\n" +
+      "            a(n: Int) = if n > 1 then () => a(n - 1)!() else save0\n        a(m)!())\n";
+    expect(check(nested)).toEqual([promise]);
+  });
+
+  it("calls a held lambda stored under a written `->!` with `!`, as outside a knot", () => {
+    // Main read the stored lambda as the held colour, pure, and asked the
+    // marks away.
+    const quiet = "    b(): Unit =\n        let unused = a\n        ()\n";
+    for (
+      const caller of [
+        "    a(): Unit =\n        let r: { step: () ->! Unit } = { step = () => b() }\n        r.step!()\n",
+        "    a(): Unit =\n        let v: Vector(() ->! Unit) = [() => b(), noop]\n        Vector.at(v, 1)!()\n",
+      ]
+    ) {
+      for (const members of [[caller, quiet], [quiet, caller]]) {
+        const knot = `fun\n${members.join("")}`;
+        expect(check(knot)).toEqual([]);
+        expect(hover(knot, "a(): Unit")).toBe("() ->! Unit");
+        expect(hover(knot, "b(): Unit")).toBe("() -> Unit");
+      }
+    }
+  });
+
   it("reads a sibling not yet checked as a function of the arity its text writes, in either member order", () => {
     // A call's wrong count of arguments stands at the call whichever member
     // is written first.
