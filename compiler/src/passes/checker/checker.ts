@@ -3528,7 +3528,7 @@ function spineParameters(value: Resolved.Expr): readonly Resolved.Parameter[] {
  * The lambdas a knot member's value hands back *(#1231)*: the value itself and
  * those in the result position of each one's body, read through grouping, an
  * ascription, a block's last line or the `let` it names, and every branch of
- * an `if` or a `match`. Their parameters are the member's, which the knot
+ * an `if` or a `match`. They are part of the member's type, which the knot
  * decides.
  */
 function resultLambdas(value: Resolved.Expr, found = new Set<Resolved.Expr>()): Set<Resolved.Expr> {
@@ -21937,8 +21937,9 @@ class Checker {
    * #1231)*. A recursive call hands on only the callbacks its member was given
    * (#1218), so no member meets any other callback written inside it: the held
    * lambda's, those of the lambdas around it there, or a local signature's.
-   * Its untyped parameters are decided by its claims here, where it closes, as
-   * any lambda's are; and the colours of those callbacks that its calls run are
+   * Its untyped parameters are decided by its claims here, where it closes,
+   * and the arrows inside them close, as any lambda's do; and the colours of
+   * those callbacks that its calls run are
    * taken out of the calls the knot reads and joined into its arrow beside a
    * fresh colour at the knot's level, the part that waits. That part becomes
    * the frame's own colour, which the knot's arms decide from the calls left to
@@ -21951,6 +21952,7 @@ class Checker {
   #keepOwnCallbacks(frame: EffectFrame, knot: Knot): Mono {
     if (frame.spine === true) return frame.own;
     this.#settleUntyped(frame);
+    this.#closeCallbacks(frame);
     // Above the member's level, every callback colour is a lambda's written
     // inside the member, save the member's own parameters (those of the
     // lambdas its value hands back); the untyped ones of the lambdas around it
@@ -29780,7 +29782,11 @@ class Checker {
     // alias = pair` emits as the bare `pair` and so answers to *pair's* suffix,
     // while its consumers key on the alias's own ids.
     for (const variable of [...scheme.variables].sort((left, right) => left.id - right.id)) {
-      replacements.set(variable.id, this.#fresh(level, variable.literalOnly));
+      const fresh = this.#fresh(level, variable.literalOnly);
+      // A slack that reached the scheme, an untyped callback's colour a merge
+      // made one, is the use's room again in each instance (Effects §3.4).
+      if (this.#openedColours.has(variable)) this.#openedColours.add(fresh);
+      replacements.set(variable.id, fresh);
     }
     /**
      * The copies destined for `collected`, held back so they can be published in

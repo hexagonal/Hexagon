@@ -2504,6 +2504,47 @@ describe("Effects §3.4 — what a held lambda's own callbacks run is not held (
       indent(q.replace("REC", "    let _ = if n > 0 then ping(n - 1) else 0\n"), "        "))).toEqual([]);
   });
 
+  it("closes what main accepted where a held lambda's one callback colour hid what a use handed it", () => {
+    // Main published `ping` pure in both, and a bare `ping(2)` saved.
+    const wants = (callee: string) => `this call may touch the world, so \`${callee}\` wants \`!\`, not no mark`;
+    const nested = (mark: string) => "fun\n    ping(n: Int): Int =\n        fun loop(m: Int): Int =\n" +
+      "            let q = (cb: () ->! Unit) =>\n                cb!()\n" +
+      `                let _ = if m > 0 then loop${mark}(m - 1) else if n > 0 then ping${mark}(n - 1) else 0\n` +
+      `                ()\n            q!(save0)\n            0\n        loop${mark}(n)\nexport let probe(): Int = ping${mark}(2)\n`;
+    expect(check(nested(""))).toEqual([wants("loop"), wants("ping"), wants("loop"), wants("ping")]);
+    expect(check(nested("!"))).toEqual([]);
+    expect(hover(nested("!"), "ping(n: Int)")).toBe("Int ->! Int");
+    // A use inside a function handed to the held lambda itself.
+    const self = (mark: string) => "let seq(x: Unit, y: Int): Unit = ()\nfun\n    ping(n: Int): Int =\n" +
+      `        let q = (cb) => seq(cb!(), if n > 0 then ping${mark}(n - 1) else 0)\n` +
+      `        q${mark}(() => q${mark}(save0))\n        0\nexport let probe(): Int = ping${mark}(2)\n`;
+    expect(check(self(""))).toEqual([wants("ping"), wants("q"), wants("q"), wants("ping")]);
+    expect(check(self("!"))).toEqual([]);
+  });
+
+  it("decides an untyped callback merged with a lambda the knot holds by its claims, as outside a knot", () => {
+    // Main refused `q!(save0, …)` as if a `->` were written. The merge makes
+    // `cb`'s colour the held lambda's with a slack, which a use's room takes.
+    const held = (merge: string, use: string) => "fun\n    ping(n: Int): Int =\n        let r = () =>\n" +
+      "            let _ = if n > 0 then ping(n - 1) else 0\n            ()\n" +
+      `        let q = ${merge}\n            h!()\n            ()\n        ${use}\n        0\nexport let probe(): Int = ping!(2)\n`;
+    const wants = ["this call may touch the world, so `ping` wants `!`, not no mark"];
+    expect(check(held("(cb, b: Bool) =>\n            let h = if b then cb else r", "q!(save0, True)"))).toEqual(wants);
+    expect(check(held("(cb) =>\n            let h = pick(cb, r)", "q!(save0)"))).toEqual(wants);
+  });
+
+  it("closes the arrows inside a held lambda's untyped callback where it closes", () => {
+    // An arrow under a constructor in what the callback hands back is `->!`,
+    // as outside a knot; main closed it only after `q` generalized it.
+    const source = "fun\n    ping(n: Int): Int =\n        let q = (cb) =>\n            let _ = if n > 0 then ping(n - 1) else 0\n" +
+      "            match cb()\n                Some(h) => h()\n                None => ()\n        q(() => Some(noop))\n        0\n";
+    expect(check(source)).toEqual([
+      "this call may touch the world, so `ping` wants `!`, not no mark",
+      "this call may touch the world, so `h` wants `!`, not no mark",
+      "this call may touch the world, so `q` wants `!`, not no mark",
+    ]);
+  });
+
   it("still runs through the recursion what one use hands", () => {
     // `q!(save0)` makes `ping` touch the world, and `q(noop)` runs `ping`.
     expect(check(ping("        let q = (cb: () ->! Unit) =>\n" + body, "        q(noop)\n        q!(save0)\n",
