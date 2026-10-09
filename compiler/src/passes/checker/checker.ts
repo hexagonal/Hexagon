@@ -3202,6 +3202,8 @@ interface KnotMember {
    * has the three arms.
    */
   readonly exported: boolean;
+  /** How many parameters the member's text gives its own arrow (`fun b(x, y)` gives two). */
+  readonly arity: number;
 }
 
 /**
@@ -3326,14 +3328,6 @@ interface Knot {
     readonly pinSides?: { readonly annotation: Source.Span; readonly value: Source.Span } | undefined;
     /** Whether the colour stood on the left of the unification, to keep its orientation. */
     readonly colourFirst: boolean;
-    /**
-     * Whether the colour is a value's own — a member's or a held lambda's —
-     * rather than a colour a held body's call absorbed, a parameter's slot. A
-     * value's colour the bodies decide pure fits wherever it was used (#1119).
-     */
-    readonly own: boolean;
-    /** Whether a joining form met it, where both sides are values and neither is the demand. */
-    readonly joined: boolean;
   }[];
   /**
    * The lambdas the knot holds, which it treats as members *(#947)*: their
@@ -3808,12 +3802,6 @@ class Checker {
    * inside the member's body — a frame of its own, which the seat never holds.
    */
   readonly #absorbedCalls: AbsorbedCall[] = [];
-  /**
-   * The span of the **joining expression** whose unification is running, if one
-   * is: an `if`, a `match`, a value carrying both. A knot's colour met there is
-   * recorded as met by a join, where both sides are values (Effects §3.4).
-   */
-  #mergeSite: Source.Span | undefined;
   /**
    * The open constraint seats' freshened colours *(Effects §13.2)*: the body's
    * variables at the contract's arrows, which the seat compares and then fixes.
@@ -9062,6 +9050,7 @@ class Checker {
           symbol,
           name: bySymbol.get(symbol)!.binding.name,
           exported: bySymbol.get(symbol)!.exported,
+          arity: bySymbol.get(symbol)!.value.parameters.length,
         })),
         host: undefined,
         references: [],
@@ -9921,6 +9910,20 @@ class Checker {
           frame.members.some(({ symbol }) => symbol === expression.symbol)
         );
         if (knot !== undefined) {
+          // A member named before its body is read is a function of the arity
+          // its text writes, whatever order the members come in (Effects
+          // §3.4): a use re-opens its arrow (`#openAt`), and a call meets its
+          // parameters.
+          const bare = this.#prune(type);
+          if (bare.kind === "Variable" && this.#knotTypeVariables.has(bare)) {
+            const member = knot.members.find(({ symbol }) => symbol === expression.symbol)!;
+            this.#unify(bare, {
+              kind: "Function",
+              parameters: Array.from({ length: member.arity }, () => this.#fresh(knot.level, false)),
+              result: this.#fresh(knot.level, false),
+              effect: this.#fresh(knot.level, false),
+            }, expression.span);
+          }
           this.#knotReferences.set(expression, expression.symbol);
           if (knot.host !== undefined) {
             knot.references.push({ host: knot.host, target: expression.symbol });
@@ -11286,15 +11289,10 @@ class Checker {
         // is through the **shared static type** — not a runtime value retaining
         // both assignments, the variable's monotype saying nothing about which
         // assignment a run performs — which is why it reaches the same boundary
-        // every other joining form reaches and needs no door of its own: the
-        // span below is the merge's, `#recordJoinedColour` takes the record
-        // inside `#unify`, and the disposal, the selection and the priorities
-        // among calls, pins, merges and the seat read it as they read any
-        // merge. Acceptance is untouched: `#joining` sets a span and nothing
-        // else, and the publish below rewrites only effect nodes at positions
-        // the join has already made prune alike.
-        this.#joining(expression.span, () =>
-          this.#unifyExpected(target, value, expression.value, expression.span, true, true, false));
+        // every other joining form reaches and needs no door of its own. The
+        // publish below rewrites only effect nodes at positions the join has
+        // already made prune alike.
+        this.#unifyExpected(target, value, expression.value, expression.span, true, true, false);
         if (
           expression.target.kind === "Name" &&
           this.#mutableSymbols.has(expression.target.symbol)
@@ -13931,22 +13929,15 @@ class Checker {
       }
       // *(Review round 8, MINOR 3.)* A `catch` arm joins the one result exactly
       // as a data arm does, and §13.2's merge form covers it: the arm is where
-      // the writer joined the two colours. The site is the whole form where one
-      // holds the arms, and the arm's own body otherwise — a bare `try` clause
-      // has no enclosing expression to name. *(Review round 9, INFO 2.)* So
-      // this is the one form whose "the merge that joined the handed callback
-      // in" related location can point at a **body** rather than at a joining
-      // expression, and it points there because there is no joining expression
-      // to point at, not because a better span was passed over.
-      this.#joining(form?.expression.span ?? arm.body.span, () =>
-        this.#unify(
-          result,
-          body,
-          arm.body.span,
-          form === undefined
-            ? undefined
-            : this.#forwardingBranchRepair(form.expression, result, body, expected),
-        ));
+      // the writer joined the two colours.
+      this.#unify(
+        result,
+        body,
+        arm.body.span,
+        form === undefined
+          ? undefined
+          : this.#forwardingBranchRepair(form.expression, result, body, expected),
+      );
     }
     // §5.3's set logic is §7.2's usefulness over the open `Exn` sum: the column
     // has no signature, so no set of exception constructors ever completes it —
@@ -16787,7 +16778,7 @@ class Checker {
    */
   #closeFree(node: TreeNode): boolean {
     const tree = { refused: false };
-    this.#applyHome(node, this.#chooseHome(this.#treeValues(node)), undefined, undefined, tree);
+    this.#applyHome(node, this.#chooseHome(this.#treeValues(node)), undefined, tree);
     return tree.refused;
   }
 
@@ -16796,14 +16787,12 @@ class Checker {
    * rung the home does not carry runs at the home its own parts select — the
    * **instance gate** — and its result enters the enclosing home as a value.
    *
-   * `merge` is where a value's colour merge is recorded (`#mergeSpan`), `owner`
-   * where its mismatch is reported (`#ownerSpan`), and `tree` whether the tree
-   * has already been refused, so it is refused once (§6).
+   * `owner` is where a value's mismatch is reported (`#ownerSpan`), and `tree`
+   * whether the tree has already been refused, so it is refused once (§6).
    */
   #applyHome(
     node: TreeNode,
     chosen: { readonly home: Mono; readonly source?: Resolved.Expr } | undefined,
-    merge: Source.Span | undefined,
     owner: Source.Span | undefined,
     tree: { refused: boolean },
   ): void {
@@ -16811,7 +16800,7 @@ class Checker {
     if (node.failed === true) {
       // A refused `match` still joins its arms, as it always did; its own type
       // is `ERROR`, which enters anything.
-      this.#closeParts(node, this.#chooseHome(this.#treeValues(node)), merge, owner, tree);
+      this.#closeParts(node, this.#chooseHome(this.#treeValues(node)), owner, tree);
       node.published = ERROR;
       return;
     }
@@ -16822,14 +16811,13 @@ class Checker {
     ) {
       const own = this.#chooseHome(this.#treeValues(node));
       if (own !== undefined && !this.#sameSeat(own.home, chosen.home)) {
-        this.#applyHome(node, own, merge, owner, tree);
+        this.#applyHome(node, own, owner, tree);
         // Its result enters the enclosing home as any value does — the same
         // report, refused once with its tree (§6).
         this.#enterHome(
           { expression: node.expression, type: node.result },
           chosen.home,
           chosen.source,
-          undefined,
           owner ?? span,
           tree,
           node.level,
@@ -16837,20 +16825,7 @@ class Checker {
         return;
       }
     }
-    this.#closeParts(node, chosen, merge, owner, tree);
-  }
-
-  /**
-   * The span a value's colour **merge** is recorded at (Effects §13.2): the
-   * nearest enclosing form that joins two or more value paths — an `if`, a
-   * `match`, a `try` — read through grouping and a block's final expression,
-   * which join nothing. A tower operator's operands merge no colours.
-   */
-  #mergeSpan(node: TreeNode, merge: Source.Span | undefined): Source.Span | undefined {
-    const kind = node.expression.kind;
-    if (kind === "If" || kind === "Match" || kind === "Try") return node.expression.span;
-    if (node.elements === true) return node.expression.span;
-    return node.rung === undefined && node.siblings !== true ? merge : undefined;
+    this.#closeParts(node, chosen, owner, tree);
   }
 
   /**
@@ -16876,21 +16851,19 @@ class Checker {
   #closeParts(
     node: TreeNode,
     chosen: { readonly home: Mono; readonly source?: Resolved.Expr } | undefined,
-    merge: Source.Span | undefined,
     owner: Source.Span | undefined,
     tree: { refused: boolean },
   ): void {
     const span = node.expression.span;
     const at = chosen?.home ?? this.#fresh(node.level, false);
-    const here = this.#mergeSpan(node, merge);
     const reportAt = this.#ownerSpan(node, owner);
     this.#unify(node.result, at, span);
     for (const part of node.parts) {
       if ("node" in part) {
-        this.#applyHome(part.node, chosen === undefined ? { home: at } : chosen, here, reportAt, tree);
+        this.#applyHome(part.node, chosen === undefined ? { home: at } : chosen, reportAt, tree);
         continue;
       }
-      this.#enterHome(part.value, at, chosen?.source, here, reportAt, tree, node.level);
+      this.#enterHome(part.value, at, chosen?.source, reportAt, tree, node.level);
     }
     this.#finishNode(node, at);
   }
@@ -16906,34 +16879,29 @@ class Checker {
     value: { readonly expression: Resolved.Expr; readonly type: Mono },
     home: Mono,
     source: Resolved.Expr | undefined,
-    merge: Source.Span | undefined,
     owner: Source.Span | undefined,
     tree: { refused: boolean },
     /** The tree's level, where a recovered colour the value brings is minted a variable. */
     level: number,
   ): void {
     const span = owner ?? value.expression.span;
-    const enter = (): void => {
-      const refusal = this.#homeRefusal(value, home, source);
-      const closed = refusal === undefined
-        ? undefined
-        : this.#closedReceiverRefusal(value, home, source);
-      const report = closed?.message ?? refusal;
-      if (report !== undefined) {
-        if (!tree.refused) {
-          this.#diagnostics.add({
-            severity: "error",
-            message: report,
-            primary: closed?.span ?? value.expression.span,
-          });
-        }
-        tree.refused = true;
-        return;
+    const refusal = this.#homeRefusal(value, home, source);
+    const closed = refusal === undefined
+      ? undefined
+      : this.#closedReceiverRefusal(value, home, source);
+    const report = closed?.message ?? refusal;
+    if (report !== undefined) {
+      if (!tree.refused) {
+        this.#diagnostics.add({
+          severity: "error",
+          message: report,
+          primary: closed?.span ?? value.expression.span,
+        });
       }
-      this.#unifyExpected(home, value.type, value.expression, span, true);
-    };
-    if (merge !== undefined) this.#joining(merge, enter);
-    else enter();
+      tree.refused = true;
+      return;
+    }
+    this.#unifyExpected(home, value.type, value.expression, span, true);
   }
 
   /**
@@ -17260,13 +17228,12 @@ class Checker {
   }
 
   /** Runs `node` at the face, every value entering it. */
-  #enterFace(node: TreeNode, face: Mono, merge?: Source.Span): void {
+  #enterFace(node: TreeNode, face: Mono): void {
     if (node.rung !== undefined && !this.#supportsTarget(face, node.rung)) {
-      this.#applyHome(node, { home: face }, merge, node.expression.span, { refused: false });
+      this.#applyHome(node, { home: face }, node.expression.span, { refused: false });
       return;
     }
     const span = node.expression.span;
-    const here = this.#mergeSpan(node, merge);
     this.#unify(node.result, face, span);
     // A value still unsolved meets a `Seq` seat's face as a waiting source
     // (Collections Part 5 §3.5), never unified with the sequence on the spot.
@@ -17274,23 +17241,20 @@ class Checker {
       this.#asSequence(this.#prune(face)) !== undefined && this.#adaptsAt(face);
     for (const part of node.parts) {
       if ("node" in part) {
-        this.#enterFace(part.node, face, here);
+        this.#enterFace(part.node, face);
         continue;
       }
       // A sequence seat's demand stands at the value it was made on, as a
       // path's does (§3.5).
-      const enter = (): void =>
-        this.#unifyExpected(
-          face,
-          part.value.type,
-          part.value.expression,
-          sequenceSeat ? part.value.expression.span : span,
-          true,
-          false,
-          sequenceSeat,
-        );
-      if (here !== undefined) this.#joining(here, enter);
-      else enter();
+      this.#unifyExpected(
+        face,
+        part.value.type,
+        part.value.expression,
+        sequenceSeat ? part.value.expression.span : span,
+        true,
+        false,
+        sequenceSeat,
+      );
     }
     this.#finishNode(node, face);
   }
@@ -18103,25 +18067,23 @@ class Checker {
       ) {
         result = consequence;
       } else {
-        this.#joining(span, () =>
-          this.#unify(
-            consequence,
-            alternative,
-            span,
-            this.#forwardingBranchRepair(expression, consequence, alternative, face),
-          ));
+        this.#unify(
+          consequence,
+          alternative,
+          span,
+          this.#forwardingBranchRepair(expression, consequence, alternative, face),
+        );
       }
     } else {
       for (const [index, type] of types.entries()) {
         if (index === 0) continue;
         const body = expressions[index]!;
-        this.#joining(span, () =>
-          this.#unify(
-            result,
-            type,
-            body.span,
-            this.#forwardingBranchRepair(expression, result, type, face),
-          ));
+        this.#unify(
+          result,
+          type,
+          body.span,
+          this.#forwardingBranchRepair(expression, result, type, face),
+        );
       }
     }
     this.#unify(node.result, result, span);
@@ -19114,11 +19076,15 @@ class Checker {
    * impure constant, a `->` pure, and a colour nothing real reaches is pure
    * again where it settles. This is Koka's re-opening at instantiation
    * (`Type/Operations.hs`, `extend`) at one function's own arrow, an impure
-   * arrow left as it is (the top of the lattice has nothing above it) and a
-   * variable left alone; `#openReceived` applies it to every arrow a use
-   * receives. The function's own colour is untouched — it is
-   * still what its body does (§2.6), and it is what hover shows — and the copy
-   * shares every component but the one slot, so nothing about the value moves.
+   * arrow left as it is (the top of the lattice has nothing above it);
+   * `#openReceived` applies it to every arrow a use receives. A colour not yet
+   * decided — a knot's while it is open, `r`'s in `let (r, _) = make()` — is
+   * read as itself joined with the fresh colour: the fresh colour is the use's
+   * room, which takes what the seat or a join's other branch brings, so a join
+   * is never the value's colour (#1233). The function's own colour is
+   * untouched — it is still what its body does (§2.6), and it is what hover
+   * shows — and the copy shares every component but the one slot, so nothing
+   * about the value moves.
    */
   #openAt(type: Mono, level: number): Mono {
     const actual = this.#prune(type);
@@ -19126,15 +19092,6 @@ class Checker {
     const colour = actual.effect === undefined ? PURE : this.#prune(actual.effect);
     // The impure constant has nothing above it.
     if (isImpure(colour)) return type;
-    // A knot's colour is re-opened at its close, where it is decided (§3.4).
-    if (
-      colour.kind !== "Effect" &&
-      this.#colourParts(colour).some((part) =>
-        this.#knots.some((knot) => this.#knotColour(knot, part))
-      )
-    ) {
-      return type;
-    }
     const opened = this.#fresh(level, false);
     this.#openedColours.add(opened);
     this.#openedPending.push(opened);
@@ -20093,7 +20050,7 @@ class Checker {
       types.push(type);
       const met = outside === undefined ? type : this.#checkPath(value, outside, type, level, true, refusals);
       // A lambda element joins the others last.
-      this.#joining(expression.span, () => this.#unifyExpected(joined, met, value, value.span, true));
+      this.#unifyExpected(joined, met, value, value.span, true);
     }
     this.#foldRefusals(refusals);
     return { kind: "Vector", element: joined };
@@ -21025,21 +20982,6 @@ class Checker {
 
   #seatSince(mark: number): readonly AbsorbedCall[] {
     return this.#absorbedCalls.slice(mark);
-  }
-
-  /**
-   * Runs `run` as one expression's **merge** of the values it joins — an `if`,
-   * a `match`, a value carrying both — so a colour a knot holds, met there, is
-   * recorded as met by a join, where both sides are values (Effects §3.4).
-   */
-  #joining<T>(span: Source.Span, run: () => T): T {
-    const enclosing = this.#mergeSite;
-    this.#mergeSite = span;
-    try {
-      return run();
-    } finally {
-      this.#mergeSite = enclosing;
-    }
   }
 
   /**
@@ -22018,17 +21960,6 @@ class Checker {
     return undefined;
   }
 
-  /** Whether a knot's colour is a value's own: a member's or a held lambda's (`Knot.demands`). */
-  #knotOwnColour(knot: Knot, colour: Mono): boolean {
-    const pruned = this.#prune(colour);
-    if (knot.frames.some((frame) => this.#prune(frame.own) === pruned)) return true;
-    return knot.members.some((member) => {
-      const type = knot.types.get(member.symbol);
-      const face = type === undefined ? undefined : this.#prune(type);
-      return face?.kind === "Function" && this.#prune(face.effect ?? PURE) === pruned;
-    });
-  }
-
   /** Whether a colour (or a part of a join) is a member's, or a held frame's, of an open knot. */
   #knotColour(knot: Knot, colour: Mono): boolean {
     const parts = this.#colourParts(colour);
@@ -22696,14 +22627,7 @@ class Checker {
    * `->!` its reverse. Run after `#settleKnot`.
    */
   #compareKnotDemands(knot: Knot): void {
-    for (const { demand, colour, span, colourFirst, own, joined, pinSite, pinSides } of knot.demands) {
-      // A value's colour the bodies made pure fits wherever the value was used
-      // (#1119): decided now, and a use opens it — at a demand, where the value
-      // stands right of the unification, and at a join, where either side is a
-      // value. A colour on the left elsewhere is the one being decided, and is
-      // compared as it was.
-      const settled = this.#prune(colour);
-      if (own && (joined || !colourFirst) && settled.kind === "Effect" && Colour.isBottom(settled)) continue;
+    for (const { demand, colour, span, colourFirst, pinSite, pinSides } of knot.demands) {
       const enclosingSite = this.#pinSite;
       const enclosingSides = this.#pinSides;
       this.#pinSite = pinSite;
@@ -25251,8 +25175,6 @@ class Checker {
             pinSite: this.#pinSite,
             pinSides: this.#pinSides,
             colourFirst: !variableOnRight,
-            own: this.#knotOwnColour(knot, variable),
-            joined: this.#mergeSite !== undefined,
           });
           return;
         }
@@ -25271,8 +25193,6 @@ class Checker {
             pinSite: this.#pinSite,
             pinSides: this.#pinSides,
             colourFirst: !variableOnRight,
-            own: true,
-            joined: this.#mergeSite !== undefined,
           });
           variable.instance = { ...type, effect: colour };
           return;

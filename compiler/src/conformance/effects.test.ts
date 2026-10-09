@@ -2116,7 +2116,8 @@ describe("Effects §3.4 — a member is its value: its recursion follows the fac
   it("holds a use's merge with the recursion's result, never taking it into the member's colour", () => {
     // `k` merges the recursion's result with a lambda running both callbacks:
     // a use, on the name's side, so the member's colour does not take its
-    // join (`->!` at the close, as on main).
+    // join. The use re-opens the result (#1233), and the member follows the
+    // callbacks it is handed.
     const source = `fun a(n: Int, f: () ->! Unit, g: () ->! Unit) =
     let k = if n > 5 then a!(n - 1, f, g) else () =>
             f!()
@@ -2124,9 +2125,11 @@ describe("Effects §3.4 — a member is its value: its recursion follows the fac
     k!()
     () => if n > 0 then a!(n - 1, f, g)!() else f!()
 `;
-    expect(check(source + "export let probe(): Unit = a!(2, noop, noop)!()\n")).toEqual([]);
-    expect(check(source + "export let probe(): Unit = a!(2, noop, noop)()\n")).toEqual([bang]);
-    expect(hover(source, "a(n: Int")).toBe("(Int, () ->! Unit, () ->! Unit) ->! () ->! Unit");
+    const wants = "this call may touch the world, so `a` wants `!`, not no mark";
+    expect(check(source + "export let probe(): Unit = a(2, noop, noop)()\n")).toEqual([]);
+    expect(check(source + "export let probe(): Unit = a!(2, save0, noop)!()\n")).toEqual([]);
+    expect(check(source + "export let probe(): Unit = a(2, noop, save0)()\n")).toEqual([wants, bang]);
+    expect(hover(source, "a(n: Int")).toBe("(Int, () ->! Unit, () ->! Unit) >-> () >-> Unit");
   });
 
   it("lets a member reach the untyped callback a held lambda's body runs, past its written `>->`", () => {
@@ -2157,6 +2160,131 @@ export let probe(): Int = user()
     const pong = "    pong(n: Int, cb): Int =\n        cb!()\n        if n > 0 then ping!(n - 1, cb) else 0\n";
     for (const knot of [`fun\n${ping}${pong}`, `fun\n${pong}${ping}`]) {
       expect(check(knot + "export let probe(): Int = ping(2, save0)\n")).toEqual([wants("ping")]);
+    }
+  });
+});
+
+describe("Effects §3.4 — a knot's colour is re-opened where it is used (#1233)", () => {
+  const prelude = "module Main\n\n" + world + "let noop(): Unit = ()\nlet save0(): Unit = save!(\"x\")\n" +
+    "let pureOnly(f: () -> Unit): Unit = f()\nlet pick(x: a, y: a): a = y\n";
+  const check = (source: string): readonly string[] =>
+    effectDiagnostics([["/world.js", ""], ["/main.hex", prelude + source]]);
+  const hover = (source: string, needle: string): string | undefined => hoveredType(prelude + source, needle);
+  const bang = "this call may touch the world, so this call wants `!`, not no mark";
+  const wants = (callee: string) => `this call may touch the world, so \`${callee}\` wants \`!\`, not no mark`;
+  const promise = "a `->` arrow promises purity, and this function may touch the world — the " +
+    "demand is written `->`, the function's face `->!` or `>->`";
+
+  it("joins a held lambda with an effectful function as either branch, the join touching the world", () => {
+    // Main published the held lambda's colour for the join, so a bare
+    // `a(2)()` saved.
+    for (
+      const join of [
+        "if n > 1 then () => a(n - 1)() else () => save!(\"x\")",
+        "if n > 1 then () => save!(\"x\") else () => a(n - 1)()",
+        "if n > 0 then () => a(n - 1)() else save0",
+        "if n == 0 then save0 else () => a(n - 1)()",
+        "\n    match n\n        0 => () => a(n - 1)()\n        _ => save0",
+        "\n    let f = if n > 1 then () => a(n - 1)() else save0\n    f",
+      ]
+    ) {
+      const source = `fun a(n: Int) = ${join}\n`;
+      expect(check(source + "export let probe(): Unit = a(2)()\n")).toEqual([bang, bang]);
+      expect(check(source.replace("a(n - 1)()", "a(n - 1)!()") + "export let probe(): Unit = a(2)!()\n"))
+        .toEqual([]);
+      expect(hover(source, "a(n: Int)")).toBe("Int -> () ->! Unit");
+    }
+  });
+
+  it("refuses a written pure face over the join, and asks `!` of a pure-faced member's calls through it", () => {
+    expect(check("fun a(n: Int): () -> Unit = if n > 0 then () => a(n - 1)() else save0\n")).toContain(promise);
+    const member = "fun a(n: Int): Unit =\n    let f = if n > 1 then () => a(n - 1) else () => save!(\"x\")\n    f()\n";
+    expect(check(member + "export let probe(): Unit = a(2)\n")).toEqual([wants("a"), wants("f"), wants("a")]);
+    expect(check(member.replace("a(n - 1)", "a!(n - 1)").replace("f()", "f!()") +
+      "export let probe(): Unit = a!(2)\n")).toEqual([]);
+  });
+
+  it("joins across siblings and inside a constructor, whichever member is written first", () => {
+    const a = "    a(n: Int) = if n > 0 then () => b(n - 1)() else save0\n";
+    const b = "    b(n: Int) = a(n)\n";
+    for (const members of [[a, b], [b, a]]) {
+      const knot = `fun\n${members.join("")}`;
+      expect(check(knot + "export let probe(): Unit = b(2)()\n")).toEqual([bang, bang]);
+      expect(hover(knot, "b(n: Int)")).toBe("Int -> () ->! Unit");
+    }
+    const boxed = "fun a(n: Int) = if n > 1 then Some(() =>\n    match a(n - 1)\n        Some(f) => f!()\n" +
+      "        None => ()) else Some(save0)\n";
+    expect(hover(boxed, "a(n: Int)")).toBe("Int -> Option(() ->! Unit)");
+  });
+
+  it("keeps a sibling named as a value its own colour beside an effectful branch, the join's room taking the effect", () => {
+    // Main read `k` as `b`'s colour, pure, so a bare `k()` ran `save`. A
+    // sibling not yet read is a function of the arity its text writes, so the
+    // members' order decides nothing.
+    const caller = "    a(c: Bool): Unit =\n        let k = if c then b else () => save!(\"x\")\n        k()\n";
+    const quiet = "    b(): Unit =\n        let unused = a\n        ()\n";
+    const picked = "    a(c: Bool): Unit =\n        let k = pick(b, save0)\n        k()\n";
+    for (const user of [caller, picked]) {
+      for (const members of [[user, quiet], [quiet, user]]) {
+        const knot = `fun\n${members.join("")}`;
+        expect(check(knot)).toEqual([wants("k")]);
+        expect(check(knot.replace("k()", "k!()"))).toEqual([]);
+        expect(hover(knot, "b()")).toBe("() -> Unit");
+        expect(hover(knot, "a(c")).toBe("Bool ->! Unit");
+      }
+    }
+  });
+
+  it("refuses a pure pin on a join of a sibling with an effectful function, in either member order", () => {
+    // Main compiled these, and `a(False)` saved through `pureOnly`.
+    const caller = "    a(c: Bool): Unit =\n        pureOnly(if c then b else save0)\n";
+    const quiet = "    b(): Unit =\n        let unused = a\n        ()\n";
+    for (const members of [[caller, quiet], [quiet, caller]]) {
+      expect(check(`fun\n${members.join("")}`)).toEqual([promise]);
+    }
+    const nested = "let go(m: Int): Unit =\n    pureOnly(() =>\n        fun\n" +
+      "            a(n: Int) = if n > 1 then () => a(n - 1)!() else save0\n        a(m)!())\n";
+    expect(check(nested)).toEqual([promise]);
+  });
+
+  it("calls a held lambda stored under a written `->!` with `!`, as outside a knot", () => {
+    // Main read the stored lambda as the held colour, pure, and asked the
+    // marks away.
+    const quiet = "    b(): Unit =\n        let unused = a\n        ()\n";
+    for (
+      const caller of [
+        "    a(): Unit =\n        let r: { step: () ->! Unit } = { step = () => b() }\n        r.step!()\n",
+        "    a(): Unit =\n        let v: Vector(() ->! Unit) = [() => b(), noop]\n        Vector.at(v, 1)!()\n",
+      ]
+    ) {
+      for (const members of [[caller, quiet], [quiet, caller]]) {
+        const knot = `fun\n${members.join("")}`;
+        expect(check(knot)).toEqual([]);
+        expect(hover(knot, "a(): Unit")).toBe("() ->! Unit");
+        expect(hover(knot, "b(): Unit")).toBe("() -> Unit");
+      }
+    }
+  });
+
+  it("reads a sibling not yet checked as a function of the arity its text writes, in either member order", () => {
+    // A call's wrong count of arguments stands at the call whichever member
+    // is written first.
+    const caller = "    a(n: Int): Int = b(n, 1)\n";
+    const callee = "    b(n: Int): Int = if n > 0 then a(n - 1) else 0\n";
+    for (const members of [[caller, callee], [callee, caller]]) {
+      expect(check(`fun\n${members.join("")}`)).toEqual(["function expects 1 arguments, got 2"]);
+    }
+  });
+
+  it("keeps a held lambda named by a `let` pure where a use pins it, beside the join that took the effect", () => {
+    const caller = "    a(n: Int): Unit =\n        let g = () => c(n)\n        let f = if n > 0 then g else save0\n" +
+      "        pureOnly(g)\n        f!()\n";
+    const quiet = "    c(n: Int): Unit =\n        let unused = a\n        ()\n";
+    for (const members of [[caller, quiet], [quiet, caller]]) {
+      const knot = `fun\n${members.join("")}`;
+      expect(check(knot)).toEqual([]);
+      expect(hover(knot, "a(n: Int)")).toBe("Int ->! Unit");
+      expect(hover(knot, "c(n: Int)")).toBe("Int -> Unit");
     }
   });
 });
@@ -3955,12 +4083,12 @@ export let total(value: Int, cb: () ->! Unit): Int =
       }
     });
 
-    it("compares a `->!` demand with a pure sibling after the defaulting — the demand never chooses", () => {
-      // The sibling's colour is decided at the knot's close, and only then do
-      // the demands it met read it (§3.4). A pure sibling met as a value fits
-      // wherever it was used (#1119): the `->!` field, and the branch joining it
-      // with an impure lambda, accept it in either member order — and neither
-      // chose its colour, which stays pure.
+    it("fits a pure sibling where a use expects more, the use's room taking it — the use never chooses", () => {
+      // A use re-opens the sibling's colour while the knot is open, as its
+      // colour or more (§3.4, #1233): the `->!` field, and the branch joining it
+      // with an impure lambda, meet the use's room, in either member order. The
+      // sibling's colour is its body's, decided at the knot's close, and stays
+      // pure.
       const box = "    a(): Unit =\n        let s = Box({ step = b })\n        ()\n";
       const branch = "    a(): Unit =\n        let k = if True then b else () => save!(\"x\")\n        ()\n";
       const quiet = "    b(): Unit =\n        let unused = a\n        ()\n";
