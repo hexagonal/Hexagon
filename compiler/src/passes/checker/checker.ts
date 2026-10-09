@@ -4011,6 +4011,15 @@ class Checker {
   readonly #refusedHonorCalls = new WeakSet<Resolved.CallExpr>();
   /** The calls `#registerCall` recorded: a failed call that recorded none is in error (`#inferExpr`'s tail, #1223). */
   readonly #registeredCalls = new WeakSet<Resolved.CallExpr>();
+  /**
+   * The openings of a use of a function in error (`#openAt`, #1223): "in error
+   * or more". A merge raises one as it raises any opening, so the impure
+   * constant wins whatever the order of the branches; one nothing raises is in
+   * error where an opening would be pure (`#undecidedColour`). The floor moves
+   * with the opening to the colour it joins (`#bind`), and to the openings of
+   * a join it meets (`#bindJoin`).
+   */
+  readonly #errorFloors = new Set<Variable>();
   /** The `widens` doors whose bodies are being checked, by `${identity} ${member}`. */
   readonly #openDoors = new Set<string>();
 
@@ -19195,15 +19204,20 @@ class Checker {
     const actual = this.#prune(type);
     if (actual.kind !== "Function") return type;
     const colour = actual.effect === undefined ? PURE : this.#prune(actual.effect);
-    // The impure constant has nothing above it, and a colour in error absorbs
-    // whatever would be (§4.1, #1223).
-    if (isImpure(colour) || colour.kind === "ErrorColour") return type;
+    // The impure constant has nothing above it.
+    if (isImpure(colour)) return type;
     const opened = this.#fresh(level, false);
     this.#openedColours.add(opened);
     this.#openedPending.push(opened);
+    // A colour in error opens as "in error or more" (§3.5, #1223).
+    const inError = colour.kind === "ErrorColour";
+    if (inError) this.#errorFloors.add(opened);
     // A report showing it while nothing has solved it shows the arrow written.
-    this.#shownColours.set(opened, PURE);
-    const reopened: Mono = { ...actual, effect: colour.kind === "Effect" ? opened : this.#join([colour, opened]) };
+    this.#shownColours.set(opened, inError ? ERROR_COLOUR : PURE);
+    const reopened: Mono = {
+      ...actual,
+      effect: colour.kind === "Effect" || inError ? opened : this.#join([colour, opened]),
+    };
     const lambdas = this.#lambdasOf.get(actual);
     if (lambdas !== undefined) this.#lambdasOf.set(reopened, lambdas);
     return reopened;
@@ -20068,7 +20082,7 @@ class Checker {
         waiting.add(colour);
         return true;
       }
-      if (this.#takesOpening(colour)) colour.instance = PURE;
+      if (this.#takesOpening(colour)) colour.instance = this.#undecidedColour(colour);
       return false;
     });
   }
@@ -20097,7 +20111,7 @@ class Checker {
       const colour = this.#prune(opened);
       if (colour.kind !== "Variable") return false;
       if (colour.level > level && this.#takesOpening(colour)) {
-        colour.instance = PURE;
+        colour.instance = this.#undecidedColour(colour);
         return false;
       }
       return true;
@@ -21298,7 +21312,7 @@ class Checker {
     for (const { effect } of frame.absorbed) {
       for (const colour of this.#colourParts(effect)) {
         if (untyped.includes(colour) || this.#isDependency(frame, colour)) continue;
-        if (this.#takesOpening(colour)) colour.instance = PURE;
+        if (this.#takesOpening(colour)) colour.instance = this.#undecidedColour(colour);
       }
     }
   }
@@ -21327,7 +21341,7 @@ class Checker {
   #defaultCallColours(frame: EffectFrame): void {
     for (const { effect } of frame.absorbed) {
       for (const colour of this.#colourParts(effect)) {
-        if (!this.#isDependency(frame, colour)) colour.instance = PURE;
+        if (!this.#isDependency(frame, colour)) colour.instance = this.#undecidedColour(colour);
         else if ((this.#valueColours.has(colour) || this.#valueSlacks.has(colour)) && colour.level < frame.level) {
           this.#valueColoursLeft.push(colour);
         }
@@ -21338,7 +21352,7 @@ class Checker {
       const colour = this.#prune(left);
       if (colour.kind !== "Variable") return false;
       if (colour.level < frame.level) return true;
-      if (!this.#isDependency(frame, colour)) colour.instance = PURE;
+      if (!this.#isDependency(frame, colour)) colour.instance = this.#undecidedColour(colour);
       return false;
     });
   }
@@ -21416,7 +21430,7 @@ class Checker {
             this.#untypedColours.add(colour, { colour, name: parameter.name, owner: frame.owner });
           }
         } else if (this.#prune(colour).kind === "Variable") {
-          colour.instance = PURE;
+          colour.instance = this.#undecidedColour(colour);
         }
       }
     }
@@ -22992,8 +23006,16 @@ class Checker {
    */
   #defaultFrameColour(frame: EffectFrame): void {
     for (const part of this.#colourParts(frame.own)) {
-      if (!this.#isDependency(frame, part)) part.instance = PURE;
+      if (!this.#isDependency(frame, part)) part.instance = this.#undecidedColour(part);
     }
+  }
+
+  /**
+   * What a colour nothing decided defaults to (§3.4): pure, or in error where it
+   * is a use's opening of a function in error (`#errorFloors`, §3.5).
+   */
+  #undecidedColour(colour: Variable): Mono {
+    return this.#errorFloors.has(colour) ? ERROR_COLOUR : PURE;
   }
 
   /**
@@ -23179,7 +23201,7 @@ class Checker {
     }
     for (const slot of body.slots) {
       const now = this.#prune(slot);
-      if (now.kind === "Variable" && !this.#isLinkedColour(now)) now.instance = PURE;
+      if (now.kind === "Variable" && !this.#isLinkedColour(now)) now.instance = this.#undecidedColour(now);
     }
   }
 
@@ -23932,7 +23954,7 @@ class Checker {
       // one, still undetermined that is no callback's is pure. Knots have
       // closed by now, so no sibling's colour is still live to be pinned here.
       for (const part of this.#colourParts(obligation.effect)) {
-        if (!this.#isLinkedColour(part) && !this.#seatHeld.has(part)) part.instance = PURE;
+        if (!this.#isLinkedColour(part) && !this.#seatHeld.has(part)) part.instance = this.#undecidedColour(part);
       }
       if (this.#runsRefusedCall(obligation.call)) continue;
       const colour = this.#prune(obligation.effect);
@@ -25414,6 +25436,8 @@ class Checker {
       const owner = this.#pinnedVars.get(variable.id);
       if (owner !== undefined) this.#pinnedVars.set(type.id, owner);
       if (this.#faceColours.has(variable)) this.#faceColours.add(type);
+      // So does an opening's floor in error (#1223).
+      if (this.#errorFloors.has(variable)) this.#errorFloors.add(type);
       // A seat's hold on its colour moves with the representative (§13.2), and
       // so does a callback's.
       if (this.#seatHeld.has(variable)) this.#seatHeld.add(type);
@@ -25578,6 +25602,11 @@ class Checker {
    * (`defining`, #1229).
    */
   #bindJoin(variable: Variable, join: EffectJoin, span: Source.Span, defining = false): void {
+    // An opening's floor in error passes to the join's openings, never to a
+    // colour something else decides (#1223).
+    if (this.#errorFloors.has(variable)) {
+      for (const part of join.parts) if (this.#openedColours.has(part)) this.#errorFloors.add(part);
+    }
     const rest = join.parts.filter((part) => part !== variable);
     const slacks = rest.filter((part) => this.#openedColours.has(part));
     const real = rest.filter((part) => !this.#openedColours.has(part));

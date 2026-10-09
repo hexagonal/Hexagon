@@ -416,10 +416,13 @@ Where the program fails to say what a function does, what it does is **in error*
   - **A function type a value in error meets:** every arrow along what the function does and hands back is in error, as a handed callback, a merge or an annotation meets it. Beneath a parameter the sign turns, so what the function is handed keeps its colour.
   - **An instance whose body is in error,** at that arrow (§13.3).
   - **A refused knot's members,** seen from outside (§3.4).
-- **It travels as a colour does.** A body that runs it is in error, and so is a body that runs that one, through `let`s, knots, generalization and module interfaces. A free colour that meets it takes it; a join that meets it, such as a use's re-opened colour (§3.4), is left as it stands.
+- **It travels as a colour does.** A body that runs it is in error, and so is a body that runs that one, through `let`s, knots, generalization and module interfaces.
+  - A free colour that meets it takes it. A join that meets it is left as it stands.
+  - A use re-opens a function in error as "in error or more" (§3.4), so a merge raises it as it raises any opening. Where nothing raises it, it is in error, where an opening would be pure: a merge with a pure function is in error.
 - **The impure constant wins.** A join holding a colour in error is in error, unless the join holds the impure constant, which may touch the world whatever the error turns out to be.
   - So a body that calls an unknown name and also touches the world on its own account is impure, whatever the order of its lines. A bare call of it still wants `!`, and a knot's member is impure where a sibling is.
-  - A callback's colour in such a join is absorbed. `let user(f) = { nope!(); f!() }` is in error, so `user(save0)` written bare draws nothing until `nope` is repaired.
+  - A merge of a use in error with a function that touches the world is impure too, in either order of the branches.
+  - A callback's colour in such a join is absorbed. `let user(f) = { nope!(); f!() }` is in error, so `user(save0)` written bare draws nothing until `nope` is repaired. So is a merge of a callback with a use in error.
 - **It reads as nothing.** A call whose colour is in error owes no mark, marked or bare (§4.1). Nothing is compared against it:
   - a face over a body in error (§4.2);
   - a callback written `->!` that meets it, which is no lie of generality;

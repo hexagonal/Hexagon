@@ -2643,12 +2643,38 @@ describe("Effects §3.5 — a colour in error (#1223)", () => {
     }
   });
 
+  it("lets the impure constant win where a use in error is merged, whatever the order of the branches", () => {
+    // A use re-opens a function in error as "in error or more", so a merge
+    // raises it as it raises any opening.
+    const user = "let user(): Unit = nope!()\n";
+    for (const [first, second] of [["user", "save0"], ["save0", "user"]]) {
+      expect(check(`${user}export let p1(c: Bool): Unit =\n    let k = if c then ${first} else ${second}\n    k()\n`))
+        .toEqual([unknown, wants("`k`")]);
+    }
+    for (const [first, second] of [["() => nope!()", "() => save!(\"x\")"], ["() => save!(\"x\")", "() => nope!()"]]) {
+      expect(check(`export let p1(c: Bool): () -> Unit = if c then (${first}) else (${second})\n`)).toEqual([
+        "a `->` arrow promises purity, and this function may touch the world — the demand is written `->`, the " +
+        "function's face `->!` or `>->`",
+        unknown,
+      ]);
+    }
+    // Beside a pure function, the merge is in error, in either order and with either mark.
+    for (const [first, second] of [["() => nope!()", "() => noop()"], ["() => noop()", "() => nope!()"]]) {
+      expect(bothMarks((mark) =>
+        `export let p1(c: Bool): Unit =\n    let k = if c then (${first}) else (${second})\n    k${mark}()\n`
+      )).toEqual([[unknown], [unknown]]);
+    }
+  });
+
   it("absorbs a callback's colour beside it, and shows the face `->!`", () => {
     const user = "let user(f: () ->! Unit): Unit =\n    nope!(1)\n    f!()\n";
     for (const call of ["user(save0)", "user!(noop)", "user(noop)", "user!(save0)"]) {
       expect(check(`${user}export let probe(): Unit = ${call}\n`)).toEqual([unknown]);
     }
     expect(hover(user, "user")).toBe("(() ->! Unit) ->! Unit");
+    // So is a callback merged with a use in error.
+    expect(check("let user(): Unit = nope!()\nlet g(c: Bool, cb: () ->! Unit): Unit =\n    let k = if c then user else cb\n" +
+      "    k()\n")).toEqual([unknown]);
   });
 
   it("puts what a function does in error where a value in error meets it", () => {
@@ -2656,6 +2682,9 @@ describe("Effects §3.5 — a colour in error (#1223)", () => {
       expect(bothMarks((mark) => `export let probe(): Unit = run${mark}(${handed})\n`)).toEqual([[unknown], [unknown]]);
     }
     expect(check("let runU(cb) = cb!()\nexport let probe(): Unit = runU!(nope)\n")).toEqual([unknown]);
+    // A written `->!` field it meets is no demand it fails.
+    expect(check("export let probe(): Unit =\n    let r: { f: () ->! Unit } = { f = nope }\n    (r.f)!()\n"))
+      .toEqual([unknown]);
     expect(bothMarks((mark) =>
       `let g(c: Bool, cb: () ->! Unit): Unit =\n    let k = if c then cb else nope\n    k!()\n` +
       `export let probe(): Unit = g${mark}(True, noop)\n`
