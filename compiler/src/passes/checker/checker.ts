@@ -528,8 +528,19 @@ function lambdaFrames(set: LambdaSet | undefined): readonly EffectFrame[] {
  * has to absorb, and the untyped parameters its close decides.
  */
 interface EffectFrame {
-  /** The body's own colour: a fresh variable its arms decide, or the colour its written face spells. */
-  readonly own: Mono;
+  /**
+   * The body's own colour: a fresh variable its arms decide, or the colour its
+   * written face spells. A held lambda's is the part that waits on the knot
+   * (`#keepOwnCallbacks`).
+   */
+  own: Mono;
+  /** A lambda's parameter types: a member's own, where a lambda it hands back holds them (`#keepOwnCallbacks`). */
+  params?: readonly Mono[];
+  /**
+   * Whether the lambda is a knot member's value or one it hands back, whose
+   * parameters are the member's (`resultLambdas`).
+   */
+  spine?: boolean;
   /** The written face whose outer arrow `own` is, where a binding annotation wrote one (§4.2's reports). */
   readonly face?: SignatureFace | undefined;
   /** The level the body is inferred at, whose hard cases its close settles (Effects §3.4). */
@@ -3513,6 +3524,35 @@ function spineParameters(value: Resolved.Expr): readonly Resolved.Parameter[] {
   return given;
 }
 
+/**
+ * The lambdas a knot member's value hands back *(#1231)*: the value itself and
+ * those in the result position of each one's body, read through grouping, an
+ * ascription, a block's last line or the `let` it names, and every branch of
+ * an `if` or a `match`. Their parameters are the member's, which the knot
+ * decides.
+ */
+function resultLambdas(value: Resolved.Expr, found = new Set<Resolved.Expr>()): Set<Resolved.Expr> {
+  const node = unwrapped(value);
+  if (node.kind === "Lambda") {
+    if (found.has(node)) return found;
+    found.add(node);
+    resultLambdas(node.body, found);
+  } else if (node.kind === "Block") {
+    const last = node.items.at(-1);
+    if (last?.kind !== "ExprItem") return found;
+    const given = unwrapped(last.expression);
+    const bound = given.kind === "Name"
+      ? node.items.find((item) => item.kind === "Let" && item.binding.symbol === given.symbol)
+      : undefined;
+    resultLambdas(bound?.kind === "Let" ? bound.value : last.expression, found);
+  } else if (node.kind === "If") {
+    resultLambdas(node.consequence, found);
+    resultLambdas(node.alternative, found);
+  } else if (node.kind === "Match") {
+    for (const arm of [...node.arms, ...(node.catchArms ?? [])]) resultLambdas(arm.body, found);
+  }
+  return found;
+}
 
 function constraintMemberCandidates(
   declaration: Resolved.ConstraintItem,
@@ -4725,6 +4765,11 @@ class Checker {
    */
   readonly #settledFrames = new WeakSet<EffectFrame>();
   /**
+   * Held lambdas whose own colour is only the part that waits on the knot,
+   * what their own callbacks run joined into their arrow (`#keepOwnCallbacks`).
+   */
+  readonly #splitFrames = new WeakSet<EffectFrame>();
+  /**
    * Every call written while a knot is open, with the member whose body it
    * stands in: a recursive call hands on only the callbacks it was given
    * (Effects §3.4, #1218), read at the knot's close.
@@ -4744,6 +4789,8 @@ class Checker {
   readonly #memberParameters = new Map<Resolved.SymbolId, readonly Resolved.SymbolId[]>();
   /** The same parameters, in the order the member's type takes them. */
   readonly #memberSpines = new Map<Resolved.SymbolId, readonly Resolved.Parameter[]>();
+  /** The lambdas each member's value hands back (`resultLambdas`), whose parameters are the member's. */
+  readonly #memberResults = new Map<Resolved.SymbolId, ReadonlySet<Resolved.Expr>>();
   /**
    * A `let` inside a knot whose value is a name, by the name it binds: it
    * holds the same function, so handing it on hands on what it names.
@@ -9082,6 +9129,7 @@ class Checker {
         knot.host = symbol;
         const given = spineParameters(item.value);
         this.#memberParameters.set(symbol, given.map((parameter) => parameter.symbol));
+        this.#memberResults.set(symbol, resultLambdas(item.value));
         this.#memberSpines.set(symbol, given);
         this.#declaringMember = { symbol, name: item.binding.name };
         // The member owns every variable its annotations are the first to
@@ -10415,6 +10463,14 @@ class Checker {
           }
         }
         this.#integerTestedParameters(expression, parameters);
+        effectFrame.params = parameters;
+        const host = this.#knots.at(-1)?.host;
+        if (
+          declaringMember !== undefined ||
+          (host !== undefined && this.#memberResults.get(host)?.has(expression) === true)
+        ) {
+          effectFrame.spine = true;
+        }
         // A lambda's parameters are its inputs: the types they hold are theirs.
         for (const parameterType of parameters) this.#markNamed(parameterType);
         const savedVariableScope = this.#annotationVariableScope;
@@ -10527,6 +10583,7 @@ class Checker {
         // used to choose it. A `fun` member is the one exception: its colour
         // and its sibling calls wait for the knot's close.
         const knot = this.#knots.at(-1);
+        let lambdaColour: Mono = effectFrame.own;
         if (declaringMember !== undefined && knot?.host === declaringMember.symbol) {
           this.#noteOwnColours(effectFrame);
           knot.frames.push(effectFrame);
@@ -10542,7 +10599,9 @@ class Checker {
             // its calls' are decided at the knot's close, and what they meet
             // before then is recorded and compared there, never choosing them.
             // Sunk to the knot's level, nothing around it generalizes them.
+            // What its own callbacks run is not held (#1231).
             this.#noteOwnColours(effectFrame);
+            lambdaColour = this.#keepOwnCallbacks(effectFrame, holding);
             this.#sinkFrame(effectFrame, holding.level);
             holding.frames.push(effectFrame);
             holding.held.add(effectFrame);
@@ -10564,7 +10623,7 @@ class Checker {
               role: returnWritten.kind === "Function" ? "spine" : "data",
             })
             : result,
-          effect: effectFrame.own,
+          effect: lambdaColour,
         };
         this.#frameOfType.set(type, effectFrame);
         this.#lambdasOf.set(type, { frame: effectFrame });
@@ -21873,6 +21932,71 @@ class Checker {
       : undefined;
   }
 
+  /**
+   * **What a held lambda's own callbacks run is not held** *(Effects §3.4,
+   * #1231)*. A recursive call hands on only the callbacks its member was given
+   * (#1218), so no member meets any other callback written inside it: the held
+   * lambda's, those of the lambdas around it there, or a local signature's.
+   * Its untyped parameters are decided by its claims here, where it closes, as
+   * any lambda's are; and the colours of those callbacks that its calls run are
+   * taken out of the calls the knot reads and joined into its arrow beside a
+   * fresh colour at the knot's level, the part that waits. That part becomes
+   * the frame's own colour, which the knot's arms decide from the calls left to
+   * it, so the callbacks are never sunk and the lambda's binding generalizes
+   * them. A written constant face takes what they run here: the impure one
+   * absorbs it, and a pure one meets it as at any lambda's close. A lambda a
+   * member's value hands back takes the member's parameters, and is held
+   * whole. Returns the lambda's arrow.
+   */
+  #keepOwnCallbacks(frame: EffectFrame, knot: Knot): Mono {
+    if (frame.spine === true) return frame.own;
+    this.#settleUntyped(frame);
+    // Above the member's level, every callback colour is a lambda's written
+    // inside the member, save the member's own parameters (those of the
+    // lambdas its value hands back); the untyped ones of the lambdas around it
+    // are theirs to decide where they close.
+    const members = new Set<Variable>();
+    const untyped = new Set<Variable>();
+    for (let open = frame.enclosing; open !== undefined && open.level > knot.level + 1; open = open.enclosing) {
+      if (open.spine === true) {
+        for (const type of open.params ?? []) for (const part of this.#colourVariables(type)) members.add(part);
+        continue;
+      }
+      for (const { type } of open.untyped) {
+        for (const { arrow } of this.#spineColours(type)) for (const part of this.#colourParts(arrow)) untyped.add(part);
+      }
+    }
+    const own = (part: Variable): boolean =>
+      part.level > knot.level + 1 && !members.has(part) && (this.#isLinkedColour(part) || untyped.has(part));
+    const kept: { readonly part: Variable; readonly span: Source.Span }[] = [];
+    for (const [index, entry] of frame.absorbed.entries()) {
+      const parts = this.#colourParts(entry.effect);
+      if (!parts.some(own)) continue;
+      for (const part of parts.filter(own)) {
+        if (!kept.some((known) => known.part === part)) kept.push({ part, span: entry.span });
+      }
+      frame.absorbed[index] = { ...entry, effect: this.#join(parts.filter((part) => !own(part))) };
+    }
+    if (kept.length === 0) return frame.own;
+    const colour = this.#prune(frame.own);
+    if (colour.kind !== "Variable") {
+      if (!isImpure(colour)) {
+        this.#settlingArms += 1;
+        try {
+          for (const { part, span } of kept) this.#unify(colour, part, span);
+        } finally {
+          this.#settlingArms -= 1;
+        }
+      }
+      return frame.own;
+    }
+    const waiting = this.#fresh(knot.level, false);
+    frame.own = waiting;
+    this.#splitFrames.add(frame);
+    this.#unify(colour, this.#join([...kept.map(({ part }) => part), waiting]), frame.span ?? kept[0]!.span);
+    return colour;
+  }
+
   /** Sinks a body's own colour and its calls' to `level` (§3.4's knot bullet, #378). */
   #sinkFrame(frame: EffectFrame, level: number): void {
     this.#lowerLevels(frame.own, level);
@@ -22046,7 +22170,9 @@ class Checker {
           this.#reportFollowsFace(frame.face, span, "this call touches the world on its own account");
           reportedFace = true;
         }
-        continue;
+        // A held lambda's waiting part is no face's colour but what its body
+        // runs through the knot (#1231): it takes the source.
+        if (!this.#splitFrames.has(frame)) continue;
       }
       this.#unify(frame.own, absorbed, span);
     }
