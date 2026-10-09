@@ -190,14 +190,20 @@ export interface ExternType {
   readonly qualifier?: TypeQualifier;
 }
 
+/** One spine arrow's colour at an instance (`Module.instanceColours`): impure, pure, or in error. */
+export type InstanceColour = boolean | "error";
+
 /**
  * A function type's colour (`spec/effects.md` §2), absent exactly where the
- * arrow is the pure constant. `"impure"` is the impure constant; a variable is
- * a callback's colour, quantified in the enclosing scheme like any other type
- * variable (§3.4); a join is "as effectful as any of these" (§2.4).
+ * arrow is the pure constant. `"impure"` is the impure constant; `"error"` is a
+ * colour in error, what a function does where the program failed to say it
+ * (§4.1); a variable is a callback's colour, quantified in the enclosing scheme
+ * like any other type variable (§3.4); a join is "as effectful as any of these"
+ * (§2.4).
  */
 export type Effect =
   | "impure"
+  | "error"
   | { readonly variable: TypeVariableId }
   | { readonly join: readonly TypeVariableId[] };
 
@@ -385,9 +391,10 @@ export interface Module {
    * This module's instances' own colours *(Effects §13.3)*, keyed
    * `${constraint identity}:${subject key} ${member symbol}`: whether each spine
    * arrow of the member is impure at the instance, its body read with every
-   * callback pure. An importer's call at the instance follows it.
+   * callback pure, or in error where the body failed (§4.1). An importer's call
+   * at the instance follows it.
    */
-  readonly instanceColours?: ReadonlyMap<string, readonly boolean[]>;
+  readonly instanceColours?: ReadonlyMap<string, readonly InstanceColour[]>;
   /**
    * The companion operations this module's dot calls reached in a module it
    * never textually imported (Method Syntax §8.2, #585). Empty for almost every

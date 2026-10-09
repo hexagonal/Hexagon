@@ -1654,7 +1654,7 @@ export function compileProject(
     // Effects §13.3: a call at an instance another module declared follows
     // that instance's own colour, settled when its module was checked. Keyed by
     // the instance's identity, so every module checked so far answers.
-    const importedInstanceColours = new Map<string, readonly boolean[]>();
+    const importedInstanceColours = new Map<string, readonly Typed.InstanceColour[]>();
     for (const home of checked.values()) {
       for (const [key, colours] of home.typed.instanceColours ?? []) importedInstanceColours.set(key, colours);
     }
