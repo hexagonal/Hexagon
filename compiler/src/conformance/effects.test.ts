@@ -1489,6 +1489,9 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
   });
 
   it("a knot frame around a lambda an outer knot holds keeps the colours it noted at its own close (#1215)", () => {
+    // `h1`'s own callback `k` is its own (#1231): `h1!(g)` meets an instance,
+    // so the tie stands where `inner` merges `k` with `f`, as outside a knot,
+    // and its fix compiles.
     const a = "    a(g, c: Bool, n: Int): Unit =\n        g!()\n        fun loop(m: Int): Unit =\n" +
       "            let h1 = (k) =>\n                if m == 0 then () else loop!(m - 1)\n                k!()\n" +
       "                let h2 = (z) =>\n                    b!(g, c, n - 1)\n" +
@@ -1496,9 +1499,11 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
       "            h1!(g)\n        loop!(n)\n        ()\n";
     const b = "    b(g, c: Bool, n: Int): Unit = if n == 0 then () else a!(g, c, n)\n";
     for (const program of [`fun\n${a}${b}`, `fun\n${b}${a}`]) {
-      expect([program, tieReports(program).map(({ message }) => message)]).toEqual([program, [
-        "`f`'s colour is tied to `g`'s here, and no written type can say that — write `f`'s type",
-      ]]);
+      expect([program, tieReports(program).map(({ at, message, labels }) => [at, message, labels])]).toEqual([program, [[
+        "if c then k else f",
+        "`f`'s colour is tied to `k`'s here, and no written type can say that — write `f`'s type",
+        ["f: `f` has no written type", "k: `k` has no written type"],
+      ]]]);
     }
   });
 
@@ -2245,13 +2250,12 @@ describe("Effects §4.2 — a written `>->` meets the function it stands over al
 
   it("gives a binding's one-callback `>->` lambda in a knot one report, whose fixit compiles (#1234)", () => {
     // Main took the lambda for a sibling, so `ping` lost the callback's colour.
-    // The report's subject and place (the argument `save0`, not the call
-    // `ping!(n - 1)`) are the other spellings' as they were: #1238.
+    // The report stands at the call that runs the world (#1238).
     const knot = (arrow: string) => `fun\n    ping(n: Int): Int =\n        let q: (() ->! Unit) ${arrow} Unit = (cb) =>\n` +
       "            cb!()\n            let _ = if n > 0 then ping!(n - 1) else 0\n            ()\n" +
       "        q!(save0)\n        0\nexport let probe(): Int = ping!(2)\n";
     expect(check(knot(">->"))).toEqual([
-      "this function touches the world on its own account, and this face's `>->` promises the function is only " +
+      "this call touches the world on its own account, and this face's `>->` promises the function is only " +
       "as effectful as what it is handed — write `->!`",
     ]);
     expect(check(knot("->!"))).toEqual([]);
@@ -2380,6 +2384,190 @@ describe("Effects §3.4 — a knot's colour is re-opened where it is used (#1233
       expect(hover(knot, "a(n: Int)")).toBe("Int ->! Unit");
       expect(hover(knot, "c(n: Int)")).toBe("Int -> Unit");
     }
+  });
+});
+
+describe("Effects §3.4 — what a held lambda's own callbacks run is not held (#1231)", () => {
+  const prelude = "module Main\n\n" + world + "let noop(): Unit = ()\nlet save0(): Unit = save!(\"x\")\n" +
+    "let pureOnly(f: () -> Unit): Unit = f()\nlet pick(x: a, y: a): a = y\nlet ident(x: a): a = x\n";
+  const check = (source: string): readonly string[] =>
+    effectDiagnostics([["/world.js", ""], ["/main.hex", prelude + source]]);
+  const hover = (source: string, needle: string): string | undefined => hoveredType(prelude + source, needle);
+  // Where each report stands, by the text there.
+  const reports = (source: string): readonly (readonly [string, string])[] => {
+    const text = prelude + source;
+    return compileFiles([["/world.js", ""], ["/main.hex", text]]).diagnostics.map((diagnostic) =>
+      [text.slice(diagnostic.primary.start.offset, diagnostic.primary.end.offset), diagnostic.message] as const
+    );
+  };
+  // `ping` holds `q`, whose body calls `ping`; `rec` is that call.
+  const ping = (q: string, uses: string, rec = "ping(n - 1)", probe = "ping(2)") =>
+    `fun\n    ping(n: Int): Int =\n${q.replaceAll("REC", rec)}${uses}        0\nexport let probe(): Int = ${probe}\n`;
+  const body = "            cb!()\n            let _ = if n > 0 then REC else 0\n            ()\n";
+  const promise = "a `->` arrow promises purity, and this function may touch the world — the " +
+    "demand is written `->`, the function's face `->!` or `>->`";
+
+  it("calls a held lambda handed only pure functions bare, however its callback is written", () => {
+    // Main held `q`'s callback as one colour for every use, which nothing
+    // decided, so `q(noop)` and `ping(n - 1)` wanted `!`.
+    for (
+      const [q, use] of [
+        ["        let q: (() ->! Unit) >-> Unit = (cb) =>\n" + body, "q(noop)"],
+        ["        let q = (((cb) =>\n" + body.trimEnd() + "): (() ->! Unit) >-> Unit)\n", "q(noop)"],
+        ["        let q(): (() ->! Unit) >-> Unit = (cb) =>\n" + body, "q()(noop)"],
+        ["        let q = (cb: () ->! Unit) =>\n" + body, "q(noop)"],
+        ["        let q = (cb) =>\n" + body, "q(noop)"],
+      ] as const
+    ) {
+      const source = ping(q, `        ${use}\n`);
+      expect([source, check(source)]).toEqual([source, []]);
+      expect(hover(source, "ping(n: Int)")).toBe("Int -> Int");
+    }
+    expect(hover(ping("        let q = (cb) =>\n" + body, "        q(noop)\n"), "q = ")).toBe("(() ->! Unit) >-> Unit");
+  });
+
+  it("decides a held lambda's untyped callback by its own claims, so it takes a function that touches the world", () => {
+    // Main defaulted `cb` pure at `ping`'s close, before `q`'s `!` claimed it,
+    // and refused `q!(save0)` as if a `->` were written.
+    const direct = ping("        let q = (cb) =>\n" + body, "        q!(save0)\n", "ping!(n - 1)", "ping!(2)");
+    expect(check(direct)).toEqual([]);
+    expect(hover(direct, "q = ")).toBe("(() ->! Unit) ->! Unit");
+    expect(hover(direct, "ping(n: Int)")).toBe("Int ->! Int");
+    // Run by a lambda the knot holds inside it, the callback is still its.
+    const nested = (rec: string) => "        let q = (cb) =>\n            let r = () =>\n                cb!()\n" +
+      `                let _ = if n > 0 then ${rec} else 0\n                ()\n            r!()\n`;
+    expect(check(ping(nested("ping(n - 1)"), "        q(noop)\n"))).toEqual([]);
+    expect(check(ping(nested("ping!(n - 1)"), "        q!(save0)\n", "ping!(n - 1)", "ping!(2)"))).toEqual([]);
+  });
+
+  it("leaves a held lambda's callbacks its own under a written `->!` face, so no use ties them", () => {
+    // Main bound `cb`'s one colour to `act`'s at `q!(act)`, and refused a tie.
+    expect(check("fun\n    ping(n: Int, act): Int =\n" +
+      "        let q: (() ->! Unit) ->! Unit = (cb: () ->! Unit) =>\n" + body.replace("REC", "ping!(n - 1, act)") +
+      "        q!(act)\n        q!(noop)\n        0\nexport let probe(): Int = ping!(2, noop)\n")).toEqual([]);
+  });
+
+  it("reports a held lambda's `>->` at the recursive call that runs the world, in every spelling (#1238)", () => {
+    // Main reported at the argument `save0`, whose colour `q`'s one callback
+    // colour had taken.
+    const own = "this call touches the world on its own account, and this face's `>->` promises the function is only " +
+      "as effectful as what it is handed — write `->!`";
+    for (
+      const [q, use] of [
+        ["        let q: (() ->! Unit) >-> Unit = (cb) =>\n" + body, "q!(save0)"],
+        ["        let q = (((cb) =>\n" + body.trimEnd() + "): (() ->! Unit) >-> Unit)\n", "q!(save0)"],
+        ["        let q(): (() ->! Unit) >-> Unit = (cb) =>\n" + body, "q()!(save0)"],
+      ] as const
+    ) {
+      const source = ping(q, `        ${use}\n`, "ping!(n - 1)", "ping!(2)");
+      expect([source, reports(source)]).toEqual([source, [["ping!(n - 1)", own]]]);
+    }
+  });
+
+  it("lets a refused `>->` over a held lambda read what it runs through the recursion", () => {
+    // The refused face keeps reading as the join (§4.2), and the part that
+    // waits is what the recursion runs: `q!(noop)` keeps its mark.
+    expect(reports("fun\n    ping(n: Int, act): Int =\n" +
+      "        let q: (() ->! Unit) >-> Unit = (cb: () ->! Unit) =>\n" + body.replace("REC", "ping!(n - 1, act)") +
+      "        q!(save0)\n        q!(noop)\n        0\n")).toEqual([[
+        "ping!(n - 1, act)",
+        "this call touches the world on its own account, and this face's `>->` promises the function is only " +
+        "as effectful as what it is handed — write `->!`",
+      ]]);
+  });
+
+  it("keeps a held lambda's written `->` face meeting what its callbacks run", () => {
+    // Taken out of what the knot reads, the callback still meets the face
+    // where the lambda closes, as outside a knot: `q(save0)` is refused.
+    const q = (rec: string) => "let q: (() ->! Unit) -> Unit = (cb) =>\n    cb!()\n" + rec + "    ()\nq(save0)\n0\n";
+    const indent = (text: string, by: string) => text.split("\n").map((line) => line === "" ? line : by + line).join("\n");
+    const knot = "fun\n    ping(n: Int): Int =\n" + indent(q("    let _ = if n > 0 then ping(n - 1) else 0\n"), "        ");
+    const lone = "let ping(n: Int): Int =\n" + indent(q(""), "    ");
+    expect(check(knot)).toEqual(check(lone));
+    expect(check(knot)).toContain(promise);
+  });
+
+  it("keeps a callback tied to a member's parameter in the knot's hands", () => {
+    expect(check("fun\n    ping(n: Int, act: () ->! Unit): Int =\n        let q = (cb) =>\n" +
+      "            let _ = pick(cb, act)\n            cb!()\n            let _ = if n > 0 then ping!(n - 1, act) else 0\n" +
+      "            ()\n        q!(noop)\n        pureOnly(act)\n        0\nexport let probe(): Int = ping!(2, noop)\n"))
+      .toContain("`cb`'s colour is tied to `act`'s here, and no written type can say that — write `cb`'s type");
+  });
+
+  it("leaves a signature written inside a held lambda its own too", () => {
+    // `p` is one value (`ident(…)` is a call), and its callback's colour is
+    // the held lambda's to generalize, as outside a knot.
+    const q = "let q = (cb: () ->! Unit) =>\n    let p: (() ->! Unit) >-> Unit = ident((f) => f!())\n    p!(noop)\n" +
+      "    cb!()\nREC    ()\nq(noop)\n0\n";
+    const indent = (text: string, by: string) => text.split("\n").map((line) => line === "" ? line : by + line).join("\n");
+    expect(check("fun\n    ping(n: Int): Int =\n" +
+      indent(q.replace("REC", "    let _ = if n > 0 then ping(n - 1) else 0\n"), "        "))).toEqual([]);
+  });
+
+  it("closes what main accepted where a held lambda's one callback colour hid what a use handed it", () => {
+    // Main published `ping` pure in both, and a bare `ping(2)` saved.
+    const wants = (callee: string) => `this call may touch the world, so \`${callee}\` wants \`!\`, not no mark`;
+    const nested = (mark: string) => "fun\n    ping(n: Int): Int =\n        fun loop(m: Int): Int =\n" +
+      "            let q = (cb: () ->! Unit) =>\n                cb!()\n" +
+      `                let _ = if m > 0 then loop${mark}(m - 1) else if n > 0 then ping${mark}(n - 1) else 0\n` +
+      `                ()\n            q!(save0)\n            0\n        loop${mark}(n)\nexport let probe(): Int = ping${mark}(2)\n`;
+    expect(check(nested(""))).toEqual([wants("loop"), wants("ping"), wants("loop"), wants("ping")]);
+    expect(check(nested("!"))).toEqual([]);
+    expect(hover(nested("!"), "ping(n: Int)")).toBe("Int ->! Int");
+    // A use inside a function handed to the held lambda itself.
+    const self = (mark: string) => "let seq(x: Unit, y: Int): Unit = ()\nfun\n    ping(n: Int): Int =\n" +
+      `        let q = (cb) => seq(cb!(), if n > 0 then ping${mark}(n - 1) else 0)\n` +
+      `        q${mark}(() => q${mark}(save0))\n        0\nexport let probe(): Int = ping${mark}(2)\n`;
+    expect(check(self(""))).toEqual([wants("ping"), wants("q"), wants("q"), wants("ping")]);
+    expect(check(self("!"))).toEqual([]);
+  });
+
+  it("closes the arrows inside a held lambda's untyped callback where it closes", () => {
+    // An arrow under a constructor in what the callback hands back is `->!`,
+    // as outside a knot; main closed it only after `q` generalized it.
+    const source = "fun\n    ping(n: Int): Int =\n        let q = (cb) =>\n            let _ = if n > 0 then ping(n - 1) else 0\n" +
+      "            match cb()\n                Some(h) => h()\n                None => ()\n        q(() => Some(noop))\n        0\n";
+    expect(check(source)).toEqual([
+      "this call may touch the world, so `ping` wants `!`, not no mark",
+      "this call may touch the world, so `h` wants `!`, not no mark",
+      "this call may touch the world, so `q` wants `!`, not no mark",
+    ]);
+  });
+
+  it("still runs through the recursion what one use hands", () => {
+    // `q!(save0)` makes `ping` touch the world, and `q(noop)` runs `ping`.
+    expect(check(ping("        let q = (cb: () ->! Unit) =>\n" + body, "        q(noop)\n        q!(save0)\n",
+      "ping!(n - 1)", "ping!(2)"))).toEqual(["this call may touch the world, so `q` wants `!`, not no mark"]);
+  });
+
+  it("holds a lambda a member hands back whole: its parameters are the member's", () => {
+    expect(check("fun a(n: Int) = (cb) => if n == 0 then cb() else a(n - 1)!(cb)\n" +
+      "export let probe(): Unit = a(2)!(save0)\n")).toEqual(["this call may touch the world, so `cb` wants `!`, not no mark"]);
+    // Under a `match` too, where the refusal of a function the member was not
+    // given stands alone.
+    const given = (member: string) => `this function is not one \`${member}\` was given, and a recursive call ` +
+      "hands on only the callbacks it was given";
+    expect(check("fun\n    a(n: Int) =\n            match n\n                0 => (cb) => save!(\"x\")\n" +
+      "                _ => ((cb) => if n > 3 then b(n - 1)!(cb) else cb())\n" +
+      "    b(n: Int) = ((if n > 1 then (cb) => cb() else (cb) => a(n - 1)(cb)): (() ->! Unit) ->! Unit)\n" +
+      "export let probe(): Unit = a(2)(save0)\n")).toEqual([given("a"), given("b")]);
+    // Through an `if` and the `let` a block's last line names.
+    expect(check("fun\n    b(n: Int): (() ->! Unit) ->! Unit =\n" +
+      "            let f = if n > 1 then (cb) => a(n - 1)(cb) else ((cb) => if n > 3 then b(n - 1)(cb) else cb())\n" +
+      "            f\n    a(n: Int) = ((if n > 1 then (cb) => b(n - 1)!(cb) else (cb) => a(n - 1)!(cb)): (() ->! Unit) ->! Unit)\n" +
+      "export let probe(): Unit = a(2)!(save0)\n")).toEqual([given("b"), given("b"), given("a"), given("a")]);
+  });
+
+  it("reads a held lambda as the same lambda outside the recursion", () => {
+    const q = "let q = (cb, cc) =>\n    cb()\nREC    ()\nq!(noop, act)\nq!(act, () => ())\n0\n";
+    const indent = (text: string, by: string) => text.split("\n").map((line) => line === "" ? line : by + line).join("\n");
+    const knot = "fun\n    ping(n: Int, act): Int =\n" +
+      indent(q.replace("REC", "    let _ = if n > 0 then pong(n - 1, act) else 0\n"), "        ") +
+      "    pong(n: Int, act): Int = if n > 0 then ping(n - 1, act) else 0\n";
+    const lone = "let ping(n: Int, act): Int =\n" + indent(q.replace("REC", ""), "    ");
+    const probe = "export let probe(): Int = ping!(2, save0)\n";
+    expect(check(knot + probe)).toEqual(check(lone + probe));
+    expect(check(lone + probe)).toContain(promise);
   });
 });
 
