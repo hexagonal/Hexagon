@@ -2730,6 +2730,15 @@ describe("Effects §3.5 — a colour in error (#1223)", () => {
     )).toEqual(["this function is not one `a` was given, and a recursive call hands on only the callbacks it was given"]);
     // A callback a caller hands it keeps the caller's colour.
     expect(check(`${a}let g(cb: () ->! Unit): Unit =\n    a!(cb, 1)\n    cb()\n`)).toEqual([made, wants("`cb`")]);
+    // An arrow its text writes is the text's: a call reads it as written.
+    expect(check(
+      "fun\n    a(n: Int): (() -> Unit) -> Unit = (cb) => if n == 0 then () else b(n - 1)!(save0)\n" +
+        "    b(n: Int): (() ->! Unit) ->! Unit = (cb) => if n == 0 then () else b(n - 1)!(noop)\n" +
+        "export let probe(): Unit = a(2)!(noop)\n",
+    )).toEqual([
+      "this function is not one `b` was given, and a recursive call hands on only the callbacks it was given",
+      noMark("this call"),
+    ]);
     // From another module, uncurried and curried.
     const lib = "export fun a(cb: () ->! Unit, n: Int): Unit = if n == 0 then cb!() else a!(() => cb!(), n - 1)\n" +
       "export let s0(): Unit = save!(\"x\")\n";
