@@ -2245,6 +2245,8 @@ describe("Effects §4.2 — a written `>->` meets the function it stands over al
 
   it("gives a binding's one-callback `>->` lambda in a knot one report, whose fixit compiles (#1234)", () => {
     // Main took the lambda for a sibling, so `ping` lost the callback's colour.
+    // The report's subject and place (the argument `save0`, not the call
+    // `ping!(n - 1)`) are the other spellings' as they were: #1238.
     const knot = (arrow: string) => `fun\n    ping(n: Int): Int =\n        let q: (() ->! Unit) ${arrow} Unit = (cb) =>\n` +
       "            cb!()\n            let _ = if n > 0 then ping!(n - 1) else 0\n            ()\n" +
       "        q!(save0)\n        0\nexport let probe(): Int = ping!(2)\n";

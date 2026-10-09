@@ -3587,7 +3587,12 @@ class Checker {
    * left free — the round-up applies to the function, not to what it forwards.
    */
   #pendingOwnEffect: Mono | undefined;
-  /** The written face whose outer arrow `#pendingOwnEffect` is, for §4.2's reports on the lambda's body. */
+  /**
+   * A binding annotation's written `>->` face, for §4.2's report on the body
+   * of the lambda it lands on when the body touches the world on its own
+   * account. Its outer arrow is never the lambda's colour (`#pendingOwnEffect`):
+   * the rest is compared as a fit (#1230).
+   */
   #pendingOwnFace: SignatureFace | undefined;
   /** The lambdas the face lands on (`faceLambdas`), the only ones that may take `#pendingOwnEffect` (#1106). */
   #pendingOwnLambdas: ReadonlySet<Resolved.LambdaExpr> | undefined;
@@ -10218,7 +10223,8 @@ class Checker {
         // callback, the ones written `->!` with a colour of their own, and its
         // return annotation is the spine's next arrow. Its own outer arrow is
         // never written: its colour is what its body does (§2.6), unless a
-        // binding annotation above it already wrote the face it has.
+        // binding annotation above it wrote a constant one (`->`, `->!`); a
+        // written `>->` lands as its face, and is compared as a fit (#1230).
         // Only a lambda the face lands on takes it: one inside a call's
         // arguments on a branch is elaborated first, and is not the value
         // (#1106). A constant face lands on every branch's lambda alike, so
