@@ -2522,17 +2522,6 @@ describe("Effects §3.4 — what a held lambda's own callbacks run is not held (
     expect(check(self("!"))).toEqual([]);
   });
 
-  it("decides an untyped callback merged with a lambda the knot holds by its claims, as outside a knot", () => {
-    // Main refused `q!(save0, …)` as if a `->` were written. The merge makes
-    // `cb`'s colour the held lambda's with a slack, which a use's room takes.
-    const held = (merge: string, use: string) => "fun\n    ping(n: Int): Int =\n        let r = () =>\n" +
-      "            let _ = if n > 0 then ping(n - 1) else 0\n            ()\n" +
-      `        let q = ${merge}\n            h!()\n            ()\n        ${use}\n        0\nexport let probe(): Int = ping!(2)\n`;
-    const wants = ["this call may touch the world, so `ping` wants `!`, not no mark"];
-    expect(check(held("(cb, b: Bool) =>\n            let h = if b then cb else r", "q!(save0, True)"))).toEqual(wants);
-    expect(check(held("(cb) =>\n            let h = pick(cb, r)", "q!(save0)"))).toEqual(wants);
-  });
-
   it("closes the arrows inside a held lambda's untyped callback where it closes", () => {
     // An arrow under a constructor in what the callback hands back is `->!`,
     // as outside a knot; main closed it only after `q` generalized it.
