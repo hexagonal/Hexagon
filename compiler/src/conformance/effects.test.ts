@@ -2135,9 +2135,10 @@ describe("Effects §3.4 — a member is its value: its recursion follows the fac
   it("lets a member reach the untyped callback a held lambda's body runs, past its written `>->`", () => {
     // What the lambda runs beyond the callbacks it is handed still reaches
     // the members that call it: `ping` is a conduit of `cb`. That `q` runs
-    // `cb` and promises `>->` is not reported inside the knot (#1230); once
-    // it is, these programs gain that report.
+    // `cb` and promises `>->` is the face report, once `cb` is decided (#1230).
     const wants = (callee: string) => `this call may touch the world, so \`${callee}\` wants \`!\`, not no mark`;
+    const runs = (owner: string) => `this call runs \`${owner}\`'s \`cb\`, which this signature is not handed, and ` +
+      "this face's `>->` promises the function is only as effectful as what it is handed — write `->!`";
     expect(check(`fun ping(n: Int, cb): Int =
     let q: ${follows} = (x) =>
         x!()
@@ -2148,7 +2149,7 @@ describe("Effects §3.4 — a member is its value: its recursion follows the fac
     0
 let user(): Int = ping(2, save0)
 export let probe(): Int = user()
-`)).toEqual([wants("ping"), wants("user")]);
+`)).toEqual([runs("ping"), wants("ping"), wants("user")]);
     const ping = `    ping(n: Int, cb): Int =
         let q: ${follows} = (x) =>
             x!()
@@ -2158,9 +2159,102 @@ export let probe(): Int = user()
         0
 `;
     const pong = "    pong(n: Int, cb): Int =\n        cb!()\n        if n > 0 then ping!(n - 1, cb) else 0\n";
-    for (const knot of [`fun\n${ping}${pong}`, `fun\n${pong}${ping}`]) {
-      expect(check(knot + "export let probe(): Int = ping(2, save0)\n")).toEqual([wants("ping")]);
+    // The knot shares one `cb`, named for the member that claimed it first.
+    expect(check(`fun\n${ping}${pong}export let probe(): Int = ping(2, save0)\n`))
+      .toEqual([runs("ping"), wants("ping")]);
+    expect(check(`fun\n${pong}${ping}export let probe(): Int = ping(2, save0)\n`))
+      .toEqual([runs("pong"), wants("ping")]);
+  });
+});
+
+describe("Effects §4.2 — a written `>->` meets the function it stands over alike in every spelling (#1230, #1234)", () => {
+  const prelude = "module Main\n\n" + world + "let noop(): Unit = ()\nlet save0(): Unit = save!(\"x\")\n" +
+    "let pureOnly(f: () -> Unit): Unit = f()\n";
+  const check = (source: string): readonly string[] =>
+    effectDiagnostics([["/world.js", ""], ["/main.hex", prelude + source]]);
+  const follows = "(() ->! Unit) >-> Unit";
+  const runs = (owner: string, parameter: string) =>
+    `this call runs \`${owner}\`'s \`${parameter}\`, which this signature is not handed, and this face's \`>->\` ` +
+    "promises the function is only as effectful as what it is handed — write `->!`";
+  const promise = "a `->` arrow promises purity, and this function may touch the world — the " +
+    "demand is written `->`, the function's face `->!` or `>->`";
+  // A binding annotation, an ascription and a written result type, over one
+  // lambda, and the call that runs it.
+  const spellings = (face: string, lambda: string, args: string, mark: string): readonly (readonly [string, string])[] => [
+    [`    let k: ${face} = ${lambda}\n`, `    k${mark}(${args})\n`],
+    [`    let k = ((${lambda}): ${face})\n`, `    k${mark}(${args})\n`],
+    [`    let k(): ${face} = ${lambda}\n`, `    k()${mark}(${args})\n`],
+  ];
+
+  it("leaves an untyped callback the lambda runs bare to its body's claims, in every spelling", () => {
+    // Main refused the binding spelling at once, before `outer`'s close had
+    // decided `action` pure.
+    for (const [face, call] of spellings(follows, "(cb) => action()", "noop", "")) {
+      expect(check(`let outer(action): Unit =\n${face}${call}`)).toEqual([]);
     }
+  });
+
+  it("reports an untyped callback a claim decides, before the face or after it, at the call that runs it", () => {
+    for (const [face, call] of spellings(follows, "(cb) => action!()", "noop", "!")) {
+      expect(check(`let outer(action): Unit =\n    action!()\n${face}${call}`)).toEqual([runs("outer", "action")]);
+      expect(check(`let outer(action): Unit =\n${face}${call}    action!()\n`)).toEqual([runs("outer", "action")]);
+      expect(check(`let outer(action): Unit =\n${face.replace(">->", "->!")}${call}    action!()\n`)).toEqual([]);
+    }
+  });
+
+  it("publishes the callbacks a written `>->` follows, joined with what the value runs, in every spelling", () => {
+    // Main's ascription published only the lambda's own colour, so a call
+    // handing `k` a function that may touch the world stayed bare.
+    const wants = ["this call may touch the world, so `k` wants `!`, not no mark",
+      "this call may touch the world, so `k` wants `!`, not no mark",
+      "this call may touch the world, so this call wants `!`, not no mark"];
+    for (const [index, [face, call]] of spellings(follows, "(x) => action()", "save0", "").entries()) {
+      expect(check(`let outer(action): Unit =\n    action()\n${face}${call}`)).toEqual([wants[index]]);
+    }
+  });
+
+  it("reports a face once where its body both touches the world and runs a colour it is not handed", () => {
+    const own = "this call touches the world on its own account, and this face's `>->` promises the function is " +
+      "only as effectful as what it is handed — write `->!`";
+    for (const [face, call] of spellings(follows, "(x) =>\n        save!(\"z\")\n        action!()", "noop", "!")) {
+      expect(check(`let outer(action): Unit =\n${face}${call}`)).toEqual([own]);
+    }
+  });
+
+  it("reports a held lambda's `>->` that runs a member's untyped callback, in either member order", () => {
+    // Main read `q` as following only `x` and `y`, so `ping` read pure and
+    // ran `save` through `pong`.
+    const ping = "    ping(n: Int, cb): Int =\n" +
+      "        let q: (() ->! Unit, () ->! Unit) >-> Unit = (x, y) =>\n            x!()\n            y!()\n" +
+      "            let _ = if n > 0 then pong!(n - 1, cb) else 0\n            ()\n        q!(noop, noop)\n        0\n";
+    const pong = "    pong(n: Int, cb): Int =\n        cb!()\n        if n > 0 then ping!(n - 1, cb) else 0\n";
+    const user = "let user(): Int = ping!(2, save0)\n";
+    expect(check(`fun\n${ping}${pong}${user}`)).toEqual([runs("ping", "cb")]);
+    expect(check(`fun\n${pong}${ping}${user}`)).toEqual([runs("pong", "cb")]);
+    expect(check(`fun\n${ping.replace(">->", "->!")}${pong}${user}`)).toEqual([]);
+  });
+
+  it("decides a `fun` member's untyped callback by its claims where an ascribed lambda runs it, as a `let`'s", () => {
+    // Main left the `fun` member's `cb` to no body, and showed `ping` pure
+    // while it followed `cb`.
+    for (const keyword of ["let", "fun"]) {
+      expect(check(`${keyword} ping(n: Int, cb): Int =\n    let q = (((x) =>\n        x!()\n        cb()\n` +
+        `        ()): ${follows})\n    q(noop)\n    0\nexport let probe(): Int = ping(2, save0)\n`)).toEqual([promise]);
+    }
+  });
+
+  it("gives a binding's one-callback `>->` lambda in a knot one report, whose fixit compiles (#1234)", () => {
+    // Main took the lambda for a sibling, so `ping` lost the callback's colour.
+    // The report's subject and place (the argument `save0`, not the call
+    // `ping!(n - 1)`) are the other spellings' as they were: #1238.
+    const knot = (arrow: string) => `fun\n    ping(n: Int): Int =\n        let q: (() ->! Unit) ${arrow} Unit = (cb) =>\n` +
+      "            cb!()\n            let _ = if n > 0 then ping!(n - 1) else 0\n            ()\n" +
+      "        q!(save0)\n        0\nexport let probe(): Int = ping!(2)\n";
+    expect(check(knot(">->"))).toEqual([
+      "this function touches the world on its own account, and this face's `>->` promises the function is only " +
+      "as effectful as what it is handed — write `->!`",
+    ]);
+    expect(check(knot("->!"))).toEqual([]);
   });
 });
 

@@ -3587,7 +3587,12 @@ class Checker {
    * left free — the round-up applies to the function, not to what it forwards.
    */
   #pendingOwnEffect: Mono | undefined;
-  /** The written face whose outer arrow `#pendingOwnEffect` is, for §4.2's reports on the lambda's body. */
+  /**
+   * A binding annotation's written `>->` face, for §4.2's report on the body
+   * of the lambda it lands on when the body touches the world on its own
+   * account. Its outer arrow is never the lambda's colour (`#pendingOwnEffect`):
+   * the rest is compared as a fit (#1230).
+   */
   #pendingOwnFace: SignatureFace | undefined;
   /** The lambdas the face lands on (`faceLambdas`), the only ones that may take `#pendingOwnEffect` (#1106). */
   #pendingOwnLambdas: ReadonlySet<Resolved.LambdaExpr> | undefined;
@@ -8063,8 +8068,14 @@ class Checker {
         // lambda the face lands on: a `->` face is a pure demand on its body;
         // `->!` is the impure constant from the start, so the body's own
         // effects are absorbed by a colour already constant and the callbacks'
-        // colours are left free; `>->` is the join of the face's callbacks.
+        // colours are left free. A `>->` over the face's callbacks is not the
+        // lambda's colour: the lambda keeps its own, which meets the written
+        // arrow as any function value does, compared with what the arrow is
+        // handed once what it runs is decided, never merged into it (Effects
+        // §4.2), as at an ascription and a written result type (#1230).
         const supplied = suppliedFace === undefined ? undefined : this.#prune(suppliedFace);
+        const follows = supplied?.kind === "Function" && annotation?.kind === "Function" &&
+          annotation.effect === "linked" && this.#prune(supplied.effect ?? PURE).kind !== "Effect";
         // An enclosing binding's face still waiting for its own lambda, which
         // this nested binding hands back when it is done.
         const enclosingPending = {
@@ -8072,7 +8083,7 @@ class Checker {
           face: this.#pendingOwnFace,
           lambdas: this.#pendingOwnLambdas,
         };
-        this.#pendingOwnEffect = supplied?.kind === "Function" ? supplied.effect ?? PURE : undefined;
+        this.#pendingOwnEffect = supplied?.kind === "Function" && !follows ? supplied.effect ?? PURE : undefined;
         this.#pendingOwnLambdas = supplied?.kind === "Function" ? faceLambdas(item.value) : undefined;
         this.#pendingOwnFace = supplied?.kind === "Function" && annotation?.kind === "Function" &&
             annotation.effect === "linked"
@@ -10175,6 +10186,15 @@ class Checker {
           this.#colourParts(published.effect ?? PURE).some((part) => this.#undecided(part))
         ) {
           type = { ...published, effect: written.effect ?? PURE };
+        } else if (
+          written.kind === "Function" && published.kind === "Function" &&
+          expression.annotation.kind === "Function" && expression.annotation.effect === "linked" &&
+          this.#prune(written.effect ?? PURE).kind !== "Effect"
+        ) {
+          // A written `>->` publishes the callbacks it follows joined with
+          // what the value runs, a colour still to be decided among them, as
+          // a binding annotation's does (Effects §4.2, #1230).
+          type = { ...published, effect: this.#join([written.effect ?? PURE, published.effect ?? PURE]) };
         }
         break;
       }
@@ -10203,7 +10223,8 @@ class Checker {
         // callback, the ones written `->!` with a colour of their own, and its
         // return annotation is the spine's next arrow. Its own outer arrow is
         // never written: its colour is what its body does (§2.6), unless a
-        // binding annotation above it already wrote the face it has.
+        // binding annotation above it wrote a constant one (`->`, `->!`); a
+        // written `>->` lands as its face, and is compared as a fit (#1230).
         // Only a lambda the face lands on takes it: one inside a call's
         // arguments on a branch is elaborated first, and is not the value
         // (#1106). A constant face lands on every branch's lambda alike, so
@@ -19406,8 +19427,11 @@ class Checker {
     const colours = free.filter((variable) => !unsettled.includes(variable));
     if (colours.length > 0 && this.#decidedBinding(symbol)) {
       // A callback's or a knot's colour is held already, and its hold ends
-      // where no value's does.
-      for (const colour of colours) if (!this.#heldDependency(colour)) this.#valueColours.add(colour);
+      // where no value's does. An open body's untyped callback is that body's
+      // to decide by its claims, a colour the environment holds (#1230).
+      for (const colour of colours) {
+        if (!this.#heldDependency(colour) && !this.#undecided(colour)) this.#valueColours.add(colour);
+      }
     }
   }
 
@@ -22072,6 +22096,11 @@ class Checker {
     const reported = new Set<FaceArrow>();
     for (const fit of face.fits ?? []) {
       if (fit.checked || reported.has(fit.arrow)) continue;
+      // An arrow the body's own account already refused reports once.
+      if (fit.arrow.application !== undefined && face.refused?.has(fit.arrow.application) === true) {
+        fit.checked = true;
+        continue;
+      }
       // An arrow a pin itself made impure is `#checkSignatureFaces`'s report.
       if (isImpure(this.#prune(fit.arrow.colour))) {
         fit.checked = true;
@@ -22111,7 +22140,12 @@ class Checker {
       const local = lambdaFrames(fit.lambdas)
         .map(({ span }) => span)
         .filter((span): span is Source.Span => span !== undefined && face.body !== undefined && spanWithin(span, face.body));
-      const bodyOwn = new Set(face.frame?.absorbed.map(({ span }) => span) ?? []);
+      // A binding annotation's face is the signature of the lambda it stands
+      // over, whose own calls are the value's.
+      const ownFrame = face.frame !== undefined && lambdaFrames(fit.lambdas).includes(face.frame)
+        ? undefined
+        : face.frame;
+      const bodyOwn = new Set(ownFrame?.absorbed.map(({ span }) => span) ?? []);
       const handsBack = (span: Source.Span): boolean =>
         !bodyOwn.has(span) && (spanWithin(span, fit.at) || local.some((lambda) => spanWithin(span, lambda)));
       const call = this.#absorbedCalls
