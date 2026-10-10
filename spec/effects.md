@@ -429,14 +429,19 @@ Where the program fails to say what a function does, what it does is **in error*
   - one handed to a call in error, where no other `!` call claims it, since whether the call runs it is what the error hides. So is one handed inside a function the call is handed, such as a lambda that calls it: a repair may claim it through the lambda, `run!(() => f())`.
 
   Calls through it owe no mark, and its arrow shows `->!`.
-- **A callback something else decides keeps its colour, and a `!` only it makes owed waits for the repair.** This covers a written callback, and an untyped one that a `!` call claims (§3.4). It applies where the callback meets a colour in error: handed to a call in error, merged with a value in error, annotated with a type in error, or handed into a refused knot member's callback.
+- **A callback something else decides keeps its colour, and a `!` only it makes owed waits for the repair where a demand in error meets it.** This covers a written callback, and an untyped one that a `!` call claims (§3.4).
   - Such a callback keeps its colour and its face. What it accepts is the text's, and a use re-opens it, so what it meets leaves it as it stands.
-  - Whether the failure pins it pure is what the error hides. A pin would make its `->!` a lie of generality (§4.2), and the repair would then report the `!` it once asked for as a `!` to remove.
+  - A demand in error is one whose demand on the callback the failure hides:
+    - a type written in error: an annotation, an ascription, or a parameter written so;
+    - a call whose callee failed (an unknown name, a value in error, no function or none of this arity, a dot call not found or not decided), or a parameter whose type a callee that failed would have decided;
+    - a slot in error: a refused knot member's callback, or an untyped parameter in error.
+  - There, whether the failure pins the callback pure is what the error hides. A pin would make its `->!` a lie of generality (§4.2), and the repair would then report the `!` it once asked for as a `!` to remove.
+  - A value in error never pins it: a use re-opens the callback, so a merge with a value in error leaves it as it stands, whatever the value turns out to be. Nor does a call of a function whose body is in error, where the slot it meets is that function's text. There every report stands.
   - So a call owes no `!` where only that colour makes it owed:
     - a call through the callback;
     - a call of the function that runs it, at that function's callers, in other modules too;
     - a call through a callback such a caller hands it, which the pin would make pure as well.
-  - A call that touches the world whatever the callback does still wants `!`, and so does one through another callback. A mark the pin would leave as it is stands too, a `!` to remove among them. So `cb()` beside `a!(cb, 1)` to a refused `a` draws nothing until `a` is repaired, and then draws its `!`.
+  - A call that touches the world whatever the callback does still wants `!`, and so does one through another callback. A mark the pin would leave as it is stands too, a `!` to remove among them. So `cb()` beside `a!(cb, 1)` to a refused `a` draws nothing until `a` is repaired, and then draws what the repair makes it.
 - **It travels as a colour does.** A body that runs it is in error, and so is a body that runs that one, through `let`s, knots, generalization and module interfaces.
   - A free colour that meets it takes it. A join that meets it is left as it stands.
   - A use re-opens a function in error as "in error or more" (§3.4), so a merge raises it as it raises any opening. Where nothing raises it, it is in error, where an opening would be pure: a merge with a pure function is in error, and a pure demand it meets leaves it in error.
@@ -465,7 +470,7 @@ The required mark at a call is computed from the callee's outermost colour at th
 
 > this call is pure, so `next` wants no mark, not `!`
 
-A failed constraint seat holds back mark reports on the colours it condemned (§13.2). A call whose colour is in error owes no mark either way, and a `!` that only a callback a colour in error met makes owed waits for the repair (§3.5).
+A failed constraint seat holds back mark reports on the colours it condemned (§13.2). A call whose colour is in error owes no mark either way, and a `!` that only a callback a demand in error met makes owed waits for the repair (§3.5).
 
 ### 4.2 At faces: never less than the body does
 
@@ -707,7 +712,7 @@ Display is part of the contract: a signature a reader cannot see is not a face. 
 - **Stopping effect checks at the first error**, as javac stops before its exception analysis and Koka at its first type error: refused. Every true mark report would wait while any name is half-typed.
 - **A colour in error that its context chooses**, as Flix's error node takes whatever effect it needs: refused. A mark is a demand, and demands never choose (§3.4), so `user!()` in one place and `user()` in another would decide it by line order.
 - **A colour in error that keeps a callback's colour beside it**, so that a missing `!` through the callback is reported before the error is repaired: not taken. Every colour rule would have to read a join that holds both.
-- **Asking for a `!` a callback makes owed while a pin on it is hidden**, so that `cb()` beside `a!(cb, 1)` to a refused `a` reports at once: refused. The failure may pin the callback pure. The repair would then report the callback's `->!` as a lie of generality and the `!` as one to remove, which is the round trip a colour in error exists to spare (§3.5). The report waits one round.
+- **Asking for a `!` a callback makes owed while a pin on it is hidden**, so that `cb()` beside `a!(cb, 1)` to a refused `a` reports at once: refused. The failure may pin the callback pure. The repair would then report the callback's `->!` as a lie of generality and the `!` as one to remove, which is the round trip a colour in error exists to spare (§3.5). The report waits one round. **Holding it back wherever a colour in error meets the callback**, a merge with a value in error or a call of a function whose body is in error among them: refused. No repair pins it there, so every repair draws the report.
 - **Effect-parameterized types** (`Seq(a, e)`, Koka-style rows): refused. This reintroduces the machinery HM-nativeness exists to avoid, and the two-point lattice makes the nominal split (§7) strictly cheaper.
 - **The impure constant as a multi-member door's licence**: refused. A `widens` door whose listed members' contracts disagree would publish a face no member wrote (Constraints §4.7).
 - **Marks on references** ("effectful values"): values wear no colours (§2.6); the effect happens at the call.
@@ -741,7 +746,7 @@ Display is part of the contract: a signature a reader cannot see is not a face. 
 | A colour no parameter of a finished face holds is published function by function: pure on the face's own arrows, a colour of its own in each carried function whose parameters hold it, pure elsewhere | §2.4 |
 | Where a use hands something, a `->!` the value's own written type spells as the constant accepts any function, read from the text beside the value's type, a declared record field's by a field read and by a pattern naming the record's constructor; a lambda's written types meet an expectation as a use reads them; a lambda's untyped parameter under a type written whole, and a call whose written result type is ground, are decided by the text; a written result type that is not ground decides the arrows it spells, stopping at a variable, a hole or a `>->` | §2.6, §3.4 |
 | Call marks: bare or `!`, computed from the callee's outer colour; `?` is no mark and no token; a callee that is not a function, or is already in error, owes none | §3.1, §3.2, §4.1 |
-| What a function does where the program failed to say is in error: a failed or refused call, a function type a value in error meets, an instance or door whose body failed, a refused knot's arrows its text does not write as constants; so is an untyped parameter that meets one, and one a call in error is handed, directly or inside a function, that no `!` claims; a callback something else decides that meets one keeps its colour, and a `!` only it makes owed waits for the repair; it travels as a colour, binds a free colour, absorbs every join part but the impure constant, owes no mark, is compared with nothing, and shows `->!`; a written `>->` over it reads in error | §3.5, §10 |
+| What a function does where the program failed to say is in error: a failed or refused call, a function type a value in error meets, an instance or door whose body failed, a refused knot's arrows its text does not write as constants; so is an untyped parameter that meets one, and one a call in error is handed, directly or inside a function, that no `!` claims; a callback something else decides keeps its colour, and where a demand in error meets it (a type written in error, a failed callee, a slot in error), a `!` only it makes owed waits for the repair; it travels as a colour, binds a free colour, absorbs every join part but the impure constant, owes no mark, is compared with nothing, and shows `->!`; a written `>->` over it reads in error | §3.5, §10 |
 | Mark anchors the argument list; pipe stages and suffix constructions are calls; the outermost-arrow sentence | §3.2, §3.3 |
 | Colours are HM components; joins normalized; the join fragment for unification; hard cases settled late (Swift's collapse at settling), never Boolean unification | §3.4 |
 | Body colour: source, then the join of what it runs, then pure (the defaulting, whatever the callbacks); dependencies never defaulted | §3.4 |

@@ -4018,6 +4018,13 @@ class Checker {
   /** The calls `#registerCall` recorded: a failed call that recorded none is in error (`#inferExpr`'s tail, #1223). */
   readonly #registeredCalls = new WeakSet<Resolved.CallExpr>();
   /**
+   * The calls whose callee itself failed (Effects §3.5, #1223): an unknown
+   * name or a value in error, no function or none of this arity, a dot call
+   * not found or not decided. What such a call's parameters are is hidden
+   * too, so what it is handed has its marks held back (`#settleUntyped`).
+   */
+  readonly #failedCallees = new WeakSet<Resolved.CallExpr>();
+  /**
    * The openings of a use of a function in error (`#openAt`, #1223): "in error
    * or more". A merge raises one as it raises any opening, so the impure
    * constant wins whatever the order of the branches; one nothing raises is in
@@ -4034,12 +4041,34 @@ class Checker {
    */
   readonly #erroredTypes = new Set<Variable>();
   /**
-   * The colours a colour in error met that something else decides (Effects
-   * §3.5, #1223): a written callback's, a claimed one's, a value's. Each keeps
-   * its colour, but whether the failure pins it pure is what the error hides,
-   * so a `!` it alone makes owed is held back (`#checkMarks`). An instance
-   * of one is held back too (`#instantiate`), and so is what one is bound to
-   * (`#bind`, `#bindJoin`).
+   * The type variables a demand in error met (Effects §3.5, #1223): a type
+   * written in error (`#demandInError`), or the parameter of a call whose
+   * callee failed (`#settleUntyped`). One that becomes a function later is
+   * a function that demand met, its callbacks' marks held back.
+   */
+  readonly #demandErroredTypes = new Set<Variable>();
+  /**
+   * Whether the unification running is a seat's own (`#unifyExpected`'s
+   * `home`): its left side is the demand, an annotation's or a parameter's
+   * type, and its right the value that meets it. A type siblings settle among
+   * themselves is no demand.
+   */
+  #atDemand = false;
+  /**
+   * Whether the error a function type is meeting (`#outputsInError`) is a
+   * demand's, a type written in error, rather than a value's (Effects §3.5,
+   * #1223). A value is re-opened where it is used, so meeting one never pins
+   * a callback; a demand may, and the error hides which.
+   */
+  #demandInError = false;
+  /**
+   * The colours a demand in error met that something else decides (Effects
+   * §3.5, #1223): a written callback's, or a claimed one's, handed to a call
+   * whose callee failed, met by a type written in error, or handed into a
+   * slot in error. Each keeps its colour, but whether the failure pins it pure
+   * is what the error hides, so a `!` it alone makes owed is held back
+   * (`#checkMarks`). An instance of one is held back too (`#instantiate`), and
+   * so is what one is bound to (`#bind`, `#bindJoin`).
    */
   readonly #heldBackColours = new Set<Variable>();
   /** The `widens` doors whose bodies are being checked, by `${identity} ${member}`. */
@@ -7280,7 +7309,10 @@ class Checker {
       );
       // A callee that is no function of this arity: what the call does is in
       // error, unless it touches the world whatever it is handed (§3.5, #1223).
-      if (this.#reportCount > before) effect = this.#join([effect, ERROR_COLOUR]);
+      if (this.#reportCount > before) {
+        effect = this.#join([effect, ERROR_COLOUR]);
+        this.#failedCallees.add(expression);
+      }
     } else {
       // The sweep `#dotCallSeats` began, finished: the sibling groups, if still
       // open, then every seat the first pass left. One pass, so nothing is
@@ -11175,6 +11207,7 @@ class Checker {
           });
           // What the call does is in error, unless the callee touches the
           // world whatever it is handed (Effects §3.5, #1223).
+          this.#failedCallees.add(expression);
           this.#registerCall(
             expression,
             this.#join([knownCallee.effect ?? PURE, ERROR_COLOUR]),
@@ -11298,6 +11331,7 @@ class Checker {
           );
           // A callee that fails to be a function here is in error, and so is
           // what the call does (Effects §3.5, #1223).
+          if (this.#reportCount > before) this.#failedCallees.add(expression);
           this.#registerCall(expression, this.#reportCount > before ? ERROR_COLOUR : effect, calleeLabel(expression));
           type = result;
         }
@@ -11675,6 +11709,7 @@ class Checker {
     // function, a dot call whose operation is not found or not decided. It
     // owes no mark, and the body it stands in is in error.
     if (expression.kind === "Call" && !this.#registeredCalls.has(expression) && this.#prune(type).kind === "Error") {
+      this.#failedCallees.add(expression);
       this.#registerCall(expression, ERROR_COLOUR, calleeLabel(expression));
     }
     this.#expressionTypes.set(expression, type);
@@ -19248,18 +19283,41 @@ class Checker {
   }
 
   /**
+   * An error meeting a function type (`#outputsInError`): a value's, or a
+   * demand's, a type written in error, which holds back the marks of the
+   * callbacks it meets (`#demandInError`).
+   */
+  #meetError(type: Mono, span: Source.Span, demand: boolean): void {
+    const atDemand = this.#atDemand;
+    const enclosing = this.#demandInError;
+    this.#atDemand = false;
+    this.#demandInError = demand;
+    try {
+      this.#outputsInError(type, span);
+    } finally {
+      this.#atDemand = atDemand;
+      this.#demandInError = enclosing;
+    }
+  }
+
+  /**
    * A value in error meeting `type` (Effects §3.5, #1223): every arrow along
    * what the function does and hands back is in error, its own, its result's,
    * and those of the functions in the data it returns. Beneath a parameter the
    * sign turns, as a use's re-opening reads it (`#openReceived`): what the
-   * value is handed keeps its colour, and what it hands that is in error again.
+   * value is handed keeps its colour, its marks held back, since whether the
+   * value pins it is hidden; and what it hands that is in error again.
    */
   #outputsInError(type: Mono, span: Source.Span): void {
     const visit = (node: Mono, output: boolean): void => {
       const actual = this.#prune(node);
       switch (actual.kind) {
         case "Function":
-          if (output && actual.effect !== undefined) this.#unify(actual.effect, ERROR_COLOUR, span);
+          if (actual.effect !== undefined) {
+            if (output) this.#unify(actual.effect, ERROR_COLOUR, span);
+            // What it is handed: whether the failure pins it is hidden.
+            else this.#holdBack(this.#colourParts(actual.effect));
+          }
           for (const parameter of actual.parameters) visit(parameter, !output);
           visit(actual.result, output);
           return;
@@ -21410,18 +21468,29 @@ class Checker {
   #settleUntyped(frame: EffectFrame): void {
     // What a call in error is handed is in error where nothing else decides
     // it (Effects §3.5, #1223): whether the call runs it, and claims it, is
-    // what the error hides, and so is whether it pins it pure. A colour
-    // something else decides keeps it, its marks held back.
+    // what the error hides.
     const failedHands = new Set<Variable>();
+    // Where the callee itself failed, its parameters are hidden too, so
+    // whether it pins what it is handed pure is hidden: a colour something
+    // else decides keeps it, its marks held back (`#failedCallees`). A
+    // function whose body is in error has parameters its text decides.
+    const pinsHidden = new Set<Variable>();
     for (const { effect, call } of frame.calls ?? []) {
       if (this.#prune(effect).kind !== "ErrorColour") continue;
       const handed = call.callee.kind === "Access" ? [call.callee.receiver, ...call.arguments] : call.arguments;
       for (const argument of handed) {
         const type = this.#expressionTypes.get(argument);
-        if (type !== undefined) for (const part of this.#arrowColours(type)) failedHands.add(part);
+        if (type === undefined) continue;
+        // Not yet a function: what it becomes is handed to the failure too.
+        const actual = this.#prune(type);
+        if (actual.kind === "Variable" && this.#failedCallees.has(call)) this.#demandErroredTypes.add(actual);
+        for (const part of this.#arrowColours(type)) {
+          failedHands.add(part);
+          if (this.#failedCallees.has(call)) pinsHidden.add(part);
+        }
       }
     }
-    this.#holdBack(failedHands);
+    this.#holdBack(pinsHidden);
     if (frame.untyped.length === 0) return;
     const claimed = new Set<Variable>();
     for (const colour of frame.marked) {
@@ -24591,7 +24660,7 @@ class Checker {
   }
 
   /**
-   * Holds back the marks these colours decide, where a colour in error met
+   * Holds back the marks these colours decide, where a demand in error met
    * them (`#heldBackColours`). An opening is left out: it is one use's room
    * for more, and a mark that reads it reads the colours it is joined with.
    */
@@ -25125,8 +25194,14 @@ class Checker {
       // it hands back, is in error too (Effects §3.5, #1223); meeting a type
       // not yet known, so is the function it becomes (`#erroredTypes`).
       const other = actualLeft.kind === "Error" ? actualRight : actualLeft;
-      if (other.kind === "Variable") this.#erroredTypes.add(other);
-      else this.#outputsInError(other, span);
+      // At a seat, an error on the demand's side is a type written in error.
+      const demand = this.#atDemand && actualLeft.kind === "Error";
+      if (other.kind === "Variable") {
+        this.#erroredTypes.add(other);
+        if (demand) this.#demandErroredTypes.add(other);
+      } else {
+        this.#meetError(other, span, demand);
+      }
       return;
     }
     if (actualLeft.kind === "Variable") {
@@ -25139,11 +25214,13 @@ class Checker {
     }
     // A colour in error binds a free colour (above) and meets anything else
     // without a report: nothing is compared against it (Effects §3.5, #1223).
-    // A join it meets is left as it stands, and whether the failure pins the
-    // colours that decide the join is what the error hides.
+    // A join it meets is left as it stands. Where the colour in error is a
+    // demand's, a type written in error or a slot in error, whether the
+    // failure pins the colours that decide the join is what the error hides.
     if (actualLeft.kind === "ErrorColour" || actualRight.kind === "ErrorColour") {
       const other = actualLeft.kind === "ErrorColour" ? actualRight : actualLeft;
-      if (other.kind === "Join") this.#holdBack(other.parts);
+      const demand = this.#demandInError || (this.#atDemand && actualLeft.kind === "ErrorColour");
+      if (other.kind === "Join" && demand) this.#holdBack(other.parts);
       return;
     }
     if (this.#absorbNullishVariable(actualLeft, actualRight, span)) return;
@@ -25654,6 +25731,7 @@ class Checker {
       // So does an opening's floor in error, and a value in error's meeting (#1223).
       if (this.#errorFloors.has(variable)) this.#errorFloors.add(type);
       if (this.#erroredTypes.has(variable)) this.#erroredTypes.add(type);
+      if (this.#demandErroredTypes.has(variable)) this.#demandErroredTypes.add(type);
       // So does a hold on its marks, either way: the two are one colour now,
       // and a prune may cut the held one out of the other's chain.
       if (this.#heldBackColours.has(variable)) this.#heldBackColours.add(type);
@@ -25811,7 +25889,8 @@ class Checker {
     for (const requirement of variable.requirements) this.#validate(requirement);
     // A type a value in error met becomes a function: that function's outputs
     // are in error (#1223).
-    if (this.#erroredTypes.has(variable)) this.#outputsInError(type, span);
+    if (this.#erroredTypes.has(variable)) this.#meetError(type, span, this.#demandErroredTypes.has(variable));
+    else if (this.#demandErroredTypes.has(variable)) this.#holdBack(this.#arrowColours(type));
   }
 
   /**
@@ -26275,7 +26354,13 @@ class Checker {
     // unification really does fail.
     if (this.#reportStandDown(expression, expected, actual, span)) return;
     if (home && this.#refuseFunctionResult(expression, expected, actual, span)) return;
-    this.#unify(expected, actual, span);
+    const atDemand = this.#atDemand;
+    this.#atDemand = home;
+    try {
+      this.#unify(expected, actual, span);
+    } finally {
+      this.#atDemand = atDemand;
+    }
   }
 
   /**
@@ -30275,6 +30360,9 @@ class Checker {
         // A value in error met this variable before it generalized: each use
         // has met it too (#1223).
         if (this.#erroredTypes.has(actual) && replacement.kind === "Variable") this.#erroredTypes.add(replacement);
+        if (this.#demandErroredTypes.has(actual) && replacement.kind === "Variable") {
+          this.#demandErroredTypes.add(replacement);
+        }
         // So has a colour whose pin the error hides: each use's (#1223).
         if (this.#heldBackColours.has(actual) && replacement.kind === "Variable") {
           this.#heldBackColours.add(replacement);

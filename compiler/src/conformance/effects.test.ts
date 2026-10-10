@@ -2756,59 +2756,88 @@ describe("Effects §3.5 — a colour in error (#1223)", () => {
       .toEqual([unknown]);
   });
 
-  it("holds back the marks a written callback alone makes `!` where it meets a colour in error", () => {
-    // Whether the failure pins it pure is what the error hides: a repair
-    // `pureOnly(f)` would make `f` pure, its `->!` a lie of generality.
+  it("holds back the marks a written callback alone makes `!` where a demand in error meets it", () => {
+    // Whether the failure pins it pure is what the error hides: a repair such
+    // as `pureOnly(f)` or `let g: () -> Unit = f` would make `f` pure, its
+    // `->!` a lie of generality.
+    const nopeType = "unknown type `Nope`";
+    for (
+      const [meeting, errors] of [
+        ["let g: Nope = f", [nopeType]],
+        ["let g = (f : Nope)", [nopeType]],
+        ["let k = (x) =>\n        let g: Nope = x\n        x\n    let y = k(f)", [nopeType]],
+        ["nope(f)", [unknown]],
+        ["nope(() => f!())", [unknown]],
+        ["ident(nope)(f)", [unknown]],
+        ["noop(f)", ["this function takes no arguments; write `f()`"]],
+        ["let x = 1\n    x(f)", ["`x` is not a function — it has type `Int`, and this call supplies 1 argument"]],
+      ] as const
+    ) {
+      expect(check(`let outer(f: () ->! Unit): Unit =\n    ${meeting}\n    f()\nexport let p1(): Unit = outer(save0)\n`))
+        .toEqual(errors);
+    }
+    expect(check("let outer(r: {a: Int}, f: () ->! Unit): Unit =\n    r.nope(f)\n    f()\n"))
+      .toEqual(["record has fields `a`, not `nope`"]);
+    // A parameter written in error, or one whose type the failure hides.
+    for (
+      const [user, errors] of [
+        ["let user(g: Nope): Unit = ()\n", [nopeType]],
+        ["let user(g) =\n    nope(g)\n    ()\n", [unknown]],
+      ] as const
+    ) {
+      expect(check(`${user}let outer(f: () ->! Unit): Unit =\n    user(f)\n    f()\n`)).toEqual(errors);
+    }
+    // At a caller, and through a callback the caller hands it, written or
+    // claimed, which the pin would make pure too, whatever the order of the
+    // lines.
+    for (const h of ["h: () ->! Unit", "h"]) {
+      for (const [first, second] of [["outer!(h)", "h()"], ["h()", "outer!(h)"]]) {
+        expect(check(
+          "let outer(f: () ->! Unit): Unit =\n    let g: Nope = f\n    f!()\n" +
+            `let mid(${h}): Unit =\n    ${first}\n    ${second}\nexport let p1(): Unit = mid(save0)\n`,
+        )).toEqual([nopeType]);
+      }
+    }
+    // So is an untyped parameter a `!` call claims, handed to a call whose
+    // callee failed: the claim keeps it out of error (§3.5), and the repair
+    // `pureOnly(f)` would make the `!` the report instead.
+    expect(check("let outer(f) =\n    f!()\n    nope(f)\n    f()\n")).toEqual([unknown]);
+    // Through a module's interface.
+    expect(twoModules(
+      "export let outer(f: () ->! Unit): Unit =\n    let g: Nope = f\n    f!()\nexport let s0(): Unit = save!(\"x\")\n",
+      "export let p1(): Unit = Lib.outer(Lib.s0)\n",
+    )).toEqual([nopeType]);
+    // A value in error never pins it: a use re-opens it, so a merge leaves it
+    // as it stands (review r3, D2). Nor does a call of a function whose body
+    // is in error, where the slot it meets is that function's text (D1).
     for (
       const meeting of [
         "let g = if c then f else nope",
         "let g = pick(f, nope)",
-        "let g: Nope = f",
-        "nope(f)",
-        "nope(() => f!())",
+        "user!(f)",
       ]
     ) {
-      const errors = meeting.includes("Nope") ? ["unknown type `Nope`"] : [unknown];
-      expect(check(`let outer(c: Bool, f: () ->! Unit): Unit =\n    ${meeting}\n    f()\n` +
-        "export let p1(): Unit = outer(True, save0)\n")).toEqual(errors);
+      expect(check(
+        "let user(g: () ->! Unit): Unit =\n    nope!()\n    g!()\n" +
+          `let outer(c: Bool, f: () ->! Unit): Unit =\n    ${meeting}\n    f()\n`,
+      )).toEqual([unknown, unknown, wants("`f`")].slice(meeting.startsWith("user") ? 1 : 0));
     }
-    // At a caller, and through a callback the caller hands it, written or
-    // claimed, which the pin would make pure too.
-    // Whatever the order of the lines.
-    for (const h of ["h: () ->! Unit", "h"]) {
-      for (const [first, second] of [["outer!(h)", "h()"], ["h()", "outer!(h)"]]) {
-        expect(check(
-          "let outer(f: () ->! Unit): Unit =\n    let g = pick(f, nope)\n    f!()\n" +
-            `let mid(${h}): Unit =\n    ${first}\n    ${second}\nexport let p1(): Unit = mid(save0)\n`,
-        )).toEqual([unknown]);
-      }
-    }
-    // So is an untyped parameter a `!` call claims, handed to a call in error:
-    // the claim keeps it out of error (§3.5), and the repair `pureOnly(f)`
-    // would make the `!` the report instead.
-    expect(check("let outer(f) =\n    f!()\n    nope(f)\n    f()\n")).toEqual([unknown]);
-    // Through a module's interface.
-    expect(twoModules(
-      "let pick(x: a, y: a): a = y\nexport let outer(f: () ->! Unit): Unit =\n    let g = pick(f, nope)\n    f!()\n" +
-        "export let s0(): Unit = save!(\"x\")\n",
-      "export let p1(): Unit = Lib.outer(Lib.s0)\n",
-    )).toEqual([unknown]);
     // A mark the pin would leave as it is stands: what touches the world
     // whatever the callback does, another callback, and a mark to remove.
     expect(check(
-      "let outer(c: Bool, f: () ->! Unit): Unit =\n    let g = pick(f, nope)\n    let k = if c then f else save0\n" +
+      "let outer(c: Bool, f: () ->! Unit): Unit =\n    let g: Nope = f\n    let k = if c then f else save0\n" +
         "    k()\n",
-    )).toEqual([unknown, wants("`k`")]);
-    expect(check("let outer(f: () ->! Unit): Unit =\n    let g = pick(f, nope)\n    save!(\"x\")\n    f!()\n" +
-      "export let p1(): Unit = outer(save0)\n")).toEqual([unknown, wants("`outer`")]);
+    )).toEqual([nopeType, wants("`k`")]);
+    expect(check("let outer(f: () ->! Unit): Unit =\n    let g: Nope = f\n    save!(\"x\")\n    f!()\n" +
+      "export let p1(): Unit = outer(save0)\n")).toEqual([nopeType, wants("`outer`")]);
     expect(check(
-      "let both(f: () ->! Unit, h: () ->! Unit): Unit =\n    let g = pick(f, nope)\n    f!()\n    h()\n" +
+      "let both(f: () ->! Unit, h: () ->! Unit): Unit =\n    let g: Nope = f\n    f!()\n    h()\n" +
         "export let p1(): Unit = both(save0, save0)\n",
-    )).toEqual([unknown, wants("`h`"), wants("`both`")]);
-    expect(check("let outer(f: () ->! Unit): Unit =\n    let g = pick(f, nope)\n    f!()\nexport let p1(): Unit = outer!(noop)\n"))
-      .toEqual([unknown, noMark("`outer`")]);
+    )).toEqual([nopeType, wants("`h`"), wants("`both`")]);
+    expect(check("let outer(f: () ->! Unit): Unit =\n    let g: Nope = f\n    f!()\nexport let p1(): Unit = outer!(noop)\n"))
+      .toEqual([nopeType, noMark("`outer`")]);
     // A callback written `->` is pure as written.
-    expect(check("let outer(f: () -> Unit): Unit =\n    let g = pick(f, nope)\n    f!()\n")).toEqual([unknown, noMark("`f`")]);
+    expect(check("let outer(f: () -> Unit): Unit =\n    let g: Nope = f\n    f!()\n")).toEqual([nopeType, noMark("`f`")]);
   });
 
   it("keeps every report that does not depend on it", () => {
