@@ -2797,6 +2797,13 @@ describe("Effects §3.5 — a colour in error (#1223)", () => {
       "export let p1(): Unit = a(2)!(noop)\nexport let p2(): Unit = a(2)(save0)\n";
     expect(check(written("noop"))).toEqual([made, noMark("this call"), purity]);
     expect(check(written("cb"))).toEqual([noMark("this call"), purity]);
+    // A callback's own written `->!` is its colour, which the refused
+    // recursion decided (here, impure): it is in error, not the text's.
+    expect(check(
+      "let applyPure2(k: (() -> Unit, Bool) -> Unit): Unit = k(() => (), True)\n" +
+        "fun fk(k: () ->! Unit, n0: Bool): Unit = if n0 then fk(save0, False) else ()\n" +
+        "export let user(): Unit = applyPure2(fk)\n",
+    )).toEqual(["this function is not one `fk` was given, and a recursive call hands on only the callbacks it was given"]);
     // From another module, uncurried and curried.
     const lib = "export fun a(cb: () ->! Unit, n: Int): Unit = if n == 0 then cb!() else a!(() => cb!(), n - 1)\n" +
       "export let s0(): Unit = save!(\"x\")\n";

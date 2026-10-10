@@ -22769,12 +22769,13 @@ class Checker {
 
   /**
    * A refused knot's member as the program outside it reads it (Effects §3.4,
-   * §3.5; #1218, #1223): its types, and the arrows its text writes, a `->`
-   * demand and a callback's `->!` among them; every other arrow is in error, a
-   * `>->` and every colour inference gave, on what it is handed as on what it
-   * does and hands back. Whether it runs a callback is its own arrow's, which
-   * no declaration writes. The written type is read beside the member's as a
-   * use's re-opening reads it (`#openReceived`).
+   * §3.5; #1218, #1223): its types, and the arrows its text writes as
+   * constants, a `->` demand among them; every other arrow is in error, a
+   * callback's own colour (written `->!` or not: the recursion hands the
+   * member its callbacks, so it decides them), a `>->`, and every colour
+   * inference gave, on what it is handed as on what it does and hands back.
+   * The written type is read beside the member's as a use's re-opening reads
+   * it (`#openReceived`).
    */
   #coloursInError(scheme: Scheme, view: WrittenView | undefined): Scheme {
     const part = (
@@ -22806,9 +22807,11 @@ class Checker {
             resultWritten = written.result;
             resultRole = role === "spine" || role === "callback" && written.result.kind === "Function" ? role : "data";
           }
-          // The text's arrow: a written `->` or `->!`, a callback's colour
-          // among them; a `>->` follows what the recursion decided.
-          const constant = written?.kind === "Function" && written.effect !== "linked";
+          // The text's constant: a written `->`, or a written `->!` anywhere
+          // but a callback's own arrow. There it is the callback's colour,
+          // which the recursion decides, handing the member its callbacks.
+          const constant = written?.kind === "Function" &&
+            (written.effect === undefined || (written.effect === "constant" && role !== "callback"));
           const rebuilt: FunctionMono = {
             kind: "Function",
             parameters: actual.parameters.map((parameter, index) =>
