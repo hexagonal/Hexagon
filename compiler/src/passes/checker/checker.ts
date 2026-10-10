@@ -19288,14 +19288,11 @@ class Checker {
    * callbacks it meets (`#demandInError`).
    */
   #meetError(type: Mono, span: Source.Span, demand: boolean): void {
-    const atDemand = this.#atDemand;
     const enclosing = this.#demandInError;
-    this.#atDemand = false;
     this.#demandInError = demand;
     try {
       this.#outputsInError(type, span);
     } finally {
-      this.#atDemand = atDemand;
       this.#demandInError = enclosing;
     }
   }

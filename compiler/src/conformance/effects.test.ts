@@ -2771,6 +2771,11 @@ describe("Effects §3.5 — a colour in error (#1223)", () => {
         ["ident(nope)(f)", [unknown]],
         ["noop(f)", ["this function takes no arguments; write `f()`"]],
         ["let x = 1\n    x(f)", ["`x` is not a function — it has type `Int`, and this call supplies 1 argument"]],
+        ["(1)(f)", ["functions have no `Num` instance"]],
+        ["let n = \"s\".length(f)", ["function arity mismatch: 1 and 2"]],
+        // A type variable the written error met, joined to another first.
+        ["let k = (x, z) =>\n        let g: Nope = x\n        pick(x, z)\n    let y = k(noop, f)", [nopeType]],
+        ["let k = (x, z) =>\n        let g: Nope = x\n        pick(z, x)\n    let y = k(noop, f)", [nopeType]],
       ] as const
     ) {
       expect(check(`let outer(f: () ->! Unit): Unit =\n    ${meeting}\n    f()\nexport let p1(): Unit = outer(save0)\n`))
