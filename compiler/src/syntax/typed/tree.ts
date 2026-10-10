@@ -197,7 +197,7 @@ export type InstanceColour = boolean | "error";
  * A function type's colour (`spec/effects.md` §2), absent exactly where the
  * arrow is the pure constant. `"impure"` is the impure constant; `"error"` is a
  * colour in error, what a function does where the program failed to say it
- * (§4.1); a variable is a callback's colour, quantified in the enclosing scheme
+ * (§3.5); a variable is a callback's colour, quantified in the enclosing scheme
  * like any other type variable (§3.4); a join is "as effectful as any of these"
  * (§2.4).
  */
@@ -391,7 +391,7 @@ export interface Module {
    * This module's instances' own colours *(Effects §13.3)*, keyed
    * `${constraint identity}:${subject key} ${member symbol}`: whether each spine
    * arrow of the member is impure at the instance, its body read with every
-   * callback pure, or in error where the body failed (§4.1). An importer's call
+   * callback pure, or in error where the body failed (§3.5). An importer's call
    * at the instance follows it.
    */
   readonly instanceColours?: ReadonlyMap<string, readonly InstanceColour[]>;

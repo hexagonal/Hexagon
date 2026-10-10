@@ -2574,7 +2574,7 @@ describe("Effects §3.4 — what a held lambda's own callbacks run is not held (
 describe("Effects §3.5 — a colour in error (#1223)", () => {
   const prelude = "module Main\n\n" + world + "let noop(): Unit = ()\nlet save0(): Unit = save!(\"x\")\n" +
     "let pureOnly(f: () -> Unit): Unit = f()\nlet keep(cb: () ->! Unit): Unit = ()\n" +
-    "let run(cb: () ->! Unit): Unit = cb!()\n";
+    "let run(cb: () ->! Unit): Unit = cb!()\nlet pick(x: a, y: a): a = y\nlet ident(x: a): a = x\n";
   const check = (source: string): readonly string[] =>
     effectDiagnostics([["/world.js", ""], ["/main.hex", prelude + source]]);
   const hover = (source: string, needle: string): string | undefined => hoveredType(prelude + source, needle);
@@ -2705,6 +2705,55 @@ describe("Effects §3.5 — a colour in error (#1223)", () => {
     )).toEqual([unknown]);
   });
 
+  it("makes an untyped parameter in error where it meets a colour in error, whatever the order of the lines", () => {
+    // A value in error that meets the parameter, before or after a line makes
+    // it a function (#1243 review r1, F1).
+    for (
+      const [first, second] of [
+        ["f()", "let k = pick(f, nope)"],
+        ["let k = pick(f, nope)", "f()"],
+        ["let k = pick(ident(nope), f)", "f()"],
+        ["let g = ident(nope)\n    let k = pick(g, f)", "f()"],
+      ]
+    ) {
+      expect(check(`let outer(f): Unit =\n    ${first}\n    ${second}\n    ()\nexport let p1(): Unit = outer(save0)\n`))
+        .toEqual([unknown]);
+    }
+    for (const [first, second] of [["f()", "let k = if c then f else nope"], ["let k = if c then f else nope", "f()"]]) {
+      expect(check(
+        `let outer(c: Bool, f): Unit =\n    ${first}\n    ${second}\n    ()\nexport let p1(): Unit = outer(True, save0)\n`,
+      )).toEqual([unknown]);
+    }
+    // A use in error merged with it, claimed or not (F2).
+    const user = "let user(): Unit = nope!()\n";
+    for (const [made_, merged] of [[user, "user"], ["", "(() => nope!())"]]) {
+      expect(check(`${made_}let outer(c: Bool, f) =\n    let k = if c then f else ${merged}\n    k!()\n` +
+        "export let p1(): Unit = outer!(True, noop)\n")).toEqual([unknown]);
+    }
+    for (const [first, second, call] of [["f!()", "let k = if c then f else user", "outer!(True, noop)"], [
+      "let k = if c then f else user",
+      "f()",
+      "outer(True, save0)",
+    ]]) {
+      expect(check(`${user}let outer(c: Bool, f): Unit =\n    ${first}\n    ${second}\n    ()\nexport let p1(): Unit = ${call}\n`))
+        .toEqual([unknown]);
+    }
+    // Handed to a call in error that no other call claims it from.
+    expect(check(
+      "let user(cb: () ->! Unit): Unit =\n    nope!()\n    cb!()\nlet g(f) =\n    user!(f)\n    f()\n" +
+        "export let p(): Unit = g(save0)\n",
+    )).toEqual([unknown]);
+    // The subject of a dot call in error is handed to it.
+    expect(check("let g(x) =\n    x.foo!()\n    x()\nexport let p(): Unit = g(save0)\n")).toEqual([
+      "the program's text does not decide `x`'s type here, so `.foo(…)` cannot tell whose `foo` it is — write " +
+      "`x`'s type, or call the operation by its module (`Module.foo(x, …)`); a record's field is called as " +
+      "`(x.foo)(…)`",
+    ]);
+    // A written callback keeps its own colour.
+    expect(check("let outer(c: Bool, f: () ->! Unit): Unit =\n    let g = if c then f else nope\n    f()\n" +
+      "export let p1(): Unit = outer(True, save0)\n")).toEqual([unknown, wants("`f`"), wants("`outer`")]);
+  });
+
   it("keeps every report that does not depend on it", () => {
     // `keep` is pure whatever it is handed.
     expect(check("let user(): Unit = nope!(1)\nexport let probe(): Unit = keep!(user)\n"))
@@ -2719,7 +2768,7 @@ describe("Effects §3.5 — a colour in error (#1223)", () => {
       .toEqual(["unknown type `Nope`", wants("`user`")]);
   });
 
-  it("makes a refused knot's member in error however it is reached, and leaves what it is handed its own", () => {
+  it("makes a refused knot's member in error however it is reached, and keeps the arrows its text writes", () => {
     const a = "fun a(cb: () ->! Unit, n: Int): Unit = if n == 0 then cb!() else a!(() => cb!(), n - 1)\n";
     // By name, as a value, and through data it hands back.
     expect(bothMarks((mark) => `${a}export let probe(): Unit = a${mark}(save0, 1)\n`)).toEqual([[made], [made]]);
@@ -2730,15 +2779,24 @@ describe("Effects §3.5 — a colour in error (#1223)", () => {
     )).toEqual(["this function is not one `a` was given, and a recursive call hands on only the callbacks it was given"]);
     // A callback a caller hands it keeps the caller's colour.
     expect(check(`${a}let g(cb: () ->! Unit): Unit =\n    a!(cb, 1)\n    cb()\n`)).toEqual([made, wants("`cb`")]);
-    // An arrow its text writes is the text's: a call reads it as written.
+    // An untyped parameter a caller hands it is in error, whichever line comes first.
+    for (const [first, second] of [["a!(f, 1)", "f()"], ["f()", "a!(f, 1)"]]) {
+      expect(check(`${a}let g(f) =\n    ${first}\n    ${second}\nexport let p(): Unit = g(save0)\n`)).toEqual([made]);
+    }
+    // An arrow written beneath a parameter is the text's.
     expect(check(
-      "fun\n    a(n: Int): (() -> Unit) -> Unit = (cb) => if n == 0 then () else b(n - 1)!(save0)\n" +
-        "    b(n: Int): (() ->! Unit) ->! Unit = (cb) => if n == 0 then () else b(n - 1)!(noop)\n" +
-        "export let probe(): Unit = a(2)!(noop)\n",
-    )).toEqual([
-      "this function is not one `b` was given, and a recursive call hands on only the callbacks it was given",
-      noMark("this call"),
-    ]);
+      "fun a(cb: (() -> Unit) ->! Unit, n: Int): Unit = if n == 0 then cb!(noop) else a!((h) => cb!(h), n - 1)\n" +
+        "export let p(): Unit = a!((h) => h!(), 1)\n",
+    )).toEqual([made, noMark("`h`")]);
+    // An arrow its text writes as a constant is the text's: the refused member
+    // draws what its repair draws, beside the refusal.
+    const purity = "a `->` arrow promises purity, and this function may touch the world — the demand is written `->`, " +
+      "the function's face `->!` or `>->`";
+    const written = (handed: string) =>
+      `fun a(n: Int): (() -> Unit) -> Unit = (cb) => if n == 0 then () else a(n - 1)(${handed})\n` +
+      "export let p1(): Unit = a(2)!(noop)\nexport let p2(): Unit = a(2)(save0)\n";
+    expect(check(written("noop"))).toEqual([made, noMark("this call"), purity]);
+    expect(check(written("cb"))).toEqual([noMark("this call"), purity]);
     // From another module, uncurried and curried.
     const lib = "export fun a(cb: () ->! Unit, n: Int): Unit = if n == 0 then cb!() else a!(() => cb!(), n - 1)\n" +
       "export let s0(): Unit = save!(\"x\")\n";
@@ -2783,6 +2841,17 @@ describe("Effects §3.5 — a colour in error (#1223)", () => {
       "honor R<D> =\n    read(s) =\n        nope!(s.name)\n        s.name\n";
     expect(twoModules(lib, "export let p1(x: Lib.D): String = Lib.read!(x)\nexport let p2(x: Lib.D): String = Lib.read(x)\n"))
       .toEqual([unknown]);
+    // A `widens` door whose body is in error, in each of its spellings, unless it saves.
+    const door = (body: string, marks: string) =>
+      twoModules(
+        "export constraint R<a> =\n    tag(s: a, n: Int) ->! String\n",
+        world + `export record P = { name: String }\nwidens Lib.tag(s: P, n: BigInt): String =\n${body}    s.name\n` +
+          `honor Lib.R<P> =\n    tag = widened\n` +
+          `export let through(p: P): String = tag${marks}(p, 2n) ++ Lib.tag${marks}(p, 2) ++ p.tag${marks}(2)\n`,
+      );
+    expect(door("    nope!()\n", "!")).toEqual([unknown]);
+    expect(door("    nope!()\n", "")).toEqual([unknown]);
+    expect(door("    nope!()\n    save!(s.name)\n", "")).toEqual([unknown, wants("`tag`"), wants("`Lib.tag`"), wants("`.tag`")]);
   });
 
   it("compares nothing against it, and reads a written `>->` over it in error", () => {
