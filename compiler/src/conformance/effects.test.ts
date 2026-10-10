@@ -2885,6 +2885,15 @@ describe("Effects §3.5 — a colour in error (#1223)", () => {
       .toEqual([[unknown], [unknown]]);
     expect(bothMarks((mark) => `${user}let mk(): (() ->! Unit) >-> Unit = user\nexport let probe(): Unit = mk()${mark}(noop)\n`))
       .toEqual([[unknown], [unknown]]);
+    // A written `->` that reads as the body where the body touches the world
+    // reads in error over a body in error: an ascription, a written result
+    // type. A binding annotation's stands as written either way.
+    expect(bothMarks((mark) => `let k = (() => nope!() : () -> Unit)\nexport let p(): Unit = k${mark}()\n`))
+      .toEqual([[unknown], [unknown]]);
+    expect(bothMarks((mark) => `let mk(): () -> Unit = () => nope!()\nexport let p(): Unit = mk()${mark}()\n`))
+      .toEqual([[unknown], [unknown]]);
+    expect(check("let k: () -> Unit = () => nope!()\nexport let p(): Unit = k!()\n"))
+      .toEqual([unknown, noMark("`k`")]);
     // A binding annotation over a lambda whose body is in error.
     expect(bothMarks((mark) =>
       `let w: (() ->! Unit) >-> Unit = (cb) =>\n    nope!()\n    cb!()\nexport let probe(): Unit = w${mark}(noop)\n`

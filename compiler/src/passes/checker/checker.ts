@@ -22820,6 +22820,9 @@ class Checker {
             result: copy(actual.result, resultWritten, resultRole),
           };
           if (!constant) return { ...rebuilt, effect: ERROR_COLOUR };
+          // The colour the text's constant gave the arrow, as a member that is
+          // not refused publishes it: a written `->` over a body that touches
+          // the world on its own account is refused and reads as the body.
           return actual.effect === undefined ? rebuilt : { ...rebuilt, effect: actual.effect };
         }
         case "Tuple":
@@ -25590,6 +25593,9 @@ class Checker {
       this.#bindJoin(variable, type, span, this.#definingMember && !variableOnRight);
       return;
     }
+    // An opening of a function in error is "in error or more" (#1223): a pure
+    // demand leaves it in error, and only the impure constant raises it.
+    if (type.kind === "Effect" && Colour.isBottom(type) && this.#errorFloors.has(variable)) type = ERROR_COLOUR;
     if (this.#occurs(variable, type)) {
       this.#diagnostics.add({
         severity: "error",

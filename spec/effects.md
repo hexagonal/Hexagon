@@ -431,7 +431,7 @@ Where the program fails to say what a function does, what it does is **in error*
   Calls through it owe no mark, and its arrow shows `->!`. A written callback keeps its own colour: what it accepts is the text's, and a use re-opens it, so what it meets leaves it as it stands.
 - **It travels as a colour does.** A body that runs it is in error, and so is a body that runs that one, through `let`s, knots, generalization and module interfaces.
   - A free colour that meets it takes it. A join that meets it is left as it stands.
-  - A use re-opens a function in error as "in error or more" (§3.4), so a merge raises it as it raises any opening. Where nothing raises it, it is in error, where an opening would be pure: a merge with a pure function is in error.
+  - A use re-opens a function in error as "in error or more" (§3.4), so a merge raises it as it raises any opening. Where nothing raises it, it is in error, where an opening would be pure: a merge with a pure function is in error, and a pure demand it meets leaves it in error.
 - **The impure constant wins.** A join holding a colour in error is in error, unless the join holds the impure constant, which may touch the world whatever the error turns out to be.
   - So a body that calls an unknown name and also touches the world on its own account is impure, whatever the order of its lines. A bare call of it still wants `!`, and a knot's member is impure where a sibling is.
   - A merge of a use in error with a function that touches the world is impure too, in either order of the branches.
@@ -441,7 +441,7 @@ Where the program fails to say what a function does, what it does is **in error*
   - a callback written `->!` that meets it, which is no lie of generality;
   - an instance at its seat (§13.2);
   - two callbacks that meet it, which are not tied.
-- **A written `>->` over a body or value in error reads in error from outside.** Whether §4.2 refuses it is not known. One that §4.2 refuses on the body's own account still reads as its fixit, `->!` (§4.4). A binding annotation over a named function reads neither yet, refused or in error (#1242).
+- **A written face over a body or value in error reads in error from outside where it is not known to stand.** That is a `>->`, whose refusal reads as `->!` (§4.4), and a `->` written by an ascription or a written result type, which reads as the body where the body touches the world. One that §4.2 refuses on the body's own account still reads as its refusal does. A binding annotation's `->` stands as written, as it does over a body that touches the world. Its `>->` over a named function reads neither yet, refused or in error (#1242).
 - **Every report it leaves stands in the repaired program.** A colour in error stands only where an error is reported already. Whatever the repair makes it, no report drawn beside it changes. A report it holds back, such as a mark through an absorbed callback, appears once the error is repaired.
 
 This is Swift's recovery: a site its effect checker cannot analyse is classified invalid and diagnosed nowhere, and the classification absorbs whatever it merges with. Swift writes the effects of named functions, so only its closures meet the case. Every Hexagon function infers its colour, so every function meets it.
