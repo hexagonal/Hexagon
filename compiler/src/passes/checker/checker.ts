@@ -71,7 +71,7 @@ export interface CheckOptions {
    * an imported instance's colour is already decided, so a call at it follows a
    * constant.
    */
-  readonly importedInstanceColours?: ReadonlyMap<string, readonly boolean[]>;
+  readonly importedInstanceColours?: ReadonlyMap<string, readonly Typed.InstanceColour[]>;
   /**
    * How `import <written>` would resolve for this module — Modules §5.1 rule
    * 1's repair clause, as `ResolveOptions.importRepair` supplies it to the
@@ -231,7 +231,8 @@ type Mono =
   | NominalRecordMono
   | ExternMono
   | FunctionMono
-  | ErrorMono;
+  | ErrorMono
+  | ErrorColour;
 
 interface Variable {
   readonly kind: "Variable";
@@ -407,6 +408,12 @@ interface SignatureFace extends Spine {
   readonly arrows: FaceArrow[];
   /** The spine applications whose written `>->` §4.2 refused: they read as `->!` from outside. */
   readonly refused?: Set<number>;
+  /**
+   * The spine applications whose written `>->` stands over a body or value in
+   * error: whether §4.2 refuses it is not known, so they read in error from
+   * outside (§3.5, #1223), unless refused.
+   */
+  readonly inError?: Set<number>;
   /**
    * The function values met at this face's written `>->` arrows, compared
    * against what the face is handed and never merged into it (§4.2):
@@ -585,6 +592,12 @@ interface EffectFrame {
   }[];
   /** The colours of the `!` calls written in this body or in a body nested in it: its claims. */
   readonly marked: Mono[];
+  /**
+   * Every call written in this body or in a body nested in it, with its
+   * colour: what a call in error is handed is in error (`#settleUntyped`,
+   * Effects §3.5, #1223).
+   */
+  calls?: { readonly effect: Mono; readonly call: Resolved.CallExpr }[];
   /**
    * The colours of the calls written bare in this body or in a body nested in
    * it: an untyped parameter's colour one of them reads is pure (Effects §3.4).
@@ -1599,6 +1612,19 @@ interface ErrorMono {
 }
 
 /**
+ * A colour in error (Effects §3.5, #1223): what a function does where the
+ * program failed to say, the colour's twin of `ErrorMono`. It stands in a
+ * function's colour slot as a constant does, so it is carried through joins,
+ * generalization and module interfaces, and it reads as nothing: no mark, face,
+ * seat or tie is compared against it. In a join it absorbs every part but the
+ * impure constant (`#join`); met by unification it binds a free colour and
+ * meets anything else silently (`#unify`).
+ */
+interface ErrorColour {
+  readonly kind: "ErrorColour";
+}
+
+/**
  * One node the capture walk has reached, with the path that reached it: the
  * innermost of FFI Part 1 §5.4 item 1's five runtime containers enclosing it,
  * and the innermost Hexagon opaque type on the path with the component entered
@@ -1886,6 +1912,13 @@ interface Scheme {
 }
 
 const ERROR: ErrorMono = { kind: "Error" };
+
+const ERROR_COLOUR: ErrorColour = { kind: "ErrorColour" };
+
+/** The colour an instance's published arrow stands for (Effects §13.3): nothing known reads the contract's `->!`. */
+function instanceColour(bit: Typed.InstanceColour | undefined): Mono {
+  return bit === false ? PURE : bit === "error" ? ERROR_COLOUR : IMPURE;
+}
 
 /** The spelling a refused recursive call is pointed to (Effects §3.4, #1218). */
 const MADE_FUNCTION_NOTE =
@@ -3982,6 +4015,62 @@ class Checker {
    * once and nothing that calls it is condemned for it.
    */
   readonly #refusedHonorCalls = new WeakSet<Resolved.CallExpr>();
+  /** The calls `#registerCall` recorded: a failed call that recorded none is in error (`#inferExpr`'s tail, #1223). */
+  readonly #registeredCalls = new WeakSet<Resolved.CallExpr>();
+  /**
+   * The calls whose callee itself failed (Effects §3.5, #1223): an unknown
+   * name or a value in error, no function or none of this arity, a dot call
+   * not found or not decided. What such a call's parameters are is hidden
+   * too, so what it is handed has its marks held back (`#settleUntyped`).
+   */
+  readonly #failedCallees = new WeakSet<Resolved.CallExpr>();
+  /**
+   * The openings of a use of a function in error (`#openAt`, #1223): "in error
+   * or more". A merge raises one as it raises any opening, so the impure
+   * constant wins whatever the order of the branches; one nothing raises is in
+   * error where an opening would be pure (`#undecidedColour`). The floor moves
+   * with the opening to the colour it joins (`#bind`), and to the openings of
+   * a join it meets (`#bindJoin`).
+   */
+  readonly #errorFloors = new Set<Variable>();
+  /**
+   * The type variables a value in error has met: one that becomes a function
+   * later is that value's function, its outputs in error as if it had been one
+   * when they met (`#outputsInError`), so the order of the lines decides
+   * nothing (Effects §3.5, #1223).
+   */
+  readonly #erroredTypes = new Set<Variable>();
+  /**
+   * The type variables a demand in error met (Effects §3.5, #1223): a type
+   * written in error (`#demandInError`), or the parameter of a call whose
+   * callee failed (`#settleUntyped`). One that becomes a function later is
+   * a function that demand met, its callbacks' marks held back.
+   */
+  readonly #demandErroredTypes = new Set<Variable>();
+  /**
+   * Whether the unification running is a seat's own (`#unifyExpected`'s
+   * `home`): its left side is the demand, an annotation's or a parameter's
+   * type, and its right the value that meets it. A type siblings settle among
+   * themselves is no demand.
+   */
+  #atDemand = false;
+  /**
+   * Whether the error a function type is meeting (`#outputsInError`) is a
+   * demand's, a type written in error, rather than a value's (Effects §3.5,
+   * #1223). A value is re-opened where it is used, so meeting one never pins
+   * a callback; a demand may, and the error hides which.
+   */
+  #demandInError = false;
+  /**
+   * The colours a demand in error met that something else decides (Effects
+   * §3.5, #1223): a written callback's, or a claimed one's, handed to a call
+   * whose callee failed, met by a type written in error, or handed into a
+   * slot in error. Each keeps its colour, but whether the failure pins it pure
+   * is what the error hides, so a `!` it alone makes owed is held back
+   * (`#checkMarks`). An instance of one is held back too (`#instantiate`), and
+   * so is what one is bound to (`#bind`, `#bindJoin`).
+   */
+  readonly #heldBackColours = new Set<Variable>();
   /** The `widens` doors whose bodies are being checked, by `${identity} ${member}`. */
   readonly #openDoors = new Set<string>();
 
@@ -4796,18 +4885,6 @@ class Checker {
    * holds the same function, so handing it on hands on what it names.
    */
   readonly #letAliases = new Map<Resolved.SymbolId, Resolved.SymbolId>();
-  /**
-   * The members of knots refused for handing on a function they were not
-   * given (#1218), and every binding whose value names one: their colours
-   * are undecided, so a `!` call to one is not told to remove the mark.
-   */
-  readonly #refusedCallees = new Set<Resolved.SymbolId>();
-  /**
-   * The arguments of calls to `#refusedCallees`: a lambda handed to one is
-   * handed its undecided colours, so a `!` call in it is not told to remove
-   * the mark either (#1218).
-   */
-  readonly #refusedArguments: Source.Span[] = [];
   /** The knot `#settleKnot` is closing. */
   #settlingKnot: Knot | undefined = undefined;
   /**
@@ -5202,7 +5279,7 @@ class Checker {
   readonly #constraintSubjectVariables = new Set<number>();
   readonly #diagnostics: Diagnostics.Bag;
   readonly #importedSchemes: ReadonlyMap<Resolved.SymbolId, Typed.Scheme>;
-  readonly #importedInstanceColours: ReadonlyMap<string, readonly boolean[]>;
+  readonly #importedInstanceColours: ReadonlyMap<string, readonly Typed.InstanceColour[]>;
   readonly #programNominals: VarianceDeclarations;
   /** Every module-level binding's own written type, across the program (`CheckOptions.programWritten`). */
   readonly #programWritten: ReadonlyMap<Resolved.SymbolId, WrittenView>;
@@ -7215,7 +7292,7 @@ class Checker {
     pass: ArgumentPass | undefined,
     level: number,
   ): Mono {
-    const effect = this.#calleeEffect(calleeType, level);
+    let effect = this.#calleeEffect(calleeType, level);
     const known = this.#prune(calleeType);
     const seated = known.kind === "Function" &&
         known.parameters.length === seats.length
@@ -7224,11 +7301,18 @@ class Checker {
     let result: Mono;
     if (seated === undefined || pass === undefined) {
       result = this.#fresh(level, false);
+      const before = this.#reportCount;
       this.#unify(
         calleeType,
         { kind: "Function", parameters: seats, result, effect },
         expression.span,
       );
+      // A callee that is no function of this arity: what the call does is in
+      // error, unless it touches the world whatever it is handed (§3.5, #1223).
+      if (this.#reportCount > before) {
+        effect = this.#join([effect, ERROR_COLOUR]);
+        this.#failedCallees.add(expression);
+      }
     } else {
       // The sweep `#dotCallSeats` began, finished: the sibling groups, if still
       // open, then every seat the first pass left. One pass, so nothing is
@@ -9193,10 +9277,10 @@ class Checker {
           this.#generalizingFace = enclosingFace;
         }
         // A refused knot's member keeps its types outside it, but no colour
-        // its refused recursion decided, and a call to it owes no mark (#1218).
+        // its refused recursion decided (#1218): what it does is in error, so
+        // a call to it owes no mark (#1223).
         if (madeFunctions) {
-          this.#schemes.set(symbol, this.#undecidedColours(this.#schemes.get(symbol)!, level));
-          this.#refusedCallees.add(symbol);
+          this.#schemes.set(symbol, this.#coloursInError(this.#schemes.get(symbol)!, this.#writtenView(value)));
         }
       }
     }
@@ -9957,11 +10041,6 @@ class Checker {
           },
         );
         this.#nameRequirements.set(expression, requirements);
-        // A body naming a refused knot's member has a colour that knot's refused
-        // recursion decided, so a call to it owes no mark either (#1218).
-        if (this.#refusedCallees.has(expression.symbol)) {
-          for (const { symbol } of this.#bindingChain) this.#refusedCallees.add(symbol);
-        }
         // Functions §7.4: inside the knot the scheme is a monotype, so the copy
         // above collected nothing. What the reference owes is settled once the
         // component generalizes; `#knotEvidence` reads it back there.
@@ -10848,12 +10927,6 @@ class Checker {
         }
         // The frame is captured here, where the call was written.
         this.#callFrames.set(expression, this.#effectFrames.at(-1));
-        if (this.#refusedCallees.size > 0) {
-          const { head } = this.#chainRoot(expression);
-          if (head.kind === "Name" && this.#refusedCallees.has(head.symbol)) {
-            for (const argument of expression.arguments) this.#refusedArguments.push(argument.span);
-          }
-        }
         for (const knot of this.#knots) {
           if (knot.host === undefined) continue;
           const calls = this.#knotCalls.get(knot) ?? [];
@@ -11132,6 +11205,14 @@ class Checker {
                 `${arguments_.length}`,
             primary: expression.span,
           });
+          // What the call does is in error, unless the callee touches the
+          // world whatever it is handed (Effects §3.5, #1223).
+          this.#failedCallees.add(expression);
+          this.#registerCall(
+            expression,
+            this.#join([knownCallee.effect ?? PURE, ERROR_COLOUR]),
+            calleeLabel(expression),
+          );
           type = ERROR;
         } else if (knownCallee.kind === "Function") {
           // The same sweep either way: `pass` is the one that already checked a
@@ -11237,6 +11318,7 @@ class Checker {
           // to be a variable the unification can solve — an absent slot would
           // read as the pure constant and pin the callee pure.
           const effect = this.#fresh(level, false);
+          const before = this.#reportCount;
           this.#unify(
             callee,
             {
@@ -11247,7 +11329,10 @@ class Checker {
             },
             expression.span,
           );
-          this.#registerCall(expression, effect, calleeLabel(expression));
+          // A callee that fails to be a function here is in error, and so is
+          // what the call does (Effects §3.5, #1223).
+          if (this.#reportCount > before) this.#failedCallees.add(expression);
+          this.#registerCall(expression, this.#reportCount > before ? ERROR_COLOUR : effect, calleeLabel(expression));
           type = result;
         }
         // FFI Part 11 §2's **release seat**, recorded rather than judged: the
@@ -11619,6 +11704,14 @@ class Checker {
     }
 
     if (expression.kind === "Call" && this.#nextInstanceUse > firstUse) this.#decideCallWaits(expression, firstUse);
+    // A call that failed, and so recorded no colour, is in error, and so is
+    // what it does (Effects §3.5, #1223): an unknown callee, one that is not a
+    // function, a dot call whose operation is not found or not decided. It
+    // owes no mark, and the body it stands in is in error.
+    if (expression.kind === "Call" && !this.#registeredCalls.has(expression) && this.#prune(type).kind === "Error") {
+      this.#failedCallees.add(expression);
+      this.#registerCall(expression, ERROR_COLOUR, calleeLabel(expression));
+    }
     this.#expressionTypes.set(expression, type);
     // A call's written result type decides the arrows it spells, whatever the
     // call is handed (#1180); a value read in place is taken apart instead.
@@ -16647,7 +16740,7 @@ class Checker {
     }
     this.#registerCall(
       expression,
-      known.kind === "Function" ? known.effect ?? PURE : PURE,
+      known.kind === "Function" ? known.effect ?? PURE : ERROR_COLOUR,
       calleeLabel(expression),
     );
     // The call owns this reference's evidence, so the reference itself must
@@ -19175,12 +19268,87 @@ class Checker {
     const opened = this.#fresh(level, false);
     this.#openedColours.add(opened);
     this.#openedPending.push(opened);
+    // A colour in error opens as "in error or more" (§3.5, #1223).
+    const inError = colour.kind === "ErrorColour";
+    if (inError) this.#errorFloors.add(opened);
     // A report showing it while nothing has solved it shows the arrow written.
-    this.#shownColours.set(opened, PURE);
-    const reopened: Mono = { ...actual, effect: colour.kind === "Effect" ? opened : this.#join([colour, opened]) };
+    this.#shownColours.set(opened, inError ? ERROR_COLOUR : PURE);
+    const reopened: Mono = {
+      ...actual,
+      effect: colour.kind === "Effect" || inError ? opened : this.#join([colour, opened]),
+    };
     const lambdas = this.#lambdasOf.get(actual);
     if (lambdas !== undefined) this.#lambdasOf.set(reopened, lambdas);
     return reopened;
+  }
+
+  /**
+   * An error meeting a function type (`#outputsInError`): a value's, or a
+   * demand's, a type written in error, which holds back the marks of the
+   * callbacks it meets (`#demandInError`).
+   */
+  #meetError(type: Mono, span: Source.Span, demand: boolean): void {
+    const enclosing = this.#demandInError;
+    this.#demandInError = demand;
+    try {
+      this.#outputsInError(type, span);
+    } finally {
+      this.#demandInError = enclosing;
+    }
+  }
+
+  /**
+   * A value in error meeting `type` (Effects §3.5, #1223): every arrow along
+   * what the function does and hands back is in error, its own, its result's,
+   * and those of the functions in the data it returns. Beneath a parameter the
+   * sign turns, as a use's re-opening reads it (`#openReceived`): what the
+   * value is handed keeps its colour, its marks held back, since whether the
+   * value pins it is hidden; and what it hands that is in error again.
+   */
+  #outputsInError(type: Mono, span: Source.Span): void {
+    const visit = (node: Mono, output: boolean): void => {
+      const actual = this.#prune(node);
+      switch (actual.kind) {
+        case "Function":
+          if (actual.effect !== undefined) {
+            if (output) this.#unify(actual.effect, ERROR_COLOUR, span);
+            // What it is handed: whether the failure pins it is hidden.
+            else this.#holdBack(this.#colourParts(actual.effect));
+          }
+          for (const parameter of actual.parameters) visit(parameter, !output);
+          visit(actual.result, output);
+          return;
+        case "Tuple":
+          for (const element of actual.elements) visit(element, output);
+          return;
+        case "Record":
+          for (const field of actual.fields.values()) visit(field, output);
+          return;
+        case "Union":
+        case "NominalRecord":
+        case "ExternType":
+          for (const argument of actual.arguments) visit(argument, output);
+          return;
+        case "Vector":
+        case "Set":
+        case "Array":
+        case "JsSet":
+        case "Node":
+          visit(actual.element, output);
+          return;
+        case "Nullable":
+          visit(actual.value, output);
+          return;
+        case "Map":
+        case "JsMap":
+          visit(actual.key, output);
+          visit(actual.value, output);
+          return;
+        default:
+          return;
+      }
+    };
+    visit(type, true);
   }
 
   /**
@@ -19993,7 +20161,7 @@ class Checker {
         waiting.add(colour);
         return true;
       }
-      if (this.#takesOpening(colour)) colour.instance = PURE;
+      if (this.#takesOpening(colour)) colour.instance = this.#undecidedColour(colour);
       return false;
     });
   }
@@ -20022,7 +20190,7 @@ class Checker {
       const colour = this.#prune(opened);
       if (colour.kind !== "Variable") return false;
       if (colour.level > level && this.#takesOpening(colour)) {
-        colour.instance = PURE;
+        colour.instance = this.#undecidedColour(colour);
         return false;
       }
       return true;
@@ -21089,10 +21257,12 @@ class Checker {
         "internal error: a call was registered into a body whose colour is already decided (#378)",
       );
     }
+    this.#registeredCalls.add(expression);
     frame?.absorbed.push({ effect, span: expression.span, mark: expression.mark });
     const read = expression.mark === "bang" ? "marked" : "bare";
     for (let enclosing = frame; enclosing !== undefined; enclosing = enclosing.enclosing) {
       enclosing[read].push(effect);
+      (enclosing.calls ??= []).push({ effect, call: expression });
     }
     // The same record, flat *(#867)*. A constraint seat reports at "the first
     // call in source order" that does more than the contract permits, and that
@@ -21222,7 +21392,7 @@ class Checker {
     for (const { effect } of frame.absorbed) {
       for (const colour of this.#colourParts(effect)) {
         if (untyped.includes(colour) || this.#isDependency(frame, colour)) continue;
-        if (this.#takesOpening(colour)) colour.instance = PURE;
+        if (this.#takesOpening(colour)) colour.instance = this.#undecidedColour(colour);
       }
     }
   }
@@ -21251,7 +21421,7 @@ class Checker {
   #defaultCallColours(frame: EffectFrame): void {
     for (const { effect } of frame.absorbed) {
       for (const colour of this.#colourParts(effect)) {
-        if (!this.#isDependency(frame, colour)) colour.instance = PURE;
+        if (!this.#isDependency(frame, colour)) colour.instance = this.#undecidedColour(colour);
         else if ((this.#valueColours.has(colour) || this.#valueSlacks.has(colour)) && colour.level < frame.level) {
           this.#valueColoursLeft.push(colour);
         }
@@ -21262,7 +21432,7 @@ class Checker {
       const colour = this.#prune(left);
       if (colour.kind !== "Variable") return false;
       if (colour.level < frame.level) return true;
-      if (!this.#isDependency(frame, colour)) colour.instance = PURE;
+      if (!this.#isDependency(frame, colour)) colour.instance = this.#undecidedColour(colour);
       return false;
     });
   }
@@ -21293,6 +21463,31 @@ class Checker {
    * neither the verdict nor the report depends on the order of the lines.
    */
   #settleUntyped(frame: EffectFrame): void {
+    // What a call in error is handed is in error where nothing else decides
+    // it (Effects §3.5, #1223): whether the call runs it, and claims it, is
+    // what the error hides.
+    const failedHands = new Set<Variable>();
+    // Where the callee itself failed, its parameters are hidden too, so
+    // whether it pins what it is handed pure is hidden: a colour something
+    // else decides keeps it, its marks held back (`#failedCallees`). A
+    // function whose body is in error has parameters its text decides.
+    const pinsHidden = new Set<Variable>();
+    for (const { effect, call } of frame.calls ?? []) {
+      if (this.#prune(effect).kind !== "ErrorColour") continue;
+      const handed = call.callee.kind === "Access" ? [call.callee.receiver, ...call.arguments] : call.arguments;
+      for (const argument of handed) {
+        const type = this.#expressionTypes.get(argument);
+        if (type === undefined) continue;
+        // Not yet a function: what it becomes is handed to the failure too.
+        const actual = this.#prune(type);
+        if (actual.kind === "Variable" && this.#failedCallees.has(call)) this.#demandErroredTypes.add(actual);
+        for (const part of this.#arrowColours(type)) {
+          failedHands.add(part);
+          if (this.#failedCallees.has(call)) pinsHidden.add(part);
+        }
+      }
+    }
+    this.#holdBack(pinsHidden);
     if (frame.untyped.length === 0) return;
     const claimed = new Set<Variable>();
     for (const colour of frame.marked) {
@@ -21307,10 +21502,15 @@ class Checker {
     // is a tie, which the close refuses.
     const decisions = frame.untyped.map((parameter) => {
       const spine = this.#spineColours(parameter.type).flatMap(({ arrow }) => this.#colourParts(arrow));
+      const isClaimed = spine.some((colour) => claimed.has(colour));
       return {
         parameter,
         owned: spine.filter((colour) => !this.#isDependency(frame, colour)),
-        claimed: spine.some((colour) => claimed.has(colour)),
+        claimed: isClaimed,
+        // A colour a use in error met by a merge is in error, claimed or not:
+        // it is that use's colour too.
+        inError: spine.some((colour) => this.#errorFloors.has(colour)) ||
+          (!isClaimed && spine.some((colour) => failedHands.has(colour))),
       };
     });
     // A colour no call reads stays the parameter's own where no other untyped
@@ -21332,15 +21532,17 @@ class Checker {
       const pruned = this.#prune(colour);
       return pruned.kind === "Variable" && !read.has(pruned) && ownedBy.get(pruned) === 1;
     };
-    for (const { parameter, owned, claimed: isClaimed } of decisions) {
+    for (const { parameter, owned, claimed: isClaimed, inError } of decisions) {
       for (const colour of owned) {
-        if (isClaimed || ownColour(colour)) {
+        if (inError) {
+          if (this.#prune(colour).kind === "Variable") colour.instance = ERROR_COLOUR;
+        } else if (isClaimed || ownColour(colour)) {
           this.#linkedColours.push(colour);
           if (!this.#untypedColours.get(this.#prune(colour)).some((entry) => entry.name === parameter.name)) {
             this.#untypedColours.add(colour, { colour, name: parameter.name, owner: frame.owner });
           }
         } else if (this.#prune(colour).kind === "Variable") {
-          colour.instance = PURE;
+          colour.instance = this.#undecidedColour(colour);
         }
       }
     }
@@ -21621,7 +21823,8 @@ class Checker {
       return;
     }
     const colour = this.#prune(type.effect ?? PURE);
-    if (colour.kind === "Effect") return;
+    // A constant is no tie, and nor is a colour in error (§3.5, #1223).
+    if (colour.kind === "Effect" || colour.kind === "ErrorColour") return;
     const tie = this.#tieOf(frame, parameter, colour);
     if (tie === undefined) return;
     if (tie.waits !== undefined) {
@@ -21658,7 +21861,8 @@ class Checker {
       return;
     }
     const colour = this.#prune(type.effect ?? PURE);
-    if (colour.kind === "Effect") return;
+    // A constant is no tie, and nor is a colour in error (§3.5, #1223).
+    if (colour.kind === "Effect" || colour.kind === "ErrorColour") return;
     for (let open = closing.enclosing; open !== undefined; open = open.enclosing) {
       if (this.#tiesRead.has(open)) continue;
       const outer = this.#sharingUntyped(open, parameter);
@@ -22010,6 +22214,18 @@ class Checker {
     compare();
   }
 
+  /** Whether an instance's own colour at one spine arrow is in error: its body failed there (Effects §3.5, #1223). */
+  #ownColourInError(body: InstanceBody, arrow: number): boolean {
+    let type: Mono = body.type;
+    for (let index = 0; index < arrow; index += 1) {
+      const pruned = this.#prune(type);
+      if (pruned.kind !== "Function") return false;
+      type = pruned.result;
+    }
+    const pruned = this.#prune(type);
+    return pruned.kind === "Function" && this.#prune(pruned.effect ?? PURE).kind === "ErrorColour";
+  }
+
   /**
    * Whether a body's spine arrow `arrow` is impure with every callback it was
    * handed pure *(Effects §13.2, §13.3)*. A callback's colour is a variable
@@ -22048,14 +22264,14 @@ class Checker {
    * them: one per spine arrow, `true` for impure. A default another module
    * declared is read from what that module published; nothing known, nothing.
    */
-  #instanceBits(key: string, identity: string, member: Resolved.SymbolId): readonly boolean[] | undefined {
+  #instanceBits(key: string, identity: string, member: Resolved.SymbolId): readonly Typed.InstanceColour[] | undefined {
     const body = this.#instanceBodies.get(key) ?? this.#defaultBodies.get(`${identity} ${member}`);
     if (body === undefined) return this.#importedInstanceColours.get(`${identity} default ${member}`);
-    const bits: boolean[] = [];
+    const bits: Typed.InstanceColour[] = [];
     for (let arrow = 0, type: Mono = body.type; ; arrow += 1) {
       const pruned = this.#prune(type);
       if (pruned.kind !== "Function") break;
-      bits.push(this.#ownColourImpure(body, arrow));
+      bits.push(this.#ownColourInError(body, arrow) ? "error" : this.#ownColourImpure(body, arrow));
       type = pruned.result;
     }
     return bits;
@@ -22079,8 +22295,8 @@ class Checker {
    * or the default's it uses; and each default body this module declares,
    * for an importer's instance that uses it.
    */
-  #publishedInstanceColours(): ReadonlyMap<string, readonly boolean[]> {
-    const published = new Map<string, readonly boolean[]>();
+  #publishedInstanceColours(): ReadonlyMap<string, readonly Typed.InstanceColour[]> {
+    const published = new Map<string, readonly Typed.InstanceColour[]>();
     for (const { key, identity, declaration } of this.#localHonors) {
       for (const member of declaration.members) {
         const memberKey = `${key} ${member.binding.symbol}`;
@@ -22177,6 +22393,27 @@ class Checker {
       }
       this.#unify(frame.own, absorbed, span);
     }
+    this.#errorArmBody(frame);
+  }
+
+  /**
+   * A call in error makes the body in error unless the body touches the world
+   * on its own account (Effects §3.5, #1223): read after every impure call, a
+   * knot's siblings' included (`#settleKnotBody`), so the impure constant wins
+   * whatever the order of the lines. Nothing is compared against it, a face
+   * the body wrote included. Whether it made the body in error.
+   */
+  #errorArmBody(frame: EffectFrame): boolean {
+    const failed = frame.absorbed.find(({ effect }) => this.#prune(effect).kind === "ErrorColour");
+    const own = this.#prune(frame.own);
+    if (failed === undefined || isImpure(own) || own.kind === "Effect" || own.kind === "ErrorColour") return false;
+    if (frame.face !== undefined && !this.#splitFrames.has(frame)) {
+      // A written `>->` over the body: it is not known to stand.
+      this.#faceInError(frame.face);
+      return false;
+    }
+    this.#unify(frame.own, ERROR_COLOUR, failed.span);
+    return this.#prune(frame.own).kind === "ErrorColour";
   }
 
   /** Whose callback a colour is, in a report's words — "`outer`'s `action`" — where it is known. */
@@ -22231,6 +22468,12 @@ class Checker {
       // An arrow a pin itself made impure is `#checkSignatureFaces`'s report.
       if (isImpure(this.#prune(fit.arrow.colour))) {
         fit.checked = true;
+        continue;
+      }
+      // A value in error is compared with nothing (§3.5, #1223).
+      if (this.#prune(fit.value).kind === "ErrorColour") {
+        fit.checked = true;
+        this.#faceInError(face, fit.arrow.span);
         continue;
       }
       const handed = this.#colourParts(fit.arrow.colour);
@@ -22290,6 +22533,20 @@ class Checker {
           : `${subject} runs ${owner}, which this signature is not handed`,
         fit.arrow.span,
       );
+    }
+  }
+
+  /**
+   * A written `>->` over a body or value in error (§3.5, #1223): the arrow at
+   * `at`, or the face's outer one, reads in error from outside, since whether
+   * §4.2 refuses it is not known (`#readRefusedArrows`).
+   */
+  #faceInError(face: SignatureFace, at?: Source.Span): void {
+    const arrow = at ?? face.outer ?? face.arrows[0]?.span;
+    const key = (span: Source.Span): string => `${Number(span.fileId)}:${span.start.offset}:${span.end.offset}`;
+    const written = arrow === undefined ? undefined : face.arrows.find(({ span }) => key(span) === key(arrow));
+    if (written?.application !== undefined) {
+      ((face as { inError?: Set<number> }).inError ??= new Set()).add(written.application);
     }
   }
 
@@ -22590,21 +22847,129 @@ class Checker {
 
   /**
    * A refused knot's member as the program outside it reads it (Effects §3.4,
-   * #1218): its types, with every arrow along its parameters and results a
-   * colour of its own, so no caller meets a colour, or a tie, that the refused
-   * recursion decided.
+   * §3.5; #1218, #1223): its types, and the arrows its text writes as
+   * constants, a `->` demand among them; every other arrow is in error, a
+   * callback's own colour (written `->!` or not: the recursion hands the
+   * member its callbacks, so it decides them), a `>->`, and every colour
+   * inference gave, on what it is handed as on what it does and hands back.
+   * The written type is read beside the member's as a use's re-opening reads
+   * it (`#openReceived`).
    */
-  #undecidedColours(scheme: Scheme, level: number): Scheme {
-    const fresh: Variable[] = [];
-    const copy = (type: Mono): Mono => {
+  #coloursInError(scheme: Scheme, view: WrittenView | undefined): Scheme {
+    const part = (
+      written: Resolved.TypeAnnotation | WrittenFace | undefined,
+      pick: (annotation: Resolved.TypeAnnotation) => Resolved.TypeAnnotation | undefined,
+    ): Resolved.TypeAnnotation | undefined =>
+      written === undefined || written.kind === "Face" ? undefined : pick(written);
+    const copy = (
+      type: Mono,
+      written: Resolved.TypeAnnotation | WrittenFace | undefined,
+      role: WrittenRole,
+    ): Mono => {
       const actual = this.#prune(type);
-      if (actual.kind !== "Function") return actual;
-      const effect = this.#fresh(level + 1, false);
-      fresh.push(effect);
-      return { ...actual, parameters: actual.parameters.map(copy), result: copy(actual.result), effect };
+      const around: WrittenRole = role === "spine" ? "spine" : "data";
+      switch (actual.kind) {
+        case "Function": {
+          let parameterWritten: readonly (Resolved.TypeAnnotation | undefined)[] = [];
+          let parameterRole: WrittenRole = "data";
+          let resultWritten: Resolved.TypeAnnotation | undefined;
+          let resultRole: WrittenRole = "data";
+          if (written?.kind === "Face") {
+            parameterWritten = written.parameters;
+            parameterRole = "callback";
+            resultWritten = written.result;
+            resultRole = "spine";
+          } else if (written?.kind === "Function") {
+            parameterWritten = written.parameters;
+            parameterRole = role === "spine" ? "callback" : "data";
+            resultWritten = written.result;
+            resultRole = role === "spine" || role === "callback" && written.result.kind === "Function" ? role : "data";
+          }
+          // The text's constant: a written `->`, or a written `->!` anywhere
+          // but a callback's own arrow. There it is the callback's colour,
+          // which the recursion decides, handing the member its callbacks.
+          const constant = written?.kind === "Function" &&
+            (written.effect === undefined || (written.effect === "constant" && role !== "callback"));
+          const rebuilt: FunctionMono = {
+            kind: "Function",
+            parameters: actual.parameters.map((parameter, index) =>
+              copy(parameter, parameterWritten[index], parameterRole)
+            ),
+            result: copy(actual.result, resultWritten, resultRole),
+          };
+          if (!constant) return { ...rebuilt, effect: ERROR_COLOUR };
+          // The colour the text's constant gave the arrow, as a member that is
+          // not refused publishes it: a written `->` over a body that touches
+          // the world on its own account is refused and reads as the body.
+          return actual.effect === undefined ? rebuilt : { ...rebuilt, effect: actual.effect };
+        }
+        case "Tuple":
+          return {
+            kind: "Tuple",
+            elements: actual.elements.map((element, index) =>
+              copy(element, part(written, (annotation) =>
+                annotation.kind === "Tuple" ? annotation.elements[index] : undefined), around)
+            ),
+          };
+        case "Record": {
+          const record = this.#normalizeRecord(actual);
+          return {
+            kind: "Record",
+            fields: new Map([...record.fields].map(([name, field]) => [
+              name,
+              copy(field, part(written, (annotation) =>
+                annotation.kind === "Record"
+                  ? annotation.fields.find((candidate) => candidate.name === name)?.annotation
+                  : undefined), around),
+            ])),
+            ...(record.tail === undefined ? {} : { tail: record.tail }),
+          };
+        }
+        // A type argument's arrows, as a use reads them (`#openReceived`).
+        case "Union":
+        case "NominalRecord":
+        case "ExternType":
+          return {
+            ...actual,
+            arguments: actual.arguments.map((argument, index) =>
+              copy(argument, part(written, (annotation) =>
+                annotation.kind === "Union" || annotation.kind === "RecordDeclaration" ||
+                  annotation.kind === "ExternType"
+                  ? annotation.arguments[index]
+                  : undefined), around)
+            ),
+          };
+        case "Vector":
+        case "Set":
+        case "Array":
+        case "JsSet":
+        case "Node":
+          return {
+            ...actual,
+            element: copy(actual.element, part(written, (annotation) =>
+              "element" in annotation ? annotation.element : undefined), around),
+          };
+        case "Nullable":
+          return {
+            kind: "Nullable",
+            value: copy(actual.value, part(written, (annotation) =>
+              annotation.kind === "Nullable" ? annotation.value : undefined), around),
+          };
+        case "Map":
+        case "JsMap": {
+          const pair = (annotation: Resolved.TypeAnnotation) =>
+            annotation.kind === "Map" || annotation.kind === "JsMap" ? annotation : undefined;
+          return {
+            ...actual,
+            key: copy(actual.key, part(written, (annotation) => pair(annotation)?.key), around),
+            value: copy(actual.value, part(written, (annotation) => pair(annotation)?.value), around),
+          };
+        }
+        default:
+          return actual;
+      }
     };
-    const type = copy(scheme.type);
-    return { ...scheme, variables: [...scheme.variables, ...fresh], type };
+    return { ...scheme, type: copy(scheme.type, view?.written, view?.role ?? "spine") };
   }
 
   /**
@@ -22719,6 +23084,19 @@ class Checker {
         this.#sourceArm(frame);
       }
     }
+    // Then a call in error, or a sibling in error, makes a member in error
+    // where the knot left it short of impure (Effects §3.5, #1223).
+    this.#settlingArms += 1;
+    try {
+      for (let growing = true; growing;) {
+        growing = false;
+        for (const frame of frames) {
+          if (this.#errorArmBody(frame)) growing = true;
+        }
+      }
+    } finally {
+      this.#settlingArms -= 1;
+    }
     // The conduit arm over what remains: a sibling's own colour is no colour
     // of the member that calls it, but what the sibling runs is.
     const siblingOf = (colour: Variable): EffectFrame | undefined =>
@@ -22811,8 +23189,16 @@ class Checker {
    */
   #defaultFrameColour(frame: EffectFrame): void {
     for (const part of this.#colourParts(frame.own)) {
-      if (!this.#isDependency(frame, part)) part.instance = PURE;
+      if (!this.#isDependency(frame, part)) part.instance = this.#undecidedColour(part);
     }
+  }
+
+  /**
+   * What a colour nothing decided defaults to (§3.4): pure, or in error where it
+   * is a use's opening of a function in error (`#errorFloors`, §3.5).
+   */
+  #undecidedColour(colour: Variable): Mono {
+    return this.#errorFloors.has(colour) ? ERROR_COLOUR : PURE;
   }
 
   /**
@@ -22949,6 +23335,8 @@ class Checker {
       const bodyPoint = (colour: Mono): Colour.ColourPoint =>
         this.#pointAt(colour, (part) => least.get(part) ?? Colour.PURE_POINT);
       for (const arrow of arrows) {
+        // A body arrow in error is compared with nothing (§3.5, #1223).
+        if (this.#prune(arrow.body).kind === "ErrorColour") continue;
         const demanded = contractPoint(arrow.contract);
         const solved = bodyPoint(arrow.body);
         const above = !Colour.atMost(solved, demanded);
@@ -22996,7 +23384,7 @@ class Checker {
     }
     for (const slot of body.slots) {
       const now = this.#prune(slot);
-      if (now.kind === "Variable" && !this.#isLinkedColour(now)) now.instance = PURE;
+      if (now.kind === "Variable" && !this.#isLinkedColour(now)) now.instance = this.#undecidedColour(now);
     }
   }
 
@@ -23307,9 +23695,10 @@ class Checker {
       // instance follows.
       const own = this.#prune(face.effect ?? PURE);
       const callbacks = new Set(handed.flatMap((colour) => this.#colourParts(colour)));
+      // A body in error leaves the door in error, whatever it is handed (§3.5).
       return {
         ...face,
-        effect: isImpure(own)
+        effect: isImpure(own) || own.kind === "ErrorColour"
           ? own
           : this.#join([...this.#colourParts(own).filter((part) => !callbacks.has(part)), ...handed]),
       };
@@ -23745,33 +24134,35 @@ class Checker {
   /** Ruling 7, at every written call: the mark is a function of the solved colour. */
   #checkMarks(): void {
     for (const obligation of this.#markObligations) {
+      // Read before the prune below compresses the chain (`#pastHeldBack`).
+      const pastHeldBack = this.#pastHeldBack(obligation.effect);
       // The defaulting clause at calls (§3.4, #868): a colour, or a part of
       // one, still undetermined that is no callback's is pure. Knots have
       // closed by now, so no sibling's colour is still live to be pinned here.
       for (const part of this.#colourParts(obligation.effect)) {
-        if (!this.#isLinkedColour(part) && !this.#seatHeld.has(part)) part.instance = PURE;
+        if (!this.#isLinkedColour(part) && !this.#seatHeld.has(part)) part.instance = this.#undecidedColour(part);
       }
       if (this.#runsRefusedCall(obligation.call)) continue;
       const colour = this.#prune(obligation.effect);
+      // A call whose colour is in error owes no mark either way (§3.5, #1223).
+      if (colour.kind === "ErrorColour") continue;
       // Pure means bare; anything else — the impure constant, a callback's
       // colour, a join of them — may touch the world, so the call wears `!`
       // (Effects §3.1).
       const required: Resolved.CallMark | undefined = colour.kind === "Effect" ? Colour.markFor(colour) : "bang";
       if (required === obligation.mark) continue;
-      // A call reaching a refused knot's member by name owes it no mark
-      // (Effects §3.4, #1218): its colour is one the refused recursion left
-      // undecided, which reads pure, so only "remove the mark" could follow.
-      if (required === undefined) {
-        const { head } = this.#chainRoot(obligation.call);
-        if (head.kind === "Name" && this.#refusedCallees.has(head.symbol)) continue;
-        if (this.#refusedArguments.some((span) => spanWithin(obligation.span, span))) continue;
-      }
       // A call whose colour a face report or a seat has already condemned is
       // the same defect told twice: the face is what went wrong, and the marks
       // in the body follow from it. Read, never re-derived — the stamp was put
       // on at the ruling, before this loop's own `#prune` above compressed the
       // chain it would have had to walk.
       if (this.#reportedCalls.has(obligation)) continue;
+      // A `!` only a colour a colour in error met makes owed is held back:
+      // a pin the error hides would make the call pure (§3.5, #1223).
+      if (required === "bang" && pastHeldBack !== undefined) {
+        const pinned = this.#join(pastHeldBack);
+        if (pinned.kind === "Effect" && Colour.markFor(pinned) !== "bang") continue;
+      }
       this.#diagnostics.add({
         severity: "error",
         message: markMessage(obligation.callee, obligation.mark, required),
@@ -24196,27 +24587,112 @@ class Checker {
    * The join of these colours, normalized (Effects §3.4): pure parts drop out,
    * an impure part absorbs the whole join (the first one met, kept by identity,
    * since a solved signature colour's constant *is* that colour's identity),
-   * nested joins flatten, repeated parts merge, and a join of fewer than two
-   * variables is that variable or the pure constant.
+   * a colour in error absorbs every other part (§3.5, #1223), nested joins
+   * flatten, repeated parts merge, and a join of fewer than two variables is
+   * that variable or the pure constant.
    */
   #join(colours: readonly Mono[]): Mono {
     const parts: Variable[] = [];
     let impure: Mono | undefined;
+    let inError = false;
     const visit = (colour: Mono): void => {
       const actual = this.#prune(colour);
       if (actual.kind === "Join") {
         for (const part of actual.parts) visit(part);
       } else if (actual.kind === "Effect") {
         if (Colour.isTop(actual)) impure ??= actual;
+      } else if (actual.kind === "ErrorColour") {
+        inError = true;
       } else if (actual.kind === "Variable") {
         if (!parts.includes(actual)) parts.push(actual);
       }
     };
     for (const colour of colours) visit(colour);
     if (impure !== undefined) return impure;
+    if (inError) return ERROR_COLOUR;
     if (parts.length === 0) return PURE;
     if (parts.length === 1) return parts[0]!;
     return { kind: "Join", parts };
+  }
+
+  /** The colour variables of every arrow a type holds, at any depth (`#settleUntyped`, #1223). */
+  #arrowColours(type: Mono, found = new Set<Variable>()): Set<Variable> {
+    const actual = this.#prune(type);
+    switch (actual.kind) {
+      case "Function":
+        for (const part of this.#colourParts(actual.effect ?? PURE)) found.add(part);
+        for (const parameter of actual.parameters) this.#arrowColours(parameter, found);
+        this.#arrowColours(actual.result, found);
+        break;
+      case "Tuple":
+        for (const element of actual.elements) this.#arrowColours(element, found);
+        break;
+      case "Record":
+        for (const field of actual.fields.values()) this.#arrowColours(field, found);
+        break;
+      case "Union":
+      case "NominalRecord":
+      case "ExternType":
+        for (const argument of actual.arguments) this.#arrowColours(argument, found);
+        break;
+      case "Vector":
+      case "Set":
+      case "Array":
+      case "JsSet":
+      case "Node":
+        this.#arrowColours(actual.element, found);
+        break;
+      case "Nullable":
+        this.#arrowColours(actual.value, found);
+        break;
+      case "Map":
+      case "JsMap":
+        this.#arrowColours(actual.key, found);
+        this.#arrowColours(actual.value, found);
+        break;
+      default:
+        break;
+    }
+    return found;
+  }
+
+  /**
+   * Holds back the marks these colours decide, where a demand in error met
+   * them (`#heldBackColours`). An opening is left out: it is one use's room
+   * for more, and a mark that reads it reads the colours it is joined with.
+   */
+  #holdBack(colours: Iterable<Mono>): void {
+    for (const colour of colours) {
+      if (colour.kind === "Variable" && !this.#openedColours.has(colour)) this.#heldBackColours.add(colour);
+    }
+  }
+
+  /**
+   * What a mark's colour is with every held-back colour on its chain pure, as
+   * a pin would make it (Effects §3.5, #1223): the colours the chain reaches
+   * past them, whose join `#checkMarks` reads once they are defaulted.
+   * `undefined` where the chain holds none. It is walked as it stands, before
+   * a prune compresses a held-back node out of it.
+   */
+  #pastHeldBack(colour: Mono): Mono[] | undefined {
+    if (this.#heldBackColours.size === 0) return undefined;
+    let held = false;
+    const reached: Mono[] = [];
+    const visit = (node: Mono): void => {
+      if (node.kind === "Join") {
+        for (const part of node.parts) visit(part);
+      } else if (node.kind !== "Variable") {
+        reached.push(node);
+      } else if (this.#heldBackColours.has(node)) {
+        held = true;
+      } else if (node.instance === undefined) {
+        reached.push(node);
+      } else {
+        visit(node.instance);
+      }
+    };
+    visit(colour);
+    return held ? reached : undefined;
   }
 
   /** A colour's variable parts as it stands now: none for a constant, one for a variable, a join's parts. */
@@ -24709,11 +25185,20 @@ class Checker {
     };
     const actualLeft = this.#prune(left);
     const actualRight = this.#prune(right);
-    if (
-      actualLeft === actualRight ||
-      actualLeft.kind === "Error" ||
-      actualRight.kind === "Error"
-    ) {
+    if (actualLeft === actualRight) return;
+    if (actualLeft.kind === "Error" || actualRight.kind === "Error") {
+      // A value in error meeting a function: what the function does, and what
+      // it hands back, is in error too (Effects §3.5, #1223); meeting a type
+      // not yet known, so is the function it becomes (`#erroredTypes`).
+      const other = actualLeft.kind === "Error" ? actualRight : actualLeft;
+      // At a seat, an error on the demand's side is a type written in error.
+      const demand = this.#atDemand && actualLeft.kind === "Error";
+      if (other.kind === "Variable") {
+        this.#erroredTypes.add(other);
+        if (demand) this.#demandErroredTypes.add(other);
+      } else {
+        this.#meetError(other, span, demand);
+      }
       return;
     }
     if (actualLeft.kind === "Variable") {
@@ -24722,6 +25207,17 @@ class Checker {
     }
     if (actualRight.kind === "Variable") {
       this.#bind(actualRight, actualLeft, span, true);
+      return;
+    }
+    // A colour in error binds a free colour (above) and meets anything else
+    // without a report: nothing is compared against it (Effects §3.5, #1223).
+    // A join it meets is left as it stands. Where the colour in error is a
+    // demand's, a type written in error or a slot in error, whether the
+    // failure pins the colours that decide the join is what the error hides.
+    if (actualLeft.kind === "ErrorColour" || actualRight.kind === "ErrorColour") {
+      const other = actualLeft.kind === "ErrorColour" ? actualRight : actualLeft;
+      const demand = this.#demandInError || (this.#atDemand && actualLeft.kind === "ErrorColour");
+      if (other.kind === "Join" && demand) this.#holdBack(other.parts);
       return;
     }
     if (this.#absorbNullishVariable(actualLeft, actualRight, span)) return;
@@ -25229,6 +25725,14 @@ class Checker {
       const owner = this.#pinnedVars.get(variable.id);
       if (owner !== undefined) this.#pinnedVars.set(type.id, owner);
       if (this.#faceColours.has(variable)) this.#faceColours.add(type);
+      // So does an opening's floor in error, and a value in error's meeting (#1223).
+      if (this.#errorFloors.has(variable)) this.#errorFloors.add(type);
+      if (this.#erroredTypes.has(variable)) this.#erroredTypes.add(type);
+      if (this.#demandErroredTypes.has(variable)) this.#demandErroredTypes.add(type);
+      // So does a hold on its marks, either way: the two are one colour now,
+      // and a prune may cut the held one out of the other's chain.
+      if (this.#heldBackColours.has(variable)) this.#heldBackColours.add(type);
+      else if (this.#heldBackColours.has(type)) this.#heldBackColours.add(variable);
       // A seat's hold on its colour moves with the representative (§13.2), and
       // so does a callback's.
       if (this.#seatHeld.has(variable)) this.#seatHeld.add(type);
@@ -25257,6 +25761,9 @@ class Checker {
       this.#bindJoin(variable, type, span, this.#definingMember && !variableOnRight);
       return;
     }
+    // An opening of a function in error is "in error or more" (#1223): a pure
+    // demand leaves it in error, and only the impure constant raises it.
+    if (type.kind === "Effect" && Colour.isBottom(type) && this.#errorFloors.has(variable)) type = ERROR_COLOUR;
     if (this.#occurs(variable, type)) {
       this.#diagnostics.add({
         severity: "error",
@@ -25377,6 +25884,10 @@ class Checker {
       }
       : type;
     for (const requirement of variable.requirements) this.#validate(requirement);
+    // A type a value in error met becomes a function: that function's outputs
+    // are in error (#1223).
+    if (this.#erroredTypes.has(variable)) this.#meetError(type, span, this.#demandErroredTypes.has(variable));
+    else if (this.#demandErroredTypes.has(variable)) this.#holdBack(this.#arrowColours(type));
   }
 
   /**
@@ -25393,6 +25904,14 @@ class Checker {
    * (`defining`, #1229).
    */
   #bindJoin(variable: Variable, join: EffectJoin, span: Source.Span, defining = false): void {
+    // An opening's floor in error passes to the join's openings, never to a
+    // colour something else decides (#1223).
+    if (this.#errorFloors.has(variable)) {
+      for (const part of join.parts) if (this.#openedColours.has(part)) this.#errorFloors.add(part);
+    }
+    // A colour whose pin the error hides holds back the colours it joins: the
+    // pin would make each of them pure.
+    if (this.#heldBackColours.has(variable)) this.#holdBack(join.parts);
     const rest = join.parts.filter((part) => part !== variable);
     const slacks = rest.filter((part) => this.#openedColours.has(part));
     const real = rest.filter((part) => !this.#openedColours.has(part));
@@ -25832,7 +26351,13 @@ class Checker {
     // unification really does fail.
     if (this.#reportStandDown(expression, expected, actual, span)) return;
     if (home && this.#refuseFunctionResult(expression, expected, actual, span)) return;
-    this.#unify(expected, actual, span);
+    const atDemand = this.#atDemand;
+    this.#atDemand = home;
+    try {
+      this.#unify(expected, actual, span);
+    } finally {
+      this.#atDemand = atDemand;
+    }
   }
 
   /**
@@ -28650,14 +29175,19 @@ class Checker {
    * spine, where callers meet it: a copy, never the body's own colour.
    */
   #readRefusedArrows(type: Mono): Mono {
-    const refused = this.#generalizingFace?.refused;
-    if (refused === undefined || refused.size === 0) return type;
+    const refused = this.#generalizingFace?.refused ?? new Set<number>();
+    const inError = this.#generalizingFace?.inError ?? new Set<number>();
+    if (refused.size === 0 && inError.size === 0) return type;
+    // A refused arrow reads as `->!`; one over a body in error, in error (#1223).
+    const colour = (application: number): Mono | undefined =>
+      refused.has(application) ? IMPURE : inError.has(application) ? ERROR_COLOUR : undefined;
     const read = (node: Mono, application: number): Mono => {
       const actual = this.#prune(node);
       if (actual.kind !== "Function") return node;
       const result = read(actual.result, application + 1);
-      if (!refused.has(application) && result === actual.result) return node;
-      return { ...actual, result, ...(refused.has(application) ? { effect: IMPURE } : {}) };
+      const effect = colour(application);
+      if (effect === undefined && result === actual.result) return node;
+      return { ...actual, result, ...(effect === undefined ? {} : { effect }) };
     };
     return read(type, 0);
   }
@@ -29824,6 +30354,16 @@ class Checker {
       if (actual.kind === "Variable") {
         const replacement = replacements.get(actual.id);
         if (replacement === undefined) return actual;
+        // A value in error met this variable before it generalized: each use
+        // has met it too (#1223).
+        if (this.#erroredTypes.has(actual) && replacement.kind === "Variable") this.#erroredTypes.add(replacement);
+        if (this.#demandErroredTypes.has(actual) && replacement.kind === "Variable") {
+          this.#demandErroredTypes.add(replacement);
+        }
+        // So has a colour whose pin the error hides: each use's (#1223).
+        if (this.#heldBackColours.has(actual) && replacement.kind === "Variable") {
+          this.#heldBackColours.add(replacement);
+        }
         if (copiedRequirements.has(actual.id)) return replacement;
         copiedRequirements.add(actual.id);
         for (const requirement of actual.requirements) {
@@ -30077,7 +30617,9 @@ class Checker {
       if (name !== undefined && local.members.some((member) => member.name === name && member.derived === true)) {
         const door = this.#doorBodies.get(`${wait.identity} ${name}`);
         if (door !== undefined && door.type.kind === "Function") {
-          return followed(this.#ownColourImpure({ type: door.type }, wait.arrow) ? IMPURE : PURE);
+          return followed(this.#ownColourInError({ type: door.type }, wait.arrow)
+            ? ERROR_COLOUR
+            : this.#ownColourImpure({ type: door.type }, wait.arrow) ? IMPURE : PURE);
         }
         // Inside the door's own body, that body is not yet read: the contract.
         if (this.#openDoors.has(`${wait.identity} ${name}`)) return undefined;
@@ -30086,7 +30628,7 @@ class Checker {
           `this call follows the \`widens\` door that supplies \`${name}\` at ` +
             `\`${this.#display(this.#prune(wait.subject))}\`, and that door is declared below it; ` +
             "declarations are read top-down — move the door above this call");
-        return PURE;
+        return ERROR_COLOUR;
       }
       const honor = local.span;
       if (Number(honor.fileId) === Number(call.span.fileId)) {
@@ -30096,20 +30638,20 @@ class Checker {
           this.#refuseAboveBody(call, wait, reported,
             `this call follows what \`${local.constraint}<${this.#display(this.#prune(wait.subject))}>\` does, ` +
               "and that honor is declared below it; declarations are read top-down — move the honor above this call");
-          return PURE;
+          return ERROR_COLOUR;
         }
       }
       const bits = this.#instanceBits(memberKey, wait.identity, wait.member);
-      return followed(bits?.[wait.arrow] === false ? PURE : IMPURE);
+      return followed(instanceColour(bits?.[wait.arrow]));
     }
     const published = this.#importedInstanceColours.get(memberKey)?.[wait.arrow];
-    return followed(published === false ? PURE : IMPURE);
+    return followed(instanceColour(published));
   }
 
   /**
    * A call above the body it would follow, refused once per call (Effects
-   * §13.3). The call owes no mark, nor does any call of what it returns, and
-   * its colours read pure (`#refusedHonorCalls`).
+   * §13.3). The call owes no mark, nor does any call of what it returns
+   * (`#refusedHonorCalls`), and what it does is in error (§3.5, #1223).
    */
   #refuseAboveBody(call: Resolved.CallExpr, wait: InstanceWait, reported: Set<number>, message: string): void {
     this.#refusedHonorCalls.add(call);
@@ -30767,6 +31309,11 @@ class Checker {
       this.#quantified.add(variable.id);
     }
     for (const id of scheme.variables) variables.set(id, minted.get(id)!);
+    // The marks its home held back are held back here (§3.5, #1223).
+    for (const id of scheme.heldBack ?? []) {
+      const variable = minted.get(id);
+      if (variable !== undefined) this.#heldBackColours.add(variable);
+    }
     const copy = (type: Typed.Type): Mono => {
       switch (type.kind) {
         case "Primitive": return primitive(type.name);
@@ -30809,6 +31356,8 @@ class Checker {
             : {
               effect: type.effect === "impure"
                 ? IMPURE
+                : type.effect === "error"
+                ? ERROR_COLOUR
                 : "join" in type.effect
                 ? this.#join(type.effect.join.map((id) => copy({ kind: "Variable", id })))
                 : copy({ kind: "Variable", id: type.effect.variable }),
@@ -31665,6 +32214,8 @@ class Checker {
         return Colour.arrowFor(actual);
       case "Join":
         return `>->{${actual.parts.map(key).join(",")}}`;
+      case "ErrorColour":
+        return "<error colour>";
       case "Range":
         return "Range";
       case "JsValue":
@@ -33726,13 +34277,16 @@ class Checker {
         result: this.#publicType(actual.result, seen),
         // Modules §4.1.1: the exported signature is the contract, so the colour
         // has to cross the border with it — a callback's colour as its
-        // variable, a join as its parts, the constant as `"impure"`, and the
-        // pure constant as nothing at all.
+        // variable, a join as its parts, the constant as `"impure"`, a colour
+        // in error as `"error"` (#1223), and the pure constant as nothing at
+        // all.
         ...(effect === undefined || (effect.kind === "Effect" && Colour.isBottom(effect))
           ? {}
           : {
             effect: effect.kind === "Effect"
               ? "impure" as const
+              : effect.kind === "ErrorColour"
+              ? "error" as const
               : effect.kind === "Join"
               ? { join: effect.parts.map((part) => Typed.typeVariableId(part.id)) }
               : { variable: Typed.typeVariableId((effect as Variable).id) },
@@ -33847,7 +34401,7 @@ class Checker {
     // An effect constant is reached only through a function's effect slot,
     // which the `Function` arm renders itself; it is never a type in its own
     // right, and there is no public spelling for one.
-    if (actual.kind === "Effect" || actual.kind === "Join") return { kind: "Error" };
+    if (actual.kind === "Effect" || actual.kind === "Join" || actual.kind === "ErrorColour") return { kind: "Error" };
     const existing = seen.get(actual.id);
     if (existing !== undefined) return existing;
     const variable: Typed.VariableType = {
@@ -34176,10 +34730,13 @@ class Checker {
         constraints.set(`${constraint.identity}:${variable.id}`, constraint);
       }
     }
+    const heldBack = variables.filter((variable) => this.#heldBackColours.has(variable));
     return {
       variables: variables.map(({ id }) => Typed.typeVariableId(id)),
       constraints: [...constraints.values()],
       type: this.#publicType(scheme.type),
+      // An importer's calls hold back the marks they do at home (§3.5, #1223).
+      ...(heldBack.length === 0 ? {} : { heldBack: heldBack.map(({ id }) => Typed.typeVariableId(id)) }),
       // A constraint member's scheme says so, so an importer can read it back
       // (Modules §6.5): without it, `describe` arrives as a function that
       // happens to be constrained and its implied types never project.
@@ -35645,6 +36202,7 @@ class Checker {
     }
     if (actual.kind === "Effect") return Colour.pointName(actual);
     if (actual.kind === "Join") return "join";
+    if (actual.kind === "ErrorColour") return "in error";
     const parameterPlace = (parameter: Mono): "callback" | "inside" =>
       place === "spine" && this.#prune(parameter).kind === "Function" ? "callback" : "inside";
     const resultPlace = place === "callback" && this.#prune(actual.result).kind !== "Function" ? "inside" : place;
@@ -35806,6 +36364,9 @@ class Checker {
     if (type.effect === undefined) return PURE_ARROW;
     const effect = this.#shownColour(type.effect);
     if (effect.kind === "Effect") return Colour.arrowFor(effect);
+    // A colour in error shows `->!` (Effects §10, #1223): a function whose
+    // body could not be read may touch the world, and no purity is claimed.
+    if (effect.kind === "ErrorColour") return IMPURE_ARROW;
     // An arrow still waiting for its instance shows the contract's `->!`
     // (Effects §10, §13.3): the instance may touch the world.
     if (this.#colourParts(effect).some((part) => this.#waitingColours.has(part))) return IMPURE_ARROW;

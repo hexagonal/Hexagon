@@ -235,8 +235,8 @@ maker("s")!(document)    -- each argument list marks its own call
 - **A pipe stage is a call, so it takes a mark.** In `x |> save!`, the bare-stage form's mark stands glued at the end of the stage, and the rewrite carries it onto the call it builds: `save!(x)`. Operators §8 owns the rewrite. A stage with its own argument list marks that list as usual (`x |> take!(3)` becomes `take!(x, 3)`).
 - **A suffix construction anchors its mark after the pattern name**: `(x)name!` (Pattern Declarations §14). It reports the build call's outer colour at this instantiation. The suffix owns an immediately trailing mark, so `(x)factory!(y)` marks the construction and then calls its result bare; `((x)factory)!(y)` marks the call on the constructed function instead. Matching remains unmarked.
 - **A mark anywhere else** (on a reference, or mid-expression) is a parse error (§9). A reference carries no colour.
-- **A call whose callee is not a function owes no mark.** A callee whose type is known and is not a function, or one already in error (an unknown name, a type that does not exist), is reported once where it fails, marked or bare, and the call's value is in error too, so nothing it reaches reports again.
-- **A dot call is decided at the dot** (Method Syntax §2.2). One whose subject's type the program's text does not decide is refused there (Method Syntax §3.5) and owes no mark. The record spelling `(e.name)(…)` on a row the text does not otherwise describe is a pure call: the row's field arrow is written `->` there, and a row is data (§2.5). So a mark on such a call is refused like any other mark on a pure call, and the effectful reading needs an annotation on the record.
+- **A call whose callee is not a function owes no mark.** A callee whose type is known and is not a function, or one already in error (an unknown name, a type that does not exist), is reported once where it fails, marked or bare. The call's value is in error too, and so is what the call does (§3.5), so nothing it reaches reports again.
+- **A dot call is decided at the dot** (Method Syntax §2.2). One whose subject's type the program's text does not decide is refused there (Method Syntax §3.5). It owes no mark, and what it does is in error (§3.5). The record spelling `(e.name)(…)` on a row the text does not otherwise describe is a pure call: the row's field arrow is written `->` there, and a row is data (§2.5). So a mark on such a call is refused like any other mark on a pure call, and the effectful reading needs an annotation on the record.
 
 ### 3.3 The outermost arrow: a mark describes this call only
 
@@ -395,7 +395,16 @@ The colour component rides the ordinary machinery (unification, levels, generali
 
   A function a recursion needs is taken by an enclosing function, and the members use it as a captured colour (`walk(n, cb)` holding `even`/`odd` that run `cb`). Where the refused function is a lambda that only forwards to a parameter (`() => cb!()`), the fixit hands the parameter on. A recursive call that only hands parameters on joins two names for one function, so it is never where a tie's report stands; the merge that made the tie is.
 
-  The refusal stands alone in the knot: its close reports nothing else, and its calls owe no mark. Outside the knot its members keep their types, and every arrow along their parameters and results has a colour of its own, undecided, which reads pure. So a `!` call to one of them, to a function whose body names one, or inside an argument handed to one is not told to remove the mark (§4.1). Every other report stands, a missing `!` and a tie included. A member reached another way (from another module, as a value, or through data it hands back) reads pure there (#1223).
+  The refusal stands alone in the knot: its close reports nothing else, and its calls owe no mark. Outside the knot its members keep their types, but no colour the refused recursion decided:
+  - **What the recursion decided is in error (§3.5).** That is every arrow the member's text does not write as a constant:
+    - its own arrows, which no declaration writes;
+    - what it hands back, functions in the data it returns included;
+    - a `>->`;
+    - its callbacks' own colours, written `->!` or not, since a recursive call hands the member its callbacks and so decides them;
+    - every colour inference gave.
+
+    So a call of one owes no mark, however the member is reached: by name, from another module, as a value, or through data it hands back. Nor does a call of a function whose body runs one, and an untyped parameter a caller hands one is in error (§3.5).
+  - **An arrow the member's text writes as a constant is the text's:** a written `->` demand, and a `->!` written anywhere but a callback's own arrow, beneath a parameter, in what it returns, or inside a type argument of either. A written callback a caller hands one keeps the caller's colour, though a `!` only it makes owed waits for the repair (§3.5). Every other report stands, a tie included.
 
   A sibling pinned pure by a `->` demand, which the source arm then claims, is §4.3's refusal at that demand. Generalization is still per member at its SCC (Functions §7.3, §7.4, §8). A knot nested in a body captures as a lone binding does.
 - **Expected types carry the colour too** (Functions §4.3). An expectation's arrows arrive with their colours as ordinary components. A lambda's own colour is still inferred from its body (§2.6), and nothing colour-specific is added or bypassed. There are two exceptions, each because colours are compared afterwards instead of unified where the expectation arrives:
@@ -404,6 +413,52 @@ The colour component rides the ordinary machinery (unification, levels, generali
 
   A report that shows such a type while a replaced colour is unsolved shows the colour written.
 - **Every occurrence walk counts the effect slot**, at the arrow's own sign, and a join's parts are occurrences. A colour is a fact about invoking the function, which is what the result position already means, so a parameter arrow's colour is contravariant with the parameter arrow. Skipping the slot makes every colour variable read as absent to the variance analysis (`decisions-ml-dialect-generalization-2026-08.md` §4.1, §6.2), which would pin faces monomorphic that the arms above keep polymorphic.
+
+### 3.5 A colour in error
+
+Where the program fails to say what a function does, what it does is **in error**, as a value is where its type cannot be read (§3.2). A colour in error claims nothing: neither that the function touches the world nor that it does not. Purity is the strong claim (§1), so a failure never reads as pure.
+
+- **Where it arises.** Four failures make it, and what a failure is handed may take it (below):
+  - **A call whose callee failed:** an unknown name or a value in error, a callee that is not a function or not one of this call's arity, a dot call whose operation is not found or not decided (Method Syntax §3.5), and a call refused for standing above the honor or door it follows (§13.3).
+  - **A function type a value in error meets:** every arrow along what the function does and hands back is in error, as a handed callback, a merge or an annotation meets it. Beneath a parameter the sign turns, so what the function is handed keeps its colour.
+  - **An instance whose body is in error,** at that arrow (§13.3), and a `widens` door's in each of its spellings.
+  - **A refused knot's members,** seen from outside (§3.4).
+- **What a failure is handed is in error too, where nothing else decides it.** An untyped parameter (§3.4) whose colour meets a colour in error is in error:
+  - one merged with a use in error, claimed or not, since its colour is that use's too;
+  - one a value in error meets, whatever the order of the lines: a value in error that met its type before the type was known to be a function makes that function in error once it is one;
+  - one handed to a call in error, where no other `!` call claims it, since whether the call runs it is what the error hides. So is one handed inside a function the call is handed, such as a lambda that calls it: a repair may claim it through the lambda, `run!(() => f())`.
+
+  Calls through it owe no mark, and its arrow shows `->!`.
+- **A callback something else decides keeps its colour, and a `!` only it makes owed waits for the repair where a demand in error meets it.** This covers a written callback, and an untyped one that a `!` call claims (§3.4).
+  - Such a callback keeps its colour and its face. What it accepts is the text's, and a use re-opens it, so what it meets leaves it as it stands.
+  - A demand in error is one whose demand on the callback the failure hides:
+    - a type written in error: an annotation, an ascription, or a parameter written so;
+    - a call whose callee failed (an unknown name, a value in error, no function or none of this arity, a dot call not found or not decided), or a parameter whose type a callee that failed would have decided;
+    - a slot in error: a refused knot member's callback, or an untyped parameter in error.
+  - There, whether the failure pins the callback pure is what the error hides. A pin would make its `->!` a lie of generality (§4.2), and the repair would then report the `!` it once asked for as a `!` to remove.
+  - A value in error never pins it: a use re-opens the callback, so a merge with a value in error leaves it as it stands, whatever the value turns out to be. Nor does a call of a function whose body is in error, where the slot it meets is that function's text. There every report stands.
+  - So a call owes no `!` where only that colour makes it owed:
+    - a call through the callback;
+    - a call of the function that runs it, at that function's callers, in other modules too;
+    - a call through a callback such a caller hands it, which the pin would make pure as well.
+  - A call that touches the world whatever the callback does still wants `!`, and so does one through another callback. A mark the pin would leave as it is stands too, a `!` to remove among them. So `cb()` beside `a!(cb, 1)` to a refused `a` draws nothing until `a` is repaired, and then draws what the repair makes it.
+- **It travels as a colour does.** A body that runs it is in error, and so is a body that runs that one, through `let`s, knots, generalization and module interfaces.
+  - A free colour that meets it takes it. A join that meets it is left as it stands.
+  - A use re-opens a function in error as "in error or more" (§3.4), so a merge raises it as it raises any opening. Where nothing raises it, it is in error, where an opening would be pure: a merge with a pure function is in error, and a pure demand it meets leaves it in error.
+- **The impure constant wins.** A join holding a colour in error is in error, unless the join holds the impure constant, which may touch the world whatever the error turns out to be.
+  - So a body that calls an unknown name and also touches the world on its own account is impure, whatever the order of its lines. A bare call of it still wants `!`, and a knot's member is impure where a sibling is.
+  - A merge of a use in error with a function that touches the world is impure too, in either order of the branches.
+  - A callback's colour in such a join is absorbed. `let user(f) = { nope!(); f!() }` is in error, so `user(save0)` written bare draws nothing until `nope` is repaired. So is a merge of a callback with a use in error, and an untyped one is in error itself (above).
+- **It reads as nothing.** A call whose colour is in error owes no mark, marked or bare (§4.1). Nothing is compared against it:
+  - a face over a body in error (§4.2);
+  - a callback written `->!` that meets it, which is no lie of generality;
+  - an instance at its seat (§13.2);
+  - two callbacks that meet it, which are not tied.
+- **A written face over a body or value in error reads in error from outside where it is not known to stand.** That is a `>->`, whose refusal reads as `->!` (§4.4), and a `->` written by an ascription or a written result type, which reads as the body where the body touches the world. One that §4.2 refuses on the body's own account still reads as its refusal does. A binding annotation's `->` over a lambda stands as written, as it does over a lambda that touches the world. Over a named function it reads as the function does, so over one in error it reads in error. Its `>->` over a named function reads neither yet, refused or in error (#1242).
+- **Every report it leaves stands in the repaired program.** A colour in error stands only where an error is reported already. Whatever the repair makes it, no report drawn beside it changes. A report it holds back appears once the error is repaired: a mark through an absorbed callback, or a `!` a callback it met makes owed.
+
+This is Swift's recovery: a site its effect checker cannot analyse is classified invalid and diagnosed nowhere, and the classification absorbs whatever it merges with. Swift writes the effects of named functions, so only its closures meet the case. Every Hexagon function infers its colour, so every function meets it.
+
 
 ## 4. Enforcement is symmetric, and error-grade
 
@@ -415,7 +470,7 @@ The required mark at a call is computed from the callee's outermost colour at th
 
 > this call is pure, so `next` wants no mark, not `!`
 
-A failed constraint seat holds back mark reports on the colours it condemned (§13.2).
+A failed constraint seat holds back mark reports on the colours it condemned (§13.2). A call whose colour is in error owes no mark either way, and a `!` that only a callback a demand in error met makes owed waits for the repair (§3.5).
 
 ### 4.2 At faces: never less than the body does
 
@@ -478,6 +533,8 @@ A `>->` inside a parameter type takes one of two frames. On a callback's own arr
 - a `>->` anywhere else reads as the impure constant `->!`.
 
 Nothing downstream is suppressed or re-read. Every further report is one the program with the fix applied also draws, and the refused arrow is an ordinary colour, so no verdict depends on the order its uses come in. A writer who meant `->` where the fixit writes `->!` sees, until they write it, the mark reports a `->!` there implies.
+
+A failure with no fixit to read as is not a refusal of this kind: what it leaves is in error (§3.5). So is a written `>->` over a body in error, which is neither known to stand nor known to be refused.
 
 ## 5. Calls with no mark seat
 
@@ -628,6 +685,7 @@ Display is part of the contract: a signature a reader cannot see is not a face. 
   - `let mk() = Sink({ put = (h) => h!(() => ()) })` shows `mk : () -> Sink((() -> Unit) >-> Unit)`, a colour the caller chooses. `->!` there accepts any function, as the caller's choice does: `let mk(): Sink((() -> Unit) ->! Unit) = …`.
   - `let mk() = Cell({ get = () => (f) => f!(), put = (h) => () })` shows `mk : () -> Cell((() ->! a) >-> a)`, a function that follows the callback it is handed. No written face says so. `Cell((() ->! a) ->! a)` is accepted, and claims more of the function `get` hands out, whose calls then wear `!`.
 - **Display reads settled colours.** A report that shows a colour still unsolved shows the arrow written there, and `->` where nothing wrote one (§3.4).
+- **An arrow in error shows `->!`** (§3.5). No purity is claimed for a function whose body could not be read, and any function fits `->!`. A machine-written annotation does not write one: there is nothing yet to spell.
 - **A member at a known instance displays the instance's face; at its declaration and in generic code, the contract** (§13.3, §13.6).
 - **A constrained face wears its constraints as a bracket prefix**, `<a: Show> (Seq(a), (a) ->! Unit) >-> Unit`, per Functions §5.1. It is display-only, and a paste into an annotation position is refused there (Functions §5.1). No `=>` appears anywhere in a displayed type (§2).
 - **A machine-written annotation writes the face as displayed, where the grammar admits it there.** A `>->` is written only into a signature with callbacks of its own by then, a function's in the data a face returns being a signature of its own (§2.2.1). A face that depends on a captured colour is not written at all: the tool leaves the type to inference, which is the only spelling of that dependency. Both constants write freely, and a machine-written impure return annotation is spelled `->!` and needs no parentheses (§2.6).
@@ -649,7 +707,12 @@ Display is part of the contract: a signature a reader cannot see is not a face. 
 - **A `widens` door wearing the member's contract at its known type**: refused. It would give one operation at one type two marks, `m.put!("k")` beside `put(m, "k")` (§13.3; Constraints §4.7).
 - **Finishing an inferred callback's type by rewriting its face**: refused. A face that differs from the typing its body was checked against is sound only if every flow is re-derived, which is inferring twice. A callback is a black box instead, and a tie no written type can say is refused (§3.4).
 - **A local `>->` borrowing the enclosing function's colour**: refused. A local binding that should follow the enclosing callbacks leaves its type to inference (§2.2.1).
-- **A marked recovery colour for a refused `>->`**, one that suppresses what it reaches and binds nothing: refused. A refusal reads as its fixit, as Swift reads a misplaced `rethrows` as `throws` (§4.4).
+- **A marked recovery colour for a refused `>->`**, one that suppresses what it reaches and binds nothing: refused. A refusal reads as its fixit, as Swift reads a misplaced `rethrows` as `throws` (§4.4). A colour in error (§3.5) is for a failure that has no fixit to read as.
+- **Reading a failed callee as pure**: refused. Every caller with a correct `!` would be told to remove it, and the fixit would not be a repair (§3.5).
+- **Stopping effect checks at the first error**, as javac stops before its exception analysis and Koka at its first type error: refused. Every true mark report would wait while any name is half-typed.
+- **A colour in error that its context chooses**, as Flix's error node takes whatever effect it needs: refused. A mark is a demand, and demands never choose (§3.4), so `user!()` in one place and `user()` in another would decide it by line order.
+- **A colour in error that keeps a callback's colour beside it**, so that a missing `!` through the callback is reported before the error is repaired: not taken. Every colour rule would have to read a join that holds both.
+- **Asking for a `!` a callback makes owed while a pin on it is hidden**, so that `cb()` beside `a!(cb, 1)` to a refused `a` reports at once: refused. The failure may pin the callback pure. The repair would then report the callback's `->!` as a lie of generality and the `!` as one to remove, which is the round trip a colour in error exists to spare (§3.5). The report waits one round. **Holding it back wherever a colour in error meets the callback**, a merge with a value in error or a call of a function whose body is in error among them: refused. No repair pins it there, so every repair draws the report.
 - **Effect-parameterized types** (`Seq(a, e)`, Koka-style rows): refused. This reintroduces the machinery HM-nativeness exists to avoid, and the two-point lattice makes the nominal split (§7) strictly cheaper.
 - **The impure constant as a multi-member door's licence**: refused. A `widens` door whose listed members' contracts disagree would publish a face no member wrote (Constraints §4.7).
 - **Marks on references** ("effectful values"): values wear no colours (§2.6); the effect happens at the call.
@@ -683,12 +746,13 @@ Display is part of the contract: a signature a reader cannot see is not a face. 
 | A colour no parameter of a finished face holds is published function by function: pure on the face's own arrows, a colour of its own in each carried function whose parameters hold it, pure elsewhere | §2.4 |
 | Where a use hands something, a `->!` the value's own written type spells as the constant accepts any function, read from the text beside the value's type, a declared record field's by a field read and by a pattern naming the record's constructor; a lambda's written types meet an expectation as a use reads them; a lambda's untyped parameter under a type written whole, and a call whose written result type is ground, are decided by the text; a written result type that is not ground decides the arrows it spells, stopping at a variable, a hole or a `>->` | §2.6, §3.4 |
 | Call marks: bare or `!`, computed from the callee's outer colour; `?` is no mark and no token; a callee that is not a function, or is already in error, owes none | §3.1, §3.2, §4.1 |
+| What a function does where the program failed to say is in error: a failed or refused call, a function type a value in error meets, an instance or door whose body failed, a refused knot's arrows its text does not write as constants; so is an untyped parameter that meets one, and one a call in error is handed, directly or inside a function, that no `!` claims; a callback something else decides keeps its colour, and where a demand in error meets it (a type written in error, a failed callee, a slot in error), a `!` only it makes owed waits for the repair; it travels as a colour, binds a free colour, absorbs every join part but the impure constant, owes no mark, is compared with nothing, and shows `->!`; a written `>->` over it reads in error | §3.5, §10 |
 | Mark anchors the argument list; pipe stages and suffix constructions are calls; the outermost-arrow sentence | §3.2, §3.3 |
 | Colours are HM components; joins normalized; the join fragment for unification; hard cases settled late (Swift's collapse at settling), never Boolean unification | §3.4 |
 | Body colour: source, then the join of what it runs, then pure (the defaulting, whatever the callbacks); dependencies never defaulted | §3.4 |
 | An untyped parameter used as a function is decided by the marks of the calls it flows into: `!` claims its colour, bare leaves it pure, and a parameter no call reaches keeps its own colour, pure where another untyped parameter shares it | §3.4 |
 | Captured colours never generalize at the capturing binding; knots settle at their close (source, conduit, the untyped parameters, inner arrows and hard cases, default and ties, widen, then obligations) | §3.4 |
-| Recursion is monomorphic in colours; a recursive call hands on, at every application, only the callbacks it was given (a curried member's spine included), and a member that takes callbacks is named inside its knot only as a callee, applied until no callback is left, and hands back no data holding one; a colour shared only by handing on, with other members' parameters, is no tie; a refused knot reports only that, and outside it keeps its types, its colours undecided | §3.4 |
+| Recursion is monomorphic in colours; a recursive call hands on, at every application, only the callbacks it was given (a curried member's spine included), and a member that takes callbacks is named inside its knot only as a callee, applied until no callback is left, and hands back no data holding one; a colour shared only by handing on, with other members' parameters, is no tie; a refused knot reports only that, and outside it keeps its types and the arrows its text writes as constants, every other arrow in error | §3.4, §3.5 |
 | A body's close runs the arms, then decides the untyped parameters by the calls that reach them or by none reaching them, then closes its untyped callbacks' inner arrows, then the hard cases, then the remaining defaulting, then refuses ties; a colour decided later waits for its deadline, never defaulted before it and its demands recorded, types settling before colours; a knot sibling's holds the body (joined by its callers, its colour not generalized before it settles, what a held lambda's own callbacks run excepted; a pending dot call's held it too until Method Syntax §3 decided dot calls at the dot), while an instance's and an open subject's are one variable at their own level and hold nothing; a `->` member's call waits for nothing | §3.4 |
 | A callback is a black box: the function taking it sees only its own colour, and every arrow inside a callback's type means what it says, written or inferred; an untyped callback's inner arrows close by unification before defaulting (what it hands back `->!` unless pinned pure, what it is handed `->` or `->!` by what flowed); a tie between callbacks' colours is refused, with "write the type" as the repair, one report per tie across nested bodies, checked where the body owning the colour closes | §3.4, §10 |
 | Symmetric enforcement, error-grade; the lie of generality at a `->!` callback reported at the pin; an impure pin draws no report | §4 |
@@ -768,14 +832,14 @@ The lower-right cell is what the ordering buys: a `->!` member honored at an in-
   A call is generic when its subject variable generalizes: it is a type variable of the function's scheme, answered by evidence. A generic function is then as effectful as those calls. One that calls a `->!` member through its bound is a source, so `saveAll<s: Store>(st: s) = put!(st, "x")` is `->!`, and `saveAll!(mem)` wears `!` at every instance. The function carries no instance colour. An author who wants the pure instance's calls bare calls the member at the known type, or writes a function at that type.
 - **A call that follows an instance reads its honor's body, so the honor stands above it.** A known-instance call to a `->!` member, in any spelling, follows what a body does, and a body is read before it is relied on: for this one use, an `honor` obeys the top-down law that every term obeys (Functions §7.2).
   - An honor of this module above the call: the instance's own colour at each arrow was decided where its body closed (§13.2), and the call follows it.
-  - An honor below the call: the call is refused, as any declaration used above itself is: "this call follows what `Store<Mem>` does, and that honor is declared below it; declarations are read top-down — move the honor above this call". The refusal names the honor, not a mark, so no mark depends on where an honor stands.
+  - An honor below the call: the call is refused, as any declaration used above itself is: "this call follows what `Store<Mem>` does, and that honor is declared below it; declarations are read top-down — move the honor above this call". The refusal names the honor, not a mark, so no mark depends on where an honor stands, and what the refused call does is in error (§3.5).
   - A call inside the body it would read follows the contract, because that body is not yet read: inside the honor's own body, a call at its own instance, and inside a `widens` door's body, a call through the member it supplies. A recursive instance of a `->!` member is therefore effectful at its calls, `size!(t)`, whatever its body does. Honor knots, declared as a `fun` block declares its knot, would let such an instance follow its body (Constraints §9.8).
   - Two honors whose bodies call each other's `->!` members cannot both stand above the other, and neither can an honor and a function that call each other through such a member: one of the calls is refused. Recursion through an instance is spelled inside one honor's body.
   - Everything else about an honor stays free of source order (Declarations Preamble §7.2): which instance a type selects, its `->` and `>->` members, whose contracts decide them (§13.2), the evidence it hands generic code, interpolation and operators.
   - A member a `widens` door supplies is the door's body (Constraints §4.7). Every spelling of a call to it reads the door, so the door stands above the call, as it does for the door's own spellings, wherever the honor that accounts for it stands; an honor's own body calling it reads the door too. A call through the member above the door is refused: "this call follows the `widens` door that supplies `tag` at `P`, and that door is declared below it; declarations are read top-down — move the door above this call".
   - An instance that uses the member's default body has the default's own colour, checked in the constraint's generic context. The constraint stands above every call of its member already (Functions §7.2).
   - A derived instance is pure by construction.
-  - An instance's own colours are part of its module's interface, published with the instance, so an importing module's known-instance call follows them too. An import stands above every use.
+  - An instance's own colours are part of its module's interface, published with the instance, so an importing module's known-instance call follows them too. An import stands above every use. An instance whose body is in error at an arrow publishes that arrow in error (§3.5).
 - **What `!` means, restated.** A bare member call is statically pure. A `!` call *may* touch the world, and does not promise that it does on this execution. Mark checking stays exact (§4.1): the required mark is the colour this call follows, and any other mark is the error it always was.
 - **The price.** An instance's face is its body's, so changing the body can change the marks and colours of its known-instance callers, in its own module and in importers, exactly as changing any function's body can. Generic callers never change: they wear the contract. Changing an instance within its contract's allowance never changes whether a program is well-formed, only which of its known-instance calls are bare.
 

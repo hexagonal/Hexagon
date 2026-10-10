@@ -437,6 +437,11 @@ export function spellType(
       // legal at all (§2.2.1). Either way the call marks every caller owes can
       // change. So this refuses rather than writing text whose meaning depends
       // on where it lands.
+      // A colour in error has no spelling: what the function does is unknown,
+      // as an error type is (`spec/effects.md` §3.5, #1223).
+      if (type.effect === "error") {
+        return { unspellable: "part of the inferred type is unknown, because the definition has an error" };
+      }
       if (type.effect !== undefined && type.effect !== "impure") {
         return {
           unspellable:
