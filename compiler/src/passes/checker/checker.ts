@@ -4033,6 +4033,15 @@ class Checker {
    * nothing (Effects §3.5, #1223).
    */
   readonly #erroredTypes = new Set<Variable>();
+  /**
+   * The colours a colour in error met that something else decides (Effects
+   * §3.5, #1223): a written callback's, a claimed one's, a value's. Each keeps
+   * its colour, but whether the failure pins it pure is what the error hides,
+   * so a `!` it alone makes owed is held back (`#checkMarks`). An instance
+   * of one is held back too (`#instantiate`), and so is what one is bound to
+   * (`#bind`, `#bindJoin`).
+   */
+  readonly #heldBackColours = new Set<Variable>();
   /** The `widens` doors whose bodies are being checked, by `${identity} ${member}`. */
   readonly #openDoors = new Set<string>();
 
@@ -21399,17 +21408,10 @@ class Checker {
    * neither the verdict nor the report depends on the order of the lines.
    */
   #settleUntyped(frame: EffectFrame): void {
-    if (frame.untyped.length === 0) return;
-    const claimed = new Set<Variable>();
-    for (const colour of frame.marked) {
-      for (const part of this.#colourParts(colour)) claimed.add(part);
-    }
-    const read = new Set<Variable>();
-    for (const colour of frame.bare) {
-      for (const part of this.#colourParts(colour)) read.add(part);
-    }
-    // What a call in error is handed is in error where no other call claims it
-    // (Effects §3.5, #1223): whether the call runs it is what the error hides.
+    // What a call in error is handed is in error where nothing else decides
+    // it (Effects §3.5, #1223): whether the call runs it, and claims it, is
+    // what the error hides, and so is whether it pins it pure. A colour
+    // something else decides keeps it, its marks held back.
     const failedHands = new Set<Variable>();
     for (const { effect, call } of frame.calls ?? []) {
       if (this.#prune(effect).kind !== "ErrorColour") continue;
@@ -21418,6 +21420,16 @@ class Checker {
         const type = this.#expressionTypes.get(argument);
         if (type !== undefined) for (const part of this.#arrowColours(type)) failedHands.add(part);
       }
+    }
+    this.#holdBack(failedHands);
+    if (frame.untyped.length === 0) return;
+    const claimed = new Set<Variable>();
+    for (const colour of frame.marked) {
+      for (const part of this.#colourParts(colour)) claimed.add(part);
+    }
+    const read = new Set<Variable>();
+    for (const colour of frame.bare) {
+      for (const part of this.#colourParts(colour)) read.add(part);
     }
     // Every parameter is read before any is decided: a colour shared with a
     // sibling untyped parameter is still this body's to decide, and claimed it
@@ -22847,22 +22859,46 @@ class Checker {
             ...(record.tail === undefined ? {} : { tail: record.tail }),
           };
         }
+        // A type argument's arrows, as a use reads them (`#openReceived`).
         case "Union":
         case "NominalRecord":
         case "ExternType":
-          return { ...actual, arguments: actual.arguments.map((argument) => copy(argument, undefined, around)) };
+          return {
+            ...actual,
+            arguments: actual.arguments.map((argument, index) =>
+              copy(argument, part(written, (annotation) =>
+                annotation.kind === "Union" || annotation.kind === "RecordDeclaration" ||
+                  annotation.kind === "ExternType"
+                  ? annotation.arguments[index]
+                  : undefined), around)
+            ),
+          };
         case "Vector":
         case "Set":
-          return { ...actual, element: copy(actual.element, undefined, around) };
         case "Array":
         case "JsSet":
         case "Node":
-          return { kind: actual.kind, element: copy(actual.element, undefined, around) };
+          return {
+            ...actual,
+            element: copy(actual.element, part(written, (annotation) =>
+              "element" in annotation ? annotation.element : undefined), around),
+          };
         case "Nullable":
-          return { kind: "Nullable", value: copy(actual.value, undefined, around) };
+          return {
+            kind: "Nullable",
+            value: copy(actual.value, part(written, (annotation) =>
+              annotation.kind === "Nullable" ? annotation.value : undefined), around),
+          };
         case "Map":
-        case "JsMap":
-          return { ...actual, key: copy(actual.key, undefined, around), value: copy(actual.value, undefined, around) };
+        case "JsMap": {
+          const pair = (annotation: Resolved.TypeAnnotation) =>
+            annotation.kind === "Map" || annotation.kind === "JsMap" ? annotation : undefined;
+          return {
+            ...actual,
+            key: copy(actual.key, part(written, (annotation) => pair(annotation)?.key), around),
+            value: copy(actual.value, part(written, (annotation) => pair(annotation)?.value), around),
+          };
+        }
         default:
           return actual;
       }
@@ -24032,6 +24068,8 @@ class Checker {
   /** Ruling 7, at every written call: the mark is a function of the solved colour. */
   #checkMarks(): void {
     for (const obligation of this.#markObligations) {
+      // Read before the prune below compresses the chain (`#pastHeldBack`).
+      const pastHeldBack = this.#pastHeldBack(obligation.effect);
       // The defaulting clause at calls (§3.4, #868): a colour, or a part of
       // one, still undetermined that is no callback's is pure. Knots have
       // closed by now, so no sibling's colour is still live to be pinned here.
@@ -24053,6 +24091,12 @@ class Checker {
       // on at the ruling, before this loop's own `#prune` above compressed the
       // chain it would have had to walk.
       if (this.#reportedCalls.has(obligation)) continue;
+      // A `!` only a colour a colour in error met makes owed is held back:
+      // a pin the error hides would make the call pure (§3.5, #1223).
+      if (required === "bang" && pastHeldBack !== undefined) {
+        const pinned = this.#join(pastHeldBack);
+        if (pinned.kind === "Effect" && Colour.markFor(pinned) !== "bang") continue;
+      }
       this.#diagnostics.add({
         severity: "error",
         message: markMessage(obligation.callee, obligation.mark, required),
@@ -24544,6 +24588,45 @@ class Checker {
         break;
     }
     return found;
+  }
+
+  /**
+   * Holds back the marks these colours decide, where a colour in error met
+   * them (`#heldBackColours`). An opening is left out: it is one use's room
+   * for more, and a mark that reads it reads the colours it is joined with.
+   */
+  #holdBack(colours: Iterable<Mono>): void {
+    for (const colour of colours) {
+      if (colour.kind === "Variable" && !this.#openedColours.has(colour)) this.#heldBackColours.add(colour);
+    }
+  }
+
+  /**
+   * What a mark's colour is with every held-back colour on its chain pure, as
+   * a pin would make it (Effects §3.5, #1223): the colours the chain reaches
+   * past them, whose join `#checkMarks` reads once they are defaulted.
+   * `undefined` where the chain holds none. It is walked as it stands, before
+   * a prune compresses a held-back node out of it.
+   */
+  #pastHeldBack(colour: Mono): Mono[] | undefined {
+    if (this.#heldBackColours.size === 0) return undefined;
+    let held = false;
+    const reached: Mono[] = [];
+    const visit = (node: Mono): void => {
+      if (node.kind === "Join") {
+        for (const part of node.parts) visit(part);
+      } else if (node.kind !== "Variable") {
+        reached.push(node);
+      } else if (this.#heldBackColours.has(node)) {
+        held = true;
+      } else if (node.instance === undefined) {
+        reached.push(node);
+      } else {
+        visit(node.instance);
+      }
+    };
+    visit(colour);
+    return held ? reached : undefined;
   }
 
   /** A colour's variable parts as it stands now: none for a constant, one for a variable, a join's parts. */
@@ -25056,7 +25139,13 @@ class Checker {
     }
     // A colour in error binds a free colour (above) and meets anything else
     // without a report: nothing is compared against it (Effects §3.5, #1223).
-    if (actualLeft.kind === "ErrorColour" || actualRight.kind === "ErrorColour") return;
+    // A join it meets is left as it stands, and whether the failure pins the
+    // colours that decide the join is what the error hides.
+    if (actualLeft.kind === "ErrorColour" || actualRight.kind === "ErrorColour") {
+      const other = actualLeft.kind === "ErrorColour" ? actualRight : actualLeft;
+      if (other.kind === "Join") this.#holdBack(other.parts);
+      return;
+    }
     if (this.#absorbNullishVariable(actualLeft, actualRight, span)) return;
     if (actualLeft.kind === "Join" || actualRight.kind === "Join") {
       this.#unifyJoin(actualLeft, actualRight, span, message);
@@ -25565,6 +25654,10 @@ class Checker {
       // So does an opening's floor in error, and a value in error's meeting (#1223).
       if (this.#errorFloors.has(variable)) this.#errorFloors.add(type);
       if (this.#erroredTypes.has(variable)) this.#erroredTypes.add(type);
+      // So does a hold on its marks, either way: the two are one colour now,
+      // and a prune may cut the held one out of the other's chain.
+      if (this.#heldBackColours.has(variable)) this.#heldBackColours.add(type);
+      else if (this.#heldBackColours.has(type)) this.#heldBackColours.add(variable);
       // A seat's hold on its colour moves with the representative (§13.2), and
       // so does a callback's.
       if (this.#seatHeld.has(variable)) this.#seatHeld.add(type);
@@ -25740,6 +25833,9 @@ class Checker {
     if (this.#errorFloors.has(variable)) {
       for (const part of join.parts) if (this.#openedColours.has(part)) this.#errorFloors.add(part);
     }
+    // A colour whose pin the error hides holds back the colours it joins: the
+    // pin would make each of them pure.
+    if (this.#heldBackColours.has(variable)) this.#holdBack(join.parts);
     const rest = join.parts.filter((part) => part !== variable);
     const slacks = rest.filter((part) => this.#openedColours.has(part));
     const real = rest.filter((part) => !this.#openedColours.has(part));
@@ -30179,6 +30275,10 @@ class Checker {
         // A value in error met this variable before it generalized: each use
         // has met it too (#1223).
         if (this.#erroredTypes.has(actual) && replacement.kind === "Variable") this.#erroredTypes.add(replacement);
+        // So has a colour whose pin the error hides: each use's (#1223).
+        if (this.#heldBackColours.has(actual) && replacement.kind === "Variable") {
+          this.#heldBackColours.add(replacement);
+        }
         if (copiedRequirements.has(actual.id)) return replacement;
         copiedRequirements.add(actual.id);
         for (const requirement of actual.requirements) {
@@ -31124,6 +31224,11 @@ class Checker {
       this.#quantified.add(variable.id);
     }
     for (const id of scheme.variables) variables.set(id, minted.get(id)!);
+    // The marks its home held back are held back here (§3.5, #1223).
+    for (const id of scheme.heldBack ?? []) {
+      const variable = minted.get(id);
+      if (variable !== undefined) this.#heldBackColours.add(variable);
+    }
     const copy = (type: Typed.Type): Mono => {
       switch (type.kind) {
         case "Primitive": return primitive(type.name);
@@ -34540,10 +34645,13 @@ class Checker {
         constraints.set(`${constraint.identity}:${variable.id}`, constraint);
       }
     }
+    const heldBack = variables.filter((variable) => this.#heldBackColours.has(variable));
     return {
       variables: variables.map(({ id }) => Typed.typeVariableId(id)),
       constraints: [...constraints.values()],
       type: this.#publicType(scheme.type),
+      // An importer's calls hold back the marks they do at home (§3.5, #1223).
+      ...(heldBack.length === 0 ? {} : { heldBack: heldBack.map(({ id }) => Typed.typeVariableId(id)) }),
       // A constraint member's scheme says so, so an importer can read it back
       // (Modules §6.5): without it, `describe` arrives as a function that
       // happens to be constrained and its implied types never project.

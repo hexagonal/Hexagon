@@ -2749,9 +2749,66 @@ describe("Effects §3.5 — a colour in error (#1223)", () => {
       "`x`'s type, or call the operation by its module (`Module.foo(x, …)`); a record's field is called as " +
       "`(x.foo)(…)`",
     ]);
-    // A written callback keeps its own colour.
-    expect(check("let outer(c: Bool, f: () ->! Unit): Unit =\n    let g = if c then f else nope\n    f()\n" +
-      "export let p1(): Unit = outer(True, save0)\n")).toEqual([unknown, wants("`f`"), wants("`outer`")]);
+    // Handed inside a lambda that runs it: a repair can claim it through the
+    // lambda, `run!(() => f())`, and the bare `f()` is then a missing mark
+    // (#1243 review r2, N2).
+    expect(check("let outer(f) =\n    let h = () => nope(() => f())\n    f()\nexport let p1(): Unit = outer(save0)\n"))
+      .toEqual([unknown]);
+  });
+
+  it("holds back the marks a written callback alone makes `!` where it meets a colour in error", () => {
+    // Whether the failure pins it pure is what the error hides: a repair
+    // `pureOnly(f)` would make `f` pure, its `->!` a lie of generality.
+    for (
+      const meeting of [
+        "let g = if c then f else nope",
+        "let g = pick(f, nope)",
+        "let g: Nope = f",
+        "nope(f)",
+        "nope(() => f!())",
+      ]
+    ) {
+      const errors = meeting.includes("Nope") ? ["unknown type `Nope`"] : [unknown];
+      expect(check(`let outer(c: Bool, f: () ->! Unit): Unit =\n    ${meeting}\n    f()\n` +
+        "export let p1(): Unit = outer(True, save0)\n")).toEqual(errors);
+    }
+    // At a caller, and through a callback the caller hands it, written or
+    // claimed, which the pin would make pure too.
+    // Whatever the order of the lines.
+    for (const h of ["h: () ->! Unit", "h"]) {
+      for (const [first, second] of [["outer!(h)", "h()"], ["h()", "outer!(h)"]]) {
+        expect(check(
+          "let outer(f: () ->! Unit): Unit =\n    let g = pick(f, nope)\n    f!()\n" +
+            `let mid(${h}): Unit =\n    ${first}\n    ${second}\nexport let p1(): Unit = mid(save0)\n`,
+        )).toEqual([unknown]);
+      }
+    }
+    // So is an untyped parameter a `!` call claims, handed to a call in error:
+    // the claim keeps it out of error (§3.5), and the repair `pureOnly(f)`
+    // would make the `!` the report instead.
+    expect(check("let outer(f) =\n    f!()\n    nope(f)\n    f()\n")).toEqual([unknown]);
+    // Through a module's interface.
+    expect(twoModules(
+      "let pick(x: a, y: a): a = y\nexport let outer(f: () ->! Unit): Unit =\n    let g = pick(f, nope)\n    f!()\n" +
+        "export let s0(): Unit = save!(\"x\")\n",
+      "export let p1(): Unit = Lib.outer(Lib.s0)\n",
+    )).toEqual([unknown]);
+    // A mark the pin would leave as it is stands: what touches the world
+    // whatever the callback does, another callback, and a mark to remove.
+    expect(check(
+      "let outer(c: Bool, f: () ->! Unit): Unit =\n    let g = pick(f, nope)\n    let k = if c then f else save0\n" +
+        "    k()\n",
+    )).toEqual([unknown, wants("`k`")]);
+    expect(check("let outer(f: () ->! Unit): Unit =\n    let g = pick(f, nope)\n    save!(\"x\")\n    f!()\n" +
+      "export let p1(): Unit = outer(save0)\n")).toEqual([unknown, wants("`outer`")]);
+    expect(check(
+      "let both(f: () ->! Unit, h: () ->! Unit): Unit =\n    let g = pick(f, nope)\n    f!()\n    h()\n" +
+        "export let p1(): Unit = both(save0, save0)\n",
+    )).toEqual([unknown, wants("`h`"), wants("`both`")]);
+    expect(check("let outer(f: () ->! Unit): Unit =\n    let g = pick(f, nope)\n    f!()\nexport let p1(): Unit = outer!(noop)\n"))
+      .toEqual([unknown, noMark("`outer`")]);
+    // A callback written `->` is pure as written.
+    expect(check("let outer(f: () -> Unit): Unit =\n    let g = pick(f, nope)\n    f!()\n")).toEqual([unknown, noMark("`f`")]);
   });
 
   it("keeps every report that does not depend on it", () => {
@@ -2770,6 +2827,8 @@ describe("Effects §3.5 — a colour in error (#1223)", () => {
 
   it("makes a refused knot's member in error however it is reached, and keeps the arrows its text writes", () => {
     const a = "fun a(cb: () ->! Unit, n: Int): Unit = if n == 0 then cb!() else a!(() => cb!(), n - 1)\n";
+    const purity = "a `->` arrow promises purity, and this function may touch the world — the demand is written `->`, " +
+      "the function's face `->!` or `>->`";
     // By name, as a value, and through data it hands back.
     expect(bothMarks((mark) => `${a}export let probe(): Unit = a${mark}(save0, 1)\n`)).toEqual([[made], [made]]);
     expect(check(`${a}let applyU(f) = f!(save0, 1)\nexport let probe(): Unit = applyU!(a)\n`)).toEqual([made]);
@@ -2777,8 +2836,9 @@ describe("Effects §3.5 — a colour in error (#1223)", () => {
       "fun a(cb, n: Int) =\n    cb!()\n    if n == 0 then (cb, 1) else a(() => (), n - 1)\n" +
         "export let probe(): Unit =\n    let (r, _) = a!(save0, 1)\n    r!()\n",
     )).toEqual(["this function is not one `a` was given, and a recursive call hands on only the callbacks it was given"]);
-    // A callback a caller hands it keeps the caller's colour.
-    expect(check(`${a}let g(cb: () ->! Unit): Unit =\n    a!(cb, 1)\n    cb()\n`)).toEqual([made, wants("`cb`")]);
+    // A callback a caller hands it keeps the caller's colour, and the marks it
+    // alone makes `!` wait on the refusal: whether the repair pins it is hidden.
+    expect(check(`${a}let g(cb: () ->! Unit): Unit =\n    a!(cb, 1)\n    cb()\n`)).toEqual([made]);
     // An untyped parameter a caller hands it is in error, whichever line comes first.
     for (const [first, second] of [["a!(f, 1)", "f()"], ["f()", "a!(f, 1)"]]) {
       expect(check(`${a}let g(f) =\n    ${first}\n    ${second}\nexport let p(): Unit = g(save0)\n`)).toEqual([made]);
@@ -2788,10 +2848,28 @@ describe("Effects §3.5 — a colour in error (#1223)", () => {
       "fun a(cb: (() -> Unit) ->! Unit, n: Int): Unit = if n == 0 then cb!(noop) else a!((h) => cb!(h), n - 1)\n" +
         "export let p(): Unit = a!((h) => h!(), 1)\n",
     )).toEqual([made, noMark("`h`")]);
+    // So is one inside a type argument, handed (#1243 review r2, N1)…
+    for (
+      const [type, value] of [
+        ["Option(() -> Unit)", "Some(save0)"],
+        ["Vector(() -> Unit)", "[save0]"],
+        ["Map(String, () -> Unit)", "Map.singleton(\"k\", save0)"],
+        ["Nullable(() -> Unit)", "maybe()"],
+      ]
+    ) {
+      expect(check(
+        "extern from \"./world.js\"\n    export fun maybe() -> Nullable(() ->! Unit)\n" +
+          `fun a(o: ${type}, cb: () ->! Unit, n: Int): Unit =\n    if n == 0 then cb!() else a(o, () => cb!(), n - 1)\n` +
+          `export let p(): Unit = a!(${value}, noop, 1)\n`,
+      )).toEqual([made, purity]);
+    }
+    // …or handed back.
+    expect(check(
+      "fun a(cb: () ->! Unit, n: Int): Option(() -> Unit) = if n == 0 then Some(noop) else a(() => cb!(), n - 1)\n" +
+        "export let p(): Unit =\n    match a(save0, 1)\n        Some(g) => g!()\n        None => ()\n",
+    )).toEqual([made, noMark("`g`")]);
     // An arrow its text writes as a constant is the text's: the refused member
     // draws what its repair draws, beside the refusal.
-    const purity = "a `->` arrow promises purity, and this function may touch the world — the demand is written `->`, " +
-      "the function's face `->!` or `>->`";
     const written = (handed: string) =>
       `fun a(n: Int): (() -> Unit) -> Unit = (cb) => if n == 0 then () else a(n - 1)(${handed})\n` +
       "export let p1(): Unit = a(2)!(noop)\nexport let p2(): Unit = a(2)(save0)\n";

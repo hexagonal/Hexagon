@@ -295,6 +295,13 @@ export interface Scheme {
    * just another operation constraint.
    */
   readonly constraint?: SchemeConstraint;
+  /**
+   * The quantified colours a colour in error met where the binding was
+   * checked (`spec/effects.md` §3.5, #1223): a written callback's, whose pin
+   * the error hides. A call's mark only one of them makes `!` is held back,
+   * in an importer as at home. Absent where there are none.
+   */
+  readonly heldBack?: readonly TypeVariableId[];
 }
 
 /** The constraint a constraint member's scheme belongs to; see `Scheme`. */
