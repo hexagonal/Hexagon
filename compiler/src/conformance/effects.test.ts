@@ -2811,6 +2811,29 @@ describe("Effects §2.6 — a short form reads as its longhand twin (#1213 (T))"
     expect(reports.map((message) => message.startsWith(purity))).toEqual([true]);
   });
 
+  it("reads a seat whose count does not match as written: the mismatch, and no mark judged by it", () => {
+    // `h` runs `save0`, so its `!` is right: the mismatch is the report.
+    for (const [seat, call] of [["let h: (() ->! Unit, Int) ->! Unit = r", "h!(save0, 1)"]]) {
+      const reports = effectDiagnostics([["/world.js", ""], ["/main.hex",
+        prelude + "let save0(): Unit = save!(\"x\")\nexport let outer(): Unit =\n    let (r, _) = make()\n" +
+        `    ${seat}\n    ${call}\n    ()\n`]]);
+      expect([seat, reports.filter((message) => message.includes("wants no mark"))]).toEqual([seat, []]);
+    }
+  });
+
+  it("reads a callback a lambda in place captures as its let-bound twin does (b1170 `tieAct`)", () => {
+    // `r` runs only what it is handed: a pure lambda here, so the call is pure,
+    // written bare, as the twin reads it, whatever `tieTwo` met.
+    for (const lambda of ["(g: () ->! Unit) => action!()", "lam"]) {
+      const before = lambda === "lam" ? "    let lam = (g: () ->! Unit) => action!()\n" : "";
+      const source = (call: string) => prelude + "export let outer(action: () ->! Unit): Unit =\n" +
+        "    let (r, _) = make()\n" + before + `    tieTwo(${lambda}, r)\n    ${call}\n    ()\n`;
+      expect([lambda, effectDiagnostics([["/world.js", ""], ["/main.hex", source("r(() => ())")]])]).toEqual([lambda, []]);
+      expect([lambda, effectDiagnostics([["/world.js", ""], ["/main.hex", source("r!(() => ())")]])])
+        .toEqual([lambda, ["this call is pure, so `r` wants no mark, not `!`"]]);
+    }
+  });
+
   it("keeps what the longhand keeps: a parameter's arrow inside a callback is the impure constant", () => {
     // `keepRunner` may hand `r` any function, so `r` may touch the world, and
     // `outer` with it, in every order, as `(cb) => r!(cb)` handed there would.

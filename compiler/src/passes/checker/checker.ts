@@ -10481,7 +10481,9 @@ class Checker {
         // use meets an instance of each, the expectation landing on it
         // included, as it meets a binding's instance. The body keeps the
         // colours written.
-        const inPlace = declaringMember === undefined && this.#bindingValue?.value !== expression;
+        // A binding's value read through grouping is its own, as `let` reads it.
+        const inPlace = declaringMember === undefined &&
+          (this.#bindingValue === undefined || ungrouped(this.#bindingValue.value) !== expression);
         const instances = new Map<number, { readonly colour: Variable; readonly instance: Variable }>();
         const instanceOf = (written: Mono): Mono => {
           if (!inPlace || face === undefined) return written;
@@ -23400,7 +23402,7 @@ class Checker {
   }
 
   /**
-   * **A value at a written seat reads as its eta-expansion** *(Effects §4.2,
+   * **A value at a written seat reads as its eta-expansion** *(Effects §2.6,
    * #1213 (T))*: `let h: (() ->! Unit) ->! Unit = r` reads as
    * `(cb) => r!(cb)` would. Where the seat hands a function of the value's
    * something (a callback, at its parameter), the written parameter is read
@@ -23438,7 +23440,8 @@ class Checker {
     const unchanged = { met: written, published: value };
     switch (seat.kind) {
       case "Function": {
-        if (given.kind !== "Function") return unchanged;
+        // A count that does not match is the seat's own mismatch, read as written.
+        if (given.kind !== "Function" || given.parameters.length !== seat.parameters.length) return unchanged;
         const parameters = seat.parameters.map((parameter) => this.#openReceived(parameter, level));
         const result = this.#seatRead(seat.result, given.result, level);
         if (result.met === seat.result && parameters.every((parameter, index) => parameter === seat.parameters[index])) {
@@ -23456,7 +23459,7 @@ class Checker {
         return { met, published };
       }
       case "Tuple": {
-        if (given.kind !== "Tuple") return unchanged;
+        if (given.kind !== "Tuple" || given.elements.length !== seat.elements.length) return unchanged;
         const parts = seat.elements.map((element, index) =>
           given.elements[index] === undefined
             ? { met: element, published: element }
