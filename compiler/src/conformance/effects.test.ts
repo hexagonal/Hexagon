@@ -841,10 +841,17 @@ export let use(): Unit = mk(noop)()
         g
     ()
 `)).toEqual(["g"]);
-    // An arrow a pin itself made impure is one report, not two.
-    expect(at(`let apply(f: (() ->! Unit) ->! (() ->! Unit)): Unit = f!(() => ())!()
-export let u(): Unit = apply!((cb: () ->! Unit): () >-> Unit => cb)
-`)).toEqual(["cb"]);
+    // A lambda written in place reads as its let-bound twin (#1213 (T)): the
+    // seat meets an instance of its written callback, so handing it back is no
+    // lie, and a function it hands back that touches the world on its own
+    // account is the report, at that call.
+    const apply = "let apply(f: (() ->! Unit) ->! (() ->! Unit)): Unit = f!(() => ())!()\n";
+    for (const lambda of ["(cb: () ->! Unit): () >-> Unit => cb", "(cb: () ->! Unit): () >-> Unit => () => save!(\"q\")"]) {
+      const twin = at(`${apply}let lam = ${lambda}\nexport let u(): Unit = apply!(lam)\n`);
+      expect([lambda, at(`${apply}export let u(): Unit = apply!(${lambda})\n`)]).toEqual([lambda, twin]);
+    }
+    expect(at(`${apply}export let u(): Unit = apply!((cb: () ->! Unit): () >-> Unit => () => save!("q"))\n`))
+      .toEqual(['save!("q")']);
   });
 
   it("never counts a call the body runs itself, and gives each arrow and each merged lambda its own search", () => {
@@ -2694,6 +2701,152 @@ describe("Effects §3.4 — what a held lambda's own callbacks run is not held (
   });
 });
 
+describe("Effects §2.6 — a short form reads as its longhand twin (#1213 (T))", () => {
+  const prelude = "module Main\n\n" + world + "let noop(): Unit = ()\nlet ident(x: a): a = x\n" +
+    "let pick(x: a, y: a): a = y\nlet tieTwo(x: a, y: a): Unit = ()\n" +
+    "let make() =\n    let run = ident((f) => f!())\n    run!(() => ())\n    (run, 1)\n";
+  const outer = (lines: readonly string[]): string =>
+    prelude + "export let outer(a1: () ->! Unit, a2: () ->! Unit): Unit =\n    let (r, _) = make()\n" +
+    lines.map((line) => `    ${line}\n`).join("") + "    ()\n" +
+    "let user(p, q) = outer!(p, q)\nexport let top(): Unit = outer(noop, noop)\n";
+  /** Each line placed first, between and last among the two callbacks `r` is handed. */
+  const placed = (line: string): string[][] => [
+    [line, "r!(a1)", "r!(a2)"],
+    ["r!(a1)", line, "r!(a2)"],
+    ["r!(a1)", "r!(a2)", line],
+  ];
+  const follows = "(() ->! Unit, () ->! Unit) >-> Unit";
+
+  it("reads a value at a written seat as its eta-expansion, in every order: no tie, and no collapse", () => {
+    // Verdict Table rows 84 and 84b: met last, the seat collapsed to `->!`;
+    // met first, `a1` and `a2` were made one colour, which `user` met as a tie.
+    for (
+      const seat of [
+        "let h: (() ->! Unit) ->! Unit = r",
+        "let h = (r : (() ->! Unit) ->! Unit)",
+        "let mk(): (() ->! Unit) ->! Unit = r\n    let h = mk()",
+        "let h: (() -> Unit) ->! Unit = r",
+      ]
+    ) {
+      for (const lines of placed(seat)) {
+        const source = outer(lines);
+        expect([lines, effectDiagnostics([["/world.js", ""], ["/main.hex", source]])]).toEqual([lines, []]);
+        expect([lines, hoveredType(source, "outer(a1")]).toEqual([lines, follows]);
+      }
+    }
+  });
+
+  it("reads a lambda written in place as its let-bound twin, in every order", () => {
+    for (
+      const meet of [
+        "tieTwo(r, (g: () ->! Unit) => a2!())",
+        "tieTwo(r, (g: () ->! Unit) => g!())",
+        "let z = pick(r, (g: () ->! Unit) => a2!())",
+        "let z = if True then r else (g: () ->! Unit) => a2!()",
+      ]
+    ) {
+      for (const lines of placed(meet)) {
+        const source = outer(lines);
+        expect([lines, effectDiagnostics([["/world.js", ""], ["/main.hex", source]])]).toEqual([lines, []]);
+        expect([lines, hoveredType(source, "outer(a1")]).toEqual([lines, follows]);
+      }
+    }
+  });
+
+  it("reads the value through what it supplies: a tuple's, an `Option`'s or a vector's function, and what a function returns", () => {
+    for (
+      const seat of [
+        "let p: ((() ->! Unit) ->! Unit, Int) = (r, 1)",
+        "let p: Option((() ->! Unit) ->! Unit) = Some(r)",
+        "let p: Vector((() ->! Unit) ->! Unit) = [r]",
+      ]
+    ) {
+      for (const lines of placed(seat)) {
+        const source = outer(lines);
+        expect([lines, effectDiagnostics([["/world.js", ""], ["/main.hex", source]])]).toEqual([lines, []]);
+        expect([lines, hoveredType(source, "outer(a1")]).toEqual([lines, follows]);
+      }
+    }
+    // A pure callback the seat writes, handed to a function that accepts any.
+    const holder = "record Holder = { run: (() ->! Unit) -> Unit }\nlet hold = Holder({ run = (f) => () })\n" +
+      "let takeAny(k) = hold.run(k)\n";
+    expect(effectDiagnostics([["/world.js", ""], ["/main.hex", prelude + holder +
+      "export let go(): Unit =\n    let q: (Int) -> ((() -> Unit) -> Unit) = ident((n: Int) => takeAny)\n    q(1)(noop)\n"]]))
+      .toEqual([]);
+  });
+
+  it("reads a lambda written in place as its let-bound twin where its callback is bound outside it too", () => {
+    // `g` is handed to `r`, so its colour is `r`'s, as at a `let`: the twin's
+    // verdict and face, whatever they are, in every order.
+    for (const lines of placed("tieTwo(r, (g: () ->! Unit) => r!(g))")) {
+      const twin = lines.map((line) => line.startsWith("tieTwo") ? "let lam = (g: () ->! Unit) => r!(g)\n    tieTwo(r, lam)" : line);
+      const verdict = (source: string) => [
+        effectDiagnostics([["/world.js", ""], ["/main.hex", source]]),
+        hoveredType(source, "outer(a1"),
+      ];
+      expect([lines, verdict(outer(lines))]).toEqual([lines, verdict(outer(twin))]);
+    }
+  });
+
+  it("publishes the written parameters, as the expansion's own would be", () => {
+    // The seat no longer pins `r`'s callback pure, but `h` is what was written:
+    // it accepts only a pure callback, at a binding, an ascription and a
+    // written result type alike.
+    const purity = "a `->` arrow promises purity, and this function may touch the world — the demand is written " +
+      "`->`, the function's face `->!` or `>->`";
+    for (
+      const body of [
+        "    let (r, _) = make()\n    let h: (() -> Unit) ->! Unit = r\n    h!(save0)\n",
+        "    let (r, _) = make()\n    (r : (() -> Unit) ->! Unit)!(save0)\n",
+      ]
+    ) {
+      const reports = effectDiagnostics([["/world.js", ""], ["/main.hex",
+        prelude + "let save0(): Unit = save!(\"x\")\nexport let go(): Unit =\n" + body]]);
+      expect([body, reports.map((message) => message.startsWith(purity))]).toEqual([body, [true]]);
+    }
+    const keep = "let keep(cb: () ->! Unit): Unit = ()\nlet save0(): Unit = save!(\"x\")\n" +
+      "fun a(n: Int): (() -> Unit) -> Unit =\n    let f = if n > 1 then keep else (cb) => ()\n    f\n";
+    const reports = effectDiagnostics([["/world.js", ""], ["/main.hex",
+      prelude + keep + "export let probe(): Unit = a(2)(save0)\n"]]);
+    expect(reports.map((message) => message.startsWith(purity))).toEqual([true]);
+  });
+
+  it("reads a seat whose count does not match as written: the mismatch, and no mark judged by it", () => {
+    // `h` runs `save0`, so its `!` is right: the mismatch is the report.
+    for (const [seat, call] of [["let h: (() ->! Unit, Int) ->! Unit = r", "h!(save0, 1)"]]) {
+      const reports = effectDiagnostics([["/world.js", ""], ["/main.hex",
+        prelude + "let save0(): Unit = save!(\"x\")\nexport let outer(): Unit =\n    let (r, _) = make()\n" +
+        `    ${seat}\n    ${call}\n    ()\n`]]);
+      expect([seat, reports.filter((message) => message.includes("wants no mark"))]).toEqual([seat, []]);
+    }
+  });
+
+  it("reads a callback a lambda in place captures as its let-bound twin does (b1170 `tieAct`)", () => {
+    // `r` runs only what it is handed: a pure lambda here, so the call is pure,
+    // written bare, as the twin reads it, whatever `tieTwo` met.
+    for (const lambda of ["(g: () ->! Unit) => action!()", "lam"]) {
+      const before = lambda === "lam" ? "    let lam = (g: () ->! Unit) => action!()\n" : "";
+      const source = (call: string) => prelude + "export let outer(action: () ->! Unit): Unit =\n" +
+        "    let (r, _) = make()\n" + before + `    tieTwo(${lambda}, r)\n    ${call}\n    ()\n`;
+      expect([lambda, effectDiagnostics([["/world.js", ""], ["/main.hex", source("r(() => ())")]])]).toEqual([lambda, []]);
+      expect([lambda, effectDiagnostics([["/world.js", ""], ["/main.hex", source("r!(() => ())")]])])
+        .toEqual([lambda, ["this call is pure, so `r` wants no mark, not `!`"]]);
+    }
+  });
+
+  it("keeps what the longhand keeps: a parameter's arrow inside a callback is the impure constant", () => {
+    // `keepRunner` may hand `r` any function, so `r` may touch the world, and
+    // `outer` with it, in every order, as `(cb) => r!(cb)` handed there would.
+    for (const lines of placed("keepRunner(r)")) {
+      const source = outer(lines).replace(
+        "export let outer",
+        "let keepRunner(k: (() ->! Unit) ->! Unit): Unit = ()\nexport let outer",
+      );
+      expect([lines, hoveredType(source, "outer(a1")]).toEqual([lines, "(() ->! Unit, () ->! Unit) ->! Unit"]);
+    }
+  });
+});
+
 describe("Effects §3.5 — a colour in error (#1223)", () => {
   const prelude = "module Main\n\n" + world + "let noop(): Unit = ()\nlet save0(): Unit = save!(\"x\")\n" +
     "let pureOnly(f: () -> Unit): Unit = f()\nlet keep(cb: () ->! Unit): Unit = ()\n" +
@@ -4134,18 +4287,26 @@ export let asImpure: ((() -> String) ->! Int) = stored
   it("still refuses to weaken the callback's colour, which is not covariant-only", () => {
     // The inlet's variable occurs in argument position, so item 7 declines it
     // exactly as it declines every other contravariant variable — the inclusion
-    // is an occurrence count, not an exemption. The first face pins the callback
-    // pure; the second demands the constant of the same, now monomorphic, slot.
+    // is an occurrence count, not an exemption: `stored` keeps one callback
+    // slot. Each face reads `stored` as its eta-expansion would (#1213 (T)): it
+    // hands its callback in, which the slot covers, so a pure face pins
+    // nothing, and a face accepting any function is no lie while `store` never
+    // runs it.
     expect(
       effectDiagnostics([["/main.hex", "module Main\n\n" + `${inletFace}
 export let asPure: ((() -> String) -> Int) = stored
 export let asImpure: ((() ->! String) -> Int) = stored
 `]]),
+    ).toEqual([]);
+    // Where `store` runs it, the pure face over any function is the lie of
+    // generality (§4.2).
+    const runs = inletFace.replace("Int = 1", "Int =\n    let _ = callback!()\n    1");
+    expect(
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `${runs}
+export let asPure: ((() -> String) -> Int) = stored
+export let asImpure: ((() ->! String) -> Int) = stored
+`]]),
     ).toEqual([
-      // The first face pinned `stored`'s callback slot pure, so `stored` now
-      // accepts only a pure callback, and the second face's callback, written
-      // `->!` to accept any function, is bound to it: the lie of generality,
-      // standing at the value that brought the constant (§4.2).
       "this callback is written `->!`, which accepts any function, and this accepts only a " +
       "pure one — write its arrow `->`",
     ]);

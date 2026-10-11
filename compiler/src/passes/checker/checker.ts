@@ -8277,9 +8277,10 @@ class Checker {
           const annotationType = suppliedFace ??
             this.#ownAnnotation(letBinders, () =>
               this.#bindingAnnotation(annotation, level + 1, item.span, item.binding.name));
+          const reading = this.#seatReading(annotationType, item.value, inferredValueType, level + 1);
           this.#atAnnotationSeat(annotation.span, item.value, () =>
             this.#unifyExpected(
-              annotationType,
+              reading.met,
               inferredValueType,
               item.value,
               annotation.span,
@@ -8292,7 +8293,7 @@ class Checker {
           valueType = this.#hasConversion(item.value) ||
               (annotationWhole(annotation) && this.#holdsNumberDefault(valueType))
             ? annotationType
-            : this.#applyWrittenQualifiers(annotationType, valueType);
+            : this.#applyWrittenQualifiers(annotationType, reading.published);
           // *(#1149.)* A written `->!` over a value whose colour a later close
           // decides (a knot's) is the binding's face (Functions §4.1), as it is
           // where the colour is decided at once: the published arrow is the
@@ -10308,9 +10309,10 @@ class Checker {
         const annotationType = suppliedFace ??
           this.#bindingAnnotation(expression.annotation, level, expression.span, undefined);
         this.#ascribedTypeSpan = enclosingAscribedType;
+        const reading = this.#seatReading(annotationType, expression.expression, inferred, level);
         this.#atAnnotationSeat(expression.annotation.span, expression.expression, () =>
           this.#unifyExpected(
-            annotationType,
+            reading.met,
             inferred,
             expression.expression,
             expression.annotation.span,
@@ -10323,7 +10325,7 @@ class Checker {
         type = this.#hasConversion(expression.expression) ||
             (annotationWhole(expression.annotation) && this.#holdsNumberDefault(inferred))
           ? annotationType
-          : inferred;
+          : reading.published;
         // *(#1149, as at a binding.)* A written `->!` over a value whose colour
         // a later close decides (a knot's) is the face, decided at once: the
         // impure constant absorbs the colour still to be decided. A written
@@ -10474,6 +10476,23 @@ class Checker {
           : undefined;
         // A written parameter type as the expectation meets it (#1174).
         const metParameters: Mono[] = [];
+        // **A lambda written in place reads as its let-bound twin** (Effects
+        // §2.6, #1213 (T)): its own written callback colours are its own, so a
+        // use meets an instance of each, the expectation landing on it
+        // included, as it meets a binding's instance. The body keeps the
+        // colours written.
+        // A binding's value read through grouping is its own, as `let` reads it.
+        const inPlace = declaringMember === undefined &&
+          (this.#bindingValue === undefined || ungrouped(this.#bindingValue.value) !== expression);
+        const instances = new Map<number, { readonly colour: Variable; readonly instance: Variable }>();
+        const instanceOf = (written: Mono): Mono => {
+          if (!inPlace || face === undefined) return written;
+          for (const callback of [...face.handed.flat(), ...face.carried]) {
+            if (instances.has(callback.colour.id)) continue;
+            instances.set(callback.colour.id, { colour: callback.colour, instance: this.#fresh(level, false) });
+          }
+          return this.#replaceVariables(written, new Map([...instances].map(([id, { instance }]) => [id, instance])));
+        };
         const parameters = expression.parameters.map((parameter, index) => {
           const component = landing?.parameters[index];
           // An **unannotated** parameter *takes* the expected component — the
@@ -10532,7 +10551,7 @@ class Checker {
               false,
             );
             metParameters[index] = met;
-            this.#unify(met, component, parameter.span);
+            this.#unify(instanceOf(met), component, parameter.span);
           }
           this.#schemes.set(parameter.symbol, {
             variables: [],
@@ -10642,9 +10661,10 @@ class Checker {
             face === undefined ? undefined : this.#resultRole(face, 0, returnAnnotation),
             () => this.#annotationType(returnAnnotation, level + 1, annotationTails, annotationVariables),
           );
+          const reading = this.#seatReading(annotationType, expression.body, inferredResult, level + 1);
           this.#atAnnotationSeat(returnAnnotation.span, expression.body, () =>
             this.#unifyExpected(
-              annotationType,
+              reading.met,
               inferredResult,
               expression.body,
               returnAnnotation.span,
@@ -10657,7 +10677,7 @@ class Checker {
           // and a `B.Row` a body reached for is not this signature's spelling.
           result = this.#hasConversion(expression.body)
             ? annotationType
-            : this.#applyWrittenQualifiers(annotationType, inferredResult);
+            : this.#applyWrittenQualifiers(annotationType, reading.published);
           // *(#1149, as at a binding.)* A written `->!` over a function whose
           // colour a later close decides (a knot's) is the face, decided at
           // once: the impure constant absorbs the colour still to be decided.
@@ -10728,6 +10748,21 @@ class Checker {
             : result,
           effect: lambdaColour,
         };
+        // Generalized at the lambda where still its own once its body closed,
+        // as a `let` of it would be: a use reads the instance. One a meeting
+        // inside the body tied to something outside (a monomorphic value it
+        // was handed to, a knot that holds the lambda) is that colour, as it
+        // would stay at a `let`, and its instance is it.
+        if (inPlace) instanceOf(type);
+        if (instances.size > 0) {
+          const outward = new Map<number, Mono>();
+          for (const { colour, instance } of instances.values()) {
+            const own = this.#prune(colour);
+            if (own.kind === "Variable" && own.level > level) outward.set(own.id, instance);
+            else this.#unify(instance, own, expression.span);
+          }
+          if (outward.size > 0) type = this.#replaceVariables(type, outward);
+        }
         this.#frameOfType.set(type, effectFrame);
         this.#lambdasOf.set(type, { frame: effectFrame });
         const binderSpans = new Map(
@@ -23363,6 +23398,126 @@ class Checker {
     } finally {
       this.#pinSides = enclosing;
       this.#pinSite = enclosingSite;
+    }
+  }
+
+  /**
+   * **A value at a written seat reads as its eta-expansion** *(Effects §2.6,
+   * #1213 (T))*: `let h: (() ->! Unit) ->! Unit = r` reads as
+   * `(cb) => r!(cb)` would. Where the seat hands a function of the value's
+   * something (a callback, at its parameter), the written parameter is read
+   * as a use hands it on, its colour or more (`#openReceived`), so the value's
+   * own colour covers the written callback's and still grows past it,
+   * whatever order the lines come in. The written type is walked beside the
+   * value's, through what the value supplies: its own function, what that
+   * returns, and a tuple's, a record's or a covariant argument's parts. A
+   * lambda is its own eta-expansion: the written type lands on it (Functions
+   * §4.3), so its parameters are already the seat's, and reading them so
+   * again changes nothing. What the seat publishes is the value with the
+   * written parameters where it handed it a callback, as the expansion's own
+   * parameters would be.
+   */
+  #seatReading(
+    written: Mono,
+    value: Resolved.Expr,
+    valueType: Mono,
+    level: number,
+  ): { readonly met: Mono; readonly published: Mono } {
+    const inner = ungrouped(value);
+    const asWritten = { met: written, published: valueType };
+    if (inner.kind === "Lambda") return asWritten;
+    return this.#seatRead(written, valueType, level);
+  }
+
+  /**
+   * `#seatReading`'s walk: the written type beside the value's. What the seat
+   * meets re-opens what it hands the value's functions; what it publishes
+   * takes the written parameters there, as the expansion's own would be.
+   */
+  #seatRead(written: Mono, value: Mono, level: number): { readonly met: Mono; readonly published: Mono } {
+    const seat = this.#prune(written);
+    const given = this.#prune(value);
+    const unchanged = { met: written, published: value };
+    switch (seat.kind) {
+      case "Function": {
+        // A count that does not match is the seat's own mismatch, read as written.
+        if (given.kind !== "Function" || given.parameters.length !== seat.parameters.length) return unchanged;
+        const parameters = seat.parameters.map((parameter) => this.#openReceived(parameter, level));
+        const result = this.#seatRead(seat.result, given.result, level);
+        if (result.met === seat.result && parameters.every((parameter, index) => parameter === seat.parameters[index])) {
+          return unchanged;
+        }
+        const met: Mono = { ...seat, parameters, result: result.met };
+        // Still the written face's arrow, so the value is fitted to it (§4.2).
+        const arrow = this.#faceArrowNodes.get(seat);
+        if (arrow !== undefined) this.#faceArrowNodes.set(met, arrow);
+        const published: Mono = { ...given, parameters: seat.parameters, result: result.published };
+        const lambdas = this.#lambdasOf.get(given);
+        if (lambdas !== undefined) this.#lambdasOf.set(published, lambdas);
+        const frame = this.#frameOfType.get(given);
+        if (frame !== undefined) this.#frameOfType.set(published, frame);
+        return { met, published };
+      }
+      case "Tuple": {
+        if (given.kind !== "Tuple" || given.elements.length !== seat.elements.length) return unchanged;
+        const parts = seat.elements.map((element, index) =>
+          given.elements[index] === undefined
+            ? { met: element, published: element }
+            : this.#seatRead(element, given.elements[index]!, level)
+        );
+        if (parts.every((part, index) => part.met === seat.elements[index])) return unchanged;
+        return {
+          met: { kind: "Tuple", elements: parts.map(({ met }) => met) },
+          published: { kind: "Tuple", elements: parts.map(({ published }) => published) },
+        };
+      }
+      case "Record": {
+        if (given.kind !== "Record") return unchanged;
+        const parts = new Map([...seat.fields].map(([name, field]) => {
+          const other = given.fields.get(name);
+          return [name, other === undefined ? { met: field, published: field } : this.#seatRead(field, other, level)] as const;
+        }));
+        if ([...parts].every(([name, part]) => part.met === seat.fields.get(name))) return unchanged;
+        return {
+          met: {
+            kind: "Record",
+            fields: new Map([...parts].map(([name, { met }]) => [name, met])),
+            ...(seat.tail === undefined ? {} : { tail: seat.tail }),
+          },
+          published: {
+            ...given,
+            fields: new Map([...given.fields].map(([name, field]) => [name, parts.get(name)?.published ?? field])),
+          },
+        };
+      }
+      case "Union":
+      case "NominalRecord": {
+        if (given.kind !== seat.kind) return unchanged;
+        const others = (given as typeof seat).arguments;
+        const parts = seat.arguments.map((argument, index) => {
+          const variance = seat.kind === "Union"
+            ? this.#variance.effectiveUnion(seat.union, index)
+            : this.#variance.effectiveRecord(seat.record, index);
+          const other = others[index];
+          return variance === "co" && other !== undefined
+            ? this.#seatRead(argument, other, level)
+            : { met: argument, published: other ?? argument };
+        });
+        if (parts.every((part, index) => part.met === seat.arguments[index])) return unchanged;
+        return {
+          met: { ...seat, arguments: parts.map(({ met }) => met) },
+          published: { ...(given as typeof seat), arguments: parts.map(({ published }) => published) },
+        };
+      }
+      case "Vector": {
+        if (given.kind !== "Vector") return unchanged;
+        const part = this.#seatRead(seat.element, given.element, level);
+        return part.met === seat.element
+          ? unchanged
+          : { met: { ...seat, element: part.met }, published: { ...given, element: part.published } };
+      }
+      default:
+        return unchanged;
     }
   }
 
