@@ -127,7 +127,9 @@ type ArrowPlace = "spine" | "callback" | "inside";
  */
 function displayArrow(effect: Typed.Effect | undefined, place: ArrowPlace): string {
   if (effect === undefined) return PURE_ARROW;
-  if (effect === "impure") return IMPURE_ARROW;
+  // A colour in error shows `->!` (§3.5, §10, #1223): no purity is claimed for a
+  // function whose body could not be read.
+  if (effect === "impure" || effect === "error") return IMPURE_ARROW;
   return place === "spine" ? FOLLOWS_ARROW : IMPURE_ARROW;
 }
 

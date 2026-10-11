@@ -723,6 +723,18 @@ describe("code actions: infer return type", () => {
     );
   });
 
+  test("a colour the checker gave up on is refused rather than spelled (#1223)", () => {
+    // `user` calls a name that does not exist, so what it does is in error
+    // (Effects §3.5), and `mk` returns it: the arrow has no spelling, as an
+    // error type has none.
+    const source = "module Main\n\n" + "let user(): Unit = nope!()\nexport let mk(x: Int) = user\n";
+    const { session } = sessionOf({ "/main.hex": source });
+    expect(sole(actionsOn(session, "/main.hex", source, "mk")).disabled).toBe(
+      "the return type of `mk` cannot be written here: " +
+        "part of the inferred type is unknown, because the definition has an error",
+    );
+  });
+
   test("does not claim an error is about the type when it is about the text", () => {
     // A JavaScript-spelled comment is an error inside the body whose own repair
     // is offered right beside this one, and the body's type — `Int` — is not in
