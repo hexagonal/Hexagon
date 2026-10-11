@@ -2802,6 +2802,11 @@ describe("Effects §3.5 — a colour in error (#1223)", () => {
       nopeType,
       "`x`'s colour is tied to `f`'s here, and no written type can say that — write `x`'s type",
     ]);
+    // An untyped parameter whose whole type a value in error decided is the
+    // parameter's own: what its colours are is its claims' (§3.4), and no
+    // repair of the value pins it.
+    expect(check("let user(g) =\n    let q = pick(g, nope)\n    ()\nlet outer(f: () ->! Unit): Unit =\n    user(f)\n    f()\n"))
+      .toEqual([unknown, wants("`f`")]);
     // A `var`'s type written in error is a demand at each `:=`.
     expect(check("let outer(f: () ->! Unit): Unit =\n    var v: { h: Nope } = { h = f }\n    v := { h = f }\n    f()\n"))
       .toEqual([nopeType]);

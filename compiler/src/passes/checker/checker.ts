@@ -24729,7 +24729,9 @@ class Checker {
   /**
    * The type variables a value in error met that a type holds beneath a
    * parameter (`#instantiate`, Effects §3.5, #1223): what a binding's failure
-   * decided its parameters to be.
+   * decided its parameters to be. A repair of the value may make such a
+   * type's arrows pure where the body closes, a data position's openings
+   * among them, and then a caller's argument meets them.
    */
   #erroredBeneathParameters(type: Mono): Set<Variable> {
     const found = new Set<Variable>();
@@ -24740,7 +24742,13 @@ class Checker {
           if (parameter && this.#erroredTypes.has(actual)) found.add(actual);
           return;
         case "Function":
-          for (const each of actual.parameters) visit(each, !parameter);
+          for (const each of actual.parameters) {
+            // A parameter whose whole type is the variable is an untyped one:
+            // its colours are decided by its own claims (§3.4), which no
+            // repair of a value pins.
+            if (!parameter && this.#prune(each).kind === "Variable") continue;
+            visit(each, !parameter);
+          }
           visit(actual.result, parameter);
           return;
         case "Tuple":
