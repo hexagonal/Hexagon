@@ -2783,15 +2783,22 @@ describe("Effects §3.5 — a colour in error (#1223)", () => {
     }
     expect(check("let outer(r: {a: Int}, f: () ->! Unit): Unit =\n    r.nope(f)\n    f()\n"))
       .toEqual(["record has fields `a`, not `nope`"]);
-    // A parameter written in error, or one whose type the failure hides.
+    // A parameter written in error, one a failed call would have typed, or
+    // one a value in error typed where its function was defined (review r3b,
+    // m2): `Some(noop)` would make `user` take `Option(() -> Unit)`.
     for (
-      const [user, errors] of [
-        ["let user(g: Nope): Unit = ()\n", [nopeType]],
-        ["let user(g) =\n    nope(g)\n    ()\n", [unknown]],
+      const [user, call, errors] of [
+        ["let user(g: Nope): Unit = ()\n", "user(f)", [nopeType]],
+        ["let user(g) =\n    nope(g)\n    ()\n", "user(f)", [unknown]],
+        ["let user(o) =\n    let g = pick(o, Some(nope))\n    ()\n", "user(Some(f))", [unknown]],
+        ["let user(r) =\n    let g = pick(r, { h = nope })\n    ()\n", "user({ h = f })", [unknown]],
       ] as const
     ) {
-      expect(check(`${user}let outer(f: () ->! Unit): Unit =\n    user(f)\n    f()\n`)).toEqual(errors);
+      expect(check(`${user}let outer(f: () ->! Unit): Unit =\n    ${call}\n    f()\n`)).toEqual(errors);
     }
+    // A `var`'s type written in error is a demand at each `:=`.
+    expect(check("let outer(f: () ->! Unit): Unit =\n    var v: { h: Nope } = { h = f }\n    v := { h = f }\n    f()\n"))
+      .toEqual([nopeType]);
     // At a caller, and through a callback the caller hands it, written or
     // claimed, which the pin would make pure too, whatever the order of the
     // lines.
@@ -2807,18 +2814,27 @@ describe("Effects §3.5 — a colour in error (#1223)", () => {
     // callee failed: the claim keeps it out of error (§3.5), and the repair
     // `pureOnly(f)` would make the `!` the report instead.
     expect(check("let outer(f) =\n    f!()\n    nope(f)\n    f()\n")).toEqual([unknown]);
-    // Through a module's interface.
+    // Through a module's interface, and at a parameter written in error there.
     expect(twoModules(
       "export let outer(f: () ->! Unit): Unit =\n    let g: Nope = f\n    f!()\nexport let s0(): Unit = save!(\"x\")\n",
       "export let p1(): Unit = Lib.outer(Lib.s0)\n",
     )).toEqual([nopeType]);
+    expect(twoModules(
+      "export let user(g: Nope): Unit = ()\n",
+      "let outer(f: () ->! Unit): Unit =\n    Lib.user(f)\n    f()\n",
+    )).toEqual([nopeType]);
     // A value in error never pins it: a use re-opens it, so a merge leaves it
     // as it stands (review r3, D2). Nor does a call of a function whose body
     // is in error, where the slot it meets is that function's text (D1).
+    // So does an error a value leaves in a `var`'s type (review r3b, M1).
     for (
       const meeting of [
         "let g = if c then f else nope",
         "let g = pick(f, nope)",
+        "let g = pick(nope, f)",
+        "let k = ident(nope)\n    let g = if c then k else f",
+        "var v = { h = nope }\n    v := { h = f }",
+        "var v: { h: () ->! Unit } = { h = nope }\n    v := { h = f }",
         "user!(f)",
       ]
     ) {

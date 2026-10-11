@@ -1912,6 +1912,13 @@ interface Scheme {
 }
 
 const ERROR: ErrorMono = { kind: "Error" };
+/**
+ * A type the text writes and the program cannot read (Effects §3.5, #1223):
+ * the error type as an annotation gives it. Where it is a seat's demand,
+ * whether it pins what meets it is what the error hides; an error a value
+ * left in a type is no demand.
+ */
+const WRITTEN_ERROR: ErrorMono = { kind: "Error" };
 
 const ERROR_COLOUR: ErrorColour = { kind: "ErrorColour" };
 
@@ -4061,6 +4068,15 @@ class Checker {
    * a callback; a demand may, and the error hides which.
    */
   #demandInError = false;
+  /**
+   * Whether the seat running is a call's parameter meeting its argument: the
+   * parameter's type is the callee's, decided where it was defined, so an
+   * error in it is a demand the callee's failure hides (Effects §3.5, #1223).
+   * A dot call's seats need no mark: they meet a companion's or a
+   * constraint's parameters, whose types are written (an exported function's
+   * signature is complete), so an error there is a written one.
+   */
+  #atParameter = false;
   /**
    * The colours a demand in error met that something else decides (Effects
    * §3.5, #1223): a written callback's, or a claimed one's, handed to a call
@@ -19287,6 +19303,17 @@ class Checker {
    * demand's, a type written in error, which holds back the marks of the
    * callbacks it meets (`#demandInError`).
    */
+  /** Runs a call's parameter meeting its argument (`#atParameter`). */
+  #atParameterSeat(meet: () => void): void {
+    const enclosing = this.#atParameter;
+    this.#atParameter = true;
+    try {
+      meet();
+    } finally {
+      this.#atParameter = enclosing;
+    }
+  }
+
   #meetError(type: Mono, span: Source.Span, demand: boolean): void {
     const enclosing = this.#demandInError;
     this.#demandInError = demand;
@@ -20441,14 +20468,16 @@ class Checker {
       // solved it (Functions §4.3) — but never a dot call's receiver.
       const seated = this.#prune(parameter);
       try {
-        this.#unifyExpected(
-          parameter,
-          actuals[index] ?? ERROR,
-          expression,
-          span,
-          true,
-          parameter.kind !== "Variable" && !receiver,
-          seated.kind !== "Variable" && !receiver && this.#adaptsAt(seated),
+        this.#atParameterSeat(() =>
+          this.#unifyExpected(
+            parameter,
+            actuals[index] ?? ERROR,
+            expression,
+            span,
+            true,
+            parameter.kind !== "Variable" && !receiver,
+            seated.kind !== "Variable" && !receiver && this.#adaptsAt(seated),
+          )
         );
       } finally {
         this.#pinSite = enclosingPin;
@@ -24695,6 +24724,57 @@ class Checker {
     return held ? reached : undefined;
   }
 
+  /**
+   * The type variables a value in error met that a type holds beneath a
+   * parameter (`#instantiate`, Effects §3.5, #1223): what a binding's failure
+   * decided its parameters to be.
+   */
+  #erroredBeneathParameters(type: Mono): Set<Variable> {
+    const found = new Set<Variable>();
+    const visit = (node: Mono, parameter: boolean): void => {
+      const actual = this.#prune(node);
+      switch (actual.kind) {
+        case "Variable":
+          if (parameter && this.#erroredTypes.has(actual)) found.add(actual);
+          return;
+        case "Function":
+          for (const each of actual.parameters) visit(each, !parameter);
+          visit(actual.result, parameter);
+          return;
+        case "Tuple":
+          for (const element of actual.elements) visit(element, parameter);
+          return;
+        case "Record":
+          for (const field of actual.fields.values()) visit(field, parameter);
+          return;
+        case "Union":
+        case "NominalRecord":
+        case "ExternType":
+          for (const argument of actual.arguments) visit(argument, parameter);
+          return;
+        case "Vector":
+        case "Set":
+        case "Array":
+        case "JsSet":
+        case "Node":
+          visit(actual.element, parameter);
+          return;
+        case "Nullable":
+          visit(actual.value, parameter);
+          return;
+        case "Map":
+        case "JsMap":
+          visit(actual.key, parameter);
+          visit(actual.value, parameter);
+          return;
+        default:
+          return;
+      }
+    };
+    visit(type, false);
+    return found;
+  }
+
   /** A colour's variable parts as it stands now: none for a constant, one for a variable, a join's parts. */
   #colourParts(colour: Mono): Variable[] {
     const actual = this.#prune(colour);
@@ -25191,8 +25271,10 @@ class Checker {
       // it hands back, is in error too (Effects §3.5, #1223); meeting a type
       // not yet known, so is the function it becomes (`#erroredTypes`).
       const other = actualLeft.kind === "Error" ? actualRight : actualLeft;
-      // At a seat, an error on the demand's side is a type written in error.
-      const demand = this.#atDemand && actualLeft.kind === "Error";
+      // At a seat, an error on the demand's side is a demand in error where
+      // the text wrote it, or where a callee's failure decided its parameter.
+      const demand = this.#atDemand && actualLeft.kind === "Error" &&
+        (actualLeft === WRITTEN_ERROR || this.#atParameter);
       if (other.kind === "Variable") {
         this.#erroredTypes.add(other);
         if (demand) this.#demandErroredTypes.add(other);
@@ -30349,6 +30431,7 @@ class Checker {
             replacements.get(variable.id) ?? variable,
           ]),
         );
+    const decided = this.#erroredTypes.size === 0 ? undefined : this.#erroredBeneathParameters(scheme.type);
     const copy = (type: Mono): Mono => {
       const actual = this.#prune(type);
       if (actual.kind === "Variable") {
@@ -30357,6 +30440,9 @@ class Checker {
         // A value in error met this variable before it generalized: each use
         // has met it too (#1223).
         if (this.#erroredTypes.has(actual) && replacement.kind === "Variable") this.#erroredTypes.add(replacement);
+        // Beneath a parameter, the type the binding's failure decided is a
+        // demand at this use: a call's argument meets it (§3.5, #1223).
+        if (decided?.has(actual) && replacement.kind === "Variable") this.#demandErroredTypes.add(replacement);
         if (this.#demandErroredTypes.has(actual) && replacement.kind === "Variable") {
           this.#demandErroredTypes.add(replacement);
         }
@@ -30931,7 +31017,7 @@ class Checker {
         this.#recordDeclaredHead(variable, this.#annotationOwner);
         return variable;
       }
-      return ERROR;
+      return WRITTEN_ERROR;
     }
     if (annotation.kind === "Hole") {
       // The whole of a hole's semantics (closure doc §4.1): the same variable,
@@ -31000,7 +31086,7 @@ class Checker {
           : {}),
       };
     }
-    return ERROR;
+    return WRITTEN_ERROR;
   }
 
   #annotationTail(
@@ -31363,7 +31449,7 @@ class Checker {
                 : copy({ kind: "Variable", id: type.effect.variable }),
             }),
         };
-        case "Error": return ERROR;
+        case "Error": return type.written === true ? WRITTEN_ERROR : ERROR;
       }
     };
     for (const constraint of scheme.constraints) {
@@ -34263,7 +34349,7 @@ class Checker {
     seen = new Map<number, Typed.VariableType>(),
   ): Typed.Type {
     const actual = this.#prune(type);
-    if (actual.kind === "Error") return { kind: "Error" };
+    if (actual.kind === "Error") return actual === WRITTEN_ERROR ? { kind: "Error", written: true } : { kind: "Error" };
     if (actual.kind === "Constructor") {
       return { kind: "Primitive", name: actual.name };
     }

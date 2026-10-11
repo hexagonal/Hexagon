@@ -216,6 +216,12 @@ export interface FunctionType {
 
 export interface ErrorType {
   readonly kind: "Error";
+  /**
+   * Present where the text wrote the type and the program cannot read it
+   * (`spec/effects.md` §3.5, #1223): a demand in error, which holds back the
+   * marks of a callback it meets, in an importer as at home.
+   */
+  readonly written?: true;
 }
 
 export type ConstraintName = string;
