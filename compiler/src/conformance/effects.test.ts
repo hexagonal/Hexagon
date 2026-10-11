@@ -1568,6 +1568,37 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
           .toEqual([program, [[at, labels.map((name) => `${name}: \`${name}\` has no written type`)]]]);
       }
     }
+    // The callback it is tied to is the one it shared a colour with there:
+    // `h`, though `q!(g, g)` (or a forwarder's `q!(x, x)`) has since made `k`
+    // share it too.
+    const second = ["g!()", "let q = ident((k, h) =>", "    k!()", "    h!()", "    let inner = (f) =>",
+      "        b!(g, c, n - 1)", "        if c then h else f", "    ())"];
+    for (const use of [["q!(g, g)"], ["let w = (x) =>", "    x!()", "    q!(x, x)", "w!(noop)"]]) {
+      for (const program of member([...second, ...use])) {
+        expect([program, reportsOf("let noop(): Unit = ()\n" + program)[0]]).toEqual([program, tied("f", "h", "if c then h else f")]);
+      }
+    }
+    // Two such ties a later use merged stay two reports, each at its merge.
+    const two = ["g!()", "let q = ident((k, h) =>", "    k!()", "    h!()", "    let i1 = (f1) =>", "        b!(g, c, n - 1)",
+      "        if c then k else f1", "    let i2 = (f2) =>", "        b!(g, c, n - 1)", "        if c then h else f2", "    ())",
+      "q!(g, g)"];
+    for (const program of member(two)) {
+      expect([program, reportsOf(program).slice(0, 2)]).toEqual([program, [
+        tied("f1", "k", "if c then k else f1"),
+        tied("f2", "h", "if c then h else f2"),
+      ]]);
+    }
+    // `f` was no function at the close, and `q!(x, x)` makes it one with the
+    // very type `k` had there: still a tie a later line made.
+    const sameType = ["let q = ident((k, y) =>", "    k!()", "    let inner = (f) =>", "        b!(g, c, n - 1)",
+      "        let _ = if c then y else f", "        ()", "    ())", "q!(g, g)"];
+    for (const program of member(sameType)) {
+      expect([program, reportsOf(program).map(({ labels }) => labels).find((labels) => labels.length > 1)]).toEqual([program, [
+        "g: `g` has no written type",
+        "y: `y` has no written type",
+        "f: `f` has no written type",
+      ]]);
+    }
     // A tie a later line made is read now, by the body that line is in: `f`
     // was no function yet where `k`'s body closed.
     const later = ["g!()", "let q = ident((k, y) =>", "    k!()", "    let inner = (f) =>", "        b!(g, c, n - 1)",
