@@ -1488,6 +1488,67 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
     }
   });
 
+  it("reads a held lambda's tie against the body it waits on as that body closed (#1220)", () => {
+    const b = "    b(g, c: Bool, n: Int): Unit = if n == 0 then () else a!(g, c, n)\n";
+    const member = (lines: readonly string[]): string[] => {
+      const a = "    a(g, c: Bool, n: Int): Unit =\n" + lines.map((line) => `        ${line}\n`).join("") + "        ()\n";
+      return [`fun\n${a}${b}`, `fun\n${b}${a}`];
+    };
+    const reportsOf = (program: string) => tieReports("let ident(x: t): t = x\n" + program);
+    const tied = (parameter: string, other: string, at: string) => ({
+      at,
+      message: `\`${parameter}\`'s colour is tied to \`${other}\`'s here, and no written type can say that — ` +
+        `write \`${parameter}\`'s type`,
+      labels: [`${parameter}: \`${parameter}\` has no written type`, `${other}: \`${other}\` has no written type`],
+      fixes: [": () ->! Unit", ": () ->! Unit"],
+    });
+    const onlyG = ["g: `g` has no written type", "g: `g` has no written type"];
+    // `inner` calls the recursion, so the knot holds it, and its tie to `k`
+    // reaches `k`'s body only at the knot's close, after `q!(g)` has bound
+    // `k`'s colour to `g`'s. It stands at the merge, as outside a knot; the
+    // use's report labels only `g` (`a`'s, and `b`'s, which hands it on).
+    const held = ["g!()", "let q = ident((k) =>", "    k!()", "    let inner = (f) =>", "        b!(g, c, n - 1)",
+      "        if c then k else f", "    ())", "q!(g)"];
+    for (const program of member(held)) {
+      const reports = reportsOf(program);
+      expect([program, reports[0]]).toEqual([program, tied("f", "k", "if c then k else f")]);
+      expect([program, reports.slice(1).flatMap(({ labels }) => labels)]).toEqual([program, onlyG]);
+      // And its fix is a repair.
+      const text = "module Main\n\nlet ident(x: t): t = x\n" + program;
+      const edits = compileFiles([["/main.hex", text]]).diagnostics
+        .flatMap(({ fixes }) => (fixes ?? []).flatMap((fix) => fix.edits))
+        .sort((left, right) => right.span.start.offset - left.span.start.offset);
+      let fixed = text;
+      for (const edit of edits) fixed = fixed.slice(0, edit.span.start.offset) + edit.replacement + fixed.slice(edit.span.end.offset);
+      expect([program, compileFiles([["/main.hex", fixed]]).diagnostics.map(({ message }) => message)]).toEqual([program, []]);
+    }
+    // So through two such bodies: `m!(k)` and `q!(g)` come after each closed.
+    const twice = ["g!()", "let q = ident((k) =>", "    k!()", "    let m = ident((j) =>", "        j!()",
+      "        let inner = (f) =>", "            b!(g, c, n - 1)", "            if c then j else f", "        ())",
+      "    m!(k)", "    ())", "q!(g)"];
+    for (const program of member(twice)) {
+      expect([program, reportsOf(program)[0]]).toEqual([program, tied("f", "j", "if c then j else f")]);
+    }
+    // A sharing there at the body's close still sends the tie further out.
+    const shared = [...held.slice(0, 6), "    let _ = if c then g else k", ...held.slice(6)];
+    for (const program of member(shared)) {
+      expect([program, reportsOf(program).map(({ at, labels }) => [at, labels])]).toEqual([program, [[
+        "if c then g else k",
+        ["k: `k` has no written type", "g: `g` has no written type", "f: `f` has no written type"],
+      ]]]);
+    }
+    // A tie a later line made is read now, by the body that line is in: `f`
+    // was no function yet where `k`'s body closed.
+    const later = ["g!()", "let q = ident((k, y) =>", "    k!()", "    let inner = (f) =>", "        b!(g, c, n - 1)",
+      "        let _ = if c then y else f", "        ()", "    ())", "q!(g, g)"];
+    for (const program of member(later)) {
+      expect([program, reportsOf(program).map(({ at, labels }) => [at, labels]).sort()]).toEqual([program, [
+        ["q!(g, g)", ["g: `g` has no written type"]],
+        ["q!(g, g)", ["g: `g` has no written type", "y: `y` has no written type", "f: `f` has no written type"]],
+      ]]);
+    }
+  });
+
   it("a knot frame around a lambda an outer knot holds keeps the colours it noted at its own close (#1215)", () => {
     // `h1`'s own callback `k` is its own (#1231): `h1!(g)` meets an instance,
     // so the tie stands where `inner` merges `k` with `f`, as outside a knot,
