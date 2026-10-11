@@ -1488,6 +1488,129 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
     }
   });
 
+  it("reads a held lambda's tie against the body it waits on as that body closed (#1220)", () => {
+    const b = "    b(g, c: Bool, n: Int): Unit = if n == 0 then () else a!(g, c, n)\n";
+    const member = (lines: readonly string[]): string[] => {
+      const a = "    a(g, c: Bool, n: Int): Unit =\n" + lines.map((line) => `        ${line}\n`).join("") + "        ()\n";
+      return [`fun\n${a}${b}`, `fun\n${b}${a}`];
+    };
+    const reportsOf = (program: string) => tieReports("let ident(x: t): t = x\n" + program);
+    const tied = (parameter: string, other: string, at: string) => ({
+      at,
+      message: `\`${parameter}\`'s colour is tied to \`${other}\`'s here, and no written type can say that — ` +
+        `write \`${parameter}\`'s type`,
+      labels: [`${parameter}: \`${parameter}\` has no written type`, `${other}: \`${other}\` has no written type`],
+      fixes: [": () ->! Unit", ": () ->! Unit"],
+    });
+    const onlyG = ["g: `g` has no written type", "g: `g` has no written type"];
+    // `inner` calls the recursion, so the knot holds it, and its tie to `k`
+    // reaches `k`'s body only at the knot's close, after `q!(g)` has bound
+    // `k`'s colour to `g`'s. It stands at the merge, as outside a knot; the
+    // use's report labels only `g` (`a`'s, and `b`'s, which hands it on).
+    const held = ["g!()", "let q = ident((k) =>", "    k!()", "    let inner = (f) =>", "        b!(g, c, n - 1)",
+      "        if c then k else f", "    ())", "q!(g)"];
+    for (const program of member(held)) {
+      const reports = reportsOf(program);
+      expect([program, reports[0]]).toEqual([program, tied("f", "k", "if c then k else f")]);
+      expect([program, reports.slice(1).flatMap(({ labels }) => labels)]).toEqual([program, onlyG]);
+      // And its fix is a repair.
+      const text = "module Main\n\nlet ident(x: t): t = x\n" + program;
+      const edits = compileFiles([["/main.hex", text]]).diagnostics
+        .flatMap(({ fixes }) => (fixes ?? []).flatMap((fix) => fix.edits))
+        .sort((left, right) => right.span.start.offset - left.span.start.offset);
+      let fixed = text;
+      for (const edit of edits) fixed = fixed.slice(0, edit.span.start.offset) + edit.replacement + fixed.slice(edit.span.end.offset);
+      expect([program, compileFiles([["/main.hex", fixed]]).diagnostics.map(({ message }) => message)]).toEqual([program, []]);
+    }
+    // So through two such bodies: `m!(k)` and `q!(g)` come after each closed.
+    const twice = ["g!()", "let q = ident((k) =>", "    k!()", "    let m = ident((j) =>", "        j!()",
+      "        let inner = (f) =>", "            b!(g, c, n - 1)", "            if c then j else f", "        ())",
+      "    m!(k)", "    ())", "q!(g)"];
+    for (const program of member(twice)) {
+      expect([program, reportsOf(program)[0]]).toEqual([program, tied("f", "j", "if c then j else f")]);
+    }
+    // A sharing there at the body's close still sends the tie further out.
+    const shared = [...held.slice(0, 6), "    let _ = if c then g else k", ...held.slice(6)];
+    for (const program of member(shared)) {
+      expect([program, reportsOf(program).map(({ at, labels }) => [at, labels])]).toEqual([program, [[
+        "if c then g else k",
+        ["k: `k` has no written type", "g: `g` has no written type", "f: `f` has no written type"],
+      ]]]);
+    }
+    // Where the use's is the first bind after the close (a `var`, refused for
+    // holding a function, is not instantiated), it is still a later line's.
+    for (const program of member(held.map((line) => line.replace("let q = ident((k) =>", "var q = (k) =>")
+      .replace("    ())", "    ()")))) {
+      expect([program, reportsOf(program)[1]]).toEqual([program, tied("f", "k", "if c then k else f")]);
+    }
+    // What the body shared there is read whole: through a join `f` met...
+    const runsBoth = ["    let inner = (f) =>", "        b!(g, c, n - 1)", "        let _ = if c then f else () =>",
+      "            k!()", "            h!()", "        ()"];
+    const join = ["g!()", "let q = ident((k, h) =>", "    k!()", "    h!()", ...runsBoth, "    ())", "q!(noop, g)"];
+    for (const program of member(join)) {
+      expect([program, reportsOf("let noop(): Unit = ()\n" + program)[0]!.labels]).toEqual([program, [
+        "f: `f` has no written type",
+        "k: `k` has no written type",
+      ]]);
+    }
+    // ...whose part a line before the close bound to `g`...
+    const bound = ["g!()", "let q = ident((k, h) =>", "    k!()", "    h!()", ...runsBoth, "    let _ = if c then h else g",
+      "    ())", "q!(noop, noop)"];
+    // ...and through the arrow of the function an enclosing callback returns.
+    const returned = ["let r = g!()", "r!()", "let q = ident((k) =>", "    k!()", "    let inner = (f) =>",
+      "        b!(g, c, n - 1)", "        if c then k else f", "    let _ = if c then g!() else k", "    ())", "q!(noop)"];
+    for (const [lines, at, labels] of [
+      [bound, "if c then h else g", ["h", "g", "f"]],
+      [returned, "g", ["k", "g", "f"]],
+    ] as const) {
+      for (const program of member(lines)) {
+        expect([program, reportsOf("let noop(): Unit = ()\n" + program).map((report) => [report.at, report.labels])])
+          .toEqual([program, [[at, labels.map((name) => `${name}: \`${name}\` has no written type`)]]]);
+      }
+    }
+    // The callback it is tied to is the one it shared a colour with there:
+    // `h`, though `q!(g, g)` (or a forwarder's `q!(x, x)`) has since made `k`
+    // share it too.
+    const second = ["g!()", "let q = ident((k, h) =>", "    k!()", "    h!()", "    let inner = (f) =>",
+      "        b!(g, c, n - 1)", "        if c then h else f", "    ())"];
+    for (const use of [["q!(g, g)"], ["let w = (x) =>", "    x!()", "    q!(x, x)", "w!(noop)"]]) {
+      for (const program of member([...second, ...use])) {
+        expect([program, reportsOf("let noop(): Unit = ()\n" + program)[0]]).toEqual([program, tied("f", "h", "if c then h else f")]);
+      }
+    }
+    // Two such ties a later use merged stay two reports, each at its merge.
+    const two = ["g!()", "let q = ident((k, h) =>", "    k!()", "    h!()", "    let i1 = (f1) =>", "        b!(g, c, n - 1)",
+      "        if c then k else f1", "    let i2 = (f2) =>", "        b!(g, c, n - 1)", "        if c then h else f2", "    ())",
+      "q!(g, g)"];
+    for (const program of member(two)) {
+      expect([program, reportsOf(program).slice(0, 2)]).toEqual([program, [
+        tied("f1", "k", "if c then k else f1"),
+        tied("f2", "h", "if c then h else f2"),
+      ]]);
+    }
+    // `f` was no function at the close, and `q!(x, x)` makes it one with the
+    // very type `k` had there: still a tie a later line made.
+    const sameType = ["let q = ident((k, y) =>", "    k!()", "    let inner = (f) =>", "        b!(g, c, n - 1)",
+      "        let _ = if c then y else f", "        ()", "    ())", "q!(g, g)"];
+    for (const program of member(sameType)) {
+      expect([program, reportsOf(program).map(({ labels }) => labels).find((labels) => labels.length > 1)]).toEqual([program, [
+        "g: `g` has no written type",
+        "y: `y` has no written type",
+        "f: `f` has no written type",
+      ]]);
+    }
+    // A tie a later line made is read now, by the body that line is in: `f`
+    // was no function yet where `k`'s body closed.
+    const later = ["g!()", "let q = ident((k, y) =>", "    k!()", "    let inner = (f) =>", "        b!(g, c, n - 1)",
+      "        let _ = if c then y else f", "        ()", "    ())", "q!(g, g)"];
+    for (const program of member(later)) {
+      expect([program, reportsOf(program).map(({ at, labels }) => [at, labels]).sort()]).toEqual([program, [
+        ["q!(g, g)", ["g: `g` has no written type"]],
+        ["q!(g, g)", ["g: `g` has no written type", "y: `y` has no written type", "f: `f` has no written type"]],
+      ]]);
+    }
+  });
+
   it("a knot frame around a lambda an outer knot holds keeps the colours it noted at its own close (#1215)", () => {
     // `h1`'s own callback `k` is its own (#1231): `h1!(g)` meets an instance,
     // so the tie stands where `inner` merges `k` with `f`, as outside a knot,

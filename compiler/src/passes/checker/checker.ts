@@ -568,6 +568,12 @@ interface EffectFrame {
    * decides: each is checked once that is settled (Effects §3.4, #1163).
    */
   deferredTies?: DeferredTie[];
+  /**
+   * How many binds had been made where this body decided its ties, for a body
+   * that reports them later (`#tieHolder`): a held lambda's tie that reaches
+   * it then is read against what it shared here (#1220).
+   */
+  closedAt?: number;
   /** Call colours awaiting `own ⊒ colour`, settled after inference, with the mark each call wore. */
   readonly absorbed: AbsorbedColour[];
   /**
@@ -21683,14 +21689,18 @@ class Checker {
     const pending = this.#pendingTies.get(frame);
     const reports = pending ?? new Map<Mono, TieReport>();
     if (pending === undefined) {
+      if (!report) frame.closedAt = this.#bindCount;
       const named = new Set<EffectFrame["untyped"][number]>();
       for (const parameter of frame.untyped) {
         if (parameter.ownAtClose === true || named.has(parameter)) continue;
         this.#refuseTie(frame, parameter, reports, named);
       }
     }
-    // Nested bodies' ties to this body's untyped parameters, now decided.
-    for (const deferred of frame.deferredTies ?? []) this.#refuseDeferredTie(frame, deferred, reports);
+    // Nested bodies' ties to this body's untyped parameters, now decided. One
+    // that reaches it after its close, from a lambda the knot held, is read
+    // against what it shared there (#1220).
+    const at = pending === undefined ? undefined : frame.closedAt;
+    for (const deferred of frame.deferredTies ?? []) this.#refuseDeferredTie(frame, deferred, reports, at);
     delete frame.deferredTies;
     if (!report) {
       // Decided here, and reported once the lambdas a knot holds inside this
@@ -21709,20 +21719,55 @@ class Checker {
   }
 
 
-  /** This body's untyped parameter whose colour a nested body's parameter now shares, if one does. */
+  /**
+   * This body's untyped parameter whose colour a nested body's parameter
+   * shares, if one does: now, or once `at` binds had been made.
+   */
   #sharingUntyped(
     frame: EffectFrame,
     parameter: EffectFrame["untyped"][number],
+    at?: number,
   ): EffectFrame["untyped"][number] | undefined {
-    return frame.untyped.find((outer) => this.#shares(outer, parameter));
+    return frame.untyped.find((outer) => this.#shares(outer, parameter, at));
   }
 
-  /** Whether `outer`'s own arrows share a colour with `parameter`'s. */
-  #shares(outer: EffectFrame["untyped"][number], parameter: EffectFrame["untyped"][number]): boolean {
+  /** Whether `outer`'s own arrows share a colour with `parameter`'s: now, or once `at` binds had been made. */
+  #shares(outer: EffectFrame["untyped"][number], parameter: EffectFrame["untyped"][number], at?: number): boolean {
+    if (at !== undefined) {
+      const type = this.#boundAt(parameter.type, at);
+      if (type.kind !== "Function") return false;
+      const parts = this.#colourPartsAt(type.effect ?? PURE, at);
+      for (let node = this.#boundAt(outer.type, at); node.kind === "Function"; node = this.#boundAt(node.result, at)) {
+        if (this.#colourPartsAt(node.effect ?? PURE, at).some((part) => parts.includes(part))) return true;
+      }
+      return false;
+    }
     const type = this.#prune(parameter.type);
     if (type.kind !== "Function") return false;
     const parts = this.#colourParts(this.#prune(type.effect ?? PURE));
     return this.#spineColours(outer.type).some(({ arrow }) => this.#colourParts(arrow).some((part) => parts.includes(part)));
+  }
+
+  /**
+   * A type as it stood once `at` binds had been made (#1220): a variable is
+   * followed only through the binds made before then (`#binds`), so a body
+   * whose ties are read after later lines bound more reads what it shared at
+   * its close.
+   */
+  #boundAt(type: Mono, at: number): Mono {
+    let node = type;
+    for (;;) {
+      const bind = node.kind === "Variable" ? this.#binds.get(node) : undefined;
+      if (bind === undefined || bind.order >= at) return node;
+      node = bind.target;
+    }
+  }
+
+  /** A colour's parts as they stood once `at` binds had been made (`#boundAt`). */
+  #colourPartsAt(colour: Mono, at: number): Variable[] {
+    const actual = this.#boundAt(colour, at);
+    if (actual.kind === "Join") return actual.parts.flatMap((part) => this.#colourPartsAt(part, at));
+    return actual.kind === "Variable" ? [actual] : [];
   }
 
   /**
@@ -21879,9 +21924,19 @@ class Checker {
    * a shape's other ties were for its own close to read. One that waited on a
    * callback it no longer shares is read as its own close would have read it.
    * The expression that tied them is looked for between the two parameters'
-   * types, whichever line gave them their arrows (`#tieSpan`).
+   * types, whichever line gave them their arrows (`#tieSpan`). Where `closing`
+   * closed before the tie reached it (a lambda the knot held), and the tie was
+   * there at that close, it is read as it stood once `at` binds had been made
+   * (#1220): the callback of `closing` it is tied to, whether a body further
+   * out shares its colour, and the report it joins. A later use of an
+   * ungeneralized lambda neither moves it nor merges it with another.
    */
-  #refuseDeferredTie(closing: EffectFrame, deferred: DeferredTie, reports: Map<Mono, TieReport>): void {
+  #refuseDeferredTie(
+    closing: EffectFrame,
+    deferred: DeferredTie,
+    reports: Map<Mono, TieReport>,
+    at: number | undefined,
+  ): void {
     const { frame, parameter } = deferred;
     const type = this.#prune(parameter.type);
     if (type.kind !== "Function") {
@@ -21894,18 +21949,24 @@ class Checker {
     const colour = this.#prune(type.effect ?? PURE);
     // A constant is no tie, and nor is a colour in error (§3.5, #1223).
     if (colour.kind === "Effect" || colour.kind === "ErrorColour") return;
+    // Read as that close read it only where it was there then: with the
+    // callback of `closing` it shared a colour with at the close, whichever
+    // one it waited on now. One a later line made is read now, further out,
+    // as that line's body reads it.
+    const then = at === undefined || deferred.kind !== "with" ? undefined : this.#sharingUntyped(closing, parameter, at);
+    const thenAt = then === undefined ? undefined : at;
     for (let open = closing.enclosing; open !== undefined; open = open.enclosing) {
       if (this.#tiesRead.has(open)) continue;
-      const outer = this.#sharingUntyped(open, parameter);
+      const outer = this.#sharingUntyped(open, parameter, thenAt);
       if (outer !== undefined) {
         (open.deferredTies ??= []).push({ kind: "with", frame, parameter, with: outer });
         return;
       }
     }
     // Known by identity, so a callback spelled like the parameter is found too.
-    const enclosing = deferred.kind === "with" && this.#shares(deferred.with, parameter)
+    const enclosing = then ?? (deferred.kind === "with" && this.#shares(deferred.with, parameter)
       ? deferred.with
-      : this.#sharingUntyped(closing, parameter);
+      : this.#sharingUntyped(closing, parameter));
     if (enclosing === undefined) {
       // A tie that waited on a callback its colour no longer shares (the
       // callback turned pure) is read as its own close would have read it,
@@ -21920,8 +21981,11 @@ class Checker {
       for (const other of tie.others) report.add(frame, other, false);
       return;
     }
-    const report = reports.get(colour) ?? new TieReport();
-    reports.set(colour, report);
+    // Keyed by its colour as it stood then, so ties a later line merged stay
+    // the reports they were.
+    const key = thenAt === undefined ? colour : this.#boundAt(type.effect ?? PURE, thenAt);
+    const report = reports.get(key) ?? new TieReport();
+    reports.set(key, report);
     report.named.push({
       parameter,
       phrase: this.#namedAcross(enclosing.name, parameter.name, closing.owner),
