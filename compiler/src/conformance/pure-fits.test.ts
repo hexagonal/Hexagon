@@ -728,12 +728,16 @@ describe("a colour left open where the binding is made (#1170)", () => {
   });
 
   test("the colour is the value's own: one colour for the callbacks every use hands it, in either order", () => {
+    // The seat hands `r` a pure callback, which `r`'s colour covers as
+    // `(f) => r!(f)` would (#1213 (T)), so the effectful callback handed in the
+    // other line grows it: accepted, in either order (Verdict Table rows 40
+    // and 40b).
     for (const [routeName, route] of Object.entries(routes)) {
       const verdicts = [
         ['r!(() => save!("z"))', "let p: (() -> Unit) ->! Unit = r"],
         ["let p: (() -> Unit) ->! Unit = r", 'r!(() => save!("z"))'],
       ].map((uses) => reports(program(route(uses))).length > 0);
-      expect([routeName, verdicts]).toEqual([routeName, [true, true]]);
+      expect([routeName, verdicts]).toEqual([routeName, [false, false]]);
     }
     // A bare call after an effectful callback wants `!`, as any shared colour does.
     expect(reports(program(routes.pattern!(['r!(() => save!("z"))', call])))).toEqual([
@@ -1511,14 +1515,15 @@ describe("where a use hands something, a `->!` the value's own written type spel
       .toEqual([]);
   });
 
-  test("a colour every use of a value shares is left as it stands, in either order, and the marked wrapper fits", () => {
+  test("a colour every use of a value shares is left as it stands, in either order, and the seat reads as the marked wrapper", () => {
     const make = "let ident(x: a): a = x\n" +
       "let make() =\n    let run = ident((f) => f!())\n    let go = () => run!(() => ())\n    (run, go)\n";
     const lines = ['r!(() => save!("z"))', "let h: (() -> Unit) ->! Unit = r"];
     for (const order of [lines, [...lines].reverse()]) {
       const body = order.map((line) => `    ${line}\n`).join("");
-      expect(reports(make + "export let go(): Unit =\n    let (r, _) = make()\n" + body + "    ()\n").length)
-        .toBeGreaterThan(0);
+      // The seat reads `r` as its eta-expansion (#1213 (T)), so it pins nothing.
+      expect([order, reports(make + "export let go(): Unit =\n    let (r, _) = make()\n" + body + "    ()\n")])
+        .toEqual([order, []]);
       const wrapped = body.replace("= r\n", "= (f) => r!(f)\n");
       expect([order, reports(make + "export let go(): Unit =\n    let (r, _) = make()\n" + wrapped + "    ()\n")])
         .toEqual([order, []]);

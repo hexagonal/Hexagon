@@ -841,10 +841,17 @@ export let use(): Unit = mk(noop)()
         g
     ()
 `)).toEqual(["g"]);
-    // An arrow a pin itself made impure is one report, not two.
-    expect(at(`let apply(f: (() ->! Unit) ->! (() ->! Unit)): Unit = f!(() => ())!()
-export let u(): Unit = apply!((cb: () ->! Unit): () >-> Unit => cb)
-`)).toEqual(["cb"]);
+    // A lambda written in place reads as its let-bound twin (#1213 (T)): the
+    // seat meets an instance of its written callback, so handing it back is no
+    // lie, and a function it hands back that touches the world on its own
+    // account is the report, at that call.
+    const apply = "let apply(f: (() ->! Unit) ->! (() ->! Unit)): Unit = f!(() => ())!()\n";
+    for (const lambda of ["(cb: () ->! Unit): () >-> Unit => cb", "(cb: () ->! Unit): () >-> Unit => () => save!(\"q\")"]) {
+      const twin = at(`${apply}let lam = ${lambda}\nexport let u(): Unit = apply!(lam)\n`);
+      expect([lambda, at(`${apply}export let u(): Unit = apply!(${lambda})\n`)]).toEqual([lambda, twin]);
+    }
+    expect(at(`${apply}export let u(): Unit = apply!((cb: () ->! Unit): () >-> Unit => () => save!("q"))\n`))
+      .toEqual(['save!("q")']);
   });
 
   it("never counts a call the body runs itself, and gives each arrow and each merged lambda its own search", () => {
@@ -4134,18 +4141,26 @@ export let asImpure: ((() -> String) ->! Int) = stored
   it("still refuses to weaken the callback's colour, which is not covariant-only", () => {
     // The inlet's variable occurs in argument position, so item 7 declines it
     // exactly as it declines every other contravariant variable — the inclusion
-    // is an occurrence count, not an exemption. The first face pins the callback
-    // pure; the second demands the constant of the same, now monomorphic, slot.
+    // is an occurrence count, not an exemption: `stored` keeps one callback
+    // slot. Each face reads `stored` as its eta-expansion would (#1213 (T)): it
+    // hands its callback in, which the slot covers, so a pure face pins
+    // nothing, and a face accepting any function is no lie while `store` never
+    // runs it.
     expect(
       effectDiagnostics([["/main.hex", "module Main\n\n" + `${inletFace}
 export let asPure: ((() -> String) -> Int) = stored
 export let asImpure: ((() ->! String) -> Int) = stored
 `]]),
+    ).toEqual([]);
+    // Where `store` runs it, the pure face over any function is the lie of
+    // generality (§4.2).
+    const runs = inletFace.replace("Int = 1", "Int =\n    let _ = callback!()\n    1");
+    expect(
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `${runs}
+export let asPure: ((() -> String) -> Int) = stored
+export let asImpure: ((() ->! String) -> Int) = stored
+`]]),
     ).toEqual([
-      // The first face pinned `stored`'s callback slot pure, so `stored` now
-      // accepts only a pure callback, and the second face's callback, written
-      // `->!` to accept any function, is bound to it: the lie of generality,
-      // standing at the value that brought the constant (§4.2).
       "this callback is written `->!`, which accepts any function, and this accepts only a " +
       "pure one — write its arrow `->`",
     ]);
