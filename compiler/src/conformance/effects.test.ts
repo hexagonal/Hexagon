@@ -2796,6 +2796,12 @@ describe("Effects §3.5 — a colour in error (#1223)", () => {
     ) {
       expect(check(`${user}let outer(f: () ->! Unit): Unit =\n    ${call}\n    f()\n`)).toEqual(errors);
     }
+    // A type variable a written error met, joined to the callback in the same
+    // body: the repair `let g: () -> Unit = x` pins it.
+    expect(check("let outer(f: () ->! Unit, x) =\n    let g: Nope = x\n    let y = pick(x, f)\n    f()\n")).toEqual([
+      nopeType,
+      "`x`'s colour is tied to `f`'s here, and no written type can say that — write `x`'s type",
+    ]);
     // A `var`'s type written in error is a demand at each `:=`.
     expect(check("let outer(f: () ->! Unit): Unit =\n    var v: { h: Nope } = { h = f }\n    v := { h = f }\n    f()\n"))
       .toEqual([nopeType]);

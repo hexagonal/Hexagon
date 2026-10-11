@@ -1916,7 +1916,9 @@ const ERROR: ErrorMono = { kind: "Error" };
  * A type the text writes and the program cannot read (Effects §3.5, #1223):
  * the error type as an annotation gives it. Where it is a seat's demand,
  * whether it pins what meets it is what the error hides; an error a value
- * left in a type is no demand.
+ * left in a type is no demand. An importer meets another module's written
+ * types only at a call's parameters, which are demands as they are
+ * (`#atParameter`), so the mark is not exported.
  */
 const WRITTEN_ERROR: ErrorMono = { kind: "Error" };
 
@@ -31449,7 +31451,7 @@ class Checker {
                 : copy({ kind: "Variable", id: type.effect.variable }),
             }),
         };
-        case "Error": return type.written === true ? WRITTEN_ERROR : ERROR;
+        case "Error": return ERROR;
       }
     };
     for (const constraint of scheme.constraints) {
@@ -34349,7 +34351,7 @@ class Checker {
     seen = new Map<number, Typed.VariableType>(),
   ): Typed.Type {
     const actual = this.#prune(type);
-    if (actual.kind === "Error") return actual === WRITTEN_ERROR ? { kind: "Error", written: true } : { kind: "Error" };
+    if (actual.kind === "Error") return { kind: "Error" };
     if (actual.kind === "Constructor") {
       return { kind: "Primitive", name: actual.name };
     }
