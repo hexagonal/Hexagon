@@ -23411,10 +23411,9 @@ class Checker {
    * returns, and a tuple's, a record's or a covariant argument's parts. A
    * lambda is its own eta-expansion: the written type lands on it (Functions
    * §4.3), so its parameters are already the seat's, and reading them so
-   * again changes nothing. A member of a knot still
-   * open, or a call of one, is what the recursion makes it: it hands on only
-   * the callbacks it was given (#1218, #1222), so no expansion of it is one,
-   * and its seat reads it as the knot reads it.
+   * again changes nothing. What the seat publishes is the value with the
+   * written parameters where it handed it a callback, as the expansion's own
+   * parameters would be.
    */
   #seatReading(
     written: Mono,
@@ -23425,8 +23424,6 @@ class Checker {
     const inner = ungrouped(value);
     const asWritten = { met: written, published: valueType };
     if (inner.kind === "Lambda") return asWritten;
-    const named = inner.kind === "Call" ? ungrouped(inner.callee) : inner;
-    if (named.kind === "Name" && this.#knots.some((knot) => knot.types.has(named.symbol))) return asWritten;
     return this.#seatRead(written, valueType, level);
   }
 
