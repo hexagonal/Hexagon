@@ -1537,6 +1537,37 @@ describe("Effects §3.4 — a tie between callbacks is refused, where it was mad
         ["k: `k` has no written type", "g: `g` has no written type", "f: `f` has no written type"],
       ]]]);
     }
+    // Where the use's is the first bind after the close (a `var`, refused for
+    // holding a function, is not instantiated), it is still a later line's.
+    for (const program of member(held.map((line) => line.replace("let q = ident((k) =>", "var q = (k) =>")
+      .replace("    ())", "    ()")))) {
+      expect([program, reportsOf(program)[1]]).toEqual([program, tied("f", "k", "if c then k else f")]);
+    }
+    // What the body shared there is read whole: through a join `f` met...
+    const runsBoth = ["    let inner = (f) =>", "        b!(g, c, n - 1)", "        let _ = if c then f else () =>",
+      "            k!()", "            h!()", "        ()"];
+    const join = ["g!()", "let q = ident((k, h) =>", "    k!()", "    h!()", ...runsBoth, "    ())", "q!(noop, g)"];
+    for (const program of member(join)) {
+      expect([program, reportsOf("let noop(): Unit = ()\n" + program)[0]!.labels]).toEqual([program, [
+        "f: `f` has no written type",
+        "k: `k` has no written type",
+      ]]);
+    }
+    // ...whose part a line before the close bound to `g`...
+    const bound = ["g!()", "let q = ident((k, h) =>", "    k!()", "    h!()", ...runsBoth, "    let _ = if c then h else g",
+      "    ())", "q!(noop, noop)"];
+    // ...and through the arrow of the function an enclosing callback returns.
+    const returned = ["let r = g!()", "r!()", "let q = ident((k) =>", "    k!()", "    let inner = (f) =>",
+      "        b!(g, c, n - 1)", "        if c then k else f", "    let _ = if c then g!() else k", "    ())", "q!(noop)"];
+    for (const [lines, at, labels] of [
+      [bound, "if c then h else g", ["h", "g", "f"]],
+      [returned, "g", ["k", "g", "f"]],
+    ] as const) {
+      for (const program of member(lines)) {
+        expect([program, reportsOf("let noop(): Unit = ()\n" + program).map((report) => [report.at, report.labels])])
+          .toEqual([program, [[at, labels.map((name) => `${name}: \`${name}\` has no written type`)]]]);
+      }
+    }
     // A tie a later line made is read now, by the body that line is in: `f`
     // was no function yet where `k`'s body closed.
     const later = ["g!()", "let q = ident((k, y) =>", "    k!()", "    let inner = (f) =>", "        b!(g, c, n - 1)",
