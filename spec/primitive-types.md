@@ -80,7 +80,7 @@ type name from a type variable and enables implicit generalisation without `fora
 
 **Checked stdlib variants** for call sites near the edge: `Int.checkedAdd`, `Int.checkedSub`, `Int.checkedMul : Int -> Int -> Option(Int)` (naming per the standard partiality story). Implementation: `Number.isSafeInteger` on the result — **except `checkedMul`, which must pre-check operand magnitudes**, because an oversized product rounds *before* a post-hoc check can see it (same trap as the fixed-width Rat discussion). Multiplication is also the op that overflows in practice (two ~10^8 operands suffice).
 
-`stdlib/Int.hex` declares `IntRangeError(message: String)` for an explicit
+`stdlib/Int.hex` declares `IntRangeFault(message: String)` for an explicit
 operation whose promised result must be an `Int` but is not representable in
 the safe range. The first users are §3's five `Float` rounding exits (#919).
 The exception belongs here, at the target type, and is available for a future
@@ -105,7 +105,7 @@ continues to return `None` instead and does not throw it.
 
 Detection is named too, because it cannot be spelled by hand: `Float.isNan` and `Float.isFinite`. The imported idiom `x != x` is **uniformly `False`** here — `Eq<Float>` is SameValueZero, so a `NaN` equals itself (a deliberate choice, so that a float can key a hash table) — and with every partial float operation answering `NaN` rather than throwing, a caller would otherwise hold a value with no test for it. The same equality that retires the idiom implements the replacement: `Float.isNan(x)` is `x == Float.nan`. Comparison/equality semantics around `NaN` and `-0` are specified in the constraint (Eq/Ord) spec, not here.
 
-`stdlib/Float.hex` also declares `FloatRangeError` — the range guard of the exact world's exit doors, thrown by `Rat.toFloat` (`rat.md` §6) and `BigInt.toFloat` (§6): a door's result must be finite, and nonzero when the input is nonzero. The declaration sits here, at the target type, so that any door from the exact world *can* share it; which doors carry the guard is each door's own ruling.
+`stdlib/Float.hex` also declares `FloatRangeFault` — the range guard of the exact world's exit doors, thrown by `Rat.toFloat` (`rat.md` §6) and `BigInt.toFloat` (§6): a door's result must be finite, and nonzero when the input is nonzero. The declaration sits here, at the target type, so that any door from the exact world *can* share it; which doors carry the guard is each door's own ruling.
 
 **Rounding into `Int`.** `Float` owns five concrete exits into the safe-integer
 world; they are ordinary companion functions, not constraint members:
@@ -138,9 +138,9 @@ Each operation first determines its integer-valued `Float`. If that result is
 not a safe integer — exactly the host predicate `Number.isSafeInteger`, which
 rejects `NaN`, both infinities, and finite results outside
 `[-(2^53 - 1), 2^53 - 1]` — it throws
-`IntRangeError("Float.<operation>: result does not fit in Int")`.
-`IntRangeError` is declared by `stdlib/Int.hex`: the failed range belongs to the
-target type, just as `FloatRangeError` belongs here and is thrown by doors in
+`IntRangeFault("Float.<operation>: result does not fit in Int")`.
+`IntRangeFault` is declared by `stdlib/Int.hex`: the failed range belongs to the
+target type, just as `FloatRangeFault` belongs here and is thrown by doors in
 other companions. Every successful zero result is canonical `Int` zero; the
 sign bit of a floating negative zero never crosses into `Int` and cannot
 reappear if that result later widens to `Float`.
@@ -287,7 +287,7 @@ implicit conversion to Float, Int, or Nat. Literal patterns still require BigInt
 
 **Style:** use `n` when no surrounding context pins the type (`let y = 1n`) and whenever the payload exceeds the bare-literal range. In an already BigInt-typed position, bare digits are preferred: `Rat.create(1, 3)` emits `Rat.create(1n, 3n)`.
 
-**Conversions:** Numeric Literals §5.1 applies from established `Nat` and `Int` expressions into `BigInt`, through `Num.fromNat` and `Signed.fromInt` respectively; emission is `BigInt(value)` and is exact. There is no conversion in the other direction and no implicit conversion between `BigInt` and `Float`. Explicit stdlib conversions are provided by `stdlib/BigInt.hex` *(#344 — this sentence previously said "remain", with nothing built)*: `BigInt.fromInt : Int -> BigInt` (total — it **is** `Signed<BigInt>`'s member, reached qualified per Modules §5.3; one implementation, two spellings), `BigInt.toInt : BigInt -> Option(Int)` (partial per the standard partiality story — Unions spec, the `Option` this always meant), and `BigInt.toFloat : BigInt -> Float` — the exact world's second sanctioned exit *(#533; friendly-numerics tenet 7 — `rat.md` §6 owns the first)*. It answers the **correctly rounded nearest double** — past 2^53 that double need not be the integer asked for, and no exception attends the rounding, because rounding error is what an approximation *is* — and where the correctly rounded answer would be ±Infinity it throws `FloatRangeError` (`Float.hex`'s declaration, §3, shared rather than re-minted) with `BigInt.toFloat: value does not fit in Float`, refusing to fabricate one. The shared guard's sentence — the result must be finite, and nonzero when the input is nonzero — has only its overflow end reachable here: a nonzero integer is at least `1n` in magnitude, so the erasure end is `Rat`'s alone. Throwing `Float.hex`'s exception is what seats this companion after `Float.hex` in the prelude order (Modules §5.5's ordered visibility — a module seats after what it uses). **`BigInt.pow(value: BigInt, exponent: BigInt): BigInt`** is the `widens` declaration over `Pow<BigInt>`'s member (Operators §6.3.1; Constraints §4.7): exact power at exponents beyond `Int`'s range — a domain the host defines, and thin (`0n`/`±1n` bases answer at any non-negative exponent; elsewhere implementation limits govern as they do all `BigInt` growth) — with `exponent < 0` throwing `NegativeExponentError` at either face, the guard living once in the one body. The qualified spelling and the dot call take the door; `**` takes the member — the door's derived restriction, accounted for as `pow = widened`, whose derivation converts its `Int` exponent explicitly, JS `**` never mixing `bigint` and `number`.
+**Conversions:** Numeric Literals §5.1 applies from established `Nat` and `Int` expressions into `BigInt`, through `Num.fromNat` and `Signed.fromInt` respectively; emission is `BigInt(value)` and is exact. There is no conversion in the other direction and no implicit conversion between `BigInt` and `Float`. Explicit stdlib conversions are provided by `stdlib/BigInt.hex` *(#344 — this sentence previously said "remain", with nothing built)*: `BigInt.fromInt : Int -> BigInt` (total — it **is** `Signed<BigInt>`'s member, reached qualified per Modules §5.3; one implementation, two spellings), `BigInt.toInt : BigInt -> Option(Int)` (partial per the standard partiality story — Unions spec, the `Option` this always meant), and `BigInt.toFloat : BigInt -> Float` — the exact world's second sanctioned exit *(#533; friendly-numerics tenet 7 — `rat.md` §6 owns the first)*. It answers the **correctly rounded nearest double** — past 2^53 that double need not be the integer asked for, and no exception attends the rounding, because rounding error is what an approximation *is* — and where the correctly rounded answer would be ±Infinity it throws `FloatRangeFault` (`Float.hex`'s declaration, §3, shared rather than re-minted) with `BigInt.toFloat: value does not fit in Float`, refusing to fabricate one. The shared guard's sentence — the result must be finite, and nonzero when the input is nonzero — has only its overflow end reachable here: a nonzero integer is at least `1n` in magnitude, so the erasure end is `Rat`'s alone. Throwing `Float.hex`'s fault is what seats this companion after `Float.hex` in the prelude order (Modules §5.5's ordered visibility — a module seats after what it uses). **`BigInt.pow(value: BigInt, exponent: BigInt): BigInt`** is the `widens` declaration over `Pow<BigInt>`'s member (Operators §6.3.1; Constraints §4.7): exact power at exponents beyond `Int`'s range — a domain the host defines, and thin (`0n`/`±1n` bases answer at any non-negative exponent; elsewhere implementation limits govern as they do all `BigInt` growth) — with `exponent < 0` throwing `NegativeExponentFault` at either face, the guard living once in the one body. The qualified spelling and the dot call take the door; `**` takes the member — the door's derived restriction, accounted for as `pow = widened`, whose derivation converts its `Int` exponent explicitly, JS `**` never mixing `bigint` and `number`.
 
 **Division:** honors `Signed` but **not** `Frac` — BigInt division is truncating-toward-zero in JS, unlawful for generic `divide`. `Integral<BigInt>`'s `div`/`mod`, the **same Euclidean** convention as at `Int`, per the Division & Remainder spec *(#344 — this sentence previously said "floored" and "uniformly wrapped in codegen": the convention's name was corrected when Division & Remainder ruled Euclidean, and the wrapping is now `stdlib/BigInt.hex`'s ordinary source, the Euclidean family in Hexagon over the truncated door pair)*.
 
@@ -369,7 +369,7 @@ Unchanged and still worth its ink here: **`Unit`'s `undefined` must not be confu
 | `_` separators: JS rule, all numeric literals; integers and BigInts also in hexadecimal, octal, and binary (`bitwise.md` §8), Float and Dec decimal only | this doc §8 |
 | `Unit` = `()` = JS `undefined` | this doc §9 |
 | `Float.nan` / `Float.infinity` constants and `Float.isNan` / `Float.isFinite` detectors; no special-value literals; `x != x` is uniformly `False` | this doc §3 |
-| `Float.floor`/`ceil`/`trunc`/`round`/`roundAway` return `Int`; `round` uses ties to even, `roundAway` ties away from zero; unsafe results throw target-owned `IntRangeError`; zero is canonical | this doc §3; #919, #974 |
+| `Float.floor`/`ceil`/`trunc`/`round`/`roundAway` return `Int`; `round` uses ties to even, `roundAway` ties away from zero; unsafe results throw target-owned `IntRangeFault`; zero is canonical | this doc §3; #919, #974 |
 | Int overflow: silent past ±2^53, plain-JS operators; checked stdlib variants; `--checked-int` reserved; int32/`\|0` rejected | this doc §2.1 |
 | `Ord String` = codepoint lexicographic, permanent regardless of grapheme indexing; collation is stdlib, never Ord | this doc §5 |
 | Types uppercase-start; type variables non-uppercase-start (`a b c` by convention) | this doc §1; Lexer §3 |
@@ -417,6 +417,6 @@ Two standing rules accompany the reclassification:
 `abs(value: a) -> a` preserves the input type, and `sign(value: a) -> Sign`
 returns `Sign.Negative`, `Sign.Zero`, or `Sign.Positive`. Constraints §7 owns
 the contract, including positive-zero normalization by `Float.abs` and
-`Float.UndefinedSignError` for `Float.sign(Float.nan)`. `Rat` also honors
+`Float.UndefinedSignFault` for `Float.sign(Float.nan)`. `Rat` also honors
 `Real` exactly (Rat §5). These operations use ordinary dictionary and dot-call
 rules, with no additional numeric widening or result-type inference.

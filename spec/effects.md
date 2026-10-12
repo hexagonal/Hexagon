@@ -687,7 +687,7 @@ What a boundary declaration does splits by **who owns the implementation**, and 
 
 A `->` or `->^` on a boundary row, user-written or intrinsic, whose implementation does touch the world is unsound, except for four shapes where the claim is *sound*, not merely customary. The ruling names them, so every future claim can be tested against one of them. The species govern the world colour only. A claim that a row cannot fail needs none: whether a foreign function throws is a fact about it, and §6.1's broken claim is what a false one costs.
 
-- **Species (a): unobservable world-writes.** A write-only channel the program cannot read back. That is never a foreign property write: a `set` row is the write capability it grants, and is declared as touching the world regardless, `->!` or `->~` (FFI Part 5 §4.1), because a property the foreign side can read is not write-only from the world's point of view.
+- **Species (a): unobservable world-writes.** A write-only channel the program cannot read back. That is never a foreign property write: a `set` row is the write capability it grants, and is declared `->!` regardless, a conservative statement of that capability rather than a claim (FFI Part 5 §4.1), because a property the foreign side can read is not write-only from the world's point of view.
   - The debug probe is the member. A pure-faced `log` that writes to the console changes nothing any Hexagon expression can observe.
   - What it forfeits is multiplicity and ordering. Under the per-instantiation contract, a probe in a pure producer may print once, many times or never (a memoized `Seq` step prints once, however often it is traversed). Fine for debugging, and disqualifying for real logging, which belongs behind an extern that touches the world.
   - **The caveat:** `console.log` is replaceable, and a replaced sink is a read path. A conforming debug probe captures its sink at initialization.
@@ -787,7 +787,7 @@ Messages are normative in shape.
 | Prefix `!` on an expression (negation intent) | "Hexagon spells logical negation `not`", position-selected by the parser (Lexer §10's row) |
 | `=>` (or `=>!`) after a complete type operand, in a type position where a fat arrow can have no other reading | the type-arrow redirect: "Hexagon's type arrows are `->`, `->^`, `->~`, `->!` and `>->`; `=>` is the lambda arrow — for a function type write `Int -> Int` (or a marked arrow for what it may do)" + fixit `->` (`->!` for `=>!`). Recovery resolves the arrow to that spelling, so one typo yields one report. The redirect is position-selected by the parser, and **silent** where the fat arrow competes: in a lambda's return annotation, where it is the body's (§2.6), and in a `let`/`var` annotation, where it may be a mis-typed `=` |
 | A callable extern row written with `:` before its result | FFI Part 4 §13's colon row, naming the five arrows; `->!` as the fixit (§6.1) |
-| A `set` row, instance or static, with an arrow that does not touch the world | "an extern `set` grants write capability, and a write to foreign state touches the world — its arrow is `->!`, or `->~` if it cannot fail" + fixit `->!` (FFI Part 5 §4.1) |
+| A `set` row, instance or static, with an arrow other than `->!` | "an extern `set` grants write capability, and a write to foreign state is an effect — its arrow is `->!`" + fixit `->!` (FFI Part 5 §4.1) |
 
 ## 10. Display
 

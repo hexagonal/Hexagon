@@ -1,9 +1,9 @@
 # Hexagon Spec: Decisions Batch — July 2026 Closures
 
 **Status:** Decided (July 2026). This is a **cross-cutting closure document**: it records six decisions that resolve hanging questions filed across existing specs, plus the edit notes those specs need. It is intended to be consolidated into its host specs later; until then it is authoritative for everything it decides, and supersedes the "open"/"flagged" status of every item it names.
-**Scope:** `Eq`/`Ord` semantics for `NaN` and `-0` (with `Hash` consequences); derivation invocation for nominal types (`derive`); the `Ordering` union's constructor spelling; tabs in leading whitespace; indexing/slicing partiality (`IndexError` vs clamp); the implied-types spec timing (deferred to v2, with rationale recorded).
+**Scope:** `Eq`/`Ord` semantics for `NaN` and `-0` (with `Hash` consequences); derivation invocation for nominal types (`derive`); the `Ordering` union's constructor spelling; tabs in leading whitespace; indexing/slicing partiality (`IndexFault` vs clamp); the implied-types spec timing (deferred to v2, with rationale recorded).
 **Not in scope:** the derivation *semantics* (fixed: Products §2.5/§3.4, Unions §7); the full indexing/collections spec (this doc pre-decides only its partiality story); the implied-types design itself (Loops §7.2/§11.1 remains the sketch of record); `Hash` as a user-facing constraint (not in v1; §1.4 here constrains it if it ever ships); the modules-spec namespace question (§3 reduces its stakes, does not answer it).
-**Companions:** Constraints spec (§9.2, §9.5, §9.7 closed here), Primitive Types spec (§3 promise discharged here), Lexer & Layout spec (§2 tabs flag closed here), Loops/Ranges/Iteration spec (§11.1, §11.2, §11.7 closed or advanced here), Products spec (§3.4 record-`Ord` question dissolved here), Statements/Blocks/Mutability spec (unaffected; listed because `IndexError` phrasing follows its diagnostics doctrine).
+**Companions:** Constraints spec (§9.2, §9.5, §9.7 closed here), Primitive Types spec (§3 promise discharged here), Lexer & Layout spec (§2 tabs flag closed here), Loops/Ranges/Iteration spec (§11.1, §11.2, §11.7 closed or advanced here), Products spec (§3.4 record-`Ord` question dissolved here), Statements/Blocks/Mutability spec (unaffected; listed because `IndexFault` phrasing follows its diagnostics doctrine).
 
 Written for a future implementation session against the existing `hexc` architecture: Algorithm J, union-find tyvars, level-based generalisation, constraints as dictionaries, layout pass, readable-JS emission with `.d.ts`.
 
@@ -171,7 +171,7 @@ The offside rule needs an unambiguous column for every line; a tab's column cont
 
 ### 5.1 The decision
 
-- **`xs[i]` throws `IndexError`** when `i` is out of bounds (this confirms and formalises the standing leaning already recorded in Loops §11.7 and the approved `IndexError` exception).
+- **`xs[i]` throws `IndexFault`** when `i` is out of bounds (this confirms and formalises the standing leaning already recorded in Loops §11.7 and the approved `IndexFault` fault).
 - **`xs[lo..hi]` clamps**: the range is intersected with the collection's valid index range; out-of-range portions are silently dropped. A fully-out-of-range or empty range yields the empty collection. Never an error.
 - Both are 1-based and the range end is inclusive, per global doctrine (Primitive Types §5.1, Loops §3.1).
 
@@ -244,7 +244,7 @@ Apply on next touch of each document; until then this doc governs.
 | `derives Ord` without `Eq` | error for a missing base constraint + "add `Eq` to the `derives` list" | §2.6 |
 | `derive` outside `honor` RHS | "`derive` is only legal as the body of an `honor` declaration" | §2.6 |
 | `derives` on `exception` | "exceptions have no derived instances" | §2.6 |
-| `xs[i]` out of bounds | runtime `IndexError` (not a diagnostic; listed for the boundary) | §5.1 |
+| `xs[i]` out of bounds | runtime `IndexFault` (not a diagnostic; listed for the boundary) | §5.1 |
 
 `NaN`/`-0` and `Ordering` produce no new diagnostics; slicing produces none by design.
 
@@ -303,7 +303,7 @@ match a.compare(b)
 -- (h) Index throws, slice clamps
 let xs = [10, 20, 30]
 xs[3]                          -- 30
-xs[4]                          -- throws IndexError
+xs[4]                          -- throws IndexFault
 xs[2..99]                      -- [20, 30];  emits xs.slice(1, 99) — native clamp
 xs[5..9]                       -- []
 xs[3..1]                       -- []         (empty range, Loops §3.4; same rule)
@@ -338,5 +338,5 @@ xs[3..1]                       -- []         (empty range, Loops §3.4; same rul
 | `Ordering = Less \| Equal \| Greater` (Rust spelling); `LT/EQ/GT` and int-returning `compare` rejected | §3 |
 | Namespace question de-fanged, still owed to modules spec | §3.2, §7.7 |
 | Tabs in leading whitespace: hard lexer error, no tab-width, no escape hatch; F#/Elm/Nim lineage, Haskell as documented rejection; mandatory fixit | §4 |
-| `xs[i]` throws `IndexError`; `xs[lo..hi]` clamps (Python split); assert-vs-request rationale; bare-`.slice()` emission payoff; throw-both (Rust) recorded as principled runner-up | §5 |
+| `xs[i]` throws `IndexFault`; `xs[lo..hi]` clamps (Python split); assert-vs-request rationale; bare-`.slice()` emission payoff; throw-both (Rust) recorded as principled runner-up | §5 |
 | Implied types / user `Iterable`: v2, on first demand; inference-risk + calibration-wants-a-specimen rationale; `toSeq` remains the seam | §6 |

@@ -50,16 +50,16 @@ Int.quot(a: Int, b: Int): Int     -- truncated quotient  (rounds toward zero)
 Int.rem(a: Int, b: Int): Int      -- truncated remainder (JS's `%` exactly)
 ```
 
-- **All four throw `DivideByZeroError` on `b == 0`.** JS's `a % 0` is `NaN`, which would silently break the Int-is-a-whole-JS-number invariant; the truncated pair gets no IEEE exemption just because its convention matches JS — the *type* is `Int`, and `Int` partiality throws (same doctrine as `Int.div` always had, and as `IndexError`).
+- **All four throw `DivideByZeroFault` on `b == 0`.** JS's `a % 0` is `NaN`, which would silently break the Int-is-a-whole-JS-number invariant; the truncated pair gets no IEEE exemption just because its convention matches JS — the *type* is `Int`, and `Int` partiality throws (same doctrine as `Int.div` always had, and as `IndexFault`).
 - `quot`/`rem` satisfy their own identity (`quot(a,b) * b + rem(a,b) == a`) with `abs(rem(a,b)) < abs(b)` and `rem` taking the dividend's sign. Names per the Haskell (`quot`/`rem` vs `div`/`mod`) and Rust lineage.
 - **Why `quot`/`rem` exist at all:** interop and porting. `Int.rem(a, b)` is bit-for-bit JS's `a % b` (for valid `Int` inputs), so code transliterated from JS/TS — or any C-family source — can keep its remainder semantics under a name that *says* it's the machine convention. The docs for `rem` state "this is JS's `%`" in those words.
 - All four are monomorphic `Int` functions, not constraint members — same status as `Int.div` always had (`Int` is `Signed` but not `Frac`; Operators §6.1). *(Superseded by the Integral constraint, and the spellings survived it: the four are `Integral<Int>`'s members, `Int.div` is the member qualified (Modules §5.3), and since #344 the bodies are source `honor` blocks in `stdlib/Int.hex`. The conventions, identities, and guards above are unchanged — the Integral spec's reconciliation section governs.)*
 
 ## 4. `BigInt` mirrors `Int`
 
-`BigInt.div` / `BigInt.mod` / `BigInt.quot` / `BigInt.rem`, same conventions, same identities, same `DivideByZeroError` on a zero divisor.
+`BigInt.div` / `BigInt.mod` / `BigInt.quot` / `BigInt.rem`, same conventions, same identities, same `DivideByZeroFault` on a zero divisor.
 
-One implementation wrinkle, binding: **native JS BigInt `/` and `%` already throw on `0n`** — but a `RangeError`, not a branded Hexagon exception. The runtime helpers must produce `DivideByZeroError` (the standard `$hex` — the declaring module, #488 — plus `name` branding, Exceptions spec) — by pre-checking `b === 0n`, not by catch-and-rebrand (a `try`/`catch` around every remainder is worse readable-JS than one comparison). The observable rule is uniform: **a zero divisor at any integer type throws `DivideByZeroError`, never a raw JS error, never `NaN`.**
+One implementation wrinkle, binding: **native JS BigInt `/` and `%` already throw on `0n`** — but a `RangeError`, not a branded Hexagon fault. The runtime helpers must produce `DivideByZeroFault` (the standard `$hex` — the declaring module, #488 — plus `name` branding, Exceptions spec) — by pre-checking `b === 0n`, not by catch-and-rebrand (a `try`/`catch` around every remainder is worse readable-JS than one comparison). The observable rule is uniform: **a zero divisor at any integer type throws `DivideByZeroFault`, never a raw JS error, never `NaN`.**
 
 Note JS BigInt's native `%` is truncated, same as `number`'s — so `BigInt.rem` enjoys the same near-bare emission as `Int.rem` (§6).
 
@@ -110,7 +110,7 @@ Inlining latitude (quality-of-implementation, not spec): where the divisor is a 
 | Situation | Message (shape) |
 |---|---|
 | `intA / intB` (existing, Operators §6.1) | unchanged, but the hint now reads: "`Int` has no `/`; use `Int.div`/`Int.mod` (Euclidean), or `Int.quot`/`Int.rem` for JS's truncating `%` semantics" |
-| Zero divisor at runtime, any integer function | `DivideByZeroError`; message names the function that threw (`Int.rem: divisor is zero`), per the provenance-tagged phrasing rule. *(#344: the exception's declared home is `stdlib/Integral.hex` — the constraint whose members the guards protect — one declaration for every honoring companion; `BigInt`'s, `Int`'s, and `Nat`'s guards throw it from source — a `Nat` division's message now names `Nat`, where the shared wired helper once said `Int` — and `Float` has no integer functions to guard)* |
+| Zero divisor at runtime, any integer function | `DivideByZeroFault`; message names the function that threw (`Int.rem: divisor is zero`), per the provenance-tagged phrasing rule. *(#344: the fault's declared home is `stdlib/Integral.hex` — the constraint whose members the guards protect — one declaration for every honoring companion; `BigInt`'s, `Int`'s, and `Nat`'s guards throw it from source — a `Nat` division's message now names `Nat`, where the shared wired helper once said `Int` — and `Float` has no integer functions to guard)* |
 
 Docs (not compiler) obligations: `rem`'s doc line says "this is JS's `%`"; `mod`'s says "always non-negative"; `Float.mod`'s notes the rounding boundary (§5.1).
 
@@ -140,9 +140,9 @@ Int.quot(7, -3)  -- -2     Int.rem(7, -3)   -- 1
 Int.quot(-7, -3) -- 2      Int.rem(-7, -3)  -- -1
 
 -- Zero divisors: all four throw, branded
-Int.mod(1, 0)    -- throws DivideByZeroError
-Int.rem(1, 0)    -- throws DivideByZeroError (NOT NaN; not JS behaviour)
-BigInt.rem(1n, 0n) -- throws DivideByZeroError (NOT RangeError; §4)
+Int.mod(1, 0)    -- throws DivideByZeroFault
+Int.rem(1, 0)    -- throws DivideByZeroFault (NOT NaN; not JS behaviour)
+BigInt.rem(1n, 0n) -- throws DivideByZeroFault (NOT RangeError; §4)
 
 -- Float: IEEE, no throws
 Float.rem(-7.0, 3.0)   -- -1.0   (bare JS %)
@@ -161,7 +161,7 @@ isEven = n => Int.mod(n, 2) == 0    -- correct for negative n; with rem it would
 |---|---|
 | `mod`/`div` are Euclidean at every type that has them; closes Operators §14.3a | §1–2 |
 | `quot`/`rem` (truncated) provided at `Int`/`BigInt` for JS/C-family interop; naming per Haskell/Rust, `jsMod` rejected | §3, §8 |
-| All integer-type division/remainder functions throw `DivideByZeroError` on zero; BigInt pre-checks rather than rebranding `RangeError` | §3–4 |
+| All integer-type division/remainder functions throw `DivideByZeroFault` on zero; BigInt pre-checks rather than rebranding `RangeError` | §3–4 |
 | `Float.mod` (Euclidean) and `Float.rem` (truncated, bare `%`) provided; NaN on zero divisor; no throw | §5 |
 | No `Float.quot`, no Euclidean float division | §5.3 |
 | `Float.trunc(a / b)` and `Float.floor(a / b)` are compositions through Primitive Types §3's checked rounding exits, not a float quotient family | §5.3; #919 |
@@ -171,8 +171,8 @@ isEven = n => Int.mod(n, 2) == 0    -- correct for negative n; with rem it would
 ## 11. Edit notes to existing specs
 
 - **Operators §14.3a:** CLOSED — Euclidean adopted; delete the "reopened" block, point here.
-- **Operators §6.1:** "(floored, `DivideByZeroError` on zero divisor)" → "(Euclidean — see Division & Remainder spec; `DivideByZeroError` on zero divisor)"; extend the `intA / intB` diagnostic hint per §7 here.
+- **Operators §6.1:** "(floored, `DivideByZeroFault` on zero divisor)" → "(Euclidean — see Division & Remainder spec; `DivideByZeroFault` on zero divisor)"; extend the `intA / intB` diagnostic hint per §7 here.
 - **Operators §13 (`%` row):** "…`Int.mod` (floored) is the way" → "…`Int.mod` (Euclidean) and `Int.rem` (truncated) are the way — two conventions, two names."
 - **Primitive Types §2 (Division paragraph):** "deliberately chosen (floored) semantics" → "deliberately chosen **Euclidean** semantics"; add the `Int.quot`/`Int.rem` pair to the sentence.
-- **Exceptions spec (registry):** `DivideByZeroError` throwers now: `Int.div`, `Int.mod`, `Int.quot`, `Int.rem`, the four `BigInt` counterparts, the four `Nat` counterparts *(added with the second landing, #344 — their messages name `Nat`)*, `Rat.divide`, and the Rat construction boundary reached by `Rat.create` and reciprocal.
+- **Exceptions spec (registry):** `DivideByZeroFault` throwers now: `Int.div`, `Int.mod`, `Int.quot`, `Int.rem`, the four `BigInt` counterparts, the four `Nat` counterparts *(added with the second landing, #344 — their messages name `Nat`)*, `Rat.divide`, and the Rat construction boundary reached by `Rat.create` and reciprocal.
 - **hexagon-for-typescript-coders Ch. 3.4:** optional one-liner when next touched: "`Int.mod` is always non-negative (unlike JS's `%`); `Int.rem` is JS's `%` under an honest name."

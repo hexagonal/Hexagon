@@ -50,7 +50,7 @@ Rat.top(value: Rat): BigInt
 Rat.bottom(value: Rat): BigInt
 ```
 
-`create` throws `DivideByZeroError` when the bottom is zero. Otherwise it:
+`create` throws `DivideByZeroFault` when the bottom is zero. Otherwise it:
 
 1. computes `g = top.gcd(bottom)` — `Integral<BigInt>`'s member, spelled as the dot call (Method Syntax §7; the qualified `BigInt.gcd` remains equally legal, #344) — with the Euclidean
    algorithm and its non-negative Euclidean remainder step;
@@ -76,7 +76,7 @@ The v1 companion supplies `add`, `subtract`, `multiply`, `divide`, `negate`, and
 `reciprocal`. Every result passes through `create`; implementations may cancel
 common factors before multiplication as a transparent optimization.
 
-Division checks its right operand explicitly and throws `DivideByZeroError` with
+Division checks its right operand explicitly and throws `DivideByZeroFault` with
 the provenance-tagged message `Rat.divide: divisor is zero`. `reciprocal(0)`
 throws the same exception through the smart construction boundary. Addition and
 multiplication never round. `Num<Rat>` owns those operations and defines
@@ -85,7 +85,7 @@ multiplication never round. `Num<Rat>` owns those operations and defines
 `Rat.create(n, 1)`; the Nat/Int entries delegate to it through
 `BigInt.fromNat` / `BigInt.fromInt`. `Frac<Rat>` owns exact division. Unlike `Frac<Float>`,
 it never rounds and has no IEEE infinity or `NaN` result: a zero divisor throws
-`DivideByZeroError`.
+`DivideByZeroFault`.
 
 `Pow<Rat>` owns exponentiation, **exact at either sign of the exponent** —
 `pow(value: Rat, exponent: Int)` per the constraint's `Int` exponent seat
@@ -93,7 +93,7 @@ it never rounds and has no IEEE infinity or `NaN` result: a zero divisor throws
 is exactly `9/4` — the case `Pow<Int>` structurally cannot serve. A fractional
 exponent is refused by the seat's type, at compile time; no runtime guard
 exists, and none is needed. A zero base with a negative exponent reaches the
-existing `DivideByZeroError` through the smart-construction boundary, like
+existing `DivideByZeroFault` through the smart-construction boundary, like
 every other vanishing denominator. What no `Rat` power will ever consult is
 the base's factorization — perfect-power extraction is rejected permanently,
 in any spelling (Operators §13; friendly-numerics tenet 5); the analytic power
@@ -147,14 +147,14 @@ All binary operations are subject-first and therefore dot-callable.
 `Rat.toFloat` is the first sanctioned exit from the exact world (friendly-numerics
 tenet 7). Within range it answers the **correctly rounded nearest double** —
 one rounding, ties to even. Rounding error is what an approximation *is*; no
-exception attends it, and no apology. It throws `FloatRangeError` exactly where
+exception attends it, and no apology. It throws `FloatRangeFault` exactly where
 the honest IEEE answer would not be an approximation at all: **the result must
 be finite, and nonzero when the input is nonzero.** Overflow past `Float`'s
 finite range would fabricate ±Infinity — infinite error — and the erasure of a
 nonzero rational to `0` would be a total one; both ends fail the same one-line
-guard. The exception's declared home is `stdlib/Float.hex`: the error is
+guard. The fault's declared home is `stdlib/Float.hex`: the error is
 `Float`'s range, stated once where any door from the exact world can share it
-(the `DivideByZeroError`-in-`Integral.hex` pattern), and the brand follows the
+(the `DivideByZeroFault`-in-`Integral.hex` pattern), and the brand follows the
 declaring module (Exceptions §7.1), so the home is chosen where the declaration
 never needs to move. The reverse direction does not exist in any spelling — no
 `fromFloat`, ever: precision may be spent, never minted (tenet 7).
@@ -179,18 +179,18 @@ not merely round-trips.
 
 ## 8. Diagnostics
 
-- A zero bottom reports `DivideByZeroError` and rewrites toward a nonzero
+- A zero bottom reports `DivideByZeroFault` and rewrites toward a nonzero
   bottom or explicit validation before `Rat.create`.
-- Division by a zero `Rat` reports `DivideByZeroError` at `Rat.divide` with
+- Division by a zero `Rat` reports `DivideByZeroFault` at `Rat.divide` with
   `Rat.divide: divisor is zero`.
 - Attempts to access fields outside Rat's home module receive the standard opaque
   record diagnostic and point to `Rat.top` / `Rat.bottom`.
 - A non-integer exponent at `**` or `Rat.pow` is a compile-time type error at
   the `Int` exponent seat (Operators §6.3's fixit family), not a runtime report.
-- A zero base with a negative exponent at `Rat.pow` reports `DivideByZeroError`
+- A zero base with a negative exponent at `Rat.pow` reports `DivideByZeroFault`
   through the smart-construction boundary; no `Rat.pow`-specific message is
   minted for it.
-- An out-of-range conversion at `Rat.toFloat` reports `FloatRangeError` with the
+- An out-of-range conversion at `Rat.toFloat` reports `FloatRangeFault` with the
   provenance-tagged message `Rat.toFloat: value does not fit in Float` — one
   message for both ends of the guard; which end failed is evident from the value.
 
@@ -207,18 +207,18 @@ Rat.create(1, 2) + Rat.create(1, 3)
 Rat.create(1, 2) / Rat.create(1, 3)
     == Rat.create(3, 2)                         -- true
 show(Rat.create(10, 12))                      -- "5/6"
-Rat.create(1, 0)                              -- DivideByZeroError
+Rat.create(1, 0)                              -- DivideByZeroFault
 Rat.pow(Rat.create(2, 1), 10)
     == Rat.create(1024, 1)                        -- true
 Rat.pow(Rat.create(2, 3), -2)
     == Rat.create(9, 4)                           -- true (negative exponent inverts, exact)
 Rat.pow(Rat.create(4, 9), 0)  == Rat.create(1, 1) -- true (x ** 0 is 1/1)
-Rat.pow(Rat.create(0, 1), -1)                 -- DivideByZeroError
+Rat.pow(Rat.create(0, 1), -1)                 -- DivideByZeroFault
 Rat.toFloat(Rat.create(1, 2))                 -- 0.5
 Rat.toFloat(Rat.create(1, 3))                 -- 0.3333333333333333 (nearest double)
 Rat.toFloat(Rat.create(-7, 4))                -- -1.75
-Rat.toFloat(Rat.create(2 ** 1100, 1))         -- FloatRangeError (would be Infinity)
-Rat.toFloat(Rat.create(1, 2 ** 1100))         -- FloatRangeError (nonzero would erase to 0)
+Rat.toFloat(Rat.create(2 ** 1100, 1))         -- FloatRangeFault (would be Infinity)
+Rat.toFloat(Rat.create(1, 2 ** 1100))         -- FloatRangeFault (nonzero would erase to 0)
 ```
 
 The compiler conformance suite must execute the emitted JavaScript for normalization
@@ -236,5 +236,5 @@ Rat.toDecEven(value: Rat, places: Int): Dec
 
 `dec.md` §4 owns their exact conversion and rounding contracts. Rat can use
 prelude Dec's public constructor and accessors; Dec does not depend on Rat.
-Places use `Int`; negative arguments throw `Dec.NegativeDecimalPlacesError`
+Places use `Int`; negative arguments throw `Dec.NegativeDecimalPlacesFault`
 before arithmetic, as specified in `dec.md` §3. Rat remains an imported module.

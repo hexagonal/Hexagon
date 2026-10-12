@@ -43,10 +43,10 @@ A **`pattern` head** — the contextual head word (Lexer §4.2), the pattern's n
 - **The component list is the pattern's arity**, *n* ≥ 1. A list of one component is legal — `pattern id(n: Int): UserId` — and is the ordinary shape for an opaque newtype; the parenthesised list is an argument list, never a tuple (Functions §5), so no 1-tuple question arises. A head with no components, `pattern zero: Rat`, is refused: a total view with nothing to bind matches every value and distinguishes none — "a pattern has at least one component; a test with no components is a guard".
 - **A member is written in one of two forms.** *Header syntax* — `view(x) = body`, Functions §7.1's form, one per block item, no `fun` word — or the **delegation line** `build = create`: the member name, `=`, and the **name of a function**, bare or qualified through a module alias (`build = Rat.create`), which the member then *is*. Either member takes either form — `view = channels` delegates the view as `build = create` delegates the build, and a delegated `view`'s face names its parameter `value`, the head naming no subject. The right side of a delegation line is a name and nothing else — no lambda, no call, no expression: the member *is* the named function, and the declaration evaluates nothing to say so. The name is a **term read at the declaration's own line** (below), so the function it names is declared above, and the emitted reference (§6) is safe by the enforced source order that keeps every term reference safe (Functions §7.2's first leg) — no capture analysis, no ordering rule of the pattern's own. Constraints §4.1's lambda-only rule for `honor` members is not loosened by this — an `honor` member's right side is still a lambda and never a name — and neither is Functions §7.3's ban on `name = lambda` member lines — a `fun` block's member line is still a header and never a lambda; the delegation line is the pattern block's own form, a name and never a lambda, and `name = widened` (Constraints §4.7) is not admitted here. An `=` followed by anything but a name is a parse error naming both forms.
 - **`view` and `build` are the member names**, not keywords: the block admits exactly these two spellings; `view` missing is an error at the head ("a pattern declares `view`"); a member of any other name, or a second `view`, is an error at that line. Elsewhere both are ordinary names.
-- **`view` is pure.** Its arrow is the pure constant `->`: the head writes no arrow, and none is admitted, because a pattern's matching direction is a demand for purity (Effects §4.3) — the one seat where a pattern runs user code (§5) runs only code that cannot be observed running. A `view` whose body solves to `->!` or `>->` is refused at the member with §4.3's clause for this seat, whose "the pattern head's" names the declaration — the unheaded pattern included. `build` is unconstrained: its arrow is whatever its body or delegate has, and an expression use of the pattern is an ordinary call that wears the mark that arrow demands (Effects §3). Throwing is not an effect: `Rat.create` throws on a zero bottom, and `build = create` is pure.
+- **`view` is pure, and cannot fail.** Its arrow is the silent `->`: the head writes no arrow, and none is admitted, because a pattern's matching direction is a demand for silence on both colours (Effects §4.3) — the one seat where a pattern runs user code (§5) runs only code that cannot be observed running, and throws no exception that no mark would show. A `view` whose body solves to any other arrow (`->^`, `->~`, `->!` or `>->`) is refused at the member with §4.3's clause for this seat, whose "the pattern head's" names the declaration — the unheaded pattern included. It may throw a fault, which nothing tracks. `build` is unconstrained: its arrow is whatever its body or delegate has, and an expression use of the pattern is an ordinary call that wears the mark that arrow demands (Effects §3). A fault is no failure (Exceptions §1): `Rat.create` throws a fault on a zero bottom, and `build = create` is pure and cannot fail.
 - **Module level only, and read top-down at its own line.** `pattern` joins the Declarations Preamble §7.1 inventory: inside a function body or block it draws that family's error, "declarations live at module level". Its head's *types* are order-insensitive as every type reference is (§7.2). Everything else about it is a **term**, read top-down like `widens` (§7.1) and the member definitions it stands among: a member body reads the terms above it (a later function is Functions §7.2's declared-later error, as in any `let`-bound body), a delegation line's name must be declared above the pattern, and the pattern's own name enters the pattern namespace (§3.3) from its line onward — a use above it, in a `match` arm or an expression, is the declared-later error under Modules §5.4's reservation, never a different reading. The pattern emits at its source position (§6), which is what makes that law the whole of its ordering.
 - **The head's binders are the block's, and carry no constraints.** `pattern top<a>(x: a): Stack(a)` declares `a` rigid over both members (Functions §7.3); members take no binder lists of their own, and an exported pattern writes every binder its members need (Modules §4.1.1). A **constraint list is refused** on a pattern head — `pattern sorted<a: Ord>(…)` draws "a pattern's binders carry no constraints" — and a pattern whose members leave a constraint residual — an unheaded one inferring it, or a headed one whose members constrain the head's binders — is refused the same way, the head named as the seat where the constraint would have to be written. The reason is priced, not presumed: a pattern emits as an object (§6), not a function, and Constraints §6.1's trailing evidence suffix — the language's only evidence representation — has no seat in it; a dictionary-taking factory is the design that would give it one (§9), and it is not taken here. A view that needs evidence is written as a function the consumer calls.
-- **The doc comment attaches at the head** (Doc Comments §4.2): the head is the pattern's exported surface, the name a reader will paste, and the one doc that reaches the book. The members may carry docs too, as an `honor` block's member implementations may (Doc Comments §4.2) — optional, never canonical, and emitted as JSDoc on the object's properties (§6) for the JavaScript reader who meets `view` and `build` there. The head's doc is where a bidirectional pattern's throws manifest is written (Doc Comments §6.1) — `Rat.rat`'s doc says ``Throws `DivideByZeroError` when the bottom is zero.``, since `build` throws as `create` does — and it is where the law `build(view(v)) == v` is stated (§5).
+- **The doc comment attaches at the head** (Doc Comments §4.2): the head is the pattern's exported surface, the name a reader will paste, and the one doc that reaches the book. The members may carry docs too, as an `honor` block's member implementations may (Doc Comments §4.2) — optional, never canonical, and emitted as JSDoc on the object's properties (§6) for the JavaScript reader who meets `view` and `build` there. The head's doc is where a bidirectional pattern's throws manifest is written (Doc Comments §6.1) — `Rat.rat`'s doc says ``Throws `DivideByZeroFault` when the bottom is zero.``, since `build` throws as `create` does — and it is where the law `build(view(v)) == v` is stated (§5).
 
 ### 2.2 Typing and inference
 
@@ -557,25 +557,29 @@ effect of its `build` at the call's instantiation, exactly as an ordinary call
 does (Effects §3). The mark is attached to the end of the pattern name:
 
 ```hexagon
-(x)name     // pure build
-(x)name!    // a build that may touch the world
+(x)name     // a build that is pure and cannot fail
+(x)name^    // a build that may fail
+(x)name~    // a build that may touch the world, and cannot fail
+(x)name!    // a build that may touch the world, and may fail
 ```
 
-The two forms correspond to `build(x)` and `build!(x)`. The bare form
-requires the build's outer colour at this instantiation to be pure; `!` is
-required everywhere else — the impure constant, or a colour that depends on
-what the build is handed — with Effects §3's ordinary call-site rules. A
+Each form corresponds to the same mark on `build(x)`, and a reading,
+`(x)name?` or `(x)name~?`, reads the construction's failure as `Option`, as
+on any call (Effects §3.1). The mark is computed from the build's outer
+colours at this instantiation, with Effects §3's ordinary call-site rules:
+a part for each colour that is not silent, the constant or a colour that
+depends on what the build is handed. A
 build that depends on its arguments' functions, instantiated at pure ones,
 uses the bare form. Wrong or missing marks receive the ordinary call-mark
 diagnostic and a repair at the suffix's mark position.
 
-This changes no declaration rule: `view` remains pure, `build` may have any
+This changes no declaration rule: `view` remains pure and unable to fail, `build` may have any
 ordinary function effect permitted by its type, and a match-only pattern still
 has no construction. Pattern-position uses never accept a mark. A marked
 matching form is refused with removal of the mark as its repair.
 
 **Grammar and attachment.** The component list, closing parenthesis, and suffix
-name retain §3.1's adjacency rule. An optional single `!` is glued
+name retain §3.1's adjacency rule. An optional single mark or reading is glued
 directly to the suffix name and belongs to that construction. A floating mark
 or two marks is refused. The mark is not part of the pattern's name or its
 identity. The completed construction remains a primary: field access, dot
@@ -597,9 +601,9 @@ build: `(readTop!(), 2)rat` has an effectful argument call and pure Rat
 construction. Marked suffixes emit the same JavaScript call shape as unmarked
 ones; the marks are checked, not emitted.
 
-**Rat.** `Rat.create` is pure, so `(1, 2)rat` is unmarked. Its documented
-zero-denominator exception does not change its effect. Both `(1, 2)rat!` and
-`(1, 2)rat?` are wrong-mark errors. Matching `(n, d)rat` is likewise
+**Rat.** `Rat.create` is pure and cannot fail, so `(1, 2)rat` is unmarked. Its documented
+zero-denominator fault does not change its colours. `(1, 2)rat!` and
+`(1, 2)rat^` are wrong-mark errors, and `(1, 2)rat?` is a reading on a call that cannot fail. Matching `(n, d)rat` is likewise
 unmarked.
 
 **Acceptance cases.** Cover all three build effects and wrong/missing marks;

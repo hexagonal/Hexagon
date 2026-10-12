@@ -367,7 +367,7 @@ the `Int` product is exact, and exact where it is not, which is the lift's own r
 Nat`, `n : Int`), `x` is an `Int`, so `ff : (Int) -> Int`, and a later `useNat(x)` is
 refused. And a type's partiality follows the home: `(i ** k) * f` (`f : Float`) runs the
 power at `Float`, whose `pow` is total, so a negative `k` yields a reciprocal rather than
-`Pow<Int>`'s `NegativeExponentError` — the move a written face makes (Method Syntax
+`Pow<Int>`'s `NegativeExponentFault` — the move a written face makes (Method Syntax
 §2.2).
 
 The home is no second default and no search. Every candidate is an exact embedding of the
