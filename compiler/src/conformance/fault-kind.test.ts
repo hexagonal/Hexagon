@@ -1,0 +1,469 @@
+import { describe, expect, test } from "vitest";
+
+import { compileMain, projectDiagnostics, runMain, runProject } from "../support/test-project.js";
+
+/**
+ * Conformance for **the fault kind** (Exceptions §1, §2, §5.2, §5.3, §7.1): the
+ * second of the three kinds of throw, and the one nothing tracks.
+ *
+ * - **Declarations.** `fault` is a second head word over `exception`'s grammar.
+ *   A fault's name ends in `Fault`, and only a fault's does, so the kind shows
+ *   wherever the name does; each misnamed declaration is refused with a rename
+ *   offered (`Diagnostic.renameRepair`), and an `exception` named `…Fault` also
+ *   with the other head word.
+ * - **Catching.** A catch-all, `_` or a bare binder, catches every exception
+ *   and every foreign throw and lets every fault through; `fault e` catches
+ *   every fault. The pair catches everything. Measured at run time, because
+ *   "lets through" is a claim about what reaches the caller.
+ * - **Reachability by kind.** The kinds partition `Exn`, so the arms are judged
+ *   in two columns that never meet.
+ * - **`fault e` is a whole catch arm's pattern**, refused everywhere else.
+ */
+
+/** A source with the module header. */
+function main(...lines: readonly string[]): string {
+  return "module Main\n\n" + lines.join("\n") + "\n";
+}
+
+/** What a call threw, or `undefined` where it returned. */
+function thrownBy(call: () => unknown): unknown {
+  try {
+    call();
+  } catch (error) {
+    return error;
+  }
+  return undefined;
+}
+
+describe("`fault` declarations (§2)", () => {
+  test("a fault declares as an exception does, payload and all", async () => {
+    const exports = await runMain(main(
+      "fault InvariantFault(message: String)",
+      "export fun broken(): Int = throw(InvariantFault(\"no\"))",
+    ));
+    const error = thrownBy(() => (exports["broken"] as () => number)()) as Error & Record<string, unknown>;
+    expect(error).toBeInstanceOf(Error);
+    expect(error).toMatchObject({ name: "InvariantFault", $hex: "Main", message: "no" });
+  });
+
+  test("a fault's name ends in `Fault`: refused with the rename offered", () => {
+    const { diagnostics } = compileMain(main("fault Invariant(message: String)"));
+    expect(diagnostics.map(({ message, renameRepair, fixes }) => ({ message, renameRepair, fixes })))
+      .toEqual([{
+        message: "a fault's name ends in `Fault` — rename it `InvariantFault`",
+        renameRepair: { newName: "InvariantFault" },
+        fixes: undefined,
+      }]);
+  });
+
+  test("an `…Error` name is offered the `…Fault` one, not a doubled ending", () => {
+    expect(compileMain(main("fault InvariantError")).diagnostics.map(({ renameRepair }) => renameRepair))
+      .toEqual([{ newName: "InvariantFault" }]);
+  });
+
+  test("only a fault's name ends in `Fault`: both repairs offered", () => {
+    const source = main("exception TimeoutFault(millis: Int)");
+    const [diagnostic, ...rest] = compileMain(source).diagnostics;
+    expect(rest).toEqual([]);
+    expect(diagnostic!.message).toBe(
+      "only a fault's name ends in `Fault`; this is an exception — rename it, or declare it with `fault`",
+    );
+    expect(diagnostic!.renameRepair).toEqual({ newName: "TimeoutError" });
+    expect(diagnostic!.fixes?.map(({ message, edits }) => ({
+      message,
+      edits: edits.map(({ span, replacement }) => ({
+        written: source.slice(span.start.offset, span.end.offset),
+        replacement,
+      })),
+    }))).toEqual([{
+      message: "declare it with `fault`",
+      edits: [{ written: "exception", replacement: "fault" }],
+    }]);
+  });
+
+  test("a misnamed declaration still declares: its uses resolve, one report stands", () => {
+    expect(projectDiagnostics(main(
+      "fault Broken",
+      "export fun f(): Int =",
+      "    try",
+      "        throw(Broken)",
+      "    catch",
+      "        Broken => 1",
+    ))).toEqual(["a fault's name ends in `Fault` — rename it `BrokenFault`"]);
+  });
+
+  test("declared at module level only", () => {
+    expect(projectDiagnostics(main(
+      "export fun f(): Int =",
+      "    fault LocalFault",
+      "    1",
+    ))).toContain("exceptions and faults are declared at module level");
+  });
+
+  test("`export fault` crosses; `opaque fault` is refused as `opaque exception` is", () => {
+    expect(projectDiagnostics(main("export fault SharedFault"))).toEqual([]);
+    expect(projectDiagnostics(main("opaque fault HiddenFault")))
+      .toEqual(["`opaque` applies to `record` and `union` declarations"]);
+  });
+
+  test("`fault` is contextual: still a name wherever a name may stand", async () => {
+    const exports = await runMain(main(
+      "let fault: Int = 2",
+      "fun twice(fault: Int): Int = fault * 2",
+      "export let r: Int = twice(fault)",
+    ));
+    expect(exports["r"]).toBe(4);
+  });
+});
+
+describe("a catch-all lets faults through (§5.3)", () => {
+  const guarded = (arms: readonly string[]): string => main(
+    "exception ParseError(line: Int)",
+    "let v: Vector(Int) = [1, 2]",
+    "export fun probe(which: Int): Int =",
+    "    try",
+    "        if which == 0 then v[9] else throw(ParseError(which))",
+    "    catch",
+    ...arms.map((arm) => `        ${arm}`),
+  );
+
+  test("`_` catches an exception and lets a fault reach the caller", async () => {
+    const exports = await runMain(guarded(["_ => -1"]));
+    const probe = exports["probe"] as (which: number) => number;
+    expect(probe(3)).toBe(-1);
+    expect(thrownBy(() => probe(0))).toMatchObject({ name: "IndexFault", $hex: "Hex.Vector" });
+  });
+
+  test("a bare binder is a catch-all too", async () => {
+    const exports = await runMain(guarded(["e => -1"]));
+    const probe = exports["probe"] as (which: number) => number;
+    expect(probe(3)).toBe(-1);
+    expect(thrownBy(() => probe(0))).toMatchObject({ name: "IndexFault" });
+  });
+
+  test("a fault's arm below `_` is reachable, and catches it", async () => {
+    const exports = await runMain(guarded(["_ => -1", "IndexFault(i, n) => i * 10 + n"]));
+    const probe = exports["probe"] as (which: number) => number;
+    expect(probe(0)).toBe(92);
+    expect(probe(3)).toBe(-1);
+  });
+
+  test("`fault e` catches every fault, binding it; beside `_` the pair catches everything", async () => {
+    const exports = await runMain(guarded(["fault e => -2", "_ => -1"]));
+    const probe = exports["probe"] as (which: number) => number;
+    expect(probe(0)).toBe(-2);
+    expect(probe(3)).toBe(-1);
+  });
+
+  test("`fault e` lets exceptions through", async () => {
+    const exports = await runMain(guarded(["fault _ => -2"]));
+    const probe = exports["probe"] as (which: number) => number;
+    expect(probe(0)).toBe(-2);
+    expect(thrownBy(() => probe(3))).toMatchObject({ name: "ParseError", line: 3 });
+  });
+
+  test("`fault e` takes a guard; a failed guard falls through", async () => {
+    const exports = await runMain(guarded([
+      "fault e when False => -3",
+      "fault _ => -2",
+    ]));
+    expect((exports["probe"] as (which: number) => number)(0)).toBe(-2);
+  });
+
+  test("a foreign throw is no fault: `_` catches it, `fault e` does not", async () => {
+    const exports = await runMain(main(
+      "export fun loose(k: () ->! Int): Int =",
+      "    try",
+      "        k!()",
+      "    catch",
+      "        _ => -1",
+      "export fun strict(k: () ->! Int): Int =",
+      "    try",
+      "        k!()",
+      "    catch",
+      "        fault _ => -2",
+    ));
+    // Named as a fault would be, and still foreign: no brand.
+    const hostile = (): number => {
+      const error = new Error("from JavaScript");
+      error.name = "LooksLikeAFault";
+      throw error;
+    };
+    expect((exports["loose"] as (k: () => number) => number)(hostile)).toBe(-1);
+    expect(thrownBy(() => (exports["strict"] as (k: () => number) => number)(hostile)))
+      .toMatchObject({ name: "LooksLikeAFault", message: "from JavaScript" });
+  });
+
+  test("the match catch clause reads the same kinds", async () => {
+    const exports = await runMain(main(
+      "let v: Vector(Int) = [1, 2]",
+      "export fun probe(): Int =",
+      "    match v[9]",
+      "        n => n",
+      "    catch",
+      "        _ => -1",
+      "export fun caught(): Int =",
+      "    match v[9]",
+      "        n => n",
+      "    catch",
+      "        fault _ => -2",
+    ));
+    expect(thrownBy(() => (exports["probe"] as () => number)()))
+      .toMatchObject({ name: "IndexFault" });
+    expect((exports["caught"] as () => number)()).toBe(-2);
+  });
+
+  test("a fault from another module is caught by `fault e`, by the name's ending", async () => {
+    const exports = await runProject([
+      ["/checks.hex", "module Checks\n\nexport fault BrokenFault(code: Int)\n" +
+        "export fun check(n: Int): Int = if n < 0 then throw(BrokenFault(n)) else n\n"],
+      ["/main.hex", main(
+        "import Checks",
+        "export fun probe(n: Int): Int =",
+        "    try",
+        "        Checks.check(n)",
+        "    catch",
+        "        _ => -1",
+        "        fault _ => -2",
+      )],
+    ]);
+    expect((exports["probe"] as (n: number) => number)(-5)).toBe(-2);
+    expect((exports["probe"] as (n: number) => number)(5)).toBe(5);
+  });
+});
+
+describe("reachability by kind (§5.3)", () => {
+  const arms = (...written: readonly string[]): readonly string[] => projectDiagnostics(main(
+    "exception ParseError(line: Int)",
+    "exception NotFoundError",
+    "export fun probe(v: Vector(Int)): Int =",
+    "    try",
+    "        v[0]",
+    "    catch",
+    ...written.map((arm) => `        ${arm}`),
+  ));
+
+  test("an exception's arm below `_` is unreachable, naming the catch-all", () => {
+    expect(arms("e => 0", "ParseError(_) => 1"))
+      .toEqual(["this catch arm is unreachable; the arm `e` above catches every exception"]);
+  });
+
+  test("a `JsError` arm below `_` is unreachable: `JsError` is an exception", () => {
+    expect(arms("_ => 0", "JsError(_) => 1"))
+      .toEqual(["this catch arm is unreachable; the arm `_` above catches every exception"]);
+  });
+
+  test("a fault's arm below `fault e` is unreachable, naming it", () => {
+    expect(arms("fault e => 0", "IndexFault(_, _) => 1"))
+      .toEqual(["this catch arm is unreachable; the arm `fault e` above catches every fault"]);
+  });
+
+  test("`_` and `fault e` never shadow each other, in either order", () => {
+    expect(arms("_ => 0", "fault _ => 1")).toEqual([]);
+    expect(arms("fault _ => 1", "_ => 0")).toEqual([]);
+  });
+
+  test("a fault's arm below `_`, and an exception's below `fault e`, are reachable", () => {
+    expect(arms("_ => 0", "IndexFault(_, _) => 1", "DivideByZeroFault(_) => 2")).toEqual([]);
+    expect(arms("fault _ => 0", "ParseError(_) => 1", "NotFoundError => 2")).toEqual([]);
+  });
+
+  test("a second catch-all of a kind is unreachable", () => {
+    expect(arms("fault _ => 0", "fault e => 1"))
+      .toEqual(["this catch arm is unreachable; the arm `fault _` above catches every fault"]);
+  });
+
+  test("a fault caught twice is named as a fault", () => {
+    expect(arms("KeyFault => 0", "KeyFault => 1")).toEqual(["fault `KeyFault` is already caught above"]);
+    expect(arms("NotFoundError => 0", "NotFoundError => 1"))
+      .toEqual(["exception `NotFoundError` is already caught above"]);
+  });
+
+  test("an or-pattern across kinds: only the shadowed alternative is reported", () => {
+    const source = main(
+      "exception ParseError(line: Int)",
+      "export fun probe(v: Vector(Int)): Int =",
+      "    try",
+      "        v[0]",
+      "    catch",
+      "        _ => 0",
+      "        IndexFault(_, _) | ParseError(_) => 1",
+    );
+    const diagnostics = compileMain(source).diagnostics;
+    expect(diagnostics.map(({ message }) => message))
+      .toEqual(["this catch arm is unreachable; the arm `_` above catches every exception"]);
+    const { start, end } = diagnostics[0]!.primary;
+    expect(source.slice(start.offset, end.offset)).toBe("ParseError(_)");
+  });
+
+  test("a guarded catch-all shadows nothing", () => {
+    expect(arms("fault e when False => 0", "IndexFault(_, _) => 1")).toEqual([]);
+  });
+});
+
+describe("`fault e` is a whole catch arm's pattern (§5.2)", () => {
+  const refused = "a `fault` pattern is a whole catch arm's pattern";
+  const catching = (arm: string): readonly string[] => projectDiagnostics(main(
+    "exception Wrapped(inner: Exn)",
+    "export fun probe(v: Vector(Int)): Int =",
+    "    try",
+    "        v[0]",
+    "    catch",
+    `        ${arm}`,
+  ));
+
+  test("in an or-pattern", () => {
+    expect(catching("fault _ | Wrapped(_) => 0")).toEqual([refused]);
+  });
+
+  test("under `as`", () => {
+    expect(catching("fault e as whole => 0")).toEqual([refused]);
+  });
+
+  test("nested in another pattern", () => {
+    expect(catching("Wrapped(fault e) => 0")).toEqual([refused]);
+  });
+
+  test("in a `match` data arm", () => {
+    expect(projectDiagnostics(main(
+      "export fun f(n: Int): Int =",
+      "    match n",
+      "        fault e => 0",
+    ))).toContain(refused);
+  });
+
+  test("`fault as e` and `fault when g` bind a variable named `fault`", async () => {
+    expect(catching("fault as whole => 0")).toEqual([]);
+    expect(catching("fault when True => 0")).toEqual([]);
+  });
+});
+
+describe("the runtime kind is the name's ending (§7.1, §7.6)", () => {
+  test("a prelude fault's name ends in `Fault`, and no field says so", async () => {
+    const exports = await runMain(main("let v: Vector(Int) = [1, 2]", "export fun at(n: Int): Int = v[n]"));
+    const error = thrownBy(() => (exports["at"] as (n: number) => number)(4)) as Record<string, unknown>;
+    expect(error["name"]).toBe("IndexFault");
+    expect(Object.keys(error).sort()).toEqual(["$hex", "index", "name", "size"]);
+  });
+
+  test("an exported fault ships `.is`, and `isHexError` answers for it", async () => {
+    const exports = await runMain(main(
+      "export fault BrokenFault(code: Int)",
+      "export fun broken(): Int = throw(BrokenFault(7))",
+    ));
+    const error = thrownBy(() => (exports["broken"] as () => number)());
+    expect((exports["BrokenFault"] as { is(value: unknown): boolean }).is(error)).toBe(true);
+    expect((exports["isHexError"] as (value: unknown) => boolean)(error)).toBe(true);
+  });
+});
+
+describe("`JsError` inside another throwable's payload reads its own value", () => {
+  test("`Wrapped(JsError(e))` binds the raw foreign throwable the payload holds", async () => {
+    const exports = await runMain(main(
+      "exception Wrapped(inner: Exn)",
+      "export fun wrap(k: () ->! Int): Int =",
+      "    try",
+      "        k!()",
+      "    catch",
+      "        e => throw(Wrapped(e))",
+      "export fun probe(k: () ->! Int): String =",
+      "    try",
+      "        Int.show(wrap!(k))",
+      "    catch",
+      "        Wrapped(JsError(e)) => JsError.message!(e)",
+      "        Wrapped(_) => \"domestic\"",
+    ));
+    const probe = exports["probe"] as (k: () => number) => string;
+    expect(probe(() => {
+      throw new TypeError("raw");
+    })).toBe("raw");
+  });
+});
+
+describe("a throwable's constructor is a pattern only in a catch arm (§3, #1204 (R))", () => {
+  const atMatch = (scrutinee: string, arm: string): readonly string[] => projectDiagnostics(main(
+    "exception Boom",
+    "exception Bang(code: Int)",
+    `export fun f(k: ${scrutinee}): Int =`,
+    "    match k",
+    `        ${arm} => 1`,
+    "        _ => 2",
+  ));
+  const matchRefusal = "`Boom` is an exception's constructor, and a `match` never takes `Exn`; " +
+    "exceptions are inspected with `try`/`catch`";
+
+  test("at the top of a `match` arm, against any type", () => {
+    expect(atMatch("Ordering", "Boom")).toEqual([matchRefusal]);
+    expect(atMatch("Int", "Bang(n)")).toEqual([
+      "`Bang` is an exception's constructor, and a `match` never takes `Exn`; " +
+      "exceptions are inspected with `try`/`catch`",
+    ]);
+  });
+
+  test("at any depth, `Exn` slots included", () => {
+    expect(atMatch("(Ordering, Int)", "(Boom, _)")).toEqual([matchRefusal]);
+    expect(atMatch("Option(Exn)", "Some(Boom)")).toEqual([matchRefusal]);
+    expect(atMatch("Ordering", "Boom | Ordering.Less")).toEqual([matchRefusal]);
+  });
+
+  test("a prelude fault's constructor names its kind; `JsError`'s is refused too", () => {
+    expect(atMatch("Option(Exn)", "Some(Map.KeyFault)")).toEqual([
+      "`KeyFault` is a fault's constructor, and a `match` never takes `Exn`; " +
+      "exceptions are inspected with `try`/`catch`",
+    ]);
+    expect(atMatch("Option(Exn)", "Some(JsError(_))")).toEqual([
+      "`JsError` is an exception's constructor, and a `match` never takes `Exn`; " +
+      "exceptions are inspected with `try`/`catch`",
+    ]);
+  });
+
+  test("at a `let`, a `for` and a lambda parameter, the clause speaks of a pattern", () => {
+    const refusal = "`Boom` is an exception's constructor, and a pattern never takes `Exn` apart; " +
+      "exceptions are inspected with `try`/`catch`";
+    expect(projectDiagnostics(main(
+      "exception Boom",
+      "export fun f(k: (Exn, Int)): Int =",
+      "    let (Boom, n) = k",
+      "    n",
+    ))).toEqual([refusal]);
+    expect(projectDiagnostics(main(
+      "exception Boom",
+      "export fun f(ks: Vector((Exn, Int))): Int =",
+      "    var total = 0",
+      "    for (Boom, n) in ks",
+      "        total := total + n",
+      "    total",
+    ))).toEqual([refusal]);
+    expect(projectDiagnostics(main(
+      "exception Boom",
+      "let f: ((Exn, Int)) -> Int = ((Boom, n)) => n",
+    ))).toEqual([refusal]);
+  });
+
+  test("inside a catch arm, at any depth, a throwable's constructor is a pattern", async () => {
+    const exports = await runMain(main(
+      "exception ParseError(line: Int)",
+      "exception Wrapped(inner: Exn)",
+      "export fun probe(which: Int): Int =",
+      "    try",
+      "        if which == 0 then throw(Wrapped(ParseError(7))) else throw(Wrapped(Map.KeyFault))",
+      "    catch",
+      "        Wrapped(ParseError(line)) => line",
+      "        Wrapped(KeyFault) => -1",
+    ));
+    expect((exports["probe"] as (which: number) => number)(0)).toBe(7);
+    expect((exports["probe"] as (which: number) => number)(1)).toBe(-1);
+  });
+
+  test("a nested throwable pattern at a slot that is not `Exn` is a type error", () => {
+    expect(projectDiagnostics(main(
+      "exception Coded(code: Int)",
+      "exception Boom",
+      "export fun probe(): Int =",
+      "    try",
+      "        throw(Coded(1))",
+      "    catch",
+      "        Coded(Boom) => 1",
+    ))).toEqual(["type mismatch: expected Int, found Exn"]);
+  });
+});

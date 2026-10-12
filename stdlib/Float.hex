@@ -4,15 +4,15 @@ module Float
 // companion (Constraints §5.3), so this file is where `Float`'s instances are
 // declared and where the orphan rule lets them be declared.
 
-// This file does not throw `FloatRangeError`: it belongs to the doors *into*
+// This file does not throw `FloatRangeFault`: it belongs to the doors *into*
 // `Float` from the exact world — `Rat.toFloat` and `BigInt.toFloat` today —
 // because the range that fails is `Float`'s, stated once where every such door
-// can share it (the `DivideByZeroError`-in-`Integral.hex` pattern), and because
+// can share it (the `DivideByZeroFault`-in-`Integral.hex` pattern), and because
 // the brand follows the declaring module, so this home never has to move.
 (** Raised when an exact value has no `Float` that approximates it: past
     `Float`'s finite range, or nonzero yet small enough to erase to zero.
     `message` names the operation that threw. *)
-export exception FloatRangeError(message: String)
+export fault FloatRangeFault(message: String)
 
 // The natives, and only the natives. An own-operation member body cannot be
 // written in operators or interpolation — that sugar selects the very slot being
@@ -164,23 +164,23 @@ let checkedRoundedInt(message: String, value: Float): Int =
     else if nativeIsSafeInteger(value) then
         nativeToIntUnchecked(value)
     else
-        throw(IntRangeError(message))
+        throw(IntRangeFault(message))
 
-(** The greatest integer no greater than `value`. Throws `IntRangeError` when
+(** The greatest integer no greater than `value`. Throws `IntRangeFault` when
     the result does not fit in `Int`. *)
 export let floor(value: Float): Int =
     let truncated = nativeTrunc(value)
     let rounded = if value < truncated then truncated - 1 else truncated
     checkedRoundedInt("Float.floor: result does not fit in Int", rounded)
 
-(** The least integer no less than `value`. Throws `IntRangeError` when the
+(** The least integer no less than `value`. Throws `IntRangeFault` when the
     result does not fit in `Int`. *)
 export let ceil(value: Float): Int =
     let truncated = nativeTrunc(value)
     let rounded = if value > truncated then truncated + 1 else truncated
     checkedRoundedInt("Float.ceil: result does not fit in Int", rounded)
 
-(** `value` rounded toward zero. Throws `IntRangeError` when the result does
+(** `value` rounded toward zero. Throws `IntRangeFault` when the result does
     not fit in `Int`. *)
 export let trunc(value: Float): Int =
     checkedRoundedInt("Float.trunc: result does not fit in Int", nativeTrunc(value))
@@ -189,7 +189,7 @@ export let trunc(value: Float): Int =
     even integer: `round(2.5) == 2`, `round(3.5) == 4`, and
     `round(-2.5) == -2`. Only exact halfway values distinguish this from
     `roundAway`. This tie rule intentionally differs from `Dec.round`, which
-    rounds ties away from zero. Throws `IntRangeError` when the result does not
+    rounds ties away from zero. Throws `IntRangeFault` when the result does not
     fit in `Int`. *)
 export let round(value: Float): Int =
     let truncated = nativeTrunc(value)
@@ -211,7 +211,7 @@ export let round(value: Float): Int =
     from zero: `roundAway(2.5) == 3` and `roundAway(-2.5) == -3`. The name
     describes the tie rule, not a direction for every value: for example,
     `roundAway(2.1) == 2`. Only exact halfway values distinguish this from
-    `round`. Throws `IntRangeError` when the result does not fit in `Int`. *)
+    `round`. Throws `IntRangeFault` when the result does not fit in `Int`. *)
 export let roundAway(value: Float): Int =
     let truncated = nativeTrunc(value)
     let fraction = value - truncated
@@ -224,7 +224,7 @@ export let roundAway(value: Float): Int =
             truncated
     checkedRoundedInt("Float.roundAway: result does not fit in Int", rounded)
 
-export exception UndefinedSignError(message: String)
+export fault UndefinedSignFault(message: String)
 
 honor Real<Float> =
     abs(x) =
@@ -237,7 +237,7 @@ honor Real<Float> =
 
     sign(x) =
         if isNan(x) then
-            throw(UndefinedSignError("NaN has no sign"))
+            throw(UndefinedSignFault("NaN has no sign"))
         else if x == 0 then
             Sign.Zero
         else if x < 0 then

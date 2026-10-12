@@ -38,9 +38,10 @@ export let defaultWith(source: Result(a, e), fallback: e ->! a): a =
 (** Runs `action` and answers with what happened: `Ok(value)` when it returned,
     `Err(thrown)` when it threw. This is the bridge from the exception world
     back to the data world (`spec/exceptions.md` section 8.2), and it catches
-    everything — a declared Hexagon exception, and a foreign throwable, which
-    arrives as the raw value JavaScript threw and so reads back as
-    `Err(JsError(e))`.
+    what a catch-all catches — a declared Hexagon exception, and a foreign
+    throwable, which arrives as the raw value JavaScript threw and so reads back
+    as `Err(JsError(e))`. A fault is a broken assumption, not an outcome, and
+    passes through untouched.
 
     Nothing here is compiler magic: it is a `try` with a catch-all arm, which is
     all the construct ever needed to be.

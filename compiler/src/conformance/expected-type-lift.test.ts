@@ -225,7 +225,7 @@ describe("the `Pow` home selection — the base seat alone (#541)", () => {
   test("`let r: Rat = b ** negOne` is exactly `1/4` — the negative exponent", async () => {
     // The pin that discriminates three elaborations: `Pow<Rat>` answers `1/4`;
     // the retired decline ran the power at `Int` and threw
-    // `NegativeExponentError`; a `Pow<Float>` leak would answer `0.25`.
+    // `NegativeExponentFault`; a `Pow<Float>` leak would answer `0.25`.
     const exports = await runProject(withRat(
       "// Rat power\n" +
       "let quarter: Rat.Rat = b ** negOne\n" +

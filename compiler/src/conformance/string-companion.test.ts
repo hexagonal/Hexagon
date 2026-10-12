@@ -380,7 +380,7 @@ describe("`String.hex` keeps its instance implementations source-defined", () =>
     // exactly that: the module's own bindings are the unindented `const` and
     // `export` lines, while the runtime helper bodies above them are indented.
     // The distinction became load-bearing when `fromSeq` pulled in the `Seq`
-    // driver, which throws `ReentrancyError` — a helper's guard, not
+    // driver, which throws `ReentrancyFault` — a helper's guard, not
     // `String`'s. A string still has no partial operation.
     const own = text.split("\n")
       .filter((line) => line.startsWith("const ") || line.startsWith("export "))

@@ -69,7 +69,7 @@ import { fullModuleName, STANDARD_LIBRARY } from "../../packages.js";
  *
  * Spelled through `fullModuleName` rather than written out, so the package
  * segment has one seat rather than ten: a helper inlined into a user's module
- * raises `Hex.Vector`'s `IndexError`, and a `Vector.IndexError(…)` arm written
+ * raises `Hex.Vector`'s `IndexFault`, and a `Vector.IndexFault(…)` arm written
  * anywhere tests the same string the declaration carries. The two halves being
  * computed from one expression is what keeps them from drifting apart again —
  * the #829 defect class, where a brand written bare survived the move to full
@@ -3671,12 +3671,15 @@ class JavaScriptEmitter {
     // than a union tag — so a declaration that did not reach here compiles a
     // catch arm to a string comparison no thrown value satisfies, silently.
     //
-    // `#nullaryExceptions` is deliberately not fed from here. It rewrites a
-    // **value** reference into a construction, and an imported exception's value
-    // face is the exporter's already-constructed one, reached by the import's
-    // local name.
+    // `#nullaryExceptions` is fed from here too (#371). It rewrites a **value**
+    // reference into a construction, and an imported nullary throwable's face
+    // is function-shaped exactly as an own one's is (Exceptions §7.3, §7.5):
+    // a constructor called fresh at each mention, so the stack points at the
+    // mention. Read as the bare import it is, the reference threw the
+    // constructor itself.
     for (const declaration of module.visibleExceptions) {
       this.#exceptions.set(declaration.binding.symbol, declaration);
+      if (declaration.slots.length === 0) this.#nullaryExceptions.add(declaration.binding.symbol);
     }
     let identity = "";
     for (const item of module.items) {
@@ -5446,7 +5449,10 @@ class JavaScriptEmitter {
         const spelled = this.#withheldMember(expression.symbol, expression.emitted ?? expression.text);
         const patternMember = this.#patternMemberLocals.get(expression.symbol);
         if (patternMember !== undefined) return patternMember;
-        if (spelled.includes(".")) return this.#qualifiedSpelling(spelled);
+        if (spelled.includes(".")) {
+          const qualified = this.#qualifiedSpelling(spelled);
+          return this.#nullaryExceptions.has(expression.symbol) ? `${qualified}()` : qualified;
+        }
         // An imported symbol is spelled by the local its import binds, which is
         // not always the name the reference carries: the synthesized prelude
         // import may bind a term under a distinguished local to clear a
@@ -5552,7 +5558,7 @@ class JavaScriptEmitter {
           );
           // The bracket is an *expression form*, so it stays the emitter's own
           // lowering after the Map step (#370) — `stdlib/Map.hex` owns the
-          // companion surface and never the bracket, which is why `KeyError` is
+          // companion surface and never the bracket, which is why `KeyFault` is
           // an ordinary exported exception there rather than a door key. The
           // helper reaches the same `get` the door does, and re-throws its
           // absence as §4.3's payload.
@@ -7193,6 +7199,9 @@ class JavaScriptEmitter {
         `${armIndent}const ${foreign} = ${error} == null || typeof ${error}.$hex !== "string";`,
       );
     }
+    // Exceptions §7.1, §7.4: the kind is the name's ending, read on the domestic
+    // side only — a foreign throwable is never a fault, whatever it is called.
+    const fault = `${error} != null && typeof ${error}.$hex === "string" && ${error}.name.endsWith("Fault")`;
     for (const [index, arm] of arms.entries()) {
       for (const alternative of alternatives[index]!) {
         const plan = this.#emitPatternPlan(
@@ -7203,9 +7212,18 @@ class JavaScriptEmitter {
           foreign,
           views,
         );
-        const condition = plan.tests.length === 0
+        // §5.3: `fault e` catches every fault, and a catch-all every exception
+        // and foreign throw — so a fault reaching `_` falls through to the arms
+        // below it, and past them to the implicit rethrow.
+        const kind = arm.fault === true
+          ? [fault]
+          : catchesEverything(alternative)
+          ? [foreign === undefined ? `!(${fault})` : `${foreign} || !${error}.name.endsWith("Fault")`]
+          : [];
+        const tests = [...kind, ...plan.tests];
+        const condition = tests.length === 0
           ? "true"
-          : plan.tests.join(" && ");
+          : tests.join(" && ");
         armLines.push(`${armIndent}if (${condition}) {`);
         const bodyDepth = depth + 1;
         const bodyIndent = indent(bodyDepth);
@@ -7784,8 +7802,16 @@ class JavaScriptEmitter {
         // takes the payload slot. One arm, both readings, which is what makes
         // the implicit rethrow of an unmatched foreign error rethrow the
         // original object with nothing buried under a wrapper.
-        const virtual = foreign !== undefined && exception !== undefined &&
-          pattern.symbol === this.#prelude.jsError;
+        //
+        // A `JsError` pattern *inside* another throwable's payload — a slot of
+        // type `Exn`, `AssumptionFault(JsError(e))` — reads its own value's
+        // stage 1, not the caught one's: the payload holds whatever was thrown,
+        // the raw foreign value included, and nothing above computed its test.
+        const jsError = exception !== undefined && pattern.symbol === this.#prelude.jsError;
+        const foreignHere = foreign ?? (jsError
+          ? `(${value} == null || typeof ${value}.$hex !== "string")`
+          : undefined);
+        const virtual = jsError && foreignHere !== undefined;
         const domestic = exception === undefined ? undefined : `${value} != null && ${value}.$hex === ${JSON.stringify(exception.owner)} && ${value}.name === ${JSON.stringify(pattern.tag)}`;
         // Foreign Enums §4's identity test, for the object-reading form alone:
         // the member is a captured binding, and `Object.is` is what tells it
@@ -7797,7 +7823,7 @@ class JavaScriptEmitter {
           ? this.#capturedMember(pattern.symbol)
           : undefined;
         const test = domestic !== undefined
-          ? (virtual ? `${foreign} || (${domestic})` : domestic)
+          ? (virtual ? `${foreignHere} || (${domestic})` : domestic)
           : literal !== undefined
           // The literal again: a `Bool` pattern, and a literal enum's member
           // pattern, each test the JavaScript value they actually are.
@@ -7819,7 +7845,7 @@ class JavaScriptEmitter {
           // *is* the payload and nothing was ever wrapped, and the slot on the
           // domestic side, where §6.2's first-class residue put it.
           const payload = virtual
-            ? `${foreign} ? ${value} : ${value}.${field}`
+            ? `${foreignHere} ? ${value} : ${value}.${field}`
             : `${value}.${field}`;
           return this.#emitPatternPlan(
             argument,
@@ -11081,7 +11107,7 @@ class JavaScriptEmitter {
       // operation and lower to the imported name itself; `at` and `set` reach
       // for helpers because a bounds check followed by a return is statements,
       // which the arrow expression a door binding is initialized with cannot
-      // hold, and `vectorAt` is also where §5.5's `IndexError` payload is
+      // hold, and `vectorAt` is also where §5.5's `IndexFault` payload is
       // built, so sharing it keeps one shape.
       //
       // `length` is the row §7 pins at O(1), and it stays there: `size` is
@@ -13106,6 +13132,16 @@ function utf8ByteLength(text: string): number {
   return bytes;
 }
 
+/**
+ * Whether a catch alternative is a catch-all — `_`, a bare binder, or either
+ * under `as` — which catches every exception and every foreign throw and lets
+ * every fault through (Exceptions §5.3).
+ */
+function catchesEverything(pattern: Core.Pattern): boolean {
+  if (pattern.kind === "As") return catchesEverything(pattern.pattern);
+  return pattern.kind === "Binding" || pattern.kind === "Wildcard";
+}
+
 function expandOrPatterns(pattern: Core.Pattern): readonly Core.Pattern[] {
   switch (pattern.kind) {
     case "Or":
@@ -13736,13 +13772,13 @@ function unicodeMappingHelper(
  * The absence throw both brackets end in: `mapIndex`'s, over the persistent
  * trie (Collections Part 4 §4.1), and `jsMapIndex`'s, over a captured native
  * `Map` (FFI Part 10 §4.1). One function because the *shape* is the contract:
- * Part 10 §4.1 reuses Part 4 §4.3's `KeyError` rather than redeclaring one, so
+ * Part 10 §4.1 reuses Part 4 §4.3's `KeyFault` rather than redeclaring one, so
  * the two throws carry the same `(owner, name)` pair — `$hex` the declaring
- * module `Hex.Map`, `name` `"KeyError"` — and a single `catch KeyError` arm,
+ * module `Hex.Map`, `name` `"KeyFault"` — and a single `catch KeyFault` arm,
  * written anywhere including another module, catches both. Two copies of these
  * four lines would be two shapes that merely happened to agree today.
  *
- * `KeyError` is **nullary** by ruling: a polymorphic key cannot be a payload
+ * `KeyFault` is **nullary** by ruling: a polymorphic key cannot be a payload
  * slot (Exceptions §2), so nothing is set beyond the two fields every Hexagon
  * exception carries. The key does reach the *message*, which Part 4 §4.3
  * licenses as a non-normative best-effort rendering — programs must not parse
@@ -13752,11 +13788,11 @@ function unicodeMappingHelper(
  * The brand is the declaring module's, never the emitting one's (Exceptions
  * §7.1, #488), for the reason spelled out at the vector family above.
  */
-function keyErrorThrow(spell: (name: RuntimeSpelling) => string): string[] {
+function keyFaultThrow(spell: (name: RuntimeSpelling) => string): string[] {
   return [
     `  const __error = new ${spell("Error")}` + "(`no value for key ${" + spell("String") +
     "(__key)}`);",
-    '  __error.name = "KeyError";',
+    '  __error.name = "KeyFault";',
     `  __error.$hex = ${JSON.stringify(HEX_MAP)};`,
     "  throw __error;",
   ];
@@ -14098,7 +14134,7 @@ function renderHelper(
         "}",
       ];
     // `Range.down`'s door (#1073): the same object counting the other way, its
-    // endpoints as supplied, so a slice's `SliceError` reports what was written.
+    // endpoints as supplied, so a slice's `SliceFault` reports what was written.
     case "rangeDown":
       return [
         `function ${name}(__start, __end) {`,
@@ -14116,7 +14152,7 @@ function renderHelper(
     // which neither an expression position nor the arrow an intrinsic-door
     // binding is initialized with can hold.
     //
-    // They build §5.5's `IndexError` payload directly rather than constructing
+    // They build §5.5's `IndexFault` payload directly rather than constructing
     // the `stdlib/Vector.hex` exception, and that is deliberate. The payload
     // (`$hex`, `name`, `index`, `size`) and the message are what every catch
     // site and every diagnostic test reads; routing them through the Hexagon
@@ -14127,21 +14163,21 @@ function renderHelper(
     // **The brand is `HEX_VECTOR`, and belongs to the declaring module rather
     // than to the one this helper is emitted into** (Exceptions §7.1, #488). A
     // bounds check inlined into a user's `Report` still raises `Vector`'s
-    // `IndexError`, and a catch arm written `Vector.IndexError(…)` anywhere
+    // `IndexFault`, and a catch arm written `Vector.IndexFault(…)` anywhere
     // tests the same string; branding the emitting module would put every such
     // arm permanently past it. A fixed brand is safe because an injected module
     // brands its **canonical injected name** wherever in a project its file
     // sits, so `stdlib/Vector.hex` and a project's own `Vector.hex` agree — and
     // since #829 that name is the module's *full* name, `Hex.Vector`, which is
     // why the constant is computed rather than written out.
-    // `SliceError` below, `mapIndex`'s `KeyError` and `seqFromIterable`'s
-    // `ReentrancyError` are the same rule at `HEX_VECTOR`, `HEX_MAP`, `HEX_SEQ`.
+    // `SliceFault` below, `mapIndex`'s `KeyFault` and `seqFromIterable`'s
+    // `ReentrancyFault` are the same rule at `HEX_VECTOR`, `HEX_MAP`, `HEX_SEQ`.
     case "vectorIndex":
       return [
         `function ${name}(__values, __index) {`,
         `  const __size = ${runtimeName("size")}(__values);`,
         `  if (__index < 1 || __index > __size) { const __error = new ${spell("RangeError")}` +
-        "(`index ${__index} out of bounds for size ${__size}`); __error.name = \"IndexError\"; __error.$hex = " + JSON.stringify(HEX_VECTOR) + "; __error.index = __index; __error.size = __size; throw __error; }",
+        "(`index ${__index} out of bounds for size ${__size}`); __error.name = \"IndexFault\"; __error.$hex = " + JSON.stringify(HEX_VECTOR) + "; __error.index = __index; __error.size = __size; throw __error; }",
         `  return ${runtimeName("get")}(__values, __index - 1);`,
         "}",
       ];
@@ -14153,11 +14189,11 @@ function renderHelper(
     // which is exactly the silent hole `Array(a)`'s non-nullable element
     // contract (§6.4) says is not there.
     //
-    // The `IndexError` it raises is **the** `IndexError` — `stdlib/Vector.hex`'s
+    // The `IndexFault` it raises is **the** `IndexFault` — `stdlib/Vector.hex`'s
     // one declaration, Collections Part 3's — built here with the same payload
     // and the same `"Vector"` brand the vector family builds, and for the same
     // reason: the brand belongs to the declaring module, so a catch arm written
-    // `IndexError(index, size)` anywhere catches this throw too. `size` is the
+    // `IndexFault(index, size)` anywhere catches this throw too. `size` is the
     // array's length at the fault, which is what the reader of the message
     // needs and what a `Vector` fault reports.
     // FFI Part 1 §5.4's capture walk, interpreted over one module's plan table
@@ -14378,7 +14414,7 @@ function renderHelper(
         `function ${name}(__values, __index) {`,
         "  const __size = __values.length;",
         `  if (__index < 1 || __index > __size) { const __error = new ${spell("RangeError")}` +
-        "(`index ${__index} out of bounds for size ${__size}`); __error.name = \"IndexError\"; __error.$hex = " + JSON.stringify(HEX_VECTOR) + "; __error.index = __index; __error.size = __size; throw __error; }",
+        "(`index ${__index} out of bounds for size ${__size}`); __error.name = \"IndexFault\"; __error.$hex = " + JSON.stringify(HEX_VECTOR) + "; __error.index = __index; __error.size = __size; throw __error; }",
         "  return __values[__index - 1];",
         "}",
       ];
@@ -14388,7 +14424,7 @@ function renderHelper(
         `  const __size = ${runtimeName("size")}(__values);`,
         "  const __position = __index < 0 ? __size + __index + 1 : __index;",
         `  if (__position < 1 || __position > __size) { const __error = new ${spell("RangeError")}` +
-        "(`index ${__index} out of bounds for size ${__size}`); __error.name = \"IndexError\"; __error.$hex = " + JSON.stringify(HEX_VECTOR) + "; __error.index = __index; __error.size = __size; throw __error; }",
+        "(`index ${__index} out of bounds for size ${__size}`); __error.name = \"IndexFault\"; __error.$hex = " + JSON.stringify(HEX_VECTOR) + "; __error.index = __index; __error.size = __size; throw __error; }",
         `  return ${runtimeName("get")}(__values, __position - 1);`,
         "}",
       ];
@@ -14463,18 +14499,18 @@ function renderHelper(
       ];
     case "mapIndex":
       // The bracket, `m[k]` (Collections Part 4 §4.1): assert presence, throw
-      // `KeyError` on absence. A helper for `vectorIndex`'s reason — a check
+      // `KeyFault` on absence. A helper for `vectorIndex`'s reason — a check
       // followed by a return is *statements* — and it builds §4.3's payload
       // directly rather than constructing `stdlib/Map.hex`'s exception, exactly
-      // as the vector family builds `IndexError`'s. The trailing parameter is
+      // as the vector family builds `IndexFault`'s. The trailing parameter is
       // the key's `Hash` evidence, which the trie's `get` takes because its
-      // declaration is `<k: Hash>`. The throw itself is `keyErrorThrow`'s,
+      // declaration is `<k: Hash>`. The throw itself is `keyFaultThrow`'s,
       // shared with the `JsMap` bracket below so the two shapes are one.
       return [
         `function ${name}(__map, __key, __hash) {`,
         `  const __found = ${hashTrieName("get")}(__map, __key, __hash);`,
         '  if (__found.tag === "Some") return __found.value;',
-        ...keyErrorThrow(spell),
+        ...keyFaultThrow(spell),
         "}",
       ];
     case "jsMapIndex":
@@ -14486,7 +14522,7 @@ function renderHelper(
       //      what buy that, which is why this is a helper taking two arguments
       //      rather than an inline conditional that would mention `__map`
       //      twice.
-      //   2. **`has` before `get`.** False → `KeyError`; true → the `get`
+      //   2. **`has` before `get`.** False → `KeyFault`; true → the `get`
       //      supplies the result.
       //   3. A present `undefined` stays distinguishable from absence, which
       //      is step 2's entire reason: native `get` alone answers `undefined`
@@ -14505,13 +14541,13 @@ function renderHelper(
       // No `Hash` parameter, in deliberate contrast to `mapIndex` above: this
       // lookup is the native collection's SameValueZero (§4.3). The absence
       // payload is `mapIndex`'s own — same `$hex`, same `name`, same nullary
-      // shape, built by the same code — so **one `catch KeyError` arm covers
+      // shape, built by the same code — so **one `catch KeyFault` arm covers
       // both brackets** (§4.1, which reuses Collections Part 4 §4.3's
       // declaration rather than redeclaring it).
       return [
         `function ${name}(__map, __key) {`,
         "  if (__map.has(__key)) return __map.get(__key);",
-        ...keyErrorThrow(spell),
+        ...keyFaultThrow(spell),
         "}",
       ];
     case "mapEquals":
@@ -14612,7 +14648,7 @@ function renderHelper(
         `function ${name}(__values, __index, __value) {`,
         `  const __size = ${runtimeName("size")}(__values);`,
         `  if (__index < 1 || __index > __size) { const __error = new ${spell("RangeError")}` +
-        "(`index ${__index} out of bounds for size ${__size}`); __error.name = \"IndexError\"; __error.$hex = " + JSON.stringify(HEX_VECTOR) + "; __error.index = __index; __error.size = __size; throw __error; }",
+        "(`index ${__index} out of bounds for size ${__size}`); __error.name = \"IndexFault\"; __error.$hex = " + JSON.stringify(HEX_VECTOR) + "; __error.index = __index; __error.size = __size; throw __error; }",
         `  return ${runtimeName("set")}(__values, __index - 1, __value);`,
         "}",
       ];
@@ -14623,14 +14659,14 @@ function renderHelper(
       return [
         `function ${name}(__values, __range) {`,
         `  if (__range.descending) { const __error = new ${spell("RangeError")}` +
-        "(\"a slice window cannot descend\"); __error.name = \"SliceError\"; __error.$hex = " + JSON.stringify(HEX_VECTOR) + "; __error.start = __range.start; __error.end = __range.end; throw __error; }",
+        "(\"a slice window cannot descend\"); __error.name = \"SliceFault\"; __error.$hex = " + JSON.stringify(HEX_VECTOR) + "; __error.start = __range.start; __error.end = __range.end; throw __error; }",
         `  return ${runtimeName("window")}(__values, __range.start - 1, __range.end);`,
         "}",
       ];
     // ---------------------------------------------------------------------
     // String indexing (§9) reads the *same* doctrine over a different
-    // representation: 1-based, codepoint-addressed, `IndexError` on the
-    // bracket, clamping windows, `SliceError` on direction. It used to reach
+    // representation: 1-based, codepoint-addressed, `IndexFault` on the
+    // bracket, clamping windows, `SliceFault` on direction. It used to reach
     // the vector helpers over a codepoint array, and stopped when `Vector(a)`
     // became a trie — a string is not one, and `Array.from` of one is not a
     // vector. The duplicated bounds arithmetic below is the price of that, and
@@ -14643,7 +14679,7 @@ function renderHelper(
         `  if (__index < 1 || __index > __points.length) { const __error = new ${
           spell("RangeError")
         }` +
-        "(`index ${__index} out of bounds for size ${__points.length}`); __error.name = \"IndexError\"; __error.$hex = " + JSON.stringify(HEX_VECTOR) + "; __error.index = __index; __error.size = __points.length; throw __error; }",
+        "(`index ${__index} out of bounds for size ${__points.length}`); __error.name = \"IndexFault\"; __error.$hex = " + JSON.stringify(HEX_VECTOR) + "; __error.index = __index; __error.size = __points.length; throw __error; }",
         "  return __points[__index - 1];",
         "}",
       ];
@@ -14651,7 +14687,7 @@ function renderHelper(
       return [
         `function ${name}(__text, __range) {`,
         `  if (__range.descending) { const __error = new ${spell("RangeError")}` +
-        "(\"a slice window cannot descend\"); __error.name = \"SliceError\"; __error.$hex = " + JSON.stringify(HEX_VECTOR) + "; __error.start = __range.start; __error.end = __range.end; throw __error; }",
+        "(\"a slice window cannot descend\"); __error.name = \"SliceFault\"; __error.$hex = " + JSON.stringify(HEX_VECTOR) + "; __error.start = __range.start; __error.end = __range.end; throw __error; }",
         `  return ${spell("Array")}.from(__text).slice(${spell("Math")}.max(0, __range.start - 1), ${
           spell("Math")
         }.max(0, __range.end)).join("");`,
@@ -14771,7 +14807,7 @@ function renderHelper(
       // behaviour. Both halves would land together, and `seqToIterable` is half
       // of R1 and the internal channel's driver, so it is #232's to weigh.
       //
-      // **`ReentrancyError`, a declared Hexagon exception** (§7.4), not a
+      // **`ReentrancyFault`, a declared Hexagon exception** (§7.4), not a
       // manufactured `TypeError`. The condition is one Hexagon detects in state
       // Hexagon owns, so it leaves through the domestic door: Exceptions §1's
       // one-door doctrine puts every Hexagon-originated exception behind a
@@ -14782,8 +14818,8 @@ function renderHelper(
       // check and reads no foreign value, so it cannot borrow that kind.
       //
       // Constructed inline as Exceptions §7.1's representation rather than by
-      // calling `Seq.hex`'s constructor, exactly as the emitted `IndexError` and
-      // `SliceError` are: exception identity is the (module, name) pair — `name`
+      // calling `Seq.hex`'s constructor, exactly as the emitted `IndexFault` and
+      // `SliceFault` are: exception identity is the (module, name) pair — `name`
       // under the declaring module's `$hex` brand, `HEX_SEQ` here (#488) — chosen
       // over prototype identity precisely so that every module's copy of this
       // helper and the one `.hex` declaration coincide on one nominal exception. Fresh per refusal (§7.3 of Exceptions), so the stack points
@@ -14828,7 +14864,7 @@ function renderHelper(
         "          if (__forcing) {",
         `            throw ${spell("Object")}.assign(new ${
           spell("Error")
-        }("Seq position is already being forced: a sequence position cannot depend on its own value"), { $hex: ${JSON.stringify(HEX_SEQ)}, name: "ReentrancyError" });`,
+        }("Seq position is already being forced: a sequence position cannot depend on its own value"), { $hex: ${JSON.stringify(HEX_SEQ)}, name: "ReentrancyFault" });`,
         "          }",
         "          __forcing = true;",
         "          try {",

@@ -69,12 +69,12 @@ honor Show<BigInt> =
     past `Int`'s range, whose useful domain the host defines: `0`, `1`, and `-1`
     answer at any non-negative exponent, and elsewhere the same implementation
     limits govern that govern all `BigInt` growth. Throws
-    `NegativeExponentError` when `exponent` is negative — a negative power of an
+    `NegativeExponentFault` when `exponent` is negative — a negative power of an
     integer is not an integer — at this face and at `**` alike, the guard living
     once in this one body. *)
 widens Pow.pow(value: BigInt, exponent: BigInt): BigInt =
     if exponent < 0 then
-        throw(NegativeExponentError("an integer exponent cannot be negative"))
+        throw(NegativeExponentFault("an integer exponent cannot be negative"))
     else
         nativePow(value, exponent)
 
@@ -88,28 +88,28 @@ honor Hash<BigInt> =
 
 honor Integral<BigInt> =
     (** The truncated quotient of `left` divided by `right`, rounding toward
-        zero. Throws `DivideByZeroError` when `right` is zero. *)
+        zero. Throws `DivideByZeroFault` when `right` is zero. *)
     quot(left, right) =
         if right == 0 then
-            throw(DivideByZeroError("BigInt.quot: divisor is zero"))
+            throw(DivideByZeroFault("BigInt.quot: divisor is zero"))
         else
             nativeQuot(left, right)
 
     (** The truncated remainder of `left` divided by `right`, taking the sign of
-        `left` — this is JS's `%`. Throws `DivideByZeroError` when `right` is
+        `left` — this is JS's `%`. Throws `DivideByZeroFault` when `right` is
         zero, where JS would answer `NaN` or throw a `RangeError`. *)
     rem(left, right) =
         if right == 0 then
-            throw(DivideByZeroError("BigInt.rem: divisor is zero"))
+            throw(DivideByZeroFault("BigInt.rem: divisor is zero"))
         else
             nativeRem(left, right)
 
     (** The Euclidean remainder of `left` divided by `right`: always
-        non-negative, whatever the signs. Throws `DivideByZeroError` when
+        non-negative, whatever the signs. Throws `DivideByZeroFault` when
         `right` is zero. *)
     mod(left, right) =
         if right == 0 then
-            throw(DivideByZeroError("BigInt.mod: divisor is zero"))
+            throw(DivideByZeroFault("BigInt.mod: divisor is zero"))
         else
             let remainder = left.rem(right)
             if remainder < 0 then
@@ -119,10 +119,10 @@ honor Integral<BigInt> =
 
     (** The Euclidean quotient of `left` divided by `right`: the unique partner
         of `mod` satisfying `div(l, r) * r + mod(l, r) == l`. Throws
-        `DivideByZeroError` when `right` is zero. *)
+        `DivideByZeroFault` when `right` is zero. *)
     div(left, right) =
         if right == 0 then
-            throw(DivideByZeroError("BigInt.div: divisor is zero"))
+            throw(DivideByZeroFault("BigInt.div: divisor is zero"))
         else
             (left - left.mod(right)).quot(right)
 
@@ -190,16 +190,16 @@ export let toInt(value: BigInt): Option(Int) =
     else
         Some(toIntUnchecked(value))
 
-// `FloatRangeError` is `Float.hex`'s, in scope through the prelude: the range
+// `FloatRangeFault` is `Float.hex`'s, in scope through the prelude: the range
 // that fails belongs to `Float`, not to any one door into it. Throwing it is
 // what seats this companion after `Float.hex` in the prelude order.
 (** `value` as the nearest `Float` — correctly rounded, ties to even; past 2^53
     that double need not be the integer asked for, and no exception attends the
-    rounding. Throws `FloatRangeError` when the correctly rounded answer would
+    rounding. Throws `FloatRangeFault` when the correctly rounded answer would
     be an infinity. *)
 export let toFloat(value: BigInt): Float =
     let approx = toFloatUnchecked(value)
     if approx.isFinite() then
         approx
     else
-        throw(FloatRangeError("BigInt.toFloat: value does not fit in Float"))
+        throw(FloatRangeFault("BigInt.toFloat: value does not fit in Float"))

@@ -4,7 +4,7 @@ import { compileFiles, runProject } from "../support/test-project.js";
 
 /**
  * Conformance for **`Rat.toFloat`, the sanctioned exit from the exact world** —
- * #526, `rat.md` §6/§7/§8/§9 and `primitive-types.md` §3's `FloatRangeError`.
+ * #526, `rat.md` §6/§7/§8/§9 and `primitive-types.md` §3's `FloatRangeFault`.
  *
  * Within range the answer is the **correctly rounded nearest double**, rounded
  * **once**, ties to even. §7 states the implementation constraint that makes
@@ -16,7 +16,7 @@ import { compileFiles, runProject } from "../support/test-project.js";
  * `2 ** -1074` grid; the straddle pin there fails against that implementation
  * specifically.
  *
- * `FloatRangeError` (`stdlib/Float.hex`, the range being `Float`'s rather than
+ * `FloatRangeFault` (`stdlib/Float.hex`, the range being `Float`'s rather than
  * any one door's) is thrown by the single guard of §6 — *the result must be
  * finite, and nonzero when the input is nonzero* — under §8's one provenance-
  * tagged message for both ends.
@@ -396,7 +396,7 @@ describe("the subnormal range: the rounding grid narrows before the rounding", (
 });
 
 describe("the guard: finite, and nonzero when the input is (rat.md §6/§8)", () => {
-  test("the §9 overflow line throws `FloatRangeError`, message pinned", async () => {
+  test("the §9 overflow line throws `FloatRangeFault`, message pinned", async () => {
     // The spelling is §9's own; the bare digits ride Numeric Literals §5.1's
     // argument-seat lift onto `BigInt`.
     const exports = await runRat(
@@ -405,7 +405,7 @@ describe("the guard: finite, and nonzero when the input is (rat.md §6/§8)", ()
     );
 
     expect(threw(exports["boom"] as () => unknown)).toMatchObject({
-      name: "FloatRangeError",
+      name: "FloatRangeFault",
       message: "Rat.toFloat: value does not fit in Float",
       $hex: "Hex.Float",
     });
@@ -420,7 +420,7 @@ describe("the guard: finite, and nonzero when the input is (rat.md §6/§8)", ()
     );
 
     expect(threw(exports["boom"] as () => unknown)).toMatchObject({
-      name: "FloatRangeError",
+      name: "FloatRangeFault",
       message: "Rat.toFloat: value does not fit in Float",
     });
   });
@@ -436,7 +436,7 @@ describe("the guard: finite, and nonzero when the input is (rat.md §6/§8)", ()
     );
 
     expect(threw(exports["boom"] as () => unknown)).toMatchObject({
-      name: "FloatRangeError",
+      name: "FloatRangeFault",
       message: "Rat.toFloat: value does not fit in Float",
     });
   });
@@ -466,12 +466,12 @@ describe("the guard: finite, and nonzero when the input is (rat.md §6/§8)", ()
     expect(exports["largest"]).toBe(Number.MAX_VALUE);
     expect(exports["lastGood"]).toBe(Number.MAX_VALUE);
     expect(threw(exports["boom"] as () => unknown)).toMatchObject({
-      name: "FloatRangeError",
+      name: "FloatRangeFault",
       message: "Rat.toFloat: value does not fit in Float",
     });
     // The negative end fails identically: the guard is about magnitude.
     expect(threw(exports["negativeBoom"] as () => unknown)).toMatchObject({
-      name: "FloatRangeError",
+      name: "FloatRangeFault",
       message: "Rat.toFloat: value does not fit in Float",
     });
   });
@@ -486,7 +486,7 @@ describe("the guard: finite, and nonzero when the input is (rat.md §6/§8)", ()
       .find(({ source }) => source.path === "/Rat.hex")!.declarations.text;
 
     expect(declarations).toContain(
-      "@throws {FloatRangeError} when the honest answer would not be an approximation at all:" +
+      "@throws {FloatRangeFault} when the honest answer would not be an approximation at all:" +
         " past `Float`'s finite range, or a nonzero rational that would erase to zero\n",
     );
   });
@@ -502,19 +502,19 @@ describe("the exception's identity", () => {
       "    try\n" +
       "        show(Rat.toFloat(Rat.create(2 ** 1100, 1)))\n" +
       "    catch\n" +
-      "        FloatRangeError(message) => message\n" +
+      "        FloatRangeFault(message) => message\n" +
       "export fun qualified(): String =\n" +
       "    try\n" +
       "        show(Rat.toFloat(Rat.create(2 ** 1200, 1)))\n" +
       "    catch\n" +
-      "        Float.FloatRangeError(message) => message\n" +
+      "        Float.FloatRangeFault(message) => message\n" +
       "export fun sibling(): String =\n" +
       "    try\n" +
       "        show(Rat.toFloat(Rat.create(2 ** 1300, 1)))\n" +
       "    catch\n" +
-      "        DivideByZeroError(message) => \"wrong: ${message}\"\n" +
-      "        NegativeExponentError(message) => \"wrong: ${message}\"\n" +
-      "        _ => \"not a sibling\"\n",
+      "        DivideByZeroFault(message) => \"wrong: ${message}\"\n" +
+      "        NegativeExponentFault(message) => \"wrong: ${message}\"\n" +
+      "        fault _ => \"not a sibling\"\n",
     );
 
     expect((exports["bare"] as () => string)())
@@ -537,14 +537,14 @@ describe("the exception's identity", () => {
     const float = await runProject(files, { entry: "Hex.Float" });
 
     const error = threw(main["boom"] as () => unknown);
-    const range = float["FloatRangeError"] as { is: (value: unknown) => boolean };
+    const range = float["FloatRangeFault"] as { is: (value: unknown) => boolean };
     const isHexError = float["isHexError"] as (value: unknown) => boolean;
 
     expect(error).toBeInstanceOf(Error);
     expect(range.is(error)).toBe(true);
     expect(isHexError(error)).toBe(true);
     // A foreign `Error` wearing the name is unbranded, so the guard refuses it.
-    expect(range.is(Object.assign(new Error("x"), { name: "FloatRangeError" })))
+    expect(range.is(Object.assign(new Error("x"), { name: "FloatRangeFault" })))
       .toBe(false);
   });
 
@@ -560,8 +560,8 @@ describe("the exception's identity", () => {
     const integral = await runProject(files, { entry: "Hex.Integral" });
 
     const error = threw(main["boom"] as () => unknown);
-    const negative = pow["NegativeExponentError"] as { is: (value: unknown) => boolean };
-    const divide = integral["DivideByZeroError"] as { is: (value: unknown) => boolean };
+    const negative = pow["NegativeExponentFault"] as { is: (value: unknown) => boolean };
+    const divide = integral["DivideByZeroFault"] as { is: (value: unknown) => boolean };
 
     expect(negative.is(error)).toBe(false);
     expect(divide.is(error)).toBe(false);

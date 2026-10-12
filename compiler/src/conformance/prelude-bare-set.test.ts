@@ -62,19 +62,19 @@ function moduleNames(source: string): readonly string[] {
  */
 const BARE_SET = [
   // The thirteen exception constructors — a category, not a list (§5.5).
-  "DecRangeError",
-  "DecimalPlacesOverflowError",
-  "DivideByZeroError",
-  "FloatRangeError",
-  "IndexError",
-  "IntRangeError",
+  "DecRangeFault",
+  "DecimalPlacesOverflowFault",
+  "DivideByZeroFault",
+  "FloatRangeFault",
+  "IndexFault",
+  "IntRangeFault",
   "JsError",
-  "KeyError",
-  "NegativeExponentError",
-  "NegativeDecimalPlacesError",
-  "ReentrancyError",
-  "SliceError",
-  "UndefinedSignError",
+  "KeyFault",
+  "NegativeExponentFault",
+  "NegativeDecimalPlacesFault",
+  "ReentrancyFault",
+  "SliceFault",
+  "UndefinedSignFault",
   // The open unions' six constructors.
   "Err",
   "False",
@@ -699,17 +699,17 @@ describe("the exception channel: all of them, as a category", () => {
    * qualifier — so the list is asserted whole rather than sampled.
    */
   test.each([
-    ["DecimalPlacesOverflowError", "Dec", "(m)"],
-    ["DecRangeError", "Dec", "(m)"],
-    ["NegativeDecimalPlacesError", "Dec", "(m)"],
-    ["NegativeExponentError", "Pow", "(m)"],
-    ["DivideByZeroError", "Integral", "(m)"],
-    ["FloatRangeError", "Float", "(m)"],
-    ["IntRangeError", "Int", "(m)"],
-    ["ReentrancyError", "Seq", ""],
-    ["IndexError", "Vector", "(i, n)"],
-    ["SliceError", "Vector", "(a, b)"],
-    ["KeyError", "Map", ""],
+    ["DecimalPlacesOverflowFault", "Dec", "(m)"],
+    ["DecRangeFault", "Dec", "(m)"],
+    ["NegativeDecimalPlacesFault", "Dec", "(m)"],
+    ["NegativeExponentFault", "Pow", "(m)"],
+    ["DivideByZeroFault", "Integral", "(m)"],
+    ["FloatRangeFault", "Float", "(m)"],
+    ["IntRangeFault", "Int", "(m)"],
+    ["ReentrancyFault", "Seq", ""],
+    ["IndexFault", "Vector", "(i, n)"],
+    ["SliceFault", "Vector", "(a, b)"],
+    ["KeyFault", "Map", ""],
     ["JsError", "JsError", "(e)"],
   ])("`%s` is bare in a catch arm, and qualified through `%s`", (name, home, slots) => {
     expect(projectDiagnostics("module Main\n\n" + "export fun f(n: Int): Int =\n" +
@@ -728,9 +728,9 @@ describe("the exception channel: all of them, as a category", () => {
 
   /** And an exception constructor is bare in expression position too. */
   test("`throw` takes the bare constructor", () => {
-    expect(projectDiagnostics("module Main\n\n" + "export fun f(): Int = throw(KeyError)\n",
+    expect(projectDiagnostics("module Main\n\n" + "export fun f(): Int = throw(KeyFault)\n",
     )).toEqual([]);
-    expect(projectDiagnostics("module Main\n\n" + "export fun f(): Int = throw(Map.KeyError)\n",
+    expect(projectDiagnostics("module Main\n\n" + "export fun f(): Int = throw(Map.KeyFault)\n",
     )).toEqual([]);
   });
 });

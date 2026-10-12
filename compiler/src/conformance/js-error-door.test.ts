@@ -250,7 +250,7 @@ describe("the arm is the foreign branch, in both catch seats (§6.2, §7.4)", ()
         "    catch\n" +
         "        _ => \"first\"\n" +
         "        JsError(_) => \"second\"\n",
-    )).toEqual(["this catch arm is unreachable because an earlier arm catches everything"]);
+    )).toEqual(["this catch arm is unreachable; the arm `_` above catches every exception"]);
   });
 
   test("a domestic arm after a `JsError` arm is fine — the door covers one branch", () => {

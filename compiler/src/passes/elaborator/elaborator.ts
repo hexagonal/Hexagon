@@ -207,6 +207,7 @@ function reportUnreachableCatchClause(
 function elaborateArms(arms: readonly Typed.MatchArm[]): readonly Core.MatchArm[] {
   return arms.map((arm) => ({
     pattern: elaboratePattern(arm.pattern),
+    ...(arm.fault === undefined ? {} : { fault: arm.fault }),
     ...(arm.guard === undefined ? {} : { guard: elaborateExpr(arm.guard) }),
     body: elaborateExpr(arm.body),
     span: arm.span,

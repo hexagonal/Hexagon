@@ -713,7 +713,7 @@ describe("the domains the matrix defers on", () => {
       "    catch\n" +
       "        _ => 0\n" +
       "        Boom(_) => 1\n",
-    )).toEqual(["this catch arm is unreachable because an earlier arm catches everything"]);
+    )).toEqual(["this catch arm is unreachable; the arm `_` above catches every exception"]);
   });
 });
 

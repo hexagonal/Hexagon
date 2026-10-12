@@ -257,7 +257,7 @@ describe("compileSource", () => {
     }
     expect(thrown).toBeInstanceOf(Error);
     expect(thrown).toMatchObject({
-      name: "IndexError",
+      name: "IndexFault",
       message: "index -3 out of bounds for size 2",
       $hex: "Hex.Vector",
       index: -3,
@@ -697,7 +697,7 @@ describe("compileSource", () => {
     // import (#344), rather than a helper branding an `Error` in place. The
     // observable — name, message, `$hex` — is pinned by the executed test
     // below, which is where it belongs.
-    expect(ratModule?.javascript).toContain("DivideByZeroError(\"Rat.create: bottom is zero\")");
+    expect(ratModule?.javascript).toContain("DivideByZeroFault(\"Rat.create: bottom is zero\")");
     // One directory down now, because `Hex.Rat` is laid out under `Hex/` with
     // the prelude modules it names (Packages §6).
     expect(ratModule?.javascript).toContain('from "./Integral.js"');
@@ -784,7 +784,7 @@ describe("compileSource", () => {
     }
     expect(thrown).toBeInstanceOf(Error);
     expect(thrown).toMatchObject({
-      name: "DivideByZeroError",
+      name: "DivideByZeroFault",
       message: "Rat.divide: divisor is zero",
       $hex: "Hex.Integral",
     });

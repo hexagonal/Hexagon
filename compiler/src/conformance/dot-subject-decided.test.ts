@@ -669,7 +669,7 @@ describe("a subject the text decides dispatches at the dot (§3.1)", () => {
   test("a caught exception's parts, which its declaration types", () => {
     compiles(
       "let f(xs: Vector(Int)): String =\n    try\n        xs[3].show()\n    catch\n" +
-        "        IndexError(at, size) => at.show()\n",
+        "        IndexFault(at, size) => at.show()\n",
     );
   });
 

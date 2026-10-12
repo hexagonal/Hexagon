@@ -16,7 +16,7 @@ import {
  * Exceptions §1 delegates a catch arm to those patterns, and §5.2 repeats the
  * delegation, so Modules §3.3's qualified spelling is part of the grammar an
  * arm is written in. One pattern resolver answers both positions, and it always
- * did — what refused a `Map.KeyError` arm was the **checker**, whose exception
+ * did — what refused a `Map.KeyFault` arm was the **checker**, whose exception
  * table was built from the module's own `exception` items alone. Bare or
  * qualified, an exception the module had not written was not an exception
  * constructor as far as a catch arm was concerned (#469).
@@ -49,12 +49,12 @@ import {
 const PIPELINE_TIMEOUT = 30_000;
 
 describe("a prelude module's own name qualifies its exceptions in catch arms", () => {
-  test("`Vector.IndexError(i, s)` catches and binds both payload slots", async () => {
+  test("`Vector.IndexFault(i, s)` catches and binds both payload slots", async () => {
     const exports = await runMain("module Main\n\n" + "export fun guarded(v: Vector(Int)): Int =\n" +
       "    try\n" +
       "        v.at(9)\n" +
       "    catch\n" +
-      "        Vector.IndexError(index, size) => index + size\n" +
+      "        Vector.IndexFault(index, size) => index + size\n" +
       "export let r: Int = guarded([1, 2, 3])\n",
     );
 
@@ -62,15 +62,15 @@ describe("a prelude module's own name qualifies its exceptions in catch arms", (
     expect(exports.r).toBe(12);
   });
 
-  test("`Map.KeyError` catches the bracket's throw, nullary", async () => {
+  test("`Map.KeyFault` catches the bracket's throw, nullary", async () => {
     // The one nullary prelude exception a program can provoke without help:
-    // §4.1's bracket asserts presence and raises `KeyError` on absence.
+    // §4.1's bracket asserts presence and raises `KeyFault` on absence.
     const exports = await runMain("module Main\n\n" + "let m: Map(Int, String) = Map.fromVector([(1, \"one\")])\n" +
       "export fun lookup(key: Int): String =\n" +
       "    try\n" +
       "        m[key]\n" +
       "    catch\n" +
-      "        Map.KeyError => \"absent\"\n" +
+      "        Map.KeyFault => \"absent\"\n" +
       "export let found: String = lookup(1)\n" +
       "export let missing: String = lookup(9)\n",
     );
@@ -86,7 +86,7 @@ describe("a prelude module's own name qualifies its exceptions in catch arms", (
       "    try\n" +
       "        v.at(9)\n" +
       "    catch\n" +
-      "        IndexError(index, size) => index + size\n" +
+      "        IndexFault(index, size) => index + size\n" +
       "export let r: Int = guarded([1, 2, 3])\n",
     );
 
@@ -94,23 +94,23 @@ describe("a prelude module's own name qualifies its exceptions in catch arms", (
   });
 
   test("every prelude exception is nameable in a catch arm, by both spellings", () => {
-    // The ten the prelude exports — `Seq.hex`'s `ReentrancyError` among them,
+    // The ten the prelude exports — `Seq.hex`'s `ReentrancyFault` among them,
     // which has been in the prelude and uncatchable since it was declared (FFI
-    // Part 3 §7.4), and `Float.hex`'s `FloatRangeError`, which nothing in its
+    // Part 3 §7.4), and `Float.hex`'s `FloatRangeFault`, which nothing in its
     // own home module throws either (#526: it is the range the doors *into*
     // `Float` from the exact world fail, `Rat.toFloat` first). Compilation is
     // the claim; the arms are unreachable at run time because nothing here
     // throws.
     const arms: readonly (readonly [string, string])[] = [
-      ["Map", "KeyError"],
-      ["Vector", "IndexError(index, size)"],
-      ["Vector", "SliceError(start, end)"],
-      ["Seq", "ReentrancyError"],
-      ["Integral", "DivideByZeroError(message)"],
-      ["Pow", "NegativeExponentError(message)"],
-      ["Int", "IntRangeError(message)"],
-      ["Float", "FloatRangeError(message)"],
-      ["Float", "UndefinedSignError(message)"],
+      ["Map", "KeyFault"],
+      ["Vector", "IndexFault(index, size)"],
+      ["Vector", "SliceFault(start, end)"],
+      ["Seq", "ReentrancyFault"],
+      ["Integral", "DivideByZeroFault(message)"],
+      ["Pow", "NegativeExponentFault(message)"],
+      ["Int", "IntRangeFault(message)"],
+      ["Float", "FloatRangeFault(message)"],
+      ["Float", "UndefinedSignFault(message)"],
       ["JsError", "JsError(error)"],
     ];
     for (const [home, arm] of arms) {
@@ -206,21 +206,21 @@ describe("a module alias qualifies an imported exception", () => {
 
 describe("the hatch #466 needed: an occluding module reaches both", () => {
   test("its own exception bare, the prelude's qualified", async () => {
-    // The shape the issue names. `IndexError` here is the module's own
+    // The shape the issue names. `IndexFault` here is the module's own
     // declaration, occluding `Vector`'s (Modules §5.4); before #469 the
     // prelude's had no spelling left in a catch arm at all, and the only way
     // out was a catch-all arm and a rethrow.
-    const exports = await runMain("module Main\n\n" + "export exception IndexError(code: Int)\n" +
+    const exports = await runMain("module Main\n\n" + "export fault IndexFault(code: Int)\n" +
       "export fun theirs(v: Vector(Int)): Int =\n" +
       "    try\n" +
       "        v.at(9)\n" +
       "    catch\n" +
-      "        Vector.IndexError(index, size) => index + size\n" +
+      "        Vector.IndexFault(index, size) => index + size\n" +
       "export fun mine(): Int =\n" +
       "    try\n" +
-      "        throw(IndexError(7))\n" +
+      "        throw(IndexFault(7))\n" +
       "    catch\n" +
-      "        IndexError(code) => code\n" +
+      "        IndexFault(code) => code\n" +
       "export let a: Int = theirs([1, 2, 3])\n" +
       "export let b: Int = mine()\n",
     );
@@ -229,13 +229,13 @@ describe("the hatch #466 needed: an occluding module reaches both", () => {
   });
 
   test("an occluded nullary prelude exception is catchable qualified", async () => {
-    const exports = await runMain("module Main\n\n" + "export exception KeyError(reason: String)\n" +
+    const exports = await runMain("module Main\n\n" + "export fault KeyFault(reason: String)\n" +
       "let m: Map(Int, String) = Map.fromVector([(1, \"one\")])\n" +
       "export fun lookup(key: Int): String =\n" +
       "    try\n" +
       "        m[key]\n" +
       "    catch\n" +
-      "        Map.KeyError => \"absent\"\n" +
+      "        Map.KeyFault => \"absent\"\n" +
       "export let found: String = lookup(1)\n" +
       "export let missing: String = lookup(9)\n",
     );
@@ -312,9 +312,9 @@ describe("reachability reads the constructor, not the spelling (§5.3)", () => {
       "    try\n" +
       "        v.at(9)\n" +
       "    catch\n" +
-      "        IndexError(index, size) => 0\n" +
-      "        Vector.IndexError(index, size) => 1\n",
-    )).toEqual(["exception `IndexError` is already caught above"]);
+      "        IndexFault(index, size) => 0\n" +
+      "        Vector.IndexFault(index, size) => 1\n",
+    )).toEqual(["fault `IndexFault` is already caught above"]);
   });
 
   test("and so is the bare arm after the qualified one", () => {
@@ -322,22 +322,22 @@ describe("reachability reads the constructor, not the spelling (§5.3)", () => {
       "    try\n" +
       "        v.at(9)\n" +
       "    catch\n" +
-      "        Vector.IndexError(index, size) => 0\n" +
-      "        IndexError(index, size) => 1\n",
-    )).toEqual(["exception `IndexError` is already caught above"]);
+      "        Vector.IndexFault(index, size) => 0\n" +
+      "        IndexFault(index, size) => 1\n",
+    )).toEqual(["fault `IndexFault` is already caught above"]);
   });
 
   test("two different constructors sharing a bare name are two arms", () => {
     // The other side of the same rule, and the reason it cannot be spelling
-    // arithmetic: `IndexError` and `Vector.IndexError` are one constructor in
+    // arithmetic: `IndexFault` and `Vector.IndexFault` are one constructor in
     // the test above and two here, purely by what each name resolves to.
-    expect(projectDiagnostics("module Main\n\n" + "export exception IndexError(code: Int)\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export fault IndexFault(code: Int)\n" +
       "export fun f(v: Vector(Int)): Int =\n" +
       "    try\n" +
       "        v.at(9)\n" +
       "    catch\n" +
-      "        IndexError(code) => 0\n" +
-      "        Vector.IndexError(index, size) => 1\n",
+      "        IndexFault(code) => 0\n" +
+      "        Vector.IndexFault(index, size) => 1\n",
     )).toEqual([]);
   });
 
@@ -371,18 +371,18 @@ describe("reachability reads the constructor, not the spelling (§5.3)", () => {
 
 describe("what a qualified exception pattern refuses", () => {
   test("arity is reported as it is for the bare form, naming the constructor", () => {
-    const message = "exception pattern `IndexError` expects 2 arguments, got 1";
+    const message = "exception pattern `IndexFault` expects 2 arguments, got 1";
     expect(projectDiagnostics("module Main\n\n" + "export fun f(v: Vector(Int)): Int =\n" +
       "    try\n" +
       "        v.at(9)\n" +
       "    catch\n" +
-      "        Vector.IndexError(index) => 0\n",
+      "        Vector.IndexFault(index) => 0\n",
     )).toEqual([message]);
     expect(projectDiagnostics("module Main\n\n" + "export fun f(v: Vector(Int)): Int =\n" +
       "    try\n" +
       "        v.at(9)\n" +
       "    catch\n" +
-      "        IndexError(index) => 0\n",
+      "        IndexFault(index) => 0\n",
     )).toEqual([message]);
   });
 
@@ -487,8 +487,8 @@ describe("the widened table costs the rest of the module nothing", () => {
     const javascript = compileMain("module Main\n\n" + "export let doubled: Int = 21 * 2\n",
     ).modules.find(({ source }) => source.path === "/main.hex")!.javascript.text;
 
-    expect(javascript).not.toContain("IndexError");
-    expect(javascript).not.toContain("KeyError");
+    expect(javascript).not.toContain("IndexFault");
+    expect(javascript).not.toContain("KeyFault");
     expect(javascript.match(/^import /gmu)).toBeNull();
   });
 });

@@ -393,6 +393,12 @@ export interface RecordItem {
 export interface ExceptionItem {
   readonly kind: "Exception";
   readonly exported: boolean;
+  /**
+   * Written with `fault` rather than `exception` (Exceptions §2): one grammar,
+   * two kinds of throw. The head word is the declaration's truth; the name's
+   * `Fault` ending, enforced both ways, is how the kind shows at every use.
+   */
+  readonly fault: boolean;
   readonly name: Name;
   readonly slots: readonly ConstructorSlot[];
   readonly span: Source.Span;
@@ -1149,6 +1155,13 @@ export interface TryExpr {
 
 export interface MatchArm {
   readonly pattern: Pattern;
+  /**
+   * The arm's pattern is the kind pattern `fault x` or `fault _` (Exceptions
+   * §5.2): it matches every fault, of any declaration. Carried on the arm
+   * because the pattern is a whole catch arm's or nothing; the binder (or
+   * `_`) is the arm's `pattern`, its span covering both words.
+   */
+  readonly fault?: true;
   readonly guard?: Expr;
   readonly body: Expr;
   readonly span: Source.Span;

@@ -151,7 +151,7 @@ describe("completions", () => {
     expect(offered).toContain("ignore");
     expect(offered).toContain("show");
     expect(offered).toContain("Some");
-    expect(offered).toContain("KeyError");
+    expect(offered).toContain("KeyFault");
   });
 
   test("and is offered after `Seq.`, where it now has to be written", () => {

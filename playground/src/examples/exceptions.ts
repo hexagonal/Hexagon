@@ -64,15 +64,16 @@ catch
 
 Debug.log(report)
 
-// The prelude throws too, and its exceptions are caught by their qualified
-// names. In the JS view the brand names the declaring module, so this arm
-// catches Vector's IndexError and no other module's.
+// The prelude throws too, but only faults: broken assumptions, like an index
+// past the end. A fault is caught by naming it, or by a "fault e" arm; a
+// catch-all _ lets it through. In the JS view the brand names the declaring
+// module, so this arm catches Vector's IndexFault and no other module's.
 let sizes = [10, 20, 30]
 
 let clamped = try
     sizes.at(4)
 catch
-    Vector.IndexError(_, size) => sizes.at(size)
+    Vector.IndexFault(_, size) => sizes.at(size)
 
 Debug.log("the fourth of three sizes: \${clamped}")
 

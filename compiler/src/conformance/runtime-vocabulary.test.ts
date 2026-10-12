@@ -877,7 +877,7 @@ describe("completeness — the worst-contested module writes no bare global", ()
     // an unqualified `new Error(…)` in a helper would read as bound and the
     // assertion would pass vacuously. The lookarounds are what make this a
     // reference check rather than a substring one — `__global_Error`,
-    // `IndexError`, and `"SliceError"` all leave the word alone.
+    // `IndexFault`, and `"SliceFault"` all leave the word alone.
     const own = new Set<string>(RUNTIME_VOCABULARY);
     const emitterWritten = codeOnly(text).split("\n").filter((line) => {
       const declared = /^const ([A-Za-z_$][\w$]*) = /u.exec(line)?.[1] ??

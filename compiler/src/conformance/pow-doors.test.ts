@@ -134,7 +134,7 @@ describe("`BigInt.pow` — the exact power past `Int`'s range (Operators §6.3.1
     expect(exports["alternatingOdd"]).toBe((-1n) ** (2n ** 64n + 1n));
   });
 
-  test("a negative exponent throws `NegativeExponentError`, exactly as `**` does", async () => {
+  test("a negative exponent throws `NegativeExponentFault`, exactly as `**` does", async () => {
     // One guard, in one body: the member reaches it by being that body
     // restricted (§4.7), so the two faces cannot drift apart.
     const exports = await runMain("module Main\n\n" + "// BigInt door guard\n" +
@@ -144,7 +144,7 @@ describe("`BigInt.pow` — the exact power past `Int`'s range (Operators §6.3.1
 
     for (const name of ["boom", "operatorBoom"]) {
       expect(threw(exports[name] as () => unknown)).toMatchObject({
-        name: "NegativeExponentError",
+        name: "NegativeExponentFault",
         message: "an integer exponent cannot be negative",
         $hex: "Hex.Pow",
       });

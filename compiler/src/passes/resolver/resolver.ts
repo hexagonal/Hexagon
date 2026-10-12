@@ -2482,7 +2482,7 @@ class Resolver {
     // `visibleConstraints` channel one line up, for the other declaration form
     // whose *terms* cross while its shape stays behind (#469). A prelude
     // exception is reachable in a catch arm bare, and — §6.4's qualified home
-    // being what `moduleName` above registered — as `Map.KeyError` too; the
+    // being what `moduleName` above registered — as `Map.KeyFault` too; the
     // checker needs the declaration to answer for either spelling.
     for (const declaration of prelude.exceptions.values()) {
       this.#visibleExceptions.set(declaration.binding.symbol, declaration);
@@ -4264,6 +4264,7 @@ class Resolver {
         return {
           kind: "Exception",
           exported: item.exported,
+          fault: item.fault,
           binding,
           slots: item.slots.map((slot, index) => ({
             field: slot.name?.text ?? `item${index + 1}`,
@@ -4340,6 +4341,7 @@ class Resolver {
       const pattern = this.#resolvePattern(arm.pattern, armScope, new Map(), "head");
       return {
         pattern,
+        ...(arm.fault === undefined ? {} : { fault: arm.fault }),
         ...(arm.guard === undefined
           ? {}
           : { guard: this.#resolveExpr(arm.guard, armScope) }),

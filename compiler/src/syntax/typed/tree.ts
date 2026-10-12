@@ -870,6 +870,8 @@ export interface RecordItem extends RecordDeclaration {
 export interface ExceptionItem {
   readonly kind: "Exception";
   readonly exported: boolean;
+  /** Declared with `fault` (Exceptions §2); see `Resolved.ExceptionItem`. */
+  readonly fault: boolean;
   readonly binding: Binding;
   readonly slots: readonly ConstructorSlot[];
   /** The declaring module's brand identity (#488); see `Resolved.ExceptionItem`. */
@@ -1302,6 +1304,8 @@ export interface TryExpr extends ExpressionFields {
 
 export interface MatchArm {
   readonly pattern: Pattern;
+  /** `fault x` / `fault _` (Exceptions §5.2); see `Resolved.MatchArm`. */
+  readonly fault?: true;
   readonly guard?: Expr;
   readonly body: Expr;
   readonly span: Source.Span;

@@ -7,15 +7,15 @@ opaque record Rat derives (Eq, Hash) = {
     bottom: BigInt,
 }
 
-// `DivideByZeroError` is `Integral.hex`'s, in scope through the prelude: one
+// `DivideByZeroFault` is `Integral.hex`'s, in scope through the prelude: one
 // declaration for every type whose division is partial, rather than one per
 // honoring module (#344).
 
 (** The rational `top`/`bottom`, reduced to canonical form with any sign carried
-    by the top. Throws `DivideByZeroError` when `bottom` is zero. *)
+    by the top. Throws `DivideByZeroFault` when `bottom` is zero. *)
 export let create(top: BigInt, bottom: BigInt): Rat =
     if bottom == 0 then
-        throw(DivideByZeroError("Rat.create: bottom is zero"))
+        throw(DivideByZeroFault("Rat.create: bottom is zero"))
     else
         // gcd uses Euclidean modulus internally after normalizing both operands.
         let divisor = top.gcd(bottom)
@@ -35,12 +35,12 @@ export let bottom(value: Rat): BigInt = value.bottom
 (** The canonical numerator and denominator of a rational. Building through
     this pattern reduces the pair and keeps the denominator positive.
     Rebuilding a rational from these components preserves its value. Throws
-    `DivideByZeroError` when the bottom is zero. *)
+    `DivideByZeroFault` when the bottom is zero. *)
 export pattern rat(top: BigInt, bottom: BigInt): Rat
     view(value) = (top(value), bottom(value))
     build = create
 
-(** The reciprocal of `value`, exactly. Throws `DivideByZeroError` when `value`
+(** The reciprocal of `value`, exactly. Throws `DivideByZeroFault` when `value`
     is zero. *)
 export let reciprocal(value: Rat): Rat = create(value.bottom, value.top)
 
@@ -93,11 +93,11 @@ honor FromBigInt<Rat> =
     fromBigInt(value) = create(value, 1n)
 
 honor Frac<Rat> =
-    (** The quotient of `left` and `right`, exactly. Throws `DivideByZeroError`
+    (** The quotient of `left` and `right`, exactly. Throws `DivideByZeroFault`
         when `right` is zero. *)
     divide(left, right) =
         if right.top == 0 then
-            throw(DivideByZeroError("Rat.divide: divisor is zero"))
+            throw(DivideByZeroFault("Rat.divide: divisor is zero"))
         else
             create(left.top * right.bottom, left.bottom * right.top)
 
@@ -107,7 +107,7 @@ honor Frac<Rat> =
 honor Pow<Rat> =
     (** `value` raised to the power `exponent`, exactly, at either sign. A
         negative exponent inverts the base first, so `pow(2/3, -2)` is exactly
-        `9/4`; a zero base inverted that way reaches `DivideByZeroError` through
+        `9/4`; a zero base inverted that way reaches `DivideByZeroFault` through
         `create`, minting no message of its own. *)
     pow(value, exponent) =
         // `reciprocal` routes through `create`, which is where a zero base
@@ -145,7 +145,7 @@ export let fromDec(decimal: Dec): Rat =
 // message names this door.
 let roundedDecimal(value: Rat, requested: Int, even: Bool, operation: String): Dec =
     if requested < 0 then
-        throw(Dec.NegativeDecimalPlacesError("${operation}: decimal places cannot be negative"))
+        throw(Dec.NegativeDecimalPlacesFault("${operation}: decimal places cannot be negative"))
     else
         let dividend = Dec.create(value.top, 0)
         let divisor = Dec.create(value.bottom, 0)
@@ -164,7 +164,7 @@ export let toDecEven(value: Rat, places: Int): Dec =
 
 // -- `toFloat`, and the exact integer arithmetic the single rounding needs. --
 //
-// `FloatRangeError` is `Float.hex`'s, in scope through the prelude: the range
+// `FloatRangeFault` is `Float.hex`'s, in scope through the prelude: the range
 // that fails belongs to `Float`, not to any one door into it.
 //
 // The language has no shift operator, so every shift below is `2 ** k` at
@@ -250,7 +250,7 @@ let assemble(significand: BigInt, scale: Int): Float =
         value * powerOfTwo(half) * powerOfTwo(magnitude - half)
 
 (** `value` as the nearest `Float` — correctly rounded, ties to even, and
-    rounded exactly once. Throws `FloatRangeError` when the honest answer would
+    rounded exactly once. Throws `FloatRangeFault` when the honest answer would
     not be an approximation at all: past `Float`'s finite range, or a nonzero
     rational that would erase to zero. *)
 export let toFloat(value: Rat): Float =
@@ -275,7 +275,7 @@ export let toFloat(value: Rat): Float =
         // must be finite, and nonzero when the input is nonzero. A `scale` below
         // -971 puts a 53-bit significand at or past `2 ** 1024`.
         if bits == 0 or exponent < -971 then
-            throw(FloatRangeError("Rat.toFloat: value does not fit in Float"))
+            throw(FloatRangeFault("Rat.toFloat: value does not fit in Float"))
         else
             let assembled = assemble(bits, exponent)
             if negative then -assembled else assembled

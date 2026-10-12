@@ -2223,14 +2223,33 @@ const MATCH_ARM_REPORTS: ReachabilityReports = {
   armSpan: (arm) => arm.pattern.span,
 };
 
-const CATCH_ARM_REPORTS: ReachabilityReports = {
-  everything: "this catch arm is unreachable because an earlier arm catches everything",
-  constructor: (name) => `exception \`${name}\` is already caught above`,
-  literal: "this literal case is unreachable; it is already handled above",
-  // No `shadower`: see the field. Nothing at this seat reaches the naming tier, and
-  // a sentence no program can draw is one the corpus cannot hold to anything.
-  covered: "this catch arm is unreachable; the arms above already cover it",
-  armSpan: (arm) => arm.span,
+/** Exceptions §5.3's two columns: what a catch arm catches, by kind (§1). */
+type ThrowKind = "exception" | "fault";
+const THROW_KINDS: readonly ThrowKind[] = ["exception", "fault"];
+
+/**
+ * The catch seat's sentences, one table per column (`#checkCatchReachability`).
+ * `everything` is never read here: an arm behind its column's catch-all takes
+ * that method's own sentence, which names the catch-all and says what it
+ * catches.
+ */
+const CATCH_ARM_REPORTS: Record<ThrowKind, ReachabilityReports> = {
+  exception: {
+    everything: "this catch arm is unreachable; an arm above catches every exception",
+    constructor: (name) => `exception \`${name}\` is already caught above`,
+    literal: "this literal case is unreachable; it is already handled above",
+    // No `shadower`: see the field. Nothing at this seat reaches the naming tier, and
+    // a sentence no program can draw is one the corpus cannot hold to anything.
+    covered: "this catch arm is unreachable; the arms above already cover it",
+    armSpan: (arm) => arm.span,
+  },
+  fault: {
+    everything: "this catch arm is unreachable; an arm above catches every fault",
+    constructor: (name) => `fault \`${name}\` is already caught above`,
+    literal: "this literal case is unreachable; it is already handled above",
+    covered: "this catch arm is unreachable; the arms above already cover it",
+    armSpan: (arm) => arm.span,
+  },
 };
 
 /**
@@ -5340,6 +5359,11 @@ class Checker {
   readonly #patternExports: ReadonlyMap<string, readonly string[]>;
   #matchPatternCollisionFixes: Map<string, readonly Diagnostics.Fix[]> | undefined;
   #currentMatchPattern: Resolved.Pattern | undefined;
+  /**
+   * While a catch arm's pattern is read: the one seat where an exception's or
+   * a fault's constructor is a pattern, at any depth (Exceptions §3, #1204).
+   */
+  #catchPattern = false;
   /** This module's source text, where the host supplied it — see `CheckOptions`. */
   readonly #sourceText: string | undefined;
   /** The resolving package's name; see `CheckOptions.packageName`. */
@@ -11692,7 +11716,7 @@ class Checker {
           this.#indexOperations.set(expression, "MapElement");
         } else if (receiver.kind === "JsMap") {
           // FFI Part 10 §4.1: the same postfix bracket, read-only, yielding the
-          // value type, throwing the prelude `KeyError` on absence. The one
+          // value type, throwing the prelude `KeyFault` on absence. The one
           // visible difference from the `Map` arm above is the absence of
           // `#require("Hash", …)`, and that absence *is* the design (§4.3): a
           // captured `JsMap` looks a key up by the native collection's own
@@ -13106,6 +13130,17 @@ class Checker {
       return;
     }
     if (pattern.kind === "Constructor") {
+      // Exceptions §3 (#1204 (R)): a throwable's constructor is a pattern only
+      // in a catch arm, and no binding pattern is one. The binders under it are
+      // still read, against nothing, so its one report stands alone.
+      const thrown = pattern.symbol === undefined ? undefined : this.#exceptions.get(pattern.symbol);
+      if (thrown !== undefined) {
+        this.#refuseThrowablePattern(pattern, thrown);
+        pattern.arguments.forEach((argument) =>
+          this.#nestedPattern(argument, ERROR, level, generalizable, evaluated)
+        );
+        return;
+      }
       // Pattern Matching §2.2's door (#763), before anything reads the symbol:
       // a head scope did not bind is resolved here, against the expected type
       // as it stands. A refused one is a broken pattern and binds nothing
@@ -14043,6 +14078,22 @@ class Checker {
       return;
     }
 
+    // An exception's or a fault's constructor (Exceptions §3, #1204 (R)): a
+    // pattern only inside a catch arm, at any depth there — a slot of type
+    // `Exn`, `AssumptionFault(ParseError(line, _))` — and refused everywhere
+    // else, at any depth. Asked before the door, which reads a union's
+    // constructor set and has none to read for the open sum.
+    const thrown = pattern.symbol === undefined ? undefined : this.#exceptions.get(pattern.symbol);
+    if (thrown !== undefined) {
+      if (this.#catchPattern) {
+        this.#unifyPattern(pattern, expected, primitive("Exn"));
+        this.#inferExceptionPattern(pattern, level);
+        return;
+      }
+      this.#refuseThrowablePattern(pattern, thrown);
+      pattern.arguments.forEach((argument) => this.#nestedMatchPattern(argument, ERROR, level));
+      return;
+    }
     // Pattern Matching §2.2's door (#763), before anything reads the symbol.
     if (!this.#openDoor(pattern, expected)) return;
     // The nominal record's constructor pattern (#591), before the union
@@ -14134,11 +14185,14 @@ class Checker {
       const outerHasGuard = this.#armHasGuard;
       this.#armGuardSeat = true;
       this.#armHasGuard = arm.guard !== undefined;
+      const outerCatchPattern = this.#catchPattern;
+      this.#catchPattern = true;
       try {
         this.#inferExceptionPattern(arm.pattern, level);
       } finally {
         this.#armGuardSeat = outerGuardSeat;
         this.#armHasGuard = outerHasGuard;
+        this.#catchPattern = outerCatchPattern;
       }
       if (arm.guard !== undefined) {
         const guard = this.#inferExpr(arm.guard, level);
@@ -14171,11 +14225,104 @@ class Checker {
           : this.#forwardingBranchRepair(form.expression, result, body, expected),
       );
     }
-    // §5.3's set logic is §7.2's usefulness over the open `Exn` sum: the column
-    // has no signature, so no set of exception constructors ever completes it —
-    // which is the open model — while a repeated constructor, and anything
-    // behind a bare binder, is as dead here as anywhere.
-    this.#checkArmReachability(arms, primitive("Exn"), CATCH_ARM_REPORTS);
+    this.#checkCatchReachability(arms);
+  }
+
+  /**
+   * Exceptions §5.3's reachability, **by kind**. The three kinds partition
+   * `Exn`, so the arms are judged in two columns that never meet: the
+   * exceptions' — every exception's constructor, `JsError`'s among them, and the
+   * catch-alls `_` and a bare binder, which catch every exception and every
+   * foreign throw — and the faults' — every fault's constructor, and `fault e`,
+   * which catches every fault. An alternative is judged in its own kind's column
+   * alone, so `_` never shadows a fault's arm, `fault e` never shadows an
+   * exception's, and neither shadows the other, in either order.
+   *
+   * Each column is §7.2's usefulness over the open `Exn` sum, exactly as
+   * `#checkArmReachability` runs it for a `match`: the column has no signature,
+   * so no set of constructors ever completes it — the open model — while a
+   * repeated constructor, and anything behind its column's catch-all, is as dead
+   * here as anywhere. `fault e` is its column's catch-all, judged and covering
+   * as `_` does in the other. Guarded arms cover nothing, and a broken pattern
+   * shadows nothing (§7.3), as there.
+   */
+  #checkCatchReachability(arms: readonly Resolved.MatchArm[]): void {
+    const type = primitive("Exn");
+    const columns: Record<ThrowKind, {
+      readonly covering: (readonly Resolved.Pattern[])[];
+      /** The written catch-all above, unguarded, once there is one. */
+      shadower: string | undefined;
+    }> = {
+      exception: { covering: [], shadower: undefined },
+      fault: { covering: [], shadower: undefined },
+    };
+    for (const arm of arms) {
+      const alternatives = coverageAlternatives(arm.pattern);
+      const reached: Record<ThrowKind, (readonly Resolved.Pattern[])[]> = { exception: [], fault: [] };
+      for (const alternative of alternatives) {
+        const kind = this.#catchKind(arm, alternative);
+        const column = columns[kind];
+        const above = [...column.covering, ...reached[kind]];
+        const judged = arm.fault === true ? wildcardAt(alternative.span) : alternative;
+        if (!this.#coverageUseful([type], above, [judged])) {
+          if (column.shadower !== undefined) {
+            // Behind its column's catch-all. The arm is dead whole only where
+            // it has no alternative in the other column, which may still run.
+            this.#diagnostics.add({
+              severity: "error",
+              message: `this catch arm is unreachable; the arm \`${column.shadower}\` above ` +
+                (kind === "fault" ? "catches every fault" : "catches every exception"),
+              primary: alternatives.length === 1 ? arm.span : alternative.span,
+            });
+          } else {
+            this.#reportUnreachableArm(arm, judged, false, above, type, CATCH_ARM_REPORTS[kind]);
+          }
+        }
+        if (!this.#patternIsBroken(alternative)) reached[kind].push([judged]);
+      }
+      if (arm.guard !== undefined) continue;
+      for (const kind of THROW_KINDS) columns[kind].covering.push(...reached[kind]);
+      if (this.#patternIsBroken(arm.pattern)) continue;
+      if (arm.fault === true) {
+        columns.fault.shadower ??= `fault ${renderPattern(arm.pattern)}`;
+      } else if (this.#coverageIrrefutable(arm.pattern, type)) {
+        columns.exception.shadower ??= renderPattern(arm.pattern);
+      }
+    }
+  }
+
+  /**
+   * Which of §5.3's columns a catch alternative is judged in: a constructor's
+   * by its declaration's head word, `fault e` the faults', and everything else —
+   * `_`, a binder, a broken head — the exceptions', where a catch-all stands.
+   */
+  #catchKind(arm: Resolved.MatchArm, alternative: Resolved.Pattern): ThrowKind {
+    if (arm.fault === true) return "fault";
+    if (alternative.kind !== "Constructor" || alternative.symbol === undefined) return "exception";
+    return this.#exceptions.get(alternative.symbol)?.fault === true ? "fault" : "exception";
+  }
+
+  /**
+   * Exceptions §3's refusal for a throwable's constructor written as a pattern
+   * outside a catch arm (#1204 (R)), at the constructor. `Exn` is the open sum,
+   * so a `match` cannot be exhaustive over it and its only eliminator is
+   * `catch`; at a `let`, a `for` or a lambda parameter the clause says the same
+   * of a pattern.
+   */
+  #refuseThrowablePattern(
+    pattern: Resolved.ConstructorPattern,
+    thrown: Resolved.ExceptionItem,
+  ): void {
+    const seat = this.#currentMatchPattern === undefined
+      ? "a pattern never takes `Exn` apart"
+      : "a `match` never takes `Exn`";
+    this.#diagnostics.add({
+      severity: "error",
+      message: `\`${pattern.text}\` is ${thrown.fault ? "a fault's" : "an exception's"} constructor, ` +
+        `and ${seat}; exceptions are inspected with \`try\`/\`catch\``,
+      primary: pattern.nameSpan,
+    });
+    this.#brokenPatterns.add(pattern);
   }
 
   #inferExceptionPattern(pattern: Resolved.Pattern, level: number): void {
@@ -35088,6 +35235,7 @@ class Checker {
     return {
       kind: "Exception",
       exported: item.exported,
+      fault: item.fault,
       binding: {
         ...item.binding,
         scheme: this.#publicScheme(this.#scheme(item.binding.symbol)),
@@ -35751,6 +35899,7 @@ class Checker {
   #materializeArms(arms: readonly Resolved.MatchArm[]): readonly Typed.MatchArm[] {
     return arms.map((arm) => ({
       pattern: this.#materializePattern(arm.pattern),
+      ...(arm.fault === undefined ? {} : { fault: arm.fault }),
       ...(arm.guard === undefined ? {} : { guard: this.#materializeExpr(arm.guard) }),
       body: this.#materializeExpr(arm.body),
       span: arm.span,

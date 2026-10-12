@@ -140,7 +140,7 @@ const MANIFEST_NAME = /^[A-Z][A-Za-z0-9_]*$/u;
  *
  * **The sentence ends at its period, which is neither a dot inside an inline
  * code span nor a dot the sentence runs straight through.**
- * ``Throws `IndexError` when `Vector.at` receives a bad index.`` has two dots
+ * ``Throws `IndexFault` when `Vector.at` receives a bad index.`` has two dots
  * and one sentence; stopping at the first would emit a tag truncated mid-span,
  * with an unbalanced backtick in it, and — worse — would run the nested-head
  * refusal over a span shorter than the sentence, letting an early dot carry a
@@ -201,7 +201,7 @@ export function throwsManifests(content: string): readonly ThrowsManifest[] {
  * marks a period keeps its office under, and why each class is closed). A dot
  * that does not qualify is interior to the sentence, so scanning continues past
  * it and a later qualifying dot still terminates: the decimal in
- * ``Throws `IndexError` when the timeout exceeds 1.5 seconds.`` would otherwise
+ * ``Throws `IndexFault` when the timeout exceeds 1.5 seconds.`` would otherwise
  * derive the condition "when the timeout exceeds 1", and a dotted name written
  * as prose rather than a span — `Vector.at` without its backticks — would
  * truncate the same way where the span form already does not.

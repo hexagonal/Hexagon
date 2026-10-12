@@ -803,11 +803,11 @@ describe("the two failure doors (Part 10 §4.4)", () => {
    * this part's read surfaces it can happen in exactly one place: during the
    * capture". So a source whose *iteration protocol* throws lands on `JsError`
    * carrying the very error JavaScript threw: it is never turned into
-   * `KeyError`, the honest-absence door, and never swallowed into `None`. The
-   * `KeyError` arm sits *above* the `JsError` one, so a synthesized `KeyError`
+   * `KeyFault`, the honest-absence door, and never swallowed into `None`. The
+   * `KeyFault` arm sits *above* the `JsError` one, so a synthesized `KeyFault`
    * would win and be seen.
    */
-  test("a source whose iteration throws lands on `JsError`, never `KeyError` or `None`", async () => {
+  test("a source whose iteration throws lands on `JsError`, never `KeyFault` or `None`", async () => {
     const exports = await run(
       'extern from "hostile"\n' +
         "    fun hostile() ->! JsMap(String, Int)\n" +
@@ -818,7 +818,7 @@ describe("the two failure doors (Part 10 §4.4)", () => {
         '            None => "none"\n' +
         '            Some(_) => "some"\n' +
         "    catch\n" +
-        '        KeyError => "KeyError"\n' +
+        '        KeyFault => "KeyFault"\n' +
         '        JsError(e) => "JsError: " ++ JsError.message!(e)\n',
       {
         hostile: "export function hostile() {\n" +

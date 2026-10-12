@@ -124,7 +124,7 @@ export interface PreludeModule {
  * `BigInt.hex` is the fourth, and it needs the most of the five. It sits after
  * every constraint declaration because it honors eight of them, after
  * `Option`'s data seat because `toInt` answers with one, and after `Float.hex` because
- * `toFloat`'s guard throws `Float.hex`'s `FloatRangeError` (#533) — the same
+ * `toFloat`'s guard throws `Float.hex`'s `FloatRangeFault` (#533) — the same
  * sentence as everything else here, an exception being a use like any other.
  * Nothing before it names a `BigInt`.
  *

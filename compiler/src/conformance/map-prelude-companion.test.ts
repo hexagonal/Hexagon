@@ -157,7 +157,7 @@ describe("§16 (c) the accessor pair", () => {
     // The totality claim: an absent key is an answer, not a fault.
     expect(main["missing"]).toBe("none");
     expect(() => (main["boom"] as (ignored: number) => unknown)(0))
-      .toThrowError(expect.objectContaining({ name: "KeyError", $hex: "Hex.Map" }));
+      .toThrowError(expect.objectContaining({ name: "KeyFault", $hex: "Hex.Map" }));
   });
 });
 
@@ -563,41 +563,30 @@ describe("the companion's surface", () => {
   });
 
   /**
-   * `KeyError` is the module's ordinary exported exception (§4.3), so a consumer
+   * `KeyFault` is the module's ordinary exported fault (§4.3), so a consumer
    * can name and throw it with no import — the owed prelude declaration, which
    * before this milestone existed only inside the emitter's bracket lowering.
    *
-   * **The thrown value is pinned at what the compiler does today, not at what it
-   * should be.** A *nullary* exception's reference is materialized by calling
-   * its constructor, and the emitter recognizes only the ones this module
-   * declares (`#nullaryExceptions` is built from the module's own items), so a
-   * cross-module reference throws the constructor function itself. That is a
-   * pre-existing defect rather than this step's: `stdlib/Seq.hex`'s
-   * `ReentrancyError` is nullary too and behaves identically, and `Vector.hex`'s
-   * two exceptions never showed it because both carry payloads.
-   *
-   * When it is fixed this assertion fails, and that failure is the point — flip
-   * it to `objectContaining({ name: "KeyError", $hex: "Hex.Map" })`, which is what
-   * the bracket's own throw already produces (the §16 (c) case above).
+   * A *nullary* throwable's reference is materialized by calling its
+   * constructor, imported ones included (#371): the reference constructs, so
+   * what is thrown is the branded error the bracket's own throw produces (the
+   * §16 (c) case above), never the constructor function.
    */
-  test("`KeyError` is nameable with no import (throw shape pinned; imported nullary defect)", async () => {
-    const project = compileFiles([[
-      "/main.hex",
-      "module Main\n\n" + "export fun refuse(ignored: Int): Int = throw(KeyError)\n",
-    ]]);
-    expect(project.diagnostics).toEqual([]);
-    const main = await runProject([[
-      "/main.hex",
-      "module Main\n\n" + "export fun refuse(ignored: Int): Int = throw(KeyError)\n",
-    ]]);
-    let thrown: unknown;
-    try {
-      (main["refuse"] as (ignored: number) => unknown)(0);
-    } catch (error) {
-      thrown = error;
+  test("`KeyFault` is nameable with no import, and its reference constructs (#371)", async () => {
+    const source = "module Main\n\n" +
+      "export fun refuse(ignored: Int): Int = throw(KeyFault)\n" +
+      "export fun qualified(ignored: Int): Int = throw(Map.KeyFault)\n";
+    expect(compileFiles([["/main.hex", source]]).diagnostics).toEqual([]);
+    const main = await runProject([["/main.hex", source]]);
+    for (const name of ["refuse", "qualified"]) {
+      let thrown: unknown;
+      try {
+        (main[name] as (ignored: number) => unknown)(0);
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown).toBeInstanceOf(Error);
+      expect(thrown).toEqual(expect.objectContaining({ name: "KeyFault", $hex: "Hex.Map" }));
     }
-    // Today: the constructor, not an error built by it.
-    expect(typeof thrown).toBe("function");
-    expect((thrown as { name: string }).name).toBe("KeyError");
   });
 });

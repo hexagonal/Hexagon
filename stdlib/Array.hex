@@ -51,7 +51,7 @@ extern from "hex:intrinsic"
 
 (** The element at 1-based `index`, or `None` when there is none. The total
     accessor: out of bounds is an answer, not a fault. `values[index]` is its
-    asserting sibling, which throws `IndexError` instead. *)
+    asserting sibling, which throws `IndexFault` instead. *)
 export let get(values: Array(a), index: Int): Option(a) =
     if index < 1 or index > length(values) then
         None

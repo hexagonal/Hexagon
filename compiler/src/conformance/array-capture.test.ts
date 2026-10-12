@@ -68,12 +68,12 @@ const PROGRAM = "export let size(xs: Array(Int)): Int = Array.length(xs)\n" +
   "\n" +
   "// The throw, caught by the *bare* spelling of Collections Part 3's one\n" +
   "// declaration — which is the whole claim: the array bracket raises `Vector`'s\n" +
-  "// `IndexError`, not one of its own.\n" +
+  "// `IndexFault`, not one of its own.\n" +
   "export fun guarded(xs: Array(Int), index: Int): Int =\n" +
   "    try\n" +
   "        xs[index]\n" +
   "    catch\n" +
-  "        IndexError(at, size) => at * 1000 + size\n";
+  "        IndexFault(at, size) => at * 1000 + size\n";
 
 let exports_: Record<string, unknown>;
 
@@ -160,28 +160,28 @@ describe("`xs[i]` is 1-based, asserting, and native underneath (§6.3)", () => {
   });
 
   /**
-   * The thrown value is **the** `IndexError` — `stdlib/Vector.hex`'s one
+   * The thrown value is **the** `IndexFault` — `stdlib/Vector.hex`'s one
    * declaration (Collections Part 3's), branded to the module that declares it
    * rather than to the one the read was written in. The payload slots are
    * `index` as passed and `size` at the fault.
    */
-  test("the throw carries `IndexError`'s identity and payload", async () => {
+  test("the throw carries `IndexFault`'s identity and payload", async () => {
     // The brand is the module's **full** name (Packages §2.3) — `Hex.Vector`
     // for the prelude's `Vector` — stamped by the `__arrayIndex` helper and
     // tested by every catch arm from the one seat that spells it.
     await expect(async () => read([10, 20, 30], 99)).rejects
-      .toMatchObject({ name: "IndexError", $hex: "Hex.Vector", index: 99, size: 3 });
+      .toMatchObject({ name: "IndexFault", $hex: "Hex.Vector", index: 99, size: 3 });
     await expect(async () => read([10, 20, 30], 0)).rejects
-      .toMatchObject({ name: "IndexError", $hex: "Hex.Vector", index: 0, size: 3 });
+      .toMatchObject({ name: "IndexFault", $hex: "Hex.Vector", index: 0, size: 3 });
   });
 
   /**
    * And the identity is not merely on the object: a Hexagon `catch` arm written
-   * `IndexError(index, size)` catches it and binds both slots. That is what
+   * `IndexFault(index, size)` catches it and binds both slots. That is what
    * "the exact identity" is *for*, and reading the fields off the raw throw
    * above would not have proved it.
    */
-  test("an `IndexError(index, size)` arm catches it and binds both slots", () => {
+  test("an `IndexFault(index, size)` arm catches it and binds both slots", () => {
     // The other half of the brand's one seat: the generated guard tests
     // `$hex === "Hex.Vector"` and `__arrayIndex`'s throw stamps it, so the arm
     // matches. The two used to be written out separately and drifted (#829).
