@@ -1,9 +1,9 @@
 # Hexagon Spec: Collections Part 4 — `Map(k, v)` & `Set(a)`
 
-**Status:** Decided (July 2026). The authoritative specification of the persistent hash-backed keyed collections: representation and honest complexity, construction (no literals; the `fromVector` convenience), the keyed-access family (`map[k]`, `KeyError`, `Map.get`), the upsert/forgiving update doctrine, representative retention, set algebra, the iteration-order contract (grounded in Part 2 §2.4), the `Eq`/`Show`/`Hash` instances and the deliberate absence of `Ord`, the core API, and the semantic ground rules for the JS boundary (conversions specified in FFI Part 10). Written against Collections Parts 1–3, Constraints, Exceptions, Pattern Matching, Loops, and Modules; none re-litigated.
-**Scope:** As above, plus: the `KeyError` declaration (nullary); the `Map.set`-vs-`Vector.set` semantic split stated as doctrine; the **representative-retention rule** (first wins / left wins — §5.4); `keys`/`values`/`entries` correspondence; `fromEntries`/`fromSeq` and `entries`/`toSeq` synonym pairs; the JS→Hexagon key-collapse rule.
+**Status:** Decided (July 2026). The authoritative specification of the persistent hash-backed keyed collections: representation and honest complexity, construction (no literals; the `fromVector` convenience), the keyed-access family (`map[k]`, `KeyFault`, `Map.get`), the upsert/forgiving update doctrine, representative retention, set algebra, the iteration-order contract (grounded in Part 2 §2.4), the `Eq`/`Show`/`Hash` instances and the deliberate absence of `Ord`, the core API, and the semantic ground rules for the JS boundary (conversions specified in FFI Part 10). Written against Collections Parts 1–3, Constraints, Exceptions, Pattern Matching, Loops, and Modules; none re-litigated.
+**Scope:** As above, plus: the `KeyFault` declaration (nullary); the `Map.set`-vs-`Vector.set` semantic split stated as doctrine; the **representative-retention rule** (first wins / left wins — §5.4); `keys`/`values`/`entries` correspondence; `fromEntries`/`fromSeq` and `entries`/`toSeq` synonym pairs; the JS→Hexagon key-collapse rule.
 **Not in scope:** The combinator surface (`Map.update`/`merge`/`mergeWith`/`filter`/`mapValues`, `Set.map`/`filter`, `getOr`, `containsValue` — `stdlib-roadmap.md`; boundary decided in Part 5 §10); the normative `Iterable` operational spec, table-opening, and the `Bag` worked example (Part 5); transients (Part 5 §11 — runtime-internal only); the JS conversion *functions* themselves and their failure machinery (`toJsMap`/`fromJsMap`/`toJsSet`/`fromJsSet`, `JsConversionError`, cycle paths — FFI Part 10/Part 11; this doc pins the semantic ground rules, §10); `SortedMap`/`SortedSet` (pre-registered v2, Part 1 §4.1).
-**Companions:** Collections Part 1 (§3 naming doctrine applied; §3.3 accessor pair instantiated for `Map`; §4 key model made operational; §7 operator boundaries restated); Collections Part 2 (§2.4 split determinism consumed as the iteration-order ground truth; §4.4 wording used for all instances); Collections Part 3 (accessor-family symmetry maintained and deliberately broken at `set`, §5); Exceptions (owed the `KeyError` declaration, §14; §2 no-polymorphic-payload rule is why it is nullary); Pattern Matching (loop heads are pattern positions — `for (k, v) in m`, §7.2); Loops (§2.1 loop heads; §5 table `Map`/`Set` rows); Modules (§6.4 qualified homes: `Map`/`Set` companion modules); FFI Part 10 (`JsMap`/`JsSet` and the boundary conversions); Operators (§7: no `++` for `Map`/`Set`; §14 bracket grammar); Constraints (§4.3 parameterized instances; §7 `Eq<Float>` = SameValueZero).
+**Companions:** Collections Part 1 (§3 naming doctrine applied; §3.3 accessor pair instantiated for `Map`; §4 key model made operational; §7 operator boundaries restated); Collections Part 2 (§2.4 split determinism consumed as the iteration-order ground truth; §4.4 wording used for all instances); Collections Part 3 (accessor-family symmetry maintained and deliberately broken at `set`, §5); Exceptions (owed the `KeyFault` declaration, §14; §2 no-polymorphic-payload rule is why it is nullary); Pattern Matching (loop heads are pattern positions — `for (k, v) in m`, §7.2); Loops (§2.1 loop heads; §5 table `Map`/`Set` rows); Modules (§6.4 qualified homes: `Map`/`Set` companion modules); FFI Part 10 (`JsMap`/`JsSet` and the boundary conversions); Operators (§7: no `++` for `Map`/`Set`; §14 bracket grammar); Constraints (§4.3 parameterized instances; §7 `Eq<Float>` = SameValueZero).
 
 ---
 
@@ -11,7 +11,7 @@
 
 - **`Map` and `Set` are hash-backed and say so.** `<k: Hash>` / `<a: Hash>` in every signature that consults keys — the honest signature Part 1 §4 demanded. Operations that never touch a key (`size`, `isEmpty`, `keys`, `values`, `entries`, `toSeq`) carry no constraint.
 - **Vector positions exist or don't; map keys are yours to mint.** `Vector.set` asserts a slot; `Map.set` inserts-or-replaces and never throws. The same name carries the same *direction* (keyed write) with the semantics each structure honestly has (§5.1).
-- **Brackets retrieve; they never ask Boolean questions.** `map[k]` asserts presence and throws `KeyError`; `Map.get` answers with `Option`. `Set` has no brackets at all — membership is `contains` (§4.4).
+- **Brackets retrieve; they never ask Boolean questions.** `map[k]` asserts presence and throws `KeyFault`; `Map.get` answers with `Option`. `Set` has no brackets at all — membership is `contains` (§4.4).
 - **Removal requests; it does not assert.** `Map.remove`/`Set.remove` on an absent key return the collection unchanged — the `dropFirst` forgiving family, and idempotent (§5.2).
 - **Iteration order is deterministic within one execution, and intentionally nothing more.** Table placement is seeded (Part 2 §2.4); the order is a property of a collection value within a process, not of its contents, and not of any prior run (§7.1).
 - **Costs are stated, not hidden.** Expected logarithmic, with the collision worst case named; set algebra is expected-linear in a named side; no structural-merge promise (§2.2).
@@ -86,11 +86,11 @@ Map.fromVector(xs) ≡ Map.fromSeq(Vector.toSeq(xs))
 
 ---
 
-## 4. Keyed access: `map[k]`, `get`, `KeyError`
+## 4. Keyed access: `map[k]`, `get`, `KeyFault`
 
 ### 4.1 The bracket
 
-`m[k]` with `m : Map(k, v)`, `k : k`, requires `<k: Hash>` — yields the value; **throws `KeyError`** when the key is absent. The Part 1 §3.3 accessor pair, instantiated: brackets assert presence and fail loudly at the fault site. Read-only, as everywhere — `[]` never appears in write position; updates are `Map.set`.
+`m[k]` with `m : Map(k, v)`, `k : k`, requires `<k: Hash>` — yields the value; **throws `KeyFault`** when the key is absent. The Part 1 §3.3 accessor pair, instantiated: brackets assert presence and fail loudly at the fault site. Read-only, as everywhere — `[]` never appears in write position; updates are `Map.set`.
 
 The key is a seat, checked as `Map.get`'s is (Numeric Literals §5.1, #1133): a map has no slice, so the map's key type faces every index, and a value enters it by exact unification or one of §5.1's three conversions. On a `Map(Int, v)`, `m[n]` widens an `n: Nat` and `m[n - 1]` subtracts at `Int`; on a `Map(Rat, v)`, `m[n]` looks up `Rat.fromNat(n)`. A key no conversion reaches is refused with the map's key type named as the type expected.
 
@@ -100,20 +100,20 @@ Grammar: this is the same postfix bracket Operators §10 fixed and Part 3 §5 co
 
 `Map.get<k: Hash>(m: Map(k, v), key: k): Option(v)` — `None` on absence, never throws.
 
-### 4.3 The `KeyError` declaration
+### 4.3 The `KeyFault` declaration
 
 Declared here, housed in the prelude (edit note to Exceptions, §14):
 
 ```
-exception KeyError
+fault KeyFault
 ```
 
 **Nullary — decided.** A polymorphic key cannot be a payload slot (Exceptions §2 bans type variables in payloads), and every alternative slot lies or taxes:
 
-- `KeyError(key: String)` via `Show`-rendering would infect `[]` — and transitively every `<k: Hash>` polymorphic caller — with a `Show k` obligation, purely to decorate an exception. Constraint pollution for a diagnostic.
-- `KeyError(size: Int)` is a lying slot: the map's size is not the fault; the absent key is, and it cannot be carried.
+- `KeyFault(key: String)` via `Show`-rendering would infect `[]` — and transitively every `<k: Hash>` polymorphic caller — with a `Show k` obligation, purely to decorate a fault. Constraint pollution for a diagnostic.
+- `KeyFault(size: Int)` is a lying slot: the map's size is not the fault; the absent key is, and it cannot be carried.
 
-The asymmetry with `IndexError(index: Int, size: Int)` is principled, not accidental: `Int` indices are always payload-able; arbitrary keys aren't.
+The asymmetry with `IndexFault(index: Int, size: Int)` is principled, not accidental: `Int` indices are always payload-able; arbitrary keys aren't.
 
 **Non-normative:** the runtime may include a best-effort diagnostic rendering of the key in the underlying JS `Error.message` (message rendering is the reporting layer's business — Exceptions doctrine). Programs must not parse or depend on that rendering.
 
@@ -131,7 +131,7 @@ The asymmetry with `IndexError(index: Int, size: Int)` is principled, not accide
 
 `Map.set<k: Hash>(m: Map(k, v), key: k, value: v): Map(k, v)` — persistent insert-or-replace; **never throws**.
 
-This is the deliberate, stated break with `Vector.set` (which throws `IndexError` on a missing slot, Part 3 §5.4). The doctrine line: **Vector positions exist or don't; map keys are yours to mint.** A vector write to index 9 of a 3-element vector asserts a falsehood about a structure whose positions are fixed by its size; a map write at a fresh key is the ordinary act of populating a keyed structure — asserting prior existence would demand a separate insertion operation and import positional semantics into a structure that has none. Every reference language concurs (Rust `insert`, JS `set`, Python `[k] =`, F#/Haskell map insert — all upsert). Same name, same *direction* (keyed write), honest per-structure semantics; the doc states the pair side by side so nobody learns it by surprise.
+This is the deliberate, stated break with `Vector.set` (which throws `IndexFault` on a missing slot, Part 3 §5.4). The doctrine line: **Vector positions exist or don't; map keys are yours to mint.** A vector write to index 9 of a 3-element vector asserts a falsehood about a structure whose positions are fixed by its size; a map write at a fresh key is the ordinary act of populating a keyed structure — asserting prior existence would demand a separate insertion operation and import positional semantics into a structure that has none. Every reference language concurs (Rust `insert`, JS `set`, Python `[k] =`, F#/Haskell map insert — all upsert). Same name, same *direction* (keyed write), honest per-structure semantics; the doc states the pair side by side so nobody learns it by surprise.
 
 `Set.add<a: Hash>(s: Set(a), x: a): Set(a)` — insert; adding a present element returns the set unchanged (idempotent).
 
@@ -302,7 +302,7 @@ These instances make `Map`s and `Set`s usable as map keys and set elements thems
 
 | Situation | Error / behaviour | § |
 |---|---|---|
-| `m[k]` with absent key | runtime `KeyError` (nullary; best-effort key rendering in the JS message, non-normative) | §4.1, §4.3 |
+| `m[k]` with absent key | runtime `KeyFault` (nullary; best-effort key rendering in the JS message, non-normative) | §4.1, §4.3 |
 | `m[k]` where `k`'s type lacks `Hash` | the unsatisfied-`Hash` report (Part 2 §9, under Modules §7.6's replacement composition; base-complete — `derives (Eq, Hash)` where the key type also lacks `Eq`) | §4.1 |
 | `s[x]` on a `Set` | ordinary type error (no bracket support on `Set`); no special diagnostic owed | §4.4 |
 | `m[lo..hi]` where the key type is not `Range` | ordinary type error; with a `Range` key type (and `Hash<Range>` provided) it is an ordinary key lookup, never a slice | §4.4 |
@@ -345,7 +345,7 @@ Consistent with §3.3 — conversion *is* `fromEntries` over the source's entry 
 ## 11. Emission notes
 
 - `Map.empty`/`Set.empty` emit shared runtime constants (as `Vector.empty`, Part 3 §2).
-- `m[k]` emits a runtime keyed read with the presence check that produces `KeyError` (a check exists either way — JS `.get` returns `undefined` on absence; the throwing form wins on type cleanliness, exactly the Part 3 §5.1 argument).
+- `m[k]` emits a runtime keyed read with the presence check that produces `KeyFault` (a check exists either way — JS `.get` returns `undefined` on absence; the throwing form wins on type cleanliness, exactly the Part 3 §5.1 argument).
 - Constructors, algebra, and instances emit `@hexagon/runtime` calls; `.d.ts` faces expose `Hex.Map<k, v>` and `Hex.Set<a>` from `@hexagon/runtime` (final namespace/import form: FFI spec).
 - `for (k, v) in m` emits the general iterable path (Loops §6.5) with a destructuring head: `for (const [k, v] of m.entries())`-shaped — readable, native.
 
@@ -400,7 +400,7 @@ Rejected in Part 2 §2.4 (do-not-relitigate record there; table placement is see
 
 | Doc | Edit |
 |---|---|
-| **exceptions.md** | Prelude exceptions still lack **`exception KeyError`** (nullary; §4.3 here) — the `IndexError` sibling; note the non-normative message clause and cite the §2 no-polymorphic-payload rule as the deciding constraint. Add on next touch. |
+| **exceptions.md** | Prelude faults still lack **`fault KeyFault`** (nullary; §4.3 here) — the `IndexFault` sibling; note the non-normative message clause and cite the §2 no-polymorphic-payload rule as the deciding constraint. Add on next touch. |
 | **operators-logic-precedence.md** | §14 note on next touch: the bracket's element-type dispatch now covers `Map` keys (Int index / Range slice / map key — checking-time selection, §4.1 here), and a `Range`-typed key is a lookup, never a slice (§4.4); no grammar change. |
 | **ffi-part10-js-map-set.md** | §7.3 still says "the later entry wins" for maps and that the retained `Set` representative has "nothing observable about which" — align with §5.4/§10.3 here: for maps, the later entry's *value* wins and the *first* converted key representative is retained; for sets, the *first* source representative is retained (observably). |
 | **notes/hexagon-for-typescript-coders.md** | On next touch: Map/Set section — upsert `set`, `get`-returns-`Option`, `m[k]` throws, no literals (`fromVector` idiom), iteration order deliberately unstable across runs (snapshot-test warning), key representatives retained first-wins exactly like JS `Map`/`Set` (§5.4). |
@@ -436,7 +436,7 @@ let bad = Map.set(Map.empty, Weird({s = "K"}), 1)
 
 -- (c) Accessor pair
 m[1]                                       -- "one"
-m[9]                                       -- throws KeyError
+m[9]                                       -- throws KeyFault
 Map.get(m, 9)                              -- None
 Map.containsKey(m, 2)                      -- True
 

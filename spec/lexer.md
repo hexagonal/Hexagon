@@ -258,11 +258,12 @@ Hard keywords receive dedicated token kinds. A hard keyword is syntax in a **bar
 anywhere a construct can begin — and an ordinary name in §4.4's three name seats:
 
 ```text
-and         bnot        catch       constraint  derive     else
-exception   export      extern      false       finally    for
-fun         honor       iff         if          implies    import
-in          let         match       not         or         record
-then        true        try         type        var        while
+and         assume      attempt     bnot        catch      constraint
+derive      else        exception   export      extern     false
+finally     for         fun         honor       iff        if
+implies     import      in          let         match      not
+or          record      then        true        try        type
+var         while
 ```
 
 The groups are:
@@ -270,8 +271,9 @@ The groups are:
 - declarations and modules: `constraint`, `exception`, `export`, `extern`, `fun`,
   `honor`, `import`, `let`, `record`, `type`, `var` — and `union`, formerly of
   this group, is contextual since the Set milestone (#373; §4.2);
-- expression and control forms: `catch`, `else`, `for`, `if`, `in`, `match`,
-  `then`, `try`, `while`;
+- expression and control forms: `assume`, `attempt`, `catch`, `else`, `for`,
+  `if`, `in`, `match`, `then`, `try`, `while` — `attempt` and `assume` are the
+  body forms that handle a failure (Exceptions §8.2, §8.3);
 - word operators: `and`, `bnot`, `iff`, `implies`, `not`, `or` — `bnot` the bitwise complement (`bitwise.md` §3.1), whose binary siblings `band`, `bor`, and `bxor` are contextual (§4.2);
 - reserved redirect words: `false`, `true` — formerly Bool literals, now reserved
   spellings whose only role is a diagnostic (see below) *(corrected 2026-07-29,
@@ -332,9 +334,10 @@ listed positions:
 | `union` | the union-declaration introducer at declaration head — module top level, optionally after `export` or `opaque` (one visibility head, Modules §4, #590), always followed by the declared type's name (#373: Collections Part 4 §6.2 mandates `Set.union`, and a reserved word is unspellable in every binder position; the `with`/`when` precedent) |
 | `widens` | the widens-declaration introducer at declaration head — module top level, never after `export`, always followed by a qualified member path (Constraints §4.7; #546). Same disambiguation as `union`: no juxtaposition exists, so `widens` followed by a name is no term |
 | `module` | the module header at the head of a top-level item, always followed by the module's uppercase-start name, dotted or not (`module Geometry`, `module Render.Geometry` — Modules §2.1, #829); the `union`/`widens` disambiguation: no juxtaposition exists, so `module` followed by a name is no term, and elsewhere `module` is an ordinary name (`let module = 3` binds). Recognition includes the refused seats: the same head followed by a name with a segment that is not uppercase-start (`module geometry`), Modules §2.1's casing refusal, and the header inside a block, Modules §2.2's redirect — the `opaque` row's pattern, seats no expression could occupy |
-| `end` | the module closer `end module Name` at the head of a top-level item — the two words together, the second the contextual header word above (Modules §2.2, #829); recognition includes a closing name with a segment that is not uppercase-start (`end module geometry`), whose report is Modules §2.2's closer-naming rule, never Modules §2.1's casing refusal, and the closer inside a block, Modules §2.2's redirect; `end` alone is an ordinary name everywhere, and stays one: `SliceError(start: Int, end: Int)` in `stdlib/Vector.hex` is live use |
+| `end` | the module closer `end module Name` at the head of a top-level item — the two words together, the second the contextual header word above (Modules §2.2, #829); recognition includes a closing name with a segment that is not uppercase-start (`end module geometry`), whose report is Modules §2.2's closer-naming rule, never Modules §2.1's casing refusal, and the closer inside a block, Modules §2.2's redirect; `end` alone is an ordinary name everywhere, and stays one: `SliceFault(start: Int, end: Int)` in `stdlib/Vector.hex` is live use |
 | `pattern` | the pattern-declaration introducer at declaration head — module top level, optionally after `export`, always followed by the pattern's non-uppercase-start name and then `(`, `<`, `:`, `=`, or the end of the item (Pattern Declarations §2.1, §3.4; #834). The `union`/`widens`/`module` disambiguation: no juxtaposition exists, so `pattern` followed by a name is no term; elsewhere `pattern` is an ordinary name (`let pattern = 3` binds). `view` and `build` are the block's member names, not keywords. The use form is the parser's, not the lexer's: a non-uppercase-start name written **against** the closing parenthesis of a parenthesised primary — no whitespace — is the suffix seat (Pattern Declarations §3.1); with whitespace the name is whatever it is elsewhere (`(0, 0) when g` is a guard, `(r) as s` an as-pattern), and a call's argument list is no seat |
 | `band`, `bor`, `bxor` | the binary operator seat directly after a complete operand (`bitwise.md` §3.1). No juxtaposition exists, so a name there is otherwise an error — the `when`/`with`/`as` infix seat — except a name written against a parenthesised primary's `)`, which is the `pattern` row's suffix seat and keeps it: `(a bor b)band` is a suffix construction, `(a bor b) band m` the operator. Everywhere else each is an ordinary name (`let band = 3` binds, `band(x)` calls, `x.band` reads a field), and a line that begins with one at the item's column begins a new item: none joins Lexer & Layout §2.3's continuation set |
+| `fault` | the fault-declaration introducer at declaration head — module top level, optionally after `export`, always followed by the declared fault's uppercase-start name (Exceptions §2) — and the kind pattern `fault x` or `fault _` as a whole catch arm's pattern (Exceptions §5.2). The `union` disambiguation: no juxtaposition exists, so `fault` followed by a name or `_` is no term; elsewhere `fault` is an ordinary name (`let fault = 3` binds) |
 | `widened` | the complete RHS of a member line in an `honor` block — `pow = widened` (Constraints §4.7; #546). The position is otherwise always an error (member RHSs must be lambdas), so recognition is total; elsewhere `widened` is an ordinary name |
 
 Contextual status is observable: `let when = True` is legal, while the same spelling
@@ -565,8 +568,8 @@ The Comments spec is authoritative; this section fixes token interaction.
 | Separators and labels | `,` `:` `;` |
 | Access and spread | `.` `...` |
 | Declaration/arm punctuation | `=` `=>` *(the term-level arrow: a lambda's and a `match`/`catch` arm's. It is not a type token — Effects §2)* |
-| Type arrows | `->` `->!` `>->` *(roles: Effects §2 — `->` pure, `->!` may touch the world, `>->` only as effectful as what the signature is handed. `->` is corrected into this inventory for #355, and `->!` and `>->` replace `=>!` and `=>` in type position, #405 and #1151)* |
-| Call mark | `!` *(the effects ruling's one mark, #355, #1144; grammar — glued on both sides, against the callee and against the argument list's `(`, or glued at a `\|>` stage's end — is the parser's, Effects §3.2)* |
+| Type arrows | `->` `->^` `->~` `->!` `>->` *(roles: Effects §2 — `->` pure and cannot fail, `->^` may fail, `->~` may touch the world and cannot fail, `->!` may touch the world and may fail, `>->` only as effectful as what the signature is handed)* |
+| Call marks and the reading | `!` `^` `~` `?` *(Effects §3.1: `^` may fail, `~` may touch the world and cannot fail, `!` both; `?` reads a call's failure as `Option`, after `~` for a world call, `~?`; grammar — glued on both sides, against the callee and against the argument list's `(`, or glued at a `\|>` stage's end — is the parser's, Effects §3.2)* |
 | Arithmetic and concatenation | `+` `-` `*` `/` `**` `++` |
 | Comparison | `==` `!=` `<` `>` `<=` `>=` |
 | Range | `..` |
@@ -590,7 +593,7 @@ longest valid token. Important cases:
 +++  means ++ then +
 |>   before  |
 >->  before  >
-->!  before  ->  before  -
+->!  ->^  ->~  before  ->  before  -
 !=   before  !
 <= >= == != := =>  before their one-character prefixes
 //     is handled before /
@@ -606,7 +609,7 @@ function-type annotations, and Effects §2 now gives it its role.)* `->` in
 expression position receives the parser's targeted diagnostic; it is one token
 everywhere. `!->` is not a token and cannot become one: the mark trails the
 arrow it colours, on arrows exactly as at calls (Effects §2.3). The munch that
-matters for the coloured arrows is `->!` before `->`, and `>->` before `>`.
+matters for the coloured arrows is `->!`, `->^` and `->~` before `->`, and `>->` before `>`.
 `>->` begins with a token, the comparison `>`, and needs all three characters,
 so `x >-1` is still `>`, `-`, `1`.
 
@@ -620,21 +623,25 @@ spellings `/*` and `*/` join this family with Comments §3.1's redirects *(#171)
 
 ### 8.3 Not tokens
 
-The following are deliberately absent: `%`, `^`, `&`, `~`, `@`, `#`, `?`,
-backtick, backslash outside a string, `&&`, `||`, `::`, `??`, `?.`, `..<`,
-compound assignments, increment/decrement, and every user-invented punctuation run.
-`&`, `^`, and `~` stay absent with the bitwise operations in the language: those
-operations are the words `band`, `bxor`, and `bnot` (`bitwise.md`), and each character takes
-the redirect of §10.
-*(`->` and bare `!` are §8.1 tokens: `->` the type arrow, `!` the one call
-mark. `?` is no token at all: it spells nothing, so `f?(x)`, `??`, and `?.`
-are unknown-character runs, not optional chaining. Maximal munch does not
+The following are deliberately absent: `%`, `&`, `@`, `#`, backtick, backslash
+outside a string, `&&`, `||`, `::`, `??`, `?.`, `..<`, compound assignments,
+increment/decrement, and every user-invented punctuation run. `&` stays absent
+with the bitwise operations in the language: those operations are the words
+`band`, `bxor`, and `bnot` (`bitwise.md`). `^` and `~` are tokens only as marks
+(§8.1), never operators, so each takes §10's bitwise redirect where an operator
+would stand, and `^` between a callee that is not a function and a parenthesized
+expression, `x^(y + 1)`, takes it too.
+*(`->` and the marks `!`, `^`, `~` and `?` are §8.1 tokens: `->` the type arrow,
+the marks the call marks and the reading. `?` is a token only for the reading:
+`??` and `?.` are no tokens, and are not optional chaining or coalescing. A
+reading takes the mark's fail part, so `!?` and `^?` are no readings: `f~?(x)`
+reads a `!` call, and `f?(x)` a `^` call (Effects §3.1). Maximal munch does not
 combine a mark and a dot into an unlisted token: `(x)name!.field` is a marked
 construction followed by field access, and two adjacent marks form no valid
-suffix construction. The coloured type arrows `->!` and `>->` are §8.1 tokens
-and `=>!` is not; the mark following `->` in `->!` is part of that one token
-and never a mark token in its own right, so `->!` is not an arrow beside a
-stray bang.)*
+suffix construction, `~?` excepted. The coloured type arrows `->^`, `->~`,
+`->!` and `>->` are §8.1 tokens and `=>!` is not; the mark following `->` in
+`->!` is part of that one token and never a mark token in its own right, so
+`->!` is not an arrow beside a stray bang.)*
 
 Where every character of a run is independently valid (`+=`, `->`, `--`), the lexer
 may emit those valid component tokens and let the parser issue the form-specific
@@ -703,7 +710,10 @@ token inventory and the lexer must not report the same source code unit twice.
 | Unterminated/unmatched block comment | Comments §5 messages verbatim |
 | JavaScript comment spelling `/*` / `*/` | Comments §5 redirect messages verbatim *(#171)* |
 | `&&`, `||` | suggest `and`, `or` respectively |
-| `&`, `^`, `~` | invalid character, with a redirect: `band`, `bxor` (and `**` for a power), `bnot` respectively (`bitwise.md` §9) |
+| `&` | invalid character, with a redirect: `band` (`bitwise.md` §9) |
+| `^`, `~` where an operator would stand, and `x^(y)` on a callee that is not a function | the redirect: `bxor` (and `**` for a power), `bnot` respectively (`bitwise.md` §9) — the parser selects it, since each is a mark token (§8.3) |
+| `!?` or `^?` after a callee | "a reading takes the mark's fail part: write `f~?(x)` for a call that may touch the world, `f?(x)` for one that does not" (Effects §3.1) |
+| `??`, `?.` | "Hexagon has no optional chaining or coalescing: `Option.defaultValue`, `Option.map`, or a `match`" |
 | `!` in prefix-expression position | suggest `not` — the parser selects the message now that `!` is a token *(#355; §8.2)*; a mark outside its grammatical seats gets Effects §9's mark-position error instead |
 | Any other invalid character | name the character and codepoint; consume it once |
 
@@ -764,6 +774,7 @@ a && b              -- write `a and b`
 | Closed punctuation/operator inventory and maximal-munch rules | §8 |
 | `->` corrected into the inventory (shipped with function-type annotations; Effects §2 names its role); the call mark `!` added for #355 (`?` is no token, #1144); the marked type arrows `->?`/`->!` replace `=>`/`=>!` for #405, leaving `=>` a term-level token only; a mark never begins a token, so `!->` is impossible by munch; prefix-`!` keeps the `not` redirect, parser-selected | §8.1–§8.3, §10 (#355, #405) |
 | The follows arrow is `>->` (#1151, #1145): `?` leaves the arrows and is no token at all, and `>->` stands ahead of `>` by munch | §8.1–§8.3 |
+| Two colours (Effects §1): the type arrows `->^` and `->~` join §8.1; `^`, `~` and `?` are tokens, `^` and `~` the fail and never-fails marks and `?` the reading, never operators, so `^` and `~` keep their bitwise redirects where an operator would stand; `!?` and `^?` are no readings; `attempt` and `assume` are hard keywords (the body forms, Exceptions §8.2–§8.3); `fault` is contextual, at a declaration head and as a whole catch arm's kind pattern | §4.1, §4.2, §8.1–§8.3, §10 |
 | Exact physical token families; virtual layout tokens excluded | §9 |
 | No warning tier; malformed tokens advance and recover | §10 |
 | `pure` and `conduit` leave the contextual table — ordinary names again; the arrow a callable extern row writes says what they claimed (FFI Part 4 §4.5, #869) | §4.2 |

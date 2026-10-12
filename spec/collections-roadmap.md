@@ -10,7 +10,7 @@
 
 **Document:** `collections-part1-decisions.md` (Decided, July 2026).
 
-Fixed: the `Vector(a)` name and the `List` reservation; trie-deque representation and the complexity contract (RRB rejected for v1); the naming doctrine (modern functional, subject-first; LISP/Haskell/JS-mutation names banned); the uniform accessor pair (`[]` throws `IndexError`/`KeyError`, `get` is total and `Option`-returning; `try` prefix reserved to mean non-throwing); the hash-based key model with `Hash` as a v1 derivable-only constraint implying `Eq` (`Ord`-tree default rejected; `SortedMap`/`SortedSet` pre-registered v2); uniform `toSeq`/`fromSeq`; restricted user-implementable `Iterable` in v1 (amending Decisions Batch §6 / Loops §11.1); `++` boundaries.
+Fixed: the `Vector(a)` name and the `List` reservation; trie-deque representation and the complexity contract (RRB rejected for v1); the naming doctrine (modern functional, subject-first; LISP/Haskell/JS-mutation names banned); the uniform accessor pair (`[]` throws `IndexFault`/`KeyFault`, `get` is total and `Option`-returning; `try` prefix reserved to mean non-throwing); the hash-based key model with `Hash` as a v1 derivable-only constraint implying `Eq` (`Ord`-tree default rejected; `SortedMap`/`SortedSet` pre-registered v2); uniform `toSeq`/`fromSeq`; restricted user-implementable `Iterable` in v1 (amending Decisions Batch §6 / Loops §11.1); `++` boundaries.
 
 Everything below is written against these decisions; none is open for re-litigation.
 
@@ -40,14 +40,14 @@ The grammar/constraint groundwork the later parts consume. Two halves, one docum
 
 ## Part 3 — `Vector(a)` Spec ✅ DONE
 
-**Document:** `collections-part3-vector.md` (Decided, July 2026). Also declared `IndexError`/`SliceError` and claimed String indexing; the `KeyError` payload question passed to Part 4 (resolved there: nullary).
+**Document:** `collections-part3-vector.md` (Decided, July 2026). Also declared `IndexFault`/`SliceFault` and claimed String indexing; the `KeyFault` payload question passed to Part 4 (resolved there: nullary).
 
 The full type spec for the workhorse sequence.
 
 - Type, representation reference (Part 1 §2 contract restated normatively), emission story (`@hexagon/runtime`, `.d.ts` face).
 - **Literals**: `[1, 2, 3]` as `Vector` literal (presumed; confirm), empty literal typing.
 - **Vector patterns**: discharge Pattern Matching §11.1 — `[]`, `[a, b]`, `[x, ..rest]` shapes; **cost story stated honestly** (`rest` is a slice of a trie, not a shared tail; slice complexity pinned); exhaustiveness/usefulness integration.
-- **Indexing `[]`** for `Vector`: the Part 1 §3.3 accessor pair restated normatively — `vec[i]` throws `IndexError`, `Vector.get` returns `Option(a)`; slicing clamps (Decisions Batch §5); negative-index confirmation (presumed absent); slice syntax; read-only-position rule.
+- **Indexing `[]`** for `Vector`: the Part 1 §3.3 accessor pair restated normatively — `vec[i]` throws `IndexFault`, `Vector.get` returns `Option(a)`; slicing clamps (Decisions Batch §5); negative-index confirmation (presumed absent); slice syntax; read-only-position rule.
 - Core end/index API surface per the Part 1 §3 doctrine (`append`, `prepend`, `first`/`last` → `Option`, `dropFirst`/`dropLast`, `get`/`set`, `size`, `isEmpty`, `toSeq`/`fromSeq`).
 - `Concat<Vector>` instance (discharges Operators §7).
 - Instances: `Eq<Vector(a)>` (elementwise, requires `Eq a`), `Ord<Vector(a)>` (lexicographic? — decide), `Show`, stdlib-blessed `Hash<Vector(a)>` given `Hash a` (Part 2 wording).
@@ -59,13 +59,13 @@ The full type spec for the workhorse sequence.
 
 ## Part 4 — `Map(k, v)` & `Set(a)` Spec ✅ DONE
 
-**Document:** `collections-part4-map-set.md` (Decided, July 2026, incl. §17.1 correction record — representative retention). `KeyError` declared nullary; boundary-conversion obligations pinned for FFI (its §10).
+**Document:** `collections-part4-map-set.md` (Decided, July 2026, incl. §17.1 correction record — representative retention). `KeyFault` declared nullary; boundary-conversion obligations pinned for FFI (its §10).
 
 - HAMT representation reference and complexity table (get/set/remove O(log₃₂ n) expected; iteration O(n)).
 - Signatures with `<k: Hash>` / `<a: Hash>` throughout; core surface per Part 1 §3 (Map: `empty`/`isEmpty`/`size`/`get`/`containsKey`/`set`/`remove`/`keys`/`values`/`entries`/`fromEntries`(last-wins)/`toSeq`/`fromSeq`; Set: `empty`/`singleton`/`isEmpty`/`size`/`contains`/`add`/`remove`/`union`/`intersect`/`difference`/`isSubsetOf`/`toSeq`/`fromSeq`).
 - **Iteration order fine print**: deterministic-but-unspecified defined precisely (what "deterministic" promises across program runs given structural hashing; what is explicitly *not* promised — insertion order, sorted order); `for (k, v) in map` / `for x in set` table rows.
 - **Map/Set literals**: leaning none — decide and record.
-- **`map[k]`**: direction decided (Part 1 §3.3) — `map[k]` throws `KeyError`, `Map.get` returns `Option(v)`. This part owes the fine print: `KeyError`'s shape and message doctrine (edit note to Exceptions — `IndexError` sibling), catchability, emission.
+- **`map[k]`**: direction decided (Part 1 §3.3) — `map[k]` throws `KeyFault`, `Map.get` returns `Option(v)`. This part owes the fine print: `KeyFault`'s shape and message doctrine (edit note to Exceptions — `IndexFault` sibling), catchability, emission.
 - Instances: `Eq<Map>`/`Eq<Set>` (order-independent; define via canonical iteration or size+subset), `Show` (display order question), no `Ord` (leaning), stdlib-blessed `Hash<Set(a)>`/`Hash<Map(k,v)>` (order-independent hash — commutative combine; decide).
 - **Boundary conversions** (feeds/edits FFI): `Map.toJsMap`/`fromJsMap`, `Set.toJsSet`/`fromJsSet` or FFI-spec ownership; the structural-vs-reference key-equality mismatch for object keys documented; primitive-key semantics alignment (SameValueZero) recorded as the good case.
 - Diagnostics; acceptance tests; edit notes.

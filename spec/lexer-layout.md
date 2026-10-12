@@ -62,6 +62,7 @@ refuses it before a `fun` block head (Functions §7.3; layout stays agnostic).
 | `for` or `while` head | Loop body |
 | `match` head (with or without a scrutinee — the bare head is the match function, Pattern Matching §6.7) | Arm block |
 | Bare `try` | Try body |
+| Bare `attempt` or `assume` (Exceptions §8.2, §8.3) | Body block |
 | `else` or `catch` with no same-line body | Clause body / arm block |
 | `constraint ... =` or `honor ... =` | Member block |
 | A `fun` head ending its logical item — the keyword alone, or with its binder list (`fun<a: Eq>`), no member on the line (Functions §7.3) | `fun` member block |

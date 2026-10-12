@@ -317,9 +317,9 @@ Rules fixed here:
 
 ---
 
-## 6. Exceptions
+## 6. Exceptions and faults
 
-An exported payload exception provides its branded `Error` type (Exceptions §7.5's intersection face, unchanged) and a JS constructor function:
+An exported payload exception or fault provides its branded `Error` type (Exceptions §7.5's intersection face, unchanged) and a JS constructor function; a fault's face is the same shape, its `name` ending in `Fault` (Exceptions §7.1):
 
 ```hexagon
 export exception ParseError(line: Int, message: String)

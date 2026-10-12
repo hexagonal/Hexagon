@@ -5,8 +5,8 @@ implementations came from the user. Option.toSeq relies on Option's prelude data
 seat (Modules §5.5): Option's implementation is seated after Seq.
 
 **Homes:** `stdlib/Option.hex` and `stdlib/Result.hex`, ordinary prelude modules.
-The existing canonical unions, Option's derived Eq/Show instances, and
-Result.attempt keep their existing meanings. No new constructors, constraints,
+The existing canonical unions and Option's derived Eq/Show instances keep
+their existing meanings. No new constructors, constraints,
 instances, exceptions, implicit conversions, or unqualified prelude terms are
 introduced by these convenience functions.
 
@@ -23,11 +23,11 @@ possibleName.defaultValue("Guest")
 ```
 
 Callback-taking functions take `->!` callbacks and follow what they are handed (Effects §2.4).
-Passing a pure callback yields a pure call; passing an effectful callback
-requires the appropriate effect mark on the outer call. Conditional execution
-does not remove that static effect requirement: an effectful callback still
-requires `!` at a concrete call even when this execution takes the branch that
-skips that callback. The mark permits effects; it does not promise that an effect
+Passing a callback that is pure and cannot fail yields a bare call; passing one
+that may touch the world or may fail requires the matching mark on the outer
+call (`^`, `~` or `!`). Conditional execution does not remove that static
+requirement: such a callback still requires its mark at a concrete call even
+when this execution takes the branch that skips that callback. The mark permits effects; it does not promise that an effect
 occurs during that execution. Which branch skips it is defined per function below.
 Handing a callback on to another callback-taking function needs nothing
 special: each callback has its own colour (Effects §2.4). These functions
@@ -38,9 +38,12 @@ it. Ordinary argument evaluation still applies before the function runs,
 including evaluation of an expression that produces a callback. No callback is
 stored for later execution by map, flatMap, mapError, or defaultWith.
 
-Exceptions from callbacks propagate unchanged. None of these functions catches
-an exception or converts it to None or Err. Result.attempt remains the separate
-exception-to-data operation.
+A failure in a callback propagates unchanged: `Option.map^(name, parse)` wears
+the `^` its callback brings. None of these functions catches a failure or
+converts it to `None` or `Err`. A failure becomes data at the call with the
+reading `?` (`Int.parse?(text)` is an `Option(Int)`; Effects §3.1), and over a
+block with `attempt` (a `Result(a, Exn)`; Exceptions §8.2). Data becomes a
+failure again with `orThrow` (§2, §3).
 
 ## 2. Option
 
@@ -71,6 +74,11 @@ export let toSeq(source: Option(a)): Seq(a) =
     match source
         Some(value) => Seq.singleton(value)
         None => Seq.empty
+
+export let orThrow(source: Option(a), failure: () -> Exn): a =
+    match source
+        Some(value) => value
+        None => throw^(failure())
 ```
 
 - map transforms a present payload; it does not flatten an Option returned by
@@ -83,6 +91,11 @@ export let toSeq(source: Option(a)): Seq(a) =
   It is pure, introduces no effectful pull, and follows the existing Seq
   traversal contract. Repeated traversals produce the same zero/one sequence;
   no conversion callback is postponed into traversal.
+- orThrow returns a present payload, and for None throws the exception its
+  thunk constructs. Its face is `(Option(a), () -> Exn) ->^ a`: it may fail on
+  its own account, so every call wears `^`. The thunk is pure, so building the
+  exception touches no world and its construction, and the stack it captures,
+  happen at the throw (Exceptions §4).
 
 No Eq, Show, or other payload constraint is required by these functions.
 Constructor matching is not equality testing. Opaque payloads and payloads that
@@ -119,6 +132,11 @@ export let defaultWith(source: Result(a, e), fallback: e ->! a): a =
     match source
         Ok(value) => value
         Err(error) => fallback!(error)
+
+export let orThrow(source: Result(a, Exn)): a =
+    match source
+        Ok(value) => value
+        Err(failure) => throw^(failure)
 ```
 
 - map changes only the success payload type. flatMap can produce success or
@@ -128,6 +146,10 @@ export let defaultWith(source: Result(a, e), fallback: e ->! a): a =
 - defaultValue has the same eager-argument behavior as Option.defaultValue.
 - defaultWith invokes its callback only for Err and passes the actual error
   payload to it. This differs intentionally from Option.defaultWith's thunk.
+- orThrow returns an Ok payload and throws an Err's exception, with the stack
+  it was constructed with. Its face is `Result(a, Exn) ->^ a`. A Result whose
+  error is not an `Exn` maps it first: `result.mapError(toFailure).orThrow^()`.
+  It is the inverse of `attempt` (Exceptions §8.2, §8.4).
 
 No Eq, Show, or other payload/error constraint is introduced. Propagating an
 untouched payload does not transform or clone that payload. These definitions
@@ -169,7 +191,8 @@ Implementation and review must cover:
    non-instance-bearing payloads; absence of accidental Eq/Show obligations.
 7. Zero/one Option.toSeq results and repeated traversal, with actual runtime
    verification.
-8. Existing Result.attempt and canonical union behavior remaining intact;
+8. orThrow's throw for None and Err, its `^` mark, and canonical union
+   behavior remaining intact;
    generated stdlib source consistency and public hover/declaration signatures.
 
 Focused checks do not substitute for the repository's required broader checks

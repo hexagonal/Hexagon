@@ -26,7 +26,7 @@ constraint Integral<a: (Num, Ord)> =
 
 - **Base constraints `(Num, Ord)`**: `Num` gives generic code non-negative literals via `fromNat`, and `Ord` gives comparisons. `Nat`, `Int`, and `BigInt` satisfy both. Code that also subtracts, negates, or normalizes signs states `Signed` separately; `Integral` itself does not require signedness.
 - The five members obey the Division & Remainder spec's contracts *as laws of the constraint*: the two division identities, the Euclidean invariant, and §4's `gcd` laws. An `honor Integral<T>` whose members violate them is wrong in the same informal-but-documented sense as a lawless `Eq`.
-- Zero-divisor behaviour is **not** a law of the constraint; it follows each instance's type doctrine. All three v1.1 instances throw `DivideByZeroError` (integer partiality throws), and any future instance is expected to do likewise — recorded as expectation, not equation.
+- Zero-divisor behaviour is **not** a law of the constraint; it follows each instance's type doctrine. All three v1.1 instances throw `DivideByZeroFault` (integer partiality throws), and any future instance is expected to do likewise — recorded as expectation, not equation.
 
 ## 3. Instances
 

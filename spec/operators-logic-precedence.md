@@ -81,7 +81,7 @@ Deliberately absent (see §13 for reasoning): `%`, `^`, `&&`, `||`, `!` (bare), 
 | **15** | `implies` | right | Implication |
 | **16** (loosest infix) | `iff` | left | Biconditional |
 | **17** | `\|>` | left | Pipe |
-| — | `=>`, `if/then/else`, `match` | eats-to-the-right (§3.2) | Prefix expression forms |
+| — | `=>`, `if/then/else`, `match`, `attempt`, `assume` | eats-to-the-right (§3.2) | Prefix expression forms |
 | — | `:=` | non-associative, statement-level | Assignment (§12) |
 
 The bitwise levels (2, 7–9) take Lean 4's `~~~`, `&&&`, `^^^`, `|||` positions (`bitwise.md` §3.2). The logic tail (11–16) mirrors Lean 4's ordering exactly: comparisons above `¬` above `∧` above `∨` above `→` (right-associative) above `↔`. `implies` right-associativity is the logic convention (`a → b → c` ≡ `a → (b → c)`); `iff` left-associativity matches Lean's `↔`.
@@ -100,7 +100,7 @@ The early draft placed `not` above the comparisons (C-family habit), making `not
 
 ### 3.2 Eats-to-the-right forms
 
-`=>` (lambda), `if … then … else` (§11), and `match` are **prefix expression forms whose body extends as far right as possible** — maximal munch, ended only by a closing delimiter, a layout boundary, or end of input. They have no level number because they are not infix: they may appear (a) anywhere parenthesized, and (b) bare as the **final operand** of any infix expression, where they swallow the rest of the line.
+`=>` (lambda), `if … then … else` (§11), `match`, and the body forms `attempt` and `assume` (Exceptions §8.2, §8.3) are **prefix expression forms whose body extends as far right as possible** — maximal munch, ended only by a closing delimiter, a layout boundary, or end of input. They have no level number because they are not infix: they may appear (a) anywhere parenthesized, and (b) bare as the **final operand** of any infix expression, where they swallow the rest of the line.
 
 ```
 1 + if c then a else b        -- 1 + (if c then a else b)
@@ -109,7 +109,7 @@ f(x) + match y ...            -- match is the right operand of +
 x => x |> f                   -- the whole pipe is the lambda body
 ```
 
-No forced parentheses when the form is rightmost — that is the point. A bare eats-right form in a *non-final* operand position is a parse error with the fixit "parenthesize the `if`/lambda/`match`."
+No forced parentheses when the form is rightmost — that is the point. A bare eats-right form in a *non-final* operand position is a parse error with the fixit "parenthesize the `if`/lambda/`match`" (or the `attempt`/`assume`). So `assume Int.parse^(s) |> f` is `assume (Int.parse^(s) |> f)`: a pipe stage runs after its left side, and there is no `|> assume`.
 
 ### 3.3 `|>` vs `=>`
 
@@ -244,7 +244,7 @@ a < f() < c
 
 `Float` and `Rat` both honor `Frac`, with type-owned failure and precision semantics:
 Float division is native IEEE 754 division, while Rat division is exact and throws
-`DivideByZeroError` for a zero divisor. `Int` and `BigInt` do not honor `Frac`; their
+`DivideByZeroFault` for a zero divisor. `Int` and `BigInt` do not honor `Frac`; their
 named division families state the quotient and remainder convention explicitly.
 
 ### 6.2 Unary minus
@@ -257,7 +257,7 @@ Level 4, elaborates to `negate`. Interactions, all decided:
 
 ### 6.3 `**` — exponentiation and the `Pow` constraint
 
-`**` is chosen over `^` (Python/JS spelling; `^` stays free and unused — better permanently absent than meaning XOR to half the audience and power to the other half).
+`**` is chosen over `^` (Python/JS spelling; `^` is no operator — better absent than meaning XOR to half the audience and power to the other half). `^` is the fail mark at calls and on arrows (Effects §1), never an operator, so `x^(y + 1)` on a non-function takes the `**`/`bxor` redirect (Lexer §10).
 
 **Right-associative, because mathematics says so:** `a ** b ** c` means `a ** (b ** c)` — a tower of exponents is read top-down, i.e. right-to-left, and left association would make the parenthesized form `(a**b)**c = a**(b·c)`, a different and less useful function. Record for the curious implementer: JS and Python happen to agree with math here, so no conflict arises — the JS divergence is only the unary-minus refusal (§6.2).
 
@@ -276,12 +276,12 @@ Instances:
 
 | Instance | Semantics | Emission |
 |---|---|---|
-| `Nat` | exact for `exponent >= 0` within the safe range under Nat's ordinary overflow contract; **`exponent < 0` throws `NegativeExponentError`** — a fractional result cannot be a `Nat`. *(The guard is new with the `Int` exponent seat: the old homogeneous member's `Nat` exponent refused negatives by type.)* | source member in `stdlib/Nat.hex` — Hexagon guard over the raw-native door key `natPow` |
-| `Int` | exact for `exponent >= 0` within the safe range (overflow policy = ordinary Int arithmetic, Primitive Types §2.1); **`exponent < 0` throws `NegativeExponentError`** — a fractional result cannot be an `Int`, same species of partiality as `Int.div`'s zero check | source member in `stdlib/Int.hex` — Hexagon guard over the raw-native door key `intPow` |
+| `Nat` | exact for `exponent >= 0` within the safe range under Nat's ordinary overflow contract; **`exponent < 0` throws `NegativeExponentFault`** — a fractional result cannot be a `Nat`. *(The guard is new with the `Int` exponent seat: the old homogeneous member's `Nat` exponent refused negatives by type.)* | source member in `stdlib/Nat.hex` — Hexagon guard over the raw-native door key `natPow` |
+| `Int` | exact for `exponent >= 0` within the safe range (overflow policy = ordinary Int arithmetic, Primitive Types §2.1); **`exponent < 0` throws `NegativeExponentFault`** — a fractional result cannot be an `Int`, same species of partiality as `Int.div`'s zero check | source member in `stdlib/Int.hex` — Hexagon guard over the raw-native door key `intPow` |
 | `Float` | **total.** IEEE 754, native `**`; a negative exponent is an ordinary float reciprocal power. No guard exists to write — every `Int` exponent has a `Float` answer | source member in `stdlib/Float.hex`, the derived restriction of the `Float.pow` door (§6.3.1) |
-| `BigInt` | exact; **`exponent < 0` throws `NegativeExponentError`** (JS `**` on bigints throws `RangeError`; we brand our own — Exceptions edit note §14.2) | source member in `stdlib/BigInt.hex`, the derived restriction of the `BigInt.pow` door (§6.3.1); the derivation converts the `Int` exponent explicitly — JS `**` never mixes `bigint` and `number` |
-| `Dec` | exact for non-negative exponents, retaining the base's decimal places multiplied by the exponent; exponent zero returns `1d`. Every negative exponent throws `NegativeExponentError`; a retained-place product outside the nonnegative `Int` range throws `DecimalPlacesOverflowError` before unscaled-integer exponentiation (`dec.md` §4) | ordinary source member in `stdlib/Dec.hex` (validation status in `dec.md`) |
-| `Rat` | **exact, at either sign.** A negative exponent inverts the base first, so `(2/3) ** -2` is exactly `9/4` — the case `Pow<Int>` structurally cannot serve and `Rat` serves perfectly. `0 ** negative` reaches `Rat`'s ordinary `DivideByZeroError` through the smart-construction boundary (`rat.md` §4). A fractional exponent is refused **by the type of the seat**, not by any guard — the runtime `FractionalExponentError` this row once carried is deleted with the homogeneous signature that made it reachable | source member in `stdlib/Rat.hex` — exact `BigInt` exponentiation of the canonical top/bottom pair through the `BigInt.pow` door |
+| `BigInt` | exact; **`exponent < 0` throws `NegativeExponentFault`** (JS `**` on bigints throws `RangeError`; we brand our own — Exceptions edit note §14.2) | source member in `stdlib/BigInt.hex`, the derived restriction of the `BigInt.pow` door (§6.3.1); the derivation converts the `Int` exponent explicitly — JS `**` never mixes `bigint` and `number` |
+| `Dec` | exact for non-negative exponents, retaining the base's decimal places multiplied by the exponent; exponent zero returns `1d`. Every negative exponent throws `NegativeExponentFault`; a retained-place product outside the nonnegative `Int` range throws `DecimalPlacesOverflowFault` before unscaled-integer exponentiation (`dec.md` §4) | ordinary source member in `stdlib/Dec.hex` (validation status in `dec.md`) |
+| `Rat` | **exact, at either sign.** A negative exponent inverts the base first, so `(2/3) ** -2` is exactly `9/4` — the case `Pow<Int>` structurally cannot serve and `Rat` serves perfectly. `0 ** negative` reaches `Rat`'s ordinary `DivideByZeroFault` through the smart-construction boundary (`rat.md` §4). A fractional exponent is refused **by the type of the seat**, not by any guard — the runtime `FractionalExponentError` this row once carried is deleted with the homogeneous signature that made it reachable | source member in `stdlib/Rat.hex` — exact `BigInt` exponentiation of the canonical top/bottom pair through the `BigInt.pow` door |
 
 The polymorphic case is the ordinary dictionary call. `pow` is also directly callable as a member, like every constraint member — bare, or qualified through a companion, where Modules §5.3's generalisation law decides which face the qualified spelling shows (§6.3.1).
 
@@ -292,7 +292,7 @@ A non-`Int` exponent at `**` — or at the member in any other spelling, `i.pow(
 Two companions declare a wider face of their own `Pow` member — `widens` declarations (Constraints §4.7 owns the form; Modules §5.3's generalisation law is the substance: the declaration accepts every call the member accepts, agrees with it on the shared domain, and the member is its **derived restriction** — one implementation, one written body, each honor block accounting for its member with `pow = widened`):
 
 - **`widens Pow.pow(value: Float, exponent: Float): Float`** in `Float.hex` — the analytic power, total, honestly IEEE (`NaN` edges and all): `Float.pow(2.0, 0.5)` is `√2`'s nearest double. The `Pow<Float>` member is this door restricted to integer exponents — derived, the `Int` seat arriving through the check's certified exact conversion.
-- **`widens Pow.pow(value: BigInt, exponent: BigInt): BigInt`** in `BigInt.hex` — the exact power at exponents beyond `Int`'s range, whose useful domain the host defines (`1n`, `0n`, `-1n` bases answer at any non-negative exponent; elsewhere implementation limits apply as they do to all `BigInt` growth); `exponent < 0` throws `NegativeExponentError` at either face, the guard living once in the one body. The `Pow<BigInt>` member is this door precomposed with the exact `Int -> BigInt` conversion — derived likewise.
+- **`widens Pow.pow(value: BigInt, exponent: BigInt): BigInt`** in `BigInt.hex` — the exact power at exponents beyond `Int`'s range, whose useful domain the host defines (`1n`, `0n`, `-1n` bases answer at any non-negative exponent; elsewhere implementation limits apply as they do to all `BigInt` growth); `exponent < 0` throws `NegativeExponentFault` at either face, the guard living once in the one body. The `Pow<BigInt>` member is this door precomposed with the exact `Int -> BigInt` conversion — derived likewise.
 
 The qualified spellings `Float.pow`/`BigInt.pow` and the dot calls `x.pow(y)` denote the doors — the widest face of the one operation (Modules §5.3, Method Syntax §6.1). The operator `**` always elaborates to the member. Companions without a wider power (`Int.hex`, `Nat.hex`, `Rat.hex`) declare no door, and their qualified `pow` spellings denote the members, as uniform access always read.
 
@@ -333,7 +333,7 @@ xs |> Seq.map(x => x + 1) |> Seq.filter(p) |> Seq.take(3)
 - Left-associative, level 17 (loosest infix — §3.3 covers the two `=>` interaction cases).
 - **Desugar shape:** if the right operand is syntactically a call `E(args…)`, rewrite to `E(a, args…)`; otherwise treat the whole right operand as a callee and rewrite to `RHS(a)` (this is what makes the bare form and `a |> (x => x + 1)` work). Because the rewrite precedes inference, the type checker, constraint resolution, and dictionary insertion never know pipes exist.
 - **Typing rides the rewritten application** (Functions §4.3): when the bare-form rewrite makes the callee a lambda literal — `a |> (x => …)`, `a |> match …` — that application elaborates its argument before its callee, so the lambda's parameter reads its type off `a`. This is the elaboration schedule only; the evaluation-order footnote below is unchanged.
-- *(#355.)* **A pipe stage is a call, so it takes a call mark** (Effects §3). A stage with its own argument list marks that list as any call does: `x |> take!(3)` rewrites to `take!(x, 3)`. The bare form's mark stands at the end of the stage — `x |> save!` — and the rewrite carries it onto the call it builds: `save!(x)`. The stage end is one of the mark's two grammatical seats (Effects §3.2; Lexer §8.1); the checker still never knows pipes exist — it sees the rewritten, marked call.
+- *(#355.)* **A pipe stage is a call, so it takes a call mark** (Effects §3). A stage with its own argument list marks that list as any call does: `x |> take!(3)` rewrites to `take!(x, 3)`. The bare form's mark stands at the end of the stage — `x |> save!` — and the rewrite carries it onto the call it builds: `save!(x)`. Every mark and reading rides the same way: `text |> Int.parse^`, `text |> Int.parse?`, `line |> log~`. The stage end is one of the mark's two grammatical seats (Effects §3.2; Lexer §8.1); the checker still never knows pipes exist — it sees the rewritten, marked call.
 - **Evaluation-order footnote:** the rewrite moves `a` into argument position, so JS evaluation order runs the callee expression before `a`. Observable only when the callee expression itself has effects; accepted, not worth a temporary.
 - The pipe is why the stdlib convention exists: **the first parameter of every stdlib function is the subject being operated on** (ReScript/OCaml order). One data-last straggler breaks every chain it appears in. This convention is normative for the prelude and stdlib specs.
 - Emission: pipes have vanished before codegen; the emitted JS is the plain nested calls. When nesting gets deep the emitter may lift intermediates to `const` locals for readability — its call.
@@ -361,8 +361,8 @@ it cannot attach to a call's argument list.
 
 - `.` — field access (records, tuples' `itemN`); also the module-path separator (`Int.div`) — same token, resolved by what the left side names. `e.name(args…)` with a non-uppercase-start `name` and an immediately following argument list is a dot call, decided at the dot (Method Syntax §2.1, §3); `(e.name)(args…)` remains two postfix operations, field access then call.
 - `f(args)` — call.
-- `(args)name` — suffix construction, a parenthesised primary followed immediately by a pattern name (Pattern Declarations §3.2, §14). An optional trailing `!` belongs to construction before any following postfix operation is read. To mark a call on a constructed function, group it: `((x)factory)!(y)`.
-- `xs[i]` — indexing; `xs[lo..hi]` — slicing (any `Range`-valued expression is legal between the brackets, not just a literal `..`). **Semantics deferred to the collections/indexing spec**; the standing decisions this table must not contradict: indexing is 1-based, out-of-bounds `xs[i]` throws `IndexError`, and whether a slice clamps or throws is that spec's open question. This spec contributes only the grammar: `[` after a primary expression is postfix indexing, never a list literal — the lexer/parser distinguish by position, and `[1..10]` in expression-head position is reserved for whatever the collections spec decides literals look like.
+- `(args)name` — suffix construction, a parenthesised primary followed immediately by a pattern name (Pattern Declarations §3.2, §14). An optional trailing mark or reading (`!`, `^`, `~`, `?`, `~?`) belongs to construction before any following postfix operation is read. To mark a call on a constructed function, group it: `((x)factory)!(y)`.
+- `xs[i]` — indexing; `xs[lo..hi]` — slicing (any `Range`-valued expression is legal between the brackets, not just a literal `..`). **Semantics deferred to the collections/indexing spec**; the standing decisions this table must not contradict: indexing is 1-based, out-of-bounds `xs[i]` throws `IndexFault`, and whether a slice clamps or throws is that spec's open question. This spec contributes only the grammar: `[` after a primary expression is postfix indexing, never a list literal — the lexer/parser distinguish by position, and `[1..10]` in expression-head position is reserved for whatever the collections spec decides literals look like.
 
 ---
 
@@ -479,7 +479,7 @@ Semantics live in Statements/Blocks/Mutability (`var`-only target, `Unit`-typed,
 | Symbolic implication `==>` | Words-only rule; visual collision with `=>`. |
 | User-defined/custom operators, operator overloading | Permanent identity decision (§1.1). Operators are fixed sugar for constraint members; extensibility lives in `honor`. |
 | `%` operator | Modulo has two live conventions (floored/truncated); a symbol hides the choice, a name documents it. `Int.mod` (floored) is the way. |
-| `^` for power | Means XOR to the C/JS audience, power to the math audience — unresolvable; `**` chosen, `^` permanently unused. |
+| `^` for power | Means XOR to the C/JS audience, power to the math audience — unresolvable; `**` chosen, and `^` is no operator: it is the fail mark (Effects §1), a call-mark and arrow token only. |
 | `+` overloaded for string concatenation | `+` is `Num.add`; joining is `++`/`Concat` (§7). Diagnostic fixit covers the JS habit. |
 | Left-associative `**` | Math reads exponent towers right-to-left (§6.3). |
 | JS's `-2 ** 2` SyntaxError | Hexagon parses it as `-(2 ** 2)`, the mathematical reading (§6.2); emission parenthesizes. |
@@ -488,7 +488,7 @@ Semantics live in Statements/Blocks/Mutability (`var`-only target, `Unit`-typed,
 | `pow` as a `Num` member | Would obligate every `Num` instance forever; separate `Pow` constraint (§6.3). |
 | Homogeneous `pow(x: a, y: a)` (the original member shape) | Retired for the `Int` exponent seat (§6.3). One signature straddled two operations — algebraic power (ℤ exponent, every type) and analytic power (ℝ exponent, `Float` only) — and every runtime guard `Pow` ever carried patched that seam; at `Rat` the seam demanded a `FractionalExponentError` for exponents the algebra almost never serves. The ML family splits the two unanimously (Haskell `^`/`^^` vs `**`, F# `pown`, Lean `zpow` vs `rpow`); the heterogeneous member makes the fractional-exponent refusal *typing* and leaves the analytic power to the `Float.pow` door. |
 | Perfect-power extraction for rational power (succeed when an exact root exists) | Rejected permanently, in any spelling — the operator's typing now forecloses the fractional exponent, and the rejection equally forecloses any **named** door (`Rat`-exponent `pow`, `root`, `sqrt` over `Rat`). Success would be a number-theoretic property of the base's prime factorization, so meaning-preserving rewrites would move the throw boundary: a perfect-power product succeeds where its refactored factors throw twice. Algebra must commute with definedness (friendly-numerics tenet 5); an exponent's integrality is a statable operand predicate — now a type — a factorization is not (§6.3). |
-| Symbolic bitwise and shift operators (`&`, `\|`, `^`, `~`, `<<`, `>>`, `>>>`) | The bitwise operations are the words of `bitwise.md` §3; shifts are named calls; `^` stays unused and `\|` stays with unions and patterns (`bitwise.md` §10). |
+| Symbolic bitwise and shift operators (`&`, `\|`, `^`, `~`, `<<`, `>>`, `>>>`) | The bitwise operations are the words of `bitwise.md` §3; shifts are named calls; `^` and `~` are marks, never operators (Effects §1), and `\|` stays with unions and patterns (`bitwise.md` §10). |
 | Comparison operators as four primitive members | Superseded by single `Ord.compare` (§5.1): one obligation, derived totality, no double evaluation. |
 
 *(A certain two-character coalescing operator from the early draft was also considered and does not exist.)*
@@ -502,7 +502,7 @@ Semantics live in Statements/Blocks/Mutability (`var`-only target, `Unit`-typed,
 - **Loops §4:** the `while` condition grammar reference resolves to §11.1 here.
 
 ### 14.2 Exceptions spec
-- Add **`NegativeExponentError`** to the exception registry (thrown by the `Nat`/`Int`/`BigInt` instances on `exponent < 0` — and by the `BigInt.pow` door; the `**` operator reaches it through those instances). Same branding scheme (`$hex` carrying the declaring module per #488, `name` discriminant) as `IndexError`/`DivideByZeroError`. *(#344: its declared home is `stdlib/Pow.hex`.)*
+- Add **`NegativeExponentFault`** to the fault registry (thrown by the `Nat`/`Int`/`BigInt` instances on `exponent < 0` — and by the `BigInt.pow` door; the `**` operator reaches it through those instances). Same branding scheme (`$hex` carrying the declaring module per #488, `name` discriminant) as `IndexFault`/`DivideByZeroFault`. *(#344: its declared home is `stdlib/Pow.hex`.)*
 
 ### 14.3 Constraints spec §7 (prelude listing)
 - Add `Pow<a: Num>` with member `pow(value: a, exponent: Int) -> a`; instances `Nat`, `Int`, `Float`, `BigInt`, `Rat` (§6.3); the `Float.pow`/`BigInt.pow` doors generalise their members (§6.3.1, Modules §5.3).
@@ -524,6 +524,7 @@ The floored convention recorded as decided in Primitive Types §2 is **downgrade
 | Situation | Error / fixit |
 |---|---|
 | `!` in prefix-expression position | "Hexagon spells logical negation `not`" — parser-selected since #355 made `!` the call-mark token (Lexer §8.2/§10; a mark outside its grammatical seats gets Effects §9's mark-position error) |
+| `^` or `~` in prefix or infix position, and `x^(y)` on a callee that is not a function | the `**` (power), `bxor` and `bnot` redirects, parser-selected: `^` and `~` are the fail and never-fails marks (Effects §1), tokens only in a mark's seats (Lexer §8.3/§10) |
 | `&&` / `\|\|` | lex error: "use `and` / `or`" |
 | Non-`Bool` operand to logic ops or `if`/`while` condition | ordinary type error; **never** suggest truthiness or coercion |
 | `a < b > c` | "comparison chains cannot mix `<` and `>`; split into `a < b and b > c`" |
@@ -537,7 +538,7 @@ The floored convention recorded as decided in Primitive Types §2 is **downgrade
 | `if` without `then` | parse error + "`if` requires `then`; write `if condition then` before the indented true branch" |
 | Else-less `if` whose `then` branch is not `Unit` | type error + fixit "an `if` without `else` produces `Unit`; its `then` branch is `String` — add an `else` branch to produce a value" |
 | `x := y := z` | "`:=` does not chain; assignment produces `Unit`" |
-| `**` at `Nat`/`Int`/`BigInt` with negative exponent (and `BigInt.pow` likewise) | runtime `NegativeExponentError` |
+| `**` at `Nat`/`Int`/`BigInt` with negative exponent (and `BigInt.pow` likewise) | runtime `NegativeExponentFault` |
 | non-`Int` exponent at `**` (`x ** 0.5`, `2n ** 3n`) — and at the member's other spellings (`i.pow(2n)`, `Pow.pow(i, 2n)`; #808) | type error, mandatory fixit branched on the exponent's type — `Float.pow` for a `Float` exponent, `BigInt.pow` for a `BigInt` one, the plain seat error otherwise (§6.3) |
 | Bitwise and logic spellings crossed (`p band q` at `Bool`, `x and y` at `Int`); JavaScript's `&`, `\|`, `^`, `~`, `<<`, `>>`, `>>>` | `bitwise.md` §9 owns the rows: each refusal offers the other family's spelling or the named shift |
 
@@ -560,7 +561,7 @@ The floored convention recorded as decided in Primitive Types §2 is **downgrade
 | Chains: directionally consistent families {`<`,`<=`,`==`} / {`>`,`>=`,`==`}; `!=` never chains | §5.3 |
 | Single-evaluation rule: duplicated operands bound once, left-to-right, invisible temporaries | §5.4 |
 | `**` level 3, right-assoc (math); tighter than unary minus on its left, admits it on its right; JS's `-2**2` SyntaxError not adopted, emission parenthesizes | §6.2–6.3 |
-| `Pow<a: Num>` member is `pow(value: a, exponent: Int)` — the algebraic power; `Nat`/`Int`/`BigInt`/`Dec` throw `NegativeExponentError` on a negative exponent, `Float` is total over it, `Rat` exact at either sign (a zero base with a negative exponent excepted — `DivideByZeroError`, `rat.md` §4); a fractional exponent is a type error; analytic power = the `Float.pow` door, `BigInt` exponents = the `BigInt.pow` door (both `widens` declarations, their members the derived restrictions, qualifiable-not-bare — Constraints §4.7) | §6.3, §6.3.1 |
+| `Pow<a: Num>` member is `pow(value: a, exponent: Int)` — the algebraic power; `Nat`/`Int`/`BigInt`/`Dec` throw `NegativeExponentFault` on a negative exponent, `Float` is total over it, `Rat` exact at either sign (a zero base with a negative exponent excepted — `DivideByZeroFault`, `rat.md` §4); a fractional exponent is a type error; analytic power = the `Float.pow` door, `BigInt` exponents = the `BigInt.pow` door (both `widens` declarations, their members the derived restrictions, qualifiable-not-bare — Constraints §4.7) | §6.3, §6.3.1 |
 | `++` = `Concat.concat`; level 6 with `+`; `String` in v1, `List` owed; `+` on strings rejected with fixit | §7 |
 | Pipe: F# token, ReScript first-arg semantics, pre-inference rewrite; bare `a \|> f` = `f(a)`; subject-first stdlib convention normative | §8 |
 | `..` level 10 (looser than arithmetic and the bitwise operators, tighter than comparison), non-assoc, non-chaining | §9 |
@@ -600,7 +601,7 @@ False implies loop()           -- True; loop() not evaluated → !false || loop(
 -- (f) Exponentiation, the math way
 2 ** 3 ** 2                    -- 2 ** (3 ** 2) = 512
 -2 ** 2                        -- -(2 ** 2) = -4 → emits -(2 ** 2)
-2 ** -3                        -- Float: 0.125; Int: NegativeExponentError at runtime
+2 ** -3                        -- Float: 0.125; Int: NegativeExponentFault at runtime
 2 ** 10                        -- Int 1024 → emits Int.pow(2, 10)
 
 -- (g) Concatenation

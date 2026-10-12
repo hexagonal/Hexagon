@@ -59,7 +59,7 @@ the nonnegative `Int` range. No smaller decimal-specific
 limit is imposed. This bounds the representation, not the memory or time needed
 for arithmetic or display. Exact multiplication and powers check their retained
 decimal-place sums/products before overflow and throw
-`DecimalPlacesOverflowError(message: String)`, declared by
+`DecimalPlacesOverflowFault(message: String)`, declared by
 `Dec.hex`. The message identifies the operation. This error describes exceeding
 the positive `Int` bound; it does not promise recovery from memory exhaustion or other
 host resource limits.
@@ -160,7 +160,7 @@ passed directly; differences between observed place counts use ordinary Int
 subtraction. The stored `places: Int` field always remains nonnegative.
 
 Every operation accepting places rejects a negative argument with
-`Dec.NegativeDecimalPlacesError(message: String)`, declared by `Dec.hex`.
+`Dec.NegativeDecimalPlacesFault(message: String)`, declared by `Dec.hex`.
 The message identifies the public operation. Validate before arithmetic and
 zero fast paths; for division this check precedes the zero-divisor check.
 Negative places do not mean rounding to tens or hundreds. Valid counts keep
@@ -309,7 +309,7 @@ fromFloat(-0.0, 2)      = 0.00
 ```
 
 `NaN` and both infinities have no decimal value and throw
-`DecRangeError(message: String)`, declared by `Dec.hex`. The message identifies
+`DecRangeFault(message: String)`, declared by `Dec.hex`. The message identifies
 the operation. Negative places are rejected first (§3). Every finite float,
 subnormals included, converts; its exact value is always a finite decimal.
 
@@ -320,7 +320,7 @@ the prelude order and cannot name `Dec`.
 
 `Dec.toFloat(value: Dec): Float` follows `Rat.toFloat`: round the exact numerical
 value once to the nearest representable `Float`, with ties to even. Throw the
-existing `FloatRangeError` if the rounded result would be infinite or if a
+existing `FloatRangeFault` if the rounded result would be infinite or if a
 nonzero value would round to zero. Zero converts to `0.0`; representable nonzero
 subnormal results are permitted. Error messages identify `Dec.toFloat`.
 
@@ -335,12 +335,12 @@ For a non-negative exponent `n`, the result has coefficient `c^n` and
 `places = s * n`. Exponent zero returns the multiplicative identity at
 zero decimal places, including for a zero base. No rounding occurs.
 
-Every negative exponent throws the existing `NegativeExponentError` from
+Every negative exponent throws the existing `NegativeExponentFault` from
 `Pow.hex`, including where a particular reciprocal would terminate exactly.
 Its documentation must be broadened from integer types to include this instance.
 Before computing the coefficient power, check the decimal-place product exactly;
 if it exceeds the positive `Int` range, throw rather than wrap, round, or reduce retained
-places. Throw the same `DecimalPlacesOverflowError` used by exact multiplication.
+places. Throw the same `DecimalPlacesOverflowFault` used by exact multiplication.
 Ordinary computation and memory limits still apply.
 
 For example, `1.50d ** 2` has coefficient `22500n` and four decimal places,
@@ -405,7 +405,7 @@ divideEven(-1, -8, 2) = 0.12
 ```
 
 Division checks for a zero divisor by numerical value, independent of its places,
-and throws the existing `DivideByZeroError` declared by `Integral.hex`. Messages
+and throws the existing `DivideByZeroFault` declared by `Integral.hex`. Messages
 identify the operation (`Dec.divide: divisor is zero` or
 `Dec.divideEven: divisor is zero`). No Java exception type is introduced.
 
@@ -538,7 +538,7 @@ classification is unchanged.
   construction, both adjustment/division variants, and both Rat conversions.
 - Repeating division rounds correctly for every combination of operand signs;
   every zero-divisor representation throws
-  the existing `DivideByZeroError`. No `/` or `Frac<Dec>` is available.
+  the existing `DivideByZeroFault`. No `/` or `Frac<Dec>` is available.
 - Detect double rounding: rounding `1.249` directly to one place yields `1.2`,
   not the `1.3` obtained by first rounding to two places.
 - `same` distinguishes equal numerical values with different places, including
@@ -583,6 +583,6 @@ Runtime text parsing is deferred to one design covering every numeric type
 (#1049). No parser name, grammar, result type, or exception is adopted here. The
 source-literal rules are independent of a future runtime text parser.
 
-The nonnegative `Int` decimal-place range and `DecimalPlacesOverflowError` are
+The nonnegative `Int` decimal-place range and `DecimalPlacesOverflowFault` are
 settled (§2). Host resource limits do not imply a smaller decimal-specific cap.
 No construction/deconstruction pattern is included.

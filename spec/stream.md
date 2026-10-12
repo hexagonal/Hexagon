@@ -9,11 +9,11 @@
 
 ## 1. Doctrine
 
-**`Stream(a)` is the effectful pull sequence — `Seq(a)`'s impure nominal sibling, not a mode of it.** The two-point effect lattice degenerates "a sequence parameterized by effect" into two types (`effects.md` §7), so Hexagon ships two types, on the Kotlin `Sequence`/`Flow` and F# `Seq`/`AsyncSeq` precedent:
+**`Stream(a)` is the effectful pull sequence — `Seq(a)`'s impure nominal sibling, not a mode of it.** Two-point colours degenerate "a sequence parameterized by effect" into separate types (`effects.md` §7), and of the four lazy shapes two colours allow, Hexagon ships two, on the Kotlin `Sequence`/`Flow` and F# `Seq`/`AsyncSeq` precedent:
 
 | | `Seq(a)` | `Stream(a)` |
 |---|---|---|
-| Pull | pure (`->` field) | effectful (`->!` field — the impure constant) |
+| Pull | pure and cannot fail (`->` field) | may touch the world and may fail (`->!` field — the constant) |
 | Successor | a tail value: `Some((head, rest))` | none: `Some(head)` — the stream advances |
 | Persistence | by re-derivation; positions are values | none; a pull is spent |
 | Replay | `memoize` (species (b)) | structurally absent (§5) |

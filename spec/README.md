@@ -45,16 +45,16 @@ Every normative owner appears exactly once. The explicitly marked router and gui
 | Control | `operators-logic-precedence.md` | operator inventory, precedence, pipe, `if/then/else`, bracket grammar |
 | Control | `pattern-matching.md` | patterns, exhaustiveness, binders |
 | Control | `pattern-declarations.md` | the `pattern` declaration: a pure `view`, an optional `build`, the expected-type door |
-| Control | `exceptions.md` | `exception`, `throw`, `try`/`catch`, `JsError`, branded representation |
+| Control | `exceptions.md` | `exception` and `fault`, `throw`, `try`/`catch` and the `fault` pattern, `attempt` and `assume`, `JsError`, branded representation |
 | Control | `loops-ranges-iteration.md` | `for`/`while`, `Range`, `Seq` semantics, `Iterable` machinery |
 | Control | `method-syntax.md` | dot calls, `CompanionOf`, the subject the program's text decides |
 | Control | `division-remainder.md` | division/remainder/modulo semantics |
-| Effects | `effects.md` | the effect discipline: the two-point lattice, the three arrows, one colour per callback, the two call marks, enforcement, trusted purity claims, the `Seq`/`Stream` posture, effect contracts |
+| Effects | `effects.md` | the effect discipline: two colours (touching the world, failing), each of two points; the five arrows; a colour per callback; the four call marks and the reading; handling; enforcement; trusted claims; the `Seq`/`Stream` posture; effect contracts |
 | Effects | `stream.md` | `Stream(a)`, the impure sequence: type, protocol, v1 module surface |
 | Collections | `collections-part1-decisions.md` | foundational decisions: `Vector` choice, naming doctrine, accessor pair |
 | Collections | `collections-part2-hash-and-type-members.md` | `Hash`, constraint `type` members |
 | Collections | `collections-part3-vector.md` | `Vector(a)` full spec |
-| Collections | `collections-part4-map-set.md` | persistent `Map`/`Set`, brackets/`KeyError`, JS-boundary semantics |
+| Collections | `collections-part4-map-set.md` | persistent `Map`/`Set`, brackets/`KeyFault`, JS-boundary semantics |
 | Collections | `collections-part5-iterable.md` | user `Iterable`, instance table, `String` iteration, `Seq` seats (an iterable adapts where a sequence is expected), closeout |
 | Closure docs | `decisions-batch-2026-07.md` | six cross-spec decisions (incl. SameValueZero `Eq<Float>`) until hosted |
 | Closure docs | `decisions-sol-review-2026-07.md` | seven review resolutions (incl. Rewrite Rule §E) until hosted |

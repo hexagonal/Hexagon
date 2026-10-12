@@ -1,17 +1,17 @@
 # Hexagon Spec: Collections Part 3 — `Vector(a)`
 
-**Status:** Decided (July 2026); amended 2026-08-02 — `Vector.size` is renamed `Vector.length` under Part 1 §10.1's `length`/`size` split (see the §7 marker; the `IndexError` payload slot `size`, §5.5, is deliberately unaffected). The authoritative `Vector(a)` specification: literals, vector patterns, indexing/slicing (`[]`, `at`, `get`, `IndexError`, `SliceError`), the core API with totality decisions, the `Concat`/`Eq`/`Ord`/`Show`/`Hash`/`Iterable` instances, String indexing under the same doctrine, and emission. Written against Collections Parts 1–2, Pattern Matching, Operators §7/§14, Loops §3/§5, and Exceptions; none re-litigated.
-**Scope:** As above, plus: the `at` accessor (signed, from-end addressing) and its equations; the descending-`Range` slice rule (windows have no direction) and the `SliceError` exception; the `IndexError` declaration; negative bracket-indexing rejected with reasoning; slice complexity pinned into the Part 1 table.
-**Not in scope:** `Map`/`Set` (Part 4 — including `KeyError`, declared nullary there, §4.3); the normative `Iterable` spec, table-opening, and the `Bag` worked example (Part 5); the full stdlib combinator listing for `Vector` (`map`, `filter`, `fold`, `reverse`, `sort`, `insertAt`, … — `stdlib-roadmap.md`; this doc fixes the *core* surface only, §7); `Array(a)` and its copying conversions (FFI Part 2); range patterns (Pattern Matching §11.2, untouched); String *iteration* (Collections Part 5 §5 — §9 here is indexing only).
-**Companions:** Collections Part 1 (representation/complexity §2 restated and extended; naming doctrine §3 applied; accessor-pair doctrine §3.3 instantiated); Collections Part 2 (`Hash<Vector(a)>` under its §4.4 wording; `Iterable` instance row); Collections Parts 4–5; Pattern Matching (§2 grammar includes the vector pattern; §11.1 routes here); Operators (§7 `Concat` doctrine; §14 bracket grammar); Loops (§3 `Range` opacity relied on; §5 table row); Exceptions (owed the `IndexError` and `SliceError` declarations, §13); Primitive Types §5 (String codepoint doctrine, bracket-indexed here); Constraints (§4.3 parameterized instances; §7 `Ord<Float>` totality); FFI Part 2 (`Array(a)` and `Vector.toArray`).
+**Status:** Decided (July 2026); amended 2026-08-02 — `Vector.size` is renamed `Vector.length` under Part 1 §10.1's `length`/`size` split (see the §7 marker; the `IndexFault` payload slot `size`, §5.5, is deliberately unaffected). The authoritative `Vector(a)` specification: literals, vector patterns, indexing/slicing (`[]`, `at`, `get`, `IndexFault`, `SliceFault`), the core API with totality decisions, the `Concat`/`Eq`/`Ord`/`Show`/`Hash`/`Iterable` instances, String indexing under the same doctrine, and emission. Written against Collections Parts 1–2, Pattern Matching, Operators §7/§14, Loops §3/§5, and Exceptions; none re-litigated.
+**Scope:** As above, plus: the `at` accessor (signed, from-end addressing) and its equations; the descending-`Range` slice rule (windows have no direction) and the `SliceFault` fault; the `IndexFault` declaration; negative bracket-indexing rejected with reasoning; slice complexity pinned into the Part 1 table.
+**Not in scope:** `Map`/`Set` (Part 4 — including `KeyFault`, declared nullary there, §4.3); the normative `Iterable` spec, table-opening, and the `Bag` worked example (Part 5); the full stdlib combinator listing for `Vector` (`map`, `filter`, `fold`, `reverse`, `sort`, `insertAt`, … — `stdlib-roadmap.md`; this doc fixes the *core* surface only, §7); `Array(a)` and its copying conversions (FFI Part 2); range patterns (Pattern Matching §11.2, untouched); String *iteration* (Collections Part 5 §5 — §9 here is indexing only).
+**Companions:** Collections Part 1 (representation/complexity §2 restated and extended; naming doctrine §3 applied; accessor-pair doctrine §3.3 instantiated); Collections Part 2 (`Hash<Vector(a)>` under its §4.4 wording; `Iterable` instance row); Collections Parts 4–5; Pattern Matching (§2 grammar includes the vector pattern; §11.1 routes here); Operators (§7 `Concat` doctrine; §14 bracket grammar); Loops (§3 `Range` opacity relied on; §5 table row); Exceptions (owed the `IndexFault` and `SliceFault` declarations, §13); Primitive Types §5 (String codepoint doctrine, bracket-indexed here); Constraints (§4.3 parameterized instances; §7 `Ord<Float>` totality); FFI Part 2 (`Array(a)` and `Vector.toArray`).
 
 ---
 
 ## 1. Doctrine
 
 - **`Vector` is the workhorse sequence and looks like one.** Literal `[1, 2, 3]`, patterns `[x, ...rest]`, indexing `xs[i]` — the JS-shaped surface the audience expects, over the persistent trie deque Part 1 pinned.
-- **Brackets assert; names answer.** `xs[i]` and `Vector.set` assert existence and throw `IndexError`; `Vector.get` answers with `Option`. `Vector.at` is the bracket's *signed* sibling — an assertion with from-end addressing, opted into by name (§5.3).
-- **Windows have no direction.** A slice is a window, not a traversal; ranges are for iterating. An empty window is a valid answer (clamping); a *directed* window is a category error (`SliceError`, §6.3). Out-of-window clamps; direction throws.
+- **Brackets assert; names answer.** `xs[i]` and `Vector.set` assert existence and throw `IndexFault`; `Vector.get` answers with `Option`. `Vector.at` is the bracket's *signed* sibling — an assertion with from-end addressing, opted into by name (§5.3).
+- **Windows have no direction.** A slice is a window, not a traversal; ranges are for iterating. An empty window is a valid answer (clamping); a *directed* window is a category error (`SliceFault`, §6.3). Out-of-window clamps; direction throws.
 - **Costs are stated, not hidden.** A rest pattern is a slice of a trie, not a shared tail; slice complexity is pinned (§4); `++` stays documented-linear (Part 1 §2.2); String indexing is O(n) and says so (§9).
 - **The rest pattern spells `...`** — the TS/JS rest cognate and the Products row-tail family ("and the remainder"), never `..`, which is the range operator and means something else.
 
@@ -114,15 +114,15 @@ All other rows (get/set O(log₃₂ n), both ends O(1) amortized, `++` linear) s
 
 ---
 
-## 5. Indexing: `[]`, `at`, `get`, `set`, and `IndexError`
+## 5. Indexing: `[]`, `at`, `get`, `set`, and `IndexFault`
 
 ### 5.1 The bracket
 
-- `xs[i]` with `xs : Vector(a)`, `i : Int` — **1-based**; yields the element; **throws `IndexError`** when `i < 1` or `i > xs.length()`. `xs[i]` asserts "element `i` exists" and fails loudly at the fault site.
+- `xs[i]` with `xs : Vector(a)`, `i : Int` — **1-based**; yields the element; **throws `IndexFault`** when `i < 1` or `i > xs.length()`. `xs[i]` asserts "element `i` exists" and fails loudly at the fault site.
 - **The index is a seat, checked as `Vector.at`'s `Int` argument is** (Numeric Literals §5.1, #1133). The bracket has two readings, a position and a slice (§6), and the index's own type chooses, so the index closes first: a `Range` slices, and any other value enters the `Int` position by exact unification or one of §5.1's three conversions — `xs[k]` widens a `k: Nat`. Where the index's written shape has already chosen, it takes the `Int` face first: a tower operation is never a `Range`, so `xs[k - 1]` is a position and subtracts at `Int`, as `Vector.at(xs, k - 1)` does. A value no conversion takes into `Int` is refused with `Int` named as the type expected.
 - `[]` is **read-only** — it never appears in a write position (there is no assignment-to-index grammar in Hexagon at all; updates are `Vector.set`).
-- **Negative indices are absent — decided.** `xs[-1]` throws `IndexError` like any other out-of-bounds value. Reasoning recorded in §11.1 (silent-wrap drift hazard; the `0` dead zone is one value wide under 1-based indexing; slices cannot follow coherently). The end-relative want is served by `at` (§5.3), `last`, and `dropLast`.
-- Emission: monomorphic `xs[i]` emits a runtime indexed read with the bounds check that produces `IndexError`. JS returns `undefined` out of bounds, so a check exists either way; the throwing form wins on type cleanliness — `xs[i] : a` with no hole.
+- **Negative indices are absent — decided.** `xs[-1]` throws `IndexFault` like any other out-of-bounds value. Reasoning recorded in §11.1 (silent-wrap drift hazard; the `0` dead zone is one value wide under 1-based indexing; slices cannot follow coherently). The end-relative want is served by `at` (§5.3), `last`, and `dropLast`.
+- Emission: monomorphic `xs[i]` emits a runtime indexed read with the bounds check that produces `IndexFault`. JS returns `undefined` out of bounds, so a check exists either way; the throwing form wins on type cleanliness — `xs[i] : a` with no hole.
 
 ### 5.2 `Vector.get` — the total sibling
 
@@ -137,29 +137,29 @@ Vector.at : (Vector(a), Int) -> a
 - **Positive domain: `at` is `[]`, definitionally.** For `i ≥ 1`, `at(v, i) ≡ v[i]` — an equation, not a coincidence: `[]` on a vector *is* the runtime's positive lookup, and `at`'s positive branch is the same lookup. The two cannot drift.
 - **Negative domain: from-end addressing.** For `i ≤ -1`, `v.at(i) ≡ v[v.length() + i + 1]` — so `v.at(-1)` is the last element, `v.at(-v.length())` the first. Equivalent formulation for the docs: `v.at(-n) = v[v.length() - n + 1]`.
 - **`at(v, 0)` always throws.** Zero is never an address in a 1-based world; the dead zone between the domains stays dead (and remains the guard rail where index drift lands first).
-- `at` **throws `IndexError`** whenever the resolved position doesn't exist — it is the bracket's signed sibling, an *assertion* with from-end power, not a third total accessor (`get` remains the only total one; a total-and-signed accessor is a v2-on-field-evidence question, §12.3).
-- The `IndexError` payload carries **the index as passed** (the `-4`, not the normalized position) — the payload describes what the caller said; fault-site honesty.
+- `at` **throws `IndexFault`** whenever the resolved position doesn't exist — it is the bracket's signed sibling, an *assertion* with from-end power, not a third total accessor (`get` remains the only total one; a total-and-signed accessor is a v2-on-field-evidence question, §12.3).
+- The `IndexFault` payload carries **the index as passed** (the `-4`, not the normalized position) — the payload describes what the caller said; fault-site honesty.
 - Lineage, stated in the doc: JS `Array.prototype.at` (ES2022) has exactly this signed-addressing contract for exactly this audience — the name is their muscle memory. The one deliberate departure: JS `at` returns `undefined` out of range; Hexagon's throws, per the accessor doctrine (`undefined`-shaped holes are what `[]` exists to reject).
 - Signed addressing is **opt-in by name**: computed indices flowing into `[]` still fail loudly when they drift negative; only a call that *says* `at` gets wraparound. This is the design's entire point (§11.1).
 
 ### 5.4 `Vector.set` — write-side assertion
 
-`Vector.set(v: Vector(a), i: Int, x: a): Vector(a)` — persistent update at 1-based `i`; **throws `IndexError`** when `i` is out of range (a write asserts the slot exists; extending is `append`/`prepend`). No signed form and no total sibling in v1 (`trySet` stays unspent per the `try` doctrine, Part 1 §3.3). Set never extends — growing with holes (the JS array behaviour) is exactly what the check exists to prevent.
+`Vector.set(v: Vector(a), i: Int, x: a): Vector(a)` — persistent update at 1-based `i`; **throws `IndexFault`** when `i` is out of range (a write asserts the slot exists; extending is `append`/`prepend`). No signed form and no total sibling in v1 (`trySet` stays unspent per the `try` doctrine, Part 1 §3.3). Set never extends — growing with holes (the JS array behaviour) is exactly what the check exists to prevent.
 
-### 5.5 The `IndexError` declaration
+### 5.5 The `IndexFault` declaration
 
 Declared here and canonically exported by `stdlib/Vector.hex`, a prelude member
-(Modules §5.5): the constructor is in scope everywhere, bare as `IndexError` and
-qualified as `Vector.IndexError`:
+(Modules §5.5): the constructor is in scope everywhere, bare as `IndexFault` and
+qualified as `Vector.IndexFault`:
 
 ```
-exception IndexError(index: Int, size: Int)
+fault IndexFault(index: Int, size: Int)
 ```
 
-- Concrete payload (satisfies Exceptions §2's no-type-variables rule); named slots per the all-or-none rule; positional construction and catch patterns as always. *(Divergence, #300: the shipped checker admits a `catch` arm only for exceptions the same module declares, so a consumer's `catch IndexError(...)` is refused today — construction and throwing work everywhere. The catch-patterns clause is the target, not the state.)*
+- Concrete payload (satisfies Exceptions §2's no-type-variables rule); named slots per the all-or-none rule; positional construction and catch patterns as always. *(Divergence, #300: the shipped checker admits a `catch` arm only for exceptions and faults the same module declares, so a consumer's `catch IndexFault(...)` is refused today — construction and throwing work everywhere. The catch-patterns clause is the target, not the state.)*
 - `index` is the index as passed (§5.3); `size` is the collection's size at fault time. Sufficient for the canonical message ("index 5 out of bounds for size 3") without a `String` slot; message rendering is the reporting layer's business (Exceptions doctrine).
-- **The slot keeps the name `size`** under the 2026-08-02 rename of the operation (`Vector.size` → `Vector.length`) — ruled with reasoning at Part 1 §10.1: `size` is the general cardinality word and `length` its specialization for linear structures, and this one shared declaration is not scoped to linear throwers — a `length` slot would assert a linearity the declaration does not have (that every *current* thrower is linear is recorded there as a fact of today, not of the declaration). The payload names a fact about the collection, not an operation on it; `IndexError(index, size)` remains the declared shape, and `Vector.length` throws it.
-- `KeyError` does not copy this shape — a polymorphic key cannot be a payload (Exceptions §2 bans type variables). It is declared **nullary** in Part 4 §4.3, which owns that decision.
+- **The slot keeps the name `size`** under the 2026-08-02 rename of the operation (`Vector.size` → `Vector.length`) — ruled with reasoning at Part 1 §10.1: `size` is the general cardinality word and `length` its specialization for linear structures, and this one shared declaration is not scoped to linear throwers — a `length` slot would assert a linearity the declaration does not have (that every *current* thrower is linear is recorded there as a fact of today, not of the declaration). The payload names a fact about the collection, not an operation on it; `IndexFault(index, size)` remains the declared shape, and `Vector.length` throws it.
+- `KeyFault` does not copy this shape — a polymorphic key cannot be a payload (Exceptions §2 bans type variables). It is declared **nullary** in Part 4 §4.3, which owns that decision.
 
 ---
 
@@ -183,25 +183,25 @@ xs[3..1]      -- []              (empty ascending range: lo > hi)
 
 O(log₃₂ n) per §4 — and the returned window is **trimmed**: while its live tree range fits under a single child of the root, the representation descends into that child (a wholly tail-resident window drops the tree outright), so a slice's own `get`/`set` pay O(log₃₂) of the *window's* size, not its source's, and the parts of the source trie the window left behind are released rather than held live. The descent costs only the levels it removes, so §4's bound — and its end-slice note — stand unchanged. Emission: `xs.slice(lo - 1, hi)` — the runtime's slice clamps natively, so the ascending path is a single call with zero guard code, modulo the 0-based offset. General `Range`-valued slices go through a small runtime helper that reads the range's bounds and direction (and implements §6.3).
 
-### 6.3 Descending ranges: `SliceError` — windows have no direction
+### 6.3 Descending ranges: `SliceFault` — windows have no direction
 
 The forced corner: `Range` is first-class and opaque with a hidden direction (Loops §3.1), so `xs[Range.down(5, 2)]` typechecks and must mean something.
 
-> **A descending `Range` in slice position throws `SliceError`.**
+> **A descending `Range` in slice position throws `SliceFault`.**
 
 Doctrine (the design's story, stated in the doc): **ranges are for iterating; slices are windows, and windows have no direction.** An empty window is a valid answer — that is what clamping honors. A *directed* window is a category error — the caller has confused traversal with windowing — and category errors fail loudly. Reversal is explicit: `Vector.reverse(xs[2..5])` (`reverse` owed to the stdlib listing).
 
 The exception is canonically exported by `stdlib/Vector.hex`. The complete
 package/prelude loader may additionally promote the constructor into the prelude;
-until then its explicit source spelling is `Vector.SliceError`:
+until then its explicit source spelling is `Vector.SliceFault`:
 
 ```
-exception SliceError(start: Int, end: Int)
+fault SliceFault(start: Int, end: Int)
 ```
 
-A distinct exception, not an `IndexError` — on payload grounds, decisively: in a descending-window slice **no index is out of bounds and no single index is wrong**; `IndexError(index, size)` cannot describe the fault without lying in a slot. `SliceError` carries the range's endpoints as the caller supplied them. (C# `Span` precedent: reversed ranges throw rather than reverse or clamp.)
+A distinct fault, not an `IndexFault` — on payload grounds, decisively: in a descending-window slice **no index is out of bounds and no single index is wrong**; `IndexFault(index, size)` cannot describe the fault without lying in a slot. `SliceFault` carries the range's endpoints as the caller supplied them. (C# `Span` precedent: reversed ranges throw rather than reverse or clamp.)
 
-**"Never an error" is scoped to magnitude: out-of-window clamps; direction throws.** The only way to reach `SliceError` is a descending `Range` value (`Range.down` or a function returning one); no `..` literal can.
+**"Never an error" is scoped to magnitude: out-of-window clamps; direction throws.** The only way to reach `SliceFault` is a descending `Range` value (`Range.down` or a function returning one); no `..` literal can.
 
 ### 6.4 String slices
 
@@ -229,7 +229,7 @@ The core surface, under the Part 1 §3 naming doctrine (subject-first, `Vector.`
 | `toSeq` / `fromSeq` | `Vector(a) -> Seq(a)` / `Seq(a) -> Vector(a)` | §7.2 |
 | `of`-style construction | — | the literal is the constructor; no public variadic `of` (the emitted fold is `__vectorOf`, §2) |
 
-*(Amended 2026-08-02: the row now named `length` was `size`; renamed under Part 1 §10.1's `length`/`size` split — `length` for ordered, sequential structures. The `IndexError` payload slot `size` (§5.5) is deliberately unaffected.)*
+*(Amended 2026-08-02: the row now named `length` was `size`; renamed under Part 1 §10.1's `length`/`size` split — `length` for ordered, sequential structures. The `IndexFault` payload slot `size` (§5.5) is deliberately unaffected.)*
 
 This surface is implemented by the canonical `stdlib/Vector.hex` module, a
 prelude member (Modules §5.5) — in scope in every module with no import line.
@@ -240,8 +240,8 @@ by `toSeq` and `fromSeq` cross the narrow boundary as intrinsic-door declaration
 (`spec/intrinsics.md` §3.2). Dot calls on `Vector`-typed receivers dispatch to
 this module (Method Syntax §4.2). Every function it exports is qualified-only
 (Modules §5.5's bare set) — `Vector.empty`, `Vector.length(values)` — and the
-dot call needs no qualifier; its two exceptions, `IndexError` and `SliceError`,
-are the bare names the module spends, as every prelude exception is.
+dot call needs no qualifier; its two faults, `IndexFault` and `SliceFault`,
+are the bare names the module spends, as every prelude fault is.
 
 ### 7.1 `dropFirst`/`dropLast` on empty: total
 
@@ -282,10 +282,10 @@ emoji split in two); grapheme clusters are culturally defined and
 version-sensitive. Codepoints own the short surface permanently. Grapheme-aware
 operations, if ever, are named stdlib functions, never `[]`.
 
-- `s[i]` — the codepoint at 1-based index `i`, **as a one-codepoint `String`** (there is no `Char` type; Primitive Types is explicit). Throws `IndexError` out of bounds; same payload. The index is §5.1's seat: `s[k]` and `s[k - 1]` take a `k: Nat`.
+- `s[i]` — the codepoint at 1-based index `i`, **as a one-codepoint `String`** (there is no `Char` type; Primitive Types is explicit). Throws `IndexFault` out of bounds; same payload. The index is §5.1's seat: `s[k]` and `s[k - 1]` take a `k: Nat`.
 - `String.get(s, i): Option(String)` — total sibling.
 - `String.at(s, i): String` — signed sibling, identical §5.3 semantics (equation included), codepoint-addressed.
-- `s[lo..hi]` — clamping codepoint window; descending `Range` throws `SliceError`; identical §6 rules.
+- `s[lo..hi]` — clamping codepoint window; descending `Range` throws `SliceFault`; identical §6 rules.
 - **Cost, stated in bold in the doc: codepoint indexing is O(n)** (surrogate pairs make position a scan, not an offset). `s[i]` in a loop over `1..length(s)` is O(n²); the linear idiom is `for c in s` — a single O(n) pass yielding one-codepoint `String`s (Collections Part 5 §5) — or `String.toSeq`. The bracket is for occasional access; the doc says exactly that.
 - Emission: runtime codepoint helpers (`String.hex_at(s, i)`-shaped); no native JS bracket emission — JS `s[i]` is code-unit-addressed and 0-based, wrong twice.
 
@@ -303,12 +303,12 @@ operations, if ever, are named stdlib functions, never `[]`.
 | Fixed-length-only match | non-exhaustive; witness prints a missed length (e.g. `[_, _, _]`) | §3.3 |
 | Unreachable arm after `[...rest]` | standard reachability error | §3.3 |
 | Refutable vector pattern at `let`/`for`/lambda | uniform gate error "this pattern can fail: ⟨witness⟩; use `match`" | §3.4 |
-| `xs[i]` out of bounds (incl. negative, 0) | runtime `IndexError(index, size)` | §5.1 |
-| `at(v, 0)` | runtime `IndexError(0, size)` | §5.3 |
-| `at`/resolved negative out of range | runtime `IndexError` carrying index as passed | §5.3 |
-| `set` out of range | runtime `IndexError` | §5.4 |
-| Descending `Range` in slice position | runtime `SliceError(start, end)` | §6.3 |
-| `s[i]` out of bounds | runtime `IndexError` (codepoint index) | §9 |
+| `xs[i]` out of bounds (incl. negative, 0) | runtime `IndexFault(index, size)` | §5.1 |
+| `at(v, 0)` | runtime `IndexFault(0, size)` | §5.3 |
+| `at`/resolved negative out of range | runtime `IndexFault` carrying index as passed | §5.3 |
+| `set` out of range | runtime `IndexFault` | §5.4 |
+| Descending `Range` in slice position | runtime `SliceFault(start, end)` | §6.3 |
+| `s[i]` out of bounds | runtime `IndexFault` (codepoint index) | §9 |
 
 Slicing by magnitude produces nothing by design (clamps). No new *static* diagnostics beyond the pattern rows — the type system already polices `Vector(a)` vs everything else.
 
@@ -320,9 +320,9 @@ Slicing by magnitude produces nothing by design (clamps). No new *static* diagno
 
 Coherent formula (`xs[-n] = xs[length - n + 1]`), rejected for `[]`: it contradicts the assert doctrine's own rationale — wrong assertions must fail *loudly at the fault site*. Wraparound converts a drifted computed index into silently plausible data from the wrong end — a famous bug class in Python — and 1-based indexing thins the guard rail to the single value `0`. Slices cannot follow coherently (clamp-before-or-after-normalize ambiguity; Python's negative slices are the cautionary tale), leaving an asymmetry inside one bracket form. The legitimate want (end-relative access) is served by **`at`** (§5.3), where signed addressing is opt-in by name and computed indices flowing into `[]` keep their loud failure. C#-style `^` sigil syntax was also considered and rejected on aesthetic grounds (the power is `at`'s; the sigil bought nothing over a name).
 
-### 11.2 `IndexError` for descending slices
+### 11.2 `IndexFault` for descending slices
 
-Rejected on payload grounds: no index is out of bounds and no single index is wrong; `IndexError(index, size)` cannot describe the fault without a lying slot. `SliceError(start, end)` names the actual fault. (Also considered: H1 "window semantics," descending ⇒ empty by the `lo > hi` rule — silent, total, and zero machinery, but it lets a traversal-shaped value quietly mean nothing; the category error deserves a loud answer. H2 "element-sequence semantics," reversed gather — elegant, but redefines slicing as gather, invites step-ranges, and costs the native-`.slice()` guarantee.) C# `Span` is the precedent for throwing.
+Rejected on payload grounds: no index is out of bounds and no single index is wrong; `IndexFault(index, size)` cannot describe the fault without a lying slot. `SliceFault(start, end)` names the actual fault. (Also considered: H1 "window semantics," descending ⇒ empty by the `lo > hi` rule — silent, total, and zero machinery, but it lets a traversal-shaped value quietly mean nothing; the category error deserves a loud answer. H2 "element-sequence semantics," reversed gather — elegant, but redefines slicing as gather, invites step-ranges, and costs the native-`.slice()` guarantee.) C# `Span` is the precedent for throwing.
 
 ### 11.3 Spread in literal expressions
 
@@ -340,7 +340,7 @@ Part 1's rejections; listed to keep this doc's rejection index complete. Do not 
 
 ## 12. Routed elsewhere (recorded, non-blocking)
 
-1. *(resolved)* **`KeyError` payload shape** — decided in **Part 4 §4.3**: nullary (Exceptions §2 bans polymorphic payloads). Not open.
+1. *(resolved)* **`KeyFault` payload shape** — decided in **Part 4 §4.3**: nullary (Exceptions §2 bans polymorphic payloads). Not open.
 2. **Stdlib combinator listing for `Vector`** (incl. `reverse`, needed by §6.3's explicit-reversal idiom, and `sort`, which §8's lexicographic `Ord` makes useful) → `stdlib-roadmap.md`.
 3. **Total-and-signed accessor** (a `get`-shaped `at`) → v2 on field evidence only; the pair stays a pair in v1 (§5.3).
 4. *(resolved)* **String iteration element type** — decided in **Collections Part 5 §5**: one-codepoint `String`, `for c in s` O(n) total. Not open.
@@ -353,8 +353,8 @@ Part 1's rejections; listed to keep this doc's rejection index complete. Do not 
 
 | Doc | Edit |
 |---|---|
-| **operators-logic-precedence.md** | §7 still says "`List(a)` instance owed to the collections spec" — the instance is `Concat<Vector(a)>`, specified here §8; the fusion note is confirmed as emitter freedom. §10/§14 still defer indexing/slicing semantics as "that spec's open question" — now fixed: indexing throws `IndexError`, slicing clamps by magnitude / throws `SliceError` on direction (§5/§6 here); retire the deferral language. |
-| **exceptions.md** | Prelude promotion still lacks **`IndexError(index: Int, size: Int)`** and **`SliceError(start: Int, end: Int)`**; their canonical source declarations now live in `stdlib/Vector.hex` (§5.5/§6.3). |
+| **operators-logic-precedence.md** | §7 still says "`List(a)` instance owed to the collections spec" — the instance is `Concat<Vector(a)>`, specified here §8; the fusion note is confirmed as emitter freedom. §10/§14 still defer indexing/slicing semantics as "that spec's open question" — now fixed: indexing throws `IndexFault`, slicing clamps by magnitude / throws `SliceFault` on direction (§5/§6 here); retire the deferral language. |
+| **exceptions.md** | Prelude promotion still lacks **`IndexFault(index: Int, size: Int)`** and **`SliceFault(start: Int, end: Int)`**; their canonical source declarations now live in `stdlib/Vector.hex` (§5.5/§6.3). |
 | **collections-part1-decisions.md** | §2 complexity table still lacks the **slice row** (O(log₃₂ n); end-slice note — §4 here); add on next touch. |
 | **primitive-types.md** | Still says 1-based indexing is covered by a "forthcoming spec" (header not-in-scope line; §5.1 area) — String indexing is realized here via `[]`/`at`/`get` (§9); repoint and echo the O(n) cost note. |
 
@@ -409,18 +409,18 @@ let [...all] = xs                     -- OK
 
 -- (f) Indexing family
 xs[2]                                 -- 20 (for xs = [10,20,30])
-xs[4]                                 -- throws IndexError(4, 3)
-xs[-1]                                -- throws IndexError(-1, 3)
+xs[4]                                 -- throws IndexFault(4, 3)
+xs[-1]                                -- throws IndexFault(-1, 3)
 Vector.get(xs, 4)                     -- None
 Vector.at(xs, 2)                      -- 20  (≡ xs[2])
 Vector.at(xs, -1)                     -- 30
-Vector.at(xs, 0)                      -- throws IndexError(0, 3)
-Vector.set(xs, 9, 0)                  -- throws IndexError(9, 3)
+Vector.at(xs, 0)                      -- throws IndexFault(0, 3)
+Vector.set(xs, 9, 0)                  -- throws IndexFault(9, 3)
 
 -- (g) Slices: magnitude clamps, direction throws
 xs[2..99]                             -- [20, 30]
 xs[3..1]                              -- []       (empty ascending range)
-xs[Range.down(3, 1)]                  -- throws SliceError(3, 1)
+xs[Range.down(3, 1)]                  -- throws SliceFault(3, 1)
 
 -- (h) Drop family: total
 Vector.dropFirst([])                  -- []
@@ -438,8 +438,8 @@ for x in [1, 2, 3]                    -- Iterable: Item = Int
 -- (j) String, same doctrine
 let s = "héllo"
 s[2]                                  -- "é"  (codepoint, 1-based)
-s[9]                                  -- throws IndexError(9, 5)
+s[9]                                  -- throws IndexFault(9, 5)
 String.at(s, -1)                      -- "o"
 s[2..4]                               -- "éll"
-s[Range.down(4, 2)]                   -- throws SliceError(4, 2)
+s[Range.down(4, 2)]                   -- throws SliceFault(4, 2)
 ```
