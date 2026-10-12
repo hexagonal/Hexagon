@@ -681,7 +681,7 @@ What a boundary declaration does splits by **who owns the implementation**, and 
   - `->~` claims that a function that touches the world never fails: a listener's registration, a guarded read.
   - `>->` is the **trusted conduit claim**: the row runs its callbacks and does nothing else on its own account. Its callers' calls wear the mark of what they hand it.
   - A row unwilling to claim purity, infallibility or a dependency writes `->!`.
-- **A broken claim that something cannot fail.** Wherever a boundary's types say that foreign code cannot fail (a row's arrow, an arrow in a type a row hands back, the pull of a foreign iterable laundered at a `Seq(a)` position), foreign code that throws there breaks its contract (FFI Part 1 §3.1). The throw reaches the program untracked: a `JsError` that no colour accounted for, which a catch-all still catches (Exceptions §6). Nothing checks the claim; the module author answers for it, as for every trusted arrow (§6.3).
+- **A broken claim that something cannot fail.** Wherever a boundary's types say that foreign code cannot fail (a row's arrow, an arrow in a type a row hands back, the pull of a foreign iterable laundered at a `Seq(a)` position), foreign code that throws there breaks its contract (FFI Part 1 §3.1). The throw reaches the program untracked: a `JsError`, or the branded Hexagon exception it was where one came back out through the foreign frames, that no colour accounted for and a catch-all still catches (Exceptions §6; FFI Part 6 §4). Nothing checks the claim; the module author answers for it, as for every trusted arrow (§6.3).
 
 ### 6.2 The trusted-purity species
 

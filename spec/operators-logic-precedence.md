@@ -502,7 +502,7 @@ Semantics live in Statements/Blocks/Mutability (`var`-only target, `Unit`-typed,
 - **Loops §4:** the `while` condition grammar reference resolves to §11.1 here.
 
 ### 14.2 Exceptions spec
-- Add **`NegativeExponentFault`** to the exception registry (thrown by the `Nat`/`Int`/`BigInt` instances on `exponent < 0` — and by the `BigInt.pow` door; the `**` operator reaches it through those instances). Same branding scheme (`$hex` carrying the declaring module per #488, `name` discriminant) as `IndexFault`/`DivideByZeroFault`. *(#344: its declared home is `stdlib/Pow.hex`.)*
+- Add **`NegativeExponentFault`** to the fault registry (thrown by the `Nat`/`Int`/`BigInt` instances on `exponent < 0` — and by the `BigInt.pow` door; the `**` operator reaches it through those instances). Same branding scheme (`$hex` carrying the declaring module per #488, `name` discriminant) as `IndexFault`/`DivideByZeroFault`. *(#344: its declared home is `stdlib/Pow.hex`.)*
 
 ### 14.3 Constraints spec §7 (prelude listing)
 - Add `Pow<a: Num>` with member `pow(value: a, exponent: Int) -> a`; instances `Nat`, `Int`, `Float`, `BigInt`, `Rat` (§6.3); the `Float.pow`/`BigInt.pow` doors generalise their members (§6.3.1, Modules §5.3).

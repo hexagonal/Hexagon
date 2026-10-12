@@ -313,7 +313,7 @@ Everything else from Unions §4 stands: layout arms, `pattern [when g] => body`,
 
 ### 6.2 `catch` arms
 
-Inherit the full grammar — nesting, literals, or-patterns, `as`, guards — as Exceptions §5.2 promised, plus the kind pattern `fault x`, which matches every fault and is only ever a whole arm's pattern (Exceptions §5.2). The open-`Exn` model is unchanged: no exhaustiveness demand, implicit rethrow, reachability still checked (§7.2), by kind (Exceptions §5.3), and still a hard error. A `_` or bare-variable arm catches every exception and every foreign throw, and lets faults through. Or-patterns mixing domestic and foreign arms are legal: `ParseError(_) | JsError(_) => fallback`.
+Inherit the full grammar — nesting, literals, or-patterns, `as`, guards — as Exceptions §5.2 promised, plus the kind pattern `fault x`, which matches every fault and is only ever a whole catch arm's pattern, refused anywhere else, a `match` data arm, a `let` or a lambda parameter included (Exceptions §5.2). The open-`Exn` model is unchanged: no exhaustiveness demand, implicit rethrow, reachability still checked (§7.2), by kind (Exceptions §5.3), and still a hard error. A `_` or bare-variable arm catches every exception and every foreign throw, and lets faults through. Or-patterns mixing domestic and foreign arms are legal: `ParseError(_) | JsError(_) => fallback`.
 
 Catch arms occupy two seats — `try`'s clause (Exceptions §5.1) and the match catch clause (Exceptions §5.4) — with one grammar and one semantics in both; everything in this section reads on the arms, not the construct holding them.
 
