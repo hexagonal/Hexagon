@@ -190,7 +190,8 @@ export interface CheckOptions {
 
 /**
  * Test-only (step 8a's mirror check, `support/mirror.ts`): the reports each
- * module's fail colour made, which the module drops (`#failReports`).
+ * module's fail colour made, which the module drops (`#failReports`). Filled
+ * on every check, a list the checker keeps anyway; only the mirror reads it.
  */
 export const failReportsOf = new WeakMap<Typed.Module, readonly Diagnostics.Diagnostic[]>();
 
@@ -18530,11 +18531,13 @@ class Checker {
     const refusal = this.#functionResultRefusal(value, expected, actual);
     if (refusal === undefined) return false;
     const before = this.#diagnostics.count;
+    const failBefore = this.#failReports.count;
     this.#unify(expected, actual, span);
     // Only a refusal is replaced: a value already refused inside the form
     // (its type `Error`) meets the seat silently.
     if (this.#diagnostics.count === before) return true;
     this.#diagnostics.discardSince(before);
+    this.#failReports.discardSince(failBefore);
     this.#diagnostics.add({ severity: "error", message: refusal.message, primary: refusal.call.span });
     return true;
   }
@@ -30222,13 +30225,16 @@ class Checker {
       marks?.get(axis)?.has(application) === true;
     // §4.2's fix is the constant that marks each colour the body acts on of
     // its own account and each colour on which a callback handed by then has a
-    // colour: `->!` where the colours mirror. One over a body in error, and not
-    // refused, is in error on the colour it is in error on (#1223).
+    // colour, read off the face as written, never off what the callbacks were
+    // solved to: `->!` where the colours mirror. A refused arrow reads as its
+    // refusal does on both colours, one in error on the other too (§3.5). One
+    // over a body in error, and not refused, is in error on the colour it is in
+    // error on (#1223).
     const colour = (application: number, axis: Axis): Mono | undefined => {
       if (AXES.some((each) => marked(face.refused, application, each))) {
-        if (marked(face.refused, application, axis)) return IMPURE;
-        const written = face.arrows.find((arrow) => arrow.application === application);
-        return written !== undefined && this.#colourParts(arrowColour(written, axis)).length > 0 ? IMPURE : PURE;
+        // Every callback written `->!` has a colour on each colour (§2.4).
+        const handed = face.handed.slice(0, application + 1).some((callbacks) => callbacks.length > 0);
+        return marked(face.refused, application, axis) || handed ? IMPURE : PURE;
       }
       return marked(face.inError, application, axis) ? ERROR_COLOUR : undefined;
     };
