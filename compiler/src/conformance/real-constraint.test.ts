@@ -73,7 +73,7 @@ describe("Real standard instances", () => {
   test("Float NaN has no sign", async () => {
     const exports = await runMain(PROGRAM);
     expect(() => (exports["nanSign"] as () => unknown)()).toThrowError(
-      expect.objectContaining({ name: "UndefinedSignError", message: "NaN has no sign" }),
+      expect.objectContaining({ name: "UndefinedSignFault", message: "NaN has no sign" }),
     );
   });
 });

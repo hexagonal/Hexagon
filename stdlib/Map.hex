@@ -4,7 +4,7 @@ module Map
 
 (** Raised when `map[key]` is read at a key the map does not bind. `Map.get` is
     the total sibling that answers `None` instead. *)
-export exception KeyError
+export fault KeyFault
 
 // The whole boundary Collections Part 4 section 6.1 pins: construction, the
 // maintained size, the keyed trio, and the one traversal. Everything below is

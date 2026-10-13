@@ -98,7 +98,7 @@ describe("the brand is the declaring module's path identity (#488, §7.1)", () =
         "    try\n" +
         "        v.at(9)\n" +
         "    catch\n" +
-        "        Vector.IndexError(index, size) => index + size\n"],
+        "        Vector.IndexFault(index, size) => index + size\n"],
     ] as const;
 
     expect(javascriptOf(files, "/src/main.hex")).toContain('$hex === "Hex.Vector"');
@@ -107,14 +107,14 @@ describe("the brand is the declaring module's path identity (#488, §7.1)", () =
   test("a helper that raises a prelude exception brands the declaring module", async () => {
     // The bounds check is inlined into the *consumer*, and the exception is
     // still `Vector`'s. Branding the emitting module here would put every
-    // `Vector.IndexError` arm in the program permanently past it.
+    // `Vector.IndexFault` arm in the program permanently past it.
     const files = [["/deep/reader.hex",
       "module Reader\n\n" + "let values: Vector(Int) = [10, 20]\n" +
       "export let boom: Int = values[9]\n"]] as const;
 
     expect(javascriptOf(files, "/deep/reader.hex")).toContain('__error.$hex = "Hex.Vector"');
     await expect(runProject(files, { entry: "/deep/reader.hex" })).rejects.toThrowError(
-      expect.objectContaining({ name: "IndexError", $hex: "Hex.Vector" }),
+      expect.objectContaining({ name: "IndexFault", $hex: "Hex.Vector" }),
     );
   });
 
@@ -386,11 +386,11 @@ describe("the throws manifest (#479, Doc Comments §6.1/§7.4)", () => {
   test("a manifest head inside the condition refuses the sentence entirely", () => {
     // Not one mangled tag: none. One sentence per exception is the grammar.
     const declarations = derived(
-      "(** Throws `ParseError` when a, and `IndexError` when b. *)\n" +
+      "(** Throws `ParseError` when a, and `IndexFault` when b. *)\n" +
       "export fun bad(text: String): Int = 0\n",
     );
 
-    expect(declarations).toContain("Throws `ParseError` when a, and `IndexError` when b.");
+    expect(declarations).toContain("Throws `ParseError` when a, and `IndexFault` when b.");
     expect(declarations).not.toContain("@throws");
   });
 
@@ -420,15 +420,15 @@ describe("the throws manifest (#479, Doc Comments §6.1/§7.4)", () => {
 
   test("a dotted name inside the condition is not the sentence's period", () => {
     // The sentence ends at *its* period, and a dot inside an inline code span is
-    // not one. Stopping at the first dot emitted `@throws {IndexError} when
+    // not one. Stopping at the first dot emitted `@throws {IndexFault} when
     // `Vector` — a tag truncated mid-span, with a dangling backtick in it.
     const declarations = derived(
-      "(** Reads. Throws `IndexError` when `Vector.at` receives an index out of range. *)\n" +
+      "(** Reads. Throws `IndexFault` when `Vector.at` receives an index out of range. *)\n" +
       "export fun read(index: Int): Int = index\n",
     );
 
     expect(declarations).toContain(
-      "@throws {IndexError} when `Vector.at` receives an index out of range\n",
+      "@throws {IndexFault} when `Vector.at` receives an index out of range\n",
     );
     expect(declarations).not.toContain("when `Vector\n");
   });
@@ -438,12 +438,12 @@ describe("the throws manifest (#479, Doc Comments §6.1/§7.4)", () => {
     // anything else after it is interior. Without that edge the decimal ended
     // the sentence and the tag read "when the timeout exceeds 1".
     const declarations = derived(
-      "(** Waits. Throws `IndexError` when the timeout exceeds 1.5 seconds. *)\n" +
+      "(** Waits. Throws `IndexFault` when the timeout exceeds 1.5 seconds. *)\n" +
       "export fun wait(index: Int): Int = index\n",
     );
 
     expect(declarations).toContain(
-      "@throws {IndexError} when the timeout exceeds 1.5 seconds\n",
+      "@throws {IndexFault} when the timeout exceeds 1.5 seconds\n",
     );
     expect(declarations).not.toContain("when the timeout exceeds 1\n");
   });
@@ -452,12 +452,12 @@ describe("the throws manifest (#479, Doc Comments §6.1/§7.4)", () => {
     // Same rule, no code span to lean on: what disqualifies the interior dot is
     // the letter after it, not the span the pin above happens to sit inside.
     const declarations = derived(
-      "(** Reads. Throws `IndexError` when Vector.at receives a bad index. *)\n" +
+      "(** Reads. Throws `IndexFault` when Vector.at receives a bad index. *)\n" +
       "export fun read(index: Int): Int = index\n",
     );
 
     expect(declarations).toContain(
-      "@throws {IndexError} when Vector.at receives a bad index\n",
+      "@throws {IndexFault} when Vector.at receives a bad index\n",
     );
     expect(declarations).not.toContain("when Vector\n");
   });
@@ -471,7 +471,7 @@ describe("the throws manifest (#479, Doc Comments §6.1/§7.4)", () => {
     // when nothing else in the *paragraph* qualifies, and otherwise reads on to
     // the next dot that does (the two pins below hold both halves).
     const declarations = derived(
-      "(** Waits. Throws `IndexError` when the timeout exceeds 1.5 seconds *)\n" +
+      "(** Waits. Throws `IndexFault` when the timeout exceeds 1.5 seconds *)\n" +
       "export fun wait(index: Int): Int = index\n",
     );
 
@@ -485,7 +485,7 @@ describe("the throws manifest (#479, Doc Comments §6.1/§7.4)", () => {
     // never the manifest — the next paragraph's own sentence supplying the
     // terminator.
     const declarations = derived(
-      "(** Throws `IndexError` when the timeout exceeds 1.5 seconds\n" +
+      "(** Throws `IndexFault` when the timeout exceeds 1.5 seconds\n" +
       "\n" +
       "    See the manual for details. More. *)\n" +
       "export fun wait(index: Int): Int = index\n",
@@ -493,7 +493,7 @@ describe("the throws manifest (#479, Doc Comments §6.1/§7.4)", () => {
 
     expect(declarations).not.toContain("@throws");
     expect(declarations).not.toContain(
-      "@throws {IndexError} when the timeout exceeds 1.5 seconds See the manual for details",
+      "@throws {IndexFault} when the timeout exceeds 1.5 seconds See the manual for details",
     );
   });
 
@@ -503,16 +503,16 @@ describe("the throws manifest (#479, Doc Comments §6.1/§7.4)", () => {
     // condition is longer than the author's own sentence — which is what makes
     // the blank-line bound above matter, and is as far as the deviation reaches.
     const declarations = derived(
-      "(** Throws `IndexError` when the timeout exceeds 1.5 seconds\n" +
+      "(** Throws `IndexFault` when the timeout exceeds 1.5 seconds\n" +
       "    See the manual for details. More. *)\n" +
       "export fun wait(index: Int): Int = index\n",
     );
 
     expect(declarations).toContain(
-      "@throws {IndexError} when the timeout exceeds 1.5 seconds See the manual for details\n",
+      "@throws {IndexFault} when the timeout exceeds 1.5 seconds See the manual for details\n",
     );
     expect(declarations).not.toContain(
-      "@throws {IndexError} when the timeout exceeds 1.5 seconds\n",
+      "@throws {IndexFault} when the timeout exceeds 1.5 seconds\n",
     );
   });
 
@@ -522,26 +522,26 @@ describe("the throws manifest (#479, Doc Comments §6.1/§7.4)", () => {
     // condition. Reading the dot as interior lost the tag in silence — the
     // sentence emitted exactly as written, and only the `.d.ts` was poorer.
     const declarations = derived(
-      "(** **Throws `IndexError` when the index is bad.** The caller must check first. *)\n" +
+      "(** **Throws `IndexFault` when the index is bad.** The caller must check first. *)\n" +
       "export fun read(index: Int): Int = index\n",
     );
 
-    expect(declarations).toContain("@throws {IndexError} when the index is bad\n");
-    expect(declarations).not.toContain("@throws {IndexError} when the index is bad.**");
+    expect(declarations).toContain("@throws {IndexFault} when the index is bad\n");
+    expect(declarations).not.toContain("@throws {IndexFault} when the index is bad.**");
   });
 
   test("two emphasized manifests in one block derive both tags", () => {
     // The silent loss doubled: a block documenting two exceptions in the
     // paragraph style lost both, and each half of the pin fails on its own.
     const declarations = derived(
-      "(** **Throws `IndexError` when the index is out of range.**\n" +
+      "(** **Throws `IndexFault` when the index is out of range.**\n" +
       "\n" +
-      "    **Throws `SliceError` when the window descends.** *)\n" +
+      "    **Throws `SliceFault` when the window descends.** *)\n" +
       "export fun slice(index: Int): Int = index\n",
     );
 
-    expect(declarations).toContain("@throws {IndexError} when the index is out of range\n");
-    expect(declarations).toContain("@throws {SliceError} when the window descends\n");
+    expect(declarations).toContain("@throws {IndexFault} when the index is out of range\n");
+    expect(declarations).toContain("@throws {SliceFault} when the window descends\n");
   });
 
   test("a dot before a closing paren at the end of the content terminates", () => {
@@ -549,12 +549,12 @@ describe("the throws manifest (#479, Doc Comments §6.1/§7.4)", () => {
     // the skipped marks is nothing at all, which is the other half of the
     // whitespace condition.
     const declarations = derived(
-      "(** Reads. (Throws `IndexError` when the index is bad.) *)\n" +
+      "(** Reads. (Throws `IndexFault` when the index is bad.) *)\n" +
       "export fun read(index: Int): Int = index\n",
     );
 
-    expect(declarations).toContain("@throws {IndexError} when the index is bad\n");
-    expect(declarations).not.toContain("@throws {IndexError} when the index is bad.)");
+    expect(declarations).toContain("@throws {IndexFault} when the index is bad\n");
+    expect(declarations).not.toContain("@throws {IndexFault} when the index is bad.)");
   });
 
   test("a run of dots is never the period, closing marks or no", () => {
@@ -562,14 +562,14 @@ describe("the throws manifest (#479, Doc Comments §6.1/§7.4)", () => {
     // last dot before the closer skip could rescue it, so `...)` is interior and
     // the sentence still ends at the later qualifying dot.
     const declarations = derived(
-      "(** Throws `IndexError` when the index is bad (bad...) and more. Done. *)\n" +
+      "(** Throws `IndexFault` when the index is bad (bad...) and more. Done. *)\n" +
       "export fun read(index: Int): Int = index\n",
     );
 
     expect(declarations).toContain(
-      "@throws {IndexError} when the index is bad (bad...) and more\n",
+      "@throws {IndexFault} when the index is bad (bad...) and more\n",
     );
-    expect(declarations).not.toContain("@throws {IndexError} when the index is bad..\n");
+    expect(declarations).not.toContain("@throws {IndexFault} when the index is bad..\n");
   });
 
   test("a run of dots is never the sentence's period", () => {
@@ -578,12 +578,12 @@ describe("the throws manifest (#479, Doc Comments §6.1/§7.4)", () => {
     // qualify on its own, carrying the leading two into the tag as `bad..` —
     // a malformed tag line in the shipped `.d.ts`.
     const declarations = derived(
-      "(** Throws `IndexError` when the index is bad... and more. Done. *)\n" +
+      "(** Throws `IndexFault` when the index is bad... and more. Done. *)\n" +
       "export fun read(index: Int): Int = index\n",
     );
 
     expect(declarations).toContain(
-      "@throws {IndexError} when the index is bad... and more\n",
+      "@throws {IndexFault} when the index is bad... and more\n",
     );
     expect(declarations).not.toContain("bad..\n");
   });
@@ -597,7 +597,7 @@ describe("the throws manifest (#479, Doc Comments §6.1/§7.4)", () => {
     // like a space in the source it came from.
     const nbsp = "\u{00A0}";
     const declarations = derived(
-      `(** Throws \`IndexError\` when the index is bad.${nbsp}And more *)\n` +
+      `(** Throws \`IndexFault\` when the index is bad.${nbsp}And more *)\n` +
       "export fun read(index: Int): Int = index\n",
     );
 
@@ -609,11 +609,11 @@ describe("the throws manifest (#479, Doc Comments §6.1/§7.4)", () => {
     // The truncation was not only cosmetic: the refusal was run over the
     // shortened span, so an early dot carried a second head past the check.
     const declarations = derived(
-      "(** Throws `IndexError` when `Vector.at` is bad, and `SliceError` when the window descends. *)\n" +
+      "(** Throws `IndexFault` when `Vector.at` is bad, and `SliceFault` when the window descends. *)\n" +
       "export fun read(index: Int): Int = index\n",
     );
 
-    expect(declarations).toContain("Throws `IndexError` when `Vector.at` is bad");
+    expect(declarations).toContain("Throws `IndexFault` when `Vector.at` is bad");
     expect(declarations).not.toContain("@throws");
   });
 
@@ -621,11 +621,11 @@ describe("the throws manifest (#479, Doc Comments §6.1/§7.4)", () => {
     // The deriver never guesses: backticks that do not pair leave the sentence
     // with no terminator this rule can trust, so no tag is derived at all.
     const declarations = derived(
-      "(** Throws `IndexError` when `index is out of range. *)\n" +
+      "(** Throws `IndexFault` when `index is out of range. *)\n" +
       "export fun read(index: Int): Int = index\n",
     );
 
-    expect(declarations).toContain("Throws `IndexError` when `index is out of range.");
+    expect(declarations).toContain("Throws `IndexFault` when `index is out of range.");
     expect(declarations).not.toContain("@throws");
   });
 
@@ -655,13 +655,13 @@ describe("the throws manifest (#479, Doc Comments §6.1/§7.4)", () => {
     const declarations = derived(
       "(** Reads a slice.\n" +
       "\n" +
-      "    Throws `IndexError` when the index is out of range. Throws\n" +
-      "    `SliceError` when the window descends. *)\n" +
+      "    Throws `IndexFault` when the index is out of range. Throws\n" +
+      "    `SliceFault` when the window descends. *)\n" +
       "export fun slice(text: String): Int = 0\n",
     );
 
-    expect(declarations).toContain("@throws {IndexError} when the index is out of range\n");
-    expect(declarations).toContain("@throws {SliceError} when the window descends\n");
+    expect(declarations).toContain("@throws {IndexFault} when the index is out of range\n");
+    expect(declarations).toContain("@throws {SliceFault} when the window descends\n");
   });
 
   test("the tags join the generated position, after the emitter's own docs", () => {
@@ -703,10 +703,10 @@ describe("the throws manifest (#479, Doc Comments §6.1/§7.4)", () => {
     const vector = project.modules.find(({ source }) => source.path === "/Hex/Vector.hex")!;
 
     expect(vector.declarations.text).toContain(
-      "@throws {IndexError} when no such element exists — zero never addresses one",
+      "@throws {IndexFault} when no such element exists — zero never addresses one",
     );
     expect(vector.declarations.text).toContain(
-      "@throws {IndexError} when `index` is out of range; it never extends the vector",
+      "@throws {IndexFault} when `index` is out of range; it never extends the vector",
     );
   });
 });

@@ -21,7 +21,7 @@ import { compileFiles, projectDiagnostics } from "../support/test-project.js";
  * crossed a genuine foreign boundary. That is not ceremony. The three claims
  * §4 actually makes — that a present `undefined` is distinguishable from
  * absence, that `has` runs before `get`, and that the throw is *the* prelude
- * `KeyError` a consumer module can catch — are claims about what a running
+ * `KeyFault` a consumer module can catch — are claims about what a running
  * program observes, and a reading of emitted text is evidence about none of
  * them. The two text pins at the end exist for the converse reason: no
  * execution can distinguish the required two-step lowering from a fused
@@ -90,7 +90,7 @@ interface Run {
  * Compiles a whole project — several Hexagon modules, prelude included — with
  * foreign `data:` modules beside it, and executes it.
  *
- * Several modules rather than one because the `KeyError` pin needs two: the
+ * Several modules rather than one because the `KeyFault` pin needs two: the
  * throw has to happen in a module that is not the one catching it, or the pin
  * would be about a single module's private agreement with itself rather than
  * about the `(owner, name)` pair §4.1 says makes one arm cover both brackets.
@@ -193,10 +193,10 @@ describe("the bracket reads a captured map (§4.1)", () => {
   });
 });
 
-describe("absence throws the prelude `KeyError` (§4.1, §11)", () => {
+describe("absence throws the prelude `KeyFault` (§4.1, §11)", () => {
   /**
    * The identity claim, and the only arrangement that can test it: the bracket
-   * runs in `Reader`, the arm is written in `Main`, and the arm names `KeyError`
+   * runs in `Reader`, the arm is written in `Main`, and the arm names `KeyFault`
    * *bare* — the prelude declaration Collections Part 4 §4.3 owns, which §4.1
    * reuses rather than redeclaring.
    *
@@ -206,7 +206,7 @@ describe("absence throws the prelude `KeyError` (§4.1, §11)", () => {
    * helper that branded the *emitting* module would still be caught by an arm in
    * `Reader` and would sail past this one.
    */
-  test("an absent key is caught by a `catch KeyError` arm in another module", async () => {
+  test("an absent key is caught by a `catch KeyFault` arm in another module", async () => {
     const { main } = await run(
       [
         ["/reader.hex",
@@ -222,7 +222,7 @@ describe("absence throws the prelude `KeyError` (§4.1, §11)", () => {
             "    try\n" +
             "        Reader.lookup(table!(), key)\n" +
             "    catch\n" +
-            "        KeyError => -1\n"],
+            "        KeyFault => -1\n"],
       ],
       { stock: 'export function table() { return new Map([["a", 1]]); }\n' },
     );
@@ -231,12 +231,12 @@ describe("absence throws the prelude `KeyError` (§4.1, §11)", () => {
   });
 
   /**
-   * The same payload from the other side: `Map.KeyError`, the qualified
+   * The same payload from the other side: `Map.KeyFault`, the qualified
    * spelling, catches a `JsMap` bracket's throw. One arm, both brackets — which
    * is the sentence §4.1 writes, and which is true only because the two helpers
    * build the payload from one piece of code.
    */
-  test("the qualified `Map.KeyError` catches it too, and so does the persistent bracket's", async () => {
+  test("the qualified `Map.KeyFault` catches it too, and so does the persistent bracket's", async () => {
     const { main } = await run(
       [["/main.hex",
         "module Main\n\n" +
@@ -248,11 +248,11 @@ describe("absence throws the prelude `KeyError` (§4.1, §11)", () => {
           "    let foreign = try\n" +
           '        table!()["z"]\n' +
           "    catch\n" +
-          "        Map.KeyError => 7\n" +
+          "        Map.KeyFault => 7\n" +
           "    let native = try\n" +
           '        persistent["z"]\n' +
           "    catch\n" +
-          "        Map.KeyError => 8\n" +
+          "        Map.KeyFault => 8\n" +
           "    (foreign, native)\n"]],
       { stock: 'export function table() { return new Map([["a", 1]]); }\n' },
     );
@@ -262,7 +262,7 @@ describe("absence throws the prelude `KeyError` (§4.1, §11)", () => {
   /**
    * The payload's own shape, read off the thrown JavaScript value: nullary
    * (nothing beyond the two fields every Hexagon exception carries), branded to
-   * the *declaring* module, and named `KeyError`. The two brackets' throws are
+   * the *declaring* module, and named `KeyFault`. The two brackets' throws are
    * compared field by field, because "the same `(owner, name)` pair" is the
    * literal contract and the arms above would also pass on two payloads that
    * merely agreed about `name`.
@@ -289,7 +289,7 @@ describe("absence throws the prelude `KeyError` (§4.1, §11)", () => {
     };
     const foreign = thrown("viaJsMap");
     const native = thrown("viaMap");
-    expect(foreign["name"]).toBe("KeyError");
+    expect(foreign["name"]).toBe("KeyFault");
     expect(foreign["$hex"]).toBe("Hex.Map");
     expect([foreign["name"], foreign["$hex"]]).toEqual([native["name"], native["$hex"]]);
     // Nullary: no payload slot, because a polymorphic key cannot be one
@@ -320,7 +320,7 @@ describe("a present `undefined` is not absence (§4.2 steps 2–4)", () => {
           "        let _ = table!()[key]\n" +
           "        True\n" +
           "    catch\n" +
-          "        KeyError => False\n"]],
+          "        KeyFault => False\n"]],
       { stock: 'export function table() { return new Map([["here", undefined]]); }\n' },
     );
     const probe = main["probe"] as (key: string) => boolean;
@@ -348,7 +348,7 @@ describe("a present `undefined` is not absence (§4.2 steps 2–4)", () => {
           "        else if Nullable.isNull(found) then \"present-null\"\n" +
           "        else \"present-value\"\n" +
           "    catch\n" +
-          "        KeyError => \"absent\"\n"]],
+          "        KeyFault => \"absent\"\n"]],
       {
         stock: "export function table() {\n" +
           '  return new Map([["u", undefined], ["n", null], ["v", 5]]);\n' +
@@ -416,7 +416,7 @@ describe("evaluation order and arity (§4.2 step 1)", () => {
           "    try\n" +
           "        table!()[key!()]\n" +
           "    catch\n" +
-          "        KeyError => -1\n"]],
+          "        KeyFault => -1\n"]],
       {
         stock: "export const events = [];\n" +
           "export function table() {\n" +
@@ -456,7 +456,7 @@ describe("what the bracket is not (§4.3, §4.5, §11)", () => {
           "    try\n" +
           "        m[1..3]\n" +
           "    catch\n" +
-          "        KeyError => -1\n"]],
+          "        KeyFault => -1\n"]],
     );
     expect([main["sameValue"], main["equalLooking"]]).toEqual([7, -1]);
   });
@@ -540,7 +540,7 @@ describe("the emitted lowering (§4.2, normative)", () => {
     expect(body).toBeDefined();
     expect(body).toContain("function __jsMapIndex(__map, __key) {");
     expect(body).toContain("if (__map.has(__key)) return __map.get(__key);");
-    expect(body).toContain('__error.name = "KeyError";');
+    expect(body).toContain('__error.name = "KeyFault";');
     expect(body).toContain('__error.$hex = "Hex.Map";');
     // §4.2 item 4, as text: the word does not occur, so there is no test against
     // it and no branch that could confuse a stored `undefined` with absence.

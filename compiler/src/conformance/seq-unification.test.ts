@@ -1151,7 +1151,7 @@ describe("forcing is not reentrant (FFI Part 3 §7.3)", () => {
   /**
    * The #123 ruling, 2026-08-02. A forcing that asks the same spine for the
    * position it is computing is asking for the value it is in the middle of
-   * producing; §7.3 makes that the domestic `Seq.ReentrancyError` — the tests
+   * producing; §7.3 makes that the domestic `Seq.ReentrancyFault` — the tests
    * below read its `name` — and leaves everything else about the traversal
    * alone. (The sentence here read "a `TypeError`, observed through `JsError`"
    * until #509 landed the door and made the difference checkable; §7.3 records
@@ -1159,7 +1159,7 @@ describe("forcing is not reentrant (FFI Part 3 §7.3)", () => {
    * `JsError` refusal could not be told from any other foreign `TypeError`.
    * Passing back out through foreign frames rebrands nothing either — the door
    * is virtual, so a refusal that escapes a foreign call is still
-   * `ReentrancyError` to the `catch` that receives it.)
+   * `ReentrancyFault` to the `catch` that receives it.)
    *
    * **The shape is an ordinary program, not a contrived one**, which is what
    * the issue got wrong when it recorded this as unreachable from the harness
@@ -1279,7 +1279,7 @@ describe("forcing is not reentrant (FFI Part 3 §7.3)", () => {
     // traversal had consumed the element the enclosing forcing was fetching, and
     // both traversals returned the short answer with no error raised anywhere.
     expect(drained()).toEqual([10, 20, 30, 40]);
-    expect(reentry()).toBe("ERR:true:ReentrancyError");
+    expect(reentry()).toBe("ERR:true:ReentrancyFault");
     // Replay agrees with the first traversal, so nothing was patched over.
     expect(drained()).toEqual([10, 20, 30, 40]);
   });
@@ -1352,7 +1352,7 @@ describe("forcing is not reentrant (FFI Part 3 §7.3)", () => {
       "}",
     ].join("\n"));
     expect(drained()).toEqual([10, 20, 30]);
-    expect(reentry()).toBe("ERR:true:ReentrancyError");
+    expect(reentry()).toBe("ERR:true:ReentrancyFault");
   });
 
   test("a generator source behaves identically, which is the point", async () => {
@@ -1362,6 +1362,6 @@ describe("forcing is not reentrant (FFI Part 3 §7.3)", () => {
     // so the two now fail the same way and with the same message.
     const { drained, reentry } = await armed(generatorSource, retraverseAt(1));
     expect(drained()).toEqual([10, 20, 30, 40]);
-    expect(reentry()).toBe("ERR:true:ReentrancyError");
+    expect(reentry()).toBe("ERR:true:ReentrancyFault");
   });
 });

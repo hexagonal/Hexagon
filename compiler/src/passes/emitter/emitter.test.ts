@@ -252,7 +252,7 @@ describe("emitJavaScript", () => {
     expect(compileFiles(files).diagnostics).toEqual([]);
     await expect(runProject(files)).rejects.toThrowError(
       expect.objectContaining({
-        name: "IndexError",
+        name: "IndexFault",
         $hex: "Hex.Vector",
         index: -3,
         size: 2,
@@ -353,7 +353,7 @@ describe("emitJavaScript", () => {
         "export let missing(): String = values[99]\n",
     ]]);
     expect(missing["missing"] as () => unknown).toThrowError(
-      expect.objectContaining({ name: "KeyError" }),
+      expect.objectContaining({ name: "KeyFault" }),
     );
   });
 
@@ -1523,7 +1523,7 @@ describe("emitJavaScript", () => {
     expect((await runProject(files))["result"]).toEqual([-3, 2, -2, -1, 6]);
   });
 
-  test("brands integer division by zero as DivideByZeroError", async () => {
+  test("brands integer division by zero as DivideByZeroFault", async () => {
     // The guard is `stdlib/Int.hex`'s Hexagon `throw` now, above a door binding
     // that is the raw `%` (#344), so the module is linked and run rather than
     // evaluated as one text — and the error is `$hex`-branded because it is an
@@ -1537,7 +1537,7 @@ describe("emitJavaScript", () => {
       thrown = error;
     }
     expect(thrown).toBeInstanceOf(Error);
-    expect(thrown).toMatchObject({ name: "DivideByZeroError", $hex: "Hex.Integral" });
+    expect(thrown).toMatchObject({ name: "DivideByZeroFault", $hex: "Hex.Integral" });
     expect((thrown as Error).message).toBe("Int.mod: divisor is zero");
   });
 
@@ -1581,13 +1581,13 @@ describe("emitJavaScript", () => {
     // Linked and run since #344: `BigInt.gcd`/`BigInt.quot` are
     // `Integral<BigInt>`'s members in `stdlib/BigInt.hex`, so the emitted
     // module imports their forwarders and the instance rather than carrying a
-    // helper. `DivideByZeroError` comes from the prelude's `Integral.hex` for
+    // helper. `DivideByZeroFault` comes from the prelude's `Integral.hex` for
     // the same reason, so the program no longer declares one.
     const files = [["/main.hex",
       "module Main\n\n" + "record Rat derives Eq = {top: BigInt, bottom: BigInt}\n" +
           "let create(top: BigInt, bottom: BigInt): Rat =\n" +
           "    if bottom == 0n then\n" +
-          "        throw(DivideByZeroError(\"Rat.create: bottom is zero\"))\n" +
+          "        throw(DivideByZeroFault(\"Rat.create: bottom is zero\"))\n" +
           "    else\n" +
           "        let divisor = BigInt.gcd(top, bottom)\n" +
           "        let reducedTop = BigInt.quot(top, divisor)\n" +
@@ -1638,7 +1638,7 @@ describe("emitJavaScript", () => {
       thrown = error;
     }
     expect(thrown).toBeInstanceOf(Error);
-    expect(thrown).toMatchObject({ name: "NegativeExponentError", $hex: "Hex.Pow" });
+    expect(thrown).toMatchObject({ name: "NegativeExponentFault", $hex: "Hex.Pow" });
     expect((thrown as Error).message).toBe("an integer exponent cannot be negative");
   });
 
@@ -1665,7 +1665,7 @@ describe("emitJavaScript", () => {
     }
     expect(thrown).toBeInstanceOf(Error);
     expect(thrown).toMatchObject({
-      name: "NegativeExponentError",
+      name: "NegativeExponentFault",
       message: "an integer exponent cannot be negative",
       $hex: "Hex.Pow",
     });

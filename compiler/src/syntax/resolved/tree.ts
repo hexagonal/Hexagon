@@ -1719,6 +1719,11 @@ export interface RecordItem {
 export interface ExceptionItem {
   readonly kind: "Exception";
   readonly exported: boolean;
+  /**
+   * Declared with `fault` (Exceptions §2): a broken assumption, untracked, and
+   * let through by a catch-all (§5.3). The head word, carried as written.
+   */
+  readonly fault: boolean;
   readonly binding: Binding;
   readonly slots: readonly ConstructorSlot[];
   /**
@@ -2166,6 +2171,13 @@ export interface MatchExpr {
 
 export interface MatchArm {
   readonly pattern: Pattern;
+  /**
+   * The arm's pattern is the kind pattern `fault x` or `fault _` (Exceptions
+   * §5.2): it matches every fault, of any declaration. Carried on the arm
+   * because the pattern is a whole catch arm's or nothing; the binder (or
+   * `_`) is the arm's `pattern`, its span covering both words.
+   */
+  readonly fault?: true;
   readonly guard?: Expr;
   readonly body: Expr;
   readonly span: Source.Span;

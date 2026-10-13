@@ -384,7 +384,7 @@ describe("Rat after the fold-in", () => {
 
     expect(exports.attempt as () => string).toThrowError(
       expect.objectContaining({
-        name: "DivideByZeroError",
+        name: "DivideByZeroFault",
         message: "Rat.divide: divisor is zero",
       }),
     );

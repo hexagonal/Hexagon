@@ -26,7 +26,7 @@ function elements(value: unknown): unknown[] {
  * 1. **Consumers see nothing new** (§8.2). `Vector.length(v)` used to resolve
  *    through the resolver's `Map`/`Set`/`Vector` guard to a compiler-owned
  *    operation; it now resolves to an export of a prelude module. Same spelling,
- *    same answers — including the `IndexError` payloads, which were the one
+ *    same answers — including the `IndexFault` payloads, which were the one
  *    place the two paths could have diverged, since the emitter throws that
  *    exception from a helper and `Vector.hex` declares it.
  * 2. **Joining the prelude drags nothing in.** A prelude member is emitted only
@@ -93,7 +93,7 @@ describe("the module", () => {
       // alias; Modules §5.5's closed bare set admits none of its exports.
       "Math",
       // #533 moved `BigInt.hex` past `Float.hex`: `BigInt.toFloat`'s guard
-      // throws `Float.hex`'s `FloatRangeError`, and a module seats after what
+      // throws `Float.hex`'s `FloatRangeFault`, and a module seats after what
       // it uses. Nothing before it names a `BigInt`, so the move costs the
       // three companions above it nothing.
       "BigInt",
@@ -247,20 +247,20 @@ describe("consumers see nothing new (§8.2)", () => {
   });
 
   /**
-   * `IndexError` and `SliceError` are `Vector.hex`'s declarations and are now
+   * `IndexFault` and `SliceFault` are `Vector.hex`'s declarations and are now
    * prelude-visible *as terms*: a consumer can name and throw them with no
    * import, which nothing outside `Vector.hex` could do before.
    */
   test("the declared exceptions are constructible with no import", async () => {
     const main = await runProject([[
       "/main.hex",
-      "module Main\n\n" + "export fun refuse(index: Int): Int = throw(IndexError(index, 0))\n" +
-      "export fun reject(start: Int): Int = throw(SliceError(start, 0))\n",
+      "module Main\n\n" + "export fun refuse(index: Int): Int = throw(IndexFault(index, 0))\n" +
+      "export fun reject(start: Int): Int = throw(SliceFault(start, 0))\n",
     ]]);
 
     const refuse = main["refuse"] as (index: number) => number;
     expect(() => refuse(9)).toThrowError(
-      expect.objectContaining({ name: "IndexError", $hex: "Hex.Vector", index: 9, size: 0 }),
+      expect.objectContaining({ name: "IndexFault", $hex: "Hex.Vector", index: 9, size: 0 }),
     );
   });
 
@@ -277,19 +277,19 @@ describe("consumers see nothing new (§8.2)", () => {
       "module Main\n\n" + "let values: Vector(Int) = [10, 20]\n" +
       "export let bad: Int = Vector.at(values, 99)\n",
     ]])).rejects.toThrowError(
-      expect.objectContaining({ name: "IndexError", $hex: "Hex.Vector", index: 99, size: 2 }),
+      expect.objectContaining({ name: "IndexFault", $hex: "Hex.Vector", index: 99, size: 2 }),
     );
     await expect(runProject([[
       "/main.hex",
       "module Main\n\n" + "let values: Vector(Int) = [10, 20]\n" +
       "export let bad: Int = values[7]\n",
     ]])).rejects.toThrowError(
-      expect.objectContaining({ name: "IndexError", $hex: "Hex.Vector", index: 7, size: 2 }),
+      expect.objectContaining({ name: "IndexFault", $hex: "Hex.Vector", index: 7, size: 2 }),
     );
   });
 
   /**
-   * `SliceError` is the other declaration, and the slice helper's direction
+   * `SliceFault` is the other declaration, and the slice helper's direction
    * check raises it for a `Range.down` window (`range-companion.test.ts`). An
    * empty *ascending* window clamps instead, which is §6's other half.
    */
@@ -306,18 +306,18 @@ describe("consumers see nothing new (§8.2)", () => {
   /**
    * The gap this arrived as a `test.fails` against is closed (#469): the
    * checker's exception table is every exception constructor *in scope*, so the
-   * prelude's `IndexError` is catchable here by the bare name §5.5 puts in
+   * prelude's `IndexFault` is catchable here by the bare name §5.5 puts in
    * scope — the flip the old comment asked for, made once the table learned
    * about the constructors this module did not write.
    */
-  test("a `catch` arm can name the prelude `IndexError`", async () => {
+  test("a `catch` arm can name the prelude `IndexFault`", async () => {
     const main = await runProject([[
       "/main.hex",
       "module Main\n\n" + "let values: Vector(Int) = [10, 20]\n" +
       "export let payload: (Int, Int) = try\n" +
       "    (Vector.at(values, 99), 0)\n" +
       "catch\n" +
-      "    IndexError(index, size) => (index, size)\n",
+      "    IndexFault(index, size) => (index, size)\n",
     ]]);
 
     expect(main["payload"]).toEqual([99, 2]);

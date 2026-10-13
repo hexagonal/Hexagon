@@ -344,7 +344,7 @@ describe("`pow` and the guard that is not there", () => {
     expect(exports["cube"]).toBe(8);
     expect(exports["reciprocal"]).toBe(0.5);
     expect(emitted(source)).toContain("const cube = 2.0 ** three;");
-    expect(emitted(source)).not.toContain("NegativeExponentError");
+    expect(emitted(source)).not.toContain("NegativeExponentFault");
   });
 });
 
@@ -734,7 +734,7 @@ describe("Primitive Types §3's checked Float-to-Int rounding exits (#919)", () 
       for (const value of [NaN, Infinity, -Infinity, 2 ** 53, -(2 ** 53)]) {
         expect(() => call(value), `${operation}(${String(value)})`).toThrowError(
           expect.objectContaining({
-            name: "IntRangeError",
+            name: "IntRangeFault",
             message: `${operation}: result does not fit in Int`,
             $hex: "Hex.Int",
           }),
@@ -750,7 +750,7 @@ describe("Primitive Types §3's checked Float-to-Int rounding exits (#919)", () 
       expect(declarations).toContain(`export declare const ${name}: (value: number) => number;`);
     }
     expect(declarations).not.toContain("roundEven");
-    expect(declarations.match(/@throws \{IntRangeError\}/gu)).toHaveLength(5);
+    expect(declarations.match(/@throws \{IntRangeFault\}/gu)).toHaveLength(5);
   });
 });
 
@@ -787,20 +787,20 @@ describe("the companion's own emitted shape", () => {
     // `rem` is an exported door row, so its call here is its operator (§8.3).
     expect(text).toContain("const remainder = left % right;");
     // `Real.sign` and the shared rounding crossing are the file's two guarded
-    // sites. `FloatRangeError` remains an exact-to-Float error and is not thrown
+    // sites. `FloatRangeFault` remains an exact-to-Float error and is not thrown
     // by this module.
     expect(withoutComments(text).match(/\bthrow\b/gu)).toHaveLength(2);
-    expect(text).toContain('throw UndefinedSignError("NaN has no sign")');
+    expect(text).toContain('throw UndefinedSignFault("NaN has no sign")');
     expect(text).toContain(
-      "throw IntRangeError(message)",
+      "throw IntRangeFault(message)",
     );
     expect(text).toContain(
-      "const FloatRangeError = message => " +
-        "__exception(\"FloatRangeError\", message, { message });",
+      "const FloatRangeFault = message => " +
+        "__exception(\"FloatRangeFault\", message, { message });",
     );
     expect(text).toContain(
-      "const UndefinedSignError = message => " +
-        "__exception(\"UndefinedSignError\", message, { message });",
+      "const UndefinedSignFault = message => " +
+        "__exception(\"UndefinedSignFault\", message, { message });",
     );
     // The brand is the declaring module's full name (Packages §2.3), so the
     // prelude's own `Hex.Float`.

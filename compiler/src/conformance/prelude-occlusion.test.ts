@@ -445,7 +445,7 @@ describe("a declaration's constructor names occlude too (#466)", () => {
    *
    * The prelude constructors these pins take over are real: `Less`/`Greater`
    * from `Ordering` (`stdlib/Ordering.hex`), `Some` from `Option.hex`,
-   * `IndexError` from `Vector.hex`, `True` from `Bool.hex` (#147).
+   * `IndexFault` from `Vector.hex`, `True` from `Bool.hex` (#147).
    */
 
   test("a union may take a prelude constructor over, and the module's is what it means", async () => {
@@ -517,16 +517,16 @@ describe("a declaration's constructor names occlude too (#466)", () => {
   });
 
   test("an exception may take a prelude exception's name over", async () => {
-    expect(projectDiagnostics("module Main\n\n" + "export exception IndexError(code: Int)\n")).toEqual([]);
+    expect(projectDiagnostics("module Main\n\n" + "export fault IndexFault(code: Int)\n")).toEqual([]);
 
     // Thrown and caught below the declaration through the bare spelling: the
     // catch arm is a constructor pattern like any other (exceptions.md §5.2).
-    const exports = await runMain("module Main\n\n" + "export exception IndexError(code: Int)\n" +
+    const exports = await runMain("module Main\n\n" + "export fault IndexFault(code: Int)\n" +
       "export fun caught(): Int =\n" +
       "    try\n" +
-      "        throw(IndexError(7))\n" +
+      "        throw(IndexFault(7))\n" +
       "    catch\n" +
-      "        IndexError(c) => c\n" +
+      "        IndexFault(c) => c\n" +
       "export let r: Int = caught()\n",
     );
 

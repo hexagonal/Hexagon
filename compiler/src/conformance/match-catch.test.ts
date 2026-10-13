@@ -268,7 +268,7 @@ describe("typing and the two sections' laws", () => {
         "    catch\n" +
         "        _ => 1\n" +
         "        Boom(_, _) => 2\n",
-    )).toEqual(["this catch arm is unreachable because an earlier arm catches everything"]);
+    )).toEqual(["this catch arm is unreachable; the arm `_` above catches every exception"]);
   });
 
   test("a constructor already caught above is unreachable in the clause too", () => {

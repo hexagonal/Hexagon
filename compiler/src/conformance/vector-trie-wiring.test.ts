@@ -800,7 +800,7 @@ describe("§5 indexed access over the trie", () => {
       thrown = error;
     }
     expect(thrown).toMatchObject({
-      name: "IndexError",
+      name: "IndexFault",
       $hex: "Hex.Vector",
       index,
       size,
@@ -857,7 +857,7 @@ describe("§6 slicing over the trie", () => {
     );
     const helper = javascript.slice(javascript.indexOf("function __vectorSlice"));
     const body = helper.slice(0, helper.indexOf("\n}"));
-    expect(body).toContain('__error.name = "SliceError"');
+    expect(body).toContain('__error.name = "SliceFault"');
     expect(body).toContain("__error.start = __range.start");
     expect(body).toContain("__error.end = __range.end");
     expect(body.indexOf("descending")).toBeLessThan(body.indexOf("__trieWindow"));
@@ -1009,7 +1009,7 @@ describe("§9 strings did not follow the vector", () => {
     } catch (error) {
       thrown = error;
     }
-    expect(thrown).toMatchObject({ name: "IndexError", $hex: "Hex.Vector", index: 9, size: 5 });
+    expect(thrown).toMatchObject({ name: "IndexFault", $hex: "Hex.Vector", index: 9, size: 5 });
   });
 });
 

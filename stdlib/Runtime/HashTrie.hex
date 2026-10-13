@@ -95,7 +95,7 @@ record HashTrie(k, v) = {
 
 // Signals a structurally malformed trie (a runtime bug, never a caller error).
 // Thrown only on paths a well-formed trie can never take.
-exception TrieCorruption(message: String)
+fault TrieCorruptionFault(message: String)
 
 // The compiler-provided one-liners this trie is written over
 // (`spec/intrinsics.md` §5.2's runtime-module bullet). Hexagon has no bitwise
@@ -309,7 +309,7 @@ fun splitEntry(
         // Unreachable: two hashes agreeing on every digit through `lastShift`
         // agree on all 32 bits, and this function is never called with equal
         // hashes — a tie is a `Collision`, which is where both callers send it.
-        throw(TrieCorruption("splitEntry: differing hashes agreed on every digit"))
+        throw(TrieCorruptionFault("splitEntry: differing hashes agreed on every digit"))
     else
         Branch(
             bitSet(0, here),

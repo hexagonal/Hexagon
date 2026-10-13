@@ -77,7 +77,7 @@ emitted one (Packages §6).
   ordinary Hexagon over that row and the bracket. The asserting read `xs[i]` is
   an *expression form* and so is the emitter's lowering rather than an export
   here, exactly as `Vector`'s bracket and `Map`'s are; out of bounds it raises
-  `Vector.hex`'s `IndexError`, the one such declaration in the corpus. There is
+  `Vector.hex`'s `IndexFault`, the one such declaration in the corpus. There is
   no mutation surface and no `set`. The conversion is `toVector`, FFI Part 2
   §9's conversion into a persistent vector — eager, a stable persistent
   snapshot, shallow and total — and it takes **no door row**: a `for` over the

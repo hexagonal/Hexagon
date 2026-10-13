@@ -15,7 +15,7 @@ import {
  *
  * The prelude used to seed every export into every module's bare term scope.
  * §5.5 now seeds **nothing** there by default, and four channel rules put
- * twenty-one names back: the thirteen exception constructors, the six constructors of
+ * twenty-two names back: the fourteen throwable constructors, the six constructors of
  * the open unions `Bool`/`Option`/`Result`, `ignore`, and `show`. Everything
  * else is reached by the dot or the qualified spelling, and a bare reference to
  * it draws §10's refusal with its routes named.
@@ -24,7 +24,7 @@ import {
  *
  * The companion suites (`vector-prelude-companion`, `float-companion`,
  * `js-kind-qualification`, …) each pin their own module's surface. This one pins
- * the **rule**: the set is exactly twenty-one names and is closed, each channel
+ * the **rule**: the set is exactly twenty-two names and is closed, each channel
  * admits what it says it admits and nothing beside, and the refusal has one
  * shape across all three channels. The set pin is written against the *compiled
  * prelude* rather than a transcription, so drift in either direction — a name
@@ -61,20 +61,22 @@ function moduleNames(source: string): readonly string[] {
  * design ruling argued against §5.5, never an edit.
  */
 const BARE_SET = [
-  // The thirteen exception constructors — a category, not a list (§5.5).
-  "DecRangeError",
-  "DecimalPlacesOverflowError",
-  "DivideByZeroError",
-  "FloatRangeError",
-  "IndexError",
-  "IntRangeError",
+  // The fourteen throwable constructors — thirteen faults and the exception
+  // `JsError` — a category, not a list (§5.5).
+  "AssumptionFault",
+  "DecRangeFault",
+  "DecimalPlacesOverflowFault",
+  "DivideByZeroFault",
+  "FloatRangeFault",
+  "IndexFault",
+  "IntRangeFault",
   "JsError",
-  "KeyError",
-  "NegativeExponentError",
-  "NegativeDecimalPlacesError",
-  "ReentrancyError",
-  "SliceError",
-  "UndefinedSignError",
+  "KeyFault",
+  "NegativeExponentFault",
+  "NegativeDecimalPlacesFault",
+  "ReentrancyFault",
+  "SliceFault",
+  "UndefinedSignFault",
   // The open unions' six constructors.
   "Err",
   "False",
@@ -87,13 +89,13 @@ const BARE_SET = [
   "show",
 ].sort();
 
-describe("the bare set is exactly twenty-one names, and closed", () => {
+describe("the bare set is exactly twenty-two names, and closed", () => {
   test("the prelude layer binds the set and nothing else", () => {
     expect(bareNames()).toEqual(BARE_SET);
   });
 
-  test("twenty-one is the count the section states", () => {
-    expect(BARE_SET.length).toBe(21);
+  test("twenty-two is the count the section states", () => {
+    expect(BARE_SET.length).toBe(22);
   });
 
   /**
@@ -699,17 +701,17 @@ describe("the exception channel: all of them, as a category", () => {
    * qualifier — so the list is asserted whole rather than sampled.
    */
   test.each([
-    ["DecimalPlacesOverflowError", "Dec", "(m)"],
-    ["DecRangeError", "Dec", "(m)"],
-    ["NegativeDecimalPlacesError", "Dec", "(m)"],
-    ["NegativeExponentError", "Pow", "(m)"],
-    ["DivideByZeroError", "Integral", "(m)"],
-    ["FloatRangeError", "Float", "(m)"],
-    ["IntRangeError", "Int", "(m)"],
-    ["ReentrancyError", "Seq", ""],
-    ["IndexError", "Vector", "(i, n)"],
-    ["SliceError", "Vector", "(a, b)"],
-    ["KeyError", "Map", ""],
+    ["DecimalPlacesOverflowFault", "Dec", "(m)"],
+    ["DecRangeFault", "Dec", "(m)"],
+    ["NegativeDecimalPlacesFault", "Dec", "(m)"],
+    ["NegativeExponentFault", "Pow", "(m)"],
+    ["DivideByZeroFault", "Integral", "(m)"],
+    ["FloatRangeFault", "Float", "(m)"],
+    ["IntRangeFault", "Int", "(m)"],
+    ["ReentrancyFault", "Seq", ""],
+    ["IndexFault", "Vector", "(i, n)"],
+    ["SliceFault", "Vector", "(a, b)"],
+    ["KeyFault", "Map", ""],
     ["JsError", "JsError", "(e)"],
   ])("`%s` is bare in a catch arm, and qualified through `%s`", (name, home, slots) => {
     expect(projectDiagnostics("module Main\n\n" + "export fun f(n: Int): Int =\n" +
@@ -728,9 +730,9 @@ describe("the exception channel: all of them, as a category", () => {
 
   /** And an exception constructor is bare in expression position too. */
   test("`throw` takes the bare constructor", () => {
-    expect(projectDiagnostics("module Main\n\n" + "export fun f(): Int = throw(KeyError)\n",
+    expect(projectDiagnostics("module Main\n\n" + "export fun f(): Int = throw(KeyFault)\n",
     )).toEqual([]);
-    expect(projectDiagnostics("module Main\n\n" + "export fun f(): Int = throw(Map.KeyError)\n",
+    expect(projectDiagnostics("module Main\n\n" + "export fun f(): Int = throw(Map.KeyFault)\n",
     )).toEqual([]);
   });
 });

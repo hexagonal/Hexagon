@@ -830,6 +830,8 @@ export interface TryExpr extends ExpressionFields {
 
 export interface MatchArm {
   readonly pattern: Pattern;
+  /** `fault x` / `fault _` (Exceptions §5.2); see `Resolved.MatchArm`. */
+  readonly fault?: true;
   readonly guard?: Expr;
   readonly body: Expr;
   readonly span: Source.Span;

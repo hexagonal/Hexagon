@@ -101,7 +101,7 @@ export function isIntrinsicScheme(specifier: string): boolean {
  *   `floatTrunc` produces the integer-valued `Float` every rule composes over,
  *   `floatIsSafeInteger` earns the crossing, and `floatToIntUnchecked` is its
  *   representation-identity core. Direction, ties, canonical zero, messages,
- *   and the `IntRangeError` guard stay in ordinary `Float.hex`; there is no
+ *   and the `IntRangeFault` guard stay in ordinary `Float.hex`; there is no
  *   `floatFloor`, `floatCeil`, or host-asymmetric `floatRound` key.
  * - **One `Float` conversion crosses and one does not.** `floatFromInt` is
  *   keyed, for `intFromNat`'s exact argument: any Hexagon body for `Int` ->
@@ -260,7 +260,7 @@ export function isIntrinsicScheme(specifier: string): boolean {
  *   sibling accessors need no key: `get` is ordinary Hexagon over this row and
  *   the bracket, and the bracket itself is an *expression form* — the emitter's
  *   own lowering, like `Vector`'s and `Map`'s — so the bounds assertion that
- *   throws `IndexError` is no companion operation and takes no key. Neither
+ *   throws `IndexFault` is no companion operation and takes no key. Neither
  *   does the file's §9 conversion, `Array.toVector`: it is a `for` over the
  *   borrow folding `Vector.append`, which is ordinary Hexagon at the same
  *   complexity, so `stdlib-roadmap.md` §5.1 keeps it in source. The contrast

@@ -377,6 +377,9 @@ function writtenTypeParameter(parameter: Parsed.TypeParameter): string {
  * §4). `union` is absent because it is contextual and costs a second token of
  * lookahead — `#atUnionHead` owns that test.
  */
+/** Exceptions §5.2, §9: where a `fault` pattern stands other than as a whole catch arm's. */
+const FAULT_PATTERN_SEAT = "a `fault` pattern is a whole catch arm's pattern";
+
 const opensVisibleDeclaration = new Set<TokenKind>([
   "Let",
   "Fun",
@@ -651,6 +654,13 @@ class Parser {
    * consumed in between.
    */
   #matchFunctionEnd = -1;
+  /**
+   * The token at which the catch arm being read begins its pattern, while that
+   * pattern is read (Exceptions §5.2): the one seat a `fault` pattern may
+   * claim. `#armFault` is the `fault` pattern read there, if one was.
+   */
+  #catchArmHead: number | undefined;
+  #armFault: Source.Span | undefined;
 
   constructor(
     tokens: readonly LaidOut.Token[],
@@ -1450,7 +1460,7 @@ class Parser {
       }
       if (
         !opensVisibleDeclaration.has(this.#current().kind) && !this.#atPatternHead() &&
-        !this.#atUnionHead() && !this.#atExternEnumHead()
+        !this.#atUnionHead() && !this.#atFaultHead() && !this.#atExternEnumHead()
       ) {
         this.#errorAt(
           exportToken.span,
@@ -1528,7 +1538,12 @@ class Parser {
         // gate. There is no vector *expression* an ordinary `let` binder could
         // want here: a binder is a name or a pattern, never `[`.
         ["LeftParen", "LeftBrace", "LeftBracket", "UpperName", "Wildcard"]
-          .includes(this.#peek(1).kind)
+          .includes(this.#peek(1).kind) ||
+        // A `fault` pattern is no binder either (Exceptions §5.2), nor is
+        // `fault` before a constructor: routed to the pattern reader, which
+        // answers each with its own sentence. (`let fault(x) = …` stays the
+        // function binding it is.)
+        this.#atFaultPattern(1) || (this.#atFaultSlip(1) && this.#peek(2).kind === "UpperName")
       ) {
         return this.#parsePatternBinding();
       }
@@ -1567,10 +1582,10 @@ class Parser {
       }
       return this.#parseRecordDeclaration(false, undefined, false);
     }
-    if (this.#at("Exception")) {
+    if (this.#at("Exception") || this.#atFaultHead()) {
       if (!moduleItems) {
         const start = this.#advance();
-        this.#errorAt(start.span, "exceptions are declared at module level");
+        this.#errorAt(start.span, "exceptions and faults are declared at module level");
         this.#synchronize(itemEnds);
         return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
       }
@@ -1615,7 +1630,7 @@ class Parser {
     }
     if (this.#atUnionHead()) return this.#parseUnion(exported, itemStart, opaque);
     if (this.#at("Record")) return this.#parseRecordDeclaration(exported, itemStart, opaque);
-    if (this.#at("Exception")) return this.#parseException(exported, itemStart);
+    if (this.#at("Exception") || this.#atFaultHead()) return this.#parseException(exported, itemStart);
     return this.#at("Let")
       ? this.#parseBinding("Let", exported, itemStart)
       : this.#parseBinding("Fun", exported, itemStart);
@@ -3435,7 +3450,7 @@ class Parser {
    * Whether a module **closer** starts here — `end module Name` (Lexer §4.2,
    * Modules §2.2, #829). The two words together are the mark; `end` alone
    * stays an ordinary name everywhere, which is what keeps
-   * `SliceError(start, end)` in `stdlib/Vector.hex` spellable.
+   * `SliceFault(start, end)` in `stdlib/Vector.hex` spellable.
    */
   #atModuleCloser(): boolean {
     return this.#atContextual("end") && this.#peekContextual(1, "module") &&
@@ -3495,6 +3510,63 @@ class Parser {
     if (!this.#atContextual("union")) return false;
     const next = this.#peek(1).kind;
     return next === "UpperName" || next === "NonUpperName";
+  }
+
+  /**
+   * Whether a `fault` declaration starts here (Exceptions §2): the contextual
+   * head word (Lexer §4.2), recognized by `union`'s mechanism and for its
+   * reason. A term named `fault` is followed by `(`, an operator, a newline or
+   * nothing, never by a name, so a following name means a declaration, and a
+   * mis-cased one is still read as one so that `#parseException`'s
+   * uppercase-name report points at the real fault.
+   */
+  #atFaultHead(): boolean {
+    if (!this.#atContextual("fault")) return false;
+    const next = this.#peek(1).kind;
+    return next === "UpperName" || next === "NonUpperName";
+  }
+
+  /**
+   * Whether `fault` stands before a constructor's pattern or a group here —
+   * `fault MyFault(c)`, `fault (MyFault(c))`, `fault(MyFault(c))` — the slip
+   * `#parseAtomicPattern` redirects. No pattern is a name before either, so
+   * the group is read touching or apart; the pattern reader is reached only
+   * once a seat has committed to a pattern (the lambda lookahead steps over
+   * tokens without it), so a call `fault(x)` never meets this test.
+   */
+  #atFaultSlip(offset = 0): boolean {
+    const head = this.#peek(offset);
+    if (head.kind !== "NonUpperName" || head.text !== "fault") return false;
+    const next = this.#peek(offset + 1);
+    return next.kind === "UpperName" || next.kind === "LeftParen";
+  }
+
+  /** A constructor's spelling as written from here, its qualifiers included. */
+  #dottedSpelling(): string {
+    const parts = [(this.#current() as Lexed.NameToken).text];
+    let offset = 1;
+    while (this.#peek(offset).kind === "Dot" && this.#peek(offset + 1).kind === "UpperName") {
+      parts.push((this.#peek(offset + 1) as Lexed.NameToken).text);
+      offset += 2;
+    }
+    return parts.join(".");
+  }
+
+  /**
+   * Whether Exceptions §5.2's kind pattern `fault x` / `fault _` starts here.
+   *
+   * `fault` is contextual at a catch arm's head as at a declaration's (§2): a
+   * pattern has no juxtaposition, so `fault` followed by a binder or `_` can
+   * only be the kind pattern. The two words a pattern *does* let follow a
+   * binder are excluded, since `fault as e` binds a variable named `fault` and
+   * `fault when ready` guards one.
+   */
+  #atFaultPattern(offset = 0): boolean {
+    const head = this.#peek(offset);
+    if (head.kind !== "NonUpperName" || head.text !== "fault") return false;
+    const next = this.#peek(offset + 1);
+    if (next.kind === "Wildcard") return true;
+    return next.kind === "NonUpperName" && next.text !== "as" && next.text !== "when";
   }
 
   /**
@@ -3563,7 +3635,7 @@ class Parser {
    */
   #atOpaqueHead(): boolean {
     if (!this.#atContextual("opaque")) return false;
-    if (this.#peekContextual(1, "union")) {
+    if (this.#peekContextual(1, "union") || this.#peekContextual(1, "fault")) {
       const name = this.#peek(2).kind;
       return name === "UpperName" || name === "NonUpperName";
     }
@@ -4823,13 +4895,22 @@ class Parser {
     };
   }
 
+  /**
+   * `exception Name(slots)` and `fault Name(slots)` (Exceptions §2): two head
+   * words, one grammar. The caller has checked that one of the two is here.
+   */
   #parseException(exported: boolean, itemStart?: Source.Span): Parsed.Item {
+    const fault = !this.#at("Exception");
     const start = this.#advance();
-    const nameToken = this.#takeName("UpperName", "`exception` requires an uppercase-start name");
+    const nameToken = this.#takeName(
+      "UpperName",
+      `\`${fault ? "fault" : "exception"}\` requires an uppercase-start name`,
+    );
     if (nameToken === undefined) {
       this.#synchronize(itemEnds);
       return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
     }
+    this.#checkThrowableEnding(fault, start.span, parsedName(nameToken));
     const slots: Parsed.ConstructorSlot[] = [];
     let end = nameToken.span;
     if (this.#at("LeftParen")) {
@@ -4881,10 +4962,57 @@ class Parser {
     return {
       kind: "Exception",
       exported,
+      fault,
       name: parsedName(nameToken),
       slots,
       span: spanFrom(itemStart ?? start.span, end),
     };
+  }
+
+  /**
+   * A fault's name ends in `Fault`, and only a fault's does (Exceptions §2):
+   * enforced both ways, so the kind shows wherever the name does — in a catch
+   * arm, in a stack trace, and at run time, where the ending *is* the kind
+   * (§7.1).
+   *
+   * The rename is offered as a marker, not as edits: a rename that moved the
+   * declaration alone would leave every use naming what no longer exists, and
+   * the uses are the workspace's to find (`Diagnostic.renameRepair`). Where the
+   * author meant the other head word, that repair is one edit, and it is this
+   * tier's to write: an `exception` named `…Fault` may be a fault declared with
+   * the wrong word. A `fault` without the ending is offered no such edit,
+   * since the spec's row gives it the rename alone: "fault" is the word an
+   * author reaches for deliberately.
+   *
+   * The declaration is kept either way, as the head word says it is, so one
+   * misnamed throwable costs one report and its uses still resolve.
+   */
+  #checkThrowableEnding(fault: boolean, head: Source.Span, name: Parsed.Name): void {
+    const ended = name.text.endsWith("Fault");
+    if (fault === ended) return;
+    if (fault) {
+      // An `…Error` stem takes `Fault` in its place; a name that is only the
+      // word keeps it, since an empty stem would offer `Fault` for `Error`.
+      const newName = name.text.endsWith("Error") && name.text !== "Error"
+        ? `${name.text.slice(0, -"Error".length)}Fault`
+        : `${name.text}Fault`;
+      this.#diagnostics.add({
+        severity: "error",
+        message: `a fault's name ends in \`Fault\` — rename it \`${newName}\``,
+        primary: name.span,
+        renameRepair: { newName },
+      });
+      return;
+    }
+    const newName = name.text === "Fault" ? "FaultError" : `${name.text.slice(0, -"Fault".length)}Error`;
+    this.#diagnostics.add({
+      severity: "error",
+      message: "only a fault's name ends in `Fault`; this is an exception — " +
+        "rename it, or declare it with `fault`",
+      primary: name.span,
+      fixes: [{ message: "declare it with `fault`", edits: [{ span: head, replacement: "fault" }] }],
+      renameRepair: { newName },
+    });
   }
 
   /** Parses #834's declaration, its member block, or its no-block alias form. */
@@ -5156,6 +5284,60 @@ class Parser {
 
   #parseAtomicPattern(): Parsed.Pattern | undefined {
     const token = this.#current();
+    if (this.#atFaultPattern()) {
+      // Exceptions §5.2's kind pattern. Read wherever a pattern is, so that a
+      // misplaced one is answered by its own sentence rather than by whatever
+      // two adjacent words make of the grammar; kept only where it is a whole
+      // catch arm's pattern, which `#parseCatchArms` decides once the pattern
+      // is complete. There the binder stands in for it, spanning both words.
+      // A refused one is kept as the error it is (Pattern Matching §7.3's
+      // fourth tier): read as `_` by coverage and never a shadower, so a
+      // misplaced `fault _` inside an or-pattern does not go on to shadow the
+      // alternatives beside it.
+      const head = this.#index;
+      this.#advance();
+      const binder = this.#advance();
+      const span = spanFrom(token.span, binder.span);
+      if (head !== this.#catchArmHead) {
+        this.#errorAt(span, FAULT_PATTERN_SEAT);
+        return { kind: "Error", span };
+      }
+      this.#armFault = span;
+      return binder.kind === "Wildcard"
+        ? { kind: "Wildcard", span }
+        : { kind: "Binding", name: parsedName(binder as Lexed.NameToken), span };
+    }
+    if (this.#atFaultSlip()) {
+      // `fault MyFault(c)`, read as "the fault `MyFault`": no pattern has a
+      // binder before a constructor or a group, so the word is the slip, and
+      // the pattern after it is what was meant. Refused with the repair that
+      // removes the word (§9), and read on from what follows, so the arm still
+      // catches what it names and nothing below cascades. Spoken of as catching
+      // only at a catch arm's head, the one seat a `fault` pattern has; any
+      // other seat takes §5.2's own sentence.
+      const head = this.#index;
+      const word = this.#advance();
+      const next = this.#current();
+      const spelled = next.kind === "UpperName" ? this.#dottedSpelling() : undefined;
+      this.#diagnostics.add({
+        severity: "error",
+        message: head !== this.#catchArmHead
+          ? FAULT_PATTERN_SEAT
+          : "a `fault` pattern is `fault` and a name or `_`, catching every fault; " +
+            (spelled === undefined
+              ? "to catch what this pattern names, write it without `fault`"
+              : `to catch \`${spelled}\` alone, write its pattern without \`fault\``),
+        primary: word.span,
+        fixes: [{
+          message: "remove `fault`",
+          edits: [{
+            span: { fileId: word.span.fileId, start: word.span.start, end: next.span.start },
+            replacement: "",
+          }],
+        }],
+      });
+      return this.#parseAtomicPattern();
+    }
     if (token.kind === "NonUpperName") {
       this.#advance();
       const name = parsedName(token);
@@ -6533,7 +6715,24 @@ class Parser {
     this.#skipSeparators();
     while (!this.#at("VClose") && !this.#at("Eof")) {
       const refused = this.#current().span;
+      const outerHead = this.#catchArmHead;
+      const outerFault = this.#armFault;
+      this.#catchArmHead = this.#index;
+      this.#armFault = undefined;
       const pattern = this.#parsePattern();
+      // Read back through a widening: the field was written during the parse
+      // above, which narrowing cannot see.
+      const faultSpan = this.#armFault as Source.Span | undefined;
+      this.#catchArmHead = outerHead;
+      this.#armFault = outerFault;
+      // A `fault` pattern read at the arm's head is the arm's whole pattern only
+      // where nothing was built around it: an `|` or an `as` makes the arm's
+      // pattern a wider span than the two words (§5.2's or-pattern and `as`
+      // seats).
+      const fault = faultSpan !== undefined && pattern !== undefined &&
+        faultSpan.start.offset === pattern.span.start.offset &&
+        faultSpan.end.offset === pattern.span.end.offset;
+      if (faultSpan !== undefined && !fault) this.#errorAt(faultSpan, FAULT_PATTERN_SEAT);
       if (pattern === undefined) {
         // The arm is kept for §7.3's fourth tier, as at the `match` seat above.
         this.#synchronize(new Set(["VSep", "VClose", "Eof"]));
@@ -6557,7 +6756,8 @@ class Parser {
       this.#expect("FatArrow", "expected `=>` after catch pattern or guard");
       const armBody = this.#parseBodyExpression(new Set(["VSep", "VClose", "Eof"]));
       arms.push({
-        pattern,
+        pattern: faultSpan !== undefined && !fault ? unclaimedFault(pattern, faultSpan) : pattern,
+        ...(fault ? { fault: true } : {}),
         ...(guard === undefined ? {} : { guard }),
         body: armBody,
         span: spanFrom(pattern.span, armBody.span),
@@ -7625,6 +7825,26 @@ class Parser {
     }
     return token;
   }
+}
+
+/**
+ * A catch arm's pattern with the `fault` pattern read at its head, and refused
+ * there, made the error it is (Exceptions §5.2; Pattern Matching §7.3's fourth
+ * tier). The head is the leftmost atom, so only an `|` or an `as` can have
+ * been built around it, and only their left sides are walked.
+ */
+function unclaimedFault(pattern: Parsed.Pattern, span: Source.Span): Parsed.Pattern {
+  if (pattern.span.start.offset === span.start.offset && pattern.span.end.offset === span.end.offset) {
+    return { kind: "Error", span };
+  }
+  if (pattern.kind === "As") return { ...pattern, pattern: unclaimedFault(pattern.pattern, span) };
+  if (pattern.kind === "Or") {
+    const [first, ...rest] = pattern.alternatives;
+    return first === undefined
+      ? pattern
+      : { ...pattern, alternatives: [unclaimedFault(first, span), ...rest] };
+  }
+  return pattern;
 }
 
 function parsedName(token: Lexed.NameToken): Parsed.Name {

@@ -146,7 +146,7 @@ describe("Dec literals and exact decimal arithmetic", () => {
     });
     for (const name of ["zeroScale", "zeroScaled"] as const) {
       expect(threw(exports[name] as () => unknown)).toMatchObject({
-        name: "DivideByZeroError",
+        name: "DivideByZeroFault",
         $hex: "Hex.Integral",
       });
     }
@@ -178,7 +178,7 @@ describe("Dec literals and exact decimal arithmetic", () => {
       ["floatEvenNegative", "Dec.fromFloatEven"],
     ] as const) {
       expect(threw(exports[name] as () => unknown)).toMatchObject({
-        name: "NegativeDecimalPlacesError",
+        name: "NegativeDecimalPlacesFault",
         message: `${operation}: decimal places cannot be negative`,
         $hex: "Hex.Dec",
       });
@@ -255,16 +255,16 @@ describe("Dec literals and exact decimal arithmetic", () => {
     );
     expect(exports.identity).toBe("1");
     expect(threw(exports.multiplyOverflow as () => unknown)).toMatchObject({
-      name: "DecimalPlacesOverflowError",
+      name: "DecimalPlacesOverflowFault",
       message: "Dec.multiply: decimal places overflow",
       $hex: "Hex.Dec",
     });
     expect(threw(exports.powOverflow as () => unknown)).toMatchObject({
-      name: "DecimalPlacesOverflowError",
+      name: "DecimalPlacesOverflowFault",
       message: "Dec.pow: decimal places overflow",
     });
     expect(threw(exports.negativePower as () => unknown)).toMatchObject({
-      name: "NegativeExponentError",
+      name: "NegativeExponentFault",
       message: "Dec.pow: exponent cannot be negative",
     });
   });
@@ -452,7 +452,7 @@ describe("Dec literals and exact decimal arithmetic", () => {
     expect(exports.subnormal).toBe(Number.MIN_VALUE);
     for (const name of ["underflow", "overflow"] as const) {
       expect(threw(exports[name] as () => unknown)).toMatchObject({
-        name: "FloatRangeError",
+        name: "FloatRangeFault",
         message: "Dec.toFloat: value does not fit in Float",
         $hex: "Hex.Float",
       });
@@ -499,7 +499,7 @@ describe("Float to Dec conversion", () => {
     });
   });
 
-  test("throws DecRangeError for NaN and the infinities", async () => {
+  test("throws DecRangeFault for NaN and the infinities", async () => {
     const exports = await runMain(
       HEADER +
         "export let nan(): Dec = Dec.fromFloat(Float.nan, 2)\n" +
@@ -512,7 +512,7 @@ describe("Float to Dec conversion", () => {
       ["negative", "Dec.fromFloatEven"],
     ] as const) {
       expect(threw(exports[name] as () => unknown)).toMatchObject({
-        name: "DecRangeError",
+        name: "DecRangeFault",
         message: `${operation}: value is not finite`,
         $hex: "Hex.Dec",
       });

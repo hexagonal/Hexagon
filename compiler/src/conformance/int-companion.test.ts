@@ -136,7 +136,7 @@ describe("the guards moved into source and kept their names", () => {
    * the message identifies the operation that threw — which is what the
    * declaration's doc comment promises, and what a shared helper could not do.
    */
-  test("each member throws `DivideByZeroError` naming itself", async () => {
+  test("each member throws `DivideByZeroFault` naming itself", async () => {
     const exports = await runMain([
       "module Main",
       "",
@@ -150,7 +150,7 @@ describe("the guards moved into source and kept their names", () => {
     const messages = ["div", "mod", "quot", "rem"].map((member) => {
       const name = `by${member[0]!.toUpperCase()}${member.slice(1)}`;
       const error = threw(exports[name] as () => unknown) as Error;
-      expect(error.name).toBe("DivideByZeroError");
+      expect(error.name).toBe("DivideByZeroFault");
       return error.message;
     });
 
@@ -167,7 +167,7 @@ describe("the guards moved into source and kept their names", () => {
    * one of its own rather than as a host error (FFI Part 3). The retired helper
    * built its `Error` by hand and never carried the brand.
    *
-   * The obvious stronger case — a `catch DivideByZeroError(message) =>` clause —
+   * The obvious stronger case — a `catch DivideByZeroFault(message) =>` clause —
    * cannot be written yet: a *prelude-declared* exception constructor is not in
    * scope in a `catch` pattern, which is #345 and is the same at `BigInt`
    * (measured on the pre-#344 compiler, so it is neither this change's doing nor
@@ -182,7 +182,7 @@ describe("the guards moved into source and kept their names", () => {
     ].join("\n"));
 
     expect(threw(exports["branded"] as () => unknown))
-      .toMatchObject({ name: "DivideByZeroError", $hex: "Hex.Integral" });
+      .toMatchObject({ name: "DivideByZeroFault", $hex: "Hex.Integral" });
   });
 
   /** A generic body reaching the member gets the guard with it. */
@@ -198,7 +198,7 @@ describe("the guards moved into source and kept their names", () => {
 
     expect(exports["fine"]).toBe(42);
     expect(threw(exports["boom"] as () => unknown))
-      .toMatchObject({ name: "DivideByZeroError", message: "Int.div: divisor is zero" });
+      .toMatchObject({ name: "DivideByZeroFault", message: "Int.div: divisor is zero" });
   });
 });
 
@@ -382,7 +382,7 @@ describe("`pow` and its guard", () => {
    * `$hex`-branded and catchable by name — which the retired `checkedPower`
    * helper's hand-built error was not.
    */
-  test("a negative exponent throws `NegativeExponentError`", async () => {
+  test("a negative exponent throws `NegativeExponentFault`", async () => {
     const exports = await runMain([
       "module Main",
       "",
@@ -394,12 +394,12 @@ describe("`pow` and its guard", () => {
 
     expect(exports["eight"]).toBe(8);
     expect(threw(exports["boom"] as () => unknown)).toMatchObject({
-      name: "NegativeExponentError",
+      name: "NegativeExponentFault",
       message: "an integer exponent cannot be negative",
       $hex: "Hex.Pow",
     });
     expect(threw(exports["alsoBoom"] as () => unknown))
-      .toMatchObject({ name: "NegativeExponentError" });
+      .toMatchObject({ name: "NegativeExponentFault" });
   });
 
   /**

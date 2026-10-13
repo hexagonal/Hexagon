@@ -75,8 +75,10 @@ export interface PreludeModule {
  *   module that declares it (Modules §3.3), so the home must be addressable
  *   under the union's own name. `Ordering.Less` resolves; `Prelude.Less`, the
  *   only spelling the old seat offered, does not exist.
- * - `Prelude.hex` follows it, and holds `ignore` alone — the one prelude
- *   function in the bare set (Modules §5.5).
+ * - `Prelude.hex` follows it, and holds the language forms' companions:
+ *   `ignore`, the one prelude function in the bare set (Modules §5.5), which
+ *   the discard rule names, and `AssumptionFault`, which `assume` throws
+ *   (Exceptions §8.3). It declares no other throwable.
  * - `Integral.hex` follows both of its bases, `Num` and `Ord`.
  * - `Sign.hex` declares the sign union before `Real.hex`, whose member returns
  *   it. `Real.hex` also follows `Ord` and `Num`, its bases. Like the other
@@ -124,7 +126,7 @@ export interface PreludeModule {
  * `BigInt.hex` is the fourth, and it needs the most of the five. It sits after
  * every constraint declaration because it honors eight of them, after
  * `Option`'s data seat because `toInt` answers with one, and after `Float.hex` because
- * `toFloat`'s guard throws `Float.hex`'s `FloatRangeError` (#533) — the same
+ * `toFloat`'s guard throws `Float.hex`'s `FloatRangeFault` (#533) — the same
  * sentence as everything else here, an exception being a use like any other.
  * Nothing before it names a `BigInt`.
  *

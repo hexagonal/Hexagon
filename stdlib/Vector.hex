@@ -5,11 +5,11 @@ module Vector
 (** Raised when an asserted index addresses no element, from `values[index]`,
     `at`, `set`, or String indexing. `index` is the index as passed and `size`
     the collection's size at the fault. *)
-export exception IndexError(index: Int, size: Int)
+export fault IndexFault(index: Int, size: Int)
 
 (** Raised when a slice is taken with a descending range: a window has no
     direction. `start` and `end` are the range's endpoints as supplied. *)
-export exception SliceError(start: Int, end: Int)
+export fault SliceFault(start: Int, end: Int)
 
 // The whole boundary Collections Part 3 section 7 pins: representation-sensitive
 // length and end updates, signed indexed access, persistent indexed update, and
@@ -40,11 +40,11 @@ extern from "hex:intrinsic"
 
     (** The element at a signed `index`: 1-based from the start, or from the end
         when negative, so `at(values, -1)` is the last element. Throws
-        `IndexError` when no such element exists — zero never addresses one. *)
+        `IndexFault` when no such element exists — zero never addresses one. *)
     export fun vectorAt as at(values: Vector(a), index: Int) -> a
 
     (** `values` with the element at 1-based `index` replaced by `value`. Throws
-        `IndexError` when `index` is out of range; it never extends the vector. *)
+        `IndexFault` when `index` is out of range; it never extends the vector. *)
     export fun vectorSet as set(values: Vector(a), index: Int, value: a) -> Vector(a)
 
     // Unexported, beneath the `Iterable` instance at the end of the file:

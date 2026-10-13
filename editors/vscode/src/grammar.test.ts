@@ -234,6 +234,32 @@ describe("contextual keywords are positional (spec/lexer.md §4.2)", () => {
     expect(await scope("let x = union", "union")).toBe("variable.other.hexagon");
   });
 
+  /**
+   * `fault` is contextual in two seats (spec/exceptions.md §2, §5.2): a
+   * module-level declaration's head, as `union`'s, and a catch arm's head,
+   * where `fault e` is the kind pattern. An ordinary name everywhere else —
+   * including the two arm shapes that bind or guard a variable named `fault`.
+   */
+  it("recognizes `fault` at a declaration head and a catch arm's head", async () => {
+    expect(await scope("fault InvariantFault(message: String)", "fault")).toBe("storage.type.hexagon");
+    expect(await scope("fault InvariantFault(message: String)", "InvariantFault")).toBe(
+      "entity.name.type.hexagon",
+    );
+    expect(await scope("export fault BrokenFault", "fault")).toBe("storage.type.hexagon");
+    expect(await scope("try\n    run()\ncatch\n    fault e => 0", "fault")).toBe(
+      "storage.type.hexagon",
+    );
+    expect(await scope("try\n    run()\ncatch\n    fault _ when ready => 0", "fault")).toBe(
+      "storage.type.hexagon",
+    );
+    expect(await scope("try\n    run()\ncatch\n    fault as e => 0", "fault")).not.toBe(
+      "storage.type.hexagon",
+    );
+    expect(await scope("let fault = 1", "fault")).toBe("variable.other.definition.hexagon");
+    expect(await scope("let x = fault(1)", "fault")).toBe("entity.name.function.hexagon");
+    expect(await scope("let x = fault", "fault")).toBe("variable.other.hexagon");
+  });
+
   it("recognizes `derives` in a declaration header", async () => {
     expect(await scope("union Ordering derives (Eq, Show) =\n    | Less", "derives")).toBe(
       "keyword.other.derives.hexagon",
@@ -1003,13 +1029,14 @@ describe("an unterminated bracket group stays on its line (#162)", () => {
    * nesting, and the innermost scope of every token in the affected line is the
    * same on both sides of it. Structure is the only observation that moves.
    */
-  it("admits `union` to the guard only ahead of a type name", async () => {
+  it("admits `union` and `fault` to the guard only ahead of a type name", async () => {
     const guards = endPatterns(JSON.parse(await readFile(grammarPath, "utf8")))
       .filter((end) => end.includes("(?=^\\S"));
     expect(guards).toHaveLength(16);
     for (const guard of guards) {
       expect(guard, guard).toContain(
-        "|union(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|module",
+        "|union(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]" +
+          "|fault(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|module",
       );
     }
   });
@@ -1280,7 +1307,7 @@ describe("the import head paints its keywords and nothing else (#762, #829)", ()
       ["Geometry", "entity.name.namespace.hexagon"],
     ]);
     // `end` alone stays an ordinary name — Lexer §4.2's row names the live use,
-    // `SliceError(start: Int, end: Int)` in `stdlib/Vector.hex`.
+    // `SliceFault(start: Int, end: Int)` in `stdlib/Vector.hex`.
     expect(await scope("let end = 3", "end")).toBe("variable.other.definition.hexagon");
     expect(
       (await scopePairs("fun f(start: Int, end: Int): Int = end"))

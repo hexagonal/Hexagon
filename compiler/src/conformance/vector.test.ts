@@ -245,22 +245,22 @@ describe("Vector specification conformance", () => {
     expect(m.emptyAscending).toBe(true);
   });
 
-  test("§5 out-of-range access throws IndexError with the index as passed", async () => {
+  test("§5 out-of-range access throws IndexFault with the index as passed", async () => {
     await expect(
       run(BUILDERS + "export let bad: Int = Vector.at(appendBuild(3), 99)\n"),
-    ).rejects.toMatchObject({ name: "IndexError", index: 99, size: 3 });
+    ).rejects.toMatchObject({ name: "IndexFault", index: 99, size: 3 });
     await expect(
       run(BUILDERS + "export let bad: Int = Vector.at(appendBuild(3), -9)\n"),
-    ).rejects.toMatchObject({ name: "IndexError", index: -9, size: 3 });
+    ).rejects.toMatchObject({ name: "IndexFault", index: -9, size: 3 });
     await expect( // §5.3 dead zone: index 0 is never an address
       run(BUILDERS + "export let bad: Int = Vector.at(appendBuild(3), 0)\n"),
-    ).rejects.toMatchObject({ name: "IndexError", index: 0, size: 3 });
+    ).rejects.toMatchObject({ name: "IndexFault", index: 0, size: 3 });
     await expect( // §5.1 brackets reject negatives (signed access is `at`-only)
       run(BUILDERS + "export let bad: Int = appendBuild(3)[-1]\n"),
-    ).rejects.toMatchObject({ name: "IndexError", index: -1, size: 3 });
+    ).rejects.toMatchObject({ name: "IndexFault", index: -1, size: 3 });
     await expect( // §5.4 set asserts the slot exists
       run(BUILDERS + "export let bad: Vector(Int) = Vector.set(appendBuild(3), 99, 0)\n"),
-    ).rejects.toMatchObject({ name: "IndexError", index: 99, size: 3 });
+    ).rejects.toMatchObject({ name: "IndexFault", index: 99, size: 3 });
   });
 });
 

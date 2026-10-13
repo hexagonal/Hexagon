@@ -293,7 +293,7 @@ describe("the counting loop over `Range.up` / `Range.down` (Loops §8)", () => {
 });
 
 describe("a slice refuses a descending range (Collections Part 3 §6.3)", () => {
-  test("a vector slice throws `SliceError` with the endpoints as written", async () => {
+  test("a vector slice throws `SliceFault` with the endpoints as written", async () => {
     const exports = await run(
       "export fun take(xs: Vector(Int)): Vector(Int) = xs[Range.down(3, 1)]\n" +
         "export let values: Vector(Int) = [1, 2, 3, 4]\n",
@@ -304,13 +304,13 @@ describe("a slice refuses a descending range (Collections Part 3 §6.3)", () => 
     } catch (error) {
       thrown = error;
     }
-    expect(thrown).toMatchObject({ name: "SliceError", start: 3, end: 1 });
+    expect(thrown).toMatchObject({ name: "SliceFault", start: 3, end: 1 });
   });
 
   test("a string slice throws it too", async () => {
     const exports = await run("export fun take(text: String): String = text[Range.down(3, 1)]\n");
     expect(() => (exports["take"] as (text: string) => string)("hello"))
-      .toThrow(expect.objectContaining({ name: "SliceError", start: 3, end: 1 }));
+      .toThrow(expect.objectContaining({ name: "SliceFault", start: 3, end: 1 }));
   });
 
   test("an ascending `Range.up` slices as `..` does", async () => {

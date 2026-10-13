@@ -9,8 +9,8 @@ import * as Source from "../support/source.js";
  * Every `.hex` file this repository ships is a compiler input (#218).
  *
  * The gap this closes: `stdlib/Vector.hex` — the canonical public `Vector`
- * companion (Collections Part 3 §7) and the home of the prelude `IndexError`/
- * `SliceError` exceptions — was compiled by *nothing*. It is not embedded in the
+ * companion (Collections Part 3 §7) and the home of the prelude `IndexFault`/
+ * `SliceFault` exceptions — was compiled by *nothing*. It is not embedded in the
  * prelude, no conformance test loaded it, and no CI step typechecked `stdlib/`.
  * A `.hex` file no build step reads can drift arbitrarily from the language it
  * is written in and nothing reports it; during the `size` -> `length` rename the

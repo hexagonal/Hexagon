@@ -659,7 +659,7 @@ const RAT = [
   "",
   "export let create(top: BigInt, bottom: BigInt): Rat =",
   "    if bottom == 0 then",
-  '        throw(DivideByZeroError("Rat.create: bottom is zero"))',
+  '        throw(DivideByZeroFault("Rat.create: bottom is zero"))',
   "    else",
   "        let divisor = top.gcd(bottom)",
   "        let reducedTop = top.quot(divisor)",

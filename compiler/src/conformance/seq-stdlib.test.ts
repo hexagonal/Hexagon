@@ -170,7 +170,7 @@ describe("the step-7 reverts are in the source, not merely intended", () => {
 });
 
 describe("each doc block sits at the declaration it describes", () => {
-  test("the type doc rides the record, and `ReentrancyError` keeps only its own", () => {
+  test("the type doc rides the record, and `ReentrancyFault` keeps only its own", () => {
     // #561. Adjacent doc blocks concatenate and attach to the next code token
     // (Doc Comments §3.2, §4.1), so the type doc written above the exception's
     // doc documented the *exception* — and the record it describes emitted with
@@ -198,8 +198,8 @@ describe("each doc block sits at the declaration it describes", () => {
     );
 
     for (const [emitted, exception] of [
-      [seq.javascript.text, "const ReentrancyError = "],
-      [seq.declarations.text, "export type ReentrancyError = "],
+      [seq.javascript.text, "const ReentrancyFault = "],
+      [seq.declarations.text, "export type ReentrancyFault = "],
     ] as const) {
       expect(docAbove(emitted, exception)).toBe(
         "Raised when a sequence position is forced while it is already being\n" +

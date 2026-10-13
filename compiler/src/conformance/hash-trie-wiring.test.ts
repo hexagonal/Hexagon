@@ -300,10 +300,10 @@ describe("the seven door lowerings", () => {
    * The bracket's payload (Part 4 §4.3): nullary, branded, with a best-effort
    * key rendering in the message that §4.3 licenses as non-normative. The
    * `$hex` brand is what makes the thrown value the same *kind* of thing as
-   * `Vector.hex`'s `IndexError` — today's inline read threw a bare `Error`
+   * `Vector.hex`'s `IndexFault` — today's inline read threw a bare `Error`
    * without it, which is the defect this lowering fixes on the way past.
    */
-  test("the bracket throws the KeyError shape", async () => {
+  test("the bracket throws the KeyFault shape", async () => {
     const main = await runMain("module Main\n\n" + "let m: Map(Int, String) = Map.singleton(1, \"one\")\n" +
         "export fun boom(ignored: Int): String = m[9]\n",
     );
@@ -313,7 +313,7 @@ describe("the seven door lowerings", () => {
     } catch (error) {
       thrown = error;
     }
-    expect(thrown).toMatchObject({ name: "KeyError", $hex: "Hex.Map" });
+    expect(thrown).toMatchObject({ name: "KeyFault", $hex: "Hex.Map" });
     // Nullary: §4.3 rules out a key payload (a polymorphic key cannot be an
     // exception slot) and rules out every lying substitute for it.
     expect(Object.keys(thrown as object)).not.toContain("key");

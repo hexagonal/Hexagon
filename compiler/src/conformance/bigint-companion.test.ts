@@ -260,7 +260,7 @@ describe("the zero-divisor guards moved with their bodies (§7)", () => {
    * but the emitted shape is the same `{ name, $hex }` pair the retired runtime
    * helpers produced, which is what keeps existing catch sites working.
    */
-  test("`div`, `mod`, `quot`, and `rem` each throw a named DivideByZeroError", async () => {
+  test("`div`, `mod`, `quot`, and `rem` each throw a named DivideByZeroFault", async () => {
     const exports = await runMain([
       "module Main",
       "",
@@ -279,7 +279,7 @@ describe("the zero-divisor guards moved with their bodies (§7)", () => {
     ] as const) {
       const error = threw(exports[name] as () => unknown);
       expect(error).toBeInstanceOf(Error);
-      expect(error).toMatchObject({ name: "DivideByZeroError", $hex: "Hex.Integral", message });
+      expect(error).toMatchObject({ name: "DivideByZeroFault", $hex: "Hex.Integral", message });
     }
   });
 
@@ -311,7 +311,7 @@ describe("the zero-divisor guards moved with their bodies (§7)", () => {
     ].join("\n"));
 
     const error = threw(exports["boom"] as () => unknown) as Error;
-    expect(error.name).toBe("DivideByZeroError");
+    expect(error.name).toBe("DivideByZeroFault");
   });
 });
 
@@ -322,7 +322,7 @@ describe("negative exponents (Pow, delta 4)", () => {
    * are the retired helper's exactly — and the value is now `$hex`-branded,
    * which the helper's never was.
    */
-  test("`**` at BigInt throws NegativeExponentError with the same message", async () => {
+  test("`**` at BigInt throws NegativeExponentFault with the same message", async () => {
     const exports = await runMain([
       "module Main",
       "",
@@ -337,7 +337,7 @@ describe("negative exponents (Pow, delta 4)", () => {
     const error = threw(exports["boom"] as () => unknown);
     expect(error).toBeInstanceOf(Error);
     expect(error).toMatchObject({
-      name: "NegativeExponentError",
+      name: "NegativeExponentFault",
       message: "an integer exponent cannot be negative",
     });
   });
@@ -354,7 +354,7 @@ describe("negative exponents (Pow, delta 4)", () => {
 
     expect(exports["big"]).toBe(81n);
     expect((threw(exports["boom"] as () => unknown) as Error).name)
-      .toBe("NegativeExponentError");
+      .toBe("NegativeExponentFault");
   });
 });
 
@@ -411,7 +411,7 @@ describe("the conversions (Primitive Types §6)", () => {
    * range it answers the correctly rounded nearest double and says nothing
    * about the rounding — that is what an approximation *is* — and where the
    * correctly rounded answer would be an infinity it throws `Float.hex`'s
-   * shared `FloatRangeError` rather than fabricating one.
+   * shared `FloatRangeFault` rather than fabricating one.
    */
   test("`toFloat` rounds in range and says nothing about it", async () => {
     const exports = await runMain([
@@ -451,14 +451,14 @@ describe("the conversions (Primitive Types §6)", () => {
 
     expect(exports["largest"]).toBe(1.7976931348623157e308);
     expect(threw(exports["boom"] as () => unknown)).toMatchObject({
-      name: "FloatRangeError",
+      name: "FloatRangeFault",
       message: "BigInt.toFloat: value does not fit in Float",
       $hex: "Hex.Float",
     });
     // The same error and the same message from the other side: the message
     // names the operation, not which end of the range failed.
     expect(threw(exports["negativeBoom"] as () => unknown)).toMatchObject({
-      name: "FloatRangeError",
+      name: "FloatRangeFault",
       message: "BigInt.toFloat: value does not fit in Float",
     });
   });
@@ -473,7 +473,7 @@ describe("the conversions (Primitive Types §6)", () => {
       .find(({ source }) => source.path.endsWith("BigInt.hex"))!.declarations.text;
 
     expect(declarations).toContain(
-      "@throws {FloatRangeError} when the correctly rounded answer would be an infinity\n",
+      "@throws {FloatRangeFault} when the correctly rounded answer would be an infinity\n",
     );
   });
 });
@@ -752,7 +752,7 @@ describe("the companion is an ordinary module (Modules §5.3, §5.4)", () => {
 describe("Rat, the live consumer, is unmoved", () => {
   /**
    * `stdlib/Rat.hex` normalizes through `BigInt.gcd`/`BigInt.quot` and throws
-   * the `DivideByZeroError` that now lives in `Integral.hex`. Its behaviour is
+   * the `DivideByZeroFault` that now lives in `Integral.hex`. Its behaviour is
    * the migration's tightest constraint: every one of these values was produced
    * by the retired helpers before this change.
    */
@@ -760,7 +760,7 @@ describe("Rat, the live consumer, is unmoved", () => {
     "record Rat derives Eq = {top: BigInt, bottom: BigInt}",
     "let create(top: BigInt, bottom: BigInt): Rat =",
     "    if bottom == 0n then",
-    '        throw(DivideByZeroError("Rat.create: bottom is zero"))',
+    '        throw(DivideByZeroFault("Rat.create: bottom is zero"))',
     "    else",
     "        let divisor = BigInt.gcd(top, bottom)",
     "        let reducedTop = BigInt.quot(top, divisor)",
@@ -795,11 +795,11 @@ describe("Rat, the live consumer, is unmoved", () => {
     // Integral §4's load-bearing convention, still load-bearing.
     expect(exports["zeroed"]).toEqual([0n, 1n]);
     expect(threw(exports["boom"] as () => unknown))
-      .toMatchObject({ name: "DivideByZeroError", message: "Rat.create: bottom is zero" });
+      .toMatchObject({ name: "DivideByZeroFault", message: "Rat.create: bottom is zero" });
   });
 
   /** The shipped file itself, compiled as a project supplies it. */
-  test("`stdlib/Rat.hex` no longer declares its own DivideByZeroError", () => {
+  test("`stdlib/Rat.hex` no longer declares its own DivideByZeroFault", () => {
     expect(diagnostics([["/main.hex", "module Main\n\n" + "export let r: Int = 1\n"]])).toEqual([]);
   });
 });

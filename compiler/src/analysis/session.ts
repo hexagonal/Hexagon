@@ -778,6 +778,10 @@ export class AnalysisSession {
         written.add(key);
         actions.push({ title: fix.message, diagnostic, kind: "quickfix", edits });
       }
+      if (diagnostic.renameRepair !== undefined) {
+        const rename = this.#renameAction(normalized, diagnostic, diagnostic.renameRepair.newName);
+        if (rename !== undefined) actions.push(rename);
+      }
       const repair = diagnostic.importModuleRepair;
       if (repair === undefined) continue;
       const spelling = `${repair.namespace}:${repair.name}`;
@@ -845,6 +849,36 @@ export class AnalysisSession {
       }
     }
     return actions;
+  }
+
+  /**
+   * The rename a refusal names as its repair (`Diagnostic.renameRepair`;
+   * Exceptions §2's ending rule): the declaration under the report and every
+   * use of it, planned and verified exactly as an editor's own rename is. A
+   * rename the session will not make is offered refused, with its reason,
+   * rather than dropped — the repair is real and the report names it.
+   */
+  #renameAction(
+    path: string,
+    diagnostic: Diagnostics.Diagnostic,
+    newName: string,
+  ): CodeAction | undefined {
+    const result = this.rename(path, diagnostic.primary.start.offset, newName);
+    if (result === undefined) return undefined;
+    const title = `rename to \`${newName}\``;
+    if (refused(result)) {
+      return { title, diagnostic, kind: "quickfix", edits: [], disabled: result.refused };
+    }
+    return {
+      title,
+      diagnostic,
+      kind: "quickfix",
+      edits: result.edits.map(({ path: owner, span, replacement }) => ({
+        path: owner,
+        span,
+        replacement: replacement ?? result.newName,
+      })),
+    };
   }
 
   /**

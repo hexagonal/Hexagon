@@ -308,14 +308,14 @@ describe("catch arms take the same form, and now reach as far", () => {
 
   test("an exception the module declares itself is caught through its bare name", async () => {
     // The half constructor occlusion actually needs: the module's own
-    // declaration, occluding `Vector.IndexError`, caught by the bare name that
+    // declaration, occluding `Vector.IndexFault`, caught by the bare name that
     // occlusion made its own.
-    const exports = await runMain("module Main\n\n" + "export exception IndexError(code: Int)\n" +
+    const exports = await runMain("module Main\n\n" + "export fault IndexFault(code: Int)\n" +
       "export fun caught(): Int =\n" +
       "    try\n" +
-      "        throw(IndexError(4))\n" +
+      "        throw(IndexFault(4))\n" +
       "    catch\n" +
-      "        IndexError(c) => c\n" +
+      "        IndexFault(c) => c\n" +
       "export let r: Int = caught()\n",
     );
 

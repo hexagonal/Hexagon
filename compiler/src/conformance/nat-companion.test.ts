@@ -141,7 +141,7 @@ describe("the guards name `Nat`, which they never did before", () => {
    * also why `mod` does not delegate to `rem` and `div` does not delegate to
    * `quot`, even though after the guard their bodies are identical.
    */
-  test("each member throws `DivideByZeroError` naming `Nat` and itself", async () => {
+  test("each member throws `DivideByZeroFault` naming `Nat` and itself", async () => {
     const exports = await runMain([
       "module Main",
       "",
@@ -154,7 +154,7 @@ describe("the guards name `Nat`, which they never did before", () => {
 
     const messages = ["Div", "Mod", "Quot", "Rem"].map((member) => {
       const error = threw(exports[`by${member}`] as () => unknown) as Error;
-      expect(error.name).toBe("DivideByZeroError");
+      expect(error.name).toBe("DivideByZeroFault");
       expect((error as Error & { $hex?: string }).$hex).toBe("Hex.Integral");
       return error.message;
     });
@@ -243,7 +243,7 @@ describe("`Pow<Nat>` carries the guard the `Int` exponent made reachable (#541)"
     const error = threw(exports["boom"] as () => unknown);
     expect(error).toBeInstanceOf(Error);
     expect(error).toMatchObject({
-      name: "NegativeExponentError",
+      name: "NegativeExponentFault",
       message: "an integer exponent cannot be negative",
     });
   });

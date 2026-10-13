@@ -51,6 +51,14 @@ const opening = (whose: string): string =>
 const PARAMETER = opening("the parameter's") +
   "write the parameter's type where the function is bound, or hand the function a value whose type is written";
 const named = (name: string): string => opening(`\`${name}\`'s`) + `write \`${name}\`'s type`;
+/**
+ * Exceptions §3's refusal (#1204 (R)): an exception's constructor is no pattern
+ * of a `match`, refused at the constructor. It names no head either, so the
+ * `match` it stands in still has nothing to read its scrutinee's head from,
+ * in every order of the lines.
+ */
+const BOOM = "`Boom` is an exception's constructor, and a `match` never takes `Exn`; " +
+  "exceptions are inspected with `try`/`catch`";
 const value = (spelled: string): string => opening("the matched value's") + `write \`(${spelled}: …)\``;
 
 const ZERO = "match k\n        0 => 1\n        _ => 2";
@@ -126,9 +134,9 @@ const ORDERS: readonly (readonly [string, string, string, readonly string[], rea
     ["let w: Int = k", "let n = match k\n        (0)ident => 1\n        _ => 2"],
     [PARAMETER],
   ],
-  ["an-exception-constructor", "exception Boom", BODY, ["let w: Exn = k", "let n = match k\n        Boom => 1\n        _ => 2"], [PARAMETER]],
-  ["an-exception-constructor-under-as", "exception Boom", BODY, ["let w: Exn = k", "let n = match k\n        Boom as b => 1\n        _ => 2"], [PARAMETER]],
-  ["an-or-of-an-exception-and-a-door", "exception Boom", BODY, ["let w: Ordering = k", "let n = match k\n        Boom | Less => 1\n        _ => 2"], [PARAMETER]],
+  ["an-exception-constructor", "exception Boom", BODY, ["let w: Exn = k", "let n = match k\n        Boom => 1\n        _ => 2"], [PARAMETER, BOOM]],
+  ["an-exception-constructor-under-as", "exception Boom", BODY, ["let w: Exn = k", "let n = match k\n        Boom as b => 1\n        _ => 2"], [PARAMETER, BOOM]],
+  ["an-or-of-an-exception-and-a-door", "exception Boom", BODY, ["let w: Ordering = k", "let n = match k\n        Boom | Less => 1\n        _ => 2"], [PARAMETER, BOOM]],
   [
     "an-or-of-a-generic-declared-pattern-and-a-named-head",
     "pattern ident\n    view(x) = x\n    build(x) = x",

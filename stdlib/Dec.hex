@@ -1,15 +1,15 @@
 module Dec
 
 (** Raised when a decimal operation is asked to retain negative decimal places. *)
-export exception NegativeDecimalPlacesError(message: String)
+export fault NegativeDecimalPlacesFault(message: String)
 
 (** Raised when an exact decimal operation would retain more decimal places
     than `Int` can represent. *)
-export exception DecimalPlacesOverflowError(message: String)
+export fault DecimalPlacesOverflowFault(message: String)
 
 (** Raised when a value has no `Dec` equivalent: `NaN` and the infinities, which
     no finite decimal represents. `message` names the operation that threw. *)
-export exception DecRangeError(message: String)
+export fault DecRangeFault(message: String)
 
 (** A finite decimal number, represented exactly by an integer coefficient and
     a retained count of decimal places. *)
@@ -22,7 +22,7 @@ let tenTo(value: Int): BigInt = 10n ** value
 
 let requirePlaces(places: Int, operation: String): Int =
     if places < 0 then
-        throw(NegativeDecimalPlacesError("${operation}: decimal places cannot be negative"))
+        throw(NegativeDecimalPlacesFault("${operation}: decimal places cannot be negative"))
     else
         places
 
@@ -94,7 +94,7 @@ export let withPlacesEven(decimal: Dec, places: Int): Dec =
 let divided(left: Dec, right: Dec, requested: Int, even: Bool, operation: String): Dec =
     let checked = requirePlaces(requested, operation)
     if right.unscaled == 0 then
-        throw(DivideByZeroError("${operation}: divisor is zero"))
+        throw(DivideByZeroFault("${operation}: divisor is zero"))
     else if left.unscaled == 0 then
         create(0n, checked)
     else
@@ -161,7 +161,7 @@ honor Num<Dec> =
     multiply(left, right) =
         let limit: Int = 9_007_199_254_740_991
         if left.places > limit - right.places then
-            throw(DecimalPlacesOverflowError("Dec.multiply: decimal places overflow"))
+            throw(DecimalPlacesOverflowFault("Dec.multiply: decimal places overflow"))
         else
             create(left.unscaled * right.unscaled, left.places + right.places)
 
@@ -250,14 +250,14 @@ honor Real<Dec> =
 honor Pow<Dec> =
     pow(decimal, exponent) =
         if exponent < 0 then
-            throw(NegativeExponentError("Dec.pow: exponent cannot be negative"))
+            throw(NegativeExponentFault("Dec.pow: exponent cannot be negative"))
         else if exponent == 0 then
             create(1n, 0)
         else
             let limit: Int = 9_007_199_254_740_991
             let retained = decimal.places
             if retained > 0 and exponent > limit.quot(retained) then
-                throw(DecimalPlacesOverflowError("Dec.pow: decimal places overflow"))
+                throw(DecimalPlacesOverflowFault("Dec.pow: decimal places overflow"))
             else
                 create(decimal.unscaled ** exponent, retained * exponent)
 
@@ -336,7 +336,7 @@ export let toFloat(decimal: Dec): Float =
         let bits = if carried then 2 ** 52 else significand
         let exponent = if carried then scale - 1 else scale
         if bits == 0 or exponent < -971 then
-            throw(FloatRangeError("Dec.toFloat: value does not fit in Float"))
+            throw(FloatRangeFault("Dec.toFloat: value does not fit in Float"))
         else
             let result = assemble(bits, exponent)
             if negative then -result else result
@@ -348,7 +348,7 @@ export let toFloat(decimal: Dec): Float =
 let fromFloatRounded(value: Float, requested: Int, even: Bool, operation: String): Dec =
     let checked = requirePlaces(requested, operation)
     if not value.isFinite() then
-        throw(DecRangeError("${operation}: value is not finite"))
+        throw(DecRangeFault("${operation}: value is not finite"))
     else if value == 0 then
         create(0n, checked)
     else
@@ -369,13 +369,13 @@ let fromFloatRounded(value: Float, requested: Int, even: Bool, operation: String
 
 (** The exact value stored by `value`, rounded once to exactly `places` decimal
     places, ties away from zero. The float's binary value is what rounds, so
-    `fromFloat(0.1 + 0.2, 2)` is `0.30`. Throws `DecRangeError` for `NaN` and
+    `fromFloat(0.1 + 0.2, 2)` is `0.30`. Throws `DecRangeFault` for `NaN` and
     the infinities. *)
 export let fromFloat(value: Float, places: Int): Dec =
     fromFloatRounded(value, places, False, "Dec.fromFloat")
 
 (** The exact value stored by `value`, rounded once to exactly `places` decimal
-    places, ties to even. Throws `DecRangeError` for `NaN` and the infinities. *)
+    places, ties to even. Throws `DecRangeFault` for `NaN` and the infinities. *)
 export let fromFloatEven(value: Float, places: Int): Dec =
     fromFloatRounded(value, places, True, "Dec.fromFloatEven")
 

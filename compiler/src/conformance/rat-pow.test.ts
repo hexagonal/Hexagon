@@ -13,7 +13,7 @@ import { compileFiles, runProject } from "../support/test-project.js";
  * because the member is `pow(value: Rat, exponent: Int)`. The exception is gone
  * from `stdlib/Pow.hex` with the signature that made it reachable, and no guard
  * is left in the instance at all: the only partiality is a zero base under a
- * negative exponent, which reaches `Rat`'s existing `DivideByZeroError` through
+ * negative exponent, which reaches `Rat`'s existing `DivideByZeroFault` through
  * `reciprocal`'s smart-construction boundary, minting no message of its own.
  *
  * `rat.md` §9 requires the emitted JavaScript to be *executed*: an exactness
@@ -191,7 +191,7 @@ describe("the fractional exponent is refused by the seat's type, not by a guard"
 });
 
 describe("the one partiality left, and where it reports", () => {
-  test("a zero base at a negative exponent throws `DivideByZeroError`", async () => {
+  test("a zero base at a negative exponent throws `DivideByZeroFault`", async () => {
     // Through the smart-construction boundary — `reciprocal` is `create` on the
     // swapped pair — so no `Rat.pow`-specific message is minted for it.
     const exports = await runRat(
@@ -200,14 +200,14 @@ describe("the one partiality left, and where it reports", () => {
     );
 
     expect(threw(exports["boom"] as () => unknown)).toMatchObject({
-      name: "DivideByZeroError",
+      name: "DivideByZeroFault",
       message: "Rat.create: bottom is zero",
     });
   });
 
   test("`Pow.hex` declares one exception now, and `Rat` throws none of it", async () => {
     // `FractionalExponentError` is deleted, so the only brand `Pow.hex` still
-    // owns is `NegativeExponentError` — which `Rat` never throws, its algebra
+    // owns is `NegativeExponentFault` — which `Rat` never throws, its algebra
     // being total at both signs. The zero-base error is `Integral.hex`'s.
     const files = withRat(
       "// runtime guards\n" +
@@ -217,7 +217,7 @@ describe("the one partiality left, and where it reports", () => {
     const pow = await runProject(files, { entry: "/Hex/Pow.hex" });
 
     const error = threw(main["boom"] as () => unknown);
-    const negative = pow["NegativeExponentError"] as { is: (value: unknown) => boolean };
+    const negative = pow["NegativeExponentFault"] as { is: (value: unknown) => boolean };
     const isHexError = pow["isHexError"] as (value: unknown) => boolean;
 
     expect(error).toBeInstanceOf(Error);

@@ -2,7 +2,7 @@ module Seq
 
 (** Raised when a sequence position is forced while it is already being
     forced (FFI Part 3 section 7.3-7.4). *)
-export exception ReentrancyError
+export fault ReentrancyFault
 
 (** A lazy, immutable, possibly infinite sequence of `a`s. Constructing a
     combinator computes nothing; each element is produced on demand by `next`,

@@ -92,6 +92,18 @@ export interface Diagnostic {
    */
   readonly manifestDependency?: { readonly packageName: string };
   /**
+   * Set on a refusal whose repair is a **rename** of the declaration at the
+   * primary span: Exceptions §2's ending rule, where a fault's name must end in
+   * `Fault` and an exception's must not. It carries the name the report
+   * offers, and a host with a workspace offers the rename itself — the
+   * declaration and every use of it, in every file that names it.
+   *
+   * A marker rather than edits, for `importModuleRepair`'s reason one step on:
+   * the edits are the uses, and finding uses is a workspace question. Edits
+   * written here could only move the declaration and strand its uses.
+   */
+  readonly renameRepair?: { readonly newName: string };
+  /**
    * The region this report speaks for: every other diagnostic whose primary
    * span falls inside it is a consequence of this one and is dropped.
    *
