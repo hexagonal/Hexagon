@@ -389,6 +389,13 @@ describe("reachability by kind (§5.3)", () => {
       ]);
   });
 
+  test("a whole arm dead by the constructors above is reported as the arm", () => {
+    expect(arms("ParseError(1) => 0", "ParseError(1) => 1"))
+      .toEqual(["this catch arm is unreachable; the arms above already cover it"]);
+    expect(arms("NotFoundError => 0", "ParseError(_) => 1", "ParseError(_) | NotFoundError => 2"))
+      .toEqual(["this catch arm is unreachable; the arms above already cover it"]);
+  });
+
   test("a refused `fault` pattern is judged in neither column", () => {
     expect(arms("_ | fault x => 0")).toEqual(["a `fault` pattern is a whole catch arm's pattern"]);
   });
@@ -451,13 +458,46 @@ describe("`fault e` is a whole catch arm's pattern (§5.2)", () => {
       "a `fault` pattern is `fault` and a name or `_`, catching every fault; " +
       "to catch `MyFault` alone, write its pattern without `fault`",
     ]);
-    const [fix] = diagnostics[0]!.fixes!;
-    expect(fix!.message).toBe("remove `fault`");
-    const { span, replacement } = fix!.edits[0]!;
+    expect(diagnostics[0]!.fixes?.map(({ message, edits }) => ({
+      message,
+      edits: edits.map(({ span, replacement }) => ({
+        written: source.slice(span.start.offset, span.end.offset),
+        replacement,
+      })),
+    }))).toEqual([{ message: "remove `fault`", edits: [{ written: "fault ", replacement: "" }] }]);
+    const { span, replacement } = diagnostics[0]!.fixes![0]!.edits[0]!;
     const repaired = source.slice(0, span.start.offset) + replacement + source.slice(span.end.offset);
     expect(repaired).toContain("        MyFault(c) => c");
     expect((await runMain(repaired))["probe"] as () => number).toBeDefined();
     expect(((await runMain(repaired))["probe"] as () => number)()).toBe(4);
+  });
+
+  test("the redirect spells a qualified constructor whole, and reads a group too", () => {
+    expect(catching("fault Vector.IndexFault(i, _) => i")).toEqual([
+      "a `fault` pattern is `fault` and a name or `_`, catching every fault; " +
+      "to catch `Vector.IndexFault` alone, write its pattern without `fault`",
+    ]);
+    expect(catching("fault (Wrapped(_)) => 0")).toEqual([
+      "a `fault` pattern is `fault` and a name or `_`, catching every fault; " +
+      "to catch what this pattern names, write it without `fault`",
+    ]);
+  });
+
+  test("outside a catch arm, `fault` before a constructor takes §5.2's sentence, with the same repair", () => {
+    const source = main(
+      "export fun f(o: Option(Int)): Int =",
+      "    match o",
+      "        fault Some(x) => x",
+      "        None => 0",
+    );
+    const diagnostics = compileMain(source).diagnostics;
+    expect(diagnostics.map(({ message }) => message)).toEqual([refused]);
+    expect(diagnostics[0]!.fixes?.map(({ message }) => message)).toEqual(["remove `fault`"]);
+    expect(projectDiagnostics(main(
+      "export fun f(o: Option(Int)): Int =",
+      "    let fault Some(x) = o",
+      "    x",
+    ))).toEqual([refused, "this pattern can fail: `None`; use `match`"]);
   });
 
   test("`fault as e` and `fault when g` bind a variable named `fault`", async () => {

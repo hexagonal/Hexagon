@@ -1539,9 +1539,11 @@ class Parser {
         // want here: a binder is a name or a pattern, never `[`.
         ["LeftParen", "LeftBrace", "LeftBracket", "UpperName", "Wildcard"]
           .includes(this.#peek(1).kind) ||
-        // A `fault` pattern is no binder either (Exceptions §5.2): routed to
-        // the pattern reader, which answers it with its own sentence.
-        this.#atFaultPattern(1)
+        // A `fault` pattern is no binder either (Exceptions §5.2), nor is
+        // `fault` before a constructor: routed to the pattern reader, which
+        // answers each with its own sentence. (`let fault(x) = …` stays the
+        // function binding it is.)
+        this.#atFaultPattern(1) || (this.#atFaultSlip(1) && this.#peek(2).kind === "UpperName")
       ) {
         return this.#parsePatternBinding();
       }
@@ -3533,6 +3535,31 @@ class Parser {
    * binder are excluded, since `fault as e` binds a variable named `fault` and
    * `fault when ready` guards one.
    */
+  /**
+   * Whether `fault` stands before a constructor's pattern or a group here —
+   * `fault MyFault(c)`, `fault (MyFault(c))` — the slip `#parseAtomicPattern`
+   * redirects. A group counts only apart from the word: `fault(x)` touching
+   * is no pattern this reads.
+   */
+  #atFaultSlip(offset = 0): boolean {
+    const head = this.#peek(offset);
+    if (head.kind !== "NonUpperName" || head.text !== "fault") return false;
+    const next = this.#peek(offset + 1);
+    return next.kind === "UpperName" ||
+      (next.kind === "LeftParen" && next.span.start.offset > head.span.end.offset);
+  }
+
+  /** A constructor's spelling as written from here, its qualifiers included. */
+  #dottedSpelling(): string {
+    const parts = [(this.#current() as Lexed.NameToken).text];
+    let offset = 1;
+    while (this.#peek(offset).kind === "Dot" && this.#peek(offset + 1).kind === "UpperName") {
+      parts.push((this.#peek(offset + 1) as Lexed.NameToken).text);
+      offset += 2;
+    }
+    return parts.join(".");
+  }
+
   #atFaultPattern(offset = 0): boolean {
     const head = this.#peek(offset);
     if (head.kind !== "NonUpperName" || head.text !== "fault") return false;
@@ -5279,23 +5306,31 @@ class Parser {
         ? { kind: "Wildcard", span }
         : { kind: "Binding", name: parsedName(binder as Lexed.NameToken), span };
     }
-    if (token.kind === "NonUpperName" && token.text === "fault" && this.#peek(1).kind === "UpperName") {
+    if (this.#atFaultSlip()) {
       // `fault MyFault(c)`, read as "the fault `MyFault`": no pattern has a
-      // binder before a constructor, so the word is the slip, and the pattern
-      // after it is what was meant. Refused with the repair that removes the
-      // word (§9), and read on from the constructor, so the arm still catches
-      // what it names and nothing below cascades.
+      // binder before a constructor or a group, so the word is the slip, and
+      // the pattern after it is what was meant. Refused with the repair that
+      // removes the word (§9), and read on from what follows, so the arm still
+      // catches what it names and nothing below cascades. Spoken of as catching
+      // only at a catch arm's head, the one seat a `fault` pattern has; any
+      // other seat takes §5.2's own sentence.
+      const head = this.#index;
       const word = this.#advance();
-      const constructor = this.#current();
+      const next = this.#current();
+      const spelled = next.kind === "UpperName" ? this.#dottedSpelling() : undefined;
       this.#diagnostics.add({
         severity: "error",
-        message: "a `fault` pattern is `fault` and a name or `_`, catching every fault; " +
-          `to catch \`${(constructor as Lexed.NameToken).text}\` alone, write its pattern without \`fault\``,
+        message: head !== this.#catchArmHead
+          ? FAULT_PATTERN_SEAT
+          : "a `fault` pattern is `fault` and a name or `_`, catching every fault; " +
+            (spelled === undefined
+              ? "to catch what this pattern names, write it without `fault`"
+              : `to catch \`${spelled}\` alone, write its pattern without \`fault\``),
         primary: word.span,
         fixes: [{
           message: "remove `fault`",
           edits: [{
-            span: { fileId: word.span.fileId, start: word.span.start, end: constructor.span.start },
+            span: { fileId: word.span.fileId, start: word.span.start, end: next.span.start },
             replacement: "",
           }],
         }],
