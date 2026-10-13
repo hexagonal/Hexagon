@@ -1050,9 +1050,13 @@ describe("beneath its own arrow, only what the text decides is re-opened (#1169 
 
   test("a lambda's result is its body's value: a deep chain of lambdas compiles in time", () => {
     // Its body's use re-opened it; re-opening it again at each enclosing
-    // lambda stacked a slack per level on every arrow beneath.
+    // lambda stacked a slack per level on every arrow beneath. 400 levels:
+    // with that re-opening put back the compile takes 4.6 s (300 levels,
+    // 1.7 s) and without it about 60 ms, and 400 nested lambdas stay well
+    // inside the stack a cold checker has under Vitest, which runs out near
+    // 540 (600 passed only once the checker had been optimized).
     const start = Date.now();
-    expect(reports("export let go(p: () -> Unit): Unit =\n    let k = " + "() => ".repeat(600) + "p\n    ()\n"))
+    expect(reports("export let go(p: () -> Unit): Unit =\n    let k = " + "() => ".repeat(400) + "p\n    ()\n"))
       .toEqual([]);
     expect(Date.now() - start).toBeLessThan(3000);
   });
